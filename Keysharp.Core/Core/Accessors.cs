@@ -663,7 +663,7 @@
 		/// <summary>
 		/// The number of the current loop iteration.
 		/// </summary>
-		public static object A_Index
+		public static long A_Index
 		{
 			get
 			{

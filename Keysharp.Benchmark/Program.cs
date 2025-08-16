@@ -48,7 +48,7 @@ namespace Keysharp.Benchmark
 			    summary = BenchmarkRunner.Run<FuncBench>(config);
 			    MarkdownExporter.Console.ExportToLog(summary, logger);
 			*/
-			summary = BenchmarkRunner.Run<DllBench>(config);
+			summary = BenchmarkRunner.Run<ValBench>(config);
 			MarkdownExporter.Console.ExportToLog(summary, logger);
 			//ConclusionHelper.Print(logger, summary.BenchmarksCases.First().Config.GetCompositeAnalyser().Analyse(summary).ToList());
 			_ = Console.ReadLine();

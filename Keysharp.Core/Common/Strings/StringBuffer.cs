@@ -231,6 +231,21 @@ namespace Keysharp.Core.Common.Strings
 				_ = sbuf.AppendLine($"{indent}{name}: {str} ({fieldType})");
 		}
 
+		public ReadOnlySpan<char> AsSpan()
+		{
+			if (_bytesPerChar == 1)
+				throw new Exception("Character size must be 2");
+
+			// Find length up to first 0 wchar
+			char* p = (char*)_buffer;
+			int len = 0;
+
+			while (p[len] != '\0')
+				len++;
+
+			return new ReadOnlySpan<char>(_buffer, Math.Max(len, (int)_position));
+		}
+
 		/// <summary>
 		/// Reads the current buffer contents up to the null-terminator or current position (whichever is larger)
 		/// and returns as a managed string.

@@ -809,17 +809,9 @@ namespace Keysharp.Core.Common.Invoke
 
 			var target = typeof(T);
 
-			// If caller wants KsValue, construct it from common primitives
 			if (target == typeof(KsValue))
 			{
-				if (arg is KsValue kv0) return (T)(object)kv0;
-				if (arg is long l0) return (T)(object)new KsValue(l0);
-				if (arg is int i0) return (T)(object)new KsValue((long)i0);
-				if (arg is double d0) return (T)(object)new KsValue(d0);
-				if (arg is float f0) return (T)(object)new KsValue((double)f0);
-				if (arg is string s0) return (T)(object)new KsValue(s0);
-				if (arg is bool b0) return (T)(object)(b0 ? True : False);
-				return (T)(object)new KsValue(arg); // Any/Host object
+				return (T)(object)KsValue.FromObject(arg);
 			}
 
 			// KsValue → target

@@ -393,11 +393,6 @@ namespace Keysharp.Scripting
             {
 				if (obj is KsValue kv)
 					obj = kv.AsObject();
-				for (int i = 0; i < parameters.Length; i++)
-				{
-					if (parameters[i] is KsValue kv2)
-						parameters[i] = kv2.AsObject();
-				}
 
                 (object, object) mitup = (null, null);
                 var methName = (string)meth;

@@ -16,7 +16,7 @@ namespace Keysharp.Core.COM
 		internal static HashSet<ComEvent> comEvents = [];
 
 		[DllImport(WindowsAPI.ole32, CharSet = CharSet.Unicode)]
-		public static extern int CoCreateInstance(ref Guid clsid,
+		internal static extern int CoCreateInstance(ref Guid clsid,
 				[MarshalAs(UnmanagedType.IUnknown)] object inner,
 				uint context,
 				ref Guid uuid,
@@ -210,18 +210,18 @@ namespace Keysharp.Core.COM
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
 		}
 
-		public static object ComObjGet(object name) => Marshal.BindToMoniker(name.As());
+		public static object ComObjGet(string name) => Marshal.BindToMoniker(name.As());
 
-		public static object ComObjQuery(object comObj, object sidiid = null, object iid = null)
+		public static object ComObjQuery(KsValue comObj, KsValue sidiid = default, KsValue iid = default)
 		{
 			nint ptr;
 
-			if (comObj is KeysharpObject kso && Script.TryGetPropertyValue(kso, "ptr", out object kptr))
+			if (comObj.TryGetAny(out Any kso) && Script.TryGetPropertyValue(kso, "ptr", out KsValue kptr))
 				comObj = kptr;
 
 			if (Marshal.IsComObject(comObj))
 				ptr = Marshal.GetIUnknownForObject(comObj);
-			else if (comObj is long l)
+			else if (comObj.TryGetLong(out long l))
 				ptr = new nint(l);
 			else
 				return Errors.ValueErrorOccurred($"The passed in object {comObj} of type {comObj.GetType()} was not a ComObject or a raw COM interface.");
@@ -230,7 +230,7 @@ namespace Keysharp.Core.COM
 			Guid id = Guid.Empty;
 			int hr = 0;
 
-			if (sidiid != null && iid != null)
+			if (sidiid.IsSet && iid.IsSet)
 			{
 				var sidstr = sidiid.As();
 				var iidstr = iid.As();
@@ -242,7 +242,7 @@ namespace Keysharp.Core.COM
 					hr = sp.QueryService(ref sid, ref id, out resultPtr);
 				}
 			}
-			else if (sidiid != null)
+			else if (sidiid.IsSet)
 			{
 				var iidstr = sidiid.As();
 
@@ -397,7 +397,7 @@ namespace Keysharp.Core.COM
 		/// <summary>
 		/// Gotten loosely from https://social.msdn.microsoft.com/Forums/vstudio/en-US/cbb92470-979c-4d9e-9555-f4de7befb42e/how-to-directly-access-the-virtual-method-table-of-a-com-interface-pointer?forum=csharpgeneral
 		/// </summary>
-		public static object ComCall(object index, object comObj, params object[] parameters)
+		public static object ComCall(long index, KsValue comObj, params object[] parameters)
 		{
 			var idx = index.Ai();
 			var indexPlus1 = idx + 1;//Index is zero based, so add 1.
@@ -407,7 +407,7 @@ namespace Keysharp.Core.COM
 
 			nint pUnk = 0;
 
-			if (comObj is Any kso && Script.TryGetPropertyValue(comObj, "ptr", out object propPtr))
+			if (comObj.TryGetAny(out Any kso) && Script.TryGetPropertyValue(comObj, "ptr", out KsValue propPtr))
 				comObj = propPtr;
 
 			if (Marshal.IsComObject(comObj))
@@ -415,7 +415,7 @@ namespace Keysharp.Core.COM
 				pUnk = Marshal.GetIUnknownForObject(comObj);
 				_ = Marshal.Release(pUnk);
 			}
-			else if (comObj is long l)
+			else if (comObj.TryGetLong(out long l))
 				pUnk = new nint(l);
 			else
 				return Errors.ValueErrorOccurred($"The passed in object was not a ComObject or a raw COM interface.");

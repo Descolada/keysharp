@@ -42,7 +42,7 @@
 			return DefaultObject;
 		}
 
-		public IFuncObj __Enum(object count) => new RegExIterator(this, count.Ai()).fo;
+		public IFuncObj __Enum(long count) => new RegExIterator(this, (int)count).fo;
 
 		public IEnumerator<(object, object)> GetEnumerator() => new RegExIterator(this, 2);
 
@@ -176,11 +176,11 @@
 		/// </summary>
 		/// <param name="key">A reference to the key value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object value)
+		public override KsValue Call([ByRef] object value)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(value, "__Value", Current.Item1);
+				Script.SetPropertyValue(KsValue.FromObject(value), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
@@ -193,12 +193,12 @@
 		/// <param name="name">A reference to the name of the current match.</param>
 		/// <param name="value">A reference to the value of the current match.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object name, [ByRef] object value)
+		public override KsValue Call([ByRef] object name, [ByRef] object value)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(name, "__Value", Current.Item1);
-				Script.SetPropertyValue(value, "__Value", Current.Item2);
+				Script.SetPropertyValue(KsValue.FromObject(name), "__Value", KsValue.FromObject(Current.Item1));
+				Script.SetPropertyValue(KsValue.FromObject(value), "__Value", KsValue.FromObject(Current.Item2));
 				return true;
 			}
 

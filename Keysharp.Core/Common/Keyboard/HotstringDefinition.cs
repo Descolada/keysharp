@@ -451,7 +451,7 @@
 			}
 			catch (Error ex)
 			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, (int)MessageBoxIcon.Hand);
+				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", default, (int)MessageBoxIcon.Hand);
 			}
 
 			return ResultType.Ok;

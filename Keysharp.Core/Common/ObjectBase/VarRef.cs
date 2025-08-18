@@ -2,24 +2,28 @@
 {
 	public class VarRef : KeysharpObject
 	{
-		private readonly Func<object> Get;
-		private readonly Action<object> Set;
+		private readonly Func<KsValue> Get;
+		private readonly Action<KsValue> Set;
 
-		public static VarRef Empty = new VarRef(() => null, x => x = null);
+		public static VarRef Empty = new VarRef(() => default, x => x = default);
 
-		public VarRef(object x) : base(skipLogic: true)
+		public VarRef(KsValue x) : base(skipLogic: true)
 		{
 			Get = () => x;
 			Set = (value) => x = value;
 		}
 
-		public VarRef(Func<object> getter, Action<object> setter) : base(skipLogic: true)
+		public VarRef(Func<KsValue> getter, Action<KsValue> setter) : base(skipLogic: true)
 		{
 			Get = getter;
 			Set = setter;
 		}
 
-		public object __Value
+		// Do not rename this unless also modified in the parser
+		public static KsValue ConstructVarRef(KsValue x) => new VarRef(() => x, (value) => x = value);
+		public static KsValue ConstructVarRef(Func<KsValue> getter, Action<KsValue> setter) => new VarRef(getter, setter);
+
+		public KsValue __Value
 		{
 			get => Get();
 			set => Set(value);

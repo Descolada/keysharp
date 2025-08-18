@@ -56,7 +56,7 @@ namespace Keysharp.Scripting
 					if (opm.Call != null && (type & OwnPropsMapType.Call) != 0) return true;
 					if (opm.Get != null && (type & OwnPropsMapType.Get) != 0) return true;
 					if (opm.Set != null && (type & OwnPropsMapType.Set) != 0) return true;
-					if (opm.Value != null && (type & OwnPropsMapType.Value) != 0) return true;
+					if (!opm.Value.IsUnset && (type & OwnPropsMapType.Value) != 0) return true;
 				}
 			}
         }
@@ -86,7 +86,7 @@ namespace Keysharp.Scripting
 					if ((opm.Call != null && (type & OwnPropsMapType.Call) != 0) 
 						|| (opm.Get != null && (type & OwnPropsMapType.Get) != 0)
 						|| (opm.Set != null && (type & OwnPropsMapType.Set) != 0)
-						|| (opm.Value != null && (type & OwnPropsMapType.Value) != 0))
+						|| (!opm.Value.IsUnset && (type & OwnPropsMapType.Value) != 0))
 						props[prop.Key] = prop.Value;
 				}
 
@@ -125,7 +125,7 @@ namespace Keysharp.Scripting
                             return (item, ifocall);
                         else if (val.Get != null && val.Get is IFuncObj ifoget)
                             return (item, ifoget.Call(item));//No params passed in, just call as is.
-                        else if (val.Value != null)
+                        else if (!val.Value.IsUnset)
                             return (item, val.Value);
                         else if (val.Set != null && val.Set is IFuncObj ifoset)
                             return (item, ifoset);
@@ -184,81 +184,80 @@ namespace Keysharp.Scripting
 			return (null, null);
 		}
 
-		public static object GetPropertyValue(object item, object name)
-			=> TryGetPropertyValue(item, name, out object value)
+		public static KsValue GetPropertyValue(KsValue item, string name)
+			=> TryGetPropertyValue(item, name, out KsValue value)
 				? value
-				: Errors.ErrorOccurred($"Attempting to get property {name.ToString()} on object {item} failed.");
+				: KsValue.FromObject(Errors.ErrorOccurred($"Attempting to get property {name.ToString()} on object {item} failed."));
 
-		public static object GetPropertyValue(object item, object name, object defaultValue) => 
+		public static KsValue GetPropertyValue(KsValue item, string name, KsValue defaultValue) => 
 			TryGetPropertyValue(item, name, out var value)
 				 ? value 
 				 : defaultValue;
 
-		public static bool TryGetPropertyValue(object item, object name, out object value)//Always assume these are not index properties, which we instead handle via method call with get_Item and set_Item.
+		public static bool TryGetPropertyValue(KsValue item, string name, out KsValue value)//Always assume these are not index properties, which we instead handle via method call with get_Item and set_Item.
 		{
 			Type typetouse = null;
-			var namestr = name.ToString();
 			Any kso = null;
 
 			try
 			{
-				if (item is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
+				if (item.AsObject() is VarRef vr && name.Equals("__Value", StringComparison.OrdinalIgnoreCase))
 				{
 					value = vr.__Value;
 					return true;
 				}
 
-				if (item is ITuple otup && otup.Length > 1 && otup[0] is Any t)
+				if (item.AsObject() is ITuple otup && otup.Length > 1 && otup[0] is Any t)
 				{
 					kso = t;
-					item = otup[1];
+					item = KsValue.FromObject(otup[1]);
 				}
 
-				if ((kso != null || (kso = item as Any) != null))
+				if (kso != null || item.TryGetAny(out kso))
 				{
-					if (TryGetOwnPropsMap(kso, namestr, out var opm))
+					if (TryGetOwnPropsMap(kso, name, out var opm))
 					{
-						if (opm.Value != null)
+						if (!opm.Value.IsUnset)
 							value = opm.Value;
-						else if (opm.Get != null && opm.Get is IFuncObj ifo && ifo != null)
+						else if (opm.Get != null && opm.Get is FuncObj ifo && ifo != null)
 							value = ifo.Call(item);
-						else if (opm.Call != null && opm.Call is IFuncObj ifo2 && ifo2 != null)
+						else if (opm.Call != null && opm.Call is FuncObj ifo2 && ifo2 != null)
 							value = ifo2;
 						else
 						{
-							value = null;
+							value = default;
 							return false;
 						}
 						return true;
 					}
-					else if (TryGetOwnPropsMap(kso, "__Get", out var protoGet) && (protoGet.Call != null ? protoGet.Call : protoGet.Value) is IFuncObj ifoprotoget && ifoprotoget != null)
+					else if (TryGetOwnPropsMap(kso, "__Get", out var protoGet) && (protoGet.Call != null ? protoGet.Call : (FuncObj)protoGet.Value) is IFuncObj ifoprotoget && ifoprotoget != null)
 					{
-						value = ifoprotoget.Call(item, namestr, new Keysharp.Core.Array());
+						value = ifoprotoget.Call(item, name, new Keysharp.Core.Array());
 						return true;
 					}
 				}
 
 #if WINDOWS
-				if (item is ComObject co)
+				if (item.TryGetAny(out Any any) && any is ComObject co)
 				{
-					return TryGetPropertyValue(co.Ptr, namestr, out value);
+					return TryGetPropertyValue(KsValue.FromObject(co.Ptr), name, out value);
 				}
 				else if (Marshal.IsComObject(item))
 				{
 					//Many COM properties are internally stored as methods with 0 parameters.
 					//So try invoking the member as either a property or a method.
-					value = item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, null);
+					value = KsValue.FromObject(item.GetType().InvokeMember(name, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, null));
 					return true;
 				}
 #endif
-				else if (item != null)
+				else if (!item.IsUnset)
 				{
 					if (typetouse == null)
 						typetouse = item.GetType();
 
-					if (Reflections.FindAndCacheProperty(typetouse, namestr, 0) is MethodPropertyHolder mph2)
+					if (Reflections.FindAndCacheProperty(typetouse, name, 0) is MethodPropertyHolder mph2)
 					{
-						value = mph2.CallFunc(item, null);
+						value = KsValue.FromObject(mph2.CallFunc(item, null));
 						return true;
 					}
 				}
@@ -271,7 +270,7 @@ namespace Keysharp.Scripting
 					throw;
 			}
 
-			value = null;
+			value = default;
 			return false;
 		}
 
@@ -282,7 +281,7 @@ namespace Keysharp.Scripting
 				return false;
 			if (kso.op.TryGetValue(namestr, out var val))
 			{
-				if (val.Value != null)
+				if (!val.Value.IsUnset)
 					returnValue = val.Value;
 				else if (val.Get != null && val.Get is IFuncObj ifo && ifo != null)
 					returnValue = ifo.Call(inst);
@@ -386,12 +385,20 @@ namespace Keysharp.Scripting
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
 		}
 
-		public static object Invoke(object obj, object meth, params object[] parameters)
+		public static KsValue Invoke(object obj, object meth, params object[] parameters)
         {
 			if (obj == null)
 				throw new UnsetError("Cannot invoke property on an unset variable");
             try
             {
+				if (obj is KsValue kv)
+					obj = kv.AsObject();
+				for (int i = 0; i < parameters.Length; i++)
+				{
+					if (parameters[i] is KsValue kv2)
+						parameters[i] = kv2.AsObject();
+				}
+
                 (object, object) mitup = (null, null);
                 var methName = (string)meth;
 
@@ -411,10 +418,13 @@ namespace Keysharp.Scripting
                     mitup = GetMethodOrProperty(obj, methName, -1);
                 }
 
+				if (mitup.Item2 is KsValue kvi2)
+					mitup.Item2 = kvi2.AsObject();
+
 				if (mitup.Item2 is MethodPropertyHolder mph)
 				{
 					//Mostly used by COM
-					return mph.CallFunc(mitup.Item1, parameters);
+					return KsValue.FromObject(mph.CallFunc(mitup.Item1, parameters));
 				}
 				else if (mitup.Item2 is IFuncObj ifo2)
 				{
@@ -511,25 +521,24 @@ namespace Keysharp.Scripting
 
 		public static (object, object) MakeObjectTuple(object obj0, object obj1) => (obj0, obj1);
 
-        public static object SetPropertyValue(object item, object name, object value, bool setAny = false)//Always assume these are not index properties, which we instead handle via method call with get_Item and set_Item.
+        public static KsValue SetPropertyValue(KsValue item, string namestr, KsValue value, bool setAny = false)//Always assume these are not index properties, which we instead handle via method call with get_Item and set_Item.
 		{
 			Type typetouse = null;
-			var namestr = name.ToString();
 			Any any = null;
 
             try
 			{
-				if (item is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
+				if (item.AsObject() is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
 				{
 					vr.__Value = value;
 					return value;
 				}
-				else if (item is ITuple otup && otup.Length > 1 && otup[0] is Any t)
+				else if (item.AsObject() is ITuple otup && otup.Length > 1 && otup[0] is Any t)
 				{
-					any = t; item = otup[1];
+					any = t; item = KsValue.FromObject(otup[1]);
                 }
 
-				if ((any != null || (any = item as Any) != null))
+				if ((any != null || item.TryGetAny(out any)))
 				{
 					if (any.op != null && any.op.TryGetValue(namestr, out var own)) {
 						if (own.Set != null && own.Set is IFuncObj ifo)
@@ -537,12 +546,12 @@ namespace Keysharp.Scripting
 							var arr = new object[2];
 							arr[0] = item;//Special logic here: this was called on an OwnProps map, so it uses its parent as the object.
 							arr[1] = value;
-							return ifo.Call(item, value) ?? value;
+							return ifo.Call(item, value).Default(value);
 						}
 						else if (own.Call == null && own.Get == null)
 							return own.Value = value;
 						else
-							return Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only.");
+							return KsValue.FromObject(Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only."));
 					} 
 					else if (namestr.Equals("base", StringComparison.OrdinalIgnoreCase))
 					{
@@ -556,7 +565,7 @@ namespace Keysharp.Scripting
 							var arr = new object[2];
 							arr[0] = item;//Special logic here: this was called on an OwnProps map, so it uses its parent as the object.
 							arr[1] = value;
-							return ifo.Call(item, value) ?? value;
+							return ifo.Call(item, value).Default(value);
 						}
 
 					}
@@ -564,8 +573,8 @@ namespace Keysharp.Scripting
 						return ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(), value);
                 }
 
-                if (typetouse == null && item != null)
-                    typetouse = item.GetType();
+                if (typetouse == null && !item.IsUnset)
+                    typetouse = item.GetInternalType();
 
                 if (Reflections.FindAndCacheProperty(typetouse, namestr, 0) is MethodPropertyHolder mph && namestr.ToLower() != "base")
 				{
@@ -576,10 +585,10 @@ namespace Keysharp.Scripting
 #if WINDOWS
 				//COM checks must come before Item checks because they can get confused sometimes and COM should take
 				//precedence in such cases.
-				else if (item is ComObject co && co.Ptr != null)
+				else if (item.AsObject() is ComObject co && co.Ptr != null)
 				{
-					//_ = co.Ptr.GetType().InvokeMember(namestr, System.Reflection.BindingFlags.SetProperty, null, item, new object[] { value });//Unwrap.
-					return SetPropertyValue(co.Ptr, namestr, value) ?? value;
+					//_ = co.Ptr.GetType().InvokeMember(name, System.Reflection.BindingFlags.SetProperty, null, item, new object[] { value });//Unwrap.
+					return SetPropertyValue(KsValue.FromObject(co.Ptr), namestr, value).Default(value);
 				}
 				else if (Marshal.IsComObject(item))
 				{
@@ -588,7 +597,7 @@ namespace Keysharp.Scripting
 				}
 
 #endif
-				else if (item is KeysharpObject kso)//No property was present, so create one and assign the value to it.
+				else if (item.TryGetAny(out Any kso))//No property was present, so create one and assign the value to it.
 				{
 					_ = kso.op[namestr] = new OwnPropsDesc(kso, value);
 					return value;
@@ -600,7 +609,7 @@ namespace Keysharp.Scripting
 				}
 				else if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", 2) is MethodPropertyHolder mph1 && mph1.ParamLength == 2)
 				{
-					return mph1.CallFunc(item, [namestr, value]) ?? value;
+					return KsValue.FromObject(mph1.CallFunc(item, [namestr, value])).Default(value);
 				}
             }
 			catch (Exception e)
@@ -611,7 +620,7 @@ namespace Keysharp.Scripting
 					throw;
 			}
 
-			return Errors.ErrorOccurred($"Attempting to set property {namestr} on object {item} to value {value} failed.");
+			return KsValue.FromObject(Errors.ErrorOccurred($"Attempting to set property {namestr} on object {item} to value {value} failed."));
 		}
 
 		public static void SetStaticMemberValueT<T>(object name, object value)

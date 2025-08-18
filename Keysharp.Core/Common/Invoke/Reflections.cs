@@ -210,6 +210,8 @@ namespace Keysharp.Core.Common.Invoke
 						{
 							foreach (var meth in meths)
 							{
+								if (meth.IsSpecialName || meth.GetCustomAttribute<PublicForTestOnly>() != null)
+									continue;
 								var mph = MethodPropertyHolder.GetOrAdd(meth);
 								typeToMethods.GetOrAdd(meth.ReflectedType,
 													   () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(meths.Length, StringComparer.OrdinalIgnoreCase))
@@ -446,7 +448,7 @@ namespace Keysharp.Core.Common.Invoke
 				addr = l;
 			else if (item is IPointable buf)//Put Buffer, StringBuffer etc check first because it's faster and more likely.
 				addr = buf.Ptr;
-			else if (item is Any kso && Script.TryGetPropertyValue(kso, "ptr", out object p))
+			else if (item is Any kso && Script.TryGetPropertyValue(kso, "ptr", out KsValue p))
 				addr = p.Al();
 			else
 				addr = item.Al();

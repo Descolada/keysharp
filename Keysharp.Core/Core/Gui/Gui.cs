@@ -354,7 +354,7 @@ namespace Keysharp.Core
 			Script.TheScript.ExitIfNotPersistent();//May not be necessary, but try anyway.
 		}
 
-		public IFuncObj __Enum(object count) => (new GuiControlIterator(controls, count.Ai())).fo;
+		public IFuncObj __Enum(long count) => (new GuiControlIterator(controls, (int)count)).fo;
 
 		public override object __New(params object[] obj)
 		{
@@ -2670,13 +2670,13 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="key">A reference to the control value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call(object key)
+		public override KsValue Call(object key)
 		{
 			if (MoveNext())
 			{
 				try
 				{
-					Script.SetPropertyValue(key, "__Value", iter.Current.Value);
+					Script.SetPropertyValue(KsValue.FromObject(key), "__Value", KsValue.FromObject(iter.Current.Value));
 				}
 				catch (IndexOutOfRangeException)
 				{
@@ -2695,15 +2695,15 @@ namespace Keysharp.Core
 		/// <param name="key">A reference to the handle value.</param>
 		/// <param name="value">A reference to the control value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call(object key, object value)
+		public override KsValue Call(object key, object value)
 		{
 			if (MoveNext())
 			{
 				try
 				{
 					var kv = iter.Current;
-					Script.SetPropertyValue(key, "__Value", kv.Key);
-					Script.SetPropertyValue(value, "__Value", kv.Value);
+					Script.SetPropertyValue(KsValue.FromObject(key), "__Value", KsValue.FromObject(kv.Key));
+					Script.SetPropertyValue(KsValue.FromObject(value), "__Value", KsValue.FromObject(kv.Value));
 				}
 				catch (IndexOutOfRangeException)
 				{

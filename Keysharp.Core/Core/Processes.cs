@@ -314,10 +314,9 @@ namespace Keysharp.Core
 		/// <summary>
 		/// <see cref="Run(object, object, object, ref object, object)"/>
 		/// </summary>
-		public static long Run(object target, object workingDir = null, object options = null)
+		public static long Run(string target, string workingDir = null, string options = null)
 		{
-			object pid = VarRef.Empty;
-			return Run(target, workingDir, options, pid, null);
+			return Run(target, workingDir, options, null, null);
 		}
 
 		/// <summary>
@@ -339,9 +338,9 @@ namespace Keysharp.Core
 		/// <returns>Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until target is closed or exits,<br/>
 		/// at which time the return value will be the program's exit code.
 		/// </returns>
-		public static long Run(object target, object workingDir, object options, object outputVarPID, object args = null)
+		public static long Run(string target, string workingDir, string options, Any outputVarPID, string args = null)
 		{
-			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As());
+			return RunInternal(target, workingDir, options, outputVarPID, args);
 		}
 
 		/// <summary>
@@ -393,7 +392,7 @@ namespace Keysharp.Core
 		/// Unlike Run, <see cref="RunWait"/> will wait until the program finishes before continuing.
 		/// <see cref="Run"/>.
 		/// </summary>
-		public static long RunWait(object target, object workingDir, object options, [ByRef] object outputVarPID, object args = null)
+		public static long RunWait(object target, object workingDir, object options, [ByRef] Any outputVarPID, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As(), true);
 		}
@@ -532,7 +531,7 @@ namespace Keysharp.Core
 		/// Internal helper to run a process. <see cref="Run"/>, <see cref="RunAs"/>, <see cref="RunWait"/>
 		/// </summary>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		private static long RunInternal(string target, string workingDir, string showMode, [ByRef] object outputVarPID, string args, bool wait = false)
+		private static long RunInternal(string target, string workingDir, string showMode, [ByRef] Any outputVarPID, string args, bool wait = false)
 		{
 			outputVarPID ??= VarRef.Empty;
 			var pid = 0;

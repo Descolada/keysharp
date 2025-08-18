@@ -2,8 +2,9 @@ namespace Keysharp.Scripting
 {
 	public partial class Script
 	{
-		public static object[] FlattenParam(object obj)
+		public static object[] FlattenParam(KsValue value)
 		{
+			object obj = value.AsObject();
 			if (obj is IEnumerable en)
 			{
 				var l = new List<object>();
@@ -19,10 +20,10 @@ namespace Keysharp.Scripting
 
 				return l.ToArray();
 			}
-			else if (Loops.MakeEnumerator(obj, 1L) is KeysharpEnumerator ke)
+			else if (Loops.MakeEnumerator(value, 1L) is KeysharpEnumerator ke)
 			{
 				var l = new List<object>();
-				object v1 = null;
+				KsValue v1 = default;
 				VarRef vf = new VarRef(v1);
 
 				while (ke.Call(vf).IsCallbackResultNonEmpty())
@@ -41,7 +42,7 @@ namespace Keysharp.Scripting
 			for (var i = 0; i < names.Length; i++)
 			{
 				var init = i < values.Length ? values[i] : i < defaults.Length ? defaults[i] : null;
-				Script.TheScript.Vars[names[i]] = init;
+				Script.TheScript.Vars[names[i]] = KsValue.FromObject(init);
 			}
 		}
 	}

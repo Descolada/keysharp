@@ -170,16 +170,7 @@ namespace Keysharp.Scripting
 
                 backupDeclaration = SyntaxFactory.LocalDeclarationStatement(
                     SyntaxFactory.VariableDeclaration(
-                        SyntaxFactory.ArrayType(
-                            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // object[]
-                            SyntaxFactory.SingletonList(
-                                SyntaxFactory.ArrayRankSpecifier(
-                                    SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                        SyntaxFactory.OmittedArraySizeExpression() // Allow dynamic array initialization
-                                    )
-                                )
-                            )
-                        )
+                        PredefinedKeywords.KsValueArrayType
                     ).WithVariables(
                         SyntaxFactory.SingletonSeparatedList(
                             SyntaxFactory.VariableDeclarator(backupIdentifier.Identifier)
@@ -188,7 +179,7 @@ namespace Keysharp.Scripting
 									PredefinedKeywords.EqualsToken,
 									SyntaxFactory.ArrayCreationExpression(
                                         SyntaxFactory.ArrayType(
-                                            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+                                            Parser.PredefinedKeywords.KsValueType,
                                             SyntaxFactory.SingletonList(
                                                 SyntaxFactory.ArrayRankSpecifier(
                                                     SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
@@ -372,10 +363,10 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //String
 					    , singleExprCount > 1 //DelimiterChars
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						    : SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)
 					    , singleExprCount > 2 //OmitChars
 							? (ExpressionSyntax)Visit(context.singleExpression(2))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)];
                     loopType = "Parse";
                     enumeratorMethodName = "LoopParse";
                     break;
@@ -383,7 +374,7 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //FilePattern
                         , singleExprCount != 1 //Mode
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)];
 
                     loopType = "Directory";
                     enumeratorMethodName = "LoopFile";
@@ -392,7 +383,7 @@ namespace Keysharp.Scripting
                     enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //InputFile
                         , singleExprCount > 1 //OutputFile
                             ? (ExpressionSyntax)Visit(context.singleExpression(1))
-                            : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+                            : SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)];
                     loopType = "File";
                     enumeratorMethodName = "LoopRead";
                     break;
@@ -400,7 +391,7 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //KeyName
 					    , singleExprCount > 1 //Mode
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)];
                     loopType = "Registry";
                     enumeratorMethodName = "LoopRegistry";
                     break;
@@ -495,11 +486,7 @@ namespace Keysharp.Scripting
             foreach (string variableName in variableNames)
             {
                 ExpressionSyntax varRefExpr = SyntaxFactory.InvocationExpression(
-                    SyntaxFactory.MemberAccessExpression(
-                        SyntaxKind.SimpleMemberAccessExpression,
-                        SyntaxFactory.IdentifierName("Misc"),
-                        SyntaxFactory.IdentifierName("MakeVarRef")
-                    ),
+                    CreateMemberAccess("Misc", "MakeVarRef"),
 					CreateArgumentList(
 						// Getter lambda: () => variableName
 						SyntaxFactory.ParenthesizedLambdaExpression(

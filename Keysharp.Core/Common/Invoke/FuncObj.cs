@@ -13,10 +13,8 @@
 
 		public IFuncObj Bind(params object[] obj);
 
-        public object Call(params object[] obj);
-		public object CallInst(object inst, params object[] obj);
-
-        public object CallWithRefs(params object[] obj);
+        public KsValue Call(params object[] obj);
+		public KsValue CallInst(object inst, params object[] obj);
 
         public bool IsByRef(object obj = null);
 
@@ -45,47 +43,8 @@
 		/// </summary>
 		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/></param>
 		/// <returns>The return value of the bound function.</returns>
-		public override object Call(params object[] args) => base.Call(CreateArgs(args).ToArray());
-		public override object CallInst(object inst, params object[] args) => base.Call(inst, CreateArgs(args).ToArray());
-
-        public override object CallWithRefs(params object[] args)
-		{
-			var argsList = CreateArgs(args);
-			var argsArray = new object[argsList.Count];
-
-			for (var i = 0; i < argsList.Count; ++i)
-			{
-				var p = argsList[i];
-
-				if (p is RefHolder rh)
-				{
-					rh.index = i;//Must change the index since the array has changed.
-					argsArray[i] = rh.val;
-				}
-				else
-					argsArray[i] = p;
-			}
-
-			var val = base.Call(argsArray);
-
-			for (int i = 0, argsIndex = 0; i < argsList.Count; ++i)
-			{
-				//If it was a RefHolder, then reassign regardless if it was passed from the bound args or the passed in args.
-				if (argsList[i] is RefHolder rh)
-				{
-					rh.reassign(argsArray[rh.index]);//Use value from new array.
-				}
-				else if (argsIndex < args.Length
-						 && i < mph.parameters.Length//This seems like it should always be true.
-						 && mph.parameters[i].ParameterType.IsByRef
-						)//It wasn't a RefHolder, so determine where it should go.
-				{
-					args[argsIndex++] = argsArray[i];//Reassign all the way back to the original.
-				}
-			}
-
-			return val;
-		}
+		public override KsValue Call(params object[] args) => base.Call(CreateArgs(args).ToArray());
+		public override KsValue CallInst(object inst, params object[] args) => base.Call(inst, CreateArgs(args).ToArray());
 
 		private List<object> CreateArgs(params object[] args)
 		{
@@ -241,12 +200,12 @@
 		public virtual IFuncObj Bind(params object[] args)
 		=> new BoundFunc(mi, args, Inst);
 
-		public virtual object Call(params object[] obj) => mph.CallFunc(Inst, obj);
-		public virtual object CallInst(object inst, params object[] obj)
+		public virtual KsValue Call(params object[] obj) => KsValue.FromObject(mph.CallFunc(Inst, obj));
+		public virtual KsValue CallInst(object inst, params object[] obj)
 		{
 			if (Inst == null)
 			{
-				return mph.CallFunc(inst, obj);
+				return KsValue.FromObject(mph.CallFunc(inst, obj));
 			}
 			else
 			{
@@ -254,7 +213,7 @@
 				object[] args = new object[count + 1];
 				args[0] = inst;
 				System.Array.Copy(obj, 0, args, 1, count);
-				return mph.CallFunc(Inst, args);
+				return KsValue.FromObject(mph.CallFunc(Inst, args));
 			}
 		}
         public virtual object CallWithRefs(params object[] args)

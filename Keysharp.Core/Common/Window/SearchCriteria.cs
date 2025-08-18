@@ -17,25 +17,25 @@
 		internal string Text { get; set; }
 		internal string Title { get; set; }
 
-		internal static SearchCriteria FromString(object obj)
+		internal static SearchCriteria FromString(KsValue obj)
 		{
 			var criteria = new SearchCriteria();
 
-			if (obj == null)
+			if (obj.IsUnset)
 				return criteria;
 
-			if (obj is long l)
+			if (obj.TryGetLong(out long l))
 			{
 				criteria.ID = new nint(l);
 				criteria.IsPureID = true;
 				return criteria;
 			}
 
-			object hwnd = null;
+			KsValue hwnd;
 
-			if (Script.TryGetPropertyValue(obj, "Hwnd", out hwnd) && hwnd != null)
+			if (Script.TryGetPropertyValue(obj, "Hwnd", out hwnd) && hwnd.IsSet)
 			{
-				if (hwnd is long ll)
+				if (hwnd.TryGetLong(out long ll))
 				{
 					criteria.ID = new nint(ll);
 					criteria.IsPureID = true;
@@ -148,7 +148,7 @@
 				   : criteria;
 		}
 
-		internal static SearchCriteria FromString(object title, object text, object excludeTitle, object excludeText)
+		internal static SearchCriteria FromString(KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			var criteria = FromString(title);
 			criteria.Text = text.As();

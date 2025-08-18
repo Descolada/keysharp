@@ -4,7 +4,7 @@
 	/// A comparer which uses an <see cref="IFuncObj"/> to compare two objects.
 	/// This is used in <see cref="Array.Sort"/>.
 	/// </summary>
-	internal class FuncObjComparer : IComparer<object>
+	internal class FuncObjComparer : IComparer<KsValue>
 	{
 		/// <summary>
 		/// The function object to use in the comparison.
@@ -24,7 +24,7 @@
 		/// <param name="left">The left object to compare.</param>
 		/// <param name="right">The right object to compare.</param>
 		/// <returns>An <see cref="int"/>-1 if left is less than right, 0 if left equals right, otherwise 1.</returns>
-		public int Compare(object left, object right) => ifo.Call(left, right).Ai();
+		public int Compare(KsValue left, KsValue right) => ifo.Call(left, right).Ai();
 	}
 
 	/// <summary>
@@ -32,14 +32,14 @@
 	/// Internally the list uses 0-based indexing, however the public interface expects 1-based indexing.<br/>
 	/// A negative index can be used to address elements in reverse, so -1 is the last element, -2 is the second last element, and so on.
 	/// </summary>
-	public class Array : KeysharpObject, I__Enum, IEnumerable<(object, object)>, IList
+	public class Array : KeysharpObject, I__Enum, IEnumerable<(KsValue, KsValue)>, IList
 	{
         private int capacity = 4;
 
 		/// <summary>
 		/// The underlying <see cref="List"/> that holds the values.
 		/// </summary>
-		internal List<object> array;
+		internal List<KsValue> array;
 
 		/// <summary>
 		/// Gets or sets the current capacity of the array.<br/>
@@ -102,7 +102,7 @@
 							array.Capacity = i;
 
 						for (var ii = array.Count; ii < i; ii++)
-							array.Add(null);
+							array.Add(default);
 					}
 					else if (i < array.Count)
 						array.RemoveRange(i, array.Count - i);
@@ -160,9 +160,9 @@
 		///     2: Return the index in the first element, and the value in the second.
 		/// </param>
 		/// <returns><see cref="KeysharpEnumerator"/></returns>
-		public IFuncObj __Enum(object count)
+		public IFuncObj __Enum(long count)
 		{
-			var iter = new ArrayIndexValueIterator(array, count.Ai());
+			var iter = new ArrayIndexValueIterator(array, (int)count);
 			return iter.fo;
 		}
 
@@ -181,7 +181,7 @@
 		/// <returns>Empty string, unused.</returns>
 		public override object __New(params object[] args)
 		{
-			array = new List<object>(capacity);
+			array = new List<KsValue>(capacity);
 
 			if (args == null || args.Length == 0)
 			{
@@ -190,24 +190,24 @@
 			{
 				if (args[0] is object[] objarr)
 				{
-					array.AddRange(objarr);
+					array.AddRange(KsValue.CastEnumerable(objarr));
 				}
 				else if (args[0] is List<object> objlist)
 				{
-					array.AddRange(objlist);
+					array.AddRange(KsValue.CastEnumerable(objlist));
 				}
 				else if (args[0] is ICollection c && c is not Array && c is not Map)
 				{
-					array.AddRange(c.Cast<object>().ToList());
+					array.AddRange(KsValue.CastEnumerable(c));
 				}
 				else
 				{
-					array.Add(args[0]);
+					array.Add(KsValue.FromObject(args[0]));
 				}
 			}
 			else
 			{
-				array.AddRange(args);
+				array.AddRange(KsValue.CastEnumerable(args));
 			}
 
 			return DefaultObject;
@@ -222,7 +222,7 @@
 		/// <returns>The length of the array after value has been added.</returns>
 		public int Add(object value)
 		{
-			array.Add(value);
+			array.Add(KsValue.FromObject(value));
 			return array.Count;
 		}
 
@@ -232,7 +232,7 @@
 		/// <param name="c">An <see cref="ICollection"/> of elements to add.</param>
 		public long AddRange(ICollection c)
 		{
-			array.AddRange(c.Cast<object>());
+			array.AddRange(KsValue.CastEnumerable(c));
 			return array.Count;
 		}
 
@@ -246,7 +246,7 @@
 		/// </summary>
 		/// <param name="value">The value to search for.</param>
 		/// <returns>True if the value was found, else false.</returns>
-		public bool Contains(object value) => array.Contains(value);
+		public bool Contains(object value) => array.Contains(KsValue.FromObject(value));
 
 		/// <summary>
 		/// Removes the value of an array element, leaving the index without a value.<br/>
@@ -255,18 +255,18 @@
 		/// <param name="index">The index to set to null.</param>
 		/// <returns>The removed value.</returns>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if Index is out of range.</exception>
-		public object Delete(object index)
+		public KsValue Delete(long index)
 		{
-			var i = index.Ai() - 1;
+			var i = (int)index - 1;
 
 			if (i < array.Count)
 			{
 				var ob = array[i];
-				array[i] = null;
+				array[i] = default;
 				return ob;
 			}
 			else
-				return Errors.ValueErrorOccurred($"Invalid deletion index of {index.Ai()}.");
+				return KsValue.FromObject(Errors.ValueErrorOccurred($"Invalid deletion index of {index.Ai()}."));
 		}
 
 		/// <summary>
@@ -399,7 +399,7 @@
 		/// The implementation for <see cref="IEnumerable{(object, object)}.GetEnumerator()"/> which returns an <see cref="ArrayIndexValueIterator"/>.
 		/// </summary>
 		/// <returns>An <see cref="IEnumerator{(object, object)}"/> which is an <see cref="ArrayIndexValueIterator"/>.</returns>
-		public IEnumerator<(object, object)> GetEnumerator() => new ArrayIndexValueIterator(array, 2);
+		public IEnumerator<(KsValue, KsValue)> GetEnumerator() => new ArrayIndexValueIterator(array, 2);
 
 		/// <summary>
 		/// Returns a non-zero number if the index is valid and there is a value at that position.
@@ -411,7 +411,7 @@
 			var i = index.Ai(1);
 
 			if ((i = TranslateIndex(i)) != -1)
-				return array[i] != null ? 1L : 0L;
+				return array[i].IsSet ? 1L : 0L;
 			else
 				return 0L;
 		}
@@ -421,7 +421,7 @@
 		/// </summary>
 		/// <param name="value">The value to search for.</param>
 		/// <returns>The index that value was found at, else 0 if none was found.</returns>
-		public int IndexOf(object value) => (int)IndexOf(value, 1L);
+		public int IndexOf(object value) => (int)IndexOf(KsValue.FromObject(value), 1L);
 
 		/// <summary>
 		/// Returns the index of the first item in the array
@@ -431,7 +431,7 @@
 		/// <param name="value">The value to search for.</param>
 		/// <param name="startIndex">The index to start searching at. Default: 1.</param>
 		/// <returns>The index that value was found at, else 0 if none was found.</returns>
-		public long IndexOf(object value, object startIndex = null)
+		public long IndexOf(KsValue value, long startIndex = 1)
 		{
 			var i = startIndex.Ai(1);
 			var abs = Math.Abs(i);
@@ -447,7 +447,7 @@
 		/// </summary>
 		/// <param name="index">The index to insert at.</param>
 		/// <param name="value">The value to insert at the given index.</param>
-		public void Insert(int index, object value) => InsertAt(index, value);
+		public void Insert(int index, object value) => InsertAt(index, KsValue.FromObject(value));
 
 		/// <summary>
 		/// Inserts one or more values at a given position.
@@ -477,7 +477,7 @@
 				}
 
 				for (i = 1; i < args.Length; i++)//Need to use values here and not o because the enumerator will make the elements into Tuples because of the special enumerator.
-					array.Insert(index++, args[i]);
+					array.Insert(index++, KsValue.FromObject(args[i]));
 			}
 		}
 
@@ -506,7 +506,7 @@
 				{
 					List<object> list;
 					var i = index;
-					list = array.Skip(index).Select(x => ifo.Call(x, ++i)).ToList();
+					list = array.Skip(index).Select(x => (object)ifo.Call(x, ++i)).ToList();
 					return new Array(list);
 				}
 				else
@@ -578,7 +578,7 @@
 		/// <param name="name">The name to use for this object.</param>
 		/// <param name="sbuf">The <see cref="StringBuffer"/> to print to.</param>
 		/// <param name="tabLevel">The tab level to use when printing.</param>
-		public override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
+		internal override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var indent = new string('\t', tabLevel);
 
@@ -592,7 +592,7 @@
 				for (var i = 0; i < array.Count; i++)
 				{
 					string str;
-					var val = array[i];
+					var val = array[i].AsObject();
 
 					if (val is string vs)
 					{
@@ -662,14 +662,14 @@
 		/// Appends values to the end of an array.
 		/// </summary>
 		/// <param name="args">One or more values to append.</param>
-		public void Push(params object[] args) => array.AddRange(args);
+		public void Push(params object[] args) => array.AddRange(KsValue.CastEnumerable(args));
 
 		/// <summary>
 		/// Implementation of <see cref="IList.Remove"/> which removes the first occurrence of value
 		/// from the array.
 		/// </summary>
 		/// <param name="value">The value to remove.</param>
-		public void Remove(object value) => array.Remove(value);
+		public void Remove(object value) => array.Remove(KsValue.FromObject(value));
 
 		/// <summary>
 		/// Removes one or more items from the array and returns the removed item.<br/>
@@ -744,7 +744,7 @@
 				for (var i = 0; i < array.Count; i++)
 				{
 					string str;
-					var val = array[i];
+					var val = array[i].AsObject();
 
 					if (val is string vs)
 						str = "\"" + vs + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
@@ -791,16 +791,16 @@
 		/// <param name="index">The index to get or set.</param>
 		/// <returns>The value at the index.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if index is zero or out of range.</exception>
-		public object this[object index]
+		public KsValue this[KsValue index]
 		{
 			get
 			{
 				var i = index.Ai();
 
 				if ((i = TranslateIndex(i)) != -1)
-					return array[i];
+					return KsValue.FromObject(array[i]);
 				else
-					return Errors.IndexErrorOccurred($"Invalid retrieval index of {index} on an array with length {array.Count}.");
+					return KsValue.FromObject(Errors.IndexErrorOccurred($"Invalid retrieval index of {index} on an array with length {array.Count}."));
 			}
 			set
 			{
@@ -826,7 +826,7 @@
 			}
 			set
 			{
-				this[index] = value;
+				this[index] = KsValue.FromObject(value);
 			}
 		}
 	}
@@ -839,12 +839,12 @@
 	/// A two component iterator for <see cref="Array"/> which returns the value and the 1-based index the
 	/// value was at as a tuple.
 	/// </summary>
-	internal class ArrayIndexValueIterator : KeysharpEnumerator, IEnumerator<(object, object)>
+	internal class ArrayIndexValueIterator : KeysharpEnumerator, IEnumerator<(KsValue, KsValue)>
 	{
 		/// <summary>
 		/// The internal array to be iterated over.
 		/// </summary>
-		private readonly List<object> arr;
+		private readonly List<KsValue> arr;
 
 		/// <summary>
 		/// The current 0-based position the iterator is at.
@@ -854,14 +854,14 @@
 		/// <summary>
 		/// The implementation for <see cref="IEnumerator.Current"/> which gets the index,value tuple at the current iterator position.
 		/// </summary>
-		public (object, object) Current
+		public (KsValue, KsValue) Current
 		{
 			get
 			{
 				try
 				{
 					if (Count == 1)
-						return (arr[position], null);
+						return (arr[position], default);
 					else
 						return ((long)position + 1, arr[position]);
 				}
@@ -882,7 +882,7 @@
 		/// </summary>
 		/// <param name="a">The <see cref="List{object}"/> to iterate over.</param>
 		/// <param name="c">The number of items to return for each iteration.</param>
-		public ArrayIndexValueIterator(List<object> a, int c)
+		public ArrayIndexValueIterator(List<KsValue> a, int c)
 			: base(null, c)
 		{
 			arr = a;
@@ -896,11 +896,11 @@
 		/// </summary>
 		/// <param name="pos">A reference to the value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object pos)
+		public override KsValue Call([ByRef] object pos)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
+				Script.SetPropertyValue(KsValue.FromObject(pos), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
@@ -913,12 +913,12 @@
 		/// <param name="pos">A reference to the position value.</param>
 		/// <param name="val">A reference to the object value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object pos, [ByRef] object val)
+		public override KsValue Call([ByRef] object pos, [ByRef] object val)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
-				Script.SetPropertyValue(val, "__Value", Current.Item2);
+				Script.SetPropertyValue(KsValue.FromObject(pos), "__Value", KsValue.FromObject(Current.Item1));
+				Script.SetPropertyValue(KsValue.FromObject(val), "__Value", KsValue.FromObject(Current.Item2));
 				return true;
 			}
 

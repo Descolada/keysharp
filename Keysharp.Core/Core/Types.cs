@@ -161,7 +161,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is not null, else 0.</returns>
-		public static long IsSet(object value) => value != null ? 1L : 0L;
+		public static bool IsSet(KsValue value) => value.IsSet;
 
 		/// <summary>
 		/// 1 if value is a string and is empty or contains only whitespace consisting of the following characters, else false:<br/>
@@ -248,28 +248,30 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>The class name of value.</returns>
-		public static string Type(object value)
+		public static string Type(KsValue value)
 		{
-			if (value != null)
+			if (!value.IsUnset)
 			{
 				string type = null;
-				if (value is KeysharpObject kso && kso.op != null) {
-					if (kso.op.ContainsKey("__Class"))
-						return "Prototype";
-                    else if (Script.TryGetPropertyValue(kso, "__Class", out object oname) && oname is string name && name != null)
-						type = name;
-                    else
-						return "Object";
-				} else
-					type = value.GetType().Name;
+				switch (value.Type)
+				{
+					case KsValueType.Integer: return "Integer";
+					case KsValueType.Float: return "Float";
+					case KsValueType.String: return "String";
+					case KsValueType.Any:
+						if (value.TryGetAny(out Any kso) && kso.op != null)
+						{
+							if (kso.op.ContainsKey("__Class"))
+								return "Prototype";
+							else if (Script.TryGetPropertyValue(kso, "__Class", out KsValue oname) && oname.TryGetString(out string name))
+								return name;
+							else
+								return "Object";
+						}
+						break;
+				}
 
-				return type switch
-			{
-					"Double" => "Float",
-					"Int64" => "Integer",
-					"KeysharpObject" => "Object",
-					_ => type,
-			};
+				return value.GetInternalType().Name;
 		}
 		else
 			return "unset";

@@ -233,7 +233,7 @@ namespace Keysharp.Core
 			IFuncObj cb = null;
 
 			if (obj1 != null)
-				cb = Functions.Func(obj1);
+				cb = (IFuncObj)Functions.Func(obj1).AsObject();
 
 			string name = obj2.As("DynamicScript");
 			string result = null;

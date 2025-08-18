@@ -13,10 +13,10 @@ namespace Keysharp.Tests
 			_ = CoordMode("Mouse", "Screen");
 			var screen = System.Windows.Forms.Screen.PrimaryScreen;
 			_ = GetScreenClip(10, 10, 500, 500, "./imagesearch.bmp");
-			VarRef x = new(null), y = new(null);
+			VarRef x = new (default), y = new (default);
 			_ = Core.Screen.ImageSearch(x, y, 0, 0, screen.Bounds.Width, screen.Bounds.Height, "./imagesearch.bmp"); //This implies this pattern won't be present before 1000,1000.
 
-			if (x.__Value is long lx && lx == 10 && y.__Value is long ly && ly == 10)
+			if (x.__Value.TryGetLong(out long lx) && lx == 10 && y.__Value.TryGetLong(out long ly) && ly == 10)
 				Assert.IsTrue(true);
 			else
 				Assert.IsTrue(false);
@@ -69,8 +69,8 @@ namespace Keysharp.Tests
 
 					if (ii != last && ii != white && ii != black)
 					{
-						VarRef outX = new(null);
-						VarRef outY = new(null);
+						VarRef outX = new (default);
+						VarRef outY = new (default);
 						var ret = Core.Screen.PixelSearch(outX, outY, j, i, j + 1, i + 1, pix);
 
 						if (ret == 1L && (long)outX.__Value == j && (long)outY.__Value == i)

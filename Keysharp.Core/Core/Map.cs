@@ -163,7 +163,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets or sets the default value to use when retrieving a value for a key that doesn't exist.
 		/// </summary>
-		public object Default { get; set; }
+		public KsValue Default { get; set; }
 
 		/// <summary>
 		/// Gets a value indicating whether synchronized.
@@ -204,7 +204,7 @@ namespace Keysharp.Core
 		///     2: Return the key in the first element, and the value in the second.
 		/// </param>
 		/// <returns><see cref="KeysharpEnumerator"/></returns>
-		public IFuncObj __Enum(object count) => new MapKeyValueIterator(EnumerableMap, count.Ai()).fo;
+		public IFuncObj __Enum(long count) => new MapKeyValueIterator(EnumerableMap, (int)count).fo;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Map"/> class.
@@ -303,7 +303,7 @@ namespace Keysharp.Core
 			if (def != null)
 				return def;
 
-			if (Default != null)
+			if (Default.IsSet)
 				return Default;
 
 			return Errors.UnsetItemErrorOccurred($"Key {k} was not present in the map.");
@@ -366,7 +366,7 @@ namespace Keysharp.Core
 		/// <param name="name">The name to use for this object.</param>
 		/// <param name="sbuf">The <see cref="StringBuffer"/> to print to.</param>
 		/// <param name="tabLevel">The tab level to use when printing.</param>
-		public override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
+		internal override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var indent = new string('\t', tabLevel);
 
@@ -482,6 +482,10 @@ namespace Keysharp.Core
 			}
 			else
 			{
+				for (int i = 0; i < args.Length; i++)
+					if (args[i] is KsValue kv)
+						args[i] = kv.AsObject();
+
 				if (args.Length == 1)
 				{
 					if (args[0] is Map m)
@@ -598,7 +602,12 @@ namespace Keysharp.Core
 		/// <param name="key">The key to search for.</param>
 		/// <param name="value">The value found.</param>
 		/// <returns>True if key was found else false.</returns>
-		private bool TryGetValue(object key, out object value) => map.TryGetValue(key, out value);
+		private bool TryGetValue(object key, out object value)
+		{
+			if (key is KsValue kv)
+				key = kv.AsObject();
+			return map.TryGetValue(key, out value);
+		}
 
 		/// <summary>
 		/// Indexer which retrieves or sets the value of an array element.
@@ -612,14 +621,14 @@ namespace Keysharp.Core
 		/// <param name="key">They key to search for.</param>
 		/// <returns>The value if found, else <see cref="Default"/> if specified.</returns>
 		/// <exception cref="UnsetItemError">An <see cref="UnsetItemError"/> exception is thrown if key is not found and <see cref="Default"/> is not specified.</exception>
-		public object this[object key]
+		public KsValue this[object key]
 		{
 			get
 			{
 				if (TryGetValue(key, out var val))
-					return val;
+					return KsValue.FromObject(val);
 
-				return Default ?? Errors.UnsetItemErrorOccurred($"Key {key} was not present in the map.");
+				return Default.Default((KsValue)Errors.UnsetItemErrorOccurred($"Key {key} was not present in the map."));
 			}
 			set
 			{
@@ -789,11 +798,11 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="key">A reference to the key value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object key)
+		public override KsValue Call([ByRef] object key)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(key, "__Value", Current.Item1);
+				Script.SetPropertyValue(KsValue.FromObject(key), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
@@ -806,30 +815,30 @@ namespace Keysharp.Core
 		/// <param name="key">A reference to the key value.</param>
 		/// <param name="value">A reference to the object value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object key, [ByRef] object value)
+		public override KsValue Call([ByRef] object key, [ByRef] object value)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(key, "__Value", Current.Item1);
-				Script.SetPropertyValue(value, "__Value", Current.Item2);
+				Script.SetPropertyValue(KsValue.FromObject(key), "__Value", KsValue.FromObject(Current.Item1));
+				Script.SetPropertyValue(KsValue.FromObject(value), "__Value", KsValue.FromObject(Current.Item2));
 				return true;
 			}
 
 			return false;
 		}
 
-        public override object Call([ByRef] params object[] args)
+        public override KsValue Call([ByRef] params object[] args)
         {
             if (MoveNext())
             {
                 if (args.Length == 1)
                 {
-                    Script.SetPropertyValue(args[0], "__Value", Current.Item1);
+                    Script.SetPropertyValue(KsValue.FromObject(args[0]), "__Value", KsValue.FromObject(Current.Item1));
                 }
                 else if (args.Length >= 2)
                 {
-                    Script.SetPropertyValue(args[0], "__Value", Current.Item1);
-                    Script.SetPropertyValue(args[1], "__Value", Current.Item2);
+                    Script.SetPropertyValue(KsValue.FromObject(args[0]), "__Value", KsValue.FromObject(Current.Item1));
+                    Script.SetPropertyValue(KsValue.FromObject(args[1]), "__Value", KsValue.FromObject(Current.Item2));
                 }
                 return true;
             }

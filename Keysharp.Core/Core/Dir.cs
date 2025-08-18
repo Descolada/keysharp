@@ -197,55 +197,55 @@
 		/// <summary>
 		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
 		/// </summary>
-		public static object SplitPath(object obj)
+		public static object SplitPath(string obj)
 		{
-			VarRef outFileName = new(null);
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
+			VarRef outFileName = VarRef.Empty;
+            VarRef outDir = VarRef.Empty;
+            VarRef outExtension = VarRef.Empty;
+            VarRef outNameNoExt = VarRef.Empty;
+            VarRef outDrive = VarRef.Empty;
 			return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
 		}
 
 		/// <summary>
 		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
 		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName)
+		public static object SplitPath(string obj, [ByRef] Any outFileName)
 		{
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
+            VarRef outDir = VarRef.Empty;
+            VarRef outExtension = VarRef.Empty;
+            VarRef outNameNoExt = VarRef.Empty;
+            VarRef outDrive = VarRef.Empty;
             return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
 		}
 
 		/// <summary>
 		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
 		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir)
+		public static object SplitPath(string obj, [ByRef] Any outFileName, [ByRef] Any outDir)
 		{
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
+            VarRef outExtension = VarRef.Empty;
+            VarRef outNameNoExt = VarRef.Empty;
+            VarRef outDrive = VarRef.Empty;
             return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
 		}
 
 		/// <summary>
 		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
 		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension)
+		public static object SplitPath(string obj, [ByRef] Any outFileName, [ByRef] Any outDir, [ByRef] Any outExtension)
 		{
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
+            VarRef outNameNoExt = VarRef.Empty;
+            VarRef outDrive = VarRef.Empty;
             return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
 		}
 
 		/// <summary>
 		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
 		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt)
+		public static object SplitPath(string obj, [ByRef] Any outFileName, [ByRef] Any outDir, [ByRef] Any outExtension, [ByRef] Any outNameNoExt)
 		{
-            VarRef outDrive = new(null);
+            VarRef outDrive = VarRef.Empty;
             return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
 		}
 
@@ -273,7 +273,7 @@
 		/// If the file is on a local or mapped drive, the variable will be set to the drive letter followed by a colon (no backslash).<br/>
 		/// If the file is on a network path (UNC), the variable will be set to the share name, e.g. \\Workstation01
 		/// </param>
-		public static object SplitPath(object path, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt, [ByRef] object outDrive)
+		public static object SplitPath(string path, [ByRef] Any outFileName, [ByRef] Any outDir, [ByRef] Any outExtension, [ByRef] Any outNameNoExt, [ByRef] Any outDrive)
 		{
 			outFileName ??= VarRef.Empty; outDir ??= VarRef.Empty; outExtension ??= VarRef.Empty; outNameNoExt ??= VarRef.Empty; outDrive ??= VarRef.Empty;
 
@@ -305,7 +305,7 @@
                     }
 				}
 
-				Script.SetPropertyValue(outDir, "__Value", (Script.GetPropertyValue(outDrive, "__Value") + localPath).TrimEnd('/'));
+				Script.SetPropertyValue(outDir, "__Value", ((string)Script.GetPropertyValue(outDrive, "__Value") + localPath).TrimEnd('/'));
 			}
 			else
 			{

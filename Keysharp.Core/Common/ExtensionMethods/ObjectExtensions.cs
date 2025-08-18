@@ -1,7 +1,7 @@
 ﻿namespace System
 {
 	/// <summary>
-	/// Extension methods for the System.Object class.
+	/// Extension methods for the System.External class.
 	/// </summary>
 	public static class ObjectExtensions
 	{
@@ -538,5 +538,7 @@
 		/// <param name="obj">The object to examine.</param>
 		/// <returns>If obj is not null, the result of calling obj.ToString(), else empty string.</returns>
 		public static string Str(this object obj) => obj != null ? obj.ToString() : "";
+
+		public static KsValue Default(this object obj, KsValue def) => obj != null || (obj is KsValue kv && kv.IsUnset) ? def : KsValue.FromObject(obj);
 	}
 }

@@ -77,8 +77,8 @@ namespace Keysharp.Core
 		/// and the output variables are made blank. It returns 1 (true) if the system returned a caret position,<br/>
 		/// but this does not necessarily mean a caret is visible.
 		/// </returns>
-		public static bool CaretGetPos([ByRef][Optional()][DefaultParameterValue(null)] object outputVarX,
-									   [ByRef][Optional()][DefaultParameterValue(null)] object outputVarY)
+		public static bool CaretGetPos([ByRef][Optional()][DefaultParameterValue(null)] Any outputVarX,
+									   [ByRef][Optional()][DefaultParameterValue(null)] Any outputVarY)
 		{
 			outputVarX ??= VarRef.Empty; outputVarY ??= VarRef.Empty;
             // I believe only the foreground window can have a caret position due to relationship with focused control.
@@ -362,7 +362,7 @@ break_twice:;
 					if (tempindex != -1)
 						hotstringStart = hotstringOptions.Slice(tempindex + 1).ToString(); // Points to the hotstring itself.
 				}
-				else // Double-colon, so it's a hotstring if there's more after this (but this means no options are present).
+				else // Float-colon, so it's a hotstring if there's more after this (but this means no options are present).
 					if (name.Length > 2)
 						hotstringStart = name.Substring(2);
 

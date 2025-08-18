@@ -46,7 +46,7 @@ namespace Keysharp.Core
 				//catch
 				//{
 				//}
-				object pid = null;
+				Any pid = null;
 
 				if (!string.IsNullOrEmpty(ed))
 				{

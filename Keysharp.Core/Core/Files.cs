@@ -35,16 +35,14 @@
 		/// If this option is not used, line endings within text are not changed.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
-		public static object FileAppend(object text, object filename = null, object options = null)
+		public static object FileAppend(KsValue text, string file = "", string options = "")
 		{
-			var file = filename.As();
-
 			//if (text.ToString() != "pass")
 			//  Console.WriteLine(text);
 
 			try
 			{
-				if (text == null)
+				if (text.IsUnset)
 					throw new Keysharp.Core.ValueError("Missing a required parameter: Text");
 				var t = text;
 				var encoding = ThreadAccessors.A_FileEncodingRaw;
@@ -128,7 +126,7 @@
 
 				if (tw != null)
 				{
-					if (t is string s)
+					if (t.TryGetString(out string s))
 					{
 #if DEBUG
 
@@ -138,7 +136,7 @@
 #endif
 
 						if (raw)
-							//sw.Write(Encoding.Unicode.GetBytes(s));
+							//sw.Write(Encoding.Unicode.GetBytes(filePattern));
 							tw.Write(s.AsSpan());
 						else if (crlf)
 							tw.Write(s.ReplaceLineEndings("\r\n"));
@@ -147,11 +145,11 @@
 					}
 					else if (tw is StreamWriter sw)
 					{
-						if (t is Array arr)//Most common will be array.
+						if (t.AsObject() is Array arr)//Most common will be array.
 						{
 							sw.BaseStream.Write(arr.ToByteArray().ToArray());
 						}
-						else if (t is Buffer buf)
+						else if (t.AsObject() is Buffer buf)
 						{
 							var len = (int)(long)buf.Size;
 							unsafe
@@ -161,11 +159,11 @@
 								sw.BaseStream.Write(bytes);
 							}
 						}
-						else if (t is byte[] ib)
+						else if (t.AsObject() is byte[] ib)
 						{
 							sw.BaseStream.Write(ib);
 						}
-						else if (t is IList il)//It was some other type of container, rare.
+						else if (t.AsObject() is IList il)//It was some other type of container, rare.
 						{
 							sw.BaseStream.Write(il.ToByteArray().ToArray());
 						}
@@ -190,9 +188,9 @@
 		/// sourcePattern is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.</param>
 		/// <param name="destination">The name or pattern of the destination, which is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.<br/>
 		/// If present, the first asterisk (*) in the filename is replaced with the source filename excluding its extension,<br/>
-		/// while the first asterisk after the last full stop (.) is replaced with the source file's extension.<br/>
-		/// If an asterisk is present but the extension is omitted, the source file's extension is used.<br/>
-		/// To perform a simple copy -- retaining the existing file name(s) -- specify only the folder name.
+		/// while the first asterisk after the last full stop (.) is replaced with the source file'filePattern extension.<br/>
+		/// If an asterisk is present but the extension is omitted, the source file'filePattern extension is used.<br/>
+		/// To perform a simple copy -- retaining the existing file name(filePattern) -- specify only the folder name.
 		/// </param>
 		/// <param name="overwrite">If omitted, it defaults to 0. Otherwise, specify one of the following numbers to indicate whether to overwrite files if they already exist:<br/>
 		/// 0: Do not overwrite existing files. The operation will fail and have no effect if DestPattern already exists as a file or directory.
@@ -223,7 +221,7 @@
 		/// Be sure to include the .lnk extension on Windows.<br/>
 		/// The destination directory must already exist. If the file already exists, it will be overwritten.</param>
 		/// <param name="workingDir">If blank or omitted, linkFile will have a blank "Start in" field and the system will provide a default working directory when the shortcut is launched.<br/>
-		/// Otherwise, specify the directory that will become target's current working directory when the shortcut is launched.
+		/// Otherwise, specify the directory that will become target'filePattern current working directory when the shortcut is launched.
 		/// </param>
 		/// <param name="args">If blank or omitted, target will be launched without parameters.<br/>
 		/// Otherwise, specify the parameters that will be passed to target when it is launched.<br/>
@@ -232,7 +230,7 @@
 		/// <param name="description">If blank or omitted, linkFile will have no description.<br/>
 		/// Otherwise, specify comments that describe the shortcut (used by the OS to display a tooltip, etc...).
 		/// </param>
-		/// <param name="icon">If blank or omitted, linkFile will have target's icon.<br/>
+		/// <param name="icon">If blank or omitted, linkFile will have target'filePattern icon.<br/>
 		/// Otherwise, specify the full path and name of the icon to be displayed for linkFile.<br/>
 		/// It must either be an .ICO file or the very first icon of an EXE or DLL file.
 		/// </param>
@@ -453,18 +451,16 @@
 		/// If the file has no attributes(rare), "X" is returned.<br/>
 		/// If no file or folder is found, an empty string is returned.
 		/// </returns>
-		public static string FileExist(object filePattern)
+		public static string FileExist(string filePattern)
 		{
-			var s = filePattern.As();
-
 			try
 			{
-				var path = Path.GetDirectoryName(s);
+				var path = Path.GetDirectoryName(filePattern);
 				var dir = new DirectoryInfo(path);
-				var filename = Path.GetFileName(s);
+				var filename = Path.GetFileName(filePattern);
 
-				if (Directory.Exists(s))
-					return Conversions.FromFileAttribs(File.GetAttributes(s));
+				if (Directory.Exists(filePattern))
+					return Conversions.FromFileAttribs(File.GetAttributes(filePattern));
 
 				foreach (var file in dir.EnumerateFiles(filename))
 					return Conversions.FromFileAttribs(File.GetAttributes(file.FullName));
@@ -516,15 +512,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj)
+		public static object FileGetShortcut(string obj)
 		{
-			object outTarget = VarRef.Empty;
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
+			Any outTarget = VarRef.Empty;
+			Any outDir = VarRef.Empty;
+			Any outArgs = VarRef.Empty;
+			Any outDescription = VarRef.Empty;
+			Any outIcon = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
 			return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -538,15 +534,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget)
 		{
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
+			Any outDir = VarRef.Empty;
+			Any outArgs = VarRef.Empty;
+			Any outDescription = VarRef.Empty;
+			Any outIcon = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
 			return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -560,15 +556,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir)
 		{
-            object outArgs = VarRef.Empty;
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
+			Any outArgs = VarRef.Empty;
+			Any outDescription = VarRef.Empty;
+			Any outIcon = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
             return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -582,15 +578,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir,
+											 [ByRef] Any outArgs)
 		{
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
+			Any outDescription = VarRef.Empty;
+			Any outIcon = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
             return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -604,15 +600,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir,
+											 [ByRef] Any outArgs,
+											 [ByRef] Any outDescription)
 		{
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
+			Any outIcon = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
             return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -626,15 +622,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir,
+											 [ByRef] Any outArgs,
+											 [ByRef] Any outDescription,
+											 [ByRef] Any outIcon)
 		{
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
+			Any outIconNum = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
             return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -648,15 +644,15 @@
 		/// <summary>
 		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
 		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
-											 [ByRef] object outIconNum)
+		public static object FileGetShortcut(string obj,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir,
+											 [ByRef] Any outArgs,
+											 [ByRef] Any outDescription,
+											 [ByRef] Any outIcon,
+											 [ByRef] Any outIconNum)
 		{
-            object outRunState = VarRef.Empty;
+			Any outRunState = VarRef.Empty;
             return FileGetShortcut(obj,
 								   outTarget,
 								   outDir,
@@ -675,22 +671,22 @@
 		/// Be sure to include the .lnk extension.
 		/// </param>
 		/// <param name="outTarget">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the shortcut's target (not including any arguments it might have).
+		/// Otherwise, specify a reference to the output variable in which to store the shortcut'filePattern target (not including any arguments it might have).
 		/// </param>
 		/// <param name="outDir">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the shortcut's working directory.
+		/// Otherwise, specify a reference to the output variable in which to store the shortcut'filePattern working directory.
 		/// </param>
 		/// <param name="outArgs">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the shortcut's parameters (blank if none).
+		/// Otherwise, specify a reference to the output variable in which to store the shortcut'filePattern parameters (blank if none).
 		/// </param>
 		/// <param name="outDescription">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the shortcut's comments (blank if none).
+		/// Otherwise, specify a reference to the output variable in which to store the shortcut'filePattern comments (blank if none).
 		/// </param>
 		/// <param name="outIcon">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the filename of the shortcut's icon (blank if none).
+		/// Otherwise, specify a reference to the output variable in which to store the filename of the shortcut'filePattern icon (blank if none).
 		/// </param>
 		/// <param name="outIconNum">If omitted, the corresponding value will not be stored.<br/>
-		/// Otherwise, specify a reference to the output variable in which to store the shortcut's icon number within the icon file (blank if none).<br/>
+		/// Otherwise, specify a reference to the output variable in which to store the shortcut'filePattern icon number within the icon file (blank if none).<br/>
 		/// This value is most often 1, which means the first icon.
 		/// </param>
 		/// <param name="outRunState"></param>
@@ -729,20 +725,20 @@
 		/// <param name="outRunState">Ignored</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
 #endif
-		public static object FileGetShortcut(object linkFile,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
+		public static object FileGetShortcut(string linkFile,
+											 [ByRef] Any outTarget,
+											 [ByRef] Any outDir,
+											 [ByRef] Any outArgs,
+											 [ByRef] Any outDescription,
+											 [ByRef] Any outIcon,
 #if WINDOWS
-											 object outIconNum,
+											 [ByRef] Any outIconNum,
 #else
-											 object outType,
+											 [ByRef] Any outType,
 #endif
-											 object outRunState)
+											 Any outRunState)
 		{
-			var link = Path.GetFullPath(linkFile.As());
+			var link = Path.GetFullPath(linkFile);
 #if LINUX
 			var dest = $"readlink -f '{link}'".Bash();
 
@@ -1139,7 +1135,7 @@
 		/// For example: "`n m5000 UTF-8"<br/>
 		/// Encoding: Specify any of the encoding names accepted by FileEncoding (excluding the empty string) to use that encoding<br/>
 		/// if the file lacks a UTF-8 or UTF-16 byte order mark. If omitted, it defaults to <see cref="A_FileEncoding"/>.<br/>
-		/// RAW: Specify the word RAW (case-insensitive) to read the file's content as raw binary data and return a Buffer object instead of a string.<br/>
+		/// RAW: Specify the word RAW (case-insensitive) to read the file'filePattern content as raw binary data and return a Buffer object instead of a string.<br/>
 		/// This option overrides any previously specified encoding and vice versa.<br/>
 		/// m1024: If this option is omitted, the entire file is loaded unless there is insufficient memory,<br/>
 		/// in which case an error message is shown and the thread exits (but Try can be used to avoid this).<br/>
@@ -1154,11 +1150,10 @@
 		/// If the file does not exist or cannot be opened for any other reason, an empty string is returned.
 		/// </returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object FileRead(object filename, object options = null)
+		public static KsValue FileRead(string filename, string options = null)
 		{
-			object output = null;
-			var file = filename.As();
-			var opts = options.As();
+			var file = filename;
+			var opts = options;
 			var enc = ThreadAccessors.A_FileEncodingRaw;
 
 			if (string.IsNullOrEmpty(file))
@@ -1193,6 +1188,7 @@
 
 			if (binary)
 			{
+				Buffer output = null;
 				try
 				{
 					var temparr = max == -1 ? File.ReadAllBytes(file) : new BinaryReader(File.OpenRead(file)).ReadBytes(max);
@@ -1200,8 +1196,9 @@
 				}
 				catch (Exception ex)
 				{
-					return Errors.OSErrorOccurred(ex, $"Error reading file {file}");
+					return KsValue.FromObject(Errors.OSErrorOccurred(ex, $"Error reading file {file}"));
 				}
+				return output;
 			}
 			else
 			{
@@ -1225,7 +1222,7 @@
 				}
 				catch (Exception ex)
 				{
-					return Errors.OSErrorOccurred(ex, $"Error reading file {file}");
+					return KsValue.FromObject(Errors.OSErrorOccurred(ex, $"Error reading file {file}"));
 				}
 
 				if (max != -1)
@@ -1234,10 +1231,8 @@
 				if (nocrlf)
 					text = text.Replace("\r\n", "\n");
 
-				output = text;
+				return text;
 			}
-
-			return output;
 		}
 
 		/// <summary>
@@ -1311,7 +1306,7 @@
 		/// N: NORMAL (this is valid only when used without any other attributes)<br/>
 		/// O: OFFLINE<br/>
 		/// T: TEMPORARY<br/>
-		/// If no symbol precedes the attribute letters, the file's attributes are replaced with the given attributes.<br/>
+		/// If no symbol precedes the attribute letters, the file'filePattern attributes are replaced with the given attributes.<br/>
 		/// To remove all attributes, use "N" on its own.
 		/// </param>
 		/// <param name="filePattern">
@@ -1463,7 +1458,7 @@
 		/// Internal helper for retrieving an <see cref="Encoding"/> object from options specified as a string.
 		/// </summary>
 		/// <param name="s">The encoding options.</param>
-		/// <returns>A new <see cref="Encoding"/> object created based on the options specified in s.</returns>
+		/// <returns>A new <see cref="Encoding"/> object created based on the options specified in filePattern.</returns>
 		internal static Encoding GetEncoding(object s)
 		{
 			var val = s.ToString().ToLowerInvariant();
@@ -1574,7 +1569,7 @@
 					var s = Path.Combine(sdname, name);
 					var d = Path.Combine(ddname, dname);
 
-					if (Directory.Exists(s))//Ensure it's not a folder (again) just to be safe. AHK did this.
+					if (Directory.Exists(s))//Ensure it'filePattern not a folder (again) just to be safe. AHK did this.
 						continue;
 
 					if (move)

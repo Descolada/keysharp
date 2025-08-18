@@ -568,7 +568,7 @@
 					else
 					{
 						if (obj.Length > 0 && obj[0] is Array arr)
-							obj = arr.array.ToArray();
+							obj = arr.array.Cast<object>().ToArray();
 
 						if (_control is KeysharpListBox lb)//Using AddRange() relieves the caller of having to set -Redraw first.
 							lb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()).ToArray());
@@ -1894,18 +1894,18 @@
 
 				if (!scaling)
 				{
-					Script.SetPropertyValue(outX, "__Value", (long)rect.X);
-					Script.SetPropertyValue(outY, "__Value", (long)rect.Y);
-					Script.SetPropertyValue(outWidth, "__Value", (long)rect.Width);
-					Script.SetPropertyValue(outHeight, "__Value", (long)rect.Height);
+					Script.SetPropertyValue(KsValue.FromObject(outX), "__Value", (long)rect.X);
+					Script.SetPropertyValue(KsValue.FromObject(outY), "__Value", (long)rect.Y);
+					Script.SetPropertyValue(KsValue.FromObject(outWidth), "__Value", (long)rect.Width);
+					Script.SetPropertyValue(KsValue.FromObject(outHeight), "__Value", (long)rect.Height);
 				}
 				else
 				{
 					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					Script.SetPropertyValue(outX, "__Value", (long)(rect.X * scale));
-					Script.SetPropertyValue(outY, "__Value", (long)(rect.Y * scale));
-					Script.SetPropertyValue(outWidth, "__Value", (long)(rect.Width * scale));
-					Script.SetPropertyValue(outHeight, "__Value", (long)(rect.Height * scale));
+					Script.SetPropertyValue(KsValue.FromObject(outX), "__Value", (long)(rect.X * scale));
+					Script.SetPropertyValue(KsValue.FromObject(outY), "__Value", (long)(rect.Y * scale));
+					Script.SetPropertyValue(KsValue.FromObject(outWidth), "__Value", (long)(rect.Width * scale));
+					Script.SetPropertyValue(KsValue.FromObject(outHeight), "__Value", (long)(rect.Height * scale));
 				}
 			}
 

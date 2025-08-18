@@ -41,7 +41,7 @@ namespace Keysharp.Scripting
         internal static Dictionary<int, string> binaryOperators = new Dictionary<int, string>()
         {
             {MainParser.Plus, "Add"},
-            {MainParser.Minus, "Minus"},
+            {MainParser.Minus, "Subtract"},
             {MainParser.Multiply, "Multiply"},
             {MainParser.Divide, "Divide"},
             {MainParser.IntegerDivide, "FloorDivide"},
@@ -72,9 +72,10 @@ namespace Keysharp.Scripting
 
         internal static Dictionary<int, string> unaryOperators = new Dictionary<int, string>()
         {
-            {MainParser.Minus, "Minus"},
-            {MainParser.Not, "LogicalNot"},
-            {MainParser.VerbalNot, "LogicalNot"},
+			{MainParser.Plus, "Plus"},
+			{MainParser.Minus, "Minus"},
+            {MainParser.Not, "Not"},
+            {MainParser.VerbalNot, "Not"},
             {MainParser.BitNot, "BitwiseNot"}
         };
         internal void AddAssembly(string assemblyName, string value)
@@ -502,16 +503,45 @@ namespace Keysharp.Scripting
             }
         }
 
-        internal static InvocationExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
+        internal static ExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
         {
-            return SyntaxFactory.InvocationExpression(
-                ScriptOperateName,
-				CreateArgumentList(
-				    CreateMemberAccess("Keysharp.Scripting.Script.Operator", binaryOperators[op]),
-                    exprL,
-                    exprR
-                )
-            );
+            switch (op)
+            {
+                case MainParser.Equals_:
+                case MainParser.NotEquals:
+                case MainParser.IdentityEquals:
+                case MainParser.IdentityNotEquals:
+                    ExpressionSyntax setExpr = null;
+
+                    if (exprL is IdentifierNameSyntax insl && insl.Identifier.Text == "Unset")
+                    {
+                        setExpr = exprR;
+                    }
+                    else if (exprR is IdentifierNameSyntax insr && insr.Identifier.Text == "Unset")
+                    {
+                        setExpr = exprL;
+                    }
+
+                    if (setExpr != null)
+                    {
+                        setExpr = ((InvocationExpressionSyntax)InternalMethods.IsSet)
+                                .WithArgumentList(CreateArgumentList(setExpr));
+
+                        if (op == MainParser.Equals_ || op == MainParser.IdentityEquals)
+                            setExpr = SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, setExpr);
+
+                        return setExpr;
+                    }
+                    break;
+            }
+
+			return SyntaxFactory.InvocationExpression(
+                    CreateMemberAccess("KsValue", binaryOperators[op]),
+                    CreateArgumentList(
+                        exprL,
+                        exprR
+                    )
+                );
         }
 
         // Checks whether a local or static variable is in the current function or any parent functions.
@@ -777,7 +807,7 @@ namespace Keysharp.Scripting
             if (!caseSense)
                 name = name.ToLowerInvariant();
 
-            var variableDeclaration = SyntaxFactory.VariableDeclaration(PredefinedKeywords.ObjectType)
+            var variableDeclaration = SyntaxFactory.VariableDeclaration(PredefinedKeywords.KsValueType)
                 .AddVariables(SyntaxFactory.VariableDeclarator(name));
 
             var fieldDeclaration = SyntaxFactory.FieldDeclaration(variableDeclaration)
@@ -848,13 +878,13 @@ namespace Keysharp.Scripting
             }
 
             var variableDeclaration = SyntaxFactory.VariableDeclaration(
-            Parser.PredefinedKeywords.ObjectType)
+            Parser.PredefinedKeywords.KsValueType)
             .AddVariables(
                 SyntaxFactory.VariableDeclarator(name)
                 .WithInitializer(
                     SyntaxFactory.EqualsValueClause(
 						PredefinedKeywords.EqualsToken,
-						SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)
                     )
                 )
             );
@@ -901,7 +931,7 @@ namespace Keysharp.Scripting
             // Add `internal static object myclass = Myclass.__Static;` global field
             var fieldDeclaration = SyntaxFactory.FieldDeclaration(
                 SyntaxFactory.VariableDeclaration(
-                    Parser.PredefinedKeywords.ObjectType,
+                    Parser.PredefinedKeywords.KsValueType,
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(className)
                             .WithInitializer(
@@ -978,7 +1008,7 @@ namespace Keysharp.Scripting
         // and then the FuncObj is assigned to a lower-cased variable of the closure name.
         internal static VariableDeclarationSyntax CreateFuncObjDelegateVariable(string functionName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.KsValueType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(
@@ -1009,7 +1039,7 @@ namespace Keysharp.Scripting
 
         internal VariableDeclarationSyntax CreateFuncObjVariable(string functionName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.KsValueType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(
@@ -1033,14 +1063,14 @@ namespace Keysharp.Scripting
         // Creates a VariableDeclarationSyntax for `object var = null;`
         internal static VariableDeclarationSyntax CreateNullObjectVariable(string variableName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.KsValueType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier(variableName))
                         .WithInitializer(
                             SyntaxFactory.EqualsValueClause(
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+								SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)
                             )
                         )
                     )
@@ -1354,6 +1384,13 @@ namespace Keysharp.Scripting
                 throw new InvalidOperationException("Unsupported node type in statement list.");
         }
 
+        internal static ExpressionSyntax EnsureSingleExpression(ExpressionSyntax expr)
+        {
+			if (expr is AssignmentExpressionSyntax)
+				expr = SyntaxFactory.ParenthesizedExpression(expr);
+            return expr;
+		}
+
         internal static StatementSyntax EnsureBreakStatement(StatementSyntax statements, int indent = 0)
         {
             if (statements is BlockSyntax blockSyntax)
@@ -1486,8 +1523,8 @@ namespace Keysharp.Scripting
         public static ExpressionSyntax ConstructVarRefFromIdentifier(string identifier)
         {
             var identifierName = SyntaxFactory.IdentifierName(identifier);
-            return SyntaxFactory.ObjectCreationExpression(
-                SyntaxFactory.IdentifierName("VarRef"),
+            return ((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+            .WithArgumentList(
                 CreateArgumentList(
                     // Getter lambda: () => identifier
                     SyntaxFactory.ParenthesizedLambdaExpression(
@@ -1508,8 +1545,7 @@ namespace Keysharp.Scripting
 						    SyntaxFactory.IdentifierName("value")
                         )
                     )
-                ),
-                null
+                )
             );
         }
 
@@ -1529,8 +1565,8 @@ namespace Keysharp.Scripting
             else if (targetExpression is MemberAccessExpressionSyntax memberAccess)
             {
                 // Case: MemberDotExpression
-                return SyntaxFactory.ObjectCreationExpression(
-                    SyntaxFactory.IdentifierName("VarRef"),
+                return ((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+			    .WithArgumentList(
                     CreateArgumentList(
                         // Getter lambda: () => obj.property
                         SyntaxFactory.ParenthesizedLambdaExpression(
@@ -1551,8 +1587,7 @@ namespace Keysharp.Scripting
 							    SyntaxFactory.IdentifierName("value")
                             )
                         )
-                    ),
-                    null
+                    )
                 );
             }
             else if (targetExpression is ElementAccessExpressionSyntax elementAccess)
@@ -1561,12 +1596,30 @@ namespace Keysharp.Scripting
                 var baseExpression = elementAccess.Expression;
                 var indexExpression = elementAccess.ArgumentList.Arguments.First().Expression;
 
-                return SyntaxFactory.ObjectCreationExpression(
-                    SyntaxFactory.IdentifierName("VarRef"),
-                        CreateArgumentList(
-                            // Getter lambda: () => obj[index]
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(),
+                return ((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+			    .WithArgumentList(
+					CreateArgumentList(
+                        // Getter lambda: () => obj[index]
+                        SyntaxFactory.ParenthesizedLambdaExpression(
+                            SyntaxFactory.ParameterList(),
+                            SyntaxFactory.ElementAccessExpression(baseExpression)
+                                .WithArgumentList(
+                                    SyntaxFactory.BracketedArgumentList(
+                                        SyntaxFactory.SingletonSeparatedList(
+                                            SyntaxFactory.Argument(indexExpression)
+                                        )
+                                    )
+                                )
+                        ),
+                        // Setter lambda: value => obj[index] = value
+                        SyntaxFactory.ParenthesizedLambdaExpression(
+                            SyntaxFactory.ParameterList(
+                                SyntaxFactory.SingletonSeparatedList(
+                                    SyntaxFactory.Parameter(SyntaxFactory.Identifier("value"))
+                                )
+                            ),
+                            SyntaxFactory.AssignmentExpression(
+                                SyntaxKind.SimpleAssignmentExpression,
                                 SyntaxFactory.ElementAccessExpression(baseExpression)
                                     .WithArgumentList(
                                         SyntaxFactory.BracketedArgumentList(
@@ -1574,31 +1627,12 @@ namespace Keysharp.Scripting
                                                 SyntaxFactory.Argument(indexExpression)
                                             )
                                         )
-                                    )
-                            ),
-                            // Setter lambda: value => obj[index] = value
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.Parameter(SyntaxFactory.Identifier("value"))
-                                    )
-                                ),
-                                SyntaxFactory.AssignmentExpression(
-                                    SyntaxKind.SimpleAssignmentExpression,
-                                    SyntaxFactory.ElementAccessExpression(baseExpression)
-                                        .WithArgumentList(
-                                            SyntaxFactory.BracketedArgumentList(
-                                                SyntaxFactory.SingletonSeparatedList(
-                                                    SyntaxFactory.Argument(indexExpression)
-                                                )
-                                            )
-                                        ),
-                                    PredefinedKeywords.EqualsToken,
-                                    SyntaxFactory.IdentifierName("value")
-                                )
+                                    ),
+                                PredefinedKeywords.EqualsToken,
+                                SyntaxFactory.IdentifierName("value")
                             )
-                    ),
-                    null
+                        )
+                    )
                 );
             }
             else if (targetExpression is InvocationExpressionSyntax invocationExpression)
@@ -1610,9 +1644,9 @@ namespace Keysharp.Scripting
                     var varName = invocationExpression.ArgumentList.Arguments[0].Expression;
                     var index = invocationExpression.ArgumentList.Arguments[1].Expression;
 
-                    return SyntaxFactory.ObjectCreationExpression(
-                        SyntaxFactory.IdentifierName("VarRef"),
-                        CreateArgumentList(
+                    return ((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+			        .WithArgumentList(
+						CreateArgumentList(
                         // Getter lambda: () => Keysharp.Scripting.Script.Index(varname, index)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(),
@@ -1637,8 +1671,7 @@ namespace Keysharp.Scripting
 									)
                                 )
                             )
-                        ),
-                        null
+                        )
                     );
                 }
                 // Handle Keysharp.Scripting.Script.GetPropertyValue(obj, field)
@@ -1648,9 +1681,9 @@ namespace Keysharp.Scripting
                     var obj = invocationExpression.ArgumentList.Arguments[0].Expression;
                     var field = invocationExpression.ArgumentList.Arguments[1].Expression;
 
-                    return SyntaxFactory.ObjectCreationExpression(
-                        SyntaxFactory.IdentifierName("VarRef"),
-                        CreateArgumentList(
+                    return ((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+			        .WithArgumentList(
+						CreateArgumentList(
                         // Getter lambda: () => Keysharp.Scripting.Script.GetPropertyValue(obj, field)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(),
@@ -1669,9 +1702,12 @@ namespace Keysharp.Scripting
                                     CreateArgumentList(obj, field, SyntaxFactory.IdentifierName("value"))
                                 )
                             )
-                        ),
-                        null
+                        )
                     );
+                }
+                else if (CheckInvocationExpressionName(invocationExpression, InternalMethods.ConstructVarRef.MethodName))
+                {
+                    return invocationExpression;
                 }
                 else if (invocationExpression.ArgumentList.Arguments.Count == 3 &&
                          invocationExpression.ArgumentList.Arguments[1].Expression is LiteralExpressionSyntax argumentName &&
@@ -1679,10 +1715,6 @@ namespace Keysharp.Scripting
                 {
                     return invocationExpression;
                 }
-            } else if (targetExpression is ObjectCreationExpressionSyntax oces
-                && oces.Type.GetLastToken().ValueText == "VarRef")
-            {
-                return oces;
             }
 
             throw new InvalidOperationException("Unsupported singleExpression type for VarRefExpression.");
@@ -1702,13 +1734,14 @@ namespace Keysharp.Scripting
             StringComparison comparison = caseSense ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
             return (ies.Expression is MemberAccessExpressionSyntax maes && maes.Name.Identifier.Text.Equals(target, comparison))
-                || (ies.Expression is QualifiedNameSyntax qes && qes.Right.Identifier.Text.Equals(target, comparison));
+                || (ies.Expression is QualifiedNameSyntax qes && qes.Right.Identifier.Text.Equals(target, comparison)
+                || ies.Expression is IdentifierNameSyntax ins && ins.Identifier.Text.Equals(target, comparison));
         }
 
         internal ExpressionSyntax CreateSuperTuple()
         {
             return SyntaxFactory.CastExpression(
-                SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+                Parser.PredefinedKeywords.KsValueType,
                     SyntaxFactory.TupleExpression(
                         SyntaxFactory.SeparatedList<ArgumentSyntax>(
                             new ArgumentSyntax[]
@@ -1762,9 +1795,10 @@ namespace Keysharp.Scripting
         {
             // Extract the parameter name
             var parameterName = parameter.Identifier.Text;
+			var paramIdentifier = SyntaxFactory.IdentifierName(parameterName);
 
-            // Determine if the value is a constant
-            bool isConstant = value is LiteralExpressionSyntax;
+			// Determine if the value is a constant
+			LiteralExpressionSyntax literalExpr = value as LiteralExpressionSyntax;
 
             // Check if the parameter type is VarRef
             var isVarRefType = parameter.AttributeLists
@@ -1775,35 +1809,41 @@ namespace Keysharp.Scripting
 
             if (isVarRefType)
             {
-                // Add the initialization statement to the function body
+				// Add the initialization statement to the function body
+				initializationStatement = SyntaxFactory.ExpressionStatement(
+	                SyntaxFactory.InvocationExpression(
+		                CreateMemberAccess("KsValue", "EnsureDefault"),
+		                SyntaxFactory.ArgumentList(
+			                SyntaxFactory.SeparatedList(
+				                new[]
+				                {
+									SyntaxFactory.Argument(default, SyntaxFactory.Token(SyntaxKind.RefKeyword), paramIdentifier),
+									SyntaxFactory.Argument(
+										((InvocationExpressionSyntax)InternalMethods.ConstructVarRef)
+								        .WithArgumentList(CreateArgumentList(value))
+                                    )
+				                }
+			                )
+		                )
+	                )
+                );
+            }
+            else if (literalExpr == null || !literalExpr.Token.IsKind(SyntaxKind.DefaultKeyword))
+			{
                 initializationStatement = SyntaxFactory.ExpressionStatement(
-                    SyntaxFactory.AssignmentExpression(
-                        SyntaxKind.CoalesceAssignmentExpression,
-                        SyntaxFactory.IdentifierName(parameterName),
-                        SyntaxFactory.ObjectCreationExpression(
-                            SyntaxFactory.IdentifierName("VarRef"),
-                            CreateArgumentList(value),
-                            null
+                    SyntaxFactory.InvocationExpression(
+                        CreateMemberAccess("KsValue", "EnsureDefault"),
+                        SyntaxFactory.ArgumentList(
+                            SyntaxFactory.SeparatedList(
+                                new[]
+                                {
+                                SyntaxFactory.Argument(default, SyntaxFactory.Token(SyntaxKind.RefKeyword), paramIdentifier),
+                                SyntaxFactory.Argument(value)
+                                }
+                            )
                         )
                     )
                 );
-
-                // Set the default value to null
-                value = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
-            }
-            else if (!isConstant)
-            {
-                // Add the coalesce assignment to the function body if the value is non-constant
-                initializationStatement = SyntaxFactory.ExpressionStatement(
-                    SyntaxFactory.AssignmentExpression(
-                        SyntaxKind.CoalesceAssignmentExpression,
-                        SyntaxFactory.IdentifierName(parameterName),
-                        value
-                    )
-                );
-
-                // Set the default value to null
-                value = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
             }
 
             if (initializationStatement != null)
@@ -1811,25 +1851,55 @@ namespace Keysharp.Scripting
                 currentFunc.Body.Add(initializationStatement);
             }
 
-            // Add the attributes for Optional and DefaultParameterValue
-            return parameter.WithAttributeLists(
-				parameter.AttributeLists.Add(
-                    SyntaxFactory.AttributeList(
-                        SyntaxFactory.SeparatedList(new[]
-                        {
-                            SyntaxFactory.Attribute(SyntaxFactory.IdentifierName("Optional")),
-                            SyntaxFactory.Attribute(
-                                SyntaxFactory.IdentifierName("DefaultParameterValue"),
-                                SyntaxFactory.AttributeArgumentList(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.AttributeArgument(value)
-                                    )
-                                )
-                            )
-                        })
-                    )
-                )
-            );
+            return parameter
+                .WithDefault(SyntaxFactory.EqualsValueClause(SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)));
         }
+
+		public ExpressionSyntax HandleCoalesceExpression(ExpressionSyntax left, ExpressionSyntax right)
+		{
+			if (right is AssignmentExpressionSyntax)
+				right = SyntaxFactory.ParenthesizedExpression(right);
+			if (left is InvocationExpressionSyntax ies && CheckInvocationExpressionName(ies, "GetPropertyValue"))
+			{
+				var valueExpr = PushTempVar();
+
+				var origArgs = ies.ArgumentList.Arguments;
+
+				// Build the out-temp third argument: `out temp`
+				var outArg = SyntaxFactory.Argument(valueExpr)
+					.WithRefKindKeyword(
+						SyntaxFactory.Token(SyntaxKind.OutKeyword)
+					);
+
+				// Now build: TryGetPropertyValue(obj, key, out temp)
+				var tryCall = SyntaxFactory.InvocationExpression(
+					SyntaxFactory.IdentifierName("TryGetPropertyValue"),
+					CreateArgumentList(
+						origArgs[0],
+						origArgs[1],
+						outArg
+					)
+				);
+
+				// Build the conditional: TryGetPropertyValue(...) ? temp0 : right
+				var conditional = SyntaxFactory.ConditionalExpression(
+					tryCall,
+					valueExpr,
+					right
+				);
+
+				PopTempVar();
+
+				return SyntaxFactory.ParenthesizedExpression(conditional);
+			}
+			return SyntaxFactory.InvocationExpression(
+					SyntaxFactory.MemberAccessExpression(
+						SyntaxKind.SimpleMemberAccessExpression,
+						left,
+						SyntaxFactory.IdentifierName("Default")
+					),
+					CreateArgumentList(right)
+				);
+		}
 	}
 }

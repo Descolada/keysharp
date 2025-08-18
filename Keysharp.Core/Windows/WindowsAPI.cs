@@ -1161,6 +1161,13 @@ namespace Keysharp.Core.Windows
 			{ "Width", (rect.Right - rect.Left)* scale },
 			{ "Height", (rect.Bottom - rect.Top)* scale },
 		});
+		internal static Rectangle ScaleRect(this RECT rect, double scale = 1.0) => 
+			new Rectangle { 
+				X = (int)(rect.Left * scale), 
+				Y = (int)(rect.Top * scale),
+				Width = (int)((rect.Right - rect.Left) * scale),
+				Height = (int)((rect.Bottom - rect.Top) * scale)
+			};
 
 		[DllImport(oleacc, CharSet = CharSet.Unicode)]
 		internal static extern int AccessibleObjectFromWindow(nint hwnd, uint id, ref Guid iid, [In, Out, MarshalAs(UnmanagedType.IUnknown)] ref object ppvObject);

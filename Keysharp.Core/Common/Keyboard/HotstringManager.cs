@@ -36,6 +36,7 @@ namespace Keysharp.Core.Common.Keyboard
 		/// any options (e.g. ::ahk:: has a different aName than :c:ahk::).
 		/// Caller has also ensured that aHotstring is not blank.
 		/// </summary>
+		[PublicForTestOnly]
 		public static object AddHotstring(string _name, IFuncObj _funcObj, ReadOnlySpan<char> _options, string _hotstring
 										  , string _replacement, bool _hasContinuationSection, int _suspend = 0)
 		{

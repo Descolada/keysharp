@@ -32,7 +32,7 @@
 		public static object StartRealThread(object obj, params object[] args)
 		{
 			var funcObj = Functions.GetFuncObj(obj, null, true);
-			var tsk = Task.Run(() => funcObj.Call(args));
+			var tsk = Task.Run(() => (object)funcObj.Call(args));
 			return new RealThread(tsk);
 		}
 	}
@@ -62,7 +62,7 @@
 		public object ContinueWith(object obj, params object[] args)
 		{
 			var fo = Functions.GetFuncObj(obj, null, true);
-			var rt = task.ContinueWith((to) => fo.Call(args));
+			var rt = task.ContinueWith((to) => (object)fo.Call(args));
 			return new RealThread(rt);
 		}
 

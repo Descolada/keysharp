@@ -1259,7 +1259,7 @@ namespace Keysharp.Core.Windows
 		/// <summary>
 		/// Registers a call back for Device Events
 		/// </summary>
-		/// <param name="client">Object implementing IMMNotificationClient type casted as IMMNotificationClient interface</param>
+		/// <param name="client">External implementing IMMNotificationClient type casted as IMMNotificationClient interface</param>
 		/// <returns></returns>
 		internal int RegisterEndpointNotificationCallback([In][MarshalAs(UnmanagedType.Interface)] IMMNotificationClient client)
 		{
@@ -1269,7 +1269,7 @@ namespace Keysharp.Core.Windows
 		/// <summary>
 		/// Unregisters a call back for Device Events
 		/// </summary>
-		/// <param name="client">Object implementing IMMNotificationClient type casted as IMMNotificationClient interface </param>
+		/// <param name="client">External implementing IMMNotificationClient type casted as IMMNotificationClient interface </param>
 		/// <returns></returns>
 		internal int UnregisterEndpointNotificationCallback([In][MarshalAs(UnmanagedType.Interface)] IMMNotificationClient client)
 		{

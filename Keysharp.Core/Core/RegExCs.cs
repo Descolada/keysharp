@@ -30,12 +30,12 @@
 		/// </param>
 		/// <returns>The <see cref="RegExMatchInfoCs"/> object which contains the matches, if any.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static long RegExMatchCs(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
+		public static long RegExMatchCs(string haystack, string needle, [ByRef] Any outputVar = null, long startingPos = 1)
 		{
 			outputVar ??= VarRef.Empty;
 			var input = haystack.As();
 			var n = needle.As();
-			var index = startingPos.Ai(1);
+			var index = (int)startingPos;
 			var reverse = index < 1;
 			var str = n + reverse;
 			RegexWithTag exp = null;
@@ -121,14 +121,14 @@
 		/// </param>
 		/// <returns>A version of haystack whose contents have been replaced by the operation. If no replacements are needed, haystack is returned unaltered.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static string RegExReplaceCs(object haystack, object needleRegEx, object replacement = null, [ByRef] object outputVarCount = null, object limit = null, object startingPos = null)
+		public static string RegExReplaceCs(string haystack, string needleRegEx, KsValue replacement = default, [ByRef] Any outputVarCount = null, long limit = -1, long startingPos = 1)
 		{
 			var input = haystack.As();
 			var needle = needleRegEx.As();
 			var replace = replacement.As();
 			outputVarCount ??= VarRef.Empty;
-			var l = limit.Ai(-1);
-			var index = startingPos.Ai(1);
+			var l = (int)limit;
+			var index = (int)startingPos;
 			var n = 0;
 			var reverse = index < 1;
 			var str = needle + reverse;

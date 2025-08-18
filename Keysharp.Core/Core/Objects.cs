@@ -22,6 +22,9 @@
 		/// <returns>A new <see cref="Map"/> object.</returns>
 		public static KeysharpObject Object(params object[] args)
 		{
+			for (int i = 0; i < args.Length; i++)
+				if (args[i] is not KsValue)
+					args[i] = KsValue.FromObject(args[i]);
 			var kso = new KeysharpObject();
 			var count = (args.Length / 2) * 2;
 
@@ -31,7 +34,7 @@
 				if (name.Equals("base", StringComparison.OrdinalIgnoreCase))
 					kso._base = (Any)args[i + 1];
 				else
-					kso.op[name] = new OwnPropsDesc(kso, args[i + 1]);
+					kso.op[name] = new OwnPropsDesc(kso, (KsValue)args[i + 1]);
 			}
 
 			return kso;

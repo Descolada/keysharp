@@ -113,12 +113,12 @@
             if (enumerable is I__Enum ie)//Iterators for array, gui and map will be this.
             {
                 var en = ie.__Enum(1);
-				object element = null;
+				KsValue element = default;
                 VarRef val = new VarRef(() => element, value => element = value);
 
-                while (en.Call(val).Ab())
+                while (en.Call(val).AsBool())
                 {
-                    if (recurse && element is IEnumerable candidate && !(element is string))
+                    if (recurse && element.AsObject() is IEnumerable candidate && !(element.AsObject() is string))
                     {
                         foreach (var nested in Flatten(candidate, recurse))
                             yield return nested;
@@ -688,10 +688,7 @@
 
 				foreach (var (index, val) in array)
 				{
-					if (val is byte b)
-						arr.Add(b);
-					else
-						arr.Add((byte)Convert.ToInt64(val));
+					arr.Add((byte)val.Al());
 				}
 			}
 			else//Something else, probably an ArrayList, attempt to convert, slower.

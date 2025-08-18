@@ -38,7 +38,7 @@ namespace Keysharp.Tests
 			Assert.IsTrue(Keysharp.Core.Types.Type(0L) == "Integer");
 			Assert.IsTrue(Keysharp.Core.Types.Type(1.2) == "Float");
 			Assert.IsTrue(Keysharp.Core.Types.Type(new KeysharpObject()) == "Object");
-			Assert.IsTrue(Keysharp.Core.Types.Type(null) == "unset");
+			Assert.IsTrue(Keysharp.Core.Types.Type(default) == "unset");
 			//Assure every public static function returns something other than void.
 			var loadedAssemblies = GetLoadedAssemblies();
 			var types = loadedAssemblies.Values.Where(asm => asm.FullName.StartsWith("Keysharp.Core,"))

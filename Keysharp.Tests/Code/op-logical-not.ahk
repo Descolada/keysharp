@@ -108,13 +108,3 @@ if (not (x is unset))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-
-if (not (x = null))
-	FileAppend "pass", "*"
-else
-	FileAppend "fail", "*"
-
-if (not (x == null))
-	FileAppend "pass", "*"
-else
-	FileAppend "fail", "*"

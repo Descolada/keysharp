@@ -286,7 +286,7 @@
 		/// <summary>
 		/// The time in milliseconds to wait when reading the clipboard before a timeout is triggered.
 		/// </summary>
-		public static object A_ClipboardTimeout { get; set; } = 1000L;
+		public static long A_ClipboardTimeout { get; set; } = 1000L;
 
 		/// <summary>
 		/// The name of the computer as seen on the network.
@@ -1786,16 +1786,6 @@
 		/// See <see cref="A_Year"/>.
 		/// </summary>
 		public static long A_YYYY => A_Year;
-
-		/// <summary>
-		/// The numeric value for False, 0.
-		/// </summary>
-		public static long False => 0L;
-
-		/// <summary>
-		/// The numeric value for True, 1.
-		/// </summary>
-		public static long True => 1L;
 
 		/// <summary>
 		/// The most recent reason the script was asked to terminate. This variable is blank unless the script has an OnExit subroutine and that subroutine is currently running or has been called at least once by an exit attempt. See OnExit for details.

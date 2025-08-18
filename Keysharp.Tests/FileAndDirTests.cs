@@ -479,13 +479,13 @@ namespace Keysharp.Tests
 			var dir = string.Concat(path, "DirCopy");
 			Dir.DirCopy(dir, "./FileGetShortcut/");
 			var patharg = Path.GetDirectoryName(Path.GetFullPath("./FileGetShortcut/file1.txt"));
-			VarRef outTarget = new(null);
-            VarRef outDir = new(null);
-            VarRef outArgs = new(null);
-            VarRef outDescription = new(null);
-            VarRef outIcon = new(null);
-            VarRef outIconNum = new(null);
-            VarRef outRunState = new(null);
+			VarRef outTarget = new(default);
+            VarRef outDir = new(default);
+            VarRef outArgs = new(default);
+            VarRef outDescription = new(default);
+            VarRef outIcon = new(default);
+            VarRef outIconNum = new(default);
+            VarRef outRunState = new(default);
 #if LINUX
 			//Test creating a basic symlink first on linux.
 			Keysharp.Core.Files.FileCreateShortcut
@@ -1101,11 +1101,11 @@ groupkey13=groupval13
 		public void SplitPath()
 		{
 			var fullpath = string.Concat(path, "DirCopy/file1.txt");
-			VarRef filename = new(null);
-            VarRef dir = new(null);
-            VarRef ext = new(null);
-            VarRef namenoext = new(null);
-            VarRef drive = new(null);
+			VarRef filename = new(default);
+            VarRef dir = new(default);
+            VarRef ext = new(default);
+            VarRef namenoext = new(default);
+            VarRef drive = new(default);
 			Dir.SplitPath(fullpath, filename, dir, ext, namenoext, drive);
 			Assert.AreEqual("file1.txt", filename.__Value);
 			Assert.AreEqual("txt", ext.__Value);

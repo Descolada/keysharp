@@ -310,8 +310,8 @@ namespace Keysharp.Core
 				Prompt = p,
 				Title = t?.Length == 0 ? A_ScriptName : t
 			};
-			VarRef wl = new(null), wt = new(null), wr = new(null), wb = new(null);
-			var workarea = Monitor.MonitorGetWorkArea(null, wl, wt, wr, wb);
+			VarRef wl = new (default), wt = new (default), wr = new (default), wb = new (default);
+			var workarea = Monitor.MonitorGetWorkArea(default, wl, wt, wr, wb);
 			var w = int.MinValue;
 			var h = int.MinValue;
 			var x = int.MinValue;
@@ -389,10 +389,10 @@ namespace Keysharp.Core
 		///     Continue<br/>
 		///     Timeout (that is, the word "timeout" is returned if the message box timed out)
 		/// </returns>
-		public static string MsgBox(object text = null, object title = null, object options = null)
+		public static string MsgBox(KsValue text = default, KsValue title = default, KsValue options = default)
 		{
-			var txt = text.As().Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
-			var caption = title.As().Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
+			var txt = text.As("").Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
+			var caption = title.As("").Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
 			var buttons = MessageBoxButtons.OK;
 			var icon = MessageBoxIcon.None;
 			var defaultbutton = MessageBoxDefaultButton.Button1;
@@ -409,7 +409,7 @@ namespace Keysharp.Core
 			{
 				caption = A_ScriptName;
 
-				if (txt?.Length == 0 && options == null)
+				if (txt?.Length == 0 && options.IsUnset)
 					txt = "Press OK to continue.";
 			}
 
@@ -467,113 +467,116 @@ namespace Keysharp.Core
 				//System modal dialogs are no longer supported in Windows.
 			}
 
-			if (Script.IsNumeric(options))
+			if (options.IsSet)
 			{
-				HandleNumericOptions(options.Ai());
-			}
-			else
-			{
-				var opts = options.As();
-				var iopt = 0;
-				var hadNumeric = false;
-
-				foreach (Range r in opts.AsSpan().SplitAny(Spaces))
+				if (options.IsNumeric())
 				{
-					var opt = opts.AsSpan(r).Trim();
+					HandleNumericOptions(options.Ai());
+				}
+				else
+				{
+					var opts = options.As();
+					var iopt = 0;
+					var hadNumeric = false;
 
-					if (opt.Length > 0)
+					foreach (Range r in opts.AsSpan().SplitAny(Spaces))
 					{
-						long hwnd = 0;
+						var opt = opts.AsSpan(r).Trim();
 
-						if (Options.TryParse(opt, "Owner", ref hwnd)) { owner = Control.FromHandle(new nint(hwnd)); }
-						else if (Options.TryParse(opt, "T", ref timeout)) { }
-						else if (int.TryParse(opt, out var itemp))
+						if (opt.Length > 0)
 						{
-							hadNumeric = true;
-							iopt |= itemp;
-						}
-						else
-						{
-							switch (opt)
+							long hwnd = 0;
+
+							if (Options.TryParse(opt, "Owner", ref hwnd)) { owner = Control.FromHandle(new nint(hwnd)); }
+							else if (Options.TryParse(opt, "T", ref timeout)) { }
+							else if (int.TryParse(opt, out var itemp))
 							{
-								case var b when opt.Equals("ok", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.OK;
-									break;
+								hadNumeric = true;
+								iopt |= itemp;
+							}
+							else
+							{
+								switch (opt)
+								{
+									case var b when opt.Equals("ok", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.OK;
+										break;
 
-								case var b when opt.Equals("okcancel", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("o/c", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("oc", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.OKCancel;
-									break;
+									case var b when opt.Equals("okcancel", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("o/c", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("oc", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.OKCancel;
+										break;
 
-								case var b when opt.Equals("abortretryignore", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("a/r/i", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("ari", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.AbortRetryIgnore;
-									break;
+									case var b when opt.Equals("abortretryignore", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("a/r/i", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("ari", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.AbortRetryIgnore;
+										break;
 
-								case var b when opt.Equals("yesnocancel", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("y/n/c", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("ync", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.YesNoCancel;
-									break;
+									case var b when opt.Equals("yesnocancel", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("y/n/c", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("ync", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.YesNoCancel;
+										break;
 
-								case var b when opt.Equals("yesno", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("y/n", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("yn", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.YesNo;
-									break;
+									case var b when opt.Equals("yesno", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("y/n", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("yn", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.YesNo;
+										break;
 
-								case var b when opt.Equals("retrycancel", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("r/c", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("rc", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.RetryCancel;
-									break;
+									case var b when opt.Equals("retrycancel", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("r/c", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("rc", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.RetryCancel;
+										break;
 #if WINDOWS
 
-								case var b when opt.Equals("canceltryagaincontinue", StringComparison.OrdinalIgnoreCase):
-								case var b2 when opt.Equals("c/t/c", StringComparison.OrdinalIgnoreCase):
-								case var b3 when opt.Equals("ctc", StringComparison.OrdinalIgnoreCase):
-									buttons = MessageBoxButtons.CancelTryContinue;
-									break;
+									case var b when opt.Equals("canceltryagaincontinue", StringComparison.OrdinalIgnoreCase):
+									case var b2 when opt.Equals("c/t/c", StringComparison.OrdinalIgnoreCase):
+									case var b3 when opt.Equals("ctc", StringComparison.OrdinalIgnoreCase):
+										buttons = MessageBoxButtons.CancelTryContinue;
+										break;
 #endif
 
-								case var b when opt.Equals("iconx", StringComparison.OrdinalIgnoreCase):
-									icon = MessageBoxIcon.Hand;
-									break;
+									case var b when opt.Equals("iconx", StringComparison.OrdinalIgnoreCase):
+										icon = MessageBoxIcon.Hand;
+										break;
 
-								case var b when opt.Equals("icon?", StringComparison.OrdinalIgnoreCase):
-									icon = MessageBoxIcon.Question;
-									break;
+									case var b when opt.Equals("icon?", StringComparison.OrdinalIgnoreCase):
+										icon = MessageBoxIcon.Question;
+										break;
 
-								case var b when opt.Equals("icon!", StringComparison.OrdinalIgnoreCase):
-									icon = MessageBoxIcon.Exclamation;
-									break;
+									case var b when opt.Equals("icon!", StringComparison.OrdinalIgnoreCase):
+										icon = MessageBoxIcon.Exclamation;
+										break;
 
-								case var b when opt.Equals("iconi", StringComparison.OrdinalIgnoreCase):
-									icon = MessageBoxIcon.Asterisk;
-									break;
+									case var b when opt.Equals("iconi", StringComparison.OrdinalIgnoreCase):
+										icon = MessageBoxIcon.Asterisk;
+										break;
 
-								case var b when opt.Equals("default2", StringComparison.OrdinalIgnoreCase):
-									defaultbutton = MessageBoxDefaultButton.Button2;
-									break;
+									case var b when opt.Equals("default2", StringComparison.OrdinalIgnoreCase):
+										defaultbutton = MessageBoxDefaultButton.Button2;
+										break;
 
-								case var b when opt.Equals("default3", StringComparison.OrdinalIgnoreCase):
-									defaultbutton = MessageBoxDefaultButton.Button3;
-									break;
+									case var b when opt.Equals("default3", StringComparison.OrdinalIgnoreCase):
+										defaultbutton = MessageBoxDefaultButton.Button3;
+										break;
 #if WINDOWS
 
-								case var b when opt.Equals("default4", StringComparison.OrdinalIgnoreCase):
-									defaultbutton = MessageBoxDefaultButton.Button4;
-									break;
+									case var b when opt.Equals("default4", StringComparison.OrdinalIgnoreCase):
+										defaultbutton = MessageBoxDefaultButton.Button4;
+										break;
 #endif
+								}
 							}
 						}
 					}
-				}
 
-				if (hadNumeric)
-					HandleNumericOptions(iopt);
+					if (hadNumeric)
+						HandleNumericOptions(iopt);
+				}
 			}
 
 			if (timeout != 0)

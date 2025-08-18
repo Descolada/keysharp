@@ -12,10 +12,10 @@
 		/// <param name="offset">If blank or omitted (or when using 2-parameter mode), it defaults to 0.<br/>
 		/// Otherwise, specify an offset in bytes which is added to source to determine the source address.
 		/// </param>
-		/// <param name="type">One of the following strings: UInt, Int, Int64, Short, UShort, Char, UChar, Double, Float, Ptr or UPtr</param>
+		/// <param name="type">One of the following strings: UInt, Int, Int64, Short, UShort, Char, UChar, Float, Float, Ptr or UPtr</param>
 		/// <returns>The binary number at the specified address+offset.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown the address could not be determined.</exception>
-		public unsafe static object NumGet(object source, object offset, object type = null)
+		public unsafe static object NumGet(KsValue source, long offset, string type = null)
 		{
 			int off;
 			string t;
@@ -36,21 +36,21 @@
 			var size = 0L;
 			t = t.ToLower();
 
-			if (address is Buffer abuf)//Put Buffer check first because it's faster and more likely.
+			if (address.AsObject() is Buffer abuf)//Put Buffer check first because it's faster and more likely.
 			{
 				address = abuf.Ptr;
 				size = abuf.Size.Al();
 			}
-			else if (address is KeysharpObject kso && Script.TryGetPropertyValue(kso, "ptr", out object p)
-					 && Script.TryGetPropertyValue(kso, "size", out object s))
+			else if (address.TryGetAny(out Any kso) && Script.TryGetPropertyValue(kso, "ptr", out KsValue p)
+					 && Script.TryGetPropertyValue(kso, "size", out KsValue s))
 			{
 				address = p;
 				size = s.Al();
 			}
 
-			if (address is object[] objarr && objarr.Length > 0)//Assume the first element was a long which was an address.
+			if (address.AsObject() is object[] objarr && objarr.Length > 0)//Assume the first element was a long which was an address.
 				addr = new nint(objarr[0].Al());
-			else if (address is long l)
+			else if (address.TryGetLong(out long l))
 				addr = new nint(l);
 
 			//else if (address is int i)
@@ -142,7 +142,7 @@
 		/// <summary>
 		/// Stores one or more numbers in binary format at the specified address+offset.
 		/// </summary>
-		/// <param name="type">One of the following strings: UInt, UInt64, Int, Int64, Short, UShort, Char, UChar, Double, Float, Ptr or UPtr.</param>
+		/// <param name="type">One of the following strings: UInt, UInt64, Int, Int64, Short, UShort, Char, UChar, Float, Float, Ptr or UPtr.</param>
 		/// <param name="number">The number to store.</param>
 		/// <param name="target">A <see cref="Buffer"/>-like object or memory address.</param>
 		/// <param name="offset">If omitted, it defaults to 0. Otherwise, specify an offset in bytes which is added to Target to determine the target address.</param>

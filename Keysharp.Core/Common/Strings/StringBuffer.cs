@@ -21,7 +21,7 @@ namespace Keysharp.Core.Common.Strings
 		private long _position = 0;
 		private Encoding _encoding;
 		private int _bytesPerChar;
-		public object EntangledString { get; set; }
+		public Any EntangledString { get; set; }
 
 		public StringBuffer(params object[] args) => __New(args);
 
@@ -90,13 +90,14 @@ namespace Keysharp.Core.Common.Strings
 			}
 		}
 
-		public object UpdateEntangledStringFromBuffer() => EntangledString != null ? Script.SetPropertyValue(EntangledString, "__Value", ToString()) : null;
+		public object UpdateEntangledStringFromBuffer() => EntangledString != null ? Script.SetPropertyValue(EntangledString, "__Value", ToString()) : default;
 		public object UpdateBufferFromEntangledString()
 		{
 			if (EntangledString == null)
 				return null;
-			var str = Script.GetPropertyValue(EntangledString, "__Value") as string;
-			str ??= "";
+			string str;
+			if (!Script.GetPropertyValue(EntangledString, "__Value").TryGetString(out str))
+				str = "";
 			var requiredCapacity = Math.Max(_capacity, str.Length);
 			EnsureCapacity(requiredCapacity);
 			Clear();
@@ -219,7 +220,7 @@ namespace Keysharp.Core.Common.Strings
 				Capacity = exact ? requiredCapacity : Math.Max(requiredCapacity, _capacity * 2);
 		}
 
-		public override void PrintProps(string name, StringBuffer sbuf, ref int tabLevel)
+		internal override void PrintProps(string name, StringBuffer sbuf, ref int tabLevel)
 		{
 			var indent = new string('\t', tabLevel);
 			var fieldType = GetType().Name;

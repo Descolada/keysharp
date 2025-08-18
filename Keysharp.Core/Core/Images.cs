@@ -40,11 +40,11 @@
 		/// Otherwise, specify a reference to the output variable in which to store a number indicating the type of handle being returned: 0 (IMAGE_BITMAP), 1 (IMAGE_ICON) or 2 (IMAGE_CURSOR).
 		/// </param>
 		/// <returns>A bitmap or icon handle depending on whether a picture or icon is specified and whether the &outImageType parameter is present or not.</returns>
-		public static object LoadPicture(object filename, object options, [ByRef] object outImageType = null)
+		public static object LoadPicture(string filename, string options, [ByRef] Any outImageType = null)
 		{
 			outImageType ??= VarRef.Empty;
-			var file = filename.As();
-			var opts = options.As();
+			var file = filename;
+			var opts = options;
 			nint handle = 0;
 			var width = int.MinValue;
 			var height = int.MinValue;

@@ -23,7 +23,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			{
 				foreach (var kv in op)
 				{
-					if (kv.Value.Value != null)  // only explicit Value entries
+					if (kv.Value.Value.IsSet)  // only explicit Value entries
 						list.Add(new SimpleFieldInfo(kv.Key));
 				}
 			}
@@ -224,7 +224,7 @@ namespace Keysharp.Core.Common.ObjectBase
 				else if ((invokeAttr & BindingFlags.GetProperty) != 0
 						|| (invokeAttr & BindingFlags.GetField) != 0)
 				{
-					return Com.ConvertToCOMType(Script.Index(target ?? this, usedArgs));
+					return Com.ConvertToCOMType(Script.Index(target.Default(this), usedArgs));
 				}
 				else
 				{
@@ -232,7 +232,7 @@ namespace Keysharp.Core.Common.ObjectBase
 					var indices = new object[argCount > 0 ? argCount - 1 : 0];
 					System.Array.Copy(usedArgs, indices, indices.Length);
 
-					return Com.ConvertToCOMType(Script.SetObject(value, target ?? this, indices));
+					return Com.ConvertToCOMType(Script.SetObject(KsValue.FromObject(value), target.Default(this), indices));
 				}
 			}
 
@@ -263,12 +263,12 @@ namespace Keysharp.Core.Common.ObjectBase
 
 			// property getter?
 			if ((invokeAttr & BindingFlags.GetProperty) != 0 && argCount == 0 && HasProp(name) == 1L)
-				return Com.ConvertToCOMType(Script.GetPropertyValue(target, name));
+				return Com.ConvertToCOMType(Script.GetPropertyValue(KsValue.FromObject(target), name));
 
 			// property setter?
 			if ((invokeAttr & BindingFlags.SetProperty) != 0)
 			{
-				Script.SetPropertyValue(target, name, argCount > 0 ? usedArgs[0] : null);
+				Script.SetPropertyValue(KsValue.FromObject(target), name, argCount > 0 ? KsValue.FromObject(usedArgs[0]) : default);
 				return null;
 			}
 
@@ -324,7 +324,7 @@ namespace Keysharp.Core.Common.ObjectBase
 							if (prms != null)
 							{
 								var index = i;
-								usedArgs[i] = new VarRef(() => args[index], value => args[index] = value);
+								usedArgs[i] = new VarRef(() => KsValue.FromObject(args[index]), value => args[index] = value);
 							}
 						}
 						var result = Com.ConvertToCOMType(Script.Invoke(target, name, usedArgs));
@@ -414,9 +414,9 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public override string Name => _name;
 		public override Type FieldType => typeof(object);
-		public override object GetValue(object? obj) => Script.GetPropertyValue(obj, _name);
+		public override object GetValue(object? obj) => Script.GetPropertyValue(KsValue.FromObject(obj), _name);
 		public override void SetValue(object? obj, object? val, BindingFlags bindingFlags, Binder? binder, CultureInfo? ci)
-		=> Script.SetPropertyValue(obj, _name, new object?[] { val });
+		=> Script.SetPropertyValue(KsValue.FromObject(obj), _name, KsValue.FromObject(val));
 
 		#region All other members just delegate / throw NotSupported
 		public override FieldAttributes Attributes => FieldAttributes.Public;
@@ -452,9 +452,9 @@ namespace Keysharp.Core.Common.ObjectBase
 		public override MethodInfo? GetGetMethod(bool nonPublic) => null;
 		public override MethodInfo? GetSetMethod(bool nonPublic) => null;
 		public override object GetValue(object? obj, BindingFlags bindingFlags, Binder? binder, object?[]? index, CultureInfo? ci)
-		=> Script.GetPropertyValue(obj, _name);
+		=> Script.GetPropertyValue(KsValue.FromObject(obj), _name);
 		public override void SetValue(object? obj, object? value, BindingFlags bindingFlags, Binder? binder, object?[]? index, CultureInfo? ci)
-		=> Script.SetPropertyValue(obj, _name, new object?[] { value });
+		=> Script.SetPropertyValue(KsValue.FromObject(obj), _name, KsValue.FromObject(value));
 
 		#region Other members stubbed out
 		public override ParameterInfo[] GetIndexParameters() => System.Array.Empty<ParameterInfo>();

@@ -385,7 +385,7 @@ namespace Keysharp.Scripting
 			return string.Join(' ', hs);
 		}
 
-		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
+		public void RunMainWindow(string title, Func<KsValue> userInit, bool _persistent)
 		{
 			mainWindow = new MainWindow();
 

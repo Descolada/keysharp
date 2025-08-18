@@ -47,18 +47,7 @@ namespace Keysharp.Scripting
                     ),
 					CreateArgumentList(
 						SyntaxFactory.ArrayCreationExpression(
-                            SyntaxFactory.ArrayType(
-                                SyntaxFactory.PredefinedType(
-                                    Parser.PredefinedKeywords.Object
-                                ),
-                                SyntaxFactory.SingletonList(
-                                    SyntaxFactory.ArrayRankSpecifier(
-                                        SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                            SyntaxFactory.OmittedArraySizeExpression()
-                                        )
-                                    )
-                                )
-                            ),
+                            PredefinedKeywords.ObjectArrayType,
                             SyntaxFactory.InitializerExpression(
                                 SyntaxKind.ArrayInitializerExpression,
                                 SyntaxFactory.SeparatedList(parts)
@@ -198,9 +187,9 @@ namespace Keysharp.Scripting
 					    SyntaxFactory.BinaryExpression(
 						    SyntaxKind.EqualsExpression,
 							targetExpression,
-						    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						    SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)
 					    ),
-					    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+					    SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression),
 						parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName)
 					);
 				}
@@ -238,9 +227,9 @@ namespace Keysharp.Scripting
                     SyntaxFactory.BinaryExpression(
                         SyntaxKind.EqualsExpression,
                         targetExpression,
-                        SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+                        SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)
                     ),
-                    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+                    SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression),
                     indexInvocation
                 );
             }
@@ -336,7 +325,7 @@ namespace Keysharp.Scripting
                 if (isComma)
                 {
                     if (lastWasComma)
-                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression));
 
                     goto ShouldVisitNextChild;
                 }
@@ -379,25 +368,25 @@ namespace Keysharp.Scripting
 		public override SyntaxNode VisitPreIncrementDecrementExpression([NotNull] PreIncrementDecrementExpressionContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.expression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return SyntaxFactory.ParenthesizedExpression(HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-="));
 		}
 
 		public override SyntaxNode VisitPreIncrementDecrementExpressionDuplicate([NotNull] PreIncrementDecrementExpressionDuplicateContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return SyntaxFactory.ParenthesizedExpression(HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-="));
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpression([NotNull] PostIncrementDecrementExpressionContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.expression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return SyntaxFactory.ParenthesizedExpression(HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true));
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpressionDuplicate([NotNull] PostIncrementDecrementExpressionDuplicateContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return SyntaxFactory.ParenthesizedExpression(HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true));
 		}
 
 		public override SyntaxNode VisitPowerExpression([NotNull] PowerExpressionContext context)
@@ -569,14 +558,12 @@ namespace Keysharp.Scripting
 					if (Keywords.TypeNameAliases.TryGetValue(classAsRawString, out var alias))
 						classAsRawString = alias;
 
-					if (classAsRawString == "unset" || classAsRawString == "null")
+					if (classAsRawString.Equals("unset", StringComparison.OrdinalIgnoreCase) || classAsRawString.Equals("null", StringComparison.OrdinalIgnoreCase))
 					{
-						var nullComparison = SyntaxFactory.BinaryExpression(
-							SyntaxKind.EqualsExpression,
-							leftExpression,
-							SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
-						);
-						return nullComparison;
+                        return SyntaxFactory.PrefixUnaryExpression( 
+                            SyntaxKind.LogicalNotExpression,
+                            ((InvocationExpressionSyntax)InternalMethods.IsSet)
+                            .WithArgumentList(CreateArgumentList(leftExpression)));
 					}
 
 					var classAsString = SyntaxFactory.LiteralExpression(
@@ -594,76 +581,31 @@ namespace Keysharp.Scripting
 
         private SyntaxNode HandleLogicalAndExpression(ExpressionSyntax left, ExpressionSyntax right)
         {
-            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
-                .WithArgumentList(CreateArgumentList(left));
+            left = EnsureSingleExpression(left);
+            right = EnsureSingleExpression(right);
 
-            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
-                .WithArgumentList(CreateArgumentList(right));
+			if (left is LiteralExpressionSyntax les)
+				left = SyntaxFactory.CastExpression(SyntaxFactory.IdentifierName("KsValue"), left);
 
-            // Create If(left) && If(right)
-            var andExpression = SyntaxFactory.BinaryExpression(
-                SyntaxKind.LogicalAndExpression,
-                leftIf,
-                rightIf
-            );
-
-            // Call .ParseObject()
-            return SyntaxFactory.InvocationExpression(
-                SyntaxFactory.MemberAccessExpression(
-                    SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.ParenthesizedExpression(andExpression),
-                    SyntaxFactory.IdentifierName("ParseObject")
-                )
-            );
-
-			/*
-            return SyntaxFactory.ConditionalExpression(
-                SyntaxFactory.InvocationExpression(
-                    CreateMemberAccess("Keysharp.Scripting.Script", "ForceBool"),
-                    SyntaxFactory.ArgumentList(
-                        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(left))
-                    )
-                ),
-                right,  // If left is truthy, return right
-                left    // If left is falsy, return left
-            );
-            */
+			return SyntaxFactory.BinaryExpression(
+				SyntaxKind.LogicalAndExpression,
+				left,
+				right
+			);
 		}
 		private SyntaxNode HandleLogicalOrExpression(ExpressionSyntax left, ExpressionSyntax right)
         {
-            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
-                .WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(left))));
+			left = EnsureSingleExpression(left);
+			right = EnsureSingleExpression(right);
 
-            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
-                .WithArgumentList(CreateArgumentList(right));
+			if (left is LiteralExpressionSyntax les)
+				left = SyntaxFactory.CastExpression(SyntaxFactory.IdentifierName("KsValue"), left);
 
-            // Create If(left) && If(right)
-            var orExpression = SyntaxFactory.BinaryExpression(
-                SyntaxKind.LogicalOrExpression,
-                leftIf,
-                rightIf
+			return SyntaxFactory.BinaryExpression(
+	            SyntaxKind.LogicalOrExpression,
+	            left,
+	            right
             );
-
-            // Call .ParseObject()
-            return SyntaxFactory.InvocationExpression(
-                SyntaxFactory.MemberAccessExpression(
-                    SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.ParenthesizedExpression(orExpression),
-                    SyntaxFactory.IdentifierName("ParseObject")
-                )
-            );
-			/*
-            return SyntaxFactory.ConditionalExpression(
-                SyntaxFactory.InvocationExpression(
-                    CreateMemberAccess("Keysharp.Scripting.Script", "ForceBool"),
-                    SyntaxFactory.ArgumentList(
-                        SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(left))
-                    )
-                ),
-                left,  // If left is truthy, return left
-                right    // If left is falsy, return right
-            );
-            */
 		}
 		public override SyntaxNode VisitLogicalAndExpression([NotNull] LogicalAndExpressionContext context)
         {
@@ -683,68 +625,26 @@ namespace Keysharp.Scripting
             return HandleLogicalOrExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
         }
 
-        public SyntaxNode HandleCoalesceExpression(ExpressionSyntax left, ExpressionSyntax right)
-        {
-            if (right is AssignmentExpressionSyntax)
-                right = SyntaxFactory.ParenthesizedExpression(right);
-            if (left is InvocationExpressionSyntax ies && CheckInvocationExpressionName(ies, "GetPropertyValue"))
-            {
-				var valueExpr = parser.PushTempVar();
-
-				var origArgs = ies.ArgumentList.Arguments;
-
-				// Build the out-temp third argument: `out temp`
-				var outArg = SyntaxFactory.Argument(valueExpr)
-					.WithRefKindKeyword(
-						SyntaxFactory.Token(SyntaxKind.OutKeyword)
-					);
-
-				// Now build: TryGetPropertyValue(obj, key, out temp)
-				var tryCall = SyntaxFactory.InvocationExpression(
-					SyntaxFactory.IdentifierName("TryGetPropertyValue"),
-					CreateArgumentList(
-						origArgs[0],
-				        origArgs[1],
-				        outArg
-					)
-				);
-
-				// Build the conditional: TryGetPropertyValue(...) ? temp0 : right
-				var conditional = SyntaxFactory.ConditionalExpression(
-					tryCall,
-					valueExpr,
-					right
-				);
-
-				parser.PopTempVar();
-
-                return SyntaxFactory.ParenthesizedExpression(conditional);
-			}
-			return SyntaxFactory.BinaryExpression(
-				SyntaxKind.CoalesceExpression,
-				left,
-				right
-			);
-		}
-
         public override SyntaxNode VisitCoalesceExpression([NotNull] CoalesceExpressionContext context)
         {
-            return HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
+            return parser.HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
         }
         public override SyntaxNode VisitCoalesceExpressionDuplicate([NotNull] CoalesceExpressionDuplicateContext context)
         {
-			return HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
+			return parser.HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
 		}
 
         public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
         {
-            var arguments = new List<ExpressionSyntax>() {
-                CreateQualifiedName("Keysharp.Scripting.Script.Operator." + unaryOperators[type]),
-                (ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1))
-            };
-            var argumentList = CreateArgumentList(arguments);
-            return SyntaxFactory.InvocationExpression(ScriptOperateUnaryName, argumentList);
-        }
+			var operand = (ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1));
+			if (operand is LiteralExpressionSyntax les)
+				operand = SyntaxFactory.CastExpression(SyntaxFactory.IdentifierName("KsValue"), operand);
+
+			return SyntaxFactory.InvocationExpression(
+	                CreateMemberAccess("KsValue", unaryOperators[type]),
+	                CreateArgumentList(operand)
+                );
+		}
 
 		public override SyntaxNode VisitVerbalNotExpression([NotNull] VerbalNotExpressionContext context)
         {
@@ -803,10 +703,11 @@ namespace Keysharp.Scripting
             // Handle other cases (e.g., property assignments, index access)
             if (assignmentOperator == ":=" || assignmentOperator == "??=")
             {
-                var assignmentKind = (assignmentOperator == ":=") ? SyntaxKind.SimpleAssignmentExpression : SyntaxKind.CoalesceAssignmentExpression;
-				if ((leftExpression is ObjectCreationExpressionSyntax objectExpression)
-                && objectExpression.Type is IdentifierNameSyntax objectName
-                && objectName.Identifier.Text == "VarRef")
+                if (assignmentOperator == "??=")
+					rightExpression = parser.HandleCoalesceExpression(leftExpression, rightExpression);
+				var assignmentKind = SyntaxKind.SimpleAssignmentExpression;
+				if (leftExpression is InvocationExpressionSyntax varRefInvocation &&
+					CheckInvocationExpressionName(varRefInvocation, InternalMethods.ConstructVarRef.MethodName))
                 {
                     var varRefExpression = leftExpression;
                     leftExpression = parser.PushTempVar();
@@ -852,6 +753,7 @@ namespace Keysharp.Scripting
                     if (addedName != null && addedName != identifierNameSyntax.Identifier.Text)
                         identifierNameSyntax = SyntaxFactory.IdentifierName(addedName);
                     leftExpression = identifierNameSyntax;
+
                     return SyntaxFactory.AssignmentExpression(
                         assignmentKind,
                         leftExpression,
@@ -908,28 +810,17 @@ namespace Keysharp.Scripting
             ExpressionSyntax rightExpression,
             string assignmentOperator)
         {
+            if (assignmentOperator == "??=") {
+				rightExpression = parser.HandleCoalesceExpression(elementAccess, rightExpression);
+                assignmentOperator = ":=";
+
+			}
+
             if (assignmentOperator == ":=")
             {
-                return SyntaxFactory.InvocationExpression(
-					CreateMemberAccess("Keysharp.Scripting.Script", "SetObject"),
-					CreateArgumentList(
-                        rightExpression,
-                        elementAccess.Expression,
-                        elementAccess.ArgumentList.Arguments
-                    )
-                );
-            }
-
-            if (assignmentOperator == "??=")
-            {
-                var getIndexValue = CreateElementAccessGetterInvocation(elementAccess);
-                var setIndexValue = (ExpressionSyntax)HandleElementAccessAssignment(elementAccess, rightExpression, ":=");
-
-                // Return: left ?? (SetObject(base, index, right))
-                return SyntaxFactory.BinaryExpression(
-                    SyntaxKind.CoalesceExpression,
-                    getIndexValue,
-                    setIndexValue
+                return SyntaxFactory.AssignmentExpression(SyntaxKind.SimpleAssignmentExpression,
+                    elementAccess,
+                    rightExpression
                 );
             }
 
@@ -1055,7 +946,7 @@ namespace Keysharp.Scripting
             string binaryOperator = MapAssignmentOperatorToBinaryOperator(assignmentOperator);
 			var operatorToken = GetOperatorToken(binaryOperator);
 
-			InvocationExpressionSyntax binaryOperation;
+			ExpressionSyntax binaryOperation;
             InvocationExpressionSyntax result = null;
 
             // In the case of member or index access, buffer the base and member and then get+set to avoid multiple evaluations
@@ -1070,9 +961,8 @@ namespace Keysharp.Scripting
                 ExpressionSyntax memberExpression = null;
                 ExpressionSyntax varRefExpression = null;
 
-                if ((leftExpression is ObjectCreationExpressionSyntax objectExpression)
-                    && objectExpression.Type is IdentifierNameSyntax objectName
-                    && objectName.Identifier.Text == "VarRef")
+                if (leftExpression is InvocationExpressionSyntax varRefInvocation
+					&& CheckInvocationExpressionName(varRefInvocation, InternalMethods.ConstructVarRef.MethodName))
                 {
                     varRefTemp = parser.PushTempVar();
                     varRefExpression = leftExpression;
@@ -1211,7 +1101,6 @@ namespace Keysharp.Scripting
                     memberExpression = elementAccess
                         .WithArgumentList(SyntaxFactory.BracketedArgumentList(SyntaxFactory.SeparatedList(indexTemps.Select(index => SyntaxFactory.Argument(index)).ToList())));
 
-                    // Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Add, _ks_temp1, rightExpression)
                     binaryOperation = CreateBinaryOperatorExpression(
 						operatorToken,
                         resultTemp,
@@ -1398,7 +1287,7 @@ namespace Keysharp.Scripting
             return assignmentOperator switch
             {
                 "+=" => "Add",
-                "-=" => "Minus",
+                "-=" => "Subtract",
                 "*=" => "Multiply",
                 "/=" => "Divide",
                 "%=" => "Modulus",

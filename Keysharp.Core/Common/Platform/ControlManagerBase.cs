@@ -96,25 +96,25 @@
 			return matchFound;
 		}
 
-		internal abstract long ControlAddItem(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlAddItem(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlChooseIndex(int n, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlChooseIndex(int n, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long ControlChooseString(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlChooseString(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlClick(object ctrlorpos, object title, object text, string whichButton, int clickCount, string options, object excludeTitle, object excludeText);
+		internal abstract void ControlClick(KsValue ctrlorpos, KsValue title, string text, string whichButton, int clickCount, string options, string excludeTitle, string excludeText);
 
-		internal abstract void ControlDeleteItem(int n, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlDeleteItem(int n, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long ControlFindItem(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlFindItem(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlFocus(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlFocus(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long ControlGetChecked(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlGetChecked(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract string ControlGetChoice(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract string ControlGetChoice(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal virtual string ControlGetClassNN(object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal virtual string ControlGetClassNN(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 				return item.ClassNN;
@@ -122,7 +122,7 @@
 			return DefaultObject;
 		}
 
-		internal virtual long ControlGetEnabled(object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal virtual long ControlGetEnabled(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 				return item.Enabled ? 1L : 0L;
@@ -130,11 +130,11 @@
 			return 0L;
 		}
 
-		internal abstract long ControlGetExStyle(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlGetExStyle(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long ControlGetFocus(object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlGetFocus(KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal virtual long ControlGetHwnd(object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal virtual long ControlGetHwnd(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 				return item.Handle.ToInt64();
@@ -142,17 +142,17 @@
 				return 0L;
 		}
 
-		internal abstract long ControlGetIndex(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlGetIndex(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract object ControlGetItems(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract object ControlGetItems(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlGetPos(ref object outX, ref object outY, ref object outWidth, ref object outHeight, object ctrl = null, object title = null, object text = null, object excludeTitle = null, object excludeText = null);
+		internal abstract void ControlGetPos(ref long outX, ref long outY, ref long outWidth, ref long outHeight, KsValue ctrl = default, KsValue title = default, string text = null, string excludeTitle = null, string excludeText = null);
 
-		internal abstract long ControlGetStyle(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long ControlGetStyle(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract string ControlGetText(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract string ControlGetText(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal virtual long ControlGetVisible(object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal virtual long ControlGetVisible(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 			{
@@ -165,12 +165,12 @@
 			return 0L;
 		}
 
-		internal virtual void ControlHide(object ctrl, object title, object text, object excludeTitle, object excludeText) =>
+		internal virtual void ControlHide(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText) =>
 		ShowHideHelper(false, ctrl, title, text, excludeTitle, excludeText);
 
-		internal abstract void ControlHideDropDown(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlHideDropDown(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal virtual void ControlMove(int x, int y, int width, int height, object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal virtual void ControlMove(int x, int y, int width, int height, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 			{
@@ -189,20 +189,20 @@
 			}
 		}
 
-		internal abstract void ControlSend(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSend(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlSendText(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSendText(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlSetChecked(object val, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSetChecked(object val, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlSetEnabled(object val, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSetEnabled(object val, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlSetExStyle(object val, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSetExStyle(object val, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void ControlSetStyle(object val, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlSetStyle(object val, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		//internal abstract void ControlSetText(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
-		internal virtual void ControlSetText(string str, object ctrl, object title, object text, object excludeTitle, object excludeText)
+		//internal abstract void ControlSetText(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
+		internal virtual void ControlSetText(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 			{
@@ -215,32 +215,32 @@
 			}
 		}
 
-		internal virtual void ControlShow(object ctrl, object title, object text, object excludeTitle, object excludeText) =>
+		internal virtual void ControlShow(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText) =>
 		ShowHideHelper(true, ctrl, title, text, excludeTitle, excludeText);
 
-		internal abstract void ControlShowDropDown(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void ControlShowDropDown(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long EditGetCurrentCol(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long EditGetCurrentCol(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long EditGetCurrentLine(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long EditGetCurrentLine(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract string EditGetLine(int n, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract string EditGetLine(int n, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long EditGetLineCount(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract long EditGetLineCount(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract string EditGetSelectedText(object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract string EditGetSelectedText(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void EditPaste(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void EditPaste(string str, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract object ListViewGetContent(string options, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract object ListViewGetContent(string options, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract void MenuSelect(object title, object text, object menu, object sub1, object sub2, object sub3, object sub4, object sub5, object sub6, object excludeTitle, object excludeText);
+		internal abstract void MenuSelect(KsValue title, string text, object menu, object sub1, object sub2, object sub3, object sub4, object sub5, object sub6, string excludeTitle, string excludeText);
 
-		internal abstract void PostMessage(uint msg, nint wparam, nint lparam, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract void PostMessage(uint msg, nint wparam, nint lparam, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText);
 
-		internal abstract long SendMessage(uint msg, object wparam, object lparam, object ctrl, object title, object text, object excludeTitle, object excludeText, int timeout);
+		internal abstract long SendMessage(uint msg, object wparam, object lparam, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText, int timeout);
 
-		private static void ShowHideHelper(bool val, object ctrl, object title, object text, object excludeTitle, object excludeText)
+		private static void ShowHideHelper(bool val, KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItemBase item)
 			{

@@ -16,13 +16,13 @@
 		/// <param name="obj">The object to call the method on. Default: null for static functions.</param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first method found.</param>
 		/// <returns>An <see cref="IFuncObj"/> which can later be called like a function.</returns>
-		public static IFuncObj Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount);
+		public static KsValue Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount);
 
-		public static IFuncObj Func(object funcName, Type t, object paramCount = null) => new FuncObj(funcName.As(), t, paramCount);
+		public static KsValue Func(object funcName, Type t, object paramCount = null) => new FuncObj(funcName.As(), t, paramCount);
 
-		public static IFuncObj Func(Delegate del, object obj = null) => new FuncObj(del, obj ?? del.Target);
+		public static KsValue Func(Delegate del, object obj = null) => new FuncObj(del, obj ?? del.Target);
 
-		public static IFuncObj Closure(Delegate del, object obj = null) => new Closure(del, obj ?? del.Target);
+		public static KsValue Closure(Delegate del, object obj = null) => new Closure(del, obj ?? del.Target);
 
 		/// <summary>
 		/// Internal helper to get a function object which supports different ways of identifying such.
@@ -33,9 +33,9 @@
 		/// <returns>An <see cref="IFuncObj"/> which may be a newly recreated one, or h if it was already one.</returns>
 		/// <exception cref="MethodError">A <see cref="MethodError"/> exception is thrown if a function object couldn't be created</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if h was not a string or existing function object.</exception>
-		public static IFuncObj GetFuncObj(object h, object eventObj, object paramCount = null, bool throwIfBad = false)
+		public static FuncObj GetFuncObj(object h, object eventObj, object paramCount = null, bool throwIfBad = false)
 		{
-			IFuncObj del = null;
+			FuncObj del = null;
 			var cachedFuncObj = Script.TheScript.FunctionData.cachedFuncObj;
 
 			if (h is string s)
@@ -59,7 +59,7 @@
 					}
 				}//Empty string will just return null, which is a valid value in some cases.
 			}
-			else if (h is IFuncObj fo)
+			else if (h is FuncObj fo)
 			{
 				del = fo;
 
@@ -194,12 +194,12 @@
 		/// <param name="name">A method name. If omitted, the bound function calls obj itself.</param>
 		/// <param name="args">The arguments to bind to the function.</param>
 		/// <returns>An new <see cref="BoundFunc"/> object with the specified arguments bound to it.</returns>
-		public static object ObjBindMethod(object obj, object name = null, params object[] args)
+		public static object ObjBindMethod(Any obj, string name = null, params object[] args)
 		{
 			var o = obj;
 			var n = name.As("Call");
 
-			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(kso, name, out object oifo) && oifo is IFuncObj ifo && ifo != null)
+			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(kso, name, out KsValue oifo) && oifo.AsObject() is IFuncObj ifo && ifo != null)
 				return ifo.Bind([obj, ..args]);
 			else if (Reflections.FindAndCacheMethod(o.GetType(), n, -1) is MethodPropertyHolder mph && mph.mi != null)
 				return new BoundFunc(mph.mi, [obj, ..args], o);
@@ -210,6 +210,6 @@
 
 	internal class FunctionData
 	{
-		internal ConcurrentLfu<object, IFuncObj> cachedFuncObj = new (2000, Environment.ProcessorCount, new ThreadPoolScheduler(), new CaseEqualityComp(eCaseSense.Off));
+		internal ConcurrentLfu<object, FuncObj> cachedFuncObj = new (2000, Environment.ProcessorCount, new ThreadPoolScheduler(), new CaseEqualityComp(eCaseSense.Off));
 	}
 }

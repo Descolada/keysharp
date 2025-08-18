@@ -62,7 +62,7 @@ x := 1
 y := 2
 z := 3
 
-optrefvarfunc(a?, &b, c*)
+optrefvarfunc(a?, &b?, c*)
 {
 	temp := a
 

@@ -7,10 +7,10 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Abs()
 		{
-			Assert.AreEqual(1, Maths.Abs(1));
-			Assert.AreEqual(1, Maths.Abs(-1));
-			Assert.AreEqual(9.81, Maths.Abs(-9.81));
-			Assert.AreEqual(0, Maths.Abs(-0));
+			Assert.AreEqual(1, (long)Maths.Abs(1));
+			Assert.AreEqual(1, (long)Maths.Abs(-1));
+			Assert.AreEqual(9.81, (double)Maths.Abs(-9.81));
+			Assert.AreEqual(0, (long)Maths.Abs(-0));
 			Assert.IsTrue(TestScript("math-abs", true));
 		}
 
@@ -497,7 +497,7 @@ namespace Keysharp.Tests
 
 			for (var i = 0; i < ct; i++)
 			{
-				var d = (long)Maths.Random(null, -long.MaxValue);
+				var d = (long)Maths.Random(default, -long.MaxValue);
 				Assert.IsTrue(d >= -long.MaxValue && d <= 0L);
 			}
 

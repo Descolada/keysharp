@@ -140,7 +140,7 @@ namespace Keysharp.Scripting
             var mainBodyBlock = SyntaxFactory.ParseStatement(mainBodyCode) as BlockSyntax;
             mainFunc.Body = mainBodyBlock.Statements.ToList();
 
-            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object));
+            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, Parser.PredefinedKeywords.KsValueType);
             parser.currentFunc = parser.autoExecFunc;
             parser.autoExecFunc.Scope = eScope.Global;
             parser.autoExecFunc.Method = parser.autoExecFunc.Method
@@ -401,7 +401,7 @@ namespace Keysharp.Scripting
                 case "null":
 					if (parser.hasVisitedIdentifiers && parser.IsVariableDeclared("@null", false) == null)
 					{
-                        return SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
+                        return SyntaxFactory.IdentifierName("Unset");
 					}
                     break;
 			}
@@ -638,7 +638,7 @@ namespace Keysharp.Scripting
                 if (isComma)
                 {
                     if (lastIsComma)
-                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression));
 
                     goto ShouldVisitNextChild;
                 }
@@ -737,10 +737,7 @@ namespace Keysharp.Scripting
         {
             if (context.NullLiteral() != null || context.Unset() != null)
             {
-                return SyntaxFactory.LiteralExpression(
-                    SyntaxKind.NullLiteralExpression,
-                    SyntaxFactory.Token(SyntaxKind.NullKeyword)
-                );
+                return SyntaxFactory.IdentifierName("Unset");
             }
             else if (context.boolean() != null)
             {
@@ -838,23 +835,14 @@ namespace Keysharp.Scripting
 
             // Create the object[] array
             var arrayExpression = SyntaxFactory.ArrayCreationExpression(
-                SyntaxFactory.ArrayType(
-                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
-                    SyntaxFactory.SingletonList(
-                        SyntaxFactory.ArrayRankSpecifier(
-                            SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                SyntaxFactory.OmittedArraySizeExpression()
-                            )
-                        )
-                    )
-                ),
+                PredefinedKeywords.ObjectArrayType,
                 SyntaxFactory.InitializerExpression(
                     SyntaxKind.ArrayInitializerExpression,
                     SyntaxFactory.SeparatedList(properties)
                 )
             );
 
-            // Wrap the array in Keysharp.Core.Objects.ObjectType
+            // Wrap the array in Keysharp.Core.Objects.KsValueType
             var objectCreationExpression = SyntaxFactory.InvocationExpression(
                 CreateMemberAccess("Keysharp.Core.Objects", "Object"),
 				CreateArgumentList(arrayExpression)
@@ -908,18 +896,17 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitIfStatement([NotNull] IfStatementContext context)
         {
-            var arguments = new List<ExpressionSyntax>() {
-                (ExpressionSyntax)Visit(context.singleExpression())
-            };
-            var argumentList = CreateArgumentList(arguments);
+            var ifExpr = (ExpressionSyntax)Visit(context.singleExpression());
+
+            if (ifExpr is not ParenthesizedExpressionSyntax)
+                ifExpr = SyntaxFactory.ParenthesizedExpression(ifExpr);
+            ifExpr = SyntaxFactory.CastExpression(PredefinedKeywords.KsValueType, ifExpr);
 
             BlockSyntax ifBlock = (BlockSyntax)Visit(context.flowBlock());
 			BlockSyntax elseProduction = null;
 
 			var ifStatement = SyntaxFactory.IfStatement(
-                SyntaxFactory.InvocationExpression(
-                    CreateMemberAccess("Keysharp.Scripting.Script", "IfTest"),
-                    argumentList),
+				ifExpr,
                 ifBlock
             );
 
@@ -1009,15 +996,9 @@ namespace Keysharp.Scripting
 
         private SyntaxNode HandleTernaryCondition(ExpressionSyntax condition, ExpressionSyntax trueExpression, ExpressionSyntax falseExpression)
         {
-            // Wrap the condition in Keysharp.Scripting.Script.IfTest(condition) to force a boolean
-            var wrappedCondition = SyntaxFactory.InvocationExpression(
-                CreateMemberAccess("Keysharp.Scripting.Script", "IfTest"),
-                CreateArgumentList(condition)
-            );
-
             // Create a ternary conditional expression: condition ? trueExpression : falseExpression
             return SyntaxFactory.ConditionalExpression(
-                wrappedCondition,          // The condition, forced to a boolean
+				SyntaxFactory.CastExpression(PredefinedKeywords.KsValueType, condition),          // The condition, forced to a boolean
                 trueExpression,            // Expression for true branch
                 falseExpression            // Expression for false branch
             );
@@ -1037,7 +1018,7 @@ namespace Keysharp.Scripting
             var parameterName = parser.ToValidIdentifier(context.identifier().GetText().Trim().ToLowerInvariant());
 
             ParameterSyntax parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
-					.WithType(PredefinedKeywords.ObjectType);
+					.WithType(PredefinedKeywords.KsValueType);
 
 			if (context.BitAnd() != null)
             {
@@ -1064,7 +1045,7 @@ namespace Keysharp.Scripting
             else if (context.QuestionMark() != null)
             {
                 // If QuestionMark is present, mark the parameter as optional with null default value
-                parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression));
             }
 
             return parameter;
@@ -1210,13 +1191,13 @@ namespace Keysharp.Scripting
                     parameterType = SyntaxFactory.ParseTypeName("VarRef");
                 }
                 else
-                    parameterType = PredefinedKeywords.ObjectType;
+                    parameterType = PredefinedKeywords.KsValueType;
 
                 parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
                     .WithType(parameterType);
 
                 if (context.QuestionMark() != null)
-                    parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                    parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression));
             }
 
             parser.currentFunc.Params.Add(parameter);
@@ -1363,7 +1344,7 @@ namespace Keysharp.Scripting
                         CreateFuncObjDelegateVariable(parser.currentFunc.Name)
                     ),
                     SyntaxFactory.LocalFunctionStatement(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Assuming return type is void
+                        Parser.PredefinedKeywords.KsValueType, // Assuming return type is void
                         SyntaxFactory.Identifier(parser.currentFunc.Name) // Function name
                     )
                     .WithParameterList(parser.currentFunc.Params)
@@ -1488,7 +1469,7 @@ namespace Keysharp.Scripting
 
                     var statement = SyntaxFactory.LocalDeclarationStatement(
                     SyntaxFactory.VariableDeclaration(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object)
+                        Parser.PredefinedKeywords.KsValueType
                     )
                     .WithVariables(
                         SyntaxFactory.SingletonSeparatedList(

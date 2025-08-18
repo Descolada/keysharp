@@ -223,14 +223,14 @@ namespace Keysharp.Core
 		///     application such as SysEdit or TextPad. However, it is less accurate for other purposes such as detecting controls inside a GroupBox control.<br/>
 		///     2: Stores the control's HWND in OutputVarControl rather than the control's ClassNN.
 		/// </param>
-		public static object MouseGetPos([ByRef][Optional()][DefaultParameterValue(null)] object outputVarX,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarY,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarWin,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarControl,
-										 object flag = null)
+		public static object MouseGetPos([ByRef][Optional()][DefaultParameterValue(null)] Any outputVarX,
+										 [ByRef][Optional()][DefaultParameterValue(null)] Any outputVarY,
+										 [ByRef][Optional()][DefaultParameterValue(null)] Any outputVarWin,
+										 [ByRef][Optional()][DefaultParameterValue(null)] Any outputVarControl,
+										 long flag = 0)
 		{
 			outputVarX ??= VarRef.Empty; outputVarY ??= VarRef.Empty; outputVarWin ??= VarRef.Empty; outputVarControl ??= VarRef.Empty;
-			var mode = flag.Al(0L);
+			var mode = flag;
 			var pos = Cursor.Position;
 			var aX = 0;
 			var aY = 0;
@@ -238,8 +238,8 @@ namespace Keysharp.Core
 			script.PlatformProvider.Manager.CoordToScreen(ref aX, ref aY, Core.CoordMode.Mouse);//Determine where 0,0 in window or client coordinates are on the screen.
 			Script.SetPropertyValue(outputVarX, "__Value", (long)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
             Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
-            Script.SetPropertyValue(outputVarWin, "__Value", null);
-            Script.SetPropertyValue(outputVarControl, "__Value", null);
+            Script.SetPropertyValue(outputVarWin, "__Value", default);
+            Script.SetPropertyValue(outputVarControl, "__Value", default);
             var child = script.WindowProvider.Manager.WindowFromPoint(pos);
 
 			if (child == null || child.Handle == 0)

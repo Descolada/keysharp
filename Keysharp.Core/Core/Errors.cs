@@ -291,10 +291,10 @@ namespace Keysharp.Core
 		/// Internal helper to handle target errors when searching for a window. Throws a <see cref="TargetError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object TargetErrorOccurred(object winTitle,
-				object winText,
-				object excludeTitle,
-				object excludeText,
+		internal static object TargetErrorOccurred(KsValue winTitle,
+				string winText,
+				string excludeTitle,
+				string excludeText,
 				object ret = null)
 		{
 			return TargetErrorOccurred($"Could not find window with criteria: title: {winTitle}, text: {winText}, exclude title: {excludeTitle}, exclude text: {excludeText}.");
@@ -305,10 +305,10 @@ namespace Keysharp.Core
 		/// </summary>
 		[StackTraceHidden]
 		internal static object TargetErrorOccurred(string prefix,
-				object winTitle,
-				object winText,
-				object excludeTitle,
-				object excludeText,
+				KsValue winTitle,
+				string winText,
+				string excludeTitle,
+				string excludeText,
 				object ret = null)
 		{
 			return TargetErrorOccurred($"{prefix} in window with criteria: title: {winTitle}, text: {winText}, exclude title: {excludeTitle}, exclude text: {excludeText}.");

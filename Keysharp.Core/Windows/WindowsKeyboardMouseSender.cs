@@ -2462,7 +2462,7 @@ namespace Keysharp.Core.Windows
 											}
 											else
 											{
-												_ = Dialogs.MsgBox($"Invalid character passed to Send(): {nextWord}", null, "16");
+												_ = Dialogs.MsgBox($"Invalid character passed to Send(): {nextWord}", default, "16");
 												return;
 											}
 										}

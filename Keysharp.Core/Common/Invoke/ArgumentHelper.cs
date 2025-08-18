@@ -118,15 +118,15 @@ namespace Keysharp.Core.Common.Invoke
 
 					if (p is Any kso)
 					{
-						object kptr;
+						KsValue kptr;
 
-						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p') && ((kso is IPointable ip && (kptr = ip.Ptr) != null)
+						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p') && ((kso is IPointable ip && !(kptr = ip.Ptr).IsUnset)
 							|| Script.TryGetPropertyValue(kso, "ptr", out kptr)))
 						{
 							if (last == '*' || (char)(last | 0x20) == 'p')
 								outputVars[paramIndex] = (typeof(nint), true);
 
-							p = kptr;
+							p = kptr.AsObject();
 						}
 					}
 				}
@@ -138,8 +138,8 @@ namespace Keysharp.Core.Common.Invoke
 
 					if (p is KeysharpObject kso 
 						&& !outputVars.ContainsKey(paramIndex) //must not be a Ptr object
-						&& Script.TryGetPropertyValue(kso, "__Value", out object kptr))
-						p = kptr;
+						&& Script.TryGetPropertyValue(kso, "__Value", out KsValue kptr))
+						p = kptr.AsObject();
 
 					// Pin the object and store its address
 					object temp = 0L;
@@ -200,10 +200,10 @@ namespace Keysharp.Core.Common.Invoke
 					}
 
 					// Special case for strings passed by reference but not with "str*", since strings are always by reference
-					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(kso2, "__Value", out object kptr))
+					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(kso2, "__Value", out KsValue kptr))
 					{
 						outputVars[paramIndex] = (typeof(nint), false);
-						p = kptr;
+						p = kptr.AsObject();
 					}
 
 					if (p is string s)
@@ -245,10 +245,10 @@ namespace Keysharp.Core.Common.Invoke
 						type = isReturn ? typeof(char[]) : typeof(nint);
 						goto TypeDetermined;
 					}
-					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(kso2, "__Value", out object kptr))
+					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(kso2, "__Value", out KsValue kptr))
 					{
 						outputVars[paramIndex] = (typeof(nint), false);
-						p = kptr;
+						p = kptr.AsObject();
 					}
 
 					if (p is string s)

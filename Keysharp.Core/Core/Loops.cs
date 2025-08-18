@@ -400,9 +400,10 @@ namespace Keysharp.Core
 		///     <see cref="IEnumerable"/><br/>
 		/// </exception>
 		/// <exception cref="UnsetError">An <see cref="UnsetError"/> exception is thrown if the object is null.</exception>
-		public static Common.Containers.KeysharpEnumerator MakeEnumerator(object obj, object count)
+		public static Common.Containers.KeysharpEnumerator MakeEnumerator(KsValue value, long count)
 		{
-			var ct = count.Ai();
+			var ct = (int)count;
+			object obj = value.AsObject();
 
 			if (obj is I__Enum ienum)
 				return (KeysharpEnumerator)ienum.__Enum(ct).Inst;
@@ -437,7 +438,7 @@ namespace Keysharp.Core
 				if (tempEnum is Common.Containers.KeysharpEnumerator kse2)
 					return kse2;
 				else
-					return MakeEnumerator(tempEnum, count);
+					return MakeEnumerator(KsValue.FromObject(tempEnum), count);
 			}
 			else if (obj is KeysharpObject kso)
 			{
@@ -447,7 +448,7 @@ namespace Keysharp.Core
 					{
 						var tempEnum = ifocall.Call(obj, count);
 
-						if (tempEnum is Common.Containers.KeysharpEnumerator kse3)
+						if (tempEnum.AsObject() is Common.Containers.KeysharpEnumerator kse3)
 							return kse3;
 						else
 							return MakeEnumerator(tempEnum, count);
@@ -479,14 +480,14 @@ namespace Keysharp.Core
         /// <param name="obj">The object to query.</param>
         /// <param name="args">An array of VarRefs.</param>
         /// <returns>Each element of the <see cref="IEnumerable"/>.</returns>
-        public static IEnumerable MakeEnumerable(object obj, params object[] args)
+        public static IEnumerable MakeEnumerable(KsValue obj, params object[] args)
         {
             var numOfVars = args.Length;
             KeysharpEnumerator ke = MakeEnumerator(obj, numOfVars == 0 ? 1 : numOfVars);
 
 			if (numOfVars == 0)
 			{
-				object temp = null;
+				KsValue temp = default;
 				args = new object[] { new VarRef(() => temp, (v) => temp = v) };
 				while (ke.Call(args).IsCallbackResultNonEmpty())
 					yield return temp;

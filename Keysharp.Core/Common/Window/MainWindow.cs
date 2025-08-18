@@ -328,7 +328,7 @@
 			var exe = path + "/Keysharp";
 #endif
 			var opt = path + "/Scripts/WindowSpy.ks";
-			object pid = VarRef.Empty;
+			Any pid = VarRef.Empty;
 			//Keysharp.Core.Dialogs.MsgBox(exe + "\r\n" + path + "\r\n" + opt);
 			_ = Processes.Run("\"" + exe + "\"", path, "", pid, "\"" + opt + "\"");
 		}

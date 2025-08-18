@@ -2,7 +2,7 @@
 {
 	internal interface I__Enum
 	{
-		public IFuncObj __Enum(object count);
+		public IFuncObj __Enum(long count);
 	}
 	public class KeysharpObject : Any
 	{
@@ -16,7 +16,7 @@
 
 			for (var i = 0; i < count; i += 2)
 			{
-				kso.op[args[i].ToString()] = new OwnPropsDesc(kso, args[i + 1]);
+				kso.op[args[i].ToString()] = new OwnPropsDesc(kso, KsValue.FromObject(args[i + 1]));
 			}
 
 			return kso;
@@ -120,7 +120,7 @@
 			return new OwnPropsIterator(this, props, vals).fo;
 		}
 
-		public virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
+		internal virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var fieldType = GetType().Name;
 			var opi = (OwnPropsIterator)((FuncObj)OwnProps(true, false)).Inst;

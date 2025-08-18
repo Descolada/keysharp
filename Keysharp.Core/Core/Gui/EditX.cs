@@ -2,22 +2,22 @@
 {
 	public static class EditX
 	{
-		public static long EditGetCurrentCol(object control,
-											 object winTitle = null,
-											 object winText = null,
-											 object excludeTitle = null,
-											 object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentCol(
+		public static long EditGetCurrentCol(KsValue control,
+											 KsValue winTitle = default,
+											 string winText = null,
+											 string excludeTitle = null,
+											 string excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentCol(
 													 control,
 													 winTitle,
 													 winText,
 													 excludeTitle,
 													 excludeText);
 
-		public static long EditGetCurrentLine(object control,
-											  object winTitle = null,
-											  object winText = null,
-											  object excludeTitle = null,
-											  object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentLine(
+		public static long EditGetCurrentLine(KsValue control,
+											  KsValue winTitle = default,
+											  string winText = null,
+											  string excludeTitle = null,
+											  string excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentLine(
 													  control,
 													  winTitle,
 													  winText,
@@ -25,11 +25,11 @@
 													  excludeText);
 
 		public static string EditGetLine(object n,
-										 object control,
-										 object winTitle = null,
-										 object winText = null,
-										 object excludeTitle = null,
-										 object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLine(
+										 KsValue control,
+										 KsValue winTitle = default,
+										 string winText = null,
+										 string excludeTitle = null,
+										 string excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLine(
 											 n.Ai(),
 											 control,
 											 winTitle,
@@ -37,22 +37,22 @@
 											 excludeTitle,
 											 excludeText);
 
-		public static long EditGetLineCount(object control,
-											object winTitle = null,
-											object winText = null,
-											object excludeTitle = null,
-											object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLineCount(
+		public static long EditGetLineCount(KsValue control,
+											KsValue winTitle = default,
+											string winText = null,
+											string excludeTitle = null,
+											string excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLineCount(
 												control,
 												winTitle,
 												winText,
 												excludeTitle,
 												excludeText);
 
-		public static string EditGetSelectedText(object control,
-				object winTitle = null,
-				object winText = null,
-				object excludeTitle = null,
-				object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetSelectedText(
+		public static string EditGetSelectedText(KsValue control,
+				KsValue winTitle = default,
+				string winText = null,
+				string excludeTitle = null,
+				string excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetSelectedText(
 					control,
 					winTitle,
 					winText,
@@ -60,11 +60,11 @@
 					excludeText);
 
 		public static object EditPaste(object @string,
-									   object control,
-									   object winTitle = null,
-									   object winText = null,
-									   object excludeTitle = null,
-									   object excludeText = null)
+									   KsValue control,
+									   KsValue winTitle = default,
+									   string winText = null,
+									   string excludeTitle = null,
+									   string excludeText = null)
 		{
 			Script.TheScript.ControlProvider.Manager.EditPaste(
 				@string.As(),

@@ -330,7 +330,7 @@ namespace Keysharp.Scripting
 					return true;
 
 				case NullTxt:
-				case Unset:
+				case Keywords.Unset:
 					result = null;
 					return true;
 			}

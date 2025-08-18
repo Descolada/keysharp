@@ -60,7 +60,7 @@
 		/// </summary>
 		/// <param name="number">Any number.</param>
 		/// <returns>The magnitude of <paramref name="n"/>.</returns>
-		public static object Abs(object number) => Math.Abs(number is double d ? d : number.Ad());
+		public static KsValue Abs(KsValue number) => number < 0 ? -number : number;
 
 		/// <summary>
 		/// Returns the angle whose cosine is the specified number.
@@ -505,29 +505,29 @@
 		/// If either <paramref name="a"/> or <paramref name="b"/> is a floating point number or both are omitted,<br/>
 		/// the result will be a floating point number. Otherwise, the result will be an integer.
 		/// </returns>
-		public static object Random(object a = null, object b = null)
+		public static KsValue Random(KsValue a = default, KsValue b = default)
 		{
 			var r = RandomGenerator;
 
-			if (a is null && b is null)
+			if (a.IsUnset && b.IsUnset)
 				return r.NextDouble();
 
-			if (a is long l0)
+			if (a.TryGetLong(out long l0))
 			{
-				if (b is long l1)
+				if (b.TryGetLong(out long l1))
 				{
 					var min = Math.Min(l0, l1);
 					var max = Math.Max(l0, l1);
 					return r.NextInt64(min, max + 1L);//Integer ranges include the max number.
 				}
-				else if (b is null)
+				else if (b.IsUnset)
 				{
 					var min = Math.Min(0L, l0);
 					var max = Math.Max(0L, l0);
 					return r.NextInt64(min, max + 1L);//If one param is omitted, it defaults to 0.
 				}
 			}
-			else if (b is long l11)
+			else if (b.TryGetLong(out long l11))
 			{
 				var min = Math.Min(0L, l11);
 				var max = Math.Max(0L, l11);

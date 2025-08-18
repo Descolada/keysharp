@@ -4,7 +4,7 @@ namespace Keysharp.Core
 {
 	internal static class WindowSearch
 	{
-		internal static WindowItemBase SearchControl(object ctrl, object title, object text, object excludeTitle, object excludeText, bool throwifnull = true)
+		internal static WindowItemBase SearchControl(KsValue ctrl, KsValue title, string text, string excludeTitle, string excludeText, bool throwifnull = true)
 		{
 			var (parsed, ptr) = CtrlTonint(ctrl);
 			var script = Script.TheScript;
@@ -22,12 +22,12 @@ namespace Keysharp.Core
 
 			var parent = SearchWindow(title, text, excludeTitle, excludeText, true);
 
-			if (ctrl == null)
+			if (ctrl.IsUnset)
 				return parent;
 
 			var sc = new SearchCriteria();
 			string classortext = null;
-			string s = ctrl as string;
+			string s = ctrl.AsObject() as string;
 
 			if (!string.IsNullOrEmpty(s))
 			{
@@ -90,10 +90,10 @@ namespace Keysharp.Core
 			return childitem;
 		}
 
-		internal static WindowItemBase SearchWindow(object winTitle,
-				object winText,
-				object excludeTitle,
-				object excludeText,
+		internal static WindowItemBase SearchWindow(KsValue winTitle,
+				string winText,
+				string excludeTitle,
+				string excludeText,
 				bool throwifnull,
 				bool last = false,
 				bool ignorePureID = false)
@@ -110,20 +110,20 @@ namespace Keysharp.Core
 			return win;
 		}
 
-		internal static List<WindowItemBase> SearchWindows(object winTitle = null,
-				object winText = null,
-				object excludeTitle = null,
-				object excludeText = null)
+		internal static List<WindowItemBase> SearchWindows(KsValue winTitle = default,
+				string winText = null,
+				string excludeTitle = null,
+				string excludeText = null)
 		{
 			var (windows, crit) = Script.TheScript.WindowProvider.Manager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 			return windows;
 		}
 
 		internal static object WinGetControlsHelper(bool nn,
-				object winTitle,
-				object winText,
-				object excludeTitle,
-				object excludeText)
+				KsValue winTitle,
+				string winText,
+				string excludeTitle,
+				string excludeText)
 		{
 			var script = Script.TheScript;
 			var win = script.WindowProvider.Manager.FindWindow(winTitle, winText, excludeTitle, excludeText);

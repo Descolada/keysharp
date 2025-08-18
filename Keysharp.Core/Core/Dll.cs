@@ -113,7 +113,7 @@ namespace Keysharp.Core
 		/// </param>
 		/// <param name="parameters">Type1, Arg1<br/>
 		/// Each of these pairs represents a single parameter to be passed to the function. The number of pairs is unlimited for normal DLL calls and is limited to 16 for COM calls.<br/>
-		/// The argument types can be: Str, WStr, AStr, Int64, Int, Short, Char, Float, Double, Ptr or HRESULT (a 32-bit integer).<br/>
+		/// The argument types can be: Str, WStr, AStr, Int64, Int, Short, Char, Float, Float, Ptr or HRESULT (a 32-bit integer).<br/>
 		/// Append an asterisk (with optional preceding space) to any of the above types to cause the address of the argument to be passed rather than the value itself.<br/>
 		/// Prepend the letter U to any of the integer types above to interpret it as an unsigned integer (UInt64, UInt, UShort, and UChar).<br/>
 		/// Strictly speaking, this is necessary only for return values and asterisk variables because it does not matter whether an argument passed by value is unsigned or signed (except for Int64).<br/>
@@ -128,6 +128,10 @@ namespace Keysharp.Core
 			//You should some day add the ability to use this with .NET dlls, exposing some type of reflection to the Script.TheScript.//TODO
 			nint handle = 0;
 			nint address = 0;
+
+			for (int i = 0; i < parameters.Length; i++)
+				if (parameters[i] is KsValue kv)
+					parameters[i] = kv.AsObject();
 
 			if (function is string path)
 			{
@@ -552,9 +556,9 @@ namespace Keysharp.Core
 					object temp = arg;
 					FixParamTypeAndCopyBack(ref temp, pair.Value.Item1, (nint)arg);
 					if (pair.Value.Item2)
-						_ = Script.SetPropertyValue(kso, "ptr", temp);
+						_ = Script.SetPropertyValue(kso, "ptr", KsValue.FromObject(temp));
 					else
-						_ = Script.SetPropertyValue(kso, "__Value", temp);
+						_ = Script.SetPropertyValue(kso, "__Value", KsValue.FromObject(temp));
 				}
 				else
 				{

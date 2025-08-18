@@ -245,7 +245,7 @@ if (val == 789)
 else
 	FileAppend "fail", "*"
 	
-optreffunc(a?, &b)
+optreffunc(a?, &b?)
 {
 	b := a
 }

@@ -4,17 +4,17 @@ namespace Keysharp.Core
 {
 	internal static class WindowHelper
 	{
-		internal static (bool, nint) CtrlTonint(object ctrl)
+		internal static (bool, nint) CtrlTonint(KsValue ctrl)
 		{
-			if (ctrl == null)
+			if (ctrl.IsUnset)
 			{
 				return (false, 0);
 			}
-			else if (ctrl is long l)
+			else if (ctrl.TryGetLong(out long l))
 			{
 				return (true, new nint(l));
 			}
-			else if (!(ctrl is string))
+			else if (!(ctrl.IsString))
 			{
 				object hwnd = null;
 
@@ -54,14 +54,14 @@ namespace Keysharp.Core
 		}
 
 		internal static void WinPosHelper(bool client,
-										  ref object outX,
-										  ref object outY,
-										  ref object outWidth,
-										  ref object outHeight,
-										  object winTitle,
-										  object winText,
-										  object excludeTitle,
-										  object excludeText)
+										  ref long outX,
+										  ref long outY,
+										  ref long outWidth,
+										  ref long outHeight,
+										  KsValue winTitle,
+										  string winText,
+										  string excludeTitle,
+										  string excludeText)
 		{
 			//DoDelayedFunc(() =>
 			{
@@ -96,10 +96,10 @@ namespace Keysharp.Core
 
 		internal static void WinSetStyleHelper(bool ex,
 											   object value,
-											   object winTitle = null,
-											   object winText = null,
-											   object excludeTitle = null,
-											   object excludeText = null)
+											   KsValue winTitle = default,
+											   string winText = null,
+											   string excludeTitle = null,
+											   string excludeText = null)
 		{
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
 			{
@@ -152,10 +152,10 @@ namespace Keysharp.Core
 
 		internal static void WinSetToggleX(Action<WindowItemBase, bool> set, Func<WindowItemBase, bool> get,
 										   object value,
-										   object winTitle = null,
-										   object winText = null,
-										   object excludeTitle = null,
-										   object excludeText = null)
+										   KsValue winTitle = default,
+										   string winText = null,
+										   string excludeTitle = null,
+										   string excludeText = null)
 		{
 			var val = value.Ai();
 

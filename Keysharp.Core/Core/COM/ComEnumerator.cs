@@ -83,11 +83,11 @@ namespace Keysharp.Core.COM
 		/// </summary>
 		/// <param name="value">A reference to the value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object value)
+		public override KsValue Call([ByRef] object value)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(value, "__Value", Current.Item1);
+				Script.SetPropertyValue(KsValue.FromObject(value), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
@@ -100,12 +100,12 @@ namespace Keysharp.Core.COM
 		/// <param name="type">A reference to the COM type value.</param>
 		/// <param name="val">A reference to the object value.</param>
 		/// <returns>True if the iterator position has not moved past the last element, else false.</returns>
-		public override object Call([ByRef] object type, [ByRef] object val)
+		public override KsValue Call([ByRef] object type, [ByRef] object val)
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(type, "__Value", Current.Item1);
-				Script.SetPropertyValue(val, "__Value", Current.Item2);
+				Script.SetPropertyValue(KsValue.FromObject(type), "__Value", KsValue.FromObject(Current.Item1));
+				Script.SetPropertyValue(KsValue.FromObject(val), "__Value", KsValue.FromObject(Current.Item2));
 				return true;
 			}
 

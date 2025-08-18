@@ -2119,7 +2119,7 @@ namespace Keysharp.Core.Common.Keyboard
 				hkd.dialogIsDisplayed = true;
 				script.FlowData.allowInterruption = false;
 
-				if (Dialogs.MsgBox(error_text, null, "YesNo") == DialogResult.No.ToString())
+				if (Dialogs.MsgBox(error_text, default, "YesNo") == DialogResult.No.ToString())
 					_ = Flow.ExitAppInternal(Flow.ExitReasons.Close, null, false);// Might not actually Exit if there's an OnExit function.
 
 				script.FlowData.allowInterruption = true;
@@ -2207,7 +2207,7 @@ namespace Keysharp.Core.Common.Keyboard
 			}
 			catch (Error ex)
 			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, (int)MessageBoxIcon.Hand);
+				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", default, (int)MessageBoxIcon.Hand);
 			}
 		}
 
@@ -2392,13 +2392,13 @@ namespace Keysharp.Core.Common.Keyboard
 			return null;
 		}
 
-		private static bool HotIfWinActivePrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItem win&& win.Active;
+		private static bool HotIfWinActivePrivate(KsValue title, string text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItem win&& win.Active;
 
-		private static bool HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItem win&& win.Exists;
+		private static bool HotIfWinExistPrivate(KsValue title, string text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItem win&& win.Exists;
 
-		private static bool HotIfWinNotActivePrivate(object title, object text, object hotkey) => !HotIfWinActivePrivate(title, text, hotkey);
+		private static bool HotIfWinNotActivePrivate(KsValue title, string text, object hotkey) => !HotIfWinActivePrivate(title, text, hotkey);
 
-		private static bool HotIfWinNotExistPrivate(object title, object text, object hotkey) => !HotIfWinExistPrivate(title, text, hotkey);
+		private static bool HotIfWinNotExistPrivate(KsValue title, string text, object hotkey) => !HotIfWinExistPrivate(title, text, hotkey);
 
 		private static object SetupHotIfWin(string funcname, object obj0 = null, object obj1 = null)
 		{

@@ -231,9 +231,6 @@ namespace Keysharp.Scripting
 
         public const string LoopEnumeratorBaseName = InternalPrefix + "e";
 
-        public static MemberAccessExpressionSyntax ScriptOperateName = CreateMemberAccess("Keysharp.Scripting.Script", "Operate");
-        public static MemberAccessExpressionSyntax ScriptOperateUnaryName = CreateMemberAccess("Keysharp.Scripting.Script", "OperateUnary");
-
 		public List<StatementSyntax> generalDirectiveStatements = new();
 		public Dictionary<string, string> generalDirectives = new(StringComparer.InvariantCultureIgnoreCase) 
 		{
@@ -257,19 +254,30 @@ namespace Keysharp.Scripting
 
 		public static class PredefinedKeywords
         {
+			public static readonly SyntaxToken KsValueToken = SyntaxFactory.Identifier("KsValue");
+			public static readonly TypeSyntax KsValueType = SyntaxFactory.IdentifierName(KsValueToken);
+
 			public static SyntaxToken Object = SyntaxFactory.Token(SyntaxKind.ObjectKeyword);
 
 			public static TypeSyntax ObjectType = SyntaxFactory.PredefinedType(Object);
 
-            public static TypeSyntax ObjectArrayType = SyntaxFactory.ArrayType(
-                    SyntaxFactory.PredefinedType(Object))
+			public static ArrayTypeSyntax KsValueArrayType = SyntaxFactory.ArrayType(
+		        KsValueType)
+	        .WithRankSpecifiers(
+		        SyntaxFactory.SingletonList(
+			        SyntaxFactory.ArrayRankSpecifier(
+				        SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
+					        SyntaxFactory.OmittedArraySizeExpression()))));
+
+			public static ArrayTypeSyntax ObjectArrayType = SyntaxFactory.ArrayType(
+                    ObjectType)
                 .WithRankSpecifiers(
                     SyntaxFactory.SingletonList(
                         SyntaxFactory.ArrayRankSpecifier(
                             SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
                                 SyntaxFactory.OmittedArraySizeExpression()))));
 
-            public static TypeSyntax StringArrayType = SyntaxFactory.ArrayType(
+            public static ArrayTypeSyntax StringArrayType = SyntaxFactory.ArrayType(
                     SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)))
                 .WithRankSpecifiers(
                     SyntaxFactory.SingletonList(
@@ -280,7 +288,7 @@ namespace Keysharp.Scripting
             public static IdentifierNameSyntax This = SyntaxFactory.IdentifierName("@this");
 
 			public static ParameterSyntax ThisParam = SyntaxFactory.Parameter(SyntaxFactory.Identifier("@this"))
-						.WithType(ObjectType);
+						.WithType(KsValueType);
 
 
 			public static SyntaxToken PublicToken = SyntaxFactory.Token(SyntaxKind.PublicKeyword);
@@ -334,7 +342,7 @@ namespace Keysharp.Scripting
                     throw new ArgumentException("Name cannot be null or empty.", nameof(name));
 
                 if (returnType == null)
-                    returnType = SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object);
+                    returnType = Parser.PredefinedKeywords.KsValueType;
 
                 Name = name;
                 Method = SyntaxFactory.MethodDeclaration(returnType, name);
@@ -359,7 +367,7 @@ namespace Keysharp.Scripting
                     );
 
                     if (Globals.Count == 0)
-                        arguments.Add(SyntaxFactory.Argument(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)));
+                        arguments.Add(SyntaxFactory.Argument(SyntaxFactory.LiteralExpression(SyntaxKind.DefaultLiteralExpression)));
                     else
                     {
                         var literalList = new List<ExpressionSyntax>();
@@ -374,16 +382,7 @@ namespace Keysharp.Scripting
 
                         // Create an array creation expression: new string[] { "item1", "item2", ... }
                         var arrayCreation = SyntaxFactory.ArrayCreationExpression(
-                            SyntaxFactory.ArrayType(
-                                SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)),
-                                SyntaxFactory.SingletonList(
-                                    SyntaxFactory.ArrayRankSpecifier(
-                                        SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                            SyntaxFactory.OmittedArraySizeExpression()
-                                        )
-                                    )
-                                )
-                            )
+                            PredefinedKeywords.StringArrayType
                         ).WithInitializer(arrayInitializer);
 
                         // Create the object creation expression:

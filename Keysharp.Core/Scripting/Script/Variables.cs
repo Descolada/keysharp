@@ -61,7 +61,7 @@ namespace Keysharp.Scripting
 			foreach (var op in fop.op)
 			{
 				var opm = op.Value;
-				if (opm.Value is FuncObj fov && fov != null)
+				if (opm.Value.TryGetAny(out Any any) && any is FuncObj fov && fov != null)
 					fov._base = fop;
 				if (opm.Get is FuncObj fog && fog != null)
 					fog._base = fop;
@@ -74,9 +74,9 @@ namespace Keysharp.Scripting
 			InitClass(typeof(KeysharpObject));
 			InitClass(typeof(Class));
 
-			// The static instance of Object is copied from Object prototype
+			// The static instance of External is copied from External prototype
 			Statics[typeof(KeysharpObject)] = (Any)Prototypes[typeof(KeysharpObject)].Clone();
-			// Class.Base == Object
+			// Class.Base == External
 			Statics[typeof(Class)]._base = Statics[typeof(KeysharpObject)];
 			// Any.Base == Class.Prototype
 			Statics[typeof(Any)]._base = Prototypes[typeof(Class)];
@@ -84,15 +84,15 @@ namespace Keysharp.Scripting
 			// Remove __New because it's only for internal overrides
 			Prototypes[typeof(Any)].op.Remove("__New");
 
-			// Manually define Object static instance prototype property to be the Object prototype
+			// Manually define External static instance prototype property to be the External prototype
 			var ksoStatic = Statics[typeof(KeysharpObject)];
 			if (ksoStatic.op == null)
 				ksoStatic.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
 			ksoStatic.op["prototype"] = new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]);
-			// Object.Base == Any
+			// External.Base == Any
 			ksoStatic._base = Statics[typeof(Any)];
 
-			//FuncObj was initialized when Object wasn't, so define the bases
+			//FuncObj was initialized when External wasn't, so define the bases
 			Prototypes[typeof(FuncObj)]._base = Prototypes[typeof(KeysharpObject)];
 			Statics[typeof(FuncObj)]._base = Prototypes[typeof(Class)];
 
@@ -123,18 +123,18 @@ namespace Keysharp.Scripting
 			|| Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(key)
 			|| Script.TheScript.ReflectionsData.flatPublicStaticMethods.ContainsKey(key);
 
-        public object GetVariable(string key)
+        public KsValue GetVariable(string key)
 		{
 			if (globalVars.TryGetValue(key, out var field))
 			{
 				if (field is PropertyInfo pi)
-					return pi.GetValue(null);
+					return KsValue.FromObject(pi.GetValue(null));
 				else if (field is FieldInfo fi)
-					return fi.GetValue(null);
+					return KsValue.FromObject(fi.GetValue(null));
 			}
 
 			var rv = GetReservedVariable(key); // Try reserved variable first, to take precedence over IFuncObj
-			if (rv != null)
+			if (rv.IsSet)
 				return rv;
 
 			return Functions.GetFuncObj(key, null);
@@ -162,10 +162,10 @@ namespace Keysharp.Scripting
 			return prop;
 		}
 
-		private object GetReservedVariable(string name)
+		private KsValue GetReservedVariable(string name)
 		{
 			var prop = FindReservedVariable(name);
-			return prop == null || !prop.CanRead ? null : prop.GetValue(null);
+			return KsValue.FromObject(prop == null || !prop.CanRead ? null : prop.GetValue(null));
 		}
 
 		private bool SetReservedVariable(string name, object value)
@@ -184,36 +184,36 @@ namespace Keysharp.Scripting
 
 
 
-		public object this[object key]
+		public KsValue this[KsValue key]
         {
-			get => TryGetPropertyValue(key, "__Value", out object val) ? val : GetVariable(key.ToString()) ?? "";
-			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1) ? Script.SetPropertyValue(kso, "__Value", value) : SetVariable(key.ToString(), value);
+			get => TryGetPropertyValue(key, "__Value", out KsValue val) ? val : GetVariable(key.ToString()).Default("");
+			set => _ = (key.TryGetAny(out Any kso) && Functions.HasProp(kso, "__Value") == 1) ? Script.SetPropertyValue(kso, "__Value", value) : SetVariable(key.ToString(), value);
 		}
 
 		public class Dereference
 		{
-            private readonly Dictionary<string, object> vars = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, KsValue> vars = new(StringComparer.OrdinalIgnoreCase);
 			private eScope scope = eScope.Local;
 			private HashSet<string> globals;
-            public Dereference(eScope funcScope, HashSet<string> funcGlobals, params object[] args)
+            public Dereference(eScope funcScope, HashSet<string> funcGlobals, params KsValue[] args)
 			{
 				scope = funcScope;
 				globals = funcGlobals;
 
 				for (int i = 0; i < args.Length; i += 2)
 				{
-					if (args[i] is string varName)
+					if (args[i].TryGetString(out string varName))
 					{
 						vars[varName] = args[i + 1];
 					}
 				}
 			}
 
-            public object this[object key]
+            public KsValue this[KsValue key]
 			{
 				get
 				{
-					if (key is KeysharpObject)
+					if (key.IsAny)
 						return GetPropertyValue(key, "__Value");
 					if (vars.TryGetValue(key.ToString(), out var val))
 						return GetPropertyValue(val, "__Value");
@@ -221,7 +221,7 @@ namespace Keysharp.Scripting
 				}
 				set
 				{
-					if (key is KeysharpObject)
+					if (key.IsAny)
 					{
 						SetPropertyValue(key, "__Value", value);
 						return;
@@ -239,7 +239,7 @@ namespace Keysharp.Scripting
 						return;
 					}
 
-					vars[s] = new VarRef(null);
+					vars[s] = new VarRef(default);
                 }
 			}
         }

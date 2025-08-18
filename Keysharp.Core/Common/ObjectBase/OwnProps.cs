@@ -20,7 +20,7 @@
 				{
 					if (kv.Value is OwnPropsDesc op)
 					{
-						if (op.Value != null)
+						if (!op.Value.IsUnset)
 							return (kv.Key, op.Value);
 						else if (op.Get != null && op.Get is FuncObj fo)
 							return (kv.Key, fo.Call(obj));
@@ -70,19 +70,19 @@
 			iter = map.GetEnumerator();
 		}
 
-		public override object Call([ByRef] object obj0)
+		public override KsValue Call([ByRef] object obj0)
 		{
 			if (MoveNext())
 			{
 				GetVal = false;
-				Script.SetPropertyValue(obj0, "__Value", Current.Item1);
+				Script.SetPropertyValue(KsValue.FromObject(obj0), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
 			return false;
 		}
 
-		public override object Call([ByRef] object obj0, [ByRef] object obj1 = null)
+		public override KsValue Call([ByRef] object obj0, [ByRef] object obj1 = null)
 		{
 			GetVal = obj1 != null;
 
@@ -90,11 +90,11 @@
 			{
 				if (GetVal)
 				{
-					Script.SetPropertyValue(obj0, "__Value", Current.Item1);
-					Script.SetPropertyValue(obj1, "__Value", Current.Item2);
+					Script.SetPropertyValue(KsValue.FromObject(obj0), "__Value", KsValue.FromObject(Current.Item1));
+					Script.SetPropertyValue(KsValue.FromObject(obj1), "__Value", KsValue.FromObject(Current.Item2));
 				} 
 				else
-					Script.SetPropertyValue(obj0, "__Value", Current.Item1);
+					Script.SetPropertyValue(KsValue.FromObject(obj0), "__Value", KsValue.FromObject(Current.Item1));
 				return true;
 			}
 
@@ -111,17 +111,17 @@
 	public class OwnPropsDesc
 	{
 		public Any Parent { get; private set; }
-		public object Value;
-		public object Get;
-		public object Set;
-		public object Call;
+		public KsValue Value;
+		public FuncObj Get;
+		public FuncObj Set;
+		public FuncObj Call;
 
 		public OwnPropsDesc()
 		{
 			Parent = null;
 		}
 
-		public OwnPropsDesc(Any kso, object set_Value = null, object set_Get = null, object set_Set = null, object set_Call = null)
+		public OwnPropsDesc(Any kso, KsValue set_Value = default, FuncObj set_Get = null, FuncObj set_Set = null, FuncObj set_Call = null)
 		{
 			Parent = kso;
 			Value = set_Value;
@@ -139,7 +139,7 @@
 
 		public bool IsEmpty
 		{
-			get => Value == null && Get == null && Set == null && Call == null;
+			get => Value.IsUnset && Get == null && Set == null && Call == null;
 		}
 
 		internal void Merge(Dictionary<string, OwnPropsDesc> map)
@@ -157,17 +157,17 @@
 
 					case "GET":
 						Get = desc.Get;
-						Value = null;
+						Value = default;
 						break;
 
 					case "SET":
 						Set = desc.Set;
-						Value = null;
+						Value = default;
 						break;
 
 					case "CALL":
 						Call = desc.Call;
-						Value = null;
+						Value = default;
 						break;
 				}
 			}
@@ -187,18 +187,18 @@
 						break;
 
 					case "GET":
-						Get = desc.Get ?? desc.Value;
-						Value = null;
+						Get = desc.Get ?? (FuncObj)desc.Value;
+						Value = default;
 						break;
 
 					case "SET":
-						Set = desc.Get ?? desc.Value;
-						Value = null;
+						Set = desc.Get ?? (FuncObj)desc.Value;
+						Value = default;
 						break;
 
 					case "CALL":
-						Call = desc.Get ?? desc.Value;
-						Value = null;
+						Call = desc.Get ?? (FuncObj)desc.Value;
+						Value = default;
 						break;
 				}
 			}
@@ -206,7 +206,7 @@
 
 		internal void Merge(OwnPropsDesc opd)
 		{
-			if (opd.Value != null)
+			if (!opd.Value.IsUnset)
 				Value = opd.Value;
 
 			if (opd.Get != null)
@@ -226,25 +226,25 @@
 				switch (key.ToString().ToUpper())
 				{
 					case "VALUE":
-						Value = value;
+						Value = KsValue.FromObject(value);
 						Get = null;
 						Set = null;
 						Call = null;
 						break;
 
 					case "GET":
-						Get = value;
-						Value = null;
+						Get = (FuncObj)value;
+						Value = default;
 						break;
 
 					case "SET":
-						Set = value;
-						Value = null;
+						Set = (FuncObj)value;
+						Value = default;
 						break;
 
 					case "CALL":
-						Call = value;
-						Value = null;
+						Call = (FuncObj)value;
+						Value = default;
 						break;
 				}
 			}
@@ -255,7 +255,7 @@
 			var map = new KeysharpObject();
 			map.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
 
-			if (Value != null)
+			if (!Value.IsUnset)
 				map.op["value"] = new OwnPropsDesc(map, Value);
 
 			if (Get != null)

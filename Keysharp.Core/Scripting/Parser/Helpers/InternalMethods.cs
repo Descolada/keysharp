@@ -38,6 +38,8 @@ namespace Keysharp.Scripting
 			internal static MethodReference AddHotkey => new (typeof(HotkeyDefinition), "AddHotkey");
 			internal static MethodReference AddHotstring => new (typeof(HotstringManager), "AddHotstring");
 			internal static MethodReference CreateTrayMenu => new (typeof(Script), "CreateTrayMenu");
+			internal static MethodReference Closure => new(typeof(Functions), "Closure");
+			internal static MethodReference ConstructVarRef => new(typeof(VarRef), "ConstructVarRef");
 			internal static MethodReference Dictionary => new (typeof(Collections), "Dictionary");
 			internal static MethodReference Exit => new (typeof(Flow), "Exit");
 			internal static MethodReference ExitApp => new (typeof(Flow), "ExitApp");
@@ -47,8 +49,7 @@ namespace Keysharp.Scripting
 			internal static MethodReference ForceString => new(typeof(Script), "ForceString");
 			internal static MethodReference FlattenParam => new (typeof(Script), "FlattenParam");
 			internal static MethodReference Func => new (typeof(Functions), "Func");
-            internal static MethodReference Closure => new(typeof(Functions), "Closure");
-            internal static MethodReference GetMethodOrProperty => new (typeof(Script), "GetMethodOrProperty");
+			internal static MethodReference GetMethodOrProperty => new (typeof(Script), "GetMethodOrProperty");
 			internal static MethodReference GetPropertyValue => new (typeof(Script), "GetPropertyValue");
 			internal static MethodReference HandleSingleInstance => new (typeof(Script), "HandleSingleInstance");
 			internal static MethodReference HotIf => new (typeof(HotkeyDefinition), "HotIf");
@@ -59,6 +60,7 @@ namespace Keysharp.Scripting
 			internal static MethodReference Inc => new (typeof(Loops), "Inc");
 			internal static MethodReference Index => new (typeof(Script), "Index");
 			internal static MethodReference Invoke => new (typeof(Script), "Invoke");
+			internal static MethodReference IsSet => new (typeof(Types), "IsSet");
 			internal static MethodReference LabelCall => new (typeof(Script), "LabelCall");
 			internal static MethodReference Loop => new (typeof(Loops), "Loop");
 			internal static MethodReference LoopFile => new (typeof(Loops), "LoopFile");

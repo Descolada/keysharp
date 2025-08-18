@@ -106,12 +106,12 @@ namespace Keysharp.Scripting
 
 					if (isStatic)
 					{
-						DefineProp(staticInst, methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
+						DefineProp(staticInst, methodName, new OwnPropsDesc(staticInst, default, null, null, new FuncObj(method)));
 						continue;
 					}
 
 					// Wrap method in FuncObj
-					DefineProp(proto, methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
+					DefineProp(proto, methodName, new OwnPropsDesc(proto, default, null, null, new FuncObj(method)));
 				}
 
 				// Get all instance and static properties
@@ -130,6 +130,8 @@ namespace Keysharp.Scripting
 				foreach (var prop in properties)
 				{
 					var propertyName = prop.Name;
+					if (propertyName == "Item")
+						propertyName = "__Item";
 					OwnPropsDesc propertyMap = null;
 					if ((prop.GetMethod?.IsStatic ?? false) || (prop.SetMethod?.IsStatic ?? false) || (propertyName.StartsWith(Keywords.ClassStaticPrefix)))
 					{
@@ -201,7 +203,7 @@ namespace Keysharp.Scripting
 					{
 						RuntimeHelpers.RunClassConstructor(nestedType.TypeHandle);
 						DefineProp(staticInst, nestedType.Name,
-							new OwnPropsDesc(staticInst, null,
+							new OwnPropsDesc(staticInst, default,
 								new FuncObj((params object[] args) => script.Vars.Statics[nestedType]),
 								null,
 								new FuncObj((object @this, params object[] args) => Script.Invoke(script.Vars.Statics[nestedType], "Call", args))
@@ -227,28 +229,32 @@ namespace Keysharp.Scripting
 				kso.op[name] = desc;
 		}
 
-		public static object Index(object item, params object[] index) => item == null ? null : IndexAt(item, index);
+		public static KsValue Index(KsValue item, params object[] index) => item.IsUnset ? Unset : IndexAt(item, index);
 
-		public static object SetObject(object value, object item, params object[] index)
+		public static KsValue SetObject(KsValue value, KsValue item, params object[] index)
 		{
 			object key = null;
 			Type typetouse = null;
 
+			for (int i = 0; i < index.Length; i++)
+				if (index[i] is KsValue kv)
+					index[i] = kv.AsObject();
+
 			try
 			{
-				if (item is ITuple otup && otup.Length > 1)
+				if (item.AsObject() is ITuple otup && otup.Length > 1)
 				{
 					if (otup[0] is Type t && otup[1] is object o)
 					{
 						typetouse = t;
-						item = o;
+						item = KsValue.FromObject(o);
 					} else if (otup[0] is KeysharpObject kso && otup[1] is object ob)
 					{
-                        item = ob; typetouse = kso.GetType();
+                        item = KsValue.FromObject(ob); typetouse = kso.GetType();
                     }
 				}
 				else
-					typetouse = item.GetType();
+					typetouse = item.AsObject().GetType();
 
 				if (index.Length == 1)
 				{
@@ -257,7 +263,7 @@ namespace Keysharp.Scripting
 					//This excludes types derived from Array so that super can be used.
 					if (typetouse == typeof(Keysharp.Core.Array))
 					{
-						((Keysharp.Core.Array)item)[key] = value;
+						((Keysharp.Core.Array)item)[KsValue.FromObject(key)] = value;
 						return value;
 					}
 					else if (typetouse == typeof(Keysharp.Core.Map))
@@ -268,25 +274,25 @@ namespace Keysharp.Scripting
 
 					var position = (int)ForceLong(key);
 
-					if (item is object[] objarr)
+					if (item.AsObject() is object[] objarr)
 					{
 						var actualindex = position < 0 ? objarr.Length + position : position - 1;
 						objarr[actualindex] = value;
 						return value;
 					}
-					else if (item is System.Array array)
+					else if (item.AsObject() is System.Array array)
 					{
 						var actualindex = position < 0 ? array.Length + position : position - 1;
 						array.SetValue(value, actualindex);
 						return value;
 					}
-					else if (item == null)
+					else if (item.IsUnset)
 					{
 						return DefaultErrorObject;
 					}
 				}
 
-				if (item is KeysharpObject kso2)
+				if (item.TryGetAny(out Any kso2))
 				{
 					if (TryGetOwnPropsMap(kso2, "__Item", out var opm)) {
 						if (opm.Set != null && opm.Set is IFuncObj ifo)
@@ -300,12 +306,12 @@ namespace Keysharp.Scripting
 
 #if WINDOWS
 
-				if (item is ComObjArray coa)
+				if (item.AsObject() is ComObjArray coa)
 				{
 					coa[index] = value;
 					return value;
 				}
-				else if (item is ComObject co)
+				else if (item.AsObject() is ComObject co)
 				{
 					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
 					{
@@ -313,10 +319,10 @@ namespace Keysharp.Scripting
 						return value;
 					}
 					else
-						return co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, index.Concat([value]));
+						return KsValue.FromObject(co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, index.Concat([value])));
 				}
 				else if (Marshal.IsComObject(item))
-					return item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, index.Concat([value]));
+					return KsValue.FromObject(item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, index.Concat([value])));
 
 #endif
 				var il1 = index.Length + 1;
@@ -329,7 +335,7 @@ namespace Keysharp.Scripting
 						return value;
 					}
 					else
-						return Errors.ValueErrorOccurred($"{il1} arguments were passed to a set indexer which only accepts {mph2.ParamLength}.");
+						return KsValue.FromObject(Errors.ValueErrorOccurred($"{il1} arguments were passed to a set indexer which only accepts {mph2.ParamLength}."));
 				}
 			}
 			catch (Exception e)
@@ -340,13 +346,17 @@ namespace Keysharp.Scripting
 					throw;
 			}
 
-			return Errors.ErrorOccurred($"Attempting to set index {key} of object {item} to value {value} failed.");
+			return KsValue.FromObject(Errors.ErrorOccurred($"Attempting to set index {key} of object {item} to value {value} failed."));
 		}
 
-		private static object IndexAt(object item, params object[] index)
+		private static KsValue IndexAt(KsValue item, params object[] index)
 		{
 			int len;
 			object key = null;
+
+			for (int i = 0; i < index.Length; i++)
+				if (index[i] is KsValue kv)
+					index[i] = kv.AsObject();
 
 			try
 			{
@@ -358,11 +368,11 @@ namespace Keysharp.Scripting
 				else
 					len = 1;
 
-				Any type = item as Any;
+				Any type = item.AsObject() as Any;
 
-                if (item is ITuple otup && otup.Length > 1 && otup[0] is Any t)
+                if (item.AsObject() is ITuple otup && otup.Length > 1 && otup[0] is Any t)
 				{
-					type = t; item = otup[1];
+					type = t; item = KsValue.FromObject(otup[1]);
 				}
 
 				if (type != null)
@@ -378,39 +388,39 @@ namespace Keysharp.Scripting
 					var position = (int)ForceLong(key);
 
 					//The most common is going to be a string, array, map or buffer.
-					if (item is string s)
+					if (item.TryGetString(out string s))
 					{
 						var actualindex = position < 0 ? s.Length + position : position - 1;
 						return s[actualindex];
 					}
-					else if (item is object[] objarr)//Used for indexing into variadic function params.
+					else if (item.AsObject() is object[] objarr)//Used for indexing into variadic function params.
 					{
 						var actualindex = position < 0 ? objarr.Length + position : position - 1;
-						return objarr[actualindex];
+						return KsValue.FromObject(objarr[actualindex]);
 					}
-					else if (item is System.Array array)
+					else if (item.AsObject() is System.Array array)
 					{
 						var actualindex = position < 0 ? array.Length + position : position - 1;
-						return array.GetValue(actualindex);
+						return KsValue.FromObject(array.GetValue(actualindex));
 					}
 				}
 
 #if WINDOWS
 
-				if (item is ComObjArray coa)
+				if (item.AsObject() is ComObjArray coa)
 				{
-					return coa[index];
+					return KsValue.FromObject(coa[index]);
 				}
-				else if (item is ComObject co)
+				else if (item.AsObject() is ComObject co)
 				{
 					//Could be an indexer, but MethodPropertyHolder currently doesn't support those
 					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
-						return ComObject.ReadVariant(co.Ptr.Al(), co.vt);
+						return KsValue.FromObject(ComObject.ReadVariant(co.Ptr.Al(), co.vt));
 
-					return Invoke((co.Ptr, new ComMethodPropertyHolder("Item")), index);
+					return KsValue.FromObject(Invoke((co.Ptr, new ComMethodPropertyHolder("Item")), index));
 				}
-				else if (Marshal.IsComObject(item))
-					return Invoke((item, new ComMethodPropertyHolder("Item")), index);
+				else if (Marshal.IsComObject(item.AsObject()))
+					return KsValue.FromObject(Invoke((item, new ComMethodPropertyHolder("Item")), index));
 
 #endif
 			}
@@ -422,7 +432,7 @@ namespace Keysharp.Scripting
 					throw;
 			}
 
-			return Errors.ErrorOccurred($"Attempting to get index of {key} on item {item} failed.");
+			return KsValue.FromObject(Errors.ErrorOccurred($"Attempting to get index of {key} on item {item} failed."));
 		}
 	}
 }

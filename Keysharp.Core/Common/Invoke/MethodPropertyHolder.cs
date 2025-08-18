@@ -1,5 +1,6 @@
 ﻿//#define CONCURRENT
 using Antlr4.Runtime.Misc;
+using Keysharp.Core.Windows;
 using Label = System.Reflection.Emit.Label;
 
 namespace Keysharp.Core.Common.Invoke
@@ -57,7 +58,9 @@ namespace Keysharp.Core.Common.Invoke
 #else
 		internal static Dictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
 		internal static Dictionary<PropertyInfo, MethodPropertyHolder> propertyCache = new();
+
 #endif
+		internal static Dictionary<Type, MethodInfo> coercersCache = new();
 
 		internal bool IsBind { get; private set; }
 		internal bool IsStaticFunc { get; private set; }
@@ -70,6 +73,7 @@ namespace Keysharp.Core.Common.Invoke
         private const string setterPrefix = "set_";
         private const string classSetterPrefix = Keywords.ClassStaticPrefix + setterPrefix;
 
+		internal static readonly MethodInfo coerceOpen = typeof(KsConvert).GetMethod(nameof(KsConvert.Coerce), BindingFlags.Public | BindingFlags.Static)!;
 
 		public static MethodPropertyHolder GetOrAdd(MethodInfo mi)
         {
@@ -92,7 +96,6 @@ namespace Keysharp.Core.Common.Invoke
 			return propertyCache[pi] = new MethodPropertyHolder(pi);
 #endif
         }
-
         public MethodPropertyHolder() { }
 
 		public MethodPropertyHolder(MethodInfo m)
@@ -109,11 +112,16 @@ namespace Keysharp.Core.Common.Invoke
 			isSetter = mi.Name.StartsWith(setterPrefix) || mi.Name.StartsWith(classSetterPrefix);
 			isItemSetter = mi.Name == "set_Item";
 
+			coercersCache.GetOrAdd(mi.DeclaringType, () => coerceOpen.MakeGenericMethod(mi.DeclaringType));
+
 			for (var i = 0; i < parameters.Length; i++)
 			{
 				var pmi = parameters[i];
+                if (pmi.ParameterType.IsByRef || pmi.ParameterType.IsByRefLike)
+                    throw new Exception("Ref parameters are not allowed");
+                coercersCache.GetOrAdd(pmi.ParameterType, () => coerceOpen.MakeGenericMethod(pmi.ParameterType));
 
-                if (pmi.IsVariadic() || ((pmi.ParameterType == typeof(object[])) && (i == (isItemSetter ? parameters.Length - 2 : parameters.Length - 1))))
+				if (pmi.IsVariadic() || ((pmi.ParameterType == typeof(object[])) && (i == (isItemSetter ? parameters.Length - 2 : parameters.Length - 1))))
                     variadicParamIndex = i;
                 else
                 {
@@ -256,7 +264,7 @@ namespace Keysharp.Core.Common.Invoke
 
             for (int i = lastProvided - 1; i >= 0; i--)
             {
-                if (args[i] == null)
+                if (args[i] == null || (args[i] is KsValue kv && kv.IsUnset))
                     provided--;
                 else
                     break;
@@ -346,10 +354,7 @@ namespace Keysharp.Core.Common.Invoke
                 il.MarkLabel(afterTarget);
                 // Push the target (cast as needed) for the eventual call.
                 il.Emit(OpCodes.Ldloc, target);
-                if (method.DeclaringType.IsValueType)
-                    il.Emit(OpCodes.Unbox_Any, method.DeclaringType);
-                else
-                    il.Emit(OpCodes.Castclass, method.DeclaringType);
+				il.Emit(OpCodes.Call, MethodPropertyHolder.coercersCache[method.DeclaringType]);
 
                 // For instance methods, we use the caller's argument array unchanged.
                 il.Emit(OpCodes.Ldarg_1);
@@ -574,7 +579,7 @@ namespace Keysharp.Core.Common.Invoke
                         else
                         {
                             EmitLoadConstant(il, defVal);
-                            if (!pi.ParameterType.IsValueType && defVal.GetType().IsValueType)
+                            if (defVal.GetType().IsValueType)
                                 il.Emit(OpCodes.Box, defVal.GetType());
                         }
                         il.Emit(OpCodes.Br_S, afterLoad);
@@ -610,7 +615,7 @@ namespace Keysharp.Core.Common.Invoke
                         else
                         {
                             EmitLoadConstant(il, defVal);
-                            if (!pi.ParameterType.IsValueType && defVal.GetType().IsValueType)
+                            if (defVal.GetType().IsValueType)
                                 il.Emit(OpCodes.Box, defVal.GetType());
                         }
                         il.Emit(OpCodes.Br_S, afterLoad);
@@ -628,11 +633,14 @@ namespace Keysharp.Core.Common.Invoke
                     il.MarkLabel(afterLoad);
                 }
 
-                // Finally, if the formal parameter is a value type, unbox/cast as needed.
-                if (pi.ParameterType.IsValueType)
+				// Finally, if the formal parameter is a value type, unbox/cast as needed.
+				il.Emit(OpCodes.Call, MethodPropertyHolder.coercersCache[pi.ParameterType]);
+                /*
+				if (pi.ParameterType.IsValueType)
                     il.Emit(OpCodes.Unbox_Any, pi.ParameterType);
                 else
                     il.Emit(OpCodes.Castclass, pi.ParameterType);
+                */
             }
 
             // --- Call the underlying method ---
@@ -790,5 +798,110 @@ namespace Keysharp.Core.Common.Invoke
             }
         }
     }
+
+	public static class KsConvert
+	{
+		// Unified, zero-alloc fast path for common targets, with a safe fallback.
+		public static T Coerce<T>(object arg)
+		{
+			if (arg is null) return default;
+			if (arg is T t) return t;
+
+			var target = typeof(T);
+
+			// If caller wants KsValue, construct it from common primitives
+			if (target == typeof(KsValue))
+			{
+				if (arg is KsValue kv0) return (T)(object)kv0;
+				if (arg is long l0) return (T)(object)new KsValue(l0);
+				if (arg is int i0) return (T)(object)new KsValue((long)i0);
+				if (arg is double d0) return (T)(object)new KsValue(d0);
+				if (arg is float f0) return (T)(object)new KsValue((double)f0);
+				if (arg is string s0) return (T)(object)new KsValue(s0);
+				if (arg is bool b0) return (T)(object)(b0 ? True : False);
+				return (T)(object)new KsValue(arg); // Any/Host object
+			}
+
+			// KsValue → target
+			if (arg is KsValue kv)
+			{
+				// Common primitives
+				if (target == typeof(long))
+				{
+					if (kv.TryGetLong(out var l)) return (T)(object)l;
+					if (kv.TryGetDouble(out var d)) return (T)(object)(long)d;
+					throw new InvalidCastException("Expected integer.");
+				}
+				if (target == typeof(int))
+				{
+					if (kv.TryGetLong(out var l)) return (T)(object)unchecked((int)l);
+					if (kv.TryGetDouble(out var d)) return (T)(object)unchecked((int)d);
+					throw new InvalidCastException("Expected integer.");
+				}
+				if (target == typeof(double))
+				{
+					if (kv.TryGetDouble(out var d)) return (T)(object)d;
+					if (kv.TryGetLong(out var l)) return (T)(object)(double)l;
+					throw new InvalidCastException("Expected number.");
+				}
+				if (target == typeof(float))
+				{
+					if (kv.TryGetDouble(out var d)) return (T)(object)(float)d;
+					if (kv.TryGetLong(out var l)) return (T)(object)(float)l;
+					throw new InvalidCastException("Expected number.");
+				}
+				if (target == typeof(bool))
+				{
+					return (T)(object)kv.AsBool();
+				}
+				if (target == typeof(string))
+				{
+					if (kv.TryGetString(out var s)) return (T)(object)s;
+					var o = kv.AsObject();
+					return (T)(object)(o?.ToString() ?? string.Empty);
+				}
+				if (target.IsEnum)
+				{
+					// Allow numeric KsValue → enum
+					long raw;
+					if (kv.TryGetLong(out var l)) raw = l;
+					else if (kv.TryGetDouble(out var d)) raw = (long)d;
+					else throw new InvalidCastException($"Cannot convert KsValue to enum {target.Name}.");
+
+					var underlying = Enum.GetUnderlyingType(target);
+					object boxed = Convert.ChangeType(raw, underlying, CultureInfo.InvariantCulture)!;
+					return (T)Enum.ToObject(target, boxed);
+				}
+
+				// If the underlying object fits, pass it through
+				var obj = kv.AsObject();
+				if (obj is not null && target.IsInstanceOfType(obj))
+					return (T)obj;
+			}
+
+			// Fallbacks for non-KsValue args
+			if (target.IsEnum)
+			{
+				var underlying = Enum.GetUnderlyingType(target);
+				var boxed = Convert.ChangeType(arg, underlying, CultureInfo.InvariantCulture)!;
+				return (T)Enum.ToObject(target, boxed);
+			}
+
+			if (arg is IConvertible)
+			{
+				try
+				{
+					var conv = Convert.ChangeType(arg, target, CultureInfo.InvariantCulture);
+					if (conv is T ok) return ok;
+				}
+				catch { /* fall through */ }
+			}
+
+			if (target.IsAssignableFrom(arg.GetType()))
+				return (T)arg;
+
+			throw new InvalidCastException($"Cannot convert argument of type {arg.GetType().Name} to {target.Name}.");
+		}
+	}
 
 }

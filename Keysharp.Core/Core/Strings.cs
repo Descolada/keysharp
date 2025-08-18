@@ -1244,20 +1244,18 @@ namespace Keysharp.Core
 		/// <summary>
 		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
 		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null)
+		public static string StrReplace(string haystack, string needle, string replaceText = null, KsValue caseSense = default)
 		{
-			object obj4 = null;
-			object outputVarCount = new VarRef(null);
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
+			Any outputVarCount = new VarRef (default);
+			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount);
 		}
 
 		/// <summary>
 		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
 		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, object outputVarCount)
+		public static string StrReplace(string haystack, string needle, string replaceText, string caseSense, Any outputVarCount)
 		{
-			object obj4 = null;
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
+			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount);
 		}
 
 		/// <summary>
@@ -1281,13 +1279,13 @@ namespace Keysharp.Core
 		/// Otherwise, specify the maximum number of replacements to allow.
 		/// </param>
 		/// <returns>The newly modified string.</returns>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, [ByRef] object outputVarCount, object limit)
+		public static string StrReplace(string haystack, string needle, string replaceText, KsValue caseSense, [ByRef] Any outputVarCount, long limit = -1)
 		{
-			var input = haystack.As();
-			var search = needle.As();
-			var replace = replaceText.As();
+			var input = haystack;
+			var search = needle;
+			var replace = replaceText;
 			var comp = caseSense.As("Off");
-			var lim = limit.Al(-1);
+			var lim = limit;
 
 			if (IsAnyBlank(input, search))
 			{
@@ -1489,30 +1487,25 @@ namespace Keysharp.Core
 		/// <param name="requestedCapacity">Capacity for the StringBuffer. If this is -1 then
 		/// <paramref name="targetVar"/> contents are replaced with the content of the StringBuffer.</param>
 		/// <returns>StringBuffer</returns>
-		public static object VarSetStrCapacity([ByRef] object targetVar, object requestedCapacity = null)
+		public static object VarSetStrCapacity([ByRef] Any targetVar, long requestedCapacity = 0)
 		{
 			if (!(targetVar is KeysharpObject))
 				throw new TypeError($"Expected argument of type VarRef, but received {targetVar.GetType()}");
 
-			var target = Script.GetPropertyValue(targetVar, "__Value") ?? "";
-			int capacity;
-			if (target is string targetStr)
+			var target = Script.GetPropertyValue(targetVar, "__Value").Default("");
+			int capacity = (int)requestedCapacity;
+			if (target.TryGetString(out string targetStr))
 			{
-				if (requestedCapacity == null)
-					return (long)targetStr.Length;
-				capacity = requestedCapacity.Ai();
-				if (capacity < 0)
+				if (capacity <= 0)
 					return (long)targetStr.Length;
                 var sbr = new StringBuffer(targetStr, capacity);
 				Script.SetPropertyValue(targetVar, "__Value", sbr);
 				return (long)capacity;
 			}
-			else if (target is StringBuffer sbr)
+			else if (target.AsObject() is StringBuffer sbr)
 			{
-				if (requestedCapacity == null)
+				if (capacity == 0)
 					return sbr.Capacity;
-
-				capacity = requestedCapacity.Ai();
 				if (capacity == -1)
 				{
 					var str = sbr.ToString();

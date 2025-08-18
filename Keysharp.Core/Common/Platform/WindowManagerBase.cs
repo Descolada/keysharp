@@ -48,7 +48,7 @@ namespace Keysharp.Core.Common.Platform
 			return found;
 		}
 
-		internal WindowItemBase FindWindow(object winTitle, object winText, object excludeTitle, object excludeText, bool last = false, bool ignorePureID = false)
+		internal WindowItemBase FindWindow(KsValue winTitle, string winText, string excludeTitle, string excludeText, bool last = false, bool ignorePureID = false)
 		{
 			WindowItemBase foundWindow = null;
 			var (parsed, ptr) = WindowHelper.CtrlTonint(winTitle);
@@ -61,11 +61,11 @@ namespace Keysharp.Core.Common.Platform
 			var exclTitle = excludeTitle.As();
 			var exclTxt = excludeText.As();
 
-			if (winTitle is Gui gui)
+			if (winTitle.AsObject() is Gui gui)
 			{
 				return LastFound = CreateWindow((nint)gui.Hwnd);
 			}
-			else if ((winTitle == null || winTitle is string s && string.IsNullOrEmpty(s)) &&
+			else if ((winTitle.IsUnset || (winTitle.IsString && !winTitle)) &&
 					 string.IsNullOrEmpty(text) &&
 					 string.IsNullOrEmpty(exclTitle) &&
 					 string.IsNullOrEmpty(exclTxt))
@@ -118,10 +118,10 @@ namespace Keysharp.Core.Common.Platform
 			return found;
 		}
 
-		internal (List<WindowItemBase>, SearchCriteria) FindWindowGroup(object winTitle,
-				object winText,
-				object excludeTitle,
-				object excludeText,
+		internal (List<WindowItemBase>, SearchCriteria) FindWindowGroup(KsValue winTitle,
+				string winText,
+				string excludeTitle,
+				string excludeText,
 				bool forceAll = false,
 				bool ignorePureID = false)
 		{
@@ -131,7 +131,7 @@ namespace Keysharp.Core.Common.Platform
 			var exclTitle = excludeTitle.As();
 			var exclText = excludeText.As();
 
-			if ((winTitle == null || winTitle is string s && string.IsNullOrEmpty(s)) &&
+			if ((winTitle.IsUnset || (winTitle.IsString && !winTitle)) &&
 					string.IsNullOrEmpty(text) &&
 					string.IsNullOrEmpty(exclTitle) &&
 					string.IsNullOrEmpty(exclText))

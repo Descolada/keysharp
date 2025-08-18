@@ -159,23 +159,6 @@ namespace Keysharp.Scripting
 
 		public static BoolResult IfTest(object result) => new (ForceBool(result), result);
 
-		public static object PrefixIncDec(Operator op, object left, object val) => Operate(op, left, val);
-
-		public static object PostfixIncDecIndex(object obj, object index, object val)
-		{
-			var orig = Index(obj, index);
-			_ = SetObject(Operate(Operator.Add, orig, val), obj, index);
-			return orig;
-		}
-
-		public static object PostfixIncDecProp(object obj, object prop, object val)
-		{
-			var orig = GetPropertyValue(obj, prop);
-			var newval = Operate(Operator.Add, orig, val);
-			_ = SetPropertyValue(obj, prop, newval);
-			return orig;
-		}
-
 		public static object Operate(Operator op, object left, object right)
 		{
 			switch (op)
@@ -363,7 +346,7 @@ namespace Keysharp.Scripting
 					if (right == null)
 						return (bool)Errors.UnsetErrorOccurred($"Right side operand of regular expression", false);
 
-                        VarRef outvar = new VarRef(null);
+                        VarRef outvar = new VarRef(default);
 						_ = RegEx.RegExMatch(ForceString(left), ForceString(right), outvar, 1);
 						return outvar.__Value;
 					}
@@ -443,8 +426,8 @@ namespace Keysharp.Scripting
 							{
 								if (IsNumeric(al1[i]) && IsNumeric(al2[i]))
 								{
-									var d1 = Convert.ToDouble(al1[i]);
-									var d2 = Convert.ToDouble(al2[i]);
+									var d1 = Convert.ToDouble((object)al1[i]);
+									var d2 = Convert.ToDouble((object)al2[i]);
 
 									if (d1 != d2)
 										return false;
@@ -821,18 +804,18 @@ namespace Keysharp.Scripting
 
 		public static object OperateTernary(bool result, ExpressionDelegate x, ExpressionDelegate y) => result ? x() : y();
 
-		public static object MultiStatement(object arg1) => arg1;
-        public static object MultiStatement(object arg1, object arg2) => arg2;
-        public static object MultiStatement(object arg1, object arg2, object arg3) => arg3;
-        public static object MultiStatement(object arg1, object arg2, object arg3, object arg4) => arg4;
-        public static object MultiStatement(object arg1, object arg2, object arg3, object arg4, object arg5) => arg5;
-        public static object MultiStatement(object arg1, object arg2, object arg3, object arg4, object arg5, object arg6) => arg6;
-        public static object MultiStatement(object arg1, object arg2, object arg3, object arg4, object arg5, object arg6, object arg7) => arg7;
-        public static object MultiStatement(object arg1, object arg2, object arg3, object arg4, object arg5, object arg6, object arg7, object arg8) => arg8;
+		public static KsValue MultiStatement(KsValue arg1) => arg1;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2) => arg2;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3) => arg3;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3, KsValue arg4) => arg4;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3, KsValue arg4, KsValue arg5) => arg5;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3, KsValue arg4, KsValue arg5, KsValue arg6) => arg6;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3, KsValue arg4, KsValue arg5, KsValue arg6, KsValue arg7) => arg7;
+        public static KsValue MultiStatement(KsValue arg1, KsValue arg2, KsValue arg3, KsValue arg4, KsValue arg5, KsValue arg6, KsValue arg7, KsValue arg8) => arg8;
 
-        public static object MultiStatement(params object[] args) => args[ ^ 1];
+        public static KsValue MultiStatement(params KsValue[] args) => args[ ^ 1];
 
-        public static void InitStaticVariable(ref object variable, string name, Func<object> initFunc)
+        public static void InitStaticVariable(ref KsValue variable, string name, Func<KsValue> initFunc)
         {
             if (Script.TheScript.FlowData.initializedUserStaticVariables.Contains(name))
                 return;
@@ -896,10 +879,6 @@ namespace Keysharp.Scripting
 					return Errors.ValueErrorOccurred($"Operator {op} cannot be applied to: {right}");
 			}
 		}
-
-		public static int OperateZero(object expression) => 0;
-
-		public static object OrMaybe(object left, object right) => Types.IsSet(left) == 1L ? left : right;
 
 		internal static bool IsFloat(object obj) =>
 		obj is double/* ||

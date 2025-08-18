@@ -29,7 +29,7 @@
 
 	public class KeysharpEnumerator
 	{
-		public IFuncObj fo;
+		public FuncObj fo;
 		private object[] args;
 
 		/// <summary>
@@ -39,9 +39,9 @@
 		/// </summary>
 		public int Count { get; private set; }
 
-		public IFuncObj CallFunc { get; protected set; }
+		public FuncObj CallFunc { get; protected set; }
 
-		public KeysharpEnumerator(IFuncObj f, int count)
+		public KeysharpEnumerator(FuncObj f, int count)
 		{
 			fo = f;
 			Count = count;//Unsure what happens when this differs from the number of parameters fo expects. MethodPropertyHolder probably just fills them in.
@@ -96,7 +96,7 @@
 
 		    File.WriteAllText("./enumcalls.txt", sb.ToString());
 		*/
-		public virtual object Call(params object[] args)
+		public virtual KsValue Call(params object[] args)
 		{
 			try
 			{
@@ -108,7 +108,7 @@
 			}
 		}
 
-		public virtual object Call([ByRef] object ovar1)
+		public virtual KsValue Call([ByRef] object ovar1)
 		{
 			try
 			{
@@ -120,7 +120,7 @@
 			}
 		}
 
-		public virtual object Call([ByRef] object ovar1, [ByRef] object ovar2 = null)
+		public virtual KsValue Call([ByRef] object ovar1, [ByRef] object ovar2 = default)
 		{
 			try
 			{

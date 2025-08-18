@@ -221,7 +221,7 @@ namespace Keysharp.Core.COM
 								if (modifier[i] && i < inputParameters.Length && inputParameters[i] is KeysharpObject)
 								{
 									refs[i] = inputParameters[i];
-									inputParameters[i] = Script.GetPropertyValue(inputParameters[i], "__Value");
+									inputParameters[i] = Script.GetPropertyValue(KsValue.FromObject(inputParameters[i]), "__Value");
                                 }
                             }
 
@@ -317,7 +317,7 @@ namespace Keysharp.Core.COM
 							  null);
 
 				foreach (var r in refs)
-					Script.SetPropertyValue(r.Value, "__Value", inputParameters[r.Key]);
+					Script.SetPropertyValue(KsValue.FromObject(r.Value), "__Value", KsValue.FromObject(inputParameters[r.Key]));
 
 				//If no exception thrown and it wasn't cached, cache the info.
 				if (!found)

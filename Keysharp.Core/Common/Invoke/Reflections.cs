@@ -210,6 +210,8 @@ namespace Keysharp.Core.Common.Invoke
 						{
 							foreach (var meth in meths)
 							{
+								if (meth.IsSpecialName || meth.GetCustomAttribute<PublicForTestOnly>() != null)
+									continue;
 								var mph = MethodPropertyHolder.GetOrAdd(meth);
 								typeToMethods.GetOrAdd(meth.ReflectedType,
 													   () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(meths.Length, StringComparer.OrdinalIgnoreCase))

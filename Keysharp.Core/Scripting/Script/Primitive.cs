@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
-using Keysharp.Core.Windows;
-
-namespace Keysharp.Scripting
+﻿namespace Keysharp.Scripting
 {
 	/// <summary>
 	/// Base abstract class for primitive script values (long, double, string), with per-instance lazy caches.

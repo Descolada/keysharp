@@ -6,51 +6,6 @@
 	public static class Monitor
 	{
 		/// <summary>
-		/// <see cref="MonitorGet(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGet()
-		{
-			object left = null, top = null, right = null, bottom = null;
-			return MonitorGet(null, left, top, right, bottom);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGet(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGet(object obj)
-		{
-			object left = null, top = null, right = null, bottom = null;
-			return MonitorGet(obj, left, top, right, bottom);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGet(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGet(object obj, [ByRef] object left)
-		{
-			object top = null, right = null, bottom = null;
-			return MonitorGet(obj, left, top, right, bottom);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGet(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGet(object obj, [ByRef] object left, [ByRef] object top)
-		{
-			object right = null, bottom = null;
-			return MonitorGet(obj, left, top, right, bottom);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGet(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGet(object obj, [ByRef] object left, [ByRef] object top, [ByRef] object right)
-		{
-			object bottom = null;
-			return MonitorGet(obj, left, top, right, bottom);
-		}
-
-		/// <summary>
 		/// Checks if the specified monitor exists and optionally retrieves its bounding coordinates.
 		/// </summary>
 		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
@@ -116,51 +71,6 @@
 		}
 
 		/// <summary>
-		/// <see cref="MonitorGetWorkArea(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGetWorkArea()
-		{
-			object l = null, t = null, r = null, b = null;
-			return MonitorGetWorkArea(null, l, t, r, b);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGetWorkArea(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGetWorkArea(object n)
-		{
-			object l = null, t = null, r = null, b = null;
-			return MonitorGetWorkArea(n, l, t, r, b);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGetWorkArea(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGetWorkArea(object obj, [ByRef] object left)
-		{
-			object t = null, r = null, b = null;
-			return MonitorGetWorkArea(obj, left, t, r, b);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGetWorkArea(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGetWorkArea(object obj, [ByRef] object left, [ByRef] object top)
-		{
-			object r = null, b = null;
-			return MonitorGetWorkArea(obj, left, top, r, b);
-		}
-
-		/// <summary>
-		/// <see cref="MonitorGetWorkArea(object, object, object, object, object)"/>
-		/// </summary>
-		public static object MonitorGetWorkArea(object obj, [ByRef] object left, [ByRef] object top, [ByRef] object right)
-		{
-			object b = null;
-			return MonitorGetWorkArea(obj, left, top, right, b);
-		}
-
-		/// <summary>
 		/// Checks if the specified monitor exists and optionally retrieves the bounding coordinates of its working area.
 		/// </summary>
 		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
@@ -169,7 +79,7 @@
 		/// <param name="right">The right bounding coordinate of the work area of the specified monitor.</param>
 		/// <param name="bottom">The bottom bounding coordinate of the work area of the specified monitor.</param>
 		/// <returns>The monitor number which is the same as n unless n was omitted.</returns>
-		public static object MonitorGetWorkArea(object n, [ByRef] object left, [ByRef] object top, [ByRef] object right, [ByRef] object bottom)
+		public static object MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
 		{
 			var monitorIndex = n.Al(-1L);
 			System.Windows.Forms.Screen screen;
@@ -179,10 +89,10 @@
 			else
 				screen = System.Windows.Forms.Screen.PrimaryScreen;
 
-			Script.SetPropertyValue(left, "__Value", (long)screen.WorkingArea.Left);
-            Script.SetPropertyValue(top, "__Value", (long)screen.WorkingArea.Top);
-            Script.SetPropertyValue(right, "__Value", (long)screen.WorkingArea.Right);
-            Script.SetPropertyValue(bottom, "__Value", (long)screen.WorkingArea.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (long)screen.WorkingArea.Left);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (long)screen.WorkingArea.Top);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (long)screen.WorkingArea.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)screen.WorkingArea.Bottom);
 			return monitorIndex > 0L ? monitorIndex : 1L;
 		}
 	}

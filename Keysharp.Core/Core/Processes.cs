@@ -312,15 +312,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// <see cref="Run(object, object, object, ref object, object)"/>
-		/// </summary>
-		public static long Run(object target, object workingDir = null, object options = null)
-		{
-			object pid = VarRef.Empty;
-			return Run(target, workingDir, options, pid, null);
-		}
-
-		/// <summary>
 		/// Runs an external program. Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until the program finishes before continuing.
 		/// </summary>
 		/// <param name="target">A document, URL, executable file (.exe, .com, .bat, etc.), shortcut (.lnk), CLSID, or system verb to launch (see remarks).</param>
@@ -339,7 +330,7 @@ namespace Keysharp.Core
 		/// <returns>Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until target is closed or exits,<br/>
 		/// at which time the return value will be the program's exit code.
 		/// </returns>
-		public static long Run(object target, object workingDir, object options, object outputVarPID, object args = null)
+		public static long Run(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As());
 		}

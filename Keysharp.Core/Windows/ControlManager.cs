@@ -593,11 +593,11 @@ namespace Keysharp.Core.Windows
 				{
 					if (WindowsAPI.MapWindowPoints(0, coordParent, ref rect, 2) != 0)
 					{
-						var pos = rect.ToPos();
-						outX = pos["X"];
-						outY = pos["Y"];
-						outWidth = pos["Width"];
-						outHeight = pos["Height"];
+						var pos = rect.ScaleRect();
+						outX = pos.X;
+						outY = pos.Y;
+						outWidth = pos.Width;
+						outHeight = pos.Height;
 						return;
 					}
 				}

@@ -657,10 +657,10 @@ namespace Keysharp.Core
 									   object excludeText = null) =>
 		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.PID : 0L;
 
-		public static object WinGetPos([Optional()][DefaultParameterValue(null)] object outX,
-									   [Optional()][DefaultParameterValue(null)] object outY,
-									   [Optional()][DefaultParameterValue(null)] object outWidth,
-									   [Optional()][DefaultParameterValue(null)] object outHeight,
+		public static object WinGetPos([ByRef] object outX = null,
+									   [ByRef] object outY = null,
+									   [ByRef] object outWidth = null,
+									   [ByRef] object outHeight = null,
 									   object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,

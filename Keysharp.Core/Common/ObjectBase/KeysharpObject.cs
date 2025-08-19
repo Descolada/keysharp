@@ -120,7 +120,7 @@
 			return new OwnPropsIterator(this, props, vals).fo;
 		}
 
-		public virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
+		internal virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var fieldType = GetType().Name;
 			var opi = (OwnPropsIterator)((FuncObj)OwnProps(true, false)).Inst;

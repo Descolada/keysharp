@@ -1242,25 +1242,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
-		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null)
-		{
-			object obj4 = null;
-			object outputVarCount = new VarRef(null);
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
-		}
-
-		/// <summary>
-		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
-		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, object outputVarCount)
-		{
-			object obj4 = null;
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
-		}
-
-		/// <summary>
 		/// Replaces the specified substring with a new string.
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched and replaced.</param>
@@ -1281,7 +1262,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify the maximum number of replacements to allow.
 		/// </param>
 		/// <returns>The newly modified string.</returns>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, [ByRef] object outputVarCount, object limit)
+		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null, [ByRef] object outputVarCount = null, object limit = null)
 		{
 			var input = haystack.As();
 			var search = needle.As();

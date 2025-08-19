@@ -366,7 +366,7 @@ namespace Keysharp.Core
 		/// <param name="name">The name to use for this object.</param>
 		/// <param name="sbuf">The <see cref="StringBuffer"/> to print to.</param>
 		/// <param name="tabLevel">The tab level to use when printing.</param>
-		public override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
+		internal override void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var indent = new string('\t', tabLevel);
 

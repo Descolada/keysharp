@@ -286,7 +286,7 @@
 		/// <summary>
 		/// The time in milliseconds to wait when reading the clipboard before a timeout is triggered.
 		/// </summary>
-		public static object A_ClipboardTimeout { get; set; } = 1000L;
+		public static long A_ClipboardTimeout { get; set; } = 1000L;
 
 		/// <summary>
 		/// The name of the computer as seen on the network.
@@ -663,7 +663,7 @@
 		/// <summary>
 		/// The number of the current loop iteration.
 		/// </summary>
-		public static object A_Index
+		public static long A_Index
 		{
 			get
 			{

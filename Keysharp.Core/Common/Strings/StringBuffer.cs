@@ -219,7 +219,7 @@ namespace Keysharp.Core.Common.Strings
 				Capacity = exact ? requiredCapacity : Math.Max(requiredCapacity, _capacity * 2);
 		}
 
-		public override void PrintProps(string name, StringBuffer sbuf, ref int tabLevel)
+		internal override void PrintProps(string name, StringBuffer sbuf, ref int tabLevel)
 		{
 			var indent = new string('\t', tabLevel);
 			var fieldType = GetType().Name;

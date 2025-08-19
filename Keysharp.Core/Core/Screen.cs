@@ -256,7 +256,7 @@ namespace Keysharp.Core
 		/// </param>
 		/// <returns>This function returns 1 if the color was found in the specified region, or 0 if it was not found.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static long PixelSearch(object outX, object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
+		public static long PixelSearch([ByRef] object outX, [ByRef] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
 		{
 			outX ??= VarRef.Empty; outY ??= VarRef.Empty;
 			var x1 = obj0.Ai();

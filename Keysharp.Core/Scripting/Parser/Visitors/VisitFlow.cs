@@ -170,16 +170,7 @@ namespace Keysharp.Scripting
 
                 backupDeclaration = SyntaxFactory.LocalDeclarationStatement(
                     SyntaxFactory.VariableDeclaration(
-                        SyntaxFactory.ArrayType(
-                            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // object[]
-                            SyntaxFactory.SingletonList(
-                                SyntaxFactory.ArrayRankSpecifier(
-                                    SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                        SyntaxFactory.OmittedArraySizeExpression() // Allow dynamic array initialization
-                                    )
-                                )
-                            )
-                        )
+                        SyntaxFactory.ArrayType(PredefinedKeywords.ObjectArrayType)
                     ).WithVariables(
                         SyntaxFactory.SingletonSeparatedList(
                             SyntaxFactory.VariableDeclarator(backupIdentifier.Identifier)
@@ -187,16 +178,7 @@ namespace Keysharp.Scripting
                                 SyntaxFactory.EqualsValueClause(
 									PredefinedKeywords.EqualsToken,
 									SyntaxFactory.ArrayCreationExpression(
-                                        SyntaxFactory.ArrayType(
-                                            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
-                                            SyntaxFactory.SingletonList(
-                                                SyntaxFactory.ArrayRankSpecifier(
-                                                    SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                                        SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(uniqueVariableNames.Count))
-                                                    )
-                                                )
-                                            )
-                                        )
+                                        PredefinedKeywords.ObjectArrayType
                                     ).WithInitializer(
                                         SyntaxFactory.InitializerExpression(
                                             SyntaxKind.ArrayInitializerExpression,

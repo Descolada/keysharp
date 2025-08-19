@@ -47,18 +47,7 @@ namespace Keysharp.Scripting
                     ),
 					CreateArgumentList(
 						SyntaxFactory.ArrayCreationExpression(
-                            SyntaxFactory.ArrayType(
-                                SyntaxFactory.PredefinedType(
-                                    Parser.PredefinedKeywords.Object
-                                ),
-                                SyntaxFactory.SingletonList(
-                                    SyntaxFactory.ArrayRankSpecifier(
-                                        SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                            SyntaxFactory.OmittedArraySizeExpression()
-                                        )
-                                    )
-                                )
-                            ),
+                            PredefinedKeywords.ObjectArrayType,
                             SyntaxFactory.InitializerExpression(
                                 SyntaxKind.ArrayInitializerExpression,
                                 SyntaxFactory.SeparatedList(parts)
@@ -738,12 +727,9 @@ namespace Keysharp.Scripting
 
         public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
         {
-            var arguments = new List<ExpressionSyntax>() {
-                CreateQualifiedName("Keysharp.Scripting.Script.Operator." + unaryOperators[type]),
-                (ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1))
-            };
-            var argumentList = CreateArgumentList(arguments);
-            return SyntaxFactory.InvocationExpression(ScriptOperateUnaryName, argumentList);
+            return SyntaxFactory.InvocationExpression(
+                CreateMemberAccess("Primitive", unaryOperators[type]),
+				CreateArgumentList((ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1))));
         }
 
 		public override SyntaxNode VisitVerbalNotExpression([NotNull] VerbalNotExpressionContext context)
@@ -1055,7 +1041,7 @@ namespace Keysharp.Scripting
             string binaryOperator = MapAssignmentOperatorToBinaryOperator(assignmentOperator);
 			var operatorToken = GetOperatorToken(binaryOperator);
 
-			InvocationExpressionSyntax binaryOperation;
+			ExpressionSyntax binaryOperation;
             InvocationExpressionSyntax result = null;
 
             // In the case of member or index access, buffer the base and member and then get+set to avoid multiple evaluations

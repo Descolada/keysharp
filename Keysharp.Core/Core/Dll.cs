@@ -123,14 +123,19 @@ namespace Keysharp.Core
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if there is any problem creating the dynamic assembly/function or calling it.</exception>
 		/// <exception cref="OSError">A <see cref="OSError"/> exception is thrown if the return type was HRESULT and the return value was negative.</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if any of the arguments was required to have a .Ptr member, but none was found.</exception>
-		public static unsafe object DllCall(object function, params object[] parameters)
+		public static unsafe Primitive DllCall(Primitive function, params object[] parameters)
 		{
 			//You should some day add the ability to use this with .NET dlls, exposing some type of reflection to the Script.TheScript.//TODO
 			nint handle = 0;
 			nint address = 0;
 
-			if (function is string path)
+			for (int i = 0; i < parameters.Length; i++)
+				if (parameters[i] is Primitive p)
+					parameters[i] = p.AsObject();
+
+			if (function.IsString)
 			{
+				string path = function.AsString();
 				string name;
 				var z = path.LastIndexOf(Path.DirectorySeparatorChar);
 				var procAddressCache = TheScript.DllData.procAddressCache;
@@ -185,7 +190,7 @@ namespace Keysharp.Core
 						}
 					}
 
-					return Errors.ErrorOccurred($"Unable to locate dll with path {path}.");
+					return (string)Errors.ErrorOccurred($"Unable to locate dll with path {path}.", "");
 				}
 				else if (loadedDlls.Keys.FirstOrDefault(n => path.StartsWith(n, StringComparison.OrdinalIgnoreCase)) is string moduleName && moduleName != null)
 				{
@@ -209,7 +214,7 @@ namespace Keysharp.Core
 					}
 
 					if (address == 0)
-						return Errors.ErrorOccurred($"Unable to locate dll with path {path}.");
+						return (string)Errors.ErrorOccurred($"Unable to locate dll with path {path}.", "");
 					else
 					{
 #if TL
@@ -226,7 +231,7 @@ namespace Keysharp.Core
 					z++;
 
 					if (z >= path.Length)
-						return Errors.ErrorOccurred($"Improperly formatted path of {path}.");
+						return (string)Errors.ErrorOccurred($"Improperly formatted path of {path}.", "");
 
 					name = path.Substring(z);
 					path = path.Substring(0, z - 1);
@@ -246,7 +251,7 @@ namespace Keysharp.Core
 			AddressFound:
 
 			if (address == 0)
-				return Errors.TypeErrorOccurred(function, typeof(nint), DefaultErrorObject);
+				return (string)Errors.TypeErrorOccurred(function, typeof(nint), DefaultErrorObject);
 
 			try
 			{
@@ -263,7 +268,7 @@ namespace Keysharp.Core
 			}
 			catch (Exception ex)
 			{
-				return Errors.ErrorOccurred($"An error occurred when calling {function}(): {ex.Message}", "", "0x" + A_LastError.ToString("X"));
+				return (string)Errors.ErrorOccurred($"An error occurred when calling {function}(): {ex.Message}", "", "0x" + A_LastError.ToString("X"));
 			}
 			finally
 			{
@@ -552,9 +557,9 @@ namespace Keysharp.Core
 					object temp = arg;
 					FixParamTypeAndCopyBack(ref temp, pair.Value.Item1, (nint)arg);
 					if (pair.Value.Item2)
-						_ = Script.SetPropertyValue(kso, "ptr", temp);
+						_ = Script.SetPropertyValue(kso, "ptr", Primitive.From(temp));
 					else
-						_ = Script.SetPropertyValue(kso, "__Value", temp);
+						_ = Script.SetPropertyValue(kso, "__Value", Primitive.From(temp));
 				}
 				else
 				{

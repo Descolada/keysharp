@@ -43,7 +43,7 @@ namespace Keysharp.Scripting
                 // Visit the singleExpression and wrap it in an anonymous function
                 var conditionExpression = (ExpressionSyntax)Visit(context.singleExpression());
                 var hotIfFunction = SyntaxFactory.MethodDeclaration(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type: bool
+                        Parser.PredefinedKeywords.ObjectType, // Return type: bool
                         SyntaxFactory.Identifier(hotIfFunctionName) // Function name
                     )
                     .WithModifiers(
@@ -58,7 +58,7 @@ namespace Keysharp.Scripting
 								SyntaxFactory.Parameter(
 									SyntaxFactory.Identifier("thishotkey")
 								)
-								.WithType(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+								.WithType(Parser.PredefinedKeywords.ObjectType)
 							)
 						)
 					)
@@ -222,7 +222,7 @@ namespace Keysharp.Scripting
 
                 // Create the hotkey function
                 hotkeyFunction = SyntaxFactory.MethodDeclaration(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type: string
+                        Parser.PredefinedKeywords.ObjectType, // Return type: string
                         SyntaxFactory.Identifier(hotkeyFunctionName) // Function name
                     )
                     .WithModifiers(
@@ -237,7 +237,7 @@ namespace Keysharp.Scripting
                                 SyntaxFactory.Parameter(
                                     SyntaxFactory.Identifier("thishotkey")
                                 )
-                                .WithType(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+                                .WithType(Parser.PredefinedKeywords.ObjectType)
                             )
                         )
                     )
@@ -321,7 +321,7 @@ namespace Keysharp.Scripting
 
                 // Create the hotstring function
                 var hotstringFunction = SyntaxFactory.MethodDeclaration(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+                        Parser.PredefinedKeywords.ObjectType,
                         SyntaxFactory.Identifier(functionName)
                     )
                     .WithModifiers(
@@ -336,7 +336,7 @@ namespace Keysharp.Scripting
                                 SyntaxFactory.Parameter(
                                     SyntaxFactory.Identifier("thishotkey")
                                 )
-                                .WithType(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+                                .WithType(Parser.PredefinedKeywords.ObjectType)
                             )
                         )
                     )
@@ -586,7 +586,7 @@ namespace Keysharp.Scripting
 
             // Generate the "down" hotkey function
             var downFunction = SyntaxFactory.MethodDeclaration(
-            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type: object
+            Parser.PredefinedKeywords.ObjectType, // Return type: object
             SyntaxFactory.Identifier(downFunctionName) // Function name
             )
 			.WithParameterList(
@@ -612,7 +612,7 @@ namespace Keysharp.Scripting
 
             // Generate the "up" hotkey function
             var upFunction = SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type: object
+                    Parser.PredefinedKeywords.ObjectType, // Return type: object
                     SyntaxFactory.Identifier(upFunctionName) // Function name
                 )
                 .WithParameterList(

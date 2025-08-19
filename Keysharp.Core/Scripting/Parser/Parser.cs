@@ -231,9 +231,6 @@ namespace Keysharp.Scripting
 
         public const string LoopEnumeratorBaseName = InternalPrefix + "e";
 
-        public static MemberAccessExpressionSyntax ScriptOperateName = CreateMemberAccess("Keysharp.Scripting.Script", "Operate");
-        public static MemberAccessExpressionSyntax ScriptOperateUnaryName = CreateMemberAccess("Keysharp.Scripting.Script", "OperateUnary");
-
 		public List<StatementSyntax> generalDirectiveStatements = new();
 		public Dictionary<string, string> generalDirectives = new(StringComparer.InvariantCultureIgnoreCase) 
 		{
@@ -261,15 +258,15 @@ namespace Keysharp.Scripting
 
 			public static TypeSyntax ObjectType = SyntaxFactory.PredefinedType(Object);
 
-            public static TypeSyntax ObjectArrayType = SyntaxFactory.ArrayType(
-                    SyntaxFactory.PredefinedType(Object))
+            public static ArrayTypeSyntax ObjectArrayType = SyntaxFactory.ArrayType(
+                    ObjectType)
                 .WithRankSpecifiers(
                     SyntaxFactory.SingletonList(
                         SyntaxFactory.ArrayRankSpecifier(
                             SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
                                 SyntaxFactory.OmittedArraySizeExpression()))));
 
-            public static TypeSyntax StringArrayType = SyntaxFactory.ArrayType(
+            public static ArrayTypeSyntax StringArrayType = SyntaxFactory.ArrayType(
                     SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)))
                 .WithRankSpecifiers(
                     SyntaxFactory.SingletonList(
@@ -334,7 +331,7 @@ namespace Keysharp.Scripting
                     throw new ArgumentException("Name cannot be null or empty.", nameof(name));
 
                 if (returnType == null)
-                    returnType = SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object);
+                    returnType = Parser.PredefinedKeywords.ObjectType;
 
                 Name = name;
                 Method = SyntaxFactory.MethodDeclaration(returnType, name);
@@ -373,18 +370,8 @@ namespace Keysharp.Scripting
                         );
 
                         // Create an array creation expression: new string[] { "item1", "item2", ... }
-                        var arrayCreation = SyntaxFactory.ArrayCreationExpression(
-                            SyntaxFactory.ArrayType(
-                                SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)),
-                                SyntaxFactory.SingletonList(
-                                    SyntaxFactory.ArrayRankSpecifier(
-                                        SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                            SyntaxFactory.OmittedArraySizeExpression()
-                                        )
-                                    )
-                                )
-                            )
-                        ).WithInitializer(arrayInitializer);
+                        var arrayCreation = SyntaxFactory.ArrayCreationExpression(PredefinedKeywords.StringArrayType)
+                            .WithInitializer(arrayInitializer);
 
                         // Create the object creation expression:
                         // new HashSet<string>( new string[] { ... }, StringComparer.OrdinalIgnoreCase )

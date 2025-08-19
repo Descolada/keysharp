@@ -41,7 +41,7 @@ namespace Keysharp.Scripting
         internal static Dictionary<int, string> binaryOperators = new Dictionary<int, string>()
         {
             {MainParser.Plus, "Add"},
-            {MainParser.Minus, "Minus"},
+            {MainParser.Minus, "Subtract"},
             {MainParser.Multiply, "Multiply"},
             {MainParser.Divide, "Divide"},
             {MainParser.IntegerDivide, "FloorDivide"},
@@ -72,10 +72,11 @@ namespace Keysharp.Scripting
 
         internal static Dictionary<int, string> unaryOperators = new Dictionary<int, string>()
         {
-            {MainParser.Minus, "Minus"},
-            {MainParser.Not, "LogicalNot"},
-            {MainParser.VerbalNot, "LogicalNot"},
-            {MainParser.BitNot, "BitwiseNot"}
+			{MainParser.Plus, "Plus"},
+			{MainParser.Minus, "Minus"},
+			{MainParser.Not, "Not"},
+			{MainParser.VerbalNot, "Not"},
+			{MainParser.BitNot, "BitwiseNot"}
         };
         internal void AddAssembly(string assemblyName, string value)
         {
@@ -475,6 +476,14 @@ namespace Keysharp.Scripting
             return SyntaxFactory.UsingDirective(qualifiedName);
         }
 
+        internal static ExpressionSyntax CastLiteral(ExpressionSyntax expression, string name = "Primitive")
+        {
+            return SyntaxFactory.CastExpression(
+                SyntaxFactory.IdentifierName(name),
+                expression
+                );
+        }
+
         internal static LiteralExpressionSyntax NumericLiteralExpression(string value)
         {
             if (value.Contains("."))
@@ -502,17 +511,46 @@ namespace Keysharp.Scripting
             }
         }
 
-        internal static InvocationExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
+        internal static ExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
         {
-            return SyntaxFactory.InvocationExpression(
-                ScriptOperateName,
-				CreateArgumentList(
-				    CreateMemberAccess("Keysharp.Scripting.Script.Operator", binaryOperators[op]),
-                    exprL,
-                    exprR
-                )
-            );
-        }
+			switch (op)
+			{
+				case MainParser.Equals_:
+				case MainParser.NotEquals:
+				case MainParser.IdentityEquals:
+				case MainParser.IdentityNotEquals:
+					ExpressionSyntax setExpr = null;
+
+					if (exprL is LiteralExpressionSyntax les && les.Token.IsKind(SyntaxKind.NullKeyword))
+					{
+						setExpr = exprR;
+					}
+					else if (exprL is LiteralExpressionSyntax rles && rles.Token.IsKind(SyntaxKind.NullKeyword))
+					{
+						setExpr = exprL;
+					}
+
+					if (setExpr != null)
+					{
+						setExpr = ((InvocationExpressionSyntax)InternalMethods.IsSet)
+								.WithArgumentList(CreateArgumentList(setExpr));
+
+						if (op == MainParser.Equals_ || op == MainParser.IdentityEquals)
+							setExpr = SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, setExpr);
+
+						return setExpr;
+					}
+					break;
+			}
+
+			return SyntaxFactory.InvocationExpression(
+					CreateMemberAccess("Primitive", binaryOperators[op]),
+					CreateArgumentList(
+						exprL,
+						exprR
+					)
+				);
+		}
 
         // Checks whether a local or static variable is in the current function or any parent functions.
         // See also: IsVarDeclaredLocally
@@ -978,7 +1016,7 @@ namespace Keysharp.Scripting
         // and then the FuncObj is assigned to a lower-cased variable of the closure name.
         internal static VariableDeclarationSyntax CreateFuncObjDelegateVariable(string functionName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.ObjectType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(
@@ -1009,7 +1047,7 @@ namespace Keysharp.Scripting
 
         internal VariableDeclarationSyntax CreateFuncObjVariable(string functionName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.ObjectType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(
@@ -1033,7 +1071,7 @@ namespace Keysharp.Scripting
         // Creates a VariableDeclarationSyntax for `object var = null;`
         internal static VariableDeclarationSyntax CreateNullObjectVariable(string variableName)
         {
-            return SyntaxFactory.VariableDeclaration(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+            return SyntaxFactory.VariableDeclaration(Parser.PredefinedKeywords.ObjectType)
                 .WithVariables(
                     SyntaxFactory.SingletonSeparatedList(
                         SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier(variableName))
@@ -1701,14 +1739,15 @@ namespace Keysharp.Scripting
         {
             StringComparison comparison = caseSense ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
-            return (ies.Expression is MemberAccessExpressionSyntax maes && maes.Name.Identifier.Text.Equals(target, comparison))
-                || (ies.Expression is QualifiedNameSyntax qes && qes.Right.Identifier.Text.Equals(target, comparison));
-        }
+			return (ies.Expression is MemberAccessExpressionSyntax maes && maes.Name.Identifier.Text.Equals(target, comparison))
+							|| (ies.Expression is QualifiedNameSyntax qes && qes.Right.Identifier.Text.Equals(target, comparison)
+							|| ies.Expression is IdentifierNameSyntax ins && ins.Identifier.Text.Equals(target, comparison));
+		}
 
         internal ExpressionSyntax CreateSuperTuple()
         {
             return SyntaxFactory.CastExpression(
-                SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+                Parser.PredefinedKeywords.ObjectType,
                     SyntaxFactory.TupleExpression(
                         SyntaxFactory.SeparatedList<ArgumentSyntax>(
                             new ArgumentSyntax[]

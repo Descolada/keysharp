@@ -38,6 +38,34 @@
 		public static implicit operator Primitive(string v) => From(v);
 		public static implicit operator Primitive(bool v) => From(v);
 
+		#region Explicit conversions
+		public static implicit operator double(Primitive v)
+		{
+			if (v == null) throw Errors.UnsetError("Double conversion target is unset");
+			if (v.TryGetDouble(out var d)) return d;
+			throw new InvalidCastException("KsValue is not numeric.");
+		}
+		public static implicit operator long(Primitive v)
+		{
+			if (v == null) throw Errors.UnsetError("Long conversion target is unset");
+			if (v.TryGetLong(out var l)) return l;
+			if (v.TryGetDouble(out var d)) return (long)d;
+			throw new InvalidCastException("KsValue is not numeric.");
+		}
+		public static implicit operator int(Primitive v)
+		{
+			if (v == null) throw Errors.UnsetError("Int conversion target is unset");
+			if (v.TryGetLong(out var l)) return (int)l;
+			if (v.TryGetDouble(out var d)) return (int)d;
+			throw new InvalidCastException("KsValue is not numeric.");
+		}
+		public static implicit operator string(Primitive v)
+		{
+			if (v == null) throw Errors.UnsetError("String conversion target is unset");
+			return v.AsString();
+		}
+		#endregion
+
 		/// <summary>Try to get a long. Succeeds only if the value is a pure long
 		/// or a string in pure long format.</summary>
 		public abstract bool TryGetLong(out long value);
@@ -501,7 +529,8 @@
 		}
 		public static Primitive Not(string v) => v == "" ? True : False;
 		public static Primitive Not(long v) => v == 0L ? True : False;
-		public static Primitive Not(object op) => op is Primitive v ? v.AsBool() : False;
+		public static Primitive Not(Primitive v) => !v.AsBool();
+		public static Primitive Not(object op) => op is Primitive v ? !v.AsBool() : False;
 
 		#region Arithmetic operators
 		public static Primitive operator +(Primitive a, Primitive b) => Add(a, b);
@@ -820,6 +849,8 @@
 			if (v == null) throw new InvalidOperationException("String conversion target is unset");
 			return v.AsString();
 		}
+		public static string As(this Primitive v, string def)
+			=> v == null ? def : v.AsString();
 
 		public static Any Aa(this Primitive v)
 			=> (Any)v?.AsObject();

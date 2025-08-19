@@ -389,10 +389,10 @@ namespace Keysharp.Core
 		///     Continue<br/>
 		///     Timeout (that is, the word "timeout" is returned if the message box timed out)
 		/// </returns>
-		public static string MsgBox(object text = null, object title = null, object options = null)
+		public static Primitive MsgBox(Primitive text = null, Primitive title = null, Primitive options = null)
 		{
-			var txt = text.As().Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
-			var caption = title.As().Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
+			var txt = text.As("").Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
+			var caption = title.As("").Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
 			var buttons = MessageBoxButtons.OK;
 			var icon = MessageBoxIcon.None;
 			var defaultbutton = MessageBoxDefaultButton.Button1;
@@ -467,13 +467,13 @@ namespace Keysharp.Core
 				//System modal dialogs are no longer supported in Windows.
 			}
 
-			if (Script.IsNumeric(options))
+			if (options?.IsNumeric ?? false)
 			{
 				HandleNumericOptions(options.Ai());
 			}
 			else
 			{
-				var opts = options.As();
+				var opts = options.As("");
 				var iopt = 0;
 				var hadNumeric = false;
 

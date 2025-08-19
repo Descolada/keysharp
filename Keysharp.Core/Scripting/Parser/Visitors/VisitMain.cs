@@ -140,7 +140,7 @@ namespace Keysharp.Scripting
             var mainBodyBlock = SyntaxFactory.ParseStatement(mainBodyCode) as BlockSyntax;
             mainFunc.Body = mainBodyBlock.Statements.ToList();
 
-            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object));
+            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, Parser.PredefinedKeywords.ObjectType);
             parser.currentFunc = parser.autoExecFunc;
             parser.autoExecFunc.Scope = eScope.Global;
             parser.autoExecFunc.Method = parser.autoExecFunc.Method
@@ -744,7 +744,7 @@ namespace Keysharp.Scripting
             }
             else if (context.boolean() != null)
             {
-                return Visit(context.boolean());
+                return CastLiteral((LiteralExpressionSyntax)Visit(context.boolean()));
             }
             else if (context.StringLiteral() != null)
             {
@@ -795,14 +795,14 @@ namespace Keysharp.Scripting
                 
                 str = EscapedString(str, false);
 
-                return SyntaxFactory.LiteralExpression(
+                return CastLiteral(SyntaxFactory.LiteralExpression(
                     SyntaxKind.StringLiteralExpression,
                     SyntaxFactory.Literal(str)
-                );
+                ));
             }
             else if (context.numericLiteral() != null)
             {
-                return NumericLiteralExpression(context.numericLiteral().GetText());
+                return CastLiteral(NumericLiteralExpression(context.numericLiteral().GetText()));
             }
             else if (context.bigintLiteral() != null)
             {
@@ -838,16 +838,7 @@ namespace Keysharp.Scripting
 
             // Create the object[] array
             var arrayExpression = SyntaxFactory.ArrayCreationExpression(
-                SyntaxFactory.ArrayType(
-                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
-                    SyntaxFactory.SingletonList(
-                        SyntaxFactory.ArrayRankSpecifier(
-                            SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                SyntaxFactory.OmittedArraySizeExpression()
-                            )
-                        )
-                    )
-                ),
+                PredefinedKeywords.ObjectArrayType,
                 SyntaxFactory.InitializerExpression(
                     SyntaxKind.ArrayInitializerExpression,
                     SyntaxFactory.SeparatedList(properties)
@@ -1363,7 +1354,7 @@ namespace Keysharp.Scripting
                         CreateFuncObjDelegateVariable(parser.currentFunc.Name)
                     ),
                     SyntaxFactory.LocalFunctionStatement(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Assuming return type is void
+                        Parser.PredefinedKeywords.ObjectType, // Assuming return type is void
                         SyntaxFactory.Identifier(parser.currentFunc.Name) // Function name
                     )
                     .WithParameterList(parser.currentFunc.Params)
@@ -1488,7 +1479,7 @@ namespace Keysharp.Scripting
 
                     var statement = SyntaxFactory.LocalDeclarationStatement(
                     SyntaxFactory.VariableDeclaration(
-                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object)
+                        Parser.PredefinedKeywords.ObjectType
                     )
                     .WithVariables(
                         SyntaxFactory.SingletonSeparatedList(

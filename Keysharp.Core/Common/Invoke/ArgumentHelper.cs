@@ -518,7 +518,7 @@ namespace Keysharp.Core.Common.Invoke
 			}
 		}
 
-		internal unsafe object ConvertReturnValue(object value)
+		internal unsafe Primitive ConvertReturnValue(object value)
 		{
 			// If the return type was omitted then it should be treated as HRESULT
 			// and if that is a negative value then throw an OSError
@@ -526,7 +526,7 @@ namespace Keysharp.Core.Common.Invoke
 			{
 				long hrLong = (long)value;                // unbox the raw long
 				int hr32 = unchecked((int)hrLong);   // keep only the low 32 bits
-				return Errors.OSErrorOccurredForHR(hr32);
+				return (string)Errors.OSErrorOccurredForHR(hr32);
 			}
 
 			//Special conversion for the return value.
@@ -534,11 +534,11 @@ namespace Keysharp.Core.Common.Invoke
 			{
 				long l = (long)value;
 				int ii = *(int*)&l;
-				value = ii;
+				return ii;
 			}
 			else if (ReturnType == typeof(float))
 			{
-				if (value is not double) return _ = Errors.TypeErrorOccurred(value, typeof(double));
+				if (value is not double) return (string)Errors.TypeErrorOccurred(value, typeof(double));
 
 				double d = (double)value;
 				float f = *(float*)&d;
@@ -558,7 +558,7 @@ namespace Keysharp.Core.Common.Invoke
 				return str;
 			}
 
-			return value;
+			return Primitive.From(value);
 		}
 	}
 }

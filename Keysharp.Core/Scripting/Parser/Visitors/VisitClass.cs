@@ -9,14 +9,7 @@ namespace Keysharp.Scripting
     {
 		// params object[] args
 		public ParameterSyntax VariadicParam = SyntaxFactory.Parameter(SyntaxFactory.Identifier("args")) // Default name for spread argument
-        .WithType(SyntaxFactory.ArrayType(
-            SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // object[]
-            SyntaxFactory.SingletonList(SyntaxFactory.ArrayRankSpecifier(
-                SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                    SyntaxFactory.OmittedArraySizeExpression()
-                )
-            ))
-        ))
+        .WithType(PredefinedKeywords.ObjectArrayType)
         .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.ParamsKeyword)));
 
         public override SyntaxNode VisitClassDeclaration([NotNull] ClassDeclarationContext context)
@@ -237,7 +230,7 @@ namespace Keysharp.Scripting
                 // Always add `object value` parameter for setters
                 parser.currentFunc.Params.Add(
                     SyntaxFactory.Parameter(SyntaxFactory.Identifier("value"))
-                        .WithType(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
+                        .WithType(Parser.PredefinedKeywords.ObjectType)
                 );
 
                 parser.currentFunc.Void = true;
@@ -327,7 +320,7 @@ namespace Keysharp.Scripting
 
             // Create method declaration
             var methodDeclaration = SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type is object
+                    Parser.PredefinedKeywords.ObjectType, // Return type is object
                     SyntaxFactory.Identifier(methodName)
                 )
                 .WithModifiers(
@@ -356,18 +349,7 @@ namespace Keysharp.Scripting
                         SyntaxFactory.SingletonSeparatedList(
                             SyntaxFactory.Parameter(SyntaxFactory.Identifier("args"))
                                 .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.ParamsKeyword)))
-                                .WithType(
-                                    SyntaxFactory.ArrayType(
-                                        SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
-                                        .WithRankSpecifiers(
-                                            SyntaxFactory.SingletonList(
-                                                SyntaxFactory.ArrayRankSpecifier(
-                                                    SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                                        SyntaxFactory.OmittedArraySizeExpression())
-                                                )
-                                            )
-                                        )
-                                )
+                                .WithType(PredefinedKeywords.ObjectArrayType)
                         )
                     )
                 )
@@ -555,7 +537,7 @@ namespace Keysharp.Scripting
             if (isStatic && !fieldName.StartsWith(Keywords.ClassStaticPrefix))
                 fieldName = Keywords.ClassStaticPrefix + fieldName;
             return SyntaxFactory.PropertyDeclaration(
-                SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Type is object
+                Parser.PredefinedKeywords.ObjectType, // Type is object
                 SyntaxFactory.Identifier(fieldName)
             )
             .WithModifiers(

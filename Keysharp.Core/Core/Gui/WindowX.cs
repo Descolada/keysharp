@@ -20,17 +20,17 @@ namespace Keysharp.Core
 
 	public static class WindowX
 	{
-		public static object DetectHiddenText(object mode)
+		public static Primitive DetectHiddenText(object mode)
 		{
-			var oldVal = A_DetectHiddenText;
-			A_DetectHiddenText = mode;
+			var oldVal = (Primitive)A_DetectHiddenText;
+			A_DetectHiddenText = Primitive.From(mode);
 			return oldVal;
 		}
 
-		public static object DetectHiddenWindows(object mode)
+		public static Primitive DetectHiddenWindows(object mode)
 		{
-			var oldVal = A_DetectHiddenWindows;
-			A_DetectHiddenWindows = mode;
+			var oldVal = (Primitive)A_DetectHiddenWindows;
+			A_DetectHiddenWindows = Primitive.From(mode);
 			return oldVal;
 		}
 
@@ -238,8 +238,8 @@ namespace Keysharp.Core
 		{
 			Script.TheScript.ControlProvider.Manager.PostMessage(
 				msg.Aui(),
-				wparam.Ai(),
-				lparam.Ai(),
+				(nint)wparam.Al(),
+				(nint)lparam.Al(),
 				control,
 				winTitle,
 				winText.As(),
@@ -267,10 +267,10 @@ namespace Keysharp.Core
 										   excludeText.As(),
 										   timeout.Ai(5000));
 
-		public static object SetControlDelay(object obj)
+		public static LongPrimitive SetControlDelay(object obj)
 		{
-			var oldVal = A_ControlDelay = obj;
-			A_ControlDelay = obj;
+			var oldVal = (LongPrimitive)A_ControlDelay;
+			A_ControlDelay = LongPrimitive.From(obj);
 			return oldVal;
 		}
 
@@ -327,7 +327,7 @@ namespace Keysharp.Core
 		public static object SetWinDelay(object delay)
 		{
 			var oldVal = A_WinDelay;
-			A_WinDelay = delay;
+			A_WinDelay = LongPrimitive.From(delay);
 			return oldVal;
 		}
 
@@ -563,9 +563,8 @@ namespace Keysharp.Core
 											 object excludeText = null)
 		{
             outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-            object valX = Script.GetPropertyValue(outX, "__Value"), valY = Script.GetPropertyValue(outY, "__Value"), valWidth = Script.GetPropertyValue(outWidth, "__Value"), valHeight = Script.GetPropertyValue(outHeight, "__Value");
-            WinPosHelper(true, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
-            Script.SetPropertyValue(outX, "__Value", valX); Script.SetPropertyValue(outY, "__Value", valY); Script.SetPropertyValue(outWidth, "__Value", valWidth); Script.SetPropertyValue(outHeight, "__Value", valHeight);
+            WinPosHelper(true, out long valX, out long valY, out long valWidth, out long valHeight, winTitle, winText, excludeTitle, excludeText);
+            Script.SetPropertyValue(outX, "__Value", (LongPrimitive)valX); Script.SetPropertyValue(outY, "__Value", (LongPrimitive)valY); Script.SetPropertyValue(outWidth, "__Value", (LongPrimitive)valWidth); Script.SetPropertyValue(outHeight, "__Value", (LongPrimitive)valHeight);
 			return null;
 		}
 
@@ -667,10 +666,9 @@ namespace Keysharp.Core
 									   object excludeText = null)
 		{
             outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-            object valX = Script.GetPropertyValue(outX, "__Value"), valY = Script.GetPropertyValue(outY, "__Value"), valWidth = Script.GetPropertyValue(outWidth, "__Value"), valHeight = Script.GetPropertyValue(outHeight, "__Value");
 
-            WinPosHelper(false, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
-            Script.SetPropertyValue(outX, "__Value", valX); Script.SetPropertyValue(outY, "__Value", valY); Script.SetPropertyValue(outWidth, "__Value", valWidth); Script.SetPropertyValue(outHeight, "__Value", valHeight);
+            WinPosHelper(false, out long valX, out long valY, out long valWidth, out long valHeight, winTitle, winText, excludeTitle, excludeText);
+            Script.SetPropertyValue(outX, "__Value", (LongPrimitive)valX); Script.SetPropertyValue(outY, "__Value", (LongPrimitive)valY); Script.SetPropertyValue(outWidth, "__Value", (LongPrimitive)valWidth); Script.SetPropertyValue(outHeight, "__Value", (LongPrimitive)valHeight);
             return null;
 		}
 
@@ -692,17 +690,17 @@ namespace Keysharp.Core
 									   object excludeText = null) =>
 		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Style : 0L;
 
-		public static string WinGetText(object winTitle = null,
+		public static StringPrimitive WinGetText(object winTitle = null,
 										object winText = null,
 										object excludeTitle = null,
 										object excludeText = null) =>
-		string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Text : [""]);
+		(StringPrimitive)string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Text : [""]);
 
-		public static string WinGetTitle(object winTitle = null,
+		public static StringPrimitive WinGetTitle(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Title : "";
+		(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? (StringPrimitive)win.Title : DefaultObject);
 
 		public static string WinGetTransColor(object winTitle = null,
 											  object winText = null,

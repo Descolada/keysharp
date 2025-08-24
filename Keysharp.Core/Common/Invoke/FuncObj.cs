@@ -2,14 +2,14 @@
 {
 	public interface IPointable
 	{
-		public long Ptr { get; }
+		public LongPrimitive Ptr { get; }
 	}
     public interface IFuncObj
     {
         public object Inst { get; set; }
-		public bool IsBuiltIn { get; }
-		public bool IsValid { get; }
-		public string Name { get; }
+		public LongPrimitive IsBuiltIn { get; }
+		public LongPrimitive IsValid { get; }
+		public StringPrimitive Name { get; }
 
 		public IFuncObj Bind(params object[] obj);
 
@@ -18,9 +18,9 @@
 
         public object CallWithRefs(params object[] obj);
 
-        public bool IsByRef(object obj = null);
+        public LongPrimitive IsByRef(object obj = null);
 
-		public bool IsOptional(object obj = null);
+		public LongPrimitive IsOptional(object obj = null);
 	}
 
 	public class BoundFunc : FuncObj
@@ -135,12 +135,12 @@
 		protected MethodPropertyHolder mph;
 		public object Inst { get; set; }
 		public Type DeclaringType => mi.DeclaringType;
-		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
+		public LongPrimitive IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 
-		public bool IsBuiltIn => mi.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
-		public bool IsValid => mi != null && mph != null && mph.CallFunc != null;
+		public LongPrimitive IsBuiltIn => mi.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
+		public LongPrimitive IsValid => mi != null && mph != null && mph.CallFunc != null;
 		string _name = null;
-		public string Name {
+		public StringPrimitive Name {
 			get
 			{
 				if (_name != null)
@@ -171,9 +171,9 @@
 			}
 		}
 		public (Type, object) super => (typeof(KeysharpObject), this);
-		internal bool IsVariadic => mph.parameters.Length > 0 && mph.parameters[mph.parameters.Length - 1].ParameterType == typeof(object[]);
-		public long MaxParams => mph.MaxParams;
-		public long MinParams => mph.MinParams;
+		internal LongPrimitive IsVariadic => mph.parameters.Length > 0 && mph.parameters[mph.parameters.Length - 1].ParameterType == typeof(object[]);
+		public LongPrimitive MaxParams => mph.MaxParams;
+		public LongPrimitive MinParams => mph.MinParams;
 		internal MethodPropertyHolder Mph => mph;
 
 		internal FuncObj(string s, object o = null, object paramCount = null)
@@ -296,7 +296,7 @@
 
 		public override int GetHashCode() => mi.GetHashCode();
 
-		public bool IsByRef(object obj = null)
+		public LongPrimitive IsByRef(object obj = null)
 		{
 			var index = obj.Ai();
 			var funcParams = mi.GetParameters();
@@ -318,7 +318,7 @@
 			return false;
 		}
 
-		public bool IsOptional(object obj = null)
+		public LongPrimitive IsOptional(object obj = null)
 		{
 			var index = obj.Ai();
 			var funcParams = mi.GetParameters();

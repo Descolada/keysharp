@@ -88,7 +88,7 @@
 			endCharRequired = hm.hsEndCharRequired;
 			detectWhenInsideWord = hm.hsDetectWhenInsideWord;
 			doReset = hm.hsDoReset;
-			inputLevel = (long)A_InputLevel;
+			inputLevel = A_InputLevel.Al();
 			suspendExempt = A_SuspendExempt.Ab();
 			constructedOK = false;
 			var unusedX = false; // do not assign  mReplacement if execute_action is true.
@@ -451,7 +451,7 @@
 			}
 			catch (Error ex)
 			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, (int)MessageBoxIcon.Hand);
+				_ = Dialogs.MsgBox((Primitive)$"Exception thrown during hotstring handler.\n\n{ex}", null, (Primitive)(int)MessageBoxIcon.Hand);
 			}
 
 			return ResultType.Ok;

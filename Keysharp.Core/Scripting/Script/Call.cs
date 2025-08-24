@@ -116,7 +116,7 @@ namespace Keysharp.Scripting
 					kso = t; item = otup[1];
 				}
 
-                if (kso != null && kso.op != null)
+                if (kso != null)
 				{
 					if (TryGetOwnPropsMap(kso, key, out var val))
 					{
@@ -233,7 +233,7 @@ namespace Keysharp.Scripting
 					}
 					else if (TryGetOwnPropsMap(kso, "__Get", out var protoGet) && (protoGet.Call != null ? protoGet.Call : protoGet.Value) is IFuncObj ifoprotoget && ifoprotoget != null)
 					{
-						value = ifoprotoget.Call(item, namestr, new Keysharp.Core.Array());
+						value = ifoprotoget.Call(item, (StringPrimitive)namestr, new Keysharp.Core.Array());
 						return true;
 					}
 				}
@@ -248,6 +248,15 @@ namespace Keysharp.Scripting
 					//Many COM properties are internally stored as methods with 0 parameters.
 					//So try invoking the member as either a property or a method.
 					value = item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, null);
+					if (value is object[] outarr)
+					{
+						for (int i = 0; i < outarr.Length; i++)
+							if (Primitive.TryCoercePrimitive(outarr[i], out Primitive p))
+								outarr[i] = p;
+						value = new Core.Array(outarr);
+					}
+					else if (Primitive.TryCoercePrimitive(value, out Primitive p))
+						value = p;
 					return true;
 				}
 #endif

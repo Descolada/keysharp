@@ -238,7 +238,7 @@ namespace Keysharp.Core
 			//so just let the natural chain of closing events handle it.
 			script.mainWindow.CheckedBeginInvoke(() =>
 			{
-				A_ExitReason = ExitReasons.Reload;
+				A_ExitReason = (int)ExitReasons.Reload;
 				Application.Restart();//This will pass the same command line args to the new instance that were passed to this instance.
 			}, true, true);
 			var start = DateTime.UtcNow;
@@ -361,9 +361,10 @@ namespace Keysharp.Core
 			{
 				var script = Script.TheScript;//Avoid a capture.
 				var v = script.Threads;
+				TimerWithTag t = null;
 
 				//If script has exited or we don't receive a TimerWithTag object, just exit
-				if (A_HasExited || (ss is not TimerWithTag t))
+				if (A_HasExited || ((t = ss as TimerWithTag) == null))
 					return;
 
 				if (!t.Enabled)//A way of checking to make sure the timer is not already executing.
@@ -680,7 +681,7 @@ namespace Keysharp.Core
 				//Processed would still be false of the user did a throw statement in the Script.TheScript.
 				//But if we're throwing from inside of Keysharp, Processed should always be true.
 				if (!kserr.Processed)
-					_ = ErrorOccurred(kserr, kserr.ExcType);
+					_ = ErrorOccurred(kserr, kserr.Type);
 
 				if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
 				{
@@ -708,7 +709,7 @@ namespace Keysharp.Core
 				else if (ex is Error kserr)
 				{
 					if (!kserr.Processed)
-						_ = ErrorOccurred(kserr, kserr.ExcType);
+						_ = ErrorOccurred(kserr, kserr.Type);
 
 					if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
 					{

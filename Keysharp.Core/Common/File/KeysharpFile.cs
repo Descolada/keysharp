@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core.Common.File
+﻿using Keysharp.Core.Common.ObjectBase;
+
+namespace Keysharp.Core.Common.File
 {
 	public class KeysharpFile : KeysharpObject, IDisposable
 	{
@@ -18,7 +20,7 @@
 
 		private TextWriter tw;
 
-		public object AtEOF
+		public LongPrimitive AtEOF
 		{
 			get
 			{
@@ -33,15 +35,15 @@
 
 		public object Encoding
 		{
-			get => enc.BodyName;
+			get => (StringPrimitive)enc.BodyName;
 			set => enc = Files.GetEncoding(value);
 		}
 
-		public object Handle => fs != null ? fs.SafeFileHandle.DangerousGetHandle().ToInt64() : 0L;
+		public LongPrimitive Handle => fs != null ? fs.SafeFileHandle.DangerousGetHandle().ToInt64() : 0L;
 
 		public object Length
 		{
-			get => fs != null ? fs.Length : 0L;
+			get => (LongPrimitive)(fs != null ? fs.Length : 0L);
 			set => fs?.SetLength(value.Al());
 		}
 
@@ -50,11 +52,11 @@
 			get
 			{
 				if (br != null)
-					return br.BaseStream.Position;
+					return (LongPrimitive)br.BaseStream.Position;
 				else if (bw != null)
-					return bw.BaseStream.Position;
+					return (LongPrimitive)bw.BaseStream.Position;
 				else
-					return 0L;
+					return (LongPrimitive)0L;
 			}
 
 			set => Seek(value);
@@ -182,7 +184,7 @@
 			}
 		}
 
-		public void RawRead(object obj0, object obj1 = null)
+		public Primitive RawRead(object obj0, object obj1 = null)
 		{
 			var buf = obj0;
 			var count = obj1.Al(long.MinValue);
@@ -197,7 +199,7 @@
 					var len = Math.Min(val.Length, arr.Count);
 
 					for (var i = 0; i < len; i++)
-						arr.array[i] = val[i];//Access the underlying ArrayList directly for performance.
+						arr.array[i] = (LongPrimitive)val[i];//Access the underlying ArrayList directly for performance.
 				}
 				else if (buf is Buffer buffer)
 				{
@@ -206,16 +208,18 @@
 					var len = Math.Min(val.Length, size);
 					unsafe
 					{
-						var ptr = (byte*)buffer.Ptr;
+						var ptr = (byte*)(long)buffer.Ptr;
 
 						for (var i = 0; i < len; i++)
 							ptr[i] = val[i];
 					}
 				}
 			}
+
+			return DefaultObject;
 		}
 
-		public long RawWrite(object obj0, object obj1 = null)
+		public LongPrimitive RawWrite(object obj0, object obj1 = null)
 		{
 			var buf = obj0;
 			var count = obj1.Al(long.MinValue);
@@ -238,7 +242,7 @@
 					len = count != long.MinValue ? Math.Min(arr.Count, (int)count) : arr.Count;
 					bw.Write(arr.array.ConvertAll(el => (byte)el.ParseLong(false).Value).ToArray(), 0, len);//No way to know what is in the array since they are objects, so convert them to bytes.
 				}
-				else if (buf is string s)
+				else if (buf.IsString(out string s))
 				{
 					var bytes = enc.GetBytes(s);
 					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
@@ -249,7 +253,7 @@
 			return len;
 		}
 
-		public string Read(object obj)
+		public StringPrimitive Read(object obj)
 		{
 			var s = "";
 			var count = obj.Al();
@@ -281,17 +285,17 @@
 			return s;
 		}
 
-		public object ReadChar() => br != null ? br.ReadByte() : "";
+		public Primitive ReadChar() => br != null ? (LongPrimitive)br.ReadByte() : DefaultObject;
 
-		public object ReadDouble() => br != null ? br.ReadDouble() : "";
+		public Primitive ReadDouble() => br != null ? (DoublePrimitive)br.ReadDouble() : DefaultObject;
 
-		public object ReadFloat() => br != null ? br.ReadSingle() : "";
+		public Primitive ReadFloat() => br != null ? (DoublePrimitive)br.ReadSingle() : DefaultObject;
 
-		public object ReadInt() => br != null ? br.ReadInt32() : "";
+		public Primitive ReadInt() => br != null ? (LongPrimitive)br.ReadInt32() : DefaultObject;
 
-		public object ReadInt64() => br != null ? br.ReadInt64() : "";
+		public Primitive ReadInt64() => br != null ? (LongPrimitive)br.ReadInt64() : DefaultObject;
 
-		public string ReadLine()
+		public StringPrimitive ReadLine()
 		{
 			var s = "";
 
@@ -303,16 +307,16 @@
 			return s;
 		}
 
-		public object ReadShort() => br != null ? br.ReadInt16() : "";
+		public Primitive ReadShort() => br != null ? (LongPrimitive)br.ReadInt16() : DefaultObject;
 
 		//Char in this case is meant to be 1 byte, according to the AHK DllCall() documentation.
-		public object ReadUChar() => br != null ? br.ReadByte() : "";
+		public Primitive ReadUChar() => br != null ? (LongPrimitive)br.ReadByte() : DefaultObject;
 
-		public object ReadUInt() => br != null ? br.ReadUInt32() : "";
+		public Primitive ReadUInt() => br != null ? (LongPrimitive)br.ReadUInt32() : DefaultObject;
 
-		public object ReadUShort() => br != null ? br.ReadUInt16() : "";
+		public Primitive ReadUShort() => br != null ? (LongPrimitive)br.ReadUInt16() : DefaultObject;
 
-		public void Seek(object obj0, object obj1 = null)
+		public Primitive Seek(object obj0, object obj1 = null)
 		{
 			var distance = obj0.Al();
 			var origin = obj1.Al(long.MinValue);
@@ -333,9 +337,11 @@
 				_ = br.BaseStream.Seek(distance, so);
 			else if (bw != null)//Only need to do 1, because they both have the same underlying stream.
 				_ = bw.Seek((int)distance, so);
+
+			return DefaultObject;
 		}
 
-		public long Write(object obj)
+		public LongPrimitive Write(object obj)
 		{
 			var s = obj.As();
 			var len = 0L;
@@ -356,7 +362,7 @@
 			return len;
 		}
 
-		public long WriteChar(object obj)
+		public LongPrimitive WriteChar(object obj)
 		{
 			if (bw != null)
 			{
@@ -367,7 +373,7 @@
 				return 0L;
 		}
 
-		public long WriteDouble(object obj)
+		public LongPrimitive WriteDouble(object obj)
 		{
 			if (bw != null)
 			{
@@ -378,7 +384,7 @@
 				return 0L;
 		}
 
-		public long WriteFloat(object obj)
+		public LongPrimitive WriteFloat(object obj)
 		{
 			if (bw != null)
 			{
@@ -389,7 +395,7 @@
 				return 0L;
 		}
 
-		public long WriteInt(object obj)
+		public LongPrimitive WriteInt(object obj)
 		{
 			if (bw != null)
 			{
@@ -400,7 +406,7 @@
 				return 0L;
 		}
 
-		public long WriteInt64(object obj)
+		public LongPrimitive WriteInt64(object obj)
 		{
 			if (bw != null)
 			{
@@ -411,7 +417,7 @@
 				return 0L;
 		}
 
-		public long WriteLine(object obj)
+		public LongPrimitive WriteLine(object obj)
 		{
 			var s = obj.As();
 			byte[] bytes;
@@ -437,7 +443,7 @@
 			return len;
 		}
 
-		public long WriteShort(object obj)
+		public LongPrimitive WriteShort(object obj)
 		{
 			if (bw != null)
 			{
@@ -448,7 +454,7 @@
 				return 0L;
 		}
 
-		public long WriteUChar(object obj)
+		public LongPrimitive WriteUChar(object obj)
 		{
 			if (bw != null)
 			{
@@ -459,7 +465,7 @@
 				return 0L;
 		}
 
-		public long WriteUInt(object obj)
+		public LongPrimitive WriteUInt(object obj)
 		{
 			if (bw != null)
 			{
@@ -470,7 +476,7 @@
 				return 0L;
 		}
 
-		public long WriteUShort(object obj)
+		public LongPrimitive WriteUShort(object obj)
 		{
 			if (bw != null)
 			{
@@ -487,7 +493,7 @@
 			GC.SuppressFinalize(this);
 		}
 
-		private string HandleReadEol(string s)
+		private StringPrimitive HandleReadEol(string s)
 		{
 			if (eolconv == 4)
 				s = s.Replace("\r\n", "\n");
@@ -497,7 +503,7 @@
 			return s;
 		}
 
-		private string HandleWriteEol(string s)
+		private StringPrimitive HandleWriteEol(string s)
 		{
 			if (eolconv == 4)
 				s = s.Replace("\n", "\r\n");

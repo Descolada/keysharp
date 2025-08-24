@@ -236,8 +236,8 @@ namespace Keysharp.Core
 			var aY = 0;
 			var script = Script.TheScript;
 			script.PlatformProvider.Manager.CoordToScreen(ref aX, ref aY, Core.CoordMode.Mouse);//Determine where 0,0 in window or client coordinates are on the screen.
-			Script.SetPropertyValue(outputVarX, "__Value", (long)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
-            Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
+			Script.SetPropertyValue(outputVarX, "__Value", (LongPrimitive)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
+            Script.SetPropertyValue(outputVarY, "__Value", (LongPrimitive)(pos.Y - aY));
             Script.SetPropertyValue(outputVarWin, "__Value", null);
             Script.SetPropertyValue(outputVarControl, "__Value", null);
             var child = script.WindowProvider.Manager.WindowFromPoint(pos);
@@ -246,7 +246,7 @@ namespace Keysharp.Core
 				return DefaultErrorObject;
 
 			var parent = child.NonChildParentWindow;
-            Script.SetPropertyValue(outputVarWin, "__Value", (long)parent.Handle);
+            Script.SetPropertyValue(outputVarWin, "__Value", (LongPrimitive)parent.Handle);
 #if WINDOWS
 
 			//Doing it this way overcomes the limitations of WindowFromPoint() and ChildWindowFromPoint()
@@ -267,11 +267,11 @@ namespace Keysharp.Core
 
 			if ((mode & 0x02) != 0)
 			{
-                Script.SetPropertyValue(outputVarControl, "__Value", (long)child.Handle);
+                Script.SetPropertyValue(outputVarControl, "__Value", (LongPrimitive)child.Handle);
 				return DefaultObject;
 			}
 
-            Script.SetPropertyValue(outputVarControl, "__Value", child.ClassNN);
+            Script.SetPropertyValue(outputVarControl, "__Value", (StringPrimitive)child.ClassNN);
 			return DefaultObject;
 		}
 
@@ -306,7 +306,7 @@ namespace Keysharp.Core
 		/// <param name="speed">The speed to move the mouse in the range 0 (fastest) to 100 (slowest). A speed of 0 will move the mouse instantly.</param>
 		public static object SetDefaultMouseSpeed(object speed)
 		{
-			A_DefaultMouseSpeed = speed;
+			A_DefaultMouseSpeed = LongPrimitive.From(speed);
 			return DefaultObject;
 		}
 

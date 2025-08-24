@@ -10,8 +10,8 @@ namespace Keysharp.Tests
 		public void MiscIs()
 		{
 			var x = 1;
-			var o = Collections.Array(10, 20, 30);
-			var map = Collections.Map("one", 1, "two", 2, "three", 3);
+			var o = Collections.Array(new object[] { 10, 20, 30 }.Select(Primitive.From));
+			var map = Collections.Map(new object[] { "one", 1, "two", 2, "three", 3 }.Select(Primitive.From));
 			Assert.IsTrue(IsInteger(x) == 1);
 			x = -1;
 			Assert.IsTrue(IsInteger(x) == 1);
@@ -19,8 +19,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsInteger(d) == 0);
 			var f = 1.234f;
 			Assert.IsTrue(IsInteger(f) == 0);
-			var m = 1.234m;
-			Assert.IsTrue(IsInteger(m) == 0);
 			var s = "1234";
 			Assert.IsTrue(IsInteger(s) == 1);
 			s = "-1234";
@@ -49,8 +47,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsFloat(d) == 1);
 			f = 1.234f;
 			Assert.IsTrue(IsFloat(f) == 1);
-			m = 1.234m;
-			Assert.IsTrue(IsFloat(m) == 1);
 			s = "1234";
 			Assert.IsTrue(IsFloat(s) == 0);
 			s = "-1234";
@@ -86,7 +82,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsDigit("A1") == 0);
 			Assert.IsTrue(IsDigit("0x01") == 0);
 			Assert.IsTrue(IsDigit(o) == 0);
-			Assert.IsTrue(IsDigit(m) == 0);
 			//
 			Assert.IsTrue(IsXDigit(1) == 1);
 			Assert.IsTrue(IsXDigit(-1) == 0);
@@ -96,7 +91,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsXDigit("0x01ABCdef") == 1);
 			Assert.IsTrue(IsXDigit("0xg") == 0);
 			Assert.IsTrue(IsXDigit(o) == 0);
-			Assert.IsTrue(IsXDigit(m) == 0);
 			//
 			Assert.IsTrue(IsAlpha(1) == 0);
 			Assert.IsTrue(IsAlpha(-1) == 0);
@@ -107,7 +101,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsAlpha("ABC123") == 0);
 			Assert.IsTrue(IsAlpha(".") == 0);
 			Assert.IsTrue(IsAlpha(o) == 0);
-			Assert.IsTrue(IsAlpha(m) == 0);
 			//
 			Assert.IsTrue(IsUpper(1) == 0);
 			Assert.IsTrue(IsUpper(-1) == 0);
@@ -118,7 +111,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsUpper("AbC123") == 0);
 			Assert.IsTrue(IsUpper(".") == 0);
 			Assert.IsTrue(IsUpper(o) == 0);
-			Assert.IsTrue(IsUpper(m) == 0);
 			//
 			Assert.IsTrue(IsLower(1) == 0);
 			Assert.IsTrue(IsLower(-1) == 0);
@@ -129,7 +121,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsLower("AbC123") == 0);
 			Assert.IsTrue(IsLower(".") == 0);
 			Assert.IsTrue(IsLower(o) == 0);
-			Assert.IsTrue(IsLower(m) == 0);
 			//
 			Assert.IsTrue(IsAlnum(1) == 1);
 			Assert.IsTrue(IsAlnum(-1) == 0);
@@ -140,7 +131,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsAlnum("AbC123") == 1);
 			Assert.IsTrue(IsAlnum(".") == 0);
 			Assert.IsTrue(IsAlnum(o) == 0);
-			Assert.IsTrue(IsAlnum(m) == 0);
 			//
 			Assert.IsTrue(IsSpace(1) == 0);
 			Assert.IsTrue(IsSpace(-1) == 0);
@@ -153,7 +143,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsSpace(" 123") == 0);
 			Assert.IsTrue(IsSpace(" \t\n\r\v\f") == 1);
 			Assert.IsTrue(IsSpace(o) == 0);
-			Assert.IsTrue(IsSpace(m) == 0);
 			//
 			Assert.IsTrue(IsTime("2021") == 1);
 			Assert.IsTrue(IsTime("202106") == 1);
@@ -167,7 +156,6 @@ namespace Keysharp.Tests
 			Assert.IsTrue(IsTime("20211215203522") == 1);
 			Assert.IsTrue(IsTime("20211215203599") == 0);
 			Assert.IsTrue(IsTime(o) == 0);
-			Assert.IsTrue(IsTime(m) == 0);
 			//
 			Assert.IsTrue(TestScript("misc-is", true));
 		}
@@ -175,10 +163,10 @@ namespace Keysharp.Tests
 		[Test, Category("Misc"), NonParallelizable]
 		public void MiscObject()
 		{
-			var a = Collections.Array(10, 20, 30);
+			var a = Collections.Array(new object[] { 10, 20, 30 }.Select(Primitive.From));
 			var fo = (IFuncObj)a.GetMethod("Clear");
 			_ = fo.Call(a);
-			Assert.AreEqual(0L, a.Length);
+			Assert.AreEqual(0L, (long)a.Length);
 			Assert.IsTrue(new KeysharpObject().Base.Base.GetType() == typeof(Any));
 			Assert.IsTrue(TestScript("misc-object", true));
 		}

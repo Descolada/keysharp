@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core
+﻿using System.Formats.Tar;
+
+namespace Keysharp.Core
 {
 	/// <summary>
 	/// Public interface for external-related functions.
@@ -15,7 +17,7 @@
 		/// <param name="type">One of the following strings: UInt, Int, Int64, Short, UShort, Char, UChar, Double, Float, Ptr or UPtr</param>
 		/// <returns>The binary number at the specified address+offset.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown the address could not be determined.</exception>
-		public unsafe static object NumGet(object source, object offset, object type = null)
+		public unsafe static Primitive NumGet(object source, object offset, object type = null)
 		{
 			int off;
 			string t;
@@ -41,7 +43,7 @@
 				address = abuf.Ptr;
 				size = abuf.Size.Al();
 			}
-			else if (address is KeysharpObject kso && Script.TryGetPropertyValue(kso, "ptr", out object p)
+			else if (address is Any kso && kso is not Primitive && Script.TryGetPropertyValue(kso, "ptr", out object p)
 					 && Script.TryGetPropertyValue(kso, "size", out object s))
 			{
 				address = p;
@@ -50,6 +52,8 @@
 
 			if (address is object[] objarr && objarr.Length > 0)//Assume the first element was a long which was an address.
 				addr = new nint(objarr[0].Al());
+			else if (address is LongPrimitive lp)
+				addr = new nint(lp.Value);
 			else if (address is long l)
 				addr = new nint(l);
 
@@ -148,7 +152,7 @@
 		/// <param name="offset">If omitted, it defaults to 0. Otherwise, specify an offset in bytes which is added to Target to determine the target address.</param>
 		/// <returns>The address to the right of the last item written.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if the offset exceeds the bounds of the memory or if it couldn't be determined.</exception>
-		public static long NumPut(params object[] obj)
+		public static LongPrimitive NumPut(params object[] obj)
 		{
 			nint addr = 0;
 			var offset = 0;
@@ -174,14 +178,16 @@
 				size = buf.Size.Al();
 				target = buf.Ptr;
 			}
-			else if (target is KeysharpObject kso && Script.GetPropertyValue(kso, "ptr", false) is object p && p != null
+			else if (target is Any kso && kso is not Primitive && Script.GetPropertyValue(kso, "ptr", false) is object p && p != null
 					 && Script.GetPropertyValue(kso, "size", false) is object s && s != null)
 			{
 				size = s.Al();
 				target = p;
 			}
 
-			if (target is long l)
+			if (target is LongPrimitive lp)
+				addr = new nint(lp.Value);
+			else if (target is long l)
 				addr = new nint(l);
 			else
 				return (long)Errors.TypeErrorOccurred(target, typeof(nint), DefaultErrorLong);
@@ -189,7 +195,9 @@
 			for (var i = 0; i <= lastPairIndex; i += 2)
 			{
 				var inc = 0;
-				var type = obj[i] as string;
+				string type = obj[i] as StringPrimitive;
+				if (type == null)
+					return (long)Errors.TypeErrorOccurred(target, typeof(string), DefaultErrorLong);
 				var number = obj[i + 1];
 				byte[] bytes;
 

@@ -159,23 +159,6 @@ namespace Keysharp.Scripting
 
 		public static BoolResult IfTest(object result) => new (ForceBool(result), result);
 
-		public static object PrefixIncDec(Operator op, object left, object val) => Operate(op, left, val);
-
-		public static object PostfixIncDecIndex(object obj, object index, object val)
-		{
-			var orig = Index(obj, index);
-			_ = SetObject(Operate(Operator.Add, orig, val), obj, index);
-			return orig;
-		}
-
-		public static object PostfixIncDecProp(object obj, object prop, object val)
-		{
-			var orig = GetPropertyValue(obj, prop);
-			var newval = Operate(Operator.Add, orig, val);
-			_ = SetPropertyValue(obj, prop, newval);
-			return orig;
-		}
-
 		public static object Operate(Operator op, object left, object right)
 		{
 			switch (op)

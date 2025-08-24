@@ -159,7 +159,7 @@ namespace Keysharp.Core.Common.Threading
 			lastFoundForm = 0;
 			randomGenerator = null;
 			_ = (regsb?.Clear());
-			priority = (long)A_Priority;
+			priority = (LongPrimitive)A_Priority;
 			threadId = 0;
 			// Instead of cloning the instance, copy the data because
 			// allocating the memory for new instances is expensive

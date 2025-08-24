@@ -146,7 +146,7 @@
 
 		internal abstract object ControlGetItems(object ctrl, object title, object text, object excludeTitle, object excludeText);
 
-		internal abstract void ControlGetPos(ref object outX, ref object outY, ref object outWidth, ref object outHeight, object ctrl = null, object title = null, object text = null, object excludeTitle = null, object excludeText = null);
+		internal abstract void ControlGetPos(ref long outX, ref long outY, ref long outWidth, ref long outHeight, object ctrl = null, object title = null, object text = null, object excludeTitle = null, object excludeText = null);
 
 		internal abstract long ControlGetStyle(object ctrl, object title, object text, object excludeTitle, object excludeText);
 

@@ -46,7 +46,7 @@
 		/// The capacity is an integer representing the maximum number of elements the array should be able to contain<br/>
 		/// before it must be automatically expanded. If setting a value less than Length, elements are removed.
 		/// </summary>
-		public object Capacity
+		public LongPrimitive Capacity
 		{
 			get => array != null ? array.Capacity : 0L;
 
@@ -72,6 +72,7 @@
 		/// <summary>
 		/// Returns the length of the array.
 		/// </summary>
+		[PublicForTestOnly]
 		public int Count => array != null ? array.Count : 0;
 
 		/// <summary>
@@ -86,7 +87,7 @@
 		/// but the new elements have no value (as indicated by Has).<br/>
 		/// Decreasing the length truncates the array.
 		/// </summary>
-		public object Length
+		public LongPrimitive Length
 		{
 			get => array != null ? array.Count : 0L;
 
@@ -196,9 +197,9 @@
 				{
 					array.AddRange(objlist);
 				}
-				else if (args[0] is ICollection c && c is not Array && c is not Map)
+				else if (args[0] is IEnumerable c && c is not Array && c is not Map)
 				{
-					array.AddRange(c.Cast<object>().ToList());
+					array.AddRange(c.Cast<object>());
 				}
 				else
 				{
@@ -220,6 +221,7 @@
 		/// </summary>
 		/// <param name="value">The value to add</param>
 		/// <returns>The length of the array after value has been added.</returns>
+		[PublicForTestOnly]
 		public int Add(object value)
 		{
 			array.Add(value);
@@ -230,7 +232,17 @@
 		/// Adds a range of elements to the end of the array.
 		/// </summary>
 		/// <param name="c">An <see cref="ICollection"/> of elements to add.</param>
-		public long AddRange(ICollection c)
+		public LongPrimitive AddRange(ICollection c)
+		{
+			array.AddRange(c.Cast<object>());
+			return array.Count;
+		}
+
+		/// <summary>
+		/// Adds a range of elements to the end of the array.
+		/// </summary>
+		/// <param name="c">An <see cref="IEnumerable"/> of elements to add.</param>
+		public LongPrimitive AddRange(IEnumerable c)
 		{
 			array.AddRange(c.Cast<object>());
 			return array.Count;
@@ -239,14 +251,22 @@
 		/// <summary>
 		/// Clears all elements from the array.
 		/// </summary>
+		[PublicForTestOnly]
 		public void Clear() => array.Clear();
+		public Primitive clear()
+		{
+			array.Clear();
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Returns whether the passed in object is contained in the array.
 		/// </summary>
 		/// <param name="value">The value to search for.</param>
 		/// <returns>True if the value was found, else false.</returns>
+		[PublicForTestOnly]
 		public bool Contains(object value) => array.Contains(value);
+		public LongPrimitive contains(object value) => array.Contains(value);
 
 		/// <summary>
 		/// Removes the value of an array element, leaving the index without a value.<br/>
@@ -291,7 +311,7 @@
 					var i = array.Count + index + 1;
 
 					if (i >= 0 && i <= array.Count)
-						return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(ifo.Call(x, i--))).ToList());
+						return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(ifo.Call(x, (LongPrimitive)(i--)))).ToList());
 					else
 						return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 				}
@@ -300,7 +320,7 @@
 					var i = index - 1;
 
 					if (i >= 0 && i < array.Count)
-						return new Array(array.Skip(i).Where(x => Script.ForceBool(ifo.Call(x, ++i))).ToList());
+						return new Array(array.Skip(i).Where(x => Script.ForceBool(ifo.Call(x, (LongPrimitive)(++i)))).ToList());
 					else
 						return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 				}
@@ -318,7 +338,7 @@
 		/// <returns>The index of the first element for which callback returned true, else -1 if not found.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if startIndex is out of bounds.</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
-		public long FindIndex(object callback, object startIndex = null)
+		public LongPrimitive FindIndex(object callback, object startIndex = null)
 		{
 			var index = startIndex.Ai(1);
 
@@ -334,7 +354,7 @@
 						{
 							var startIndexPlus1 = i + 1L;
 
-							if (Script.ForceBool(ifo.Call(array[i], startIndexPlus1)))
+							if (Script.ForceBool(ifo.Call(array[i], (LongPrimitive)startIndexPlus1)))
 								return startIndexPlus1;
 
 							i--;
@@ -351,7 +371,7 @@
 
 					if (i >= 0 && i < array.Count)
 					{
-						var found = array.FindIndex(i, x => Script.ForceBool(ifo.Call(x, (long)++i)));
+						var found = array.FindIndex(i, x => Script.ForceBool(ifo.Call(x, (LongPrimitive)(++i))));
 						return found != -1L ? found + 1L : 0L;
 					}
 					else
@@ -406,7 +426,7 @@
 		/// </summary>
 		/// <param name="index">The index in the array to examine.</param>
 		/// <returns>1 if the index is valid and there is a valid value stored there, else 0.</returns>
-		public long Has(object index)
+		public LongPrimitive Has(object index)
 		{
 			var i = index.Ai(1);
 
@@ -421,6 +441,7 @@
 		/// </summary>
 		/// <param name="value">The value to search for.</param>
 		/// <returns>The index that value was found at, else 0 if none was found.</returns>
+		[PublicForTestOnly]
 		public int IndexOf(object value) => (int)IndexOf(value, 1L);
 
 		/// <summary>
@@ -431,7 +452,7 @@
 		/// <param name="value">The value to search for.</param>
 		/// <param name="startIndex">The index to start searching at. Default: 1.</param>
 		/// <returns>The index that value was found at, else 0 if none was found.</returns>
-		public long IndexOf(object value, object startIndex = null)
+		public LongPrimitive IndexOf(object value, object startIndex = null)
 		{
 			var i = startIndex.Ai(1);
 			var abs = Math.Abs(i);
@@ -447,6 +468,7 @@
 		/// </summary>
 		/// <param name="index">The index to insert at.</param>
 		/// <param name="value">The value to insert at the given index.</param>
+		[PublicForTestOnly]
 		public void Insert(int index, object value) => InsertAt(index, value);
 
 		/// <summary>
@@ -455,7 +477,7 @@
 		/// <param name="index">The index to insert at. Specifying an index of 0 is the same as specifying Length + 1.</param>
 		/// <param name="args">The values to insert at the given index.</param>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if index is out of bounds.</exception>
-		public void InsertAt(params object[] args)
+		public Primitive InsertAt(params object[] args)
 		{
 			var o = args;
 
@@ -473,12 +495,13 @@
 				else
 				{
 					_ = Errors.ValueErrorOccurred($"Invalid insertion index of {i}.");
-					return;
+					return DefaultObject;
 				}
 
 				for (i = 1; i < args.Length; i++)//Need to use values here and not o because the enumerator will make the elements into Tuples because of the special enumerator.
 					array.Insert(index++, args[i]);
 			}
+			return DefaultObject;
 		}
 
 		/// <summary>
@@ -486,7 +509,7 @@
 		/// </summary>
 		/// <param name="separator">The separator to use. Default: comma.</param>
 		/// <returns>A string consisting of the string representation of all array elements, separated by separator.</returns>
-		public string Join(object separator = null) => string.Join(separator.As(","), array);
+		public StringPrimitive Join(object separator = null) => string.Join(separator.As(","), array);
 
 		/// <summary>
 		/// Maps each element of the array into a new array, where the mapping performs some operation.
@@ -506,7 +529,7 @@
 				{
 					List<object> list;
 					var i = index;
-					list = array.Skip(index).Select(x => ifo.Call(x, ++i)).ToList();
+					list = array.Skip(index).Select(x => ifo.Call(x, (LongPrimitive)(++i))).ToList();
 					return new Array(list);
 				}
 				else
@@ -519,8 +542,8 @@
 		/// <summary>
 		/// Returns the element with the greatest numerical value.
 		/// </summary>
-		/// <returns>The found element, else empty string.</returns>
-		public object MaxIndex()
+		/// <returns>The found element, else 0.</returns>
+		public LongPrimitive MaxIndex()
 		{
 			var val = long.MinValue;
 
@@ -532,14 +555,14 @@
 					val = temp;
 			}
 
-			return val != long.MinValue ? val : string.Empty;
+			return val != long.MinValue ? val : 0L;
 		}
 
 		/// <summary>
 		/// Returns the element with the least numerical value.
 		/// </summary>
-		/// <returns>The found element, else empty string.</returns>
-		public object MinIndex()
+		/// <returns>The found element, else 0.</returns>
+		public LongPrimitive MinIndex()
 		{
 			var val = long.MaxValue;
 
@@ -551,7 +574,7 @@
 					val = temp;
 			}
 
-			return val != long.MaxValue ? val : string.Empty;
+			return val != long.MaxValue ? val : 0L;
 		}
 
 		/// <summary>
@@ -662,14 +685,24 @@
 		/// Appends values to the end of an array.
 		/// </summary>
 		/// <param name="args">One or more values to append.</param>
-		public void Push(params object[] args) => array.AddRange(args);
+		public Primitive Push(params object[] args)
+		{
+			array.AddRange(args);
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Implementation of <see cref="IList.Remove"/> which removes the first occurrence of value
 		/// from the array.
 		/// </summary>
 		/// <param name="value">The value to remove.</param>
+		[PublicForTestOnly]
 		public void Remove(object value) => array.Remove(value);
+		public Primitive remove(object value)
+		{
+			array.Remove(value);
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Removes one or more items from the array and returns the removed item.<br/>
@@ -734,6 +767,8 @@
 		/// Returns the string representation of all elements in the array.
 		/// </summary>
 		/// <returns>The string representation.</returns>
+		public StringPrimitive Tostring() => ToString();
+		[PublicForTestOnly]
 		public override string ToString()
 		{
 			if (array.Count > 0)
@@ -863,7 +898,7 @@
 					if (Count == 1)
 						return (arr[position], null);
 					else
-						return ((long)position + 1, arr[position]);
+						return ((LongPrimitive)(position + 1), arr[position]);
 				}
 				catch (IndexOutOfRangeException)
 				{

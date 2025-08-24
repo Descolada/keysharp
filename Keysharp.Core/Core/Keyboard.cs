@@ -25,7 +25,7 @@ namespace Keysharp.Core
 		///         The mouse hook will stay installed until the next use of the Suspend or Hotkey function, at which time it is removed if not required by any hotkeys or hotstrings (see #Hotstring NoMouse).<br/>
 		///     MouseMoveOff: Allows the user to move the mouse cursor.<br/>
 		/// </param>
-		public static object BlockInput(object value)
+		public static Primitive BlockInput(object value)
 		{
 			var mode = value.As();
 			var toggle = ConvertBlockInput(mode);
@@ -77,17 +77,15 @@ namespace Keysharp.Core
 		/// and the output variables are made blank. It returns 1 (true) if the system returned a caret position,<br/>
 		/// but this does not necessarily mean a caret is visible.
 		/// </returns>
-		public static bool CaretGetPos([ByRef][Optional()][DefaultParameterValue(null)] object outputVarX,
-									   [ByRef][Optional()][DefaultParameterValue(null)] object outputVarY)
+		public static LongPrimitive CaretGetPos([ByRef] object outputVarX = null, [ByRef] object outputVarY = null)
 		{
-			outputVarX ??= VarRef.Empty; outputVarY ??= VarRef.Empty;
             // I believe only the foreground window can have a caret position due to relationship with focused control.
             var targetWindow = WindowsAPI.GetForegroundWindow(); // Variable must be named targetwindow for ATTACH_THREAD_INPUT.
 
 			if (targetWindow == 0) // No window is in the foreground, report blank coordinate.
 			{
-				Script.SetPropertyValue(outputVarX, "__Value", 0L);
-                Script.SetPropertyValue(outputVarY, "__Value", 0L);
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (LongPrimitive)0L);
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (LongPrimitive)0L);
 				return false;
 			}
 
@@ -97,8 +95,8 @@ namespace Keysharp.Core
 
 			if (!result)
 			{
-                Script.SetPropertyValue(outputVarX, "__Value", 0L);
-                Script.SetPropertyValue(outputVarY, "__Value", 0L);
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (LongPrimitive)0L);
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (LongPrimitive)0L);
                 return false;
 			}
 
@@ -114,8 +112,8 @@ namespace Keysharp.Core
 			script.PlatformProvider.Manager.CoordToScreen(ref x, ref y, CoordMode.Caret);// Now convert back to whatever is expected for the current mode.
 			pt.X -= x;
 			pt.Y -= y;
-            Script.SetPropertyValue(outputVarX, "__Value", (long)pt.X);
-            Script.SetPropertyValue(outputVarY, "__Value", (long)pt.Y);
+			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (LongPrimitive)pt.X);
+			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (LongPrimitive)pt.Y);
 			return true;
 		}
 
@@ -131,7 +129,7 @@ namespace Keysharp.Core
 		/// Note that these codes must be in hexadecimal.
 		/// </param>
 		/// <returns>The name of the specified key, or blank if the key is invalid or unnamed.</returns>
-		public static string GetKeyName(object keyName) => GetKeyNamePrivate(keyName.As(), 0) as string;
+		public static StringPrimitive GetKeyName(object keyName) => GetKeyNamePrivate(keyName.As(), 0) as string;
 
 		/// <summary>
 		/// Retrieves the scan code of a key.
@@ -142,7 +140,7 @@ namespace Keysharp.Core
 		/// or a combination of VK and SC (in that order) such as vk1Bsc001.Note that these codes must be in hexadecimal.
 		/// </param>
 		/// <returns>Returns the scan code of the specified key, or 0 if the key is invalid or has no scan code.</returns>
-		public static long GetKeySC(object keyName) => Convert.ToInt64(GetKeyNamePrivate(keyName.As(), 1));
+		public static LongPrimitive GetKeySC(object keyName) => Convert.ToInt64(GetKeyNamePrivate(keyName.As(), 1));
 
 		/// <summary>
 		/// Returns 1 (true) or 0 (false) depending on whether the specified keyboard key or mouse/controller<br/>
@@ -159,7 +157,7 @@ namespace Keysharp.Core
 		/// virtual key code, such as Left and NumpadLeft.
 		/// </param>
 		/// <param name="Mode"></param>
-		public static object GetKeyState(object obj0, object obj1 = null)
+		public static Primitive GetKeyState(object obj0, object obj1 = null)
 		{
 			var keyname = obj0.As();
 			var mode = obj1.As();
@@ -201,7 +199,7 @@ namespace Keysharp.Core
 		/// Note that these codes must be in hexadecimal.
 		/// </param>
 		/// <returns>The virtual key code of the specified key, or 0 if the key is invalid or has no virtual key code.</returns>
-		public static long GetKeyVK(object keyName) => Convert.ToInt64(GetKeyNamePrivate(keyName.As(), 2));
+		public static LongPrimitive GetKeyVK(object keyName) => Convert.ToInt64(GetKeyNamePrivate(keyName.As(), 2));
 
 		/// <summary>
 		/// Creates, modifies, enables, or disables a hotkey while the script is running.
@@ -297,12 +295,12 @@ break_twice:;
 		public static object Hotstring(object obj0, object obj1 = null, object obj2 = null)
 		{
 			var name = obj0.As();
-			var replacement = obj1;
+			var replacement = obj1.Ap();
 			var script = Script.TheScript;
 			var ht = script.HookThread;
 			var kbdMouseSender = ht.kbdMsSender;
 			var xOption = false;
-			var action = replacement as string;
+			var action = replacement as StringPrimitive;
 			var hm = script.HotstringManager;
 
 			if (string.Compare(name, "EndChars", true) == 0) // Equivalent to #Hotstring EndChars <action>
@@ -406,11 +404,11 @@ break_twice:;
 				wasAlreadyEnabled = existing.suspended == 0;
 
 				// Update the replacement string or function, if specified.
-				if (ifunc != null || !string.IsNullOrEmpty(action))
+				if (ifunc != null || !string.IsNullOrEmpty(action ?? ""))
 				{
 					string newReplacement = null; // Set default: not auto-replace.
 
-					if (ifunc == null && replacement is string rep) // Caller specified a replacement string ('E' option was handled above).
+					if (ifunc == null && replacement is StringPrimitive rep) // Caller specified a replacement string ('E' option was handled above).
 						newReplacement = rep;
 
 					existing.suspended |= HotstringDefinition.HS_TEMPORARILY_DISABLED;
@@ -628,7 +626,7 @@ break_twice:;
 				}
 				else // Waiting for joystick button
 				{
-					if (Joystick.ScriptGetJoyState(joy, joystickId.Value) is bool b && b == waitForKeyDown)
+					if (Joystick.ScriptGetJoyState(joy, joystickId.Value) is LongPrimitive b && b == waitForKeyDown)
 						return true;
 				}
 
@@ -711,7 +709,7 @@ break_twice:;
 		public static object SendMode(object mode)
 		{
 			var old = A_SendMode;
-			A_SendMode = mode;
+			A_SendMode = Primitive.From(mode).ToString();
 			return old;
 		}
 
@@ -825,10 +823,10 @@ break_twice:;
 		/// If false, the state of CapsLock is not changed at all.<br/>
 		/// As a result, <see cref="Send"/> will invert the case of the characters if CapsLock happens to be ON during the operation.
 		/// </param>
-		public static object SetStoreCapsLockMode(object mode)
+		public static LongPrimitive SetStoreCapsLockMode(object mode)
 		{
-			var old = A_StoreCapsLockMode;
-			A_StoreCapsLockMode = mode;
+			var old = (LongPrimitive)A_StoreCapsLockMode;
+			A_StoreCapsLockMode = Primitive.From(mode).IsTrue;
 			return old;
 		}
 

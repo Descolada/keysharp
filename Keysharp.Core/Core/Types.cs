@@ -13,7 +13,7 @@ namespace Keysharp.Core
 		/// <param name="value">The object to examine.</param>
 		/// <param name="baseObj">The potential base object to test.</param>
 		/// <returns>This function returns 1 if baseObj is in value's chain of base objects, else 0.</returns>
-		public static long HasBase(object value, object baseObj) {
+		public static LongPrimitive HasBase(object value, object baseObj) {
             if (value is not Any any)
 				return baseObj.GetType().IsAssignableFrom(value.GetType()) ? 1L : 0L;
 			
@@ -31,7 +31,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if the object was a string which contained all alpha numeric characters, else 0.</returns>
-		public static long IsAlnum(object value)
+		public static LongPrimitive IsAlnum(object value)
 		{
 			var s = value.As();
 			return s?.Length == 0 || s.All(ch => char.IsLetter(ch) || char.IsNumber(ch)) ? 1L : 0L;
@@ -45,7 +45,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if the object was a string which contained all alpha characters, else 0.</returns>
-		public static long IsAlpha(object value)
+		public static LongPrimitive IsAlpha(object value)
 		{
 			var s = value.As();
 			return s?.Length == 0 || s.All(char.IsLetter) ? 1L : 0L;
@@ -57,7 +57,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if the object was a string of digits, else 0.</returns>
-		public static long IsDigit(object value)
+		public static LongPrimitive IsDigit(object value)
 		{
 			var s = value.As();
 			return s?.Length == 0 || s.All(char.IsDigit) ? 1L : 0L;
@@ -69,22 +69,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value was a floating point number, else 0.</returns>
-		public static long IsFloat(object value)
-		{
-			var o = value;
-
-			if (o is double)// || o is float || o is decimal)
-				return 1;
-
-			double? val;
-
-			if (value is string s)
-				val = s.Trim().ParseDouble(false, true);
-			else
-				val = o.ParseDouble(false, true);
-
-			return val.HasValue ? 1L : 0L;
-		}
+		public static Primitive IsFloat(object value) => Primitive.TryCoercePrimitive(value, out Primitive p) && p.IsDouble;
 
 		/// <summary>
 		/// Returns 1 if the specified function exists in the script, else 0.
@@ -92,7 +77,7 @@ namespace Keysharp.Core
 		/// <param name="name">The name of the function to search for.</param>
 		/// <param name="paramCount">The parameter count of the function to search for. Default: return the first function found.</param>
 		/// <returns>1 if the function was found, else 0.</returns>
-		public static long IsFunc(object name, object paramCount = null) => Reflections.FindMethod(name.ToString(), paramCount.Ai(-1)) is MethodPropertyHolder mph && mph.mi != null ? 1L : 0L;
+		public static LongPrimitive IsFunc(object name, object paramCount = null) => Reflections.FindMethod(name.ToString(), paramCount.Ai(-1)) is MethodPropertyHolder mph && mph.mi != null ? 1L : 0L;
 
 		/// <summary>
 		/// Returns 1 if Value is an integer or a purely numeric string (decimal or hexadecimal) without a decimal point.<br/>
@@ -100,26 +85,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value was a whole number, else 0.</returns>
-		public static long IsInteger(object value)
-		{
-			var o = value;
-
-			//if (o is long || o is int || o is uint || o is ulong)
-			if (o is long)
-				return 1L;
-
-			if (o is double)// || o is float || o is decimal)
-				return 0L;
-
-			long? val;
-
-			if (value is string s)
-				val = s.Trim().ParseLong(false, false);
-			else
-				val = o.ParseLong(false, false);
-
-			return val.HasValue ? 1L : 0L;
-		}
+		public static LongPrimitive IsInteger(object value) => Primitive.TryCoercePrimitive(value, out Primitive p) && p.TryGetLong(out _);
 
 		/// <summary>
 		/// Unsupported.
@@ -127,7 +93,7 @@ namespace Keysharp.Core
 		/// <param name="name">Unused.</param>
 		/// <returns>Unused.</returns>
 		/// <exception cref="Error">Throws an <see cref="Error"/> exception because Keysharp does not support querying labels at runtime.</exception>
-		public static long IsLabel(object name) => (long)Errors.ErrorOccurred("C# does not allow querying labels at runtime.", DefaultErrorLong);
+		public static LongPrimitive IsLabel(object name) => (long)Errors.ErrorOccurred("C# does not allow querying labels at runtime.", DefaultErrorLong);
 
 		/// <summary>
 		/// Returns 1 if value is a string and is empty or contains only lowercase characters.<br/>
@@ -136,7 +102,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value contained all lowercase characters, else 0.</returns>
-		public static long IsLower(object value)
+		public static LongPrimitive IsLower(object value)
 		{
 			var s = value.As();
 			return s?.Length == 0 || s.All(ch => char.IsLetter(ch) && char.IsLower(ch)) ? 1L : 0L;
@@ -147,21 +113,21 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is a number, else 0.</returns>
-		public static long IsNumber(object value) => IsInteger(value) | IsFloat(value);
+		public static LongPrimitive IsNumber(object value) => (LongPrimitive)(IsInteger(value) || IsFloat(value));
 
 		/// <summary>
 		/// Returns 1 if the specified value is derived from KeysharpObject, else 0.
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is derived from KeysharpObject, else 0.</returns>
-		public static long IsObject(object value) => value is KeysharpObject ? 1L : 0L;
+		public static LongPrimitive IsObject(object value) => value is KeysharpObject;
 
 		/// <summary>
 		/// Returns 1 if the specified variable has been assigned a value, meaning it is not null, else 0.
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is not null, else 0.</returns>
-		public static long IsSet(object value) => value != null ? 1L : 0L;
+		public static LongPrimitive IsSet(object value) => value != null;
 
 		/// <summary>
 		/// 1 if value is a string and is empty or contains only whitespace consisting of the following characters, else false:<br/>
@@ -169,7 +135,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if only spaces are found, else 0.</returns>
-		public static long IsSpace(object value) => value.ToString().AsSpan().IndexOfAnyExcept(SpacesSv) != -1 ? 0L : 1L;
+		public static LongPrimitive IsSpace(object value) => value.ToString().AsSpan().IndexOfAnyExcept(SpacesSv) == -1;
 
 		/// <summary>
 		/// 1 if value is a valid date-time stamp, which can be all or just the leading part of the YYYYMMDDHH24MISS format.<br/>
@@ -180,7 +146,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is a valid date-time stamp, else 0.</returns>
-		public static long IsTime(object value)
+		public static LongPrimitive IsTime(object value)
 		{
 			var s = value.As();
 			DateTime dt;
@@ -210,7 +176,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value contained all uppercase characters, else 0.</returns>
-		public static long IsUpper(object value)
+		public static LongPrimitive IsUpper(object value)
 		{
 			var s = value.As();
 			return s?.Length == 0 || s.All(ch => char.IsLetter(ch) && char.IsUpper(ch)) ? 1L : 0L;
@@ -221,7 +187,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value contains only valid hexadecimal characters (optionally including the 0x prefix), else 0.</returns>
-		public static long IsXDigit(object value)
+		public static LongPrimitive IsXDigit(object value)
 		{
 			var s = value.As();
 			var sp = s.AsSpan();
@@ -241,14 +207,14 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>The name of the object's base.</returns>
-		public static string ObjGetBase(object value) => value.GetType().BaseType.Name;
+		public static StringPrimitive ObjGetBase(object value) => value.GetType().BaseType.Name;
 
 		/// <summary>
 		/// Returns the class name of an object.
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>The class name of value.</returns>
-		public static string Type(object value)
+		public static StringPrimitive Type(object value)
 		{
 			if (value != null)
 			{
@@ -256,20 +222,17 @@ namespace Keysharp.Core
 				if (value is KeysharpObject kso && kso.op != null) {
 					if (kso.op.ContainsKey("__Class"))
 						return "Prototype";
-                    else if (Script.TryGetPropertyValue(kso, "__Class", out object oname) && oname is string name && name != null)
+                    else if (Script.TryGetPropertyValue(kso, "__Class", out object oname) && oname.IsString(out string name) && name != null)
 						type = name;
                     else
 						return "Object";
 				} else
 					type = value.GetType().Name;
 
-				return type switch
-			{
-					"Double" => "Float",
-					"Int64" => "Integer",
-					"KeysharpObject" => "Object",
-					_ => type,
-			};
+				if (TypeNameAliases.TryGetValue(type, out string result))
+					return result;
+
+				return type;
 		}
 		else
 			return "unset";

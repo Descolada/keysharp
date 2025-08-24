@@ -40,8 +40,8 @@ namespace Keysharp.Scripting
 		internal const int DefaultErrorInt = int.MinValue;
 		internal const long DefaultErrorLong = long.MinValue;
 		internal const string DefaultNewLine = "\n";
-		internal const string DefaultObject = "";
-		internal const string DefaultErrorObject = "";
+		internal static StringPrimitive DefaultObject = "";
+		internal static StringPrimitive DefaultErrorObject = "";
 		internal const string DefaultErrorString = "";
 		internal const int INTERVAL_UNSPECIFIED = int.MinValue + 303;
 		internal const int maxThreadsLimit = 0xFF;
@@ -313,7 +313,7 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		public static bool HandleSingleInstance(string title, eScriptInstance inst)
+		public static bool HandleSingleInstance(StringPrimitive title, eScriptInstance inst)
 		{
 			if (title.Length == 0 || title == "*")//Happens when running in Keyview.
 				return false;

@@ -77,7 +77,7 @@ namespace Keysharp.Core.Common.Invoke
 				bool isReturn = hasReturn && paramIndex == lastIdx;
 				bool parseType = isReturn;
 				// Read the tag and value
-				string tag = parameters[paramIndex++] as string ?? string.Empty;
+				string tag = parameters[paramIndex++] as StringPrimitive ?? parameters[paramIndex] as string ?? string.Empty;
 				// Trim whitespace around tag
 				ReadOnlySpan<char> span = tag.AsSpan().Trim();
 				int len = span.Length;
@@ -120,13 +120,18 @@ namespace Keysharp.Core.Common.Invoke
 					{
 						object kptr;
 
-						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p') && ((kso is IPointable ip && (kptr = ip.Ptr) != null)
-							|| Script.TryGetPropertyValue(kso, "ptr", out kptr)))
+						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p'))
 						{
-							if (last == '*' || (char)(last | 0x20) == 'p')
-								outputVars[paramIndex] = (typeof(nint), true);
+							if ((kso is IPointable ip && (kptr = ip.Ptr) != null)
+							|| Script.TryGetPropertyValue(kso, "ptr", out kptr))
+							{
+								if (last == '*' || (char)(last | 0x20) == 'p')
+									outputVars[paramIndex] = (typeof(nint), true);
 
-							p = kptr;
+								p = kptr;
+							}
+							else if (p is LongPrimitive lp && lp.Payload is StringBuffer sb && (kptr = sb.Ptr) != null)
+								outputVars[paramIndex] = (typeof(string), true);
 						}
 					}
 				}
@@ -144,7 +149,11 @@ namespace Keysharp.Core.Common.Invoke
 					// Pin the object and store its address
 					object temp = 0L;
 
-					if (p is long ll)
+					if (p is LongPrimitive lp)
+						temp = lp.Value;
+					else if (p is DoublePrimitive dp)
+						temp = dp.Value;
+					else if (p is long ll)
 						temp = ll;
 					else if (p is bool bl)
 						temp = bl;
@@ -169,7 +178,7 @@ namespace Keysharp.Core.Common.Invoke
 						goto TypeDetermined;
 					}
 
-					if (p is string s)
+					if (p.IsString(out string s))
 					{
 						nint bstr = Marshal.StringToBSTR(s);
 						_bstrs.Add(bstr);
@@ -206,8 +215,9 @@ namespace Keysharp.Core.Common.Invoke
 						p = kptr;
 					}
 
-					if (p is string s)
+					if (p.IsString(out string s))
 					{
+						p = s;
 						if (outputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
 						{
 							var sb = new StringBuffer(s);
@@ -251,7 +261,7 @@ namespace Keysharp.Core.Common.Invoke
 						p = kptr;
 					}
 
-					if (p is string s)
+					if (p.IsString(out string s))
 					{
 						if (outputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
 						{
@@ -495,7 +505,14 @@ namespace Keysharp.Core.Common.Invoke
 
 			void ConvertPtr()
 			{
-				if (p is long lptr)
+				if (p is Primitive lp)
+				{
+					if (lp.TryGetLong(out long ll))
+						args[n] = ll;
+					else
+						throw new Exception();
+				}
+				else if (p is long lptr)
 					args[n] = lptr;
 				else if (p is string s)
 					args[n] = s.Al();
@@ -526,7 +543,7 @@ namespace Keysharp.Core.Common.Invoke
 			{
 				long hrLong = (long)value;                // unbox the raw long
 				int hr32 = unchecked((int)hrLong);   // keep only the low 32 bits
-				return (string)Errors.OSErrorOccurredForHR(hr32);
+				return (Primitive)Errors.OSErrorOccurredForHR(hr32);
 			}
 
 			//Special conversion for the return value.

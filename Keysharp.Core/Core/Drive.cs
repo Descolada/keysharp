@@ -16,7 +16,7 @@ namespace Keysharp.Core
 		/// In this case the drive is not required to be assigned a drive letter.
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static object DriveEject(object drive = null)
+		public static StringPrimitive DriveEject(object drive = null)
 		{
 			_ = DriveHelper(drive.As(), true);
 			return DefaultObject;
@@ -27,7 +27,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="path">Any path contained by the drive (might also work on UNC paths and mapped drives).</param>
 		/// <returns>The capacity of the drive in megabytes.</returns>
-		public static long DriveGetCapacity(object path) => new DriveInfo(path.As()).TotalSize / 1024 / 1024;
+		public static LongPrimitive DriveGetCapacity(object path) => new DriveInfo(path.As()).TotalSize / 1024 / 1024;
 
 		/// <summary>
 		/// Returns the type of the specified drive's file system.
@@ -37,14 +37,14 @@ namespace Keysharp.Core
 		/// The possible values are defined by the system; they include (but are not limited to) the following:<br/>
 		/// NTFS, FAT32, FAT, CDFS (typically indicates a CD), or UDF (typically indicates a DVD).
 		/// </returns>
-		public static string DriveGetFileSystem(object drive) => new DriveInfo(drive.As()).DriveFormat;
+		public static StringPrimitive DriveGetFileSystem(object drive) => new DriveInfo(drive.As()).DriveFormat;
 
 		/// <summary>
 		/// Returns the volume label of the specified drive.
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash, or a UNC name such as "\server1\share1".</param>
 		/// <returns>The drive's volume label.</returns>
-		public static string DriveGetLabel(object drive) => new DriveInfo(drive.As()).VolumeLabel;
+		public static StringPrimitive DriveGetLabel(object drive) => new DriveInfo(drive.As()).VolumeLabel;
 
 		/// <summary>
 		/// Returns a string of letters, one character for each drive letter in the system.
@@ -53,7 +53,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify one of the following words to retrieve only a specific type of drive: CDROM, REMOVABLE, FIXED, NETWORK, RAMDISK, UNKNOWN.
 		/// </param>
 		/// <returns>The drive letters in the system, depending on DriveType. For example: ACDEZ.</returns>
-		public static string DriveGetList(object driveType = null)
+		public static StringPrimitive DriveGetList(object driveType = null)
 		{
 			var drivetype = driveType.As();
 			DriveType? type = null;
@@ -111,7 +111,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash, or a UNC name such as "\server1\share1".</param>
 		/// <returns>The drive's volume serial number.</returns>
-		public static long DriveGetSerial(object drive)
+		public static LongPrimitive DriveGetSerial(object drive)
 		=> DriveProvider.CreateDrive(new DriveInfo(drive.As())).Serial;
 
 		/// <summary>
@@ -119,7 +119,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="path">Any path contained by the drive (might also work on UNC paths and mapped drives).</param>
 		/// <returns>The free disk space of the drive which contains Path, in megabytes (rounded down to the nearest megabyte).</returns>
-		public static long DriveGetSpaceFree(object path) => new DriveInfo(path.As()).TotalFreeSpace / (1024 * 1024);
+		public static LongPrimitive DriveGetSpaceFree(object path) => new DriveInfo(path.As()).TotalFreeSpace / (1024 * 1024);
 
 		/// <summary>
 		/// Returns the status of the drive which contains the specified path.
@@ -132,7 +132,7 @@ namespace Keysharp.Core
 		/// Invalid: Path does not exist or is a network drive that is presently inaccessible, etc.
 		/// </returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static string DriveGetStatus(object path)
+		public static StringPrimitive DriveGetStatus(object path)
 		{
 			try
 			{
@@ -159,7 +159,7 @@ namespace Keysharp.Core
 		/// stopped: The drive contains a CD but is not currently accessing it.
 		/// </returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static string DriveGetStatusCD(object drive = null)
+		public static StringPrimitive DriveGetStatusCD(object drive = null)
 		{
 			try
 			{
@@ -180,14 +180,14 @@ namespace Keysharp.Core
 		/// Unknown, Removable, Fixed, Network, CDROM, or RAMDisk.<br/>
 		/// If Path is invalid (e.g. because the drive does not exist), the return value is an empty string.
 		/// </returns>
-		public static string DriveGetType(object path) => Script.TheScript.DriveTypeMapper.LookUpKeysharpType(new DriveInfo(path.As()).DriveType);
+		public static StringPrimitive DriveGetType(object path) => Script.TheScript.DriveTypeMapper.LookUpKeysharpType(new DriveInfo(path.As()).DriveType);
 
 		/// <summary>
 		/// Prevents the eject feature of the specified drive from working.
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash (might also work on UNC paths and mapped drives).</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static object DriveLock(object drive)
+		public static StringPrimitive DriveLock(object drive)
 		{
 			DriveProvider.CreateDrive(new DriveInfo(drive.As())).Lock();
 			return DefaultObject;
@@ -203,7 +203,7 @@ namespace Keysharp.Core
 		/// In this case the drive is not required to be assigned a drive letter.
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static object DriveRetract(object drive)
+		public static StringPrimitive DriveRetract(object drive)
 		{
 			_ = DriveHelper(drive.As(), false);
 			return DefaultObject;
@@ -216,7 +216,7 @@ namespace Keysharp.Core
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash (might also work on UNC paths and mapped drives).</param>
 		/// <param name="newLabel">If omitted, the drive will have no label. Otherwise, specify the new label to set.</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static object DriveSetLabel(object drive, object newLabel = null)
+		public static StringPrimitive DriveSetLabel(object drive, object newLabel = null)
 		{
 			var label = newLabel.As();
 			var di = new DriveInfo(drive.As());
@@ -230,7 +230,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash (might also work on UNC paths and mapped drives).</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		public static object DriveUnlock(object drive)
+		public static StringPrimitive DriveUnlock(object drive)
 		{
 			DriveProvider.CreateDrive(new DriveInfo(drive.As())).UnLock();
 			return DefaultObject;
@@ -242,7 +242,7 @@ namespace Keysharp.Core
 		/// <param name="dr">The drive to operate on.</param>
 		/// <param name="b">Eject if true, else retract..</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
-		private static object DriveHelper(string drive, bool b)
+		private static StringPrimitive DriveHelper(string drive, bool b)
 		{
 			DriveBase d = GetRemovableDrive(drive);
 

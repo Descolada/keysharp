@@ -14,9 +14,8 @@
 		/// <param name="right">The right bounding coordinate of the specified monitor.</param>
 		/// <param name="bottom">The bottom bounding coordinate of the specified monitor.</param>
 		/// <returns>The monitor number which is the same as n unless n was omitted.</returns>
-		public static object MonitorGet(object n, [ByRef] object left, [ByRef] object top, [ByRef] object right, [ByRef] object bottom)
+		public static LongPrimitive MonitorGet(object n, [ByRef] object left, [ByRef] object top, [ByRef] object right, [ByRef] object bottom)
 		{
-			left ??= VarRef.Empty; top ??= VarRef.Empty; right ??= VarRef.Empty; bottom ??= VarRef.Empty;
 			var monitorIndex = n.Al(-1L);
 			System.Windows.Forms.Screen screen;
 
@@ -25,10 +24,10 @@
 			else
 				screen = System.Windows.Forms.Screen.PrimaryScreen;
 
-			Script.SetPropertyValue(left, "__Value", (long)screen.Bounds.Left);
-            Script.SetPropertyValue(top, "__Value", (long)screen.Bounds.Top);
-            Script.SetPropertyValue(right, "__Value", (long)screen.Bounds.Right);
-            Script.SetPropertyValue(bottom, "__Value", (long)screen.Bounds.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (LongPrimitive)screen.Bounds.Left);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (LongPrimitive)screen.Bounds.Top);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (LongPrimitive)screen.Bounds.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (LongPrimitive)screen.Bounds.Bottom);
 			return monitorIndex > 0L ? monitorIndex : 1L;
 		}
 
@@ -36,14 +35,14 @@
 		/// Returns the total number of monitors.
 		/// </summary>
 		/// <returns>The total number of monitors.</returns>
-		public static long MonitorGetCount() => System.Windows.Forms.Screen.AllScreens.Length;
+		public static LongPrimitive MonitorGetCount() => System.Windows.Forms.Screen.AllScreens.Length;
 
 		/// <summary>
 		/// Returns the operating system's name of the specified monitor.
 		/// </summary>
 		/// <param name="n">If omitted, the primary monitor will be used. Otherwise, specify the monitor number, between 1 and the number returned by <see cref="MonitorGetCount"/>.</param>
 		/// <returns>A string</returns>
-		public static string MonitorGetName(object n = null)
+		public static StringPrimitive MonitorGetName(object n = null)
 		{
 			var monitorIndex = n.Al(-1L);
 
@@ -57,7 +56,7 @@
 		/// Returns the number of the primary monitor.
 		/// </summary>
 		/// <returns>The number of the primary monitor. In a single-monitor system, this will be always 1.</returns>
-		public static long MonitorGetPrimary()
+		public static LongPrimitive MonitorGetPrimary()
 		{
 			long i;
 
@@ -79,7 +78,7 @@
 		/// <param name="right">The right bounding coordinate of the work area of the specified monitor.</param>
 		/// <param name="bottom">The bottom bounding coordinate of the work area of the specified monitor.</param>
 		/// <returns>The monitor number which is the same as n unless n was omitted.</returns>
-		public static object MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
+		public static LongPrimitive MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
 		{
 			var monitorIndex = n.Al(-1L);
 			System.Windows.Forms.Screen screen;
@@ -89,10 +88,10 @@
 			else
 				screen = System.Windows.Forms.Screen.PrimaryScreen;
 
-			if (left != null) Script.SetPropertyValue(left, "__Value", (long)screen.WorkingArea.Left);
-			if (top != null) Script.SetPropertyValue(top, "__Value", (long)screen.WorkingArea.Top);
-			if (right != null) Script.SetPropertyValue(right, "__Value", (long)screen.WorkingArea.Right);
-			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)screen.WorkingArea.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (LongPrimitive)screen.WorkingArea.Left);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (LongPrimitive)screen.WorkingArea.Top);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (LongPrimitive)screen.WorkingArea.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (LongPrimitive)screen.WorkingArea.Bottom);
 			return monitorIndex > 0L ? monitorIndex : 1L;
 		}
 	}

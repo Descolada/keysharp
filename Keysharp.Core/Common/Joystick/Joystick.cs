@@ -138,7 +138,7 @@
 #endif
 		}
 
-		internal static object ScriptGetJoyState(JoyControls joy, uint joystickID)
+		internal static Primitive ScriptGetJoyState(JoyControls joy, uint joystickID)
 		// Caller must ensure that aToken.marker is a buffer large enough to handle the longest thing put into
 		// it here, which is currently jc.szPname (size=32). Caller has set aToken.symbol to be SYM_STRING.
 		// aToken is used for the value being returned by GetKeyState() to the script, while this function's

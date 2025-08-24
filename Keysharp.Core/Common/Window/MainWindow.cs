@@ -206,7 +206,7 @@
 		/// <param name="e"></param>
 		private void MainWindow_FormClosing(object sender, FormClosingEventArgs e)
 		{
-			if (string.IsNullOrEmpty(A_ExitReason as string) && e.CloseReason == CloseReason.UserClosing)
+			if (!A_ExitReason.IsTrue && e.CloseReason == CloseReason.UserClosing)
 			{
 				e.Cancel = true;
 				Hide();

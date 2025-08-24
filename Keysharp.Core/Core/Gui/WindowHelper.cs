@@ -10,11 +10,15 @@ namespace Keysharp.Core
 			{
 				return (false, 0);
 			}
+			else if (ctrl is LongPrimitive lp)
+			{
+				return (true, new nint(lp.Value));
+			}
 			else if (ctrl is long l)
 			{
 				return (true, new nint(l));
 			}
-			else if (!(ctrl is string))
+			else if (!(ctrl is StringPrimitive))
 			{
 				object hwnd = null;
 
@@ -26,7 +30,9 @@ namespace Keysharp.Core
 
 				nint ptr = 0;
 
-				if (hwnd is long ll)
+				if (hwnd is LongPrimitive hlp)
+					ptr = new nint(hlp.Value);
+				else if (hwnd is long ll)
 					ptr = new nint(ll);
 				else
 				{
@@ -54,10 +60,10 @@ namespace Keysharp.Core
 		}
 
 		internal static void WinPosHelper(bool client,
-										  ref object outX,
-										  ref object outY,
-										  ref object outWidth,
-										  ref object outHeight,
+										  out long outX,
+										  out long outY,
+										  out long outWidth,
+										  out long outHeight,
 										  object winTitle,
 										  object winText,
 										  object excludeTitle,
@@ -111,11 +117,16 @@ namespace Keysharp.Core
 					    win.ExStyle = i;
 					    else if (val is uint ui)
 					    win.ExStyle = ui;
-					    else*/ if (val is long l)
+					    else*/
+					if (val is LongPrimitive lp)
+						win.ExStyle = lp.Value;
+					else if (val is DoublePrimitive dp)
+						win.ExStyle = (long)dp.Value;
+					else if (val is long l)
 						win.ExStyle = l;
 					else if (val is double d)
 						win.ExStyle = (long)d;
-					else if (val is string s)
+					else if (val.IsString(out string s))
 					{
 						long temp = 0;
 
@@ -131,11 +142,17 @@ namespace Keysharp.Core
 					    win.Style = i;
 					    else if (val is uint ui)
 					    win.Style = ui;
-					    else*/ if (val is long l)
+
+					    else*/
+					if (val is LongPrimitive lp)
+						win.ExStyle = lp.Value;
+					else if (val is DoublePrimitive dp)
+						win.ExStyle = (long)dp.Value;
+					else if (val is long l)
 						win.Style = l;
 					else if (val is double d)
 						win.Style = (long)d;
-					else if (val is string s)
+					else if (val.IsString(out string s))
 					{
 						long temp = 0;
 

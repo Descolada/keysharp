@@ -73,7 +73,7 @@
 			return Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
 		}
 
-		public long HasOwnProp(object obj)
+		public LongPrimitive HasOwnProp(object obj)
 		{
 			var name = obj.As().ToLower();
 
@@ -83,7 +83,7 @@
 			return Reflections.FindOwnProp(GetType(), name) ? 1L : 0L;
 		}
 
-		public long OwnPropCount()
+		public LongPrimitive OwnPropCount()
 		{
 			var ct = 0L;
 			var isMapOnly = GetType() == typeof(Map);
@@ -106,18 +106,7 @@
 			var user = userOnly.Ab(true);
 			var props = new Dictionary<object, object>();
 
-			if (op != null)
-			{
-				foreach (var kv in op)
-				{
-					if (kv.Key == "__Static") //This throws if the value is tried to access because "this" is passed
-						continue;
-
-					props[kv.Key] = kv.Value;
-				}
-			}
-
-			return new OwnPropsIterator(this, props, vals).fo;
+			return new OwnPropsIterator(this, op ?? new Dictionary<string, OwnPropsDesc>(), getValues.Ab(true)).fo;
 		}
 
 		internal virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
@@ -167,7 +156,7 @@
 			set => Objects.ObjSetBase(this, value);
 		}
 
-		public long SetCapacity(object obj)
+		public LongPrimitive SetCapacity(object obj)
 		{
 			var err = new Error("SetCapacity() is not supported or needed in Keysharp. The C# runtime handles all memory.");
 			return Errors.ErrorOccurred(err) ? throw err : DefaultErrorLong;

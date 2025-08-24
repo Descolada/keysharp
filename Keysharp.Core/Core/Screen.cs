@@ -103,9 +103,8 @@ namespace Keysharp.Core
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		/// <exception cref="ValueError ">A <see cref="ValueError "/> exception thrown if an invalid parameter was detected or the image could not be loaded.</exception>
-		public static object ImageSearch([ByRef] object outX, [ByRef] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
+		public static Primitive ImageSearch([ByRef] object outX, [ByRef] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
 		{
-            outX ??= VarRef.Empty; outY ??= VarRef.Empty;
             var _x1 = x1.Ai();
 			var _y1 = y1.Ai();
 			var _x2 = x2.Ai();
@@ -176,13 +175,13 @@ namespace Keysharp.Core
 			if (location.HasValue)
 			{
 				location = Mouse.RevertPoint(location.Value, ThreadAccessors.A_CoordModePixel);
-				Script.SetPropertyValue(outX, "__Value", (long)location.Value.X);
-                Script.SetPropertyValue(outY, "__Value", (long)location.Value.Y);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (LongPrimitive)location.Value.X);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (LongPrimitive)location.Value.Y);
 			}
 			else
 			{
-                Script.SetPropertyValue(outX, "__Value", "");
-                Script.SetPropertyValue(outY, "__Value", "");
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (StringPrimitive)"");
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (StringPrimitive)"");
 			}
 
 			return DefaultObject;
@@ -198,7 +197,7 @@ namespace Keysharp.Core
 		/// components but an intensity of 00 for its green component.
 		/// </returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static string PixelGetColor(object x, object y, object unsed = null)
+		public static StringPrimitive PixelGetColor(object x, object y, object unsed = null)
 		{
 			PixelFormat format;
 			int pixel;
@@ -256,9 +255,8 @@ namespace Keysharp.Core
 		/// </param>
 		/// <returns>This function returns 1 if the color was found in the specified region, or 0 if it was not found.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static long PixelSearch([ByRef] object outX, [ByRef] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
+		public static LongPrimitive PixelSearch([ByRef] object outX, [ByRef] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
 		{
-			outX ??= VarRef.Empty; outY ??= VarRef.Empty;
 			var x1 = obj0.Ai();
 			var y1 = obj1.Ai();
 			var x2 = obj2.Ai();
@@ -294,14 +292,14 @@ namespace Keysharp.Core
 			if (location.HasValue)
 			{
 				location = Mouse.RevertPoint(location.Value, ThreadAccessors.A_CoordModePixel);
-				Script.SetPropertyValue(outX, "__Value", (long)location.Value.X);
-                Script.SetPropertyValue(outY, "__Value", (long)location.Value.Y);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (LongPrimitive)location.Value.X);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (LongPrimitive)location.Value.Y);
 				return 1L;
 			}
 			else
 			{
-                Script.SetPropertyValue(outX, "__Value", 0L);
-                Script.SetPropertyValue(outY, "__Value", 0L);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (LongPrimitive)0L);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (LongPrimitive)0L);
 				return 0L;
 			}
 		}

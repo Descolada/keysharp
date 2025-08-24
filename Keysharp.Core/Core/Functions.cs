@@ -38,7 +38,7 @@
 			IFuncObj del = null;
 			var cachedFuncObj = Script.TheScript.FunctionData.cachedFuncObj;
 
-			if (h is string s)
+			if (h.IsString(out string s))
 			{
 				if (s.Length > 0)
 				{
@@ -137,7 +137,7 @@
 		/// </param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first function found.</param>
 		/// <returns>1 if the method was found on the object, else 0.</returns>
-		public static long HasMethod(object value, object name = null, object paramCount = null)
+		public static LongPrimitive HasMethod(object value, object name = null, object paramCount = null)
 		{
 			var n = name.As();
 			var count = paramCount.Ai(-1);
@@ -159,7 +159,7 @@
 		/// This is used for indexers which can take 1 or more parameters. Default: 0.
 		/// </param>
 		/// <returns>1 if the property was found on the object, else 0.</returns>
-		public static long HasProp(object value, object name, object paramCount = null, bool checkBase = true)
+		public static LongPrimitive HasProp(object value, object name, object paramCount = null, bool checkBase = true)
 		{
 			var val = value;
 			var n = name.As();
@@ -199,7 +199,7 @@
 			var o = obj;
 			var n = name.As("Call");
 
-			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(kso, name, out object oifo) && oifo is IFuncObj ifo && ifo != null)
+			if (obj is Any kso && kso is not Primitive && Script.TryGetPropertyValue(kso, (Primitive)name, out object oifo) && oifo is IFuncObj ifo && ifo != null)
 				return ifo.Bind([obj, ..args]);
 			else if (Reflections.FindAndCacheMethod(o.GetType(), n, -1) is MethodPropertyHolder mph && mph.mi != null)
 				return new BoundFunc(mph.mi, [obj, ..args], o);

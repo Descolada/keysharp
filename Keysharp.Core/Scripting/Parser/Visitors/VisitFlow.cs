@@ -1007,7 +1007,7 @@ namespace Keysharp.Scripting
 
             // Extract case sensitivity (CaseSense)
             LiteralExpressionSyntax caseSense = context.literal() != null
-                ? (LiteralExpressionSyntax)Visit(context.literal())
+                ? (LiteralExpressionSyntax)((CastExpressionSyntax)Visit(context.literal())).Expression
                 : SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1)); // Default: case-sensitive
             switchCaseSense = (caseSense.Token.Text == "1L" || caseSense.Token.Text == "1" || caseSense.Token.Text.Equals("on", StringComparison.InvariantCultureIgnoreCase));
 

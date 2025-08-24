@@ -1,10 +1,11 @@
-﻿using Antlr4.Runtime.Tree;
+﻿using System.Data.Common;
+using System.Linq.Expressions;
+using System.Numerics;
 using Antlr4.Runtime;
+using Antlr4.Runtime.Misc;
+using Antlr4.Runtime.Tree;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static MainParser;
-using System.Data.Common;
-using System.Linq.Expressions;
-using Antlr4.Runtime.Misc;
 
 namespace Keysharp.Scripting
 {
@@ -478,38 +479,51 @@ namespace Keysharp.Scripting
 
         internal static ExpressionSyntax CastLiteral(ExpressionSyntax expression, string name = "Primitive")
         {
-            return SyntaxFactory.CastExpression(
+			return SyntaxFactory.CastExpression(
                 SyntaxFactory.IdentifierName(name),
                 expression
                 );
         }
 
-        internal static LiteralExpressionSyntax NumericLiteralExpression(string value)
+		private static readonly BigInteger U64 = (BigInteger.One << 64);
+		internal static ExpressionSyntax NumericLiteralExpression(string value)
         {
             if (value.Contains("."))
             {
-                double.TryParse(value, CultureInfo.InvariantCulture, out double result);
-				value = value.EndsWith("d", StringComparison.OrdinalIgnoreCase)
-	                ? value
-	                : value + "d";
-				return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value, result));
+                double.TryParse(value, CultureInfo.InvariantCulture, out double dd);
+				return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(dd));
             }
-            else if (value.StartsWith("0x", StringComparison.InvariantCultureIgnoreCase))
+
+			long result;
+            NumberStyles style = NumberStyles.Integer;
+			if (value.StartsWith("0x", StringComparison.InvariantCultureIgnoreCase))
             {
-                long.TryParse(value.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
-            }
+                value = value.Substring(2);
+                style = NumberStyles.AllowHexSpecifier;
+			}
             else if (value.StartsWith("0b", StringComparison.InvariantCultureIgnoreCase))
             {
-                long.TryParse(value.Substring(2), NumberStyles.AllowBinarySpecifier, CultureInfo.InvariantCulture, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
+				value = value.Substring(2);
+				style = NumberStyles.AllowBinarySpecifier;
             }
-            else
-            {
-                long.TryParse(value, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
-            }
-        }
+
+			if (!long.TryParse(value, style, CultureInfo.InvariantCulture, out result))
+			{
+				if (!BigInteger.TryParse(value, style, CultureInfo.InvariantCulture, out BigInteger bi))
+					throw new Exception("Invalid numeric literal");
+
+				BigInteger mod = bi % U64;
+				if (mod.Sign < 0) mod += U64; // ensure 0..2^64-1
+
+				ulong u64 = (ulong)mod;
+				result = unchecked((long)u64);
+			}
+
+			if (result < 0) return SyntaxFactory.InvocationExpression(
+				CreateMemberAccess("Primitive", unaryOperators[MainParser.Minus]),
+				CreateArgumentList(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(-result))));
+			return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
+		}
 
         internal static ExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
         {
@@ -525,7 +539,7 @@ namespace Keysharp.Scripting
 					{
 						setExpr = exprR;
 					}
-					else if (exprL is LiteralExpressionSyntax rles && rles.Token.IsKind(SyntaxKind.NullKeyword))
+					else if (exprR is LiteralExpressionSyntax rles && rles.Token.IsKind(SyntaxKind.NullKeyword))
 					{
 						setExpr = exprL;
 					}
@@ -1428,10 +1442,10 @@ namespace Keysharp.Scripting
                             .WithInitializer(
                                 SyntaxFactory.EqualsValueClause(
                                     PredefinedKeywords.EqualsToken,
-                                    SyntaxFactory.LiteralExpression(
+									CastLiteral(SyntaxFactory.LiteralExpression(
                                         SyntaxKind.StringLiteralExpression,
                                         SyntaxFactory.Literal(value.ToString())
-                                    )
+                                    ))
                                 )
                             )
                         )
@@ -1440,7 +1454,8 @@ namespace Keysharp.Scripting
                 .WithModifiers(
                     SyntaxFactory.TokenList(
                         Parser.PredefinedKeywords.PublicToken,
-                        SyntaxFactory.Token(SyntaxKind.ConstKeyword)
+                        SyntaxFactory.Token(SyntaxKind.ReadOnlyKeyword),
+                        Parser.PredefinedKeywords.StaticToken
                     )
                 );
         }

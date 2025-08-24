@@ -156,12 +156,14 @@ namespace Keysharp.Core.COM
 			get
 			{
 				// 1-based AHK index is (idx+1) for the first dimension
-				object idx1 = (long)(_indices[0] + 1);
+				object idx1 = (LongPrimitive)(_indices[0] + 1);
 				_ = OleAuto.SafeArrayGetElement(
 						_owner._psa,
 						_indices,
 						out object val
 					);
+				if (Primitive.TryCoercePrimitive(val, out Primitive p))
+					val = p;
 				return (idx1, val);
 			}
 		}
@@ -221,8 +223,8 @@ namespace Keysharp.Core.COM
 		internal int _dimensions;   // number of dimensions
 		internal VarEnum _baseType; // element VARTYPE, e.g. VT_VARIANT
 
-		public long Dimensions => _dimensions;
-		public long Vt => (long)_baseType;
+		public LongPrimitive Dimensions => _dimensions;
+		public LongPrimitive Vt => (long)_baseType;
 
 		/// <summary>
 		/// Creates a new SafeArray of the specified element type and dimension sizes.
@@ -273,7 +275,7 @@ namespace Keysharp.Core.COM
 		/// <summary>
 		/// Gets the upper bound (inclusive) of the specified dimension.
 		/// </summary>
-		public object MaxIndex(object dim = null)
+		public Primitive MaxIndex(object dim = null)
 		{
 			int d = dim.Ai(1);
 
@@ -281,13 +283,13 @@ namespace Keysharp.Core.COM
 				return Errors.ValueErrorOccurred($"Argument out of range.");
 
 			_ = OleAuto.SafeArrayGetUBound(_psa, (uint)d, out int ub);
-			return (long)ub;
+			return ub;
 		}
 
 		/// <summary>
 		/// Gets the lower bound (inclusive) of the specified dimension (1-based).
 		/// </summary>
-		public object MinIndex(object dim = null)
+		public Primitive MinIndex(object dim = null)
 		{
 			int d = dim.Ai(1);
 
@@ -295,7 +297,7 @@ namespace Keysharp.Core.COM
 				return Errors.ValueErrorOccurred($"Argument out of range.");
 
 			_ = OleAuto.SafeArrayGetLBound(_psa, (uint)d, out int lb);
-			return (long)lb;
+			return lb;
 		}
 
 		/// <summary>
@@ -308,11 +310,15 @@ namespace Keysharp.Core.COM
 			{
 				int[] idx = ConvertIndices(indices);
 				int hr = OleAuto.SafeArrayGetElement(_psa, idx, out object val);
+				if (Primitive.TryCoercePrimitive(val, out Primitive p))
+					val = p;
 				return Errors.OSErrorOccurredForHR(hr, val);
 			}
 			set
 			{
 				int[] idx = ConvertIndices(indices);
+				if (value is Primitive p)
+					value = p.AsObject();
 				int hr = OleAuto.SafeArrayPutElement(_psa, idx, value!);
 				_ = Errors.OSErrorOccurredForHR(hr);
 			}
@@ -330,7 +336,7 @@ namespace Keysharp.Core.COM
 				int temp = indices[i].Ai();
 
 				if (temp < 0)
-					temp = Convert.ToInt32(MaxIndex((long)(i + 1))) + temp + 1;
+					temp = (int)MaxIndex((long)(i + 1)) + temp + 1;
 
 				idx[i] = temp;
 			}

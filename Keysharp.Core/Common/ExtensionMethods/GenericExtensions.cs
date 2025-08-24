@@ -196,6 +196,10 @@ namespace System.Collections.Generic
 
 			if (handlers.Any())
 			{
+				for (int i = 0; i < obj.Length; i++)
+					if (Primitive.TryCoercePrimitive(obj[i], out Primitive p))
+						obj[i] = p;
+
 				var inst = obj.Length > 0 ? obj[0].GetControl() : null;
 				//lock (ehLock)
 				{

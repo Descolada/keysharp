@@ -33,7 +33,7 @@ namespace Keysharp.Scripting
 
 		internal PreReader(Parser p) => parser = p;
 
-        internal string[,] accessorReplaceTemplate = new[,]//These will need to be done differently on linux.//LINUXTODO
+        internal string[,] accessorReplaceTemplate = new string[,]//These will need to be done differently on linux.//LINUXTODO
 {
 				// The order of the first three must not be changed without altering the order in ReadTokens
                 { "%A_LineFile%", "" },

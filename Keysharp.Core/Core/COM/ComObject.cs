@@ -16,10 +16,12 @@ namespace Keysharp.Core
 			set
 			{
 				object temp = null;
-				var longVal = 0L;
+				LongPrimitive longVal = 0L;
 				var wasObj = false;
 
-				if (value is long l)
+				if (value is long ll)
+					longVal = ll;
+				else if (value is LongPrimitive l)
 					longVal = l;
 
 				if ((vt & VarEnum.VT_BYREF) == VarEnum.VT_BYREF
@@ -41,14 +43,14 @@ namespace Keysharp.Core
 
 						case VarEnum.VT_I2://16-bit signed int
 						case VarEnum.VT_UI2://16-bit unsigned int
-							temp = longVal & 0xFFFF;
+							temp = (LongPrimitive)((long)longVal & 0xFFFF);
 							break;
 
 						case VarEnum.VT_I4://32-bit signed int
 						case VarEnum.VT_R4://32-bit floating-point number
 						case VarEnum.VT_UI4://32-bit unsigned int
 						case VarEnum.VT_ERROR://Error code(32-bit integer)
-							temp = longVal & 0xFFFFFFFF;
+							temp = (LongPrimitive)((long)longVal & 0xFFFFFFFF);
 							break;
 
 						case VarEnum.VT_R8://64-bit floating-point number
@@ -58,11 +60,11 @@ namespace Keysharp.Core
 						case VarEnum.VT_DATE://Date
 						case VarEnum.VT_INT://Signed machine int
 						case VarEnum.VT_UINT://Unsigned machine int
-							temp = longVal;
+							temp = value is Primitive p ? p.Ao() : value;
 							break;
 
 						case VarEnum.VT_BOOL://Boolean True(-1) or False(0)
-							temp = value.Ab() ? -1L : 0L;//The true value for a variant is actually -1.
+							temp = (LongPrimitive)(value.Ab() ? -1L : 0L);//The true value for a variant is actually -1.
 							break;
 
 						case VarEnum.VT_BSTR://COM string (Unicode string with length prefix)
@@ -79,7 +81,7 @@ namespace Keysharp.Core
 
 						case VarEnum.VT_I1://8-bit signed int
 						case VarEnum.VT_UI1://8-bit unsigned int
-							temp = longVal & 0x0F;
+							temp = (LongPrimitive)((long)longVal & 0x0F);
 							break;
 
 						case VarEnum.VT_RECORD://User-defined type -- NOT SUPPORTED
@@ -158,7 +160,7 @@ namespace Keysharp.Core
 		}
 
 		public VarEnum vt;
-		public long VarType
+		public LongPrimitive VarType
 		{
 			get => (long)vt;
 			set => vt = (VarEnum)value.Ai();
@@ -168,6 +170,8 @@ namespace Keysharp.Core
 		public ComObject(params object[] args) : base(args) { }
 
 		internal ComObject(object varType, object value, object flags = null) : base(varType, value, flags) { }
+
+		~ComObject() => Dispose();
 
 		public object __Delete()
 		{
@@ -196,22 +200,24 @@ namespace Keysharp.Core
 
 		public virtual void Dispose()
 		{
-			if (Ptr == null)
+			if (item == null)
 				return;
 
 			if (vt == VarEnum.VT_UNKNOWN || vt == VarEnum.VT_DISPATCH)
 			{
 				if (Ptr is long lp && lp != 0L)
 					_ = Marshal.Release((nint)lp);
+				else if (Ptr is LongPrimitive lpr && lpr != 0L)
+					_ = Marshal.Release((nint)lpr.Value);
 				else if (Marshal.IsComObject(Ptr))
 					_ = Marshal.ReleaseComObject(Ptr);
 			}
-			else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0 && Ptr is long)
+			else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0 && (Ptr is long || Ptr is LongPrimitive))
 			{
 				WindowsAPI.SysFreeString((nint)Ptr);
 			}
 
-			Ptr = null;
+			item = null;
 		}
 
 		internal static object ReadVariant(long ptrValue, VarEnum vtRaw)
@@ -223,54 +229,54 @@ namespace Keysharp.Core
 			{
 				// ── Integers → long ───────────────────────────────────────────────
 				case VarEnum.VT_I1:
-					return (long)(sbyte)Marshal.ReadByte(dataPtr);
+					return (LongPrimitive)(long)(sbyte)Marshal.ReadByte(dataPtr);
 
 				case VarEnum.VT_UI1:
-					return (long)Marshal.ReadByte(dataPtr);
+					return (LongPrimitive)(long)Marshal.ReadByte(dataPtr);
 
 				case VarEnum.VT_I2:
-					return (long)Marshal.ReadInt16(dataPtr);
+					return (LongPrimitive)(long)Marshal.ReadInt16(dataPtr);
 
 				case VarEnum.VT_UI2:
-					return (long)(ushort)Marshal.ReadInt16(dataPtr);
+					return (LongPrimitive)(long)(ushort)Marshal.ReadInt16(dataPtr);
 
 				case VarEnum.VT_I4:
 				case VarEnum.VT_INT:
-					return (long)Marshal.ReadInt32(dataPtr);
+					return (LongPrimitive)(long)Marshal.ReadInt32(dataPtr);
 
 				case VarEnum.VT_UI4:
 				case VarEnum.VT_UINT:
-					return (long)(uint)Marshal.ReadInt32(dataPtr);
+					return (LongPrimitive)(long)(uint)Marshal.ReadInt32(dataPtr);
 
 				case VarEnum.VT_I8:
-					return Marshal.ReadInt64(dataPtr);
+					return (LongPrimitive)Marshal.ReadInt64(dataPtr);
 
 				case VarEnum.VT_UI8:
-					return (long)(ulong)Marshal.ReadInt64(dataPtr);
+					return (LongPrimitive)(long)(ulong)Marshal.ReadInt64(dataPtr);
 
 				// ── Boolean → bool ───────────────────────────────────────────────
 				case VarEnum.VT_BOOL:
 					// COM VARIANT_BOOL is a 16-bit short: 0 or −1
-					return Marshal.ReadInt16(dataPtr) != 0;
+					return (LongPrimitive)(Marshal.ReadInt16(dataPtr) != 0);
 
 				// ── Floating point / date → double ───────────────────────────────
 				case VarEnum.VT_R4:
 					// Read 4-byte float, then promote
 					float f = Marshal.PtrToStructure<float>(dataPtr);
-					return (double)f;
+					return (DoublePrimitive)(double)f;
 
 				case VarEnum.VT_R8:
 				case VarEnum.VT_DATE:
 					// VT_DATE is also stored as an 8-byte IEEE double
-					return Marshal.PtrToStructure<double>(dataPtr);
+					return (DoublePrimitive)Marshal.PtrToStructure<double>(dataPtr);
 
 				// ── BSTR → string ────────────────────────────────────────────────
 				case VarEnum.VT_BSTR:
 				{
 					nint bstr = Marshal.ReadIntPtr(dataPtr);
-					return bstr == 0
+					return (StringPrimitive)(bstr == 0
 						   ? string.Empty
-						   : Marshal.PtrToStringBSTR(bstr);
+						   : Marshal.PtrToStringBSTR(bstr));
 				}
 
 				case VarEnum.VT_VARIANT:
@@ -310,6 +316,9 @@ namespace Keysharp.Core
 		{
 			nint dataPtr = new nint(ptrValue);
 			VarEnum vt = vtRaw & ~VarEnum.VT_BYREF;
+
+			if (value is Primitive p)
+				value = p.AsObject();
 
 			if (value is IPointable ip)
 				value = ip.Ptr;
@@ -397,7 +406,7 @@ namespace Keysharp.Core
 						WindowsAPI.SysFreeString(oldBstr);
 
 					// allocate new BSTR (null → zero pointer)
-					string s = value as string;
+					string s = value.As();
 					IntPtr newBstr = string.IsNullOrEmpty(s)
 									 ? IntPtr.Zero
 									 : Marshal.StringToBSTR(s);
@@ -433,7 +442,7 @@ namespace Keysharp.Core
 					// 1) Choose the right VarEnum for "value"
 					VarEnum innerVt;
 
-					if (value is string)
+					if (value.IsString(out _))
 					{
 						innerVt = VarEnum.VT_BSTR;
 					}
@@ -441,9 +450,15 @@ namespace Keysharp.Core
 					{
 						innerVt = VarEnum.VT_DISPATCH;
 					}
-					else if (value is double)
+					else if (value is double || value is DoublePrimitive)
 					{
 						innerVt = VarEnum.VT_R8;
+					}
+					else if (value is LongPrimitive lp)
+					{
+						innerVt = (lp.Value >= int.MinValue && lp.Value <= int.MaxValue)
+									? VarEnum.VT_I4
+									: VarEnum.VT_I8;
 					}
 					else if (value is long l)
 					{
@@ -477,10 +492,22 @@ namespace Keysharp.Core
 
 		internal static void ValueToVariant(object val, ComObject variant)
 		{
-			if (val is string s)
+			if (val.IsString(out string s))
 			{
 				variant.vt = VarEnum.VT_BSTR;
 				variant.Ptr = s.Clone();
+				return;
+			}
+			else if (val is LongPrimitive lp)
+			{
+				variant.vt = (lp.Value == (int)lp.Value) ? VarEnum.VT_I4 : VarEnum.VT_I8;
+				variant.Ptr = lp;
+				return;
+			}
+			else if (val is DoublePrimitive dp)
+			{
+				variant.vt = VarEnum.VT_R8;
+				variant.Ptr = dp;
 				return;
 			}
 			else if (val is long l)
@@ -523,14 +550,14 @@ namespace Keysharp.Core
 				}
 
 				return;
-			} 
+			}
 			else if (Marshal.IsComObject(val))
 			{
 				if (val is IDispatch idisp)
 				{
 					variant.vt = VarEnum.VT_DISPATCH;
 					variant.Ptr = idisp;
-				} 
+				}
 				else
 				{
 					variant.vt = VarEnum.VT_UNKNOWN;
@@ -594,7 +621,7 @@ namespace Keysharp.Core
 				return coa;//Don't do anything with it, it's already in the correct form.
 			}
 
-			if (val is long l)
+			if (val is LongPrimitive l)
 			{
 				co = new ComObject
 				{
@@ -664,7 +691,13 @@ namespace Keysharp.Core
 				vt = (ushort)vt
 			};
 
-			if (Ptr is long l)//Put most common first.
+			if (Ptr is LongPrimitive lp)
+				v.data.llVal = lp.Value;
+			else if (Ptr is DoublePrimitive dp)
+				v.data.dblVal = dp.Value;
+			else if (Ptr is StringPrimitive sp)
+				v.data.bstrVal = Marshal.StringToBSTR(sp.ToString());
+			else if (Ptr is long l)//Put most common first.
 				v.data.llVal = l;
 			else if (Ptr is double d)
 				v.data.dblVal = d;

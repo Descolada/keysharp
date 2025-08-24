@@ -113,7 +113,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Waits until the clipboard contains data.
 		/// </summary>
-		/// <param name="tiemout">If omitted, the function will wait indefinitely. Otherwise, it will wait no longer than this many seconds.<br/>
+		/// <param name="timeout">If omitted, the function will wait indefinitely. Otherwise, it will wait no longer than this many seconds.<br/>
 		/// To wait for a fraction of a second, specify a floating-point number, for example, 0.25 to wait for a maximum of 250 milliseconds.
 		/// </param>
 		/// <param name="waitFor">If omitted, it defaults to 0 (wait only for text or files).<br/>
@@ -122,10 +122,10 @@ namespace Keysharp.Core
 		/// 1: The function waits for data of any kind to appear on the clipboard.
 		/// </param>
 		/// <returns>True if it did not time out, else false.</returns>
-		public static bool ClipWait(object tiemout = null, object waitFor = null)
+		public static LongPrimitive ClipWait(object timeout = null, object waitFor = null)
 		{
 			//Need to see if this should be put on the main thread like A_Clipboard.//TODO
-			var to = tiemout.Ad(double.MinValue);
+			var to = timeout.Ad(double.MinValue);
 			var type = waitFor.Ab();
 			var checktime = to != double.MinValue;
 			var frequency = 100;
@@ -151,7 +151,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="name">The name of the environment variable to retrieve.</param>
 		/// <returns>The value of the specified environment variable if it exists, else empty string.</returns>
-		public static string EnvGet(object name) => Environment.GetEnvironmentVariable(name.As()) ?? string.Empty;
+		public static StringPrimitive EnvGet(object name) => Environment.GetEnvironmentVariable(name.As()) ?? string.Empty;
 
 		/// <summary>
 		/// Writes a value to the specified environment variable.
@@ -159,11 +159,11 @@ namespace Keysharp.Core
 		/// <param name="name">The name of the environment variable.</param>
 		/// <param name="value">If omitted, the environment variable will be deleted. Otherwise, specify the value to write.</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure is detected.</exception>
-		public static object EnvSet(object name, object value = null)
+		public static Primitive EnvSet(object name, object value = null)
 		{
 			try
 			{
-				Environment.SetEnvironmentVariable(name.As(), value as string);
+				Environment.SetEnvironmentVariable(name.As(), value?.As());
 				return DefaultObject;
 			}
 			catch (Exception ex)
@@ -176,7 +176,7 @@ namespace Keysharp.Core
 		/// Notifies the operating system and all running applications that environment variables have changed.
 		/// </summary>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on Windows if any failure is detected.</exception>
-		public static object EnvUpdate()
+		public static Primitive EnvUpdate()
 		{
 #if LINUX
 			"source ~/.bashrc".Bash();
@@ -199,6 +199,7 @@ namespace Keysharp.Core
 		/// Instead, it's used by the parser in the generated C# code.
 		/// </summary>
 		/// <param name="args">The command line arguments to process.</param>
+		[PublicForTestOnly]
 		public static object HandleCommandLineParams(string[] args)
 		{
 			if (args.Length > 0 && args[0].TrimStart(Keywords.DashSlash).ToUpper() == "SCRIPT")
@@ -209,7 +210,7 @@ namespace Keysharp.Core
 				throw new Flow.UserRequestedExitException();
 			}
 
-			_ = A_Args.AddRange(args);
+			_ = A_Args.AddRange(args.Select(v => (StringPrimitive)v));
 			return DefaultObject;
 		}
 
@@ -288,7 +289,7 @@ namespace Keysharp.Core
 		///  0: Do not call the callback.
 		/// </param>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
-		public static object OnClipboardChange(object callback, object addRemove = null)
+		public static Primitive OnClipboardChange(object callback, object addRemove = null)
 		{
 			if (callback is IFuncObj fo)
 			{
@@ -304,7 +305,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="property">The variable to store the result.</param>
 		/// <returns>This function returns the value of the specified system property.</returns>
-		public static object SysGet(object property)
+		public static LongPrimitive SysGet(object property)
 		{
 #if LINUX
 			var sm = property is Keysharp.Core.Common.Platform.SystemMetric en ? en : (SystemMetric)property.Ai();

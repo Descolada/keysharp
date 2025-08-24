@@ -6,37 +6,27 @@
 
 	internal class OwnPropsIterator : KeysharpEnumerator, IEnumerator<(object, object)>
 	{
-		private readonly Dictionary<object, object> map;
+		private readonly Dictionary<string, OwnPropsDesc> map;
 		private readonly KeysharpObject obj;
-		private IEnumerator<KeyValuePair<object, object>> iter;
+		private IEnumerator<KeyValuePair<string, OwnPropsDesc>> iter;
 
 		public (object, object) Current
 		{
 			get
 			{
-				var kv = iter.Current;
+				var (key, value) = iter.Current;
 
 				if (GetVal)
 				{
-					if (kv.Value is OwnPropsDesc op)
-					{
-						if (op.Value != null)
-							return (kv.Key, op.Value);
-						else if (op.Get != null && op.Get is FuncObj fo)
-							return (kv.Key, fo.Call(obj));
-						else if (op.Call != null)
-							return (kv.Key, op.Call);
-					}
-
-					if (kv.Value is MethodPropertyHolder mph)
-						return (kv.Key, mph.CallFunc(obj, null));
-					else if (kv.Value is FuncObj fo)//ParamLength was verified when this was created in OwnProps().
-						return (kv.Key, fo.Call(obj));
-					else
-						return (kv.Key, kv.Value);
+					if (value.Value != null)
+						return ((StringPrimitive)key, value.Value);
+					else if (value.Get != null && value.Get is FuncObj fo)
+						return ((StringPrimitive)key, fo.Call(obj));
+					else if (value.Call != null)
+						return ((StringPrimitive)key, value.Call);
 				}
 
-				return (kv.Key, null);
+				return ((StringPrimitive)key, null);
 			}
 		}
 
@@ -60,7 +50,7 @@
 			}
 		}
 
-		internal OwnPropsIterator(KeysharpObject o, Dictionary<object, object> m, bool gv)
+		internal OwnPropsIterator(KeysharpObject o, Dictionary<string, OwnPropsDesc> m, bool gv)
 			: base(null, gv ? 2 : 1)
 		{
 			obj = o;

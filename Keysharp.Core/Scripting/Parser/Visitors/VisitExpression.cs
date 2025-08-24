@@ -368,25 +368,25 @@ namespace Keysharp.Scripting
 		public override SyntaxNode VisitPreIncrementDecrementExpression([NotNull] PreIncrementDecrementExpressionContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.expression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return HandleCompoundAssignment(expression, CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L))), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPreIncrementDecrementExpressionDuplicate([NotNull] PreIncrementDecrementExpressionDuplicateContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return HandleCompoundAssignment(expression, CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L))), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpression([NotNull] PostIncrementDecrementExpressionContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.expression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return HandleCompoundAssignment(expression, CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L))), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpressionDuplicate([NotNull] PostIncrementDecrementExpressionDuplicateContext context)
 		{
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return HandleCompoundAssignment(expression, CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L))), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
 		public override SyntaxNode VisitPowerExpression([NotNull] PowerExpressionContext context)
@@ -576,7 +576,7 @@ namespace Keysharp.Scripting
 					return CreateBinaryOperatorExpression(
 						MainLexer.Is,
 						leftExpression,
-						classAsString);
+						CastLiteral(classAsString));
 			}
 			throw new NotImplementedException();
 		}
@@ -808,10 +808,10 @@ namespace Keysharp.Scripting
                                     .WithArgumentList(
 										CreateArgumentList(
                                             leftExpression,
-                                            SyntaxFactory.LiteralExpression(
+                                            CastLiteral(SyntaxFactory.LiteralExpression(
                                                 SyntaxKind.StringLiteralExpression,
                                                 SyntaxFactory.Literal("__Value")
-                                            ),
+                                            )),
                                             rightExpression
                                         )
                                     )
@@ -1384,7 +1384,7 @@ namespace Keysharp.Scripting
             return assignmentOperator switch
             {
                 "+=" => "Add",
-                "-=" => "Minus",
+                "-=" => "Subtract",
                 "*=" => "Multiply",
                 "/=" => "Divide",
                 "%=" => "Modulus",

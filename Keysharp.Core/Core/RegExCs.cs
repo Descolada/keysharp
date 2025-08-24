@@ -30,7 +30,7 @@
 		/// </param>
 		/// <returns>The <see cref="RegExMatchInfoCs"/> object which contains the matches, if any.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static long RegExMatchCs(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
+		public static LongPrimitive RegExMatchCs(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
 		{
 			outputVar ??= VarRef.Empty;
 			var input = haystack.As();
@@ -76,7 +76,8 @@
 			try
 			{
 				var res = new RegExMatchInfoCs(exp.Match(input, index));
-				Script.SetPropertyValue(outputVar, "__Value", res);
+				if (outputVar is Any)
+					Script.SetPropertyValue(outputVar, "__Value", res);
 				return res.Pos();
 			}
 			catch (Exception ex)
@@ -121,7 +122,7 @@
 		/// </param>
 		/// <returns>A version of haystack whose contents have been replaced by the operation. If no replacements are needed, haystack is returned unaltered.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static string RegExReplaceCs(object haystack, object needleRegEx, object replacement = null, [ByRef] object outputVarCount = null, object limit = null, object startingPos = null)
+		public static StringPrimitive RegExReplaceCs(object haystack, object needleRegEx, object replacement = null, [ByRef] object outputVarCount = null, object limit = null, object startingPos = null)
 		{
 			var input = haystack.As();
 			var needle = needleRegEx.As();
@@ -179,7 +180,7 @@
 			try
 			{
 				var result = exp.Replace(input, match, l, index);
-				Script.SetPropertyValue(outputVarCount, "__Value", (long)n);
+				Script.SetPropertyValue(outputVarCount, "__Value", (LongPrimitive)n);
 				return result;
 			}
 			catch (Exception ex)

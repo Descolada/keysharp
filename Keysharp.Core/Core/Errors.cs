@@ -29,13 +29,13 @@ namespace Keysharp.Core
 			if (!err.Processed && !Loops.IsExceptionCaught(err.GetType()))
 			{
 				var script = Script.TheScript;
-				err.ExcType = excType;
+				err.Type = excType;
 
 				if (script.onErrorHandlers != null)
 				{
 					foreach (var handler in script.onErrorHandlers)
 					{
-						var result = handler.Call(err, err.ExcType);
+						var result = handler.Call(err, err.Type);
 						var lresult = Script.ForceLong(result);
 
 						if (lresult != 0L)
@@ -43,7 +43,7 @@ namespace Keysharp.Core
 							err.Handled = true;
 
 							//Calling code will not throw if this is true.
-							if (lresult == -1L && err.ExcType == Keyword_Return)
+							if (lresult == -1L && err.Type == Keyword_Return)
 								exitThread = false;
 
 							break;
@@ -62,7 +62,7 @@ namespace Keysharp.Core
 				}
 			}
 
-			if (err.ExcType == Keyword_ExitApp)
+			if (err.Type == Keyword_ExitApp)
 				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, false);
 
 			return exitThread;
@@ -196,7 +196,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle argument value errors. Throws a <see cref="ValueError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object ArgumentErrorOccurred(object arg, int position)
+		internal static Primitive ArgumentErrorOccurred(object arg, int position)
 		{
 			Error err;
 			return ErrorOccurred(err = new ValueError($"Invalid argument of type \"{(arg == null ? "unset" : arg.GetType())}\" at position {position}.")) ? throw err : DefaultErrorObject;
@@ -206,7 +206,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle errors. Throws a <see cref="Error"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object ErrorOccurred(string text, object ret = null, string excType = Keyword_Return)
+		internal static Primitive ErrorOccurred(string text, Primitive ret = null, string excType = Keyword_Return)
 		{
 			Error err;
 			return ErrorOccurred(err = new Error(text), excType) ? throw err : ret ?? DefaultErrorObject;
@@ -216,7 +216,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle errors. Throws a <see cref="Error"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object ErrorOccurred(string text, object what, object extra, object ret = null, string excType = Keyword_Return)
+		internal static Primitive ErrorOccurred(string text, object what, object extra, Primitive ret = null, string excType = Keyword_Return)
 		{
 			Error err;
 			return ErrorOccurred(err = new Error(text, what, extra, excType)) ? throw err : ret ?? DefaultErrorObject;
@@ -226,7 +226,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle index errors. Throws a <see cref="IndexError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object IndexErrorOccurred(string text, object ret = null)
+		internal static Primitive IndexErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new IndexError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -236,7 +236,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle key errors. Throws a <see cref="KeyError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object KeyErrorOccurred(string text, object ret = null)
+		internal static Primitive KeyErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new KeyError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -246,7 +246,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle method errors. Throws a <see cref="MethodError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object MethodErrorOccurred(string text, object ret = null)
+		internal static Primitive MethodErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new MethodError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -256,7 +256,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle operating system errors. Throws a <see cref="OSError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object OSErrorOccurred(object obj, string text = "", object ret = null)
+		internal static Primitive OSErrorOccurred(object obj, string text = "", Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new OSError(obj, text), Keywords.Keyword_ExitThread) ? throw err : ret ?? DefaultErrorObject;
@@ -271,7 +271,7 @@ namespace Keysharp.Core
 		internal static object OSErrorOccurredForHR(int hr, object ret = null)
 		{
 			if (hr >= 0)
-				return ret ?? (long)hr;
+				return ret ?? (LongPrimitive)hr;
 
 			Error err;
 			return ErrorOccurred(err = new OSError(Marshal.GetExceptionForHR(hr), ""), Keywords.Keyword_ExitThread) ? throw err : ret ?? DefaultErrorObject;
@@ -281,7 +281,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle property errors. Throws a <see cref="PropertyError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object PropertyErrorOccurred(string text, object ret = null)
+		internal static Primitive PropertyErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new PropertyError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -291,7 +291,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle target errors when searching for a window. Throws a <see cref="TargetError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object TargetErrorOccurred(object winTitle,
+		internal static Primitive TargetErrorOccurred(object winTitle,
 				object winText,
 				object excludeTitle,
 				object excludeText,
@@ -304,12 +304,12 @@ namespace Keysharp.Core
 		/// Internal helper to handle target errors when searching for a control within window. Throws a <see cref="TargetError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object TargetErrorOccurred(string prefix,
+		internal static Primitive TargetErrorOccurred(string prefix,
 				object winTitle,
 				object winText,
 				object excludeTitle,
 				object excludeText,
-				object ret = null)
+				Primitive ret = null)
 		{
 			return TargetErrorOccurred($"{prefix} in window with criteria: title: {winTitle}, text: {winText}, exclude title: {excludeTitle}, exclude text: {excludeText}.");
 		}
@@ -318,8 +318,8 @@ namespace Keysharp.Core
 		/// Internal helper to handle target errors. Throws a <see cref="TargetError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object TargetErrorOccurred(string text,
-				object ret = null)
+		internal static Primitive TargetErrorOccurred(string text,
+				Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new TargetError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -329,7 +329,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle type errors. Throws a <see cref="TypeError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object TypeErrorOccurred(object sourceValue, Type targetType, object ret = null)
+		internal static Primitive TypeErrorOccurred(object sourceValue, Type targetType, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new TypeError($"Cannot convert an object of type {(sourceValue != null ? sourceValue.GetType() : "no type/unset")} with value {sourceValue ?? "unset"} to type {targetType}.")) ? throw err : ret ?? DefaultErrorObject;
@@ -339,7 +339,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle unset errors. Throws a <see cref="UnsetError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object UnsetErrorOccurred(string text, object ret = null)
+		internal static Primitive UnsetErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new UnsetError($"{text} is null.")) ? throw err : ret ?? DefaultErrorObject;
@@ -349,7 +349,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle unset item errors. Throws a <see cref="UnsetItemError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object UnsetItemErrorOccurred(string text, object ret = null)
+		internal static Primitive UnsetItemErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new UnsetItemError(text)) ? throw err : ret ?? DefaultErrorObject;
@@ -359,7 +359,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle value errors. Throws a <see cref="ValueError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object ValueErrorOccurred(string text, object val = null, object ret = null)
+		internal static Primitive ValueErrorOccurred(string text, object val = null, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new ValueError(text, val)) ? throw err : ret ?? DefaultErrorObject;
@@ -369,7 +369,7 @@ namespace Keysharp.Core
 		/// Internal helper to handle zero division errors. Throws a <see cref="ZeroDivisionError"/> or returns <see cref="DefaultErrorObject"/>.
 		/// </summary>
 		[StackTraceHidden]
-		internal static object ZeroDivisionErrorOccurred(string text, object ret = null)
+		internal static Primitive ZeroDivisionErrorOccurred(string text, Primitive ret = null)
 		{
 			Error err;
 			return ErrorOccurred(err = new ZeroDivisionError($"{text} was 0.")) ? throw err : ret ?? DefaultErrorObject;
@@ -453,17 +453,17 @@ namespace Keysharp.Core
 		/// This is used to determine whether the script should exit or not after an exception is thrown.
 		/// Must be ExcType and not Type, else the reflection dictionary sees it as a dupe from the base.
 		/// </summary>
-		public string ExcType { get; internal set; } = Keyword_Exit;
+		public StringPrimitive Type { get; internal set; } = Keyword_Exit;
 
 		/// <summary>
 		/// Gets or sets the extra text.
 		/// </summary>
-		public string Extra { get; internal set; }
+		public StringPrimitive Extra { get; internal set; }
 
 		/// <summary>
 		/// Gets or sets the file the exception occurred in.
 		/// </summary>
-		public string File
+		public StringPrimitive File
 		{
 			get
 			{
@@ -479,12 +479,13 @@ namespace Keysharp.Core
 		/// If true, further error messages will not be shown.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
+		[PublicForTestOnly]
 		public bool Handled { get; set; }
 
 		/// <summary>
 		/// Gets or sets the line the exception occured on.
 		/// </summary>
-		public long Line
+		public LongPrimitive Line
 		{
 			get
 			{
@@ -499,7 +500,7 @@ namespace Keysharp.Core
 		/// Gets or sets the message.
 		/// Must be done this way, else the reflection dictionary sees it as a dupe from the base.
 		/// </summary>
-		public override string Message => message;
+		public new StringPrimitive Message => message;
 
 		/// <summary>
 		/// Whether the global error event handlers have been called as a result
@@ -508,12 +509,13 @@ namespace Keysharp.Core
 		/// Note, this is separate from Handled above.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
+		[PublicForTestOnly]
 		public bool Processed { get; set; }
 
 		/// <summary>
 		/// Gets or sets the stack trace of where the exception occurred.
 		/// </summary>
-		public string Stack
+		public StringPrimitive Stack
 		{
 			get
 			{
@@ -527,7 +529,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets or sets the description of the error that happened.
 		/// </summary>
-		public string What { get; set; }
+		public StringPrimitive What { get; internal set; }
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
@@ -626,6 +628,8 @@ namespace Keysharp.Core
 		/// Returns a string representation of the details of the exception.
 		/// </summary>
 		/// <returns>A summary of the exception.</returns>
+		public StringPrimitive Tostring() => ToString();
+		[PublicForTestOnly]
 		public override string ToString()
 		{
 			EnsureInitialized();
@@ -1087,7 +1091,7 @@ namespace Keysharp.Core
 		{
 			KeysharpException kex = ex as KeysharpException;
 			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex != null ? kex.ExcType == Keyword_Return : false);
+			using var dlg = new ErrorDialog(msg, allowContinue && kex != null ? kex.Type == Keyword_Return : false);
 			dlg.ShowDialog();
 
 			switch (dlg.Result)

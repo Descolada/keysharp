@@ -219,7 +219,7 @@
 										   object excludeText = null)
 		{
 			outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-			object valX = Script.GetPropertyValue(outX, "__Value"), valY = Script.GetPropertyValue(outY, "__Value"), valWidth = Script.GetPropertyValue(outWidth, "__Value"), valHeight = Script.GetPropertyValue(outHeight, "__Value");
+			long valX = 0, valY = 0, valWidth = 0, valHeight = 0;
 
             Script.TheScript.ControlProvider.Manager.ControlGetPos(
 				ref valX,
@@ -231,7 +231,7 @@
 				text,
 				excludeTitle,
 				excludeText);
-			Script.SetPropertyValue(outX, "__Value", valX); Script.SetPropertyValue(outY, "__Value", valY); Script.SetPropertyValue(outWidth, "__Value", valWidth); Script.SetPropertyValue(outHeight, "__Value", valHeight);
+			Script.SetPropertyValue(outX, "__Value", (LongPrimitive)valX); Script.SetPropertyValue(outY, "__Value", (LongPrimitive)valY); Script.SetPropertyValue(outWidth, "__Value", (LongPrimitive)valWidth); Script.SetPropertyValue(outHeight, "__Value", (LongPrimitive)valHeight);
             return DefaultObject;
 		}
 

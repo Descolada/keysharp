@@ -31,9 +31,11 @@ namespace Keysharp.Core.COM
 
 					//Convert back to types Keysharp uses.
 					if (o.ParseLong(ref l, false, false))
-						obj[i] = l;
+						obj[i] = (LongPrimitive)l;
 					else if (o.ParseDouble(ref d, false, true))
-						obj[i] = d;
+						obj[i] = (DoublePrimitive)d;
+					else if (Primitive.TryCoercePrimitive(o, out Primitive p))
+						obj[i] = p;
 					else
 						obj[i] = args[i];
 
@@ -238,8 +240,10 @@ namespace Keysharp.Core.COM
 					try
 					{
 						inputParameters[i] ??= "";
+						if (inputParameters[i] is Primitive pp)
+							inputParameters[i] = pp.AsObject();
 
-                        var et = expectedTypes[i];
+						var et = expectedTypes[i];
 						var it = inputParameters[i].GetType();
 
 						if (et == it)
@@ -330,6 +334,9 @@ namespace Keysharp.Core.COM
 						expectedTypes = expectedTypes
 					});
 				}
+
+				if (Primitive.TryCoercePrimitive(ret, out Primitive p))
+					ret = p;
 
 				return ret;
 			}

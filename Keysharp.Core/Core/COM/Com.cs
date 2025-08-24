@@ -49,8 +49,7 @@ namespace Keysharp.Core.COM
 
 					case VarEnum.VT_VARIANT: break;
 
-					default:
-						return Errors.ValueErrorOccurred($"The supplied COM type of {varType} is not supported.");
+
 				}
 			}
 
@@ -59,6 +58,8 @@ namespace Keysharp.Core.COM
 
 		internal static object ConvertToCOMType(object ret)
 		{
+			if (ret is Primitive lp)
+				ret = lp.AsObject();
 			if (ret is long ll && ll < int.MaxValue)
 				ret = (int)ll;
 			else if (ret is bool bl)
@@ -72,19 +73,19 @@ namespace Keysharp.Core.COM
 		vt switch
 	{
 			VarEnum.VT_I1 => typeof(sbyte),
-							  VarEnum.VT_UI1 => typeof(byte),
-							  VarEnum.VT_I2 => typeof(short),
-							  VarEnum.VT_UI2 => typeof(ushort),
-							  VarEnum.VT_I4 or VarEnum.VT_INT => typeof(int),
-							  VarEnum.VT_UI4 or VarEnum.VT_UINT or VarEnum.VT_ERROR => typeof(uint),
-							  VarEnum.VT_I8 => typeof(long),
-							  VarEnum.VT_UI8 => typeof(ulong),
-							  VarEnum.VT_R4 => typeof(float),
-							  VarEnum.VT_R8 or VarEnum.VT_DATE => typeof(double), //should VT_DATE be converted to DateTime?
-							  VarEnum.VT_DECIMAL or VarEnum.VT_CY => typeof(decimal),
-							  VarEnum.VT_BOOL => typeof(bool),
-							  VarEnum.VT_BSTR => typeof(string),
-							  _ => typeof(object),
+			VarEnum.VT_UI1 => typeof(byte),
+			VarEnum.VT_I2 => typeof(short),
+			VarEnum.VT_UI2 => typeof(ushort),
+			VarEnum.VT_I4 or VarEnum.VT_INT => typeof(int),
+			VarEnum.VT_UI4 or VarEnum.VT_UINT or VarEnum.VT_ERROR => typeof(uint),
+			VarEnum.VT_I8 => typeof(long),
+			VarEnum.VT_UI8 => typeof(ulong),
+			VarEnum.VT_R4 => typeof(float),
+			VarEnum.VT_R8 or VarEnum.VT_DATE => typeof(double), //should VT_DATE be converted to DateTime?
+			VarEnum.VT_DECIMAL or VarEnum.VT_CY => typeof(decimal),
+			VarEnum.VT_BOOL => typeof(bool),
+			VarEnum.VT_BSTR => typeof(string),
+			_ => typeof(object),
 		};
 
 
@@ -172,7 +173,7 @@ namespace Keysharp.Core.COM
 			return Errors.OSErrorOccurredForHR(hr);
 		}
 
-		public static object ComObjFlags(object comObj, object newFlags = null, object mask = null)
+		public static LongPrimitive ComObjFlags(object comObj, object newFlags = null, object mask = null)
 		{
 			if (comObj is ComObject co)
 			{
@@ -199,7 +200,9 @@ namespace Keysharp.Core.COM
 
 		public static object ComObjFromPtr(object dispPtr)
 		{
-			if (dispPtr is long l)
+			if (dispPtr is LongPrimitive lp)
+				dispPtr = Marshal.GetObjectForIUnknown(new nint(lp.Value));
+			else if (dispPtr is long l)
 				dispPtr = Marshal.GetObjectForIUnknown(new nint(l));
 
 			if (dispPtr is IDispatch id)
@@ -210,23 +213,25 @@ namespace Keysharp.Core.COM
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
 		}
 
-		public static object ComObjGet(object name) => Marshal.BindToMoniker(name.As());
+		public static object ComObjGet(object name) => new ComObject(VarEnum.VT_UNKNOWN, Marshal.BindToMoniker(name.As()));
 
 		public static object ComObjQuery(object comObj, object sidiid = null, object iid = null)
 		{
-			nint ptr;
+			LongPrimitive ptr;
 
-			if (comObj is KeysharpObject kso && Script.TryGetPropertyValue(kso, "ptr", out object kptr))
+			if (comObj is Any kso && kso is not Primitive && Script.TryGetPropertyValue(kso, "ptr", out object kptr))
 				comObj = kptr;
 
 			if (Marshal.IsComObject(comObj))
 				ptr = Marshal.GetIUnknownForObject(comObj);
+			else if (comObj is LongPrimitive lp)
+				ptr = lp;
 			else if (comObj is long l)
-				ptr = new nint(l);
+				ptr = l;
 			else
 				return Errors.ValueErrorOccurred($"The passed in object {comObj} of type {comObj.GetType()} was not a ComObject or a raw COM interface.");
 
-			nint resultPtr = 0;
+			LongPrimitive resultPtr = 0;
 			Guid id = Guid.Empty;
 			int hr = 0;
 
@@ -239,7 +244,8 @@ namespace Keysharp.Core.COM
 				{
 					// Query for a service: use IServiceProvider::QueryService.
 					IServiceProvider sp = (IServiceProvider)Marshal.GetObjectForIUnknown(ptr);
-					hr = sp.QueryService(ref sid, ref id, out resultPtr);
+					hr = sp.QueryService(ref sid, ref id, out nint qsPtr);
+					resultPtr = qsPtr;
 				}
 			}
 			else if (sidiid != null)
@@ -248,7 +254,8 @@ namespace Keysharp.Core.COM
 
 				if (CLSIDFromString(iidstr, out id) >= 0)
 				{
-					hr = Marshal.QueryInterface(ptr, id, out resultPtr);
+					hr = Marshal.QueryInterface(ptr, id, out nint qiPtr);
+					resultPtr = qiPtr;
 				}
 			}
 
@@ -258,7 +265,7 @@ namespace Keysharp.Core.COM
 			if (resultPtr == 0)
 				return Errors.ErrorOccurred($"Unable to get COM interface with arguments {sidiid}, {iid}.");
 
-			return new ComObject(id == IID_IDispatch ? VarEnum.VT_DISPATCH : VarEnum.VT_UNKNOWN, (long)resultPtr);
+			return new ComObject(id == IID_IDispatch ? VarEnum.VT_DISPATCH : VarEnum.VT_UNKNOWN, resultPtr);
 		}
 
 		public static object ComObjType(object comObj, object infoType = null)
@@ -280,7 +287,7 @@ namespace Keysharp.Core.COM
 					//var vt = (long)attr.tdescAlias.vt;
 					//typeInfo.ReleaseTypeAttr(typeAttr);
 					//return vt;
-					return (long)co.vt;
+					return (LongPrimitive)(long)co.vt;
 				}
 
 				if (s.StartsWith('c'))
@@ -301,7 +308,7 @@ namespace Keysharp.Core.COM
 					if (s == "name")
 					{
 						typeInfo.GetDocumentation(-1, out var typeName, out var documentation, out var helpContext, out var helpFile);
-						return typeName;
+						return (StringPrimitive)typeName;
 					}
 					else if (s == "iid")
 					{
@@ -309,7 +316,7 @@ namespace Keysharp.Core.COM
 						var attr = Marshal.PtrToStructure<TYPEATTR>(typeAttr);
 						var guid = attr.guid.ToString("B").ToUpper();
 						typeInfo.ReleaseTypeAttr(typeAttr);
-						return guid;
+						return (StringPrimitive)guid;
 					}
 				}
 			}
@@ -325,7 +332,7 @@ namespace Keysharp.Core.COM
 						var typeAttr = Marshal.PtrToStructure<TYPEATTR>(pTypeAttr);
 						var vtType = typeAttr.tdescAlias.vt;
 						typeInfo.ReleaseTypeAttr(pTypeAttr);
-						return (long)vtType;
+						return (LongPrimitive)vtType;
 					}
 				}
 			}
@@ -350,17 +357,17 @@ namespace Keysharp.Core.COM
 
 		public static ComObject ComValue(object varType, object value, object flags = null) => new (varType, value, flags);
 
-		public static object ObjAddRef(object ptr)
+		public static Primitive ObjAddRef(object ptr)
 		{
 			nint unk = 0;
 
 			if (ptr is ComObject co)
 				ptr = co.Ptr;
 
-			if (ptr is long l)
-			{
+			if (ptr is LongPrimitive lp)
+				unk = new nint(lp.Value);
+			else if (ptr is long l)
 				unk = new nint(l);
-			}
 			else
 			{
 				unk = Marshal.GetIUnknownForObject(ptr);
@@ -371,7 +378,7 @@ namespace Keysharp.Core.COM
 			return (long)Marshal.AddRef(unk);
 		}
 
-		public static object ObjRelease(object ptr)
+		public static Primitive ObjRelease(object ptr)
 		{
 			var co = ptr as ComObject;
 
@@ -386,12 +393,14 @@ namespace Keysharp.Core.COM
 				}
 			}
 
-			if (ptr is long l)
+			if (ptr is LongPrimitive lp)
+				ptr = (nint)lp.Value;
+			else if (ptr is long l)
 				ptr = new nint(l);
 			else
 				return Errors.TypeErrorOccurred(ptr, typeof(ComObject), DefaultErrorObject);
 
-			return (long)Marshal.Release((nint)ptr);
+			return (LongPrimitive)Marshal.Release((nint)ptr);
 		}
 
 		/// <summary>
@@ -407,7 +416,7 @@ namespace Keysharp.Core.COM
 
 			nint pUnk = 0;
 
-			if (comObj is Any kso && Script.TryGetPropertyValue(comObj, "ptr", out object propPtr))
+			if (comObj is Any kso && comObj is not Primitive && Script.TryGetPropertyValue(comObj, "ptr", out object propPtr))
 				comObj = propPtr;
 
 			if (Marshal.IsComObject(comObj))
@@ -415,6 +424,8 @@ namespace Keysharp.Core.COM
 				pUnk = Marshal.GetIUnknownForObject(comObj);
 				_ = Marshal.Release(pUnk);
 			}
+			else if (comObj is LongPrimitive lp)
+				pUnk = new nint(lp.Value);
 			else if (comObj is long l)
 				pUnk = new nint(l);
 			else

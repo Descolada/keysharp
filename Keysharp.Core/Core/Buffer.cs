@@ -20,7 +20,11 @@
 		/// <summary>
 		/// Gets the pointer to the memory.
 		/// </summary>
-		public long Ptr { get; private set; }
+		private NativeMemoryHandle _ptr;
+		public LongPrimitive Ptr {
+			get => new LongPrimitive(_ptr.DangerousGetHandle(), _ptr);
+			private set => _ptr = new NativeMemoryHandle(value);
+		}
 
 		/// <summary>
 		/// Gets or sets the size of the buffer.<br/>
@@ -28,7 +32,7 @@
 		/// the existing data in the old buffer is copied to the beginning of the new buffer.<br/>
 		/// The old buffer is then deleted.
 		/// </summary>
-		public object Size
+		public LongPrimitive Size
 		{
 			get => size;
 
@@ -41,21 +45,21 @@
 					//var newptr = Marshal.AllocCoTaskMem((int)val);
 					var newptr = Marshal.AllocHGlobal((int)val);
 
-					if (Ptr != 0)
+					if (_ptr != null)
 					{
 						unsafe
 						{
-							var src = (byte*)Ptr;
+							var src = (byte*)_ptr.DangerousGetHandle();
 							var dst = (byte*)newptr.ToPointer();
 							System.Buffer.MemoryCopy(src, dst, val, size);
 						}
-						var old = Ptr;
-						Ptr = newptr;
-						Marshal.FreeHGlobal((nint)old);
+						var old = _ptr;
+						_ptr = new NativeMemoryHandle(newptr);
+						old.Dispose();
 						//Marshal.FreeCoTaskMem(old);
 					}
 					else
-						Ptr = newptr;
+						_ptr = new NativeMemoryHandle(newptr);
 				}
 
 				size = val;
@@ -68,14 +72,6 @@
 		/// </summary>
 		/// <param name="args">The data to initially store in the buffer</param>
 		public Buffer(params object[] args) : base(args) { }
-
-        /// <summary>
-        /// Destructor that manually calls <see cref="Dispose"/> to free the raw memory contained in the buffer.
-        /// </summary>
-        ~Buffer()
-		{
-			Dispose(true);
-		}
 
 		public static object Call(object @this, object byteCount = null, object fillByte = null)
 		{
@@ -109,7 +105,7 @@
 					Size = bytearray.Length;//Performs the allocation.
 
 					if (size > 0)
-						Marshal.Copy(bytearray, 0, (nint)Ptr, Math.Min((int)size, bytearray.Length));
+						Marshal.Copy(bytearray, 0, (nint)_ptr.DangerousGetHandle(), Math.Min((int)size, bytearray.Length));
 				}
 				else if (obj0 is Array array)
 				{
@@ -129,7 +125,7 @@
 					if (bytecount > 0)
 					{
 						byte val = fill != long.MinValue ? (byte)(fill & 255) : (byte)0;
-						Unsafe.InitBlockUnaligned((void*)Ptr, val, (uint)bytecount);
+						Unsafe.InitBlockUnaligned((void*)_ptr.DangerousGetHandle(), val, (uint)bytecount);
 					}
 				}
 			}
@@ -145,9 +141,8 @@
 		{
 			if (!disposed)
 			{
-				Marshal.FreeHGlobal((nint)Ptr);
+				_ptr.Dispose();
 				//Marshal.FreeCoTaskMem(Ptr);
-				Ptr = 0;
 				Size = 0;
 				disposed = true;
 			}
@@ -159,7 +154,28 @@
 		void IDisposable.Dispose()
 		{
 			Dispose(true);
-			GC.SuppressFinalize(this);
+		}
+
+		/// <summary>
+		/// Converts the contents of the buffer to a hex string.
+		/// </summary>
+		/// 
+		public StringPrimitive ToHex() => BitConverter.ToString(ToByteArray()).Replace("-", string.Empty);
+
+		/// <summary>
+		/// Converts the contents of the buffer to a base64 string.
+		/// </summary>
+		public StringPrimitive ToBase64() => Convert.ToBase64String(ToByteArray());
+
+		/// <summary>
+		/// Converts the contents of the buffer to a byte array.
+		/// </summary>
+		public byte[] ToByteArray()
+		{
+			int size = (int)Size;
+			byte[] dataArray = new byte[size];
+			Marshal.Copy((nint)_ptr.DangerousGetHandle(), dataArray, 0, size);
+			return dataArray;
 		}
 
 		/// <summary>
@@ -168,21 +184,38 @@
 		/// <param name="index">The index to get a byte from.</param>
 		/// <returns>The value at the index.</returns>
 		/// <exception cref="IndexError">An <see cref="IndexError"/> exception is thrown if index is zero or out of range.</exception>
-		public long this[long index]
+		public LongPrimitive this[object index]
 		{
 			get
 			{
-				if (index > 0 && index <= size)
+				int i = index.Ai();
+				if (i > 0 && i <= size)
 				{
 					unsafe
 					{
-						var ptr = (byte*)Ptr;
-						return ptr[index - 1];
+						var ptr = (byte*)_ptr.DangerousGetHandle();
+						return ptr[i - 1];
 					}
 				}
 				else
 					return (long)Errors.IndexErrorOccurred($"Invalid index of {index} for buffer of size {Size}.", DefaultErrorLong);
 			}
+		}
+	}
+
+	sealed class NativeMemoryHandle : SafeHandleZeroOrMinusOneIsInvalid
+	{
+		public NativeMemoryHandle() : base(ownsHandle: true) { }
+
+		public NativeMemoryHandle(IntPtr p, bool owns = true) : base(owns)
+		{
+			SetHandle(p);
+		}
+
+		protected override bool ReleaseHandle()
+		{
+			Marshal.FreeHGlobal(handle);
+			return true;
 		}
 	}
 }

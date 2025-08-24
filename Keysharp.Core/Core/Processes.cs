@@ -45,7 +45,7 @@ namespace Keysharp.Core
 		/// The name is not case-sensitive.
 		/// </param>
 		/// <returns>The Process ID (PID) of the specified process. If a matching process is not found or cannot be manipulated, zero is returned.</returns>
-		public static long ProcessClose(object pidOrName)
+		public static LongPrimitive ProcessClose(object pidOrName)
 		{
 			var name = pidOrName.As(); //Will handle name string or pid int.
 
@@ -80,7 +80,7 @@ namespace Keysharp.Core
 		/// The name is not case-sensitive.
 		/// </param>
 		/// <returns>The Process ID (PID) of the specified process. If there is no matching process, zero is returned.</returns>
-		public static long ProcessExist(object pidOrName = null)
+		public static LongPrimitive ProcessExist(object pidOrName = null)
 		{
 			var name = pidOrName.As();
 
@@ -104,7 +104,7 @@ namespace Keysharp.Core
 		/// The executable name of the specified process, for example: <c>notepad.exe</c>.<br/>
 		/// Throws a TargetError if the process could not be found, or an OSError if the name could not be retrieved.
 		/// </returns>
-		public static string ProcessGetName(object pidOrName = null)
+		public static StringPrimitive ProcessGetName(object pidOrName = null)
 		{
 			var name = pidOrName.As();
 
@@ -140,7 +140,7 @@ namespace Keysharp.Core
 		/// The full path of the specified process’s executable, for example: <c>C:\Windows\notepad.exe</c>.<br/>
 		/// Throws a TargetError if the process could not be found, or an OSError if the path could not be retrieved.
 		/// </returns>
-		public static string ProcessGetPath(object pidOrName = null)
+		public static StringPrimitive ProcessGetPath(object pidOrName = null)
 		{
 			var name = pidOrName.As();
 
@@ -181,7 +181,7 @@ namespace Keysharp.Core
 		/// The name is not case-sensitive.
 		/// </param>
 		/// <returns>Returns the Process ID (PID) of the specified process. If a matching process is not found or cannot be manipulated, zero is returned.</returns>
-		public static long ProcessSetPriority(object level, object pidOrName = null)
+		public static LongPrimitive ProcessSetPriority(object level, object pidOrName = null)
 		{
 			var lvl = level.As();
 			var name = pidOrName.As();
@@ -241,7 +241,7 @@ namespace Keysharp.Core
 		/// </param>
 		/// <param name="timeout">If omitted, the function will wait indefinitely. Otherwise, specify the number of seconds (can contain a decimal point) to wait before timing out.</param>
 		/// <returns>The Process ID (PID) of the discovered process. If the function times out, zero is returned.</returns>
-		public static long ProcessWait(object pidOrName, object timeout = null)
+		public static LongPrimitive ProcessWait(object pidOrName, object timeout = null)
 		{
 			var name = pidOrName.As();
 			var time = timeout.Ad(-1.0);
@@ -288,7 +288,7 @@ namespace Keysharp.Core
 		/// </param>
 		/// <param name="timeout">If omitted, the function will wait indefinitely. Otherwise, specify the number of seconds (can contain a decimal point) to wait before timing out.</param>
 		/// <returns></returns>
-		public static long ProcessWaitClose(object pidOrName, object timeout = null)
+		public static LongPrimitive ProcessWaitClose(object pidOrName, object timeout = null)
 		{
 			var name = pidOrName.As();
 			var time = timeout.Ad(-1.0);
@@ -330,7 +330,7 @@ namespace Keysharp.Core
 		/// <returns>Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until target is closed or exits,<br/>
 		/// at which time the return value will be the program's exit code.
 		/// </returns>
-		public static long Run(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
+		public static LongPrimitive Run(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As());
 		}
@@ -345,7 +345,7 @@ namespace Keysharp.Core
 		/// </param>
 		/// <param name="password">If blank or omitted, it defaults to a blank password. Otherwise, specify the User's password.</param>
 		/// <param name="domain">If blank or omitted, a local account will be used. Otherwise, specify User's domain. If that fails to work, try using @YourComputerName.</param>
-		public static object RunAs(object user = null, object password = null, object domain = null)
+		public static Primitive RunAs(object user = null, object password = null, object domain = null)
 		{
 			var u = user.As();
 			var p = password.As();
@@ -372,19 +372,11 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// <see cref="RunWait(object, object, object, ref object, object)"/>.
-		/// </summary>
-		public static long RunWait(object target, object workingDir = null, object options = null)
-		{
-			return RunWait(target, workingDir, options, null, null);
-		}
-
-		/// <summary>
 		/// Runs an external program.<br/>
 		/// Unlike Run, <see cref="RunWait"/> will wait until the program finishes before continuing.
 		/// <see cref="Run"/>.
 		/// </summary>
-		public static long RunWait(object target, object workingDir, object options, [ByRef] object outputVarPID, object args = null)
+		public static LongPrimitive RunWait(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As(), true);
 		}
@@ -404,7 +396,7 @@ namespace Keysharp.Core
 		/// The "Power down" value (8) shuts down the system and turns off the power.
 		/// </param>
 		/// </summary>
-		public static object Shutdown(object obj)
+		public static Primitive Shutdown(object obj)
 		{
 			_ = Script.TheScript.PlatformProvider.Manager.ExitProgram((uint)obj.Al(), 0);
 			return DefaultObject;
@@ -525,7 +517,6 @@ namespace Keysharp.Core
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
 		private static long RunInternal(string target, string workingDir, string showMode, [ByRef] object outputVarPID, string args, bool wait = false)
 		{
-			outputVarPID ??= VarRef.Empty;
 			var pid = 0;
 			var useRunAs = RunAsSpecified();
 
@@ -614,7 +605,7 @@ namespace Keysharp.Core
 
 						if (nextSpace > 0)
 						{
-							object oldDir = "";
+							StringPrimitive oldDir = "";
 							var temp = target.Substring(0, nextSpace).Trim();
 							var setWorkingDir = !string.IsNullOrEmpty(workingDir) && System.IO.Path.Exists(workingDir);
 
@@ -665,7 +656,7 @@ namespace Keysharp.Core
 
 							if (nextSpace > 0)
 							{
-								object oldDir = "";
+								StringPrimitive oldDir = "";
 								var temp = shellAction.Substring(0, nextSpace).Trim();
 								var setWorkingDir = !string.IsNullOrEmpty(workingDir) && System.IO.Path.Exists(workingDir);
 
@@ -713,7 +704,7 @@ namespace Keysharp.Core
 					if (wait)
 					{
                         prc.WaitForExit();
-						Script.SetPropertyValue(outputVarPID, "__Value", pid);
+						if (outputVarPID != null) Script.SetPropertyValue(outputVarPID, "__Value", pid);
 						return prc.ExitCode;
 					}
 				}
@@ -723,7 +714,7 @@ namespace Keysharp.Core
 				return (long)Errors.ErrorOccurred(ex.Message, DefaultErrorLong);
 			}
 
-            Script.SetPropertyValue(outputVarPID, "__Value", pid);
+			if (outputVarPID != null) Script.SetPropertyValue(outputVarPID, "__Value", pid);
             return 0L;
 		}
 	}
@@ -742,12 +733,12 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public long HasExited => _process.HasExited ? 1L : 0L;
-		public long ExitCode => (long)_process.ExitCode;
+		public LongPrimitive HasExited => _process.HasExited ? 1L : 0L;
+		public LongPrimitive ExitCode => (long)_process.ExitCode;
 		/// <summary>
 		/// Gets the exit time formatted as "YYYYMMDDHH24MISS".
 		/// </summary>
-		public string ExitTime => Conversions.ToYYYYMMDDHH24MISS(_process.ExitTime);
+		public StringPrimitive ExitTime => Conversions.ToYYYYMMDDHH24MISS(_process.ExitTime);
 		/// <summary>
 		/// Returns a KeysharpFile wrapping the standard output stream.
 		/// </summary>
@@ -767,7 +758,7 @@ namespace Keysharp.Core
 		/// Immediately kills the underlying process.
 		/// </summary>
 		/// <returns></returns>
-		public object Kill()
+		public Primitive Kill()
 		{
 			_process.Kill();
 			return DefaultObject;

@@ -2,15 +2,18 @@ namespace Keysharp.Core.Common.Strings
 {
 	internal static class Options
 	{
-		internal static bool? OnOff(object mode)
+		internal static bool? OnOff(Primitive mode)
 		{
 			if (mode == null)
 				return false;
 
+			if (mode.TryGetLong(out var ll))
+				return ll == 1L;
+
 			return mode.ToString().ToLower() switch
 		{
-				Keyword_On or "1" or "true" => true,
-				Keyword_Off or "0" or "false" => false,
+				Keyword_On or "true" => true,
+				Keyword_Off or "false" => false,
 				_ => null,
 		};
 	}

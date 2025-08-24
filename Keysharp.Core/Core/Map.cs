@@ -39,8 +39,8 @@ namespace Keysharp.Core
 		public new bool Equals(object x, object y)
 		{
 			//If both are strings, use the built-in comparer.
-			if (x is string s1 && y is string s2)
-				return stringComparer.Equals(s1, s2);
+			if (x is StringPrimitive s1 && y is StringPrimitive s2)
+				return stringComparer.Equals(s1.Value, s2.Value);
 
 			//Otherwise, use default equality.
 			return object.Equals(x, y);
@@ -55,7 +55,7 @@ namespace Keysharp.Core
 		/// <returns>The hash code for the object.</returns>
 		public int GetHashCode(object obj)
 		{
-			if (obj is string s)
+			if (obj is StringPrimitive s)
 				return stringComparer.GetHashCode(s);
 
 			return obj?.GetHashCode() ?? 0;
@@ -111,7 +111,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets or sets the capacity of the map.
 		/// </summary>
-		public long Capacity
+		public LongPrimitive Capacity
 		{
 			get => map != null ? map.Capacity : 0L;
 			set => map?.EnsureCapacity(value.Ai());
@@ -120,7 +120,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets or sets the case sensitivity comparison mode for string keys.
 		/// </summary>
-		public object CaseSense
+		public Primitive CaseSense
 		{
 			get => caseSense.ToString();
 
@@ -158,6 +158,8 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets the number of elements in the map.
 		/// </summary>
+		public LongPrimitive count => Count;
+		[PublicForTestOnly]
 		public int Count => map != null ? map.Count : 0;
 
 		/// <summary>
@@ -239,7 +241,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="item">They key to search for.</param>
 		/// <returns>True if the map contains the key, else false.</returns>
-		public bool Contains(object item) => map.ContainsKey(item);
+		public LongPrimitive Contains(object item) => map.ContainsKey(item);
 
 		/// <summary>
 		/// The implementation for <see cref="ICollection.CopyTo"/> which copies the keys and values<br/>
@@ -248,6 +250,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="array">The <see cref="System.Array"/> to copy elements to.</param>
 		/// <param name="index">The index in the array to start copying to.</param>
+		[PublicForTestOnly]
 		public void CopyTo(System.Array array, int index)
 		{
 			var kvs = new List<object>(map.Count * 2);
@@ -320,13 +323,13 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="key">The key to search for.</param>
 		/// <returns>True if key is found, else false.</returns>
-		public bool Has(object key) => TryGetValue(key, out _);
+		public LongPrimitive Has(object key) => TryGetValue(key, out _);
 
 		/// <summary>
 		/// Returns the greatest integer key in the map.
 		/// </summary>
 		/// <returns>The greatest integer key if found, else empty string.</returns>
-		public object MaxIndex()
+		public Primitive MaxIndex()
 		{
 			var val = long.MinValue;
 
@@ -345,7 +348,7 @@ namespace Keysharp.Core
 		/// Returns the least integer key in the map.
 		/// </summary>
 		/// <returns>The least integer key if found, else empty string.</returns>
-		public object MinIndex()
+		public Primitive MinIndex()
 		{
 			var val = long.MaxValue;
 
@@ -468,7 +471,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="args">The values to set, arranged as key,value,key2,value2,etc...</param>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if values was not of a supported type.</exception>
-		public void Set(params object[] args)
+		public Primitive Set(params object[] args)
 		{
 			if (enumerableMap != null)
 				enumerableMap = null;
@@ -488,7 +491,7 @@ namespace Keysharp.Core
 					{
 						map = m.map;
 						caseSense = m.caseSense;
-						return;
+						return DefaultObject;
 					}
 					else if (args[0] is Dictionary<object, object> dkt)
 					{
@@ -512,10 +515,25 @@ namespace Keysharp.Core
 						foreach (var kv in tempm)
 							Insert(kv.Key, kv.Value);
 					}
+					else if (args[0] is IEnumerable ie)
+					{
+						if (map == null)
+							map = new Dictionary<object, object>(new CaseEqualityComp(caseSense));
+						bool isKey = true;
+						object key = null;
+						foreach (var k in ie)
+						{
+							if (isKey)
+								key = k;
+							else
+								Insert(key, k);
+							isKey = !isKey;
+						}
+					}
 					else
 					{
 						_ = Errors.ValueErrorOccurred($"Improper object type of {args[0].GetType()} passed to Map constructor.");
-						return;
+						return DefaultObject;
 					}
 				}
 				else
@@ -529,11 +547,14 @@ namespace Keysharp.Core
 						Insert(args[i], args[i + 1]);
 				}
 			}
+			return DefaultObject;
 		}
 		/// <summary>
 		/// Returns the string representation of all elements in the map.
 		/// </summary>
 		/// <returns>The string representation.</returns>
+		public StringPrimitive Tostring() => ToString();
+		[PublicForTestOnly]
 		public override string ToString()
 		{
 			if (map.Count > 0)
@@ -546,14 +567,14 @@ namespace Keysharp.Core
 				{
 					string key;
 
-					if (kv.Key is string ks)
+					if (kv.Key is StringPrimitive ks)
 						key = "\"" + ks + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
 					else
 						key = kv.Key.ToString();
 
 					string val;
 
-					if (kv.Value is string vs)
+					if (kv.Value is StringPrimitive vs)
 						val = "\"" + vs + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
 					else
 						val = kv.Value.ToString();
@@ -689,34 +710,34 @@ namespace Keysharp.Core
 		/// zero if <paramref name="x"/> is greater than <paramref name="y"/>.</description></item> </list></returns>
 		public int Compare(object x, object y)
 		{
-			if (x is long ll1)
+			if (x is LongPrimitive ll1)
 			{
-				if (y is long ll2)
-					return ll1.CompareTo(ll2);
+				if (y is LongPrimitive ll2)
+					return ll1.Value.CompareTo(ll2.Value);
 				else
 					return -1;
 			}
-			else if (y is long)
+			else if (y is LongPrimitive)
 				return 1;
 
-			if (x is string s1)
+			if (x is StringPrimitive s1)
 			{
-				if (y is string s2)
-					return stringComparer.Compare(s1, s2);
+				if (y is StringPrimitive s2)
+					return stringComparer.Compare(s1.Value, s2.Value);
 				else
-					return y is double ? -1 : 1;
+					return y is DoublePrimitive ? -1 : 1;
 			}
-			else if (y is string)
-				return x is double ? 1 : -1;
+			else if (y is StringPrimitive)
+				return x is DoublePrimitive ? 1 : -1;
 
-			if (x is double d1)
+			if (x is DoublePrimitive d1)
 			{
-				if (y is double d2)
-					return d1.CompareTo(d2);
+				if (y is DoublePrimitive d2)
+					return d1.Value.CompareTo(d2.Value);
 				else
 					return 1;
 			}
-			else if (y is double)
+			else if (y is DoublePrimitive)
 				return -1;
 
 			return 0;

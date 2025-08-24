@@ -13,7 +13,7 @@ namespace Keysharp.Core.Common.ObjectBase
 	public class Any
 #endif
 	{
-		protected internal Dictionary<string, OwnPropsDesc> op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+		protected internal Dictionary<string, OwnPropsDesc> op;
 
 		internal Any _base;
 		[PublicForTestOnly]
@@ -29,6 +29,8 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public Any(params object[] args)
 		{
+			op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+
 			// Skip Map and OwnPropsMap because SetPropertyValue will cause recursive stack overflow
 			// (if the property doesn't exist then a new Map is created which calls this function again)
 			if (Script.TheScript.Vars.Prototypes == null || SkipConstructorLogic
@@ -72,11 +74,11 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public virtual object GetMethod(object obj0 = null, object obj1 = null) => Functions.GetMethod(this, obj0, obj1);
 
-		public long HasBase(object obj) => Types.HasBase(this, obj);
+		public LongPrimitive HasBase(object obj) => Types.HasBase(this, obj);
 
-		public long HasMethod(object obj0 = null, object obj1 = null) => Functions.HasMethod(this, obj0, obj1);
+		public LongPrimitive HasMethod(object obj0 = null, object obj1 = null) => Functions.HasMethod(this, obj0, obj1);
 
-		public long HasProp(object obj) => Functions.HasProp(this, obj);
+		public LongPrimitive HasProp(object obj) => Functions.HasProp(this, obj);
 
 		//public virtual string tostring() => ToString();
 

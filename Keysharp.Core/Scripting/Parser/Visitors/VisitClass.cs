@@ -450,7 +450,7 @@ namespace Keysharp.Scripting
                                     SyntaxKind.StringLiteralExpression,
                                     SyntaxFactory.Literal("__Class")
                                 ),
-                                SyntaxFactory.LiteralExpression(
+                                CastLiteral(SyntaxFactory.LiteralExpression(
                                     SyntaxKind.StringLiteralExpression,
                                     SyntaxFactory.Literal(
                                         parser.ClassStack.Count == 1 ? parser.currentClass.UserDeclaredName :
@@ -459,7 +459,7 @@ namespace Keysharp.Scripting
                                             .Select(cls => cls.UserDeclaredName)
                                         ) + "." + parser.currentClass.UserDeclaredName
                                     )
-                                ),
+                                )),
                                 SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)
 							)
                         )

@@ -35,7 +35,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an int if it was not null, else def.</returns>
-		public static int Ai(this object obj, int def = default) => obj?.ParseInt() ?? def;
+		public static int Ai(this object obj, int def = default) => obj == null ? def : obj is Primitive p ? (p.TryGetLong(out long ll) ? unchecked((int)ll) : def) : obj?.ParseInt() ?? def;
 
 		/// <summary>
 		/// Converts an object to a long.
@@ -60,6 +60,14 @@
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an unsigned int if it was not null, else def.</returns>
 		public static uint Aui(this object obj, uint def = default) => obj?.ParseUInt() ?? def;
+
+		/// <summary>
+		/// Converts an object to a Primitive.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="def">A default value to use if obj is null.</param>
+		/// <returns>The object as a Primitive if it was not null, else def.</returns>
+		public static Primitive Ap(this object obj, Primitive def = default) => Primitive.TryCoercePrimitive(obj, out Primitive p) ? p : def;
 
 		/// <summary>
 		/// Wrapper around casting an object to a type <typeparamref name="T"/>.
@@ -139,13 +147,16 @@
 		/// <returns>The nullable bool resulting from the conversion.</returns>
 		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false)
 		{
-			if (obj is bool b)
-				return b;
+			if (obj is Primitive p)
+				return p.IsTrue;
 
 			if (obj is BoolResult br)
 				return br.o.ParseBool();
 
-			return parseBoolKeywords ? Options.OnOff(obj) : null;
+			if (obj is bool b)
+				return b;
+
+			return parseBoolKeywords ? Options.OnOff(Primitive.From(obj)) : null;
 		}
 
 		/// <summary>
@@ -208,6 +219,9 @@
 		/// <returns>The converted value as a nullable double.</returns>
 		public static double? ParseDouble(this object obj, bool doconvert = true, bool requiredot = false)
 		{
+			if (obj is Primitive p)
+				return p.TryGetDouble(out double dd) ? dd : null;
+
 			var d = 0.0;
 
 			if (obj.ParseDouble(ref d, doconvert, requiredot))
@@ -218,6 +232,9 @@
 
 		public static bool ParseDouble(this object obj, ref double outvar, bool doconvert = true, bool requiredot = false)
 		{
+			if (obj is Primitive p)
+				return p.TryGetDouble(out outvar);
+
 			if (obj is double d)
 			{
 				outvar = d;
@@ -266,7 +283,7 @@
 			}
 			catch
 			{
-				return (bool)Errors.TypeErrorOccurred(obj, typeof(double), false);
+				return Errors.TypeErrorOccurred(obj, typeof(double), false);
 			}
 
 			return false;
@@ -283,6 +300,9 @@
 		/// <returns>The converted value as a nullable float.</returns>
 		public static float? ParseFloat(this object obj, bool doconvert = true, bool requiredot = false)
 		{
+			if (obj is Primitive p)
+				return p.TryGetDouble(out double pd) ? (float)pd : null;
+
 			if (obj is float d)
 				return d;
 
@@ -335,6 +355,9 @@
 		/// <returns>The converted value as a nullable int.</returns>
 		public static int? ParseInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
+			if (obj is Primitive p)
+				return p.TryGetLong(out long pl) ? unchecked((int)pl) : null;
+
 			if (obj is int i)
 				return i;
 
@@ -394,6 +417,9 @@
 		/// <returns>The converted value as a nullable long.</returns>
 		public static long? ParseLong(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
+			if (obj is Primitive p)
+				return p.TryGetLong(out long pl) ? pl : null;
+
 			long l = 0;
 
 			if (obj.ParseLong(ref l, doconvert, donoprefixhex))
@@ -404,6 +430,9 @@
 
 		public static bool ParseLong(this object obj, ref long outvar, bool doconvert = true, bool donoprefixhex = true)
 		{
+			if (obj is Primitive p)
+				return p.TryGetLong(out outvar);
+
 			if (obj is long l)
 			{
 				outvar = l;
@@ -489,6 +518,9 @@
 		/// <returns>The converted value as a nullable uint.</returns>
 		public static uint? ParseUInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
+			if (obj is Primitive p)
+				return p.TryGetLong(out long pl) ? unchecked((uint)pl) : null;
+
 			if (obj is uint i)
 				return i;
 
@@ -538,5 +570,17 @@
 		/// <param name="obj">The object to examine.</param>
 		/// <returns>If obj is not null, the result of calling obj.ToString(), else empty string.</returns>
 		public static string Str(this object obj) => obj != null ? obj.ToString() : "";
+
+		public static bool IsString(this object obj, out string s)
+		{
+			if (obj is string ss)
+			{
+				s = ss; return true;
+			} else if (obj is StringPrimitive sp)
+			{
+				s = sp.ToString(); return true;
+			}
+			s = default; return false;
+		}
 	}
 }

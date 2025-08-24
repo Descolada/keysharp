@@ -32,7 +32,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="frequency">If omitted, it defaults to 523. Otherwise, specify the frequency of the sound, a number between 37 and 32767.</param>
 		/// <param name="duration">If omitted, it defaults to 150. Otherwise, specify the duration of the sound, in milliseconds.</param>
-		public static object SoundBeep(object frequency = null, object duration = null)
+		public static Primitive SoundBeep(object frequency = null, object duration = null)
 		{
 			var freq = frequency.Ai(523);
 			var time = duration.Ai(150);
@@ -116,7 +116,7 @@ namespace Keysharp.Core
 		///     be "in use" until the script closes or until another file is played(even a nonexistent file).<br/>
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static object SoundPlay(object filename, object wait = null)
+		public static Primitive SoundPlay(object filename, object wait = null)
 		{
 			var file = filename.As();
 			var w = wait.As();
@@ -195,7 +195,7 @@ namespace Keysharp.Core
 		/// (which is not necessarily device 1). Otherwise, specify the device's display name and/or index,<br/>
 		/// e.g. 1, "Speakers", "Speakers:2" or "Speakers (Example HD Audio)".
 		/// </param>
-		public static object SoundSetMute(object newSetting, object component = null, object device = null)
+		public static Primitive SoundSetMute(object newSetting, object component = null, object device = null)
 		{
 			_ = DoSound(SoundCommands.SoundSetMute, newSetting, component, device);
 			return DefaultObject;
@@ -215,7 +215,7 @@ namespace Keysharp.Core
 		/// (which is not necessarily device 1). Otherwise, specify the device's display name and/or index,<br/>
 		/// e.g. 1, "Speakers", "Speakers:2" or "Speakers (Example HD Audio)".
 		/// </param>
-		public static object SoundSetVolume(object newSetting, object component = null, object device = null)
+		public static Primitive SoundSetVolume(object newSetting, object component = null, object device = null)
 		{
 			_ = DoSound(SoundCommands.SoundSetVolume, newSetting, component, device);
 			return DefaultObject;
@@ -450,7 +450,7 @@ namespace Keysharp.Core
 					var iptr = Marshal.GetIUnknownForObject(result);
 
 					if (Marshal.QueryInterface(iptr, in search.targetIid, out var ptr) >= 0)
-						result = ptr.ToInt64();
+						result = (LongPrimitive)ptr.ToInt64();
 
 					_ = Marshal.Release(iptr);
 					return result;
@@ -611,10 +611,10 @@ namespace Keysharp.Core
 			}
 
 			return search.targetControl switch
-		{
-				SoundControlType.Volume => (double)resultFloat,
-					SoundControlType.Mute => resultBool,
-					_ => null,
+			{
+				SoundControlType.Volume => (DoublePrimitive)resultFloat,
+				SoundControlType.Mute => (LongPrimitive)resultBool,
+				_ => null,
 			};
 		}
 

@@ -14,7 +14,7 @@
 		/// <param name="section">The section name in the .ini file, which is the heading phrase that appears in square brackets (do not include the brackets in this parameter).</param>
 		/// <param name="key">If omitted, the entire section will be deleted. Otherwise, specify the key name in the .ini file.</param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any file errors occur.</exception>
-		public static object IniDelete(object filename, object section, object key = null)
+		public static Primitive IniDelete(object filename, object section, object key = null)
 		{
 			var file = filename.As();
 			var s = section.As();
@@ -104,13 +104,13 @@
 		/// <param name="key">The key name in the .ini file.</param>
 		/// <param name="default">If omitted, an <see cref="OSError"/> is thrown on failure. Otherwise, specify the value to return on failure, such as if the requested key, section or file is not found.</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the key can't be found and no default is supplied.</exception>
-		public static object IniRead(object filename, object section = null, object key = null, object @default = null)
+		public static Primitive IniRead(object filename, object section = null, object key = null, object @default = null)
 		{
 			var file = filename.As();
 			var s = section.As();
 			var k = key.As();
 			var def = @default.As();
-			var result = "";
+			string result = "";
 			file = Path.GetFullPath(file);
 
 			if (!File.Exists(file))
@@ -252,7 +252,7 @@
 		/// <param name="section">The section name in the .ini file, which is the heading phrase that appears in square brackets (do not include the brackets in this parameter).</param>
 		/// <param name="key">The key name in the .ini file.</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object IniWrite(object value, object filename, object section, object key = null)
+		public static Primitive IniWrite(object value, object filename, object section, object key = null)
 		{
 			var v = value.As();
 			var file = filename.As();

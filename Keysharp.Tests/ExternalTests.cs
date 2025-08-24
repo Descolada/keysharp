@@ -12,10 +12,10 @@ namespace Keysharp.Tests
 		[Test, Category("External")]
 		public void DllCall_()
 		{
-			var desktop = WindowsAPI.GetDesktopWindow();
+			LongPrimitive desktop = WindowsAPI.GetDesktopWindow();
 			var rect = new RECT();
 			var buf = Collections.Buffer(16, 0);
-			_ = Dll.DllCall("user32.dll\\GetWindowRect", "ptr", desktop, "ptr", buf);
+			_ = Dll.DllCall((StringPrimitive)"user32.dll\\GetWindowRect", (StringPrimitive)"ptr", desktop, (StringPrimitive)"ptr", buf);
 			_ = WindowsAPI.GetWindowRect((nint)desktop, out rect);
 			var l = (long)NumGet(buf, 0, "UInt");
 			var t = (long)NumGet(buf, 4, "UInt");
@@ -26,10 +26,10 @@ namespace Keysharp.Tests
 			Assert.AreEqual(rect.Right, r);
 			Assert.AreEqual(rect.Top, t);
 			Assert.AreEqual(rect.Bottom, b);
-			var str = "lower";
-			var len = str.Length;
-			var strbuf = Strings.StringBuffer(str);
-			_ = Dll.DllCall("user32.dll\\CharUpperBuff", "ptr", strbuf.Ptr, "UInt", len);
+			string str = "lower";
+			LongPrimitive len = str.Length;
+			var strbuf = Strings.StringBuffer((StringPrimitive)str);
+			_ = Dll.DllCall((StringPrimitive)"user32.dll\\CharUpperBuff", (StringPrimitive)"ptr", strbuf.Ptr, (StringPrimitive)"UInt", len);
 			Assert.AreEqual(strbuf.ToString(), str.ToUpper());
 			Assert.IsTrue(TestScript("external-dllcall", false));
 		}

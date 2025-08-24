@@ -30,31 +30,31 @@
 			internal Size requestedSize = new (int.MinValue, int.MinValue);
 			internal bool eventHandlerActive = true;
 
-			public bool AltSubmit { get; internal set; } = false;
+			public LongPrimitive AltSubmit { get; internal set; } = false;
 
-			public string ClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
+			public StringPrimitive ClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
 
 			public System.Windows.Forms.Control Ctrl => _control;
 
-			public object Enabled
+			public LongPrimitive Enabled
 			{
 				get => _control.Enabled;
 				set => _control.Enabled = Options.OnOff(value) ?? false;
 			}
 
-			public object Focused => _control.Focused;
+			public LongPrimitive Focused => _control.Focused;
 
 			public object Gui => gui.TryGetTarget(out var g) ? g : DefaultErrorObject;
 
-			public long Hwnd => _control.Handle.ToInt64();
+			public LongPrimitive Hwnd => _control.Handle.ToInt64();
 
-			public object Name
+			public StringPrimitive Name
 			{
 				get => _control.Name;
 				set => _control.Name = value.ToString();
 			}
 
-			public string NetClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
+			public StringPrimitive NetClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
 
 			public object Parent
 			{
@@ -71,7 +71,7 @@
 
 			public KeysharpForm ParentForm => _control.FindParent<KeysharpForm>();
 
-			public object RichText
+			public StringPrimitive RichText
 			{
 				get
 				{
@@ -99,7 +99,7 @@
 					{
 						if (lb.SelectionMode == SelectionMode.One)
 						{
-							if (lb.SelectedIndex > 0 && lb.SelectedItem is string s)
+							if (lb.SelectedIndex > 0 && lb.SelectedItem.IsString(out string s))
 								return s;
 						}
 						else
@@ -108,7 +108,7 @@
 
 					if (_control is KeysharpComboBox cb)
 					{
-						if (cb.DropDownStyle == ComboBoxStyle.DropDownList && cb.SelectedIndex > 0 && cb.SelectedItem is string s)
+						if (cb.DropDownStyle == ComboBoxStyle.DropDownList && cb.SelectedIndex > 0 && cb.SelectedItem.IsString(out string s))
 							return s;
 						else
 							return cb.Text;
@@ -138,7 +138,7 @@
 						{
 							for (var i = 0; i < lb.Items.Count; i++)
 							{
-								if (lb.Items[i] is string item && item == s)
+								if (lb.Items[i].IsString(out string item) && item == s)
 									lb.SetSelected(i, true);
 							}
 						}
@@ -172,28 +172,28 @@
 				get
 				{
 					if (_control is KeysharpLabel lbl)
-						return lbl.Text;
+						return (StringPrimitive)lbl.Text;
 					else if (_control is KeysharpTextBox txt)
-						return KeysharpEnhancements.NormalizeEol(txt.Text);
+						return (StringPrimitive)KeysharpEnhancements.NormalizeEol(txt.Text);
 					else if (_control is KeysharpRichEdit rtf)
-						return KeysharpEnhancements.NormalizeEol(rtf.Text);
+						return (StringPrimitive)KeysharpEnhancements.NormalizeEol(rtf.Text);
 					else if (_control is HotkeyBox hk)
-						return hk.GetText();
+						return (StringPrimitive)hk.GetText();
 					else if (_control is KeysharpNumericUpDown nud)
-						return nud.Value;
+						return (DoublePrimitive)(double)nud.Value;
 					else if (_control is KeysharpButton btn)
-						return btn.Text;
+						return (StringPrimitive)btn.Text;
 					else if (_control is KeysharpCheckBox cb)
 					{
 						if (cb.CheckState == CheckState.Checked)
-							return 1L;
+							return (LongPrimitive)1L;
 						else if (cb.CheckState == CheckState.Unchecked)
-							return 0L;
+							return (LongPrimitive)0L;
 						else
-							return -1L;
+							return (LongPrimitive)(-1L);
 					}
 					else if (_control is KeysharpRadioButton rb)
-						return rb.Checked ? 1L : 0L;
+						return (LongPrimitive)rb.Checked;
 					else if (_control is KeysharpComboBox cmb)
 					{
 						if (cmb.DropDownStyle == ComboBoxStyle.DropDown)
@@ -201,43 +201,43 @@
 							var indexof = cmb.Items.IndexOf(cmb.Text);
 
 							if (indexof == -1)
-								return 0L;
+								return (LongPrimitive)0L;
 						}
 
-						return (long)cmb.SelectedIndex + 1;
+						return (LongPrimitive)((long)cmb.SelectedIndex + 1);
 					}
 					else if (_control is KeysharpListBox lb)
 					{
 						return lb.SelectionMode == SelectionMode.One
-							   ? (long)lb.SelectedIndex + 1
+							   ? (LongPrimitive)((long)lb.SelectedIndex + 1)
 							   : new Array(lb.SelectedIndices.Cast<int>().Select(x => x + 1).ToList());
 					}
 					else if (_control is KeysharpDateTimePicker dtp)
-						return Conversions.ToYYYYMMDDHH24MISS(dtp.Value);
+						return (StringPrimitive)Conversions.ToYYYYMMDDHH24MISS(dtp.Value);
 					else if (_control is KeysharpMonthCalendar mc)
 					{
 						if (mc.MaxSelectionCount == 1)
 						{
-							return $"{mc.SelectionStart:yyyyMMdd}";
+							return (StringPrimitive)$"{mc.SelectionStart:yyyyMMdd}";
 						}
 						else
 						{
 							if (mc.SelectionStart.Date == mc.SelectionEnd.Date)
-								return $"{mc.SelectionStart:yyyyMMdd}";
+								return (StringPrimitive)$"{mc.SelectionStart:yyyyMMdd}";
 							else
-								return $"{mc.SelectionStart:yyyyMMdd}-{mc.SelectionEnd:yyyyMMdd}";
+								return (StringPrimitive)$"{mc.SelectionStart:yyyyMMdd}-{mc.SelectionEnd:yyyyMMdd}";
 						}
 					}
 					else if (_control is KeysharpTrackBar tb)
-						return tb.Value;
+						return (LongPrimitive)tb.Value;
 					else if (_control is KeysharpProgressBar pb)
-						return pb.Value;
+						return (LongPrimitive)pb.Value;
 					else if (_control is KeysharpTabControl tc)
-						return (long)tc.SelectedIndex + 1;
+						return (LongPrimitive)((long)tc.SelectedIndex + 1);
 					else if (_control is KeysharpStatusStrip ss)
-						return ss.Text;//Unsure if this is what's intended.
+						return (StringPrimitive)ss.Text;//Unsure if this is what's intended.
 					else if (_control is KeysharpPictureBox pic)
-						return pic.Filename;
+						return (StringPrimitive)pic.Filename;
 
 #if WINDOWS
 					else if (_control is KeysharpActiveX kax)
@@ -269,10 +269,10 @@
 						if (cbstate == -1)
 							cb.CheckState = CheckState.Indeterminate;
 						else
-							cb.Checked = Options.OnOff(value) ?? false;
+							cb.Checked = Options.OnOff(Primitive.From(value)) ?? false;
 					}
 					else if (_control is KeysharpRadioButton rb)
-						rb.Checked = Options.OnOff(value) ?? false;
+						rb.Checked = Options.OnOff(Primitive.From(value)) ?? false;
 					else if (_control is KeysharpComboBox cmb)
 						cmb.SelectedIndex = ival - 1;
 					else if (_control is KeysharpListBox lb)
@@ -390,7 +390,7 @@
 				}
 			}
 
-			public object Visible
+			public LongPrimitive Visible
 			{
 				get => _control.Visible;
 				set => _control.Visible = Options.OnOff(value) ?? false;
@@ -398,11 +398,11 @@
 
 			public object BackColor
 			{
-				get => (_control.BackColor.ToArgb() & 0x00FFFFFF).ToString("X6");
+				get => (StringPrimitive)(_control.BackColor.ToArgb() & 0x00FFFFFF).ToString("X6");
 
 				set
 				{
-					if (value is string s)
+					if (value.IsString(out string s))
 					{
 						if (Conversions.TryParseColor(s, out var c))
 							_control.BackColor = c;
@@ -557,13 +557,13 @@
 						tv.DelayedExpandParent(node);
 						var id = node.Handle.ToInt64();
 						node.Name = id.ToString();
-						result = TreeViewHelper.TV_NodeOptions(node, parent, options, false);
+						result = (LongPrimitive)TreeViewHelper.TV_NodeOptions(node, parent, options, false);
 					}
 					else if (_control is KeysharpListView lv)
 					{
-						var lvo = obj.Length > 0 && obj[0] is string options && options.Length > 0 ? ListViewHelper.ParseListViewOptions(options) : new ListViewHelper.ListViewOptions();
+						var lvo = obj.Length > 0 && obj[0].IsString(out string options) && options.Length > 0 ? ListViewHelper.ParseListViewOptions(options) : new ListViewHelper.ListViewOptions();
 						var strs = obj.Cast<object>().Skip(1).Select(x => x.Str()).ToList();
-						result = ListViewHelper.AddOrInsertListViewItem(lv, lvo, strs, int.MinValue);
+						result = (LongPrimitive)ListViewHelper.AddOrInsertListViewItem(lv, lvo, strs, int.MinValue);
 					}
 					else
 					{
@@ -590,7 +590,7 @@
 			{
 				//The documentation says "Unlike ControlChooseIndex, this method does not raise a Change or DoubleClick event."
 				//But we don't raise click events anyway here, so it shouldn't matter.
-				var s = value as string;
+				var s = value as string ?? value as StringPrimitive;
 				var i = value.Ai() - 1;
 
 				if (_control is KeysharpTabControl tc)
@@ -682,12 +682,12 @@
 						if (id == long.MinValue)
 						{
 							tv.Nodes.Clear();
-							return 1L;
+							return Primitive.True;
 						}
 						else if (TreeViewHelper.TV_FindNode(tv, id) is TreeNode node)
 						{
 							node.Remove();
-							return 1L;
+							return Primitive.True;
 						}
 
 						break;
@@ -697,18 +697,18 @@
 						if (index < 0)
 						{
 							lv.Items.Clear();
-							return 1L;
+							return Primitive.True;
 						}
 						else if (index < lv.Items.Count)
 						{
 							lv.Items.RemoveAt(index);
-							return 1L;
+							return Primitive.True;
 						}
 
 						break;
 				}
 
-				return 0L;
+				return Primitive.False;
 			}
 
 			public long DeleteCol(object column)
@@ -720,16 +720,16 @@
 					if (index >= 0 && index < lv.Columns.Count)
 					{
 						lv.Columns.RemoveAt(index);
-						return 1L;
+						return Primitive.True;
 					}
 				}
 
-				return 0L;
+				return Primitive.False;
 			}
 
-			public object Focus() => _control.Focus();
+			public object Focus() => (LongPrimitive)_control.Focus();
 
-			public long Get(object itemID, object attribute)
+			public LongPrimitive Get(object itemID, object attribute)
 			{
 				if (_control is KeysharpTreeView tv)
 				{
@@ -750,7 +750,7 @@
 				return 0L;
 			}
 
-			public long GetChild(object itemID)
+			public LongPrimitive GetChild(object itemID)
 			{
 				if (_control is KeysharpTreeView tv)
 				{
@@ -771,7 +771,7 @@
 				return DefaultObject;
 			}
 
-			public long GetCount(object mode = null)
+			public LongPrimitive GetCount(object mode = null)
 			{
 				if (_control is KeysharpListView lv)
 				{
@@ -790,7 +790,7 @@
 				return 0L;
 			}
 
-			public long GetNext(object startingRowNumber = null, object rowType = null)
+			public LongPrimitive GetNext(object startingRowNumber = null, object rowType = null)
 			{
 				var id = startingRowNumber.Al();
 				var mode = rowType.As();
@@ -865,7 +865,7 @@
 				return DefaultErrorObject;
 			}
 
-			public long GetParent(object itemID)
+			public LongPrimitive GetParent(object itemID)
 			{
 				if (_control is KeysharpTreeView tv)
 				{
@@ -898,9 +898,9 @@
 				return DefaultErrorLong;
 			}
 
-			public long GetSelection() => _control is KeysharpTreeView tv&& tv.SelectedNode != null ? tv.SelectedNode.Handle.ToInt64() : 0L;
+			public LongPrimitive GetSelection() => _control is KeysharpTreeView tv&& tv.SelectedNode != null ? tv.SelectedNode.Handle.ToInt64() : 0L;
 
-			public string GetText(object rowNumber, object columnNumber = null)
+			public StringPrimitive GetText(object rowNumber, object columnNumber = null)
 			{
 				if (_control is KeysharpTreeView tv)
 				{
@@ -926,7 +926,7 @@
 				return DefaultErrorString;
 			}
 
-			public long Insert(object rowNumber, params object[] obj)
+			public LongPrimitive Insert(object rowNumber, params object[] obj)
 			{
 				if (_control is KeysharpListView lv)//Note that this index might not actually be where the row is shown, due to sorting.
 				{
@@ -936,7 +936,7 @@
 					if (obj.Length > 0)
 						opts = obj[0].ToString();
 
-					var lvo = opts is string options ? ListViewHelper.ParseListViewOptions(options) : new ListViewHelper.ListViewOptions();
+					var lvo = opts.IsString(out string options) ? ListViewHelper.ParseListViewOptions(options) : new ListViewHelper.ListViewOptions();
 					var strs = obj.Length > 1 ? obj.Cast<object>().Skip(1).Select(x => x.Str()).ToList() : [];
 					return ListViewHelper.AddOrInsertListViewItem(lv, lvo, strs, rownumber - 1) + 1;
 				}
@@ -944,7 +944,7 @@
 				return 0L;
 			}
 
-			public long InsertCol(object columnNumber = null, object options = null, object columnTitle = null)
+			public LongPrimitive InsertCol(object columnNumber = null, object options = null, object columnTitle = null)
 			{
 				if (_control is KeysharpListView lv)
 				{
@@ -996,7 +996,7 @@
 				return -1L;
 			}
 
-			public long Modify(object rowNumber, object options = null, params object[] obj)
+			public LongPrimitive Modify(object rowNumber, object options = null, params object[] obj)
 			{
 				var opts = options == null ? null : options.ToString();
 				var rownumber = rowNumber.Al();
@@ -1025,7 +1025,7 @@
 					{
 						if (rownumber < lv.Items.Count)
 						{
-							var lvo = opts is string o ? ListViewHelper.ParseListViewOptions(o) : new ListViewHelper.ListViewOptions();
+							var lvo = opts.IsString(out string o) ? ListViewHelper.ParseListViewOptions(o) : new ListViewHelper.ListViewOptions();
 							var strs = obj.Length > 0 ? obj.Cast<object>().Select(x => x.Str()).ToList() : [];
 							var start = Math.Max(0, rownumber - 1);
 							var end = rownumber == 0 ? lv.Items.Count : Math.Min(rownumber, lv.Items.Count);
@@ -1051,7 +1051,7 @@
 				return 0L;
 			}
 
-			public long ModifyCol(object columnNumber = null, object options = null, object columnTitle = null)
+			public LongPrimitive ModifyCol(object columnNumber = null, object options = null, object columnTitle = null)
 			{
 				if (_control is KeysharpListView lv)
 				{
@@ -1655,7 +1655,7 @@
 				return DefaultObject;
 			}
 
-			public nint SetIcon(object fileName, object iconNumber = null, object partNumber = null)
+			public LongPrimitive SetIcon(object fileName, object iconNumber = null, object partNumber = null)
 			{
 				if (_control is KeysharpStatusStrip ss)
 				{
@@ -1675,7 +1675,7 @@
 				return 0;
 			}
 
-			public long SetImageList(object imageListID, object iconType = null)
+			public LongPrimitive SetImageList(object imageListID, object iconType = null)
 			{
 				var id = imageListID.Al();
 				var type = iconType.Al(-1);
@@ -1798,7 +1798,7 @@
 				return DefaultObject;
 			}
 
-			public bool SetText(object newText, object partNumber = null, object style = null)
+			public LongPrimitive SetText(object newText, object partNumber = null, object style = null)
 			{
 				if (_control is KeysharpStatusStrip ss)
 				{
@@ -1848,7 +1848,7 @@
 					var val = value;
 					var exact = exactMatch.Ab();
 
-					if (val is string s)
+					if (val.IsString(out string s))
 					{
 						if (s.Length > 0 && tc.FindTab(s, exact) is TabPage tp)
 						{
@@ -1884,7 +1884,6 @@
 
 			internal static void GetPosHelper(System.Windows.Forms.Control control, bool scaling, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
 			{
-				outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
 				var rect = client ? control.ClientRectangle : control.Bounds;
 				if (!client && control?.Parent != null)
 				{
@@ -1894,18 +1893,18 @@
 
 				if (!scaling)
 				{
-					Script.SetPropertyValue(outX, "__Value", (long)rect.X);
-					Script.SetPropertyValue(outY, "__Value", (long)rect.Y);
-					Script.SetPropertyValue(outWidth, "__Value", (long)rect.Width);
-					Script.SetPropertyValue(outHeight, "__Value", (long)rect.Height);
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (LongPrimitive)rect.X);
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (LongPrimitive)rect.Y);
+					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (LongPrimitive)rect.Width);
+					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (LongPrimitive)rect.Height);
 				}
 				else
 				{
 					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					Script.SetPropertyValue(outX, "__Value", (long)(rect.X * scale));
-					Script.SetPropertyValue(outY, "__Value", (long)(rect.Y * scale));
-					Script.SetPropertyValue(outWidth, "__Value", (long)(rect.Width * scale));
-					Script.SetPropertyValue(outHeight, "__Value", (long)(rect.Height * scale));
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (LongPrimitive)(long)(rect.X * scale));
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (LongPrimitive)(long)(rect.Y * scale));
+					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (LongPrimitive)(long)(rect.Width * scale));
+					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (LongPrimitive)(long)(rect.Height * scale));
 				}
 			}
 

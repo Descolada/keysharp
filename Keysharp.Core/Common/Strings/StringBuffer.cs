@@ -56,7 +56,7 @@ namespace Keysharp.Core.Common.Strings
 		/// <summary>
 		/// Gets the raw pointer address (as a long) to the unmanaged buffer.
 		/// </summary>
-		public long Ptr => (long)_buffer;
+		public LongPrimitive Ptr => new LongPrimitive((long)_buffer, this);
 
 		/// <summary>
 		/// Gets or sets the current write/read position in character units.
@@ -71,7 +71,7 @@ namespace Keysharp.Core.Common.Strings
 		/// Gets or sets the buffer capacity (in chars). Expands or shrinks the unmanaged block.
 		/// Shrinking the capacity causes a null-terminator to be added to the end.
 		/// </summary>
-		public object Capacity
+		public LongPrimitive Capacity
 		{
 			get => _capacity;
 
@@ -90,7 +90,7 @@ namespace Keysharp.Core.Common.Strings
 			}
 		}
 
-		public object UpdateEntangledStringFromBuffer() => EntangledString != null ? Script.SetPropertyValue(EntangledString, "__Value", ToString()) : null;
+		public object UpdateEntangledStringFromBuffer() => EntangledString != null ? Script.SetPropertyValue(EntangledString, "__Value", (StringPrimitive)ToString()) : null;
 		public object UpdateBufferFromEntangledString()
 		{
 			if (EntangledString == null)
@@ -109,9 +109,10 @@ namespace Keysharp.Core.Common.Strings
 		/// expanding capacity if needed, and null-terminates.
 		/// Returns the new position (in chars).
 		/// </summary>
-		public object Append(string text)
+		public LongPrimitive Append(object obj)
 		{
-			if (text == null) throw new Error("String cannot be unset");
+			if (obj == null) throw new Error("String cannot be unset");
+			string text = obj.As();
 
 			int len = text.Length;
 			EnsureCapacity(_position + len);
@@ -149,7 +150,7 @@ namespace Keysharp.Core.Common.Strings
 		/// Appends <paramref name="text"/> followed by a newline.
 		/// Returns the new position (in chars).
 		/// </summary>
-		public object AppendLine(string text = "")
+		public LongPrimitive AppendLine(string text = "")
 		{
 			_ = Append(text);
 			return Append(DefaultNewLine);
@@ -158,7 +159,7 @@ namespace Keysharp.Core.Common.Strings
 		/// <summary>
 		/// Clears the buffer contents and resets position to zero.
 		/// </summary>
-		public object Clear()
+		public Primitive Clear()
 		{
 			_position = 0;
 
@@ -175,7 +176,7 @@ namespace Keysharp.Core.Common.Strings
 		/// or if negative, finds the current string length by scanning for a null terminator.
 		/// Returns the new position.
 		/// </summary>
-		public object Seek(object position)
+		public LongPrimitive Seek(object position)
 		{
 			long pos = position.Al();
 

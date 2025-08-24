@@ -441,7 +441,7 @@ namespace Keysharp.Tests
 		public void FileGetAttrib()
 		{
 			var dir = string.Concat(path, "DirCopy");
-			var val = Files.FileGetAttrib(dir);
+			string val = Files.FileGetAttrib(dir);
 			Assert.AreEqual("D", val);
 			dir = string.Concat(path, "DirCopy/file1.txt");
 			val = Files.FileGetAttrib(dir);
@@ -565,7 +565,7 @@ namespace Keysharp.Tests
 		public void FileGetSize()
 		{
 			var dir = string.Concat(path, "DirCopy/file1.txt");
-			var size = Files.FileGetSize(dir);
+			int size = Files.FileGetSize(dir);
 			Assert.AreEqual(14, size);
 			size = Files.FileGetSize(dir, "k");
 			Assert.AreEqual(0, size);
@@ -582,7 +582,7 @@ namespace Keysharp.Tests
 		public void FileGetTime()
 		{
 			var dir = string.Concat(path, "DirCopy/file1.txt");
-			var filetime = Files.FileGetTime(dir);
+			string filetime = Files.FileGetTime(dir);
 			var dt = Conversions.ToDateTime(filetime);
 			Assert.AreNotEqual(dt, DateTime.MinValue);
 			Assert.IsTrue(TestScript("file-filegettime", true));
@@ -592,7 +592,7 @@ namespace Keysharp.Tests
 		public void FileGetVersion()
 		{
 			var file = "./Keysharp.Core.dll";
-			var fileversion = Files.FileGetVersion(file);
+			string fileversion = Files.FileGetVersion(file);
 			var expected = FileVersionInfo.GetVersionInfo(file).FileVersion;
 			Assert.AreEqual(fileversion, expected);
 			Assert.IsTrue(TestScript("file-filegetversion", true));
@@ -647,7 +647,7 @@ namespace Keysharp.Tests
 				var w = "testing";
 				var count = f.WriteLine(w);
 				f.Seek(0);//Test seeking from beginning.
-				var r = f.ReadLine();
+				string r = f.ReadLine();
 				Assert.AreEqual("testing", r);
 				Assert.AreEqual(w.Length + 1, (int)count);//Add one for the newline.
 			}
@@ -679,7 +679,7 @@ namespace Keysharp.Tests
 				var buf = new Buffer(4);
 				unsafe
 				{
-					var ptr = (byte*)buf.Ptr;
+					var ptr = (byte*)(long)buf.Ptr;
 
 					for (var i = 0L; i < (long)buf.Size; i++)
 						ptr[i] = (byte)i;
@@ -691,8 +691,8 @@ namespace Keysharp.Tests
 				f.RawRead(buf2);
 				unsafe
 				{
-					var p1 = (byte*)buf.Ptr;
-					var p2 = (byte*)buf2.Ptr;
+					var p1 = (byte*)(long)buf.Ptr;
+					var p2 = (byte*)(long)buf2.Ptr;
 
 					for (var i = 0L; i < (long)buf.Size; i++)
 					{
@@ -712,22 +712,19 @@ namespace Keysharp.Tests
 				arr.Capacity = 4;
 
 				for (var i = 0L; i < (long)arr.Capacity; i++)
-					arr.Push(i);
+					arr.Push((LongPrimitive)i);
 
 				var count = f.RawWrite(arr);//The values added were longs, this internally converts them to bytes.
 				f.Seek(0);
 				var arr2 = new Array();
-				arr2.Push(0);
-				arr2.Push(0);
-				arr2.Push(0);
-				arr2.Push(0);
+				arr2.Push((LongPrimitive)0, (LongPrimitive)0, (LongPrimitive)0, (LongPrimitive)0);
 				f.RawRead(arr2);
 
 				for (var i = 1; i <= arr.Count; i++)
 				{
 					Assert.AreEqual(arr[i], arr2[i]);//Array always expects a 1-based index.
-					Assert.AreEqual(i - 1, arr[i]);
-					Assert.AreEqual(i - 1, arr2[i]);
+					Assert.AreEqual(i - 1, arr[i].Ai());
+					Assert.AreEqual(i - 1, arr2[i].Ai());
 				}
 			}
 
@@ -739,16 +736,16 @@ namespace Keysharp.Tests
 				var w = "testing";
 				var count = f.Write(w);
 				f.Seek(2);//A unicode file will have a 2 byte long byte order mark.
-				var r = f.ReadLine();
+				string r = f.ReadLine();
 				Assert.AreEqual("testing", r);
 				Assert.AreEqual(w.Length * sizeof(char), (int)count);//Unicode is two bytes per char.
-				Assert.AreEqual(f.Length, 16);//BOM plus 2 bytes per char.
+				Assert.AreEqual(f.Length.Ai(), 16);//BOM plus 2 bytes per char.
 			}
 
 			using (var f = (KeysharpFile)Files.FileOpen(filename, "rw", "Unicode"))//Ensure reading an existing file with a BOM works.
 			{
 				var w = "testing";
-				var r = f.ReadLine();
+				string r = f.ReadLine();
 				Assert.AreEqual("testing", r);
 				Assert.AreEqual(w.Length, r.Length);
 			}
@@ -762,13 +759,13 @@ namespace Keysharp.Tests
 			{
 				var w = "testing";
 				var count = f.Write(w);
-				var pos = f.Pos;
+				long pos = (LongPrimitive)f.Pos;
 				Assert.AreEqual(w.Length, pos);
-				var eof = f.AtEOF;
+				long eof = f.AtEOF;
 				Assert.AreEqual(eof, 1L);
-				var len = f.Length;
+				long len = (LongPrimitive)f.Length;
 				Assert.AreEqual(len, 7L);
-				var enc = f.Encoding;
+				string enc = (StringPrimitive)f.Encoding;
 				Assert.AreEqual(enc, "utf-8");
 			}
 
@@ -777,10 +774,10 @@ namespace Keysharp.Tests
 			{
 				var w = "testing";
 				var count = f.Write(w);
-				var pos = f.Pos;
-				var eof = f.AtEOF;
+				long pos = (LongPrimitive)f.Pos;
+				long eof = f.AtEOF;
 				Assert.AreEqual(eof, 0L);//With append mode, you're never really at the "end" of the Keysharp.Core.File.
-				var len = f.Length;
+				long len = (LongPrimitive)f.Length;
 				Assert.AreEqual(pos, 14L);
 				Assert.AreEqual(len, 14L);
 			}
@@ -796,9 +793,9 @@ namespace Keysharp.Tests
 
 			using (var f = (KeysharpFile)Files.FileOpen(filename, "w"))//Test write only on an existing file, which should clear it.
 			{
-				var pos = f.Pos;
-				var eof = f.AtEOF;
-				var len = f.Length;
+				long pos = (LongPrimitive)f.Pos;
+				long eof = (LongPrimitive)f.AtEOF;
+				long len = (LongPrimitive)f.Length;
 				Assert.AreEqual(eof, 1L);//Overwrite should cause it to be an empty Keysharp.Core.File.
 				Assert.AreEqual(pos, 0L);
 				Assert.AreEqual(len, 0L);
@@ -815,9 +812,9 @@ namespace Keysharp.Tests
 
 			using (var f = (KeysharpFile)Files.FileOpen(filename, "rw"))//Test read/write on an existing file, which should not clear it.
 			{
-				var pos = f.Pos;
-				var eof = f.AtEOF;
-				var len = f.Length;
+				long pos = (LongPrimitive)f.Pos;
+				long eof = (LongPrimitive)f.AtEOF;
+				long len = (LongPrimitive)f.Length;
 				Assert.AreEqual(eof, 0L);//At position zero, so not at EOF.
 				Assert.AreEqual(pos, 0L);
 				Assert.AreEqual(len, 7L);
@@ -873,11 +870,11 @@ namespace Keysharp.Tests
 		{
 			var dir = string.Concat(path, "DirCopy/file1.txt");
 			var text = Files.FileRead(dir);
-			Assert.AreEqual("this is file 1", text);
+			Assert.AreEqual("this is file 1", text.ToString());
 			text = Files.FileRead(dir, "m4");
-			Assert.AreEqual("this", text);
+			Assert.AreEqual("this", text.ToString());
 			text = Files.FileRead(dir, "m4 utf-8");
-			Assert.AreEqual("this", text);
+			Assert.AreEqual("this", text.ToString());
 			var buf1 = Files.FileRead(dir, "m4 raw");
 			var buf2 = new Keysharp.Core.Buffer(new byte[] { (byte)'t', (byte)'h', (byte)'i', (byte)'s' });
 			Assert.IsTrue((bool)Script.Operate(Script.Operator.ValueEquality, buf1, buf2));
@@ -962,7 +959,7 @@ namespace Keysharp.Tests
 			Assert.IsTrue(File.Exists("./FileSetAttrib/file2.txt"));
 			Assert.IsTrue(File.Exists("./FileSetAttrib/file3txt"));
 			dir = "./FileSetAttrib";
-			var attr = Files.FileGetAttrib(dir);
+			string attr = Files.FileGetAttrib(dir);
 			Assert.AreEqual("D", attr);
 			dir = "./FileSetAttrib/file1.txt";
 			attr = Files.FileGetAttrib(dir);
@@ -1003,7 +1000,7 @@ namespace Keysharp.Tests
 			Assert.IsTrue(File.Exists("./FileSetTime/file2.txt"));
 			Assert.IsTrue(File.Exists("./FileSetTime/file3txt"));
 			_ = Files.FileSetTime("20200101131415", "./FileSetTime/file1.txt", 'm');
-			var filetime = Files.FileGetTime("./FileSetTime/file1.txt", 'm');
+			string filetime = Files.FileGetTime("./FileSetTime/file1.txt", 'm');
 			Assert.AreEqual("20200101131415", filetime);
 			_ = Files.FileSetTime("20200101131416", "./FileSetTime/file1.txt", 'c');
 			filetime = Files.FileGetTime("./FileSetTime/file1.txt", 'c');
@@ -1048,7 +1045,7 @@ namespace Keysharp.Tests
 			var dir = string.Concat(path, "/testini.ini");
 			_ = Files.FileCopy(dir, "./testini2.ini", true);
 			Assert.IsTrue(File.Exists("./testini2.ini"));
-			var val = Ini.IniRead("./testini2.ini", "sectionone", "keyval");
+			string val = Ini.IniRead("./testini2.ini", "sectionone", "keyval");
 			Assert.AreEqual("theval", val);
 			val = Ini.IniRead("./testini2.ini", "SectionOne", "keyval");//Ensure the file is processed as case insensitive.
 			Assert.AreEqual("theval", val);
@@ -1086,13 +1083,13 @@ groupkey13=groupval13
 			var origdir = Accessors.A_WorkingDir;
 			var fullpath = Path.GetFullPath(string.Concat(path, "DirCopy"));
 			Dir.SetWorkingDir(fullpath);
-			Assert.AreEqual(fullpath, Accessors.A_WorkingDir);
+			Assert.AreEqual(fullpath, (string)Accessors.A_WorkingDir);
 #if WINDOWS
 			Dir.SetWorkingDir("C:\\a\\fake\\path");//Non-existent folders don't get assigned.
 #else
 			Dir.SetWorkingDir("/a/fake/path");//Non-existent folders don't get assigned.
 #endif
-			Assert.AreEqual(fullpath, Accessors.A_WorkingDir);//So it should remain unchanged.
+			Assert.AreEqual(fullpath, (string)Accessors.A_WorkingDir);//So it should remain unchanged.
 			Dir.SetWorkingDir(origdir);
 			Assert.IsTrue(TestScript("file-filesetworkingdir", true));
 		}
@@ -1107,67 +1104,67 @@ groupkey13=groupval13
             VarRef namenoext = new(null);
             VarRef drive = new(null);
 			Dir.SplitPath(fullpath, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("file1.txt", filename.__Value);
-			Assert.AreEqual("txt", ext.__Value);
-			Assert.AreEqual("file1", namenoext.__Value);
+			Assert.AreEqual("file1.txt", filename.__Value.ToString());
+			Assert.AreEqual("txt", ext.__Value.ToString());
+			Assert.AreEqual("file1", namenoext.__Value.ToString());
 #if WINDOWS
 			Assert.AreEqual("D:\\Dev\\keysharp\\Keysharp.Tests\\Code\\DirCopy".ToLower(), dir.__Value.ToString().ToLower());//This will be different on other dev machines.
-			Assert.AreEqual("D:", drive.__Value);
+			Assert.AreEqual("D:", drive.__Value.ToString());
 			Keysharp.Core.Dir.SplitPath("C:\\Windows", filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("C:", drive.__Value);
-			Assert.AreEqual("C:", dir.__Value);
+			Assert.AreEqual("C:", drive.__Value.ToString());
+			Assert.AreEqual("C:", dir.__Value.ToString());
 #else
 			var user = Accessors.A_UserName;
 			Assert.AreEqual($"/home/{user}/Dev/Keysharp/Keysharp.Tests/Code/DirCopy".ToLower(), dir.__Value.ToString().ToLower());
-			Assert.AreEqual("/", drive.__Value);
+			Assert.AreEqual("/", drive.__Value.ToString());
 #endif
-            var url = "https://domain.com";
+			var url = "https://domain.com";
 			Dir.SplitPath(url, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("", filename.__Value);
-			Assert.AreEqual("https://domain.com", dir.__Value);
-			Assert.AreEqual("", ext.__Value);
-			Assert.AreEqual("", namenoext.__Value);
-			Assert.AreEqual("https://domain.com", drive.__Value);
+			Assert.AreEqual("", filename.__Value.ToString());
+			Assert.AreEqual("https://domain.com", dir.__Value.ToString());
+			Assert.AreEqual("", ext.__Value.ToString());
+			Assert.AreEqual("", namenoext.__Value.ToString());
+			Assert.AreEqual("https://domain.com", drive.__Value.ToString());
 			//
 			url = "https://domain.com/images";
 			Dir.SplitPath(url, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("", filename.__Value);
-			Assert.AreEqual("https://domain.com/images", dir.__Value);
-			Assert.AreEqual("", ext.__Value);
-			Assert.AreEqual("", namenoext.__Value);
-			Assert.AreEqual("https://domain.com", drive.__Value);
+			Assert.AreEqual("", filename.__Value.ToString());
+			Assert.AreEqual("https://domain.com/images", dir.__Value.ToString());
+			Assert.AreEqual("", ext.__Value.ToString());
+			Assert.AreEqual("", namenoext.__Value.ToString());
+			Assert.AreEqual("https://domain.com", drive.__Value.ToString());
 			//
 			url = "https://domain.com/images/afile.jpg";
 			Dir.SplitPath(url, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("afile.jpg", filename.__Value);
-			Assert.AreEqual("https://domain.com/images", dir.__Value);
-			Assert.AreEqual("jpg", ext.__Value);
-			Assert.AreEqual("afile", namenoext.__Value);
-			Assert.AreEqual("https://domain.com", drive.__Value);
+			Assert.AreEqual("afile.jpg", filename.__Value.ToString());
+			Assert.AreEqual("https://domain.com/images", dir.__Value.ToString());
+			Assert.AreEqual("jpg", ext.__Value.ToString());
+			Assert.AreEqual("afile", namenoext.__Value.ToString());
+			Assert.AreEqual("https://domain.com", drive.__Value.ToString());
 			//
 			fullpath = "\\\\machinename";
 			Dir.SplitPath(fullpath, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("", filename.__Value);
-			Assert.AreEqual("\\\\machinename", dir.__Value);
-			Assert.AreEqual("", ext.__Value);
-			Assert.AreEqual("", namenoext.__Value);
-			Assert.AreEqual("\\\\machinename", drive.__Value);
+			Assert.AreEqual("", filename.__Value.ToString());
+			Assert.AreEqual("\\\\machinename", dir.__Value.ToString());
+			Assert.AreEqual("", ext.__Value.ToString());
+			Assert.AreEqual("", namenoext.__Value.ToString());
+			Assert.AreEqual("\\\\machinename", drive.__Value.ToString());
 			//
 			fullpath = "\\\\machinename\\dir";
 			Dir.SplitPath(fullpath, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("", filename.__Value);
-			Assert.AreEqual("\\\\machinename\\dir", dir.__Value);
-			Assert.AreEqual("", ext.__Value);
-			Assert.AreEqual("", namenoext.__Value);
-			Assert.AreEqual("\\\\machinename", drive.__Value);
+			Assert.AreEqual("", filename.__Value.ToString());
+			Assert.AreEqual("\\\\machinename\\dir", dir.__Value.ToString());
+			Assert.AreEqual("", ext.__Value.ToString());
+			Assert.AreEqual("", namenoext.__Value.ToString());
+			Assert.AreEqual("\\\\machinename", drive.__Value.ToString());
 			//
 			fullpath = "\\\\machinename\\dir\\filename.txt";
 			Dir.SplitPath(fullpath, filename, dir, ext, namenoext, drive);
-			Assert.AreEqual("filename.txt", filename.__Value);
-			Assert.AreEqual("\\\\machinename\\dir", dir.__Value);
-			Assert.AreEqual("txt", ext.__Value);
-			Assert.AreEqual("filename", namenoext.__Value);
-			Assert.AreEqual("\\\\machinename", drive.__Value);
+			Assert.AreEqual("filename.txt", filename.__Value.ToString());
+			Assert.AreEqual("\\\\machinename\\dir", dir.__Value.ToString());
+			Assert.AreEqual("txt", ext.__Value.ToString());
+			Assert.AreEqual("filename", namenoext.__Value.ToString());
+			Assert.AreEqual("\\\\machinename", drive.__Value.ToString());
 			Assert.IsTrue(TestScript("file-filesplitpath", false));
 		}
 	}

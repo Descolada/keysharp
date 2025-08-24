@@ -30,7 +30,7 @@ namespace Keysharp.Core
 		/// If the user cancels the dialog (i.e. does not wish to select a folder), an empty string is returned.<br/>
 		/// If the user selects a root directory (such as C:\), the return value will contain a trailing backslash.
 		/// </returns>
-		public static string DirSelect(object startingFolder = null, object options = null, object prompt = null)
+		public static StringPrimitive DirSelect(object startingFolder = null, object options = null, object prompt = null)
 		{
 			var folder = startingFolder.As();
 			var opts = options.Al();
@@ -200,7 +200,7 @@ namespace Keysharp.Core
 					FileName = Path.GetFileName(rootdir)
 				};
 				var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner), true);
-				files = selected == DialogResult.OK ? saveas.FileName : "";
+				files = selected == DialogResult.OK ? saveas.FileName : DefaultObject;
 			}
 			else
 			{
@@ -220,7 +220,7 @@ namespace Keysharp.Core
 						ShowNewFolderButton = true//Seems to be visible regardless of this property.
 					};
 					var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner), true);
-					files = selected == DialogResult.OK ? select.SelectedPath : "";
+					files = selected == DialogResult.OK ? select.SelectedPath : DefaultObject;
 				}
 				else
 				{
@@ -240,13 +240,14 @@ namespace Keysharp.Core
 					var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner), true);
 					files = selected == DialogResult.OK
 							? multi ? new Array(open.FileNames.Cast<object>().ToArray()) : open.FileName
-							: multi ? new Array() : "";
+							: multi ? new Array() : DefaultObject;
 				}
 			}
 
 			return files;
 		}
 
+		[PublicForTestOnly]
 		public static string FixFilters(string filter)
 		{
 			if (filter.Length > 0)
@@ -389,10 +390,11 @@ namespace Keysharp.Core
 		///     Continue<br/>
 		///     Timeout (that is, the word "timeout" is returned if the message box timed out)
 		/// </returns>
-		public static Primitive MsgBox(Primitive text = null, Primitive title = null, Primitive options = null)
+		public static Primitive MsgBox(object text = null, object title = null, object options = null)
 		{
-			var txt = text.As("").Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
-			var caption = title.As("").Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
+			var txt = Primitive.From(text ?? "").As().Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
+			var caption = Primitive.From(title ?? "").As().Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
+			var opts = Primitive.From(options ?? "");
 			var buttons = MessageBoxButtons.OK;
 			var icon = MessageBoxIcon.None;
 			var defaultbutton = MessageBoxDefaultButton.Button1;
@@ -467,19 +469,19 @@ namespace Keysharp.Core
 				//System modal dialogs are no longer supported in Windows.
 			}
 
-			if (options?.IsNumeric ?? false)
+			if ((opts as StringPrimitive)?.IsNumeric ?? false)
 			{
 				HandleNumericOptions(options.Ai());
 			}
 			else
 			{
-				var opts = options.As("");
+				var stropts = opts.As();
 				var iopt = 0;
 				var hadNumeric = false;
 
-				foreach (Range r in opts.AsSpan().SplitAny(Spaces))
+				foreach (Range r in stropts.AsSpan().SplitAny(Spaces))
 				{
-					var opt = opts.AsSpan(r).Trim();
+					var opt = stropts.AsSpan(r).Trim();
 
 					if (opt.Length > 0)
 					{
@@ -595,7 +597,7 @@ namespace Keysharp.Core
 			else
 			{
 				script.nMessageBoxes++;
-				var ret = "";
+				var ret = DefaultObject;
 
 				//If owner is null, then the message boxes will not be modal between threads, meaning it's possible to show
 				//more than one message box simultaneously and switch between them. However, within a thread, a message box always
@@ -657,12 +659,12 @@ namespace Keysharp.Core
 			/// <summary>
 			/// The result of the input box selection: OK, Cancel or Timeout.
 			/// </summary>
-			public string Result { get; set; }
+			public StringPrimitive Result { get; internal set; }
 
 			/// <summary>
 			/// The text entered by the user in the input box.
 			/// </summary>
-			public string Value { get; set; }
+			public StringPrimitive Value { get; internal set; }
 		}
 	}
 }

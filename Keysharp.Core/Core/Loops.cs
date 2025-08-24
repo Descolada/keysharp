@@ -31,7 +31,7 @@ namespace Keysharp.Core
 		/// <returns>Yield return an <see cref="IEnumerable"/> which allows the caller can run the loop.</returns>
 		public static IEnumerable Loop(object obj)
 		{
-			if (!(obj is string ss) || ss != string.Empty)
+			if (!(obj.IsString(out string ss)) || ss != string.Empty)
 			{
 				var n = obj.Al();
 				var info = Peek(LoopType.Normal);//The calling code must have called Push() with this type.
@@ -400,7 +400,7 @@ namespace Keysharp.Core
 		///     <see cref="IEnumerable"/><br/>
 		/// </exception>
 		/// <exception cref="UnsetError">An <see cref="UnsetError"/> exception is thrown if the object is null.</exception>
-		public static Common.Containers.KeysharpEnumerator MakeEnumerator(object obj, object count)
+		public static Common.Containers.KeysharpEnumerator MakeEnumerator(object obj, LongPrimitive count)
 		{
 			var ct = count.Ai();
 
@@ -439,7 +439,7 @@ namespace Keysharp.Core
 				else
 					return MakeEnumerator(tempEnum, count);
 			}
-			else if (obj is KeysharpObject kso)
+			else if (obj is Any kso && kso is not Primitive)
 			{
 				if (kso.op.TryGetValue("__Enum", out var map))
 				{
@@ -869,7 +869,7 @@ namespace Keysharp.Core
 		public DateTime lastIter = DateTime.UtcNow;
 		public string line;
 		public string path;
-		public object regDate;
+		public string regDate;
 		public string regKeyName;
 		public string regName;
 		public string regType;

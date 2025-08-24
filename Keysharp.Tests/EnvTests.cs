@@ -11,15 +11,15 @@ namespace Keysharp.Tests
 		public void ClipboardAll()
 		{
 			//Flow.ResetState();
-			Accessors.A_Clipboard = "Asdf";
+			Accessors.A_Clipboard = (Primitive)"Asdf";
 			var arr = Env.ClipboardAll();
-			var clip = Accessors.A_Clipboard as string;
+			var clip = Accessors.A_Clipboard.As(null);
 			Assert.AreEqual("Asdf", clip);
-			Accessors.A_Clipboard = "";
-			clip = Accessors.A_Clipboard as string;
+			Accessors.A_Clipboard = (Primitive)"";
+			clip = Accessors.A_Clipboard.As(null);
 			Assert.AreEqual("", clip);
 			Accessors.A_Clipboard = arr;
-			clip = Accessors.A_Clipboard as string;
+			clip = Accessors.A_Clipboard.As(null);
 			Assert.AreEqual("Asdf", clip);
 		}
 
@@ -36,7 +36,7 @@ namespace Keysharp.Tests
 			//Flow.ResetState();
 			Clipboard.Clear();
 			var dt = DateTime.UtcNow;
-			var b = Env.ClipWait(0.5);
+			bool b = Env.ClipWait(0.5);
 			var dt2 = DateTime.UtcNow;
 			var ms = (dt2 - dt).TotalMilliseconds;
 			Assert.AreEqual(false, b);//Will have timed out, so ErrorLevel will be 1.
@@ -111,7 +111,7 @@ namespace Keysharp.Tests
 		[Test, Category("Env"), NonParallelizable]
 		public void EnvGet()
 		{
-			var path = Env.EnvGet("PATH");
+			string path = Env.EnvGet("PATH");
 			Assert.AreNotEqual(path, string.Empty);
 			path = Env.EnvGet("dummynothing123");
 			Assert.AreEqual(path, string.Empty);
@@ -124,7 +124,7 @@ namespace Keysharp.Tests
 			var key = "dummynothing123";
 			var s = "a test value";
 			_ = Env.EnvSet(key, s); //Add the variable.
-			var val = Env.EnvGet(key);
+			string val = Env.EnvGet(key);
 			Assert.AreEqual(val, s);
 			_ = Env.EnvSet(key, null); //Delete the variable.
 			val = Env.EnvGet(key);//Ensure it's deleted.

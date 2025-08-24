@@ -198,7 +198,7 @@ namespace Keysharp.Core
 		public static object TraySetIcon(object fileName = null, object iconNumber = null, object freeze = null)
 		{
 			var filename = fileName.As();
-			var iconnumber = ImageHelper.PrepareIconNumber(iconNumber);
+			var iconnumber = ImageHelper.PrepareIconNumber(iconNumber.As(null));
 			var script = Script.TheScript;
 
 			if (script.NoTrayIcon)
@@ -228,7 +228,7 @@ namespace Keysharp.Core
 						if (icon != null)
 						{
 							A_IconFile = filename;
-							A_IconNumber = iconNumber;
+							A_IconNumber = (long)iconNumber;
 							script.mainWindow.CheckedBeginInvoke(() => script.Tray.Icon = script.mainWindow.Icon = icon, false, false);
 						}
 					}

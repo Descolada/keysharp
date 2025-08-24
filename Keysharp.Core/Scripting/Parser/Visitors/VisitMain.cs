@@ -413,15 +413,12 @@ namespace Keysharp.Scripting
                 {
                     case "a_linenumber":
                         var contextLineNumber = context.Start.Line;
-                        return SyntaxFactory.CastExpression(
-                            SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.LongKeyword)),
-                            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(contextLineNumber))
-                        );
+                        return CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(contextLineNumber)));
                     case "a_linefile":
-                        return SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(context.Start.InputStream.SourceName));
+                        return CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(context.Start.InputStream.SourceName)));
 
                     case "a_scriptfullpath":
-                        parser.mainClass.Body.Add(CreatePublicConstant("A_ScriptFullPath", typeof(string), Path.GetFullPath(parser.fileName)));
+                        parser.mainClass.Body.Add(CreatePublicConstant("A_ScriptFullPath", typeof(Primitive), Path.GetFullPath(parser.fileName)));
                         break;
                 }
             }
@@ -445,10 +442,10 @@ namespace Keysharp.Scripting
                 .WithArgumentList(
 					CreateArgumentList(
 					    SyntaxFactory.IdentifierName(vr),
-                        SyntaxFactory.LiteralExpression(
+                        CastLiteral(SyntaxFactory.LiteralExpression(
 							SyntaxKind.StringLiteralExpression,
 							SyntaxFactory.Literal("__Value")
-						)
+						))
                     )
                 );
             }
@@ -608,7 +605,7 @@ namespace Keysharp.Scripting
             }
             else if (context.op != null)
             {
-                return SyntaxFactory.ExpressionStatement(HandleCompoundAssignment(identifier, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Text == "++" ? "+=" : "-=", isPostFix: true));
+                return SyntaxFactory.ExpressionStatement(HandleCompoundAssignment(identifier, CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L))), context.op.Text == "++" ? "+=" : "-=", isPostFix: true));
             }
 
             // Return null if no assignment is needed
@@ -975,7 +972,8 @@ namespace Keysharp.Scripting
 
             var expression = (ExpressionSyntax)Visit(context.singleExpression());
 
-            if (expression is LiteralExpressionSyntax)
+            if (expression is LiteralExpressionSyntax
+                || expression is CastExpressionSyntax ces && ces.Expression is LiteralExpressionSyntax)
             {
                 // Wrap the literal in Keysharp.Core.Error
                 return SyntaxFactory.ThrowStatement(

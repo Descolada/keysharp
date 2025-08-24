@@ -173,7 +173,9 @@ namespace Keysharp.Scripting
 						proto.op[propertyName] = propertyMap;
 				}
 
-				if (t != typeof(FuncObj) && t != typeof(Any))
+				if (t.BaseType == typeof(Primitive))
+					proto._base = script.Vars.Prototypes[typeof(Any)];
+				else if (t != typeof(FuncObj) && t != typeof(Any))
 					proto._base = script.Vars.Prototypes[t.BaseType];
 
 				if (isBuiltin)
@@ -181,12 +183,14 @@ namespace Keysharp.Scripting
 					string name = t.Name;
 					if (Keywords.TypeNameAliases.ContainsKey(name))
 						name = Keywords.TypeNameAliases[name];
-					proto.op["__Class"] = new OwnPropsDesc(proto, name);
+					proto.op["__Class"] = new OwnPropsDesc(proto, (StringPrimitive)name);
 				}
 
 				staticInst.op["prototype"] = new OwnPropsDesc(staticInst, proto);
 
-				if (t != typeof(FuncObj) && t != typeof(Any))
+				if (t.BaseType == typeof(Primitive))
+					staticInst._base = script.Vars.Statics[typeof(Class)];
+				else if (t != typeof(FuncObj) && t != typeof(Any))
 					staticInst._base = t.BaseType == typeof(KeysharpObject) ? script.Vars.Prototypes[typeof(Class)] : script.Vars.Statics[t.BaseType];
 
 				if (!isBuiltin)
@@ -313,10 +317,22 @@ namespace Keysharp.Scripting
 						return value;
 					}
 					else
-						return co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, index.Concat([value]));
+					{
+						var args = index.Concat([value]);
+						for (int i = 0; i < args.Length; i++)
+							if (args[i] is Primitive p)
+								args[i] = p.AsObject();
+						return co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, args);
+					}
 				}
 				else if (Marshal.IsComObject(item))
-					return item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, index.Concat([value]));
+				{
+					var args = index.Concat([value]);
+					for (int i = 0; i < args.Length; i++)
+						if (args[i] is Primitive p)
+							args[i] = p.AsObject();
+					return item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, args);
+				}
 
 #endif
 				var il1 = index.Length + 1;
@@ -378,20 +394,20 @@ namespace Keysharp.Scripting
 					var position = (int)ForceLong(key);
 
 					//The most common is going to be a string, array, map or buffer.
-					if (item is string s)
+					if (item is StringPrimitive s)
 					{
-						var actualindex = position < 0 ? s.Length + position : position - 1;
-						return s[actualindex];
+						var actualindex = position < 0 ? s.SpanLength + position : position - 1;
+						return (StringPrimitive)s.AsSpan()[actualindex];
 					}
 					else if (item is object[] objarr)//Used for indexing into variadic function params.
 					{
 						var actualindex = position < 0 ? objarr.Length + position : position - 1;
-						return objarr[actualindex];
+						return Primitive.From(objarr[actualindex]);
 					}
 					else if (item is System.Array array)
 					{
 						var actualindex = position < 0 ? array.Length + position : position - 1;
-						return array.GetValue(actualindex);
+						return Primitive.From(array.GetValue(actualindex));
 					}
 				}
 

@@ -19,7 +19,7 @@ namespace Keysharp.Core
 
 			try
 			{
-				return new Keysharp.Core.Array(Convert.FromBase64String(s));
+				return new Keysharp.Core.Buffer(Convert.FromBase64String(s));
 			}
 			catch (Exception ex)
 			{
@@ -32,7 +32,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The data to encode.</param>
 		/// <returns>A Base64 string representation of the given binary data.</returns>
-		public static string Base64Encode(object value) => Convert.ToBase64String(Crypt.ToByteArray(value));
+		public static StringPrimitive Base64Encode(object value) => Convert.ToBase64String(Crypt.ToByteArray(value));
 
 		/// <summary>
 		/// Formats a string using the same syntax used by string.Format(), except it uses 1-based indexing.
@@ -43,7 +43,7 @@ namespace Keysharp.Core
 		/// <param name="str">The format string.</param>
 		/// <param name="args">The arguments to pass to the format string.</param>
 		/// <returns>The newly formatted string.</returns>
-		public static string FormatCs(object str, params object[] args) => string.Format(str.As(), nullPlaceholder.Concat(args));
+		public static StringPrimitive FormatCs(object str, params object[] args) => string.Format(str.As(), nullPlaceholder.Concat(args));
 
 		/// <summary>
 		/// Joins together the string representation of all array elements, separated by the specified separator.
@@ -51,7 +51,7 @@ namespace Keysharp.Core
 		/// <param name="sep">The separator to use between each item.</param>
 		/// <param name="args">The parameters to join together as a string.</param>
 		/// <returns>The newly joined string of all arguments separated by the specified separator.</returns>
-		public static string Join(object sep, params object[] args) => string.Join(sep.ToString(), args);
+		public static StringPrimitive Join(object sep, params object[] args) => string.Join(sep.ToString(), args);
 
 		/// <summary>
 		/// Makes all line endings in a string match the value passed in, or the default newline (DefaultNewLine).
@@ -59,7 +59,7 @@ namespace Keysharp.Core
 		/// <param name="str">The string whose line endings will be normalized.</param>
 		/// <param name="endOfLine">The line ending character to use. Default: DefaultNewLine.</param>
 		/// <returns>A new copy of the string with all line endings set to the specified value.</returns>
-		public static string NormalizeEol(object str, object endOfLine = null)
+		public static StringPrimitive NormalizeEol(object str, object endOfLine = null)
 		{
 			var text = str.As();
 			var eol = endOfLine.As(DefaultNewLine);
@@ -74,7 +74,7 @@ namespace Keysharp.Core
 		/// <param name="str2">The string to search for.</param>
 		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
 		/// <returns>1 if str started with str2, else 0.</returns>
-		public static long StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		public static LongPrimitive StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 	}
 
 	internal class StringsData
@@ -102,7 +102,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="number">A Unicode value.</param>
 		/// <returns>The string corresponding to number. This is always a single Unicode character.</returns>
-		public static string Chr(object number) => char.ConvertFromUtf32(number.Ai());
+		public static StringPrimitive Chr(object number) => char.ConvertFromUtf32(number.Ai());
 
 		/// <summary>
 		/// Determines if a string ends with a given string, using the current culture.
@@ -111,7 +111,7 @@ namespace Keysharp.Core
 		/// <param name="str2">The string to search for.</param>
 		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
 		/// <returns>1 if str ended with str2, else 0.</returns>
-		public static long EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		public static LongPrimitive EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 
 		/// <summary>
 		/// Formats a string using a format string containing placeholders (e.g. "{1:05d}" or "{}")
@@ -120,7 +120,7 @@ namespace Keysharp.Core
 		/// <param name="args">The arguments to pass to the format string.</param>
 		/// <returns>The newly formatted string.</returns>
 		/// </summary>
-		public static string Format(object str, params object[] args)
+		public static StringPrimitive Format(object str, params object[] args)
 		{
 			string formatStr = str.As();
 			StringBuilder result = new StringBuilder();
@@ -383,7 +383,7 @@ namespace Keysharp.Core
 		///     0x40000000 : Use the system ANSI code page for string translation instead of the locale's code page.
 		/// </param>
 		/// <returns>The formatted date/time string</returns>
-		public static string FormatTime(object stamp = null, object format = null)
+		public static StringPrimitive FormatTime(object stamp = null, object format = null)
 		{
 			var s = stamp.As();
 			var f = format.As();
@@ -544,7 +544,7 @@ namespace Keysharp.Core
 		/// Position 1 is the first character; this is because 0 is synonymous with "false", making it an intuitive "not found" indicator.<br/>
 		/// Regardless of the values of startingPos or Occurrence, the return value is always relative to the first character of Haystack.
 		/// </returns>
-		public static long InStr(object haystack, object needle, object caseSensitive = null, object startingPos = null, object occurrence = null)
+		public static LongPrimitive InStr(object haystack, object needle, object caseSensitive = null, object startingPos = null, object occurrence = null)
 		{
 			var input = haystack.As();
 			var n = needle.As();
@@ -587,7 +587,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the beginning of the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string LTrim(object str, object omitChars = null) => str.As().TrimStart(omitChars.As(" \t").ToCharArray());
+		public static StringPrimitive LTrim(object str, object omitChars = null) => str.As().TrimStart(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Returns the ordinal value (numeric character code) of the first character in the specified string.
@@ -598,7 +598,7 @@ namespace Keysharp.Core
 		/// If the string begins with a Unicode supplementary character, returns the corresponding Unicode character code (a number between 0x10000 and 0x10FFFF).<br/>
 		/// Otherwise returns a value in the range 0 to 0xFFFF (for Unicode).
 		/// </returns>
-		public static long Ord(object str)
+		public static LongPrimitive Ord(object str)
 		{
 			var s = str.As();
 			return !string.IsNullOrEmpty(s) ? char.ConvertToUtf32(s, 0) : 0L;
@@ -612,7 +612,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the endof the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string RTrim(object str, object omitChars = null) => str.As().TrimEnd(omitChars.As(" \t").ToCharArray());
+		public static StringPrimitive RTrim(object str, object omitChars = null) => str.As().TrimEnd(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Arranges a variable's contents in alphabetical, numerical, or random order (optionally removing duplicates).
@@ -696,7 +696,7 @@ namespace Keysharp.Core
 		/// when it deems the two parameters to be equal, it should return 0, "", or nothing; otherwise, it should return a negative integer.
 		/// </param>
 		/// <returns>The sorted version of the specified string.</returns>
-		public static string Sort(object str, object options = null, object callback = null)
+		public static StringPrimitive Sort(object str, object options = null, object callback = null)
 		{
 			IFuncObj function = null;
 			var input = str.As();
@@ -830,21 +830,14 @@ namespace Keysharp.Core
 				System.Array.Sort(indexedlist, delegate (ValueTuple<string, long> x, ValueTuple<string, long> y)
 				{
 					object value = null;
-					args[0] = x.Item1;
-					args[1] = y.Item1;
-					args[2] = y.Item2 - x.Item2;
+					args[0] = (StringPrimitive)x.Item1;
+					args[1] = (StringPrimitive)y.Item1;
+					args[2] = (LongPrimitive)(y.Item2 - x.Item2);
 
 					try { value = function.Call(args); }
 					catch (Exception) { }
 
-					if (value is long l)
-						return (int)l;
-					//else if (value is int i)
-					//  return i;
-					else if (value is double d)
-						return (int)d;
-					else
-						return 0;
+					return value.Ai();
 				});
 				index = 0;
 
@@ -954,7 +947,7 @@ namespace Keysharp.Core
 		///     a positive integer, if str1 is greater than str2.<br/>
 		///     a negative integer, if str1 is less than str2.
 		/// </returns>
-		public static long StrCompare(object str1, object str2, object caseSense = null)
+		public static LongPrimitive StrCompare(object str1, object str2, object caseSense = null)
 		{
 			var s1 = str1.As();
 			var s2 = str2.As();
@@ -994,7 +987,7 @@ namespace Keysharp.Core
 		/// the return value always uses the native encoding.
 		/// </returns>
 		/// <exception cref="ValueError">Throws a <see cref="ValueError"/> exception if source is null or 0.</exception>
-		public static string StrGet(object source, object length = null, object enc = null)
+		public static StringPrimitive StrGet(object source, object length = null, object enc = null)
 		{
 			var hasThree = enc != null;
 			var encoding = Encoding.Unicode;
@@ -1011,7 +1004,7 @@ namespace Keysharp.Core
 
 				if (l != null)
 					len = l.Value;
-				else if (length is string encstr)
+				else if (length.IsString(out string encstr))
 					encoding = Files.GetEncoding(encstr);
 				else
 					encoding = Encoding.Unicode;
@@ -1020,6 +1013,8 @@ namespace Keysharp.Core
 			nint ptr = 0;
 			var buf = source as Buffer;
 
+			if (source is LongPrimitive lp)
+				ptr = (nint)lp.Value;
 			if (source is IPointable ip)
 				ptr = (nint)ip.Ptr;
 			else if (source is long l)
@@ -1043,10 +1038,14 @@ namespace Keysharp.Core
 				//If length is negative, copy exactly the absolute value of len, regardless of 0s. Clamp to buf size of buf.
 				//If length is positive, copy as long as length is not reached and value is not 0.
 				var raw = (byte*)ptr.ToPointer();
-				var abs = (int)Math.Abs(len);
+				int abs = (int)Math.Abs(len);
+				int byteCount;
 
-				abs = encoding.GetMaxByteCount(abs);
-				int maxBytes = buf != null ? (int)Math.Min((long)buf.Size, abs) : abs;
+				if (encoding is UnicodeEncoding) byteCount = abs * 2;
+				else if (encoding is UTF32Encoding) byteCount = abs * 4;
+				else byteCount = abs; // ANSI, UTF-8 (approx: 1 char ≈ 1 byte)
+
+				int maxBytes = buf != null ? (int)Math.Min((long)buf.Size, byteCount) : byteCount;
 
 				Span<byte> span = new Span<byte>(raw, maxBytes);
 
@@ -1085,7 +1084,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The value to convert.</param>
 		/// <returns>The result of converting value to a string, or value itself if it was a string.</returns>
-		public static string String(object value) => value.As();
+		public static StringPrimitive String(object value) => value.As();
 
 		/// <summary>
 		/// Creates a <see cref="StringBuffer"/> object with a capacity of 256.
@@ -1094,7 +1093,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="str">An initial value to place inside of the buffer. Default: empty.</param>
 		/// <returns>The newly created <see cref="StringBuffer"/>.</returns>
-		public static StringBuffer StringBuffer(object str = null) => new (str.As(), 256);
+		public static StringBuffer StringBuffer(object str = null) => new (str, 256);
 
 		/// <summary>
 		/// Creates a <see cref="StringBuffer"/> object.
@@ -1104,21 +1103,21 @@ namespace Keysharp.Core
 		/// <param name="str">An initial value to place inside of the buffer. Default: empty.</param>
 		/// <param name="capacity">An initial capacity for the <see cref="StringBuffer"/>'s internal buffer. Default: 256.</param>
 		/// <returns>The newly created <see cref="StringBuffer"/>.</returns>
-		public static StringBuffer StringBuffer(object str, object capacity) => new (str.As(), capacity.Ai(256));
+		public static StringBuffer StringBuffer(object str, object capacity) => new (str, capacity.Ai(256));
 
 		/// <summary>
 		/// Retrieves the count of how many characters are in a string.
 		/// </summary>
 		/// <param name="str">The string whose contents will be measured.</param>
 		/// <returns>The length of the specified string.</returns>
-		public static long StrLen(object str) => str.As().Length;
+		public static LongPrimitive StrLen(object str) => str.As().Length;
 
 		/// <summary>
 		/// Converts a string to lowercase.
 		/// </summary>
 		/// <param name="str">The string to convert to lowercase.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrLower(object str) => str.As().ToLowerInvariant();
+		public static StringPrimitive StrLower(object str) => str.As().ToLowerInvariant();
 
 		/// <summary>
 		/// Returns the current memory address of a string.
@@ -1138,7 +1137,7 @@ namespace Keysharp.Core
 				var str = Script.GetPropertyValue(kso, "__Value");
 				var sbr = new StringBuffer(str);
 				sbr.EntangledString = kso;
-				return sbr;
+				return sbr.Ptr;
 			}
 			value = Encoding.Unicode.GetBytes(value.ToString());
 			var gch = GCHandle.Alloc(value, GCHandleType.Pinned);
@@ -1170,7 +1169,7 @@ namespace Keysharp.Core
 		/// <exception cref="ValueError">A <see cref="ValueError"/> is thrown if invalid parameters are detected,<br/>
 		/// such as if the converted string would be longer than allowed by length or target.Size.
 		/// </exception>
-		public static long StrPut(params object[] obj)//Leave this as variadic because the parameter scheme is complex.
+		public static LongPrimitive StrPut(params object[] obj)//Leave this as variadic because the parameter scheme is complex.
 		{
 			if (obj.Length > 0 && obj[0] != null)
 			{
@@ -1186,9 +1185,11 @@ namespace Keysharp.Core
 
 					if (obj[1] is IPointable)
 						ptr = (nint)buf.Ptr;
+					else if (obj[1] is LongPrimitive lp)
+						ptr = new nint(lp.Value);
 					else if (obj[1] is long l)
 						ptr = new nint(l);
-					else if (obj[1] is string ec)
+					else if (obj[1].IsString(out string ec))
 					{
 						encoding = Files.GetEncoding(ec);
 						return encoding.GetBytes(s).Length;
@@ -1200,7 +1201,7 @@ namespace Keysharp.Core
 
 				if (obj.Length > 2 && !obj[2].IsNullOrEmpty())
 				{
-					if (obj[2] is string ec)
+					if (obj[2].IsString(out string ec))
 					{
 						encoding = Files.GetEncoding(obj[2]);
 						len = s.Length;
@@ -1262,7 +1263,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify the maximum number of replacements to allow.
 		/// </param>
 		/// <returns>The newly modified string.</returns>
-		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null, [ByRef] object outputVarCount = null, object limit = null)
+		public static StringPrimitive StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null, [ByRef] object outputVarCount = null, object limit = null)
 		{
 			var input = haystack.As();
 			var search = needle.As();
@@ -1272,7 +1273,8 @@ namespace Keysharp.Core
 
 			if (IsAnyBlank(input, search))
 			{
-                Script.SetPropertyValue(outputVarCount, "__Value", 0L);
+				if (outputVarCount != null)
+					Script.SetPropertyValue(outputVarCount, "__Value", Primitive.False);
                 return DefaultObject;
 			}
 
@@ -1297,7 +1299,8 @@ namespace Keysharp.Core
 			if (n < input.Length)
 				_ = buf.Append(input, n, input.Length - n);
 
-			Script.SetPropertyValue(outputVarCount, "__Value", ct);
+			if (outputVarCount != null)
+				Script.SetPropertyValue(outputVarCount, "__Value", (LongPrimitive)ct);
 			return buf.ToString();
 		}
 
@@ -1325,26 +1328,27 @@ namespace Keysharp.Core
 		{
 			List<string> del = new ();
 			string trim = string.Empty;
+			string input = str.As(null);
 
-			if (str is string input)
+			if (str != null)
 			{
 				var count = maxParts.Ai(-1);
 
-				if (delimiters is string d)
+				if (delimiters is StringPrimitive d)
 					del.Add(d);
-				else if (delimiters is IList il)
+				else if (delimiters is IEnumerable il)
 					foreach (var id in il.Flatten(false))
 						del.Add(id.ToString());
 
-				if (omitChars is string t)
+				if (omitChars is StringPrimitive t)
 					trim = t;
-				else if (omitChars is IList il)
+				else if (omitChars is IEnumerable il)
 					foreach (var id in il.Flatten(false))
 						trim += id.ToString();
 
 				if (del.Count == 0)
 				{
-					var list = new List<string>(input.Length);
+					var list = new List<StringPrimitive>(input.Length);
 
 					if (count > 0)
 					{
@@ -1373,7 +1377,7 @@ namespace Keysharp.Core
 								list.Add(letter.ToString());
 					}
 
-					return new Array(list.Cast<object>().ToArray());
+					return new Array(list.Cast<object>());
 				}
 
 				var output = count > 0 ? input.Split(del.ToArray(), count, StringSplitOptions.None) : input.Split(del.ToArray(), StringSplitOptions.None);
@@ -1386,7 +1390,7 @@ namespace Keysharp.Core
 						output[i] = output[i].Trim(omit);
 				}
 
-				return new Array(output.Cast<object>().ToArray());
+				return new Array(output.Select(v => StringPrimitive.From(v)).Cast<object>().ToArray());
 			}
 
 			return [];
@@ -1397,14 +1401,14 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="str">The string to convert to title case.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrTitle(object str) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(str.As());
+		public static StringPrimitive StrTitle(object str) => CultureInfo.CurrentCulture.TextInfo.ToTitleCase(str.As());
 
 		/// <summary>
 		/// Converts a string to uppercase.
 		/// </summary>
 		/// <param name="str">The string to convert to uppercase.</param>
 		/// <returns>The newly converted version of the string.</returns>
-		public static string StrUpper(object str) => str.As().ToUpperInvariant();
+		public static StringPrimitive StrUpper(object str) => str.As().ToUpperInvariant();
 
 		/// <summary>
 		/// Retrieves one or more characters from the specified position in a string.
@@ -1422,7 +1426,7 @@ namespace Keysharp.Core
 		/// string (an empty string is returned if all or too many characters are omitted).
 		/// </param>
 		/// <returns>This function returns the requested substring of the specified string.</returns>
-		public static string SubStr(object str, object startingPos = null, object obj2 = null)
+		public static StringPrimitive SubStr(object str, object startingPos = null, object obj2 = null)
 		{
 			var input = str.As();
 			var index = startingPos.Ai(1);
@@ -1461,7 +1465,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify a list of characters (case-sensitive) to exclude from the beginning and end of the specified string.
 		/// </param>
 		/// <returns>Returns the trimmed version of the specified string.</returns>
-		public static string Trim(object str, object omitChars = null) => str.As().Trim(omitChars.As(" \t").ToCharArray());
+		public static StringPrimitive Trim(object str, object omitChars = null) => str.As().Trim(omitChars.As(" \t").ToCharArray());
 
 		/// <summary>
 		/// Sets a string capacity by replacing it with a StringBuffer instance.
@@ -1470,14 +1474,14 @@ namespace Keysharp.Core
 		/// <param name="requestedCapacity">Capacity for the StringBuffer. If this is -1 then
 		/// <paramref name="targetVar"/> contents are replaced with the content of the StringBuffer.</param>
 		/// <returns>StringBuffer</returns>
-		public static object VarSetStrCapacity([ByRef] object targetVar, object requestedCapacity = null)
+		public static LongPrimitive VarSetStrCapacity([ByRef] object targetVar, object requestedCapacity = null)
 		{
 			if (!(targetVar is KeysharpObject))
 				throw new TypeError($"Expected argument of type VarRef, but received {targetVar.GetType()}");
 
 			var target = Script.GetPropertyValue(targetVar, "__Value") ?? "";
 			int capacity;
-			if (target is string targetStr)
+			if (target.IsString(out string targetStr))
 			{
 				if (requestedCapacity == null)
 					return (long)targetStr.Length;
@@ -1521,7 +1525,7 @@ namespace Keysharp.Core
 		///     a positive integer if versionA is greater than versionB.<br/>
 		///     a negative integer if versionA is less than versionB.<br/>
 		/// </returns>
-		public static long VerCompare(object versionA, object versionB)
+		public static LongPrimitive VerCompare(object versionA, object versionB)
 		{
 			var v1 = versionA.As().Trim();
 			var v2 = versionB.As().Trim();

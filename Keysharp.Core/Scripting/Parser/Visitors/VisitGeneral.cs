@@ -750,7 +750,7 @@ namespace Keysharp.Scripting
                                 SyntaxKind.SimpleAssignmentExpression,
 								CreateMemberAccess("Keysharp.Core.Accessors", "A_ClipboardTimeout"),
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(uint.Parse(item.Value)))
+								CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal((int)uint.Parse(item.Value))))
                             )
                         ));
                         break;
@@ -760,7 +760,7 @@ namespace Keysharp.Scripting
                                 SyntaxKind.SimpleAssignmentExpression,
                                 CreateMemberAccess("Keysharp.Core.Accessors", "A_HotIfTimeout"),
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(uint.Parse(item.Value)))
+								CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(uint.Parse(item.Value))))
                             )
                         ));
                         break;
@@ -786,7 +786,7 @@ namespace Keysharp.Scripting
                                 SyntaxKind.SimpleAssignmentExpression,
 								CreateMemberAccess("Keysharp.Core.Accessors", "A_MaxThreadsBuffer"),
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(argument))
+								CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(argument)))
                             )
                         ));
                         break;
@@ -799,7 +799,7 @@ namespace Keysharp.Scripting
                                 SyntaxKind.SimpleAssignmentExpression,
 								CreateMemberAccess("Keysharp.Core.Accessors", "A_MaxThreadsPerHotkey"),
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(clampedValue))
+								CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(clampedValue)))
                             )
                         ));
                         break;

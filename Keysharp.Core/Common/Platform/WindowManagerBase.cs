@@ -57,15 +57,15 @@ namespace Keysharp.Core.Common.Platform
 				if (!ignorePureID && IsWindow(ptr))
 					return LastFound = CreateWindow(ptr);
 
-			var text = winText.As();
-			var exclTitle = excludeTitle.As();
-			var exclTxt = excludeText.As();
+			var text = winText.As("");
+			var exclTitle = excludeTitle.As("");
+			var exclTxt = excludeText.As("");
 
 			if (winTitle is Gui gui)
 			{
 				return LastFound = CreateWindow((nint)gui.Hwnd);
 			}
-			else if ((winTitle == null || winTitle is string s && string.IsNullOrEmpty(s)) &&
+			else if ((winTitle == null || winTitle is StringPrimitive s && s.IsEmpty) &&
 					 string.IsNullOrEmpty(text) &&
 					 string.IsNullOrEmpty(exclTitle) &&
 					 string.IsNullOrEmpty(exclTxt))
@@ -131,7 +131,7 @@ namespace Keysharp.Core.Common.Platform
 			var exclTitle = excludeTitle.As();
 			var exclText = excludeText.As();
 
-			if ((winTitle == null || winTitle is string s && string.IsNullOrEmpty(s)) &&
+			if ((winTitle == null || winTitle is StringPrimitive s && s.IsEmpty) &&
 					string.IsNullOrEmpty(text) &&
 					string.IsNullOrEmpty(exclTitle) &&
 					string.IsNullOrEmpty(exclText))

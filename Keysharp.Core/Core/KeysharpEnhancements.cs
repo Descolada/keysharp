@@ -13,7 +13,7 @@
 		/// Calls GC.Collect().
 		/// According to .NET design guidelines, this should never be necessary.
 		/// </summary>
-		public static object Collect()
+		public static Primitive Collect()
 		{
 			GC.Collect();
 			return DefaultObject;
@@ -33,7 +33,7 @@
 		/// Iconn: Indicates which icon to load from a file with multiple icons (generally an EXE or DLL file). For example, "Icon2" loads the file's second icon.<br/>
 		/// Any supported image format can be converted to an icon by specifying "Icon1".
 		/// </param>
-		public static object CopyImageToClipboard(object filename, object options = null)
+		public static Primitive CopyImageToClipboard(object filename, object options = null)
 		{
 			var file = filename.As();
 			var opts = options.As();
@@ -77,7 +77,7 @@
 		/// attempts to provide such functionality.
 		/// </summary>
 		/// <returns>True if empty, else false.</returns>
-		public static bool IsClipboardEmpty() => !dataFormats.Any(Clipboard.ContainsData);
+		public static LongPrimitive IsClipboardEmpty() => !dataFormats.Any(Clipboard.ContainsData);
 
 		/// <summary>
 		/// Shows the debug tab in the main window.

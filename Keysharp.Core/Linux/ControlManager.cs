@@ -259,7 +259,7 @@ namespace Keysharp.Core.Linux
 			return new Keysharp.Core.Array();
 		}
 
-		internal override void ControlGetPos(ref object outX, ref object outY, ref object outWidth, ref object outHeight, object ctrl = null, object title = null, object text = null, object excludeTitle = null, object excludeText = null)
+		internal override void ControlGetPos(ref long outX, ref long outY, ref long outWidth, ref long outHeight, object ctrl = null, object title = null, object text = null, object excludeTitle = null, object excludeText = null)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{

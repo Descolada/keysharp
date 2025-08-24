@@ -5126,7 +5126,7 @@ namespace Keysharp.Core.Windows
 							//This is not going to work. It's always going to comapre against this queue thread's priority, not the priority of whichever hotkey/string is currently executing.
 							//None of this will work until we implement real threads.
 							//TODO
-							//if (priority < (long)Accessors.A_Priority)
+							//if (priority < (LongPrimitive)Accessors.A_Priority)
 							//  continue;
 							//Original tries to do some type of thread init here.//TOOD
 							script.lastPeekTime = DateTime.UtcNow;

@@ -43,12 +43,12 @@
 		/// <param name="obj">Ignored.</param>
 		/// <returns>None</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown because this function has no meaning in Keysharp.</exception>
-		public static object ObjGetCapacity(object obj)
+		public static LongPrimitive ObjGetCapacity(object obj)
 		{
 			if (obj is KeysharpObject kso)
 				return kso.GetCapacity();
 
-			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
+			return (long)Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.", DefaultErrorLong);
 		}
 
 		/// <summary>
@@ -58,9 +58,9 @@
 		/// <param name="name">The OwnProp name to search for.</param>
 		/// <returns>Returns 1 if an object owns a property by the specified name, otherwise 0.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
-		public static long ObjHasOwnProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasOwnProp(name) : 0L;
+		public static LongPrimitive ObjHasOwnProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasOwnProp(name) : 0L;
 
-		public static long ObjHasProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasProp(name) : 0L;
+		public static LongPrimitive ObjHasProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasProp(name) : 0L;
 
 		/// <summary>
 		/// Returns the number of properties owned by an object.
@@ -68,7 +68,7 @@
 		/// <param name="obj">The object to get the OwnProps count for.</param>
 		/// <returns>The number of properties owned by an obj.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
-		public static long ObjOwnPropCount(object obj)
+		public static LongPrimitive ObjOwnPropCount(object obj)
 		{
 			if (obj is KeysharpObject kso)
 				return kso.OwnPropCount();
@@ -205,12 +205,12 @@
 		/// <param name="obj0">The object</param>
 		/// <param name="obj1">New capacity</param>
 		/// <returns>The new capacity</returns>
-		public static object ObjSetCapacity(object obj0, object obj1)
+		public static LongPrimitive ObjSetCapacity(object obj0, object obj1)
 		{
 			if (obj0 is KeysharpObject kso)
 				return kso.SetCapacity(obj1);
 
-			return Errors.ErrorOccurred($"Object of type {obj0.GetType()} was not of type KeysharpObject.");
+			return (long)Errors.ErrorOccurred($"Object of type {obj0.GetType()} was not of type KeysharpObject.", DefaultErrorLong);
 		}
 #if WINDOWS
 		/// <summary>
@@ -232,7 +232,7 @@
 		/// The resulting GCHandle is allocated with GCHandleType.Normal,
 		/// so it must be freed later to avoid a leak.
 		/// </summary>
-		public static long ObjPtrAddRef(object obj)
+		public static LongPrimitive ObjPtrAddRef(object obj)
 		{
 			if (obj == null)
 				return 0;
@@ -284,7 +284,7 @@
 		/// <summary>
 		/// Frees a managed C# object or string, allowing it to be garbage-collected.
 		/// </summary>
-		public static bool ObjFree(object value)
+		public static LongPrimitive ObjFree(object value)
 		{
 			if (value is IPointable ip)
 				value = ip.Ptr;

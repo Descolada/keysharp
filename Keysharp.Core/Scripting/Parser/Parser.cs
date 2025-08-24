@@ -300,7 +300,7 @@ namespace Keysharp.Scripting
 
 			public static StatementSyntax DefaultReturnStatement = SyntaxFactory.ReturnStatement(
                 PredefinedKeywords.ReturnToken,
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("")),
+                CastLiteral(SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(""))),
                 PredefinedKeywords.SemicolonToken
             );
 		}

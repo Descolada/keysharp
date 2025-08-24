@@ -9,7 +9,7 @@
 
 		public void CreateTrayMenu()
 		{
-			var trayIcon = Tray = new NotifyIcon { ContextMenuStrip = new ContextMenuStrip(), Text = A_ScriptName.Substring(0, Math.Min(A_ScriptName.Length, 64)) };//System tray icon tooltips have a limit of 64 characters.
+			var trayIcon = Tray = new NotifyIcon { ContextMenuStrip = new ContextMenuStrip(), Text = A_ScriptName.ToString().Substring(0, Math.Min(A_ScriptName.SpanLength, 64)) };//System tray icon tooltips have a limit of 64 characters.
 			Script.TheScript.ProcessesData.mainContext = SynchronizationContext.Current;//This must happen after the icon is created.
 
 			if (NoTrayIcon)

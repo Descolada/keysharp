@@ -202,7 +202,7 @@ namespace Keysharp.Core.Windows
 			if (u)
 				d = false;
 
-			if (ctrlorpos is string s && s.StartsWith("x", StringComparison.OrdinalIgnoreCase) && s.Contains(' ') && s.Contains('y', StringComparison.OrdinalIgnoreCase))
+			if (ctrlorpos.IsString(out string s) && s.StartsWith("x", StringComparison.OrdinalIgnoreCase) && s.Contains(' ') && s.Contains('y', StringComparison.OrdinalIgnoreCase))
 			{
 				foreach (Range r in s.AsSpan().SplitAny(Spaces))
 				{
@@ -575,10 +575,10 @@ namespace Keysharp.Core.Windows
 			return new Keysharp.Core.Array();
 		}
 
-		internal override void ControlGetPos(ref object outX,
-											 ref object outY,
-											 ref object outWidth,
-											 ref object outHeight,
+		internal override void ControlGetPos(ref long outX,
+											 ref long outY,
+											 ref long outWidth,
+											 ref long outHeight,
 											 object ctrl = null,
 											 object title = null,
 											 object text = null,
@@ -687,11 +687,15 @@ namespace Keysharp.Core.Windows
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{
-				if (val is long l)
+				if (val is LongPrimitive lp)
+					item.ExStyle = lp.Value;
+				else if (val is DoublePrimitive dp)
+					item.ExStyle = (long)dp.Value;
+				else if (val is long l)
 					item.ExStyle = l;
 				else if (val is double d)
 					item.ExStyle = (long)d;
-				else if (val is string s)
+				else if (val.IsString(out string s))
 				{
 					long temp = 0;
 
@@ -712,11 +716,15 @@ namespace Keysharp.Core.Windows
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{
-				if (val is long l)
+				if (val is LongPrimitive lp)
+					item.Style = lp.Value;
+				else if (val is DoublePrimitive dp)
+					item.Style = (long)dp.Value;
+				else if (val is long l)
 					item.Style = l;
 				else if (val is double d)
 					item.Style = (long)d;
-				else if (val is string s)
+				else if (val.IsString(out string s))
 				{
 					long temp = 0;
 
@@ -1194,7 +1202,7 @@ namespace Keysharp.Core.Windows
 
 			if (item is WindowItem)
 			{
-				if (!WindowsAPI.PostMessage(item.Handle, (uint)msg, new nint(wparam), new nint(lparam)))
+				if (!WindowsAPI.PostMessage(item.Handle, (uint)msg, wparam, lparam))
 					_ = Errors.ErrorOccurred($"Could not post message with values msg: {msg}, lparam: {lparam}, wparam: {wparam} to control in window with criteria: title: {title}, text: {text}, exclude title: {excludeTitle}, exclude text: {excludeText}");
 			}
 
@@ -1210,7 +1218,7 @@ namespace Keysharp.Core.Windows
 					   : WindowSearch.SearchWindow(title, text, excludeTitle, excludeText, true);
 			var thehandle = item.Handle;
 
-			if (lparam is string s)
+			if (lparam.IsString(out string s))
 			{
 				var sendresult = 0L;
 				nint result = 0;

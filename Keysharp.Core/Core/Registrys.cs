@@ -20,7 +20,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify the name of the value to delete.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object RegDelete(object keyName = null, object valueName = null)
+		public static Primitive RegDelete(object keyName = null, object valueName = null)
 		{
 			var keyname = keyName.As();
 			var valname = valueName.As();
@@ -28,19 +28,16 @@ namespace Keysharp.Core
 			try
 			{
 				if (keyname?.Length == 0)
-					if (A_LoopRegKey is string k)
-						keyname = k;
+					keyname = A_LoopRegKey;
 
 				if (valname?.Length == 0)
 				{
-					if (A_LoopRegType is string t)
+					string t = A_LoopRegType;
+					if (t == "KEY")
 					{
-						if (t == "KEY")
-						{
-						}
-						else if (t != "" && valname?.Length == 0)//Wasn't overridden with passed in parameter.
-							valname = A_LoopRegName;
 					}
+					else if (t != "" && valname?.Length == 0)//Wasn't overridden with passed in parameter.
+						valname = A_LoopRegName;
 				}
 
 				var val = valname.ToLowerInvariant();
@@ -67,15 +64,14 @@ namespace Keysharp.Core
 		/// If the item is a subkey, the full name of that subkey is used by default.<br/>
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object RegDeleteKey(object keyName = null)
+		public static Primitive RegDeleteKey(object keyName = null)
 		{
 			var keyname = keyName.As();
 
 			try
 			{
 				if (keyname?.Length == 0)
-					if (A_LoopRegKey is string k)
-						keyname = k;
+					keyname = A_LoopRegKey;
 
 				var (reg, comp, key) = Conversions.ToRegRootKey(keyname);
 				reg.DeleteSubKeyTree(key, true);
@@ -113,19 +109,16 @@ namespace Keysharp.Core
 			try
 			{
 				if (keyname.Length == 0)
-					if (A_LoopRegKey is string k)
-						keyname = k;
+					keyname = A_LoopRegKey;
 
 				if (valname.Length == 0)
 				{
-					if (A_LoopRegType is string t)
+					string t = A_LoopRegType;
+					if (t == "KEY")
 					{
-						if (t == "KEY")
-						{
-						}
-						else if (t != "" && valname?.Length == 0)//Wasn't overridden with passed in parameter.
-							valname = A_LoopRegName;
 					}
+					else if (t != "" && valname?.Length == 0)//Wasn't overridden with passed in parameter.
+						valname = A_LoopRegName;
 				}
 
 				valname = valname.ToLowerInvariant();
@@ -136,22 +129,22 @@ namespace Keysharp.Core
 				var reg = Conversions.ToRegKey(keyname, false).Item1.GetValue(valname);
 
 				if (reg is int i)//All integer numbers need to be longs.
-					reg = (long)i;
+					return (LongPrimitive)i;
 				else if (reg is uint ui)
-					reg = (long)ui;
+					return (LongPrimitive)ui;
 				else if (reg is string[] sa)
-					reg = new Array(sa);
+					return new Array(sa.Select(Primitive.From));
 				else if (reg is byte[] ba)
-					reg = new Array(ba.Select(b => (long)b).ToArray());
+					return new Buffer(ba);
 				else if (reg is null)
 				{
 					if (!string.IsNullOrEmpty(def))
-						return def;
+						return (StringPrimitive)def;
 
 					return Errors.OSErrorOccurred("", $"Registry key {keyname} and value {valname} was not found and no default was specified.");
 				}
 
-				return reg;
+				return Primitive.From(reg);
 			}
 			catch (Exception ex)
 			{
@@ -177,9 +170,11 @@ namespace Keysharp.Core
 		/// Otherwise, specify the name of the value that will be written to.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object RegWrite(object value, object valueType = null, object keyName = null, object valueName = null)
+		public static Primitive RegWrite(object value, object valueType = null, object keyName = null, object valueName = null)
 		{
 			var val = value;
+			if (value is Primitive p)
+				val = p.AsObject();
 			var valtype = valueType.As();
 			var keyname = keyName.As();
 			var valname = valueName.As();
@@ -192,25 +187,21 @@ namespace Keysharp.Core
 				{
 					if (valtype?.Length == 0)
 					{
-						if (A_LoopRegType is string t)
+						string t = A_LoopRegType;
+						if (t == "KEY")
 						{
-							if (t == "KEY")
-							{
-							}
-							else if (t != "")
-							{
-								valtype = t;//In this case, value type should be gotten from the current loop.
+						}
+						else if (t != "")
+						{
+							valtype = t;//In this case, value type should be gotten from the current loop.
 
-								if (valname?.Length == 0)//Wasn't overridden with passed in parameter.
-									valname = A_LoopRegName;
-							}
+							if (valname?.Length == 0)//Wasn't overridden with passed in parameter.
+								valname = A_LoopRegName;
 						}
 					}
 
-					if (A_LoopRegKey is string k)
-						if (A_LoopRegType is string t)
-							if (t == "KEY")
-								keyname = k;
+					if (A_LoopRegType == "KEY")
+						keyname = A_LoopRegKey;
 				}
 
 				valname = valname.ToLowerInvariant();
@@ -250,10 +241,10 @@ namespace Keysharp.Core
 		/// <param name="regView">Specify 32 to view the registry as a 32-bit application would, or 64 to view the registry as a 64-bit application would.<br/>
 		/// Specify the word Default to restore normal behavior.
 		/// </param>
-		public static object SetRegView(object regView)
+		public static Primitive SetRegView(object regView)
 		{
-			var oldVal = A_RegView;
-			A_RegView = regView;
+			var oldVal = (Primitive)A_RegView;
+			A_RegView = Primitive.From(regView);
 			return oldVal;
 		}
 

@@ -3,9 +3,9 @@
 	public class RegExMatchInfoCs : KeysharpObject, I__Enum, IEnumerable<(object, object)>
 	{
 		private Match match;
-		public object Count => match.Groups.Count;
-		public object Mark => match.Groups.Count > 0 ? match.Groups[ ^ 1].Name : "";
-		public object Success => match.Success;
+		public LongPrimitive Count => match.Groups.Count;
+		public StringPrimitive Mark => match.Groups.Count > 0 ? match.Groups[ ^ 1].Name : "";
+		public LongPrimitive Success => match.Success;
 
 		public (Type, object) super => (typeof(KeysharpObject), this);
 
@@ -22,20 +22,12 @@
 			for (int i = 0; i < match.Groups.Count; i++)
 			{
 				var g = match.Groups[i];
-				_ = DefineProp(g.Name,
-							   Objects.Object(
-								   [
-									   "get",
-									   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(g.Name)
-								   ]));
+				Script.DefineProp(this, g.Name,
+					new OwnPropsDesc(this, null, Functions.GetFuncObj("GetWrapper", this, 2, true).Bind((StringPrimitive)g.Name)));
 
 				if (i.ToString() != g.Name)//No need to add it twice if the name matches the index.
-					_ = DefineProp(i,
-								   Objects.Object(
-									   [
-										   "get",
-										   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(g.Name)
-									   ]));
+					Script.DefineProp(this, i.ToString(),
+						new OwnPropsDesc(this, null, Functions.GetFuncObj("GetWrapper", this, 2, true).Bind((StringPrimitive)g.Name)));
 			}
 
 			return DefaultObject;
@@ -45,19 +37,19 @@
 
 		public object GetWrapper(object obj1, object obj2) => this[obj1];
 
-		public long Len(object obj)
+		public LongPrimitive Len(object obj)
 		{
 			var g = GetGroup(obj);
 			return g != null && g.Success ? g.Length : 0;
 		}
 
-		public string Name(object obj)
+		public StringPrimitive Name(object obj)
 		{
 			var g = GetGroup(obj);
 			return g != null && g.Success ? g.Name : "";
 		}
 
-		public long Pos(object obj = null)
+		public LongPrimitive Pos(object obj = null)
 		{
 			var g = GetGroup(obj);
 			return g != null && g.Success ? g.Index + 1 : 0;
@@ -73,7 +65,7 @@
 
 			if (o == null)
 				return match;
-			else if (o is string s)
+			else if (o is StringPrimitive s)
 				return match.Groups[s];
 			else
 			{
@@ -88,7 +80,7 @@
 			return null;
 		}
 
-		public string this[params object[] obj]
+		public StringPrimitive this[params object[] obj]
 		{
 			get
 			{
@@ -125,9 +117,9 @@
 					var g = iter.Current;
 
 					if (Count == 1)
-						return (g.Value, null);
+						return ((StringPrimitive)g.Value, null);
 					else
-						return (g.Name, g.Value);
+						return ((StringPrimitive)g.Name, (StringPrimitive)g.Value);
 				}
 				catch (IndexOutOfRangeException)
 				{

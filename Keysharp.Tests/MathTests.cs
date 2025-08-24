@@ -7,10 +7,10 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Abs()
 		{
-			Assert.AreEqual(1, Maths.Abs(1));
-			Assert.AreEqual(1, Maths.Abs(-1));
-			Assert.AreEqual(9.81, Maths.Abs(-9.81));
-			Assert.AreEqual(0, Maths.Abs(-0));
+			Assert.AreEqual(1, Maths.Abs(1).Ao());
+			Assert.AreEqual(1, Maths.Abs(-1).Ao());
+			Assert.AreEqual(9.81, Maths.Abs(-9.81).Ao());
+			Assert.AreEqual(0, Maths.Abs(-0).Ao());
 			Assert.IsTrue(TestScript("math-abs", true));
 		}
 
@@ -18,7 +18,7 @@ namespace Keysharp.Tests
 		public void ACos()
 		{
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Acos(n), Maths.ACos(n));
+				Assert.AreEqual(Math.Acos(n), Maths.ACos(n).Ad());
 			var caught = false;
 
 			try
@@ -50,7 +50,7 @@ namespace Keysharp.Tests
 		public void ASin()
 		{
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Asin(n), Maths.ASin(n));
+				Assert.AreEqual(Math.Asin(n), Maths.ASin(n).Ad());
 			var caught = false;
 
 			try
@@ -82,7 +82,7 @@ namespace Keysharp.Tests
 		public void ATan()
 		{
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Atan(n), Maths.ATan(n));
+				Assert.AreEqual(Math.Atan(n), Maths.ATan(n).Ad());
 			Assert.IsTrue(TestScript("math-atan", true));
 		}
 
@@ -95,7 +95,7 @@ namespace Keysharp.Tests
 			{
 				var x = n[i];
 				var y = n[i - 1];
-				Assert.AreEqual(Math.Atan2(y, x), KeysharpEnhancements.ATan2(y, x));
+				Assert.AreEqual(Math.Atan2(y, x), KeysharpEnhancements.ATan2(y, x).Ao());
 			}
 
 			Assert.IsTrue(TestScript("math-atan2", true));
@@ -105,7 +105,7 @@ namespace Keysharp.Tests
 		public void Ceil()
 		{
 			foreach (var n in new[] { -1, -2.1, 0, -0, 1.000001 })
-				Assert.AreEqual(Math.Ceiling(n), Maths.Ceil(n));
+				Assert.AreEqual(Math.Ceiling(n), Maths.Ceil(n).Ad());
 			Assert.IsTrue(TestScript("math-ceil", true));
 		}
 
@@ -115,7 +115,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Cos(v), Maths.Cos(v));
+				Assert.AreEqual(Math.Cos(v), Maths.Cos(v).Ad());
 			}
 			Assert.IsTrue(TestScript("math-cos", true));
 		}
@@ -126,7 +126,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Cosh(v), KeysharpEnhancements.Cosh(v));
+				Assert.AreEqual(Math.Cosh(v), KeysharpEnhancements.Cosh(v).Ad());
 			}
 			Assert.IsTrue(TestScript("math-cosh", true));
 		}
@@ -136,7 +136,7 @@ namespace Keysharp.Tests
 		{
 			var d1 = "20040126000000";
 			var d2 = "20050126000000";
-			var val = Maths.DateAdd(d1, 366, "days");
+			string val = Maths.DateAdd(d1, 366, "days");
 			Assert.AreEqual(d2, val);
 			val = Maths.DateAdd(d2, -366L, "days");
 			Assert.AreEqual(d1, val);
@@ -194,7 +194,7 @@ namespace Keysharp.Tests
 		{
 			var d1 = "20050126";
 			var d2 = "20040126";
-			var val = Maths.DateDiff(d1, d2, "days");
+			long val = Maths.DateDiff(d1, d2, "days");
 			Assert.AreEqual(366L, val);
 			d1 = "20230110";
 			d2 = "20230115";
@@ -233,7 +233,7 @@ namespace Keysharp.Tests
 		public void Exp()
 		{
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Exp(n), Maths.Exp(n));
+				Assert.AreEqual(Math.Exp(n), Maths.Exp(n).Ad());
 			Assert.IsTrue(TestScript("math-exp", true));
 		}
 
@@ -241,7 +241,7 @@ namespace Keysharp.Tests
 		public void Floor()
 		{
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.67 })
-				Assert.AreEqual(Math.Floor(n), Maths.Floor(n));
+				Assert.AreEqual(Math.Floor(n), Maths.Floor(n).Ad());
 			Assert.IsTrue(TestScript("math-floor", true));
 		}
 
@@ -249,7 +249,7 @@ namespace Keysharp.Tests
 		public void Integer()
 		{
 			foreach (var n in new[] { -1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual((double)(long)(n), Maths.Integer(n));
+				Assert.AreEqual((long)(n), Maths.Integer(n).Al());
 			Assert.IsTrue(TestScript("math-integer", true));
 		}
 
@@ -257,7 +257,7 @@ namespace Keysharp.Tests
 		public void Float()
 		{
 			foreach (var n in new object[] { -1, 1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual(n, Maths.Float(n));
+				Assert.AreEqual(n, Maths.Float(n).AsObject());
 			Assert.IsTrue(TestScript("math-float", true));
 		}
 
@@ -265,7 +265,7 @@ namespace Keysharp.Tests
 		public void Ln()
 		{
 			foreach (var n in new[] { 0, -0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Log(n), Maths.Ln(n));
+				Assert.AreEqual(Math.Log(n), Maths.Ln(n).Ad());
 			var caught = false;
 
 			try
@@ -299,11 +299,11 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { 0, 0.5, 1, 0.675 })
 			{
 				foreach (var b in new[] { -1, 0, 1, 2, 3, 4 })
-					Assert.AreEqual(Math.Log(n, b), Maths.Log(n, b));
+					Assert.AreEqual(Math.Log(n, b), Maths.Log(n, b).Ao());
 			}
 
 			foreach (var n in new[] { 0, 0.5, 1, 0.675 })
-				Assert.AreEqual(Math.Log10(n), Maths.Log(n));
+				Assert.AreEqual(Math.Log10(n), Maths.Log(n).Ao());
 			var caught = false;
 
 			try
@@ -333,33 +333,33 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Max()
 		{
-			Assert.AreEqual(-6, Maths.Max(-6, -6));
-			Assert.AreEqual(-6, Maths.Max(-6, "-6"));
-			Assert.AreEqual(-5, Maths.Max(-6, -5));
-			Assert.AreEqual(-4.2, Maths.Max(-4.2, -5.0));
-			Assert.AreEqual(-4.2, Maths.Max("-4.2", -5.0));
-			Assert.AreEqual(-4.2, Maths.Max(-4.2, "-5.0"));
-			Assert.AreEqual(-4.2, Maths.Max("-4.2", "-5.0"));
-			Assert.AreEqual(0, Maths.Max(0, 0));
-			Assert.AreEqual(1, Maths.Max("0", 1L));
-			Assert.AreEqual(1, Maths.Max(1, "0"));
-			Assert.AreEqual(1, Maths.Max("1", "1"));
-			Assert.AreEqual(2.3, Maths.Max(1.5, 2.3));
-			Assert.AreEqual(0.675, Maths.Max([-1.0, 0.675]));
-			Assert.AreEqual(1, Maths.Max([-1.0, -0.5, 0, 0.5, 1, 0.675]));
-			Assert.AreEqual(2, Maths.Max([-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0"]));
-			Assert.AreEqual(0.675, Maths.Max(new Keysharp.Core.Array([-1.0, 0.675])));
-			Assert.AreEqual(1, Maths.Max(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
-			Assert.AreEqual(2, Maths.Max(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
-			Assert.AreEqual(1, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675));
-			Assert.AreEqual(2, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0));
-			Assert.AreEqual(typeof(long), Maths.Max(-1.0, 1L).GetType());
-			Assert.AreEqual(typeof(double), Maths.Max(1.0, -1L).GetType());
+			Assert.AreEqual(-6, Maths.Max(-6, -6).Ao());
+			Assert.AreEqual(-6, Maths.Max(-6, "-6").Ao());
+			Assert.AreEqual(-5, Maths.Max(-6, -5).Ao());
+			Assert.AreEqual(-4.2, Maths.Max(-4.2, -5.0).Ao());
+			Assert.AreEqual(-4.2, Maths.Max("-4.2", -5.0).Ao());
+			Assert.AreEqual(-4.2, Maths.Max(-4.2, "-5.0").Ao());
+			Assert.AreEqual(-4.2, Maths.Max("-4.2", "-5.0").Ao());
+			Assert.AreEqual(0, Maths.Max(0, 0).Ao());
+			Assert.AreEqual(1, Maths.Max("0", 1L).Ao());
+			Assert.AreEqual(1, Maths.Max(1, "0").Ao());
+			Assert.AreEqual(1, Maths.Max("1", "1").Ao());
+			Assert.AreEqual(2.3, Maths.Max(1.5, 2.3).Ao());
+			Assert.AreEqual(0.675, Maths.Max(-1.0, 0.675).Ao());
+			Assert.AreEqual(1, Maths.Max(-1.0, -0.5, 0, 0.5, 1, 0.675).Ao());
+			Assert.AreEqual(2, Maths.Max(-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0").Ao());
+			Assert.AreEqual(0.675, Maths.Max(-1.0, 0.675).Ao());
+			Assert.AreEqual(1, Maths.Max(-1.0, -0.5, 0, 0.5, 1, 0.675).Ao());
+			Assert.AreEqual(2, Maths.Max(-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0).Ao());
+			Assert.AreEqual(1, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675).Ao());
+			Assert.AreEqual(2, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0).Ao());
+			Assert.AreEqual(typeof(long), Maths.Max(-1.0, 1L).Ao().GetType());
+			Assert.AreEqual(typeof(double), Maths.Max(1.0, -1L).Ao().GetType());
 			var caught = false;
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Max([-1.0, "asdf"]));
+				Assert.AreEqual(string.Empty, Maths.Max(-1.0, "asdf"));
 			}
 			catch (Exception)
 			{
@@ -371,7 +371,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Max(new Keysharp.Core.Array([-1.0, "asdf"])));
+				Assert.AreEqual(string.Empty, Maths.Max(new Keysharp.Core.Array(new object[] { -1.0, "asdf" }.Select(Primitive.From))));
 			}
 			catch (Exception)
 			{
@@ -385,32 +385,32 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Min()
 		{
-			Assert.AreEqual(-6, Maths.Min(-6, -6));
-			Assert.AreEqual(-6, Maths.Min(-6, "5"));
-			Assert.AreEqual(-5.0, Maths.Min(-4.2, -5.0));
-			Assert.AreEqual(-5.0, Maths.Min("-4.2", -5.0));
-			Assert.AreEqual(-5.0, Maths.Min(-4.2, "-5.0"));
-			Assert.AreEqual(-5.0, Maths.Min("-4.2", "-5.0"));
-			Assert.AreEqual(0, Maths.Min(0, 0));
-			Assert.AreEqual(0, Maths.Min("0", 1));
-			Assert.AreEqual(0, Maths.Min(0, "1"));
-			Assert.AreEqual(1, Maths.Min("1", "1"));
-			Assert.AreEqual(1.5, Maths.Min(1.5, 2.3));
-			Assert.AreEqual(-1.0, Maths.Min([-1.0, 0.675]));
-			Assert.AreEqual(-1.0, Maths.Min([-1.0, -0.5, 0, 0.5, 1, 0.675]));
-			Assert.AreEqual(-1.0, Maths.Min([-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0"]));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, 0.675])));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
-			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675));
-			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0));
-			Assert.AreEqual(typeof(double), Maths.Min(-1.0, 1L).GetType());
-			Assert.AreEqual(typeof(long), Maths.Min(1.0, -1L).GetType());
+			Assert.AreEqual(-6, Maths.Min(-6, -6).Ao());
+			Assert.AreEqual(-6, Maths.Min(-6, "5").Ao());
+			Assert.AreEqual(-5.0, Maths.Min(-4.2, -5.0).Ao());
+			Assert.AreEqual(-5.0, Maths.Min("-4.2", -5.0).Ao());
+			Assert.AreEqual(-5.0, Maths.Min(-4.2, "-5.0").Ao());
+			Assert.AreEqual(-5.0, Maths.Min("-4.2", "-5.0").Ao());
+			Assert.AreEqual(0, Maths.Min(0, 0).Ao());
+			Assert.AreEqual(0, Maths.Min("0", 1).Ao());
+			Assert.AreEqual(0, Maths.Min(0, "1").Ao());
+			Assert.AreEqual(1, Maths.Min("1", "1").Ao());
+			Assert.AreEqual(1.5, Maths.Min(1.5, 2.3).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, 0.675).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, 0.5, 1, 0.675).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0").Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, 0.675).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, 0.5, 1, 0.675).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675).Ao());
+			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0).Ao());
+			Assert.AreEqual(typeof(double), Maths.Min(-1.0, 1L).Ao().GetType());
+			Assert.AreEqual(typeof(long), Maths.Min(1.0, -1L).Ao().GetType());
 			var caught = false;
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Min([-1.0, "asdf"]));
+				Assert.AreEqual(string.Empty, Maths.Min(-1.0, "asdf"));
 			}
 			catch (Exception)
 			{
@@ -422,7 +422,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Min(new Keysharp.Core.Array([-1.0, "asdf"])));
+				Assert.AreEqual(string.Empty, Maths.Min(new Keysharp.Core.Array(new object[] { -1.0, "asdf" }.Select(Primitive.From))));
 			}
 			catch (Exception)
 			{
@@ -439,7 +439,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, 0, 1, 2, 3, 4 })
 			{
 				foreach (var d in new[] { -1, -0.5, 0.5, 1, 0.675 })
-					Assert.AreEqual(d == 0 ? 0 : n % d, Maths.Mod(n, d));
+					Assert.AreEqual(d == 0 ? 0 : n % d, Maths.Mod(n, d).Ao());
 			}
 			var caught = false;
 
@@ -458,24 +458,17 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Number()
 		{
-			Assert.AreEqual(Maths.Number("0"), 0L);
-			Assert.AreEqual(Maths.Number("0.0"), 0.0);
-			Assert.AreEqual(Maths.Number("1"), 1L);
-			Assert.AreEqual(Maths.Number("1.0"), 1.0);
-			Assert.AreNotEqual(Maths.Number("1.5"), 1L);
-			Assert.AreEqual(Maths.Number(1L), 1L);
-			Assert.AreNotEqual(Maths.Number(1.5), 1L);
-			Assert.AreEqual(Maths.Number(-1L), -1L);
-			Assert.AreEqual(Maths.Number("-1"), -1L);
-			Assert.AreEqual(Maths.Number("1L"), 1L);
-			Assert.AreEqual(Maths.Number("+1L"), 1L);
-			Assert.AreEqual(Maths.Number("-1.0"), -1.0);
-			Assert.AreEqual(Maths.Number("1.0D"), 1.0);
-			Assert.AreEqual(Maths.Number("1.0d"), 1.0);
-			Assert.AreEqual(Maths.Number("-1.0D"), -1.0);
-			Assert.AreEqual(Maths.Number("-1.0d"), -1.0);
-			Assert.AreEqual(Maths.Number("0xF"), 15L);
-			Assert.AreEqual(Maths.Number("-0xF"), -15L);
+			Assert.AreEqual(Maths.Number("0").Ao(), 0L);
+			Assert.AreEqual(Maths.Number("0.0").Ao(), 0.0);
+			Assert.AreEqual(Maths.Number("1").Ao(), 1L);
+			Assert.AreEqual(Maths.Number("1.0").Ao(), 1.0);
+			Assert.AreNotEqual(Maths.Number("1.5").Ao(), 1L);
+			Assert.AreEqual(Maths.Number(1L).Ao(), 1L);
+			Assert.AreNotEqual(Maths.Number(1.5).Ao(), 1L);
+			Assert.AreEqual(Maths.Number(-1L).Ao(), -1L);
+			Assert.AreEqual(Maths.Number("-1").Ao(), -1L);
+			Assert.AreEqual(Maths.Number("0xF").Ao(), 15L);
+			Assert.AreEqual(Maths.Number("-0xF").Ao(), -15L);
 		}
 
 		[Test, Category("Math")]
@@ -525,13 +518,13 @@ namespace Keysharp.Tests
 		[Test, Category("Math")]
 		public void Round()
 		{
-			Assert.AreEqual(3, Maths.Round(3.14));
-			Assert.AreEqual(3.1, Maths.Round(3.14, 1));
-			Assert.AreEqual(350, Maths.Round(345, -1));
-			Assert.AreEqual(300, Maths.Round(345, -2));
-			Assert.AreEqual(-350, Maths.Round(-345, -1));
-			Assert.AreEqual(-300, Maths.Round(-345, -2));
-			Assert.AreEqual(0, Maths.Round(-0, -2));
+			Assert.AreEqual(3, Maths.Round(3.14).Ao());
+			Assert.AreEqual(3.1, Maths.Round(3.14, 1).Ao());
+			Assert.AreEqual(350, Maths.Round(345, -1).Ao());
+			Assert.AreEqual(300, Maths.Round(345, -2).Ao());
+			Assert.AreEqual(-350, Maths.Round(-345, -1).Ao());
+			Assert.AreEqual(-300, Maths.Round(-345, -2).Ao());
+			Assert.AreEqual(0, Maths.Round(-0, -2).Ao());
 			Assert.IsTrue(TestScript("math-round", true));
 		}
 
@@ -541,7 +534,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Sin(v), Maths.Sin(v));
+				Assert.AreEqual(Math.Sin(v), Maths.Sin(v).Ao());
 			}
 			Assert.IsTrue(TestScript("math-sin", true));
 		}
@@ -552,7 +545,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Sinh(v), KeysharpEnhancements.Sinh(v));
+				Assert.AreEqual(Math.Sinh(v), KeysharpEnhancements.Sinh(v).Ao());
 			}
 			Assert.IsTrue(TestScript("math-sinh", true));
 		}
@@ -561,7 +554,7 @@ namespace Keysharp.Tests
 		public void Sqrt()
 		{
 			foreach (var n in new[] { 0, 1, 4, 9, 36, 12769, 8 })
-				Assert.AreEqual(Math.Sqrt(n), Maths.Sqrt(n));
+				Assert.AreEqual(Math.Sqrt(n), Maths.Sqrt(n).Ao());
 			var caught = false;
 
 			try
@@ -583,7 +576,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Tan(v), Maths.Tan(v));
+				Assert.AreEqual(Math.Tan(v), Maths.Tan(v).Ao());
 			}
 			Assert.IsTrue(TestScript("math-tan", true));
 		}
@@ -594,7 +587,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Tanh(v), KeysharpEnhancements.Tanh(v));
+				Assert.AreEqual(Math.Tanh(v), KeysharpEnhancements.Tanh(v).Ao());
 			}
 			Assert.IsTrue(TestScript("math-tanh", true));
 		}

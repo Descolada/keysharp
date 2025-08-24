@@ -4,10 +4,10 @@
 	{
 		internal PcreMatch match;
 		internal RegexHolder holder;
-		public object Count => match.CaptureCount;
-		public object Mark => match.Mark;
-		public object Success => match.Success;
-		public object pos => Pos(); //Lower-cased because of the naming conflict with the method
+		public LongPrimitive Count => match.CaptureCount;
+		public StringPrimitive Mark => match.Mark;
+		public LongPrimitive Success => match.Success;
+		public LongPrimitive pos => Pos(); //Lower-cased because of the naming conflict with the method
 
 		public RegExMatchInfo(params object[] args) : base(args) { }
 
@@ -20,23 +20,15 @@
 
 			for (int i = 0; i < match.Groups.Count; i++)
 			{
-				_ = DefineProp(i,
-							   Objects.Object(
-								   [
-									   "get",
-									   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(i)
-								   ]));
+				Script.DefineProp(this, i.ToString(),
+					new OwnPropsDesc(this, null, Functions.GetFuncObj("GetWrapper", this, 2, true).Bind((LongPrimitive)i)));
 			}
 
 			foreach (var name in holder.info.GroupNames)
 			{
 				if (match.Groups[name] != null)
-					_ = DefineProp(name,
-								   Objects.Object(
-									   [
-										   "get",
-										   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(name)
-									   ]));
+					Script.DefineProp(this, name, 
+						new OwnPropsDesc(this, null, Functions.GetFuncObj("GetWrapper", this, 2, true).Bind((StringPrimitive)name)));
 			}
 
 			return DefaultObject;
@@ -51,19 +43,19 @@
 
 		public object GetWrapper(object obj1, object obj2) => this[obj1];
 
-		public long Len(object obj)
+		public LongPrimitive Len(object obj)
 		{
 			var g = GetGroup(obj);
 			return g != null && g.Success ? g.Length : 0;
 		}
 
-		public string Name(object obj)
+		public StringPrimitive Name(object obj)
 		{
 			var g = GetGroup(obj);
-			return g != null && g.Success ? (obj is string o ? o : holder.groupNames[obj.Ai()]) : "";
+			return g != null && g.Success ? (obj is StringPrimitive o ? o : holder.groupNames[obj.Ai()]) : "";
 		}
 
-		public long Pos(object obj = null)
+		public LongPrimitive Pos(object obj = null)
 		{
 			var g = GetGroup(obj);
 			return g != null && g.Success ? g.Index + 1 : 0;
@@ -79,7 +71,7 @@
 			{
 				if (o == null)
 					return match.Groups[0];
-				else if (o is string s)
+				else if (o is StringPrimitive s)
 					return match.Groups[s];
 				else
 				{
@@ -97,7 +89,7 @@
 			return null;
 		}
 
-		public string this[params object[] obj]
+		public StringPrimitive this[params object[] obj]
 		{
 			get
 			{
@@ -139,9 +131,9 @@
 					var g = iter.Current;
 
 					if (Count == 1)
-						return (g.Value, null);
+						return ((StringPrimitive)g.Value, null);
 					else
-						return (match.holder.groupNames[i] == "" ? (long)i : match.holder.groupNames[i], g.Value);
+						return (match.holder.groupNames[i] == "" ? (LongPrimitive)i : (StringPrimitive)match.holder.groupNames[i], (StringPrimitive)g.Value);
 				}
 				catch (IndexOutOfRangeException)
 				{

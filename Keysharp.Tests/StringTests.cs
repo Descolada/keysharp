@@ -25,7 +25,7 @@ namespace Keysharp.Tests
 		public void Chr()
 		{
 			var ord = Strings.Chr(116);
-			Assert.AreEqual("t", ord);
+			Assert.AreEqual("t", (string)ord);
 			Assert.IsTrue(TestScript("string-chr", true));
 		}
 
@@ -48,9 +48,9 @@ namespace Keysharp.Tests
 		public void Format()
 		{
 			var s = Strings.Format("{1}", 123);
-			Assert.AreEqual(s, "123");
+			Assert.AreEqual((string)s, "123");
 			s = Strings.Format("{1}", 123.456);
-			Assert.AreEqual(s, "123.456");
+			Assert.AreEqual((string)s, "123.456");
 			Assert.IsTrue(TestScript("string-format", true));
 		}
 
@@ -74,7 +74,7 @@ namespace Keysharp.Tests
 			dt = Conversions.ToDateTime("20200704203040");
 			Assert.IsTrue(dt == new DateTime(2020, 7, 4, 20, 30, 40));
 			var str = "20200704";
-			var dtstr = Strings.FormatTime(str, "d");
+			string dtstr = Strings.FormatTime(str, "d");
 			Assert.AreEqual("4", dtstr);
 			dtstr = Strings.FormatTime(str, "dd");
 			Assert.AreEqual("04", dtstr);
@@ -192,7 +192,7 @@ namespace Keysharp.Tests
 		{
 			var x = "the string to searchz";
 			var y = "the";
-			var z = Strings.InStr(x, y);
+			int z = Strings.InStr(x, y);
 			Assert.AreEqual(1, z);
 			y = "z";
 			z = Strings.InStr(x, y);
@@ -250,7 +250,7 @@ namespace Keysharp.Tests
 		public void LTrim()
 		{
 			var x = " test\t";
-			var y = Strings.LTrim(x);
+			string y = Strings.LTrim(x);
 			Assert.AreEqual("test\t", y);
 			x = "test";
 			y = Strings.LTrim(x);
@@ -267,7 +267,7 @@ namespace Keysharp.Tests
 		[Test, Category("String")]
 		public void Ord()
 		{
-			var chr = Strings.Ord("t");
+			int chr = Strings.Ord("t");
 			Assert.AreEqual(116, chr);
 			chr = Strings.Ord("et");
 			Assert.AreEqual(101, chr);
@@ -279,46 +279,46 @@ namespace Keysharp.Tests
 		{
 			object match = null;
 			_ = RegEx.RegExMatch("abc123abc456", "abc\\d+", new VarRef(() => match, value => match = value), 1);
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "abc123");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 1);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[0], "abc123");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 1);
 			match = null;
 			_ = RegEx.RegExMatch("abc123abc456", "456", new VarRef(() => match, value => match = value), -1);
-			Assert.AreEqual(match, "");
+			Assert.AreEqual(match.ToString(), "");
 			_ = RegEx.RegExMatch("abc123abc456", "456", new VarRef(() => match, value => match = value), -3);
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "456");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 10);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[0], "456");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 10);
 			_ = RegEx.RegExMatch("abc123abc456", "abc", new VarRef(() => match, value => match = value), -6);
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "abc");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 7);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[0], "abc");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 7);
 			_ = RegEx.RegExMatch("abc123abc456", "abc", new VarRef(() => match, value => match = value), -15);
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "abc");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 1);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[0], "abc");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 1);
 			_ = RegEx.RegExMatch("abc123abc456", "abc\\d+", new VarRef(() => match, value => match = value), 2);
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "abc456");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 7);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[0], "abc456");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 7);
 			_ = RegEx.RegExMatch("abc123123", "123$", new VarRef(() => match, value => match = value), 1);
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 7);
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 7);
 			_ = RegEx.RegExMatch("xxxabc123xyz", "abc.*xyz", new VarRef(() => match, value => match = value), 1);
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 4);
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 4);
 			_ = RegEx.RegExMatch("abc123123", "123$", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 7);
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 7);
 			_ = RegEx.RegExMatch("abc123", "i)^ABC", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 1);
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 1);
 			_ = RegEx.RegExMatch("abcXYZ123", "abc(.*)123", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match)[1], "XYZ");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(1), 4);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[1], "XYZ");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(1), 4);
 			_ = RegEx.RegExMatch("abcXYZ123", "abc(?<testname>.*)123", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match)["testname"], "XYZ");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos("testname"), 4);
-			Assert.AreEqual(((RegExMatchInfo)match).Name("testname"), "testname");
+			Assert.AreEqual((string)((RegExMatchInfo)match)[(StringPrimitive)"testname"], "XYZ");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos((StringPrimitive)"testname"), 4);
+			Assert.AreEqual((string)((RegExMatchInfo)match).Name((StringPrimitive)"testname"), "testname");
 			_ = RegEx.RegExMatch(@"C:\Foo\Bar\Baz.txt", @"\w+$", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match)[0], "txt");
-			Assert.AreEqual(((RegExMatchInfo)match).Pos(), 16);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[(LongPrimitive)0], "txt");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Pos(), 16);
 			_ = RegEx.RegExMatch("Michiganroad 72", @"(.*) (?<nr>\d+)", new VarRef(() => match, value => match = value));
-			Assert.AreEqual(((RegExMatchInfo)match).Count, 2);
-			Assert.AreEqual(((RegExMatchInfo)match)[1], "Michiganroad");
-			Assert.AreEqual(((RegExMatchInfo)match).Name(2), "nr");
-			Assert.AreEqual(((RegExMatchInfo)match)[2], "72");
+			Assert.AreEqual((int)((RegExMatchInfo)match).Count, 2);
+			Assert.AreEqual((string)((RegExMatchInfo)match)[(LongPrimitive)1], "Michiganroad");
+			Assert.AreEqual((string)((RegExMatchInfo)match).Name((LongPrimitive)2), "nr");
+			Assert.AreEqual((string)((RegExMatchInfo)match)[(LongPrimitive)2], "72");
 			Assert.IsTrue(TestScript("string-regexmatch", false));
 		}
 
@@ -327,46 +327,46 @@ namespace Keysharp.Tests
 		{
 			VarRef match = new(null);
 			_ = RegEx.RegExMatchCs("abc123abc456", "abc\\d+", match, 1);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "abc123");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 1);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "abc123");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 1);
 			_ = RegEx.RegExMatchCs("abc123abc456", "456", match, -1);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "456");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 10);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "456");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 10);
 			_ = RegEx.RegExMatchCs("abc123abc456", "abc", match, -1);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "abc");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 7);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "abc");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 7);
 			_ = RegEx.RegExMatchCs("abc123abc456", "abc", match, -15);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "abc");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 7);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "abc");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 7);
 			_ = RegEx.RegExMatchCs("abc123abc456", "abc", match, -5);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "abc");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 1);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "abc");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 1);
 			_ = RegEx.RegExMatchCs("abc123abc456", "abc\\d+", match, 2);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "abc456");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 7);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "abc456");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 7);
 			_ = RegEx.RegExMatchCs("abc123123", "123$", match, 1);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 7);
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 7);
 			_ = RegEx.RegExMatchCs("xxxabc123xyz", "abc.*xyz", match, 1);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 4);
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 4);
 			_ = RegEx.RegExMatchCs("abc123123", "123$", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 7);
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 7);
 			_ = RegEx.RegExMatchCs("abc123", "i)^ABC", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 1);
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 1);
 			_ = RegEx.RegExMatchCs("abcXYZ123", "abc(.*)123", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[1], "XYZ");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(1), 4);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)1], "XYZ");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos((LongPrimitive)1), 4);
 			_ = RegEx.RegExMatchCs("abcXYZ123", "abc(?<testname>.*)123", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)["testname"], "XYZ");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos("testname"), 4);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Name("testname"), "testname");
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(StringPrimitive)"testname"], "XYZ");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos((StringPrimitive)"testname"), 4);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value).Name((StringPrimitive)"testname"), "testname");
 			_ = RegEx.RegExMatchCs(@"C:\Foo\Bar\Baz.txt", @"\w+$", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[0], "txt");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Pos(), 16);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)0], "txt");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Pos(), 16);
 			_ = RegEx.RegExMatchCs("Michiganroad 72", @"(.*) (?<nr>\d+)", match);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Count, 3);
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[1], "Michiganroad");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value).Name(2), "nr");
-			Assert.AreEqual(((RegExMatchInfoCs)match.__Value)[2], "72");
+			Assert.AreEqual((int)((RegExMatchInfoCs)match.__Value).Count, 3);
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)1], "Michiganroad");
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value).Name((LongPrimitive)2), "nr");
+			Assert.AreEqual((string)((RegExMatchInfoCs)match.__Value)[(LongPrimitive)2], "72");
 			Assert.IsTrue(TestScript("string-regexmatch-cs", false));
 		}
 
@@ -374,7 +374,7 @@ namespace Keysharp.Tests
 		public void RegExReplace()
 		{
             VarRef outputVarCount = new(null);
-			var match = RegEx.RegExReplace("abc123123", "123$", "xyz");
+			string match = RegEx.RegExReplace("abc123123", "123$", "xyz");
 			Assert.AreEqual(match, "abc123xyz");
 			match = RegEx.RegExReplace("abc123", "i)^ABC");
 			Assert.AreEqual(match, "123");
@@ -382,7 +382,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(match, "aaaXYZzzz");
 			match = RegEx.RegExReplace("abc123abc456", "abc\\d+", "", outputVarCount);
 			Assert.AreEqual(match, "");
-			Assert.AreEqual(outputVarCount.__Value, 2L);
+			Assert.AreEqual(outputVarCount.__Value.Al(), 2L);
 			Assert.IsTrue(TestScript("string-regexreplace", true));
 		}
 
@@ -390,7 +390,7 @@ namespace Keysharp.Tests
 		public void RegExReplaceCs()
 		{
 			VarRef outputVarCount = new(null);
-			var match = RegEx.RegExReplaceCs("abc123123", "123$", "xyz");
+			string match = RegEx.RegExReplaceCs("abc123123", "123$", "xyz");
 			Assert.AreEqual(match, "abc123xyz");
 			match = RegEx.RegExReplaceCs("abc123", "i)^ABC");
 			Assert.AreEqual(match, "123");
@@ -398,7 +398,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(match, "aaaXYZzzz");
 			match = RegEx.RegExReplaceCs("abc123abc456", "abc\\d+", "", outputVarCount);
 			Assert.AreEqual(match, "");
-			Assert.AreEqual(outputVarCount.__Value, 2L);
+			Assert.AreEqual(outputVarCount.__Value.Al(), 2L);
 			Assert.IsTrue(TestScript("string-regexreplace-cs", true));
 		}
 
@@ -406,7 +406,7 @@ namespace Keysharp.Tests
 		public void RTrim()
 		{
 			var x = " test\t";
-			var y = Strings.RTrim(x);
+			string y = Strings.RTrim(x);
 			Assert.AreEqual(" test", y);
 			x = "test";
 			y = Strings.RTrim(x);
@@ -424,7 +424,7 @@ namespace Keysharp.Tests
 		public void Sort()
 		{
 			var x = "Z,X,Y,F,D,B,C,A,E";
-			var y = Strings.Sort(x, "D,");
+			string y = Strings.Sort(x, "D,");
 			Assert.AreEqual("A,B,C,D,E,F,X,Y,Z", y);
 			y = Strings.Sort(x, "D, r");
 			Assert.AreEqual("Z,Y,X,F,E,D,C,B,A", y);
@@ -446,7 +446,7 @@ namespace Keysharp.Tests
 
 			for (var i = 0; i < 10; i++)
 			{
-				var z = Strings.Sort(x, "D, n random");
+				string z = Strings.Sort(x, "D, n random");
 				_ = KeysharpEnhancements.OutputDebugLine(z);
 				Assert.AreNotEqual(z, y);
 				y = z;
@@ -504,7 +504,7 @@ namespace Keysharp.Tests
 		{
 			var x = "a";
 			var y = "b";
-			var z = Strings.StrCompare(x, y);
+			int z = Strings.StrCompare(x, y);
 			Assert.AreEqual(-1, z);
 			x = "a";
 			y = "a";
@@ -553,7 +553,7 @@ namespace Keysharp.Tests
 		public void String()
 		{
 			object x = 123;
-			var y = Strings.String(x);
+			string y = Strings.String(x);
 			Assert.AreEqual(y, "123");
 			x = "123";
 			y = Strings.String(x);
@@ -568,7 +568,7 @@ namespace Keysharp.Tests
 		public void StrLen()
 		{
 			var x = "test";
-			var y = Strings.StrLen(x);
+			int y = Strings.StrLen(x);
 			Assert.AreEqual(y, 4);
 			x = "";
 			y = Strings.StrLen(x);
@@ -580,7 +580,7 @@ namespace Keysharp.Tests
 		public void StrLower()
 		{
 			var x = "ALL CAPS";
-			var y = Strings.StrLower(x);
+			string y = Strings.StrLower(x);
 			Assert.AreEqual(y, "all caps");
 			x = "AlL CaPs";
 			y = Strings.StrLower(x);
@@ -609,10 +609,10 @@ namespace Keysharp.Tests
 			var buf1 = Collections.Buffer(32);
 			var s = "tester";
 			//Unicode test.
-			var testlen = StrPut(s);
-			var lenwritten = StrPut(s, buf1);
+			long testlen = StrPut(s);
+			long lenwritten = StrPut(s, buf1);
 			Assert.AreEqual(testlen, lenwritten);
-			var gotten = StrGet(buf1, -s.Length);
+			string gotten = StrGet(buf1, -s.Length);
 			Assert.AreEqual(s, gotten);
 			//ASCII test.
 			testlen = StrPut(s, null, null, "ASCII");
@@ -630,7 +630,7 @@ namespace Keysharp.Tests
 		public void StrReplace()
 		{
 			var x = "a,b,c,d,e,f";//Can't test the ref var which holds the count here because those must be global. However it is tested in the script.
-			var y = Strings.StrReplace(x, ",");
+			string y = Strings.StrReplace(x, ",");
             VarRef outputVarCount = new(0L);
 			Assert.AreEqual("abcdef", y);
 			y = Strings.StrReplace(x, ",", "");
@@ -641,10 +641,10 @@ namespace Keysharp.Tests
 			Assert.AreEqual("a.b.c.d.e.f", y);
 			y = Strings.StrReplace(x, ",", ".", null, outputVarCount);
 			Assert.AreEqual("a.b.c.d.e.f", y);
-			Assert.AreEqual(5L, outputVarCount.__Value);
+			Assert.AreEqual(5L, outputVarCount.__Value.Al());
 			y = Strings.StrReplace(x, ",", ".", null, outputVarCount, 3);
 			Assert.AreEqual("a.b.c.d,e,f", y);
-			Assert.AreEqual(3L, outputVarCount.__Value);
+			Assert.AreEqual(3L, outputVarCount.__Value.Al());
 			y = Strings.StrReplace(x, "");
 			Assert.AreEqual("", y);
 			y = Strings.StrReplace(x, "a", "A", 1L);
@@ -661,51 +661,51 @@ namespace Keysharp.Tests
 			Assert.AreEqual("1,b,c,d,e,f", y);
 			y = Strings.StrReplace(x, "a", "A", "On", outputVarCount, 9);
 			Assert.AreEqual("A,b,c,d,e,f", y);
-			Assert.AreEqual(1L, outputVarCount.__Value);
+			Assert.AreEqual(1L, outputVarCount.__Value.Al());
 			Assert.IsTrue(TestScript("string-strreplace", false));//Don't test func version because the ref var must be global.
 		}
 
 		[Test, Category("String")]
 		public void StrSplit()
 		{
-			var x = "a,b,c,d";
-			var y = Strings.StrSplit(x, ",");
-			var exp = Collections.Array(["a", "b", "c", "d"]);
+			StringPrimitive x = "a,b,c,d";
+			var y = Strings.StrSplit(x, (StringPrimitive)",");
+			var exp = Collections.Array(new object[] { "a", "b", "c", "d" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			x = "abcd";
 			y = Strings.StrSplit(x);
 			Assert.AreEqual(exp, y);
 			x = "	a, b,c ,d	";
-			y = Strings.StrSplit(x, ",", "\t ");
+			y = Strings.StrSplit(x, (StringPrimitive)",", (StringPrimitive)"\t ");
 			Assert.AreEqual(exp, y);
 			x = "	a, b-c _d	";
-			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }, "\t ");
+			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }.Select(Primitive.From), (StringPrimitive)"\t ");
 			Assert.AreEqual(exp, y);
-			y = Strings.StrSplit(x, new Core.Array([",", "-", "_"]), "\t ");
+			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }.Select(Primitive.From), (StringPrimitive)"\t ");
 			Assert.AreEqual(exp, y);
 			x = "abcd";
 			y = Strings.StrSplit(x, null, null, 1);
-			exp = Collections.Array(["abcd"]);
+			exp = Collections.Array(new object[] { "abcd" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 2);
-			exp = Collections.Array(["a", "bcd"]);
+			exp = Collections.Array(new object[] { "a", "bcd" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 3);
-			exp = Collections.Array(["a", "b", "cd"]);
+			exp = Collections.Array(new object[] { "a", "b", "cd" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 4);
-			exp = Collections.Array(["a", "b", "c", "d"]);
+			exp = Collections.Array(new object[] { "a", "b", "c", "d" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 5);
-			exp = Collections.Array(["a", "b", "c", "d"]);
+			exp = Collections.Array(new object[] { "a", "b", "c", "d" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			x = "a,b,c,d";
-			y = Strings.StrSplit(x, ",", null, 3);
-			exp = Collections.Array(["a", "b", "c,d"]);
+			y = Strings.StrSplit(x, (StringPrimitive)",", null, 3);
+			exp = Collections.Array(new object[] { "a", "b", "c,d" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			x = "	a, b-c _d	";
-			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }, "\t ", 3);
-			exp = Collections.Array(["a", "b", "c _d"]);
+			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }.Select(Primitive.From), (StringPrimitive)"\t ", (LongPrimitive)3);
+			exp = Collections.Array(new object[] { "a", "b", "c _d" }.Select(Primitive.From));
 			Assert.AreEqual(exp, y);
 			Assert.IsTrue(TestScript("string-strsplit", true));
 		}
@@ -714,7 +714,7 @@ namespace Keysharp.Tests
 		public void StrUpper()
 		{
 			var x = "ALL CAPS";
-			var y = Strings.StrUpper(x);
+			string y = Strings.StrUpper(x);
 			Assert.AreEqual(y, "ALL CAPS");
 			x = "AlL CaPs";
 			y = Strings.StrUpper(x);
@@ -741,7 +741,7 @@ namespace Keysharp.Tests
 		public void SubStr()
 		{
 			var x = "abcdefghijkl";
-			var y = Strings.SubStr(x);
+			string y = Strings.SubStr(x);
 			Assert.AreEqual(x, y);
 			y = Strings.SubStr(x, 1, 1);
 			Assert.AreEqual("a", y);
@@ -806,7 +806,7 @@ namespace Keysharp.Tests
 		public void Trim()
 		{
 			var x = " test\t";
-			var y = Strings.Trim(x);
+			string y = Strings.Trim(x);
 			Assert.AreEqual("test", y);
 			x = "test";
 			y = Strings.Trim(x);
@@ -823,42 +823,42 @@ namespace Keysharp.Tests
 		[Test, Category("String")]
 		public void VerCompare()
 		{
-			Assert.AreEqual(Strings.VerCompare("1.20.0", "1.3"), 1L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0", "<1.30"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0 ", "<=1.30"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0", " >1.30"), 0L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0", " >=1.30 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0", " =1.30 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0 ", " =1.20.0 "), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0", "1.3"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0", "<1.30"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0 ", "<=1.30"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0", " >1.30"), 0L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0", " >=1.30 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0", " =1.30 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0 ", " =1.20.0 "), 1L);
 			//Same, but with the first string being a C# style version strings with 4 numbers.
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.1", "<1.30"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.1 ", "<=1.30"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.1", " >1.30"), 0L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.1", " >=1.30 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.1", " =1.30 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.1 ", " =1.20.0 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.1 ", " >1.20.0 "), 1L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.1", "<1.30"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.1 ", "<=1.30"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.1", " >1.30"), 0L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.1", " >=1.30 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.1", " =1.30 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.1 ", " =1.20.0 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.1 ", " >1.20.0 "), 1L);
 			//With the second being such.
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0", "<1.30.0.1"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0 ", "<=1.30.0.1"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0", " >1.30.0.1"), 0L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0", " >=1.30.0.1 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0", " =1.30.0.1 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0 ", " =1.20.0.0 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0 ", " <1.20.0.1 "), 1L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0", "<1.30.0.1"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0 ", "<=1.30.0.1"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0", " >1.30.0.1"), 0L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0", " >=1.30.0.1 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0", " =1.30.0.1 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0 ", " =1.20.0.0 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0 ", " <1.20.0.1 "), 1L);
 			//With both.
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.0", "<1.30.0.1"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.0 ", "<=1.30.0.1"), 1L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.0", " >1.30.0.1"), 0L);
-			Assert.AreEqual(Strings.VerCompare("1.20.0.0", " >=1.30.0.1 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.0", " =1.30.0.1 "), 0L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.0 ", " =1.20.0.0 "), 1L);
-			Assert.AreEqual(Strings.VerCompare(" 1.20.0.0 ", " <1.20.0.1 "), 1L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.0", "<1.30.0.1"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.0 ", "<=1.30.0.1"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.0", " >1.30.0.1"), 0L);
+			Assert.AreEqual((long)Strings.VerCompare("1.20.0.0", " >=1.30.0.1 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.0", " =1.30.0.1 "), 0L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.0 ", " =1.20.0.0 "), 1L);
+			Assert.AreEqual((long)Strings.VerCompare(" 1.20.0.0 ", " <1.20.0.1 "), 1L);
 			//
-			Assert.AreEqual(Strings.StrCompare("1.20.0", "1.3"), -1L);
-			Assert.AreEqual(Strings.VerCompare("2.0-a137", "2.0-a136"), 1L);
-			Assert.AreEqual(Strings.VerCompare("2.0-a137", "2.0"), -1);
-			Assert.AreEqual(Strings.VerCompare("10.2-beta.3", "10.2.0"), -1);
+			Assert.AreEqual((long)Strings.StrCompare("1.20.0", "1.3"), -1L);
+			Assert.AreEqual((long)Strings.VerCompare("2.0-a137", "2.0-a136"), 1L);
+			Assert.AreEqual((long)Strings.VerCompare("2.0-a137", "2.0"), -1);
+			Assert.AreEqual((long)Strings.VerCompare("10.2-beta.3", "10.2.0"), -1);
 			Assert.IsTrue(TestScript("string-vercompare", true));
 		}
 
@@ -867,8 +867,8 @@ namespace Keysharp.Tests
 		{
 			var str1 = "Hello, world!";
 			var b64 = "SGVsbG8sIHdvcmxkIQ==";
-			var conv = (Keysharp.Core.Array)KeysharpEnhancements.Base64Decode(b64);
-			var barr = conv.ToByteArray().ToArray();
+			var conv = (Keysharp.Core.Buffer)KeysharpEnhancements.Base64Decode(b64);
+			var barr = conv.ToByteArray();
 			var str2 = Encoding.UTF8.GetString(barr);
 			Assert.AreEqual(str1, str2);
 			var enc = KeysharpEnhancements.Base64Encode(conv);

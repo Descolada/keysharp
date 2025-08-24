@@ -34,20 +34,6 @@
 	public static partial class RegEx
 	{
 		/// <summary>
-		/// <see cref="RegExMatch(object, object, ref object, object)"/>
-		/// </summary>
-		public static long RegExMatch(object haystack, object needle)
-		{
-			object outvar = new VarRef(null);
-			return RegExMatch(haystack, needle, outvar, null);
-		}
-
-		/// <summary>
-		/// <see cref="RegExMatch(object, object, ref object, object)"/>
-		/// </summary>
-		public static long RegExMatch(object haystack, object needle, object outvar) => RegExMatch(haystack, needle, outvar, null);
-
-		/// <summary>
 		/// Determines whether a string contains a pattern (regular expression).
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched.</param>
@@ -75,7 +61,7 @@
 		/// </param>
 		/// <returns>The <see cref="RegExMatchInfo"/> object which contains the matches, if any.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static long RegExMatch(object haystack, object needle, [ByRef] object outputVar, object startingPos)
+		public static LongPrimitive RegExMatch(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
 		{
 			var input = haystack.As();
 			var n = needle.As();
@@ -122,7 +108,7 @@
 					result = 1;
 				else if (result < -1)
 				{
-					return (PcreCalloutResult)Errors.ErrorOccurred($"PCRE matching error", null, (long)result, PcreCalloutResult.Abort);
+					return (PcreCalloutResult)(int)Errors.ErrorOccurred($"PCRE matching error", null, (long)result, (int)PcreCalloutResult.Abort);
 				}
 
 				return (PcreCalloutResult)result;
@@ -132,7 +118,8 @@
 			{
 				var res = new RegExMatchInfo(exp.regex.Match(input, index, MatchCalloutHandler), exp);
 				var pos = res.Pos();
-				Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? res : "");
+				if (outputVar is Any)
+					Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? res : (StringPrimitive)"");
 				return pos;
 			}
 			catch (Exception ex)
@@ -178,7 +165,7 @@
 		/// </param>
 		/// <returns>A version of haystack whose contents have been replaced by the operation. If no replacements are needed, haystack is returned unaltered.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static string RegExReplace(object haystack, object needleRegEx, object replacement = null, [ByRef] object outputVarCount = null, object limit = null, object startingPos = null)
+		public static StringPrimitive RegExReplace(object haystack, object needleRegEx, object replacement = null, [ByRef] object outputVarCount = null, object limit = null, object startingPos = null)
 		{
 			var input = haystack.As();
 			var needle = needleRegEx.As();
@@ -236,7 +223,7 @@
 			{
 				string result = exp.regex.Replace(input, CalloutHandler, l, index);
 				if (outputVarCount != null)
-					Script.SetPropertyValue(outputVarCount, "__Value", (long)n);
+					Script.SetPropertyValue(outputVarCount, "__Value", (LongPrimitive)n);
 				return result;
 			}
 			catch (Exception ex)

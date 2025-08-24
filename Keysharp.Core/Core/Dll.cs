@@ -75,7 +75,8 @@ namespace Keysharp.Core
 		public static object CallbackCreate(object function, object options = null, object paramCount = null)
 		{
 			var o = options.As();
-			return new DelegateHolder(function, o.Contains('f', StringComparison.OrdinalIgnoreCase), o.Contains('&'), paramCount.Ai(-1));
+			var dh = new DelegateHolder(function, o.Contains('f', StringComparison.OrdinalIgnoreCase), o.Contains('&'), paramCount.Ai(-1));
+			return dh.Ptr;
 		}
 
 		/// <summary>
@@ -84,6 +85,12 @@ namespace Keysharp.Core
 		/// <param name="address">The <see cref="DelegateHolder"/> to be freed.</param>
 		public static object CallbackFree(object address)
 		{
+			if (address is LongPrimitive lp && lp.Payload != null)
+			{
+				if (lp.Payload is DelegateHolder pdh)
+					pdh.Clear();
+				lp.Payload = null;
+			}
 			if (address is DelegateHolder dh)
 				dh.Clear();
 
@@ -123,19 +130,14 @@ namespace Keysharp.Core
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if there is any problem creating the dynamic assembly/function or calling it.</exception>
 		/// <exception cref="OSError">A <see cref="OSError"/> exception is thrown if the return type was HRESULT and the return value was negative.</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if any of the arguments was required to have a .Ptr member, but none was found.</exception>
-		public static unsafe Primitive DllCall(Primitive function, params object[] parameters)
+		public static unsafe Primitive DllCall(object function, params object[] parameters)
 		{
 			//You should some day add the ability to use this with .NET dlls, exposing some type of reflection to the Script.TheScript.//TODO
 			nint handle = 0;
 			nint address = 0;
 
-			for (int i = 0; i < parameters.Length; i++)
-				if (parameters[i] is Primitive p)
-					parameters[i] = p.AsObject();
-
-			if (function.IsString)
+			if (function.IsString(out string path))
 			{
-				string path = function.AsString();
 				string name;
 				var z = path.LastIndexOf(Path.DirectorySeparatorChar);
 				var procAddressCache = TheScript.DllData.procAddressCache;
@@ -547,12 +549,16 @@ namespace Keysharp.Core
 				var n = pi / 2;
 				var arg = helper.args[n];
 
-				if (parameters[pi] is StringBuffer sb)
+				if (parameters[pi] is LongPrimitive lp && lp.Payload is StringBuffer sb2)
+				{
+					sb2.UpdateEntangledStringFromBuffer();
+				}
+				else if (parameters[pi] is StringBuffer sb)
 				{
 					sb.UpdateEntangledStringFromBuffer();
 					parameters[pi] = sb.EntangledString;
 				}
-				else if (parameters[pi] is KeysharpObject kso)
+				else if (parameters[pi] is Any kso && kso is not Primitive)
 				{
 					object temp = arg;
 					FixParamTypeAndCopyBack(ref temp, pair.Value.Item1, (nint)arg);

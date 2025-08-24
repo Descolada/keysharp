@@ -6,7 +6,7 @@ namespace Keysharp.Core.Common.ObjectBase
     {
         public Class(params object[] args) : base(args) { }
 
-		public virtual object staticCall(params object[] args) => Activator.CreateInstance(this.GetType(), args);
+		public static object staticCall(params object[] args) => Activator.CreateInstance(args[0].GetType(), args);
 	}
 
     public class Prototype : KeysharpObject

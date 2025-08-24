@@ -35,7 +35,7 @@
 		/// If this option is not used, line endings within text are not changed.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
-		public static object FileAppend(object text, object filename = null, object options = null)
+		public static Primitive FileAppend(object text, object filename = null, object options = null)
 		{
 			var file = filename.As();
 
@@ -52,7 +52,7 @@
 				var crlf = false;
 				TextWriter tw = null;
 
-				if (options.As() is string opts)
+				if (options.As().IsString(out string opts))
 				{
 					foreach (Range r in opts.AsSpan().SplitAny(SpaceTabSv))
 					{
@@ -128,7 +128,7 @@
 
 				if (tw != null)
 				{
-					if (t is string s)
+					if (t.IsString(out string s))
 					{
 #if DEBUG
 
@@ -199,7 +199,7 @@
 		/// 1: Overwrite existing files. However, any files or subfolders inside destPattern that do not have a counterpart in sourcePattern will not be deleted.
 		/// </param>
 		/// <exception cref="Error">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
-		public static object FileCopy(object sourcePattern, object destPattern, object overwrite = null)
+		public static Primitive FileCopy(object sourcePattern, object destPattern, object overwrite = null)
 		{
 			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), false);
 			return DefaultObject;
@@ -264,7 +264,7 @@
 		/// </param>
 #endif
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if any errors occur.</exception>
-		public static object FileCreateShortcut(object target, object linkFile, object workingDir = null, object args = null, object description = null,
+		public static Primitive FileCreateShortcut(object target, object linkFile, object workingDir = null, object args = null, object description = null,
 												object iconFile = null,
 #if WINDOWS
 												object shortcutKey = null,
@@ -384,7 +384,7 @@
 		/// filePattern is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any errors occur.</exception>
-		public static object FileDelete(object filePattern)
+		public static Primitive FileDelete(object filePattern)
 		{
 			var s = filePattern.As();
 			var path = Path.GetDirectoryName(s);
@@ -422,7 +422,7 @@
 		/// CPnnn: A code page with numeric identifier nnn. See Code Page Identifiers.<br/>
 		/// nnn: A numeric code page identifier.
 		/// </param>
-		public static object FileEncoding(object encoding)
+		public static Primitive FileEncoding(object encoding)
 		{
 			var s = encoding.As();
 
@@ -453,7 +453,7 @@
 		/// If the file has no attributes(rare), "X" is returned.<br/>
 		/// If no file or folder is found, an empty string is returned.
 		/// </returns>
-		public static string FileExist(object filePattern)
+		public static StringPrimitive FileExist(object filePattern)
 		{
 			var s = filePattern.As();
 
@@ -494,7 +494,7 @@
 		/// L: REPARSE_POINT(typically a symbolic link)<br/>
 		/// </returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
-		public static string FileGetAttrib(object filename)
+		public static StringPrimitive FileGetAttrib(object filename)
 		{
 			var s = filename.As();
 
@@ -511,160 +511,6 @@
 			}
 
 			return DefaultObject;
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj)
-		{
-			object outTarget = VarRef.Empty;
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
-			return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget)
-		{
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
-			return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir)
-		{
-            object outArgs = VarRef.Empty;
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs)
-		{
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription)
-		{
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon)
-		{
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
-											 [ByRef] object outIconNum)
-		{
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
 		}
 
 #if WINDOWS
@@ -729,18 +575,18 @@
 		/// <param name="outRunState">Ignored</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
 #endif
-		public static object FileGetShortcut(object linkFile,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
+		public static Primitive FileGetShortcut(object linkFile,
+											 [ByRef] object outTarget = null,
+											 [ByRef] object outDir = null,
+											 [ByRef] object outArgs = null,
+											 [ByRef] object outDescription = null,
+											 [ByRef] object outIcon = null,
 #if WINDOWS
-											 object outIconNum,
+											 object outIconNum = null,
 #else
-											 object outType,
+											 object outType = null,
 #endif
-											 object outRunState)
+											 object outRunState = null)
 		{
 			var link = Path.GetFullPath(linkFile.As());
 #if LINUX
@@ -749,48 +595,48 @@
 			if (link == dest)//Was not just a simple symlink.
 			{
 				var sc = new ShortcutCreator(link);
-				Script.SetPropertyValue(outTarget, "__Value", sc.Get("Exec"));
-				Script.SetPropertyValue(outDir, "__Value", sc.Get("Path"));
-				Script.SetPropertyValue(outDescription, "__Value", sc.Get("Comment"));
-				Script.SetPropertyValue(outIcon, "__Value", sc.Get("Icon"));
-				Script.SetPropertyValue(outType, "__Value", sc.Get("Type"));
+				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", (StringPrimitive)sc.Get("Exec"));
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)sc.Get("Path"));
+				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", (StringPrimitive)sc.Get("Comment"));
+				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", (StringPrimitive)sc.Get("Icon"));
+				if (outType != null) Script.SetPropertyValue(outType, "__Value", (StringPrimitive)sc.Get("Type"));
 
-				if ((GetPropertyValue(outTarget, "__Value") is string s && s.Length > 0)
+				if (outTarget != null && GetPropertyValue(outTarget, "__Value").IsString(out string s) && s.Length > 0)
 				{
 					if (s[0] != '"' && s[0] != '\'')
 					{
 						var splits = s.Split(SpaceTab, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
 						if (splits.Length > 1)
-							Script.SetPropertyValue(outArgs, "__Value", splits[1]);
+							Script.SetPropertyValue(outArgs, "__Value", (StringPrimitive)splits[1]);
 						else
-							Script.SetPropertyValue(outArgs, "__Value", "");
+							Script.SetPropertyValue(outArgs, "__Value", DefaultObject);
 					}
 					else//It was quoted.
 					{
 						var firstArgIndex = s.FindFirstNotInQuotes(" ");
 						var tempArgs = firstArgIndex != -1 && firstArgIndex < s.Length - 1 ? s.Substring(firstArgIndex + 1) : "";
-						Script.SetPropertyValue(outArgs, "__Value", tempArgs.Trim());
+						Script.SetPropertyValue(outArgs, "__Value", (StringPrimitive)tempArgs.Trim());
 					}
 				}
-				else
-					Script.SetPropertyValue(outArgs, "__Value", "");//No way to determine args.
+				else if (outArgs != null)
+					Script.SetPropertyValue(outArgs, "__Value", DefaultObject);//No way to determine args.
 			}
 			else
 			{
-				Script.SetPropertyValue(outTarget, "__Value", dest);
-				Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(dest));
-				Script.SetPropertyValue(outArgs, "__Value", "");
-				Script.SetPropertyValue(outDescription, "__Value", "");
-				Script.SetPropertyValue(outIcon, "__Value", "");
-				Script.SetPropertyValue(outType, "__Value", "");
+				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", (StringPrimitive)dest);
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)Path.GetDirectoryName(dest));
+				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", DefaultObject);
+				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", DefaultObject);
+				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", DefaultObject);
+				if (outType != null) Script.SetPropertyValue(outType, "__Value", DefaultObject);
 			}
 
-			Script.SetPropertyValue(outRunState, "__Value", "");
+			if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", "");
 #elif WINDOWS
 
-            try
-            {
+			try
+			{
 				var shell = new IWshRuntimeLibrary.WshShell();
 				var shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(Path.GetFullPath(link));
 				var commaindex = shortcut.IconLocation.LastIndexOf(',');
@@ -803,13 +649,13 @@
 					iconno = shortcut.IconLocation.Substring(commaindex + 1).Trim();
 				}
 
-                Script.SetPropertyValue(outTarget, "__Value", shortcut.TargetPath);
-                Script.SetPropertyValue(outDir, "__Value", shortcut.WorkingDirectory);
-                Script.SetPropertyValue(outArgs, "__Value", shortcut.Arguments);
-                Script.SetPropertyValue(outDescription, "__Value", shortcut.Description);
-                Script.SetPropertyValue(outIcon, "__Value", iconstr);
-                Script.SetPropertyValue(outIconNum, "__Value", iconno);//How to get this?
-                Script.SetPropertyValue(outRunState, "__Value", shortcut.WindowStyle);//How to get this?
+				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", (StringPrimitive)shortcut.TargetPath);
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)shortcut.WorkingDirectory);
+				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", (StringPrimitive)shortcut.Arguments);
+				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", (StringPrimitive)shortcut.Description);
+				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", (StringPrimitive)iconstr);
+				if (outIconNum != null) Script.SetPropertyValue(outIconNum, "__Value", (StringPrimitive)iconno);//How to get this?
+				if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", (LongPrimitive)shortcut.WindowStyle);//How to get this?
 			}
 			catch (Exception ex)
 			{
@@ -836,7 +682,7 @@
 		/// </param>
 		/// <returns>The size of the specified file rounded down to the nearest whole number.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static long FileGetSize(object filename = null, object units = null)
+		public static LongPrimitive FileGetSize(object filename = null, object units = null)
 		{
 			long result;
 			var file = filename.As();
@@ -900,7 +746,7 @@
 		/// </param>
 		/// <returns>A string of digits in the YYYYMMDDHH24MISS format. The time is your own local time, not UTC/GMT.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static string FileGetTime(object filename = null, object whichTime = null)
+		public static StringPrimitive FileGetTime(object filename = null, object whichTime = null)
 		{
 			var file = filename.As();
 
@@ -940,7 +786,7 @@
 		/// </param>
 		/// <returns>This function returns the version number of the specified file.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static string FileGetVersion(object filename)
+		public static StringPrimitive FileGetVersion(object filename)
 		{
 			var file = filename.As();
 
@@ -962,7 +808,7 @@
 		/// Unsupported functionality which always throws an exception.
 		/// </summary>
 		/// <exception cref="Error">An <see cref="Error"/> is always thrown.</exception>
-		public static string FileInstall(object obj0, object obj1, object obj2 = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp", DefaultErrorString);
+		public static StringPrimitive FileInstall(object obj0, object obj1, object obj2 = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp", DefaultErrorString);
 
 		/// <summary>
 		/// Moves or renames one or more files.
@@ -976,7 +822,7 @@
 		/// 0: Do not overwrite existing files.The operation will fail and have no effect if destPattern already exists as a file or directory.<br/>
 		/// 1: Overwrite existing files. However, any files or subfolders inside destPattern that do not have a counterpart in sourcePattern will not be deleted.
 		/// </param>
-		public static object FileMove(object sourcePattern, object destPattern, object overwrite = null)
+		public static Primitive FileMove(object sourcePattern, object destPattern, object overwrite = null)
 		{
 			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), true);
 			return DefaultObject;
@@ -1154,9 +1000,9 @@
 		/// If the file does not exist or cannot be opened for any other reason, an empty string is returned.
 		/// </returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object FileRead(object filename, object options = null)
+		public static Any FileRead(object filename, object options = null)
 		{
-			object output = null;
+			Any output = null;
 			var file = filename.As();
 			var opts = options.As();
 			var enc = ThreadAccessors.A_FileEncodingRaw;
@@ -1234,7 +1080,7 @@
 				if (nocrlf)
 					text = text.Replace("\r\n", "\n");
 
-				output = text;
+				output = (StringPrimitive)text;
 			}
 
 			return output;
@@ -1249,7 +1095,7 @@
 		/// To recycle an entire directory, provide its name without a trailing backslash.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object FileRecycle(object filePattern)
+		public static Primitive FileRecycle(object filePattern)
 		{
 			var s = filePattern.As();
 
@@ -1279,7 +1125,7 @@
 		/// </summary>
 		/// <param name="driveLetter">If omitted, the recycle bin for all drives is emptied. Otherwise, specify a drive letter such as C:\</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
-		public static object FileRecycleEmpty(object driveLetter = null)
+		public static Primitive FileRecycleEmpty(object driveLetter = null)
 		{
 			var s = driveLetter.As();
 
@@ -1329,7 +1175,7 @@
 		/// If R is omitted, files and folders in subfolders are not included.
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static object FileSetAttrib(object attributes, object filePattern = null, object mode = null)
+		public static Primitive FileSetAttrib(object attributes, object filePattern = null, object mode = null)
 		{
 			var attr = attributes.As();
 			var file = filePattern.As(A_LoopFileFullPath);
@@ -1398,7 +1244,7 @@
 		/// If R is omitted, files and folders in subfolders are not included.
 		/// </param>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static object FileSetTime(object yyyymmddhh24miss = null, object filePattern = null, object whichTime = null, object mode = null)
+		public static Primitive FileSetTime(object yyyymmddhh24miss = null, object filePattern = null, object whichTime = null, object mode = null)
 		{
 			var YYYYMMDDHH24MISS = yyyymmddhh24miss.As();
 			var file = filePattern.As();
@@ -1601,14 +1447,14 @@
 		/// </summary>
 		/// <param name="filename">The filename to examine.</param>
 		/// <returns>The full path to the directory of the specified filename, without the trailing directory separator.</returns>
-		public static string FileDirName(object filename) => Path.GetDirectoryName(Path.GetFullPath(filename.As()));
+		public static StringPrimitive FileDirName(object filename) => Path.GetDirectoryName(Path.GetFullPath(filename.As()));
 
 		/// <summary>
 		/// Returns the full path of a filename which is assumed to be relative to <see cref="A_WorkingDir"/> if an absolute path isn't specified.
 		/// </summary>
 		/// <param name="filename">The filename to examine.</param>
 		/// <returns>The full path to filename.</returns>
-		public static string FileFullPath(object filename) => Path.GetFullPath(filename.As());
+		public static StringPrimitive FileFullPath(object filename) => Path.GetFullPath(filename.As());
 	}
 
 #if LINUX

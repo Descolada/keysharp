@@ -23,10 +23,10 @@ namespace Keysharp.Tests
 
 			Thread.Sleep(1000);
 			pid.__Value = ProcessExist("notepad.exe");
-			Assert.AreEqual(0L, pid.__Value);
+			Assert.AreEqual(0L, (long)(LongPrimitive)pid.__Value);
 			_ = RunWait("notepad.exe", "", "max");
 			Thread.Sleep(1000);
-			Assert.AreEqual(0L, ProcessExist("notepad.exe"));
+			Assert.AreEqual(0L, (long)ProcessExist("notepad.exe"));
 			//Admin tools.
 			Run("shell:::{D20EA4E1-3957-11D2-A40B-0C5020524153}");
 			//This PC.

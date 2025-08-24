@@ -52,14 +52,14 @@ else
 
 x := [ -1.0, -0.5, 0, 0.5, 1, 0.675 ]
 
-if (Max(x) == 1)
+if (Max(x*) == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 x := [ -1.0, -0.5, 0, 0.5, 1, "0.675", "2.0" ]
 
-if (Max(x) == 2)
+if (Max(x*) == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

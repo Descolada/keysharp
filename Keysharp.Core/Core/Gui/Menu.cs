@@ -27,12 +27,12 @@
 		/// <summary>
 		/// How many times the tray icon must be clicked to select its default menu item.
 		/// </summary>
-		public long ClickCount { get; set; } = 2;
+		public LongPrimitive ClickCount { get; set; } = 2;
 
 		/// <summary>
 		/// The default menu item to click when the tray icon is double clicked.
 		/// </summary>
-		public string Default
+		public StringPrimitive Default
 		{
 			get => defaultItem != null ? defaultItem.Text : "";
 
@@ -56,12 +56,12 @@
 		/// <summary>
 		/// The HWND of the menu.
 		/// </summary>
-		public long Handle => GetMenu().Handle.ToInt64();
+		public LongPrimitive Handle => GetMenu().Handle.ToInt64();
 
 		/// <summary>
 		/// The number of sub items contained in the menu.
 		/// </summary>
-		public long MenuItemCount => GetMenu().Items.Count;
+		public LongPrimitive MenuItemCount => GetMenu().Items.Count;
 
 		/// <summary>
 		/// The <see cref="ContextMenuStrip"/> that holds the menu items.
@@ -199,7 +199,7 @@
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new check state as a boolean.</returns>
-		public bool Check(object menuItemName) => Check(menuItemName.As(), eCheckToggle.Check);
+		public LongPrimitive Check(object menuItemName) => Check(menuItemName.As(), eCheckToggle.Check);
 
 		/// <summary>
 		/// Deletes one or all menu items.
@@ -238,21 +238,21 @@
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new enabled state as a boolean.</returns>
-		public bool Disable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Uncheck);
+		public LongPrimitive Disable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Uncheck);
 
 		/// <summary>
 		/// Allows the user to once again select a menu item if it was previously disabled (grayed out).
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new enabled state as a boolean.</returns>
-		public bool Enable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Check);
+		public LongPrimitive Enable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Check);
 
 		/// <summary>
 		/// Hides a menu item.
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new visibility state as a boolean.</returns>
-		public bool HideItem(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Uncheck);
+		public LongPrimitive HideItem(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Uncheck);
 
 		/// <summary>
 		/// Inserts a new item before the specified item.<br/>
@@ -273,7 +273,7 @@
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The name of the retrieved menu item if found, else empty string.</returns>
-		public string MenuItemName(object menuItemName) => GetMenuItem(menuItemName.As()) is ToolStripMenuItem tsmi ? tsmi.Name : "";
+		public StringPrimitive MenuItemName(object menuItemName) => GetMenuItem(menuItemName.As()) is ToolStripMenuItem tsmi ? tsmi.Name : "";
 
 		/// <summary>
 		/// Renames a menu item.
@@ -388,35 +388,35 @@
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new visibility state as a boolean.</returns>
-		public bool ShowItem(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Check);
+		public LongPrimitive ShowItem(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Check);
 
 		/// <summary>
 		/// Adds a checkmark if there wasn't one; otherwise, removes it.
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new check state as a boolean.</returns>
-		public bool ToggleCheck(object menuItemName) => Check(menuItemName.As(), eCheckToggle.Toggle);
+		public LongPrimitive ToggleCheck(object menuItemName) => Check(menuItemName.As(), eCheckToggle.Toggle);
 
 		/// <summary>
 		/// Disables a menu item if it was previously enabled; otherwise, enables it.
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new enabled state as a boolean.</returns>
-		public bool ToggleEnable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Toggle);
+		public LongPrimitive ToggleEnable(object menuItemName) => Enable(menuItemName.As(), eCheckToggle.Toggle);
 
 		/// <summary>
 		/// Toggles the visibility of a menu item.
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new visibility state as a boolean.</returns>
-		public bool ToggleItemVis(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Toggle);
+		public LongPrimitive ToggleItemVis(object menuItemName) => MakeVisible(menuItemName.As(), eCheckToggle.Toggle);
 
 		/// <summary>
 		/// Removes the checkmark (if there is one) from a menu item.
 		/// </summary>
 		/// <param name="menuItemName">The name or position of a menu item.</param>
 		/// <returns>The new check state as a boolean.</returns>
-		public bool UnCheck(object obj) => Check(obj.As(), eCheckToggle.Uncheck);
+		public LongPrimitive UnCheck(object obj) => Check(obj.As(), eCheckToggle.Uncheck);
 
 		internal void Tsmi_Click(object sender, EventArgs e)
 		{
@@ -454,7 +454,7 @@
 			return DefaultObject;
 		}
 
-		protected virtual long GetIndex(ToolStripItem tsi) => tsi.GetCurrentParent() is ToolStripDropDownMenu tsddm ? tsddm.Items.IndexOf(tsi) : GetMenu().Items.IndexOf(tsi);
+		protected virtual LongPrimitive GetIndex(ToolStripItem tsi) => tsi.GetCurrentParent() is ToolStripDropDownMenu tsddm ? tsddm.Items.IndexOf(tsi) : GetMenu().Items.IndexOf(tsi);
 
 		protected virtual object GetMenuItem(string s)
 		{
@@ -584,7 +584,7 @@
 			return false;
 		}
 
-		private bool Enable(string s, eCheckToggle checktoggle)
+		private LongPrimitive Enable(string s, eCheckToggle checktoggle)
 		{
 			if (GetMenuItem(s) is ToolStripItem item)
 			{
@@ -601,7 +601,7 @@
 			return false;
 		}
 
-		private bool MakeVisible(string s, eCheckToggle vis)
+		private LongPrimitive MakeVisible(string s, eCheckToggle vis)
 		{
 			if (GetMenuItem(s) is ToolStripMenuItem item)
 			{
@@ -661,6 +661,6 @@
 		/// </summary>
 		/// <param name="tsi">The <see cref="ToolStripItem"/> to search for.</param>
 		/// <returns>The index if found, else -1.</returns>
-		protected override long GetIndex(ToolStripItem tsi) => MenuStrip.Items.IndexOf(tsi);
+		protected override LongPrimitive GetIndex(ToolStripItem tsi) => MenuStrip.Items.IndexOf(tsi);
 	}
 }

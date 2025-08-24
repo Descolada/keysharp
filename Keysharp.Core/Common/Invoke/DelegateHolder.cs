@@ -36,7 +36,8 @@
 		readonly nint _ctx;
 
 		// Native function pointer to pass into unmanaged code.
-		public long Ptr { get; }
+		private nint _ptr;
+		public LongPrimitive Ptr { get => new LongPrimitive(_ptr, this); }
 
 		/// <summary>
 		/// Creates a holder and allocates a native stub that embeds its context.
@@ -56,7 +57,7 @@
 			_selfHandle = GCHandle.Alloc(this, GCHandleType.Normal);
 			_ctx = GCHandle.ToIntPtr(_selfHandle);
 			// Create native stub which inserts context and calls SharedTrampoline
-			Ptr = NativeThunkFactory.CreateThunk(Script.TheScript.DelegateData.trampolinePtrs[_arity], _ctx, _arity);
+			_ptr = NativeThunkFactory.CreateThunk(Script.TheScript.DelegateData.trampolinePtrs[_arity], _ctx, _arity);
 		}
 
 		// Shared unmanaged-callable trampolines
@@ -226,14 +227,14 @@
 						unsafe
 						{
 							long* ptr = (long*)gh.AddrOfPinnedObject().ToPointer();
-							val = holder.funcObj.Call((long)ptr);
+							val = holder.funcObj.Call((LongPrimitive)(long)ptr);
 						}
 					}
 					finally { gh.Free(); }
 				}
 				else
 				{
-					val = holder.funcObj.Call(System.Array.ConvertAll(args, item => (object)item));
+					val = holder.funcObj.Call(System.Array.ConvertAll(args, item => (LongPrimitive)item));
 				}
 
 				if (state.Item1)
@@ -244,10 +245,13 @@
 
 		internal static long ConvertResult(object val) => val switch
 		{
+			LongPrimitive lp => lp.Value,
+			DoublePrimitive dp => (long)dp.Value,
+			StringPrimitive sp => sp.TryGetLong(out long ll) ? ll : sp.TryGetDouble(out double dd) ? (long)dd : sp.SpanLength == 0 ? 0L : 1L,
 			long l => l,
 			bool b => b ? 1L : 0L,
 			double d => (long)d,
-			string s => s.Length == 0 ? 0L : 0L,
+			string s => s.Length == 0 ? 0L : 1L,
 			_ => 0L
 		};
 
@@ -255,8 +259,12 @@
 		public void Clear()
 		{
 			// Free the handle and context
-			_selfHandle.Free();
-			NativeThunkFactory.FreeThunk((nint)Ptr);
+			if (_ptr != 0L)
+			{
+				_selfHandle.Free();
+				NativeThunkFactory.FreeThunk((nint)_ptr);
+				_ptr = 0;
+			}
 			funcObj = null;
 		}
 

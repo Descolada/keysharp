@@ -18,7 +18,7 @@
 		///     1/true: Overwrite existing files.However, any files or subfolders inside dest that do not have a counterpart in source will not be deleted.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure happens while attempting to perform the operation.</exception>
-		public static object DirCopy(object source, object dest, object overwrite = null)
+		public static Primitive DirCopy(object source, object dest, object overwrite = null)
 		{
 			var s = Path.GetFullPath(source.As());
 			var d = Path.GetFullPath(dest.As());
@@ -33,7 +33,7 @@
 		/// </summary>
 		/// <param name="dirName">Name of the directory to create, which is assumed to be in <see cref="A_WorkingDir"/> if an absolute path isn't specified.</param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure happens while attempting to perform the operation.</exception>
-		public static object DirCreate(object dirName)
+		public static Primitive DirCreate(object dirName)
 		{
 			try
 			{
@@ -55,7 +55,7 @@
 		///     If true, all files and subdirectories are removed (like the Windows command "rmdir /S").
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure happens while attempting to perform the operation.</exception>
-		public static object DirDelete(object dirName, object recurse = null)
+		public static Primitive DirDelete(object dirName, object recurse = null)
 		{
 			try
 			{
@@ -84,7 +84,7 @@
 		///     C = COMPRESSED<br/>
 		///     Since this function only checks for the existence of a folder, "D" is always present in the return value.If no folder is found, an empty string is returned.
 		/// </returns>
-		public static string DirExist(object filePattern)
+		public static StringPrimitive DirExist(object filePattern)
 		{
 			try//This can throw if the directory doesn't exist.
 			{
@@ -118,7 +118,7 @@
 		///         The operation will fail if dest already exists as a file or directory.
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any failure happens while attempting to perform the operation.</exception>
-		public static object DirMove(object source, object dest, object overwriteOrRename = null)
+		public static Primitive DirMove(object source, object dest, object overwriteOrRename = null)
 		{
 			var s = source.As();
 			var d = dest.As();
@@ -171,7 +171,7 @@
 		/// </summary>
 		/// <param name="path">The path to retrieve the head for.</param>
 		/// <returns>The drive portion of the path without the backslash.</returns>
-		public static string PathHead(string path)
+		public static StringPrimitive PathHead(string path)
 		{
 			if (path.StartsWith(pathStart))
 			{
@@ -192,62 +192,7 @@
 		/// Changes the script's current working directory.
 		/// </summary>
 		/// <param name="dirName">The name of the new working directory, which is assumed to be a subfolder of the current <see cref="A_WorkingDir"/> if an absolute path isn't specified.</param>
-		public static object SetWorkingDir(object dirName) => A_WorkingDir = dirName.As();
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj)
-		{
-			VarRef outFileName = new(null);
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-			return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName)
-		{
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir)
-		{
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension)
-		{
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt)
-		{
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
+		public static StringPrimitive SetWorkingDir(object dirName) => A_WorkingDir = dirName.As();
 
 		/// <summary>
 		/// Separates a file name or URL into its name, directory, extension, and drive.
@@ -273,16 +218,14 @@
 		/// If the file is on a local or mapped drive, the variable will be set to the drive letter followed by a colon (no backslash).<br/>
 		/// If the file is on a network path (UNC), the variable will be set to the share name, e.g. \\Workstation01
 		/// </param>
-		public static object SplitPath(object path, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt, [ByRef] object outDrive)
+		public static object SplitPath(object path, [ByRef] object outFileName = null, [ByRef] object outDir = null, [ByRef] object outExtension = null, [ByRef] object outNameNoExt = null, [ByRef] object outDrive = null)
 		{
-			outFileName ??= VarRef.Empty; outDir ??= VarRef.Empty; outExtension ??= VarRef.Empty; outNameNoExt ??= VarRef.Empty; outDrive ??= VarRef.Empty;
-
             var p = path.As();
 
 			if (p.Contains("://"))
 			{
 				var uri = new Uri(p);
-                Script.SetPropertyValue(outDrive, "__Value", uri.Scheme + "://" + uri.Host);
+                if (outDrive != null) Script.SetPropertyValue(outDrive, "__Value", (StringPrimitive)(uri.Scheme + "://" + uri.Host));
 				var lastSlash = uri.LocalPath.LastIndexOf('/');
 				var localPath = uri.LocalPath;
 
@@ -292,27 +235,27 @@
 
 					if (tempFilename.Contains('.'))
 					{
-						Script.SetPropertyValue(outFileName, "__Value", tempFilename);
-                        Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(tempFilename).Trim('.'));
-                        Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(tempFilename));
+						if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", (StringPrimitive)tempFilename);
+						if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", (StringPrimitive)Path.GetExtension(tempFilename).Trim('.'));
+						if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", (StringPrimitive)Path.GetFileNameWithoutExtension(tempFilename));
 						localPath = localPath.Substring(0, lastSlash);
 					}
 					else
 					{
-						Script.SetPropertyValue(outFileName, "__Value", "");
-                        Script.SetPropertyValue(outExtension, "__Value", "");
-                        Script.SetPropertyValue(outNameNoExt, "__Value", "");
+						if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", (StringPrimitive)"");
+						if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", (StringPrimitive)"");
+						if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", (StringPrimitive)"");
                     }
 				}
 
-				Script.SetPropertyValue(outDir, "__Value", (Script.GetPropertyValue(outDrive, "__Value") + localPath).TrimEnd('/'));
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (Script.GetPropertyValue(outDrive, "__Value") + (StringPrimitive)localPath).TrimEnd('/'));
 			}
 			else
 			{
 				var input = Path.GetFullPath(p);
-                Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input));
-                Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input).Trim('.'));
-                Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input));
+				if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", (StringPrimitive)Path.GetFileName(input));
+				if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", (StringPrimitive)Path.GetExtension(input).Trim('.'));
+				if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", (StringPrimitive)Path.GetFileNameWithoutExtension(input));
 
 				if (p.StartsWith(@"\\"))
 				{
@@ -320,25 +263,31 @@
 					var nextSlash = input.IndexOf('\\', 2);
 					var lastSlash = input.LastIndexOf('\\');
 
-					if (nextSlash == -1)
-                        Script.SetPropertyValue(outDrive, "__Value", p);
-					else
-                        Script.SetPropertyValue(outDrive, "__Value", input.Substring(0, nextSlash));
-
-					if (input.Contains('.'))
+					if (outDrive != null)
 					{
-						if (lastSlash == -1)
-                            Script.SetPropertyValue(outDir, "__Value", input);
+						if (nextSlash == -1)
+							Script.SetPropertyValue(outDrive, "__Value", (StringPrimitive)p);
 						else
-                            Script.SetPropertyValue(outDir, "__Value", input.AsSpan().Slice(0, lastSlash).TrimEnd('\\').ToString());
+							Script.SetPropertyValue(outDrive, "__Value", (StringPrimitive)input.Substring(0, nextSlash));
 					}
-					else
-                        Script.SetPropertyValue(outDir, "__Value", input.TrimEnd('\\'));
+
+					if (outDir != null)
+					{
+						if (input.Contains('.'))
+						{
+							if (lastSlash == -1)
+								Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)input);
+							else
+								Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)input.AsSpan().Slice(0, lastSlash).TrimEnd('\\').ToString());
+						}
+						else
+							Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)input.TrimEnd('\\'));
+					}
 				}
 				else
 				{
-                    Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input).TrimEnd('\\'));
-                    Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input).TrimEnd('\\'));
+					if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (StringPrimitive)Path.GetDirectoryName(input).TrimEnd('\\'));
+					if (outDrive != null) Script.SetPropertyValue(outDrive, "__Value", (StringPrimitive)Path.GetPathRoot(input).TrimEnd('\\'));
 				}
 			}
 
@@ -350,7 +299,7 @@
 		/// </summary>
 		/// <param name="path">The path to retrieve the tail for.</param>
 		/// <returns>The path with the drive portion removed.</returns>
-		internal static string PathTail(string path) => !path.Contains(Path.DirectorySeparatorChar.ToString()) ? path : path.Substring(1 + PathHead(path).Length);
+		internal static string PathTail(string path) => !path.Contains(Path.DirectorySeparatorChar.ToString()) ? path : path.Substring(1 + (int)PathHead(path).Length);
 
 		/// <summary>
 		/// Private helper for copying a folder from source to dest.

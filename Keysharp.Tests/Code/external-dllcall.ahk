@@ -1,4 +1,4 @@
-desktop := GetDesktopWindow()
+desktop := DllCall("GetDesktopWindow", "ptr")
 buf := Buffer(16, 0)
 DllCall("user32.dll\GetWindowRect", "ptr", desktop, "ptr", buf)
 l := NumGet(buf, 0, "UInt")
@@ -13,10 +13,10 @@ else
 
 str := "lower"
 len := StrLen(str)
-strbuf := StringBuffer(str)
+strbuf := StrPtr(str)
 DllCall("user32.dll\CharUpperBuff", "ptr", strbuf, "UInt", len)
 
-if (strbuf == StrUpper(str))
+if (str == "LOWER")
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -48,8 +48,9 @@ if (str == "0000000432" && str == fmtstr)
 else
 	FileAppend "fail", "*"
 
-str := StringBuffer()
-DllCall("wsprintf", "Ptr", str, "Str", "%010d", "Int", 432, "Cdecl")
+VarSetStrCapacity(&str, 256)
+DllCall("wsprintf", "ptr", StrPtr(str), "Str", "%010d", "Int", 432, "Cdecl")
+VarSetStrCapacity(&str, -1)
 fmtstr := Format(str, "0:D10")
 
 if (str == "0000000432" && str == fmtstr)
@@ -59,8 +60,9 @@ else
 
 MAX_DIR_PATH := 260 - 12 + 1
 folder := A_MyDocuments
-longPath := StringBuffer()
-DllCall("GetLongPathNameW", "Str", folder, "Ptr", longPath, "UInt", MAX_DIR_PATH, "UInt")
+VarSetStrCapacity(&longPath, MAX_DIR_PATH)
+DllCall("GetLongPathNameW", "Str", folder, "Ptr", StrPtr(longPath), "UInt", MAX_DIR_PATH, "UInt")
+VarSetStrCapacity(&longPath, -1)
 
 if (folder == longPath && longPath == A_MyDocuments)
 	FileAppend "pass", "*"

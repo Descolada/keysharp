@@ -54,14 +54,17 @@ namespace Keysharp.Core.Common.Cryptography
 
 		internal static byte[] ToByteArray(object value)
 		{
+			if (value is StringPrimitive sp)
+				return Encoding.Unicode.GetBytes(sp);
+
 			if (value is string s)
 				return Encoding.Unicode.GetBytes(s);
 
 			if (value is byte[] b)
 				return b;
 
-			if (value is Array arr)
-				return arr.ToByteArray().ToArray();
+			if (value is Buffer buf)
+				return buf.ToByteArray();
 
 			if (value == null)
 				return [];

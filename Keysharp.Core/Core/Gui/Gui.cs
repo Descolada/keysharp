@@ -82,7 +82,7 @@ namespace Keysharp.Core
 			{
 				"MinSize", (f, o) =>
 				{
-					if (o is string s)
+					if (o.IsString(out string s))
 					{
 						if (s?.Length == 0)
 						{
@@ -114,7 +114,7 @@ namespace Keysharp.Core
 			{
 				"MaxSize", (f, o) =>
 				{
-					if (o is string s)
+					if (o.IsString(out string s))
 					{
 						if (s?.Length == 0)
 						{
@@ -156,7 +156,7 @@ namespace Keysharp.Core
 			{
 				"Owner", (f, o) =>
 				{
-					if (o is string s)
+					if (o.IsString(out string s))
 					{
 						if (int.TryParse(s, out var hwnd))
 						{
@@ -169,7 +169,7 @@ namespace Keysharp.Core
 			{
 				"Parent", (f, o) =>
 				{
-					if (o is string s)
+					if (o.IsString(out string s))
 					{
 						if (int.TryParse(s, out var hwnd))
 						{
@@ -231,7 +231,7 @@ namespace Keysharp.Core
 
 			set
 			{
-				if (value is string s)
+				if (value.IsString(out string s))
 				{
 					if (Conversions.TryParseColor(s, out var c))
 						form.BackColor = c;
@@ -243,18 +243,18 @@ namespace Keysharp.Core
 
 		public System.Windows.Forms.Control FocusedCtrl => form.ActiveControl;
 
-		public long Hwnd => form.Handle;
+		public LongPrimitive Hwnd => form.Handle;
 
-		public long MarginX
+		public object MarginX
 		{
-			get => form.Margin.Left;
-			set => form.Margin = new Padding((int)value, form.Margin.Top, (int)value, form.Margin.Bottom);
+			get => (LongPrimitive)form.Margin.Left;
+			set => form.Margin = new Padding(value.Ai(), form.Margin.Top, value.Ai(), form.Margin.Bottom);
 		}
 
-		public long MarginY
+		public object MarginY
 		{
-			get => form.Margin.Top;
-			set => form.Margin = new Padding(form.Margin.Left, (int)value, form.Margin.Right, (int)value);
+			get => (LongPrimitive)form.Margin.Top;
+			set => form.Margin = new Padding(form.Margin.Left, value.Ai(), form.Margin.Right, value.Ai());
 		}
 
 		public MenuBar MenuBar
@@ -271,7 +271,7 @@ namespace Keysharp.Core
 
 		public object Name
 		{
-			get => form.Name;
+			get => (StringPrimitive)form.Name;
 			set => form.Name = value.ToString();
 		}
 
@@ -279,13 +279,13 @@ namespace Keysharp.Core
 
 		public object Title
 		{
-			get => form.Text;
+			get => (StringPrimitive)form.Text;
 			set => form.Text = value.As();
 		}
 
 		public object Visible
 		{
-			get => form.Visible;
+			get => (LongPrimitive)form.Visible;
 			set => form.Visible = value.Ab();
 		}
 
@@ -405,7 +405,7 @@ namespace Keysharp.Core
 			var o = obj2;//The third argument needs to account for being an array in the case of combo/list boxes.
 			var type = typeo.ToLowerInvariant();
 			Control holder = null;
-			var text = o as string;
+			var text = o as string ?? o as StringPrimitive;
 
 			if (text != null)
 				text = text.ReplaceLineEndings(Environment.NewLine);
@@ -1721,9 +1721,9 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public object Maximize() => form.WindowState = FormWindowState.Maximized;
+		public LongPrimitive Maximize() => (long)(form.WindowState = FormWindowState.Maximized);
 
-		public object Minimize() => form.WindowState = FormWindowState.Minimized;
+		public LongPrimitive Minimize() => (long)(form.WindowState = FormWindowState.Minimized);
 
 		public object Move(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null)
 		{
@@ -1811,7 +1811,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public object Restore() => form.WindowState = FormWindowState.Normal;
+		public LongPrimitive Restore() => (long)(form.WindowState = FormWindowState.Normal);
 
 		public object SetFont(object obj0 = null, object obj1 = null)
 		{
@@ -1953,12 +1953,12 @@ namespace Keysharp.Core
 				if (pos[0] != null)
 					size.Width = (int)Math.Ceiling(pos[0].Value * dpiscale);
 				else
-					size.Width = (int)(maxx + MarginX);
+					size.Width = (int)(maxx + form.Margin.Left);
 
 				if (pos[1] != null)
 					size.Height = (int)Math.Ceiling(pos[1].Value * dpiscale);
 				else
-					size.Height = (int)(maxy + ssHeight + MarginY);
+					size.Height = (int)(maxy + ssHeight + form.Margin.Top);
 
 				form.ClientSize = size;
 			}
@@ -2047,7 +2047,7 @@ namespace Keysharp.Core
 									   ? guictrl.Value
 									   : lb.SelectionMode == SelectionMode.One
 									   ? lb.SelectedItem as string ?? ""
-									   : new Array(lb.SelectedItems.Cast<object>().Where(xx => xx is string).Select(x => x as string).ToList());
+									   : new Array(lb.SelectedItems.Cast<object>().Where(xx => xx.IsString(out _)).Select(x => x.ToString()).ToList());
 					}
 					else if (control is RadioButton rb)//This is supposed to do something special if it's part of a group, but unsure how to determine that.
 					{
@@ -2402,13 +2402,13 @@ namespace Keysharp.Core
 						return gc;
 				}
 
-				if (controlname is string s)
+				if (controlname.IsString(out string s))
 				{
 					foreach (var ctrlkv in controls)
 					{
 						if (ctrlkv.Value is Gui.Control gc)
 						{
-							if (string.Compare(gc.Name as string, s, true) == 0)
+							if (string.Compare(gc.Name, s, true) == 0)
 								return gc;
 
 							if (string.Compare(gc.Text as string, s, true) == 0)
@@ -2702,7 +2702,7 @@ namespace Keysharp.Core
 				try
 				{
 					var kv = iter.Current;
-					Script.SetPropertyValue(key, "__Value", kv.Key);
+					Script.SetPropertyValue(key, "__Value", (LongPrimitive)(long)kv.Key);
 					Script.SetPropertyValue(value, "__Value", kv.Value);
 				}
 				catch (IndexOutOfRangeException)

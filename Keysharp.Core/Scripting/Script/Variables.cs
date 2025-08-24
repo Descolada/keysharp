@@ -74,6 +74,9 @@ namespace Keysharp.Scripting
 			InitClass(typeof(KeysharpObject));
 			InitClass(typeof(Class));
 
+			// Only here so that Object.Prototype.DefineProp can be used on any objects derived from Any
+			Prototypes[typeof(KeysharpObject)].op["DefineProp"] = new OwnPropsDesc(Prototypes[typeof(KeysharpObject)], null, null, null, Core.Functions.Func(Core.Objects.ObjDefineProp));
+
 			// The static instance of Object is copied from Object prototype
 			Statics[typeof(KeysharpObject)] = (Any)Prototypes[typeof(KeysharpObject)].Clone();
 			// Class.Base == Object
@@ -202,7 +205,7 @@ namespace Keysharp.Scripting
 
 				for (int i = 0; i < args.Length; i += 2)
 				{
-					if (args[i] is string varName)
+					if (args[i].IsString(out string varName))
 					{
 						vars[varName] = args[i + 1];
 					}

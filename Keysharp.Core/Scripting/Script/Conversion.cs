@@ -7,6 +7,9 @@ namespace Keysharp.Scripting
 			if (input == null)
 				return (bool)Errors.UnsetErrorOccurred("input", false);
 
+			if (input is Primitive p)
+				return p.IsTrue;
+
 			var d = 0.0;
 			var l = 0L;
 
@@ -114,6 +117,8 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return string.Empty;
+			else if (input is Primitive sp)
+				return sp.ToString();
 			else if (input is string s)
 				return s;
 			else if (input is char c)

@@ -52,7 +52,7 @@ tokens {
 }
 
 SingleLineBlockComment  : '/*' NonEOLCharacter*? '*/' -> skip;
-MultiLineComment  : '/*' .*? '*/' -> type(EOL);
+MultiLineComment  : '/*' .*? ('*/' | EOF) -> type(EOL);
 SingleLineComment : ';' NonEOLCharacter* EOLCharacter {this.IsCommentPossible()}? -> type(EOL);
 
 // First try consuming a hotstring 

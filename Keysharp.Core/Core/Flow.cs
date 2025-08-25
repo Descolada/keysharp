@@ -592,6 +592,11 @@ namespace Keysharp.Core
 			else
 				script.onExitHandlers.Clear();
 
+			script.Vars.ClearAllObjectVariables();
+			GC.AddMemoryPressure(1000000);
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.
 			fd.allowInterruption = allowInterruption_prev;
 			HotkeyDefinition.AllDestruct();

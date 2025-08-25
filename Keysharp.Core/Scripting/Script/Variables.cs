@@ -34,6 +34,53 @@ namespace Keysharp.Scripting
 			}
 		}
 
+		public void ClearAllObjectVariables()
+		{
+			if (globalVars.Count == 0)
+				return;
+
+			var mainType = globalVars.First().Value.DeclaringType;
+
+			foreach (var (name, member) in globalVars)
+			{
+				if (name.StartsWith("_ks_"))
+					continue;
+				if (member is FieldInfo fi && fi.GetValue(null) is Any)
+					fi.SetValue(null, null);
+				else if (member is PropertyInfo pi && pi.GetValue(null) is Any)
+					pi.SetValue(null, null);
+			}
+
+			foreach (var nested in Reflections.GetNestedTypes([mainType]))
+			{
+				if (nested == mainType)
+					continue;
+
+				var fields = nested.GetFields(BindingFlags.Static |
+					BindingFlags.NonPublic |
+					BindingFlags.Public);
+				var props = nested.GetProperties(BindingFlags.Static |
+					BindingFlags.NonPublic |
+					BindingFlags.Public);
+
+				foreach (var field in fields)
+				{
+					if (field.Name.StartsWith("_ks_"))
+						continue;
+					if (field.GetValue(null) is Any)
+						field.SetValue(null, null);
+				}
+
+				foreach (var prop in props)
+				{
+					if (prop.Name.StartsWith("_ks_"))
+						continue;
+					if (prop.GetValue(null) is Any)
+						prop.SetValue(null, null);
+				}
+			}
+		}
+
 		public object GetVariable(string key)
 		{
 			if (globalVars.TryGetValue(key, out var field))

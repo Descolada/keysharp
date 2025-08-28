@@ -89,94 +89,44 @@
 		}
 
 		/// <summary>
-		/// Even calling with no args might still need ref processing because some of the
-		/// bound args might be refs. So always forward to <see cref="CallWithRefs(object[])"/>
+		/// Add the bound arguments and call the target function.
 		/// </summary>
-		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/></param>
+		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/> or bound
+		/// the arguments and forwarded to <see cref="FuncObj.Call(object[])"/></param>
 		/// <returns>The return value of the bound function.</returns>
-		public override object Call(params object[] args) => CallWithRefs(args);
-
-		public override object CallWithRefs(params object[] args)
-		{
-			var argsList = CreateArgs(args);
-			var argsArray = new object[argsList.Count];
-
-			for (var i = 0; i < argsList.Count; ++i)
-			{
-				var p = argsList[i];
-
-				if (p is RefHolder rh)
-				{
-					rh.index = i;//Must change the index since the array has changed.
-					argsArray[i] = rh.val;
-				}
-				else
-					argsArray[i] = p;
-			}
-
-			var val = base.Call(argsArray);
-
-			for (int i = 0, argsIndex = 0; i < argsList.Count; ++i)
-			{
-				//If it was a RefHolder, then reassign regardless if it was passed from the bound args or the passed in args.
-				if (argsList[i] is RefHolder rh)
-				{
-					rh.reassign(argsArray[rh.index]);//Use value from new array.
-				}
-				else if (argsIndex < args.Length
-						 && i < mph.parameters.Length//This seems like it should always be true.
-						 && mph.parameters[i].ParameterType.IsByRef
-						)//It wasn't a RefHolder, so determine where it should go.
-				{
-					args[argsIndex++] = argsArray[i];//Reassign all the way back to the original.
-				}
-			}
-
-			return val;
+		public override object Call(params object[] args) {
+			if (AnyRef)
+				return CallWithRefs(args);
+			return base.Call(CreateArgs(args));
 		}
 
-		private List<object> CreateArgs(params object[] args)
+		public override object CallWithRefs(params object[] args) => base.CallWithRefs(CreateArgs(args));
+
+		private object[] CreateArgs(params object[] args)
 		{
-			int i = 0, argsused = 0;
-			var argsList = new List<object>(mph.parameters.Length);
+			var boundLen = boundargs.Length;
+			var paramLen = boundLen + args.Length;
+			// This may allocate more than needed, but MPH will take care of that
+			var newArgs = new object[paramLen];
 
-			for (; i < boundargs.Length; i++)
+			int a = 0;
+
+			// Fill fixed parameters in one pass
+			for (int i = 0; i < paramLen; i++)
 			{
-				if (boundargs[i] != null)
-				{
-					argsList.Add(boundargs[i]);
-				}
-				else if (argsused < args.Length)
-				{
-					argsList.Add(args[argsused]);
-					argsused++;
-				}
+				var b = i < boundLen ? boundargs[i] : null;
+
+				if (b != null)
+					newArgs[i] = b;
+				else if (a < args.Length)
+					newArgs[i] = args[a++];
 				else
-					argsList.Add(null);
+					newArgs[i] = null; // MPH will handle defaults
 			}
 
-			if (mph.IsVariadic)
-			{
-				for (; argsused < args.Length; argsused++)
-					argsList.Add(args[argsused]);
-			}
-			else
-			{
-				for (; argsused < args.Length && argsList.Count < mph.parameters.Length; argsused++)
-					argsList.Add(args[argsused]);
-			}
+			// MPH will handle variadic packing
 
-			while (argsList.Count < mph.parameters.Length)
-			{
-				var param = mph.parameters[argsList.Count];
-
-				if (param.Attributes.HasFlag(ParameterAttributes.HasDefault))
-					argsList.Add(param.DefaultValue);
-				else
-					argsList.Add(null);
-			}
-
-			return argsList;
+			return newArgs;
 		}
 	}
 
@@ -195,6 +145,8 @@
 		public long MaxParams { get; internal set; } = 0;
 		public long MinParams { get; internal set; } = 0;
 		internal int VariadicIndex => mph.variadicParamIndex;
+		internal bool AnyRef => mph.byRefIndices != null;
+		internal List<int> ByRefIndices => mph.byRefIndices;
 		internal MethodPropertyHolder Mph => mph;
 
 		internal FuncObj(string s, object o = null, object paramCount = null)
@@ -228,32 +180,23 @@
 
 		public virtual object CallWithRefs(params object[] args)
 		{
-			var argsArray = new object[args.Length];
+			var refs = new List<RefHolder>(ByRefIndices.Count);
 
-			for (var i = 0; i < args.Length; i++)
+			foreach (int i in ByRefIndices)
 			{
-				var p = args[i];
-
-				if (p is RefHolder rh)
-				{
-					rh.index = i;//Might not be needed here, but just to be safe.
-					argsArray[i] = rh.val;
-				}
-				else
-					argsArray[i] = p;
+				var rh = args[i] as RefHolder;
+				refs.Add(rh);
+				if (rh != null)
+					args[i] = rh.val;
 			}
 
-			var val = mph.CallFunc(Inst, argsArray);
+			var val = mph.CallFunc(Inst, args);
 
-			for (var i = 0; i < args.Length; i++)
+			int r = -1;
+			foreach (int i in ByRefIndices)
 			{
-				if (args[i] is RefHolder rh)
-					rh.reassign(argsArray[rh.index]);
-				//args.Length could exceed parameters.Length if the last param was variadic.
-				//So don't assign back because variadic parameters aren't expected to be reference params, even though
-				//they might technically be able to be called that way with reflection.
-				else if (i < args.Length && i < mph.parameters.Length && mph.parameters[i].ParameterType.IsByRef)
-					args[i] = argsArray[i];//Reassign all the way back to the original.
+				if (refs[++r] != null)
+					refs[r].reassign(args[i]);
 			}
 
 			return val;

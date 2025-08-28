@@ -14,6 +14,7 @@
 		private readonly Action<object, object> setPropFunc;
 		internal readonly int variadicParamIndex = -1;
 		private readonly int stopVarIndexDistanceFromEnd;
+		internal List<int> byRefIndices;
 
 #if CONCURRENT
         internal static ConcurrentDictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
@@ -71,6 +72,12 @@
 					variadicParamIndex = i;
 				else if (variadicParamIndex != -1 && stopVarIndexDistanceFromEnd == 0)
 					stopVarIndexDistanceFromEnd = parameters.Length - i;
+
+				if (pmi.ParameterType.IsByRef)
+				{
+					byRefIndices ??= new List<int> ();
+					byRefIndices.Add(i);
+				}
 
 				if (!(pmi.IsOptional || pmi.IsVariadic() || pmi.ParameterType == typeof(object[])))
 					MinParams++;

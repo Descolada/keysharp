@@ -194,7 +194,7 @@ namespace Keysharp.Core.Common.Invoke
 							foreach (var meth in meths)
 								typeToMethods.GetOrAdd(meth.ReflectedType,
 													   (tp) => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase))
-								.GetOrAdd(meth.Name)[meth.GetParameters().Length] = new MethodPropertyHolder(meth, null);
+								.GetOrAdd(meth.Name)[meth.GetParameters().Length] = MethodPropertyHolder.GetOrAdd(meth);
 						}
 						else//Make a dummy entry because this type has no methods. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
 						{
@@ -210,7 +210,7 @@ namespace Keysharp.Core.Common.Invoke
 							foreach (var meth in meths)
 								typeToMethods.GetOrAdd(meth.ReflectedType,
 													   () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(meths.Length, StringComparer.OrdinalIgnoreCase))
-								.GetOrAdd(meth.Name)[meth.GetParameters().Length] = new MethodPropertyHolder(meth, null);
+								.GetOrAdd(meth.Name)[meth.GetParameters().Length] = MethodPropertyHolder.GetOrAdd(meth);
 						}
 						else//Make a dummy entry because this type has no methods. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
 						{
@@ -270,7 +270,7 @@ namespace Keysharp.Core.Common.Invoke
 								foreach (var prop in props)
 									typeToStringProperties.GetOrAdd(prop.ReflectedType,
 																	(tp) => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase))
-									.GetOrAdd(prop.Name)[prop.GetIndexParameters().Length] = new MethodPropertyHolder(null, prop);
+									.GetOrAdd(prop.Name)[prop.GetIndexParameters().Length] = MethodPropertyHolder.GetOrAdd(prop);
 							}
 							else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
 							{
@@ -286,7 +286,7 @@ namespace Keysharp.Core.Common.Invoke
 								foreach (var prop in props)
 									rd.typeToStringProperties.GetOrAdd(prop.ReflectedType,
 																	   () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(props.Length, StringComparer.OrdinalIgnoreCase))
-									.GetOrAdd(prop.Name)[prop.GetIndexParameters().Length] = new MethodPropertyHolder(null, prop);
+									.GetOrAdd(prop.Name)[prop.GetIndexParameters().Length] = MethodPropertyHolder.GetOrAdd(prop);
 							}
 							else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
 							{

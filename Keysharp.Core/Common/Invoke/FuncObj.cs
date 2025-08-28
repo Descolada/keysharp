@@ -186,8 +186,6 @@
 
 	internal class FuncObj : KeysharpObject, IFuncObj
 	{
-		protected bool anyRef;
-		protected bool isVariadic;
 		protected MethodInfo mi;
 		protected MethodPropertyHolder mph;
 
@@ -197,10 +195,10 @@
 		public bool IsValid => mi != null && mph != null && mph.IsCallFuncValid;
 		public string Name => mi != null ? mi.Name : "";
 		public new (Type, object) super => (typeof(KeysharpObject), this);
-		public bool IsVariadic => isVariadic;
+		public bool IsVariadic => mph.variadicParamIndex != -1;
 		public long MaxParams { get; internal set; } = 0;
 		public long MinParams { get; internal set; } = 0;
-		internal int VariadicIndex => mph.startVarIndex;
+		internal int VariadicIndex => mph.variadicParamIndex;
 		internal MethodPropertyHolder Mph => mph;
 
 		internal FuncObj(string s, object o = null, object paramCount = null)
@@ -327,21 +325,10 @@
 
 		private void Init()
 		{
-			mph = new MethodPropertyHolder(mi, null);
+			mph = MethodPropertyHolder.GetOrAdd(mi);
 			var parameters = mph.parameters;
 			MinParams = mph.MinParams;
 			MaxParams = mph.MaxParams;
-
-			foreach (var p in parameters)
-			{
-				if (p.ParameterType.IsByRef)
-				{
-					anyRef = true;
-					break;
-				}
-			}
-
-			isVariadic = parameters.Length > 0 && parameters[parameters.Length - 1].ParameterType == typeof(object[]);
 		}
 	}
 

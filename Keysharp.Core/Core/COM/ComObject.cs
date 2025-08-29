@@ -126,7 +126,7 @@ namespace Keysharp.Core
 					if (temp is IDispatch id)
 						item = id;
 					else
-						item = new nint(longVal != 0 ? longVal : Marshal.GetIUnknownForObject(temp));//This was put here to prevent the COM tests with the taskbar in guitest.ks from crashing. Unsure if it actually makes sense.
+						item = (LongPrimitive)new nint(longVal != 0 ? longVal : Marshal.GetIUnknownForObject(temp));//This was put here to prevent the COM tests with the taskbar in guitest.ks from crashing. Unsure if it actually makes sense.
 
 					return;
 				}

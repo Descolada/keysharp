@@ -74,13 +74,20 @@ namespace Keysharp.Core
 		/// </returns>
 		public static object CallbackCreate(object function, object options = null, object paramCount = null)
 		{
+			var fo = Functions.GetFuncObj(function, null, true);
+
 			var o = options.As();
-			var dh = new DelegateHolder(function, o.Contains('f', StringComparison.OrdinalIgnoreCase), o.Contains('&'), paramCount.Ai(-1));
-			return dh.Ptr;
+			bool fast = o.Contains('f', StringComparison.OrdinalIgnoreCase);
+			bool reference = o.Contains('&');
+			int arity = Math.Clamp(paramCount.Ai(-1) < 0
+								   ? (!reference && fo is FuncObj f ? (int)f.MinParams : 32)
+								   : paramCount.Ai(-1), 0, 32);
+
+			return new DelegateHolder(fo, arity, fast, reference);
 		}
 
 		/// <summary>
-		/// Frees the specified callback by internally setting it to null.
+		/// Frees the specified callback.
 		/// </summary>
 		/// <param name="address">The <see cref="DelegateHolder"/> to be freed.</param>
 		public static object CallbackFree(object address)
@@ -88,11 +95,11 @@ namespace Keysharp.Core
 			if (address is LongPrimitive lp && lp.Payload != null)
 			{
 				if (lp.Payload is DelegateHolder pdh)
-					pdh.Clear();
+					pdh.Dispose();
 				lp.Payload = null;
 			}
 			if (address is DelegateHolder dh)
-				dh.Clear();
+				dh.Dispose();
 
 			return DefaultObject;
 		}

@@ -66,6 +66,9 @@ namespace Keysharp.Core.Common.Cryptography
 			if (value is Buffer buf)
 				return buf.ToByteArray();
 
+			if (value is Array arr)
+				return arr.ToByteArray().ToArray();
+
 			if (value == null)
 				return [];
 

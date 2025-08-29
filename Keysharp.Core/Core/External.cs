@@ -251,7 +251,7 @@ namespace Keysharp.Core
 					case "uint64":
 					case "ptr":
 					case "uptr":
-						if (number is KeysharpObject kso)
+						if (number is Any kso)
 							number = Reflections.GetPtrProperty(kso);
 
 						bytes = BitConverter.GetBytes(number.Al());

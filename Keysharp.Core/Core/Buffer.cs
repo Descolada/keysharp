@@ -18,12 +18,17 @@
 		private long size;
 
 		/// <summary>
-		/// Gets the pointer to the memory.
+		/// SafeHandle wrapper for the native memory pointer.
 		/// </summary>
 		private NativeMemoryHandle _ptr;
-		public LongPrimitive Ptr {
-			get => new LongPrimitive(_ptr.DangerousGetHandle(), _ptr);
-			private set => _ptr = new NativeMemoryHandle(value);
+
+		/// <summary>
+		/// Gets the pointer to the memory.
+		/// </summary>
+		public LongPrimitive Ptr
+		{
+			get => new LongPrimitive(_ptr?.DangerousGetHandle() ?? 0L, _ptr);
+			private set => _ptr = new NativeMemoryHandle((nint)value);
 		}
 
 		/// <summary>
@@ -42,7 +47,6 @@
 
 				if (val > size)
 				{
-					//var newptr = Marshal.AllocCoTaskMem((int)val);
 					var newptr = Marshal.AllocHGlobal((int)val);
 
 					if (_ptr != null)
@@ -56,7 +60,6 @@
 						var old = _ptr;
 						_ptr = new NativeMemoryHandle(newptr);
 						old.Dispose();
-						//Marshal.FreeCoTaskMem(old);
 					}
 					else
 						_ptr = new NativeMemoryHandle(newptr);
@@ -105,13 +108,13 @@
 					Size = bytearray.Length;//Performs the allocation.
 
 					if (size > 0)
-						Marshal.Copy(bytearray, 0, (nint)_ptr.DangerousGetHandle(), Math.Min((int)size, bytearray.Length));
+						Marshal.Copy(bytearray, 0, _ptr.DangerousGetHandle(), Math.Min((int)size, bytearray.Length));
 				}
 				else if (obj0 is Array array)
 				{
 					var ct = array.array.Count;
 					Size = ct;
-					var bp = (nint)Ptr;
+					var bp = _ptr.DangerousGetHandle();
 
 					for (var i = 0; i < ct; i++)
 						Unsafe.Write((void*)nint.Add(bp, i), (byte)Script.ForceLong(array.array[i]));//Access the underlying array[] directly for performance.
@@ -137,15 +140,15 @@
 		/// Dispose the object and set a flag so it doesn't get disposed twice.
 		/// </summary>
 		/// <param name="disposing">If true, disposing already, so skip, else dispose.</param>
-		public virtual void Dispose(bool disposing)
+		public object Dispose(bool disposing)
 		{
 			if (!disposed)
 			{
-				_ptr.Dispose();
-				//Marshal.FreeCoTaskMem(Ptr);
+				_ptr?.Dispose();
 				Size = 0;
 				disposed = true;
 			}
+			return DefaultObject;
 		}
 
 		/// <summary>
@@ -160,23 +163,28 @@
 		/// Converts the contents of the buffer to a hex string.
 		/// </summary>
 		/// 
-		public StringPrimitive ToHex() => BitConverter.ToString(ToByteArray()).Replace("-", string.Empty);
+		public StringPrimitive ToHex() => Convert.ToHexString(AsSpan());
 
 		/// <summary>
 		/// Converts the contents of the buffer to a base64 string.
 		/// </summary>
-		public StringPrimitive ToBase64() => Convert.ToBase64String(ToByteArray());
+		public StringPrimitive ToBase64() => Convert.ToBase64String(AsSpan());
 
 		/// <summary>
-		/// Converts the contents of the buffer to a byte array.
+		/// Returns the contents of the buffer as a byte array.
 		/// </summary>
 		public byte[] ToByteArray()
 		{
-			int size = (int)Size;
+			int size = (int)(long)Size;
 			byte[] dataArray = new byte[size];
-			Marshal.Copy((nint)_ptr.DangerousGetHandle(), dataArray, 0, size);
+			Marshal.Copy(_ptr.DangerousGetHandle(), dataArray, 0, size);
 			return dataArray;
 		}
+
+		/// <summary>
+		/// Returns a mutable Span wrapper for the raw buffer.
+		/// </summary>
+		public unsafe Span<byte> AsSpan() => new Span<byte>((byte*)_ptr.DangerousGetHandle(), (int)(long)Size);
 
 		/// <summary>
 		/// Indexer which retrieves or sets the value of an array element.
@@ -203,11 +211,20 @@
 		}
 	}
 
+	/// <summary>
+	/// Wrapper for native memory pointers. It's used for two reasons: firstly, classes derived from
+	/// CriticalFinalizerObject (like SafeHandle) are guaranteed to have finalizers executed so
+	/// this prevents memory leaks if the assembly is unexpectedly unloaded. Second, critical finalizers
+	/// are ran after regular ones which gives user-code time to run any __Delete methods before the
+	/// memory is released. This is important in cases like an object holding a Buffer with the destructor
+	/// set up to clean resources up (eg VariantClear). Without using SafeHandle the Buffer finalizer
+	/// may be called first causing the resource-cleanup to fail.
+	/// </summary>
 	sealed class NativeMemoryHandle : SafeHandleZeroOrMinusOneIsInvalid
 	{
 		public NativeMemoryHandle() : base(ownsHandle: true) { }
 
-		public NativeMemoryHandle(IntPtr p, bool owns = true) : base(owns)
+		public NativeMemoryHandle(nint p, bool owns = true) : base(owns)
 		{
 			SetHandle(p);
 		}

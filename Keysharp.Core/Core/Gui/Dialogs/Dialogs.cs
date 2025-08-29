@@ -239,8 +239,8 @@ namespace Keysharp.Core
 					};
 					var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner), true);
 					files = selected == DialogResult.OK
-							? multi ? new Array(open.FileNames.Cast<object>().ToArray()) : open.FileName
-							: multi ? new Array() : DefaultObject;
+							? multi ? new Array(open.FileNames.Cast<object>()) : open.FileName
+							: multi ? new Array() : "";
 				}
 			}
 

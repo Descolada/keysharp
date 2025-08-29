@@ -8,7 +8,7 @@
 			private WeakReference<Gui> gui;
 			private readonly List<IFuncObj> clickHandlers = [];
 			private readonly List<IFuncObj> doubleClickHandlers = [];
-			private bool DpiScaling => ((Gui)Gui).dpiscaling;
+			internal bool DpiScaling => ((Gui)Gui).dpiscaling;
 			private System.Windows.Forms.Control _control;
 
 			//Normal event handlers can't be used becaused they need to return a value.
@@ -180,7 +180,7 @@
 					else if (_control is HotkeyBox hk)
 						return (StringPrimitive)hk.GetText();
 					else if (_control is KeysharpNumericUpDown nud)
-						return (DoublePrimitive)(double)nud.Value;
+						return (DoublePrimitive)nud.Value;
 					else if (_control is KeysharpButton btn)
 						return (StringPrimitive)btn.Text;
 					else if (_control is KeysharpCheckBox cb)
@@ -209,8 +209,8 @@
 					else if (_control is KeysharpListBox lb)
 					{
 						return lb.SelectionMode == SelectionMode.One
-							   ? (LongPrimitive)((long)lb.SelectedIndex + 1)
-							   : new Array(lb.SelectedIndices.Cast<int>().Select(x => x + 1).ToList());
+							   ? (LongPrimitive)(long)lb.SelectedIndex + 1
+							   : new Array(lb.SelectedIndices.Cast<int>().Select(x => (LongPrimitive)((long)x + 1)));
 					}
 					else if (_control is KeysharpDateTimePicker dtp)
 						return (StringPrimitive)Conversions.ToYYYYMMDDHH24MISS(dtp.Value);

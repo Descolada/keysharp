@@ -224,7 +224,7 @@
 				return 0;
 
 			var punk = Marshal.GetIUnknownForObject(obj);
-			return Com.ComValue(13L, (long)punk);
+			return Com.ComValue((LongPrimitive)13L, (LongPrimitive)punk);
 		}
 
 		/// <summary>

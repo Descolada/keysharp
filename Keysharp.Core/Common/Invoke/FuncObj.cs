@@ -228,7 +228,7 @@
 		public virtual IFuncObj Bind(params object[] args)
 		=> new BoundFunc(mi, args, Inst);
 
-		public virtual object Call(params object[] args) => mph.CallFunc(Inst, args);
+		public virtual object Call(params object[] args) => mph.callFunc(Inst, args);
 
 		public virtual object CallWithRefs(params object[] args)
 		{
@@ -247,7 +247,7 @@
 					argsArray[i] = p;
 			}
 
-			var val = mph.CallFunc(Inst, argsArray);
+			var val = mph.callFunc(Inst, argsArray);
 
 			for (var i = 0; i < args.Length; i++)
 			{

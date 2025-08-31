@@ -3,15 +3,16 @@
 	public class MethodPropertyHolder
 	{
 		internal readonly MethodInfo mi;
+		internal readonly System.Reflection.MethodInvoker invoker;
 		internal readonly ParameterInfo[] parameters;
 		internal readonly PropertyInfo pi;
 		internal int MaxParams = 0;
 		internal int MinParams = 0;
 		protected readonly ConcurrentStackArrayPool<object> paramsPool;
-		protected Func<object, object[], object> callFunc;
+		internal Func<object, object[], object> callFunc;
 		private readonly bool anyOptional;
 		private readonly bool isGuiType;
-		private readonly Action<object, object> setPropFunc;
+		internal readonly Action<object, object> setPropFunc;
 		internal readonly int variadicParamIndex = -1;
 		private readonly int stopVarIndexDistanceFromEnd;
 
@@ -58,6 +59,7 @@
 		public MethodPropertyHolder(MethodInfo m)
 		{
 			mi = m;
+			invoker = System.Reflection.MethodInvoker.Create(mi);
 			parameters = mi.GetParameters();
 			ParamLength = parameters.Length;
 			isGuiType = Gui.IsGuiType(mi.DeclaringType);
@@ -98,13 +100,13 @@
 						var ctrl = inst.GetControl();//If it's a gui control, then invoke on the gui thread.
 						ctrl.CheckedInvoke(() =>
 						{
-							ret = mi.Invoke(inst, null);
+							ret = invoker.Invoke(inst);
 						}, true);//This can be null if called before a Gui object is fully initialized.
 						return ret;
 					};
 				}
 				else
-					callFunc = (inst, obj) => mi.Invoke(inst, null);
+					callFunc = (inst, obj) => invoker.Invoke(inst);
 			}
 			else
 			{
@@ -180,14 +182,14 @@
 
 						if (!isGuiType)
 						{
-							ret = mi.Invoke(inst, newobj);
+							ret = invoker.Invoke(inst, newobj.AsSpan());
 						}
 						else//If it's a gui control, then invoke on the gui thread.
 						{
 							var ctrl = inst.GetControl();
 							ctrl.CheckedInvoke(() =>
 							{
-								ret = mi.Invoke(inst, newobj);
+								ret = invoker.Invoke(inst, newobj.AsSpan());
 							}, true);//This can be null if called before a Gui object is fully initialized.
 						}
 
@@ -243,14 +245,14 @@
 
 							if (!isGuiType)
 							{
-								ret = mi.Invoke(inst, obj);
+								ret = invoker.Invoke(inst, obj.AsSpan());
 							}
 							else//If it's a gui control, then invoke on the gui thread.
 							{
 								var ctrl = inst.GetControl();
 								ctrl.CheckedInvoke(() =>
 								{
-									ret = mi.Invoke(inst, obj);
+									ret = invoker.Invoke(inst, obj.AsSpan());
 								}, true);//This can be null if called before a Gui object is fully initialized.
 							}
 						}
@@ -273,14 +275,14 @@
 							//Any remaining items in newobj are null by default.
 							if (!isGuiType)
 							{
-								ret = mi.Invoke(inst, newobj);
+								ret = invoker.Invoke(inst, newobj.AsSpan());
 							}
 							else//If it's a gui control, then invoke on the gui thread.
 							{
 								var ctrl = inst.GetControl();
 								ctrl.CheckedInvoke(() =>
 								{
-									ret = mi.Invoke(inst, newobj);
+									ret = invoker.Invoke(inst, newobj.AsSpan());
 								}, true);//This can be null if called before a Gui object is fully initialized.
 							}
 
@@ -392,55 +394,6 @@
 
 					setPropFunc = pi.SetValue;
 				}
-			}
-		}
-
-		[StackTraceHidden]
-		internal object CallFunc(object inst, object[] obj)
-		{
-#if DEBUG
-
-			if (callFunc == null)
-				throw new KeysharpException("This method/property holder has no callable function.");
-
-#endif
-
-			try
-			{
-				return callFunc(inst, obj);
-			}
-			catch (Exception e)
-			{
-				if (e.InnerException is KeysharpException ke)
-				{
-					ExceptionDispatchInfo.Capture(ke).Throw();//Can't just throw ke because it would lose the stack trace.
-					return null;//This line will never be reached, but is needed to satisfy the compiler.
-				}
-				else
-					throw;
-			}
-		}
-
-		[StackTraceHidden]
-		internal void SetProp(object inst, object obj)
-		{
-#if DEBUG
-
-			if (setPropFunc == null)
-				throw new KeysharpException("This method/property holder has no settable property function.");
-
-#endif
-
-			try
-			{
-				setPropFunc(inst, obj);
-			}
-			catch (Exception e)
-			{
-				if (e.InnerException is KeysharpException ke)
-					ExceptionDispatchInfo.Capture(ke).Throw();//Can't just throw ke because it would lose the stack trace.
-				else
-					throw;
 			}
 		}
 	}

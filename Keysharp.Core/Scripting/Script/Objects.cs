@@ -61,7 +61,7 @@ namespace Keysharp.Scripting
 				{
 					if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", 0) is MethodPropertyHolder mph1)
 					{
-						_ = mph1.CallFunc(item, index.Concat([value]));
+						_ = mph1.callFunc(item, index.Concat([value]));
 						return value;
 					}
 				}
@@ -93,7 +93,7 @@ namespace Keysharp.Scripting
 				{
 					if (il1 == mph2.ParamLength || mph2.IsVariadic)
 					{
-						_ = mph2.CallFunc(item, index.Concat([value]));
+						_ = mph2.callFunc(item, index.Concat([value]));
 						return value;
 					}
 					else
@@ -194,7 +194,7 @@ namespace Keysharp.Scripting
 				if (Reflections.FindAndCacheInstanceMethod(typetouse, "get_Item", len) is MethodPropertyHolder mph)
 				{
 					if (len == mph.ParamLength || mph.IsVariadic)
-						return mph.CallFunc(item, index);
+						return mph.callFunc(item, index);
 					else
 						return Errors.ValueErrorOccurred($"{len} arguments were passed to a get indexer which only accepts {mph.ParamLength}.");
 				}

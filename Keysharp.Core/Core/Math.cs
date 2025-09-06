@@ -240,7 +240,13 @@
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a long.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public static object Integer(object value) => Primitive.From(value).Al();
+		public static LongPrimitive Integer(object value)
+		{
+			var p = Primitive.NumericFrom(value);
+			if (p.TryGetLong(out var ll)) return p is LongPrimitive lp ? lp : (LongPrimitive)ll;
+			_ = p.TryGetDouble(out var dd);
+			return (long)dd;
+		}
 
 		/// <summary>
 		/// Returns the natural (base e) logarithm of a specified number.

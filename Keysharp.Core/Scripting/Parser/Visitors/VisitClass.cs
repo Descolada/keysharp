@@ -1,7 +1,8 @@
-﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+﻿using System.Xml.Linq;
 using Antlr4.Runtime.Misc;
-using static MainParser;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Keysharp.Scripting.Parser;
+using static MainParser;
 
 namespace Keysharp.Scripting
 {
@@ -14,7 +15,10 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitClassDeclaration([NotNull] ClassDeclarationContext context)
         {
-            string userDeclaredName = context.identifier().GetText();
+			if (parser.currentFunc != parser.autoExecFunc)
+				throw new ParseException("Classes cannot be declared inside functions", context);
+
+			string userDeclaredName = context.identifier().GetText();
             parser.PushClass(parser.NormalizeIdentifier(userDeclaredName, eNameCase.Title));
             parser.currentClass.UserDeclaredName = userDeclaredName;
 
@@ -102,25 +106,6 @@ namespace Keysharp.Scripting
             // Add static__Init, __Init, and static constructor method (must be after processing the elements for proper field assignments)
             AddInitMethods(parser.currentClass.Name);
             parser.currentClass.Body.Add(CreateStaticConstructor(parser.currentClass.Name));
-
-            if (parser.currentClass.ContainsMethod("__Delete"))
-            {
-                parser.currentClass.Body.Add(
-                    SyntaxFactory.DestructorDeclaration(SyntaxFactory.Identifier(parser.currentClass.Name))
-                        .WithBody(SyntaxFactory.Block(
-                            SyntaxFactory.SingletonList<StatementSyntax>(
-                                SyntaxFactory.ExpressionStatement(
-                                    ((InvocationExpressionSyntax)InternalMethods.Invoke)
-                                    .WithArgumentList(
-										CreateArgumentList(
-                                            SyntaxFactory.ThisExpression(),
-                                            SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("__Delete"))
-                                    ))
-                                )
-                            )
-                        ))
-                    );
-            }
 
             // Add the Call factory method
             if (!parser.currentClass.ContainsMethod("Call", true))
@@ -305,6 +290,8 @@ namespace Keysharp.Scripting
             var methodDefinition = context.methodDefinition();
             Visit(methodDefinition.functionHead());
             var rawMethodName = methodDefinition.functionHead().identifierName().GetText();
+
+            parser.currentFunc.UserDeclaredName = rawMethodName;
             var methodName = parser.currentFunc.Name = parser.NormalizeClassIdentifier(rawMethodName);
 
             var fieldName = methodName.ToLowerInvariant();
@@ -319,23 +306,13 @@ namespace Keysharp.Scripting
             parser.currentFunc.Body.AddRange(methodBody.Statements);
 
             // Create method declaration
-            var methodDeclaration = SyntaxFactory.MethodDeclaration(
-                    Parser.PredefinedKeywords.ObjectType, // Return type is object
+            parser.currentFunc.Method = SyntaxFactory.MethodDeclaration(
+                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type is object
                     SyntaxFactory.Identifier(methodName)
-                )
-                .WithModifiers(
-                    SyntaxFactory.TokenList(
-                        new List<SyntaxToken> {
-                            parser.currentFunc.Async ? SyntaxFactory.Token(SyntaxKind.AsyncKeyword) : default,
-                            Parser.PredefinedKeywords.PublicToken,
-                            Parser.PredefinedKeywords.StaticToken }
-                        .Where(token => token != default)
-                    )
-                )
-                .WithParameterList(parser.currentFunc.AssembleParams())
-            .WithBody(parser.currentFunc.AssembleBody());
+                );
+            var methodDeclaration = parser.currentFunc.Assemble();
 
-            PopFunction();
+			PopFunction();
 
             return methodDeclaration;
         }

@@ -65,6 +65,10 @@
 			}
 		}
 
+		public override bool Equals(object obj) => ReferenceEquals(this, obj);
+
+		public override int GetHashCode() => RuntimeHelpers.GetHashCode(this);
+
 		public override IFuncObj Bind(params object[] args)
 		{
 			object[] newbound = new object[boundargs.Length + args.Length];
@@ -93,7 +97,7 @@
 		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/></param>
 		/// <returns>The return value of the bound function.</returns>
 		public override object Call(params object[] args) => base.Call(CreateArgs(args).ToArray());
-		public override object CallInst(object inst, params object[] args) => base.Call(inst, CreateArgs(args).ToArray());
+		public override object CallInst(object inst, params object[] args) => base.Call(CreateArgs([inst, ..args]).ToArray());
 
         public override object CallWithRefs(params object[] args)
 		{
@@ -188,37 +192,7 @@
 
 		public LongPrimitive IsBuiltIn => mi.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
 		public LongPrimitive IsValid => mi != null && mph != null && mph.CallFunc != null;
-		string _name = null;
-		public StringPrimitive Name {
-			get
-			{
-				if (_name != null)
-					return _name;
-
-				if (mi == null)
-					return _name = "";
-
-				string funcName = mi.Name;
-				var prefixes = new[] { "static", "get_", "set_" };
-				foreach (var p in prefixes)
-				{
-					if (funcName.StartsWith(p, StringComparison.Ordinal))
-						funcName = funcName.Substring(p.Length);
-				}
-
-				if (IsBuiltIn || mi.DeclaringType.Name == Keywords.MainClassName)
-					return _name = funcName;
-
-				string declaringType = mi.DeclaringType.FullName;
-
-				var idx = declaringType.IndexOf(Keywords.MainClassName + "+");
-				string nestedPath = idx < 0
-					? declaringType       // no “Program.” found, just return whole
-					: declaringType.Substring(idx + Keywords.MainClassName.Length + 1);
-
-				return _name = $"{nestedPath.Replace('+', '.')}.{funcName}";
-			}
-		}
+		public StringPrimitive Name => mph.Name;
 		public (Type, object) super => (typeof(KeysharpObject), this);
 		public LongPrimitive IsVariadic => mph.variadicParamIndex != -1;
 		public LongPrimitive MaxParams { get; internal set; } = 0;
@@ -270,7 +244,7 @@
 		internal FuncObj(Delegate m, object o = null)
 		: this(m?.GetMethodInfo(), o)
         {
-			this.Inst = m.Target;
+			this.Inst = o ?? m.Target;
         }
 
 		internal FuncObj(MethodInfo m, object o = null)
@@ -340,11 +314,21 @@
 			return val;
 		}
 
-		public override bool Equals(object obj) => obj is FuncObj fo ? fo.mi == mi : false;
+		public override bool Equals(object obj)
+		{
+			if (obj is BoundFunc)
+				return false; // BoundFunc has its own Equals override and considers all instances unique
+			return obj is FuncObj fo ? fo.mi == mi && fo.Inst == Inst : false;
+		}
 
-		public bool Equals(FuncObj value) => value.mi == mi;
-
-		public override int GetHashCode() => mi.GetHashCode();
+		public override int GetHashCode()
+		{
+			unchecked
+			{
+				int h = mi?.GetHashCode() ?? 0;
+				return (h * 31) ^ (Inst != null ? RuntimeHelpers.GetHashCode(Inst) : 0);
+			}
+		}
 
 		public LongPrimitive IsByRef(object obj = null)
 		{

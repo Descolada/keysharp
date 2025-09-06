@@ -137,6 +137,15 @@
 		}
 
 		/// <summary>
+		/// Destructor that manually calls <see cref="Dispose"/> to free the raw memory contained in the buffer.
+		/// </summary>
+		public override object __Delete()
+		{
+			Dispose(true);
+			return DefaultObject;
+		}
+
+		/// <summary>
 		/// Dispose the object and set a flag so it doesn't get disposed twice.
 		/// </summary>
 		/// <param name="disposing">If true, disposing already, so skip, else dispose.</param>

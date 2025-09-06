@@ -65,6 +65,8 @@ namespace Keysharp.Core.Common.ObjectBase
 		public virtual object static__New(params object[] args) => "";
 		public virtual object __Init() => "";
 		public virtual object static__Init() => "";
+		public virtual object __Delete() => "";
+		public virtual object static__Delete() => "";
 
 		private static Type GetCallingType()
         {

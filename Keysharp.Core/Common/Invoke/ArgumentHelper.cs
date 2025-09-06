@@ -559,7 +559,7 @@ namespace Keysharp.Core.Common.Invoke
 
 				double d = (double)value;
 				float f = *(float*)&d;
-				return f;
+				return (DoublePrimitive)f;
 			}
 			else if (ReturnType == typeof(char[]))
 			{

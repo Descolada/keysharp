@@ -51,6 +51,8 @@ namespace Keysharp.Scripting
 				return l;
 			else if (input.ParseBool() is bool b)
 				return b ? 1.0 : 0.0;
+			else if (input is string)
+				return 0.0;
 			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
 			{
 				foreach (var mi in mis)
@@ -76,6 +78,8 @@ namespace Keysharp.Scripting
 				return (int)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1 : 0;
+			else if (input is string)
+				return 0;
 			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
 			{
 				foreach (var mi in mis)
@@ -101,6 +105,8 @@ namespace Keysharp.Scripting
 				return (long)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1L : 0L;
+			else if (input is string)
+				return 0;
 			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
 			{
 				foreach (var mi in mis)

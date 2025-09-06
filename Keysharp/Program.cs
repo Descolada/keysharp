@@ -177,7 +177,7 @@ namespace Keysharp.Main
 						if (method == null)
 							return Message($"Could not find method {assemblyMethod}", true);
 
-						Environment.ExitCode = method.Invoke(null, [script.ScriptArgs]).Ai();
+						Environment.ExitCode = method.Invoke(null, [script.ScriptArgs]).Ai(0);
 						return Environment.ExitCode;
 					}
 				}
@@ -326,7 +326,7 @@ namespace Keysharp.Main
 #if DEBUG
 				KeysharpEnhancements.OutputDebugLine("Running compiled code.");
 #endif
-				Environment.ExitCode = main.Invoke(null, [script.ScriptArgs]).Ai();
+				Environment.ExitCode = main.Invoke(null, [script.ScriptArgs]).Ai(0);
 			}
 			catch (Exception ex)
 			{

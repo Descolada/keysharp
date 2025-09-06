@@ -431,7 +431,7 @@ namespace Keysharp.Core
 										 object excludeText = null)
 		{
 			var bartext = barText.As();
-			var seconds = timeout.Ai();
+			var seconds = timeout.Ad(0);
 			var intvl = interval.Ai();
 			var start = DateTime.UtcNow;
 			var matchfound = false;

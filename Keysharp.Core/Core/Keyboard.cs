@@ -996,7 +996,7 @@ break_twice:;
 		private static object InstallHook(HookType whichHook, object install = null, object force = null)
 		{
 			var i = install.Ab(true);
-			var f = force.Ab();
+			var f = force.Ab(false);
 			var ht = Script.TheScript.HookThread;
 
 			//When the second parameter is true, unconditionally remove the hook. If the first parameter is

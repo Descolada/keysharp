@@ -31,7 +31,7 @@ namespace Keysharp.Core
 		public static object GuiFromHwnd(object obj0, object obj1 = null)
 		{
 			var hwnd = obj0.Al();
-			var recurse = obj1.Ab();
+			var recurse = obj1.Ab(false);
 			var allGuiHwnds = Script.TheScript.GuiData.allGuiHwnds;
 
 			if (allGuiHwnds.TryGetValue(hwnd, out var gui))

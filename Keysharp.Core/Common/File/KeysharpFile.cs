@@ -364,24 +364,14 @@ namespace Keysharp.Core.Common.File
 
 		public LongPrimitive WriteChar(object obj)
 		{
-			if (bw != null)
-			{
-				bw.Write((byte)obj.Al());//Char in this case is meant to be 1 byte, according to the AHK DllCall() documentation.
-				return 1L;
-			}
-			else
-				return 0L;
+			bw.Write((byte)obj.Al());//Char in this case is meant to be 1 byte, according to the AHK DllCall() documentation.
+			return 1L;
 		}
 
 		public LongPrimitive WriteDouble(object obj)
 		{
-			if (bw != null)
-			{
-				bw.Write(obj.Ad());
-				return 8L;
-			}
-			else
-				return 0L;
+			bw.Write(obj.Ad());
+			return 8L;
 		}
 
 		public LongPrimitive WriteFloat(object obj)
@@ -397,24 +387,14 @@ namespace Keysharp.Core.Common.File
 
 		public LongPrimitive WriteInt(object obj)
 		{
-			if (bw != null)
-			{
-				bw.Write(obj.Ai());
-				return 4L;
-			}
-			else
-				return 0L;
+			bw.Write(obj.Ai());
+			return 4L;
 		}
 
 		public LongPrimitive WriteInt64(object obj)
 		{
-			if (bw != null)
-			{
-				bw.Write(obj.Al());
-				return 8L;
-			}
-			else
-				return 0L;
+			bw.Write(obj.Al());
+			return 8L;
 		}
 
 		public LongPrimitive WriteLine(object obj)

@@ -432,7 +432,7 @@
 				var g = args[0] as Gui;
 				var control = args[1] as System.Windows.Forms.Control;
 				var name = args[2].ToString();
-				var wrap = args.Length > 3 ? args[3].Ab() : false;
+				var wrap = args.Length > 3 ? args[3].Ab(false) : false;
 				gui = new WeakReference<Gui>(g);
 				typename = name;
 				_control = control;
@@ -644,7 +644,7 @@
 			/// <param name="value"></param>
 			public LongPrimitive Delete(object value = null)
 			{
-				var index = value.Ai() - 1;
+				var index = value.Ai(0) - 1;
 
 				switch (_control)
 				{
@@ -1063,7 +1063,7 @@
 			{
 				if (_control is KeysharpListView lv)
 				{
-					var colnumber = columnNumber.Ai();
+					var colnumber = columnNumber.Ai(0);
 					var opts = options.As();
 					var coltitle = columnTitle.As();
 
@@ -1854,7 +1854,7 @@
 						return DefaultErrorObject;
 
 					var val = value;
-					var exact = exactMatch.Ab();
+					var exact = exactMatch.Ab(false);
 
 					if (val.IsString(out string s))
 					{

@@ -332,7 +332,7 @@
 
 		public LongPrimitive IsByRef(object obj = null)
 		{
-			var index = obj.Ai();
+			var index = obj.Ai(0);
 			var funcParams = mi.GetParameters();
 
 			if (index > 0)
@@ -354,7 +354,7 @@
 
 		public LongPrimitive IsOptional(object obj = null)
 		{
-			var index = obj.Ai();
+			var index = obj.Ai(0);
 			var funcParams = mi.GetParameters();
 
 			if (index > 0)

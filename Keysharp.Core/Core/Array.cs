@@ -558,7 +558,7 @@
 
 			foreach (var el in array)
 			{
-				var temp = el.Al();
+				var temp = el.Al(long.MinValue);
 
 				if (temp > val)
 					val = temp;
@@ -577,7 +577,7 @@
 
 			foreach (var el in array)
 			{
-				var temp = el.Al();
+				var temp = el.Al(long.MaxValue);
 
 				if (temp < val)
 					val = temp;

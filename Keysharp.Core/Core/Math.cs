@@ -108,7 +108,7 @@
 		/// </summary>
 		/// <param name="number">A number representing a tangent.</param>
 		/// <returns>An angle, θ, measured in radians, such that -π/2 ≤ θ ≤ π/2.</returns>
-		public static DoublePrimitive ATan(object number) => Math.Atan(Primitive.From(number).Ad());
+		public static DoublePrimitive ATan(object number) => Math.Atan(number.Ad());
 
 		/// <summary>
 		/// Returns the specified number rounded up to the nearest integer.
@@ -117,7 +117,7 @@
 		/// <returns>The smallest integer greater than or equal to <paramref name="n"/>.</returns>
 		public static LongPrimitive Ceil(object number)
 		{
-			var p = Primitive.From(number);
+			var p = Primitive.NumericFrom(number);
 			return p.TryGetLong(out long ll) ? ll : (long)Math.Ceiling(p.Ad());
 		}
 
@@ -126,7 +126,7 @@
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The cosine of <paramref name="n"/>.</returns>
-		public static DoublePrimitive Cos(object number) => Math.Cos(Primitive.From(number).Ad());
+		public static DoublePrimitive Cos(object number) => Math.Cos(number.Ad());
 
 		/// <summary>
 		/// Adds or subtracts time from a date-time value.
@@ -208,7 +208,7 @@
 		/// </summary>
 		/// <param name="n">A number specifying a power.</param>
 		/// <returns>The number <c>e</c> raised to the power <paramref name="n"/>.</returns>
-		public static DoublePrimitive Exp(object n) => Math.Exp(Primitive.From(n).Ad());
+		public static DoublePrimitive Exp(object n) => Math.Exp(Primitive.NumericFrom(n).Ad());
 
 		/// <summary>
 		/// Converts a numeric string or integer value to a floating-point number.
@@ -405,7 +405,7 @@
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The sine of <paramref name="n"/>.</returns>
-		public static Primitive Sin(object number) => Math.Sin(Primitive.From(number).Ad());
+		public static Primitive Sin(object number) => Math.Sin(number.Ad());
 
 		/// <summary>
 		/// Returns the square root of a specified number.
@@ -428,6 +428,6 @@
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The tangent of <paramref name="n"/>.</returns>
-		public static Primitive Tan(object number) => Math.Tan(Primitive.From(number).Ad());
+		public static Primitive Tan(object number) => Math.Tan(number.Ad());
 	}
 }

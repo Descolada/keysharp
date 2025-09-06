@@ -8,7 +8,7 @@ namespace Keysharp.Core.Common.Strings
 				return false;
 
 			if (mode.TryGetLong(out var ll))
-				return ll == 1L;
+				return ll != 0L;
 
 			return mode.ToString().ToLower() switch
 		{

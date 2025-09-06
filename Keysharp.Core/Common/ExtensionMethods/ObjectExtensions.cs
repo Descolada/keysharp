@@ -11,7 +11,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
 		/// <returns>The object as a bool if conversion succeeded, else def.</returns>
-		public static bool Ab(this object obj, bool def = default) => obj?.ParseBool() ?? def;
+		public static bool Ab(this object obj)
+		{
+			if (obj == null) return Errors.UnsetErrorOccurred("Bool conversion target is unset", false);
+			return obj.ParseBool(out bool b) ? b : Errors.ValueErrorOccurred($"Cannot convert '{obj}' to boolean.", false);
+		}
+		public static bool Ab(this object obj, bool def) => obj != null && obj.ParseBool(out bool b) ? b : def;
 
 		/// <summary>
 		/// Converts an object to a double.
@@ -19,7 +24,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a double if it was not null, else def.</returns>
-		public static double Ad(this object obj, double def = default) => obj?.ParseDouble() ?? def;
+		public static double Ad(this object obj)
+		{
+			if (obj == null) return Errors.UnsetErrorOccurred("Double conversion target is unset", 0.0D);
+			return obj.ParseDouble() ?? Errors.ValueErrorOccurred($"Cannot convert '{obj}' to double.", 0.0);
+		}
+		public static double Ad(this object obj, double def) => obj?.ParseDouble() ?? def;
 
 		/// <summary>
 		/// Converts an object to a float.
@@ -27,7 +37,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a float if it was not null, else def.</returns>
-		public static float Af(this object obj, float def = default) => obj?.ParseFloat() ?? def;
+		public static float Af(this object obj)
+		{
+			if (obj == null) return Errors.UnsetErrorOccurred("Float conversion target is unset", 0.0);
+			return obj.ParseFloat() ?? Errors.ValueErrorOccurred($"Cannot convert '{obj}' to float.", 0.0);
+		}
+		public static float Af(this object obj, float def) => obj?.ParseFloat() ?? def;
 
 		/// <summary>
 		/// Converts an object to an int.
@@ -35,7 +50,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an int if it was not null, else def.</returns>
-		public static int Ai(this object obj, int def = default) => obj == null ? def : obj is Primitive p ? (p.TryGetLong(out long ll) ? unchecked((int)ll) : def) : obj?.ParseInt() ?? def;
+		public static int Ai(this object obj)
+		{
+			if (obj == null) return (int)Errors.UnsetErrorOccurred("Int conversion target is unset", 0);
+			return obj.ParseInt() ?? (int)Errors.ValueErrorOccurred($"Cannot convert '{obj}' to int.", 0);
+		}
+		public static int Ai(this object obj, int def) => obj?.ParseInt() ?? def;
 
 		/// <summary>
 		/// Converts an object to a long.
@@ -43,7 +63,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a long if it was not null, else def.</returns>
-		public static long Al(this object obj, long def = default) => obj?.ParseLong() ?? def;
+		public static long Al(this object obj)
+		{
+			if (obj == null) return (long)Errors.UnsetErrorOccurred("Long conversion target is unset", 0);
+			return obj.ParseLong(out long l) ? l : Errors.ValueErrorOccurred($"Cannot convert '{obj}' to long.", 0);
+		}
+		public static long Al(this object obj, long def) => obj != null && obj.ParseLong(out long l) ? l : def;
 
 		/// <summary>
 		/// Converts an object to a string.
@@ -59,7 +84,12 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an unsigned int if it was not null, else def.</returns>
-		public static uint Aui(this object obj, uint def = default) => obj?.ParseUInt() ?? def;
+		public static uint Aui(this object obj)
+		{
+			if (obj == null) return (uint)Errors.UnsetErrorOccurred("UInt conversion target is unset", 0);
+			return obj.ParseUInt() ?? (uint)Errors.ValueErrorOccurred($"Cannot convert '{obj}' to uint.", 0);
+		}
+		public static uint Aui(this object obj, uint def) => obj?.ParseUInt() ?? def;
 
 		/// <summary>
 		/// Converts an object to a Primitive.
@@ -153,18 +183,56 @@
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
 		/// <returns>The nullable bool resulting from the conversion.</returns>
-		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false)
+		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false) => obj.ParseBool(out bool b) ? b : null;
+
+		public static bool ParseBool(this object obj, out bool outvar, bool parseBoolKeywords = false)
 		{
 			if (obj is Primitive p)
-				return p.IsTrue;
+			{
+				outvar = p.IsTrue;
+				return true;
+			}
+			else if (obj is BoolResult br)
+			{
+				return br.o.ParseBool(out outvar);
+			}
+			else if (obj is bool b)
+			{
+				outvar = b;
+				return true;
+			}
+			else if (obj is long l)
+			{
+				outvar = l != 0L;
+				return true;
+			}
+			else if (obj is double dl)
+			{
 
-			if (obj is BoolResult br)
-				return br.o.ParseBool();
+				outvar = dl != 0.0;
+				return true;
+			}
+			else if (obj is string s)
+			{
+				outvar = s != "";
+				return true;
+			}
+			else if (obj != null && !parseBoolKeywords)
+			{
+				outvar = true;
+				return true;
+			}
 
-			if (obj is bool b)
-				return b;
-
-			return parseBoolKeywords ? Options.OnOff(Primitive.From(obj)) : null;
+			if (parseBoolKeywords) {
+				var v = Options.OnOff(Primitive.From(obj));
+				if (v.HasValue)
+				{
+					outvar = v.Value;
+					return true;
+				}
+			}
+			outvar = false;
+			return false;
 		}
 
 		/// <summary>
@@ -230,15 +298,13 @@
 			if (obj is Primitive p)
 				return p.TryGetDouble(out double dd) ? dd : null;
 
-			var d = 0.0;
-
-			if (obj.ParseDouble(ref d, doconvert, requiredot))
+			if (obj.ParseDouble(out double d, doconvert, requiredot))
 				return d;
 			else
-				return new double? ();
+				return null;
 		}
 
-		public static bool ParseDouble(this object obj, ref double outvar, bool doconvert = true, bool requiredot = false)
+		public static bool ParseDouble(this object obj, out double outvar, bool doconvert = true, bool requiredot = false)
 		{
 			if (obj is Primitive p)
 				return p.TryGetDouble(out outvar);
@@ -257,7 +323,7 @@
 
 			if (obj is BoolResult br)
 			{
-				return br.o.ParseDouble(ref outvar, doconvert, requiredot);
+				return br.o.ParseDouble(out outvar, doconvert, requiredot);
 			}
 
 			if (obj is int i)//int is seldom used in Keysharp, so check last.
@@ -269,10 +335,16 @@
 			var s = obj.ToString().AsSpan().Trim();
 
 			if (s.Length == 0)
+			{
+				outvar = 0.0;
 				return false;
+			}
 
 			if (requiredot && !s.Contains('.'))
+			{
+				outvar = 0.0;
 				return false;
+			}
 
 			if (double.TryParse(s, out outvar))
 				return true;
@@ -430,13 +502,13 @@
 
 			long l = 0;
 
-			if (obj.ParseLong(ref l, doconvert, donoprefixhex))
+			if (obj.ParseLong(out l, doconvert, donoprefixhex))
 				return l;
 			else
 				return new long? ();
 		}
 
-		public static bool ParseLong(this object obj, ref long outvar, bool doconvert = true, bool donoprefixhex = true)
+		public static bool ParseLong(this object obj, out long outvar, bool doconvert = true, bool donoprefixhex = true)
 		{
 			if (obj is Primitive p)
 				return p.TryGetLong(out outvar);
@@ -448,12 +520,15 @@
 			}
 
 			if (obj is BoolResult br)
-				return br.o.ParseLong(ref outvar, doconvert);
+				return br.o.ParseLong(out outvar, doconvert);
 
             ReadOnlySpan<char> s = (obj as string ?? obj.ToString()).AsSpan().Trim();
 
 			if (s.Length == 0)
+			{
+				outvar = default;
 				return false;
+			}
 
 			if (long.TryParse(s, out l))
 			{
@@ -502,9 +577,11 @@
 			catch
 			{
 				_ = Errors.TypeErrorOccurred(obj, typeof(long));
+				outvar = default;
 				return default;
 			}
 
+			outvar = default;
 			return false;
 		}
 

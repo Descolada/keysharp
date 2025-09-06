@@ -126,7 +126,7 @@ namespace Keysharp.Core
 		{
 			//Need to see if this should be put on the main thread like A_Clipboard.//TODO
 			var to = timeout.Ad(double.MinValue);
-			var type = waitFor.Ab();
+			var type = waitFor.Ab(false);
 			var checktime = to != double.MinValue;
 			var frequency = 100;
 			var time = checktime ? (long)(Math.Abs(to) * 1000) : long.MaxValue;

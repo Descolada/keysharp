@@ -116,7 +116,7 @@
 				object element = null;
                 VarRef val = new VarRef(() => element, value => element = value);
 
-                while (en.Call(val).Ab())
+                while (en.Call(val).Ab(false))
                 {
                     if (recurse && element is IEnumerable candidate && !(element is string))
                     {

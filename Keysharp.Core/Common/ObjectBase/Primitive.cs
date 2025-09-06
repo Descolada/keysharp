@@ -163,7 +163,22 @@
 						p = dd; return true;
 					}
 					p = null!; return false;
-				default: p = null!; return false;
+				default:
+					try
+					{
+						p = Convert.ToInt64(value); return true;
+					} 
+					catch
+					{
+					}
+					try
+					{
+						p = Convert.ToDouble(value); return true;
+					}
+					catch
+					{
+					}
+					p = null!; return false;
 			}
 		}
 
@@ -818,8 +833,15 @@
 				case long l: p = LongCache.Get(l); return true;
 				case int i: p = LongCache.Get(i); return true;
 				case bool b: p = b ? True : False; return true;
-				case double d: p = (long)d; return true;
-				default: p = null!; return false;
+				default:
+					try
+					{
+						p = Convert.ToInt64(value); return true;
+					}
+					catch
+					{
+					}
+					p = null!; return false;
 			}
 		}
 
@@ -860,6 +882,45 @@
 		public static implicit operator double(DoublePrimitive v) => v.Value;
 		public static implicit operator DoublePrimitive(double v) => new (v);
 		public static explicit operator long(DoublePrimitive v) => (long)v.Value;
+
+		public static new DoublePrimitive From(object v)
+		{
+			if (v == null) throw Errors.UnsetError("Provided argument was unset");
+			return TryCoercePrimitive(v, out DoublePrimitive p) ? p : throw Errors.ValueError("Provided argument was not a floating-point number");
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool TryCoercePrimitive(object value, out DoublePrimitive p)
+		{
+			switch (value)
+			{
+				case DoublePrimitive dp: p = dp; return true;
+				case LongPrimitive lp: p = lp.Value; return true;
+				case Primitive pp:
+					if (pp.TryGetLong(out long ll))
+					{
+						p = ll; return true;
+					}
+					else if (pp.TryGetDouble(out double d))
+					{
+						p = (long)d; return true;
+					}
+					p = null!; return false;
+				case double d: p = d; return true;
+				case long l: p = l; return true;
+				case int i: p = i; return true;
+				case bool b: p = b ? 1L : 0L; return true;
+				default:
+					try
+					{
+						p = Convert.ToDouble(value); return true;
+					}
+					catch
+					{
+					}
+					p = null!; return false;
+			}
+		}
 
 		public override int GetHashCode() => Value.GetHashCode();
 		public override bool Equals(object comp) => Value.Equals(comp is DoublePrimitive p ? p.Value : comp);
@@ -1065,14 +1126,6 @@
 	/// <summary>Extension methods for Primitive conversions.</summary>
 	public static class PrimitiveExtensions
 	{
-		public static bool Ab(this Primitive v)
-		{
-			if (v == null) return false;
-			return v.IsTrue;
-		}
-		public static bool Ab(this Primitive v, bool def)
-			=> v == null ? def : v.IsTrue;
-
 		public static long Al(this Primitive v)
 		{
 			if (v == null) Errors.UnsetError("Long conversion target is unset");
@@ -1085,14 +1138,6 @@
 		public static long Al(this Primitive v, long def)
 			=> v == null ? def : v.TryGetLong(out var l) ? l : v.TryGetDouble(out var d) ? (long)d : def;
 
-		public static double Ad(this Primitive v)
-		{
-			if (v == null) throw Errors.UnsetError("Double conversion target is unset");
-			return v.TryGetDouble(out var d) ? d : throw Errors.ValueError($"Cannot convert '{v}' to double.");
-		}
-		public static double Ad(this Primitive v, double def)
-			=> v == null ? def : v.TryGetDouble(out var d) ? d : def;
-
 		public static string As(this Primitive v)
 		{
 			if (v == null) Errors.UnsetError("String conversion target is unset");
@@ -1100,14 +1145,6 @@
 		}
 		public static string As(this Primitive v, string def)
 			=> v == null ? def : v.ToString();
-
-		public static Any Aa(this Primitive v)
-			=> (Any)v?.AsObject();
-
-		public static object Ao(this Primitive v)
-			=> v == null ? null : v.AsObject();
-		public static object Ao(this Primitive v, object def)
-			=> v == null ? def : v.AsObject();
 
 		public static Primitive AsPrimitive(this object v)
 		{
@@ -1143,21 +1180,21 @@
 			{
 				switch (ic.GetTypeCode())
 				{
-					case TypeCode.Boolean: return Primitive.From(ic.ToBoolean(culture));
-					case TypeCode.Char: return Primitive.From(ic.ToChar(culture).ToString());
-					case TypeCode.SByte: return Primitive.From(ic.ToSByte(culture));
-					case TypeCode.Byte: return Primitive.From(ic.ToByte(culture));
-					case TypeCode.Int16: return Primitive.From(ic.ToInt16(culture));
-					case TypeCode.UInt16: return Primitive.From(ic.ToUInt16(culture));
-					case TypeCode.Int32: return Primitive.From(ic.ToInt32(culture));
-					case TypeCode.UInt32: return Primitive.From(ic.ToUInt32(culture));
-					case TypeCode.Int64: return Primitive.From(ic.ToInt64(culture));
-					case TypeCode.UInt64: return Primitive.From((long)ic.ToUInt64(culture));
-					case TypeCode.Single: return Primitive.From((double)ic.ToSingle(culture));
-					case TypeCode.Double: return Primitive.From(ic.ToDouble(culture));
-					case TypeCode.Decimal: return Primitive.From((double)ic.ToDecimal(culture));
-					case TypeCode.String: return Primitive.From(ic.ToString(culture));
-					case TypeCode.DateTime: return Primitive.From(ic.ToDateTime(culture).ToString());
+					case TypeCode.Boolean: return (Primitive)ic.ToBoolean(culture);
+					case TypeCode.Char: return (Primitive)ic.ToChar(culture).ToString();
+					case TypeCode.SByte: return (Primitive)ic.ToSByte(culture);
+					case TypeCode.Byte: return (Primitive)ic.ToByte(culture);
+					case TypeCode.Int16: return (Primitive)ic.ToInt16(culture);
+					case TypeCode.UInt16: return (Primitive)ic.ToUInt16(culture);
+					case TypeCode.Int32: return (Primitive)ic.ToInt32(culture);
+					case TypeCode.UInt32: return (Primitive)ic.ToUInt32(culture);
+					case TypeCode.Int64: return (Primitive)ic.ToInt64(culture);
+					case TypeCode.UInt64: return (Primitive)(long)ic.ToUInt64(culture);
+					case TypeCode.Single: return (Primitive)(double)ic.ToSingle(culture);
+					case TypeCode.Double: return (Primitive)ic.ToDouble(culture);
+					case TypeCode.Decimal: return (Primitive)(double)ic.ToDecimal(culture);
+					case TypeCode.String: return (Primitive)ic.ToString(culture);
+					case TypeCode.DateTime: return (Primitive)ic.ToDateTime(culture).ToString();
 				}
 			}
 			return base.ConvertFrom(ctx, culture, value);

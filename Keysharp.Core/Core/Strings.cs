@@ -74,7 +74,7 @@ namespace Keysharp.Core
 		/// <param name="str2">The string to search for.</param>
 		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
 		/// <returns>1 if str started with str2, else 0.</returns>
-		public static LongPrimitive StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		public static LongPrimitive StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab(false) ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 	}
 
 	internal class StringsData
@@ -111,7 +111,7 @@ namespace Keysharp.Core
 		/// <param name="str2">The string to search for.</param>
 		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
 		/// <returns>1 if str ended with str2, else 0.</returns>
-		public static LongPrimitive EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+		public static LongPrimitive EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab(false) ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 
 		/// <summary>
 		/// Formats a string using a format string containing placeholders (e.g. "{1:05d}" or "{}")
@@ -1485,7 +1485,7 @@ namespace Keysharp.Core
 			{
 				if (requestedCapacity == null)
 					return (long)targetStr.Length;
-				capacity = requestedCapacity.Ai();
+				capacity = requestedCapacity.Ai(0);
 				if (capacity < 0)
 					return (long)targetStr.Length;
                 var sbr = new StringBuffer(targetStr, capacity);
@@ -1497,7 +1497,7 @@ namespace Keysharp.Core
 				if (requestedCapacity == null)
 					return sbr.Capacity;
 
-				capacity = requestedCapacity.Ai();
+				capacity = requestedCapacity.Ai(0);
 				if (capacity == -1)
 				{
 					var str = sbr.ToString();

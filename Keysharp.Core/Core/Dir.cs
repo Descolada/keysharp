@@ -22,7 +22,7 @@
 		{
 			var s = Path.GetFullPath(source.As());
 			var d = Path.GetFullPath(dest.As());
-			var o = overwrite.Ab();
+			var o = overwrite.Ab(false);
 			CopyDirectory(s, d, o);
 			return DefaultObject;
 		}
@@ -59,7 +59,7 @@
 		{
 			try
 			{
-				Directory.Delete(dirName.As(), recurse.Ab());
+				Directory.Delete(dirName.As(), recurse.Ab(false));
 				return DefaultObject;
 			}
 			catch (Exception ex)

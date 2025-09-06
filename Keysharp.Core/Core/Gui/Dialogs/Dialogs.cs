@@ -33,7 +33,7 @@ namespace Keysharp.Core
 		public static StringPrimitive DirSelect(object startingFolder = null, object options = null, object prompt = null)
 		{
 			var folder = startingFolder.As();
-			var opts = options.Al();
+			var opts = options.Al(0L);
 			var p = prompt.As();
 			var str = "";
 			var select = new FolderBrowserDialog
@@ -392,8 +392,8 @@ namespace Keysharp.Core
 		/// </returns>
 		public static Primitive MsgBox(object text = null, object title = null, object options = null)
 		{
-			var txt = Primitive.From(text ?? "").As().Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
-			var caption = Primitive.From(title ?? "").As().Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
+			var txt = text.As().Truncate(8192); // 8192 is AHK MSGBOX_TEXT_SIZE
+			var caption = title.As().Truncate(1024); // 1024 is AHK DIALOG_TITLE_SIZE
 			var opts = Primitive.From(options ?? "");
 			var buttons = MessageBoxButtons.OK;
 			var icon = MessageBoxIcon.None;

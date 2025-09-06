@@ -90,7 +90,7 @@
 		/// </summary>
 		/// <param name="obj0">The text to send to the debugger for display.</param>
 		/// <param name="obj1">True to first clear the display, else false to append.</param>
-		public static object OutputDebugLine(object obj0, object obj1 = null) => Debug.OutputDebugCommon($"{obj0.As()}{Environment.NewLine}", obj1.Ab());
+		public static object OutputDebugLine(object obj0, object obj1 = null) => Debug.OutputDebugCommon($"{obj0.As()}{Environment.NewLine}", obj1.Ab(false));
 
 		/// <summary>
 		/// Creates a new <see cref="HashMap"/> object.

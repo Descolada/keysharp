@@ -39,14 +39,14 @@
 			var id = imageListID.Al();
 			var filename = picFileName.As();
 			var iconnumber = ImageHelper.PrepareIconNumber(maskColor);
-			var resizeNonIcon = resize.Ab();
+			var resizeNonIcon = resize.Ab(false);
 			var il = Script.TheScript.ImageListData.imageLists.GetOrAdd(id);
 
 			if (ImageHelper.LoadImage(filename, 0, 0, iconnumber).Item1 is Bitmap bmp)
 			{
 				if (!ImageHelper.IsIcon(filename))
 				{
-					var color = Color.FromArgb(maskColor.Ai());
+					var color = Color.FromArgb(maskColor.Ai(0));
 
 					if (!resizeNonIcon)
 					{
@@ -74,7 +74,7 @@
 		/// <returns>On success, returns the unique ID of the <see cref="ImageList"/>, else 0.</returns>
 		public static LongPrimitive IL_Create(object largeIcons = null)
 		{
-			var li = largeIcons.Ab();
+			var li = largeIcons.Ab(false);
 			var il = new ImageList
 			{
 				ImageSize = !li ? SystemInformation.SmallIconSize : SystemInformation.IconSize

@@ -201,7 +201,7 @@
 		/// <exception cref="Error">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
 		public static Primitive FileCopy(object sourcePattern, object destPattern, object overwrite = null)
 		{
-			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), false);
+			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(false), false);
 			return DefaultObject;
 		}
 
@@ -824,7 +824,7 @@
 		/// </param>
 		public static Primitive FileMove(object sourcePattern, object destPattern, object overwrite = null)
 		{
-			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), true);
+			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(false), true);
 			return DefaultObject;
 		}
 

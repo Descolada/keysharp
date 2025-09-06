@@ -100,8 +100,8 @@ namespace Keysharp.Core
 		/// <param name="exitCode">An integer that is returned to the caller.</param>
 		public static object Exit(object exitCode = null)
 		{
-			A_ExitReason = exitCode.Al();
-			Environment.ExitCode = exitCode.Ai();
+			A_ExitReason = exitCode.Al(0);
+			Environment.ExitCode = exitCode.Ai(0);
 			throw new UserRequestedExitException();
 		}
 
@@ -276,7 +276,7 @@ namespace Keysharp.Core
 		{
 			var f = function;
 			var p = period.Al(long.MaxValue);
-			var pri = priority.Al();
+			var pri = priority.Al(0L);
 			var once = p < 0;
 			IFuncObj func = null;
 			TimerWithTag timer = null;
@@ -579,7 +579,7 @@ namespace Keysharp.Core
 
 			script.tickTimer.Stop();
 			Dialogs.CloseMessageBoxes();
-			var ec = exitCode.Ai();
+			var ec = exitCode.Ai(0);
 			A_ExitReason = exitReason.ToString();
 			var allowInterruption_prev = fd.allowInterruption;//Save current setting.
 			fd.allowInterruption = false;

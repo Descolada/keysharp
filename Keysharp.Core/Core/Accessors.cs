@@ -503,8 +503,7 @@
 
 				if (val != null)
 				{
-					var b = val.Value.Ab();
-					ThreadAccessors.A_DetectHiddenText = b;
+					ThreadAccessors.A_DetectHiddenText = val.Value;
 				}
 			}
 		}
@@ -522,8 +521,7 @@
 
 				if (val != null)
 				{
-					var b = val.Value.Ab();
-					ThreadAccessors.A_DetectHiddenWindows = b;
+					ThreadAccessors.A_DetectHiddenWindows = val.Value;
 				}
 			}
 		}
@@ -1244,7 +1242,7 @@
 		/// The value specified by #MaxThreadsBuffer.
 		/// Causes some or all hotkeys to buffer rather than ignore keypresses when their #MaxThreadsPerHotkey limit has been reached.
 		/// </summary>
-		public static Primitive A_MaxThreadsBuffer { get; set; }
+		public static object A_MaxThreadsBuffer { get; set; } = (LongPrimitive)1L;
 
 		/// <summary>
 		/// The value specified by #MaxThreadsPerHotkey.

@@ -186,7 +186,7 @@ namespace Keysharp.Core
 			var vt = (VarEnum)varType.Al();
 			var co = ValueToVarType(value, vt, true);
 			this.vt = vt;
-			Flags = flags != null ? flags.Al() : 0L;
+			Flags = flags.Al(0L);
 
 			if (this.vt == VarEnum.VT_BSTR && value is not long)
 				Flags |= F_OWNVALUE;

@@ -487,53 +487,53 @@ namespace Keysharp.Core
 			{
 				var tempui = *(uint*)aip;
 				var templ = (long)tempui;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(int))
 			{
 				var tempi = *(int*)aip;
 				var templ = (long)tempi;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(long))
 			{
 				var templ = *(long*)aip;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(double))
 			{
 				var tempd = *(double*)aip;
-				p = tempd;
+				p = (DoublePrimitive)tempd;
 			}
 			else if (t == typeof(float))
 			{
 				var tempf = *(float*)aip;
 				var tempd = (double)tempf;
-				p = tempd;
+				p = (DoublePrimitive)tempd;
 			}
 			else if (t == typeof(ushort))
 			{
 				var tempus = *(ushort*)aip;
 				var templ = (long)tempus;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(short))
 			{
 				var temps = *(short*)aip;
 				var templ = (long)temps;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(byte))
 			{
 				var tempub = *(byte*)aip;
 				var templ = (long)tempub;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(sbyte))
 			{
 				var tempb = *(sbyte*)aip;
 				var templ = (long)tempb;
-				p = templ;
+				p = (LongPrimitive)templ;
 			}
 			else if (t == typeof(string))
 			{
@@ -543,7 +543,7 @@ namespace Keysharp.Core
 			else
 			{
 				var pp = (long*)aip;
-				p = *pp;
+				p = (LongPrimitive)(*pp);
 			}
 		}
 
@@ -570,9 +570,9 @@ namespace Keysharp.Core
 					object temp = arg;
 					FixParamTypeAndCopyBack(ref temp, pair.Value.Item1, (nint)arg);
 					if (pair.Value.Item2)
-						_ = Script.SetPropertyValue(kso, "ptr", Primitive.From(temp));
+						_ = Script.SetPropertyValue(kso, "ptr", (Primitive)temp);
 					else
-						_ = Script.SetPropertyValue(kso, "__Value", Primitive.From(temp));
+						_ = Script.SetPropertyValue(kso, "__Value", (Primitive)temp);
 				}
 				else
 				{

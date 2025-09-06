@@ -91,7 +91,7 @@ namespace Keysharp.Core.COM
 				}
 
 				if (prefixOrSink != null)//obj1 not being null means add it.
-					_ = comEvents.Add(new ComEvent(new Dispatcher(co), prefixOrSink, debug != null ? debug.Ab() : false));
+					_ = comEvents.Add(new ComEvent(new Dispatcher(co), prefixOrSink, debug.Ab(false)));
 			}
 
 			return DefaultErrorObject;
@@ -163,8 +163,8 @@ namespace Keysharp.Core.COM
 		{
 			if (comObj is ComObject co)
 			{
-				var flags = newFlags != null ? newFlags.Al() : 0L;
-				var m = mask != null ? mask.Al() : 0L;
+				var flags = newFlags.Al(0L);
+				var m = mask.Al(0L);
 
 				if (newFlags == null && mask == null)
 				{
@@ -346,7 +346,7 @@ namespace Keysharp.Core.COM
 			var vt = (VarEnum)varType.Al();
 			if ((vt & VarEnum.VT_ARRAY) != 0) {
 				nint psa = (nint)Reflections.GetPtrProperty(value);
-				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab());
+				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab(true));
 			}
 			return new (varType, value, flags);
 		}

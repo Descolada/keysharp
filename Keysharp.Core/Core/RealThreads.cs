@@ -59,7 +59,7 @@
 		/// <param name="obj">The name of the function or a function object.</param>
 		/// <param name="args">The arguments to pass to the function.</param>
 		/// <returns>The new <see cref="RealThread"/> object</returns>
-		public object ContinueWith(object obj, params object[] args)
+		public RealThread ContinueWith(object obj, params object[] args)
 		{
 			var fo = Functions.GetFuncObj(obj, null, true);
 			var rt = task.ContinueWith((to) => fo.Call(args));

@@ -232,7 +232,7 @@
 
 		internal abstract void EditPaste(string str, object ctrl, object title, object text, object excludeTitle, object excludeText);
 
-		internal abstract object ListViewGetContent(string options, object ctrl, object title, object text, object excludeTitle, object excludeText);
+		internal abstract Primitive ListViewGetContent(string options, object ctrl, object title, object text, object excludeTitle, object excludeText);
 
 		internal abstract void MenuSelect(object title, object text, object menu, object sub1, object sub2, object sub3, object sub4, object sub5, object sub6, object excludeTitle, object excludeText);
 

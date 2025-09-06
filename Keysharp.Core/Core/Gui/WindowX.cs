@@ -6,7 +6,7 @@ namespace Keysharp.Core
 	public static partial class KeysharpEnhancements
 	{
 
-		public static object WinMaximizeAll()
+		public static Primitive WinMaximizeAll()
 		{
 			DoDelayedAction(Script.TheScript.WindowProvider.Manager.MaximizeAll);
 			return DefaultObject;
@@ -73,7 +73,7 @@ namespace Keysharp.Core
 			return 0L;
 		}
 
-		public static object GroupAdd(object groupName,
+		public static Primitive GroupAdd(object groupName,
 									  object winTitle = null,
 									  object winText = null,
 									  object excludeTitle = null,
@@ -99,7 +99,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object GroupClose(object groupName, object mode = null)
+		public static Primitive GroupClose(object groupName, object mode = null)
 		{
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
@@ -146,7 +146,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object GroupDeactivate(object groupName, object mode = null)
+		public static Primitive GroupDeactivate(object groupName, object mode = null)
 		{
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
@@ -187,7 +187,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object ListViewGetContent(object options = null,
+		public static Primitive ListViewGetContent(object options = null,
 												object control = null,
 												object winTitle = null,
 												object winText = null,
@@ -200,7 +200,7 @@ namespace Keysharp.Core
 														excludeTitle,
 														excludeText);
 
-		public static object MenuSelect(object winTitle,
+		public static Primitive MenuSelect(object winTitle,
 										object winText,
 										object menu,
 										object subMenu1 = null,
@@ -227,7 +227,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object PostMessage(object msg,
+		public static Primitive PostMessage(object msg,
 										 object wparam = null,
 										 object lparam = null,
 										 object control = null,
@@ -274,7 +274,7 @@ namespace Keysharp.Core
 			return oldVal;
 		}
 
-		public static object SetProcessDPIAware()
+		public static Primitive SetProcessDPIAware()
 		{
 #if LINUX//Don't have Gtk working on Windows yet, but just in case we ever get it working.//TODO
 			Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", "gtkplus");//This used to need to come first, but I'm not sure what it does now. It seems to have no effect.
@@ -459,7 +459,7 @@ namespace Keysharp.Core
 			return matchfound ? 1 : 0;
 		}
 
-		public static object WinActivate(object winTitle = null,
+		public static Primitive WinActivate(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null)
@@ -470,7 +470,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinActivateBottom(object winTitle = null,
+		public static Primitive WinActivateBottom(object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null)
@@ -506,7 +506,7 @@ namespace Keysharp.Core
 		/// <param name="text"></param>
 		/// <param name="excludeTitle"></param>
 		/// <param name="excludeText"></param>
-		public static object WinClose(object winTitle = null,
+		public static Primitive WinClose(object winTitle = null,
 									  object winText = null,
 									  object secondsToWait = null,
 									  object excludeTitle = null,
@@ -553,7 +553,7 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.ClassName : "";
 
-		public static object WinGetClientPos([ByRef][Optional()][DefaultParameterValue(null)] object outX,
+		public static Primitive WinGetClientPos([ByRef][Optional()][DefaultParameterValue(null)] object outX,
 											 [ByRef][Optional()][DefaultParameterValue(null)] object outY,
 											 [ByRef][Optional()][DefaultParameterValue(null)] object outWidth,
 											 [ByRef][Optional()][DefaultParameterValue(null)] object outHeight,
@@ -656,7 +656,7 @@ namespace Keysharp.Core
 									   object excludeText = null) =>
 		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.PID : 0L;
 
-		public static object WinGetPos([ByRef] object outX = null,
+		public static Primitive WinGetPos([ByRef] object outX = null,
 									   [ByRef] object outY = null,
 									   [ByRef] object outWidth = null,
 									   [ByRef] object outHeight = null,
@@ -732,7 +732,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinHide(object winTitle = null,
+		public static Primitive WinHide(object winTitle = null,
 									 object winText = null,
 									 object excludeTitle = null,
 									 object excludeText = null)
@@ -741,7 +741,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinKill(object winTitle = null,
+		public static Primitive WinKill(object winTitle = null,
 									 object winText = null,
 									 object secondsToWait = null,
 									 object excludeTitle = null,
@@ -766,7 +766,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinMaximize(object winTitle = null,
+		public static Primitive WinMaximize(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null)
@@ -775,7 +775,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinMinimize(object winTitle = null,
+		public static Primitive WinMinimize(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null)
@@ -784,19 +784,19 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinMinimizeAll()
+		public static Primitive WinMinimizeAll()
 		{
 			DoDelayedAction(Script.TheScript.WindowProvider.Manager.MinimizeAll);
 			return DefaultObject;
 		}
 
-		public static object WinMinimizeAllUndo(params object[] obj)
+		public static Primitive WinMinimizeAllUndo(params object[] obj)
 		{
 			DoDelayedAction(Script.TheScript.WindowProvider.Manager.MinimizeAllUndo);
 			return DefaultObject;
 		}
 
-		public static object WinMove(object x = null,
+		public static Primitive WinMove(object x = null,
 									 object y = null,
 									 object width = null,
 									 object height = null,
@@ -836,7 +836,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinMoveBottom(object winTitle = null,
+		public static Primitive WinMoveBottom(object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null)
@@ -845,7 +845,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinMoveTop(object winTitle = null,
+		public static Primitive WinMoveTop(object winTitle = null,
 										object winText = null,
 										object excludeTitle = null,
 										object excludeText = null)
@@ -854,7 +854,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinRedraw(object winTitle = null,
+		public static Primitive WinRedraw(object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null)
@@ -863,7 +863,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinRestore(object winTitle = null,
+		public static Primitive WinRestore(object winTitle = null,
 										object winText = null,
 										object excludeTitle = null,
 										object excludeText = null)
@@ -872,7 +872,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetAlwaysOnTop(object newSetting,
+		public static Primitive WinSetAlwaysOnTop(object newSetting,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -882,7 +882,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetEnabled(object newSetting,
+		public static Primitive WinSetEnabled(object newSetting,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
@@ -892,7 +892,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetExStyle(object value,
+		public static Primitive WinSetExStyle(object value,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
@@ -903,7 +903,7 @@ namespace Keysharp.Core
 		}
 
 #if WINDOWS
-		public static object WinSetRegion(object options,
+		public static Primitive WinSetRegion(object options,
 										  object winTitle = null,
 										  object winText = null,
 										  object excludeTitle = null,
@@ -1002,7 +1002,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetTitle(object newTitle,
+		public static Primitive WinSetTitle(object newTitle,
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
@@ -1017,7 +1017,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetTransColor(object color,
+		public static Primitive WinSetTransColor(object color,
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
@@ -1032,7 +1032,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinSetTransparent(object n,
+		public static Primitive WinSetTransparent(object n,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -1047,7 +1047,7 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object WinShow(object winTitle = null,
+		public static Primitive WinShow(object winTitle = null,
 									 object winText = null,
 									 object excludeTitle = null,
 									 object excludeText = null)

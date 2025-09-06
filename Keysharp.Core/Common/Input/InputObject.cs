@@ -7,35 +7,35 @@
 
 		public object BackspaceIsUndo
 		{
-			get => input.backspaceIsUndo;
+			get => (LongPrimitive)input.backspaceIsUndo;
 			set => input.backspaceIsUndo = value.Ab();
 		}
 
 		public object BeforeHotkeys
 		{
-			get => input.beforeHotkeys;
+			get => (LongPrimitive)input.beforeHotkeys;
 			set => input.beforeHotkeys = value.Ab();
 		}
 
 		public object BufferLengthMax
 		{
-			get => input.bufferLengthMax;
+			get => (LongPrimitive)input.bufferLengthMax;
 			set => input.bufferLengthMax = value.Ai();
 		}
 
 		public object CaseSensitive
 		{
-			get => input.caseSensitive;
+			get => (LongPrimitive)input.caseSensitive;
 			set => input.caseSensitive = value.Ab();
 		}
 
 		public object EndCharMode
 		{
-			get => input.endCharMode;
+			get => (LongPrimitive)input.endCharMode;
 			set => input.endCharMode = value.Ab();
 		}
 
-		public string EndKey
+		public StringPrimitive EndKey
 		{
 			get
 			{
@@ -50,7 +50,7 @@
 			}
 		}
 
-		public string EndMods
+		public StringPrimitive EndMods
 		{
 			get
 			{
@@ -67,7 +67,7 @@
 			}
 		}
 
-		public string EndReason
+		public StringPrimitive EndReason
 		{
 			get
 			{
@@ -78,21 +78,21 @@
 
 		public object FindAnywhere
 		{
-			get => input.findAnywhere;
+			get => (LongPrimitive)input.findAnywhere;
 			set => input.findAnywhere = value.Ab();
 		}
 
-		public bool InProgress => input.InProgress();
+		public LongPrimitive InProgress => input.InProgress();
 
-		public string Input => input.buffer;
+		public StringPrimitive Input => input.buffer;
 
-		public string Match => input.status == InputStatusType.TerminatedByMatch && input.endingMatchIndex < input.match.Count
+		public StringPrimitive Match => input.status == InputStatusType.TerminatedByMatch && input.endingMatchIndex < input.match.Count
 		? input.match[input.endingMatchIndex]
 		: "";
 
 		public object MinSendLevel
 		{
-			get => (long)input.minSendLevel;
+			get => (LongPrimitive)input.minSendLevel;
 
 			set
 			{
@@ -110,7 +110,7 @@
 
 		public object NotifyNonText
 		{
-			get => input.notifyNonText;
+			get => (LongPrimitive)input.notifyNonText;
 			set => input.notifyNonText = value.Ab();
 		}
 
@@ -140,7 +140,7 @@
 
 		public object Timeout
 		{
-			get => input.timeout / 1000.0;
+			get => (DoublePrimitive)(input.timeout / 1000.0);
 
 			set
 			{
@@ -153,19 +153,19 @@
 
 		public object TranscribeModifiedKeys
 		{
-			get => input.transcribeModifiedKeys;
+			get => (LongPrimitive)input.transcribeModifiedKeys;
 			set => input.transcribeModifiedKeys = value.Ab();
 		}
 
 		public object VisibleNonText
 		{
-			get => input.visibleNonText;
+			get => (LongPrimitive)input.visibleNonText;
 			set => input.visibleNonText = value.Ab();
 		}
 
 		public object VisibleText
 		{
-			get => input.visibleText;
+			get => (LongPrimitive)input.visibleText;
 			set => input.visibleText = value.Ab();
 		}
 
@@ -180,7 +180,7 @@
 			return DefaultObject;
 		}
 
-		public void KeyOpt(object obj0, object obj1)
+		public object KeyOpt(object obj0, object obj1)
 		{
 			var keys = obj0.As();
 			var options = obj1.As();
@@ -226,7 +226,7 @@
 
 					default:
 						_ = Errors.ValueErrorOccurred($"Invalid option.", options);
-						return;
+						return DefaultObject;
 				}
 
 				if (adding)
@@ -250,30 +250,35 @@
 			}
 
 			input.SetKeyFlags(keys, false, removeFlags, addFlags);
+
+			return DefaultObject;
 		}
 
-		public void Start()
+		public object Start()
 		{
 			if (!input.InProgress())
 			{
 				input.buffer = "";
 				input.InputStart();
 			}
+			return DefaultObject;
 		}
 
-		public void Stop()
+		public object Stop()
 		{
 			if (input.InProgress())
 				input.Stop();
+			return DefaultObject;
 		}
 
-		public void Wait(object obj)
+		public object Wait(object obj)
 		{
 			var ms = obj.Ad(double.MaxValue) * 1000.0;
 			var tickStart = DateTime.UtcNow;
 
 			while (input.InProgress() && (DateTime.UtcNow - tickStart).TotalMilliseconds < ms)
 				_ = Flow.Sleep(20);
+			return DefaultObject;
 		}
 	}
 }

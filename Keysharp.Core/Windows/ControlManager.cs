@@ -854,9 +854,9 @@ namespace Keysharp.Core.Windows
 			}
 		}
 
-		internal override object ListViewGetContent(string options, object ctrl, object title, object text, object excludeTitle, object excludeText)
+		internal override Primitive ListViewGetContent(string options, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
-			object ret = null;
+			Primitive ret = null;
 
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{
@@ -883,13 +883,13 @@ namespace Keysharp.Core.Windows
 				if (Control.FromHandle(item.Handle) is ListView lv)
 				{
 					if (count && sel)
-						ret = (long)lv.SelectedItems.Count;
+						ret = lv.SelectedItems.Count;
 					else if (count && focused)
-						ret = lv.FocusedItem is ListViewItem lvi ? lvi.Index + 1L : (object)0L;
+						ret = lv.FocusedItem is ListViewItem lvi ? lvi.Index + 1L : 0L;
 					else if (count && countcol)
-						ret = (long)lv.Columns.Count;
+						ret = lv.Columns.Count;
 					else if (count)
-						ret = (long)lv.Items.Count;
+						ret = lv.Items.Count;
 					else
 					{
 						var sb = new StringBuilder(1024);

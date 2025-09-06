@@ -24,7 +24,7 @@ namespace Keysharp.Core
 		///         Specifying 0 turns off Critical.<br/>
 		///         Specifying -1 turns on Critical but disables message checks.<br/>
 		/// </param>
-		public static object Critical(object onOffNumeric = null)
+		public static LongPrimitive Critical(object onOffNumeric = null)
 		{
 			var script = Script.TheScript;
 			script.FlowData.callingCritical = true;
@@ -137,6 +137,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="obj">The value to examine.</param>
 		/// <returns>True if the value is true and the script is running, else false.</returns>
+		[PublicForTestOnly]
 		public static bool IsTrueAndRunning(object obj)
 		{
 			var script = Script.TheScript;
@@ -214,7 +215,7 @@ namespace Keysharp.Core
 		/// If false, the default behavior is restored.
 		/// </param>
 		/// <returns>The previous persistence boolean value.</returns>
-		public static object Persistent(object persist = null)
+		public static LongPrimitive Persistent(object persist = null)
 		{
 			var b = persist.Ab(true);
 			var script = Script.TheScript;

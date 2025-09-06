@@ -2,7 +2,7 @@
 {
 	public static class EditX
 	{
-		public static long EditGetCurrentCol(object control,
+		public static LongPrimitive EditGetCurrentCol(object control,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -13,7 +13,7 @@
 													 excludeTitle,
 													 excludeText);
 
-		public static long EditGetCurrentLine(object control,
+		public static LongPrimitive EditGetCurrentLine(object control,
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
@@ -24,7 +24,7 @@
 													  excludeTitle,
 													  excludeText);
 
-		public static string EditGetLine(object n,
+		public static StringPrimitive EditGetLine(object n,
 										 object control,
 										 object winTitle = null,
 										 object winText = null,
@@ -37,7 +37,7 @@
 											 excludeTitle,
 											 excludeText);
 
-		public static long EditGetLineCount(object control,
+		public static LongPrimitive EditGetLineCount(object control,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
@@ -48,7 +48,7 @@
 												excludeTitle,
 												excludeText);
 
-		public static string EditGetSelectedText(object control,
+		public static StringPrimitive EditGetSelectedText(object control,
 				object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,

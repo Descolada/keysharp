@@ -130,7 +130,7 @@
 		/// Adds the standard tray menu items after any existing items.<br/>
 		/// Any standard items already in the menu are not duplicated, but any missing items are added.
 		/// </summary>
-		public object AddStandard()
+		public Primitive AddStandard()
 		{
 			var menu = GetMenu();
 			var emptyfunc = (params object[] args) => "";
@@ -207,7 +207,7 @@
 		/// <param name="menuItemName">If omitted, all menu items are deleted from the menu,<br/>
 		/// leaving the menu empty. Otherwise, specify the name or position of a menu item.
 		/// </param>
-		public object Delete(object menuItemName)
+		public Primitive Delete(object menuItemName)
 		{
 			var s = menuItemName.As();
 
@@ -282,7 +282,7 @@
 		/// <param name="newName">If blank or omitted, menuItemName will be converted into a separator line.<br/>
 		/// Otherwise, specify the new name.
 		/// </param>
-		public object Rename(object menuItemName, object newName = null)
+		public Primitive Rename(object menuItemName, object newName = null)
 		{
 			var name = menuItemName.As();
 			var newname = newName.As("-");
@@ -564,10 +564,10 @@
 				}
 			}
 
-			return item != null ? item : "";
+			return item != null ? item : DefaultObject;
 		}
 
-		private bool Check(string s, eCheckToggle checktoggle)
+		private LongPrimitive Check(string s, eCheckToggle checktoggle)
 		{
 			if (GetMenuItem(s) is ToolStripMenuItem item)
 			{

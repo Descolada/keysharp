@@ -143,12 +143,12 @@ namespace Keysharp.Core
 				if (nn)
 				{
 					foreach (var ctrl in controls)
-						_ = arr.Add(ctrl.GetClassNN(controls));
+						_ = arr.Add((StringPrimitive)ctrl.GetClassNN(controls));
 				}
 				else
 				{
 					foreach (var ctrl in controls)
-						_ = arr.Add(ctrl.Handle.ToInt64());
+						_ = arr.Add((LongPrimitive)ctrl.Handle.ToInt64());
 				}
 
 				WindowItemBase.DoWinDelay();

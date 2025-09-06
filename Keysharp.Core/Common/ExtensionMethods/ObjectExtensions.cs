@@ -70,6 +70,14 @@
 		public static Primitive Ap(this object obj, Primitive def = default) => Primitive.TryCoercePrimitive(obj, out Primitive p) ? p : def;
 
 		/// <summary>
+		/// Extracts the inner value of a Primitive if necessary, otherwise returns the object.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="def">A default value to use if obj is null.</param>
+		/// <returns>The inner object of the Primitive or the object.</returns>
+		public static object Ao(this object obj, object def = default) => obj is Primitive p ? p.AsObject() : obj;
+
+		/// <summary>
 		/// Wrapper around casting an object to a type <typeparamref name="T"/>.
 		/// </summary>
 		/// <typeparam name="T">The type to cast the object to.</typeparam>
@@ -582,5 +590,19 @@
 			}
 			s = default; return false;
 		}
+
+		public static bool IsString(this object obj, out StringPrimitive s)
+		{
+			if (obj is string ss)
+			{
+				s = ss; return true;
+			}
+			else if (obj is StringPrimitive sp)
+			{
+				s = sp; return true;
+			}
+			s = default; return false;
+		}
+		public static bool IsString(this object obj) => obj is string || obj is StringPrimitive;
 	}
 }

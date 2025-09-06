@@ -25,40 +25,36 @@
 		internal string str, replacement;
 		internal int suspended;
 
-		public bool CaseSensitive => caseSensitive;
+		public LongPrimitive CaseSensitive => caseSensitive;
 
-		public bool DoBackspace => doBackspace;
+		public LongPrimitive DoBackspace => doBackspace;
 
-		public bool DoReset => doReset;
+		public LongPrimitive DoReset => doReset;
 
-		[PublicForTestOnly]
-		public bool Enabled { get; set; }
+		public LongPrimitive Enabled { get; set; }
 
 		[PublicForTestOnly]
 		public Options EnabledOptions { get; set; }
 
-		public bool EndCharRequired => endCharRequired;
+		public LongPrimitive EndCharRequired => endCharRequired;
 
-		public long KeyDelay => keyDelay;
+		public LongPrimitive KeyDelay => keyDelay;
 
-		[PublicForTestOnly]
-		public string Name { get; set; }
+		public StringPrimitive Name { get; set; }
 
-		public bool OmitEndChar => omitEndChar;
+		public LongPrimitive OmitEndChar => omitEndChar;
 
-		public long Priority => priority;
+		public LongPrimitive Priority => priority;
 
-		[PublicForTestOnly]
-		public string Replacement => replacement;
+		public StringPrimitive Replacement => replacement;
 
-		public SendModes SendMode => sendMode;
+		public StringPrimitive SendMode => Enum.GetName(typeof(SendModes), sendMode);
 
-		public SendRawModes SendRaw => sendRaw;
+		public StringPrimitive SendRaw => Enum.GetName(typeof(SendRawModes), sendRaw);
 
-		[PublicForTestOnly]
-		public string Sequence { get; }
+		public StringPrimitive Sequence { get; }
 
-		public bool SuspendExempt => suspendExempt;
+		public LongPrimitive SuspendExempt => suspendExempt;
 
 		public HotstringDefinition(string sequence, string _replacement)
 		{

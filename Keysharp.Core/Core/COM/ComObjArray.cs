@@ -367,7 +367,7 @@ namespace Keysharp.Core.COM
 			return copy;
 		}
 
-		public override void Dispose()
+		public override object Dispose()
 		{
 			if ((Flags & F_OWNVALUE) != 0 && _psa != 0)
 			{
@@ -377,7 +377,7 @@ namespace Keysharp.Core.COM
 				Flags &= ~F_OWNVALUE;
 			}
 
-			base.Dispose();
+			return base.Dispose();
 		}
 
 

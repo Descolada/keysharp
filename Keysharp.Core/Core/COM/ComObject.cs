@@ -196,10 +196,12 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public virtual void Dispose()
+		void IDisposable.Dispose() => Dispose();
+
+		public virtual object Dispose()
 		{
 			if (item == null)
-				return;
+				return DefaultObject;
 
 			if (vt == VarEnum.VT_UNKNOWN || vt == VarEnum.VT_DISPATCH)
 			{
@@ -218,6 +220,8 @@ namespace Keysharp.Core
 			Ptr = null;
 
 			GC.SuppressFinalize(this);
+
+			return DefaultObject;
 		}
 
 		internal static object ReadVariant(long ptrValue, VarEnum vtRaw)
@@ -453,7 +457,7 @@ namespace Keysharp.Core
 					// 1) Choose the right VarEnum for "value"
 					VarEnum innerVt;
 
-					if (value.IsString(out _))
+					if (value.IsString())
 					{
 						innerVt = VarEnum.VT_BSTR;
 					}

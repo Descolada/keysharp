@@ -172,9 +172,7 @@ namespace Keysharp.Core
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown on failure.</exception>
 		public static Primitive RegWrite(object value, object valueType = null, object keyName = null, object valueName = null)
 		{
-			var val = value;
-			if (value is Primitive p)
-				val = p.AsObject();
+			var val = value.Ao();
 			var valtype = valueType.As();
 			var keyname = keyName.As();
 			var valname = valueName.As();

@@ -310,7 +310,7 @@ break_twice:;
 				if (!string.IsNullOrEmpty(action))
 					hm.defEndChars = action;
 
-				return old;//Return the old value.
+				return (StringPrimitive)old;//Return the old value.
 			}
 			else if (string.Compare(name, "MouseReset", true) == 0) // "MouseReset, true" seems more intuitive than "NoMouse, false"
 			{
@@ -329,13 +329,13 @@ break_twice:;
 					}
 				}
 
-				return previousValue;
+				return (LongPrimitive)previousValue;
 			}
 			else if (string.Compare(name, "Reset", true) == 0)
 			{
 				var str = hm.CurrentInputBuffer;
 				hm.ClearBuf();
-				return str;
+				return (StringPrimitive)str;
 			}
 			else if (replacement == null && obj2 == null && name.Length > 0 && name[0] != ':') //Check if only one param was passed. Equivalent to #Hotstring <name>.
 			{

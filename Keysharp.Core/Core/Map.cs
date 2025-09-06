@@ -138,7 +138,7 @@ namespace Keysharp.Core
 				if (map == null)
 					return;
 
-				if (Count > 0)
+				if (((ICollection)this).Count > 0)
 				{
 					caseSense = oldVal;
 					_ = Errors.PropertyErrorOccurred("Attempted to change case sensitivity of a map which was not empty.");
@@ -158,9 +158,9 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets the number of elements in the map.
 		/// </summary>
-		public LongPrimitive count => Count;
-		[PublicForTestOnly]
-		public int Count => map != null ? map.Count : 0;
+		public LongPrimitive Count => ((ICollection)this).Count;
+
+		int ICollection.Count => map != null ? map.Count : 0;
 
 		/// <summary>
 		/// Gets or sets the default value to use when retrieving a value for a key that doesn't exist.
@@ -261,8 +261,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="array">The <see cref="System.Array"/> to copy elements to.</param>
 		/// <param name="index">The index in the array to start copying to.</param>
-		[PublicForTestOnly]
-		public void CopyTo(System.Array array, int index)
+		void ICollection.CopyTo(System.Array array, int index)
 		{
 			var kvs = new List<object>(map.Count * 2);
 

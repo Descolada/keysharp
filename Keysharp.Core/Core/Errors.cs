@@ -23,6 +23,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="err">The exception object to pass to each callback.</param>
 		/// <returns>True if err.ExcType is not "Return", else false.</returns>
+		[PublicForTestOnly]
 		public static bool ErrorOccurred(Error err, string excType = Keyword_Return)
 		{
 			var exitThread = true;

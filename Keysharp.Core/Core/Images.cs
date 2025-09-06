@@ -79,7 +79,7 @@
 				}
 			}
 
-			return new GdiHandleHolder(handle, disposeHandle);
+			return new LongPrimitive(handle, new GdiHandleHolder(handle, disposeHandle));
 		}
 	}
 }

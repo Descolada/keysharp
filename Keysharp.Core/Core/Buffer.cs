@@ -141,15 +141,14 @@
 		/// </summary>
 		public override object __Delete()
 		{
-			Dispose(true);
+			Dispose();
 			return DefaultObject;
 		}
 
 		/// <summary>
 		/// Dispose the object and set a flag so it doesn't get disposed twice.
 		/// </summary>
-		/// <param name="disposing">If true, disposing already, so skip, else dispose.</param>
-		public object Dispose(bool disposing)
+		public object Dispose()
 		{
 			if (!disposed)
 			{
@@ -165,7 +164,7 @@
 		/// </summary>
 		void IDisposable.Dispose()
 		{
-			Dispose(true);
+			Dispose();
 		}
 
 		/// <summary>

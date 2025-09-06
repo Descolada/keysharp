@@ -34,6 +34,7 @@
 
 			public StringPrimitive ClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
 
+			[PublicForTestOnly]
 			public System.Windows.Forms.Control Ctrl => _control;
 
 			public LongPrimitive Enabled
@@ -56,6 +57,7 @@
 
 			public StringPrimitive NetClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
 
+			[PublicForTestOnly]
 			public object Parent
 			{
 				get => _control.Parent;
@@ -69,6 +71,7 @@
 				}
 			}
 
+			[PublicForTestOnly]
 			public KeysharpForm ParentForm => _control.FindParent<KeysharpForm>();
 
 			public StringPrimitive RichText
@@ -99,7 +102,7 @@
 					{
 						if (lb.SelectionMode == SelectionMode.One)
 						{
-							if (lb.SelectedIndex > 0 && lb.SelectedItem.IsString(out string s))
+							if (lb.SelectedIndex > 0 && lb.SelectedItem.IsString(out StringPrimitive s))
 								return s;
 						}
 						else
@@ -108,21 +111,21 @@
 
 					if (_control is KeysharpComboBox cb)
 					{
-						if (cb.DropDownStyle == ComboBoxStyle.DropDownList && cb.SelectedIndex > 0 && cb.SelectedItem.IsString(out string s))
+						if (cb.DropDownStyle == ComboBoxStyle.DropDownList && cb.SelectedIndex > 0 && cb.SelectedItem.IsString(out StringPrimitive s))
 							return s;
 						else
-							return cb.Text;
+							return (StringPrimitive)cb.Text;
 					}
 
 					if (_control is KeysharpStatusStrip ss)
-						return ss.Items.Count > 0 ? ss.Items[0].Text : "";
+						return (StringPrimitive)(ss.Items.Count > 0 ? ss.Items[0].Text : "");
 
 					if (_control is KeysharpTabControl tc && tc.SelectedTab is TabPage tp)
-						return tp.Text;
+						return (StringPrimitive)tp.Text;
 					else if (_control is KeysharpGroupBox gb)
-						return gb.Text;
+						return (StringPrimitive)gb.Text;
 					else
-						return _control.Text;
+						return (StringPrimitive)_control.Text;
 				}
 				set
 				{
@@ -165,7 +168,7 @@
 				}
 			}
 
-			public string Type => typename;
+			public StringPrimitive Type => typename;
 
 			public object Value
 			{
@@ -174,17 +177,17 @@
 					if (_control is KeysharpLabel lbl)
 						return (StringPrimitive)lbl.Text;
 					else if (_control is KeysharpTextBox txt)
-						return (StringPrimitive)KeysharpEnhancements.NormalizeEol(txt.Text);
+						return KeysharpEnhancements.NormalizeEol(txt.Text);
 					else if (_control is KeysharpRichEdit rtf)
-						return (StringPrimitive)KeysharpEnhancements.NormalizeEol(rtf.Text);
+						return KeysharpEnhancements.NormalizeEol(rtf.Text);
 					else if (_control is HotkeyBox hk)
 						return (StringPrimitive)hk.GetText();
 					else if (_control is KeysharpNumericUpDown nud)
 					{
 						decimal v = decimal.Round(nud.Value, nud.DecimalPlaces);
 						if (v == decimal.Truncate(v) && v >= long.MinValue && v <= long.MaxValue)
-							return (long)v;
-						return (DoublePrimitive)v;
+							return (LongPrimitive)(long)v;
+						return (DoublePrimitive)(double)v;
 					}
 					else if (_control is KeysharpButton btn)
 						return (StringPrimitive)btn.Text;
@@ -395,10 +398,10 @@
 				}
 			}
 
-			public LongPrimitive Visible
+			public object Visible
 			{
-				get => _control.Visible;
-				set => _control.Visible = Options.OnOff(value) ?? false;
+				get => (LongPrimitive)_control.Visible;
+				set => _control.Visible = Options.OnOff(value.Ap()) ?? false;
 			}
 
 			public object BackColor
@@ -591,7 +594,7 @@
 				return result;
 			}
 
-			public object Choose(object value)
+			public Primitive Choose(object value)
 			{
 				//The documentation says "Unlike ControlChooseIndex, this method does not raise a Change or DoubleClick event."
 				//But we don't raise click events anyway here, so it shouldn't matter.
@@ -639,7 +642,7 @@
 			/// of an existing tab to the tab at the index that was deleted.
 			/// </summary>
 			/// <param name="value"></param>
-			public long Delete(object value = null)
+			public LongPrimitive Delete(object value = null)
 			{
 				var index = value.Ai() - 1;
 
@@ -716,7 +719,7 @@
 				return Primitive.False;
 			}
 
-			public long DeleteCol(object column)
+			public LongPrimitive DeleteCol(object column)
 			{
 				if (_control is KeysharpListView lv)
 				{
@@ -732,7 +735,7 @@
 				return Primitive.False;
 			}
 
-			public object Focus() => (LongPrimitive)_control.Focus();
+			public LongPrimitive Focus() => _control.Focus();
 
 			public LongPrimitive Get(object itemID, object attribute)
 			{
@@ -767,7 +770,7 @@
 				return 0L;
 			}
 
-			public object GetClientPos([Optional()][DefaultParameterValue(null)] object outX,
+			public Primitive GetClientPos([Optional()][DefaultParameterValue(null)] object outX,
 									   [Optional()][DefaultParameterValue(null)] object outY,
 									   [Optional()][DefaultParameterValue(null)] object outWidth,
 									   [Optional()][DefaultParameterValue(null)] object outHeight)
@@ -882,7 +885,7 @@
 				return DefaultErrorLong;
 			}
 
-			public object GetPos([Optional()][DefaultParameterValue(null)] object outX,
+			public Primitive GetPos([Optional()][DefaultParameterValue(null)] object outX,
 								 [Optional()][DefaultParameterValue(null)] object outY,
 								 [Optional()][DefaultParameterValue(null)] object outWidth,
 								 [Optional()][DefaultParameterValue(null)] object outHeight)
@@ -891,7 +894,7 @@
 				return DefaultObject;
 			}
 
-			public long GetPrev(object itemID)
+			public LongPrimitive GetPrev(object itemID)
 			{
 				if (_control is KeysharpTreeView tv)
 				{
@@ -1095,7 +1098,7 @@
 				return 0L;
 			}
 
-			public object Move(object x = null, object y = null, object width = null, object height = null)
+			public Primitive Move(object x = null, object y = null, object width = null, object height = null)
 			{
 				var _x = x.Al(long.MinValue);
 				var _y = y.Al(long.MinValue);
@@ -1120,7 +1123,7 @@
 				return DefaultObject;
 			}
 
-			public object SetCue(object newText, object showWhenFocused = null)
+			public Primitive SetCue(object newText, object showWhenFocused = null)
 			{
 				string txt = newText.ToString();
 				int showOnFocus = ForceBool(showWhenFocused ?? false) ? 1 : 0;
@@ -1157,13 +1160,13 @@
 #endif
 			}
 
-			public object OnCommand(object notifyCode, object callback, object addRemove = null)
+			public Primitive OnCommand(object notifyCode, object callback, object addRemove = null)
 			{
 				HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref commandHandlers);
 				return DefaultObject;
 			}
 
-			public object OnEvent(object eventName, object callback, object addRemove = null)
+			public Primitive OnEvent(object eventName, object callback, object addRemove = null)
 			{
 				var e = eventName.As().ToLower();
 				var h = callback;
@@ -1291,13 +1294,13 @@
 				return DefaultObject;
 			}
 
-			public object OnNotify(object notifyCode, object callback, object addRemove = null)
+			public Primitive OnNotify(object notifyCode, object callback, object addRemove = null)
 			{
 				HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref notifyHandlers);
 				return DefaultObject;
 			}
 
-			public object Opt(object options)
+			public Primitive Opt(object options)
 			{
 				if (gui == null || !gui.TryGetTarget(out var g))
 					return DefaultErrorObject;

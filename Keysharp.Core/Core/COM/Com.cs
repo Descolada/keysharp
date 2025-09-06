@@ -400,7 +400,7 @@ namespace Keysharp.Core.COM
 		/// <summary>
 		/// Gotten loosely from https://social.msdn.microsoft.com/Forums/vstudio/en-US/cbb92470-979c-4d9e-9555-f4de7befb42e/how-to-directly-access-the-virtual-method-table-of-a-com-interface-pointer?forum=csharpgeneral
 		/// </summary>
-		public static object ComCall(object index, object comObj, params object[] parameters)
+		public static Primitive ComCall(object index, object comObj, params object[] parameters)
 		{
 			var idx = index.Ai();
 			var indexPlus1 = idx + 1;//Index is zero based, so add 1.

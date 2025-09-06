@@ -12,16 +12,16 @@ namespace Keysharp.Core
 		/// <param name="key">The secret key.</param>
 		/// <param name="decrypt"><code>true</code> to decrypt the given <paramref name="value"/>, otherwise encrypt.</param>
 		/// <returns>The corresponding encrypted or decrypted data.</returns>
-		public static Array AES(object value, object key, bool decrypt = false) => new (Crypt.Encrypt(value, key, decrypt, Aes.Create()));
+		public static Array AES(object value, object key, bool decrypt = false) => new (Crypt.Encrypt(value.Ao(), key, decrypt, Aes.Create()));
 
 		/// <summary>
 		/// Calculates the CRC32 polynomial of an object.
 		/// </summary>
 		/// <param name="value">The object to check.</param>
 		/// <returns>A checksum of <paramref name="value"/> as an integer.</returns>
-		public static long CRC32(object value)
+		public static LongPrimitive CRC32(object value)
 		{
-			var raw = Crypt.ToByteArray(value);
+			var raw = Crypt.ToByteArray(value.Ao());
 			var alg = new CRC32();
 			_ = alg.ComputeHash(raw);
 			return alg.Value;
@@ -32,7 +32,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to hash.</param>
 		/// <returns>A 32-character hexadecimal number.</returns>
-		public static string MD5(object value) => Crypt.Hash(value, System.Security.Cryptography.MD5.Create());
+		public static StringPrimitive MD5(object value) => Crypt.Hash(value.Ao(), System.Security.Cryptography.MD5.Create());
 
 		/// <summary>
 		/// Generates a secure (cryptographic) random number.
@@ -73,27 +73,27 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to hash.</param>
 		/// <returns>A 40-character hexadecimal number.</returns>
-		public static string SHA1(object value) => Crypt.Hash(value, System.Security.Cryptography.SHA1.Create());
+		public static StringPrimitive SHA1(object value) => Crypt.Hash(value.Ao(), System.Security.Cryptography.SHA1.Create());
 
 		/// <summary>
 		/// Calculates the SHA256 hash of an object.
 		/// </summary>
 		/// <param name="value">The object to hash.</param>
 		/// <returns>A 64-character hexadecimal number.</returns>
-		public static string SHA256(object value) => Crypt.Hash(value, System.Security.Cryptography.SHA256.Create());
+		public static StringPrimitive SHA256(object value) => Crypt.Hash(value.Ao(), System.Security.Cryptography.SHA256.Create());
 
 		/// <summary>
 		/// Calculates the SHA384 hash of an object.
 		/// </summary>
 		/// <param name="value">The object to hash.</param>
 		/// <returns>A 96-character hexadecimal number.</returns>
-		public static string SHA384(object value) => Crypt.Hash(value, System.Security.Cryptography.SHA384.Create());
+		public static StringPrimitive SHA384(object value) => Crypt.Hash(value.Ao(), System.Security.Cryptography.SHA384.Create());
 
 		/// <summary>
 		/// Calculates the SHA512 hash of an object.
 		/// </summary>
 		/// <param name="value">The object to hash.</param>
 		/// <returns>A 128-character hexadecimal number.</returns>
-		public static string SHA512(object value) => Crypt.Hash(value, System.Security.Cryptography.SHA512.Create());
+		public static StringPrimitive SHA512(object value) => Crypt.Hash(value.Ao(), System.Security.Cryptography.SHA512.Create());
 	}
 }

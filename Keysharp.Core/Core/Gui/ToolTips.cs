@@ -36,7 +36,7 @@ namespace Keysharp.Core
 		/// <returns>If a tooltip is being shown or updated, this function returns the tooltip window's unique ID (HWND)<br/>.
 		/// If Text is blank or omitted, the return value is zero.
 		/// </returns>
-		public static object ToolTip(object text = null, object x = null, object y = null, object whichToolTip = null)
+		public static Primitive ToolTip(object text = null, object x = null, object y = null, object whichToolTip = null)
 		{
 			var t = text.As();
 			var _x = x.Ai(int.MinValue);
@@ -200,7 +200,7 @@ namespace Keysharp.Core
 		/// If false, the icon is unfrozen.<br/>
 		/// </param>
 		/// <returns>Ignored.</returns>
-		public static object TraySetIcon(object fileName = null, object iconNumber = null, object freeze = null)
+		public static Primitive TraySetIcon(object fileName = null, object iconNumber = null, object freeze = null)
 		{
 			var filename = fileName.As();
 			var iconnumber = ImageHelper.PrepareIconNumber(iconNumber.As(null));
@@ -260,7 +260,7 @@ namespace Keysharp.Core
 		/// <param name="title">The obj1.</param>
 		/// <param name="options">The obj2.</param>
 		/// <returns>Ignored.</returns>
-		public static object TrayTip(object text = null, object title = null, object options = null)
+		public static Primitive TrayTip(object text = null, object title = null, object options = null)
 		{
 			var _text = text.As();
 			var _title = title.As();

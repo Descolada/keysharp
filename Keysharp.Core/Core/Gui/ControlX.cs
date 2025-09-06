@@ -2,7 +2,7 @@
 {
 	public static class ControlX
 	{
-		public static long ControlAddItem(object @string,
+		public static LongPrimitive ControlAddItem(object @string,
 										  object control,
 										  object winTitle = null,
 										  object winText = null,
@@ -32,7 +32,7 @@
 			return DefaultObject;
 		}
 
-		public static long ControlChooseString(object @string,
+		public static LongPrimitive ControlChooseString(object @string,
 											   object control,
 											   object winTitle = null,
 											   object winText = null,
@@ -83,7 +83,7 @@
 			return DefaultObject;
 		}
 
-		public static long ControlFindItem(object @string,
+		public static LongPrimitive ControlFindItem(object @string,
 										   object control,
 										   object winTitle = null,
 										   object winText = null,
@@ -111,7 +111,7 @@
 			return DefaultObject;
 		}
 
-		public static long ControlGetChecked(object control,
+		public static LongPrimitive ControlGetChecked(object control,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -122,7 +122,7 @@
 													 excludeTitle,
 													 excludeText);
 
-		public static string ControlGetChoice(object control,
+		public static StringPrimitive ControlGetChoice(object control,
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
@@ -133,7 +133,7 @@
 													  excludeTitle,
 													  excludeText);
 
-		public static string ControlGetClassNN(object control,
+		public static StringPrimitive ControlGetClassNN(object control,
 											   object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
@@ -144,7 +144,7 @@
 													   excludeTitle,
 													   excludeText);
 
-		public static long ControlGetEnabled(object control,
+		public static LongPrimitive ControlGetEnabled(object control,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -155,7 +155,7 @@
 													 excludeTitle,
 													 excludeText);
 
-		public static long ControlGetExStyle(object control,
+		public static LongPrimitive ControlGetExStyle(object control,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
@@ -166,7 +166,7 @@
 													 excludeTitle,
 													 excludeText);
 
-		public static long ControlGetFocus(object winTitle = null,
+		public static LongPrimitive ControlGetFocus(object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
 										   object excludeText = null) => Script.TheScript.ControlProvider.Manager.ControlGetFocus(
@@ -175,7 +175,7 @@
 											   excludeTitle,
 											   excludeText);
 
-		public static long ControlGetHwnd(object control,
+		public static LongPrimitive ControlGetHwnd(object control,
 										  object winTitle = null,
 										  object winText = null,
 										  object excludeTitle = null,
@@ -186,7 +186,7 @@
 											  excludeTitle,
 											  excludeText);
 
-		public static long ControlGetIndex(object control,
+		public static LongPrimitive ControlGetIndex(object control,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
@@ -235,7 +235,7 @@
             return DefaultObject;
 		}
 
-		public static long ControlGetStyle(object control,
+		public static LongPrimitive ControlGetStyle(object control,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
@@ -246,7 +246,7 @@
 											   excludeTitle,
 											   excludeText);
 
-		public static string ControlGetText(object control,
+		public static StringPrimitive ControlGetText(object control,
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
@@ -257,7 +257,7 @@
 												excludeTitle,
 												excludeText);
 
-		public static long ControlGetVisible(object control,
+		public static LongPrimitive ControlGetVisible(object control,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,

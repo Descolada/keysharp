@@ -4,6 +4,7 @@ namespace Keysharp.Core
 	/// Miscellaneous public facing functions which don't fit anywhere else.
 	/// Add to this class sparingly because functions should be well organized.
 	/// </summary>
+	[PublicForTestOnly]
 	public static class Misc
 	{
 		/// <summary>
@@ -16,8 +17,10 @@ namespace Keysharp.Core
 		/// <param name="o">The value to pass to the function.</param>
 		/// <param name="r">The <see cref="Action"/> to call after the function returns to assign the value back out to the passed in variable.</param>
 		/// <returns>A <see cref="RefHolder"/> object that contains all of the passed in info, which will be passed to the method call.</returns>
+		[PublicForTestOnly]
 		public static RefHolder Mrh(int i, object o, Action<object> r) => new (i, o, r);
 
+		[PublicForTestOnly]
 		public static object MakeVarRef(Func<object> getter, Action<object> setter)
 		{
 			var v = getter();

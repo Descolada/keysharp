@@ -27,15 +27,13 @@
 
 		public Primitive() : base(skipLogic: true) { }
 
-		private static readonly ConditionalWeakTable<string, StringPrimitive> _internedCwt = new();
-
 		public static LongPrimitive True = LongCache.Get(1);
 		public static LongPrimitive False = LongCache.Get(0);
 
 		/// <summary>Factory methods for each subtype.</summary>
 		public static LongPrimitive From(long v) => LongCache.Get(v);
 		public static DoublePrimitive From(double v) => new DoublePrimitive(v);
-		public static StringPrimitive From(string v) => string.IsInterned(v) == null ? new StringPrimitive(v) : _internedCwt.GetValue(v, key => new StringPrimitive(key));
+		public static StringPrimitive From(string v) => new StringPrimitive(v);
 
 		public static LongPrimitive From(bool v) => v ? True : False;
 		public static Primitive From(object v) {

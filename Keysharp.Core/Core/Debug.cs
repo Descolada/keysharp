@@ -202,7 +202,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="obj0">The text to send to the debugger for display.</param>
 		/// <param name="obj1">True to first clear the display, else false to append.</param>
-		public static object OutputDebug(object obj0, object obj1 = null) => OutputDebugCommon(obj0.As(), obj1.Ab());
+		public static object OutputDebug(object obj0, object obj1 = null) => OutputDebugCommon(obj0.As(), obj1.Ab(false));
 
 		/// <summary>
 		/// Internal helper to send a string to the debugger (if any) for display.

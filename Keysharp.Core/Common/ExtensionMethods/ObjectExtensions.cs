@@ -296,7 +296,13 @@
 		public static double? ParseDouble(this object obj, bool doconvert = true, bool requiredot = false)
 		{
 			if (obj is Primitive p)
-				return p.TryGetDouble(out double dd) ? dd : null;
+			{
+				if (p.TryGetDouble(out double dl))
+					return dl;
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(double));
+				return default;
+			}
 
 			if (obj.ParseDouble(out double d, doconvert, requiredot))
 				return d;
@@ -307,7 +313,17 @@
 		public static bool ParseDouble(this object obj, out double outvar, bool doconvert = true, bool requiredot = false)
 		{
 			if (obj is Primitive p)
-				return p.TryGetDouble(out outvar);
+			{
+				if (p.TryGetDouble(out double dl))
+				{
+					outvar = dl;
+					return true;
+				}
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(double));
+				outvar = default;
+				return false;
+			}
 
 			if (obj is double d)
 			{
@@ -381,7 +397,13 @@
 		public static float? ParseFloat(this object obj, bool doconvert = true, bool requiredot = false)
 		{
 			if (obj is Primitive p)
-				return p.TryGetDouble(out double pd) ? (float)pd : null;
+			{
+				if (p.TryGetDouble(out double dl))
+					return unchecked((float)dl);
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(float));
+				return default;
+			}
 
 			if (obj is float d)
 				return d;
@@ -436,7 +458,14 @@
 		public static int? ParseInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
 			if (obj is Primitive p)
-				return p.TryGetLong(out long pl) ? unchecked((int)pl) : null;
+			{
+				if (p.TryGetLong(out long pl))
+					return unchecked((int)pl);
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(int));
+				return default;
+			}
+				
 
 			if (obj is int i)
 				return i;
@@ -498,7 +527,13 @@
 		public static long? ParseLong(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
 			if (obj is Primitive p)
-				return p.TryGetLong(out long pl) ? pl : null;
+			{
+				if (p.TryGetLong(out long pl))
+					return pl;
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(long));
+				return default;
+			}
 
 			long l = 0;
 
@@ -511,7 +546,17 @@
 		public static bool ParseLong(this object obj, out long outvar, bool doconvert = true, bool donoprefixhex = true)
 		{
 			if (obj is Primitive p)
-				return p.TryGetLong(out outvar);
+			{
+				if (p.TryGetLong(out long pl))
+				{
+					outvar = pl;
+					return true;
+				}
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(long));
+				outvar = default;
+				return default;
+			}
 
 			if (obj is long l)
 			{
@@ -604,7 +649,13 @@
 		public static uint? ParseUInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
 		{
 			if (obj is Primitive p)
-				return p.TryGetLong(out long pl) ? unchecked((uint)pl) : null;
+			{
+				if (p.TryGetLong(out long pl))
+					return unchecked((uint)pl);
+				if (doconvert && p.IsTrue)
+					_ = Errors.TypeErrorOccurred(obj, typeof(uint));
+				return default;
+			}
 
 			if (obj is uint i)
 				return i;

@@ -113,7 +113,7 @@
 		public abstract bool IsString { get; }
 
 		// Used as a temporary variable to throw errors.
-		static Error _err;
+		internal static Error _err;
 
 		public static Primitive ForceNumeric(Primitive p)
 		{
@@ -410,6 +410,22 @@
 			if (left == null && right is Primitive pb) return pb.ToString();
 			if (left is Primitive a && right is Primitive b)
 				return string.Concat(a.As(), b.As());
+			return Errors.ErrorOccurred(_err = new TypeError($"{(left is Primitive ? "Right" : "Left")} operand was not a primitive value.")) ? throw _err : DefaultErrorObject;
+		}
+
+		public static Primitive ConcatInplace(object left, object right)
+		{
+			if (right == null) return Errors.UnsetErrorOccurred($"Right side operand of concatenation", false);
+			if (left == null && right is Primitive pb) return pb.ToString();
+			if (left is Primitive a && right is Primitive b)
+			{
+				if (a is StringPrimitive sp)
+				{
+					a = sp.Append(b.ToString());
+					return a;
+				}
+				return string.Concat(a.ToString(), b.ToString());
+			}
 			return Errors.ErrorOccurred(_err = new TypeError($"{(left is Primitive ? "Right" : "Left")} operand was not a primitive value.")) ? throw _err : DefaultErrorObject;
 		}
 
@@ -948,12 +964,13 @@
 			{
 				if (Payload != null)
 				{
-					if (Payload is StringBuilder sb)
-						return sb.ToString();
-					else if (Payload is StringBuffer sbuf)
-						return sbuf.ToString();
+					if (Payload is StringBuffer sbuf)
+						_value = sbuf.ToString();
+					else if (Payload is StringBuilder sb)
+						_value = sb.ToString();
 					else
 						throw new Exception("Unknown string type");
+					Payload = null;
 				}
 				return _value;
 			}
@@ -966,14 +983,10 @@
 		{
 			if (Payload != null)
 			{
-				if (Payload is StringBuilder sb)
-					return sb.ToString().AsSpan();
-				else if (Payload is StringBuffer sbuf)
+				if (Payload is StringBuffer sbuf)
 					return sbuf.AsSpan();
-				else
-					throw new Exception("Unknown string type");
 			}
-			return _value.AsSpan();
+			return Value.AsSpan();
 		}
 		internal ReadOnlySpan<char> AsSpan(Range r) => AsSpan()[r];
 
@@ -1003,7 +1016,6 @@
 		}
 		public StringPrimitive(string v) => _value = v ?? throw new ArgumentNullException(nameof(v));
 		public StringPrimitive(char v) => _value = v.ToString();
-		public StringPrimitive(StringBuilder v) => Payload = v ?? throw new ArgumentNullException(nameof(v));
 		public StringPrimitive(StringBuffer v) => Payload = v ?? throw new ArgumentNullException(nameof(v));
 
 		public static implicit operator StringPrimitive(string v) => v == null ? null : From(v);
@@ -1072,13 +1084,32 @@
 		}
 		public override string ToString(IFormatProvider format) => Value.ToString(format);
 		public override string ToString() => Value;
-		public override object AsObject() => Payload ?? Value;
+		public override object AsObject() => Value;
 		public override bool IsTrue => SpanLength != 0 && (TryGetDouble(out double dd) ? dd != 0.0 : true);
 		public override bool IsNumeric => TryGetLong(out _) || TryGetDouble(out _);
 		public override bool IsLong => TryGetLong(out _);
 		public override bool IsDouble => TryGetDouble(out _) && !TryGetLong(out _);
 		public override bool IsString => true;
 		public bool IsEmpty => SpanLength == 0;
+
+		// If the StringPrimitive has a modifiable payload then the string is appended to that inplace,
+		// otherwise a new StringPrimitive with a modifiable payload is created based on this StringPrimitive.
+		internal StringPrimitive Append(string s)
+		{
+			StringPrimitive sp = this;
+			if (Payload == null) 
+			{
+				sp = new StringPrimitive(_value);
+				sp.Payload = new StringBuilder(string.Concat(_value, s));
+			}
+			else if (sp.Payload is StringBuilder sb2)
+				sb2.Append(s);
+			else if (sp.Payload is StringBuffer sb1)
+				sb1.Append(s);
+			else
+				return Errors.ErrorOccurred(_err = new TypeError($"Left operand was of an unknown internal string type.")) ? throw _err : DefaultErrorObject;
+			return sp;
+		}
 
 		private bool TryParseLong(ReadOnlySpan<char> s, out long ll)
 		{

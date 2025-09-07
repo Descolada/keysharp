@@ -529,6 +529,14 @@ namespace Keysharp.Scripting
         {
 			switch (op)
 			{
+                case -1:
+					return SyntaxFactory.InvocationExpression(
+		                CreateMemberAccess("Primitive", "ConcatInplace"),
+		                CreateArgumentList(
+			                exprL,
+			                exprR
+		                )
+	                );
 				case MainParser.Equals_:
 				case MainParser.NotEquals:
 				case MainParser.IdentityEquals:

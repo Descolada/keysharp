@@ -113,7 +113,11 @@ namespace Keysharp.Core.Common.Strings
 		{
 			if (obj == null) throw new Error("String cannot be unset");
 			string text = obj.As();
+			return Append(text);
+		}
 
+		internal long Append(string text)
+		{
 			int len = text.Length;
 			EnsureCapacity(_position + len);
 

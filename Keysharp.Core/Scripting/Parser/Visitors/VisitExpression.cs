@@ -1302,7 +1302,9 @@ namespace Keysharp.Scripting
             if (operatorToken == MainParser.Dot && leftExpression is IdentifierNameSyntax identifier)
             {
                 parser.MaybeAddVariableDeclaration(identifier.Identifier.Text);
-            }
+                // Force an inplace concat
+				operatorToken = -1;
+			}
 
 			binaryOperation = CreateBinaryOperatorExpression(
 				operatorToken,

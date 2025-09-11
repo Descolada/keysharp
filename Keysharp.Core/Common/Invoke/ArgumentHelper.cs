@@ -528,7 +528,6 @@ namespace Keysharp.Core.Common.Invoke
 				int hr32 = unchecked((int)hrLong);   // keep only the low 32 bits
 				return Errors.OSErrorOccurredForHR(hr32);
 			}
-
 			//Special conversion for the return value.
 			else if (ReturnType == typeof(int))
 			{

@@ -190,7 +190,7 @@
 
 			_ = menu.Items.Add(new ToolStripSeparator());
 			script.suspendMenuItem = (ToolStripMenuItem)Add("&Suspend Hotkeys", new FuncObj(suspend.Method, suspend.Target));
-			_ = Add("&Exit", new FuncObj(exitfunc.Method, exitfunc.Target));
+			_ = Add("E&xit", new FuncObj(exitfunc.Method, exitfunc.Target));
 			return DefaultObject;
 		}
 

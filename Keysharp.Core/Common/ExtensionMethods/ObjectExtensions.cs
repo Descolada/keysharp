@@ -217,6 +217,7 @@
 
 			if (obj is long l)
 			{
+				if (requiredot) { outvar = default; return false; }
 				outvar = l;
 				return true;
 			}
@@ -228,6 +229,7 @@
 
 			if (obj is int i)//int is seldom used in Keysharp, so check last.
 			{
+				if (requiredot) { outvar = default; return false; }
 				outvar = i;
 				return true;
 			}

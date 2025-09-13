@@ -16,7 +16,7 @@ namespace Keysharp.Core.COM
 				for (var i = 0; i < obj.Length; ++i)
 				{
 					var o = obj[i];
-					var co = o as ComObject;//Unsure how or if this will even still work. Should just pass a regular variable and let the marshaller handle it.
+					var co = o as ComValue;//Unsure how or if this will even still work. Should just pass a regular variable and let the marshaller handle it.
 					var p = co != null ? co.Ptr : o;
 					args[i] = p;
 				}

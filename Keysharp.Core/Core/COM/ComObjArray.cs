@@ -1,5 +1,5 @@
 ﻿#if WINDOWS
-namespace Keysharp.Core.COM
+namespace Keysharp.Core
 {
 	/// <summary>
 	/// Describes the bounds (element count and lower bound) of a single dimension of a SAFEARRAY.
@@ -232,7 +232,7 @@ namespace Keysharp.Core.COM
 	/// <summary>
 	/// A COM wrapper around a native SAFEARRAY, exposing AHK-friendly APIs.
 	/// </summary>
-	public class ComObjArray : ComObject, I__Enum, IEnumerable<(object, object)>
+	public class ComObjArray : ComValue, I__Enum, IEnumerable<(object, object)>
 	{
 		internal nint _psa;         // pointer to the native SAFEARRAY
 		internal int _dimensions;   // number of dimensions
@@ -281,7 +281,6 @@ namespace Keysharp.Core.COM
 			this.Ptr = _psa.ToInt64();
 		}
 
-		
 		public ComObjArray(VarEnum baseType, nint psa, bool takeOwnership)
 		{
 			_baseType = baseType;
@@ -290,6 +289,24 @@ namespace Keysharp.Core.COM
 			this.vt = VarEnum.VT_ARRAY | baseType;
 			this.Flags = takeOwnership ? F_OWNVALUE : 0; ;
 			this.Ptr = _psa.ToInt64();
+		}
+
+		public static object Call(object @this, object varType, object count1, params object[] args)
+		{
+			var vt = (VarEnum)varType.Ai();
+			var dim1Size = count1.Ai();
+			var lengths = new int[args != null ? args.Length + 1 : 1];
+			var t = typeof(object);
+
+			if (lengths.Length > 8)
+				return Errors.ErrorOccurred($"COM array dimensions of {lengths.Length} is greater than the maximum allowed number of 8.");
+
+			lengths[0] = dim1Size;
+
+			for (var i = 0; i < args.Length; i++)
+				lengths[i + 1] = args[i].Ai();
+
+			return new ComObjArray(vt, lengths);
 		}
 
 		public IFuncObj __Enum(object count) => new ComArrayIndexValueEnumerator(this, count.Ai()).fo;
@@ -453,7 +470,7 @@ namespace Keysharp.Core.COM
 				// Accept Ptr properties or a plain RCW
 				if (Marshal.IsComObject(value))
 				{
-					object src = value is ComObject c ? c.Ptr : value;
+					object src = value is ComValue c ? c.Ptr : value;
 					// Get a temporary COM pointer we own; SafeArray will AddRef its own copy.
 					pIface = (_baseType == VarEnum.VT_DISPATCH)
 							 ? Marshal.GetIDispatchForObject(src)

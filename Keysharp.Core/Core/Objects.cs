@@ -256,7 +256,7 @@
 			object result = null;
 
 			if (Marshal.IsComObject(dispPtr))
-				result = new ComObject(VarEnum.VT_UNKNOWN, dispPtr);
+				result = new ComValue(VarEnum.VT_UNKNOWN, dispPtr);
 			else
 				return dispPtr;
 
@@ -275,7 +275,7 @@
 			var dispPtr = Marshal.GetObjectForIUnknown((nint)punk);
 
 			if (Marshal.IsComObject(dispPtr))
-				return new ComObject(VarEnum.VT_UNKNOWN, dispPtr);
+				return new ComValue(VarEnum.VT_UNKNOWN, dispPtr);
 			else
 				return dispPtr;
 		}

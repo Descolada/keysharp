@@ -21,7 +21,7 @@ namespace Keysharp.Core.Common.Window
 		public string AxText { get; set; }
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		internal ComObject Iid { get; private set; }
+		internal ComValue Iid { get; private set; }
 
 		protected override CreateParams CreateParams
 		{
@@ -74,9 +74,9 @@ namespace Keysharp.Core.Common.Window
 					Console.WriteLine("AtlAxCreateControl() succeeded.");
 
 					if (ob is IDispatch iid)
-						Iid = new ComObject(VarEnum.VT_VARIANT, iid);
+						Iid = new ComValue(VarEnum.VT_VARIANT, iid);
 					else
-						Iid = new ComObject(VarEnum.VT_UNKNOWN, ob);
+						Iid = new ComValue(VarEnum.VT_UNKNOWN, ob);
 				}
 			}
 		}

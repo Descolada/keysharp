@@ -145,7 +145,7 @@ namespace Keysharp.Scripting
 				//precedence in such cases.
 				//This assumes the caller is never trying to retrieve properties or methods on the underlying
 				//COM object that have the same name in ComObject, such as Ptr, __Delete() or Dispose().
-				else if (item is ComObject co)
+				else if (item is ComValue co)
 				{
 					var ptr = co.Ptr;
 					if (ptr != null && Marshal.IsComObject(ptr))
@@ -239,7 +239,7 @@ namespace Keysharp.Scripting
 				}
 
 #if WINDOWS
-				if (item is ComObject co)
+				if (item is ComValue co)
 				{
 					return TryGetPropertyValue(co.Ptr, namestr, out value);
 				}
@@ -350,7 +350,7 @@ namespace Keysharp.Scripting
 
 				if (obj is ITuple otup && otup.Length > 1)
 				{
-					if (otup[1] is not ComObject)
+					if (otup[1] is not ComValue)
 						mitup.Item1 = otup[1];
 				}
 				
@@ -403,7 +403,7 @@ namespace Keysharp.Scripting
 				else if (obj is ITuple otup && otup.Length > 1)
                 {
                     mitup = GetMethodOrProperty(otup, methName, -1);
-                    if (otup[1] is not ComObject)
+                    if (otup[1] is not ComValue)
                         mitup.Item1 = otup[1];
                 }
                 else
@@ -576,7 +576,7 @@ namespace Keysharp.Scripting
 #if WINDOWS
 				//COM checks must come before Item checks because they can get confused sometimes and COM should take
 				//precedence in such cases.
-				else if (item is ComObject co && co.Ptr != null)
+				else if (item is ComValue co && co.Ptr != null)
 				{
 					//_ = co.Ptr.GetType().InvokeMember(namestr, System.Reflection.BindingFlags.SetProperty, null, item, new object[] { value });//Unwrap.
 					return SetPropertyValue(co.Ptr, namestr, value) ?? value;

@@ -74,11 +74,11 @@ namespace Keysharp.Core.COM
 		private readonly Guid interfaceID;
 		private readonly ct.ITypeInfo? typeInfo;
 
-		public ComObject? Co { get; }
+		public ComValue? Co { get; }
 
 		internal Guid InterfaceId => interfaceID;
 
-		internal Dispatcher(ComObject? cobj)
+		internal Dispatcher(ComValue? cobj)
 		{
 			ArgumentNullException.ThrowIfNull(cobj);
 			var container = cobj.Ptr;

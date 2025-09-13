@@ -311,11 +311,11 @@ namespace Keysharp.Scripting
 					coa[index] = value;
 					return value;
 				}
-				else if (item is ComObject co)
+				else if (item is ComValue co)
 				{
 					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
 					{
-						ComObject.WriteVariant(co.Ptr.Al(), co.vt, value);
+						ComValue.WriteVariant(co.Ptr.Al(), co.vt, value);
 						return value;
 					}
 					else
@@ -407,11 +407,11 @@ namespace Keysharp.Scripting
 				{
 					return coa[index];
 				}
-				else if (item is ComObject co)
+				else if (item is ComValue co)
 				{
 					//Could be an indexer, but MethodPropertyHolder currently doesn't support those
 					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
-						return ComObject.ReadVariant(co.Ptr.Al(), co.vt);
+						return ComValue.ReadVariant(co.Ptr.Al(), co.vt);
 
 					return Invoke((co.Ptr, new ComMethodPropertyHolder("Item")), index);
 				}

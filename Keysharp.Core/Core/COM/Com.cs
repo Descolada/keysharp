@@ -24,24 +24,6 @@ namespace Keysharp.Core.COM
 
 		public static object ComObjActive(object clsid) => GetActiveObject(clsid.As());
 
-		public static object ComObjArray(object varType, object count1, params object[] args)
-		{
-			var vt = (VarEnum)varType.Ai();
-			var dim1Size = count1.Ai();
-			var lengths = new int[args != null ? args.Length + 1 : 1];
-			var t = typeof(object);
-
-			if (lengths.Length > 8)
-				return Errors.ErrorOccurred($"COM array dimensions of {lengths.Length} is greater than the maximum allowed number of 8.");
-
-			lengths[0] = dim1Size;
-
-			for (var i = 0; i < args.Length; i++)
-				lengths[i + 1] = args[i].Ai();
-
-			return new ComObjArray(vt, lengths);
-		}
-
 		internal static object ConvertToCOMType(object ret)
 		{
 			if (ret is long ll && ll < int.MaxValue)
@@ -95,68 +77,6 @@ namespace Keysharp.Core.COM
 			return DefaultErrorObject;
 		}
 
-		public static object ComObject(object clsid, object iid = null)//progId, string iid)
-		{
-			var cls = clsid.As();
-			var iidStr = iid.As();
-			var hr = 0;
-			var clsId = Guid.Empty;
-			var id = Guid.Empty;
-
-			while (true)
-			{
-				// It has been confirmed on Windows 10 that both CLSIDFromString and CLSIDFromProgID
-				// were unable to resolve a ProgID starting with '{', like "{Foo", though "Foo}" works.
-				// There are probably also guidelines and such that prohibit it.
-				if (cls[0] == '{')
-					hr = CLSIDFromString(cls, out clsId);
-				else
-					// CLSIDFromString is known to be able to resolve ProgIDs via the registry,
-					// but fails on registration-free classes such as "Microsoft.Windows.ActCtx".
-					// CLSIDFromProgID works for that, but fails when given a CLSID string
-					// (consistent with VBScript and JScript in both cases).
-					hr = CLSIDFromProgIDEx(cls, out clsId);
-
-				if (hr < 0)
-					break;
-
-				if (iidStr.Length > 0)
-				{
-					hr = CLSIDFromString(iidStr, out id);
-
-					if (hr < 0)
-						break;
-				}
-				else
-					id = IID_IDispatch;
-
-				hr = CoCreateInstance(ref clsId, null, CLSCTX_SERVER, ref id, out var inst);
-
-				if (hr < 0)
-					break;
-
-				//If it was a specific interface, make sure we are pointing to that interface, otherwise the vtable
-				//will be off in ComCall() and the program will crash.
-				if (id != Guid.Empty && id != Dispatcher.IID_IDispatch)
-				{
-					var iptr = Marshal.GetIUnknownForObject(inst);
-
-					if (Marshal.QueryInterface(iptr, in id, out var ptr) >= 0)
-						inst = (long)ptr;
-
-					_ = Marshal.Release(iptr);
-				}
-
-				return new ComObject()
-				{
-					vt = id == IID_IDispatch ? VarEnum.VT_DISPATCH : VarEnum.VT_UNKNOWN,
-					Ptr = inst
-				};
-			}
-
-			return Errors.OSErrorOccurredForHR(hr);
-		}
-
 		public static object ComObjFlags(object comObj, object newFlags = null, object mask = null)
 		{
 			if (comObj is ComObject co)
@@ -190,7 +110,7 @@ namespace Keysharp.Core.COM
 			if (dispPtr is IDispatch id)
 				return new ComObject(VarEnum.VT_DISPATCH, id);
 			else if (Marshal.IsComObject(dispPtr))
-				return new ComObject(VarEnum.VT_UNKNOWN, dispPtr);
+				return new ComValue(VarEnum.VT_UNKNOWN, dispPtr);
 
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
 		}
@@ -243,7 +163,7 @@ namespace Keysharp.Core.COM
 			if (resultPtr == 0)
 				return Errors.ErrorOccurred($"Unable to get COM interface with arguments {sidiid}, {iid}.");
 
-			return new ComObject(id == IID_IDispatch ? VarEnum.VT_DISPATCH : VarEnum.VT_UNKNOWN, (long)resultPtr);
+			return id == IID_IDispatch ? new ComObject(VarEnum.VT_DISPATCH, (long)resultPtr) : new ComValue(VarEnum.VT_UNKNOWN, (long)resultPtr);
 		}
 
 		public static object ComObjType(object comObj, object infoType = null)
@@ -320,7 +240,7 @@ namespace Keysharp.Core.COM
 
 		public static object ComObjValue(object comObj)
 		{
-			if (comObj is ComObject co)
+			if (comObj is ComValue co)
 			{
 				return co.Ptr;
 			}
@@ -333,7 +253,7 @@ namespace Keysharp.Core.COM
 			}
 		}
 
-		public static ComObject ComValue(object varType, object value, object flags = null)
+		public static ComValue ComValue(object varType, object value, object flags = null)
 		{
 			var vt = (VarEnum)varType.Al();
 			if ((vt & VarEnum.VT_ARRAY) != 0) {
@@ -347,7 +267,7 @@ namespace Keysharp.Core.COM
 		{
 			nint unk = 0;
 
-			if (ptr is ComObject co)
+			if (ptr is ComValue co)
 				ptr = co.Ptr;
 
 			if (ptr is long l)
@@ -366,7 +286,7 @@ namespace Keysharp.Core.COM
 
 		public static object ObjRelease(object ptr)
 		{
-			var co = ptr as ComObject;
+			var co = ptr as ComValue;
 
 			if (co != null)
 			{
@@ -382,7 +302,7 @@ namespace Keysharp.Core.COM
 			if (ptr is long l)
 				ptr = new nint(l);
 			else
-				return Errors.TypeErrorOccurred(ptr, typeof(ComObject), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(ptr, typeof(ComValue), DefaultErrorObject);
 
 			return (long)Marshal.Release((nint)ptr);
 		}
@@ -461,10 +381,10 @@ namespace Keysharp.Core.COM
 				[In, MarshalAs(UnmanagedType.Struct)] ref object pvarSrc, int lcid, short wFlags, [MarshalAs(UnmanagedType.I2)] short vt);
 
 		[DllImport(WindowsAPI.ole32, CharSet = CharSet.Unicode)]
-		private static extern int CLSIDFromProgIDEx([MarshalAs(UnmanagedType.LPWStr)] string lpszProgID, out Guid clsid);
+		internal static extern int CLSIDFromProgIDEx([MarshalAs(UnmanagedType.LPWStr)] string lpszProgID, out Guid clsid);
 
 		[DllImport(WindowsAPI.ole32, CharSet = CharSet.Unicode)]
-		private static extern int CLSIDFromString(string lpsz, out Guid guid);
+		internal static extern int CLSIDFromString(string lpsz, out Guid guid);
 
 		/// <summary>
 		/// This used to be a built in function in earlier versions of .NET but now needs to be added manually.
@@ -474,17 +394,17 @@ namespace Keysharp.Core.COM
 		/// <param name="throwOnError"></param>
 		/// <returns></returns>
 		/// <exception cref="ArgumentNullException"></exception>
-		private static object GetActiveObject(string progId)
+		internal static object GetActiveObject(string progId)
 		{
 			if (!Guid.TryParse(progId, out var clsid))
 				_ = CLSIDFromProgIDEx(progId, out clsid);
 
 			GetActiveObject(ref clsid, 0, out var obj);
-			return new ComObject(13L, obj);
+			return new ComValue(13L, obj);
 		}
 
 		[DllImport(WindowsAPI.oleaut, CharSet = CharSet.Unicode, PreserveSig = false)]
-		private static extern void GetActiveObject(ref Guid rclsid, nint pvReserved, [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
+		internal static extern void GetActiveObject(ref Guid rclsid, nint pvReserved, [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
 	}
 }
 #endif

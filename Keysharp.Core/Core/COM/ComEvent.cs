@@ -115,7 +115,7 @@ namespace Keysharp.Core.COM
 				FixArgs(e.Arguments);
 				var result = mph.CallFunc(null, e.Arguments.Concat(thisArg));
 
-				if (result is ComObject co)
+				if (result is ComValue co)
 					result = co.Ptr;
 
 				e.Result = result;
@@ -134,7 +134,7 @@ namespace Keysharp.Core.COM
 				FixArgs(e.Arguments);
 				var result = mph.CallFunc(sinkObj, e.Arguments.Concat(thisArg));
 
-				if (result is ComObject co)
+				if (result is ComValue co)
 					result = co.Ptr;
 
 				e.Result = result;

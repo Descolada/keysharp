@@ -253,16 +253,6 @@ namespace Keysharp.Core.COM
 			}
 		}
 
-		public static ComValue ComValue(object varType, object value, object flags = null)
-		{
-			var vt = (VarEnum)varType.Al();
-			if ((vt & VarEnum.VT_ARRAY) != 0) {
-				nint psa = (nint)Reflections.GetPtrProperty(value);
-				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab());
-			}
-			return new (varType, value, flags);
-		}
-
 		public static object ObjAddRef(object ptr)
 		{
 			nint unk = 0;

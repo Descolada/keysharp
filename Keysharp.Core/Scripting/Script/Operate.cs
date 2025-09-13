@@ -364,8 +364,7 @@ namespace Keysharp.Scripting
 						return (bool)Errors.UnsetErrorOccurred($"Right side operand of regular expression", false);
 
                         VarRef outvar = new VarRef(null);
-						_ = RegEx.RegExMatch(ForceString(left), ForceString(right), outvar, 1);
-						return outvar.__Value;
+						return RegEx.RegExMatch(ForceString(left), ForceString(right), outvar, 1);
 					}
 
 				case Operator.FloorDivide:

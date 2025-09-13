@@ -570,6 +570,9 @@ namespace Keysharp.Scripting
 						if (parameterMatch != null)
 							return parameterMatch.Identifier.Text;
 					}
+
+                    if (func.Static)
+                        break;
 				}
             }
 

@@ -71,8 +71,6 @@ namespace Keysharp.Scripting
 			InitClass(typeof(KeysharpObject));
 			InitClass(typeof(Class));
 
-			// The static instance of Object is copied from Object prototype
-			Statics[typeof(KeysharpObject)] = (Any)Prototypes[typeof(KeysharpObject)].Clone();
 			// Class.Base == Object
 			Statics[typeof(Class)]._base = Statics[typeof(KeysharpObject)];
 			// Any.Base == Class.Prototype

@@ -114,10 +114,6 @@ namespace Keysharp.Scripting
             AddInitMethods(parser.currentClass.Name);
             parser.currentClass.Body.Add(CreateStaticConstructor(parser.currentClass.Name));
 
-            // Add the Call factory method
-            if (!parser.currentClass.ContainsMethod("Call", true))
-                parser.currentClass.Body.Add(CreateCallFactoryMethod(parser.currentClass.Name));
-
             var newClass = parser.currentClass.Assemble();
 
             parser.PopClass();
@@ -488,75 +484,6 @@ namespace Keysharp.Scripting
 
                 parser.currentClass.Body.Add(staticInitMethod);
             }
-        }
-
-        private MethodDeclarationSyntax CreateCallFactoryMethod(string className)
-        {
-            return SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.IdentifierName(className),
-                    Keywords.ClassStaticPrefix + "Call"
-                )
-                .WithModifiers(
-                    SyntaxFactory.TokenList(
-                        Parser.PredefinedKeywords.PublicToken,
-                        Parser.PredefinedKeywords.StaticToken
-                    )
-                )
-                .WithParameterList(
-                    SyntaxFactory.ParameterList(
-                        SyntaxFactory.SeparatedList(
-                            new[] {
-                                Parser.PredefinedKeywords.ThisParam,
-                                VariadicParam
-                            }
-                        )
-                    )
-                )
-                .WithBody(
-                    SyntaxFactory.Block(
-                        SyntaxFactory.ReturnStatement(
-                            PredefinedKeywords.ReturnToken,
-                            SyntaxFactory.ObjectCreationExpression(
-                                SyntaxFactory.IdentifierName(className),
-                                CreateArgumentList(SyntaxFactory.IdentifierName("args")),
-                                null
-                            ),
-                            PredefinedKeywords.SemicolonToken
-                        )
-                    )
-                );
-        }
-
-        private PropertyDeclarationSyntax CreateFieldDeclaration(string fieldName, bool isStatic)
-        {
-            if (isStatic && !fieldName.StartsWith(Keywords.ClassStaticPrefix))
-                fieldName = Keywords.ClassStaticPrefix + fieldName;
-            return SyntaxFactory.PropertyDeclaration(
-                SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Type is object
-                SyntaxFactory.Identifier(fieldName)
-            )
-            .WithModifiers(
-                SyntaxFactory.TokenList(
-                    new List<SyntaxToken>
-                    {
-                        Parser.PredefinedKeywords.PublicToken
-                    }
-                    .Where(token => token != default)
-                )
-            )
-            .WithAccessorList(
-                SyntaxFactory.AccessorList(
-                    SyntaxFactory.List(
-                        new[]
-                        {
-                    SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
-                        .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
-                    SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration)
-                        .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))
-                        }
-                    )
-                )
-            );
         }
     }
 }

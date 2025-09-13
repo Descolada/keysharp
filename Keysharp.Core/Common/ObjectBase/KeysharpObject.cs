@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core.Common.ObjectBase
+﻿using Antlr4.Runtime.Misc;
+
+namespace Keysharp.Core.Common.ObjectBase
 {
 	internal interface I__Enum
 	{
@@ -14,17 +16,18 @@
 			Script.InvokeMeta(this, "__Delete");
 		}
 
-		public object staticCall(params object[] args)
+		public static object Call(object @this, params object[] args) => Activator.CreateInstance(@this.GetType(), args);
+
+		public override object __New(params object[] args)
 		{
-			var kso = new KeysharpObject();
 			var count = (args.Length / 2) * 2;
 
 			for (var i = 0; i < count; i += 2)
 			{
-				kso.op[args[i].ToString()] = new OwnPropsDesc(kso, args[i + 1]);
+				op[args[i].ToString()] = new OwnPropsDesc(this, args[i + 1]);
 			}
 
-			return kso;
+			return this;
 		}
 
 		/// <summary>

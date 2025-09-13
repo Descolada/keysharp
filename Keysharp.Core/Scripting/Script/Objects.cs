@@ -193,7 +193,7 @@ namespace Keysharp.Scripting
 				staticInst.op["prototype"] = new OwnPropsDesc(staticInst, proto);
 
 				if (t != typeof(FuncObj) && t != typeof(Any))
-					staticInst._base = t.BaseType == typeof(KeysharpObject) ? script.Vars.Prototypes[typeof(Class)] : script.Vars.Statics[t.BaseType];
+					staticInst._base = script.Vars.Statics[t.BaseType];
 
 				if (!isBuiltin)
 				{

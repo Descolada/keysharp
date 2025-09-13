@@ -32,9 +32,6 @@ namespace Keysharp.Scripting
 
 		public void InitClasses()
 		{
-			// Initialize prototypes 
-			Dictionary<Type, KeysharpObject> protos = new();
-
 			var anyType = typeof(Any);
 			var script = Script.TheScript;
 			var types = script.ReflectionsData.stringToTypes.Values
@@ -86,15 +83,14 @@ namespace Keysharp.Scripting
 
 			// Manually define Object static instance prototype property to be the Object prototype
 			var ksoStatic = Statics[typeof(KeysharpObject)];
-			if (ksoStatic.op == null)
-				ksoStatic.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+			ksoStatic.op ??= new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
 			ksoStatic.op["prototype"] = new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]);
 			// Object.Base == Any
 			ksoStatic._base = Statics[typeof(Any)];
 
 			//FuncObj was initialized when Object wasn't, so define the bases
 			Prototypes[typeof(FuncObj)]._base = Prototypes[typeof(KeysharpObject)];
-			Statics[typeof(FuncObj)]._base = Prototypes[typeof(Class)];
+			Statics[typeof(FuncObj)]._base = Statics[typeof(Class)];
 
 			// Do not initialize the core types again
 			var typesToRemoveSet = new HashSet<Type>(new[] { typeof(Any), typeof(FuncObj), typeof(KeysharpObject), typeof(Class) });

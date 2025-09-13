@@ -27,8 +27,8 @@ namespace Keysharp.Benchmark
 
 		public MapReadBenchmark()
 		{
-			map = Collections.Map();
-			mapScript = Collections.Map();
+			map = new Keysharp.Core.Map();
+			mapScript = new Keysharp.Core.Map();
 		}
 
 		[Benchmark]
@@ -77,8 +77,8 @@ namespace Keysharp.Benchmark
 
 		public MapWriteBenchmark()
 		{
-			map = Collections.Map();
-			mapScript = Collections.Map();
+			map = new Keysharp.Core.Map();
+			mapScript = new Keysharp.Core.Map();
 		}
 
 		[Benchmark]

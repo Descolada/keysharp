@@ -16,8 +16,8 @@ namespace Keysharp.Benchmark
 
 		public IndexBench()
 		{
-			dynamickeysharparray = new Array();
-			keysharparray = Collections.Array();
+			dynamickeysharparray = new Keysharp.Core.Array();
+			keysharparray = new Keysharp.Core.Array();
 		}
 
 		[Benchmark]
@@ -158,7 +158,7 @@ namespace Keysharp.Benchmark
 
 		public ListAddBench()
 		{
-			keysharparray = Collections.Array();
+			keysharparray = new Keysharp.Core.Array();
 		}
 
 		[Benchmark]

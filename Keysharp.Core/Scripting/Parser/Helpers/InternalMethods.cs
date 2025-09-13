@@ -38,7 +38,6 @@ namespace Keysharp.Scripting
 			internal static MethodReference AddHotkey => new (typeof(HotkeyDefinition), "AddHotkey");
 			internal static MethodReference AddHotstring => new (typeof(HotstringManager), "AddHotstring");
 			internal static MethodReference CreateTrayMenu => new (typeof(Script), "CreateTrayMenu");
-			internal static MethodReference Dictionary => new (typeof(Collections), "Dictionary");
 			internal static MethodReference Exit => new (typeof(Flow), "Exit");
 			internal static MethodReference ExitApp => new (typeof(Flow), "ExitApp");
 			internal static MethodReference ExitIfNotPersistent => new (typeof(Script), "ExitIfNotPersistent");

@@ -805,13 +805,11 @@ namespace Keysharp.Scripting
                 )
             );
 
-            // Wrap the array in Keysharp.Core.Objects.ObjectType
-            var objectCreationExpression = SyntaxFactory.InvocationExpression(
-                CreateMemberAccess("Keysharp.Core.Objects", "Object"),
-				CreateArgumentList(arrayExpression)
+			return SyntaxFactory.ObjectCreationExpression(
+	            CreateQualifiedName("KeysharpObject"),
+				CreateArgumentList(arrayExpression),
+	            null // No object initializers
             );
-
-            return objectCreationExpression;
         }
 
         public override SyntaxNode VisitPropertyExpressionAssignment([NotNull] PropertyExpressionAssignmentContext context)
@@ -1450,8 +1448,8 @@ namespace Keysharp.Scripting
                                 SyntaxFactory.EqualsValueClause(
 									PredefinedKeywords.EqualsToken,
 									SyntaxFactory.ObjectCreationExpression(
-                                        SyntaxFactory.IdentifierName("Array")
-                                    )
+										CreateQualifiedName("Keysharp.Core.Array")
+									)
                                     .WithArgumentList(
                                         CreateArgumentList(SyntaxFactory.IdentifierName(substitute))
                                     )
@@ -1573,10 +1571,11 @@ namespace Keysharp.Scripting
         {
             ArgumentListSyntax argumentList = (ArgumentListSyntax)Visit(context.mapElementList());
 
-            return SyntaxFactory.InvocationExpression(
-                CreateMemberAccess("Keysharp.Core.Collections", "Map"),
-                argumentList
-            );
+			return SyntaxFactory.ObjectCreationExpression(
+				CreateQualifiedName("Keysharp.Core.Map"), // Class name: Keysharp.Core.Map
+				argumentList,
+				null // No object initializers
+			);
         }
 
         public override SyntaxNode VisitMapElementList([NotNull] MapElementListContext context)

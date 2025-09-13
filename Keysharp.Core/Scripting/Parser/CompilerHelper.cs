@@ -17,7 +17,6 @@ namespace Keysharp.Scripting
 		public static readonly string GlobalUsingStr =
 			@"using static Keysharp.Core.Accessors;
 using static Keysharp.Core.COM.Com;
-using static Keysharp.Core.Collections;
 using static Keysharp.Core.Common.Keyboard.HotkeyDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringManager;
@@ -65,7 +64,6 @@ using static Keysharp.Scripting.Script;
 #else
 		public static readonly string UsingStr =
 			@"using static Keysharp.Core.Accessors;
-using static Keysharp.Core.Collections;
 using static Keysharp.Core.Common.Keyboard.HotkeyDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringManager;

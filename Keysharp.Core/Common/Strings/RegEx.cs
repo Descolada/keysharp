@@ -21,7 +21,7 @@
 			for (int i = 0; i < match.Groups.Count; i++)
 			{
 				_ = DefineProp(i,
-							   Objects.Object(
+							   new KeysharpObject(
 								   [
 									   "get",
 									   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(i)
@@ -32,7 +32,7 @@
 			{
 				if (match.Groups[name] != null)
 					_ = DefineProp(name,
-								   Objects.Object(
+								   new KeysharpObject(
 									   [
 										   "get",
 										   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(name)

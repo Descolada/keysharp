@@ -68,8 +68,6 @@
 
 		public static Dictionary<string, string> TypeNameAliases = new(StringComparer.OrdinalIgnoreCase)
 		{
-			{ "int64", "Integer" },
-			{ "double", "Float" },
 			{ "KeysharpObject", "Object" },
 			{ "FuncObj", "Func" }
 		};

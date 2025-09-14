@@ -553,13 +553,13 @@ namespace Keysharp.Tests
 		public void String()
 		{
 			object x = 123;
-			var y = Strings.String(x);
+			var y = Core.String.Call(null, x);
 			Assert.AreEqual(y, "123");
 			x = "123";
-			y = Strings.String(x);
+			y = Core.String.Call(null, x);
 			Assert.AreEqual(y, "123");
 			x = 1.234;
-			y = Strings.String(x);
+			y = Core.String.Call(null, x);
 			Assert.AreEqual(y, "1.234");
 			Assert.IsTrue(TestScript("string-string", true));
 		}

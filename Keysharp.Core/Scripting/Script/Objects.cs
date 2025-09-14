@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Xml.Linq;
 using Keysharp.Core;
 
 namespace Keysharp.Scripting
@@ -248,7 +249,7 @@ namespace Keysharp.Scripting
 					{
 						typetouse = t;
 						item = o;
-					} else if (otup[0] is KeysharpObject kso && otup[1] is object ob)
+					} else if (otup[0] is Any kso && otup[1] is object ob)
 					{
                         item = ob; typetouse = kso.GetType();
                     }
@@ -292,7 +293,7 @@ namespace Keysharp.Scripting
 					}
 				}
 
-				if (item is KeysharpObject kso2)
+				if (item is Any kso2)
 				{
 					if (TryGetOwnPropsMap(kso2, "__Item", out var opm)) {
 						if (opm.Set != null && opm.Set is IFuncObj ifo)
@@ -303,6 +304,10 @@ namespace Keysharp.Scripting
 					else if (TryGetOwnPropsMap(kso2, "__Set", out var opm2) && opm2.Call != null && opm2.Call is IFuncObj ifo2)
 						return ifo2.Call(kso2, new Keysharp.Core.Array(index), value);
                 }
+				else if (Core.Primitive.IsNative(item))
+				{
+					return SetObject(value, (TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
+				}
 
 #if WINDOWS
 
@@ -377,6 +382,10 @@ namespace Keysharp.Scripting
 						return ifo.CallInst(item, index);
 					else if (TryGetOwnPropsMap(type, "__Get", out var opm2, true, OwnPropsMapType.Call) && opm2.Call is IFuncObj ifo2)
 						return ifo2.Call(item, new Keysharp.Core.Array(index));
+				} 
+				else if (Core.Primitive.IsNative(item))
+				{
+					return IndexAt((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
 				}
 
 				if (len == 1)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Windows.Forms;
+using System.Xml.Linq;
 using Keysharp.Core;
 using Keysharp.Core.Windows;
 
@@ -134,6 +135,10 @@ namespace Keysharp.Scripting
                     } else if (invokeMeta && TryGetOwnPropsMap(kso, "__Call", out var protoCall) && protoCall.Call != null && protoCall.Call is IFuncObj ifoprotocall)
                         return (null, ifoprotocall.Bind(item, key));
                 }
+				else if (Core.Primitive.IsNative(item))
+				{
+					return GetMethodOrProperty((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), key, paramCount, checkBase, throwIfMissing, invokeMeta);
+				}
 
 				if (item == null)
 				{
@@ -236,6 +241,10 @@ namespace Keysharp.Scripting
 						value = ifoprotoget.Call(item, namestr, new Keysharp.Core.Array());
 						return true;
 					}
+				}
+				else if (Core.Primitive.IsNative(item))
+				{
+					return TryGetPropertyValue((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), name, out value);
 				}
 
 #if WINDOWS
@@ -563,9 +572,13 @@ namespace Keysharp.Scripting
 					else if (TryGetOwnPropsMap(any, "__Set", out var protoSet) && protoSet.Call != null && protoSet.Call is IFuncObj ifoprotoset)
 						return ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(), value);
                 }
+				else if (Core.Primitive.IsNative(item))
+				{
+					return SetPropertyValue((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), name, value, setAny);
+				}
 
-                if (typetouse == null && item != null)
-                    typetouse = item.GetType();
+				if (typetouse == null && item != null)
+					typetouse = item.GetType();
 
                 if (Reflections.FindAndCacheProperty(typetouse, namestr, 0) is MethodPropertyHolder mph && namestr.ToLower() != "base")
 				{

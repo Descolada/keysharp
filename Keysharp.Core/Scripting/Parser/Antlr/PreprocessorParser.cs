@@ -840,7 +840,7 @@ public partial class PreprocessorParser : PreprocessorParserBase {
 	}
 
 	public partial class Preprocessor_expressionContext : ParserRuleContext {
-		public String value;
+		public string value;
 		public Preprocessor_expressionContext expr1;
 		public Preprocessor_expressionContext expr;
 		public Preprocessor_expressionContext expr2;

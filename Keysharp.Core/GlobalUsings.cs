@@ -46,6 +46,9 @@ global using global::System.Threading.Channels;
 global using global::System.Threading.Tasks;
 global using global::System.Windows.Forms;
 
+// Alias String to avoid conflicts with Keysharp.Core.String
+global using String = System.String;
+
 //Our usings.
 global using global::Keysharp.Core;
 global using global::Keysharp.Core.Common.Containers;

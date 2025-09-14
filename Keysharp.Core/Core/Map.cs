@@ -219,7 +219,7 @@ namespace Keysharp.Core
 		/// <returns>Empty string, unused.</returns>
 		public override object __New(params object[] args)
 		{
-			Set(args);
+			_ = Set(args);
 			return DefaultObject;
 		}
 
@@ -481,7 +481,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="args">The values to set, arranged as key,value,key2,value2,etc...</param>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if values was not of a supported type.</exception>
-		public void Set(params object[] args)
+		public Map Set(params object[] args)
 		{
 			if (enumerableMap != null)
 				enumerableMap = null;
@@ -501,7 +501,7 @@ namespace Keysharp.Core
 					{
 						map = m.map;
 						caseSense = m.caseSense;
-						return;
+						return this;
 					}
 					else if (args[0] is Dictionary<object, object> dkt)
 					{
@@ -543,7 +543,7 @@ namespace Keysharp.Core
 					else
 					{
 						_ = Errors.ValueErrorOccurred($"Improper object type of {args[0].GetType()} passed to Map constructor.");
-						return;
+						return this;
 					}
 				}
 				else
@@ -557,6 +557,7 @@ namespace Keysharp.Core
 						Insert(args[i], args[i + 1]);
 				}
 			}
+			return this;
 		}
 		/// <summary>
 		/// Returns the string representation of all elements in the map.

@@ -803,6 +803,7 @@ namespace Keysharp.Core.Windows
 		internal const int BST_FOCUS = 0x0008;
 
 		internal const int PBM_SETBKCOLOR = 0x2001;
+		internal const int EM_SETBKGNDCOLOR = 0x443;
 
 		internal const int STM_SETIMAGE = 0x172;
 

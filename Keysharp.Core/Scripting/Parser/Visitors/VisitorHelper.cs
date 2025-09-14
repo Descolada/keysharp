@@ -1530,7 +1530,7 @@ namespace Keysharp.Scripting
 
         // Creates `new VarRef(() => identifier, value => identifier = value)`
         // In the case of index or property access, it uses the appropriate get/set methods.
-        public ExpressionSyntax ConstructVarRef(ExpressionSyntax targetExpression)
+        public ExpressionSyntax ConstructVarRef(ExpressionSyntax targetExpression, bool throwIfInvalid = true)
         {
             // Handle the different cases of singleExpression
             if (targetExpression is IdentifierNameSyntax identifierName)
@@ -1699,6 +1699,23 @@ namespace Keysharp.Scripting
             {
                 return oces;
             }
+
+            if (!throwIfInvalid)
+            {
+                var temp = PushTempVar();
+                var varRef = ConstructVarRef(temp);
+				var multiStatement = ((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+	            .WithArgumentList(
+		            CreateArgumentList(
+                        SyntaxFactory.AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, temp, targetExpression),
+                        varRef
+                    )
+	            );
+				PopTempVar();
+
+                return multiStatement;
+
+			}
 
             throw new InvalidOperationException("Unsupported singleExpression type for VarRefExpression.");
         }

@@ -98,10 +98,10 @@ namespace Keysharp.Core
 
 #if WINDOWS
 
-			// WinForms controls don't respond to window messages, so handle some of them here
+			// WinForms controls mostly don't respond to window messages, so handle some of them here
 			switch (m.Msg)
 			{
-				case WindowsAPI.PBM_SETBKCOLOR:
+				case WindowsAPI.PBM_SETBKCOLOR or WindowsAPI.EM_SETBKGNDCOLOR:
 					int colorValue = m.LParam.ToInt32();
 					Color requestedColor = Color.FromArgb(
 											   (colorValue & 0xFF),

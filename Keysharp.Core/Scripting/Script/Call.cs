@@ -252,7 +252,7 @@ namespace Keysharp.Scripting
 				{
 					return TryGetPropertyValue(co.Ptr, namestr, out value);
 				}
-				else if (Marshal.IsComObject(item))
+				else if (item != null && Marshal.IsComObject(item))
 				{
 					//Many COM properties are internally stored as methods with 0 parameters.
 					//So try invoking the member as either a property or a method.

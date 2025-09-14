@@ -186,7 +186,7 @@ namespace Keysharp.Scripting
                     && argumentList.Arguments.First().Expression is ExpressionSyntax strVar
                     && strVar is not LiteralExpressionSyntax)
                 {
-                    argumentList = CreateArgumentList(parser.ConstructVarRef(strVar));
+                    argumentList = CreateArgumentList(parser.ConstructVarRef(strVar, false));
                 }
 
 				if (accessSuffix.modifier != null)

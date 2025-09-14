@@ -1018,7 +1018,10 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitSwitchStatement([NotNull] SwitchStatementContext context)
         {
             // Extract the switch value (SwitchValue)
-            switchValueExists = context.singleExpression() != null;
+            bool prevSwitchValue = switchValueExists;
+            bool prevSwitchCaseSense = switchCaseSense;
+
+			switchValueExists = context.singleExpression() != null;
             var switchValue = switchValueExists
                 ? (ExpressionSyntax)Visit(context.singleExpression())
                 : SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression);
@@ -1065,8 +1068,11 @@ namespace Keysharp.Scripting
                 )
             );
 
-            // Combine the SwitchHelper invocation and the case block
-            return caseBlock.WithExpression(switchValueToString);
+            switchValueExists = prevSwitchValue;
+			switchCaseSense = prevSwitchCaseSense;
+
+			// Combine the SwitchHelper invocation and the case block
+			return caseBlock.WithExpression(switchValueToString);
         }
 
         public override SyntaxNode VisitCaseBlock([NotNull] CaseBlockContext context)

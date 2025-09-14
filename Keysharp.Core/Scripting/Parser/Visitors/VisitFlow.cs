@@ -1088,24 +1088,55 @@ namespace Keysharp.Scripting
                     SwitchSectionSyntax fullSection = (SwitchSectionSyntax)VisitCaseClause(caseClause);
 
 					var stmts = fullSection.Statements;
-					int idx = stmts
-						.Select((s, i) => (stmt: s, idx: i + 1))
-						.FirstOrDefault(t =>
-							t.stmt is LabeledStatementSyntax ls &&
-							ls.Identifier.Text.Equals("default", StringComparison.OrdinalIgnoreCase))
-						.idx;
 
+					// 1) Look for a top-level `default:` label statement
+					var defaultLabelIdx =
+						stmts.Select((s, i) => (stmt: s, idx: i + 1))
+							 .FirstOrDefault(t =>
+								 t.stmt is LabeledStatementSyntax ls &&
+								 ls.Identifier.Text.Equals("default", StringComparison.OrdinalIgnoreCase))
+							 .idx;
+
+					// 2) Or: a block whose *first* inner statement is `default:`
+					var defaultBlockInfo =
+						stmts.Select((s, i) => (stmt: s, idx: i + 1))
+							 .FirstOrDefault(t =>
+								 t.stmt is BlockSyntax b &&
+								 b.Statements.Count > 0 &&
+								 b.Statements[0] is LabeledStatementSyntax ls &&
+								 ls.Identifier.Text.Equals("default", StringComparison.OrdinalIgnoreCase));
+
+					// Choose whichever was found (label takes precedence if both exist)
+					var idx = defaultLabelIdx > 0 ? defaultLabelIdx : defaultBlockInfo.idx;
 
 					if (idx > 0)
 					{
-						// 1) Everything *before* that `default:` stays in the original labels
+						// 1) Everything *before* stays with original labels, plus an explicit break
 						var before = stmts.Take(idx - 1).Append(SyntaxFactory.BreakStatement());
-						var preSection = fullSection
-							.WithStatements(SyntaxFactory.List(before));
+						var preSection = fullSection.WithStatements(SyntaxFactory.List(before));
 						sections.Add(preSection);
 
-						// 2) Everything *after* becomes the real default‐section
-						var after = stmts.Skip(idx);
+						// 2) Everything *after* becomes the real default-section.
+						//    If the match was a block-with-default-first, include that block
+						//    but remove its inner `default:` label (first statement).
+						IEnumerable<StatementSyntax> after;
+
+						if (defaultLabelIdx == 0 && defaultBlockInfo.idx > 0)
+						{
+							var block = (BlockSyntax)defaultBlockInfo.stmt;
+							var blockWithoutDefault =
+								block.WithStatements(SyntaxFactory.List(block.Statements.Skip(1)));
+
+							// Start from the (cleaned) block itself, then the rest after it
+							after = Enumerable.Repeat<StatementSyntax>(blockWithoutDefault, 1)
+											  .Concat(stmts.Skip(idx));
+						}
+						else
+						{
+							// Plain label case: start after the label statement
+							after = stmts.Skip(idx);
+						}
+
 						var defaultLabel = SyntaxFactory.DefaultSwitchLabel();
 						var defaultSection = SyntaxFactory.SwitchSection(
 							labels: SyntaxFactory.SingletonList<SwitchLabelSyntax>(defaultLabel),

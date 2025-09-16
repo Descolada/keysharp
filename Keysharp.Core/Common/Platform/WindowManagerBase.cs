@@ -34,9 +34,9 @@ namespace Keysharp.Core.Common.Platform
 			if (criteria.IsEmpty)
 				return found;
 
-			if (criteria.ID != 0)
+			if (criteria.HasID)
 			{
-				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria))
+				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && (criteria.IsPureID || temp.Detectable) && temp.Equals(criteria))
 					return temp;
 				return null;
 			}

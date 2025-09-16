@@ -157,6 +157,7 @@
 		internal abstract object Transparency { get; set; }
 		internal abstract object TransparentColor { get; set; }
 		internal abstract bool Visible { get; set; }
+		internal bool Detectable => ThreadAccessors.A_DetectHiddenWindows || Visible;
 		internal abstract FormWindowState WindowState { get; set; }
 
 		internal WindowItemBase(nint handle) => Handle = handle;

@@ -60,9 +60,9 @@ namespace Keysharp.Core.Windows
 			if (criteria.IsEmpty)
 				return found;
 
-			if (criteria.ID != 0)
+			if (criteria.HasID)
 			{
-				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria))
+				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && (criteria.IsPureID || temp.Detectable) && temp.Equals(criteria))
 					return temp;
 				return null;
 			}
@@ -82,7 +82,7 @@ namespace Keysharp.Core.Windows
 
 					found = Script.TheScript.WindowProvider.Manager.CreateWindow(hwnd);
 
-					if (found.Equals(criteria)) //Evaluate any other criteria as well before accepting the match
+					if (found.Detectable && found.Equals(criteria)) //Evaluate any other criteria as well before accepting the match
 						return found;
 
 					found = null;

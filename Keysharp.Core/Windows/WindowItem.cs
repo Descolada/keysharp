@@ -374,7 +374,7 @@ namespace Keysharp.Core.Windows
 
 		internal override bool Visible
 		{
-			get => IsSpecified&& WindowsAPI.IsWindowVisible(Handle);
+			get => IsSpecified && WindowsAPI.IsWindowVisible(Handle);
 			set => _ = value ? Show() : Hide();
 		}
 

@@ -1896,10 +1896,10 @@
 				else
 				{
 					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					Script.SetPropertyValue(outX, "__Value", (long)(rect.X * scale));
-					Script.SetPropertyValue(outY, "__Value", (long)(rect.Y * scale));
-					Script.SetPropertyValue(outWidth, "__Value", (long)(rect.Width * scale));
-					Script.SetPropertyValue(outHeight, "__Value", (long)(rect.Height * scale));
+					Script.SetPropertyValue(outX, "__Value", (long)Math.Ceiling(rect.X * scale));
+					Script.SetPropertyValue(outY, "__Value", (long)Math.Ceiling(rect.Y * scale));
+					Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * scale));
+					Script.SetPropertyValue(outHeight, "__Value", (long)Math.Ceiling(rect.Height * scale));
 				}
 			}
 

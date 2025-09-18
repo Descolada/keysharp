@@ -463,7 +463,7 @@ namespace Keysharp.Core.Windows
 		SOUND = 0xFFFFFFF5,
 	}
 
-	public static class WindowsAPI
+	public static partial class WindowsAPI
 	{
 		// File / Device IO
 		internal const uint GENERICREAD = 0x80000000;
@@ -1640,8 +1640,8 @@ namespace Keysharp.Core.Windows
 		[DllImport(user32, CharSet = CharSet.Unicode)]
 		internal static extern int GetWindowTextLength(nint hWnd);
 
-		[DllImport(user32, CharSet = CharSet.Unicode)]
-		internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+		[LibraryImport(user32, EntryPoint = "GetWindowThreadProcessId"), SuppressGCTransition]
+		internal static partial uint GetWindowThreadProcessId(nint hWnd, out uint processId);
 
 		[DllImport(user32, CharSet = CharSet.Unicode)]
 		internal static extern bool InvalidateRect(nint hWnd, nint lpRect, bool bErase);
@@ -1707,11 +1707,11 @@ namespace Keysharp.Core.Windows
 		[DllImport(user32, CharSet = CharSet.Unicode)]
 		internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
-		[DllImport(user32, CharSet = CharSet.Unicode)]
-		internal static extern uint SendMessage(nint hWnd, uint msg, uint wParam, uint lParam);
+		[LibraryImport(user32, EntryPoint = "SendMessage")]
+		internal static partial uint SendMessage(nint hWnd, uint msg, uint wParam, uint lParam);
 
-		[DllImport(user32, CharSet = CharSet.Unicode)]
-		internal static extern nint SendMessage(nint hWnd, uint msg, nint wParam, nint lParam);
+		[LibraryImport(user32, EntryPoint = "SendMessage")]
+		internal static partial uint SendMessage(nint hWnd, uint msg, uint wParam, nint lParam);
 
 		[DllImport(user32, CharSet = CharSet.Unicode)]
 		internal static extern nint SendMessage(nint hWnd, uint msg, int wParam, int[] lParam);

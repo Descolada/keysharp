@@ -16,6 +16,21 @@ namespace Keysharp.Core.Windows
 	/// </summary>
 	internal class WindowsHookThread : HookThread
 	{
+		// Batches that SendInput posts before calling the WinAPI.
+		internal readonly ConcurrentQueue<INPUT[]> SentBatches = new();
+		internal bool hasSentBatches = false;
+
+		// The batch currently being observed by the hook (null when idle).
+		private INPUT[] _current;
+		private int _currentIndex;
+
+		// True while we're replaying buffered user input. Prevents re-buffering the replay.
+		private bool _replaying;
+
+		// Buffer of "foreign" (non-ours) events that arrive while a batch is active.
+		// You can keep one flat list to reduce allocations; group by time if you prefer.
+		private readonly List<INPUT> _buffered = new(capacity: 256);
+
 		private readonly LowLevelKeyboardProc kbdHandlerDel;
 		private readonly LowLevelMouseProc mouseHandlerDel;
 		private bool pendingDeadKeyInvisible;
@@ -2154,6 +2169,96 @@ namespace Keysharp.Core.Windows
 			return true;
 		}
 
+		private bool IsOurNextKeyboard(ref KBDLLHOOKSTRUCT k, uint vk, uint sc, bool keyUp, ulong extraInfo, uint flags)
+		{
+			if (_currentIndex >= _current?.Length) return false;
+			ref INPUT expected = ref _current[_currentIndex];
+
+			if (expected.type != INPUT_KEYBOARD) return false;
+
+			var ek = expected.i.k;
+
+			// Must be ours:
+			if ((UIntPtr)extraInfo != ek.dwExtraInfo) return false;
+			if (vk != ek.wVk) return false;
+			if (sc != ek.wScan) return false;
+
+			bool expectedUp = (ek.dwFlags & KEYEVENTF_KEYUP) != 0;
+
+			// UNICODE path:
+			bool expUnicode = (ek.dwFlags & KEYEVENTF_UNICODE) != 0;
+			if (expUnicode)
+				return expectedUp == keyUp && (ek.wVk == 0) && (ek.wScan == k.scanCode);
+
+			// Normal VK path:
+			return expectedUp == keyUp
+				&& ek.wVk == vk
+				&& (ek.wScan == 0 || ek.wScan == sc); // scan may be 0 when system maps it
+		}
+
+		private bool IsOurNextMouse(ref MSDLLHOOKSTRUCT m, ulong extraInfo, uint flags)
+		{
+			if (_currentIndex >= _current?.Length) return false;
+			ref INPUT expected = ref _current[_currentIndex];
+
+			if (expected.type != INPUT_MOUSE) return false;
+
+			var em = expected.i.m;
+			if ((UIntPtr)extraInfo != em.dwExtraInfo) return false;
+
+			// Compare the essential action bits. You can refine as needed:
+			// Example: down/up buttons via m.dwFlags equivalent; wheel via mouseData; etc.
+			// Keep it permissive to tolerate small translations.
+			return true; // Typically sufficient because the OurTag gate is strong for mouse.
+		}
+
+		private void BufferInput(nint hook, ref KBDLLHOOKSTRUCT kbd, ref MSDLLHOOKSTRUCT mouse,
+			uint vk, uint sc, bool keyUp, ulong extraInfo, uint flags)
+		{
+			// Translate the hook event to an INPUT and append to _buffered.
+			// IMPORTANT: tag with ReplayTag so replay passes through next time.
+			if (hook == mouseHook)
+			{
+				var ki = new KEYBDINPUT
+				{
+					wVk = (ushort)vk,
+					wScan = (ushort)sc,
+					dwFlags = keyUp ? (uint)KEYEVENTF_KEYUP : 0,
+					time = 0,
+					dwExtraInfo = extraInfo
+				};
+				_buffered.Add(new INPUT { type = INPUT_KEYBOARD, i = new INPUTDATA { k = ki } });
+			}
+			else
+			{
+				var mi = new MOUSEINPUT
+				{
+					dx = mouse.pt.X,
+					dy = mouse.pt.Y,
+					mouseData = (uint)mouse.mouseData,
+					dwFlags = keyUp ? (uint)KEYEVENTF_KEYUP : 0,
+					time = 0,
+					dwExtraInfo = extraInfo
+				};
+				_buffered.Add(new INPUT { type = INPUT_MOUSE, i = new INPUTDATA { m = mi } });
+			}
+		}
+
+		private void ReplayBufferedOnce()
+		{
+			_current = _buffered.ToArray();
+			hasSentBatches = true;
+			try
+			{
+				// NOTE: If the list is large, consider batching into chunks of e.g. 8k INPUTs.
+				SendInput((uint)_current.Length, _current, Marshal.SizeOf<INPUT>());
+			}
+			finally
+			{
+				_buffered.Clear();
+			}
+		}
+
 		/// <summary>
 		/// v1.0.38.06: The keyboard and mouse hooks now call this common function to reduce code size and improve
 		/// maintainability.  The code size savings as of v1.0.38.06 is 3.5 KB of uncompressed code, but that
@@ -2161,6 +2266,48 @@ namespace Keysharp.Core.Windows
 		/// </summary>
 		internal nint LowLevelCommon(nint hook, int code, long wParam, ref KBDLLHOOKSTRUCT kbd, ref MSDLLHOOKSTRUCT mouse, uint vk, uint sc, bool keyUp, ulong extraInfo, uint eventFlags)
 		{
+			// Ensure we have a current batch if there is one pending:
+			if (_current == null && hasSentBatches && SentBatches.TryDequeue(out var next))
+			{
+				_current = next;
+				_currentIndex = 0;
+			}
+
+			if (_current != null)
+			{
+				// We do have an active batch. Check if this event is exactly the next expected AHK event.
+				if (IsOurNextKeyboard(ref kbd, vk, sc, keyUp, extraInfo, eventFlags)
+					|| IsOurNextMouse(ref mouse, extraInfo, eventFlags))
+				{
+					_currentIndex++;
+					if (_currentIndex >= _current.Length)
+					{
+						// Done with all batches: flush buffer and (if reverting) restore hooks.
+						if (_buffered.Count != 0)
+						{
+							ReplayBufferedOnce();
+						} 
+						else if (!SentBatches.TryDequeue(out _current)) // Batch finished. Maybe load another.
+						{
+							hasSentBatches = false;
+							_current = null;
+							_currentIndex = 0;
+							//EndRevertIfLast();
+						}
+						else
+						{
+							_currentIndex = 0; // start of new batch
+						}
+					}
+				}
+				else
+				{
+					// Not the expected AHK event => buffer & block to prevent interleaving.
+					BufferInput(hook, ref kbd, ref mouse, vk, sc, keyUp, extraInfo, eventFlags);
+					return 1;
+				}
+			}
+
 			var hotkeyIdToPost = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
 			var isIgnored = IsIgnored(extraInfo);
 			var script = Script.TheScript;

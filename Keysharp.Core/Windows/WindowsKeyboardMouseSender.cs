@@ -36,6 +36,7 @@ namespace Keysharp.Core.Windows
 		// sizeof(INPUT) == 28 as of 2006. Since Send is called so often, and since most Sends are short, reducing the load on the stack is also a deciding factor for these.
 		// sizeof(PlaybackEvent) == 8, so more events are justified before resorting to malloc().
 		internal uint hooksToRemoveDuringSendInput;
+		internal bool revertSendInput;
 		internal bool inBlindMode;
 		internal uint menuMaskKeySC = ScanCodes.LControl;
 		internal uint menuMaskKeyVK = VK_CONTROL;
@@ -1617,12 +1618,29 @@ namespace Keysharp.Core.Windows
 				// Rather than removing both hooks unconditionally, it's better to
 				// remove only those that actually have corresponding events in the array.  This avoids temporarily
 				// losing visibility of physical key states (especially when the keyboard hook is removed).
-				HookType activeHooks;
+				HookType activeHooks = ht.GetActiveHooks();
+				HookType hooksToBeActive = HookType.None;
 
-				if ((activeHooks = ht.GetActiveHooks()) != HookType.None)
-					ht.AddRemoveHooks((HookType)((int)activeHooks & ~hooksToRemoveDuringSendInput), true);
+				var eventArray = eventSi.ToArray();
 
-				_ = SendInput((uint)eventSi.Count, eventSi.ToArray(), Marshal.SizeOf(typeof(INPUT))); // Must call dynamically-resolved version for Win95/NT compatibility.
+				// If SendInput should revert then hooks should capture and buffer all relevant input during the send.
+				// For that to happen reliably we first remove the hooks which should be active and
+				// then reinstall them to force them to the beginning of the hook chain, so other hooks
+				// wouldn't process them.
+				if (revertSendInput) 
+				{
+					hooksToBeActive = (HookType)hooksToRemoveDuringSendInput;
+					//ht.AddRemoveHooks(activeHooks & ~hooksToBeActive, true);
+					((WindowsHookThread)ht).hasSentBatches = true;
+					((WindowsHookThread)ht).SentBatches.Enqueue(eventArray);
+				}
+				else if (activeHooks != HookType.None)
+					hooksToBeActive = (HookType)((int)activeHooks & ~hooksToRemoveDuringSendInput);
+
+				if (!revertSendInput || hooksToBeActive != HookType.None)
+					ht.AddRemoveHooks(hooksToBeActive, true);
+
+				_ = SendInput((uint)eventSi.Count, eventArray, Marshal.SizeOf(typeof(INPUT))); // Must call dynamically-resolved version for Win95/NT compatibility.
 
 				// The return value is ignored because it never seems to be anything other than sEventCount, even if
 				// the Send seems to partially fail (e.g. due to hitting 5000 event maximum).
@@ -1638,7 +1656,11 @@ namespace Keysharp.Core.Windows
 				// SendInput, testing shows that such events are in effect immediately when SendInput returns
 				// to its caller, perhaps because SendInput clear out any backlog of physical keystrokes prior to
 				// returning, or perhaps because the part of the OS that updates key states is a very high priority.
-				if (activeHooks != HookType.None)
+				if (revertSendInput)
+				{
+					//ht.AddRemoveHooks(activeHooks, true);
+				}
+				else if (activeHooks != HookType.None)
 				{
 					if (((int)activeHooks & hooksToRemoveDuringSendInput & HookKeyboard) != 0) // Keyboard hook was actually removed during SendInput.
 					{
@@ -2005,6 +2027,7 @@ namespace Keysharp.Core.Windows
 			var tv = script.Threads.CurrentThread.configData;
 			var origKeyDelay = tv.keyDelay;
 			var origPressDuration = tv.keyDuration;
+			revertSendInput = false;
 
 			if (sendModeOrig == SendModes.Input || sendModeOrig == SendModes.InputThenPlay) // Caller has ensured aTargetWindow==NULL for SendInput and SendPlay modes.
 			{
@@ -2028,24 +2051,19 @@ namespace Keysharp.Core.Windows
 					// but the complexity and performance of checking for that seems unjustified given the rarity,
 					// especially since there are almost never any consequences to reverting to hook mode vs. SendInput.
 					if (sendModeOrig == SendModes.InputThenPlay)
-						sendModeOrig = SendModes.Play;
-					else // aSendModeOrig == SM_INPUT, so fall back to EVENT.
 					{
-						sendModeOrig = SendModes.Event;
-						// v1.0.43.08: When SendInput reverts to SendEvent mode, the majority of users would want
-						// a fast sending rate that is more comparable to SendInput's speed that the default KeyDelay
-						// of 10ms.  PressDuration may be generally superior to KeyDelay because it does a delay after
-						// each changing of modifier state (which tends to improve reliability for certain apps).
-						// The following rules seem likely to be the best benefit in terms of speed and reliability:
-						// KeyDelay 0+,-1+ --> -1, 0
-						// KeyDelay -1, 0+ --> -1, 0
-						// KeyDelay -1,-1 --> -1, -1
-						tv.keyDuration = (tv.keyDelay < 0L && tv.keyDuration < 0L) ? -1L : 0L;
-						tv.keyDelay = -1L; // Above line must be done before this one.
+						sendModeOrig = SendModes.Play;
+					}
+					else // SM_INPUT
+					{
+						revertSendInput = true;
+						sendModeOrig = SendModes.Input;
 					}
 				}
-				else // SendInput is available and no other impacting hooks are obviously present on the system, so use SendInput unconditionally.
+				else
+				{
 					sendModeOrig = SendModes.Input; // Resolve early so that other sections don't have to consider SM_INPUT_FALLBACK_TO_PLAY a valid value.
+				}
 			}
 
 			// Might be better to do this prior to changing capslock state.  UPDATE: In v1.0.44.03, the following section

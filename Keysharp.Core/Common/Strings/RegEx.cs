@@ -65,6 +65,8 @@
 			return g != null && g.Success ? (obj is string o ? o : holder.groupNames[obj.Ai()]) : "";
 		}
 
+		public long get_Pos(object obj = null) => Pos(obj);
+
 		public long Pos(object obj = null)
 		{
 			var g = GetGroup(obj);

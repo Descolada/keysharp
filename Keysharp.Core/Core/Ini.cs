@@ -114,7 +114,7 @@
 			file = Path.GetFullPath(file);
 
 			if (!File.Exists(file))
-				return DefaultErrorObject;
+				return def ?? DefaultErrorObject;
 
 #if WINDOWS
 			const uint BUF_SIZE = 65535;

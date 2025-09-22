@@ -51,6 +51,8 @@
 
 		public object GetWrapper(object obj1, object obj2) => this[obj1];
 
+		public long get_Len(object obj = null) => Len(obj);
+
 		public long Len(object obj)
 		{
 			var g = GetGroup(obj);

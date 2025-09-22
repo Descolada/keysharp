@@ -67,7 +67,9 @@ namespace Keysharp.Core.Common.Invoke
 		internal int MinParams = 0;
 		internal int MaxParams = 0;
 
-        private const string setterPrefix = "set_";
+        internal const int DotNetMaxParams = 8192; // https://www.tabsoverspaces.com/233892-whats-the-maximum-number-of-arguments-for-method-in-csharp-and-in-net
+
+		private const string setterPrefix = "set_";
         private const string classSetterPrefix = Keywords.ClassStaticPrefix + setterPrefix;
 
 		string _name = null;
@@ -145,7 +147,7 @@ namespace Keysharp.Core.Common.Invoke
 
 			// Determine if the method is a set_Item overload.
 			isSetter = mi.Name.StartsWith(setterPrefix) || mi.Name.StartsWith(classSetterPrefix);
-			isItemSetter = mi.Name == "set_Item";
+			isItemSetter = isSetter && (mi.Name == "set_Item" || mi.Name.Equals("set___Item", StringComparison.OrdinalIgnoreCase));
 
 			for (var i = 0; i < parameters.Length; i++)
 			{

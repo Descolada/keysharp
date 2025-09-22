@@ -164,7 +164,7 @@ namespace Keysharp.Scripting
 		public static object PostfixIncDecIndex(object obj, object index, object val)
 		{
 			var orig = Index(obj, index);
-			_ = SetObject(Operate(Operator.Add, orig, val), obj, index);
+			_ = SetObject(obj, index, Operate(Operator.Add, orig, val));
 			return orig;
 		}
 

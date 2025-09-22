@@ -1619,22 +1619,15 @@ namespace Keysharp.Scripting
             else if (targetExpression is InvocationExpressionSyntax invocationExpression)
             {
                 // Handle Keysharp.Scripting.Script.Index(varname, index)
-                if (CheckInvocationExpressionName(invocationExpression, "Index") &&
-                    invocationExpression.ArgumentList.Arguments.Count == 2)
+                if (CheckInvocationExpressionName(invocationExpression, "Index", true))
                 {
-                    var varName = invocationExpression.ArgumentList.Arguments[0].Expression;
-                    var index = invocationExpression.ArgumentList.Arguments[1].Expression;
-
                     return SyntaxFactory.ObjectCreationExpression(
                         SyntaxFactory.IdentifierName("VarRef"),
                         CreateArgumentList(
                         // Getter lambda: () => Keysharp.Scripting.Script.Index(varname, index)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(),
-                                ((InvocationExpressionSyntax)InternalMethods.Index)
-                                .WithArgumentList(
-                                    CreateArgumentList(varName, index)
-                                )
+                                invocationExpression
                             ),
                         // Setter lambda: value => Keysharp.Scripting.Script.SetObject(value, varname, index)
                             SyntaxFactory.ParenthesizedLambdaExpression(
@@ -1646,9 +1639,8 @@ namespace Keysharp.Scripting
                                 ((InvocationExpressionSyntax)InternalMethods.SetObject)
                                 .WithArgumentList(
                                     CreateArgumentList(
-										SyntaxFactory.IdentifierName("value"),
-										varName,
-										index
+										invocationExpression.ArgumentList.Arguments,
+										SyntaxFactory.IdentifierName("value")
 									)
                                 )
                             )
@@ -1657,21 +1649,16 @@ namespace Keysharp.Scripting
                     );
                 }
                 // Handle Keysharp.Scripting.Script.GetPropertyValue(obj, field)
-                else if (CheckInvocationExpressionName(invocationExpression, "GetPropertyValue") &&
-                    invocationExpression.ArgumentList.Arguments.Count == 2)
+                else if (CheckInvocationExpressionName(invocationExpression, "GetPropertyValue", true))
                 {
-                    var obj = invocationExpression.ArgumentList.Arguments[0].Expression;
-                    var field = invocationExpression.ArgumentList.Arguments[1].Expression;
-
                     return SyntaxFactory.ObjectCreationExpression(
                         SyntaxFactory.IdentifierName("VarRef"),
                         CreateArgumentList(
                         // Getter lambda: () => Keysharp.Scripting.Script.GetPropertyValue(obj, field)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(),
-                                ((InvocationExpressionSyntax)InternalMethods.GetPropertyValue)
-                                .WithArgumentList(CreateArgumentList(obj, field))
-                            ),
+								invocationExpression
+							),
                         // Setter lambda: value => Keysharp.Scripting.Script.SetPropertyValue(obj, field, value)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(
@@ -1681,7 +1668,10 @@ namespace Keysharp.Scripting
                                 ),
                                 ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
                                 .WithArgumentList(
-                                    CreateArgumentList(obj, field, SyntaxFactory.IdentifierName("value"))
+                                    CreateArgumentList(
+                                        invocationExpression.ArgumentList.Arguments, 
+                                        SyntaxFactory.IdentifierName("value")
+                                    )
                                 )
                             )
                         ),

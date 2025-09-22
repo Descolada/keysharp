@@ -33,7 +33,7 @@
 
 			object hwnd = null;
 
-			if (Script.TryGetPropertyValue(obj, "Hwnd", out hwnd) && hwnd != null)
+			if (Script.TryGetPropertyValue(out hwnd, obj, "Hwnd") && hwnd != null)
 			{
 				if (hwnd is long ll)
 				{

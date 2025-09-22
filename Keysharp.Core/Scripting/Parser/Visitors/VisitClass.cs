@@ -137,16 +137,7 @@ namespace Keysharp.Scripting
             string propertyName;
             List<ParameterSyntax> indexerParameters = null;
 
-            if (propertyNameSyntax.formalParameterList() != null)
-            {
-                // Handle indexer property
-                propertyName = "Item"; // The name for indexer properties
-            }
-            else
-            {
-                // Handle regular property
-                propertyName = propertyNameSyntax.propertyName().GetText();
-            }
+            propertyName = propertyNameSyntax.propertyName().GetText();
 
             // Getters and setters are created as normal methods with "static" +- "get_"/"set_" prefixes.
             // This is to allow arbitrary "this" parameters. When the script is ran then Script.InitClasses
@@ -158,15 +149,14 @@ namespace Keysharp.Scripting
             {
                 PushFunction((isStatic ? Keywords.ClassStaticPrefix : "") + "get_" + propertyName);
 
-                if (propertyNameSyntax.formalParameterList() != null)
+				if (propertyNameSyntax.formalParameterList() != null)
                 {
                     indexerParameters = ((ParameterListSyntax)Visit(propertyNameSyntax.formalParameterList())).Parameters.ToList();
                     parser.currentFunc.Params.AddRange(indexerParameters);
-                }
-                else
-                    parser.currentFunc.Params.Add(PredefinedKeywords.ThisParam);
+                } else
+					parser.currentFunc.Params.Add(Parser.PredefinedKeywords.ThisParam);
 
-                if (propertyDefinition.propertyGetterDefinition().Length != 0)
+				if (propertyDefinition.propertyGetterDefinition().Length != 0)
                 {
                     var getterBody = (BlockSyntax)Visit(propertyDefinition.propertyGetterDefinition(0));
                     parser.currentFunc.Body.AddRange(getterBody.Statements);
@@ -192,10 +182,12 @@ namespace Keysharp.Scripting
             MethodDeclarationSyntax setterMethod = null;
             if (propertyDefinition.propertySetterDefinition().Length != 0)
             {
-                PushFunction((isStatic ? Keywords.ClassStaticPrefix : "") + "set_" + propertyName, SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.VoidKeyword)));
+                PushFunction((isStatic ? Keywords.ClassStaticPrefix : "") + "set_" + propertyName);
 
-                if (propertyNameSyntax.formalParameterList() != null)
+				if (propertyNameSyntax.formalParameterList() != null)
                 {
+                    // Even the getter visited it, we need to visit again because some parameters
+                    // add statements to the function body.
                     indexerParameters = ((ParameterListSyntax)Visit(propertyNameSyntax.formalParameterList())).Parameters.ToList();
 
                     var p = indexerParameters[^1];
@@ -221,7 +213,7 @@ namespace Keysharp.Scripting
                         .WithType(SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object))
                 );
 
-                parser.currentFunc.Void = true;
+                //parser.currentFunc.Void = true;
                 var setterBody = (BlockSyntax)Visit(propertyDefinition.propertySetterDefinition(0));
                 parser.currentFunc.Body.AddRange(setterBody.Statements);
 
@@ -450,8 +442,7 @@ namespace Keysharp.Scripting
                                             .Select(cls => cls.UserDeclaredName)
                                         ) + "." + parser.currentClass.UserDeclaredName
                                     )
-                                ),
-                                SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)
+                                )
 							)
                         )
                     )

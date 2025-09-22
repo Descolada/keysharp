@@ -1,5 +1,7 @@
+using System;
 using System.Reflection;
 using System.Xml.Linq;
+using Antlr4.Runtime.Misc;
 using Keysharp.Core;
 
 namespace Keysharp.Scripting
@@ -236,10 +238,15 @@ namespace Keysharp.Scripting
 
 		public static object Index(object item, params object[] index) => item == null ? null : IndexAt(item, index);
 
-		public static object SetObject(object value, object item, params object[] index)
+		public static object SetObject(object item, params object[] args)
 		{
 			object key = null;
 			Type typetouse = null;
+
+			if (args == null) args = [null];
+			if (args.Length == 0) return Errors.ErrorOccurred($"Attempting to set value on object {item} failed because no value was provided");
+
+			object value = args[^1];
 
 			try
 			{
@@ -257,9 +264,9 @@ namespace Keysharp.Scripting
 				else
 					typetouse = item.GetType();
 
-				if (index.Length == 1)
+				if (args.Length == 2)
 				{
-					key = index[0];
+					key = args[0];
 
 					//This excludes types derived from Array so that super can be used.
 					if (typetouse == typeof(Keysharp.Core.Array))
@@ -295,48 +302,61 @@ namespace Keysharp.Scripting
 
 				if (item is Any kso2)
 				{
-					if (TryGetOwnPropsMap(kso2, "__Item", out var opm)) {
+					if (TryGetOwnPropsMap(kso2, "__Item", out var opm))
+					{
 						if (opm.Set != null && opm.Set is IFuncObj ifo)
-							return ifo.Call([kso2, .. index, value]);
-                        else if (opm.Call != null && opm.Call is IFuncObj ifo2)
-                            return ifo2.Call([kso2, .. index, value]);
-                    }
+						{
+							_ = ifo.CallInst(kso2, args);
+							return value;
+						}
+						else if (opm.Call != null && opm.Call is IFuncObj ifo2)
+						{
+							_ = ifo2.CallInst(kso2, args);
+							return value;
+						}
+					}
 					else if (TryGetOwnPropsMap(kso2, "__Set", out var opm2) && opm2.Call != null && opm2.Call is IFuncObj ifo2)
-						return ifo2.Call(kso2, new Keysharp.Core.Array(index), value);
+					{
+						_ = ifo2.Call(kso2, new Keysharp.Core.Array(GetIndices()), value);
+						return value;
+					}
                 }
 				else if (Core.Primitive.IsNative(item))
 				{
-					return SetObject(value, (TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
+					SetObject((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), args);
+					return value;
 				}
 
 #if WINDOWS
 
 				if (item is ComObjArray coa)
 				{
-					coa[index] = value;
+
+					coa[GetIndices()] = value;
 					return value;
 				}
 				else if (item is ComValue co)
 				{
-					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
-					{
+					if (args.Length == 1 && (co.vt & VarEnum.VT_BYREF) != 0)
 						ComValue.WriteVariant(co.Ptr.Al(), co.vt, value);
-						return value;
-					}
 					else
-						return co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, index.Concat([value]));
+						co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, args);
+					return value;
 				}
 				else if (Marshal.IsComObject(item))
-					return item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, index.Concat([value]));
+				{
+					_ = item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, args); ;
+					return value;
+				}
 
 #endif
-				var il1 = index.Length + 1;
+				var il1 = args.Length;
 
 				if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", il1) is MethodPropertyHolder mph2)
 				{
 					if (il1 == mph2.ParamLength || mph2.IsVariadic)
 					{
-						_ = mph2.CallFunc(item, index.Concat([value]));
+						_ = mph2.CallFunc(item, args);
 						return value;
 					}
 					else
@@ -352,16 +372,24 @@ namespace Keysharp.Scripting
 			}
 
 			return Errors.ErrorOccurred($"Attempting to set index {key} of object {item} to value {value} failed.");
+
+			object[] GetIndices()
+			{
+				object[] indices = new object[args.Length - 1];
+				System.Array.Copy(args, indices, indices.Length);
+				return indices;
+			}
 		}
 
 		private static object IndexAt(object item, params object[] index)
 		{
 			int len;
 			object key = null;
+			if (index == null) index = [null];
 
 			try
 			{
-				if (index != null && index.Length > 0)
+				if (index.Length > 0)
 				{
 					len = index.Length;
 					key = index[0];

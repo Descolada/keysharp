@@ -440,6 +440,10 @@ memberIndexArguments
     : '[' s* (arguments s*)? ']'
     ;
 
+propertyIndexArguments
+    : '[' s* (arguments s*) ']'
+    ;
+
 // ifStatement and loops require that they don't contain a bodied function expression.
 // The only way I could solve this was to duplicate the expressions with and without function expressions.
 // expression can contain function expressions, whereas singleExpression can not.
@@ -508,7 +512,7 @@ primaryExpression
     ;
 
 accessSuffix
-    : modifier = ('.' | '?.') memberIdentifier
+    : modifier = ('.' | '?.') memberIdentifier propertyIndexArguments?
     | (modifier = '?.')? (memberIndexArguments | '(' arguments? ')')
     | modifier = '?'
     ;

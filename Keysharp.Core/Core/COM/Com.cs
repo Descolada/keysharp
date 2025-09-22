@@ -121,7 +121,7 @@ namespace Keysharp.Core.COM
 		{
 			nint ptr;
 
-			if (comObj is KeysharpObject kso && Script.TryGetPropertyValue(kso, "ptr", out object kptr))
+			if (comObj is KeysharpObject kso && Script.TryGetPropertyValue(out object kptr, kso, "ptr"))
 				comObj = kptr;
 
 			if (Marshal.IsComObject(comObj))
@@ -310,7 +310,7 @@ namespace Keysharp.Core.COM
 
 			nint pUnk = 0;
 
-			if (comObj is Any kso && Script.TryGetPropertyValue(comObj, "ptr", out object propPtr))
+			if (comObj is Any kso && Script.TryGetPropertyValue(out object propPtr, comObj, "ptr"))
 				comObj = propPtr;
 
 			if (Marshal.IsComObject(comObj))

@@ -96,7 +96,7 @@ namespace Keysharp.Benchmark
 			mapScript!.Clear();
 
 			for (var i = 0; i < Size; i++)
-				_ = SetObject(strings[i], mapScript, i);
+				_ = SetObject(mapScript, i, strings[i]);
 		}
 
 		[Benchmark(Baseline = true)]

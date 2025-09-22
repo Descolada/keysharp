@@ -232,11 +232,7 @@ namespace Keysharp.Core.Common.ObjectBase
 						}
 						else
 						{
-							object value = argCount > 0 ? usedArgs[^1] : null;
-							var indices = new object[argCount > 0 ? argCount - 1 : 0];
-							System.Array.Copy(usedArgs, indices, indices.Length);
-
-							return Com.ConvertToCOMType(Script.SetObject(value, target ?? this, indices));
+							return Com.ConvertToCOMType(Script.SetObject(target ?? this, usedArgs));
 						}
 					} else
 					{

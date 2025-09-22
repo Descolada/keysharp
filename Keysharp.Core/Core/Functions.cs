@@ -199,7 +199,7 @@
 			var o = obj;
 			var n = name.As("Call");
 
-			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(kso, name, out object oifo) && oifo is IFuncObj ifo && ifo != null)
+			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(out object oifo, kso, name) && oifo is IFuncObj ifo && ifo != null)
 				return ifo.Bind([obj, ..args]);
 			else if (Reflections.FindAndCacheMethod(o.GetType(), n, -1) is MethodPropertyHolder mph && mph.mi != null)
 				return new BoundFunc(mph.mi, [obj, ..args], o);

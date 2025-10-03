@@ -239,7 +239,7 @@ namespace Keysharp.Core
 			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
 			if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", DefaultObject);
 			if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
-            var child = script.WindowProvider.Manager.WindowFromPoint(pos);
+            var child = script.WindowProvider.Manager.WindowFromPoint(new POINT(pos));
 
 			if (child == null || child.Handle == 0)
 				return DefaultErrorObject;

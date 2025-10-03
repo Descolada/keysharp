@@ -501,7 +501,6 @@ namespace Keysharp.Core
 					{
 						map = m.map;
 						caseSense = m.caseSense;
-						return this;
 					}
 					else if (args[0] is Dictionary<object, object> dkt)
 					{
@@ -529,21 +528,23 @@ namespace Keysharp.Core
 					{
 						if (map == null)
 							map = new Dictionary<object, object>(new CaseEqualityComp(caseSense));
+
 						bool isKey = true;
 						object key = null;
+
 						foreach (var k in ie)
 						{
 							if (isKey)
 								key = k;
 							else
 								Insert(key, k);
+
 							isKey = !isKey;
 						}
 					}
 					else
 					{
 						_ = Errors.ValueErrorOccurred($"Improper object type of {args[0].GetType()} passed to Map constructor.");
-						return this;
 					}
 				}
 				else
@@ -557,6 +558,7 @@ namespace Keysharp.Core
 						Insert(args[i], args[i + 1]);
 				}
 			}
+
 			return this;
 		}
 		/// <summary>
@@ -688,6 +690,7 @@ namespace Keysharp.Core
 		public MapComparer(eCaseSense caseSense)
 		{
 			CaseSense = caseSense;
+
 			stringComparer = caseSense switch
 			{
 				eCaseSense.On => StringComparer.Ordinal,

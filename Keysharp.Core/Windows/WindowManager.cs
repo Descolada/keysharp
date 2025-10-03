@@ -60,9 +60,9 @@ namespace Keysharp.Core.Windows
 			if (criteria.IsEmpty)
 				return found;
 
-			if (criteria.HasID)
+			if (criteria.ID != 0)
 			{
-				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && (criteria.IsPureID || temp.Detectable) && temp.Equals(criteria))
+				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria))
 					return temp;
 				return null;
 			}
@@ -159,7 +159,7 @@ namespace Keysharp.Core.Windows
 			WindowItemBase.DoWinDelay();
 		}
 
-		internal override WindowItemBase WindowFromPoint(Point location)
+		internal override WindowItemBase WindowFromPoint(POINT location)
 		{
 			var ctrl = WindowsAPI.WindowFromPoint(location);
 

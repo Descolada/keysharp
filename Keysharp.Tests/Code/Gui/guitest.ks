@@ -883,17 +883,17 @@ MyGui.AddGroupBox("x+40 y+0 w200 h200 Section", "THIS SHOULD BE VISIBLE")
 	MenuHandler(Item, *) {
 		MsgBox("You selected " Item, "ITEM SELECTED")
 	
-		if (Item == "Script Icon")
-			TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
-		else if (Item == "Suspend Icon")
-			TraySetIcon(A_KeysharpCorePath, "Keysharp_s.ico")
-		else if (Item == "Pause Icon")
-			TraySetIcon(A_KeysharpCorePath, "Keysharp_p.ico")
-		else if (Item == "System")
-			TraySetIcon("Shell32.dll", 174)
-		else
-			TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
-	}
+	if (Item == "S&cript Icon")
+		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
+	else if (Item == "S&uspend Icon")
+		TraySetIcon(A_KeysharpCorePath, "Keysharp_s.ico")
+	else if (Item == "&Pause Icon")
+		TraySetIcon(A_KeysharpCorePath, "Keysharp_p.ico")
+	else if (Item == "&System")
+		TraySetIcon("Shell32.dll", 174L)
+	else
+		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
+}
 
 	#if WINDOWS
 	#z::MyMenu.Show()  ; i.e. press the Win-Z hotkey to show the menu.

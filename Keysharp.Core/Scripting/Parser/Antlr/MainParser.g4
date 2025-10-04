@@ -415,8 +415,7 @@ propertyAssignment
 propertyName
     : identifier
     | reservedWord
-    | StringLiteral // Multi-line strings not supported
-    | numericLiteral
+    | numericLiteral identifier?
     ;
 
 dereference
@@ -524,10 +523,8 @@ memberDot
     ;
 
 memberIdentifier
-    : identifier
+    : propertyName
     | dynamicIdentifier
-    | keyword
-    | literal
     ;
 
 // A combination of identifiers and derefs, such as `a%b%`

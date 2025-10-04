@@ -82,8 +82,6 @@ namespace Keysharp.Scripting
             if (context.dynamicIdentifier() == null)
             {
                 var text = context.GetText();
-                if (context.literal()?.StringLiteral() != null)
-                    text = text.Substring(1, text.Length - 2); // Trim quotes
                 return SyntaxFactory.IdentifierName(text);
             }
             return base.VisitMemberIdentifier(context);

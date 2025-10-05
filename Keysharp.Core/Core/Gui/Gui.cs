@@ -241,10 +241,16 @@
 				if (value is string s)
 				{
 					if (Conversions.TryParseColor(s, out var c))
+					{
 						form.BackColor = c;
+						return;
+					}
 				}
-				else
-					form.BackColor = Color.FromArgb((int)(value.Al() | 0xFF000000));
+				else if (value is long ll) {
+					form.BackColor = Color.FromArgb((int)(ll | 0xFF000000));
+					return;
+				}
+				_ = Errors.ValueErrorOccurred($"Invalid background color {value}");
 			}
 		}
 

@@ -1,7 +1,7 @@
 If (FileExist(A_Desktop . "/MyScreenClip.png"))
 	FileDelete(A_Desktop . "/MyScreenClip.png")
 
-GuiBGColor := "BackgroundFF9A9A"
+GuiBGColor := "FF9A9A"
 ;BGColor2 := "0xFFFFAA"
 
 Gui2 := ""
@@ -890,7 +890,7 @@ MyGui.AddGroupBox("x+40 y+0 w200 h200 Section", "THIS SHOULD BE VISIBLE")
 	else if (Item == "&Pause Icon")
 		TraySetIcon(A_KeysharpCorePath, "Keysharp_p.ico")
 	else if (Item == "&System")
-		TraySetIcon("Shell32.dll", 174L)
+		TraySetIcon("Shell32.dll", 174)
 	else
 		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
 }
@@ -1151,30 +1151,30 @@ CandyProgressButton.OnEvent("Click", "CandyProgress")
 TestTypesButton := MyGui.Add("Button", "xc+10", "Test types") ; Same, but for y.
 TestTypesButton.OnEvent("Click", "TestTypes")
 
-	MinimizeAll()
-	{
-		WinMinimizeAll()
-	}
+MinimizeAll(*)
+{
+	WinMinimizeAll()
+}
 
-	UndoMinimizeAll()
-	{
-		WinMinimizeAllUndo()
-	}
+UndoMinimizeAll(*)
+{
+	WinMinimizeAllUndo()
+}
 
-	MaximizeAll()
-	{
-		WinMaximizeAll()
-	}
+MaximizeAll(*)
+{
+	WinMaximizeAll()
+}
 
-	MoveButton()
-	{
-		local x, y, w, h
+MoveButton(*)
+{
+	local x, y, w, h
 	
-		ControlGetPos(&x, &y, &w, &h, MoveAllButton.Hwnd, MyGui)
-		x++
-		y++
-		ControlMove(x, y, w, h, MoveAllButton.Hwnd, MyGui)
-	}
+	ControlGetPos(&x, &y, &w, &h, MoveAllButton.Hwnd, MyGui)
+	x++
+	y++
+	ControlMove(x, y, w, h, MoveAllButton.Hwnd, MyGui)
+}
 
 
 candygui := Gui("-DPIScale +E0x02080000", "Candy Progress")
@@ -2117,47 +2117,47 @@ getSelected(*) { ; https://www.autohotkey.com/boards/viewtopic.php?style=17&t=60
 ; │  FUNCTIONS AND CALLBACKS  │
 ; └───────────────────────────┘
 
-	LV_DoubleClick(LV, RowNumber)
-	{
-		RowText := LV.GetText(RowNumber, 1)  ; Get the text from the row's first field.
-		ColumnText := LV.GetText(RowNumber, 2)
-		ToolTip("You double-clicked row number " RowNumber ". File '" RowText "' has size " ColumnText "kb.")
-	}
+LV_DoubleClick(LV, RowNumber)
+{
+	RowText := LV.GetText(RowNumber, 1)  ; Get the text from the row's first field.
+	ColumnText := LV.GetText(RowNumber, 2)
+	ToolTip("You double-clicked row number " RowNumber ". File '" RowText "' has size " ColumnText "kb.")
+}
 
-	; ┌──────────────────────┐
-	; │  Change header font  │
-	; └──────────────────────┘
+; ┌──────────────────────┐
+; │  Change header font  │
+; └──────────────────────┘
 
-	ChangeFont(*)
-	{
-		global TEST_HEADER
-		TEST_HEADER.SetFont("cBlue s14", "Comic Sans MS")
-	}
-	; ┌────────────────┐
-	; │  Restore font  │
-	; └────────────────┘
+ChangeFont(*)
+{
+	global TEST_HEADER
+	TEST_HEADER.SetFont("cBlue s14", "Comic Sans MS")
+}
+; ┌────────────────┐
+; │  Restore font  │
+; └────────────────┘
 
-	ChangeFontBack(*)
-	{
-		TEST_HEADER.SetFont("cBlack s8", "Arial")
-		MsgBox("Done", "Restoring Font")
-	}
-	; ┌───────────────────────────┐
-	; │  Change background color  │
-	; └───────────────────────────┘
+ChangeFontBack(*)
+{
+	TEST_HEADER.SetFont("cBlack s8", "Arial")
+	MsgBox("Done", "Restoring Font")
+}
+; ┌───────────────────────────┐
+; │  Change background color  │
+; └───────────────────────────┘
 
-	ChangeBG(*)
-	{
-		global origBackColor := MyGui.BackColor
-		MsgBox(MyGui.BackColor, "Background color:")
-		MyGui.BackColor := GuiBGColor
-	}
-	; ┌───────────────────────────────┐
-	; │  Restore background function  │
-	; └───────────────────────────────┘
+ChangeBG(*)
+{
+	global origBackColor := MyGui.BackColor
+	MsgBox(MyGui.BackColor, "Background color:")
+	MyGui.BackColor := GuiBGColor
+}
+; ┌───────────────────────────────┐
+; │  Restore background function  │
+; └───────────────────────────────┘
 
 
-RestoreBG()
+RestoreBG(*)
 {
 	global MyGui, origBackColor
 	MyGui.BackColor := origBackColor
@@ -2781,15 +2781,15 @@ DllMsgBox(*)
 	MsgBox "You pressed button #" WhichButton
 }
 
-	DllIsWindowVisible()
-	{
-		DetectHiddenWindows True
-		if not DllCall("IsWindowVisible", "Ptr", WinExist("Untitled - Notepad"))  ; WinExist returns an Hwnd.
-			MsgBox "Notepad is not visible."
-		else
-			MsgBox "Notepad is visible."
-		DetectHiddenWindows False
-	}
+DllIsWindowVisible(*)
+{
+	DetectHiddenWindows True
+	if not DllCall("IsWindowVisible", "Ptr", WinExist("Untitled - Notepad"))  ; WinExist returns an Hwnd.
+		MsgBox "Notepad is not visible."
+	else
+		MsgBox "Notepad is visible."
+	DetectHiddenWindows False
+}
 
 DllWsprintf(*)
 {

@@ -105,7 +105,7 @@ namespace Keysharp.Scripting
             var accessSuffix = context.accessSuffix();
 			if (accessSuffix.memberIdentifier() != null)
             {
-				return GenerateMemberDotAccess(context.primaryExpression(), accessSuffix.memberIdentifier(), accessSuffix.propertyIndexArguments());
+				return GenerateMemberDotAccess(context.primaryExpression(), accessSuffix.memberIdentifier(), accessSuffix.memberIndexArguments());
 			} 
             else if (accessSuffix.memberIndexArguments() != null)
             {
@@ -1410,7 +1410,7 @@ namespace Keysharp.Scripting
             return binaryOperators.FirstOrDefault(kvp => kvp.Value == binaryOperator).Key;
         }
 
-        private InvocationExpressionSyntax GenerateMemberDotAccess(PrimaryExpressionContext baseIdentifier, MemberIdentifierContext memberIdentifier, PropertyIndexArgumentsContext propertyIndexArguments)
+        private InvocationExpressionSyntax GenerateMemberDotAccess(PrimaryExpressionContext baseIdentifier, MemberIdentifierContext memberIdentifier, MemberIndexArgumentsContext propertyIndexArguments)
         {
             // Visit the base expression (e.g., `arr` in `arr.Length`)
             ExpressionSyntax baseExpression;

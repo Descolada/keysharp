@@ -594,12 +594,6 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitMemberIndexArguments([NotNull] MainParser.MemberIndexArgumentsContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.propertyIndexArguments"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitPropertyIndexArguments([NotNull] MainParser.PropertyIndexArgumentsContext context);
-	/// <summary>
 	/// Visit a parse tree produced by the <c>PostIncrementDecrementExpression</c>
 	/// labeled alternative in <see cref="MainParser.expression"/>.
 	/// </summary>

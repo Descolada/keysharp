@@ -213,7 +213,7 @@ namespace Keysharp.Scripting
             // Visit the expressionSequence to generate an ArgumentListSyntax
             var exprArgSeqContext = memberIndexArguments.arguments();
             var argumentList = exprArgSeqContext == null 
-                ? SyntaxFactory.ArgumentList() 
+                ? SyntaxFactory.ArgumentList()
                 : (ArgumentListSyntax)Visit(exprArgSeqContext);
 
             // Prepend the targetExpression as the first argument
@@ -1473,7 +1473,27 @@ namespace Keysharp.Scripting
 			if (propertyIndexArguments != null)
             {
 				// Visit the expressionSequence to generate an ArgumentListSyntax
-				memberIndexArgList = (ArgumentListSyntax)Visit(propertyIndexArguments.arguments());
+                if (propertyIndexArguments.arguments() != null)
+				    memberIndexArgList = (ArgumentListSyntax)Visit(propertyIndexArguments.arguments());
+                else
+                {
+					return SyntaxFactory.InvocationExpression(
+					CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
+						CreateArgumentList(
+					        SyntaxFactory.InvocationExpression(
+						        CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
+							    CreateArgumentList(
+								    baseExpression,
+								    memberExpression
+							    )
+						    ),
+						    SyntaxFactory.LiteralExpression(
+							    SyntaxKind.StringLiteralExpression,
+							    SyntaxFactory.Literal("__Item")
+						    )
+						)
+					);
+				}
 			}
 
             // Generate the call to Keysharp.Scripting.Script.GetPropertyValue(base, member)

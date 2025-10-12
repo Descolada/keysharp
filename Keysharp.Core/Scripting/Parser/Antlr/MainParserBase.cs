@@ -166,10 +166,11 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         //var objectLiteralIdentifierPassed = false;
         var enclosableDepth = 0;
         var i = 0;
-        int nextToken = int.MinValue;
+        int nextToken = int.MinValue, prevToken = int.MinValue;
         while (nextToken != MainLexer.Eof)
         {
             i++;
+            prevToken = nextToken;
             nextToken = InputStream.LA(i);
             /*
             if (validateObjectLiteral)
@@ -245,6 +246,7 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
                 case MainLexer.WS:
                 case MainLexer.EOL:
                 case MainLexer.Eof:
+                    if (prevToken == MainLexer.CloseBracket) return false;
                     return true;
                 case MainLexer.Comma:
                     if (i == 2) {

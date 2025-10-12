@@ -245,6 +245,7 @@ namespace Keysharp.Scripting
 
 			if (args == null) args = [null];
 			if (args.Length == 0) return Errors.ErrorOccurred($"Attempting to set value on object {item} failed because no value was provided");
+			else if (args.Length == 1) return SetPropertyValue(item, "__Item", args);
 
 			object value = args[^1];
 
@@ -314,6 +315,8 @@ namespace Keysharp.Scripting
 							_ = ifo2.CallInst(kso2, args);
 							return value;
 						}
+						else if (opm.Value != null)
+							return SetPropertyValue(opm.Value, "__Item", args);
 					}
 					else if (TryGetOwnPropsMap(kso2, "__Set", out var opm2) && opm2.Call != null && opm2.Call is IFuncObj ifo2)
 					{
@@ -327,29 +330,6 @@ namespace Keysharp.Scripting
 					return value;
 				}
 
-#if WINDOWS
-
-				if (item is ComObjArray coa)
-				{
-
-					coa[GetIndices()] = value;
-					return value;
-				}
-				else if (item is ComValue co)
-				{
-					if (args.Length == 1 && (co.vt & VarEnum.VT_BYREF) != 0)
-						ComValue.WriteVariant(co.Ptr.Al(), co.vt, value);
-					else
-						co.Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, co.Ptr, args);
-					return value;
-				}
-				else if (Marshal.IsComObject(item))
-				{
-					_ = item.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, item, args); ;
-					return value;
-				}
-
-#endif
 				var il1 = args.Length;
 
 				if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", il1) is MethodPropertyHolder mph2)
@@ -386,6 +366,7 @@ namespace Keysharp.Scripting
 			int len;
 			object key = null;
 			if (index == null) index = [null];
+			if (index.Length == 0) return GetPropertyValue(item, "__Item");
 
 			try
 			{
@@ -406,11 +387,16 @@ namespace Keysharp.Scripting
 
 				if (type != null)
 				{
-					if (TryGetOwnPropsMap(type, "__Item", out var opm, true, OwnPropsMapType.Get) && opm.Get is IFuncObj ifo)
-						return ifo.CallInst(item, index);
-					else if (TryGetOwnPropsMap(type, "__Get", out var opm2, true, OwnPropsMapType.Call) && opm2.Call is IFuncObj ifo2)
+					if (TryGetOwnPropsMap(type, "__Item", out var opm, true, OwnPropsMapType.Get | OwnPropsMapType.Value))
+					{
+						if (opm.Get != null && opm.Get is IFuncObj ifo)
+							return ifo.CallInst(item, index);
+						else if (opm.Value != null)
+							return IndexAt(opm.Value, index);
+					}
+					if (TryGetOwnPropsMap(type, "__Get", out var opm2, true, OwnPropsMapType.Call) && opm2.Call is IFuncObj ifo2)
 						return ifo2.Call(item, new Keysharp.Core.Array(index));
-				} 
+				}
 				else if (Core.Primitive.IsNative(item))
 				{
 					return IndexAt((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
@@ -437,25 +423,6 @@ namespace Keysharp.Scripting
 						return array.GetValue(actualindex);
 					}
 				}
-
-#if WINDOWS
-
-				if (item is ComObjArray coa)
-				{
-					return coa[index];
-				}
-				else if (item is ComValue co)
-				{
-					//Could be an indexer, but MethodPropertyHolder currently doesn't support those
-					if (index.Length == 0 && (co.vt & VarEnum.VT_BYREF) != 0)
-						return ComValue.ReadVariant(co.Ptr.Al(), co.vt);
-
-					return Invoke((co.Ptr, new ComMethodPropertyHolder("Item")), index);
-				}
-				else if (Marshal.IsComObject(item))
-					return Invoke((item, new ComMethodPropertyHolder("Item")), index);
-
-#endif
 			}
 			catch (Exception e)
 			{

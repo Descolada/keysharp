@@ -1,4 +1,6 @@
 ﻿#if WINDOWS
+using System;
+
 namespace Keysharp.Core
 {
 	public unsafe class ComValue : Any, IDisposable
@@ -203,6 +205,27 @@ namespace Keysharp.Core
 			Ptr = co.Ptr;
 			tempCo = co;
 			return DefaultObject;
+		}
+
+		public object get_Item(params object[] args)
+		{
+			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
+				return ComValue.ReadVariant(Ptr.Al(), vt);
+
+			return Invoke((Ptr, new ComMethodPropertyHolder("Item")), args);
+		}
+		public object set_Item(object[] args, object value)
+		{
+			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
+				ComValue.WriteVariant(Ptr.Al(), vt, value);
+			else
+			{
+				object[] newargs = new object[args.Length + 1];
+				System.Array.Copy(args, newargs, args.Length);
+				newargs[^1] = value;
+				Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, Ptr, newargs);
+			}
+			return value;
 		}
 
 		public virtual void Dispose()

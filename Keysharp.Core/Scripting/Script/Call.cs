@@ -200,7 +200,7 @@ namespace Keysharp.Scripting
 			var namestr = name.ToString();
 			Any kso = null;
 
-			if (args == null) args = [null];
+			if (args == null) throw new Exception("Unexpected null in GetPropertyValue");
 
 			try
 			{
@@ -536,11 +536,12 @@ namespace Keysharp.Scripting
 				else if (item is ITuple otup && otup.Length > 1 && otup[0] is Any t)
 				{
 					any = t; item = otup[1];
-                }
+				}
 
 				if ((any != null || (any = item as Any) != null))
 				{
-					if (any.op != null && any.op.TryGetValue(namestr, out var own)) {
+					if (any.op != null && any.op.TryGetValue(namestr, out var own))
+					{
 						if (own.Set != null && own.Set is FuncObj ifo)
 						{
 							_ = args.Length > 1 && ifo.MaxParams <= 2 && !ifo.IsVariadic ? SetObject(ifo.Call(item), args) : ifo.CallInst(item, args);
@@ -556,7 +557,7 @@ namespace Keysharp.Scripting
 						}
 						else
 							return Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only.");
-					} 
+					}
 					else if (namestr.Equals("base", StringComparison.OrdinalIgnoreCase))
 					{
 						return any.Base = (KeysharpObject)value;
@@ -576,7 +577,7 @@ namespace Keysharp.Scripting
 						_ = ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(newargs), args);
 						return value;
 					}
-                }
+				}
 				else if (Core.Primitive.IsNative(item))
 				{
 					_ = SetPropertyValue((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), name, args);

@@ -48,7 +48,8 @@ options {
 
 tokens {
     DerefStart,
-    DerefEnd
+    DerefEnd,
+    ConcatDot
 }
 
 SingleLineBlockComment  : '/*' NonEOLCharacter*? '*/' -> skip;
@@ -87,7 +88,6 @@ Colon                      : ':';
 DoubleColon                : '::';
 Ellipsis                   : '...';
 Dot                        : '.';
-ConcatDot                  : (WS | EOL)+ '.' (WS | EOL)+; // Keep Dot and ConcatDot separate for easier parsing
 PlusPlus                   : '++';
 MinusMinus                 : '--';
 Plus                       : '+';

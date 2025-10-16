@@ -178,7 +178,6 @@ namespace Keysharp.Scripting
         public CompilationUnitSyntax compilationUnit;
         public NamespaceDeclarationSyntax namespaceDeclaration;
         public Class mainClass;
-        public Function mainFunc;
         public Function autoExecFunc;
         public Function currentFunc;
         public SeparatedSyntaxList<AttributeSyntax> assemblies = new();

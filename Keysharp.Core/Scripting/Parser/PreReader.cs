@@ -490,7 +490,21 @@ namespace Keysharp.Scripting
 							//    maybeIsFunctionCallStatement = -2;
 							break;
 						case MainLexer.Dot:
-                        case MainLexer.Assign:
+                            int previndex = index, prevCount = codeTokens.Count;
+                            var popped = PopWhitespaces(codeTokens.Count);
+
+							if ((SkipWhitespaces(index) - 1) != previndex && prevCount != codeTokens.Count)
+                            { // Any skipped and popped
+								var dottoken = new CommonToken(MainLexer.ConcatDot)
+								{
+									Line = token.Line,
+									Column = token.Column
+								};
+                                codeTokens.Add(dottoken);
+								goto SkipAdd;
+							}
+							break;
+						case MainLexer.Assign:
                         case MainLexer.Divide:
                         case MainLexer.IntegerDivide:
                         case MainLexer.Power:

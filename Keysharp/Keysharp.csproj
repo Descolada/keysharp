@@ -70,7 +70,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.NET.HostModel" Version="5.0.0-preview.1.20120.5" />
+	  <PackageReference Include="Microsoft.NET.HostModel" Version="3.1.16" />
 	</ItemGroup>
 	
 	<ItemGroup>

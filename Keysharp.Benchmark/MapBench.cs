@@ -19,7 +19,7 @@ namespace Keysharp.Benchmark
 	public class MapReadBenchmark : BaseTest
 	{
 		private Dictionary<object, object> dkt = [];
-		private Map? map, mapScript;
+		private Map map = null!, mapScript = null!;
 		private List<string> strings = [];
 
 		[Params(100000)]
@@ -69,7 +69,7 @@ namespace Keysharp.Benchmark
 	public class MapWriteBenchmark : BaseTest
 	{
 		private readonly Dictionary<object, object> dkt = [];
-		private readonly Map? map, mapScript;
+		private readonly Map map = null!, mapScript = null!;
 		private readonly List<string> strings = [];
 
 		[Params(100000)]

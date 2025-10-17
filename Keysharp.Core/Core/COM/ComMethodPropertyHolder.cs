@@ -3,7 +3,7 @@ namespace Keysharp.Core.COM
 {
 	public unsafe class ComMethodPropertyHolder : MethodPropertyHolder
 	{
-		public string Name { get; private set; }
+		public new string Name { get; private set; }
 
 		public ComMethodPropertyHolder(string name)
 		{

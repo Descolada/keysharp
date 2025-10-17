@@ -10,7 +10,6 @@ namespace Keysharp.Benchmark
 	{
 		private Myclass? cl;
 		private long totalSum;
-		private static Keysharp.Scripting.Script? _ks_s;
 
 		[Params(500000L)]
 		public long Size { get; set; }

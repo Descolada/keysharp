@@ -35,9 +35,9 @@ namespace Keysharp.Core.Common.ObjectBase
 			return ((IReflect)this)
 				.GetMethods(bindingAttr)
 				.FirstOrDefault(m =>
-					string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
+					string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase)) ?? throw new NullReferenceException();
 		}
-		MethodInfo IReflect.GetMethod(string name, BindingFlags bindingAttr, Binder binder, Type[] types, ParameterModifier[] modifiers) => null;
+		MethodInfo IReflect.GetMethod(string name, BindingFlags bindingAttr, Binder? binder, Type[] types, ParameterModifier[]? modifiers) => throw new NotImplementedException();
 		MethodInfo[] IReflect.GetMethods(BindingFlags bindingAttr)
 		{
 			List<MethodInfo> meths = new();
@@ -98,8 +98,8 @@ namespace Keysharp.Core.Common.ObjectBase
 			}
 			return list.ToArray();
 		}
-		PropertyInfo IReflect.GetProperty(string name, BindingFlags bindingAttr) => null;
-		PropertyInfo IReflect.GetProperty(string name, BindingFlags bindingAttr, Binder? binder, Type? type, Type[] types, ParameterModifier[]? modifiers) => null;
+		PropertyInfo IReflect.GetProperty(string name, BindingFlags bindingAttr) => throw new NotImplementedException();
+		PropertyInfo IReflect.GetProperty(string name, BindingFlags bindingAttr, Binder? binder, Type? type, Type[] types, ParameterModifier[]? modifiers) => throw new NotImplementedException();
 		MemberInfo[] IReflect.GetMember(string name, BindingFlags bindingAttr)
 		{
 			var list = new List<MemberInfo>();
@@ -152,7 +152,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			if (args == null)
 				args = [];
 
-			object[] usedArgs = args;
+			object[] usedArgs = args!;
 
 			var argCount = args.Length;
 
@@ -174,7 +174,7 @@ namespace Keysharp.Core.Common.ObjectBase
 				var val = args[i];
 
 				if (val is System.Reflection.Missing)
-					usedArgs[i] = null;
+					usedArgs[i] = null!;
 				else if (val is float f)
 					usedArgs[i] = (double)f;
 				else if (val is IConvertible conv)
@@ -243,7 +243,7 @@ namespace Keysharp.Core.Common.ObjectBase
 						}
 						else
 						{
-							object value = argCount > 0 ? usedArgs[^1] : null;
+							object value = argCount > 0 ? usedArgs[^1] : null!;
 							return Com.ConvertToCOMType(Script.SetPropertyValue(target ?? this, usedArgs[0], value));
 						}
 					}
@@ -289,15 +289,15 @@ namespace Keysharp.Core.Common.ObjectBase
 			// method call
 			if ((invokeAttr & BindingFlags.InvokeMethod) != 0)
 			{
-				FuncObj fo = null;
-				ParameterInfo[] prms = null;
+				FuncObj fo = null!;
+				ParameterInfo[] prms = null!;
 				if (target is FuncObj fo2 && name.Equals("Call", StringComparison.OrdinalIgnoreCase))
 				{
 					fo = fo2;
 				}
 				else
 				{
-					(object, object) mitup = (null, null);
+					(object, object) mitup = (null!, null!);
 					if (target is ITuple otup && otup.Length > 1)
 					{
 						mitup = GetMethodOrProperty(otup, name, -1);
@@ -315,14 +315,14 @@ namespace Keysharp.Core.Common.ObjectBase
 					for (int i = 0; i < prms.Length; i++)
 					{
 						if (!prms[i].IsDefined(typeof(ByRefAttribute)))
-							prms[i] = null;
+							prms[i] = null!;
 					}
 
 					if (fo is BoundFunc bo)
 					{
 						for (int i = 0; i < bo.boundargs.Length; i++)
 							if (bo.boundargs[i] != null)
-								prms[i] = null;
+								prms[i] = null!;
 					}
 
 					if (prms.Any(p => p != null))
@@ -333,7 +333,7 @@ namespace Keysharp.Core.Common.ObjectBase
 							System.Array.Copy(args, usedArgs, args.Length);
 						}
 
-						for (int i = 0; i < prms.Length; i++)
+						for (int i = 0; i < prms!.Length; i++)
 						{
 							if (prms != null)
 							{
@@ -506,14 +506,14 @@ namespace Keysharp.Core.Common.ObjectBase
 
 			// if instance, first param is the "this"
 			if (isInstance)
-				wrapperParamTypes.Insert(0, original.DeclaringType);
+				wrapperParamTypes.Insert(0, original.DeclaringType ?? throw new NullReferenceException());
 
 			// 3) create the DynamicMethod
 			var dm = new DynamicMethod(
 				name: original.Name + "_ByRefWrapper",
 				returnType: original.ReturnType,
 				parameterTypes: wrapperParamTypes.ToArray(),
-				m: original.DeclaringType.Module,
+				m: original?.DeclaringType?.Module ?? throw new NullReferenceException(),
 				skipVisibility: true
 			);
 

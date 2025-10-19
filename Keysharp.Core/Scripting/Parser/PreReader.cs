@@ -163,13 +163,16 @@ namespace Keysharp.Scripting
                     // if true than next code is valid and not ignored.
                     compiliedTokens = directive.value;
 
-                    String directiveStr = tokens[index + 1].Text.Trim().ToUpper();
+                    String directiveStr = directiveTokens[0].Text.Trim().ToUpper();
                     String conditionalSymbol = null;
                     var lineNumber = token.Line;
                     var code = codeLines[lineNumber - 1];
                     var includeOnce = false;
 
-                    switch (directiveStr)
+					index = directiveTokenIndex;
+                    SkipWhitespaces(index);
+
+					switch (directiveStr)
 					{
                         case "IF":
                         case "ELIF":
@@ -181,12 +184,12 @@ namespace Keysharp.Scripting
                             break;
                         case "DEFINE":
                             // add to the conditional symbols 
-                            conditionalSymbol = tokens[index + 2].Text;
+                            conditionalSymbol = directiveTokens[1].Text;
                             preprocessorParser.ConditionalSymbols.Add(conditionalSymbol);
                             compiliedTokens = true;
                             break;
                         case "UNDEF":
-                            conditionalSymbol = tokens[index + 2].Text;
+                            conditionalSymbol = directiveTokens[1].Text;
                             preprocessorParser.ConditionalSymbols.Remove(conditionalSymbol);
                             compiliedTokens = true;
                             break;
@@ -200,7 +203,7 @@ namespace Keysharp.Scripting
 					{
                         case "DLLLOAD":
                             {
-                                var p1 = tokens[index + 2].Text;
+                                var p1 = directiveTokens[1].Text;
                                 var silent = false;
                                 p1 = p1.Trim('"');//Quotes throw off the system file/path functions, so remove them.
 
@@ -224,7 +227,7 @@ namespace Keysharp.Scripting
 
                         case "INCLUDEAGAIN":
                             {
-								var p1 = tokens[index + 2].Text;
+								var p1 = directiveTokens[1].Text;
                                 var silent = false;
                                 var isLib = false;
                                 p1 = p1.RemoveAll("\"");//Quotes throw off the system file/path functions, so remove them.
@@ -329,7 +332,7 @@ namespace Keysharp.Scripting
                             break;
                         case "REQUIRES":
                         {
-                            var p1 = tokens[index + 2].Text;
+                            var p1 = directiveTokens[1].Text;
                             var reqAhk = p1.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase);
 
                             if (reqAhk || p1.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase))
@@ -359,7 +362,7 @@ namespace Keysharp.Scripting
 							break;
                         }
 						case "SINGLEINSTANCE":
-                            switch (tokens[index + 2].Text.ToUpperInvariant())
+                            switch (directiveTokens[1].Text.ToUpperInvariant())
                             {
                                 case "FORCE":
                                     SingleInstance = eScriptInstance.Force;
@@ -387,7 +390,7 @@ namespace Keysharp.Scripting
                             break;
 
                         case "PERSISTENT":
-							var nextTokenText = tokens[index + 2].Text.ToLowerInvariant().Trim();
+							var nextTokenText = directiveTokens[1].Text.ToLowerInvariant().Trim();
                             parser.persistent = !(nextTokenText == "false" || nextTokenText == "0");
                             break;
 
@@ -407,7 +410,7 @@ namespace Keysharp.Scripting
                         case "ASSEMBLYCOPYRIGHT":
                         case "ASSEMBLYTRADEMARK":
 						case "ASSEMBLYVERSION":
-							parser.generalDirectives[directiveStr] = tokens[index + 2].Text.Trim();
+							parser.generalDirectives[directiveStr] = directiveTokens[1].Text.Trim();
                             break;
                         case "WINACTIVATEFORCE":
                         case "NOTRAYICON":
@@ -417,7 +420,6 @@ namespace Keysharp.Scripting
                             Console.WriteLine("Not implemented");
                             break;
                     }
-                    index = directiveTokenIndex - 1;
                 }
                 else if (token.Channel == Lexer.DefaultTokenChannel && compiliedTokens)
                 {

@@ -782,6 +782,7 @@ namespace Keysharp.Scripting
             var properties = new List<ExpressionSyntax>();
             foreach (var propertyAssignmentContext in context.propertyAssignment())
             {
+                if (propertyAssignmentContext == null) continue;
                 // Visit the property assignment to get key-value pairs
                 var initializer = (InitializerExpressionSyntax)Visit(propertyAssignmentContext);
                 properties.AddRange(initializer.Expressions);
@@ -1222,7 +1223,7 @@ namespace Keysharp.Scripting
 
 				InvocationExpressionSyntax funcObj = CreateFuncObj(
                     SyntaxFactory.CastExpression(
-                        SyntaxFactory.IdentifierName("Delegate"),
+                        CreateQualifiedName("System.Delegate"),
                         SyntaxFactory.IdentifierName(methodName)
                     ),
                     !isStatic
@@ -1248,7 +1249,7 @@ namespace Keysharp.Scripting
                 {
 					ExpressionSyntax initializerValue = CreateFuncObj(
 	                    SyntaxFactory.CastExpression(
-		                    SyntaxFactory.IdentifierName("Delegate"),
+							CreateQualifiedName("System.Delegate"),
 		                    SyntaxFactory.IdentifierName(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(methodName))
 	                    )
                     );

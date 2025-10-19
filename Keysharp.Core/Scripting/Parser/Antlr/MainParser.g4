@@ -538,7 +538,7 @@ assignable
     ;
 
 objectLiteral
-    : '{' s* (propertyAssignment (WS* ',' propertyAssignment)* s*)? '}'
+    : '{' s* (propertyAssignment (WS* ',' propertyAssignment?)* s*)? '}'
     ;
 
 functionHead

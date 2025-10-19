@@ -1004,7 +1004,7 @@ namespace Keysharp.Scripting
 								PredefinedKeywords.EqualsToken,
 								CreateFuncObj(
                                     SyntaxFactory.CastExpression(
-                                        SyntaxFactory.IdentifierName("Delegate"),
+										CreateQualifiedName("System.Delegate"),
                                         SyntaxFactory.IdentifierName(functionName)
                                     )
                                 )

@@ -51,7 +51,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a string if it was not null, else def.</returns>
-		public static string As(this object obj, string def = "") => obj?.ToString() ?? def;
+		public static string As(this object obj, string def = "") => (obj is Any kso && Functions.HasMethod(kso, "ToString") != 0L ? Invoke(kso, "ToString")?.ToString() : obj?.ToString()) ?? def;
 
 		/// <summary>
 		/// Converts an object to an unsigned int.

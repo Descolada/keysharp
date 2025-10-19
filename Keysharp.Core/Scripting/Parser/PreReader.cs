@@ -426,13 +426,6 @@ namespace Keysharp.Scripting
                     int i;
                     switch (token.Type)
                     {
-                        case MainLexer.OpenBrace:
-							PopWhitespaces(codeTokens.Count, false);
-                            /*
-							if (enclosableDepth > 0 || (codeTokens.Count > 0 && MainLexerBase.lineContinuationOperators.Contains(codeTokens[^1].Type)))
-								enclosableDepth++;
-                            */
-							break;
 						case MainLexer.OpenBracket:
                         case MainLexer.DerefStart:
 							//enclosableDepth++;

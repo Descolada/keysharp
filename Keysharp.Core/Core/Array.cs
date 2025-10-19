@@ -206,7 +206,7 @@
 				{
 					array.AddRange(objlist);
 				}
-				else if (args[0] is IEnumerable c && c is not string && c is not KeysharpObject)
+				else if (args[0] is IEnumerable c && c is not string && c is not Any)
 				{
 					array.AddRange(c.Cast<object>());
 				}
@@ -672,14 +672,23 @@
 		/// Appends values to the end of an array.
 		/// </summary>
 		/// <param name="args">One or more values to append.</param>
-		public void Push(params object[] args) => array.AddRange(args);
+		public object Push(params object[] args)
+		{
+			array.AddRange(args);
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Implementation of <see cref="IList.Remove"/> which removes the first occurrence of value
 		/// from the array.
 		/// </summary>
 		/// <param name="value">The value to remove.</param>
-		public void Remove(object value) => array.Remove(value);
+		public object Remove(object value)
+		{
+			array.Remove(value);
+			return DefaultObject;
+		}
+		void IList.Remove(object value) => array.Remove(value);
 
 		/// <summary>
 		/// Removes one or more items from the array and returns the removed item.<br/>

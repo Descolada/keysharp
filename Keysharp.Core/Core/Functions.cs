@@ -141,11 +141,18 @@
 		{
 			var n = name.As();
 			var count = paramCount.Ai(-1);
-			if (value is FuncObj)
-				return 1L;
+			if (n == "")
+			{
+				if (value is FuncObj)
+					return 1L;
+				else if (value is KeysharpObject kso)
+					return HasProp(value, "Call");
+			}
 			else if (value is KeysharpObject kso)
-                return n == "" ? HasProp(value, "Call") : (kso.op != null && Script.TryGetOwnPropsMap(kso, n, out var opm) && opm != null && opm.Call != null ? 1L : 0L);
-				
+				return kso.op != null && Script.TryGetOwnPropsMap(kso, n, out var opm) && opm != null && opm.Call != null ? 1L : 0L;
+
+			if (Primitive.IsNative(value)) return 0L;
+			
 			var mph = Reflections.FindAndCacheMethod(value.GetType(), n.Length > 0 ? n : "Call", count);
 			return mph != null && mph.mi != null ? 1L : 0L;
 		}
@@ -181,6 +188,8 @@
 							return 1L;
                     }
                 }
+
+				return 0L;
 			}
 
 			var mph = Reflections.FindAndCacheProperty(val.GetType(), n, count);
@@ -199,12 +208,12 @@
 			var o = obj;
 			var n = name.As("Call");
 
-			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(out object oifo, kso, name) && oifo is IFuncObj ifo && ifo != null)
+			if (obj is KeysharpObject kso && Script.TryGetPropertyValue(out object oifo, kso, n) && oifo is IFuncObj ifo && ifo != null)
 				return ifo.Bind([obj, ..args]);
 			else if (Reflections.FindAndCacheMethod(o.GetType(), n, -1) is MethodPropertyHolder mph && mph.mi != null)
 				return new BoundFunc(mph.mi, [obj, ..args], o);
 
-			return Errors.ErrorOccurred($"Unable to retrieve method {name} for object.");
+			return Errors.ErrorOccurred($"Unable to retrieve method {n} for object.");
 		}
 	}
 

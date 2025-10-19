@@ -1,6 +1,4 @@
 ﻿#if WINDOWS
-using System;
-
 namespace Keysharp.Core
 {
 	public unsafe class ComValue : Any, IDisposable
@@ -9,7 +7,6 @@ namespace Keysharp.Core
 		internal static readonly int MaxVtableLen = 16;
 		internal List<IFuncObj> handlers = [];
 		internal object item;
-		private ComValue tempCo;//Must keep a reference else it will throw an exception about the RCW being separated from the object.
 
 		~ComValue()
 		{
@@ -20,150 +17,102 @@ namespace Keysharp.Core
 		public object Ptr
 		{
 			get => item;
-
 			set
 			{
-				object temp = null;
-				var longVal = 0L;
-				var wasObj = false;
-
-				if (value is long l)
-					longVal = l;
-
-				if ((vt & VarEnum.VT_BYREF) == VarEnum.VT_BYREF
-						|| (vt & VarEnum.VT_ARRAY) == VarEnum.VT_ARRAY)
+				// BYREF / ARRAY always store a raw pointer (or 0)
+				if ((vt & VarEnum.VT_BYREF) != 0 || (vt & VarEnum.VT_ARRAY) != 0)
 				{
-					item = longVal;
-					return;
-				}
-				else
-				{
-					switch (vt)
-					{
-						case VarEnum.VT_EMPTY://No value
-							break;
-
-						case VarEnum.VT_NULL://SQL-style Null
-							temp = null;
-							break;
-
-						case VarEnum.VT_I2://16-bit signed int
-						case VarEnum.VT_UI2://16-bit unsigned int
-							temp = longVal & 0xFFFF;
-							break;
-
-						case VarEnum.VT_I4://32-bit signed int
-						case VarEnum.VT_R4://32-bit floating-point number
-						case VarEnum.VT_UI4://32-bit unsigned int
-						case VarEnum.VT_ERROR://Error code(32-bit integer)
-							temp = longVal & 0xFFFFFFFF;
-							break;
-
-						case VarEnum.VT_R8://64-bit floating-point number
-						case VarEnum.VT_CY://Currency
-						case VarEnum.VT_I8://64-bit signed int
-						case VarEnum.VT_UI8://64-bit unsigned int
-						case VarEnum.VT_DATE://Date
-						case VarEnum.VT_INT://Signed machine int
-						case VarEnum.VT_UINT://Unsigned machine int
-							temp = longVal;
-							break;
-
-						case VarEnum.VT_BOOL://Boolean True(-1) or False(0)
-							temp = value.Ab() ? -1L : 0L;//The true value for a variant is actually -1.
-							break;
-
-						case VarEnum.VT_BSTR://COM string (Unicode string with length prefix)
-						case VarEnum.VT_DISPATCH://COM object
-						case VarEnum.VT_VARIANT://VARIANT(must be combined with VT_ARRAY or VT_BYREF)
-						case VarEnum.VT_UNKNOWN://IUnknown interface pointer
-							wasObj = true;
-							temp = longVal != 0L ? longVal : value;
-							break;
-
-						case VarEnum.VT_DECIMAL://(not supported)
-							temp = longVal;
-							break;
-
-						case VarEnum.VT_I1://8-bit signed int
-						case VarEnum.VT_UI1://8-bit unsigned int
-							temp = longVal & 0x0F;
-							break;
-
-						case VarEnum.VT_RECORD://User-defined type -- NOT SUPPORTED
-							break;
-
-						case VarEnum.VT_ARRAY://SAFEARRAY
-							wasObj = true;
-							temp = longVal != 0L ? longVal : value;
-							break;
-							//case VarEnum.VT_BYREF    ://Pointer to another type of value (0x4000)
-							//  break;
-					}
-				}
-
-				// It doesn't make sense to convert anything other than IDispatch, because
-				// the resulting object couldn't be used as a "native object" anyway.
-				if (wasObj && vt == VarEnum.VT_DISPATCH)
-				{
-					if (longVal != 0L)
-					{
-						var nptr = new nint(longVal);
-						temp = Marshal.GetObjectForIUnknown(nptr);
-						_ = Marshal.Release(nptr);
-					}
-
-					//else if (value is long l && l > 0)// && Marshal.IsComObject(value))
-					//{
-					//  try
-					//  {
-					//      temp = Marshal.GetObjectForIUnknown(new nint(l));//This can just be a pointer to memory, in which case it'll throw.
-					//  }
-					//  catch (Exception)
-					//  {
-					//  }
-					//}
-					//else
-					//  temp = value;
-				}
-
-				if (temp != null && Marshal.IsComObject(temp))
-				{
-					if (temp is IDispatch id)
-						item = id;
-					else
-						item = new nint(longVal != 0 ? longVal : Marshal.GetIUnknownForObject(temp));//This was put here to prevent the COM tests with the taskbar in guitest.ks from crashing. Unsure if it actually makes sense.
-
+					item = value switch { long lp => lp, nint ip => (long)ip, _ => 0L };
 					return;
 				}
 
-				item = temp;
+				switch (vt)
+				{
+					case VarEnum.VT_EMPTY:
+					case VarEnum.VT_NULL:
+						item = null;
+						return;
+
+					// store as canonical long for integer vts
+					case VarEnum.VT_I1:
+					case VarEnum.VT_UI1:
+					case VarEnum.VT_I2:
+					case VarEnum.VT_UI2:
+					case VarEnum.VT_I4:
+					case VarEnum.VT_UI4:
+					case VarEnum.VT_I8:
+					case VarEnum.VT_UI8:
+					case VarEnum.VT_INT:
+					case VarEnum.VT_UINT:
+					case VarEnum.VT_ERROR:
+						item = value is long l ? l : Convert.ToInt64(value);
+						return;
+
+					// store as double for floats and dates
+					case VarEnum.VT_R4:
+					case VarEnum.VT_R8:
+					case VarEnum.VT_DATE:
+						item = value is double d ? d : Convert.ToDouble(value);
+						return;
+
+					case VarEnum.VT_CY:
+						// keep 64-bit *scaled* integer in tenthousandths if caller already passed one,
+						// else compute from double/decimal
+						if (value is long cy) item = cy;
+						else if (value is double dcy) item = checked((long)Math.Round(dcy * 10000.0));
+						else if (value is decimal mcy) item = checked((long)Math.Round(mcy * 10000m));
+						else item = checked((long)Math.Round(Convert.ToDouble(value) * 10000.0));
+						return;
+
+					case VarEnum.VT_BOOL:
+						item = value is bool b ? b : (value is long lb ? lb != 0 : Convert.ToBoolean(value));
+						return;
+
+					case VarEnum.VT_BSTR:
+						// allow either managed string or a raw BSTR pointer (long/nint)
+						if (value is string s)
+						{
+							item = Marshal.StringToBSTR(s);
+							Flags |= F_OWNVALUE;
+						}
+						else if (value is long lp) item = lp;
+						else if (value is nint ip) item = (long)ip;
+						else
+						{
+							string str = Convert.ToString(value, System.Globalization.CultureInfo.CurrentCulture) ?? string.Empty;
+							item = Marshal.StringToBSTR(str);
+							Flags |= F_OWNVALUE;
+						}
+						return;
+
+					case VarEnum.VT_DISPATCH:
+					case VarEnum.VT_UNKNOWN:
+						// store raw interface pointer if given, otherwise create one
+						if (value is long ilp) item = ilp;
+						else if (value is nint iip) item = (long)iip;
+						else if (value is null) item = 0L;
+						else
+						{
+							nint p = vt == VarEnum.VT_DISPATCH
+								? Marshal.GetIDispatchForObject(value)
+								: Marshal.GetIUnknownForObject(value);
+							item = (long)p;
+						}
+						return;
+
+					case VarEnum.VT_VARIANT:
+						// ambiguous to store — keep value as-is; ToVariant() delegates to VariantHelper
+						item = value;
+						return;
+
+					default:
+						// safest fallback
+						item = value;
+						return;
+				}
 			}
-
-			/*
-			    set
-			    {
-			    object temp;
-
-			    if (value is nint ip && ip != 0)
-			        temp = Marshal.GetObjectForIUnknown(ip);
-			    else if (value is long l && l > 0)
-			        temp = Marshal.GetObjectForIUnknown(new nint(l));
-			    else
-			        temp = value;
-
-			    if (temp != null && Marshal.IsComObject(temp))
-			    {
-			        if (temp is IDispatch id)
-			            item = id;
-			        else
-			            item = temp;
-			    }
-			    else
-			        item = value;
-			    }
-			*/
 		}
+
 
 		public VarEnum vt;
 		public long VarType
@@ -185,548 +134,61 @@ namespace Keysharp.Core
 				nint psa = (nint)Reflections.GetPtrProperty(value);
 				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab());
 			}
-			return new ComValue(varType, value, flags);
+			return vt == VarEnum.VT_DISPATCH ? new ComObject(varType, value, flags) : new ComValue(varType, value, flags);
 		}
 
 		public override object __New(params object[] args)
 		{
 			if (args.Length == 0 || args[0] == null) return DefaultObject;
-			var varType = args[0];
 			var value = args[1];
+			vt = (VarEnum)args[0].Al();
+			Ptr = value;
 			var flags = args.Length > 2 ? args[2] : null;
-			var vt = (VarEnum)varType.Al();
-			var co = ValueToVarType(value, vt, true);
-			this.vt = vt;
 			Flags = flags != null ? flags.Al() : 0L;
 
 			if (this.vt == VarEnum.VT_BSTR && value is not long)
 				Flags |= F_OWNVALUE;
-
-			Ptr = co.Ptr;
-			tempCo = co;
 			return DefaultObject;
 		}
 
 		public object get_Item(params object[] args)
 		{
 			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
-				return ComValue.ReadVariant(Ptr.Al(), vt);
+				return VariantHelper.ReadVariant(Ptr.Al(), vt);
 
-			return Invoke((Ptr, new ComMethodPropertyHolder("Item")), args);
+			return Invoke((this, new ComMethodPropertyHolder("Item")), args);
 		}
 		public object set_Item(object[] args, object value)
 		{
 			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
-				ComValue.WriteVariant(Ptr.Al(), vt, value);
+				VariantHelper.WriteVariant(Ptr.Al(), vt, value);
 			else
 			{
 				object[] newargs = new object[args.Length + 1];
 				System.Array.Copy(args, newargs, args.Length);
 				newargs[^1] = value;
-				Ptr.GetType().InvokeMember("Item", BindingFlags.SetProperty, null, Ptr, newargs);
+				RawSetProperty("Item", newargs);
 			}
 			return value;
 		}
 
 		public virtual void Dispose()
 		{
-			if (Ptr == null)
-				return;
+			if (Ptr == null) return;
 
 			if (vt == VarEnum.VT_UNKNOWN || vt == VarEnum.VT_DISPATCH)
 			{
-				if (Ptr is long lp && lp != 0L)
-					_ = Marshal.Release((nint)lp);
-				else if (Marshal.IsComObject(Ptr))
-					_ = Marshal.ReleaseComObject(Ptr);
+				if (Ptr is long lp && lp != 0L) _ = Marshal.Release((nint)lp);
+				else if (Ptr is nint ip && ip != 0) _ = Marshal.Release(ip);
 			}
-			else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0 && Ptr is long)
+			else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0)
 			{
-				WindowsAPI.SysFreeString((nint)Ptr);
+				if (Ptr is long lp && lp != 0L) WindowsAPI.SysFreeString((nint)lp);
+				else if (Ptr is nint ip && ip != 0) WindowsAPI.SysFreeString(ip);
 			}
 
 			Ptr = null;
-
 			GC.SuppressFinalize(this);
-		}
-
-		internal static object ReadVariant(long ptrValue, VarEnum vtRaw)
-		{
-			nint dataPtr = (nint)ptrValue;
-			VarEnum vt = vtRaw & ~VarEnum.VT_BYREF;
-
-			if ((vt & VarEnum.VT_ARRAY) != 0)
-			{
-				VarEnum elemVt = vt & ~VarEnum.VT_ARRAY;
-				nint parray = Marshal.ReadIntPtr(dataPtr);
-				if (parray == 0)
-					return DefaultErrorObject;
-
-				// Wrap without owning: the VARIANT will destroy it on VariantClear.
-				return new ComObjArray(elemVt, parray, takeOwnership: false);
-			}
-
-			switch (vt)
-			{
-				// ── Integers → long ───────────────────────────────────────────────
-				case VarEnum.VT_I1:
-					return (long)(sbyte)Marshal.ReadByte(dataPtr);
-
-				case VarEnum.VT_UI1:
-					return (long)Marshal.ReadByte(dataPtr);
-
-				case VarEnum.VT_I2:
-					return (long)Marshal.ReadInt16(dataPtr);
-
-				case VarEnum.VT_UI2:
-					return (long)(ushort)Marshal.ReadInt16(dataPtr);
-
-				case VarEnum.VT_I4:
-				case VarEnum.VT_INT:
-					return (long)Marshal.ReadInt32(dataPtr);
-
-				case VarEnum.VT_UI4:
-				case VarEnum.VT_UINT:
-					return (long)(uint)Marshal.ReadInt32(dataPtr);
-
-				case VarEnum.VT_I8:
-					return Marshal.ReadInt64(dataPtr);
-
-				case VarEnum.VT_UI8:
-					return (long)(ulong)Marshal.ReadInt64(dataPtr);
-
-				// ── Boolean → bool ───────────────────────────────────────────────
-				case VarEnum.VT_BOOL:
-					// COM VARIANT_BOOL is a 16-bit short: 0 or −1
-					return Marshal.ReadInt16(dataPtr) != 0;
-
-				// ── Floating point / date → double ───────────────────────────────
-				case VarEnum.VT_R4:
-					// Read 4-byte float, then promote
-					float f = Marshal.PtrToStructure<float>(dataPtr);
-					return (double)f;
-
-				case VarEnum.VT_R8:
-				case VarEnum.VT_DATE:
-					// VT_DATE is also stored as an 8-byte IEEE double
-					return Marshal.PtrToStructure<double>(dataPtr);
-
-				// ── BSTR → string ────────────────────────────────────────────────
-				case VarEnum.VT_BSTR:
-					{
-						nint bstr = Marshal.ReadIntPtr(dataPtr);
-						return bstr == 0
-							   ? string.Empty
-							   : Marshal.PtrToStringBSTR(bstr);
-					}
-
-				case VarEnum.VT_VARIANT:
-					{
-						VarEnum innerVt = (VarEnum)Marshal.ReadInt16(dataPtr);
-						return ReadVariant(ptrValue + 8, innerVt);
-					}
-
-				case VarEnum.VT_UNKNOWN:
-				case VarEnum.VT_DISPATCH:
-					{
-						nint punk = Marshal.ReadIntPtr(dataPtr);
-						return Objects.ObjFromPtr(punk);
-					}
-
-				default:
-					{
-						nint unk = Marshal.ReadIntPtr(dataPtr);
-
-						if (unk == 0)
-							return DefaultErrorObject;
-
-						return new ComValue
-						{
-							vt = vtRaw & ~VarEnum.VT_BYREF,
-							Ptr = unk,
-						};
-					}
-			}
-		}
-
-		/// <summary>
-		/// Write a primitive value back into a COM VARIANT payload.
-		/// Supports VT_I1/UI1/I2/UI2/I4/UI4/I8/UI8, VT_BOOL, VT_R4, VT_R8/VT_DATE, VT_VARIANT.
-		/// </summary>
-		internal static void WriteVariant(long ptrValue, VarEnum vtRaw, object value)
-		{
-			nint dataPtr = new nint(ptrValue);
-			VarEnum vt = vtRaw & ~VarEnum.VT_BYREF;
-
-			if (value is IPointable ip)
-				value = ip.Ptr;
-
-			switch (vt)
-			{
-				// ── Integers ────────────────────────────────────────────────────
-				case VarEnum.VT_I1:
-					// sbyte → marshal as one signed byte
-					sbyte sb = Convert.ToSByte(value);
-					Marshal.WriteByte(dataPtr, unchecked((byte)sb));
-					break;
-
-				case VarEnum.VT_UI1:
-					// byte
-					byte ub = Convert.ToByte(value);
-					Marshal.WriteByte(dataPtr, ub);
-					break;
-
-				case VarEnum.VT_I2:
-					short i2 = Convert.ToInt16(value);
-					Marshal.WriteInt16(dataPtr, i2);
-					break;
-
-				case VarEnum.VT_UI2:
-					ushort ui2 = Convert.ToUInt16(value);
-					// Marshal.WriteInt16 writes a signed short, so reinterpret
-					Marshal.WriteInt16(dataPtr, unchecked((short)ui2));
-					break;
-
-				case VarEnum.VT_I4:
-				case VarEnum.VT_INT:
-					int i4 = Convert.ToInt32(value);
-					Marshal.WriteInt32(dataPtr, i4);
-					break;
-
-				case VarEnum.VT_UI4:
-				case VarEnum.VT_UINT:
-					uint ui4 = Convert.ToUInt32(value);
-					Marshal.WriteInt32(dataPtr, unchecked((int)ui4));
-					break;
-
-				case VarEnum.VT_I8:
-					long i8 = Convert.ToInt64(value);
-					Marshal.WriteInt64(dataPtr, i8);
-					break;
-
-				case VarEnum.VT_UI8:
-					ulong ui8 = Convert.ToUInt64(value);
-					// Marshal.WriteInt64 writes signed; reinterpret
-					Marshal.WriteInt64(dataPtr, unchecked((long)ui8));
-					break;
-
-				// ── Boolean ────────────────────────────────────────────────────
-				case VarEnum.VT_BOOL:
-					// VARIANT_BOOL is a 16-bit short: -1 (TRUE) or 0 (FALSE)
-					bool b = Convert.ToBoolean(value);
-					short vb = (short)(b ? -1 : 0);
-					Marshal.WriteInt16(dataPtr, vb);
-					break;
-
-				// ── Floating-point / Date ─────────────────────────────────────
-				case VarEnum.VT_R4:
-					// store 4-byte float
-					float f = Convert.ToSingle(value);
-					byte[] fb = BitConverter.GetBytes(f);
-					Marshal.Copy(fb, 0, dataPtr, fb.Length);
-					break;
-
-				case VarEnum.VT_R8:
-				case VarEnum.VT_DATE:
-					// store 8-byte double
-					double d = Convert.ToDouble(value);
-					byte[] db = BitConverter.GetBytes(d);
-					Marshal.Copy(db, 0, dataPtr, db.Length);
-					break;
-
-				// ── BSTR → string ─────────────────────────────────────────────────
-				case VarEnum.VT_BSTR:
-					{
-						// free old BSTR
-						nint oldBstr = Marshal.ReadIntPtr(dataPtr);
-
-						if (oldBstr != 0)
-							WindowsAPI.SysFreeString(oldBstr);
-
-						// allocate new BSTR (null → zero pointer)
-						string s = value as string;
-						IntPtr newBstr = string.IsNullOrEmpty(s)
-										 ? IntPtr.Zero
-										 : Marshal.StringToBSTR(s);
-						Marshal.WriteIntPtr(dataPtr, newBstr);
-					}
-					break;
-
-				// ── COM interfaces → IUnknown pointer ─────────────────────────────
-				case VarEnum.VT_DISPATCH:
-				case VarEnum.VT_UNKNOWN:
-					{
-						// release old pointer
-						nint oldPtr = Marshal.ReadIntPtr(dataPtr);
-
-						if (oldPtr != 0)
-							_ = Marshal.Release(oldPtr);
-
-						// get new pointer (allow passing either IntPtr or RCW)
-
-						nint newPtr = value switch
-						{
-							long ptr => (nint)ptr,
-							null => 0,
-							_ => vt == VarEnum.VT_DISPATCH ? Marshal.GetIDispatchForObject(value) : Marshal.GetIUnknownForObject(value)
-						};
-
-						Marshal.WriteIntPtr(dataPtr, newPtr);
-					}
-					break;
-
-				case VarEnum.VT_VARIANT:
-					{
-						// 1) Choose the right VarEnum for "value"
-						VarEnum innerVt;
-
-						if (value is string)
-						{
-							innerVt = VarEnum.VT_BSTR;
-						}
-						else if (value is KeysharpObject)
-						{
-							innerVt = VarEnum.VT_DISPATCH;
-						}
-						else if (value is ComObjArray coa)
-						{
-							innerVt = VarEnum.VT_ARRAY | coa._baseType;
-						}
-						else if (value is double)
-						{
-							innerVt = VarEnum.VT_R8;
-						}
-						else if (value is long l)
-						{
-							innerVt = (l >= int.MinValue && l <= int.MaxValue)
-									  ? VarEnum.VT_I4
-									  : VarEnum.VT_I8;
-						}
-						else
-						{
-							throw new NotSupportedException(
-								$"Cannot wrap a {value?.GetType().Name} as VT_VARIANT");
-						}
-
-						// 2) Clear previous contents, release BSTRs etc
-						_ = VariantHelper.VariantClear(dataPtr);
-						// 3) Write the VT and clear the four reserved words
-						//    [vt:2][res1:2][res2:2][res3:2]  <-- totals 8 bytes header
-						Marshal.WriteInt16(dataPtr, (short)innerVt);
-						// 4) Write the payload into the union at offset 8
-						//    we simply recurse into our existing writer,
-						//    passing the address + 8 and the bare innerVt
-						WriteVariant(ptrValue + 8, innerVt, value);
-					}
-					break;
-
-				// ── SAFEARRAYs (VT_ARRAY | T) ─────────────────────────────────────────────
-				case var _ when (vt & VarEnum.VT_ARRAY) != 0:
-					{
-						// vt holds VT_ARRAY|elemVT, payload is a SAFEARRAY*
-						VarEnum elemVt = vt & ~VarEnum.VT_ARRAY;
-
-						nint psaToStore = 0;
-
-						if (value is ComObjArray coa)
-						{
-							// Defensive: if element type differs, still allow but clone regardless.
-							// Clone so that the VARIANT owns its *own* SAFEARRAY (avoids double-destroy).
-							int hr = OleAuto.SafeArrayCopy(coa._psa, out nint psaCopy);
-							if (hr < 0)
-								throw Errors.OSError("SafeArrayCopy failed.", hr);
-
-							psaToStore = psaCopy;
-						}
-						else if (value is long lp)
-						{
-							psaToStore = (nint)lp; // caller gave us a raw SAFEARRAY*
-						}
-						else if (value is nint ip2)
-						{
-							psaToStore = ip2;
-						}
-						else
-						{
-							throw Errors.Error($"Cannot write VT_ARRAY payload from {value?.GetType().Name}.");
-						}
-
-						Marshal.WriteIntPtr(dataPtr, psaToStore);
-						break;
-					}
-				// ── Unsupported ────────────────────────────────────────────────
-				default:
-					throw Errors.Error($"Writing VARTYPE {vt} is not supported.");
-			}
-		}
-
-		internal static void ValueToVariant(object val, ComValue variant)
-		{
-			if (val is string s)
-			{
-				variant.vt = VarEnum.VT_BSTR;
-				variant.Ptr = s.Clone();
-				return;
-			}
-			else if (val is long l)
-			{
-				variant.vt = (l == (int)l) ? VarEnum.VT_I4 : VarEnum.VT_I8;
-				variant.Ptr = l;
-				return;
-			}
-			else if (val is int i)
-			{
-				variant.vt = VarEnum.VT_I4;
-				variant.Ptr = i;
-				return;
-			}
-			else if (val is double d)
-			{
-				variant.vt = VarEnum.VT_R8;
-				variant.Ptr = d;
-				return;
-			}
-			else if (val is ComValue co)
-			{
-				variant.vt = co.vt;
-				variant.Ptr = co.Ptr;
-
-				if (co.vt == VarEnum.VT_DISPATCH || co.vt == VarEnum.VT_UNKNOWN)
-				{
-					_ = Com.ObjAddRef(co);
-				}
-				else if ((co.Flags & F_OWNVALUE) == F_OWNVALUE)
-				{
-					if ((VarEnum)((int)variant.vt & ~Com.variantTypeMask) == VarEnum.VT_ARRAY && co.Ptr is ComObjArray coa)
-					{
-						variant.Ptr = coa.Clone();//Copy array since both sides will call Destroy().
-					}
-					else if (variant.vt == VarEnum.VT_BSTR)
-					{
-						variant.Ptr = co.Ptr.ToString().Clone();//Copy the string.
-					}
-				}
-
-				return;
-			}
-			else if (Marshal.IsComObject(val))
-			{
-				if (val is IDispatch idisp)
-				{
-					variant.vt = VarEnum.VT_DISPATCH;
-					variant.Ptr = idisp;
-				}
-				else
-				{
-					variant.vt = VarEnum.VT_UNKNOWN;
-					variant.Ptr = val;
-				}
-
-				return;
-			}
-			else if (Marshal.IsComObject(val))
-			{
-				if (val is IDispatch idisp)
-				{
-					variant.vt = VarEnum.VT_DISPATCH;
-					variant.Ptr = idisp;
-				}
-				else
-				{
-					variant.vt = VarEnum.VT_UNKNOWN;
-					variant.Ptr = val;
-				}
-
-				return;
-			}
-
-			variant.vt = VarEnum.VT_DISPATCH;
-			variant.Ptr = val;
-		}
-
-		internal static ComValue ValueToVarType(object val, VarEnum varType, bool callerIsComValue)
-		{
-			ComValue co;
-
-			if ((varType & VarEnum.VT_BYREF) != 0)
-			{
-				return new ComValue()
-				{
-					vt = varType,
-					Ptr = val
-				};
-			}
-
-			if (varType == VarEnum.VT_VARIANT)
-			{
-				co = new ComValue();//Use the empty constructors on purpose so they don't keep recursing into this method.
-				ValueToVariant(val, co);
-				return co;
-			}
-
-			if (varType == VarEnum.VT_BOOL)
-			{
-				return new ComValue()
-				{
-					vt = varType,
-					//Ptr = val.Ab() ? -1L : 0L
-					Ptr = val.Ab() ? -1 : 0
-				};
-			}
-
-			if (varType == VarEnum.VT_ARRAY && val is ComObjArray coa)
-			{
-				return coa;//Don't do anything with it, it's already in the correct form.
-			}
-
-			if (val is long l)
-			{
-				co = new ComValue
-				{
-					vt = VarEnum.VT_I8,
-					Ptr = l
-				};
-
-				switch (varType)
-				{
-					//case VarEnum.VT_R4:
-					//case VarEnum.VT_R8:
-					//case VarEnum.VT_DATE:
-					//  break;
-					case VarEnum.VT_CY:
-						co.Ptr = l * 10000L;
-						return co;
-
-					case VarEnum.VT_BSTR://These seem not to apply here because we already assigned l above.
-					case VarEnum.VT_DISPATCH:
-					case VarEnum.VT_UNKNOWN:
-						if (callerIsComValue)
-							return co;
-
-						break;
-
-					default:
-						return co;
-				}
-			}
-			else
-				ValueToVariant(val, co = new ComValue());
-
-			if (co.vt != varType)//Attempt to coerce var to the correct type.
-			{
-				var origVal = co.Ptr;
-
-				if (Com.VariantChangeTypeEx(out object newVal, origVal, Thread.CurrentThread.CurrentCulture.LCID, 0, (ushort)varType) != 0)
-				{
-					co.Clear();
-					return null;
-				}
-
-				co.Ptr = newVal;
-				co.vt = varType;
-			}
-
-			return co;
 		}
 
 		internal void CallEvents()
@@ -743,47 +205,874 @@ namespace Keysharp.Core
 
 		internal VARIANT ToVariant()
 		{
-			var v = new VARIANT()
-			{
-				vt = (ushort)vt
-			};
+			var vtype = vt;
+			var v = new VARIANT { vt = (ushort)vtype };
 
-			if (Ptr is long l)//Put most common first.
-				v.data.llVal = l;
-			else if (Ptr is double d)
-				v.data.dblVal = d;
-			else if (Ptr is string str)
-				v.data.bstrVal = Marshal.StringToBSTR(str);
-			else if (Ptr is nint ip)
+			// ---- BYREF: pass-through pointer to storage (no allocations here) ----
+			if ((vtype & VarEnum.VT_BYREF) != 0)
 			{
-				if ((vt & VarEnum.VT_ARRAY) != 0)
-					v.data.parray = ip;     // SAFEARRAY*
-				else if (vt == VarEnum.VT_DISPATCH || vt == VarEnum.VT_UNKNOWN)
-					v.data.pdispVal = ip;   // IDispatch*/IUnknown*
-				else
-					v.data.pdispVal = ip;   // fallback
+				VarEnum baseVt = vtype & ~VarEnum.VT_BYREF;
+				nint p = Ptr switch { long lp => (nint)lp, nint ip => ip, _ => 0 };
+				v.ptrVal = p;
+				return v;
 			}
-			else if (Ptr is int i)
-				v.data.lVal = i;
-			else if (Ptr is uint ui)
-				v.data.ulVal = ui;
-			else if (Ptr is ulong ul)
-				v.data.ullVal = ul;
-			else if (Ptr is float f)
-				v.data.fltVal = f;
-			else if (Ptr is byte b)
-				v.data.bVal = b;
-			else if (Ptr is sbyte sb)
-				v.data.cVal = sb;
-			else if (Ptr is short s)
-				v.data.iVal = s;
-			else if (Ptr is ushort us)
-				v.data.uiVal = us;
-			else if (Ptr is bool bl)
-				v.data.boolVal = (short)(bl ? -1 : 0);
 
-			return v;
+			// ---- Arrays by value: SAFEARRAY* goes in parray ----
+			if ((vtype & VarEnum.VT_ARRAY) != 0)
+			{
+				v.ptrVal = Ptr switch { long lp => (nint)lp, _ => 0 };
+				return v;
+			}
+
+			// ---- Scalars and interface/bstr cases by value ----
+			switch (vtype)
+			{
+				case VarEnum.VT_EMPTY:
+				case VarEnum.VT_NULL:
+					return v;
+
+				case VarEnum.VT_BOOL:
+					// VARIANT_BOOL is a 16-bit short: -1 (TRUE), 0 (FALSE)
+					if (Ptr is bool bl) v.boolVal = (short)(bl ? -1 : 0);
+					else if (Ptr is long ll) v.boolVal = (short)((ll != 0) ? -1 : 0);
+					else v.boolVal = (short)(Ptr.Ab() ? -1 : 0);
+					return v;
+
+				case VarEnum.VT_BSTR:
+					if (Ptr is string s) v.ptrVal = Marshal.StringToBSTR(s);
+					else v.ptrVal = Ptr switch { long lp => (nint)lp, _ => 0 };
+					return v;
+
+				// Signed integers
+				case VarEnum.VT_I1: v.cVal = (sbyte)(Ptr is long l1 ? l1 : Convert.ToSByte(Ptr)); return v;
+				case VarEnum.VT_I2: v.iVal = (short)(Ptr is long l2 ? l2 : Convert.ToInt16(Ptr)); return v;
+				case VarEnum.VT_I4:
+				case VarEnum.VT_INT: v.lVal = (int)(Ptr is long l4 ? l4 : Convert.ToInt32(Ptr)); return v;
+				case VarEnum.VT_I8: v.llVal = (Ptr is long l8 ? l8 : Convert.ToInt64(Ptr)); return v;
+
+				// Unsigned integers
+				case VarEnum.VT_UI1: v.bVal = (byte)(Ptr is long ul1 ? ul1 : Convert.ToByte(Ptr)); return v;
+				case VarEnum.VT_UI2: v.uiVal = (ushort)(Ptr is long ul2 ? ul2 : Convert.ToUInt16(Ptr)); return v;
+				case VarEnum.VT_UI4:
+				case VarEnum.VT_UINT: v.ulVal = (uint)(Ptr is long ul4 ? ul4 : Convert.ToUInt32(Ptr)); return v;
+				case VarEnum.VT_UI8: v.ullVal = (Ptr is ulong u8 ? u8 : (ulong)Convert.ToInt64(Ptr)); return v;
+
+				// Floating-point
+				case VarEnum.VT_R4: v.fltVal = (Ptr is float f ? f : Convert.ToSingle(Ptr)); return v;
+				case VarEnum.VT_R8: v.dblVal = (Ptr is double d ? d : Convert.ToDouble(Ptr)); return v;
+
+				// Currency: 64-bit integer in 1/10,000th units
+				case VarEnum.VT_CY:
+					if (Ptr is long cy) v.cyVal = cy;
+					else if (Ptr is double dcy) v.cyVal = checked((long)Math.Round(dcy * 10000.0));
+					else if (Ptr is decimal mcy) v.cyVal = checked((long)Math.Round(mcy * 10000m));
+					else v.cyVal = checked((long)Math.Round(Convert.ToDouble(Ptr) * 10000.0));
+					return v;
+
+				// DATE: OLE Automation date (stored as double)
+				case VarEnum.VT_DATE:
+					if (Ptr is double dd) v.dblVal = dd;
+					else if (Ptr is DateTime dt) v.dblVal = dt.ToOADate();
+					else v.dblVal = Convert.ToDateTime(Ptr).ToOADate();
+					return v;
+
+				// Interfaces
+				case VarEnum.VT_DISPATCH:
+					if (Ptr is long dl) v.ptrVal = (nint)dl;
+					else if (Ptr != null) v.ptrVal = Marshal.GetIDispatchForObject(Ptr);
+					return v;
+
+				case VarEnum.VT_UNKNOWN:
+					 if (Ptr is long ulp) v.ptrVal = (nint)ulp;
+					else if (Ptr != null) v.ptrVal = Marshal.GetIUnknownForObject(Ptr);
+					return v;
+
+				// Avoid producing a by-value VT_VARIANT; coerce from the runtime value instead.
+				case VarEnum.VT_VARIANT:
+					return VariantHelper.ValueToVariant(Ptr);
+
+				default:
+					// Fallback to general converter to avoid silent mis-encoding.
+					return VariantHelper.ValueToVariant(Ptr);
+			}
 		}
+
+		internal unsafe object RawInvokeMethod(string methodName, object[] inputParameters)
+		{
+			Type[] expectedTypes = null;
+			ParameterModifier[] modifiers = null;
+			INVOKEKIND invokeKind = INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET;
+			Dictionary<int, object> refs = new();
+
+			// Get DISPID
+			int hr = RawGetIDsOfNames(methodName, out int dispId);
+			if (hr < 0)
+			{
+				return Errors.ErrorOccurred($"Method '{methodName}' not found (HRESULT: 0x{hr:X8})");
+			}
+
+			// If no cached type info, try to query it
+			if (expectedTypes == null)
+			{
+				TryGetTypeInfo(dispId, methodName, inputParameters?.Length ?? 0, out expectedTypes, out modifiers, out invokeKind, invokeKind);
+			}
+
+			// Handle byref parameters with KeysharpObject wrapper
+			if (modifiers != null && inputParameters != null)
+			{
+				for (int i = 0; i < inputParameters.Length; i++)
+				{
+					if (modifiers[0][i] && inputParameters[i] is KeysharpObject kso)
+					{
+						refs[i] = kso;
+						inputParameters[i] = Script.GetPropertyValue(kso, "__Value");
+					}
+				}
+			}
+
+			// Invoke
+			hr = RawInvoke(dispId, invokeKind, inputParameters, out object result, expectedTypes, modifiers);
+
+			// Update byref parameters
+			foreach (var kvp in refs)
+			{
+				Script.SetPropertyValue(kvp.Value, "__Value", inputParameters[kvp.Key]);
+			}
+
+			return hr >= 0 ? result : Errors.ErrorOccurred($"Invoke failed for '{methodName}' (HRESULT: 0x{hr:X8})");
+		}
+
+		internal unsafe object RawGetProperty(string propertyName, object[] args)
+		{
+			object result = null;
+			int hr = RawGetIDsOfNames(propertyName, out int dispId);
+			if (hr < 0)
+				return Errors.ErrorOccurred($"Property '{propertyName}' not found");
+
+			TryGetTypeInfo(dispId, propertyName, args.Length, out var expectedTypes, out var modifiers, out var invokeKind, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET);
+
+			if (expectedTypes != null && expectedTypes.Length > 0)
+				hr = RawInvoke(dispId, invokeKind, args, out result);
+			else
+			{
+				hr = RawInvoke(dispId, invokeKind, null, out result);
+				if (hr >= 0 && args.Length > 0)
+					return Index(this, args);
+			}
+			if (hr < 0)
+				return Errors.ErrorOccurred($"Get property failed for '{propertyName}'");
+
+			return result;
+		}
+
+		internal unsafe void RawSetProperty(string propertyName, object[] args)
+		{
+			int hr = RawGetIDsOfNames(propertyName, out int dispId);
+			if (hr < 0)
+				throw new COMException($"Property '{propertyName}' not found");
+
+			if (!TryGetTypeInfo(dispId, propertyName, args.Length, out var expectedTypes, out var modifiers, out var invokeKind, INVOKEKIND.INVOKE_PROPERTYPUT | INVOKEKIND.INVOKE_PROPERTYPUTREF))
+				invokeKind = INVOKEKIND.INVOKE_PROPERTYPUT;
+
+			if (args.Length > 0)
+			{
+				var val = args[^1];
+				if (val is ComValue cv && (cv.vt == VarEnum.VT_DISPATCH || cv.vt == VarEnum.VT_UNKNOWN))
+					invokeKind = INVOKEKIND.INVOKE_PROPERTYPUTREF;
+			}
+
+			hr = RawInvoke(dispId, invokeKind, args, out _, expectedTypes, modifiers);
+			if (hr < 0)
+				throw new COMException($"Set property failed for '{propertyName}'");
+		}
+
+		internal unsafe struct IDispatchVtbl
+		{
+			// IUnknown methods (offsets 0-2)
+			public delegate* unmanaged[Stdcall]<nint, Guid*, nint*, int> QueryInterface;
+			public delegate* unmanaged[Stdcall]<nint, uint> AddRef;
+			public delegate* unmanaged[Stdcall]<nint, uint> Release;
+
+			// IDispatch methods (offsets 3-6)
+			public delegate* unmanaged[Stdcall]<nint, uint*, int> GetTypeInfoCount;
+			public delegate* unmanaged[Stdcall]<nint, uint, uint, nint*, int> GetTypeInfo;
+			public delegate* unmanaged[Stdcall]<nint, Guid*, nint*, uint, uint, int*, int> GetIDsOfNames;
+			public delegate* unmanaged[Stdcall]<nint, int, Guid*, uint, ushort, nint, nint, nint, nint, int> Invoke;
+		}
+
+		internal unsafe IDispatchVtbl* GetDispatchVtbl()
+		{
+			nint ptr = 0;
+
+			if (Ptr is long l)
+				ptr = new nint(l);
+
+			if (ptr == 0)
+				return null;
+
+			// First pointer is the vtable
+			nint vtablePtr = *(nint*)ptr;
+			return (IDispatchVtbl*)vtablePtr;
+		}
+
+		internal unsafe struct IDispatchExVtbl
+		{
+			// IDispatch (first 7)
+			public delegate* unmanaged[Stdcall]<nint, Guid*, nint*, int> QueryInterface;
+			public delegate* unmanaged[Stdcall]<nint, uint> AddRef;
+			public delegate* unmanaged[Stdcall]<nint, uint> Release;
+			public delegate* unmanaged[Stdcall]<nint, uint*, int> GetTypeInfoCount;
+			public delegate* unmanaged[Stdcall]<nint, uint, uint, nint*, int> GetTypeInfo;
+			public delegate* unmanaged[Stdcall]<nint, Guid*, nint*, uint, uint, int*, int> GetIDsOfNames;
+			public delegate* unmanaged[Stdcall]<nint, int, Guid*, uint, ushort, nint, nint, nint, nint, int> Invoke;
+
+			// IDispatchEx extras
+			public delegate* unmanaged[Stdcall]<nint, nint /*BSTR*/, uint /*grfdex*/,
+				int* /*pid*/, int> GetDispID;
+			public delegate* unmanaged[Stdcall]<nint, int /*id*/, Guid* /*riid*/,
+				uint /*lcid*/, ushort /*flags*/, nint /*pdp*/, nint /*pvarRes*/,
+				nint /*pei*/, nint /*pspCaller*/, int> InvokeEx;
+			public delegate* unmanaged[Stdcall]<nint, int /*id*/, Guid* /*riid*/,
+				nint* /*ppv*/, int> DeleteMemberByName;
+			public delegate* unmanaged[Stdcall]<nint, int /*id*/, int> DeleteMemberByDispID;
+			public delegate* unmanaged[Stdcall]<nint, int /*id*/, uint /*grfdexFetch*/,
+				nint /*pName*/, uint* /*pgrfdex*/, int> GetMemberProperties;
+			public delegate* unmanaged[Stdcall]<nint, int /*id*/, uint /*grfdex*/,
+				nint /*pName*/, int* /*pid*/, int> GetMemberName;
+			public delegate* unmanaged[Stdcall]<nint, uint /*grfdex*/, int /*id*/,
+				int /*pdidNext*/, int*> GetNextDispID;
+			public delegate* unmanaged[Stdcall]<nint, nint /*ptsi*/, nint /*pbNamingContainer*/,
+				int> GetNameSpaceParent;
+		}
+
+		internal static readonly Guid IID_IDispatchEx = new("A6EF9860-C720-11D0-9337-00A0C90DCAA9");
+
+		// flags for GetDispID (grfdex)
+		internal const uint FDEX_NAME_CASE_INSENSITIVE = 0x00000001;
+		internal const uint FDEX_NAME_IMMEDIATE = 0x00000002;
+		internal const uint FDEX_NAME_DYNAMIC = 0x00000004;
+		internal const uint FDEX_NAME_ENSURE = 0x00000002; // often used synonymously with IMMEDIATE
+
+		internal unsafe int RawGetIDsOfNames(string name, out int dispId)
+		{
+			dispId = 0;
+			var vtbl = GetDispatchVtbl();
+			if (vtbl == null)
+				return -1;
+
+			nint ptr = new nint((long)Ptr);
+
+			Guid iidNull = Guid.Empty;
+			nint strPtrName = Marshal.StringToCoTaskMemUni(name);
+			nint bstrName = 0;
+
+			try
+			{
+				fixed (int* dispIdPtr = &dispId)
+				{
+					// Call IDispatch::GetIDsOfNames
+					int hr = vtbl->GetIDsOfNames(
+						ptr,
+						&iidNull,
+						&strPtrName,
+						1,
+						Com.LOCALE_SYSTEM_DEFAULT,
+						dispIdPtr);
+
+					// Fallback to IDispatchEx::GetDispID
+					const int DISP_E_UNKNOWNNAME = unchecked((int)0x80020006);
+					const int DISP_E_MEMBERNOTFOUND = unchecked((int)0x80020003);
+
+					if (hr == DISP_E_UNKNOWNNAME || hr == DISP_E_MEMBERNOTFOUND)
+					{
+						var ex = TryGetDispatchExVtbl();
+						if (ex != null)
+						{
+							bstrName = Marshal.StringToBSTR(name);
+							// grfdex: case-insensitive + ensure (allows dynamic lookup)
+							int id = 0;
+							int hr2 = ex->GetDispID(ptr, bstrName, FDEX_NAME_CASE_INSENSITIVE | FDEX_NAME_IMMEDIATE, &id);
+							if (hr2 >= 0) { dispId = id; return 0; }
+						}
+					}
+					return hr;
+				}				
+			}
+			finally
+			{
+				if (strPtrName != 0) Marshal.FreeCoTaskMem(strPtrName);
+				if (bstrName != 0) WindowsAPI.SysFreeString(bstrName);
+			}
+		}
+
+		internal unsafe int RawInvoke(
+			int dispId,
+			INVOKEKIND flags,
+			object[] args,
+			out object result,
+			Type[] expectedTypes = null,
+			ParameterModifier[] modifiers = null)
+		{
+			result = null;
+			var vtbl = GetDispatchVtbl();
+			if (vtbl == null)
+				return -1;
+
+			nint ptr = Ptr is nint ip ? ip : new nint((long)Ptr);
+			Guid iidNull = Guid.Empty;
+
+			bool wantsResult = (flags & (INVOKEKIND.INVOKE_PROPERTYGET | INVOKEKIND.INVOKE_FUNC)) != 0
+				   && (flags & (INVOKEKIND.INVOKE_PROPERTYPUT | INVOKEKIND.INVOKE_PROPERTYPUTREF)) == 0;
+
+			nint pArgs = 0;
+			nint pDispParams = Marshal.AllocHGlobal(Marshal.SizeOf<DISPPARAMS>());
+			nint pResult = wantsResult ? Marshal.AllocHGlobal(Marshal.SizeOf<VARIANT>()) : 0;
+			nint pExcepInfo = Marshal.AllocHGlobal(Marshal.SizeOf<EXCEPINFO>());
+			nint pArgErr = Marshal.AllocHGlobal(sizeof(uint));
+			nint pNamed = 0;
+
+			try
+			{
+				var dispParams = new DISPPARAMS();
+				int argCount = args?.Length ?? 0;
+
+				// Convert arguments to VARIANTs (in reverse order for IDispatch)
+				if (argCount > 0)
+				{
+					pArgs = Marshal.AllocHGlobal(argCount * Marshal.SizeOf<VARIANT>());
+
+					for (int i = 0; i < argCount; i++)
+					{
+						// IDispatch expects arguments in reverse order
+						int sourceIndex = argCount - 1 - i;
+						var arg = args[sourceIndex];
+
+						// Apply type conversion if we have type info
+						if (expectedTypes != null && sourceIndex < expectedTypes.Length)
+						{
+							arg = ConvertArgumentToExpectedType(arg, expectedTypes[sourceIndex]);
+						}
+
+						// Check if this is a byref parameter
+						bool isByRef = modifiers != null &&
+									  modifiers.Length > 0 &&
+									  sourceIndex < argCount &&
+									  modifiers[0][sourceIndex];
+
+						nint variantPtr = pArgs + (i * Marshal.SizeOf<VARIANT>());
+						VARIANT variant;
+
+						if (isByRef)
+						{
+							// For byref parameters, we need to allocate a VARIANT and set VT_BYREF
+							VarEnum baseVt = VarEnum.VT_EMPTY;
+							if (expectedTypes != null && sourceIndex < expectedTypes.Length)
+								baseVt = VariantHelper.CLRTypeToVarEnum(expectedTypes[sourceIndex]);
+
+							variant = (baseVt != VarEnum.VT_EMPTY)
+									  ? VariantHelper.CreateByRefVariantTyped(arg, baseVt)
+									  : VariantHelper.CreateByRefVariant(arg);
+						}
+						else
+						{
+							// Direct conversion for value parameters
+							variant = VariantHelper.ValueToVariant(arg);
+						}
+
+						Marshal.StructureToPtr(variant, variantPtr, false);
+					}
+
+					dispParams.rgvarg = pArgs;
+					dispParams.cArgs = argCount;
+				}
+
+				dispParams.rgdispidNamedArgs = 0;
+				dispParams.cNamedArgs = 0;
+
+				// ---- SPECIAL: PROPERTYPUT / PROPERTYPUTREF ----
+				bool isPut = (flags & INVOKEKIND.INVOKE_PROPERTYPUT) != 0;
+				bool isPutRef = (flags & INVOKEKIND.INVOKE_PROPERTYPUTREF) != 0;
+
+				if (isPut || isPutRef)
+				{
+					// Must provide one named arg: DISPID_PROPERTYPUT
+					pNamed = Marshal.AllocHGlobal(sizeof(int));
+					Marshal.WriteInt32(pNamed, Com.DISPID_PROPERTYPUT);
+					dispParams.rgdispidNamedArgs = pNamed;
+					dispParams.cNamedArgs = 1;
+
+					// Also ensure rgvarg[0] is the VALUE, rgvarg[1..] are the indexers.
+					// The code above already wrote args reversed (last source arg first).
+					// For a set like dict.Item(key) = value, caller should pass args = [key, value].
+					// Reversed becomes [value, key] which is exactly what IDispatch requires.
+				}
+
+				Marshal.StructureToPtr(dispParams, pDispParams, false);
+
+				/*
+				for (int i = 0; i < argCount; i++)
+				{
+					int src = argCount - 1 - i; // due to reverse packing
+					VARIANT v = Marshal.PtrToStructure<VARIANT>(pArgs + i * Marshal.SizeOf<VARIANT>());
+					System.Diagnostics.Debug.WriteLine($"arg#{src}: vt=0x{v.vt:X} {(VarEnum)v.vt}, ptr=0x{(long)v.llVal:X}");
+				}
+				*/
+
+				// Call IDispatch::Invoke
+				int hr = vtbl->Invoke(
+					ptr,
+					dispId,
+					&iidNull,
+					Com.LOCALE_SYSTEM_DEFAULT,
+					(ushort)flags,
+					pDispParams,
+					pResult,
+					pExcepInfo,
+					pArgErr);
+
+				if (hr >= 0)
+				{
+					if (wantsResult)
+					{
+						// Extract result
+						var resultVariant = Marshal.PtrToStructure<VARIANT>(pResult);
+						result = VariantHelper.VariantToValue(resultVariant);
+					}
+
+					// Handle byref out parameters
+					if (modifiers != null && modifiers.Length > 0 && pArgs != 0)
+					{
+						for (int i = 0; i < argCount; i++)
+						{
+							int sourceIndex = argCount - 1 - i;
+							if (sourceIndex < argCount && modifiers[0][sourceIndex])
+							{
+								nint variantPtr = pArgs + (i * Marshal.SizeOf<VARIANT>());
+								var variant = Marshal.PtrToStructure<VARIANT>(variantPtr);
+
+								// If it's VT_BYREF, read the value back
+								if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0)
+								{
+									args[sourceIndex] = VariantHelper.ReadByRefVariant(variant);
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+					const int DISP_E_EXCEPTION = -2147352567;
+					if (hr != DISP_E_EXCEPTION)
+					{
+						result = Errors.ErrorOccurred($"COM Invoke failed with HRESULT: 0x{hr:X8}", DefaultErrorObject);
+					}
+					else
+					{
+						// Handle exception info
+						var excepInfo = Marshal.PtrToStructure<EXCEPINFO>(pExcepInfo);
+						if (excepInfo.bstrDescription != null)
+						{
+							result = Errors.ErrorOccurred($"COM Invoke failed: {excepInfo.bstrDescription}", DefaultErrorObject);
+						}
+						else
+						{
+							result = Errors.ErrorOccurred($"COM Invoke failed with HRESULT: 0x{hr:X8}", DefaultErrorObject);
+						}
+					}
+				}
+
+				return hr;
+			}
+			finally
+			{
+				if (pArgs != 0)
+				{
+					// Clean up variants
+					var dispParams = Marshal.PtrToStructure<DISPPARAMS>(pDispParams);
+					for (int i = 0; i < dispParams.cArgs; i++)
+					{
+						nint variantPtr = pArgs + (i * Marshal.SizeOf<VARIANT>());
+						var variant = Marshal.PtrToStructure<VARIANT>(variantPtr);
+
+						// Special handling for byref variants
+						if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0)
+						{
+							VariantHelper.CleanupByRefVariant(variant);
+						}
+
+						VariantHelper.VariantClear(variantPtr);
+					}
+					Marshal.FreeHGlobal(pArgs);
+				}
+
+				if (wantsResult && pResult != 0)
+				{
+					VariantHelper.VariantClear(pResult);
+					Marshal.FreeHGlobal(pResult);
+				}
+				Marshal.FreeHGlobal(pDispParams);
+				Marshal.FreeHGlobal(pExcepInfo);
+				Marshal.FreeHGlobal(pArgErr);
+				if (pNamed != 0)
+					Marshal.FreeHGlobal(pNamed);
+			}
+		}
+
+		private static object ConvertArgumentToExpectedType(object arg, Type expectedType)
+		{
+			if (arg == null)
+				return expectedType == typeof(string) ? "" : null;
+
+			var currentType = arg.GetType();
+			if (currentType == expectedType)
+				return arg;
+
+			try
+			{
+				if (expectedType == typeof(string))
+					return arg is long l ? l : arg.As();
+				else if (expectedType == typeof(int))
+					return arg.Ai();
+				else if (expectedType == typeof(uint))
+					return arg.Aui();
+				else if (expectedType == typeof(long))
+					return arg.Al();
+				else if (expectedType == typeof(ulong))
+					return (ulong)arg.Al();
+				else if (expectedType == typeof(double))
+					return arg.Ad();
+				else if (expectedType == typeof(float))
+					return (float)arg.Ad();
+				else if (expectedType == typeof(short))
+					return (short)arg.Al();
+				else if (expectedType == typeof(ushort))
+					return (ushort)arg.Aui();
+				else if (expectedType == typeof(bool))
+					return arg.Ab();
+				else if (expectedType == typeof(sbyte))
+					return (sbyte)arg.Ai();
+				else if (expectedType == typeof(byte))
+					return (byte)arg.Aui();
+				else
+					return Convert.ChangeType(arg, expectedType, CultureInfo.CurrentCulture);
+			}
+			catch
+			{
+				return arg; // Return original if conversion fails
+			}
+		}
+
+		internal nint GetIUnknownPtr() => Ptr is nint ip ? ip : new nint((long) Ptr);
+
+		private unsafe IDispatchExVtbl* TryGetDispatchExVtbl()
+		{
+			nint pUnk = GetIUnknownPtr(); // the same method you already use
+			if (pUnk == 0) return null;
+
+			nint pEx;
+			int hr = Marshal.QueryInterface(pUnk, in IID_IDispatchEx, out pEx);
+			if (hr < 0 || pEx == 0) return null;
+
+			// first pointer is vtable
+			nint vt = *(nint*)pEx;
+			// We can release pEx immediately; we only need the vtbl for calls.
+			Marshal.Release(pEx);
+			return (IDispatchExVtbl*)vt;
+		}
+
+		internal unsafe bool TryGetITypeInfo(out ITypeInfo typeInfo, uint index = 0)
+		{
+			typeInfo = null;
+			var vtbl = GetDispatchVtbl();
+			if (vtbl == null)
+				return false;
+			nint ptr = new nint((long)Ptr);
+			nint pTypeInfo = 0;
+			if (vtbl->GetTypeInfo(ptr, index, Com.LOCALE_SYSTEM_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
+			{
+				typeInfo = (ITypeInfo)Marshal.GetObjectForIUnknown(pTypeInfo);
+				Marshal.Release(pTypeInfo);
+				return true;
+			}
+			return false;
+		}
+
+		private static bool GetMatchingTypeInfo(ITypeInfo ti, int dispId, string methodName, INVOKEKIND preferredKinds, 
+			out Type[] expectedTypes,
+			out ParameterModifier[] modifiers,
+			out INVOKEKIND invokeKind)
+		{
+			expectedTypes = null; modifiers = null; invokeKind = 0;
+			bool found = false;
+			ti.GetTypeAttr(out var pTypeAttr);
+			var typeAttr = Marshal.PtrToStructure<TYPEATTR>(pTypeAttr);
+			try
+			{
+				for (int j = 0; j < typeAttr.cFuncs; j++)
+				{
+					ti.GetFuncDesc(j, out var pFuncDesc);
+					var funcDesc = Marshal.PtrToStructure<FUNCDESC>(pFuncDesc);
+					try
+					{
+						if (funcDesc.memid != dispId)
+							continue;
+
+						ti.GetDocumentation(funcDesc.memid, out var name, out _, out _, out _);
+						if (!name.Equals(methodName, StringComparison.OrdinalIgnoreCase))
+							continue;
+
+						ExtractParameterInfo(funcDesc,
+							out var candidateExpectedTypes,
+							out var candidateModifiers,
+							out var candidateInvokeKind);
+
+						if (!found || (preferredKinds & candidateInvokeKind) != 0)
+						{
+							expectedTypes = candidateExpectedTypes;
+							modifiers = candidateModifiers;
+							invokeKind = candidateInvokeKind;
+							if (found) return true; // immediate return condition
+						}
+						found = true;
+					}
+					finally
+					{
+						ti.ReleaseFuncDesc(pFuncDesc);
+					}
+				}
+			}
+			finally
+			{
+				ti.ReleaseTypeAttr(pTypeAttr);
+			}
+			return found;
+		}
+
+		private unsafe bool TryGetTypeInfo(
+			int dispId,
+			string methodName,
+			int paramCount, // kept for signature compatibility (not used here)
+			out Type[] expectedTypes,
+			out ParameterModifier[] modifiers,
+			out INVOKEKIND invokeKind,
+			INVOKEKIND preferredKinds // 0 => accept first found
+		)
+		{
+			// Try to get cached type info
+			nint ptr = Ptr is nint ip ? ip : new nint((long)Ptr);
+			if (Script.TheScript.ComMethodData.comMethodCache.TryGet(ptr, out var objDict))
+			{
+				if (objDict.TryGetValue($"{methodName}_{preferredKinds}", out var cmi))
+				{
+					expectedTypes = cmi.expectedTypes;
+					modifiers = cmi.modifiers;
+					invokeKind = cmi.invokeKind;
+					return true;
+				}
+			}
+			expectedTypes = null; modifiers = null; invokeKind = preferredKinds;
+
+			var vtbl = GetDispatchVtbl();
+			if (vtbl == null)
+				return false;
+
+			// Acquire a root ITypeInfo
+			nint pTypeInfo = 0;
+			ITypeInfo typeInfo = null;
+
+			if (vtbl->GetTypeInfo(ptr, 0, Com.LOCALE_SYSTEM_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
+			{
+				typeInfo = (ITypeInfo)Marshal.GetObjectForIUnknown(pTypeInfo);
+				Marshal.Release(pTypeInfo);
+			}
+			else
+			{
+				try
+				{
+					var comObject = Marshal.GetObjectForIUnknown(ptr);
+					try
+					{
+						if (comObject is IProvideClassInfo ipci)
+							_ = ipci.GetClassInfo(out typeInfo);
+					}
+					finally
+					{
+						if (Marshal.IsComObject(comObject)) Marshal.ReleaseComObject(comObject);
+					}
+				}
+				catch
+				{
+					// no type info available
+				}
+			}
+
+			if (typeInfo == null)
+				return false;
+
+			try
+			{
+				// Prefer scanning the containing type library to see all related types
+				typeInfo.GetContainingTypeLib(out var typeLib, out _);
+				if (typeLib != null)
+				{
+					try
+					{
+						int count = typeLib.GetTypeInfoCount();
+						for (int i = 0; i < count; i++)
+						{
+							ITypeInfo ti = null;
+							try
+							{
+								typeLib.GetTypeInfo(i, out ti);
+								if (ti == null) continue;
+								if (GetMatchingTypeInfo(ti, dispId, methodName, preferredKinds, out expectedTypes, out modifiers, out invokeKind))
+									return true;
+							}
+							finally
+							{
+								if (ti != null) Marshal.ReleaseComObject(ti);
+							}
+						}
+					}
+					finally
+					{
+						Marshal.ReleaseComObject(typeLib);
+					}
+				}
+				else
+				{
+					// Fallback: only this one ITypeInfo
+					if (GetMatchingTypeInfo(typeInfo, dispId, methodName, preferredKinds, out expectedTypes, out modifiers, out invokeKind))
+						return true;
+				}
+			}
+			finally
+			{
+				if (Marshal.IsComObject(typeInfo)) Marshal.ReleaseComObject(typeInfo);
+
+				// Cache type info if we got it
+				if (expectedTypes != null || modifiers != null)
+				{
+					_ = Script.TheScript.ComMethodData.comMethodCache
+						.GetOrAdd(ptr, key => new Dictionary<string, ComMethodInfo>(StringComparer.OrdinalIgnoreCase))
+						.GetOrAdd($"{methodName}_{preferredKinds}", new ComMethodInfo
+						{
+							expectedTypes = expectedTypes,
+							modifiers = modifiers,
+							invokeKind = invokeKind
+						});
+				}
+			}
+
+			invokeKind = preferredKinds;
+			return false;
+		}
+
+
+
+		// Helper method to search a single ITypeInfo
+		private static bool TryFindMethodInTypeInfo(ITypeInfo typeInfo, int dispId, string methodName,
+												   out Type[] expectedTypes, out ParameterModifier[] modifiers, out INVOKEKIND invokeKind)
+		{
+			invokeKind = 0;
+			expectedTypes = null;
+			modifiers = null;
+
+			try
+			{
+				typeInfo.GetTypeAttr(out var pTypeAttr);
+				var typeAttr = Marshal.PtrToStructure<TYPEATTR>(pTypeAttr);
+
+				try
+				{
+					for (int i = 0; i < typeAttr.cFuncs; i++)
+					{
+						typeInfo.GetFuncDesc(i, out var pFuncDesc);
+						var funcDesc = Marshal.PtrToStructure<FUNCDESC>(pFuncDesc);
+
+						try
+						{
+							if (funcDesc.memid == dispId)
+							{
+								typeInfo.GetDocumentation(funcDesc.memid, out var name,
+									out var docString, out var helpContext, out var helpFile);
+
+								if (name.Equals(methodName, StringComparison.OrdinalIgnoreCase))
+								{
+									ExtractParameterInfo(funcDesc, out expectedTypes, out modifiers, out invokeKind);
+									return true;
+								}
+							}
+						}
+						finally
+						{
+							typeInfo.ReleaseFuncDesc(pFuncDesc);
+						}
+					}
+				}
+				finally
+				{
+					typeInfo.ReleaseTypeAttr(pTypeAttr);
+				}
+			}
+			catch
+			{
+				// Ignore
+			}
+
+			return false;
+		}
+
+		private static void ExtractParameterInfo(FUNCDESC funcDesc, out Type[] expectedTypes, out ParameterModifier[] modifiers, out INVOKEKIND invokeKind)
+		{
+			invokeKind = funcDesc.invkind;
+			int paramCount = funcDesc.cParams;
+			if (paramCount == 0)
+			{
+				expectedTypes = null; modifiers = null;
+				return;
+			}
+			expectedTypes = new Type[paramCount];
+			var modifier = new ParameterModifier(paramCount);
+
+			for (int i = 0; i < paramCount; i++)
+			{
+				var pElemDesc = new nint(funcDesc.lprgelemdescParam.ToInt64() + (i * Marshal.SizeOf<ELEMDESC>()));
+				var elem = Marshal.PtrToStructure<ELEMDESC>(pElemDesc);
+
+				// Look at flags to determine by-ref semantics.
+				var flags = (PARAMFLAG)elem.desc.paramdesc.wParamFlags;
+				bool isOut = (flags & PARAMFLAG.PARAMFLAG_FOUT) != 0;
+
+				// Base VARTYPE
+				var vt = (VarEnum)elem.tdesc.vt;
+
+				// Special case: many DISP TLBs use VT_PTR -> VT_VARIANT for *by-value* VARIANTs.
+				if (vt == VarEnum.VT_PTR && elem.tdesc.lpValue != 0)
+				{
+					var pointed = Marshal.PtrToStructure<TYPEDESC>(elem.tdesc.lpValue);
+					var pvt = (VarEnum)pointed.vt;
+
+					// This is BYREF semantics in IDispatch
+					modifier[i] = true;
+
+					if (pvt == VarEnum.VT_SAFEARRAY)
+						expectedTypes[i] = typeof(object[]);        // SAFEARRAY byref
+					else if (pvt == VarEnum.VT_DISPATCH || pvt == VarEnum.VT_UNKNOWN)
+						expectedTypes[i] = typeof(object);
+					else
+						expectedTypes[i] = VariantHelper.VarEnumToCLRType(pvt);
+					continue;
+				}
+
+				// Regular case
+				expectedTypes[i] = VariantHelper.VarEnumToCLRType(vt);
+				modifier[i] = isOut;
+			}
+
+			modifiers = new[] { modifier };
+		}
+
 	}
 }
 

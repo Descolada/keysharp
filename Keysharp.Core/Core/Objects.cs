@@ -68,6 +68,7 @@
 								   StringComparison.OrdinalIgnoreCase))
 				{
 					// we found a built‑in prototype object
+					if (t == typeof(Class)) return typeof(KeysharpObject);
 					return t;
 				}
 
@@ -155,8 +156,6 @@
 						op[name] = new OwnPropsDesc();
 						op[name].MergeOwnPropsValues(kso.op);
 					}
-
-					kso.op.Clear();
 				}
 			}
 			else

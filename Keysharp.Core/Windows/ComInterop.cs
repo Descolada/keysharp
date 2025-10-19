@@ -280,7 +280,7 @@ namespace Keysharp.Core.Common.ObjectBase
 				return Com.ConvertToCOMType(Script.GetPropertyValue(target, name));
 
 			// property setter?
-			if ((invokeAttr & BindingFlags.SetProperty) != 0)
+			if ((invokeAttr & BindingFlags.SetProperty) != 0 || (invokeAttr & BindingFlags.PutDispProperty) != 0)
 			{
 				Script.SetPropertyValue(target, name, argCount > 0 ? usedArgs[0] : null);
 				return null;

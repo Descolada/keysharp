@@ -1156,14 +1156,16 @@ namespace Keysharp.Core
 				var len = long.MinValue;
 				var encoding = Encoding.Unicode;
 				nint ptr = 0;
-				Buffer buf = null;
+				Any buf = null;
 
 				if (obj.Length > 1)
 				{
-					buf = obj[1] as Buffer;
+					buf = obj[1] as Any;
 
-					if (obj[1] is IPointable)
-						ptr = (nint)buf.Ptr;
+					if (obj[1] is IPointable ip)
+						ptr = (nint)ip.Ptr;
+					else if (buf != null && Reflections.GetPtrProperty(buf) is long lp)
+						ptr = new nint(lp);
 					else if (obj[1] is long l)
 						ptr = new nint(l);
 					else if (obj[1] is string ec)
@@ -1195,7 +1197,7 @@ namespace Keysharp.Core
 
 				if (buf != null)
 				{
-					written = (int)Math.Min((long)buf.Size, bytes.Length);
+					written = (int)Math.Min(TryGetPropertyValue(out object sz, buf, "Size") ? sz.Al() : bytes.Length, bytes.Length);
 				}
 				else
 				{
@@ -1207,7 +1209,7 @@ namespace Keysharp.Core
 					else if (ptr == 0)
 						return bytes.Length;
 					else if (len == long.MinValue)
-						return (long)Errors.ValueErrorOccurred($"Length was not specified, but the target was not a Buffer object. Either pass a Buffer, or specify a Length.", null, DefaultErrorLong);
+						len = bytes.Length;
 
 					written = Math.Min((int)len, bytes.Length);
 				}

@@ -15,6 +15,8 @@ namespace Keysharp.Core.COM
 		internal const int LOCALE_SYSTEM_DEFAULT = 0x800;
 		internal static HashSet<ComEvent> comEvents = [];
 
+		internal const int DISPID_PROPERTYPUT = -3;
+
 		[DllImport(WindowsAPI.ole32, CharSet = CharSet.Unicode)]
 		public static extern int CoCreateInstance(ref Guid clsid,
 				[MarshalAs(UnmanagedType.IUnknown)] object inner,
@@ -29,31 +31,10 @@ namespace Keysharp.Core.COM
 			if (ret is long ll && ll < int.MaxValue)
 				ret = (int)ll;
 			else if (ret is bool bl)
-				ret = bl ? 1 : 0;
+				ret = bl ? -1 : 0;
 
 			return ret;
 		}
-
-		internal static Type ConvertVarTypeToCLRType(VarEnum vt) =>
-
-		vt switch
-	{
-			VarEnum.VT_I1 => typeof(sbyte),
-							  VarEnum.VT_UI1 => typeof(byte),
-							  VarEnum.VT_I2 => typeof(short),
-							  VarEnum.VT_UI2 => typeof(ushort),
-							  VarEnum.VT_I4 or VarEnum.VT_INT => typeof(int),
-							  VarEnum.VT_UI4 or VarEnum.VT_UINT or VarEnum.VT_ERROR => typeof(uint),
-							  VarEnum.VT_I8 => typeof(long),
-							  VarEnum.VT_UI8 => typeof(ulong),
-							  VarEnum.VT_R4 => typeof(float),
-							  VarEnum.VT_R8 or VarEnum.VT_DATE => typeof(double), //should VT_DATE be converted to DateTime?
-							  VarEnum.VT_DECIMAL or VarEnum.VT_CY => typeof(decimal),
-							  VarEnum.VT_BOOL => typeof(bool),
-							  VarEnum.VT_BSTR => typeof(string),
-							  _ => typeof(object),
-		};
-
 
 		public static object ComObjConnect(object comObj, object prefixOrSink = null, object debug = null)
 		{
@@ -104,13 +85,9 @@ namespace Keysharp.Core.COM
 
 		public static object ComObjFromPtr(object dispPtr)
 		{
-			if (dispPtr is long l)
-				dispPtr = Marshal.GetObjectForIUnknown(new nint(l));
-
-			if (dispPtr is IDispatch id)
-				return new ComObject(VarEnum.VT_DISPATCH, id);
-			else if (Marshal.IsComObject(dispPtr))
-				return new ComValue(VarEnum.VT_UNKNOWN, dispPtr);
+			var ptr = Reflections.GetPtrProperty(dispPtr);
+			if (ptr != 0L)
+				return new ComObject(VarEnum.VT_DISPATCH, ptr);
 
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
 		}
@@ -121,12 +98,10 @@ namespace Keysharp.Core.COM
 		{
 			nint ptr;
 
-			if (comObj is KeysharpObject kso && Script.TryGetPropertyValue(out object kptr, kso, "ptr"))
+			if (comObj is Any kso && Script.TryGetPropertyValue(out object kptr, kso, "ptr"))
 				comObj = kptr;
 
-			if (Marshal.IsComObject(comObj))
-				ptr = Marshal.GetIUnknownForObject(comObj);
-			else if (comObj is long l)
+			if (comObj is long l)
 				ptr = new nint(l);
 			else
 				return Errors.ValueErrorOccurred($"The passed in object {comObj} of type {comObj.GetType()} was not a ComObject or a raw COM interface.");
@@ -188,9 +163,11 @@ namespace Keysharp.Core.COM
 					return (long)co.vt;
 				}
 
+				var rcw = Marshal.GetObjectForIUnknown((nint)(long)co.Ptr);
+
 				if (s.StartsWith('c'))
 				{
-					if (co.Ptr is IProvideClassInfo ipci)
+					if (rcw is IProvideClassInfo ipci)
 						_ = ipci.GetClassInfo(out typeInfo);
 
 					if (s == "class")
@@ -198,39 +175,34 @@ namespace Keysharp.Core.COM
 					else if (s == "clsid")
 						s = "iid";
 				}
-				else if (co.Ptr is IDispatch idisp)
+				else if (co.vt == VarEnum.VT_DISPATCH && co.TryGetITypeInfo(out typeInfo))
+				{
+				}
+				else if (rcw is IDispatch idisp)
 					_ = idisp.GetTypeInfo(0, 0, out typeInfo);
+				if (Marshal.IsComObject(rcw)) Marshal.ReleaseComObject(rcw);
 
 				if (typeInfo != null)
 				{
-					if (s == "name")
+					try
 					{
-						typeInfo.GetDocumentation(-1, out var typeName, out var documentation, out var helpContext, out var helpFile);
-						return typeName;
+						if (s == "name")
+						{
+							typeInfo.GetDocumentation(-1, out var typeName, out var documentation, out var helpContext, out var helpFile);
+							return typeName;
+						}
+						else if (s == "iid")
+						{
+							typeInfo.GetTypeAttr(out var typeAttr);
+							var attr = Marshal.PtrToStructure<TYPEATTR>(typeAttr);
+							var guid = attr.guid.ToString("B").ToUpper();
+							typeInfo.ReleaseTypeAttr(typeAttr);
+							return guid;
+						}
 					}
-					else if (s == "iid")
+					finally
 					{
-						typeInfo.GetTypeAttr(out var typeAttr);
-						var attr = Marshal.PtrToStructure<TYPEATTR>(typeAttr);
-						var guid = attr.guid.ToString("B").ToUpper();
-						typeInfo.ReleaseTypeAttr(typeAttr);
-						return guid;
-					}
-				}
-			}
-			else if (Marshal.IsComObject(comObj))
-			{
-				if (comObj is IDispatch dispatch)
-				{
-					var ret = dispatch.GetTypeInfo(0, 0, out var typeInfo);
-
-					if (typeInfo != null)
-					{
-						typeInfo.GetTypeAttr(out var pTypeAttr);
-						var typeAttr = Marshal.PtrToStructure<TYPEATTR>(pTypeAttr);
-						var vtType = typeAttr.tdescAlias.vt;
-						typeInfo.ReleaseTypeAttr(pTypeAttr);
-						return (long)vtType;
+						if (Marshal.IsComObject(typeInfo)) Marshal.ReleaseComObject(typeInfo);
 					}
 				}
 			}
@@ -276,18 +248,8 @@ namespace Keysharp.Core.COM
 
 		public static object ObjRelease(object ptr)
 		{
-			var co = ptr as ComValue;
-
-			if (co != null)
-			{
+			if (ptr is ComValue co)
 				ptr = co.Ptr;
-
-				if (Marshal.IsComObject(ptr))
-				{
-					ptr = Marshal.GetIUnknownForObject(ptr); // Make sure we decrease the COM object not RCW
-					_ = Marshal.Release((nint)ptr);
-				}
-			}
 
 			if (ptr is long l)
 				ptr = new nint(l);
@@ -303,7 +265,6 @@ namespace Keysharp.Core.COM
 		public static object ComCall(object index, object comObj, params object[] parameters)
 		{
 			var idx = index.Ai();
-			var indexPlus1 = idx + 1;//Index is zero based, so add 1.
 
 			if (idx < 0)
 				return Errors.ValueErrorOccurred($"Index value of {idx} was less than zero.");
@@ -365,51 +326,11 @@ namespace Keysharp.Core.COM
 			return ret;
 		}
 
-		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "VariantChangeTypeEx")]
-		internal static partial int VariantChangeTypeEx(nint pvargDest, nint pvarSrc, int lcid, ushort wFlags, ushort vt);
-
-		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "VariantInit")]
-		internal static partial void VariantInit(nint pvar);
-
 		[LibraryImport(WindowsAPI.ole32, EntryPoint = "CLSIDFromProgIDEx", StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial int CLSIDFromProgIDEx(string lpszProgID, out Guid clsid);
 
 		[LibraryImport(WindowsAPI.ole32, EntryPoint = "CLSIDFromString", StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial int CLSIDFromString(string lpsz, out Guid guid);
-
-		internal static int VariantChangeTypeEx(out object dest, object src, int lcid, ushort wFlags, ushort vt /* VARTYPE */)
-		{
-			nint pSrc = Marshal.AllocHGlobal(16 * 2);   // big enough for VARIANT (x86/x64). Oversize for simplicity.
-			nint pDst = Marshal.AllocHGlobal(16 * 2);
-			try
-			{
-				VariantInit(pSrc);
-				VariantInit(pDst);
-
-				// Fill native VARIANT from managed object
-				Marshal.GetNativeVariantForObject(src, pSrc);
-
-				int hr = VariantChangeTypeEx(pDst, pSrc, lcid, wFlags, vt);
-				if (hr != 0) // FAILED(hr)
-				{  
-					dest = null;
-					return hr;
-				}
-
-				// Convert resulting native VARIANT back to managed object
-				dest = Marshal.GetObjectForNativeVariant(pDst);
-
-			}
-			finally
-			{
-				// Clean up native VARIANTs
-				_ = VariantHelper.VariantClear(pSrc);
-				_ = VariantHelper.VariantClear(pDst);
-				Marshal.FreeHGlobal(pSrc);
-				Marshal.FreeHGlobal(pDst);
-			}
-			return 0;
-		}
 
 		/// <summary>
 		/// This used to be a built in function in earlier versions of .NET but now needs to be added manually.
@@ -424,12 +345,17 @@ namespace Keysharp.Core.COM
 			if (!Guid.TryParse(progId, out var clsid))
 				_ = CLSIDFromProgIDEx(progId, out clsid);
 
-			GetActiveObject(ref clsid, 0, out var obj);
-			return new ComValue(13L, obj);
+			GetActiveObject(ref clsid, 0, out var pUnk);
+			if (Marshal.QueryInterface(pUnk, in IID_IDispatch, out nint pDisp) == 0)
+			{
+				Marshal.Release(pUnk);
+				return new ComObject(9L, (long)pDisp);
+			}
+			return new ComValue(13L, (long)pUnk);
 		}
 
 		[DllImport(WindowsAPI.oleaut, CharSet = CharSet.Unicode, PreserveSig = false)]
-		internal static extern void GetActiveObject(ref Guid rclsid, nint pvReserved, [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
+		internal static extern void GetActiveObject(ref Guid rclsid, nint pvReserved, out nint ppunk);
 	}
 }
 #endif

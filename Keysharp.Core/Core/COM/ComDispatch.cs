@@ -223,7 +223,7 @@ namespace Keysharp.Core.COM
 				{
 					connection.Unadvise(cookie);
 					cookie = 0;
-					_ = Marshal.ReleaseComObject(connection);
+					//_ = Marshal.ReleaseComObject(connection);
 				}
 
 				disposedValue = true;

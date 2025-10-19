@@ -122,14 +122,14 @@ namespace Keysharp.Scripting
 					if (TryGetOwnPropsMap(kso, key, out var val))
 					{
                         //Pass the ownprops map so that Invoke() knows to pass the parent object (item) as the first argument.
-                        if (val.Call != null && val.Call is IFuncObj ifocall)//Call must come first.
-                            return (item, ifocall);
-                        else if (val.Get != null && val.Get is IFuncObj ifoget)
-                            return (item, ifoget.Call(item));//No params passed in, just call as is.
+                        if (val.Call != null)//Call must come first.
+                            return (item, val.Call);
+                        else if (val.Get != null)
+                            return (item, Invoke(val.Get, "Call", item));//No params passed in, just call as is.
                         else if (val.Value != null)
                             return (item, val.Value);
-                        else if (val.Set != null && val.Set is IFuncObj ifoset)
-                            return (item, ifoset);
+                        else if (val.Set != null)
+                            return (item, val.Set);
 
                         return Errors.ErrorOccurred(err = new Error($"Attempting to get method or property {key} on object {val} failed.")) ? throw err : (null, null);
                     } else if (invokeMeta && TryGetOwnPropsMap(kso, "__Call", out var protoCall) && protoCall.Call != null && protoCall.Call is IFuncObj ifoprotocall)
@@ -153,8 +153,8 @@ namespace Keysharp.Scripting
 				else if (item is ComValue co)
 				{
 					var ptr = co.Ptr;
-					if (ptr != null && Marshal.IsComObject(ptr))
-						return (ptr, new ComMethodPropertyHolder(key));
+					if (ptr != null)
+						return (co, new ComMethodPropertyHolder(key));
 				}
 #endif
 				else if (item is not Any)
@@ -247,7 +247,8 @@ namespace Keysharp.Scripting
 #if WINDOWS
 				if (item is ComValue co)
 				{
-					return TryGetPropertyValue(out value, co.Ptr, namestr, args);
+					value = co.RawGetProperty(namestr, args);
+					return true;
 				}
 				else if (item != null && Marshal.IsComObject(item))
 				{
@@ -598,8 +599,9 @@ namespace Keysharp.Scripting
 				//precedence in such cases.
 				else if (item is ComValue co && co.Ptr != null)
 				{
+					co.RawSetProperty(namestr, args);
 					//_ = co.Ptr.GetType().InvokeMember(namestr, System.Reflection.BindingFlags.SetProperty, null, item, new object[] { value });//Unwrap.
-					_ = SetPropertyValue(co.Ptr, namestr, args);
+					//_ = SetPropertyValue(co.Ptr, namestr, args);
 					return value;
 				}
 				else if (Marshal.IsComObject(item))

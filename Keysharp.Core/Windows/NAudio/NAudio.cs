@@ -202,7 +202,7 @@ namespace Keysharp.Core.Windows
 		[FieldOffset(8)] internal nint pointerValue; //LPWSTR
 
 		//IUnknown* punkVal;
-		/*  IDispatch* pdispVal;
+		/*  IDispatch* ptrVal;
 		    IStream* pStream;
 		    IStorage* pStorage;
 		    LPVERSIONEDSTREAM pVersionedStream;
@@ -246,9 +246,9 @@ namespace Keysharp.Core.Windows
 		    DATE* pdate;
 		    BSTR* pbstrVal;
 		    IUnknown** ppunkVal;
-		    IDispatch** ppdispVal;
-		    LPSAFEARRAY* pparray;
-		    PROPVARIANT* pvarVal;
+		    IDispatch** pptrVal;
+		    LPSAFEARRAY* ptrVal;
+		    PROPVARIANT* ptrVal;
 		*/
 
 		/// <summary>

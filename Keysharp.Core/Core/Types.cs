@@ -181,6 +181,18 @@ namespace Keysharp.Core
 		public static long IsSet(object value) => value != null ? 1L : 0L;
 
 		/// <summary>
+		/// Returns 1 if the specified VarRef target has been assigned a value, meaning it is not null, else 0.
+		/// </summary>
+		/// <param name="value">The object to examine.</param>
+		/// <returns>1 if value is not null, else 0.</returns>
+		public static long IsSetRef(object value)
+		{
+			Any val = value as Any;
+			if (val == null) return (long)Errors.ErrorOccurred("IsSetRef requires a VarRef parameter.", DefaultErrorLong);
+			return TryGetPropertyValue(out object refvalue, val, "__Value") && refvalue != null ? 1L : 0L;
+		}
+
+		/// <summary>
 		/// 1 if value is a string and is empty or contains only whitespace consisting of the following characters, else false:<br/>
 		/// space (<see cref="A_Space"/> or `s), tab (<see cref="A_Tab"/> or `t), linefeed (`n), return (`r), vertical tab (`v), and formfeed (`f).
 		/// </summary>

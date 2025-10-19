@@ -219,9 +219,6 @@ namespace Keysharp.Main
 				string result = null;
 				(arr, result) = ch.CompileCodeToByteArray([scriptName], namenoext, exeDir, minimalexeout);
 
-				if (arr == null)
-					return Message(result, true);
-
 				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
 				if (codeout)
 				{
@@ -242,6 +239,9 @@ namespace Keysharp.Main
 						}
 					});
 				}
+
+				if (arr == null)
+					return Message(result, true);
 
 				if (exeout)
 				{

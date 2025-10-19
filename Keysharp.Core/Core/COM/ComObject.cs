@@ -46,28 +46,36 @@ namespace Keysharp.Core
 				if (hr < 0)
 					break;
 
+				nint ptr = 0;
+
 				//If it was a specific interface, make sure we are pointing to that interface, otherwise the vtable
 				//will be off in ComCall() and the program will crash.
-				if (id != Guid.Empty && id != Dispatcher.IID_IDispatch)
+				if (id != Guid.Empty && id != Com.IID_IDispatch)
 				{
 					var iptr = Marshal.GetIUnknownForObject(inst);
-
-					if (Marshal.QueryInterface(iptr, in id, out var ptr) >= 0)
-						inst = (long)ptr;
-
-					_ = Marshal.Release(iptr);
+					if (Marshal.QueryInterface(iptr, in id, out ptr) != 0)
+						return Errors.ErrorOccurred("Unable to query for the requested interface");
+					Marshal.Release(iptr);
+				} 
+				else if (id == Com.IID_IDispatch)
+				{
+					ptr = Marshal.GetIDispatchForObject(inst);
+				} else
+				{
+					ptr = Marshal.GetIUnknownForObject(inst);
 				}
+				if (Marshal.IsComObject(inst)) Marshal.ReleaseComObject(inst);
 
 				return id == Com.IID_IDispatch ?
 					new ComObject()
 					{
 						vt = VarEnum.VT_DISPATCH,
-						Ptr = inst
+						Ptr = ptr
 					}
 					: new ComValue()
 					{
 						vt = VarEnum.VT_UNKNOWN,
-						Ptr = inst
+						Ptr = ptr
 					};
 			}
 

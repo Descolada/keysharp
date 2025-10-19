@@ -148,7 +148,7 @@ namespace Keysharp.Core
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
+				Script.SetPropertyValue(pos, "__Value", Current.Item2);
 				return true;
 			}
 
@@ -430,13 +430,6 @@ namespace Keysharp.Core
 
 		internal object GetElementAtIndices(int[] idx)
 		{
-			if (_baseType == VarEnum.VT_VARIANT)
-			{
-				int hrVar = OleAuto.SafeArrayGetElement(_psa, idx, out object val);
-				return Errors.OSErrorOccurredForHR(hrVar, val);
-			}
-
-			// Non-VARIANT element types: use pointer variant and marshal manually.
 			int bytes = ByteSizeForVarType(_baseType);
 			IntPtr pv = Marshal.AllocCoTaskMem(bytes);
 
@@ -447,7 +440,7 @@ namespace Keysharp.Core
 				if (hr < 0)
 					return Errors.OSErrorOccurredForHR(hr);
 
-				return ReadVariant(pv, _baseType);
+				return VariantHelper.ReadVariant(pv, _baseType);
 			}
 			finally
 			{
@@ -455,11 +448,66 @@ namespace Keysharp.Core
 			}
 		}
 
+		// Build a VARIANT for storing into a VT_VARIANT SAFEARRAY element.
+		// Returns a flag telling you whether it's safe to VariantClear(&v) afterwards.
+		private static VARIANT BuildVariantForElement(object value, out bool canClearAfterPut)
+		{
+			// Default: we can clear (to release BSTRs/interfaces we allocate)
+			canClearAfterPut = true;
+
+			if (value is null)
+				return new VARIANT { vt = (ushort)VarEnum.VT_EMPTY };
+
+			// If it's a ComObjArray, encode as VT_ARRAY|baseType pointing to its SAFEARRAY.
+			// DO NOT clear this later, or you'd destroy the caller's array.
+			if (value is ComObjArray coa)
+			{
+				canClearAfterPut = false; // we don't own coa._psa
+				return new VARIANT
+				{
+					vt = (ushort)(VarEnum.VT_ARRAY | coa._baseType),
+					ptrVal = coa._psa
+				};
+			}
+
+			// If it's a ComValue that already represents a SAFEARRAY, use it as-is (we don't own it).
+			if (value is ComValue cv && (cv.vt & VarEnum.VT_ARRAY) != 0)
+			{
+				nint psa = cv.Ptr is nint ip ? ip
+						 : cv.Ptr is long lp ? (nint)lp
+						 : 0;
+				canClearAfterPut = false; // don't destroy external SAFEARRAY
+				return new VARIANT
+				{
+					vt = (ushort)cv.vt,
+					ptrVal = psa
+				};
+			}
+
+			// Otherwise, let your existing builder create a proper VARIANT.
+			// This allocates BSTRs / grabs interface pointers etc.
+			// We DO want to VariantClear this after SafeArrayPutElement to avoid leaks.
+			return VariantHelper.ValueToVariant(value);
+		}
+
 		internal int PutElementAtIndices(int[] idx, object value)
 		{
 			// VT_VARIANT arrays, let the marshaller coerce the type
 			if (_baseType == VarEnum.VT_VARIANT)
-				return OleAuto.SafeArrayPutElement(_psa, idx, value);
+			{
+				unsafe
+				{
+					VARIANT v = BuildVariantForElement(value, out bool canClear);
+					int hr = OleAuto.SafeArrayPutElementPtr(_psa, idx, (nint)(&v));
+
+					// Only clear when safe: never clear a VARIANT that aliases a caller-owned SAFEARRAY.
+					if (canClear)
+						_ = VariantHelper.VariantClear((nint)(&v));
+
+					_ = Errors.OSErrorOccurredForHR(hr);
+					return hr;
+				}
+			}
 
 			// Pointer element types: pass the pointer value directly (no staging buffer).
 			if (_baseType == VarEnum.VT_UNKNOWN || _baseType == VarEnum.VT_DISPATCH)
@@ -553,6 +601,8 @@ namespace Keysharp.Core
 				case VarEnum.VT_UNKNOWN:
 				case VarEnum.VT_DISPATCH:
 					return IntPtr.Size; // pointer-sized storage
+				case VarEnum.VT_VARIANT:
+					return Marshal.SizeOf<VARIANT>();
 				default:
 					// Fallback for other pointer-like types if ever needed.
 					return IntPtr.Size;

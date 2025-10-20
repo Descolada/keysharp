@@ -283,7 +283,7 @@ namespace Keysharp.Core
 					return v;
 
 				case VarEnum.VT_UNKNOWN:
-					 if (Ptr is long ulp) v.ptrVal = (nint)ulp;
+					if (Ptr is long ulp) v.ptrVal = (nint)ulp;
 					else if (Ptr != null) v.ptrVal = Marshal.GetIUnknownForObject(Ptr);
 					return v;
 
@@ -496,7 +496,7 @@ namespace Keysharp.Core
 						}
 					}
 					return hr;
-				}				
+				}
 			}
 			finally
 			{
@@ -762,7 +762,7 @@ namespace Keysharp.Core
 			}
 		}
 
-		internal nint GetIUnknownPtr() => Ptr is nint ip ? ip : new nint((long) Ptr);
+		internal nint GetIUnknownPtr() => Ptr is nint ip ? ip : new nint((long)Ptr);
 
 		private unsafe IDispatchExVtbl* TryGetDispatchExVtbl()
 		{
@@ -797,7 +797,7 @@ namespace Keysharp.Core
 			return false;
 		}
 
-		private static bool GetMatchingTypeInfo(ITypeInfo ti, int dispId, string methodName, INVOKEKIND preferredKinds, 
+		private static bool GetMatchingTypeInfo(ITypeInfo ti, int dispId, string methodName, INVOKEKIND preferredKinds,
 			out Type[] expectedTypes,
 			out ParameterModifier[] modifiers,
 			out INVOKEKIND invokeKind)
@@ -819,7 +819,10 @@ namespace Keysharp.Core
 
 						ti.GetDocumentation(funcDesc.memid, out var name, out _, out _, out _);
 						if (!name.Equals(methodName, StringComparison.OrdinalIgnoreCase))
+						{
+							if (found) return true; // assume that no additional overloads follow
 							continue;
+						}
 
 						ExtractParameterInfo(funcDesc,
 							out var candidateExpectedTypes,
@@ -936,7 +939,7 @@ namespace Keysharp.Core
 					}
 					finally
 					{
-						Marshal.ReleaseComObject(typeLib);
+						if (Marshal.IsComObject(typeLib)) Marshal.ReleaseComObject(typeLib);
 					}
 				}
 				else
@@ -1053,8 +1056,8 @@ namespace Keysharp.Core
 					var pointed = Marshal.PtrToStructure<TYPEDESC>(elem.tdesc.lpValue);
 					var pvt = (VarEnum)pointed.vt;
 
-					// This is BYREF semantics in IDispatch
-					modifier[i] = true;
+					// Only mark byref if it's actually an OUT param.
+					modifier[i] = isOut;
 
 					if (pvt == VarEnum.VT_SAFEARRAY)
 						expectedTypes[i] = typeof(object[]);        // SAFEARRAY byref

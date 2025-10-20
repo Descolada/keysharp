@@ -152,9 +152,7 @@ namespace Keysharp.Scripting
 				//COM object that have the same name in ComObject, such as Ptr, __Delete() or Dispose().
 				else if (item is ComValue co)
 				{
-					var ptr = co.Ptr;
-					if (ptr != null)
-						return (co, new ComMethodPropertyHolder(key));
+					return (co, new ComMethodPropertyHolder(key));
 				}
 #endif
 				else if (item is not Any)

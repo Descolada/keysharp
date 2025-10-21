@@ -264,24 +264,46 @@ namespace Keysharp.Scripting
 
 			public override object VisitVarRefExpression([NotNull] VarRefExpressionContext context)
 			{
-				if (context.primaryExpression() is IdentifierExpressionContext iec)
-                {
-					SyntaxNode result = mainVisitor.Visit(iec);
-					if (result is IdentifierNameSyntax identifierNameSyntax)
-						_ = parser.MaybeAddVariableDeclaration(identifierNameSyntax.Identifier.Text);
-				}
+				MaybeAddExpressionDeclaration(context.primaryExpression());
                 return base.VisitVarRefExpression(context);
 			}
 
 			public override object VisitAssignmentExpression([NotNull] AssignmentExpressionContext context)
 			{
-                if (context.left is IdentifierExpressionContext iec)
-                {
-                    SyntaxNode result = mainVisitor.Visit(iec);
-                    if (result is IdentifierNameSyntax identifierNameSyntax)
-                        _ = parser.MaybeAddVariableDeclaration(identifierNameSyntax.Identifier.Text);
-                }
+                MaybeAddExpressionDeclaration(context.left);
 				return base.VisitAssignmentExpression(context);
+			}
+
+			public override object VisitCoalesceExpression([NotNull] CoalesceExpressionContext context)
+			{
+				MaybeAddExpressionDeclaration(context.left);
+				return base.VisitCoalesceExpression(context);
+			}
+			public override object VisitCoalesceExpressionDuplicate([NotNull] CoalesceExpressionDuplicateContext context)
+			{
+				MaybeAddExpressionDeclaration(context.left);
+				return base.VisitCoalesceExpressionDuplicate(context);
+			}
+
+            private void MaybeAddExpressionDeclaration(ParserRuleContext context)
+            {
+                IdentifierExpressionContext iec = null;
+                while (context != null && context is not ITerminalNode) {
+                    if (context is IdentifierExpressionContext iec2)
+                    {
+                        iec = iec2;
+                        break;
+                    }
+                    if (context.ChildCount != 1) break;
+                    context = context.GetChild(0) as ParserRuleContext;
+                }
+
+				if (iec != null)
+				{
+					SyntaxNode result = mainVisitor.Visit(iec);
+					if (result is IdentifierNameSyntax identifierNameSyntax)
+						_ = parser.MaybeAddVariableDeclaration(identifierNameSyntax.Identifier.Text);
+				}
 			}
 
 			public override object VisitAssignmentExpressionDuplicate([NotNull] AssignmentExpressionDuplicateContext context)

@@ -223,6 +223,19 @@
 			return DefaultObject;
 		}
 
+		internal override List<Any> GetEnumerableMembersOrEmpty()
+		{
+			var list = base.GetEnumerableMembersOrEmpty();
+			if (array != null)
+			{
+				for (var i = 0; i < array.Count; i++)
+				{
+					if (array[i] is Any a) list.Add(a);
+				}
+			}
+			return list;
+		}
+
 		/// <summary>
 		/// The implementation for <see cref="IList.Add"/> which adds a single element to the end of the array.<br/>
 		/// This is more efficient than using <see cref="Push"/> because the parameter

@@ -63,6 +63,8 @@ namespace Keysharp.Scripting
 
 				foreach (var method in methods)
 				{
+					if (method.GetCustomAttribute<PublicForTestOnly>() != null) continue;
+
 					var methodName = method.Name;
 
 					bool isStatic = isBuiltin && method.IsStatic;
@@ -138,6 +140,8 @@ namespace Keysharp.Scripting
 
 				foreach (var prop in properties)
 				{
+					if (prop.GetCustomAttribute<PublicForTestOnly>() != null) continue;
+
 					var propertyName = prop.Name;
 					OwnPropsDesc propertyMap = null;
 					if ((prop.GetMethod?.IsStatic ?? false) || (prop.SetMethod?.IsStatic ?? false) || (propertyName.StartsWith(Keywords.ClassStaticPrefix)))

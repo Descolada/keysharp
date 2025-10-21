@@ -1,4 +1,5 @@
 ﻿using Antlr4.Runtime.Misc;
+using Keysharp.Core.Scripting.Script;
 
 namespace Keysharp.Core.Common.ObjectBase
 {
@@ -10,11 +11,6 @@ namespace Keysharp.Core.Common.ObjectBase
 	{
 		public KeysharpObject(params object[] args) : base(args) { }
 		public KeysharpObject(bool skipLogic) : base(skipLogic) { }
-
-		~KeysharpObject()
-		{
-			Script.InvokeMeta(this, "__Delete");
-		}
 
 		public static object Call(object @this, params object[] args) => Activator.CreateInstance(@this.GetType(), args);
 

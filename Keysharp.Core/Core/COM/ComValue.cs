@@ -8,12 +8,6 @@ namespace Keysharp.Core
 		internal List<IFuncObj> handlers = [];
 		internal object item;
 
-		~ComValue()
-		{
-			Script.InvokeMeta(this, "__Delete");
-			Dispose();
-		}
-
 		public object Ptr
 		{
 			get => item;

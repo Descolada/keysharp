@@ -223,6 +223,20 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
+		internal override List<Any> GetEnumerableMembersOrEmpty()
+		{
+			var list = base.GetEnumerableMembersOrEmpty();
+			if (enumerableMap != null)
+			{
+				foreach (var kv in enumerableMap)
+				{
+					if (kv.Key is Any a1) list.Add(a1);
+					if (kv.Value is Any a2) list.Add(a2);
+				}
+			}
+			return list;
+		}
+
 		/// <summary>
 		/// Clones the instance as well as the internal container.
 		/// </summary>

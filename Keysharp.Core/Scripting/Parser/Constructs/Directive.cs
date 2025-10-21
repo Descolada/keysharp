@@ -8,7 +8,7 @@ namespace Keysharp.Scripting
 		public AssemblyBuildVersionAttribute(string v) => Version = v;
 	}
 
-	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Interface)]
+	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Interface, Inherited = false)]
 	public sealed class PublicForTestOnly : Attribute
 	{
 		public PublicForTestOnly()

@@ -1,4 +1,6 @@
 ﻿#if WINDOWS
+using Keysharp.Core.Scripting.Script;
+
 [assembly: ComVisible(true)]
 #endif
 
@@ -59,11 +61,26 @@ namespace Keysharp.Core.Common.ObjectBase
 			SkipConstructorLogic = skipLogic;
 		}
 
-		public virtual object __New(params object[] args) => "";
-		public virtual object static__New(params object[] args) => "";
+		~Any()
+		{
+			if (this is IDisposable || (Functions.HasMethod(this, "__Delete") != 0L))
+			{
+				GC.SuppressFinalize(this);
+				DestructorPump.Enqueue(this);
+			}
+		}
+
 		public virtual object __Init() => "";
 		public virtual object static__Init() => "";
+
+		[PublicForTestOnly]
+		public virtual object __New(params object[] args) => "";
+		[PublicForTestOnly]
+		public virtual object static__New(params object[] args) => "";
+
+		[PublicForTestOnly]
 		public virtual object __Delete() => "";
+		[PublicForTestOnly]
 		public virtual object static__Delete() => "";
 
 		private static Type GetCallingType()
@@ -85,6 +102,23 @@ namespace Keysharp.Core.Common.ObjectBase
 		internal virtual object Clone()
 		{
 			return MemberwiseClone();
+		}
+
+		internal virtual List<Any> GetEnumerableMembersOrEmpty()
+		{
+			if (op != null)
+			{
+				var list = new List<Any>(op.Count);
+				foreach (var (name, opm) in op)
+				{
+					if (opm.Value is Any a1) list.Add(a1);
+					if (opm.Get is Any a2) list.Add(a2);
+					if (opm.Set is Any a3) list.Add(a3);
+					if (opm.Call is Any a4) list.Add(a4);
+				}
+				return list;
+			}
+			return new List<Any>(0);
 		}
 	}
 }

@@ -69,7 +69,7 @@ namespace Keysharp.Scripting
 
 			var ownProps = baseObj.op;
 
-			while (ownProps != null && ownProps.Count != 0)
+			while (ownProps != null && (ownProps.Count != 0 || searchBase))
 			{
 				foreach (var prop in ownProps)
 				{

@@ -644,7 +644,8 @@ identifier
     | Parse
     | Reg
     | Read
-    | Files)
+    | Files
+    | Throw)
     ;
 
 // None of these can be used as a variable name

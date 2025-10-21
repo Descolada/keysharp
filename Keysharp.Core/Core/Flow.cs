@@ -565,6 +565,23 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
+		/// Throws the specified error object.
+		/// </summary>
+		/// <param name="errorObject">The error object to throw.<br/>
+		/// </param>
+		[StackTraceHidden]
+		public static object Throw(object errorObject = null)
+		{
+			if (errorObject is Exception ex)
+				ExceptionDispatchInfo.Capture(ex).Throw();
+			else if (errorObject == null)
+			{
+				throw new Error();
+			} 
+			throw new Error("Invalid error object");
+		}
+
+		/// <summary>
 		/// Internal helper to handle exiting the Script.TheScript.
 		/// </summary>
 		/// <param name="exitReason">The <see cref="ExitReason"/> for exiting the Script.TheScript.</param>

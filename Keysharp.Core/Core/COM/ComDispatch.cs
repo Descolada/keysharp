@@ -59,6 +59,21 @@ namespace Keysharp.Core.COM
 			[Out] out nint ppvObject);
 	}
 
+	[ComImport]
+	[Guid("AF86E2E0-B12D-4C6A-9C5A-D7AA65101E90")] // IID_IInspectable
+	[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+	interface IInspectable
+	{
+		// HRESULT GetIids(ULONG* iidCount, IID** iids)
+		int GetIids(out uint iidCount, out nint iids);
+
+		// HRESULT GetRuntimeClassName(HSTRING* className)
+		int GetRuntimeClassName(out nint className);
+
+		// HRESULT GetTrustLevel(TrustLevel* trustLevel)
+		int GetTrustLevel(out int trustLevel);
+	}
+
 	/// <summary>
 	/// Solution for event handling taken from the answer to my post at:
 	/// https://stackoverflow.com/questions/77010721/how-to-late-bind-an-event-sink-for-a-com-object-of-unknown-type-at-runtime-in-c

@@ -144,27 +144,20 @@ namespace Keysharp.Core.COM
 		public static object ComObjType(object comObj, object infoType = null)
 		{
 			var s = infoType.As().ToLower();
+			var co = comObj as ComObject;
 
-			if (comObj is ComObject co)
+			if (s == "" && co != null)
 			{
-				ITypeInfo typeInfo = null;
+				return (long)co.vt;
+			}
 
-				if (s.Length == 0)
-				{
-					//if (obj is System.Runtime.InteropServices.ComTypes.IUnknown)
-					//{
-					//}
-					//_ = idisp.GetTypeInfo(0, 0, out typeInfo);
-					//typeInfo.GetTypeAttr(out var typeAttr);
-					//System.Runtime.InteropServices.ComTypes.TYPEATTR attr = (System.Runtime.InteropServices.ComTypes.TYPEATTR)Marshal.PtrToStructure(typeAttr, typeof(System.Runtime.InteropServices.ComTypes.TYPEATTR));
-					//var vt = (long)attr.tdescAlias.vt;
-					//typeInfo.ReleaseTypeAttr(typeAttr);
-					//return vt;
-					return (long)co.vt;
-				}
+			var pUnk = (nint)Reflections.GetPtrProperty(comObj);
 
-				var rcw = Marshal.GetObjectForIUnknown((nint)(long)co.Ptr);
-
+			ITypeInfo typeInfo = null;
+			
+			var rcw = Marshal.GetObjectForIUnknown(pUnk);
+			try
+			{
 				if (s.StartsWith('c'))
 				{
 					if (rcw is IProvideClassInfo ipci)
@@ -175,12 +168,11 @@ namespace Keysharp.Core.COM
 					else if (s == "clsid")
 						s = "iid";
 				}
-				else if (co.vt == VarEnum.VT_DISPATCH && co.TryGetITypeInfo(out typeInfo))
+				else if (co != null && co.vt == VarEnum.VT_DISPATCH && co.TryGetITypeInfo(out typeInfo))
 				{
 				}
 				else if (rcw is IDispatch idisp)
 					_ = idisp.GetTypeInfo(0, 0, out typeInfo);
-				if (Marshal.IsComObject(rcw)) Marshal.ReleaseComObject(rcw);
 
 				if (typeInfo != null)
 				{
@@ -205,9 +197,54 @@ namespace Keysharp.Core.COM
 						if (Marshal.IsComObject(typeInfo)) Marshal.ReleaseComObject(typeInfo);
 					}
 				}
+				else if (rcw is IInspectable insp)
+				{
+					if (s == "name")
+					{
+						insp.GetRuntimeClassName(out var hstr);
+						if (hstr != 0)
+						{
+							WindowsAPI.WindowsGetStringRawBuffer(hstr, out uint length);
+							string clsName = new string((char*)hstr, 0, (int)length);
+							WindowsAPI.WindowsDeleteString(hstr);
+							return clsName;
+						}
+						return "";
+					}
+					else if (s == "iid")
+					{
+						insp.GetIids(out var count, out var pIids);
+						try
+						{
+							// Iterate IIDs, QI, and compare pointers
+							for (uint i = 0; i < count; i++)
+							{
+								nint pIid = pIids + (nint)i * 16; // GUID is 16 bytes
+								int sz = Marshal.SizeOf<Guid>();
+								Guid iid = Marshal.PtrToStructure<Guid>(pIid + (nint)(i * sz));
+									
+								var hr = Marshal.QueryInterface(pUnk, in iid, out nint pIface);
+								if (hr >= 0 && pIface != 0)
+								{
+									try
+									{
+										if (pIface == pUnk)
+											return iid.ToString("B").ToUpper();
+									}
+									finally { Marshal.Release(pIface); }
+								}
+							}
+						}
+						finally { Marshal.FreeCoTaskMem(pIids); }
+					}
+				}
+			} 
+			finally
+			{
+				if (Marshal.IsComObject(rcw)) Marshal.ReleaseComObject(rcw);
 			}
 
-			return DefaultErrorObject;
+			return Errors.ErrorOccurred($"Unable to get COM object type information with argument {infoType}.");
 		}
 
 		public static object ComObjValue(object comObj)

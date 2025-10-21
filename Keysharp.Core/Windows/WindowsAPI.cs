@@ -1164,7 +1164,8 @@ namespace Keysharp.Core.Windows
 							  ole32 = "ole32.dll",
 							  oleacc = "oleacc.dll",
 							  oleaut = "oleaut32.dll",
-							  psapi = "psapi.dll";
+							  psapi = "psapi.dll",
+							  combase = "combase.dll";
 
 		internal static Point ToPoint(this RECT rect) => new (rect.Left, rect.Top);
 
@@ -2202,6 +2203,11 @@ namespace Keysharp.Core.Windows
 
 		[LibraryImport(kernel32, EntryPoint = "QueryDosDeviceW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial uint QueryDosDevice(string lpDeviceName, [Out] char[] lpTargetPath, uint ucchMax);
+
+		[LibraryImport(combase)] 
+		internal static partial nint WindowsGetStringRawBuffer(nint hstr, out uint length);
+		[LibraryImport(combase)] 
+		internal static partial int WindowsDeleteString(nint hstr);
 	}
 }
 #endif

@@ -380,6 +380,7 @@ namespace Keysharp.Core
 				throw new COMException($"Set property failed for '{propertyName}'");
 		}
 
+#pragma warning disable 0649 // fields assigned by native vtables
 		internal unsafe struct IDispatchVtbl
 		{
 			// IUnknown methods (offsets 0-2)
@@ -438,6 +439,7 @@ namespace Keysharp.Core
 			public delegate* unmanaged[Stdcall]<nint, nint /*ptsi*/, nint /*pbNamingContainer*/,
 				int> GetNameSpaceParent;
 		}
+#pragma warning restore 0649
 
 		internal static readonly Guid IID_IDispatchEx = new("A6EF9860-C720-11D0-9337-00A0C90DCAA9");
 

@@ -269,7 +269,7 @@ namespace Keysharp.Core
 				}
 			}
 
-			static Type? GetGenericAssignment(Type concrete, Type openGeneric)
+			static Type GetGenericAssignment(Type concrete, Type openGeneric)
 			{
 				if (concrete.IsGenericType && concrete.GetGenericTypeDefinition() == openGeneric)
 					return concrete;

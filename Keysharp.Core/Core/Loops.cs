@@ -866,7 +866,7 @@ namespace Keysharp.Core
 		public object file;
 		public string filename = string.Empty;
 		public long index;
-		public DateTime lastIter = DateTime.UtcNow;
+		//public DateTime lastIter = DateTime.UtcNow;
 		public string line;
 		public string path;
 		public object regDate;

@@ -117,7 +117,7 @@ namespace Keysharp.Scripting
 					kso = t; item = otup[1];
 				}
 
-                if (kso != null && kso.op != null)
+                if (kso != null)
 				{
 					if (TryGetOwnPropsMap(kso, key, out var val))
 					{
@@ -599,7 +599,7 @@ namespace Keysharp.Scripting
 				}
 				else if (args.Length == 1 && item is KeysharpObject kso)//No property was present, so create one and assign the value to it.
 				{
-					_ = kso.op[namestr] = new OwnPropsDesc(kso, value);
+					_ = kso.EnsureOwnProps()[namestr] = new OwnPropsDesc(kso, value);
 					return value;
 				}
 				else if (any == null && Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", 2) is MethodPropertyHolder mph1)

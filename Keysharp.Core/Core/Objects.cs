@@ -123,10 +123,7 @@
 			if (target == null) return Errors.ArgumentErrorOccurred(obj2, 1);
 			var name = obj1.As();
 
-			var op = target.op;
-
-			if (op == null)
-				op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+			var op = target.EnsureOwnProps();
 
 			if (obj2 is Map map)
 			{

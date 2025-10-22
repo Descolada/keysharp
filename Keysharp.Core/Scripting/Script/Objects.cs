@@ -36,8 +36,8 @@ namespace Keysharp.Scripting
 
 				var isBuiltin = script.ProgramType.Namespace != t.Namespace;
 
-				proto.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
-				staticInst.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+				_ = proto.EnsureOwnProps();
+				_ = staticInst.EnsureOwnProps();
 
 				// Get all static and instance methods
 				MethodInfo[] methods;
@@ -225,16 +225,17 @@ namespace Keysharp.Scripting
 					_ = Script.InvokeMeta(staticInst, "__Init");
 					_ = Script.InvokeMeta(staticInst, "__New");
 				}
+
+				if (proto.op.Count == 0)
+					proto.op = null;
+
 				return proto;
 			});
         }
 
 		internal static void DefineProp(Any kso, string name, OwnPropsDesc desc)
 		{
-			if (kso.op == null)
-				kso.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
-
-			if (kso.op.TryGetValue(name, out var existing))
+			if (kso.EnsureOwnProps().TryGetValue(name, out var existing))
 				existing.Merge(desc);
 			else
 				kso.op[name] = desc;

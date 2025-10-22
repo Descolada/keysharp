@@ -688,7 +688,9 @@
 		/// <param name="args">One or more values to append.</param>
 		public object Push(params object[] args)
 		{
-			array.AddRange(args);
+			if (args.Length == 1) array.Add(args[0]);
+			else
+				array.AddRange(args);
 			return DefaultObject;
 		}
 

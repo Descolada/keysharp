@@ -253,7 +253,7 @@
 		public KeysharpObject GetDesc()
 		{
 			var map = new KeysharpObject();
-			map.op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+			map.EnsureOwnProps();
 
 			if (Value != null)
 				map.op["value"] = new OwnPropsDesc(map, Value);

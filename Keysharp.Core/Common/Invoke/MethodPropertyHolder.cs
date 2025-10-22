@@ -60,6 +60,7 @@ namespace Keysharp.Core.Common.Invoke
 #endif
 
 		internal bool IsBind { get; private set; }
+		internal bool IsStatic { get; private set; }
 		internal bool IsStaticFunc { get; private set; }
 		internal bool IsStaticProp { get; private set; }
 		internal bool IsVariadic => variadicParamIndex != -1;
@@ -139,6 +140,7 @@ namespace Keysharp.Core.Common.Invoke
         {
             mi = m;
 
+            IsStatic = mi.IsStatic;
 			IsStaticFunc = mi.Attributes.HasFlag(MethodAttributes.Static);
 			isGuiType = Gui.IsGuiType(mi.DeclaringType);
 
@@ -290,7 +292,7 @@ namespace Keysharp.Core.Common.Invoke
             int lastProvided = args?.Length ?? 0;
 			var provided = lastProvided + (inst == null ? 0 : 1);
 
-            if (!mi.IsStatic)
+            if (!IsStatic)
                 provided--;
 
             for (int i = lastProvided - 1; i >= 0; i--)

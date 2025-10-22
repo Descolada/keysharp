@@ -30,6 +30,8 @@ namespace Keysharp.Core.Common.ObjectBase
 		{
 			var count = (args.Length / 2) * 2;
 
+			if (count > 0) _ = EnsureOwnProps();
+
 			for (var i = 0; i < count; i += 2)
 			{
 				var name = args[i].ToString();

@@ -15,7 +15,12 @@ namespace Keysharp.Core.Common.ObjectBase
 	public class Any
 #endif
 	{
-		protected internal Dictionary<string, OwnPropsDesc> op = new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+		protected internal Dictionary<string, OwnPropsDesc> op = null;
+
+		internal Dictionary<string, OwnPropsDesc> EnsureOwnProps()
+		{
+			return op ??= new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
+		}
 
 		internal Any _base;
 		[PublicForTestOnly]

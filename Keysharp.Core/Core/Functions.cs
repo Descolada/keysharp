@@ -149,7 +149,7 @@
 					return HasProp(value, "Call");
 			}
 			else if (value is KeysharpObject kso)
-				return kso.op != null && Script.TryGetOwnPropsMap(kso, n, out var opm) && opm != null && opm.Call != null ? 1L : 0L;
+				return Script.TryGetOwnPropsMap(kso, n, out var opm) && opm != null && opm.Call != null ? 1L : 0L;
 
 			if (Primitive.IsNative(value)) return 0L;
 			

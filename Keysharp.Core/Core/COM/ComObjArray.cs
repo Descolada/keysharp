@@ -100,7 +100,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// Enumerator for iterating (index, value) pairs in a COM SafeArray.
 	/// </summary>
-	public class ComArrayIndexValueEnumerator : KeysharpEnumerator, IEnumerator<(object, object)>
+	public class ComArrayIndexValueEnumerator : KeysharpEnumerator, IEnumerator<object>
 	{
 		private readonly ComObjArray _owner;
 		private readonly int _count;
@@ -108,6 +108,7 @@ namespace Keysharp.Core
 		private readonly int[] _flows; // upper bounds per dimension
 		private readonly int[] _lows;  // lower bounds per dimension
 		private bool _done;
+		private int _idx = -1;
 
 		/// <summary>
 		/// Initializes a new enumerator over the specified ComObjArray.
@@ -148,7 +149,7 @@ namespace Keysharp.Core
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item2);
+				Script.SetPropertyValue(pos, "__Value", Current);
 				return true;
 			}
 
@@ -159,21 +160,19 @@ namespace Keysharp.Core
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
-				Script.SetPropertyValue(val, "__Value", Current.Item2);
+				Script.SetPropertyValue(pos, "__Value", (long)_idx);
+				Script.SetPropertyValue(val, "__Value", Current);
 				return true;
 			}
 
 			return false;
 		}
 
-		public (object, object) Current
+		public object Current
 		{
 			get
 			{
-				long idx0 = (long)(_indices[0] - _lows[0]);
-				object val = _owner.GetElementAtIndices(_indices);
-				return (idx0, val);
+				return _owner.GetElementAtIndices(_indices);
 			}
 		}
 
@@ -196,6 +195,8 @@ namespace Keysharp.Core
 					// Reset trailing dimensions to their low bound.
 					for (int j = dim + 1; j < d; j++)
 						_indices[j] = _lows[j];
+
+					_idx = _indices[0] - _lows[0];
 
 					return true;
 				}
@@ -232,7 +233,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// A COM wrapper around a native SAFEARRAY, exposing AHK-friendly APIs.
 	/// </summary>
-	public class ComObjArray : ComValue, I__Enum, IEnumerable<(object, object)>
+	public class ComObjArray : ComValue, I__Enum, IEnumerable<object>
 	{
 		internal nint _psa;         // pointer to the native SAFEARRAY
 		internal int _dimensions;   // number of dimensions
@@ -311,7 +312,7 @@ namespace Keysharp.Core
 
 		public IFuncObj __Enum(object count) => new ComArrayIndexValueEnumerator(this, count.Ai()).fo;
 
-		public IEnumerator<(object, object)> GetEnumerator() => new ComArrayIndexValueEnumerator(this, 2);
+		public IEnumerator<object> GetEnumerator() => new ComArrayIndexValueEnumerator(this, 1);
 
 		IEnumerator IEnumerable.GetEnumerator() => new ComArrayIndexValueEnumerator(this, 2);
 

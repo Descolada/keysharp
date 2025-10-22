@@ -352,8 +352,12 @@ namespace Keysharp.Scripting
 					if (right == null)
 						return (bool)Errors.UnsetErrorOccurred($"Right side operand of concat", false);
 
-						return string.Concat(ForceString(left), ForceString(right));
-					}
+					// Guard agains accidental function object concatenation (likely used function call statement in an expression context)
+					if (left is FuncObj)
+						return Errors.TypeErrorOccurred(left, typeof(string));
+
+					return string.Concat(ForceString(left), ForceString(right));
+				}
 
 				case Operator.RegEx:
 				{

@@ -32,7 +32,7 @@
 	/// Internally the list uses 0-based indexing, however the public interface expects 1-based indexing.<br/>
 	/// A negative index can be used to address elements in reverse, so -1 is the last element, -2 is the second last element, and so on.
 	/// </summary>
-	public class Array : KeysharpObject, I__Enum, IEnumerable<(object, object)>, IList
+	public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(object, object)>, IList
 	{
 		private int capacity = 4;
 
@@ -419,10 +419,11 @@
 		}
 
 		/// <summary>
-		/// The implementation for <see cref="IEnumerable{(object, object)}.GetEnumerator()"/> which returns an <see cref="ArrayIndexValueIterator"/>.
+		/// The implementation for <see cref="IEnumerable{object}.GetEnumerator()"/> which returns an <see cref="ArrayIndexValueIterator"/>.
 		/// </summary>
 		/// <returns>An <see cref="IEnumerator{(object, object)}"/> which is an <see cref="ArrayIndexValueIterator"/>.</returns>
-		public IEnumerator<(object, object)> GetEnumerator() => new ArrayIndexValueIterator(array, 2);
+		public IEnumerator<object> GetEnumerator() => new ArrayIndexValueIterator(array, 1);
+		IEnumerator<(object, object)> IEnumerable<(object, object)>.GetEnumerator() => new ArrayIndexValueIterator(array, 2);
 
 		/// <summary>
 		/// Returns a non-zero number if the index is valid and there is a value at that position.
@@ -871,7 +872,7 @@
 	/// A two component iterator for <see cref="Array"/> which returns the value and the 1-based index the
 	/// value was at as a tuple.
 	/// </summary>
-	internal class ArrayIndexValueIterator : KeysharpEnumerator, IEnumerator<(object, object)>
+	internal class ArrayIndexValueIterator : KeysharpEnumerator, IEnumerator<object>, IEnumerator<(object, object)>
 	{
 		/// <summary>
 		/// The internal array to be iterated over.
@@ -886,16 +887,13 @@
 		/// <summary>
 		/// The implementation for <see cref="IEnumerator.Current"/> which gets the index,value tuple at the current iterator position.
 		/// </summary>
-		public (object, object) Current
+		public object Current
 		{
 			get
 			{
 				try
 				{
-					if (Count == 1)
-						return (arr[position], null);
-					else
-						return ((long)position + 1, arr[position]);
+					return arr[position];
 				}
 				catch (IndexOutOfRangeException)
 				{
@@ -908,6 +906,7 @@
 		/// The <see cref="IEnumerator.Current"/> implementation that just returns <see cref="Current"/>.
 		/// </summary>
 		object IEnumerator.Current => Current;
+		(object, object) IEnumerator<(object, object)>.Current => (position + 1, Current);
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ArrayIndexValueIterator"/> class.
@@ -932,7 +931,7 @@
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
+				Script.SetPropertyValue(pos, "__Value", Current);
 				return true;
 			}
 
@@ -949,8 +948,8 @@
 		{
 			if (MoveNext())
 			{
-				Script.SetPropertyValue(pos, "__Value", Current.Item1);
-				Script.SetPropertyValue(val, "__Value", Current.Item2);
+				Script.SetPropertyValue(pos, "__Value", position + 1);
+				Script.SetPropertyValue(val, "__Value", Current);
 				return true;
 			}
 

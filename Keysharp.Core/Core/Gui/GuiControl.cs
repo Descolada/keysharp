@@ -286,7 +286,7 @@
 						{
 							lb.ClearSelected();
 
-							foreach (var (arval, _) in ar)
+							foreach (var arval in ar)
 								lb.SetSelected(arval.ParseInt().GetValueOrDefault() - 1, true);
 						}
 						else

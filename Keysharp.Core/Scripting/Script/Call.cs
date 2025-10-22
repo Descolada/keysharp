@@ -573,7 +573,7 @@ namespace Keysharp.Scripting
 					{
 						object[] newargs = new object[args.Length - 1];
 						System.Array.Copy(args, newargs, newargs.Length);
-						_ = ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(newargs), args);
+						_ = ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(newargs), value);
 						return value;
 					}
 				}

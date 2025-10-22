@@ -1,6 +1,18 @@
 ﻿#if WINDOWS
 namespace Keysharp.Core.COM
 {
+	internal class ComMethodData
+	{
+		internal ConcurrentLfu<nint, Dictionary<string, ComMethodInfo>> comMethodCache = new(Caching.DefaultCacheCapacity);
+	}
+
+	internal class ComMethodInfo
+	{
+		internal Type[] expectedTypes;
+		internal ParameterModifier[] modifiers;
+		internal INVOKEKIND invokeKind;
+	}
+
 	unsafe public static partial class Com
 	{
 		public const int variantTypeMask = 0xfff;

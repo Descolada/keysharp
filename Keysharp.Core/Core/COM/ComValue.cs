@@ -159,7 +159,7 @@ namespace Keysharp.Core
 			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
 				return VariantHelper.ReadVariant(Ptr.Al(), vt);
 
-			return Invoke((this, new ComMethodPropertyHolder("Item")), args);
+			return RawInvokeMethod("Item", args);
 		}
 		public object set_Item(object[] args, object value)
 		{

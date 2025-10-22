@@ -1,7 +1,7 @@
 ﻿#if WINDOWS
 namespace Keysharp.Core
 {
-	public unsafe class ComValue : Any, IDisposable
+	public unsafe class ComValue : Any, IDisposable, IMetaObject
 	{
 		internal static readonly long F_OWNVALUE = 1;
 		internal static readonly int MaxVtableLen = 16;
@@ -145,6 +145,15 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
+		object IMetaObject.Get(string name, object[] args) => RawGetProperty(name, args);
+
+		void IMetaObject.Set(string name, object[] args, object value) => RawSetProperty(name, args, value);
+
+		object IMetaObject.Call(string name, object[] args) => RawInvokeMethod(name, args);
+
+		object IMetaObject.get_Item(object[] indexArgs) => get_Item(indexArgs);
+		void IMetaObject.set_Item(object[] indexArgs, object value) => set_Item(indexArgs, value);
+
 		public object get_Item(params object[] args)
 		{
 			if (args.Length == 0 && (vt & VarEnum.VT_BYREF) != 0)
@@ -158,10 +167,7 @@ namespace Keysharp.Core
 				VariantHelper.WriteVariant(Ptr.Al(), vt, value);
 			else
 			{
-				object[] newargs = new object[args.Length + 1];
-				System.Array.Copy(args, newargs, args.Length);
-				newargs[^1] = value;
-				RawSetProperty("Item", newargs);
+				RawSetProperty("Item", args, value);
 			}
 			return value;
 		}
@@ -359,7 +365,7 @@ namespace Keysharp.Core
 			return result;
 		}
 
-		internal unsafe void RawSetProperty(string propertyName, object[] args)
+		internal unsafe void RawSetProperty(string propertyName, object[] args, object value)
 		{
 			int hr = RawGetIDsOfNames(propertyName, out int dispId);
 			if (hr < 0)
@@ -370,12 +376,11 @@ namespace Keysharp.Core
 
 			if (args.Length > 0)
 			{
-				var val = args[^1];
-				if (val is ComValue cv && (cv.vt == VarEnum.VT_DISPATCH || cv.vt == VarEnum.VT_UNKNOWN))
+				if (value is ComValue cv && (cv.vt == VarEnum.VT_DISPATCH || cv.vt == VarEnum.VT_UNKNOWN))
 					invokeKind = INVOKEKIND.INVOKE_PROPERTYPUTREF;
 			}
 
-			hr = RawInvoke(dispId, invokeKind, args, out _, expectedTypes, modifiers);
+			hr = RawInvoke(dispId, invokeKind, [..args, value], out _, expectedTypes, modifiers);
 			if (hr < 0)
 				throw new COMException($"Set property failed for '{propertyName}'");
 		}

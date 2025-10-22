@@ -4,7 +4,17 @@
 	{
 		public long Ptr { get; }
 	}
-    public interface IFuncObj
+
+	public interface IMetaObject
+	{
+		object Get(string name, object[] args);
+		void Set(string name, object[] args, object value);
+		object Call(string name, object[] args);
+		object get_Item(object[] indexArgs);
+		void set_Item(object[] indexArgs, object value);
+	}
+
+	public interface IFuncObj
     {
         public object Inst { get; set; }
 		public bool IsBuiltIn { get; }

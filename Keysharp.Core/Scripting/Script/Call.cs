@@ -121,20 +121,23 @@ namespace Keysharp.Scripting
 				{
 					if (TryGetOwnPropsMap(kso, key, out var val))
 					{
-                        //Pass the ownprops map so that Invoke() knows to pass the parent object (item) as the first argument.
-                        if (val.Call != null)//Call must come first.
-                            return (item, val.Call);
-                        else if (val.Get != null)
-                            return (item, Invoke(val.Get, "Call", item));//No params passed in, just call as is.
-                        else if (val.Value != null)
-                            return (item, val.Value);
-                        else if (val.Set != null)
-                            return (item, val.Set);
+						//Pass the ownprops map so that Invoke() knows to pass the parent object (item) as the first argument.
+						if (val.Call != null)//Call must come first.
+							return (item, val.Call);
+						else if (val.Get != null)
+							return (item, Invoke(val.Get, "Call", item));//No params passed in, just call as is.
+						else if (val.Value != null)
+							return (item, val.Value);
+						else if (val.Set != null)
+							return (item, val.Set);
 
-                        return Errors.ErrorOccurred(err = new Error($"Attempting to get method or property {key} on object {val} failed.")) ? throw err : (null, null);
-                    } else if (invokeMeta && TryGetOwnPropsMap(kso, "__Call", out var protoCall) && protoCall.Call != null && protoCall.Call is IFuncObj ifoprotocall)
-                        return (null, ifoprotocall.Bind(item, key));
-                }
+						return Errors.ErrorOccurred(err = new Error($"Attempting to get method or property {key} on object {val} failed.")) ? throw err : (null, null);
+					}
+					else if (invokeMeta && TryGetOwnPropsMap(kso, "__Call", out var protoCall) && protoCall.Call != null && protoCall.Call is IFuncObj ifoprotocall)
+						return (null, ifoprotocall.Bind(item, key));
+					else if (invokeMeta && kso is IMetaObject mo)
+						return (null, mo);
+				}
 				else if (Core.Primitive.IsNative(item))
 				{
 					return GetMethodOrProperty((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), key, paramCount, checkBase, throwIfMissing, invokeMeta);
@@ -145,16 +148,6 @@ namespace Keysharp.Scripting
 					if (Reflections.FindMethod(key, paramCount) is MethodPropertyHolder mph0)
 						return (item, mph0);
 				}
-#if WINDOWS
-				//COM checks must come before Item checks because they can get confused sometimes and COM should take
-				//precedence in such cases.
-				//This assumes the caller is never trying to retrieve properties or methods on the underlying
-				//COM object that have the same name in ComObject, such as Ptr, __Delete() or Dispose().
-				else if (item is ComValue co)
-				{
-					return (co, new ComMethodPropertyHolder(key));
-				}
-#endif
 				else if (item is not Any)
 				{
 					Type typetouse = item.GetType();
@@ -234,6 +227,11 @@ namespace Keysharp.Scripting
 					else if (TryGetOwnPropsMap(kso, "__Get", out var protoGet) && (protoGet.Call != null ? protoGet.Call : protoGet.Value) is IFuncObj ifoprotoget && ifoprotoget != null)
 					{
 						value = ifoprotoget.Call(item, namestr, new Keysharp.Core.Array(args));
+						return true;
+					}
+					else if (kso is IMetaObject mo)
+					{
+						value = mo.Get(namestr, args);
 						return true;
 					}
 				}
@@ -416,12 +414,8 @@ namespace Keysharp.Scripting
                     mitup = GetMethodOrProperty(obj, methName, -1);
                 }
 
-				if (mitup.Item2 is MethodPropertyHolder mph)
-				{
-					//Mostly used by COM
-					return mph.CallFunc(mitup.Item1, parameters);
-				}
-				else if (mitup.Item2 is IFuncObj ifo2)
+
+				if (mitup.Item2 is IFuncObj ifo2)
 				{
 					if (mitup.Item1 == null) // This means __Call was found and should be invoked
 						return ifo2.Call(new Keysharp.Core.Array(parameters));
@@ -439,7 +433,16 @@ namespace Keysharp.Scripting
                     System.Array.Copy(parameters, 0, args, 1, count);
                     return Invoke(kso, "Call", args);
 				}
-            }
+				else if (mitup.Item2 is IMetaObject mo)
+				{
+					return mo.Call(methName, parameters);
+				}
+				else if (mitup.Item2 is MethodPropertyHolder mph)
+				{
+					//Mostly used by COM and primitive types
+					return mph.CallFunc(mitup.Item1, parameters);
+				}
+			}
             catch (Exception e)
             {
 				if (e.InnerException is KeysharpException ke)
@@ -571,9 +574,12 @@ namespace Keysharp.Scripting
 					}
 					else if (TryGetOwnPropsMap(any, "__Set", out var protoSet) && protoSet.Call != null && protoSet.Call is IFuncObj ifoprotoset)
 					{
-						object[] newargs = new object[args.Length - 1];
-						System.Array.Copy(args, newargs, newargs.Length);
-						_ = ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(newargs), value);
+						_ = ifoprotoset.Call(item, namestr, new Keysharp.Core.Array(GetArgs()), value);
+						return value;
+					}
+					else if (any is IMetaObject mo)
+					{
+						mo.Set(namestr, GetArgs(), value);
 						return value;
 					}
 				}
@@ -586,35 +592,17 @@ namespace Keysharp.Scripting
 				if (typetouse == null && item != null)
 					typetouse = item.GetType();
 
-                if (Reflections.FindAndCacheProperty(typetouse, namestr, 0) is MethodPropertyHolder mph && !namestr.Equals("base", StringComparison.OrdinalIgnoreCase))
+                if (any == null && Reflections.FindAndCacheProperty(typetouse, namestr, 0) is MethodPropertyHolder mph && !namestr.Equals("base", StringComparison.OrdinalIgnoreCase))
 				{
 					mph.SetProp(item, value = args[^1]);
 					return value;
 				}
-
-#if WINDOWS
-				//COM checks must come before Item checks because they can get confused sometimes and COM should take
-				//precedence in such cases.
-				else if (item is ComValue co && co.Ptr != null)
-				{
-					co.RawSetProperty(namestr, args);
-					//_ = co.Ptr.GetType().InvokeMember(namestr, System.Reflection.BindingFlags.SetProperty, null, item, new object[] { value });//Unwrap.
-					//_ = SetPropertyValue(co.Ptr, namestr, args);
-					return value;
-				}
-				else if (Marshal.IsComObject(item))
-				{
-					_ = item.GetType().InvokeMember(namestr, BindingFlags.SetProperty, null, item, args);
-					return value;
-				}
-
-#endif
 				else if (args.Length == 1 && item is KeysharpObject kso)//No property was present, so create one and assign the value to it.
 				{
 					_ = kso.op[namestr] = new OwnPropsDesc(kso, value);
 					return value;
 				}
-				else if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", 2) is MethodPropertyHolder mph1)
+				else if (any == null && Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", 2) is MethodPropertyHolder mph1)
 				{
 					_ = mph1.CallFunc(item, args);
 					return value;
@@ -629,6 +617,13 @@ namespace Keysharp.Scripting
 			}
 
 			return Errors.ErrorOccurred($"Attempting to set property {namestr} on object {item} to value {value} failed.");
+
+			object[] GetArgs()
+			{
+				object[] newargs = new object[args.Length - 1];
+				System.Array.Copy(args, newargs, newargs.Length);
+				return newargs;
+			}
 		}
 
 		public static void SetStaticMemberValueT<T>(object name, object value)

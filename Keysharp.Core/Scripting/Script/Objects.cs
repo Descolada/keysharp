@@ -307,7 +307,7 @@ namespace Keysharp.Scripting
 
 				if (item is Any kso2)
 				{
-					if (TryGetOwnPropsMap(kso2, "__Item", out var opm))
+					if (TryGetOwnPropsMap(kso2, "__Item", out var opm, true, OwnPropsMapType.Set | OwnPropsMapType.Call | OwnPropsMapType.Value))
 					{
 						if (opm.Set != null && opm.Set is IFuncObj ifo)
 						{
@@ -322,9 +322,9 @@ namespace Keysharp.Scripting
 						else if (opm.Value != null)
 							return SetPropertyValue(opm.Value, "__Item", args);
 					}
-					else if (TryGetOwnPropsMap(kso2, "__Set", out var opm2) && opm2.Call != null && opm2.Call is IFuncObj ifo2)
+					if (kso2 is IMetaObject mo)
 					{
-						_ = ifo2.Call(kso2, new Keysharp.Core.Array(GetIndices()), value);
+						mo.set_Item(GetIndices(), value);
 						return value;
 					}
                 }
@@ -336,7 +336,7 @@ namespace Keysharp.Scripting
 
 				var il1 = args.Length;
 
-				if (Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", il1) is MethodPropertyHolder mph2)
+				if (item is not Any && Reflections.FindAndCacheInstanceMethod(typetouse, "set_Item", il1) is MethodPropertyHolder mph2)
 				{
 					if (il1 == mph2.ParamLength || mph2.IsVariadic)
 					{
@@ -398,8 +398,10 @@ namespace Keysharp.Scripting
 						else if (opm.Value != null)
 							return IndexAt(opm.Value, index);
 					}
-					if (TryGetOwnPropsMap(type, "__Get", out var opm2, true, OwnPropsMapType.Call) && opm2.Call is IFuncObj ifo2)
-						return ifo2.Call(item, new Keysharp.Core.Array(index));
+					if (type is IMetaObject mo)
+					{
+						return mo.get_Item(index);
+					}
 				}
 				else if (Core.Primitive.IsNative(item))
 				{

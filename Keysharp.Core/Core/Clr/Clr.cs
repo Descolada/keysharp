@@ -48,49 +48,66 @@ namespace Keysharp.Core
 			return mt._type.FullName;
 		}
 
-		public sealed class ManagedAssembly : Any
+		public class ManagedObject : Any, IMetaObject
+		{
+			object IMetaObject.Get(string name, object[] args) => Get(name, args);
+			internal virtual object Get(string name, object[] args) =>
+				Errors.ErrorOccurred($"Get not implemented on type {GetType().FullName}.");
+
+			void IMetaObject.Set(string name, object[] args, object value) => Set(name, args, value);
+			internal virtual void Set(string name, object[] args, object value) =>
+				Errors.ErrorOccurred($"Set not implemented on type {GetType().FullName}.");
+
+			object IMetaObject.Call(string name, object[] args) => Call(name, args);
+			internal virtual object Call(string name, object[] args) =>
+				Errors.ErrorOccurred($"Call not implemented on type {GetType().FullName}.");
+
+			object IMetaObject.get_Item(object[] indexArgs) => get_Item(indexArgs);
+			internal virtual object get_Item(object[] indexArgs) =>
+				Errors.ErrorOccurred($"get_Item not implemented on type {GetType().FullName}.");
+
+			void IMetaObject.set_Item(object[] indexArgs, object value) => set_Item(indexArgs, value);
+			internal virtual void set_Item(object[] indexArgs, object value) =>
+				Errors.ErrorOccurred($"set_Item not implemented on type {GetType().FullName}.");
+		}
+
+		public sealed class ManagedAssembly : ManagedObject
 		{
 			internal readonly Assembly[] _assemblies;
 
 			public ManagedAssembly(params Assembly[] assemblies) => _assemblies = assemblies;
 
-			public object __Get(object name, object args)
+			internal override object Get(string name, object[] args)
 			{
-				var seg = name.As();
-
 				// Prefer unique simple-name in preferred assemblies; then global index.
-				if (TypeResolver.TryResolveSimpleNameUnique(seg, _assemblies, out var t, out var ambiguous))
+				if (TypeResolver.TryResolveSimpleNameUnique(name, _assemblies, out var t, out var ambiguous))
 				{
 					return new Clr.ManagedType(t);
 				}
 				if (ambiguous)
 				{
-					return Errors.ErrorOccurred($"Type name '{seg}' is ambiguous in these assemblies.");
+					return Errors.ErrorOccurred($"Type name '{name}' is ambiguous in these assemblies.");
 				}
 
 				// Not a type: start a namespace walk rooted at this assembly scope.
-				return new Clr.ManagedNamespace(_assemblies, seg);
+				return new Clr.ManagedNamespace(_assemblies, name);
 			}
 
-			public object __Call(object name, object args)
+			internal override object Call(string name, object[] args)
 			{
-				var seg = name.As();
-
 				// Try simple-name unique resolution again for constructor-ish call.
-				if (!TypeResolver.TryResolveSimpleNameUnique(seg, _assemblies, out var t, out var ambiguous))
+				if (!TypeResolver.TryResolveSimpleNameUnique(name, _assemblies, out var t, out var ambiguous))
 				{
 					if (ambiguous)
-						return Errors.ErrorOccurred($"Type name '{seg}' is ambiguous across loaded assemblies.");
-					return Errors.ErrorOccurred($"Type not found: {seg}");
+						return Errors.ErrorOccurred($"Type name '{name}' is ambiguous across loaded assemblies.");
+					return Errors.ErrorOccurred($"Type not found: {name}");
 				}
-
-				var argv = FlattenParam(args);
 
 				// Delegate shapes consolidated via helper
 				if (typeof(Delegate).IsAssignableFrom(t))
-					return ClrDelegateFactory.BuildManagedDelegateNode(t, argv);
+					return ClrDelegateFactory.BuildManagedDelegateNode(t, args);
 
-				if (argv.Length == 0)
+				if (args.Length == 0)
 				{
 					var ci = t.GetConstructor(Type.EmptyTypes);
 					if (ci != null) return new Clr.ManagedInstance(t, Activator.CreateInstance(t));
@@ -98,14 +115,14 @@ namespace Keysharp.Core
 					return new Clr.ManagedType(t);
 				}
 
-				var inArgs = ManagedInvoke.ConvertInArgs(t, argv);
+				var inArgs = ManagedInvoke.ConvertInArgs(t, args);
 				var res = ActivatorUtil.CreateInstanceOrError(t, inArgs, inst => new Clr.ManagedInstance(t, inst));
 				if (res == null) return DefaultObject;
 				return (Clr.ManagedInstance)res;
 			}
 		}
 
-		public sealed class ManagedNamespace : Any
+		public sealed class ManagedNamespace : ManagedObject
 		{
 			internal readonly Assembly[] _assemblies; // preferred set for TypeResolver
 			internal readonly string _ns;             // accumulated namespace root/prefix
@@ -116,23 +133,21 @@ namespace Keysharp.Core
 				_ns = ns ?? "";
 			}
 
-			public object __Get(object name, object args)
+			internal override object Get(string name, object[] args)
 			{
-				var seg = name.As();
-				var full = string.IsNullOrEmpty(_ns) ? seg : _ns + "." + seg;
+				var full = string.IsNullOrEmpty(_ns) ? name : _ns + "." + name;
 
 				// Generic sugar: ns.List["int"] or ns.Dictionary["string","int"]
-				var argv = FlattenParam(args);
-				if (argv.Length > 0)
+				if (args.Length > 0)
 				{
 					// e.g., "System.Collections.Generic.List`1"
-					var genericName = full + "`" + argv.Length;
+					var genericName = full + "`" + args.Length;
 
 					// Prefer the user-loaded assemblies first (TypeResolver uses caches internally)
 					var genDef = TypeResolver.Resolve(genericName, _assemblies);
 					if (genDef != null && genDef.IsGenericTypeDefinition)
 					{
-						var typeArgs = argv.Select(TypeResolver.ResolveTypeArg).ToArray();
+						var typeArgs = args.Select(TypeResolver.ResolveTypeArg).ToArray();
 						var closed = genDef.MakeGenericType(typeArgs);
 						return new ManagedType(closed);
 					}
@@ -148,22 +163,19 @@ namespace Keysharp.Core
 				return new ManagedNamespace(_assemblies, full);
 			}
 
-			public object __Call(object name, object args)
+			internal override object Call(string name, object[] args)
 			{
-				var seg = name.As();
-				if (seg.Length == 0)
+				if (name.Length == 0)
 					return Errors.ErrorOccurred("Missing type name for constructor call.");
 
-				var full = string.IsNullOrEmpty(_ns) ? seg : _ns + "." + seg;
+				var full = string.IsNullOrEmpty(_ns) ? name : _ns + "." + name;
 
 				// Resolve the concrete type via the cached resolver, preferring our assemblies.
 				var t = TypeResolver.Resolve(full, _assemblies);
 				if (t is null)
 					return Errors.ErrorOccurred($"Type not found: {full}");
 
-				var argv = FlattenParam(args);
-
-				if (argv.Length == 0)
+				if (args.Length == 0)
 				{
 					// Prefer real parameterless constructor
 					var ci = t.GetConstructor(Type.EmptyTypes);
@@ -181,7 +193,7 @@ namespace Keysharp.Core
 				// First, try real constructors (DateTime, TimeSpan, Guid, etc.).
 				try
 				{
-					var inArgs = ManagedInvoke.ConvertInArgs(t, argv);
+					var inArgs = ManagedInvoke.ConvertInArgs(t, args);
 					var res = ActivatorUtil.CreateInstanceOrError(t, inArgs, inst => new Clr.ManagedInstance(t, inst));
 					if (res == null) return DefaultObject;
 					return (Clr.ManagedInstance)res;
@@ -194,34 +206,34 @@ namespace Keysharp.Core
 				// Value-type sugar: single-arg cast/box
 				if (t.IsValueType)
 				{
-					if (argv.Length == 1)
+					if (args.Length == 1)
 					{
-						var boxed = ManagedInvoke.CoerceToType(argv[0], t);
+						var boxed = ManagedInvoke.CoerceToType(args[0], t);
 						return new ManagedInstance(t, boxed);
 					}
 				}
 
-				return Errors.ErrorOccurred($"Constructor on type '{t.FullName}' not found for {argv.Length} argument(s).");
+				return Errors.ErrorOccurred($"Constructor on type '{t.FullName}' not found for {args.Length} argument(s).");
 			}
+
+			[PublicForTestOnly]
+			public override string ToString() => _ns;
 		}
 
-		public sealed class ManagedType : Any
+		public sealed class ManagedType : ManagedObject
 		{
 			internal readonly Type _type;
 
 			public ManagedType(Type type) => _type = type ?? throw new ArgumentNullException(nameof(type));
 
-			public object __Call(object name, object args)
+			internal override object Call(string name, object[] args)
 			{
-				var method = name?.As() ?? "";
-				var argv = FlattenParam(args);
-
 				// Treat "", null, or "Call" as a constructor call: listT()
-				if (method.Length == 0 || method.Equals("Call", StringComparison.OrdinalIgnoreCase))
+				if (name == null || name.Length == 0 || name.Equals("Call", StringComparison.OrdinalIgnoreCase))
 				{
 					if (typeof(Delegate).IsAssignableFrom(_type))
 					{
-						var res = ClrDelegateFactory.BuildManagedDelegateNode(_type, argv);
+						var res = ClrDelegateFactory.BuildManagedDelegateNode(_type, args);
 						if (res is ManagedInstance) return res;
 						return res; // already an error node if not ManagedInstance
 					}
@@ -229,10 +241,10 @@ namespace Keysharp.Core
 					// 1) Try real ctors first
 					try
 					{
-						if (argv.Length == 0)
+						if (args.Length == 0)
 							return new ManagedInstance(_type, Activator.CreateInstance(_type));
 
-						var inArgs = ManagedInvoke.ConvertInArgs(_type, argv);
+						var inArgs = ManagedInvoke.ConvertInArgs(_type, args);
 						var res = ActivatorUtil.CreateInstanceOrError(_type, inArgs, inst => new ManagedInstance(_type, inst));
 						if (res == null) return res;
 						return (ManagedInstance)res;
@@ -242,33 +254,30 @@ namespace Keysharp.Core
 						// 2) Value-type sugar: cast/box
 						if (_type.IsValueType)
 						{
-							if (argv.Length == 0)
+							if (args.Length == 0)
 								return new ManagedInstance(_type, Activator.CreateInstance(_type)); // default(T)
 
-							if (argv.Length == 1)
-								return new ManagedInstance(_type, ManagedInvoke.CoerceToType(argv[0], _type));
+							if (args.Length == 1)
+								return new ManagedInstance(_type, ManagedInvoke.CoerceToType(args[0], _type));
 						}
-						return Errors.ErrorOccurred($"Constructor on type '{_type.FullName}' not found for {argv.Length} argument(s).");
+						return Errors.ErrorOccurred($"Constructor on type '{_type.FullName}' not found for {args.Length} argument(s).");
 					}
 				}
 
 				// Static method: TypeNode.Method(args...)
-				return ManagedInvoke.InvokeStatic(_type, method, argv);
+				return ManagedInvoke.InvokeStatic(_type, name, args);
 			}
 
 			// Static prop/field: get
-			public object __Get(object name, object args)
-				=> ManagedInvoke.GetStatic(_type, name.As());
+			internal override object Get(string name, object[] args)
+				=> ManagedInvoke.GetStatic(_type, name);
 
 			// Static prop/field: set
-			public object __Set(object name, object args, object value)
-			{
-				ManagedInvoke.SetStatic(_type, name.As(), value);
-				return value;
-			}
+			internal override void Set(string name, object[] args, object value)
+				=> ManagedInvoke.SetStatic(_type, name, value);
 
 			// Generics sugar: TypeNode[TArg1, TArg2, ...]
-			public object get___Item(params object[] typeArgs)
+			internal override object get_Item(object[] typeArgs)
 			{
 				if (!_type.IsGenericTypeDefinition)
 					return Errors.ErrorOccurred($"{_type.FullName} is not an open generic type.");
@@ -276,9 +285,12 @@ namespace Keysharp.Core
 				var closed = _type.MakeGenericType(typeArgs.Select(TypeResolver.ResolveTypeArg).ToArray());
 				return new ManagedType(closed);
 			}
+
+			[PublicForTestOnly]
+			public override string ToString() => _type.ToString();
 		}
 
-		public sealed class ManagedInstance : Any
+		public sealed class ManagedInstance : ManagedObject
 		{
 			internal readonly Type _type;
 			internal object _instance;
@@ -286,28 +298,23 @@ namespace Keysharp.Core
 			public ManagedInstance(Type type, object instance) { _type = type; _instance = instance; }
 
 			// Instance method call: obj.Method(args...)
-			public object __Call(object name, object args)
-				=> ManagedInvoke.InvokeInstance(_instance, _type, name.As(), FlattenParam(args));
+			internal override object Call(string name, object[] args)
+				=> ManagedInvoke.InvokeInstance(_instance, _type, name, args);
 
 			// Instance prop/field: get/set
-			public object __Get(object name, object args)
-				=> ManagedInvoke.GetInstance(_instance, _type, name.As(), FlattenParam(args));
+			internal override object Get(string name, object[] args)
+				=> ManagedInvoke.GetInstance(_instance, _type, name, args);
 
-			public object __Set(object name, object args, object value)
-			{
-				ManagedInvoke.SetInstance(_instance, _type, name.As(), FlattenParam(args), value);
-				return value;
-			}
+			internal override void Set(string name, object[] args, object value)
+				=> ManagedInvoke.SetInstance(_instance, _type, name, args, value);
+
 
 			// Indexers: obj[args...]  (get & set variants)
-			public object get___Item(params object[] indexArgs)
+			internal override object get_Item(object[] indexArgs)
 				=> ManagedInvoke.GetIndexer(_instance, _type, indexArgs);
 
-			public object set___Item(object[] indexArgs, object value)
-			{
-				ManagedInvoke.SetIndexer(_instance, _type, value, indexArgs);
-				return value;
-			}
+			internal override void set_Item(object[] indexArgs, object value)
+				=> ManagedInvoke.SetIndexer(_instance, _type, value, indexArgs);
 
 			/// <summary>
 			/// AHK-style enumerator: returns a vararg thunk for for-in loops.
@@ -328,6 +335,9 @@ namespace Keysharp.Core
 
 				return it.fo;
 			}
+
+			[PublicForTestOnly]
+			public override string ToString() => _instance.ToString();
 		}
 	}
 

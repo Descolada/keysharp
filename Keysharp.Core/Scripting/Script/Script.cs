@@ -80,6 +80,7 @@ namespace Keysharp.Scripting
 		private static int instanceCount;
 		private AccessorData accessorData;
 		private ArrayIndexValueIteratorData arrayIndexValueIteratorData;
+		private ClrIteratorData managedDotNetIteratorData;
 #if WINDOWS
 		private ComArrayIndexValueEnumeratorData comArrayIndexValueEnumeratorData;
 		private ComEnumeratorData comEnumeratorData;
@@ -123,6 +124,7 @@ namespace Keysharp.Scripting
 		public Variables Vars { get; private set; }
 		internal AccessorData AccessorData => accessorData ?? (accessorData = new ());
 		internal ArrayIndexValueIteratorData ArrayIndexValueIteratorData => arrayIndexValueIteratorData ?? (arrayIndexValueIteratorData = new ());
+		internal ClrIteratorData ManagedDotNetIteratorData => managedDotNetIteratorData ?? (managedDotNetIteratorData = new());
 #if WINDOWS
 		internal ComArrayIndexValueEnumeratorData ComArrayIndexValueEnumeratorData => comArrayIndexValueEnumeratorData ?? (comArrayIndexValueEnumeratorData = new ());
 		internal ComEnumeratorData ComEnumeratorData => comEnumeratorData ?? (comEnumeratorData = new ());

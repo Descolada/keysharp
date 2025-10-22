@@ -41,6 +41,9 @@ namespace Keysharp.Tests
 		public void COM() => Assert.IsTrue(TestScript("external-com", false));
 
 		[Test, Category("External")]
+		public void Clr() => Assert.IsTrue(TestScript("external-clr", false));
+
+		[Test, Category("External")]
 		public void OnMessage() => Assert.IsTrue(TestScript("external-onmessage", false));
 #endif
 	}

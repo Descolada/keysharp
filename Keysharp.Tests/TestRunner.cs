@@ -1,4 +1,5 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+﻿using Keysharp.Core.Common.Threading;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -76,7 +77,7 @@ namespace Keysharp.Tests
 						var program = CompilerHelper.compiledasm.GetType($"Keysharp.CompiledMain.{Keywords.MainClassName}");
 						var main = program.GetMethod("Main");
 						var temp = new string[] { };
-						var result = main.Invoke(null, [temp]);
+						var result = StaTask.RunSync(() => main.Invoke(null, [temp]));
 
 						if (exitCode.HasValue)
 						{

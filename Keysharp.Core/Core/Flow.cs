@@ -120,7 +120,7 @@ namespace Keysharp.Core
 			{
 				script.mainWindow.CheckedInvoke(() =>
 				{
-					_ = ExitAppInternal(ExitReasons.Exit, exitCode);
+					_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
 				}, true);
 				var start = DateTime.UtcNow;
 
@@ -467,6 +467,9 @@ namespace Keysharp.Core
 				//0 tells this thread to relinquish the remainder of its time slice to any thread of equal priority that is ready to run.
 				//If there are no other threads of equal priority that are ready to run, execution of the current thread is not suspended.
 				System.Threading.Thread.Sleep(1);
+
+			if (script.hasExited)
+				throw new UserRequestedExitException();
 		}
 
 		/// <summary>
@@ -477,9 +480,6 @@ namespace Keysharp.Core
 		{
 			var d = delay.Al(-1L);
 			var script = Script.TheScript;
-
-			if (script.hasExited)
-				throw new UserRequestedExitException();
 
 			//Be careful with Application.DoEvents(), it has caused spurious crashes in my years of programming experience.
 			if (d == 0L)
@@ -625,11 +625,11 @@ namespace Keysharp.Core
 			Gui.DestroyAll();
 			script.Stop();
 			Environment.ExitCode = ec;
+			script.mainWindow?.Close();
 
 			if (useThrow)
 				throw new UserRequestedExitException();
-			else
-				return false;
+			return false;
 		}
 
 		/// <summary>
@@ -756,8 +756,8 @@ namespace Keysharp.Core
 		}
 
         /// <summary>
-        /// Special exception class to signal that the user has requested exiting the script
-        /// via ExitApp().
+        /// Special exception class to signal that the user has requested exiting the currently running
+		/// pseudothread with Exit().
         /// Note this does not derive from Error so that it can be properly distinguished in
         /// catch statements.
         /// </summary>

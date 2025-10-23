@@ -64,7 +64,7 @@ namespace Keysharp.Core
 			}
 
 			if (err.ExcType == Keyword_ExitApp)
-				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, false);
+				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
 
 			return exitThread;
 		}
@@ -1113,7 +1113,7 @@ namespace Keysharp.Core
 			switch (dlg.Result)
 			{
 				case ErrorDialogResult.Exit:
-					_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, false);
+					_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
 					break;
 
 				case ErrorDialogResult.Reload:

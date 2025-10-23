@@ -161,7 +161,7 @@
 			};
 			var exitfunc = (params object[] args) =>
 			{
-				_ = Flow.ExitAppInternal(Flow.ExitReasons.Menu, null, false);
+				_ = Flow.ExitAppInternal(Flow.ExitReasons.Menu, null, true);
 				return DefaultObject;
 			};
 			//Won't be a gui target, so won't be marked as IsGui internally, but it's ok because it's only ever called on the gui thread in response to gui events.

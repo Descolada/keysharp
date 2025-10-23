@@ -190,6 +190,21 @@ namespace Keysharp.Scripting
 
 		static Script()
 		{
+			Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+
+			Application.ThreadException += (s, e) =>
+			{
+				if (e.Exception is Flow.UserRequestedExitException) return; // silence during shutdown
+				System.Diagnostics.Debug.Write("ThreadException caught: " + e.Exception);
+			};
+
+			AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+			{
+				var ex = e.ExceptionObject as Exception;
+				if (Script.TheScript?.hasExited == true || ex is Flow.UserRequestedExitException) return; // silence during shutdown
+				System.Diagnostics.Debug.WriteLine("Exception caught in current domain: " + ex);
+			};
+
 			WindowX.SetProcessDPIAware();
 			CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 			CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;

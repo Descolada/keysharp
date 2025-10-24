@@ -1113,7 +1113,7 @@ namespace Keysharp.Core
 			switch (dlg.Result)
 			{
 				case ErrorDialogResult.Exit:
-					_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
+					_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, false);
 					break;
 
 				case ErrorDialogResult.Reload:

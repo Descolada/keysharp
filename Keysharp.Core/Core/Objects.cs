@@ -48,13 +48,12 @@
 		/// Returns an OwnProps iterator for the given object.
 		/// </summary>
 		/// <param name="obj">The object whose OwnProps will be retrieved.</param>
-		/// <param name="userOnly">Optionally pass true to specify only user props, else false return all. Default: true.</param>
 		/// <returns>An <see cref="OwnPropsIterator"/> object for obj.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
-		public static object ObjOwnProps(object obj, object userOnly = null)
+		public static object ObjOwnProps(object obj)
 		{
 			if (obj is KeysharpObject kso)
-				return kso.OwnProps(userOnly);
+				return kso.OwnProps();
 
 			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
 		}

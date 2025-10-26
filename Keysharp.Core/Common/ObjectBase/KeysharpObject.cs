@@ -107,10 +107,9 @@ namespace Keysharp.Core.Common.ObjectBase
 			return ct;
 		}
 
-		public object OwnProps(object getValues = null, object userOnly = null)
+		public object OwnProps(object getValues = null)
 		{
 			var vals = getValues.Ab(true);
-			var user = userOnly.Ab(true);
 			var props = new Dictionary<object, object>();
 
 			if (op != null)
@@ -130,7 +129,7 @@ namespace Keysharp.Core.Common.ObjectBase
 		public virtual void PrintProps(string name, StringBuffer sb, ref int tabLevel)
 		{
 			var fieldType = GetType().Name;
-			var opi = (OwnPropsIterator)((FuncObj)OwnProps(true, false)).Inst;
+			var opi = (OwnPropsIterator)((FuncObj)OwnProps(true)).Inst;
 			var indent = new string('\t', tabLevel);
 
 			if (name.Length == 0)

@@ -271,7 +271,7 @@ namespace Keysharp.Core
 			}
 			catch (Exception ex)
 			{
-				return Errors.ErrorOccurred($"An error occurred when calling {function}(): {ex.Message}", "", "0x" + A_LastError.ToString("X"));
+				return Errors.ErrorOccurred($"An error occurred when calling {function}(): {ex.Message}", "", "0x" + ThreadAccessors.A_LastError.ToString("X"));
 			}
 			finally
 			{
@@ -370,7 +370,7 @@ namespace Keysharp.Core
 			else
 				result = ((Func<nint, long[], long>)del)(fnPtr, args);
 
-			Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+			ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
 
 			if (shim != 0)
 				script.ExecutableMemoryPoolManager.Return(shim);

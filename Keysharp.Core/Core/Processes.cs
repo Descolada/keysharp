@@ -534,6 +534,7 @@ namespace Keysharp.Core
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
 		private static long RunInternal(string target, string workingDir, string showMode, [ByRef] object outputVarPID, string args, bool wait = false)
 		{
+			ThreadAccessors.A_LastError = 0;
 			outputVarPID ??= VarRef.Empty;
 			var pid = 0;
 			var useRunAs = RunAsSpecified();
@@ -729,6 +730,7 @@ namespace Keysharp.Core
 			}
 			catch (Exception ex)
 			{
+				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
 				return (long)Errors.ErrorOccurred(ex.Message, DefaultErrorLong);
 			}
 

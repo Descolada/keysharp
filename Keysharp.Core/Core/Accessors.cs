@@ -552,6 +552,21 @@
 		}
 
 		/// <summary>
+		/// The result from last Windows GetLastError() function call which is stored after certain
+		/// function calls such as DllCall and file functions.
+		/// </summary>
+		public static object A_LastError
+		{
+			get => (long)ThreadAccessors.A_LastError;
+			set
+			{
+				var val = value.Ai();
+				Marshal.SetLastSystemError(val);
+				ThreadAccessors.A_LastError = val;
+			}
+		}
+
+		/// <summary>
 		/// The default file encoding setting.
 		/// </summary>
 		public static object A_FileEncoding
@@ -819,11 +834,6 @@
 		/// <see cref="A_AhkPath"/>.
 		/// </summary>
 		public static string A_KeysharpPath => A_AhkPath;
-
-		/// <summary>
-		/// The result from the Windows GetLastError() function.
-		/// </summary>
-		public static long A_LastError => Marshal.GetLastPInvokeError();//This apparently works on linux too.
 
 		/// <summary>
 		/// ListLines is never true.
@@ -2287,6 +2297,16 @@
 		{
 			get => Script.TheScript.Threads.CurrentThread.eventInfo;
 			set => Script.TheScript.Threads.CurrentThread.eventInfo = value;
+		}
+
+		/// <summary>
+		/// The result from last Windows GetLastError() function call which is stored after certain
+		/// function calls such as DllCall and file functions.
+		/// </summary>
+		internal static int A_LastError
+		{
+			get => Script.TheScript.Threads.CurrentThread.lastError;
+			set => Script.TheScript.Threads.CurrentThread.lastError = value;
 		}
 
 		/// <summary>

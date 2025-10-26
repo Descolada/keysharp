@@ -171,7 +171,10 @@
 		{
 			var (dh, gen) = AritySlots.Get(args.Length, slotId);
 			if (dh == null || gen != dh._assignedGeneration)
+			{
+				if (Script.TheScript.hasExited) return 0L;
 				throw new Error("Stale callback pointer");
+			}
 
 			object val = null;
 			var state = (false, (ThreadVariables)null);

@@ -1,12 +1,18 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Keysharp.Benchmark
 {
+	[IterationCount(30)]
+	[InvocationCount(1000000)]
 	public class ReflectionBench : BaseTest
 	{
 		public class Target
@@ -21,6 +27,7 @@ namespace Keysharp.Benchmark
 
 		private Target _instance = default!;
 		private MethodInfo _mi0 = default!, _mi1 = default!, _mi5 = default!, _mi10 = default!;
+		private MethodInvoker _miv0 = default!, _miv1 = default!, _miv5 = default!, _miv10 = default!;
 		private object[] _args0 = default!, _args1 = default!, _args5 = default!, _args10 = default!;
 		private Func<object, object[], object> _del0 = default!, _del1 = default!, _del5 = default!, _del10 = default!;
 
@@ -33,6 +40,12 @@ namespace Keysharp.Benchmark
 			_mi1 = t.GetMethod(nameof(Target.Method1)) ?? throw new NullReferenceException();
 			_mi5 = t.GetMethod(nameof(Target.Method5)) ?? throw new NullReferenceException();
 			_mi10 = t.GetMethod(nameof(Target.Method10)) ?? throw new NullReferenceException();
+
+			_miv0 = System.Reflection.MethodInvoker.Create(_mi0);
+			_miv1 = System.Reflection.MethodInvoker.Create(_mi1);
+			_miv5 = System.Reflection.MethodInvoker.Create(_mi5);
+			_miv10 = System.Reflection.MethodInvoker.Create(_mi10);
+
 			_del0 = DelegateFactory.CreateDelegate(_mi0);
 			_del1 = DelegateFactory.CreateDelegate(_mi1);
 			_del5 = DelegateFactory.CreateDelegate(_mi5);
@@ -58,6 +71,18 @@ namespace Keysharp.Benchmark
 		[Benchmark(Description = "Invoke 10 params")]
 		public void Invoke10() => _sink = _mi10.Invoke(_instance, _args10) ?? throw new NullReferenceException();
 
+		[Benchmark(Description = "MethodInvoke 0 params")]
+		public void MethodInvoke0() => _sink = _miv0.Invoke(_instance, _args0.AsSpan()) ?? throw new NullReferenceException();
+
+		[Benchmark(Description = "MethodInvoke 1 param")]
+		public void MethodInvoke1() => _sink = _miv1.Invoke(_instance, _args1.AsSpan()) ?? throw new NullReferenceException();
+
+		[Benchmark(Description = "MethodInvoke 5 params")]
+		public void MethodInvoke5() => _sink = _miv5.Invoke(_instance, _args5.AsSpan()) ?? throw new NullReferenceException();
+
+		[Benchmark(Description = "MethodInvoke 10 params")]
+		public void MethodInvoke10() => _sink = _miv10.Invoke(_instance, _args10.AsSpan()) ?? throw new NullReferenceException();
+
 		[Benchmark(Description = "Delegate invoke 0 params")]
 		public void DelegateInvoke0() => _sink = _del0(_instance, _args0);
 
@@ -69,5 +94,6 @@ namespace Keysharp.Benchmark
 
 		[Benchmark(Description = "Delegate invoke 10 params")]
 		public void DelegateInvoke10() => _sink = _del10.Invoke(_instance, _args10);
+
 	}
 }

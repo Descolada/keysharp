@@ -12,6 +12,24 @@
 			_inner = new Dictionary<TKey, object>(comparer ?? EqualityComparer<TKey>.Default);
 		}
 
+		public IEnumerable<TValue> Values
+		{
+			get
+			{
+				foreach (var boxed in _inner.Values)
+				{
+					if (boxed is Lazy<TValue> lv)
+					{
+						continue;
+					}
+					else
+					{
+						yield return (TValue)boxed;
+					}
+				}
+			}
+		}
+
 		public bool ContainsKey(TKey key) => _inner.ContainsKey(key);
 
 		public bool ContainsValue(TValue value)

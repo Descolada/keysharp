@@ -99,7 +99,7 @@ namespace Keysharp.Scripting
 
 			// Do not initialize the core types again
 			var typesToRemoveSet = new HashSet<Type>(new[] { typeof(Any), typeof(FuncObj), typeof(KeysharpObject), typeof(Class) });
-			var orderedTypes = types.Where(type => !typesToRemoveSet.Contains(type)).OrderBy(GetInheritanceDepth);
+			var orderedTypes = types.Where(type => !typesToRemoveSet.Contains(type)).OrderBy(Reflections.GetInheritanceDepth);
 
 			// Lazy-initialize all other classes
 			foreach (var t in orderedTypes)
@@ -107,17 +107,6 @@ namespace Keysharp.Scripting
 				Script.InitClass(t);
 			}
 		}
-
-        private static int GetInheritanceDepth(Type type)
-        {
-            int depth = 0;
-            while (type.BaseType != null)
-            {
-                depth++;
-                type = type.BaseType;
-            }
-            return depth;
-        }
 
 		public bool HasVariable(string key) =>
 			globalVars.ContainsKey(key)

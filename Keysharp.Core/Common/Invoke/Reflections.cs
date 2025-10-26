@@ -592,6 +592,17 @@ namespace Keysharp.Core.Common.Invoke
 					yield return nested;
 			}
 		}
+
+		internal static int GetInheritanceDepth(Type type)
+		{
+			int depth = 0;
+			while (type.BaseType != null)
+			{
+				depth++;
+				type = type.BaseType;
+			}
+			return depth;
+		}
 	}
 
 	internal class UnloadableAssemblyLoadContext : AssemblyLoadContext

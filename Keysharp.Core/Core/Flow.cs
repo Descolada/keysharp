@@ -619,23 +619,29 @@ namespace Keysharp.Core
 			GC.WaitForPendingFinalizers();
 			DestructorPump.RunPendingDestructors();
 
-			foreach (var kv in script.Vars.globalVars)
+			foreach (var t in Reflections.GetNestedTypes([script.ProgramType])
+				.OrderBy(Reflections.GetInheritanceDepth))
 			{
-				object val = null;
-				if (kv.Value is PropertyInfo pi)
-					val = pi.GetValue(null);
-				else if (kv.Value is FieldInfo fi)
-					val = fi.GetValue(null);
-				if (val is Any kso)
+				var fields = t.GetFields(BindingFlags.Static | BindingFlags.Public);
+
+				foreach (var val in fields.Select(f => f.GetValue(null)))
 				{
-					try
-					{
-						GC.SuppressFinalize(kso);
-						InvokeMeta(kso, "__Delete");
-						if (kso is IDisposable dis) dis.Dispose();
-					}
-					catch { }
+					if (val is Any kso) CallDeleteSilent(kso);
 				}
+
+				if (script.Vars.Statics.TryGetValue(t, out Any kso2) && kso2.HasOwnPropInternal("__Delete"))
+					CallDeleteSilent(kso2);
+			}
+
+			void CallDeleteSilent(Any kso)
+			{
+				try
+				{
+					kso.HasFinalizer = false;
+					InvokeMeta(kso, "__Delete");
+					if (kso is IDisposable dis) dis.Dispose();
+				}
+				catch { }
 			}
 
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.

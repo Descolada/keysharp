@@ -11,7 +11,7 @@ namespace Keysharp.Scripting
 		public LazyDictionary<Type, Any> Statics = new();
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;
-		private readonly Dictionary<string, MemberInfo> globalVars = new (StringComparer.OrdinalIgnoreCase);
+		internal readonly Dictionary<string, MemberInfo> globalVars = new (StringComparer.OrdinalIgnoreCase);
 
 		public Variables()
 		{
@@ -59,36 +59,43 @@ namespace Keysharp.Scripting
 			{
 				var opm = op.Value;
 				if (opm.Value is FuncObj fov && fov != null)
-					fov._base = fop;
+				{
+					fov.SetBaseInternal(fop);
+				}
 				if (opm.Get is FuncObj fog && fog != null)
-					fog._base = fop;
+				{
+					fog.SetBaseInternal(fop);
+				}
 				if (opm.Set is FuncObj fos && fos != null)
-					fos._base = fop;
+				{
+					fos.SetBaseInternal(fop);
+				}
 				if (opm.Call is FuncObj foc && foc != null)
-					foc._base = fop;
+				{
+					foc.SetBaseInternal(fop);
+				}
 			}
 			InitClass(typeof(Any));
 			InitClass(typeof(KeysharpObject));
 			InitClass(typeof(Class));
 
 			// Class.Base == Object
-			Statics[typeof(Class)]._base = Statics[typeof(KeysharpObject)];
+			Statics[typeof(Class)].SetBaseInternal(Statics[typeof(KeysharpObject)]);
 			// Any.Base == Class.Prototype
-			Statics[typeof(Any)]._base = Prototypes[typeof(Class)];
+			Statics[typeof(Any)].SetBaseInternal(Prototypes[typeof(Class)]);
 
 			// Remove __New because it's only for internal overrides
 			Prototypes[typeof(Any)].op.Remove("__New");
 
 			// Manually define Object static instance prototype property to be the Object prototype
 			var ksoStatic = Statics[typeof(KeysharpObject)];
-			ksoStatic.op ??= new Dictionary<string, OwnPropsDesc>(StringComparer.OrdinalIgnoreCase);
-			ksoStatic.op["prototype"] = new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]);
+			ksoStatic.DefinePropInternal("prototype", new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]));
 			// Object.Base == Any
-			ksoStatic._base = Statics[typeof(Any)];
+			ksoStatic.SetBaseInternal(Statics[typeof(Any)]);
 
 			//FuncObj was initialized when Object wasn't, so define the bases
-			Prototypes[typeof(FuncObj)]._base = Prototypes[typeof(KeysharpObject)];
-			Statics[typeof(FuncObj)]._base = Statics[typeof(Class)];
+			Prototypes[typeof(FuncObj)].SetBaseInternal(Prototypes[typeof(KeysharpObject)]);
+			Statics[typeof(FuncObj)].SetBaseInternal(Statics[typeof(Class)]);
 
 			// Do not initialize the core types again
 			var typesToRemoveSet = new HashSet<Type>(new[] { typeof(Any), typeof(FuncObj), typeof(KeysharpObject), typeof(Class) });

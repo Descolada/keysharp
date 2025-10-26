@@ -188,7 +188,7 @@ namespace Keysharp.Core
 			}
 
 			Ptr = null;
-			GC.SuppressFinalize(this);
+			HasFinalizer = false;
 		}
 
 		internal void CallEvents()

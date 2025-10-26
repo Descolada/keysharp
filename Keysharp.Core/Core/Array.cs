@@ -34,7 +34,8 @@
 	/// </summary>
 	public class Array : KeysharpObject, I__Enum, IEnumerable<object>, IEnumerable<(object, object)>, IList
 	{
-		private int capacity = 4;
+		private const int DefaultCapacity = 4;
+		private int capacity = DefaultCapacity;
 
 		/// <summary>
 		/// The underlying <see cref="List"/> that holds the values.
@@ -192,32 +193,33 @@
 		/// <returns>Empty string, unused.</returns>
 		public override object __New(params object[] args)
 		{
-			array = new List<object>(capacity);
-
-			if (args == null || args.Length == 0)
+			if (args is null || args.Length == 0)
 			{
+				array = new List<object>(capacity);
 			}
-			else if (args.Length == 1) {
-				if (args[0] is object[] objarr)
+			else if (args.Length == 1)
+			{
+				switch (args[0])
 				{
-					array.AddRange(objarr);
+					case object[] objarr:
+						array = new List<object>(objarr); // single copy
+						break;
+					case List<object> objlist:
+						array = new List<object>(objlist); // single copy
+						break;
+					case IEnumerable e when e is not string && e is not Any:
+						array = new List<object>(e.Cast<object>()); // enumerate once
+						break;
+					default:
+						array = new List<object>(1) { args[0] };
+						break;
 				}
-				else if (args[0] is List<object> objlist)
-				{
-					array.AddRange(objlist);
-				}
-				else if (args[0] is IEnumerable c && c is not string && c is not Any)
-				{
-					array.AddRange(c.Cast<object>());
-				}
-				else
-				{
-					array.Add(args[0]);
-				}
+				if (array.Count < capacity) array.Capacity = capacity;
 			}
 			else
 			{
-				array.AddRange(args);
+				array = new List<object>(args); // single copy
+				if (array.Count < capacity) array.Capacity = capacity;
 			}
 
 			return DefaultObject;

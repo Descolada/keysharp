@@ -19,12 +19,16 @@
 			if (!_pending)
 			{
 				_pending = true;
-				script.BeginInvoke(RequestProcess);
+				try
+				{
+					script.BeginInvoke(RunPendingDestructors);
+				}
+				catch { }
 			}
 		}
 
 		// Called on the main STA thread (window proc or sync ctx)
-		public static void RequestProcess()
+		public static void RunPendingDestructors()
 		{
 			// Drain to a batch
 			lock (_lock)

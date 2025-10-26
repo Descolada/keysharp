@@ -55,7 +55,7 @@ namespace Keysharp.Core
 			if (!SimpleNameIndex.TryGetValue(simpleName, out var bag) || bag == null)
 				return System.Array.Empty<Type>();
 
-			// Distinct in case the same Type appears multiple times (rare but possible).
+			// Distinct in case the same type appears multiple times (rare but possible).
 			// Distinct() is cheap here since the bag is usually small.
 			return bag.Distinct().ToArray();
 		}

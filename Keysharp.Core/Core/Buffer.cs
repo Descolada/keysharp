@@ -153,7 +153,7 @@
 		void IDisposable.Dispose()
 		{
 			Dispose(true);
-			GC.SuppressFinalize(this);
+			HasFinalizer = false;
 		}
 
 		/// <summary>

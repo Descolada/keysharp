@@ -100,7 +100,7 @@
 				return Errors.ErrorOccurred(
 					$"Cannot rebase: native types differ ({nativeObj.Name} vs {nativeBase.Name}).");
 
-			obj._base = baseObj;
+			obj.SetBaseInternal(baseObj);
 
 			return DefaultObject;
 		}
@@ -113,8 +113,7 @@
 		public static object ObjGetBase(object object0)
 		{
 			KeysharpObject obj = object0 as KeysharpObject;
-			if (obj == null || obj._base == null) return "";
-			return obj._base;
+			return (object)obj?._base ?? "";
 		}
 
 		public static object ObjDefineProp(object obj0, object obj1, object obj2) 
@@ -159,6 +158,8 @@
 			{
 				return Errors.ArgumentErrorOccurred(obj2, 2);
 			}
+
+			target.OnPropertyChanged(name, op[name].Type);
 
 			return target;
 		}

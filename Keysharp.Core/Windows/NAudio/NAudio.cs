@@ -1679,7 +1679,7 @@ namespace Keysharp.Core.Windows
 	}
 
 	/// <summary>
-	/// Connector Type
+	/// Connector type
 	/// </summary>
 	internal enum ConnectorType
 	{

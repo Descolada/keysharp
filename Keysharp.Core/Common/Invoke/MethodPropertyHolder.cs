@@ -327,6 +327,7 @@ namespace Keysharp.Core.Common.Invoke
 			var mi = mph.mi ?? throw new ArgumentNullException(nameof(mph.mi));
 			var ps = mph.parameters;
 			var isInstance = !mph.IsStatic;
+			var isVariadic = mph.IsVariadic;
 			int paramCount = ps.Length;
 
 			// Precompute "soft optional" + boxed defaults once.
@@ -360,7 +361,7 @@ namespace Keysharp.Core.Common.Invoke
 				// ---- validate the argument count ----
 				int lastProvided = args.Length;
 				int provided = lastProvided + (instance == null ? 0 : 1);
-				if (!mph.IsStatic) provided--; // account for native 'this', which does not count as argument
+				if (isInstance) provided--; // account for native 'this', which does not count as argument
 
 				for (int i = lastProvided - 1; i >= 0; i--)
 				{
@@ -371,7 +372,7 @@ namespace Keysharp.Core.Common.Invoke
 				if (provided < mph.MinParams)
 					throw new ValueError($"Too few arguments provided for function {mph.Name}");
 
-				if (!mph.IsVariadic && provided > mph.MaxParams)
+				if (!isVariadic && provided > mph.MaxParams)
 					throw new ValueError($"Too many arguments provided for function {mph.Name}");
 
 				// ---- instance splicing ----
@@ -409,7 +410,7 @@ namespace Keysharp.Core.Common.Invoke
 				int eff = Math.Max(0, working.Length - start);
 
 				// ---- params packing (if any) ----
-				if (mph.IsVariadic)
+				if (isVariadic)
 				{
 					int k = mph.variadicParamIndex;
 
@@ -459,6 +460,9 @@ namespace Keysharp.Core.Common.Invoke
 					{
 						// Normal params at [k]
 						int final = paramCount;
+
+						if (paramCount == 1 && start == 0)
+							return core(target, [working], start);
 
 						if (eff > final)
 						{

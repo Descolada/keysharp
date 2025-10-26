@@ -107,7 +107,7 @@
 		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/></param>
 		/// <returns>The return value of the bound function.</returns>
 		public override object Call(params object[] args) => base.Call(CreateArgs(args).ToArray());
-		public override object CallInst(object inst, params object[] args) => base.Call(CreateArgs([inst, ..args]).ToArray());
+		public override object CallInst(object inst, params object[] args) => base.Call(CreateArgs(args.Prepend(inst)).ToArray());
 
         public override object CallWithRefs(params object[] args)
 		{
@@ -265,7 +265,7 @@
 			if (Script.TheScript.Vars.Prototypes.Count > 1)
 			{
 				Script.TheScript.Vars.Prototypes.TryGetValue(GetType(), out Any value);
-				_base = value;
+				SetBaseInternal(value);
 			}
 
 			if (mi != null)
@@ -276,19 +276,15 @@
 		=> new BoundFunc(mi, args, Inst);
 
 		public virtual object Call(params object[] obj) => mph.CallFunc(Inst, obj);
-		public virtual object CallInst(object inst, params object[] obj)
+		public virtual object CallInst(object inst, params object[] args)
 		{
 			if (Inst == null)
 			{
-				return mph.CallFunc(inst, obj);
+				return mph.CallFunc(inst, args);
 			}
 			else
 			{
-				int count = obj.Length;
-				object[] args = new object[count + 1];
-				args[0] = inst;
-				System.Array.Copy(obj, 0, args, 1, count);
-				return mph.CallFunc(Inst, args);
+				return mph.CallFunc(Inst, args.Prepend(inst));
 			}
 		}
         public virtual object CallWithRefs(params object[] args)

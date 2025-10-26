@@ -30,15 +30,13 @@ namespace Keysharp.Core.Common.ObjectBase
 		{
 			var count = (args.Length / 2) * 2;
 
-			if (count > 0) _ = EnsureOwnProps();
-
 			for (var i = 0; i < count; i += 2)
 			{
 				var name = args[i].ToString();
 				if (name.Equals("base", StringComparison.OrdinalIgnoreCase))
-					_base = (Any)args[i + 1];
+					SetBaseInternal((Any)args[i + 1]);
 				else
-					op[name] = new OwnPropsDesc(this, args[i + 1]);
+					DefinePropInternal(name, new OwnPropsDesc(this, args[i + 1]));
 			}
 
 			return this;
@@ -57,20 +55,7 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public object DefineProp(object obj0, object obj1) => Objects.ObjDefineProp(this, obj0, obj1);
 
-		public object DeleteProp(object obj)
-		{
-			var name = obj.As().ToLower();
-
-			if (op != null && op.Remove(name, out var map))
-			{
-				if (op.Count == 0)
-					op = null;//Make all subsequent member access faster because this won't have to be checked first.
-
-				return map.Value;
-			}
-
-			return DefaultObject;
-		}
+		public object DeleteProp(object obj) => DeleteOwnPropInternal(obj.As());
 
 		public long GetCapacity() => (long)Errors.ErrorOccurred("GetCapacity() is not supported or needed in Keysharp. The C# runtime handles all memory.", DefaultErrorLong);
 
@@ -97,12 +82,12 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public long HasOwnProp(object obj)
 		{
-			var name = obj.As().ToLower();
+			var name = obj.As();
 
 			if (op != null && op.ContainsKey(name))
 				return 1L;
 
-			return Reflections.FindOwnProp(GetType(), name) ? 1L : 0L;
+			return Reflections.FindOwnProp(GetType(), name.ToLower()) ? 1L : 0L;
 		}
 
 		public long OwnPropCount()

@@ -12,6 +12,25 @@
 			_inner = new Dictionary<TKey, object>(comparer ?? EqualityComparer<TKey>.Default);
 		}
 
+		public bool ContainsKey(TKey key) => _inner.ContainsKey(key);
+
+		public bool ContainsValue(TValue value)
+		{
+			foreach (var boxed in _inner.Values)
+			{
+				if (boxed is Lazy<TValue> lv)
+				{
+					continue;
+				}
+				else
+				{
+					if (EqualityComparer<TValue>.Default.Equals((TValue)boxed, value))
+						return true;
+				}
+			}
+			return false;
+		}
+
 		/// <summary>
 		/// Register an already-constructed value.
 		/// </summary>

@@ -1,3 +1,5 @@
+using System.Windows.Forms;
+using Keysharp.Core.Scripting.Script;
 using static Keysharp.Core.Errors;
 
 using Timer1 = System.Timers.Timer;
@@ -612,6 +614,29 @@ namespace Keysharp.Core
 			}
 			else
 				script.onExitHandlers.Clear();
+
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+			DestructorPump.RunPendingDestructors();
+
+			foreach (var kv in script.Vars.globalVars)
+			{
+				object val = null;
+				if (kv.Value is PropertyInfo pi)
+					val = pi.GetValue(null);
+				else if (kv.Value is FieldInfo fi)
+					val = fi.GetValue(null);
+				if (val is Any kso)
+				{
+					try
+					{
+						GC.SuppressFinalize(kso);
+						InvokeMeta(kso, "__Delete");
+						if (kso is IDisposable dis) dis.Dispose();
+					}
+					catch { }
+				}
+			}
 
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.
 			script.SuppressErrorOccurredDialog = true;

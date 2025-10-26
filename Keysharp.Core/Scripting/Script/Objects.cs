@@ -18,7 +18,9 @@ namespace Keysharp.Scripting
 				return;
 
 			var proto = (Any)RuntimeHelpers.GetUninitializedObject(actual);
+			proto.type = typeof(Prototype); proto.isPrototype = true; proto.InitializePrivates();
 			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(actual);
+			staticInst.type = typeof(Class); staticInst.InitializePrivates();
 
 			store.Statics.AddLazy(t, () =>
 			{
@@ -102,9 +104,9 @@ namespace Keysharp.Scripting
 							propertyMap.Set = new FuncObj(method);
 
 						if (isStatic)
-							staticInst.op[propName] = propertyMap;
+							staticInst.DefinePropInternal(propName, propertyMap);
 						else
-							proto.op[propName] = propertyMap;
+							proto.DefinePropInternal(propName, propertyMap);
 
 						continue;
 					}
@@ -117,12 +119,12 @@ namespace Keysharp.Scripting
 
 					if (isStatic)
 					{
-						DefineProp(staticInst, methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
+						staticInst.DefinePropInternal(methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
 						continue;
 					}
 
 					// Wrap method in FuncObj
-					DefineProp(proto, methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
+					proto.DefinePropInternal(methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
 				}
 
 				// Get all instance and static properties
@@ -165,7 +167,7 @@ namespace Keysharp.Scripting
 						}
 
 						if (!propertyMap.IsEmpty)
-							staticInst.op[propertyName] = propertyMap;
+							staticInst.DefinePropInternal(propertyName, propertyMap);
 
 						continue;
 					}
@@ -183,24 +185,24 @@ namespace Keysharp.Scripting
 					}
 
 					if (!propertyMap.IsEmpty)
-						proto.op[propertyName] = propertyMap;
+						proto.DefinePropInternal(propertyName, propertyMap);
 				}
 
 				if (t != typeof(FuncObj) && t != typeof(Any))
-					proto._base = script.Vars.Prototypes[t.BaseType];
+					proto.SetBaseInternal(script.Vars.Prototypes[t.BaseType]);
 
 				if (isBuiltin)
 				{
 					string name = t.Name;
 					if (Keywords.TypeNameAliases.ContainsKey(name))
 						name = Keywords.TypeNameAliases[name];
-					proto.op["__Class"] = new OwnPropsDesc(proto, name);
+					proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, name));
 				}
 
-				staticInst.op["prototype"] = new OwnPropsDesc(staticInst, proto);
+				staticInst.DefinePropInternal("prototype", new OwnPropsDesc(staticInst, proto));
 
 				if (t != typeof(FuncObj) && t != typeof(Any))
-					staticInst._base = script.Vars.Statics[t.BaseType];
+					staticInst.SetBaseInternal(script.Vars.Statics[t.BaseType]);
 
 				if (!isBuiltin)
 				{
@@ -213,7 +215,7 @@ namespace Keysharp.Scripting
 					foreach (var nestedType in nestedTypes)
 					{
 						RuntimeHelpers.RunClassConstructor(nestedType.TypeHandle);
-						DefineProp(staticInst, nestedType.Name,
+						staticInst.DefinePropInternal(nestedType.Name,
 							new OwnPropsDesc(staticInst, null,
 								new FuncObj((params object[] args) => script.Vars.Statics[nestedType]),
 								null,
@@ -232,14 +234,6 @@ namespace Keysharp.Scripting
 				return proto;
 			});
         }
-
-		internal static void DefineProp(Any kso, string name, OwnPropsDesc desc)
-		{
-			if (kso.EnsureOwnProps().TryGetValue(name, out var existing))
-				existing.Merge(desc);
-			else
-				kso.op[name] = desc;
-		}
 
 		public static object Index(object item, params object[] index) => item == null ? null : IndexAt(item, index);
 

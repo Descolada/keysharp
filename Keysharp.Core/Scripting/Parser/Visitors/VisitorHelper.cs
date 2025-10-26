@@ -108,7 +108,7 @@ namespace Keysharp.Scripting
         {
 			var result = new List<ClassDeclarationContext>();
 
-			foreach (var se in program.sourceElements().sourceElement())
+			foreach (var se in program.sourceElements()?.sourceElement() ?? [])
 			{
 				var topClass = se.classDeclaration();
 				if (topClass != null)
@@ -1094,7 +1094,7 @@ namespace Keysharp.Scripting
             );
         }
 
-        /*
+		/*
         Converts an ExpressionSyntax to a function InvocationExpressionSyntax. 
         1. Built-in functions get called with the fully qualified name, eg MsgBox -> Keysharp.Core.Dialogs.MsgBox
         EXCEPT if the argument list contains variadic arguments, in which case Invoke is used.
@@ -1103,7 +1103,7 @@ namespace Keysharp.Scripting
         4. GetStaticMemberValueT gets converted to Invoke(GetStaticMethodT<typeName>(methodName, -1))
         5. Anything else is converted to Invoke(targetExpression, "Call", arguments)
         */
-        public ExpressionSyntax GenerateFunctionInvocation(
+		public ExpressionSyntax GenerateFunctionInvocation(
             ExpressionSyntax targetExpression,
             ArgumentListSyntax argumentList,
             string methodName)
@@ -1135,15 +1135,15 @@ namespace Keysharp.Scripting
                 UserTypes.ContainsKey(identifierName.Identifier.Text))
             {
                 // Convert to Invoke(targetExpression, "Call", arguments)
-                return SyntaxFactory.InvocationExpression(
+				return SyntaxFactory.InvocationExpression(
                     SyntaxFactory.IdentifierName("Invoke"),
 					CreateArgumentList(
-					    targetExpression,
+						targetExpression,
                         SyntaxFactory.LiteralExpression(
                             SyntaxKind.StringLiteralExpression,
                             SyntaxFactory.Literal("Call")
                         ),
-                        argumentList.Arguments // Include additional arguments
+						argumentList.Arguments // Include additional arguments
                     )
                 );
             }
@@ -1166,7 +1166,7 @@ namespace Keysharp.Scripting
                             CreateArgumentList(
                                 baseExpression,
                                 propertyNameExpression,
-                                argumentList.Arguments // Pass additional arguments (args)
+								argumentList.Arguments // Pass additional arguments (args)
                             )
                         );
                 }
@@ -1217,12 +1217,12 @@ namespace Keysharp.Scripting
             return SyntaxFactory.InvocationExpression(
                 SyntaxFactory.IdentifierName("Invoke"),
                 CreateArgumentList(
-                    targetExpression,
+					targetExpression,
                     SyntaxFactory.LiteralExpression(
                         SyntaxKind.StringLiteralExpression,
                         SyntaxFactory.Literal("Call")
                     ),
-                    argumentList.Arguments // Include additional arguments
+					argumentList.Arguments // Include additional arguments
                 )
             );
         }

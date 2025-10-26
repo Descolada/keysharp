@@ -486,7 +486,7 @@
 		void IDisposable.Dispose()
 		{
 			Dispose(true);
-			GC.SuppressFinalize(this);
+			HasFinalizer = false;
 		}
 
 		private string HandleReadEol(string s)

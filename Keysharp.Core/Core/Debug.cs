@@ -220,15 +220,6 @@ namespace Keysharp.Core
 			var script = Script.TheScript;
 			System.Diagnostics.Debug.Write(text);//Will print only in debug mode to the debugger so we can see it in Visual Studio.
 
-			//This will throw when running tests.
-			try
-			{
-				Console.Out.Write(text);//Will print to the console when piped to | more, even though this is a windows application.
-			}
-			catch
-			{
-			}
-
 			if (!script.IsMainWindowClosing)
 				if (clear)
 					script.mainWindow.SetText(text, MainWindow.MainFocusedTab.Debug, false);

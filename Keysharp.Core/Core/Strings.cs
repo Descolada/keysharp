@@ -1109,11 +1109,13 @@ namespace Keysharp.Core
 		public static object StrPtr(object value)
 		{
 			if (value is StringBuffer sb) {
-				return sb;
+				return sb.Ptr;
 			} 
 			else if (value is KeysharpObject kso)
 			{
 				var str = Script.GetPropertyValue(kso, "__Value");
+				if (str is StringBuffer sb2)
+					return sb2.Ptr;
 				var sbr = new StringBuffer(str);
 				sbr.EntangledString = kso;
 				return sbr;

@@ -538,6 +538,42 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
+		/// Pauses the current thread, or pauses/unpauses the underlying thread.
+		/// </summary>
+		/// <param name="threadState">
+		/// If omitted, it pauses the current thread. Otherwise, specify one of the following values:<br/>
+		///     1: Pauses the underlying thread.<br/>
+		///     0: Unpauses the underlying thread.<br/>
+		///    -1: Changes the underlying thread paused state to the opposite of its previous state (On or Off).
+		/// </param>
+		public static object Pause(object threadState = null)
+		{
+			if (threadState == null)
+			{
+				var tv = TheScript.Threads.CurrentThread;
+				tv.isPaused = true;
+				var prevAllowTimers = A_AllowTimers;
+				A_AllowTimers = false;
+
+				while (tv.isPaused)
+					Flow.TryDoEvents();
+
+				A_AllowTimers = prevAllowTimers;
+			}
+			else
+			{
+				var state = Conversions.ConvertOnOffToggle(threadState);
+				switch (state)
+				{
+					case ToggleValueType.Toggle: ThreadAccessors.A_IsPaused = !ThreadAccessors.A_IsPaused; break;
+					case ToggleValueType.Off: ThreadAccessors.A_IsPaused = false; break;
+					default: ThreadAccessors.A_IsPaused = true; break;
+				}
+			}
+			return DefaultObject;
+		}
+
+		/// <summary>
 		/// Sets the priority or interruptibility of threads. It can also temporarily disable all timers.<br/>
 		/// The subFunction, Value1, and Value2 parameters are dependent upon each other and their usage is described below.
 		/// </summary>

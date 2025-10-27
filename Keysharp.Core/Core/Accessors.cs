@@ -779,6 +779,11 @@
 		public static bool A_IsSuspended => Script.TheScript.FlowData.suspended;
 
 		/// <summary>
+		/// True if the thread immediately underneath the current thread is paused, otherwise false.
+		/// </summary>
+		public static bool A_IsPaused => ThreadAccessors.A_IsPaused;
+
+		/// <summary>
 		/// Only for compatibility with AHK, C# programs are always unicode.
 		/// </summary>
 		public static bool A_IsUnicode => true;
@@ -2252,6 +2257,19 @@
 		/// Current day of the week's full name in the current user's language, e.g. Sunday.
 		/// </summary>
 		public static string A_DDDD => DateTime.Now.ToString("dddd");
+
+		/// <summary>
+		/// True if the thread immediately underneath the current thread is paused, otherwise false.
+		/// </summary>
+		public static bool A_IsPaused
+		{
+			get => Script.TheScript.Threads.UnderlyingThread?.isPaused ?? false;
+			set
+			{
+				var underlyingThread = Script.TheScript.Threads.UnderlyingThread;
+				if (underlyingThread != null) underlyingThread.isPaused = value;
+			}
+		}
 
 		/// <summary>
 		/// Sets the mouse speed that will be used if unspecified in <see cref="Click"/>.

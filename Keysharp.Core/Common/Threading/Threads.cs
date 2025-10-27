@@ -15,6 +15,8 @@
 
 		internal ThreadVariables CurrentThread;
 
+		internal ThreadVariables UnderlyingThread => tvm.threadVars.TryPeekSecond();
+
 		int _timersPaused = 0;
 
 		public Threads()
@@ -182,8 +184,8 @@
 				Script.TheScript.mainWindow.CheckedBeginInvoke(() =>
 				{
 					object ret = null;
-					var script = Script.TheScript;
-					var btv = PushThreadVariables(priority, skipUninterruptible, isCritical, false, true);//Always start each thread with one entry.
+					var threads = Script.TheScript.Threads;
+					var btv = threads.PushThreadVariables(priority, skipUninterruptible, isCritical, false, true);//Always start each thread with one entry.
 
 					if (btv.Item1)
 					{
@@ -198,7 +200,7 @@
 								else
 									ret = "";
 
-								_ = EndThread(btv);
+								_ = threads.EndThread(btv);
 							}, true, btv);//Pop on exception because EndThread() above won't be called.
 						}
 						else
@@ -212,7 +214,7 @@
 							else
 								ret = "";
 
-							_ = EndThread(btv);
+							_ = threads.EndThread(btv);
 						}
 					}
 				}, true, false);

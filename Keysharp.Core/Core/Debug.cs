@@ -197,8 +197,6 @@ namespace Keysharp.Core
 
 		public static object ListVars() => Script.TheScript.mainWindow?.ShowInternalVars(true);
 
-		public static object Pause(object threadState = null) => throw new NotImplementedException();
-
 		/// <summary>
 		/// Sends a string to the debugger (if any) for display.
 		/// </summary>

@@ -75,6 +75,7 @@ namespace Keysharp.Core.Common.Threading
 		//internal Task<object> task = null;
 		internal bool task = false;
 		internal bool isCritical = false;
+		internal bool isPaused = false;
 		internal bool allowThreadToBeInterrupted = true;
 		internal int UninterruptibleDuration = 17;
 		internal DateTime threadStartTime = DateTime.MinValue;
@@ -149,6 +150,7 @@ namespace Keysharp.Core.Common.Threading
 		{
 			task = false;// null;
 			isCritical = false;
+			isPaused = false;
 			allowThreadToBeInterrupted = true;
 			UninterruptibleDuration = Script.TheScript.uninterruptibleTime;
 			threadStartTime = DateTime.MinValue;

@@ -282,7 +282,7 @@ namespace Keysharp.Scripting
 					}
 				}
 
-				if (kso == null && item != null)
+				if (item != null && item is not Any)
 				{
 #if WINDOWS
 					// COM

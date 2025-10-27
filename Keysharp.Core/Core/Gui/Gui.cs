@@ -1897,7 +1897,7 @@
 		{
 			EnsureDefaultMargins();
 			var s = obj.As();
-			bool /*center = false, cX = false, cY = false,*/ auto = false, min = false, max = false, restore = true, hide = false;
+			bool /*center = false, cX = false, cY = false,*/ auto = false, min = false, max = false, restore = true, hide = false, cX = false, cY = false;
 			var dpiscale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
 
 			foreach (Range r in s.AsSpan().SplitAny(Spaces))
@@ -1947,6 +1947,9 @@
 								break;
 
 							case var b when opt.Equals(Keyword_NoActivate, StringComparison.OrdinalIgnoreCase):
+								form.showWithoutActivation = true;
+								restore = true;
+								break;
 							case var b2 when opt.Equals(Keyword_NA, StringComparison.OrdinalIgnoreCase):
 								form.showWithoutActivation = true;
 								restore = false;
@@ -1956,6 +1959,10 @@
 								hide = true;
 								restore = false;
 								break;
+
+							case var b when opt.Equals(Keyword_Center, StringComparison.OrdinalIgnoreCase):
+								cX = cY = true; 
+								break;
 						}
 					}
 					else
@@ -1964,10 +1971,10 @@
 
 						if (modeval.Equals(Keyword_Center, StringComparison.OrdinalIgnoreCase))
 						{
-							//if (select == 2)
-							//  cX = true;
-							//else
-							//  cY = true;
+							if (select == 2)
+							  cX = true;
+							else
+							  cY = true;
 						}
 						else if (modeval.Length != 0 && int.TryParse(modeval, out var n))
 						{
@@ -2046,36 +2053,27 @@
 				form.ClientSize = size;
 			}
 
-			var hadLocation = false;
 			var location = form.BeenShown ? form.Location : new Point();
 			var screen = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
-
 			//We need to check showCalled because the user could have called Show("hide")
 			//Then called WinMove()
 			//Then called Show() again to actually show the window.
 			//So don't set the location if it wasn't specified and Show() has already been called once.
 			//Same above with size.
-			if (requestedLocation.X != int.MinValue)//Strangely, the position does not need to be scaled by DPI.
-			{
-				hadLocation = true;
-				location.X = requestedLocation.X;
-			}
-			else if (!showCalled && !form.BeenShown)
-			{
-				hadLocation = true;
-				location.X = ((screen.Width - form.Size.Width) / 2) + screen.X;
-			}
+			var firstShow = !showCalled && !form.BeenShown;
 
-			if (requestedLocation.Y != int.MinValue)
-			{
-				hadLocation = true;
-				location.Y = requestedLocation.Y;
-			}
-			else if (!showCalled && !form.BeenShown)
-			{
-				hadLocation = true;
-				location.Y = ((screen.Height - form.Size.Height) / 2) + screen.Y;
-			}
+			int centerX = ((screen.Width - form.Size.Width) / 2) + screen.X;
+			int centerY = ((screen.Height - form.Size.Height) / 2) + screen.Y;
+
+			if (cX) requestedLocation.X = centerX;
+			if (cY) requestedLocation.Y = centerY;
+
+			//Strangely, the position does not need to be scaled by DPI.
+			if (requestedLocation.X != int.MinValue) location.X = requestedLocation.X;
+			else if (firstShow) location.X = centerX;
+
+			if (requestedLocation.Y != int.MinValue) location.Y = requestedLocation.Y;
+			else if (firstShow) location.Y = centerY;
 
 			if (!form.BeenShown)
 			{
@@ -2086,7 +2084,7 @@
 			showCalled = true;
 			form.StartPosition = FormStartPosition.Manual;
 
-			if (hadLocation)
+			if (firstShow || requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue)
 				form.Location = location;
 
 			if (hide)
@@ -2107,6 +2105,12 @@
 				form.WindowState = FormWindowState.Maximized;
 			else if (restore)
 				form.WindowState = FormWindowState.Normal;
+
+			// ensure activation on default show/restore (not NA/NoActivate/Hide/Minimize)
+			if (!hide && !form.showWithoutActivation && form.WindowState != FormWindowState.Minimized)
+			{
+				form.Activate();
+			}
 
 			form.Update();//Required for the very first state of the form to always be displayed.
 			return DefaultObject;

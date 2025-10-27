@@ -184,7 +184,7 @@ namespace Keysharp.Scripting
                             break;
                         case "DEFINE":
                             // add to the conditional symbols 
-                            conditionalSymbol = directiveTokens[1].Text;
+							conditionalSymbol = directiveTokens[1].Text;
                             preprocessorParser.ConditionalSymbols.Add(conditionalSymbol);
                             compiliedTokens = true;
                             break;
@@ -362,7 +362,7 @@ namespace Keysharp.Scripting
 							break;
                         }
 						case "SINGLEINSTANCE":
-                            switch (directiveTokens[1].Text.ToUpperInvariant())
+                            switch ((directiveTokens.Count > 1 ? directiveTokens[1].Text : "FORCE").ToUpperInvariant())
                             {
                                 case "FORCE":
                                     SingleInstance = eScriptInstance.Force;
@@ -390,7 +390,7 @@ namespace Keysharp.Scripting
                             break;
 
                         case "PERSISTENT":
-							var nextTokenText = directiveTokens[1].Text.ToLowerInvariant().Trim();
+							var nextTokenText = (directiveTokens.Count > 1 ? directiveTokens[1].Text : "1").ToLowerInvariant().Trim();
                             parser.persistent = !(nextTokenText == "false" || nextTokenText == "0");
                             break;
 

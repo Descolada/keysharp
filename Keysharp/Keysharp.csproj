@@ -17,11 +17,11 @@
 		<StartupObject>Keysharp.Main.Program</StartupObject>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
-		<AssemblyVersion>0.0.0.11</AssemblyVersion>
-		<FileVersion>0.0.0.11</FileVersion>
-		<Version>0.0.0.11</Version>
+		<AssemblyVersion>0.0.0.12</AssemblyVersion>
+		<FileVersion>0.0.0.12</FileVersion>
+		<Version>0.0.0.12</Version>
 		<Authors>Matt Feemster + legacy IronAHK developers</Authors>
-		<Description>A C# port and enhancement of the Autohotkey program</Description>
+		<Description>A C# port and enhancement of the AutoHotkey program</Description>
 		<Company>Keysharp</Company>
 		<PreserveCompilationContext>true</PreserveCompilationContext>
 		<SignAssembly>False</SignAssembly>

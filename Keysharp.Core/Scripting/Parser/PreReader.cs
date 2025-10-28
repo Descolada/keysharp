@@ -291,7 +291,7 @@ namespace Keysharp.Scripting
                                     }
 
                                     if (!found && !silent)
-                                        throw new ParseException($"Include file {p1} not found at any of the locations: {string.Join(Environment.NewLine, paths)}", token.Line, tokens[index].Text + tokens[index + 1].Text + tokens[index + 2].Text);
+                                        throw new ParseException($"Include file {p1} not found at any of the locations: {string.Join(Environment.NewLine, paths)}", token.Line, '#' + directiveTokens[0].Text + ' ' + directiveTokens[1].Text, token.TokenSource.SourceName);
                                 }
                                 else
                                 {

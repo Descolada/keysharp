@@ -1046,8 +1046,82 @@ namespace Keysharp.Scripting
 			InvocationExpressionSyntax binaryOperation;
             InvocationExpressionSyntax result = null;
 
-            // In the case of member or index access, buffer the base and member and then get+set to avoid multiple evaluations
-            if (!(leftExpression is IdentifierNameSyntax))
+            while (leftExpression is ParenthesizedExpressionSyntax pes)
+                leftExpression = pes.Expression;
+
+			// If the left side is itself a simple assignment like "a = expr",
+			// rewrite (a = expr) <op>= rhs  into  a = (expr <op> rhs)
+			if (leftExpression is AssignmentExpressionSyntax simpleAssign && simpleAssign.Kind() == SyntaxKind.SimpleAssignmentExpression)
+			{
+				// decompose "a = expr"
+				var finalTarget = simpleAssign.Left;        // "a"
+				var initialValue = simpleAssign.Right;      // "expr" (1 in your example)
+
+				// Build "expr <op> rightExpression"
+				// i.e. CreateBinaryOperatorExpression(operatorToken, initialValue, rightExpression)
+				var combinedOperation = CreateBinaryOperatorExpression(
+					operatorToken,
+					initialValue,
+					rightExpression
+				);
+
+				if (isPostFix)
+				{
+					// Postfix: (a = expr) <op>= rhs
+					//
+					// Semantics should match:
+					// temp = (a = expr)
+					// a = (temp <op> rhs)
+					// return temp
+
+					var tempVar = parser.PushTempVar();
+
+					// temp = expr
+					var assignTemp = SyntaxFactory.AssignmentExpression(
+						SyntaxKind.SimpleAssignmentExpression,
+						tempVar,
+						PredefinedKeywords.EqualsToken,
+						initialValue
+					);
+
+					// a = temp <op> rhs
+					var tempOp = CreateBinaryOperatorExpression(
+						operatorToken,
+						tempVar,
+						rightExpression
+					);
+					var assignBack = SyntaxFactory.AssignmentExpression(
+						SyntaxKind.SimpleAssignmentExpression,
+						finalTarget,
+						PredefinedKeywords.EqualsToken,
+						tempOp
+					);
+
+					// MultiStatement(temp = expr, a = temp <op> rhs, temp)
+					var multi = ((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+						.WithArgumentList(
+							CreateArgumentList(
+								assignTemp,
+								assignBack,
+								tempVar
+							)
+						);
+
+					parser.PopTempVar();
+					return multi;
+				}
+
+				// Non-postfix:
+				// a = (initialValue <op> rightExpression)
+				return SyntaxFactory.AssignmentExpression(
+					SyntaxKind.SimpleAssignmentExpression,
+					finalTarget,
+					PredefinedKeywords.EqualsToken,
+					combinedOperation
+				);
+			}
+			// In the case of member or index access, buffer the base and member and then get+set to avoid multiple evaluations
+			if (!(leftExpression is IdentifierNameSyntax))
             {
                 var baseTemp = parser.PushTempVar();
                 var memberTemp = parser.PushTempVar();

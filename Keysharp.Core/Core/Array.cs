@@ -9,13 +9,13 @@
 		/// <summary>
 		/// The function object to use in the comparison.
 		/// </summary>
-		private readonly IFuncObj ifo;
+		private readonly Any ifo;
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="FuncObjComparer"/> class.
 		/// </summary>
 		/// <param name="f">The <see cref="IFuncObj"/> to use in the comparison.</param>
-		public FuncObjComparer(IFuncObj f) => ifo = f;
+		public FuncObjComparer(Any f) => ifo = f;
 
 		/// <summary>
 		/// The implementation for <see cref="IComparer.Compare"/> which internally calls the
@@ -24,7 +24,7 @@
 		/// <param name="left">The left object to compare.</param>
 		/// <param name="right">The right object to compare.</param>
 		/// <returns>An <see cref="int"/>-1 if left is less than right, 0 if left equals right, otherwise 1.</returns>
-		public int Compare(object left, object right) => ifo.Call(left, right).Ai();
+		public int Compare(object left, object right) => Script.Invoke(ifo, "Call", left, right).Ai();
 	}
 
 	/// <summary>
@@ -309,14 +309,14 @@
 		{
 			var index = startIndex.Ai(1);
 
-			if (callback is IFuncObj ifo)
+			if (callback is Any fo)
 			{
 				if (index < 0)
 				{
 					var i = array.Count + index + 1;
 
 					if (i >= 0 && i <= array.Count)
-						return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(ifo.Call(x, i--))).ToList());
+						return new Array(((IEnumerable<object>)array).Reverse().Skip(Math.Abs(index + 1)).Where(x => Script.ForceBool(Script.Invoke(fo, "Call", x, i--))).ToList());
 					else
 						return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 				}
@@ -325,7 +325,7 @@
 					var i = index - 1;
 
 					if (i >= 0 && i < array.Count)
-						return new Array(array.Skip(i).Where(x => Script.ForceBool(ifo.Call(x, ++i))).ToList());
+						return new Array(array.Skip(i).Where(x => Script.ForceBool(Script.Invoke(fo, "Call", x, ++i))).ToList());
 					else
 						return Errors.ValueErrorOccurred($"Invalid find start index of {index}.");
 				}
@@ -347,7 +347,7 @@
 		{
 			var index = startIndex.Ai(1);
 
-			if (callback is IFuncObj ifo)
+			if (callback is Any fo)
 			{
 				if (index <  0)
 				{
@@ -359,7 +359,7 @@
 						{
 							var startIndexPlus1 = i + 1L;
 
-							if (Script.ForceBool(ifo.Call(array[i], startIndexPlus1)))
+							if (Script.ForceBool(Script.Invoke(fo, "Call", array[i], startIndexPlus1)))
 								return startIndexPlus1;
 
 							i--;
@@ -376,7 +376,7 @@
 
 					if (i >= 0 && i < array.Count)
 					{
-						var found = array.FindIndex(i, x => Script.ForceBool(ifo.Call(x, (long)++i)));
+						var found = array.FindIndex(i, x => Script.ForceBool(Script.Invoke(fo, "Call", x, (long)++i)));
 						return found != -1L ? found + 1L : 0L;
 					}
 					else
@@ -758,9 +758,9 @@
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
 		public object Sort(object callback)
 		{
-			if (callback is IFuncObj ifo)
+			if (callback is Any fo)
 			{
-				array.Sort(new FuncObjComparer(ifo));
+				array.Sort(new FuncObjComparer(fo));
 				return this;
 			}
 			else

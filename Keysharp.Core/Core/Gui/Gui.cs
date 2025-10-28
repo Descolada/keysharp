@@ -2110,6 +2110,7 @@
 			if (!hide && !form.showWithoutActivation && form.WindowState != FormWindowState.Minimized)
 			{
 				form.Activate();
+				form.BringToFront();
 			}
 
 			form.Update();//Required for the very first state of the form to always be displayed.

@@ -419,6 +419,24 @@ namespace Keysharp.Scripting
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
 		}
 
+		public static bool IsCallable(object item)
+		{
+			if (item is FuncObj || item is IMetaObject)
+				return true;
+			else if (item is KeysharpObject kso)
+				return kso.HasProp("Call") != 0L || kso.HasProp("__Call") != 0L;
+			return false;
+		}
+
+		public static bool IsStrictCallable(object item)
+		{
+			if (item is FuncObj)
+				return true;
+			else if (item is KeysharpObject kso)
+				return kso.HasProp("Call") != 0L;
+			return false;
+		}
+
 		public static object SetPropertyValue(object item, object name, params object[] args)
 		{
 			var namestr = name.ToString();

@@ -842,7 +842,7 @@ namespace Keysharp.Core
 			return v is byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal;
 		}
 		private static bool IsDelegateType(Type t) => typeof(Delegate).IsAssignableFrom(t);
-		private static bool IsCallableLike(object a) => a is IFuncObj || (a is Any kso && Functions.HasMethod(kso, "Call") != 0L);
+		private static bool IsCallableLike(object a) => a is IFuncObj || (a is Any kso && Functions.HasMethod(kso) != 0L);
 		private static bool IsComparerLike(Type t)
 		{
 			if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IComparer<>)) return true;

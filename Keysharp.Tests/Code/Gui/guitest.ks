@@ -1438,12 +1438,12 @@ MyEdit3 := Gui3.Add("Edit", "xc+10 h200 w200")
 	}
 
 	#if WINDOWS
-	AddMsgMonitor()
+	AddMsgMonitor(*)
 	{
 		OnMessage 0x0201, "WM_LBUTTONDOWN"
 	}
 
-	RemoveMsgMonitor()
+	RemoveMsgMonitor(*)
 	{
 		OnMessage 0x0201, "WM_LBUTTONDOWN", 0
 	}

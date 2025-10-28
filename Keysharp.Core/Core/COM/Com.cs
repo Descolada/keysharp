@@ -216,8 +216,8 @@ namespace Keysharp.Core.COM
 						insp.GetRuntimeClassName(out var hstr);
 						if (hstr != 0)
 						{
-							WindowsAPI.WindowsGetStringRawBuffer(hstr, out uint length);
-							string clsName = new string((char*)hstr, 0, (int)length);
+							nint buf = WindowsAPI.WindowsGetStringRawBuffer(hstr, out uint length);
+							string clsName = Marshal.PtrToStringUni(buf, (int)length) ?? string.Empty;
 							WindowsAPI.WindowsDeleteString(hstr);
 							return clsName;
 						}
@@ -228,12 +228,12 @@ namespace Keysharp.Core.COM
 						insp.GetIids(out var count, out var pIids);
 						try
 						{
+							int sz = Marshal.SizeOf<Guid>();
 							// Iterate IIDs, QI, and compare pointers
 							for (uint i = 0; i < count; i++)
 							{
-								nint pIid = pIids + (nint)i * 16; // GUID is 16 bytes
-								int sz = Marshal.SizeOf<Guid>();
-								Guid iid = Marshal.PtrToStructure<Guid>(pIid + (nint)(i * sz));
+								nint pIid = pIids + (int)(i * (uint)sz);
+								Guid iid = Marshal.PtrToStructure<Guid>(pIid);
 									
 								var hr = Marshal.QueryInterface(pUnk, in iid, out nint pIface);
 								if (hr >= 0 && pIface != 0)

@@ -5067,9 +5067,9 @@ namespace Keysharp.Core.Windows
 												&& it.InputRelease() is InputType inputHook
 												&& inputHook.scriptObject is InputObject so)
 										{
-											if (so.OnEnd is IFuncObj ifo)
+											if (so.OnEnd is Any kso)
 											{
-												script.Threads.LaunchInThread(0, false, false, ifo, [so], true);
+												script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", so));
 											}
 										}
 										else
@@ -5097,13 +5097,13 @@ namespace Keysharp.Core.Windows
 
 									if ((msg.message == (uint)UserMessages.AHK_INPUT_KEYDOWN ? input_hook.scriptObject.OnKeyDown
 											: msg.message == (uint)UserMessages.AHK_INPUT_KEYUP ? input_hook.scriptObject.OnKeyUp
-											: input_hook.scriptObject.OnChar) is IFuncObj ifo
+											: input_hook.scriptObject.OnChar) is Any kso
 											&& script.Threads.AnyThreadsAvailable())
 									{
 										var args = msg.message == (uint)UserMessages.AHK_INPUT_CHAR ?//AHK_INPUT_CHAR passes the chars as a string, whereas the rest pass them individually.
 												   new object[] { input_hook.scriptObject, new string(wParamVal == 0 ? new char[] { (char)lParamVal } : new char[] { (char)lParamVal, (char)wParamVal }) }
 												   : [input_hook.scriptObject, lParamVal, wParamVal];
-										script.Threads.LaunchInThread(0, false, false, ifo, args, true);
+											script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", args));
 									}
 									else
 										continue;

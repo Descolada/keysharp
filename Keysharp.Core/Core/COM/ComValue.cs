@@ -1,4 +1,6 @@
 ﻿#if WINDOWS
+using System.Drawing;
+
 namespace Keysharp.Core
 {
 	public unsafe class ComValue : Any, IDisposable, IMetaObject
@@ -486,14 +488,22 @@ namespace Keysharp.Core
 
 					if (hr == DISP_E_UNKNOWNNAME || hr == DISP_E_MEMBERNOTFOUND)
 					{
-						var ex = TryGetDispatchExVtbl();
+						// QI for IDispatchEx and call GetDispID on that *interface pointer*
+						nint pEx;
+						var ex = TryGetDispatchExVtbl(out pEx);
 						if (ex != null)
 						{
-							bstrName = Marshal.StringToBSTR(name);
-							// grfdex: case-insensitive + ensure (allows dynamic lookup)
-							int id = 0;
-							int hr2 = ex->GetDispID(ptr, bstrName, FDEX_NAME_CASE_INSENSITIVE | FDEX_NAME_IMMEDIATE, &id);
-							if (hr2 >= 0) { dispId = id; return 0; }
+							try
+							{
+								bstrName = Marshal.StringToBSTR(name);
+								int id = 0;
+								int hr2 = ex->GetDispID(pEx, bstrName, FDEX_NAME_CASE_INSENSITIVE | FDEX_NAME_IMMEDIATE, &id);
+								if (hr2 >= 0) { dispId = id; return 0; }
+							}
+							finally
+							{
+								if (pEx != 0) Marshal.Release(pEx);
+							}
 						}
 					}
 					return hr;
@@ -749,7 +759,7 @@ namespace Keysharp.Core
 				else if (expectedType == typeof(ushort))
 					return (ushort)arg.Aui();
 				else if (expectedType == typeof(bool))
-					return arg.Ab();
+					return ForceBool(arg);
 				else if (expectedType == typeof(sbyte))
 					return (sbyte)arg.Ai();
 				else if (expectedType == typeof(byte))
@@ -765,19 +775,16 @@ namespace Keysharp.Core
 
 		internal nint GetIUnknownPtr() => Ptr is nint ip ? ip : new nint((long)Ptr);
 
-		private unsafe IDispatchExVtbl* TryGetDispatchExVtbl()
+		private unsafe IDispatchExVtbl* TryGetDispatchExVtbl(out nint pEx)
 		{
-			nint pUnk = GetIUnknownPtr(); // the same method you already use
+			pEx = 0;
+			nint pUnk = GetIUnknownPtr();
 			if (pUnk == 0) return null;
 
-			nint pEx;
 			int hr = Marshal.QueryInterface(pUnk, in IID_IDispatchEx, out pEx);
 			if (hr < 0 || pEx == 0) return null;
 
-			// first pointer is vtable
-			nint vt = *(nint*)pEx;
-			// We can release pEx immediately; we only need the vtbl for calls.
-			Marshal.Release(pEx);
+			nint vt = *(nint*)pEx; // first pointer is vtable
 			return (IDispatchExVtbl*)vt;
 		}
 

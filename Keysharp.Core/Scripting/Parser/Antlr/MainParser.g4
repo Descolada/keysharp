@@ -284,7 +284,7 @@ caseBlock
     ;
 
 caseClause
-    : (Case WS* expressionSequence | Default) WS* ':' EOL (s* statementList)?
+    : (Case WS* expressionSequence | Default) WS* ':' s* statementList?
     ;
 
 labelledStatement

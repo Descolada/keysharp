@@ -265,7 +265,8 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
     {
         if (InputStream.LA(1) != MainLexer.Default) return true;
         var ctx = this.Context;
-        while (ctx != null) {
+        while (ctx != null)
+        {
             if (ctx.RuleIndex == MainParser.RULE_caseClause) return false;
             if (ctx.RuleIndex == MainParser.RULE_block) return true;
             ctx = (ctx.Parent as ParserRuleContext) ?? null;

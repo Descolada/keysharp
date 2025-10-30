@@ -51,7 +51,6 @@ namespace Keysharp.Core.Windows
 		// Set by SendKeys() for use by the functions it calls directly and indirectly.
 		internal ResultType targetLayoutHasAltGr;
 
-		internal DateTime thisHotkeyStartTime = DateTime.UtcNow;
 		internal long workaroundHitTest;
 
 		//Tracks/predicts cursor position as SendInput array is built.
@@ -2079,7 +2078,7 @@ namespace Keysharp.Core.Windows
 				// Windows would have already been artificially released by then, so IsKeyDownAsync() wouldn't be
 				// able to detect when the user physically releases the key.
 				if ((thisHotkeyModifiersLR & (MOD_LWIN | MOD_RWIN)) != 0 // Limit the scope to only those hotkeys that have a Win modifier, since anything outside that scope hasn't been fully analyzed.
-						&& (DateTime.UtcNow - thisHotkeyStartTime).TotalMilliseconds < 50 // Ensure g_script.mThisHotkeyModifiersLR is up-to-date enough to be reliable.
+						&& (DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < 50 // Ensure g_script.mThisHotkeyModifiersLR is up-to-date enough to be reliable.
 						&& sendModeOrig != SendModes.Play // SM_PLAY is reported to be incapable of locking the computer.
 						&& !inBlindMode // The philosophy of blind-mode is that the script should have full control, so don't do any waiting during blind mode.
 						&& sendRaw != SendRawModes.RawText // {Text} mode does not trigger Win+L.
@@ -2168,7 +2167,7 @@ namespace Keysharp.Core.Windows
 				// Even if TickCount has wrapped due to system being up more than about 49 days,
 				// DWORD subtraction still gives the right answer as long as g_script.mThisHotkeyStartTime
 				// itself isn't more than about 49 days ago:
-				if ((DateTime.UtcNow - thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // Elapsed time < timeout-value
+				if ((DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // Elapsed time < timeout-value
 					modsDownPhysicallyOrig = modsCurrent & thisHotkeyModifiersLR; // Bitwise AND is set intersection.
 				else
 					// Since too much time as passed since the user pressed the hotkey, it seems best,
@@ -2789,7 +2788,7 @@ namespace Keysharp.Core.Windows
 					// times out; i.e. elapsed time < timeout-value; DWORD subtraction gives the right answer even if
 					// tick-count has wrapped around).
 					modsDownPhysically = (ad.hotkeyModifierTimeout < 0 // It never times out or...
-										  || (DateTime.UtcNow - thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // It didn't time out.
+										  || (DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // It didn't time out.
 										 ? modsDownPhysicallyOrig : 0;
 
 				// Put any modifiers in sModifiersLR_remapped back into effect, as if they were physically down.

@@ -663,8 +663,10 @@ namespace Keyview
 
 					ms?.Dispose();
 				}
-				catch
+				catch (Exception ex)
 				{
+					SetFailure();
+					SetTxtOut(ex.ToString());
 				}
 
 				theend:

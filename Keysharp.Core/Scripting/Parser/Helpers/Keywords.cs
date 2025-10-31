@@ -63,6 +63,7 @@
         internal const string AnonymousFatArrowLambdaPrefix = InternalPrefix + "AnonFatArrowLambda_";
 
 		public const string MainClassName = "Program";
+		public const string UserDeclaredClassesContainerName = "UserDeclaredClasses";
 		public const string AutoExecSectionName = "AutoExecSection";
 		public const string MainScriptVariableName = "MainScript";
 

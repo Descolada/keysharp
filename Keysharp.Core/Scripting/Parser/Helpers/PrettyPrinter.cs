@@ -180,17 +180,22 @@ namespace Keysharp.Scripting
 			WriteIndent();
 			_sb.AppendLine("{");
 			_indent++;
-			foreach (var m in node.Members)
+			for (int i = 0; i < node.Members.Count; i++)
 			{
+				var m = node.Members[i];
 				Visit(m);
-				if (m is not FieldDeclarationSyntax)
+				if (i < node.Members.Count - 1 && NeedsMemberSpacer(m))
 					_sb.AppendLine();
 			}
-			TrimTrailingNewLine();
+			//TrimTrailingNewLine();
 			_indent--;
 			WriteIndent();
 			_sb.AppendLine("}");
 		}
+
+		static bool NeedsMemberSpacer(MemberDeclarationSyntax m) =>
+			   m is not FieldDeclarationSyntax
+			&& m is not PropertyDeclarationSyntax;
 
 		public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
 		{

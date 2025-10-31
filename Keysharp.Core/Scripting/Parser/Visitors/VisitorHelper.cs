@@ -72,6 +72,7 @@ namespace Keysharp.Scripting
 
         internal static Dictionary<int, string> unaryOperators = new Dictionary<int, string>()
         {
+            {MainParser.Plus, "Add" },
             {MainParser.Minus, "Minus"},
             {MainParser.Not, "LogicalNot"},
             {MainParser.VerbalNot, "LogicalNot"},

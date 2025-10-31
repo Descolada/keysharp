@@ -378,7 +378,7 @@ formalParameterList
     ;
 
 formalParameterArg
-    : BitAnd? identifier (':=' expression | QuestionMark)? // expression instead of singleExpression because it's always enclosed in parenthesis and thus function expressions can be unambiguously parsed
+    : BitAnd? identifier (':=' expression | WS* QuestionMark)? // expression instead of singleExpression because it's always enclosed in parenthesis and thus function expressions can be unambiguously parsed
     ;
 
 lastFormalParameterArg

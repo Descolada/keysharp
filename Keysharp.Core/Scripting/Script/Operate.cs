@@ -847,6 +847,8 @@ namespace Keysharp.Scripting
 		{
 			switch (op)
 			{
+				case Operator.Add:
+					return right;
 				case Operator.Minus:
 				case Operator.Subtract:
 				{

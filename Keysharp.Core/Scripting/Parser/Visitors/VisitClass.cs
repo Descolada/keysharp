@@ -87,7 +87,7 @@ namespace Keysharp.Scripting
                 .WithExpressionBody(fieldDeclarationArrowClause)
                 .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
 
-                parser.ClassStack.Peek().Body.Add(fieldDeclaration);
+				parser.declaredTopLevelClasses.Add(fieldDeclaration);
             }
 
             if (parser.ClassStack.Count == 1)

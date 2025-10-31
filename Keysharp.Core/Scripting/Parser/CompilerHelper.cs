@@ -107,7 +107,7 @@ using static Keysharp.Scripting.Script;
 ";
 #endif
 
-		public static readonly string NamespaceUsingStr = @"
+		public static readonly string NamespaceUsingStr = $@"
 using System
 using System.Collections
 using System.Collections.Generic
@@ -129,6 +129,7 @@ using Keysharp.Scripting
 using Array = Keysharp.Core.Array
 using Buffer = Keysharp.Core.Buffer
 using String = Keysharp.Core.String
+using static {MainClassName}.{UserDeclaredClassesContainerName}
 ";
 
 		/// <summary>

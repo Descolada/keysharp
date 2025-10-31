@@ -193,9 +193,21 @@ namespace Keysharp.Scripting
                 parser.generalDirectiveStatements.Concat(parser.DHHR)
                 .Concat(parser.autoExecFunc.Body)
                 .ToList();
-    
-            // Return "" by default
-            parser.autoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
+
+			ClassDeclarationSyntax userClasses =
+	            SyntaxFactory.ClassDeclaration(UserDeclaredClassesContainerName)
+		            .WithModifiers(
+						SyntaxFactory.TokenList(
+				            SyntaxFactory.Token(SyntaxKind.InternalKeyword), 
+                            SyntaxFactory.Token(SyntaxKind.StaticKeyword)
+			            )
+		            )
+		            .AddMembers(parser.declaredTopLevelClasses.ToArray());
+
+            parser.mainClass.Body.Insert(0, userClasses);
+
+			// Return "" by default
+			parser.autoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
             parser.autoExecFunc.Method = parser.autoExecFunc.Assemble();
 
 			mainFunc.Method = mainFunc.Assemble();

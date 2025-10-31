@@ -67,13 +67,16 @@ namespace Keysharp.Scripting
                     SyntaxFactory.IdentifierName("HotstringManager")
                 )
             );
-            var mainScriptVarDeclaration = Parser.CreateFieldDeclaration(
+            var mainClassType = SyntaxFactory.TypeOfExpression(SyntaxFactory.IdentifierName(Keywords.MainClassName));
+            object[] mainScriptVarDeclarationArgs = parser.hookMutexName == "" ? [mainClassType] : [mainClassType, SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(parser.hookMutexName))];
+
+			var mainScriptVarDeclaration = Parser.CreateFieldDeclaration(
 				modifierList,
                 CreateQualifiedName("Keysharp.Scripting.Script"),
 				MainScriptVariableName,
 				SyntaxFactory.ObjectCreationExpression(
 	                CreateQualifiedName("Keysharp.Scripting.Script"),    // the type to construct
-	                CreateArgumentList(SyntaxFactory.TypeOfExpression(SyntaxFactory.IdentifierName(Keywords.MainClassName))),          // the argument list
+	                CreateArgumentList(mainScriptVarDeclarationArgs),          // the argument list
 	                null           // no initializer
                 )
 			);

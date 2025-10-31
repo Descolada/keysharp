@@ -397,7 +397,10 @@ namespace Keysharp.Scripting
                         case "ERRORSTDOUT":
 							parser.errorStdOut = true;
 							break;
-                        case "CLIPBOARDTIMEOUT":
+						case "HOOKMUTEXNAME":
+                            parser.hookMutexName = directiveTokens[1].Text.Trim();
+                            break;
+						case "CLIPBOARDTIMEOUT":
                         case "HOTIFTIMEOUT":
                         case "MAXTHREADS":
                         case "MAXTHREADSBUFFER":

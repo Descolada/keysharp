@@ -28,13 +28,14 @@ namespace Keysharp.Core.Common.Threading
 			SingleReader = true
 		});
 
+		internal static string MutexName = "Keysharp";
 		internal Mutex keybdMutex = null, mouseMutex = null;
-		internal string KeybdMutexName = "Keysharp Keybd";
+		internal string KeybdMutexName = $"{MutexName} Keybd";
 		internal Dictionary<string, uint> keyToSc = null;
 		internal Dictionary<string, uint>.AlternateLookup<ReadOnlySpan<char>> keyToScAlt;
 		internal Dictionary<string, uint> keyToVk = null;
 		internal Dictionary<string, uint>.AlternateLookup<ReadOnlySpan<char>> keyToVkAlt;
-		internal string MouseMutexName = "Keysharp Mouse";
+		internal string MouseMutexName = $"{MutexName} Mouse";
 		internal Dictionary<uint, string> vkToKey = [];
 		internal bool blockWinKeys = false;
 		internal nint hsHwnd = 0;

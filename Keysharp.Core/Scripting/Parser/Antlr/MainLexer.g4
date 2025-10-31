@@ -277,6 +277,7 @@ Requires               : 'requires' WhiteSpace   -> channel(DIRECTIVE), mode(DIR
 SingleInstance         : 'singleinstance' WhiteSpace?      -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
 Persistent             : 'persistent' WhiteSpace?          -> channel(DIRECTIVE);
 Warn                   : 'warn' WhiteSpace?                -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
+HookMutexName          : 'hookmutexname' WhiteSpace        -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
 NoDynamicVars          : 'nodynamicvars'         -> channel(DIRECTIVE);
 ErrorStdOut            : 'errorstdout'           -> channel(DIRECTIVE);
 ClipboardTimeout       : 'clipboardtimeout' WhiteSpace     -> channel(DIRECTIVE);

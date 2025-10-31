@@ -145,6 +145,7 @@ namespace Keysharp.Scripting
 		internal CodeStatementCollection initial = [];//These are placed at the very beginning of Main().
 		internal List<string> mainFuncInitial = new();
 		internal string name = string.Empty;
+        internal string hookMutexName = string.Empty;
 
 		internal bool persistent;
 		private const string args = "args";

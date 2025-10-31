@@ -67,12 +67,12 @@ public partial class MainParser : MainParserBase {
 		Undef=148, ElIf=149, EndIf=150, Line=151, Error=152, Warning=153, Region=154, 
 		EndRegion=155, Pragma=156, Nullable=157, Include=158, IncludeAgain=159, 
 		DllLoad=160, Requires=161, SingleInstance=162, Persistent=163, Warn=164, 
-		NoDynamicVars=165, ErrorStdOut=166, ClipboardTimeout=167, HotIfTimeout=168, 
-		MaxThreads=169, MaxThreadsBuffer=170, MaxThreadsPerHotkey=171, WinActivateForce=172, 
-		NoTrayIcon=173, Assembly=174, DirectiveHidden=175, ConditionalSymbol=176, 
-		DirectiveSingleLineComment=177, DirectiveNewline=178, UnexpectedDirectiveCharacter=179, 
-		Text=180, UnexpectedTextDirectiveCharacter=181, NoMouse=182, EndChars=183, 
-		HotstringOptions=184, UnexpectedHotstringOptionsCharacter=185;
+		HookMutexName=165, NoDynamicVars=166, ErrorStdOut=167, ClipboardTimeout=168, 
+		HotIfTimeout=169, MaxThreads=170, MaxThreadsBuffer=171, MaxThreadsPerHotkey=172, 
+		WinActivateForce=173, NoTrayIcon=174, Assembly=175, DirectiveHidden=176, 
+		ConditionalSymbol=177, DirectiveSingleLineComment=178, DirectiveNewline=179, 
+		UnexpectedDirectiveCharacter=180, Text=181, UnexpectedTextDirectiveCharacter=182, 
+		NoMouse=183, EndChars=184, HotstringOptions=185, UnexpectedHotstringOptionsCharacter=186;
 	public const int
 		RULE_program = 0, RULE_sourceElements = 1, RULE_sourceElement = 2, RULE_positionalDirective = 3, 
 		RULE_remap = 4, RULE_hotstring = 5, RULE_hotstringExpansion = 6, RULE_hotkey = 7, 
@@ -155,9 +155,9 @@ public partial class MainParser : MainParserBase {
 		null, null, null, null, null, null, null, null, null, null, "'hotif'", 
 		"'inputlevel'", "'suspendexempt'", "'usehook'", "'hotstring'", "'define'", 
 		"'undef'", "'elif'", "'endif'", "'line'", null, null, null, null, null, 
-		null, null, null, null, null, null, null, null, "'nodynamicvars'", "'errorstdout'", 
-		null, null, null, null, null, "'winactivateforce'", "'notrayicon'", null, 
-		"'hidden'", null, null, null, null, null, null, "'NoMouse'", "'EndChars'"
+		null, null, null, null, null, null, null, null, null, "'nodynamicvars'", 
+		"'errorstdout'", null, null, null, null, null, "'winactivateforce'", "'notrayicon'", 
+		null, "'hidden'", null, null, null, null, null, null, "'NoMouse'", "'EndChars'"
 	};
 	private static readonly string[] _SymbolicNames = {
 		null, "DerefStart", "DerefEnd", "ConcatDot", "SingleLineBlockComment", 
@@ -188,11 +188,11 @@ public partial class MainParser : MainParserBase {
 		"DirectiveUnexpectedCharacter", "Digits", "HotIf", "InputLevel", "SuspendExempt", 
 		"UseHook", "Hotstring", "Define", "Undef", "ElIf", "EndIf", "Line", "Error", 
 		"Warning", "Region", "EndRegion", "Pragma", "Nullable", "Include", "IncludeAgain", 
-		"DllLoad", "Requires", "SingleInstance", "Persistent", "Warn", "NoDynamicVars", 
-		"ErrorStdOut", "ClipboardTimeout", "HotIfTimeout", "MaxThreads", "MaxThreadsBuffer", 
-		"MaxThreadsPerHotkey", "WinActivateForce", "NoTrayIcon", "Assembly", "DirectiveHidden", 
-		"ConditionalSymbol", "DirectiveSingleLineComment", "DirectiveNewline", 
-		"UnexpectedDirectiveCharacter", "Text", "UnexpectedTextDirectiveCharacter", 
+		"DllLoad", "Requires", "SingleInstance", "Persistent", "Warn", "HookMutexName", 
+		"NoDynamicVars", "ErrorStdOut", "ClipboardTimeout", "HotIfTimeout", "MaxThreads", 
+		"MaxThreadsBuffer", "MaxThreadsPerHotkey", "WinActivateForce", "NoTrayIcon", 
+		"Assembly", "DirectiveHidden", "ConditionalSymbol", "DirectiveSingleLineComment", 
+		"DirectiveNewline", "UnexpectedDirectiveCharacter", "Text", "UnexpectedTextDirectiveCharacter", 
 		"NoMouse", "EndChars", "HotstringOptions", "UnexpectedHotstringOptionsCharacter"
 	};
 	public static readonly IVocabulary DefaultVocabulary = new Vocabulary(_LiteralNames, _SymbolicNames);
@@ -12973,7 +12973,7 @@ public partial class MainParser : MainParserBase {
 	}
 
 	private static int[] _serializedATN = {
-		4,1,185,1988,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+		4,1,186,1988,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
 		7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,14,
 		2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,20,7,20,2,21,7,21,
 		2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,26,2,27,7,27,2,28,7,28,
@@ -13188,8 +13188,8 @@ public partial class MainParser : MainParserBase {
 		3,14,7,0,237,239,3,16,8,0,238,231,1,0,0,0,238,232,1,0,0,0,238,234,1,0,
 		0,0,238,235,1,0,0,0,238,236,1,0,0,0,238,237,1,0,0,0,239,5,1,0,0,0,240,
 		242,5,142,0,0,241,243,3,162,81,0,242,241,1,0,0,0,242,243,1,0,0,0,243,266,
-		1,0,0,0,244,249,5,146,0,0,245,250,5,184,0,0,246,250,5,182,0,0,247,248,
-		5,183,0,0,248,250,5,184,0,0,249,245,1,0,0,0,249,246,1,0,0,0,249,247,1,
+		1,0,0,0,244,249,5,146,0,0,245,250,5,185,0,0,246,250,5,183,0,0,247,248,
+		5,184,0,0,248,250,5,185,0,0,249,245,1,0,0,0,249,246,1,0,0,0,249,247,1,
 		0,0,0,250,266,1,0,0,0,251,253,5,143,0,0,252,254,3,196,98,0,253,252,1,0,
 		0,0,253,254,1,0,0,0,254,266,1,0,0,0,255,258,5,145,0,0,256,259,3,196,98,
 		0,257,259,3,194,97,0,258,256,1,0,0,0,258,257,1,0,0,0,258,259,1,0,0,0,259,

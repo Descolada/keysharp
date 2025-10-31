@@ -469,6 +469,17 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 			MsgBox("True because of new definition")
 		#endif
 ```
+* New preprocessor directives have been added.
+	+ `#HookMutexName <name>` allows renaming the mutex objects created to detect keyboard and mouse hooks in other running scripts. The default name is "Keysharp".
+	+ Assembly description attributes may be changed with the following directives (with the desired value as the only argument of the directive):
+		+ `#AssemblyName`
+		+ `#AssemblyDescription`
+		+ `#AssemblyConfiguration`
+		+ `#AssemblyCompany`
+		+ `#AssemblyProduct`
+		+ `#AssemblyCopyright`
+		+ `#AssemblyTrademark`
+		+ `#AssemblyVersion`
 * Experimental `Clr` class has been added which aims to provide CLR interop with regular AutoHotkey syntax, meaning easy access to CLR libraries.
 	+ `Clr.Load(asmOrPath)` loads a CLR assembly from a dll file or assembly name, and returns a `ManagedAssembly` or `ManagedNamespace` object. Example: `System := Clr.Load("System")`
 		+ `ManagedNamespace` can be accessed with property access syntax to get namespaces and types (`ManagedType`). Example: `linq := System.Linq.Enumerable`

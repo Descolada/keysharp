@@ -215,7 +215,7 @@ namespace Keysharp.Scripting
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 		}
 
-		public Script(Type program = null)
+		public Script(Type program = null, string hookMutexName = null)
 		{
 			ProgramType = program ?? GetCallingType();
 			Script.TheScript = this;//Everywhere in the script will reference this.
@@ -243,6 +243,7 @@ namespace Keysharp.Scripting
 
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
+			if (hookMutexName != null && hookMutexName != "") HookThread.MutexName = hookMutexName;
 			_ = InitHook();//Why is this always being initialized even when there are no hooks? This is very inefficient.//TODO
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.

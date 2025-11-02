@@ -7,6 +7,7 @@ using System.Xml.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
 using Antlr4.Runtime.Tree;
+using Keysharp.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
@@ -167,13 +168,14 @@ namespace Keysharp.Scripting
             // Create global FuncObj variables for all functions here, because otherwise during parsing
             // we might not know how to case the name.
             var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
-            foreach (var funcName in scopeFunctionDeclarations)
+			var mainClassBody = parser.mainClass.Body;
+			foreach (var funcName in scopeFunctionDeclarations)
             {
                 if (funcName.Name == "") continue;
                 parser.UserFuncs.Add(funcName.Name);
 
 				var funcObjVariable = SyntaxFactory.FieldDeclaration(
-					CreateFuncObjDelegateVariable(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(funcName.Name))
+	                CreateFuncObjDelegateVariable(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(funcName.Name))
                 )
                 .WithModifiers(
 	                SyntaxFactory.TokenList(
@@ -181,7 +183,20 @@ namespace Keysharp.Scripting
 		                Parser.PredefinedKeywords.StaticToken
 	                )
                 );
-				parser.mainClass.Body.Add(funcObjVariable);
+				string funcObjName = funcObjVariable.Declaration.Variables.First().Identifier.Text;
+
+				for (int i = 0; i < mainClassBody.Count; i++)
+				{
+					if (mainClassBody[i] is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == funcObjName)
+					{
+                        mainClassBody[i] = funcObjVariable;
+                        funcObjVariable = null;
+						break;
+					}
+				}
+
+                if (funcObjVariable != null)
+				    parser.mainClass.Body.Add(funcObjVariable);
             }
 
             if (context.sourceElements() != null)

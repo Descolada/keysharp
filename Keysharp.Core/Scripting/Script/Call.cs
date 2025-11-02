@@ -645,7 +645,7 @@ namespace Keysharp.Scripting
 			return Errors.ErrorOccurred($"Attempting to get static property or field {namestr} failed.");
 		}
 
-		public static (object, MethodPropertyHolder) GetStaticMethodT<T>(object name, int paramCount)
+		internal static (object, MethodPropertyHolder) GetStaticMethodT<T>(object name, int paramCount)
 		{
 			if (Reflections.FindAndCacheStaticMethod(typeof(T), name.ToString(), paramCount) is MethodPropertyHolder mph && mph.mi != null && mph.IsStaticFunc)
 				return (null, mph);

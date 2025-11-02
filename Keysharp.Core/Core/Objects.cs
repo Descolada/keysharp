@@ -58,26 +58,6 @@
 			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
 		}
 
-		private static Type GetNativeType(Any obj)
-		{
-			while (obj != null)
-			{
-				var t = obj.GetType();
-				if (!string.Equals(t.Namespace, "Keysharp.CompiledMain",
-								   StringComparison.OrdinalIgnoreCase))
-				{
-					// we found a built‑in prototype object
-					if (t == typeof(Class)) return typeof(KeysharpObject);
-					return t;
-				}
-
-				// follow the “base” link:
-				obj = obj.Base;
-			}
-			// fallback?
-			return typeof(Any);
-		}
-
 		/// <summary>
 		/// Sets an object's base object. No meta-functions or property functions are called.
 		/// </summary>
@@ -86,14 +66,15 @@
 		/// <returns>The default return value</returns>
 		public static object ObjSetBase(object object0, object object1)
 		{
+			var script = Script.TheScript;
 			KeysharpObject obj = object0 as KeysharpObject;
 			KeysharpObject baseObj = object1 as KeysharpObject;
 			if (obj == null) return Errors.ErrorOccurred($"Object of type {object0.GetType()} was not of type KeysharpObject.");
 			if (baseObj == null) return Errors.ErrorOccurred($"Object of type {object1.GetType()} was not of type KeysharpObject.");
 
 			// find each object's "native" (built‐in) prototype type
-			var nativeObj = GetNativeType(obj.Base);
-			var nativeBase = GetNativeType(baseObj);
+			var nativeObj = script.GetNativeType(obj.Base);
+			var nativeBase = script.GetNativeType(baseObj);
 
 			if (nativeObj != nativeBase && !nativeBase.IsSubclassOf(nativeObj))
 				return Errors.ErrorOccurred(

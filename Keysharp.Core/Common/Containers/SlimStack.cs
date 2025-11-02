@@ -8,8 +8,7 @@
 	/// of the stack index.
 	/// </summary>
 	/// <typeparam name="T">The type of object to hold in each element of the stack.</typeparam>
-	[PublicForTestOnly]
-	public class SlimStack<T> where T : class
+	internal class SlimStack<T> where T : class
 	{
 		/// <summary>
 		/// The internal list used to contain the stack elements.

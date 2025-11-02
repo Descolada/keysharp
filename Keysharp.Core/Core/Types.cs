@@ -91,14 +91,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// Returns 1 if the specified function exists in the script, else 0.
-		/// </summary>
-		/// <param name="name">The name of the function to search for.</param>
-		/// <param name="paramCount">The parameter count of the function to search for. Default: return the first function found.</param>
-		/// <returns>1 if the function was found, else 0.</returns>
-		public static long IsFunc(object name, object paramCount = null) => Reflections.FindMethod(name.ToString(), paramCount.Ai(-1)) is MethodPropertyHolder mph && mph.mi != null ? 1L : 0L;
-
-		/// <summary>
 		/// Returns 1 if Value is an integer or a purely numeric string (decimal or hexadecimal) without a decimal point.<br/>
 		/// Leading and trailing spaces and tabs are allowed. The string may start with a plus or minus sign and must not be empty.
 		/// </summary>

@@ -53,7 +53,7 @@ namespace Keysharp.Core.Common.ObjectBase
 		}
 
 		internal Any _base;
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public virtual Any Base
 		{
 			get => _base;
@@ -106,14 +106,14 @@ namespace Keysharp.Core.Common.ObjectBase
 		public virtual object __Init() => "";
 		public virtual object static__Init() => "";
 
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public virtual object __New(params object[] args) => "";
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public virtual object static__New(params object[] args) => "";
 
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public virtual object __Delete() => "";
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public virtual object static__Delete() => "";
 
 		private static Type GetCallingType()

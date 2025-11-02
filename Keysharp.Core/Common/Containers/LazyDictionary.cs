@@ -1,6 +1,6 @@
 ﻿namespace Keysharp.Core.Common.Containers
 {
-	[PublicForTestOnly]
+	[PublicHiddenFromUser]
 	public class LazyDictionary<TKey, TValue>
 	{
 		// internal map: TValue or Func<TValue>

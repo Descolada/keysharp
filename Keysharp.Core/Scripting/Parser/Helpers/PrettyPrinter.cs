@@ -9,8 +9,7 @@ using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
 
 namespace Keysharp.Scripting
 {
-	[PublicForTestOnly]
-	public class PrettyPrinter : CSharpSyntaxWalker
+	internal class PrettyPrinter : CSharpSyntaxWalker
 	{
 		readonly StringBuilder _sb;
 		int _indent;

@@ -51,7 +51,6 @@
 			return null;
 		}
 
-		[PublicForTestOnly]
 		public (bool, ThreadVariables) PushThreadVariables(long priority, bool skipUninterruptible,
 				bool isCritical = false, bool onlyIfEmpty = false, bool inc = false)
 		{

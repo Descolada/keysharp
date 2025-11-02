@@ -274,7 +274,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="array">The <see cref="System.Array"/> to copy elements to.</param>
 		/// <param name="index">The index in the array to start copying to.</param>
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public void CopyTo(System.Array array, int index)
 		{
 			var kvs = new List<object>(map.Count * 2);

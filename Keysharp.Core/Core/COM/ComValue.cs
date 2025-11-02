@@ -10,6 +10,7 @@ namespace Keysharp.Core
 		internal List<IFuncObj> handlers = [];
 		internal object item;
 
+		private nint NintPtr => Ptr switch { long lp => (nint)lp, nint ip => ip, _ => 0 };
 		public object Ptr
 		{
 			get => item;
@@ -205,7 +206,7 @@ namespace Keysharp.Core
 			Flags = 0L;
 		}
 
-		internal VARIANT ToVariant()
+		internal VARIANT ToVariant(bool copy = false)
 		{
 			var vtype = vt;
 			var v = new VARIANT { vt = (ushort)vtype };
@@ -214,15 +215,19 @@ namespace Keysharp.Core
 			if ((vtype & VarEnum.VT_BYREF) != 0)
 			{
 				VarEnum baseVt = vtype & ~VarEnum.VT_BYREF;
-				nint p = Ptr switch { long lp => (nint)lp, nint ip => ip, _ => 0 };
-				v.ptrVal = p;
+				v.ptrVal = NintPtr;
 				return v;
 			}
 
 			// ---- Arrays by value: SAFEARRAY* goes in parray ----
 			if ((vtype & VarEnum.VT_ARRAY) != 0)
 			{
-				v.ptrVal = Ptr switch { long lp => (nint)lp, _ => 0 };
+				v.ptrVal = NintPtr; // pass-through
+				if (copy && v.ptrVal != 0 &&
+					OleAuto.SafeArrayCopy(v.ptrVal, out var dst) >= 0 && dst != 0)
+				{
+					v.ptrVal = dst;              // our copy, VariantClear will destroy it
+				}
 				return v;
 			}
 
@@ -242,7 +247,12 @@ namespace Keysharp.Core
 
 				case VarEnum.VT_BSTR:
 					if (Ptr is string s) v.ptrVal = Marshal.StringToBSTR(s);
-					else v.ptrVal = Ptr switch { long lp => (nint)lp, _ => 0 };
+					else if (copy && NintPtr is nint pb && pb != 0)
+					{
+						int len = OleAuto.SysStringLen(pb);
+						v.ptrVal = OleAuto.SysAllocStringLen(pb, len); // duplicate
+					}
+					else v.ptrVal = NintPtr;
 					return v;
 
 				// Signed integers
@@ -280,13 +290,16 @@ namespace Keysharp.Core
 
 				// Interfaces
 				case VarEnum.VT_DISPATCH:
-					if (Ptr is long dl) v.ptrVal = (nint)dl;
-					else if (Ptr != null) v.ptrVal = Marshal.GetIDispatchForObject(Ptr);
-					return v;
-
 				case VarEnum.VT_UNKNOWN:
-					if (Ptr is long ulp) v.ptrVal = (nint)ulp;
-					else if (Ptr != null) v.ptrVal = Marshal.GetIUnknownForObject(Ptr);
+					if (NintPtr is nint p && p != 0)
+					{
+						if (copy) Marshal.AddRef(p); // own one ref so VariantClear can Release it
+						v.ptrVal = p;
+					}
+					else if (Ptr != null)
+						v.ptrVal = (vtype == VarEnum.VT_DISPATCH)
+							? Marshal.GetIDispatchForObject(Ptr) // our ref, VariantClear will Release
+							: Marshal.GetIUnknownForObject(Ptr);
 					return v;
 
 				// Avoid producing a by-value VT_VARIANT; coerce from the runtime value instead.
@@ -542,10 +555,13 @@ namespace Keysharp.Core
 			nint pArgErr = Marshal.AllocHGlobal(sizeof(uint));
 			nint pNamed = 0;
 
+			int argCount = args?.Length ?? 0;
+			var allocatedByRef = argCount > 0 ? new bool[argCount] : [];   // we allocated temp BYREF storage?
+			var suppressWriteback = argCount > 0 ? new bool[argCount] : []; // skip writeback for ComValue BYREFs
+
 			try
 			{
 				var dispParams = new DISPPARAMS();
-				int argCount = args?.Length ?? 0;
 
 				// Convert arguments to VARIANTs (in reverse order for IDispatch)
 				if (argCount > 0)
@@ -559,10 +575,8 @@ namespace Keysharp.Core
 						var arg = args[sourceIndex];
 
 						// Apply type conversion if we have type info
-						if (expectedTypes != null && sourceIndex < expectedTypes.Length)
-						{
+						if (expectedTypes != null && sourceIndex < expectedTypes.Length && arg is not ComValue)
 							arg = ConvertArgumentToExpectedType(arg, expectedTypes[sourceIndex]);
-						}
 
 						// Check if this is a byref parameter
 						bool isByRef = modifiers != null &&
@@ -573,20 +587,35 @@ namespace Keysharp.Core
 						nint variantPtr = pArgs + (i * Marshal.SizeOf<VARIANT>());
 						VARIANT variant;
 
-						if (isByRef)
+						if (arg is ComValue cv)
 						{
-							// For byref parameters, we need to allocate a VARIANT and set VT_BYREF
+							// If signature says BYREF, or cv is already BYREF, just pass through (no ownership)
+							if (isByRef || (cv.vt & VarEnum.VT_BYREF) != 0)
+							{
+								variant = cv.ToVariant();
+								suppressWriteback[sourceIndex] = (cv.vt & VarEnum.VT_BYREF) != 0; // we're not supposed to overwrite the wrapper object
+  							    // allocatedByRef[i] remains false
+							}
+							else
+							{
+								// Non-BYREF ComValue: duplicate “dangerous” inners (BSTR/SAFEARRAY/interface) so VariantClear is safe
+								variant = cv.ToVariant(copy: true);
+							}
+						}
+						else if (isByRef)
+						{
 							VarEnum baseVt = VarEnum.VT_EMPTY;
 							if (expectedTypes != null && sourceIndex < expectedTypes.Length)
 								baseVt = VariantHelper.CLRTypeToVarEnum(expectedTypes[sourceIndex]);
 
 							variant = (baseVt != VarEnum.VT_EMPTY)
-									  ? VariantHelper.CreateByRefVariantTyped(arg, baseVt)
-									  : VariantHelper.CreateByRefVariant(arg);
+								? VariantHelper.CreateByRefVariantTyped(arg, baseVt)
+								: VariantHelper.CreateByRefVariant(arg);
+
+							allocatedByRef[i] = true; // we own the temp buffer
 						}
 						else
 						{
-							// Direct conversion for value parameters
 							variant = VariantHelper.ValueToVariant(arg);
 						}
 
@@ -662,7 +691,7 @@ namespace Keysharp.Core
 								var variant = Marshal.PtrToStructure<VARIANT>(variantPtr);
 
 								// If it's VT_BYREF, read the value back
-								if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0)
+								if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0 && !suppressWriteback[sourceIndex])
 								{
 									args[sourceIndex] = VariantHelper.ReadByRefVariant(variant);
 								}
@@ -702,14 +731,13 @@ namespace Keysharp.Core
 					var dispParams = Marshal.PtrToStructure<DISPPARAMS>(pDispParams);
 					for (int i = 0; i < dispParams.cArgs; i++)
 					{
+						int sourceIndex = dispParams.cArgs - 1 - i;
 						nint variantPtr = pArgs + (i * Marshal.SizeOf<VARIANT>());
 						var variant = Marshal.PtrToStructure<VARIANT>(variantPtr);
 
-						// Special handling for byref variants
-						if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0)
-						{
+						// Free temp BYREF storage only if we allocated it
+						if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0 && allocatedByRef[i])
 							VariantHelper.CleanupByRefVariant(variant);
-						}
 
 						VariantHelper.VariantClear(variantPtr);
 					}
@@ -737,6 +765,13 @@ namespace Keysharp.Core
 			var currentType = arg.GetType();
 			if (currentType == expectedType)
 				return arg;
+
+			if (arg is ComValue cv)
+			{
+				if ((cv.vt & VarEnum.VT_BYREF) != 0)
+					return arg;
+				arg = VariantHelper.ReadVariant(cv.Ptr.Al(), cv.vt);
+			}
 
 			try
 			{

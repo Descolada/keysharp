@@ -1,5 +1,6 @@
 ﻿namespace Keysharp.Core.Common.Keyboard
 {
+	[PublicHiddenFromUser]
 	public class HotstringDefinition
 	{
 		internal const int HOTSTRING_BLOCK_SIZE = 1024;
@@ -31,31 +32,26 @@
 
 		public bool DoReset => doReset;
 
-		[PublicForTestOnly]
 		public bool Enabled { get; set; }
 
-		[PublicForTestOnly]
 		public Options EnabledOptions { get; set; }
 
 		public bool EndCharRequired => endCharRequired;
 
 		public long KeyDelay => keyDelay;
 
-		[PublicForTestOnly]
 		public string Name { get; set; }
 
 		public bool OmitEndChar => omitEndChar;
 
 		public long Priority => priority;
 
-		[PublicForTestOnly]
 		public string Replacement => replacement;
 
 		public SendModes SendMode => sendMode;
 
 		public SendRawModes SendRaw => sendRaw;
 
-		[PublicForTestOnly]
 		public string Sequence { get; }
 
 		public bool SuspendExempt => suspendExempt;

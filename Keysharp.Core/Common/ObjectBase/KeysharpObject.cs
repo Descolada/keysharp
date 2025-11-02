@@ -166,7 +166,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			tabLevel--;
 		}
 
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public override Any Base
 		{
 			get => _base;

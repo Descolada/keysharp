@@ -198,12 +198,12 @@ namespace Keysharp.Scripting
 				var info = new FunctionInfo
 				{
 					Name = head.identifierName().GetText(),
-					Static = head.functionHeadPrefix()?.Static() != null
+					Static = head.functionHeadPrefix()?.Static() != null,
 				};
 				functionInfos.Add(info);
 			}
 
-            // Gather all variable declarations
+			// Gather all variable declarations
 			public override object VisitVariableStatement([NotNull] VariableStatementContext context)
 			{
 				var prevScope = currentFunc.Scope;
@@ -785,16 +785,22 @@ namespace Keysharp.Scripting
             return match.Key;
         }
 
-        internal string IsBuiltInMethod(string name, bool caseSense = false)
-        {
-            MethodPropertyHolder mph = Reflections.FindBuiltInMethod(name, -1);
-            if (mph?.mi == null || (caseSense && mph.mi.Name != name))
-                return null;
-            return mph.mi.Name;
-        }
+		internal string IsBuiltInMethod(string name, bool caseSense = false)
+		{
+			var rd = Script.TheScript.ReflectionsData;
 
-        // Either adds a new global variable declaration, or returns a previously declared ones name
-        internal string MaybeAddGlobalVariableDeclaration(string name, bool caseSense = true)
+			// Fast O(1): this is filled in Initialize() from Keysharp.* static classes.
+			if (rd.flatPublicStaticMethods.TryGetValue(name, out var mi))
+			{
+				// If exact case is required, confirm it (dictionary is OrdinalIgnoreCase).
+				if (!caseSense || mi.Name.Equals(name, StringComparison.Ordinal))
+					return mi.Name; // canonical casing
+			}
+			return null;
+		}
+
+		// Either adds a new global variable declaration, or returns a previously declared ones name
+		internal string MaybeAddGlobalVariableDeclaration(string name, bool caseSense = true)
         {
             string match = IsVarDeclaredGlobally(name, caseSense);
             if (match != null)
@@ -1112,7 +1118,7 @@ namespace Keysharp.Scripting
             // 1. Built-in functions: Directly invoke the built-in method
             // except in the case of a variadic function call
             if (!string.IsNullOrEmpty(methodName)
-				&& Reflections.FindBuiltInMethod(methodName, -1) is MethodPropertyHolder mph && mph.mi != null
+				&& TheScript.ReflectionsData.flatPublicStaticMethods.TryGetValue(methodName, out var mi)
 				&& !UserFuncs.Contains(methodName)
                 && IsVarDeclaredLocally(methodName) == null
                 )
@@ -1126,7 +1132,7 @@ namespace Keysharp.Scripting
                 } else
                     // Fully qualified method invocation
                     return SyntaxFactory.InvocationExpression(
-						CreateMemberAccess(mph.mi.DeclaringType.ToString(), mph.mi.Name),
+						CreateMemberAccess(mi.DeclaringType.ToString(), mi.Name),
                         argumentList
                     );
             }

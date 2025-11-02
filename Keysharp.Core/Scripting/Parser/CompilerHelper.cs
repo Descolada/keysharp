@@ -2,7 +2,7 @@
 
 namespace Keysharp.Scripting
 {
-	[PublicForTestOnly]
+	[PublicHiddenFromUser]
 	public class CompilerHelper
 	{
 		//CodeEntryPointMethod entryPoint;

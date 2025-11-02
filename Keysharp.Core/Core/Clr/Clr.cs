@@ -216,7 +216,7 @@ namespace Keysharp.Core
 				return Errors.ErrorOccurred($"Constructor on type '{t.FullName}' not found for {args.Length} argument(s).");
 			}
 
-			[PublicForTestOnly]
+			[PublicHiddenFromUser]
 			public override string ToString() => _ns;
 		}
 
@@ -286,7 +286,7 @@ namespace Keysharp.Core
 				return new ManagedType(closed);
 			}
 
-			[PublicForTestOnly]
+			[PublicHiddenFromUser]
 			public override string ToString() => _type.ToString();
 		}
 
@@ -336,7 +336,7 @@ namespace Keysharp.Core
 				return it.fo;
 			}
 
-			[PublicForTestOnly]
+			[PublicHiddenFromUser]
 			public override string ToString() => _instance.ToString();
 		}
 	}

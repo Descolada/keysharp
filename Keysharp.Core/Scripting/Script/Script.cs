@@ -1,5 +1,9 @@
 ﻿//#define SEPARATE_KB_THREAD
 
+[assembly: InternalsVisibleTo("Keysharp.Tests")]
+[assembly: InternalsVisibleTo("Keysharp.Benchmark")]
+[assembly: InternalsVisibleTo("Keyview")]
+
 namespace Keysharp.Scripting
 {
 	/// <summary>
@@ -63,12 +67,26 @@ namespace Keysharp.Scripting
 		internal int nMessageBoxes;
 		internal List<IFuncObj> onErrorHandlers;
 		internal List<IFuncObj> onExitHandlers = [];
-		internal Icon pausedIcon;
+		private Icon _normalIcon;
+		public Icon normalIcon
+		{
+			get
+			{
+#if WINDOWS
+				if (_normalIcon == null)
+					_normalIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+#endif
+				return _normalIcon ??= Core.Properties.Resources.Keysharp_ico;
+			}
+		}
+		private Icon _pausedIcon;
+		internal Icon pausedIcon => _pausedIcon ??= Core.Properties.Resources.Keysharp_p_ico;
+		private Icon _suspendedIcon;
+		internal Icon suspendedIcon => _suspendedIcon ??= Core.Properties.Resources.Keysharp_s_ico;
 		internal bool persistent;
 		internal nint playbackHook = 0;
 		internal DateTime priorHotkeyStartTime = DateTime.UtcNow;
 		public string scriptName = "";
-		internal Icon suspendedIcon;
 		internal string thisHotkeyName, priorHotkeyName;
 		internal DateTime thisHotkeyStartTime;
 		internal ThreadLocal<Threads> threads;
@@ -116,9 +134,9 @@ namespace Keysharp.Scripting
 		private ToolTipData toolTipData;
 		private WindowProvider windowProvider;
 
-		[PublicForTestOnly]
 		public static Keysharp.Scripting.Script TheScript { get; private set; }
 		public Type ProgramType;
+		public string ProgramNamespace = Keywords.MainNamespaceName;
 		public HotstringManager HotstringManager => hotstringManager ?? (hotstringManager = new ());
 		public Threads Threads => threads.Value;
 		public Variables Vars { get; private set; }
@@ -218,6 +236,7 @@ namespace Keysharp.Scripting
 		public Script(Type program = null, string hookMutexName = null)
 		{
 			ProgramType = program ?? GetCallingType();
+			ProgramNamespace = ProgramType.Namespace;
 			Script.TheScript = this;//Everywhere in the script will reference this.
 			timeLastInputPhysical = DateTime.UtcNow;
 			timeLastInputKeyboard = timeLastInputPhysical;
@@ -409,7 +428,7 @@ namespace Keysharp.Scripting
 				mainWindow.Text = title;
 
 			mainWindow.ClipboardUpdate += PrivateClipboardUpdate;
-			mainWindow.Icon = Core.Properties.Resources.Keysharp_ico;
+			mainWindow.Icon = normalIcon;
 			persistent = _persistent;
 			mainWindowGui = new Gui(null, null, null, mainWindow);
 			//Only do these on Windows, because it seems to have the opposite effect on linux:
@@ -569,7 +588,6 @@ namespace Keysharp.Scripting
 		    }
 		*/
 
-		[PublicForTestOnly]
 		public void SimulateKeyPress(uint key) => HookThread.SimulateKeyPress(key);
 
 		public void Stop()
@@ -765,6 +783,25 @@ namespace Keysharp.Scripting
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(2));
 			else
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(0));
+		}
+
+		internal Type GetNativeType(Any obj)
+		{
+			while (obj != null)
+			{
+				var t = obj.GetType();
+				if (!string.Equals(t.Namespace, ProgramNamespace, StringComparison.OrdinalIgnoreCase))
+				{
+					// we found a built‑in prototype object
+					if (t == typeof(Class)) return typeof(KeysharpObject);
+					return t;
+				}
+
+				// follow the “base” link:
+				obj = obj.Base;
+			}
+			// fallback?
+			return typeof(Any);
 		}
 	}
 }

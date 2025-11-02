@@ -62,6 +62,7 @@
         internal const string AnonymousLambdaPrefix = InternalPrefix + "AnonLambda_";
         internal const string AnonymousFatArrowLambdaPrefix = InternalPrefix + "AnonFatArrowLambda_";
 
+		public const string MainNamespaceName = "Keysharp.CompiledMain";
 		public const string MainClassName = "Program";
 		public const string UserDeclaredClassesContainerName = "UserDeclaredClasses";
 		public const string AutoExecSectionName = "AutoExecSection";

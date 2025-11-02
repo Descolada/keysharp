@@ -5,8 +5,7 @@ using Label = System.Reflection.Emit.Label;
 
 namespace Keysharp.Core.Common.Invoke
 {
-    [PublicForTestOnly]
-	public class MethodPropertyHolder
+	internal class MethodPropertyHolder
 	{
 		public Func<object, object[], object> _callFunc;
 		public Func<object, object[], object> CallFunc
@@ -309,8 +308,7 @@ namespace Keysharp.Core.Common.Invoke
 	 *      Downside is that IL.Emit and expression trees have a bit more overhead during the initial compilation,
 	 *      and require loading large dlls. 
 	 */
-	[PublicForTestOnly]
-	public static class DelegateFactory
+	internal static class DelegateFactory
 	{
 		public static Func<object, object[], object> CreateDelegate(MethodInfo mi)
 			=> CreateDelegate(MethodPropertyHolder.GetOrAdd(mi));

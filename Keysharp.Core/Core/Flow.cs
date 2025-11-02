@@ -532,7 +532,7 @@ namespace Keysharp.Core
 			fd.suspended = state == ToggleValueType.Toggle ? !fd.suspended : (state == ToggleValueType.On);
 
 			if (!(bool)A_IconFrozen && !script.NoTrayIcon)
-				script.Tray.Icon = fd.suspended ? Properties.Resources.Keysharp_s_ico : Properties.Resources.Keysharp_ico;
+				script.Tray.Icon = fd.suspended ? script.suspendedIcon : script.normalIcon;
 
 			return DefaultObject;
 		}

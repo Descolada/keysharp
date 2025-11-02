@@ -127,11 +127,11 @@ namespace Keysharp.Scripting
                     methodName = normalized;
                 // I don't like that this complicated check is repeated in GenerateFunctionInvocation,
                 // but see no good way around it.
-                if (Reflections.FindBuiltInMethod(methodName, -1) is MethodPropertyHolder mph
-                    && mph.mi != null
+                if (TheScript.ReflectionsData.flatPublicStaticMethods.TryGetValue(methodName, out var mi)
+                    && mi != null
                     && !parser.UserFuncs.Contains(methodName)
                     && parser.IsVarDeclaredLocally(methodName) == null)
-                    targetExpression = CreateQualifiedName($"{mph.mi.DeclaringType}.{mph.mi.Name}");
+                    targetExpression = CreateQualifiedName($"{mi.DeclaringType}.{mi.Name}");
                 else
                 {
                     targetExpression = (ExpressionSyntax)Visit(context.primaryExpression());
@@ -1018,10 +1018,28 @@ namespace Keysharp.Scripting
 
         private ExpressionSyntax HandlePropertyAssignment(InvocationExpressionSyntax getPropertyInvocation, ExpressionSyntax rightExpression)
         {
-            return SyntaxFactory.InvocationExpression(
+            var args = getPropertyInvocation.ArgumentList.Arguments;
+            if (args[^1].Expression is CollectionExpressionSyntax ces)
+            {
+				var collectionElements = new List<CollectionElementSyntax>();
+				foreach (var node in ces.Elements)
+					collectionElements.Add(node);
+                collectionElements.Add(SyntaxFactory.ExpressionElement(rightExpression));
+				var collectionExpression = SyntaxFactory.CollectionExpression(SyntaxFactory.SeparatedList(collectionElements));
+
+				return SyntaxFactory.InvocationExpression(
+	                CreateMemberAccess("Keysharp.Scripting.Script", "SetPropertyValue"),
+	                CreateArgumentList(
+		                args.SkipLast(1),
+						collectionExpression
+					)
+                );
+			}
+
+			return SyntaxFactory.InvocationExpression(
 				CreateMemberAccess("Keysharp.Scripting.Script", "SetPropertyValue"),
 				CreateArgumentList(
-					getPropertyInvocation.ArgumentList.Arguments,
+					args,
                     rightExpression
                 )
             );

@@ -65,7 +65,7 @@ namespace Keysharp.Scripting
 
 				foreach (var method in methods)
 				{
-					if (method.GetCustomAttribute<PublicForTestOnly>() != null) continue;
+					if (method.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
 
 					var methodName = method.Name;
 
@@ -142,7 +142,7 @@ namespace Keysharp.Scripting
 
 				foreach (var prop in properties)
 				{
-					if (prop.GetCustomAttribute<PublicForTestOnly>() != null) continue;
+					if (prop.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
 
 					var propertyName = prop.Name;
 					OwnPropsDesc propertyMap = null;

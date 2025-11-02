@@ -193,10 +193,11 @@
 	public class FuncObj : KeysharpObject, IFuncObj
 	{
 		protected MethodInfo mi;
-		protected MethodPropertyHolder mph;
+		internal MethodPropertyHolder mph;
 
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public object Inst { get; set; }
+		[PublicHiddenFromUser]
 		public Type DeclaringType => mi.DeclaringType;
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 

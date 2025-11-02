@@ -2,8 +2,7 @@
 
 namespace Keysharp.Core.Common.Threading
 {
-	[PublicForTestOnly]
-	public static class StaTask
+	internal static class StaTask
 	{
 		/// <summary>
 		/// Gotten from: https://stackoverflow.com/questions/56736803/set-clipboard-in-async-method

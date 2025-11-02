@@ -36,7 +36,7 @@ namespace Keysharp.Scripting
             // Create using directives
             var usings = BuildUsingDirectiveSyntaxList(CompilerHelper.NamespaceUsingStr);
 
-			parser.namespaceDeclaration = SyntaxFactory.NamespaceDeclaration(CreateQualifiedName("Keysharp.CompiledMain"))
+			parser.namespaceDeclaration = SyntaxFactory.NamespaceDeclaration(CreateQualifiedName(Keywords.MainNamespaceName))
                 .AddUsings(usings.ToArray());
 
             parser.currentClass = new Parser.Class(Keywords.MainClassName, null);
@@ -169,8 +169,19 @@ namespace Keysharp.Scripting
             var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
             foreach (var funcName in scopeFunctionDeclarations)
             {
+                if (funcName.Name == "") continue;
                 parser.UserFuncs.Add(funcName.Name);
-                parser.AddGlobalFuncObjVariable(funcName.Name.ToLowerInvariant());
+
+				var funcObjVariable = SyntaxFactory.FieldDeclaration(
+					CreateFuncObjDelegateVariable(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(funcName.Name))
+                )
+                .WithModifiers(
+	                SyntaxFactory.TokenList(
+		                Parser.PredefinedKeywords.PublicToken,
+		                Parser.PredefinedKeywords.StaticToken
+	                )
+                );
+				parser.mainClass.Body.Add(funcObjVariable);
             }
 
             if (context.sourceElements() != null)
@@ -1224,7 +1235,22 @@ namespace Keysharp.Scripting
                         updatedModifiers.Add(Parser.PredefinedKeywords.StaticToken);
 
                     modifiers = SyntaxFactory.TokenList(updatedModifiers);
-                }
+
+                    // Modify the top-level field declaration to not assign the closure
+                    var mainClassBody = parser.mainClass.Body;
+					for (int i = 0; i < mainClassBody.Count; i++)
+					{
+						if (mainClassBody[i] is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == variableName)
+						{
+							var declarator = fds.Declaration.Variables.First();
+							mainClassBody[i] = fds.ReplaceNode(
+								declarator.Initializer.Value,
+								SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+							);
+							break;
+						}
+					}
+				}
 
                 // Create a delegate or closure and add it to the current function's body
                 var delegateSyntax = SyntaxFactory.LocalFunctionStatement(

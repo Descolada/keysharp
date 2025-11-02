@@ -1195,7 +1195,7 @@ namespace Keysharp.Core
 		}
 
 #if LINUX
-		[PublicForTestOnly]
+		[PublicHiddenFromUser]
 		public static long zzzLinuxTester(params object[] obj)
 		{
 			return 1L;

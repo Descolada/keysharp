@@ -73,7 +73,7 @@ namespace Keyview
 			InitializeComponent();
 			keywords2 = Script.TheScript.GetPublicStaticPropertyNames();
 			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
-			Icon = Keysharp.Core.Properties.Resources.Keysharp_ico;
+			Icon = Script.TheScript.normalIcon;
 			btnCopyFullCode.Text = "Copy full code";
 			btnCopyFullCode.Click += CopyFullCode_Click;
 			btnCopyFullCode.Margin = new Padding(15);

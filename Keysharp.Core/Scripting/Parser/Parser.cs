@@ -651,7 +651,6 @@ namespace Keysharp.Scripting
             }
         }
 
-        [PublicForTestOnly]
         public static string EscapeHotkeyTrigger(ReadOnlySpan<char> s)
         {
             var escaped = false;

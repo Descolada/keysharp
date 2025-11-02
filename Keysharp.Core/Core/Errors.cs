@@ -733,7 +733,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// An exception class for parsing errors.
 	/// </summary>
-	public class ParseException : Error
+	internal class ParseException : Error
 	{
 		public int Column = 0;
 		/// <summary>

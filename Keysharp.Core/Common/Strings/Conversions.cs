@@ -27,8 +27,7 @@ namespace Keysharp.Core.Common.Strings
 		/// </summary>
 		/// <param name="time"></param>
 		/// <returns></returns>
-		[PublicForTestOnly]
-		public static DateTime ToDateTime(string time)
+		internal static DateTime ToDateTime(string time)
 		{
 			switch (time.Length)
 			{

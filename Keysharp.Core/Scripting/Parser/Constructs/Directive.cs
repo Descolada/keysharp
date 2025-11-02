@@ -9,9 +9,9 @@ namespace Keysharp.Scripting
 	}
 
 	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Interface, Inherited = false)]
-	public sealed class PublicForTestOnly : Attribute
+	public sealed class PublicHiddenFromUser : Attribute
 	{
-		public PublicForTestOnly()
+		public PublicHiddenFromUser()
 		{ }
 	}
 

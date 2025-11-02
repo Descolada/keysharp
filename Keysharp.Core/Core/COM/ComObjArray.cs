@@ -95,6 +95,12 @@ namespace Keysharp.Core
 
 		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "SafeArrayPutElement")]
 		public static partial int SafeArrayPutElementPtr(nint psa, [In] int[] rgIndices, IntPtr pv);
+
+		[LibraryImport(WindowsAPI.oleaut)] 
+		public static partial int SysStringLen(nint bstr);
+
+		[LibraryImport(WindowsAPI.oleaut)]
+		public static partial nint SysAllocStringLen(nint src, int len);
 	}
 
 	/// <summary>

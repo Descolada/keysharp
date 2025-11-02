@@ -1399,8 +1399,8 @@ namespace Keysharp.Core.Windows
 		internal static partial nint ExtractIcon(nint hInst, string lpszExeFileName, int nIconIndex);
 
 		[LibraryImport(user32, EntryPoint = "FindWindowW", StringMarshalling = StringMarshalling.Utf16)]
-		[PublicForTestOnly]
-		public static partial nint FindWindow(string className, string windowName);
+
+		internal static partial nint FindWindow(string className, string windowName);
 
 		[LibraryImport(user32, EntryPoint = "FindWindowExW", StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial nint FindWindowEx(nint parentHandle, nint childAfter, string className, string windowTitle);
@@ -1489,8 +1489,7 @@ namespace Keysharp.Core.Windows
 		internal static partial bool GetCursorPos(out POINT lpPoint);
 
 		[LibraryImport(user32, EntryPoint = "GetDesktopWindow")]
-		[PublicForTestOnly]
-		public static partial long GetDesktopWindow();
+		internal static partial long GetDesktopWindow();
 
 		[LibraryImport(version, EntryPoint = "GetFileVersionInfoW", StringMarshalling = StringMarshalling.Utf16)]
 		[return: MarshalAs(UnmanagedType.Bool)]
@@ -1617,8 +1616,8 @@ namespace Keysharp.Core.Windows
 
 		[LibraryImport(user32, EntryPoint = "GetWindowRect")]
 		[return: MarshalAs(UnmanagedType.Bool)]
-		[PublicForTestOnly]
-		public static partial bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+		internal static partial bool GetWindowRect(nint hWnd, out RECT lpRect);
 
 		[LibraryImport(user32, EntryPoint = "GetClientRect")]
 		[return: MarshalAs(UnmanagedType.Bool)]
@@ -1919,8 +1918,8 @@ namespace Keysharp.Core.Windows
 
 		[LibraryImport(user32, EntryPoint = "SetForegroundWindow")]
 		[return: MarshalAs(UnmanagedType.Bool)]
-		[PublicForTestOnly]
-		public static partial bool SetForegroundWindow(nint hWnd);
+
+		internal static partial bool SetForegroundWindow(nint hWnd);
 
 		[LibraryImport(user32, EntryPoint = "SetLayeredWindowAttributes")]
 		[return: MarshalAs(UnmanagedType.Bool)]

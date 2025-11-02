@@ -1,21 +1,22 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Xml.Linq;
+using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
+using Keysharp.Core.Common.Invoke;
+using Keysharp.Scripting;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using static System.Windows.Forms.AxHost;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
-using Microsoft.CodeAnalysis;
-using System.Drawing.Imaging;
-using Antlr4.Runtime;
-using System.IO;
-using System.Collections;
-using static System.Windows.Forms.AxHost;
-using System.Xml.Linq;
-using Keysharp.Scripting;
-using System.Reflection;
 
 namespace Keysharp.Scripting
 {
@@ -83,10 +84,7 @@ namespace Keysharp.Scripting
                         ((InvocationExpressionSyntax)InternalMethods.HotIf)
                         .WithArgumentList(
 							CreateArgumentList(
-                                ((InvocationExpressionSyntax)InternalMethods.Func)
-                                    .WithArgumentList(
-										CreateArgumentList(SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(hotIfFunctionName)))
-                                    )
+								GenerateFuncObjArgument(hotIfFunctionName)
                             )
                         )
                     )
@@ -263,10 +261,7 @@ namespace Keysharp.Scripting
                     ((InvocationExpressionSyntax)InternalMethods.AddHotkey)
                     .WithArgumentList(
 						CreateArgumentList(
-							((InvocationExpressionSyntax)InternalMethods.Func)
-                            .WithArgumentList(
-								CreateArgumentList(SyntaxFactory.IdentifierName(hotkeyFunctionName))
-                            ),
+                            GenerateFuncObjArgument(hotkeyFunctionName),
                             SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0u)),
                             SyntaxFactory.LiteralExpression(
                                 SyntaxKind.StringLiteralExpression,
@@ -364,10 +359,7 @@ namespace Keysharp.Scripting
 							SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(trigger)),
                             hasExpansion
                                 ? SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
-                                : ((InvocationExpressionSyntax)InternalMethods.Func)
-                                .WithArgumentList(
-									CreateArgumentList(SyntaxFactory.IdentifierName(functionName))
-                                ),
+                                : GenerateFuncObjArgument(functionName),
                             SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal($"{options}:{hotstringKey}")),
                             SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(hotstringKey)),
                             SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(expansionText)),
@@ -718,7 +710,10 @@ namespace Keysharp.Scripting
                 ((InvocationExpressionSyntax)InternalMethods.Func)
                 .WithArgumentList(
                     CreateArgumentList(
-                        SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(functionName))
+						SyntaxFactory.CastExpression(
+							CreateQualifiedName("System.Delegate"),
+							SyntaxFactory.IdentifierName(functionName)
+						)
                     )
                 )
             );

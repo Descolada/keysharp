@@ -50,7 +50,7 @@ namespace Keysharp.Scripting
             internal static MethodReference GetMethodOrProperty => new (typeof(Script), "GetMethodOrProperty");
 			internal static MethodReference GetPropertyValue => new (typeof(Script), "GetPropertyValue");
 			internal static MethodReference HandleSingleInstance => new (typeof(Script), "HandleSingleInstance");
-			internal static MethodReference HotIf => new (typeof(HotkeyDefinition), "HotIf");
+			internal static MethodReference HotIf => new (typeof(Keyboard), "HotIf");
 			internal static MethodReference Hotkey => new (typeof(Keyboard), "Hotkey");
 			internal static MethodReference Hotstring => new (typeof(Keyboard), "Hotstring");
             internal static MethodReference IfElse => new (typeof(Script), "IfTest");

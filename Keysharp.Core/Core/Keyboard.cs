@@ -832,6 +832,39 @@ break_twice:;
 			return old;
 		}
 
+		public static object HotIf(object obj0 = null)
+		{
+			var script = Script.TheScript;
+
+			if (obj0 != null)
+			{
+				var funcobj = Functions.GetFuncObj(obj0, null, true);
+				var cp = HotkeyDefinition.FindHotkeyIfExpr(funcobj);
+
+				if (cp == null && funcobj != null)
+					HotkeyDefinition.AddHotkeyIfExpr(cp = funcobj);
+
+				script.Threads.CurrentThread.hotCriterion = cp;
+			}
+			else
+				script.Threads.CurrentThread.hotCriterion = null;
+
+			return DefaultObject;
+		}
+
+		public static object HotIfWinActive(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinActivePrivate", obj0, obj1);
+
+		public static object HotIfWinExist(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinExistPrivate", obj0, obj1);
+
+		public static object HotIfWinNotActive(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotActivePrivate", obj0, obj1);
+
+		public static object HotIfWinNotExist(object obj0 = null, object obj1 = null) => HotkeyDefinition.SetupHotIfWin("HotIfWinNotExistPrivate", obj0, obj1);
+
+		/// <summary>
+		/// Get the hotkey descriptions and put them in the Vars tab of the main window.
+		/// </summary>
+		public static object ListHotkeys() => Script.TheScript.mainWindow?.ListHotkeys();
+
 		/// <summary>
 		/// Internal helper to convert an input mode from a string to a <see cref="ToggleValueType"/>.
 		/// </summary>

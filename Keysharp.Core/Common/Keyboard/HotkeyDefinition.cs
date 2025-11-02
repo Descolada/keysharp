@@ -278,39 +278,6 @@ namespace Keysharp.Core.Common.Keyboard
 			return AddHotkey(_callback, _hookAction, _name, ref b);
 		}
 
-		public static object HotIf(object obj0 = null)
-		{
-			var script = Script.TheScript;
-
-			if (obj0 != null)
-			{
-				var funcobj = Functions.GetFuncObj(obj0, null, true);
-				var cp = FindHotkeyIfExpr(funcobj);
-
-				if (cp == null && funcobj != null)
-					AddHotkeyIfExpr(cp = funcobj);
-
-				script.Threads.CurrentThread.hotCriterion = cp;
-			}
-			else
-				script.Threads.CurrentThread.hotCriterion = null;
-
-			return DefaultObject;
-		}
-
-		public static object HotIfWinActive(object obj0 = null, object obj1 = null) => SetupHotIfWin("HotIfWinActivePrivate", obj0, obj1);
-
-		public static object HotIfWinExist(object obj0 = null, object obj1 = null) => SetupHotIfWin("HotIfWinExistPrivate", obj0, obj1);
-
-		public static object HotIfWinNotActive(object obj0 = null, object obj1 = null) => SetupHotIfWin("HotIfWinNotActivePrivate", obj0, obj1);
-
-		public static object HotIfWinNotExist(object obj0 = null, object obj1 = null) => SetupHotIfWin("HotIfWinNotExistPrivate", obj0, obj1);
-
-		/// <summary>
-		/// Get the hotkey descriptions and put them in the Vars tab of the main window.
-		/// </summary>
-		public static object ListHotkeys() => Script.TheScript.mainWindow?.ListHotkeys();
-
 		/// <summary>
 		/// This function examines all hotkeys and hotstrings to determine:
 		/// - Which hotkeys to register/unregister, or activate/deactivate in the hook.
@@ -2400,7 +2367,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 		private static bool HotIfWinNotExistPrivate(object title, object text, object hotkey) => !HotIfWinExistPrivate(title, text, hotkey);
 
-		private static object SetupHotIfWin(string funcname, object obj0 = null, object obj1 = null)
+		internal static object SetupHotIfWin(string funcname, object obj0 = null, object obj1 = null)
 		{
 			var script = Script.TheScript;
 

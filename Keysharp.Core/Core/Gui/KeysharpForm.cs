@@ -212,6 +212,8 @@ namespace Keysharp.Core
 			var i = obj2.Al(1);
 			e = e.ToLower();
 			var del = Functions.GetFuncObj(h, eventObj, true);
+			if (!((FuncObj)del).IsClosure)
+				del.Inst = null;
 
 			if (e == "close")
 			{

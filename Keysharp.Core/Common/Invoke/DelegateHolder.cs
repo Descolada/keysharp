@@ -206,6 +206,8 @@
 
 				if (state.Item1)
 					_ = script.Threads.EndThread(state);
+
+				script.ExitIfNotPersistent();
 			}, !state.Item1, state);
 			return ConvertResult(val);
 		}

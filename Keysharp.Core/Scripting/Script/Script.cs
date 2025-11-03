@@ -404,12 +404,14 @@ namespace Keysharp.Scripting
 		{
 			//Must use BeginInvoke() because this might be called from _ks_UserMainCode(),
 			//so it needs to run after that thread has exited.
-			if (!IsMainWindowClosing)
-				mainWindow?.CheckedBeginInvoke(() =>
+			if (!IsMainWindowClosing && totalExistingThreads == 0)
 			{
-				if (!IsMainWindowClosing && !AnyPersistent())
-					_ = Flow.ExitAppInternal(exitReason, Environment.ExitCode, false);
-			}, true, true);
+				mainWindow?.CheckedBeginInvoke(() =>
+				{
+					if (!IsMainWindowClosing && !AnyPersistent())
+						_ = Flow.ExitAppInternal(exitReason, Environment.ExitCode, false);
+				}, true, false);
+			}
 		}
 
 		public string GetPublicStaticPropertyNames()
@@ -684,6 +686,9 @@ namespace Keysharp.Scripting
 
 		internal bool AnyPersistent()
 		{
+			if (totalExistingThreads > 0)
+				return true;
+
 			if (Gui.AnyExistingVisibleWindows())
 				return true;
 
@@ -697,9 +702,6 @@ namespace Keysharp.Scripting
 				return true;
 
 			if (ClipFunctions.Count > 0)
-				return true;
-
-			if (totalExistingThreads > 0)
 				return true;
 
 			if (FlowData.persistentValueSetByUser)

@@ -30,6 +30,8 @@
 			}
 		}
 
+		public Dictionary<TKey, object>.KeyCollection Keys => _inner.Keys;
+
 		public bool ContainsKey(TKey key) => _inner.ContainsKey(key);
 
 		public bool ContainsValue(TValue value)

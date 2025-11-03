@@ -95,13 +95,13 @@ namespace Keysharp.Scripting
 			try
 			{
 				{{String.Join(Environment.NewLine, parser.mainFuncInitial)}}
-				if (Keysharp.Scripting.Script.HandleSingleInstance(Accessors.A_ScriptName, eScriptInstance.{{System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance)}}))
+				if (Keysharp.Scripting.Script.HandleSingleInstance(Keysharp.Core.Accessors.A_ScriptName, Keysharp.Scripting.eScriptInstance.{{System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance)}}))
 				{
 					return 0;
 				}
 				Keysharp.Core.Env.HandleCommandLineParams(args);
 				{{MainScriptVariableName}}.CreateTrayMenu();
-				{{MainScriptVariableName}}.RunMainWindow(Accessors.A_ScriptName, {{Keywords.AutoExecSectionName}}, false);
+				{{MainScriptVariableName}}.RunMainWindow(Keysharp.Core.Accessors.A_ScriptName, {{Keywords.AutoExecSectionName}}, false);
 				{{MainScriptVariableName}}.WaitThreads();
 			}
 			catch (Keysharp.Core.Flow.UserRequestedExitException)
@@ -109,10 +109,10 @@ namespace Keysharp.Scripting
 			}
 			catch (Keysharp.Core.Error kserr)
 			{
-				if (ErrorOccurred(kserr))
+				if (Keysharp.Core.Errors.ErrorOccurred(kserr))
 				{
 					var (_ks_pushed, _ks_btv) = {{MainScriptVariableName}}.Threads.BeginThread();
-					MsgBox("Uncaught Keysharp exception:\r\n" + kserr, $"{Accessors.A_ScriptName}: Unhandled exception", "iconx");
+					Keysharp.Core.Dialogs.MsgBox("Uncaught Keysharp exception:\r\n" + kserr, $"{Keysharp.Core.Accessors.A_ScriptName}: Unhandled exception", "iconx");
 					{{MainScriptVariableName}}.Threads.EndThread((_ks_pushed, _ks_btv));
 				}
 				Keysharp.Core.Flow.ExitApp(1);
@@ -123,22 +123,22 @@ namespace Keysharp.Scripting
 
 				if (ex is Keysharp.Core.Error kserr)
 				{
-					if (ErrorOccurred(kserr))
+					if (Keysharp.Core.Errors.ErrorOccurred(kserr))
 					{
 						var (_ks_pushed, _ks_btv) = {{MainScriptVariableName}}.Threads.BeginThread();
-						MsgBox("Uncaught Keysharp exception:\r\n" + kserr, $"{Accessors.A_ScriptName}: Unhandled exception", "iconx");
+						Keysharp.Core.Dialogs.MsgBox("Uncaught Keysharp exception:\r\n" + kserr, $"{Keysharp.Core.Accessors.A_ScriptName}: Unhandled exception", "iconx");
 						{{MainScriptVariableName}}.Threads.EndThread((_ks_pushed, _ks_btv));
 					}
 				}
 				else
 				{
 					var (_ks_pushed, _ks_btv) = {{MainScriptVariableName}}.Threads.BeginThread();
-					MsgBox("Uncaught exception:\r\n" + "Message: " + ex.Message + "\r\nStack: " + ex.StackTrace, $"{Accessors.A_ScriptName}: Unhandled exception", "iconx");
+					Keysharp.Core.Dialogs.MsgBox("Uncaught exception:\r\n" + "Message: " + ex.Message + "\r\nStack: " + ex.StackTrace, $"{Keysharp.Core.Accessors.A_ScriptName}: Unhandled exception", "iconx");
 					{{MainScriptVariableName}}.Threads.EndThread((_ks_pushed, _ks_btv));
 				}
 				Keysharp.Core.Flow.ExitApp(1);
 			}
-			return Environment.ExitCode;
+			return System.Environment.ExitCode;
 		}
 """;
 

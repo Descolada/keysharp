@@ -138,6 +138,22 @@ namespace Keysharp.Scripting
 					if (alias != null)
 						test = alias;
 
+					if (subject is Any kso)
+					{
+						var protos = TheScript.Vars.Prototypes;
+						var matchingProtoKey = protos.Keys.FirstOrDefault(t => TypePathNoNamespace(t).Equals(test, StringComparison.OrdinalIgnoreCase));
+						if (matchingProtoKey == null)
+							return false;
+						var targetProto = protos[matchingProtoKey];
+
+						for (Any proto = kso; proto != null; proto = proto.Base)
+						{
+							if (proto == targetProto)
+								return true;
+						}
+						return false;
+					}
+
                     //Traverse class hierarchy to see if there is a match.
                     if (subject != null)
 					{
@@ -156,6 +172,20 @@ namespace Keysharp.Scripting
 			done:
 			return !not ? ret : !ret;
 		}
+		static string TypePathNoNamespace(Type t)
+		{
+			while (t.HasElementType) t = t.GetElementType();
+
+			var script = TheScript;
+
+			// Build "Outer.Inner" from declaring types (namespaces are not included here).
+			var names = new List<string>();
+			for (var cur = t; cur != null && cur != script.ProgramType; cur = cur.DeclaringType)
+				names.Add(cur.Name);
+			names.Reverse();
+			return string.Join('.', names);
+		}
+
 
 		public static BoolResult IfTest(object result) => new (ForceBool(result), result);
 

@@ -651,6 +651,9 @@ namespace Keysharp.Core
 			else
 				script.onExitHandlers.Clear();
 
+			// Do this here so if destructors throw then no dialogs are shown
+			script.SuppressErrorOccurredDialog = true;
+
 			GC.Collect();
 			GC.WaitForPendingFinalizers();
 			DestructorPump.RunPendingDestructors();
@@ -681,7 +684,6 @@ namespace Keysharp.Core
 			}
 
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.
-			script.SuppressErrorOccurredDialog = true;
 			fd.allowInterruption = allowInterruption_prev;
 			HotkeyDefinition.AllDestruct();
 			StopMainTimer();

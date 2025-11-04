@@ -185,10 +185,10 @@ namespace Keysharp.Scripting
             private readonly Dictionary<string, object> vars = new(StringComparer.OrdinalIgnoreCase);
 			private eScope scope = eScope.Local;
 			private HashSet<string> globals;
-            public Dereference(eScope funcScope, HashSet<string> funcGlobals, params object[] args)
+            public Dereference(eScope funcScope, string[] funcGlobals, params object[] args)
 			{
 				scope = funcScope;
-				globals = funcGlobals;
+				globals = funcGlobals == null ? null : new HashSet<string>(funcGlobals, StringComparer.OrdinalIgnoreCase);
 
 				for (int i = 0; i < args.Length; i += 2)
 				{

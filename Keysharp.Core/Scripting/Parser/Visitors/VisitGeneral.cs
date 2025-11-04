@@ -552,8 +552,8 @@ namespace Keysharp.Scripting
 					CreateArgumentList(SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(remapDest)))
                 );
 
-                // Generate the IfElse method invocation
-                var ifElseInvocation = ((InvocationExpressionSyntax)InternalMethods.IfElse)
+                // Generate the IfTest method invocation
+                var ifElseInvocation = ((InvocationExpressionSyntax)InternalMethods.IfTest)
                     .WithArgumentList(
 						CreateArgumentList(getKeyStateInvocation)
                     );

@@ -590,10 +590,10 @@ namespace Keysharp.Scripting
 
         private SyntaxNode HandleLogicalAndExpression(ExpressionSyntax left, ExpressionSyntax right)
         {
-            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
+            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfTest)
                 .WithArgumentList(CreateArgumentList(left));
 
-            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
+            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfTest)
                 .WithArgumentList(CreateArgumentList(right));
 
             // Create If(left) && If(right)
@@ -627,10 +627,10 @@ namespace Keysharp.Scripting
 		}
 		private SyntaxNode HandleLogicalOrExpression(ExpressionSyntax left, ExpressionSyntax right)
         {
-            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
+            var leftIf = ((InvocationExpressionSyntax)InternalMethods.IfTest)
                 .WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(SyntaxFactory.Argument(left))));
 
-            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfElse)
+            var rightIf = ((InvocationExpressionSyntax)InternalMethods.IfTest)
                 .WithArgumentList(CreateArgumentList(right));
 
             // Create If(left) && If(right)

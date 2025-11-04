@@ -53,8 +53,9 @@ namespace Keysharp.Scripting
 			internal static MethodReference HotIf => new (typeof(Keyboard), "HotIf");
 			internal static MethodReference Hotkey => new (typeof(Keyboard), "Hotkey");
 			internal static MethodReference Hotstring => new (typeof(Keyboard), "Hotstring");
-            internal static MethodReference IfElse => new (typeof(Script), "IfTest");
+            internal static MethodReference IfTest => new (typeof(Script), "IfTest");
 			internal static MethodReference IfLegacy => new (typeof(Script), "IfLegacy");
+			internal static MethodReference IsTrueAndRunning => new (typeof(Flow), "IsTrueAndRunning");
 			internal static MethodReference Inc => new (typeof(Loops), "Inc");
 			internal static MethodReference Index => new (typeof(Script), "Index");
 			internal static MethodReference Invoke => new (typeof(Script), "Invoke");

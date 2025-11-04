@@ -72,18 +72,18 @@ namespace Keysharp.Scripting
             );
 
             // Generate the loop condition
-            var loopCondition = SyntaxFactory.InvocationExpression(
-                SyntaxFactory.IdentifierName("IsTrueAndRunning"),
-				CreateArgumentList(
-					SyntaxFactory.InvocationExpression(
-                        SyntaxFactory.MemberAccessExpression(
-                            SyntaxKind.SimpleMemberAccessExpression,
-                            enumeratorVariable,
-                            SyntaxFactory.IdentifierName("MoveNext")
+            var loopCondition = ((InvocationExpressionSyntax)InternalMethods.IsTrueAndRunning)
+                .WithArgumentList(
+				    CreateArgumentList(
+					    SyntaxFactory.InvocationExpression(
+                            SyntaxFactory.MemberAccessExpression(
+                                SyntaxKind.SimpleMemberAccessExpression,
+                                enumeratorVariable,
+                                SyntaxFactory.IdentifierName("MoveNext")
+                            )
                         )
                     )
-                )
-            );
+                );
 
             // Ensure the loop body is a block
             BlockSyntax loopBody = EnsureBlockSyntax(loopBodyNode);
@@ -91,8 +91,8 @@ namespace Keysharp.Scripting
             // Add the `Until` condition, if provided
             StatementSyntax untilStatement = untilCondition != null
                 ? SyntaxFactory.IfStatement(
-                    SyntaxFactory.InvocationExpression(
-						CreateMemberAccess("Keysharp.Scripting.Script", "IfTest"),
+                    ((InvocationExpressionSyntax)InternalMethods.IfTest)
+                    .WithArgumentList(
 						CreateArgumentList(untilCondition)
                     ),
                     SyntaxFactory.Block(SyntaxFactory.BreakStatement())
@@ -558,10 +558,8 @@ namespace Keysharp.Scripting
             );
 
             // Generate the loop condition: IsTrueAndRunning(IfTest(...))
-            var loopCondition = SyntaxFactory.InvocationExpression(
-                SyntaxFactory.IdentifierName("IsTrueAndRunning"),
-				CreateArgumentList(conditionWrapped)
-            );
+            var loopCondition = ((InvocationExpressionSyntax)InternalMethods.IsTrueAndRunning)
+                .WithArgumentList(CreateArgumentList(conditionWrapped));
 
             // Generate the loop body
             BlockSyntax loopBody = (BlockSyntax)Visit(context.flowBlock());

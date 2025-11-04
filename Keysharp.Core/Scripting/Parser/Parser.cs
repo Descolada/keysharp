@@ -388,33 +388,7 @@ namespace Keysharp.Scripting
                             )
                         ).WithInitializer(arrayInitializer);
 
-                        // Create the object creation expression:
-                        // new HashSet<string>( new string[] { ... }, StringComparer.OrdinalIgnoreCase )
-                        var objectCreation = SyntaxFactory.ObjectCreationExpression(
-                            // Use a generic name for HashSet<string>
-                            SyntaxFactory.GenericName(
-                                SyntaxFactory.Identifier("HashSet")
-                            ).WithTypeArgumentList(
-                                SyntaxFactory.TypeArgumentList(
-                                    SyntaxFactory.SingletonSeparatedList<TypeSyntax>(
-                                        SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword))
-                                    )
-                                )
-                            )
-                        ).WithArgumentList(
-							CreateArgumentList(
-								// First argument: the string array we just created.
-								arrayCreation,
-                                // Second argument: StringComparer.OrdinalIgnoreCase
-                                SyntaxFactory.MemberAccessExpression(
-                                    SyntaxKind.SimpleMemberAccessExpression,
-                                    SyntaxFactory.IdentifierName("StringComparer"),
-                                    SyntaxFactory.IdentifierName("OrdinalIgnoreCase")
-                                )
-                            )
-                        );
-
-                        arguments.Add(SyntaxFactory.Argument(objectCreation));
+                        arguments.Add(SyntaxFactory.Argument(arrayCreation));
                     }
 
                     foreach (string localName in Locals.Keys) {

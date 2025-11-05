@@ -7,12 +7,13 @@ namespace Keysharp.Core.Common.ObjectBase
 	{
 		public IFuncObj __Enum(object count);
 	}
+
 	public class KeysharpObject : Any
 	{
 		public KeysharpObject(params object[] args) : base(args) { }
 		public KeysharpObject(bool skipLogic) : base(skipLogic) { }
 
-		public static object Call(object @this, params object[] args) => Activator.CreateInstance(@this.GetType(), args);
+		public static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
 
 		/// <summary>
 		/// Creates a new <see cref="KeysharpObject"/> object.

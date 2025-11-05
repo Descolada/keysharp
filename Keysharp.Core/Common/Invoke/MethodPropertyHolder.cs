@@ -347,12 +347,14 @@ namespace Keysharp.Core.Common.Invoke
 			// Compile the small "core" once.
 			var core = CompileCore(mi, ps, isSoft, defaults);
 
+			return NormalInvoke;
+
 			// The returned delegate performs:
 			//  - exact arg-count validation
 			//  - instance splicing convention
 			//  - params packing (incl. set_Item)
 			//  - then calls the compiled core (which handles defaults & per-slot null checks)
-			return (instance, args) =>
+			object NormalInvoke(object instance, object[] args)
 			{
 				args ??= System.Array.Empty<object>();
 
@@ -556,6 +558,43 @@ namespace Keysharp.Core.Common.Invoke
 		{
 			var def = p.DefaultValue;
 			return (def is DBNull || def == System.Reflection.Missing.Value) ? null : def;
+		}
+	}
+
+	internal static class FastCtor
+	{
+#if CONCURRENT
+		private static readonly ConcurrentDictionary<System.Type, Func<object[], object>> Cache = new();
+#else
+		private static readonly Dictionary<System.Type, Func<object[], object>> Cache = new();
+#endif
+
+		// Semantics: always call a public ctor like:  new T(object[] args)
+		public static object Call(Type type, params object[] args)
+		{
+			args ??= System.Array.Empty<object>();
+
+#if CONCURRENT
+			var activator = Cache.GetOrAdd(type, BuildFactory);
+#else
+			if (!Cache.TryGetValue(type, out var activator))
+				Cache[type] = activator = BuildFactory(type);
+#endif
+			return activator(args);
+		}
+
+		private static Func<object[], object> BuildFactory(System.Type type)
+		{
+			// Look for a single public instance ctor with signature (object[])
+			var ctor = type.GetConstructor(new[] { typeof(object[]) });
+			if (ctor is null)
+			{
+				return a => System.Activator.CreateInstance(type, a)!;
+			}
+
+			var a = System.Linq.Expressions.Expression.Parameter(typeof(object[]), "args");
+			var body = System.Linq.Expressions.Expression.Convert(System.Linq.Expressions.Expression.New(ctor, a), typeof(object));
+			return System.Linq.Expressions.Expression.Lambda<Func<object[], object>>(body, a).Compile();
 		}
 	}
 }

@@ -301,6 +301,7 @@ namespace Keysharp.Core
 			{
 					"Double" => "Float",
 					"Int64" => "Integer",
+					"Boolean" => "Integer",
 					"KeysharpObject" => "Object",
 					_ => type,
 			};

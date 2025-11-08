@@ -1,10 +1,14 @@
 ﻿//#define CONCURRENT
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using Antlr4.Runtime.Misc;
 using Label = System.Reflection.Emit.Label;
 
 namespace Keysharp.Core.Common.Invoke
 {
+#if !INTERNALDEBUG
+	[DebuggerStepThrough]
+#endif
 	internal class MethodPropertyHolder
 	{
 		public Func<object, object[], object> _callFunc;
@@ -283,6 +287,14 @@ namespace Keysharp.Core.Common.Invoke
 				}
 			}
 		}
+
+		// Allow creating a "fake" MPH for ObjBindMethod
+		public MethodPropertyHolder(string name)
+		{
+			_name = name;
+			variadicParamIndex = 1;
+		}
+
 		internal static void ClearCache()
 		{
 			methodCache.Clear();
@@ -308,6 +320,9 @@ namespace Keysharp.Core.Common.Invoke
 	 *      Downside is that IL.Emit and expression trees have a bit more overhead during the initial compilation,
 	 *      and require loading large dlls. 
 	 */
+#if !INTERNALDEBUG
+	[DebuggerStepThrough]
+#endif
 	internal static class DelegateFactory
 	{
 		public static Func<object, object[], object> CreateDelegate(MethodInfo mi)
@@ -354,6 +369,9 @@ namespace Keysharp.Core.Common.Invoke
 			//  - instance splicing convention
 			//  - params packing (incl. set_Item)
 			//  - then calls the compiled core (which handles defaults & per-slot null checks)
+#if !INTERNALDEBUG
+			[DebuggerStepThrough]
+#endif
 			object NormalInvoke(object instance, object[] args)
 			{
 				args ??= System.Array.Empty<object>();
@@ -561,6 +579,9 @@ namespace Keysharp.Core.Common.Invoke
 		}
 	}
 
+#if !INTERNALDEBUG
+	[DebuggerStepThrough]
+#endif
 	internal static class FastCtor
 	{
 #if CONCURRENT

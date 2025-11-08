@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core
+﻿using System.Runtime.Intrinsics.Arm;
+
+namespace Keysharp.Core
 {
 	internal class GuiData
 	{
@@ -27,6 +29,7 @@
 
 		internal Dictionary<object, object> controls = [];
 		internal bool dpiscaling = true;
+		internal double dpiscale => !dpiscaling ? 1.0 : A_ScaledScreenDPI;
 		internal MenuBar menuBar;
 		bool marginsInit = false;
 		internal nint owner = 0;
@@ -95,12 +98,12 @@
 						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
 						{
 							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MinimumSize = new Size(width, f.form.MinimumSize.Height);
+								f.form.MinimumSize = new Size((int)(f.dpiscale * width), f.form.MinimumSize.Height);
 						}
 						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
 						{
 							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MinimumSize = new Size(f.form.MinimumSize.Width, height);
+								f.form.MinimumSize = new Size(f.form.MinimumSize.Width, (int)(f.dpiscale * height));
 						}
 						else
 						{
@@ -109,7 +112,7 @@
 							if (splits.Length == 2)
 							{
 								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MinimumSize = new Size(width, height);
+									f.form.MinimumSize = f.dpiscaling ? new Size((int)(f.dpiscale * width), (int)(f.dpiscale * height)) : new Size(width, height);
 							}
 						}
 					}
@@ -127,12 +130,12 @@
 						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
 						{
 							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MaximumSize = new Size(width, f.form.MaximumSize.Height);
+								f.form.MaximumSize = new Size((int)(f.dpiscale * width), f.form.MaximumSize.Height);
 						}
 						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
 						{
 							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MaximumSize = new Size(f.form.MaximumSize.Width, height);
+								f.form.MaximumSize = new Size(f.form.MaximumSize.Width, (int)(f.dpiscale * height));
 						}
 						else
 						{
@@ -141,7 +144,7 @@
 							if (splits.Length == 2)
 							{
 								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MaximumSize = new Size(width, height);
+									f.form.MaximumSize = f.dpiscaling ? new Size((int)(f.dpiscale * width), (int)(f.dpiscale * height)) :new Size(width, height);
 							}
 						}
 					}

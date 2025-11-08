@@ -272,7 +272,7 @@
 			this.Inst = o ?? m.Target;
         }
 
-		internal FuncObj(MethodInfo m, object o = null) : this(m == null ? null : MethodPropertyHolder.GetOrAdd(m))
+		internal FuncObj(MethodInfo m, object o = null) : this(m == null ? null : MethodPropertyHolder.GetOrAdd(m), o)
 		{
 		}
 

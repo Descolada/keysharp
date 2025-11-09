@@ -232,7 +232,18 @@
 
 			if (bw != null)
 			{
-				if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
+				if (buf is Array arr)
+				{
+					len = count != long.MinValue ? Math.Min(arr.Count, (int)count) : arr.Count;
+					bw.Write(arr.array.ConvertAll(el => (byte)el.ParseLong(false).Value).ToArray(), 0, len);//No way to know what is in the array since they are objects, so convert them to bytes.
+				}
+				else if (buf is string s)
+				{
+					var bytes = enc.GetBytes(s);
+					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
+					bw.Write(bytes, 0, len);
+				}
+				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
 				{
 					int buflen = int.MinValue;
 					if (buf is Any && TryGetPropertyValue(out object maybeSize, buf, "Size"))
@@ -246,17 +257,6 @@
 						Marshal.Copy((nint)ptr, bytes, 0, len);
 						bw.Write(bytes);
 					}
-				}
-				else if (buf is Array arr)
-				{
-					len = count != long.MinValue ? Math.Min(arr.Count, (int)count) : arr.Count;
-					bw.Write(arr.array.ConvertAll(el => (byte)el.ParseLong(false).Value).ToArray(), 0, len);//No way to know what is in the array since they are objects, so convert them to bytes.
-				}
-				else if (buf is string s)
-				{
-					var bytes = enc.GetBytes(s);
-					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
-					bw.Write(bytes, 0, len);
 				}
 				else
 					return (long)Errors.ErrorOccurred("Invalid buffer", 0L);

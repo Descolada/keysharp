@@ -825,8 +825,8 @@ namespace Keysharp.Scripting
                                         )
                                     )
                                 ,
-                                varRefExpression
-                            )
+								leftExpression
+							)
                         );
                     parser.PopTempVar();
                     return result;

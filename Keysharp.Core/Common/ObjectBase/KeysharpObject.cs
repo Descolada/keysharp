@@ -58,8 +58,6 @@ namespace Keysharp.Core.Common.ObjectBase
 
 		public object DeleteProp(object obj) => DeleteOwnPropInternal(obj.As());
 
-		public long GetCapacity() => (long)Errors.ErrorOccurred("GetCapacity() is not supported or needed in Keysharp. The C# runtime handles all memory.", DefaultErrorLong);
-
 		public object GetOwnPropDesc(object obj)
 		{
 			var name = obj.As();
@@ -172,12 +170,6 @@ namespace Keysharp.Core.Common.ObjectBase
 		{
 			get => _base;
 			set => Objects.ObjSetBase(this, value);
-		}
-
-		public long SetCapacity(object obj)
-		{
-			var err = new Error("SetCapacity() is not supported or needed in Keysharp. The C# runtime handles all memory.");
-			return Errors.ErrorOccurred(err) ? throw err : DefaultErrorLong;
 		}
 	}
 }

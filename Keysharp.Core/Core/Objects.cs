@@ -6,15 +6,14 @@
 	public static class Objects
 	{
 		/// <summary>
-		/// Unsupported.
+		/// Returns the current capacity of the object's internal dictionary of properties.
 		/// </summary>
-		/// <param name="obj">Ignored.</param>
-		/// <returns>None</returns>
-		/// <exception cref="Error">An <see cref="Error"/> exception is thrown because this function has no meaning in Keysharp.</exception>
+		/// <param name="obj">The object for which to query the capacity.</param>
+		/// <returns>The capacity</returns>
 		public static object ObjGetCapacity(object obj)
 		{
 			if (obj is KeysharpObject kso)
-				return kso.GetCapacity();
+				return (long)kso.op.Capacity;
 
 			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
 		}
@@ -153,7 +152,10 @@
 		public static object ObjSetCapacity(object obj0, object obj1)
 		{
 			if (obj0 is KeysharpObject kso)
-				return kso.SetCapacity(obj1);
+			{
+				kso.op.EnsureCapacity(obj1.Ai());
+				return (long)kso.op.Capacity;
+			}
 
 			return Errors.ErrorOccurred($"Object of type {obj0.GetType()} was not of type KeysharpObject.");
 		}

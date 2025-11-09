@@ -142,6 +142,9 @@
 			if (obj is bool b)
 				return b;
 
+			if (obj is long l && (l == 0 || l == 1))
+				return l != 0;
+
 			if (obj is BoolResult br)
 				return br.o.ParseBool();
 

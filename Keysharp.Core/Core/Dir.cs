@@ -317,10 +317,10 @@
 			}
 			else
 			{
-				var input = Path.GetFullPath(p);
-                Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input));
-                Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input).Trim('.'));
-                Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input));
+				var input = p == "" ? DefaultObject : Path.GetFullPath(p);
+                Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input) ?? DefaultObject);
+                Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input)?.Trim('.') ?? DefaultObject);
+                Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input) ?? DefaultObject);
 
 				if (p.StartsWith(@"\\"))
 				{
@@ -345,8 +345,8 @@
 				}
 				else
 				{
-                    Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input).TrimEnd('\\'));
-                    Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input).TrimEnd('\\'));
+                    Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input)?.TrimEnd('\\') ?? DefaultObject);
+                    Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input)?.TrimEnd('\\') ?? DefaultObject);
 				}
 			}
 

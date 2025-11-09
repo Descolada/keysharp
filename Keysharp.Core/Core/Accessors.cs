@@ -784,6 +784,15 @@
 		public static bool A_IsPaused => ThreadAccessors.A_IsPaused;
 
 		/// <summary>
+		/// True if the script is persistent.
+		/// </summary>
+		public static object A_IsPersistent
+		{
+			get => TheScript.persistent;
+			set => TheScript.persistent = ForceBool(value);
+		}
+
+		/// <summary>
 		/// Only for compatibility with AHK, C# programs are always unicode.
 		/// </summary>
 		public static bool A_IsUnicode => true;

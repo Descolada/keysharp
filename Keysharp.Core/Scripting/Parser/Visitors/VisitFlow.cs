@@ -1218,7 +1218,7 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitLabelledStatement([NotNull] LabelledStatementContext context)
         {
             // Get the label identifier
-            var labelName = context.identifier().GetText().Trim('"');
+            var labelName = parser.ToValidIdentifier(context.identifier().GetText().Trim('"'));
 
             // Return a labeled statement with an empty statement as the body
             return SyntaxFactory.LabeledStatement(
@@ -1227,20 +1227,93 @@ namespace Keysharp.Scripting
             );
         }
 
-        public override SyntaxNode VisitGotoStatement([NotNull] GotoStatementContext context)
+		internal IReadOnlyList<LabelInfo> GetValidTargetsForGoto(MainParser.GotoStatementContext gotoCtx)
+		{
+            if (!parser.functionParserData.TryGetValue(parser.currentFunc.RootContext, out var functionData))
+                return new List<LabelInfo>();
+            
+			if (!functionData.Index.GotoSitePaths.TryGetValue(gotoCtx, out var sitePath))
+				sitePath = System.Array.Empty<int>(); // fallback; should not happen if pre-pass saw it
+
+			// Only labels whose region path is a prefix of the goto site’s path.
+			return functionData.Index.Labels.Where(l => IsPrefix(l.Path, sitePath)).ToList();
+
+		    bool IsPrefix(int[] prefix, int[] full)
+		    {
+			    if (prefix.Length > full.Length) return false;
+			    for (int i = 0; i < prefix.Length; i++)
+				    if (prefix[i] != full[i]) return false;
+			    return true;
+		    }
+		}
+
+		public override SyntaxNode VisitGotoStatement([NotNull] GotoStatementContext context)
         {
-            // Get the target label
-            var labelName = context.propertyName()?.GetText().Trim('"');
-
-            if (labelName == null)
+            if (context.propertyName() != null)
             {
-                throw new ArgumentException("Goto target label is missing.");
-            }
+                // Get the target label
+                var labelName = parser.ToValidIdentifier(context.propertyName().GetText().Trim('"'));
 
-            // Return the Goto statement
-            return SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(labelName));
+				if (labelName == null)
+                    throw new ArgumentException("Goto target label is missing.");
+
+				// Return the Goto statement
+				return SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(labelName));
+			}
+
+			var labels = GetValidTargetsForGoto(context);
+			var expr = Visit(context.singleExpression());
+            var exprString = ((InvocationExpressionSyntax)InternalMethods.ForceString)
+                .WithArgumentList(CreateArgumentList(expr));
+
+			var tempVar = parser.PushTempVar();
+
+			// switch (ForceString(expr).ToLowerInvariant()) { case "foo": goto foo; ... default: throw; }
+			ExpressionSyntax selector = SyntaxFactory.AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, tempVar, SyntaxFactory.InvocationExpression(
+				SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression,
+					exprString,
+					SyntaxFactory.IdentifierName("ToLowerInvariant"))));
+
+			var sections = new List<SwitchSectionSyntax>(labels.Count + 1);
+			foreach (var li in labels)
+			{
+				sections.Add(
+					SyntaxFactory.SwitchSection(
+						SyntaxFactory.SingletonList<SwitchLabelSyntax>(
+							SyntaxFactory.CaseSwitchLabel(
+								SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
+									SyntaxFactory.Literal(li.Raw.ToLowerInvariant())))),
+						SyntaxFactory.SingletonList<StatementSyntax>(
+							SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(parser.ToValidIdentifier(li.Raw))))));
+			}
+
+			sections.Add(
+	            SyntaxFactory.SwitchSection(
+		            SyntaxFactory.SingletonList<SwitchLabelSyntax>(SyntaxFactory.DefaultSwitchLabel()),
+		            SyntaxFactory.SingletonList<StatementSyntax>(
+			            SyntaxFactory.ThrowStatement(CreateErrorWihMessage("Invalid goto target: {0}", tempVar)))));
+
+            parser.PopTempVar();
+
+			return SyntaxFactory.SwitchStatement(selector, SyntaxFactory.List(sections));
         }
 
+		private static ObjectCreationExpressionSyntax CreateErrorWihMessage(string fmt, ExpressionSyntax arg) =>
+	    SyntaxFactory.ObjectCreationExpression(SyntaxFactory.IdentifierName("Error"))
+	    .WithArgumentList(
+		    SyntaxFactory.ArgumentList(
+			    SyntaxFactory.SingletonSeparatedList(
+				    SyntaxFactory.Argument(
+					    SyntaxFactory.InvocationExpression(CreateQualifiedName("System.String.Format"))
+					    .WithArgumentList(
+						    SyntaxFactory.ArgumentList(
+							    SyntaxFactory.SeparatedList(new[]
+							    {
+								    SyntaxFactory.Argument(SyntaxFactory.LiteralExpression(
+									    SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(fmt))),
+								    SyntaxFactory.Argument(arg)
+							    })))))));
 
-    }
+
+	}
 }

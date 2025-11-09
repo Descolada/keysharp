@@ -321,8 +321,9 @@ namespace Keysharp.Scripting
             public HashSet<string> Statics = new HashSet<string>();
             public HashSet<string> VarRefs = new HashSet<string>();
             public eScope Scope = eScope.Local;
+            public ParserRuleContext RootContext;
 
-            public bool Void = false;
+			public bool Void = false;
             public bool Async = false;
 			public bool Public = true;
 			public bool Static = true;

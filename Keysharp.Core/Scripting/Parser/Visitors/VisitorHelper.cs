@@ -138,12 +138,47 @@ namespace Keysharp.Scripting
             public string Name;
             public bool Static;
         }
-        internal class VisitFunction : MainParserBaseVisitor<object>
+		public enum RegionKind
+		{
+			Block,          // {...}
+			FlowBody,       // if/loop body when not a {...} block
+			Switch,         // whole switch
+			SwitchSection,  // each 'case ...:' section
+			Try, Catch, Finally
+		}
+
+		public readonly struct Region
+		{
+			public readonly RegionKind Kind;
+			public readonly int Id;           // unique per region instance
+			public Region(RegionKind kind, int id) { Kind = kind; Id = id; }
+		}
+		public readonly struct LabelInfo
+		{
+			public readonly string Raw;       // Label text
+			public readonly int[] Path;       // region path at the label (ancestor->descendant)
+			public readonly MainParser.LabelledStatementContext Node;
+			public LabelInfo(string raw, int[] path, MainParser.LabelledStatementContext node)
+			{ Raw = raw; Path = path; Node = node; }
+		}
+		/// Per-function index built by the pre-pass.
+		public sealed class LabelIndex
+		{
+			public readonly List<LabelInfo> Labels = new();
+			public readonly Dictionary<MainParser.GotoStatementContext, int[]> GotoSitePaths = new();
+		}
+		internal class VisitFunction : MainParserBaseVisitor<object>
         {
             internal List<FunctionInfo> functionInfos = new();
             private VisitMain mainVisitor;
             private Parser parser;
 			private Function currentFunc;
+
+			private readonly Stack<Region> stack = new();
+			private int nextRegionId = 1;
+			private readonly HashSet<string> seenLabels = new(StringComparer.OrdinalIgnoreCase);
+
+			internal readonly LabelIndex Index = new();
 
 			public VisitFunction(VisitMain visitor)
             {
@@ -152,15 +187,26 @@ namespace Keysharp.Scripting
 				currentFunc = parser.currentFunc;
 			}
 
+			private IDisposable PushRegion(RegionKind kind)
+			{
+				var r = new Region(kind, nextRegionId++);
+				stack.Push(r);
+				return new RegionPopper(() => stack.Pop());
+			}
+			private sealed class RegionPopper : IDisposable
+			{
+				private readonly Action a; public RegionPopper(Action a) => this.a = a;
+				public void Dispose() => a();
+			}
+			private int[] SnapshotPath()
+			{
+				// Path ancestor->descendant for simple prefix checks.
+				return stack.Reverse().Select(r => r.Id).ToArray();
+			}
+
             // Skip some rules
-			public override object VisitClassDeclaration([NotNull] ClassDeclarationContext context)
-			{
-				return null;
-			}
-			public override object VisitLiteral([NotNull] LiteralContext context)
-			{
-				return null;
-			}
+            public override object VisitClassDeclaration([NotNull] ClassDeclarationContext context) => null;
+            public override object VisitLiteral([NotNull] LiteralContext context) => null;
 			public override object VisitIdentifier([NotNull] IdentifierContext context)
 			{
 				return base.VisitIdentifier(context);
@@ -317,10 +363,84 @@ namespace Keysharp.Scripting
 				}
 				return base.VisitAssignmentExpressionDuplicate(context);
 			}
+
+			// ---------- label & goto capture ----------
+			public override object VisitLabelledStatement([NotNull] MainParser.LabelledStatementContext ctx)
+			{
+				var raw = ctx.identifier().GetText().Trim('"');
+				if (!seenLabels.Add(raw))
+					throw new Exception($"Duplicate label: {raw}");
+
+				Index.Labels.Add(new LabelInfo(raw, SnapshotPath(), ctx));
+				return null;
+			}
+
+			public override object VisitGotoStatement([NotNull] MainParser.GotoStatementContext ctx)
+			{
+				Index.GotoSitePaths[ctx] = SnapshotPath();
+				return base.VisitGotoStatement(ctx); // keep walking to find more labels/sites
+			}
+
+			// ---------- regions ----------
+			public override object VisitBlock([NotNull] MainParser.BlockContext ctx)
+			{
+				using (PushRegion(RegionKind.Block))
+					return base.VisitBlock(ctx);
+			}
+
+			public override object VisitSwitchStatement([NotNull] MainParser.SwitchStatementContext ctx)
+			{
+				using (PushRegion(RegionKind.Switch))
+					return base.VisitSwitchStatement(ctx);
+			}
+
+			public override object VisitCaseClause([NotNull] MainParser.CaseClauseContext ctx)
+			{
+				using (PushRegion(RegionKind.SwitchSection))
+					return base.VisitCaseClause(ctx);
+			}
+
+			public override object VisitTryStatement([NotNull] MainParser.TryStatementContext ctx)
+			{
+				// try part:
+				using (PushRegion(RegionKind.Try))
+					Visit(ctx.statement());
+
+				// zero or more catches:
+				foreach (var c in ctx.catchProduction())
+					Visit(c);
+
+				// finally part:
+				var fin = ctx.finallyProduction();
+				if (fin != null)
+					Visit(fin);
+
+				return null;
+			}
+
+			public override object VisitCatchProduction([NotNull] MainParser.CatchProductionContext ctx)
+			{
+				using (PushRegion(RegionKind.Catch))
+					return base.VisitCatchProduction(ctx); // visits flowBlock inside
+			}
+
+			public override object VisitFinallyProduction([NotNull] MainParser.FinallyProductionContext ctx)
+			{
+				using (PushRegion(RegionKind.Finally))
+					return base.VisitFinallyProduction(ctx);
+			}
+
+			// Any “flow body” (if/loop) that isn’t a block still creates a boundary we shouldn’t jump into.
+			public override object VisitFlowBlock([NotNull] MainParser.FlowBlockContext ctx)
+			{
+				using (PushRegion(RegionKind.FlowBody))
+					return base.VisitFlowBlock(ctx);
+			}
 		}
 
 		internal List<FunctionInfo> GetScopeFunctions(ParserRuleContext context, VisitMain mainVisitor)
         {
+            currentFunc.RootContext = context;
             hasVisitedIdentifiers = false;
 			var visitor = functionParserData.GetOrAdd(context, () => {
                 var v = new VisitFunction(mainVisitor);

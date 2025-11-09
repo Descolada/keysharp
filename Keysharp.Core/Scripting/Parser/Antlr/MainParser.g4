@@ -293,7 +293,7 @@ labelledStatement
 
 gotoStatement
     : Goto WS* propertyName
-    | Goto WS* '(' propertyName ')'
+    | Goto '(' WS* singleExpression WS* ')'
     ;
 
 throwStatement

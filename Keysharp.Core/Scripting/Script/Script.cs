@@ -208,6 +208,8 @@ namespace Keysharp.Scripting
 
 		static Script()
 		{
+			// Needed for string and file encodings such as Windows-1252
+			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 			Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
 			Application.ThreadException += (s, e) =>

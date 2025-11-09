@@ -1,6 +1,4 @@
 ﻿#if WINDOWS
-using System.Drawing;
-
 namespace Keysharp.Core
 {
 	public unsafe class ComValue : Any, IDisposable, IMetaObject
@@ -179,15 +177,18 @@ namespace Keysharp.Core
 		{
 			if (Ptr == null) return;
 
-			if (vt == VarEnum.VT_UNKNOWN || vt == VarEnum.VT_DISPATCH)
+			nint ip = NintPtr;
+			if (ip != 0)
 			{
-				if (Ptr is long lp && lp != 0L) _ = Marshal.Release((nint)lp);
-				else if (Ptr is nint ip && ip != 0) _ = Marshal.Release(ip);
-			}
-			else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0)
-			{
-				if (Ptr is long lp && lp != 0L) WindowsAPI.SysFreeString((nint)lp);
-				else if (Ptr is nint ip && ip != 0) WindowsAPI.SysFreeString(ip);
+				if (vt == VarEnum.VT_UNKNOWN || vt == VarEnum.VT_DISPATCH)
+				{
+					_ = Marshal.Release(ip);
+				}
+				else if (vt == VarEnum.VT_BSTR && (Flags & F_OWNVALUE) != 0)
+				{
+					WindowsAPI.SysFreeString(ip);
+				}
+				TheScript.ComMethodData.comMethodCache.TryRemove(NintPtr);
 			}
 
 			Ptr = null;
@@ -318,6 +319,7 @@ namespace Keysharp.Core
 			ParameterModifier[] modifiers = null;
 			INVOKEKIND invokeKind = INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET;
 			Dictionary<int, object> refs = new();
+			object result = null;
 
 			// Get DISPID
 			int hr = RawGetIDsOfNames(methodName, out int dispId);
@@ -326,35 +328,67 @@ namespace Keysharp.Core
 				return Errors.ErrorOccurred($"Method '{methodName}' not found (HRESULT: 0x{hr:X8})");
 			}
 
-			// If no cached type info, try to query it
-			if (expectedTypes == null)
+			if (inputParameters.Length > 0)
 			{
-				TryGetTypeInfo(dispId, methodName, inputParameters?.Length ?? 0, out expectedTypes, out modifiers, out invokeKind, invokeKind);
-			}
-
-			// Handle byref parameters with KeysharpObject wrapper
-			if (modifiers != null && inputParameters != null)
-			{
+				var pm = new ParameterModifier(inputParameters.Length);
 				for (int i = 0; i < inputParameters.Length; i++)
 				{
-					if (modifiers[0][i] && inputParameters[i] is KeysharpObject kso)
+					if (inputParameters[i] is KeysharpObject kso && Script.TryGetPropertyValue(out object refval, kso, "__Value"))
 					{
-						refs[i] = kso;
-						inputParameters[i] = Script.GetPropertyValue(kso, "__Value");
+						pm[i] = true;
+						refs[i] = kso; // remember for write-back
+						inputParameters[i] = refval; // unwrap to the current value for packing
 					}
+				}
+				modifiers = new[] { pm };
+			}
+
+			hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC, inputParameters, out result, expectedTypes: null, modifiers: modifiers);
+			if (hr == unchecked((int)0x80020003) /*DISP_E_MEMBERNOTFOUND*/)
+				hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET, inputParameters, out result, expectedTypes: null, modifiers: modifiers);
+
+			// SLOW PATH (only on conversion-ish failures): query type info and retry.
+			if (hr == unchecked((int)0x80020005) /*DISP_E_TYPEMISMATCH*/ ||
+				hr == unchecked((int)0x80020008) /*DISP_E_BADVARTYPE*/   ||
+				hr == unchecked((int)0x80020004) /*DISP_E_PARAMNOTFOUND*/||
+				hr == unchecked((int)0x8002000A) /*DISP_E_OVERFLOW*/)
+			{
+				// First restore the parameter list
+				foreach (var kvp in refs)
+					inputParameters[kvp.Key] = kvp.Value;
+
+				// If no cached type info, try to query it
+				modifiers = null; refs = new Dictionary<int, object>(); result = null;
+				TryGetTypeInfo(dispId, methodName, inputParameters?.Length ?? 0, out expectedTypes, out modifiers, out invokeKind, invokeKind);
+
+				// Handle byref parameters with KeysharpObject wrapper
+				if (modifiers != null && inputParameters != null)
+				{
+					for (int i = 0; i < inputParameters.Length; i++)
+					{
+						if (modifiers[0][i] && inputParameters[i] is KeysharpObject kso)
+						{
+							refs[i] = kso;
+							inputParameters[i] = Script.GetPropertyValue(kso, "__Value");
+						}
+					}
+				}
+
+				// Invoke
+				hr = RawInvoke(dispId, invokeKind, inputParameters, out result, expectedTypes, modifiers);
+			}
+
+
+			if (hr >= 0)
+			{
+				// Update byref parameters
+				foreach (var kvp in refs)
+				{
+					Script.SetPropertyValue(kvp.Value, "__Value", inputParameters[kvp.Key]);
 				}
 			}
 
-			// Invoke
-			hr = RawInvoke(dispId, invokeKind, inputParameters, out object result, expectedTypes, modifiers);
-
-			// Update byref parameters
-			foreach (var kvp in refs)
-			{
-				Script.SetPropertyValue(kvp.Value, "__Value", inputParameters[kvp.Key]);
-			}
-
-			return hr >= 0 ? result : Errors.ErrorOccurred($"Invoke failed for '{methodName}' (HRESULT: 0x{hr:X8})");
+			return hr >= 0 ? result : Errors.ErrorOccurred($"Invoke failed for '{methodName}' ({result})", DefaultErrorObject);
 		}
 
 		internal unsafe object RawGetProperty(string propertyName, object[] args)
@@ -375,7 +409,7 @@ namespace Keysharp.Core
 					return Index(this, args);
 			}
 			if (hr < 0)
-				return Errors.ErrorOccurred($"Get property failed for '{propertyName}'");
+				return Errors.ErrorOccurred($"Get property failed for '{propertyName}' ({result})");
 
 			return result;
 		}
@@ -395,9 +429,9 @@ namespace Keysharp.Core
 					invokeKind = INVOKEKIND.INVOKE_PROPERTYPUTREF;
 			}
 
-			hr = RawInvoke(dispId, invokeKind, [..args, value], out _, expectedTypes, modifiers);
+			hr = RawInvoke(dispId, invokeKind, [.. args, value], out object result, expectedTypes, modifiers);
 			if (hr < 0)
-				throw new COMException($"Set property failed for '{propertyName}'");
+				_ = Errors.ErrorOccurred($"Set property failed for '{propertyName}' ({result})");
 		}
 
 #pragma warning disable 0649 // fields assigned by native vtables
@@ -492,7 +526,7 @@ namespace Keysharp.Core
 						&iidNull,
 						&strPtrName,
 						1,
-						Com.LOCALE_SYSTEM_DEFAULT,
+						Com.LOCALE_USER_DEFAULT,
 						dispIdPtr);
 
 					// Fallback to IDispatchEx::GetDispID
@@ -594,7 +628,7 @@ namespace Keysharp.Core
 							{
 								variant = cv.ToVariant();
 								suppressWriteback[sourceIndex] = (cv.vt & VarEnum.VT_BYREF) != 0; // we're not supposed to overwrite the wrapper object
-  							    // allocatedByRef[i] remains false
+																								  // allocatedByRef[i] remains false
 							}
 							else
 							{
@@ -604,21 +638,31 @@ namespace Keysharp.Core
 						}
 						else if (isByRef)
 						{
-							VarEnum baseVt = VarEnum.VT_EMPTY;
-							if (expectedTypes != null && sourceIndex < expectedTypes.Length)
-								baseVt = VariantHelper.CLRTypeToVarEnum(expectedTypes[sourceIndex]);
+							// If the param is BYREF and the TLB says SAFEARRAY (i.e. expected CLR type is array),
+							// pass VARIANT* whose inner VARIANT = VT_ARRAY | <elemVT> (not SAFEARRAY**).
+							if (expectedTypes != null &&
+								sourceIndex < expectedTypes.Length &&
+								expectedTypes[sourceIndex]?.IsArray == true)
+							{
+								variant = VariantHelper.CreateByRefVariant(arg);  // <- BYREF|VARIANT (nested)
+							}
+							else
+							{
+								VarEnum baseVt = VarEnum.VT_EMPTY;
+								if (expectedTypes != null && sourceIndex < expectedTypes.Length)
+									baseVt = VariantHelper.CLRTypeToVarEnum(expectedTypes[sourceIndex]);
 
-							variant = (baseVt != VarEnum.VT_EMPTY)
-								? VariantHelper.CreateByRefVariantTyped(arg, baseVt)
-								: VariantHelper.CreateByRefVariant(arg);
-
+								variant = (baseVt != VarEnum.VT_EMPTY)
+										  ? VariantHelper.CreateByRefVariantTyped(arg, baseVt)
+										  : VariantHelper.CreateByRefVariant(arg);
+								
+							}
 							allocatedByRef[i] = true; // we own the temp buffer
 						}
 						else
 						{
 							variant = VariantHelper.ValueToVariant(arg);
 						}
-
 						Marshal.StructureToPtr(variant, variantPtr, false);
 					}
 
@@ -655,6 +699,7 @@ namespace Keysharp.Core
 					int src = argCount - 1 - i; // due to reverse packing
 					VARIANT v = Marshal.PtrToStructure<VARIANT>(pArgs + i * Marshal.SizeOf<VARIANT>());
 					System.Diagnostics.Debug.WriteLine($"arg#{src}: vt=0x{v.vt:X} {(VarEnum)v.vt}, ptr=0x{(long)v.llVal:X}");
+					ComDebug.DumpVariant($"arg[{src}]", v);
 				}
 				*/
 
@@ -663,7 +708,7 @@ namespace Keysharp.Core
 					ptr,
 					dispId,
 					&iidNull,
-					Com.LOCALE_SYSTEM_DEFAULT,
+					Com.LOCALE_USER_DEFAULT,
 					(ushort)flags,
 					pDispParams,
 					pResult,
@@ -704,7 +749,7 @@ namespace Keysharp.Core
 					const int DISP_E_EXCEPTION = -2147352567;
 					if (hr != DISP_E_EXCEPTION)
 					{
-						result = Errors.ErrorOccurred($"COM Invoke failed with HRESULT: 0x{hr:X8}", DefaultErrorObject);
+						result = $"HRESULT: 0x{hr:X8}";
 					}
 					else
 					{
@@ -712,11 +757,11 @@ namespace Keysharp.Core
 						var excepInfo = Marshal.PtrToStructure<EXCEPINFO>(pExcepInfo);
 						if (excepInfo.bstrDescription != null)
 						{
-							result = Errors.ErrorOccurred($"COM Invoke failed: {excepInfo.bstrDescription}", DefaultErrorObject);
+							result = $"{excepInfo.bstrDescription}";
 						}
 						else
 						{
-							result = Errors.ErrorOccurred($"COM Invoke failed with HRESULT: 0x{hr:X8}", DefaultErrorObject);
+							result = $"HRESULT: 0x{hr:X8}";
 						}
 					}
 				}
@@ -773,6 +818,31 @@ namespace Keysharp.Core
 				arg = VariantHelper.ReadVariant(cv.Ptr.Al(), cv.vt);
 			}
 
+			// SAFEARRAY parameters become CLR arrays in our surface types.
+			if (expectedType.IsArray)
+			{
+				// Always normalize: scalar -> single-element array
+				if (arg is not System.Array arr)
+					arr = new object[] { arg };
+
+				// If the expected element type is not object, coerce each element when possible.
+				var elemClr = expectedType.GetElementType() ?? typeof(object);
+				if (elemClr == typeof(object)) return arr; // leave heterogenous as-is (will become VT_ARRAY|VT_VARIANT)
+
+				int n = arr.Length;
+				var coerced = System.Array.CreateInstance(elemClr, n);
+				for (int i = 0; i < n; i++)
+				{
+					var v = arr.GetValue(i);
+					try
+					{
+						coerced.SetValue(ConvertArgumentToExpectedType(v, elemClr), i);
+					}
+					catch { coerced.SetValue(v, i); }
+				}
+				return coerced;
+			}
+
 			try
 			{
 				if (expectedType == typeof(string))
@@ -799,6 +869,18 @@ namespace Keysharp.Core
 					return (sbyte)arg.Ai();
 				else if (expectedType == typeof(byte))
 					return (byte)arg.Aui();
+				else if (expectedType == typeof(object[]))
+				{
+					if (arg is ComObjArray 
+						|| arg is System.Array) 
+						return arg;
+
+					// Plain managed array → normalize to object[]
+					if (arg is Array a)
+						return a.array.ToArray();
+
+					return new object[] { arg };
+				}
 				else
 					return Convert.ChangeType(arg, expectedType, CultureInfo.CurrentCulture);
 			}
@@ -831,7 +913,7 @@ namespace Keysharp.Core
 				return false;
 			nint ptr = new nint((long)Ptr);
 			nint pTypeInfo = 0;
-			if (vtbl->GetTypeInfo(ptr, index, Com.LOCALE_SYSTEM_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
+			if (vtbl->GetTypeInfo(ptr, index, Com.LOCALE_USER_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
 			{
 				typeInfo = (ITypeInfo)Marshal.GetObjectForIUnknown(pTypeInfo);
 				Marshal.Release(pTypeInfo);
@@ -926,7 +1008,7 @@ namespace Keysharp.Core
 			nint pTypeInfo = 0;
 			ITypeInfo typeInfo = null;
 
-			if (vtbl->GetTypeInfo(ptr, 0, Com.LOCALE_SYSTEM_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
+			if (vtbl->GetTypeInfo(ptr, 0, Com.LOCALE_USER_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
 			{
 				typeInfo = (ITypeInfo)Marshal.GetObjectForIUnknown(pTypeInfo);
 				Marshal.Release(pTypeInfo);
@@ -1015,60 +1097,6 @@ namespace Keysharp.Core
 		}
 
 
-
-		// Helper method to search a single ITypeInfo
-		private static bool TryFindMethodInTypeInfo(ITypeInfo typeInfo, int dispId, string methodName,
-												   out Type[] expectedTypes, out ParameterModifier[] modifiers, out INVOKEKIND invokeKind)
-		{
-			invokeKind = 0;
-			expectedTypes = null;
-			modifiers = null;
-
-			try
-			{
-				typeInfo.GetTypeAttr(out var pTypeAttr);
-				var typeAttr = Marshal.PtrToStructure<TYPEATTR>(pTypeAttr);
-
-				try
-				{
-					for (int i = 0; i < typeAttr.cFuncs; i++)
-					{
-						typeInfo.GetFuncDesc(i, out var pFuncDesc);
-						var funcDesc = Marshal.PtrToStructure<FUNCDESC>(pFuncDesc);
-
-						try
-						{
-							if (funcDesc.memid == dispId)
-							{
-								typeInfo.GetDocumentation(funcDesc.memid, out var name,
-									out var docString, out var helpContext, out var helpFile);
-
-								if (name.Equals(methodName, StringComparison.OrdinalIgnoreCase))
-								{
-									ExtractParameterInfo(funcDesc, out expectedTypes, out modifiers, out invokeKind);
-									return true;
-								}
-							}
-						}
-						finally
-						{
-							typeInfo.ReleaseFuncDesc(pFuncDesc);
-						}
-					}
-				}
-				finally
-				{
-					typeInfo.ReleaseTypeAttr(pTypeAttr);
-				}
-			}
-			catch
-			{
-				// Ignore
-			}
-
-			return false;
-		}
-
 		private static void ExtractParameterInfo(FUNCDESC funcDesc, out Type[] expectedTypes, out ParameterModifier[] modifiers, out INVOKEKIND invokeKind)
 		{
 			invokeKind = funcDesc.invkind;
@@ -1090,6 +1118,8 @@ namespace Keysharp.Core
 				var flags = (PARAMFLAG)elem.desc.paramdesc.wParamFlags;
 				bool isOut = (flags & PARAMFLAG.PARAMFLAG_FOUT) != 0;
 
+				modifier[i] = isOut;
+
 				// Base VARTYPE
 				var vt = (VarEnum)elem.tdesc.vt;
 
@@ -1098,22 +1128,22 @@ namespace Keysharp.Core
 				{
 					var pointed = Marshal.PtrToStructure<TYPEDESC>(elem.tdesc.lpValue);
 					var pvt = (VarEnum)pointed.vt;
+					expectedTypes[i] = VariantHelper.VarEnumToCLRType(pvt);
+					continue;
+				}
+				if (vt == VarEnum.VT_SAFEARRAY && elem.tdesc.lpValue != 0)
+				{
+					var pointed = Marshal.PtrToStructure<TYPEDESC>(elem.tdesc.lpValue);
+					var elemVt = (VarEnum)pointed.vt;
 
-					// Only mark byref if it's actually an OUT param.
-					modifier[i] = isOut;
-
-					if (pvt == VarEnum.VT_SAFEARRAY)
-						expectedTypes[i] = typeof(object[]);        // SAFEARRAY byref
-					else if (pvt == VarEnum.VT_DISPATCH || pvt == VarEnum.VT_UNKNOWN)
-						expectedTypes[i] = typeof(object);
-					else
-						expectedTypes[i] = VariantHelper.VarEnumToCLRType(pvt);
+					// Map <T> to CLR type, then make it an array type (T[])
+					var clrElem = VariantHelper.VarEnumToCLRType(elemVt);
+					expectedTypes[i] = clrElem.MakeArrayType();
 					continue;
 				}
 
 				// Regular case
 				expectedTypes[i] = VariantHelper.VarEnumToCLRType(vt);
-				modifier[i] = isOut;
 			}
 
 			modifiers = new[] { modifier };

@@ -34,7 +34,7 @@ namespace Keysharp.Core.COM
 		internal int intVal;
 		[FieldOffset(8)]
 		internal uint uintVal;
-		
+
 		// Floating point types
 		[FieldOffset(8)]
 		internal float fltVal;
@@ -55,7 +55,7 @@ namespace Keysharp.Core.COM
 
 		// Used for all pointer types such as BSTR, pUnk, pDisp.
 		[FieldOffset(8)]
-		internal nint ptrVal; 
+		internal nint ptrVal;
 
 		// Record pointer
 		[FieldOffset(8)]
@@ -181,6 +181,8 @@ namespace Keysharp.Core.COM
 				variant.vt = (ushort)VarEnum.VT_EMPTY;
 				return variant;
 			}
+			if (value is Array ksarr)
+				value = ksarr.array.ToArray();
 
 			switch (value)
 			{
@@ -239,6 +241,9 @@ namespace Keysharp.Core.COM
 					variant.cVal = sb;
 					break;
 
+				case System.Array arr:
+					return CreateVariantFromManagedArray(arr);
+
 				default:
 					// Try to wrap as IDispatch for Keysharp objects
 					try
@@ -256,6 +261,120 @@ namespace Keysharp.Core.COM
 
 			return variant;
 		}
+		private static VARIANT CreateVariantFromManagedArray(System.Array arr)
+		{
+			// Decide element VT from the CLR element type. Heterogenous/unknown → VARIANT.
+			Type elemClr = arr?.GetType().GetElementType() ?? typeof(object);
+
+			VarEnum elemVt = CLRTypeToVarEnum(elemClr);
+			if (elemVt == VarEnum.VT_EMPTY || elemClr == typeof(object))
+				elemVt = VarEnum.VT_VARIANT;
+
+			return CreateVariantFromManagedArray(arr, elemVt);
+		}
+
+		internal unsafe static VARIANT CreateVariantFromManagedArray(System.Array arr, VarEnum elemVt)
+		{
+			// 1D only (common for Automation). Extend similarly for multi-d if you need.
+			uint len = (uint)(arr?.Length ?? 0);
+
+			nint psa = OleAuto.SafeArrayCreateVectorEx((ushort)elemVt, 0, len, 0);
+
+			if (psa == 0)
+				return new VARIANT { vt = (ushort)VarEnum.VT_EMPTY };
+
+			if (arr != null)
+			{
+				for (int i = 0; i < arr.Length; i++)
+				{
+					int[] idx = { i };
+					object v = arr.GetValue(i);
+
+					int hr;
+					switch (elemVt)
+					{
+						case VarEnum.VT_VARIANT:
+							{
+								// Build element VARIANT and pass pointer
+								VARIANT ev = ValueToVariant(v);
+								try { hr = OleAuto.SafeArrayPutElementPtr(psa, idx, (nint)(&ev)); }
+								finally { _ = VariantClear((nint)(&ev)); }
+								break;
+							}
+
+						case VarEnum.VT_BSTR:
+							{
+								nint b = v == null ? 0 : Marshal.StringToBSTR(v.ToString());
+								hr = OleAuto.SafeArrayPutElementPtr(psa, idx, b);
+								if (b != 0) WindowsAPI.SysFreeString(b);
+								break;
+							}
+
+						case VarEnum.VT_DISPATCH:
+						case VarEnum.VT_UNKNOWN:
+							{
+								nint p = 0;
+								bool rel = false;
+								if (v is long lp) p = (nint)lp;
+								else if (v is nint ip) p = ip;
+								else if (v != null)
+								{
+									p = elemVt == VarEnum.VT_DISPATCH ? Marshal.GetIDispatchForObject(v) : Marshal.GetIUnknownForObject(v);
+									rel = true; // we own this temp
+								}
+								try { hr = OleAuto.SafeArrayPutElementPtr(psa, idx, p); }
+								finally { if (rel && p != 0) try { Marshal.Release(p); } catch { } }
+								break;
+							}
+
+						case VarEnum.VT_DATE:
+							{
+								double oa = v is DateTime dt ? dt.ToOADate() : Convert.ToDouble(v);
+								hr = OleAuto.SafeArrayPutElement(psa, idx, oa);
+								break;
+							}
+
+						case VarEnum.VT_BOOL:
+							{
+								bool b = v is bool bb ? bb : Script.ForceBool(v);
+								// Using the object overload lets OleAut do VARIANT_BOOL conversion.
+								hr = OleAuto.SafeArrayPutElement(psa, idx, b);
+								break;
+							}
+
+						// Numerics & decimal – use object overload; OleAut will coerce.
+						case VarEnum.VT_I1: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToSByte(v)); break;
+						case VarEnum.VT_UI1: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToByte(v)); break;
+						case VarEnum.VT_I2: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToInt16(v)); break;
+						case VarEnum.VT_UI2: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToUInt16(v)); break;
+						case VarEnum.VT_I4:
+						case VarEnum.VT_INT: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToInt32(v)); break;
+						case VarEnum.VT_UI4:
+						case VarEnum.VT_UINT: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToUInt32(v)); break;
+						case VarEnum.VT_I8: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToInt64(v)); break;
+						case VarEnum.VT_UI8: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToUInt64(v)); break;
+						case VarEnum.VT_R4: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToSingle(v)); break;
+						case VarEnum.VT_R8: hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToDouble(v)); break;
+						case VarEnum.VT_DECIMAL:
+							hr = OleAuto.SafeArrayPutElement(psa, idx, Convert.ToDecimal(v)); break;
+
+						default:
+							// Fallback to VARIANT elements for exotic types.
+							VARIANT ev2 = ValueToVariant(v);
+							try { hr = OleAuto.SafeArrayPutElementPtr(psa, idx, (nint)(&ev2)); }
+							finally { _ = VariantClear((nint)(&ev2)); }
+							break;
+					}
+
+					_ = Errors.OSErrorOccurredForHR(hr);
+					if (hr < 0) { OleAuto.SafeArrayDestroy(psa); return new VARIANT { vt = (ushort)VarEnum.VT_EMPTY }; }
+				}
+			}
+
+			return new VARIANT { vt = (ushort)(VarEnum.VT_ARRAY | elemVt), ptrVal = psa };
+		}
+
+
 		internal static unsafe VARIANT CreateByRefVariant(object value)
 		{
 			// Create a VT_BYREF|VT_VARIANT that points at a heap VARIANT holding 'value'.
@@ -287,6 +406,7 @@ namespace Keysharp.Core.COM
 				if (value is ComObjArray coa) psa = coa._psa;
 				else if (value is long lp) psa = (nint)lp;
 				else if (value is nint ip) psa = ip;
+				else if (value is System.Array arr) psa = CreateVariantFromManagedArray(arr).ptrVal;
 				// else leave psa = 0 (pure OUT)
 
 				Marshal.WriteIntPtr(pStorage, psa);
@@ -376,7 +496,7 @@ namespace Keysharp.Core.COM
 					return CreateByRefVariant(value);
 			}
 
-			byref.ptrVal = cell; 
+			byref.ptrVal = cell;
 
 			return byref;
 		}
@@ -1081,6 +1201,14 @@ namespace Keysharp.Core.COM
 
 							psaToStore = psaCopy;
 						}
+						else if (value is object[] managedArr)
+						{
+							// Build a fresh SAFEARRAY (default to VARIANT elements; robust for mixed content)
+							VARIANT vArr = CreateVariantFromManagedArray(managedArr, VarEnum.VT_VARIANT);
+							psaToStore = vArr.ptrVal;
+							// We just need the SAFEARRAY* from vArr; prevent double-free by not clearing vArr.
+							// (The array will now be owned by the receiver VARIANT we’re writing to.)
+						}
 						else if (value is long lp)
 						{
 							psaToStore = (nint)lp; // caller gave us a raw SAFEARRAY*
@@ -1103,28 +1231,41 @@ namespace Keysharp.Core.COM
 			}
 		}
 
-		internal static Type VarEnumToCLRType(VarEnum vt) =>
-		vt switch
+		internal static Type VarEnumToCLRType(VarEnum vt)
 		{
-			VarEnum.VT_I1 => typeof(sbyte),
-			VarEnum.VT_UI1 => typeof(byte),
-			VarEnum.VT_I2 => typeof(short),
-			VarEnum.VT_UI2 => typeof(ushort),
-			VarEnum.VT_I4 or VarEnum.VT_INT => typeof(int),
-			VarEnum.VT_UI4 or VarEnum.VT_UINT or VarEnum.VT_ERROR => typeof(uint),
-			VarEnum.VT_I8 => typeof(long),
-			VarEnum.VT_UI8 => typeof(ulong),
-			VarEnum.VT_R4 => typeof(float),
-			VarEnum.VT_R8 or VarEnum.VT_DATE => typeof(double), //should VT_DATE be converted to DateTime?
-			VarEnum.VT_DECIMAL or VarEnum.VT_CY => typeof(decimal),
-			VarEnum.VT_BOOL => typeof(bool),
-			VarEnum.VT_BSTR => typeof(string),
-			VarEnum.VT_SAFEARRAY => typeof(object[]),
-			_ => typeof(object),
-		};
+			if ((vt & VarEnum.VT_ARRAY) != 0)
+				return VarEnumToCLRType(vt & ~VarEnum.VT_ARRAY).MakeArrayType();
+
+			return vt switch
+			{
+				VarEnum.VT_I1 => typeof(sbyte),
+				VarEnum.VT_UI1 => typeof(byte),
+				VarEnum.VT_I2 => typeof(short),
+				VarEnum.VT_UI2 => typeof(ushort),
+				VarEnum.VT_I4 or VarEnum.VT_INT => typeof(int),
+				VarEnum.VT_UI4 or VarEnum.VT_UINT or VarEnum.VT_ERROR => typeof(uint),
+				VarEnum.VT_I8 => typeof(long),
+				VarEnum.VT_UI8 => typeof(ulong),
+				VarEnum.VT_R4 => typeof(float),
+				VarEnum.VT_R8 or VarEnum.VT_DATE => typeof(double),
+				VarEnum.VT_DECIMAL or VarEnum.VT_CY => typeof(decimal),
+				VarEnum.VT_BOOL => typeof(bool),
+				VarEnum.VT_BSTR => typeof(string),
+				VarEnum.VT_SAFEARRAY => typeof(object[]),   // bare VT_SAFEARRAY (no element T): treat as object[]
+				_ => typeof(object),
+			};
+		}
 
 		internal static VarEnum CLRTypeToVarEnum(Type t)
 		{
+			if (t.IsArray)
+			{
+				var et = t.GetElementType() ?? typeof(object);
+				var baseVt = CLRTypeToVarEnum(et);
+				if (baseVt == VarEnum.VT_EMPTY) baseVt = VarEnum.VT_VARIANT;
+				return VarEnum.VT_ARRAY | baseVt;
+			}
+
 			if (t == typeof(string)) return VarEnum.VT_BSTR;
 			if (t == typeof(bool)) return VarEnum.VT_BOOL;
 			if (t == typeof(byte)) return VarEnum.VT_UI1;
@@ -1138,6 +1279,7 @@ namespace Keysharp.Core.COM
 			if (t == typeof(float)) return VarEnum.VT_R4;
 			if (t == typeof(double)) return VarEnum.VT_R8;
 			if (t == typeof(DateTime)) return VarEnum.VT_DATE;
+			if (t == typeof(object)) return VarEnum.VT_VARIANT;
 			// Fallback for COM-ref types:
 			if (typeof(Any).IsAssignableFrom(t)) return VarEnum.VT_DISPATCH;
 
@@ -1145,5 +1287,165 @@ namespace Keysharp.Core.COM
 			return VarEnum.VT_EMPTY;
 		}
 	}
+
+	internal static class ComDebug
+	{
+		static string Flags(VarEnum vt)
+		{
+			var parts = new List<string>();
+			if ((vt & VarEnum.VT_BYREF) != 0) parts.Add("BYREF");
+			if ((vt & VarEnum.VT_ARRAY) != 0) parts.Add("ARRAY");
+			parts.Add((vt & ~(VarEnum.VT_BYREF | VarEnum.VT_ARRAY)).ToString());
+			return string.Join("|", parts);
+		}
+
+		public static void DumpVariant(string label, Keysharp.Core.COM.VARIANT v)
+		{
+			var vt = (VarEnum)v.vt;
+			System.Diagnostics.Debug.WriteLine($"{label}: vt=0x{v.vt:X4} ({Flags(vt)})");
+
+			// --- BYREF cases ---
+			if ((vt & VarEnum.VT_BYREF) != 0)
+			{
+				var baseVt = vt & ~VarEnum.VT_BYREF;
+
+				// BYREF SAFEARRAY: ptrVal is SAFEARRAY**
+				if ((baseVt & VarEnum.VT_ARRAY) != 0)
+				{
+					nint ppsa = v.ptrVal;
+					nint psa = ppsa != 0 ? Marshal.ReadIntPtr(ppsa) : 0;
+					System.Diagnostics.Debug.WriteLine($"  BYREF SAFEARRAY** ppsa=0x{(long)ppsa:X}, psa=0x{(long)psa:X}");
+					DumpSafeArray("  ", psa, baseVt & ~VarEnum.VT_ARRAY);
+					return;
+				}
+
+				// BYREF|VARIANT: ptrVal points at an inner VARIANT
+				if ((baseVt == VarEnum.VT_VARIANT) && v.ptrVal != 0)
+				{
+					var inner = Marshal.PtrToStructure<Keysharp.Core.COM.VARIANT>(v.ptrVal);
+					DumpVariant("  *inner", inner);
+					return;
+				}
+
+				// BYREF scalar/BSTR/IDispatch/IUnknown
+				System.Diagnostics.Debug.WriteLine($"  BYREF payload cell: 0x{(long)v.ptrVal:X} for base {baseVt}");
+				return;
+			}
+
+			// --- By-value SAFEARRAY ---
+			if ((vt & VarEnum.VT_ARRAY) != 0)
+			{
+				nint psa = v.ptrVal;
+				System.Diagnostics.Debug.WriteLine($"  SAFEARRAY* parray=0x{(long)psa:X}");
+				DumpSafeArray("  ", psa, vt & ~VarEnum.VT_ARRAY);
+				return;
+			}
+
+			// --- Scalars / pointers ---
+			switch (vt)
+			{
+				case VarEnum.VT_BSTR:
+					{
+						var s = v.ptrVal == 0 ? "" : Marshal.PtrToStringBSTR(v.ptrVal);
+						var prev = s is null ? "null" : (s.Length > 80 ? s.Substring(0, 80) + "…" : s);
+						System.Diagnostics.Debug.WriteLine($"  BSTR=\"{prev}\"");
+						break;
+					}
+				case VarEnum.VT_DISPATCH:
+				case VarEnum.VT_UNKNOWN:
+					System.Diagnostics.Debug.WriteLine($"  COM ptr=0x{(long)v.ptrVal:X}");
+					break;
+				default:
+					System.Diagnostics.Debug.WriteLine($"  scalar payload at union: 0x{(long)v.llVal:X}");
+					break;
+			}
+		}
+
+		static void DumpSafeArray(string indent, nint psa, VarEnum elemFromHeader)
+		{
+			if (psa == 0)
+			{
+				System.Diagnostics.Debug.WriteLine($"{indent}(psa is NULL)");
+				return;
+			}
+
+			// Element VARTYPE from array header
+			int hr = Keysharp.Core.OleAuto.SafeArrayGetVartype(psa, out ushort vtElemHdrRaw);
+			var vtElemHdr = (VarEnum)vtElemHdrRaw;
+			int dims = Keysharp.Core.OleAuto.SafeArrayGetDim(psa);
+
+			System.Diagnostics.Debug.WriteLine($"{indent}elemVT(header)=0x{vtElemHdrRaw:X4} ({vtElemHdr}), dims={dims}");
+
+			// Bounds
+			for (uint d = 1; d <= dims; d++)
+			{
+				_ = Keysharp.Core.OleAuto.SafeArrayGetLBound(psa, d, out int lb);
+				_ = Keysharp.Core.OleAuto.SafeArrayGetUBound(psa, d, out int ub);
+				System.Diagnostics.Debug.WriteLine($"{indent}dim{d}: [{lb}..{ub}] (len={ub - lb + 1})");
+			}
+
+			// Peek first element’s VT (especially useful for VT_VARIANT arrays)
+			if (dims == 1)
+			{
+				_ = Keysharp.Core.OleAuto.SafeArrayGetLBound(psa, 1, out int lb);
+				_ = Keysharp.Core.OleAuto.SafeArrayGetUBound(psa, 1, out int ub);
+				int count = ub - lb + 1;
+				if (count > 0)
+				{
+					var vtElem = vtElemHdr;
+					if (vtElem == VarEnum.VT_VARIANT)
+					{
+						// Access raw data and read first VARIANT
+						hr = Keysharp.Core.OleAuto.SafeArrayAccessData(psa, out nint pData);
+						if (hr >= 0)
+						{
+							try
+							{
+								var elem0 = Marshal.PtrToStructure<Keysharp.Core.COM.VARIANT>(pData);
+								System.Diagnostics.Debug.WriteLine($"{indent}elem[0] vt=0x{elem0.vt:X4} ({(VarEnum)elem0.vt})");
+								// Optional: preview BSTR
+								if ((VarEnum)elem0.vt == VarEnum.VT_BSTR && elem0.ptrVal != 0)
+								{
+									var s = Marshal.PtrToStringBSTR(elem0.ptrVal) ?? "";
+									var prev = s.Length > 80 ? s.Substring(0, 80) + "…" : s;
+									System.Diagnostics.Debug.WriteLine($"{indent}elem[0] BSTR=\"{prev}\"");
+								}
+							}
+							finally
+							{
+								_ = Keysharp.Core.OleAuto.SafeArrayUnaccessData(psa);
+							}
+						}
+						else
+						{
+							System.Diagnostics.Debug.WriteLine($"{indent}SafeArrayAccessData failed: hr=0x{hr:X8}");
+						}
+					}
+					else
+					{
+						// For typed arrays we know element VT; still try reading value via GetElement for convenience
+						try
+						{
+							int[] idx = { lb };
+							_ = Keysharp.Core.OleAuto.SafeArrayGetElement(psa, idx, out object pv);
+							System.Diagnostics.Debug.WriteLine($"{indent}elem[0] (typed {vtElem}) = {Preview(pv)}");
+						}
+						catch (Exception ex)
+						{
+							System.Diagnostics.Debug.WriteLine($"{indent}elem[0] read failed: {ex.Message}");
+						}
+					}
+				}
+			}
+		}
+
+		static string Preview(object pv)
+		{
+			if (pv is string s) return s.Length > 80 ? s.Substring(0, 80) + "…" : s;
+			if (pv is null) return "null";
+			return pv.ToString();
+		}
+	}
+
 }
 #endif

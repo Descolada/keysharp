@@ -25,6 +25,7 @@ namespace Keysharp.Core.COM
 		internal const int CLSCTX_REMOTE_SERVER = 0x10;
 		internal const int CLSCTX_SERVER = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER | CLSCTX_REMOTE_SERVER; //16;
 		internal const int LOCALE_SYSTEM_DEFAULT = 0x800;
+		internal const int LOCALE_USER_DEFAULT = 0x400;
 		internal static HashSet<ComEvent> comEvents = [];
 
 		internal const int DISPID_PROPERTYPUT = -3;

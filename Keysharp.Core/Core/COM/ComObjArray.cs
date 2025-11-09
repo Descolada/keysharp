@@ -34,6 +34,9 @@ namespace Keysharp.Core
 			short vt,
 			uint cDims,
 			[In] SAFEARRAYBOUND[] rgsabound);
+
+		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "SafeArrayCreateVectorEx")]
+		public static partial nint SafeArrayCreateVectorEx(ushort vt, int lLbound, uint cElements, nint pvExtra);
 		/// <summary>
 		/// Retrieves the number of dimensions in a SafeArray.
 		/// </summary>
@@ -58,6 +61,11 @@ namespace Keysharp.Core
 			nint psa,
 			uint nDim,
 			out int plLbound);
+
+		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "SafeArrayGetVartype")]
+		public static partial int SafeArrayGetVartype(
+			nint psa,
+			out ushort vt);
 		/// <summary>
 		/// Creates a copy of a SafeArray.
 		/// </summary>
@@ -101,6 +109,12 @@ namespace Keysharp.Core
 
 		[LibraryImport(WindowsAPI.oleaut)]
 		public static partial nint SysAllocStringLen(nint src, int len);
+
+		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "SafeArrayAccessData")]
+		internal static partial int SafeArrayAccessData(nint psa, out nint ppvData);
+
+		[LibraryImport(WindowsAPI.oleaut, EntryPoint = "SafeArrayUnaccessData")]
+		internal static partial int SafeArrayUnaccessData(nint psa);
 	}
 
 	/// <summary>

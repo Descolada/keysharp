@@ -193,7 +193,16 @@ namespace Keysharp.Core
 			return sb.ToString();
 		}
 
-		public static object ListLines(params object[] obj) => OutputDebugLine("ListLines() is not supported in Keysharp because it's a compiled program, not an interpreted one.");
+		private static bool _listLinesMessageEmitted = false;
+		public static object ListLines(params object[] obj)
+		{
+			if (!_listLinesMessageEmitted)
+			{
+				_ = OutputDebugLine("ListLines() is not supported in Keysharp because it's a compiled program, not an interpreted one.");
+				_listLinesMessageEmitted = true;
+			}
+			return DefaultObject;
+		}
 
 		public static object ListVars() => Script.TheScript.mainWindow?.ShowInternalVars(true);
 

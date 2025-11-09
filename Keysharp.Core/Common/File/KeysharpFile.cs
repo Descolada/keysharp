@@ -182,10 +182,11 @@
 			}
 		}
 
-		public void RawRead(object obj0, object obj1 = null)
+		public object RawRead(object obj0, object obj1 = null)
 		{
 			var buf = obj0;
 			var count = obj1.Al(long.MinValue);
+			int len = 0;
 
 			if (br != null)
 			{
@@ -194,25 +195,33 @@
 				if (buf is Array arr)
 				{
 					val = count != long.MinValue ? br.ReadBytes((int)count) : br.ReadBytes(arr.Count);
-					var len = Math.Min(val.Length, arr.Count);
+					len = Math.Min(val.Length, arr.Count);
 
 					for (var i = 0; i < len; i++)
 						arr.array[i] = val[i];//Access the underlying ArrayList directly for performance.
 				}
-				else if (buf is Buffer buffer)
+				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
 				{
-					var size = (int)(long)buffer.Size;
-					val = count != long.MinValue ? br.ReadBytes((int)count) : br.ReadBytes(size);
-					var len = Math.Min(val.Length, size);
+					int buflen = int.MinValue;
+					if (buf is Any && TryGetPropertyValue(out object maybeSize, buf, "Size"))
+						buflen = maybeSize.Ai(int.MinValue);
+					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
+					if (len < 0) return Errors.ErrorOccurred("Invalid byte count");
+
+					val = br.ReadBytes(len);
+					len = Math.Min(val.Length, len);
 					unsafe
 					{
-						var ptr = (byte*)buffer.Ptr;
+						var byteArr = (byte*)(nint)ptr;
 
 						for (var i = 0; i < len; i++)
-							ptr[i] = val[i];
+							byteArr[i] = val[i];
 					}
 				}
+				else
+					return Errors.ErrorOccurred("Invalid buffer");
 			}
+			return (long)len;
 		}
 
 		public long RawWrite(object obj0, object obj1 = null)
@@ -223,13 +232,18 @@
 
 			if (bw != null)
 			{
-				if (buf is Buffer buffer)
+				if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
 				{
-					len = (int)(count != long.MinValue ? Math.Min((long)buffer.Size, count) : (long)buffer.Size);
+					int buflen = int.MinValue;
+					if (buf is Any && TryGetPropertyValue(out object maybeSize, buf, "Size"))
+						buflen = maybeSize.Ai(int.MinValue);
+					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
+					if (len < 0) return (long)Errors.ErrorOccurred("Invalid byte count", 0L);
+
 					unsafe
 					{
 						var bytes = new byte[len];
-						Marshal.Copy((nint)buffer.Ptr, bytes, 0, len);
+						Marshal.Copy((nint)ptr, bytes, 0, len);
 						bw.Write(bytes);
 					}
 				}
@@ -244,6 +258,8 @@
 					len = count != long.MinValue ? Math.Min(bytes.Length, (int)count) : bytes.Length;
 					bw.Write(bytes, 0, len);
 				}
+				else
+					return (long)Errors.ErrorOccurred("Invalid buffer", 0L);
 			}
 
 			return len;

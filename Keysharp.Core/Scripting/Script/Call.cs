@@ -508,27 +508,38 @@ namespace Keysharp.Scripting
 					if (namestr.Equals("base", StringComparison.OrdinalIgnoreCase))
 						return kso.Base = (KeysharpObject)value;
 
-					// Walk bases for opm.Set
+					// First try to find Set
 					if (TryGetOwnPropsMap(kso, namestr, out var opm, searchBase: true, 
-						type: OwnPropsMapType.Set | OwnPropsMapType.Value))
+						type: OwnPropsMapType.Set))
 					{
-						// Only handle Set, but let Value through. If a Value is found then __Set should not be invoked
-						if (opm.Set != null)
+						if (opm.Set is FuncObj fset)
 						{
-							if (opm.Set is FuncObj fset)
-							{
-								_ = args.Length > 1 && fset.MaxParams <= 2 && !fset.IsVariadic
-									? SetObject(fset.Call(item), args)
-									: fset.CallInst(item, args);
-							}
+							_ = args.Length > 1 && fset.MaxParams <= 2 && !fset.IsVariadic
+								? SetObject(fset.Call(item), args)
+								: fset.CallInst(item, args);
+						}
+						else
+						{
+							_ = Invoke(opm.Set, "Call", item, args);
+						}
+						return value;
+					}
+					// Next try to find Get/Value and set __Item[]
+					else if (TryGetOwnPropsMap(kso, namestr, out var opm2, searchBase: true,
+						type: OwnPropsMapType.Get | OwnPropsMapType.Value))
+					{
+						if (args.Length > 1)
+						{
+							object val = null;
+							if (opm2.Get != null)
+								val = Invoke(opm2.Get, "Call", item);
 							else
-							{
-								_ = Invoke(opm.Set, "Call", item, args);
-							}
+								val = opm2.Value;
+							_ = SetPropertyValue(val, "__Item", args);
 							return value;
 						}
 					}
-					// __Set meta (function or callable object)
+					// __Set meta (function or callable object), only if no Set/Get/Value is found
 					else if (TryGetOwnPropsMap(kso, "__Set", out var protoSet) && (protoSet.Call ?? protoSet.Value) is object metaSet)
 					{
 						if (metaSet is IFuncObj f)

@@ -15,12 +15,18 @@ namespace Keysharp.Scripting
 
 		public Variables()
 		{
-			var fields = TheScript.ProgramType.GetFields(BindingFlags.Static |
-										BindingFlags.NonPublic |
-										BindingFlags.Public);
-			var props = TheScript.ProgramType.GetProperties(BindingFlags.Static |
-											BindingFlags.NonPublic |
-											BindingFlags.Public);
+			var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+			var fields = TheScript.ProgramType.GetFields(flags);
+			var props = TheScript.ProgramType.GetProperties(flags);
+
+			// If ProgramType has a nested type called "UserDeclaredClasses", include its members too.
+			var udc = TheScript.ProgramType.GetNestedType(Keywords.UserDeclaredClassesContainerName, flags);
+			if (udc != null)
+			{
+				fields = fields.Concat(udc.GetFields(flags));
+				props = props.Concat(udc.GetProperties(flags));
+			}
+
 			_ = globalVars.EnsureCapacity(fields.Length + props.Length);
 
 			foreach (var field in fields)

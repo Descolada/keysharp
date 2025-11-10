@@ -74,7 +74,9 @@ namespace Keysharp.Core
 		/// </returns>
 		public static object CallbackCreate(object function, object options = null, object paramCount = null)
 		{
-			var fo = Functions.GetFuncObj(function, null, true);
+			Any fo = function is Any a ? a : (FuncObj)Functions.GetFuncObj(function, null, true);
+			if (fo == null)
+				return Errors.ErrorOccurred("Invalid function");
 
 			var o = options.As();
 			bool fast = o.Contains('f', StringComparison.OrdinalIgnoreCase);

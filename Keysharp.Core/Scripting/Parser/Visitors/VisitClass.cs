@@ -34,7 +34,9 @@ namespace Keysharp.Scripting
             {
                 var extendsParts = context.classExtensionName().identifier();
                 var baseClassName = parser.NormalizeClassIdentifier(extendsParts[0].GetText());
-                for (int i = 1; i < extendsParts.Length; i++)
+                UserTypeNameToKeysharp(ref baseClassName);
+
+				for (int i = 1; i < extendsParts.Length; i++)
                 {
                     baseClassName += "." + parser.NormalizeClassIdentifier(extendsParts[i].GetText());
                 }

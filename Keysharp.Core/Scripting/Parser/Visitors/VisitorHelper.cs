@@ -1480,6 +1480,14 @@ namespace Keysharp.Scripting
             return text;
         }
 
+        internal static void UserTypeNameToKeysharp(ref string text)
+        {
+            var buf = text;
+			string alias = Keywords.TypeNameAliases.SingleOrDefault(kv => kv.Value.Equals(buf, StringComparison.OrdinalIgnoreCase)).Key;
+			if (alias != null)
+				text = alias;
+		}
+
         internal string PropertyExistsInBuiltinBase(string name)
         {
             if (Script.TheScript.ReflectionsData.stringToTypeProperties.TryGetValue(name, out var dttp))

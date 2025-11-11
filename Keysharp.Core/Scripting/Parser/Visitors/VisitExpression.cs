@@ -1542,19 +1542,13 @@ namespace Keysharp.Scripting
                                         SyntaxFactory.SingletonSeparatedList<TypeSyntax>(SyntaxFactory.IdentifierName(Keywords.MainClassName))
                                     ))
                             ),
-								CreateArgumentList(
+                                CreateArgumentList(
                                     memberExpression,
                                     SyntaxFactory.IdentifierName(name)
                                 )
                             );
                     else
-                        return ((InvocationExpressionSyntax)InternalMethods.GetPropertyValue)
-                        .WithArgumentList(
-							CreateArgumentList(
-                                memberExpression,
-                                SyntaxFactory.IdentifierName(name)
-                            )
-                        );
+                        baseExpression = SyntaxFactory.IdentifierName(name);
                 }
                 else
                     parser.MaybeAddGlobalFuncObjVariable(identifierName.Identifier.Text);
@@ -1569,12 +1563,12 @@ namespace Keysharp.Scripting
 				    memberIndexArgList = (ArgumentListSyntax)Visit(propertyIndexArguments.arguments());
                 else
                 {
-					return SyntaxFactory.InvocationExpression(
-					CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
+					return ((InvocationExpressionSyntax)InternalMethods.GetPropertyValue)
+                    .WithArgumentList(
 						CreateArgumentList(
-					        SyntaxFactory.InvocationExpression(
-						        CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
-							    CreateArgumentList(
+							((InvocationExpressionSyntax)InternalMethods.GetPropertyValue)
+						    .WithArgumentList(
+								CreateArgumentList(
 								    baseExpression,
 								    memberExpression
 							    )

@@ -645,7 +645,10 @@ identifier
     | Reg
     | Read
     | Files
-    | Throw)
+    | Throw
+    | Yield  
+    | Async
+    | Await)
     ;
 
 // None of these can be used as a variable name
@@ -687,10 +690,7 @@ keyword
     | Instanceof
     | Import
     | Export
-    | Delete
-    | Yield  
-    | Async
-    | Await)
+    | Delete)
     ;
 
 s

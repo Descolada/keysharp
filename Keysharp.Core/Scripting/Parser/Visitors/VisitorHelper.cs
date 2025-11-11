@@ -1262,8 +1262,8 @@ namespace Keysharp.Scripting
                 UserTypes.ContainsKey(identifierName.Identifier.Text))
             {
                 // Convert to Invoke(targetExpression, "Call", arguments)
-				return SyntaxFactory.InvocationExpression(
-                    SyntaxFactory.IdentifierName("Invoke"),
+				return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                    .WithArgumentList(
 					CreateArgumentList(
 						targetExpression,
                         SyntaxFactory.LiteralExpression(
@@ -1330,8 +1330,8 @@ namespace Keysharp.Scripting
                     );
 
                     // Wrap in Script.Invoke
-                    return SyntaxFactory.InvocationExpression(
-                        CreateMemberAccess("Keysharp.Scripting.Script", "Invoke"),
+                    return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                        .WithArgumentList(
                         CreateArgumentList(
                             getStaticMethodInvocation,
                             argumentList.Arguments
@@ -1341,8 +1341,8 @@ namespace Keysharp.Scripting
             }
 
             // 5. Default behavior: Treat as callable object and invoke .Call
-            return SyntaxFactory.InvocationExpression(
-                SyntaxFactory.IdentifierName("Invoke"),
+            return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+            .WithArgumentList(
                 CreateArgumentList(
 					targetExpression,
                     SyntaxFactory.LiteralExpression(
@@ -1351,7 +1351,7 @@ namespace Keysharp.Scripting
                     ),
 					argumentList.Arguments // Include additional arguments
                 )
-            );
+           );
         }
 
 

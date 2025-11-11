@@ -83,17 +83,29 @@ namespace Keysharp.Scripting
             {
                 fieldDeclaration = SyntaxFactory.PropertyDeclaration(
                     Parser.PredefinedKeywords.ObjectType,
-                    fieldDeclarationName
-                )
+					SyntaxFactory.Identifier(fieldDeclarationName)
+				)
                 .AddModifiers(fieldDeclarationModifiers)
                 .WithExpressionBody(fieldDeclarationArrowClause)
                 .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
 
 				parser.declaredTopLevelClasses.Add(fieldDeclaration);
+                parser.mainClass.cachedFieldNames.Add(fieldDeclarationName);
             }
 
             if (parser.ClassStack.Count == 1)
-                parser.autoExecFunc.Body.Add(SyntaxFactory.ParseStatement($"_ = {fieldDeclarationName};"));
+            {
+
+                parser.MaybeAddGlobalVariableDeclaration("_");
+				var discardAssign = SyntaxFactory.ExpressionStatement(
+	                SyntaxFactory.AssignmentExpression(
+		                SyntaxKind.SimpleAssignmentExpression,
+		                SyntaxFactory.IdentifierName("_"),
+		                SyntaxFactory.IdentifierName(fieldDeclarationName)
+	                )
+                );
+				parser.autoExecFunc.Body.Add(discardAssign);
+            }
 
             // Add the constructor
             parser.currentClass.Body.Add(CreateConstructor(parser.currentClass.Name));

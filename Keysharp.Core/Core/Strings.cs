@@ -1190,7 +1190,7 @@ namespace Keysharp.Core
 					if (obj.Length == 4)
 					{
 						encoding = Files.GetEncoding(obj[3]);
-						var lengthChars = (long)Math.Abs(obj[2].Al(2));
+						var lengthChars = obj[2].Al(0);
 						lengthProvided = true;
 
 						if (lengthChars <= 0)
@@ -1204,7 +1204,7 @@ namespace Keysharp.Core
 					else if (obj[2].Al(long.MinValue) is long ll && ll != long.MinValue)
 					{
 						lengthProvided = true;
-						var lengthChars = Math.Abs(ll);
+						var lengthChars = ll;
 
 						if (lengthChars <= 0)
 							return (long)Errors.ValueErrorOccurred(

@@ -615,8 +615,8 @@ namespace Keysharp.Tests
 			var gotten = StrGet(buf1, -s.Length);
 			Assert.AreEqual(s, gotten);
 			//ASCII test.
-			testlen = StrPut(s, null, null, "ASCII");
-			lenwritten = StrPut(s, buf1, null, "ASCII");
+			testlen = StrPut(s, "ASCII");
+			lenwritten = StrPut(s, buf1, "ASCII");
 			Assert.AreEqual(testlen, lenwritten);
 			gotten = StrGet(buf1, s.Length, "ASCII");
 			Assert.AreEqual(s, gotten);

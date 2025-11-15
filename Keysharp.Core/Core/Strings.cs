@@ -1201,7 +1201,7 @@ namespace Keysharp.Core
 						len = lengthChars * CharSize(encoding);
 					}
 					// 3-parameter with Length (String, Target, Length) – native encoding
-					else if (obj[2].Al(long.MinValue) is long ll && ll != long.MinValue)
+					else if ((obj[2].ParseLong(false, true) ?? long.MinValue) is long ll && ll != long.MinValue)
 					{
 						lengthProvided = true;
 						var lengthChars = ll;

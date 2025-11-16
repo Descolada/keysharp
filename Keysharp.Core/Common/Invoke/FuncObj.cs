@@ -200,7 +200,7 @@
 		[PublicHiddenFromUser]
 		public Type DeclaringType => mi?.DeclaringType;
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
-
+		public bool IsMethod => (mi != null && !mi.IsStatic) || (mph != null && mph.parameters?.First().Name == "@this");
 		public bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
 		public bool IsValid => mi != null && mph != null && mph.CallFunc != null;
 		public string Name => mph.Name;

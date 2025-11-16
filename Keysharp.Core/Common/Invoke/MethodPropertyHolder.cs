@@ -62,6 +62,7 @@ namespace Keysharp.Core.Common.Invoke
 
 		internal bool IsBind { get; private set; }
 		internal bool IsStatic { get; private set; }
+		internal bool IsCompilerGenerated { get; private set; }
 		internal bool IsStaticFunc { get; private set; }
 		internal bool IsStaticProp { get; private set; }
 		internal bool IsVariadic => variadicParamIndex != -1;
@@ -144,6 +145,12 @@ namespace Keysharp.Core.Common.Invoke
             IsStatic = mi.IsStatic;
 			IsStaticFunc = mi.Attributes.HasFlag(MethodAttributes.Static);
 			isGuiType = Gui.IsGuiType(mi.DeclaringType);
+			IsCompilerGenerated = mi.DeclaringType.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false);
+			var hasHiddenThis = !IsStatic && !IsCompilerGenerated;
+			if (hasHiddenThis) // Built-in instance method, so account for the implicit "this"
+			{
+				MinParams++; MaxParams++;
+			}
 
 			parameters = mi.GetParameters();
 			ParamLength = parameters.Length;
@@ -173,7 +180,7 @@ namespace Keysharp.Core.Common.Invoke
 			if (isSetter) // Allow value to be unset
                 MinParams--;
 
-			MaxParams = parameters.Length - (variadicParamIndex == -1 ? 0 : 1);
+			MaxParams = parameters.Length + (hasHiddenThis ? 1 : 0) - (variadicParamIndex == -1 ? 0 : 1);
 
 			anyOptional = variadicParamIndex != -1 || MinParams != MaxParams;
 
@@ -340,6 +347,7 @@ namespace Keysharp.Core.Common.Invoke
 			var mi = mph.mi ?? throw new ArgumentNullException(nameof(mph.mi));
 			var ps = mph.parameters;
 			var isInstance = !mph.IsStatic;
+			var isCompilerGenerated = mph.IsCompilerGenerated;
 			var isVariadic = mph.IsVariadic;
 			int paramCount = ps.Length;
 
@@ -379,7 +387,7 @@ namespace Keysharp.Core.Common.Invoke
 				// ---- validate the argument count ----
 				int lastProvided = args.Length;
 				int provided = lastProvided + (instance == null ? 0 : 1);
-				if (isInstance) provided--; // account for native 'this', which does not count as argument
+				if (isInstance && isCompilerGenerated) provided--; // account for Inst-provided 'this', which does not count as argument
 
 				for (int i = lastProvided - 1; i >= 0; i--)
 				{

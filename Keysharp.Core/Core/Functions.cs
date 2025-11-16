@@ -140,21 +140,26 @@
 		public static long HasMethod(object value, object name = null, object paramCount = null)
 		{
 			var n = name.As();
+			if (n == "") n = "Call";
 			var count = paramCount.Ai(-1);
-			if (n == "")
-			{
-				if (value is FuncObj)
-					return 1L;
-				else if (value is KeysharpObject kso)
-					return HasProp(value, "Call");
-			}
-			else if (value is KeysharpObject kso)
-				return Script.TryGetOwnPropsMap(kso, n, out var opm) && opm != null && opm.Call != null ? 1L : 0L;
 
-			if (Primitive.IsNative(value)) return 0L;
-			
-			var mph = Reflections.FindAndCacheMethod(value.GetType(), n.Length > 0 ? n : "Call", count);
-			return mph != null && mph.mi != null ? 1L : 0L;
+			var mitup = GetMethodOrProperty(value, n, count, checkBase: true, throwIfMissing: false, invokeMeta: false);
+			if (mitup.Item2 == null) return 0L;
+			switch (mitup.Item2)
+			{
+				case FuncObj fn:
+					if (count != -1)
+					{
+						bool hasThis = value is FuncObj ? false : value is KeysharpObject ? true : fn.IsMethod;
+						if (count < (fn.MinParams - (hasThis ? 1 : 0))) return 0L;
+						if (count > (fn.MaxParams - (hasThis ? 1 : 0)) && !fn.IsVariadic) return 0L;
+					}
+					return 1L;
+				case KeysharpObject callable:
+				case MethodPropertyHolder mph:
+					return 1L;
+			}
+			return 0L;
 		}
 
 		/// <summary>

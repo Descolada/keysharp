@@ -603,7 +603,7 @@ namespace Keysharp.Scripting
                             bool eolPresent = false;
                             while (++i < tokens.Count)
                             {
-                                if (tokens[i].Channel == MainLexer.DIRECTIVE)
+                                if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
                                     break;
                                 if (tokens[i].Channel != Lexer.DefaultTokenChannel)
                                     continue;
@@ -627,7 +627,7 @@ namespace Keysharp.Scripting
 							i = index;
                             while (++i < tokens.Count)
                             {
-                                if (tokens[i].Channel == MainLexer.DIRECTIVE)
+                                if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
                                     break;
                                 if (tokens[i].Channel != Lexer.DefaultTokenChannel)
                                     index++;
@@ -798,7 +798,7 @@ namespace Keysharp.Scripting
             {
                 while (++i < tokens.Count)
                 {
-                    if (tokens[i].Channel == MainLexer.DIRECTIVE)
+                    if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
                         break;
                     if ((tokens[i].Channel != Lexer.DefaultTokenChannel) || tokens[i].Type == MainLexer.WS || (linebreaks && tokens[i].Type == MainLexer.EOL))
                         index++;
@@ -812,7 +812,7 @@ namespace Keysharp.Scripting
             {
 				while (++i < tokens.Count)
 				{
-					if (tokens[i].Channel == MainLexer.DIRECTIVE)
+					if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
 						break;
 					if ((tokens[i].Channel != Lexer.DefaultTokenChannel) || (tokens[i].Type == MainLexer.EOL && condition))
 						index++;

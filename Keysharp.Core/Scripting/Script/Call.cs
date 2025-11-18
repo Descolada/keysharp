@@ -96,7 +96,7 @@ namespace Keysharp.Scripting
 			int paramCount,
 			bool checkBase = true,
 			bool throwIfMissing = true,
-			bool invokeMeta = true) // must remain public (emitted by scripts)
+			bool invokeMeta = true)
 		{
 			Error err;
 			Any kso = null;
@@ -124,7 +124,7 @@ namespace Keysharp.Scripting
 				// ---------- Keysharp object (Any) path ----------
 				if (kso != null)
 				{
-					// Own props: prefer Call > Get > Value > Set (as before)
+					// Own props: prefer Call > Get > Value > Set
 					if (TryGetOwnPropsMap(kso, key, out var opm, searchBase: checkBase))
 					{
 						if (opm.Call != null) return (item, opm.Call); // (this, …)
@@ -498,6 +498,9 @@ namespace Keysharp.Scripting
 								_ = SetObject(own.Value, args);
 							else
 								own.Value = value;
+
+							if (value == null && own.IsEmpty) kso.op.Remove(namestr);
+
 							return value;
 						}
 

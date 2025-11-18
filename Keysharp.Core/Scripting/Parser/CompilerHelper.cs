@@ -559,7 +559,11 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
             var enc = Encoding.Default;
             var x = Env.FindCommandLineArg("cp");
 			var script = Script.TheScript;
-            var (pushed, btv) = script.Threads.BeginThread();//Some internal parsing uses Accessors, so a thread must be present.
+			bool needsThread = script.totalExistingThreads == 0;
+			bool pushed = true;
+			ThreadVariables btv = null;
+			if (needsThread)
+				(pushed, btv) = script.Threads.BeginThread();//Some internal parsing uses Accessors, so a thread must be present.
 
             if (pushed)
             {
@@ -599,7 +603,8 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
                     finally { }
                 }
 
-				_ = script.Threads.EndThread((pushed, btv));
+				if (needsThread)
+					_ = script.Threads.EndThread((pushed, btv));
 			}
 
             return (units, errors);

@@ -629,7 +629,9 @@ namespace Keysharp.Scripting
 
 		public override void VisitIfStatement(IfStatementSyntax node)
 		{
-			WriteIndent();
+			if (node.Parent is not ElseClauseSyntax)
+				WriteIndent();
+
 			_sb.Append("if (");
 			Visit(node.Condition);
 			_sb.AppendLine(")");
@@ -646,16 +648,24 @@ namespace Keysharp.Scripting
 			if (node.Else != null)
 			{
 				WriteIndent();
-				_sb.AppendLine("else");
-				if (node.Else.Statement is BlockSyntax)
+				if (node.Else.Statement is IfStatementSyntax)
 				{
+					_sb.Append("else ");
 					Visit(node.Else.Statement);
 				}
 				else
 				{
-					_indent++;
-					Visit(node.Else.Statement);
-					_indent--;
+					_sb.AppendLine("else");
+					if (node.Else.Statement is BlockSyntax)
+					{
+						Visit(node.Else.Statement);
+					}
+					else
+					{
+						_indent++;
+						Visit(node.Else.Statement);
+						_indent--;
+					}
 				}
 			}
 		}

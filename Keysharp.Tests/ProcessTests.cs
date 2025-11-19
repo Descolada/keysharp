@@ -10,7 +10,7 @@ namespace Keysharp.Tests
 		{
 			VarRef pid = new(null);
 #if WINDOWS
-			_ = Run("notepad.exe", "", "max", pid);
+			_ = Run("cmd.exe", "", "max", pid);
 			_ = ProcessWait(pid.__Value);
 			_ = ProcessSetPriority("H", pid.__Value);
 
@@ -22,11 +22,11 @@ namespace Keysharp.Tests
 			}
 
 			Thread.Sleep(1000);
-			pid.__Value = ProcessExist("notepad.exe");
+			pid.__Value = ProcessExist("cmd.exe");
 			Assert.AreEqual(0L, pid.__Value);
-			_ = RunWait("notepad.exe", "", "max");
+			_ = RunWait("cmd.exe", "", "max");
 			Thread.Sleep(1000);
-			Assert.AreEqual(0L, ProcessExist("notepad.exe"));
+			Assert.AreEqual(0L, ProcessExist("cmd.exe"));
 			//Admin tools.
 			Run("shell:::{D20EA4E1-3957-11D2-A40B-0C5020524153}");
 			//This PC.

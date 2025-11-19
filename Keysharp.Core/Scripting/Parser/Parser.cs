@@ -143,7 +143,7 @@ namespace Keysharp.Scripting
 
 		internal bool errorStdOut;
 		internal CodeStatementCollection initial = [];//These are placed at the very beginning of Main().
-		internal List<string> mainFuncInitial = new();
+		internal List<StatementSyntax> mainFuncInitial = new();
 		internal string name = string.Empty;
         internal string hookMutexName = string.Empty;
 

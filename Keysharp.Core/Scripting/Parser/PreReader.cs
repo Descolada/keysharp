@@ -355,9 +355,31 @@ namespace Keysharp.Scripting
                                     Script.TheScript.VerifyVersion(ver, plus, lineNumber, code);
 
 									//In addition to being checked here, it must be added to the code for when it runs as a compiled exe.
-									parser.mainFuncInitial.Add($"Keysharp.Scripting.Script.VerifyVersion({ver}, {plus}, 0, name);");
+									parser.mainFuncInitial.Add(
+                                        SyntaxFactory.ExpressionStatement(
+		                                    SyntaxFactory.InvocationExpression(
+                                                CreateMemberAccess(Keywords.MainScriptVariableName, "VerifyVersion"),
+			                                    // (ver, plus, 0, name)
+			                                    Parser.CreateArgumentList(
+				                                    SyntaxFactory.LiteralExpression(
+					                                    SyntaxKind.StringLiteralExpression,
+					                                    SyntaxFactory.Literal(ver)
+				                                    ),
+				                                    SyntaxFactory.LiteralExpression(plus ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression),
+				                                    SyntaxFactory.LiteralExpression(
+					                                    SyntaxKind.NumericLiteralExpression,
+					                                    SyntaxFactory.Literal(lineNumber)
+				                                    ),
+													SyntaxFactory.LiteralExpression(
+														SyntaxKind.StringLiteralExpression,
+														SyntaxFactory.Literal("")
+													)
+												)
+		                                    )
+                                        )
+	                                );
                                     //Sub release designators such as "-alpha", "-beta" are not supported in C#. Only the assembly version is supported.
-                                }
+								}
                             }
 							break;
                         }

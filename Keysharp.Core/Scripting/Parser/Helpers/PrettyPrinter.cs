@@ -1254,13 +1254,13 @@ namespace Keysharp.Scripting
 			{
 				// if … else { … }
 				IfStatementSyntax ifs
-					when ifs.Else?.Statement is BlockSyntax
-					=> true,
+					when ifs.Else?.Statement is StatementSyntax
+					=> EndsWithBlock(ifs.Else.Statement),
 
 				// if { … } (even without else)
 				IfStatementSyntax ifs2
-					when ifs2.Statement is BlockSyntax
-					=> true,
+					when ifs2.Statement is StatementSyntax
+					=> EndsWithBlock(ifs2.Statement),
 
 				// try / catch / finally all printed as one TryStatementSyntax
 				TryStatementSyntax _

@@ -411,7 +411,7 @@ namespace Keysharp.Core.Linux
 				var filter = (long id) =>
 				{
 					if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) != 0)
-						if (tv.detectHiddenText || attr.map_state == MapState.IsViewable)
+						if (tv.configData.detectHiddenText || attr.map_state == MapState.IsViewable)
 							return true;
 
 					return false;
@@ -710,7 +710,7 @@ namespace Keysharp.Core.Linux
 			SendMouseEvent(XEventName.ButtonRelease, EventMasks.ButtonRelease, Buttons.Right, location);
 		}
 
-		internal override System.Drawing.Point ClientToScreen()
+		internal override Keysharp.Core.Common.Window.POINT ClientToScreen()
 		{
 			if (IsSpecified)
 			{
@@ -721,7 +721,7 @@ namespace Keysharp.Core.Linux
 				else
 					_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out x, out y, out var dummy);
 
-				var pt = new System.Drawing.Point(x, y);
+				var pt = new Keysharp.Core.Common.Window.POINT(x, y);
 #if DPI
 				var scale = 1.0 / Accessors.A_ScaledScreenDPI;
 				pt.X = (int)(scale * pt.X);
@@ -730,7 +730,7 @@ namespace Keysharp.Core.Linux
 				return pt;
 			}
 			else
-				return new System.Drawing.Point(0, 0);
+				return new Keysharp.Core.Common.Window.POINT(0, 0);
 		}
 
 		internal override bool Close()

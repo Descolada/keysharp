@@ -1,6 +1,6 @@
-﻿#if WINDOWS
-using Keysharp.Core.Scripting.Script;
+﻿using Keysharp.Core.Scripting.Script;
 
+#if WINDOWS
 [assembly: ComVisible(true)]
 #endif
 

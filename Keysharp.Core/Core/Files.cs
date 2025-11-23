@@ -759,7 +759,7 @@
 				Script.SetPropertyValue(outIcon, "__Value", sc.Get("Icon"));
 				Script.SetPropertyValue(outType, "__Value", sc.Get("Type"));
 
-				if ((GetPropertyValue(outTarget, "__Value") is string s && s.Length > 0)
+				if (GetPropertyValue(outTarget, "__Value") is string s && s.Length > 0)
 				{
 					if (s[0] != '"' && s[0] != '\'')
 					{

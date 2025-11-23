@@ -1,10 +1,4 @@
-﻿using System;
-using System.Windows.Forms;
-using System.Xml.Linq;
-using Keysharp.Core;
-using Keysharp.Core.Windows;
-
-namespace Keysharp.Scripting
+﻿namespace Keysharp.Scripting
 {
 	public partial class Script
 	{

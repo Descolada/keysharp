@@ -725,7 +725,7 @@ namespace Keysharp.Core
 			Number = w32ex != null ? w32ex.ErrorCode : Marshal.GetLastPInvokeError();
 			message = new Win32Exception((int)Number).Message;
 #else
-			Number = A_LastError;
+			Number = (long)A_LastError;
 #endif
 		}
 	}

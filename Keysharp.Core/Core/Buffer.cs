@@ -216,14 +216,20 @@
 	/// set up to clean resources up (eg VariantClear). Without using SafeHandle the Buffer finalizer
 	/// may be called first causing the resource-cleanup to fail.
 	/// </summary>
-	sealed class NativeMemoryHandle : SafeHandleZeroOrMinusOneIsInvalid
+	sealed class NativeMemoryHandle : SafeHandle
 	{
-		public NativeMemoryHandle() : base(ownsHandle: true) { }
-
-		public NativeMemoryHandle(nint p, bool owns = true) : base(owns)
+		public NativeMemoryHandle() 
+			: base(invalidHandleValue: 0, ownsHandle: true)
 		{
-			SetHandle(p);
 		}
+
+		public NativeMemoryHandle(nint handle, bool ownsHandle = true) 
+			: base(invalidHandleValue: 0, ownsHandle: ownsHandle)
+		{
+			SetHandle(handle);
+		}
+
+		public override bool IsInvalid => handle == -1 || handle == 0;
 
 		protected override bool ReleaseHandle()
 		{

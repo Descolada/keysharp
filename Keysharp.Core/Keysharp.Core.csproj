@@ -7,6 +7,7 @@
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<TargetFramework>net9.0</TargetFramework>
+		<DefineConstants>$(DefineConstants);LINUX</DefineConstants>
 	</PropertyGroup>
 	
 	<PropertyGroup>
@@ -50,7 +51,7 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-		<ProjectReference Include="..\..\system.windows.forms\System.Windows.Forms\System.Windows.Forms.csproj" />
+		<ProjectReference Include="..\..\System.Windows.Forms\System.Windows.Forms\System.Windows.Forms.csproj" />
 		<PackageReference Include="GtkSharp" Version="3.24.24.95" />
 		<PackageReference Include="EvDevSharpWrapper" Version="0.3.0" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />

@@ -113,7 +113,7 @@ namespace Keysharp.Core.Linux
 			_ = Xlib.XSendEvent(_display.Handle, _display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev);
 		}
 
-		internal override WindowItemBase WindowFromPoint(Point location)
+		internal override WindowItemBase WindowFromPoint(Keysharp.Core.Common.Window.POINT location)
 		{
 			var x = location.X;
 			var y = location.Y;

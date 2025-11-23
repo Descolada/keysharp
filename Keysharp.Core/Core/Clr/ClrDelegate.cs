@@ -226,7 +226,9 @@ namespace Keysharp.Core
 
 				if (arg is Clr.ManagedInstance mi) return mi._type;
 				if (arg is Clr.ManagedType) return typeof(Type);
+#if WINDOWS
 				if (arg is ComValue) return typeof(IntPtr);
+#endif
 
 				return arg.GetType();
 			}

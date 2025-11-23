@@ -33,7 +33,6 @@ namespace Keysharp.Main
 			Task writeExeTask = null;
 			Task writeCodeTask = null;
 
-
 			try
 			{
 				var script = new Script();//One Script object will exist here, then another will be created when the script runs.

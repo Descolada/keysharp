@@ -906,8 +906,10 @@ namespace Keysharp.Core
 				if (target.IsByRef) return ConvertScalarToCLR(mi._instance, target.GetElementType());
 				return ConvertScalarToCLR(mi._instance, target);
 			}
+#if WINDOWS
 			if (value is ComValue cv) // allow COM pointer to be passed on
 				return cv.Ptr;
+#endif
 
 			if (target != null && typeof(Delegate).IsAssignableFrom(target))
 			{

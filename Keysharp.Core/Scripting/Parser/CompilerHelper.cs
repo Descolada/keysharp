@@ -62,7 +62,7 @@ using static Keysharp.Scripting.Script;
 ";
 
 #else
-		public static readonly string UsingStr =
+		public static readonly string GlobalUsingStr =
 			@"using static Keysharp.Core.Accessors;
 using static Keysharp.Core.Common.Keyboard.HotkeyDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringDefinition;
@@ -664,7 +664,7 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 
 			var code = PrettyPrinter.Print(units[0]);
 #if DEBUG
-			var normalized = units[0].NormalizeWhitespace("\t").ToString();
+			var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
 			if (code != normalized)
 			{
 				throw new Exception("Code formatting mismatch");

@@ -1,5 +1,4 @@
 ﻿using System.Drawing;
-using System.Drawing.Interop;
 
 namespace Keysharp.Core
 {

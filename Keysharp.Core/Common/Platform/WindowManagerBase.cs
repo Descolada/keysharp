@@ -170,6 +170,6 @@ namespace Keysharp.Core.Common.Platform
 
 		internal abstract void MinimizeAllUndo();
 
-		internal abstract WindowItemBase WindowFromPoint(POINT location);
+		internal abstract WindowItemBase WindowFromPoint(Keysharp.Core.Common.Window.POINT location);
 	}
 }

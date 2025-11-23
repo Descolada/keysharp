@@ -362,16 +362,6 @@ namespace Keysharp.Core.Windows
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
-	internal struct POINT
-	{
-		internal int X;
-		internal int Y;
-
-		internal POINT(int x, int y) { X = x; Y = y; }
-		internal POINT(Point p) { X = p.X; Y = p.Y; }
-	}
-
-	[StructLayout(LayoutKind.Sequential)]
 	public struct RECT//Only public for testing purposes.
 	{
 		public int Left;

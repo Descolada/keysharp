@@ -256,11 +256,6 @@ namespace Keysharp.Scripting
 			mgr = this.PlatformProvider.Manager;
 			pd.MainThreadID = mgr.CurrentThreadId();
 			pd.ManagedMainThreadID = Thread.CurrentThread.ManagedThreadId;//Figure out how to do this on linux.//TODO
-			//If we're running via passing in a script and are not in a unit test, then set the working directory to that of the script file.
-			var path = Path.GetFileName(Application.ExecutablePath).ToLowerInvariant();
-
-			if (path != "testhost.exe" && path != "testhost.dll" && !A_IsCompiled)
-				_ = Dir.SetWorkingDir(A_ScriptDir);
 
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
@@ -474,7 +469,16 @@ namespace Keysharp.Scripting
 			Application.Run(mainWindow);
 		}
 
-		public void SetName(string s) => scriptName = s;
+		public void SetName(string s)
+        {
+			scriptName = s;
+
+			//If we're running via passing in a script and are not in a unit test, then set the working directory to that of the script file.
+			var path = Path.GetFileName(Application.ExecutablePath).ToLowerInvariant();
+
+			if (path != "testhost.exe" && path != "testhost.dll" && !A_IsCompiled)
+				_ = Dir.SetWorkingDir(A_ScriptDir);
+        } 
 
 		public void SetReady() => isReadyToExecute = true;
 

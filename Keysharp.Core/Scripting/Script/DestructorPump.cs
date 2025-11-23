@@ -48,7 +48,10 @@
 				try
 				{
 					// Important: call script hook first, then native frees if you have any.
-					if (any is not ComValue) InvokeMeta(any, "__Delete");
+#if WINDOWS
+					if (any is not ComValue)
+#endif
+						InvokeMeta(any, "__Delete");
 					if (any is IDisposable idisp) idisp.Dispose();
 				}
 				catch { /* swallow per destructor semantics */ }

@@ -421,7 +421,7 @@ namespace Keysharp.Core
 		}
 
 		[DllImport(WindowsAPI.gdi32)]
-		public static extern int GetObject(nint hgdiobj, int cbBuffer, out LOGFONT lpvObject);
+		public static extern int GetObject(nint hgdiobj, int cbBuffer, out System.Drawing.Interop.LOGFONT lpvObject);
 
 		[LibraryImport(WindowsAPI.gdi32, EntryPoint = "DeleteObject")]
 		[return: MarshalAs(UnmanagedType.Bool)]

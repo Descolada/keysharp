@@ -274,6 +274,40 @@ namespace Keysharp.Core
 			return info;
 		}
 
+		///
+		/// <summary>
+		/// Parses the provided script source or filename and validates it by invoking the parser.
+		/// On success this method returns <c>""</c>. On failure it returns a string containing
+		/// the formatted compiler errors.
+		/// </summary>
+		/// <param name="code">The script source or filename to parse.</param>
+		/// <returns>
+		/// Returns <see cref=""/> when parsing completes with no compiler errors and a valid compilation unit.
+		/// If the compiler reports errors or the first compilation unit is null, a string containing compiler error messages
+		/// (and warnings if present) is returned.
+		/// </returns>
+		/// <exception cref="Exception">
+		/// Any unexpected exception thrown by the underlying <see cref="CompilerHelper"/> APIs will propagate to the caller.
+		/// </exception>
+		public static object ParseScript(object code)
+		{
+			var ch = new CompilerHelper();
+			var (units, errs) = ch.CreateCompilationUnitFromFile([code.As()]);
+
+			if (errs.HasErrors || units[0] == null)
+			{
+				var (errors, warnings) = CompilerHelper.GetCompilerErrors(errs);
+
+				var sb = new StringBuilder(1024);
+
+				if (!string.IsNullOrEmpty(errors))
+					_ = sb.Append(errors);
+
+				return sb.ToString();
+			}
+			return DefaultObject;
+		}
+
 		/// <summary>
 		/// Registers a function to be called automatically whenever the clipboard's content changes.
 		/// </summary>

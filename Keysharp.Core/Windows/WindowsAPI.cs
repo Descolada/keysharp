@@ -1155,7 +1155,8 @@ namespace Keysharp.Core.Windows
 							  oleacc = "oleacc.dll",
 							  oleaut = "oleaut32.dll",
 							  psapi = "psapi.dll",
-							  combase = "combase.dll";
+							  combase = "combase.dll",
+							  gdiplus = "gdiplus.dll";
 
 		internal static Point ToPoint(this RECT rect) => new (rect.Left, rect.Top);
 
@@ -2150,6 +2151,20 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(kernel32, EntryPoint = "WriteProcessMemory")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool WriteProcessMemory(nint hProcess, nint lpBaseAddress, nint lpBuffer, int nSize, out nint lpNumberOfBytesWritten);
+
+		[StructLayout(LayoutKind.Sequential)]
+		internal struct GdiplusStartupInputEx
+		{
+			public uint GdiplusVersion;
+			public nint DebugEventCallback;
+			[MarshalAs(UnmanagedType.Bool)] public bool SuppressBackgroundThread;
+			[MarshalAs(UnmanagedType.Bool)] public bool SuppressExternalCodecs;
+			public uint StartupParameters; // 0x4 at offset 24
+			public uint _pad;
+		}
+
+		[DllImport(gdiplus)]
+		internal static extern int GdiplusStartup(out nint token, ref GdiplusStartupInputEx input, nint output);
 
 		[LibraryImport(gdi32, EntryPoint = "CreateEllipticRgn")]
 		internal static partial nint CreateEllipticRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect);

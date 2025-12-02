@@ -235,13 +235,14 @@ namespace Keysharp.Core
 		public static object Reload()
 		{
 			var script = Script.TheScript;
-			//Just calling Application.Restart will trigger ExitAppInternal().
-			//So it doesn't need to be called directly. Further, it will cause problems if called
-			//so just let the natural chain of closing events handle it.
+			if (script.scriptName == "*")
+				return DefaultObject;
+			//Just calling Application.Restart will not always trigger ExitAppInternal().
 			script.mainWindow.CheckedBeginInvoke(() =>
 			{
 				A_ExitReason = ExitReasons.Reload;
 				Application.Restart();//This will pass the same command line args to the new instance that were passed to this instance.
+				ExitAppInternal(ExitReasons.Reload);
 			}, true, true);
 			var start = DateTime.UtcNow;
 

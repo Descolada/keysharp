@@ -7,6 +7,7 @@
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<TargetFramework>net9.0</TargetFramework>
+		<DefineConstants>$(DefineConstants);LINUX</DefineConstants>
 	</PropertyGroup>
 	
 	<PropertyGroup>
@@ -50,6 +51,7 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+		<PackageReference Include="SharpHook" Version="7.1.0" />
 		<ProjectReference Include="..\..\System.Windows.Forms\System.Windows.Forms\System.Windows.Forms.csproj" />
 		<PackageReference Include="GtkSharp" Version="3.24.24.95" />
 		<PackageReference Include="EvDevSharpWrapper" Version="0.3.0" />

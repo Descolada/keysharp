@@ -119,22 +119,22 @@ namespace Keysharp.Core
 			var coordModeToolTip = ThreadAccessors.A_CoordModeToolTip;
 			tooltipInvokerForm.CheckedBeginInvoke(() =>
 			{
-#if LINUX
-				tt.Active = true;
-				tt.SetToolTip(tooltipInvokerForm, text.As());//Setting position is not possible on linux.
-#elif WINDOWS
+
+
+				var script = Script.TheScript;
+#if WINDOWS
 				//We use SetTool() via reflection in this function because it bypasses ToolTip.Show()'s check for whether or not the window
 				//is active.
 				var mSetTrackPosition = tt.GetType().GetMethod("SetTrackPosition", BindingFlags.Instance | BindingFlags.NonPublic);
 				var mSetTool = tt.GetType().GetMethod("SetTool", BindingFlags.Instance | BindingFlags.NonPublic);
-				var script = Script.TheScript;
-
 				if (!tt.Active) // If this is the first run then invoke the ToolTip once before displaying it, otherwise it shows at the mouse position
 					_ = mSetTool.Invoke(tt, [tooltipInvokerForm, t, 2, new Point(0, 0)]);
+#endif
 
 				tt.Active = true;
 				var tempx = _x;
 				var tempy = _y;
+				Point temppt;
 
 				if (one_or_both_coords_specified && coordModeToolTip != CoordModeType.Screen)
 				{
@@ -158,7 +158,7 @@ namespace Keysharp.Core
 				if (_x == int.MinValue || _y == int.MinValue) //At least one coordinate was missing, so default it to the mouse position
 				{
 					coordModeToolTip = CoordModeType.Screen;
-					var temppt = Cursor.Position;
+					temppt = Cursor.Position;
 
 					if (_x == int.MinValue)
 						tempx = temppt.X + 10;
@@ -171,8 +171,12 @@ namespace Keysharp.Core
 					return;
 
 				persistentTooltipsPositions[id] = new Point(tempx, tempy);
+#if WINDOWS
 				_ = mSetTrackPosition.Invoke(tt, [tempx, tempy]);
 				_ = mSetTool.Invoke(tt, [tooltipInvokerForm, t, 2, persistentTooltipsPositions[id]]);
+#else
+				var formPos = tooltipInvokerForm.Location;
+				tt.Show(t, tooltipInvokerForm, tempx, tempy);
 #endif
 				//KeysharpEnhancements.OutputDebugLine("invoked tooltip");
 				//AHK did a large amount of work to make sure the tooltip didn't go off screen

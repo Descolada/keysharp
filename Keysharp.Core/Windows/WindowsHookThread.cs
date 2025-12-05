@@ -1787,34 +1787,6 @@ namespace Keysharp.Core.Windows
 			return true;
 		}
 
-		internal override uint ConvertMouseButton(ReadOnlySpan<char> buf, bool allowWheel = true)
-		{
-			if (buf.Length == 0 || buf.StartsWith("Left", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("L", StringComparison.OrdinalIgnoreCase))
-				return VK_LBUTTON; // Some callers rely on this default when buf is empty.
-
-			if (buf.StartsWith("Right", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("R", StringComparison.OrdinalIgnoreCase)) return VK_RBUTTON;
-
-			if (buf.StartsWith("Middle", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("M", StringComparison.OrdinalIgnoreCase)) return VK_MBUTTON;
-
-			if (buf.StartsWith("X1", StringComparison.OrdinalIgnoreCase)) return VK_XBUTTON1;
-
-			if (buf.StartsWith("X2", StringComparison.OrdinalIgnoreCase)) return VK_XBUTTON2;
-
-			if (allowWheel)
-			{
-				if (buf.StartsWith("WheelUp", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("WU", StringComparison.OrdinalIgnoreCase)) return VK_WHEEL_UP;
-
-				if (buf.StartsWith("WheelDown", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("WD", StringComparison.OrdinalIgnoreCase)) return VK_WHEEL_DOWN;
-
-				// Lexikos: Support horizontal scrolling in Windows Vista and later.
-				if (buf.StartsWith("WheelLeft", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("WL", StringComparison.OrdinalIgnoreCase)) return VK_WHEEL_LEFT;
-
-				if (buf.StartsWith("WheelRight", StringComparison.OrdinalIgnoreCase) || buf.StartsWith("WR", StringComparison.OrdinalIgnoreCase)) return VK_WHEEL_RIGHT;
-			}
-
-			return 0;
-		}
-
 		internal bool EarlyCollectInput(ref KBDLLHOOKSTRUCT ev, uint vk, uint sc, bool keyUp, bool isIgnored
 										, CollectInputState state, KeyHistoryItem keyHistoryCurr)
 		// Returns true if the caller should treat the key as visible (non-suppressed).
@@ -4105,75 +4077,6 @@ namespace Keysharp.Core.Windows
 
 			// Since above didn't return, if aReturnSecondary==true, return 0 to indicate "no secondary SC for this VK".
 			return returnSecondary ? 0 : sc; // Callers rely on zero being returned for VKs that don't have secondary SCs.
-		}
-
-		internal override void ParseClickOptions(ReadOnlySpan<char> options, ref int x, ref int y, ref uint vk, ref KeyEventTypes eventType, ref long repeatCount, ref bool moveOffset)
-		{
-			// Set defaults for all output parameters for caller.
-			x = CoordUnspecified;
-			y = CoordUnspecified;
-			vk = VK_LBUTTON;
-			eventType = KeyEventTypes.KeyDownAndUp;
-			repeatCount = 1L;
-			moveOffset = false;
-			uint temp_vk;
-
-			foreach (Range r in options.SplitAny(SpaceTabComma))
-			{
-				var opt = options[r].Trim();
-
-				if (opt.Length > 0)
-				{
-					// Parameters can occur in almost any order to enhance usability (at the cost of
-					// slightly diminishing the ability to unambiguously add more parameters in the future).
-					// Seems okay to support floats because ATOI() will just omit the decimal portion.
-					if (double.TryParse(opt, NumberStyles.Float, Parser.inv, out var d))
-					{
-						var val = (int)d;
-
-						// Any numbers present must appear in the order: X, Y, RepeatCount
-						// (optionally with other options between them).
-						if (x == CoordUnspecified) // This will be converted into repeat-count if it is later discovered there's no Y coordinate.
-							x = val;
-						else if (y == CoordUnspecified)
-							y = val;
-						else // Third number is the repeat-count (but if there's only one number total, that's repeat count too, see further below).
-							repeatCount = val;
-					}
-					else // Mouse button/name and/or Down/Up/Repeat-count is present.
-					{
-						if ((temp_vk = ConvertMouseButton(opt, true)) != 0)
-						{
-							vk = temp_vk;
-						}
-						else
-						{
-							switch (char.ToUpper(opt[0]))
-							{
-								case 'D': eventType = KeyEventTypes.KeyDown; break;
-
-								case 'U': eventType = KeyEventTypes.KeyUp; break;
-
-								case 'R': moveOffset = true; break; // Since it wasn't recognized as the right mouse button, it must have other letters after it, e.g. Rel/Relative.
-									// default: Ignore anything else to reserve them for future use.
-							}
-						}
-					}
-				}
-			}
-
-			if (x != CoordUnspecified && y == CoordUnspecified)
-			{
-				// When only one number is present (e.g. {Click 2}, it's assumed to be the repeat count.
-				repeatCount = x;
-				x = CoordUnspecified;
-			}
-			else if (x == CoordUnspecified && y == CoordUnspecified)//Neither was specified, so just use the cursor position.
-			{
-				var pos = Cursor.Position;
-				x = pos.X;
-				y = pos.Y;
-			}
 		}
 
 		internal void ResetHook(bool allModifiersUp = false, HookType whichHook = HookType.Keyboard | HookType.Mouse, bool resetKVKandKSC = false)

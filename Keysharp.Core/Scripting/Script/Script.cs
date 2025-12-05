@@ -234,12 +234,15 @@ namespace Keysharp.Scripting
 #endif
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 
+#if WINDOWS
 			// Temporary patch to override the GdiPlus initialization settings used by WinForms
 			// (or more specifically System.Drawing). If StartupParameters is not 4 then external
 			// codecs such as webp cannot be used.
 			EnsureGdiPlus();
+#endif
 		}
 
+#if WINDOWS
 		static nint _gdiToken;
 		public static void EnsureGdiPlus()
 		{
@@ -254,6 +257,7 @@ namespace Keysharp.Scripting
 			int s = WindowsAPI.GdiplusStartup(out _gdiToken, ref si, IntPtr.Zero);
 			if (s != 0) throw new ExternalException($"GdiplusStartup failed: {s}");
 		}
+#endif
 
 		public Script(Type program = null, string hookMutexName = null)
 		{

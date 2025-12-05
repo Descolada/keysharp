@@ -430,7 +430,7 @@ namespace Keysharp.Core
 
 			if (actionType == Actions.ACT_MOUSEMOVE)
 				vk = 0;
-			else if ((vk = ht.ConvertMouseButton(button, actionType == Actions.ACT_MOUSECLICK)) == 0)
+			else if ((vk = HookThread.ConvertMouseButton(button, actionType == Actions.ACT_MOUSECLICK)) == 0)
 			{
 				_ = Errors.ValueErrorOccurred($"Invalid mouse button type of {button}.");
 				return;

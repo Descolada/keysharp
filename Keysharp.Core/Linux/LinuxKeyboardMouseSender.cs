@@ -939,7 +939,8 @@ namespace Keysharp.Core.Linux
 				var modsInitial = lht != null ? lht.CurrentModifiersLR() : self.GetModifierLRState(true);
 				Console.WriteLine($"[Send] modsInitial={modsInitial:X}");
 				var capsOn = Script.TheScript.HookThread.IsKeyToggledOn(VK_CAPITAL);
-				var modsDuring = 0u; // drop held modifiers during send
+				// Preserve held modifiers when in {Blind} mode so wildcard hotkeys propagate them.
+				var modsDuring = ctx.InBlindMode ? modsInitial : 0u;
 				// When sending text-only in Input mode, avoid modifier adjustments to reduce duplicate/resend noise.
 				var adjustMods = (modsInitial != modsDuring || capsOn);
 				Console.WriteLine($"[Send] adjustMods={adjustMods} textOnly={textOnly} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");

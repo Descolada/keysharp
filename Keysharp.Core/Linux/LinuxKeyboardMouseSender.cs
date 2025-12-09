@@ -926,8 +926,14 @@ namespace Keysharp.Core.Linux
 				SharpHookKeySimulationBackend backend)
 			{
 				var lht = Script.TheScript.HookThread as LinuxHookThread;
-				lht?.BeginSend();
-				lht?.BeginInjectedIgnore();
+				var sendLevel = ThreadAccessors.A_SendLevel;
+				lht?.BeginSend(sendLevel);
+				var startedInjectIgnore = false;
+				if (sendLevel == 0)
+				{
+					lht?.BeginInjectedIgnore();
+					startedInjectIgnore = true;
+				}
 				// If the active hotkey suffix has no key-up hotkey, ignore the synthetic release
 				// so its injected press isn't swallowed by the grab, but still let real releases through.
 				if (lht?.ActiveHotkeyVk is uint activeVk && activeVk != 0 && !lht.HasKeyUpHotkey(activeVk))
@@ -936,6 +942,8 @@ namespace Keysharp.Core.Linux
 					lht.ForceReleaseEndKeyX11(activeVk);
 				}
 				LinuxHookThread.GrabSnapshot? grabSnapshot = lht?.BeginSendUngrab();
+				if (grabSnapshot != null && grabSnapshot.Value.Active && lht != null)
+					lht.sendUngrabActive = true;
 				if (mode == SendModes.InputThenPlay) mode = SendModes.Input;
 				else if (mode == SendModes.Play) mode = SendModes.Event;
 
@@ -978,11 +986,14 @@ namespace Keysharp.Core.Linux
 						self.SetModifierLRState(modsInitial, self.GetModifierLRState(), 0, false, true, KeyboardMouseSender.KeyIgnore);
 					if (grabSnapshot.HasValue)
 					lht?.EndSendUngrab(grabSnapshot.Value);
+					if (grabSnapshot != null && grabSnapshot.Value.Active && lht != null)
+						lht.sendUngrabActive = false;
 					// Restore physical modifier tracking to what it was before the send so held prefixes remain.
 					if (lht != null)
 						lht.MarkModifiersDown(modsInitial);
 					lht?.EndSend();
-					lht?.EndInjectedIgnore();
+					if (startedInjectIgnore)
+						lht?.EndInjectedIgnore();
 				}
 			}
 			private static void ExecuteAsInput(

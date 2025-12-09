@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpHook;
@@ -643,6 +644,7 @@ namespace Keysharp.Core.Linux
 
 						// Append the actual end-char we predicted and verify the match now
 						hm.hsBuf.Add(chosen.Value.EndChar);
+						LogHotstringBuffer($"armed-end {vk} append '{chosen.Value.EndChar}'");
 						var hs = hm.MatchHotstring();
 
 						if (hs != null)
@@ -676,6 +678,8 @@ namespace Keysharp.Core.Linux
 									message = (uint)UserMessages.AHK_HOTSTRING,
 									obj = new HotstringMsg { hs = hs, caseMode = caseMode, endChar = chosen.Value.EndChar }
 								});
+								LogHotstringBuffer($"hotstring fired '{hs.Name}' end='{chosen.Value.EndChar}'");
+								ClearHotstringBuffer("fired");
 							}
 						}
 
@@ -978,6 +982,7 @@ namespace Keysharp.Core.Linux
 		{
 			if (!keyboardEnabled) return;
 			if (hsSuppressTypedForEnd) { hsSuppressTypedForEnd = false; return; }
+			if (sendInProgress || InjectedActive() || e.IsEventSimulated) return;
 
 			var ch = e.Data.KeyChar;
 			if (ch == '\0') return;
@@ -994,7 +999,22 @@ namespace Keysharp.Core.Linux
 
 			// Keep HS buffer in sync (like Windows)
 			var hm = Script.TheScript.HotstringManager;
+			var chDesc = ch switch { '\n' => "\\n", '\r' => "\\r", '\t' => "\\t", _ when char.IsControl(ch) => "\\u" + ((int)ch).ToString("X4"), _ => ch.ToString() };
+
+			// Backspace should delete from the buffer rather than insert the control char.
+			if (ch == '\b')
+			{
+				if (hm.hsBuf.Count > 0)
+				{
+					hm.hsBuf.RemoveAt(hm.hsBuf.Count - 1);
+					LogHotstringBuffer("backspace");
+				}
+				RecomputeHotstringArming();
+				return;
+			}
+
 			hm.hsBuf.Add(ch);
+			LogHotstringBuffer($"typed '{chDesc}'");
 
 			// Recompute prediction & arm needed end-keys (all that would complete a match)
 			RecomputeHotstringArming();
@@ -1016,10 +1036,13 @@ namespace Keysharp.Core.Linux
 			if (vk != 0 && vk < physicalKeyState.Length)
 				physicalKeyState[vk] = StateDown;
 
-			// Mouse clicks should reset hotstring buffer (Windows parity)
+			// Mouse clicks should reset hotstring buffer (Windows parity) unless #Hotstring NoMouse is in effect.
 			var hm = Script.TheScript.HotstringManager;
-			hm.hsBuf.Clear();
-			DisarmHotstring();
+			if (hm.hsResetUponMouseClick && (vk == VK_LBUTTON || vk == VK_RBUTTON))
+			{
+				ClearHotstringBuffer($"mouse reset vk={vk}");
+				DisarmHotstring();
+			}
 
 			if (vk != 0)
 				TryPostHotkey(vk, keyUp: false);
@@ -1234,6 +1257,8 @@ namespace Keysharp.Core.Linux
 					message = (uint)UserMessages.AHK_HOTSTRING,
 					obj = new HotstringMsg { hs = ready, caseMode = caseMode, endChar = endChar }
 				});
+				LogHotstringBuffer($"hotstring fired '{ready.Name}' end='{(endChar == '\0' ? "\\0" : endChar.ToString())}'");
+				ClearHotstringBuffer("fired");
 
 				DisarmHotstring();
 				return;
@@ -2084,6 +2109,39 @@ namespace Keysharp.Core.Linux
 			if (vk >= 'A' && vk <= 'Z') return (char)vk;
 			if (vk >= '0' && vk <= '9') return (char)vk;
 			return '\0';
+		}
+
+		private void ClearHotstringBuffer(string reason)
+		{
+			var hm = Script.TheScript.HotstringManager;
+			if (hm.hsBuf.Count == 0)
+			{
+				LogHotstringBuffer(reason);
+				return;
+			}
+
+			hm.hsBuf.Clear();
+			LogHotstringBuffer(reason);
+		}
+
+		private void LogHotstringBuffer(string reason)
+		{
+			var hm = Script.TheScript.HotstringManager;
+			var sb = new StringBuilder(hm.hsBuf.Count * 2);
+
+			static string EscapeChar(char c) => c switch
+			{
+				'\n' => "\\n",
+				'\r' => "\\r",
+				'\t' => "\\t",
+				_ when char.IsControl(c) => "\\u" + ((int)c).ToString("X4"),
+				_ => c.ToString()
+			};
+
+			foreach (var ch in hm.hsBuf)
+				sb.Append(EscapeChar(ch));
+
+			Console.WriteLine($"[HS] {reason}: len={hm.hsBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 		}
 
 		// -------------------- X11 (blocking) --------------------

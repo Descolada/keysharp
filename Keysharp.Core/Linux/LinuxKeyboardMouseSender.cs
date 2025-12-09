@@ -926,12 +926,15 @@ namespace Keysharp.Core.Linux
 				SharpHookKeySimulationBackend backend)
 			{
 				var lht = Script.TheScript.HookThread as LinuxHookThread;
-				bool textOnly = ctx.Instructions.All(i => i.Type == SendInstructionType.Text);
 				lht?.BeginSend();
 				lht?.BeginInjectedIgnore();
-				// Ensure the hotkey suffix is logically released so grabs don’t swallow injected keystrokes.
-				if (lht != null && lht.ActiveHotkeyVk != 0)
-					lht.ForceReleaseEndKeyX11(lht.ActiveHotkeyVk);
+				// If the active hotkey suffix has no key-up hotkey, ignore the synthetic release
+				// so its injected press isn't swallowed by the grab, but still let real releases through.
+				if (lht?.ActiveHotkeyVk is uint activeVk && activeVk != 0 && !lht.HasKeyUpHotkey(activeVk))
+				{
+					lht.IgnoreNext(activeVk, 1);
+					lht.ForceReleaseEndKeyX11(activeVk);
+				}
 				LinuxHookThread.GrabSnapshot? grabSnapshot = lht?.BeginSendUngrab();
 				if (mode == SendModes.InputThenPlay) mode = SendModes.Input;
 				else if (mode == SendModes.Play) mode = SendModes.Event;
@@ -943,7 +946,7 @@ namespace Keysharp.Core.Linux
 				var modsDuring = ctx.InBlindMode ? modsInitial : 0u;
 				// When sending text-only in Input mode, avoid modifier adjustments to reduce duplicate/resend noise.
 				var adjustMods = (modsInitial != modsDuring || capsOn);
-				Console.WriteLine($"[Send] adjustMods={adjustMods} textOnly={textOnly} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");
+				Console.WriteLine($"[Send] adjustMods={adjustMods} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");
 
 				if (adjustMods)
 					Console.WriteLine($"[Send] Adjust mods from {modsInitial:X} to {modsDuring:X} capsOn={capsOn}");
@@ -1012,7 +1015,8 @@ namespace Keysharp.Core.Linux
 				}
 				void SeqUp(uint vk)
 				{
-					// Keep injectedHold until the hook sees the physical event.
+					if (lht != null && injectedHeld.Remove(vk))
+						lht.TrackInjectedHold(vk, false);
 					Console.WriteLine($"[SendSeq {seqId}] KeyUp vk={vk}");
 					EnsureSeq();
 					seq!.AddKeyUp(vk);

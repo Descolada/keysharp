@@ -505,14 +505,6 @@ namespace Keysharp.Core.Linux
 					return;
 				}
 			}
-			lock (suppressUntilPhysicalUp)
-			{
-				if (suppressUntilPhysicalUp.Contains(vk))
-				{
-					Console.WriteLine($"[Hook] KeyDown vk={vk} filtered suppressUntilUp");
-					return;
-				}
-			}
 			lock (injectedLock)
 			{
 				if (injectedHeld.ContainsKey(vk))
@@ -829,10 +821,12 @@ namespace Keysharp.Core.Linux
 				if (ignoreNextVk.TryGetValue(vk, out var n) && n > 0)
 				{
 					ignoreNextVk[vk] = n - 1;
-					if (vk == activeHotkeyVk)
-						activeHotkeyDown = false;
 					if (vk == hsIgnoreNextReleaseFor)
 						hsIgnoreNextReleaseFor = 0;
+
+					// Reflect the release in our physical state so repeat logic does not think it remains held.
+					if (vk < physicalKeyState.Length)
+						physicalKeyState[vk] = 0;
 					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
 					EndInjectedIgnoreIfIdle();
 					return;
@@ -844,32 +838,29 @@ namespace Keysharp.Core.Linux
 				{
 					if (vk == activeHotkeyVk)
 					{
-						activeHotkeyDown = false;
-						activeHotkeyVk = 0;
+						// Allow the active suffix release to flow through while balancing injected count.
+						if (heldCount <= 1) injectedHeld.Remove(vk);
+						else injectedHeld[vk] = heldCount - 1;
+						Console.WriteLine($"[Hook] KeyUp vk={vk} injectedHold (active suffix pass-through)");
 					}
-					if (heldCount <= 1) injectedHeld.Remove(vk);
-					else injectedHeld[vk] = heldCount - 1;
-					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injectedHold");
-					return;
-				}
-			}
-			lock (suppressUntilPhysicalUp)
-			{
-				if (suppressUntilPhysicalUp.Remove(vk))
-				{
-					if (vk == activeHotkeyVk)
+					else
 					{
-						activeHotkeyDown = false;
-						activeHotkeyVk = 0;
+						if (heldCount <= 1) injectedHeld.Remove(vk);
+						else injectedHeld[vk] = heldCount - 1;
+						Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injectedHold");
+						return;
 					}
-					Console.WriteLine($"[Hook] KeyUp vk={vk} cleared suppressUntilUp");
-					// fall through so the real release can be processed (hotkey-up, state, etc.)
 				}
 			}
 			if (sendInProgress && vk == activeHotkeyVk)
 			{
-				// Keep suffix logically down during send to suppress auto-repeat retriggers.
-				Console.WriteLine($"[Hook] KeyUp vk={vk} filtered sendInProgress (active suffix)");
+				// Let the suffix release clear state even while sending.
+				activeHotkeyDown = false;
+				activeHotkeyVk = 0;
+			}
+			else if (sendInProgress)
+			{
+				Console.WriteLine($"[Hook] KeyUp vk={vk} filtered sendInProgress");
 				return;
 			}
 			if (e.IsEventSimulated)
@@ -895,23 +886,15 @@ namespace Keysharp.Core.Linux
 			}
 			if (InjectedActive())
 			{
-				if (vk == activeHotkeyVk)
+				if (vk != activeHotkeyVk)
 				{
-					activeHotkeyDown = false;
-					activeHotkeyVk = 0;
+					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injected");
+					return;
 				}
-				Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injected");
-				return;
-			}
-			if (sendInProgress)
-			{
-				if (vk == activeHotkeyVk)
-				{
-					activeHotkeyDown = false;
-					activeHotkeyVk = 0;
-				}
-				Console.WriteLine($"[Hook] KeyUp vk={vk} filtered sendInProgress");
-				return;
+
+				// Let the active suffix release clear state.
+				activeHotkeyDown = false;
+				activeHotkeyVk = 0;
 			}
 
 			Console.WriteLine($"[Hook] KeyUp vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]}");
@@ -1295,10 +1278,6 @@ namespace Keysharp.Core.Linux
 			// Update our local state and ignore the real release we’ll get shortly
 			if (vk < physicalKeyState.Length)
 				physicalKeyState[vk] = 0;
-			lock (suppressUntilPhysicalUp)
-			{
-				suppressUntilPhysicalUp.Add(vk);
-			}
 		}
 
 		// Map a candidate end character to VK + required modifiers (layout-aware)
@@ -1480,6 +1459,7 @@ namespace Keysharp.Core.Linux
 			// Suppress auto-repeat re-entry for the same suffix until its real KeyUp.
 			if (!keyUp && activeHotkeyDown && activeHotkeyVk == vk)
 				return;
+			Console.WriteLine($"[DbgHot] PostHotkey vk={vk} keyUp={keyUp} actVk={activeHotkeyVk} actDown={activeHotkeyDown}");
 
 			if (!keyUp)
 			{
@@ -1492,6 +1472,19 @@ namespace Keysharp.Core.Linux
 			}
 
 			PostHotkey(idWithFlags.Value, 0, 0);
+		}
+
+		internal bool HasKeyUpHotkey(uint vk)
+		{
+			lock (hkLock)
+			{
+				foreach (var hk in linuxHotkeys)
+				{
+					if (hk.Vk == vk && hk.KeyUp)
+						return true;
+				}
+			}
+			return false;
 		}
 
 		internal void BeginSend()

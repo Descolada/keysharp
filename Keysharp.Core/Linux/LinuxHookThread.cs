@@ -50,7 +50,6 @@ namespace Keysharp.Core.Linux
 		private bool injectedActive;
 		private uint activeHotkeyVk;
 		private bool activeHotkeyDown;
-		private readonly HashSet<uint> suppressUntilPhysicalUp = new();
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
 		internal bool SendInProgress => sendInProgress;
 
@@ -129,6 +128,8 @@ namespace Keysharp.Core.Linux
 			public LockKeyKind LockKind;
 			public bool LockState;
 			public bool LockCaptured;
+			public bool Used;           // any other key pressed while held?
+			public bool FireOnRelease;  // whether to fire the prefix hotkey on release
 			public void Reset()
 			{
 				Vk = 0;
@@ -136,6 +137,8 @@ namespace Keysharp.Core.Linux
 				LockKind = LockKeyKind.None;
 				LockState = false;
 				LockCaptured = false;
+				Used = false;
+				FireOnRelease = false;
 			}
 		}
 
@@ -537,20 +540,11 @@ namespace Keysharp.Core.Linux
 			{
 				if (ignoreNextVk.TryGetValue(vk, out var n) && n > 0)
 				{
-					// Only honor ignoreNext for synthetic/injected events; treat stale entries as consumed and continue.
-					if (sendInProgress || InjectedActive() || e.IsEventSimulated)
-					{
-						ignoreNextVk[vk] = n - 1;
-						Console.WriteLine($"[Hook] KeyDown vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
-						EndInjectedIgnoreIfIdle();
-						return;
-					}
-					else
-					{
-						ignoreNextVk[vk] = n - 1;
-						if (ignoreNextVk[vk] <= 0) ignoreNextVk.Remove(vk);
-						Console.WriteLine($"[Hook] KeyDown vk={vk} ignoreNext stale, proceeding");
-					}
+					ignoreNextVk[vk] = n - 1;
+					if (ignoreNextVk[vk] <= 0) ignoreNextVk.Remove(vk);
+					Console.WriteLine($"[Hook] KeyDown vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
+					EndInjectedIgnoreIfIdle();
+					return;
 				}
 			}
 			lock (injectedLock)
@@ -570,6 +564,20 @@ namespace Keysharp.Core.Linux
 				return;
 			}
 
+			// Suppress repeat if we still think the key is down physically.
+			if (!e.IsEventSimulated && vk < physicalKeyState.Length && (physicalKeyState[vk] & StateDown) != 0)
+			{
+				Console.WriteLine($"[Hook] KeyDown vk={vk} filtered repeat (phys still down)");
+				return;
+			}
+
+			// Suppress auto-repeat for an already-active hotkey suffix while the key is held.
+			if (activeHotkeyDown && activeHotkeyVk == vk)
+			{
+				Console.WriteLine($"[Hook] KeyDown vk={vk} filtered (active suffix still down)");
+				return;
+			}
+
 			var indicatorsBefore = RefreshIndicatorSnapshot();
 			LogKeyHistory(false, vk);
 			Console.WriteLine($"[Hook] KeyDown vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]} artificial={e.IsEventSimulated}");
@@ -584,7 +592,14 @@ namespace Keysharp.Core.Linux
 						physicalKeyState[vk] = StateDown;
 						Console.WriteLine($"[HookState] Down tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
 					}
-					TryPostHotkey(vk, keyUp: false, eventLevel);
+					if (vk != customPrefix.Vk)
+					{
+						// Any other key pressed while the prefix is held should prevent fire-on-release.
+						customPrefix.Used = true;
+						customPrefix.FireOnRelease = false;
+					}
+					// When a custom prefix is held, only consider hotkeys that use that prefix.
+					TryPostHotkey(vk, keyUp: false, eventLevel, customPrefix.Vk);
 					return; // Suppress normal processing while prefix is held.
 				}
 
@@ -597,6 +612,8 @@ namespace Keysharp.Core.Linux
 						customPrefix.Reset();
 						customPrefix.Vk = vk;
 						customPrefix.Suppressed = customPrefixSuppress.TryGetValue(vk, out var suppress) && suppress;
+						customPrefix.Used = false;
+						customPrefix.FireOnRelease = customPrefix.Suppressed; // tilde disables fire-on-release
 						customPrefix.LockKind = GetLockKind(vk);
 
 						if (customPrefix.Suppressed && customPrefix.LockKind != LockKeyKind.None)
@@ -623,7 +640,7 @@ namespace Keysharp.Core.Linux
 				}
 
 				// Track physical state in physicalKeyState only.
-				if (!InjectedActive() && !sendInProgress && vk < physicalKeyState.Length)
+				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = StateDown;
 					Console.WriteLine($"[HookState] Down tracked vk={vk} physMods={CurrentModifiersLR():X}");
@@ -818,6 +835,7 @@ namespace Keysharp.Core.Linux
 			return XQueryKeymap(xDisplay, keymap) != 0;
 		}
 
+
 		private static uint VkToModMask(uint vk) => vk switch
 		{
 			VK_LSHIFT => MOD_LSHIFT,
@@ -867,25 +885,14 @@ namespace Keysharp.Core.Linux
 			{
 				if (ignoreNextVk.TryGetValue(vk, out var n) && n > 0)
 				{
-					if (sendInProgress || InjectedActive() || e.IsEventSimulated)
-					{
-						ignoreNextVk[vk] = n - 1;
-						if (vk == hsIgnoreNextReleaseFor)
-							hsIgnoreNextReleaseFor = 0;
+					ignoreNextVk[vk] = n - 1;
+					if (vk == hsIgnoreNextReleaseFor)
+						hsIgnoreNextReleaseFor = 0;
 
-						// Reflect the release in our physical state so repeat logic does not think it remains held.
-						if (vk < physicalKeyState.Length)
-							physicalKeyState[vk] = 0;
-						Console.WriteLine($"[Hook] KeyUp vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
-						EndInjectedIgnoreIfIdle();
-						return;
-					}
-					else
-					{
-						ignoreNextVk[vk] = n - 1;
-						if (ignoreNextVk[vk] <= 0) ignoreNextVk.Remove(vk);
-						Console.WriteLine($"[Hook] KeyUp vk={vk} ignoreNext stale, proceeding");
-					}
+					// Do not mutate physical state for synthetic releases; wait for the real one.
+					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
+					EndInjectedIgnoreIfIdle();
+					return;
 				}
 			}
 			lock (injectedLock)
@@ -908,12 +915,6 @@ namespace Keysharp.Core.Linux
 					}
 				}
 			}
-			if (sendInProgress && vk == activeHotkeyVk)
-			{
-				// Let the suffix release clear state even while sending.
-				activeHotkeyDown = false;
-				activeHotkeyVk = 0;
-			}
 
 			if (vk == hsIgnoreNextReleaseFor)
 			{
@@ -926,6 +927,7 @@ namespace Keysharp.Core.Linux
 				// Don’t feed to Input/hotkeys
 				return;
 			}
+
 			if (InjectedActive())
 			{
 				if (vk != activeHotkeyVk)
@@ -943,6 +945,15 @@ namespace Keysharp.Core.Linux
 			if (eventLevel == 0)
 			{
 				Console.WriteLine($"[Hook] KeyUp vk={vk} ignored (eventLevel=0)");
+
+				// Even for simulated/ignored events, ensure custom prefix state is cleared so it
+				// doesn't remain active and treat later keys as suffixes.
+				if (customPrefix.Vk != 0 && vk == customPrefix.Vk)
+				{
+					customPrefix.Reset();
+					UngrabDynamic();
+					hsSuppressTypedForHotkeyPrefix = false;
+				}
 				return;
 			}
 
@@ -954,6 +965,13 @@ namespace Keysharp.Core.Linux
 				// If releasing the custom prefix, decide whether to emit its normal action.
 				if (customPrefix.Vk != 0 && vk == customPrefix.Vk)
 				{
+					// Fire the prefix hotkey on release if allowed and no other key was pressed.
+					if (customPrefix.FireOnRelease && !customPrefix.Used)
+					{
+						TryPostHotkey(vk, keyUp: false, PhysicalInputLevel);
+						TryPostHotkey(vk, keyUp: true, PhysicalInputLevel);
+					}
+
 					RestoreLockStateIfNeeded(vk);
 					if (vk < physicalKeyState.Length)
 						physicalKeyState[vk] = 0;
@@ -978,7 +996,24 @@ namespace Keysharp.Core.Linux
 					return;
 				}
 
-				if (!InjectedActive() && !sendInProgress && vk < physicalKeyState.Length)
+				// If a custom prefix is held, treat this as a suffix release and ignore unrelated hotkeys.
+				if (customPrefix.Vk != 0)
+				{
+					if (!InjectedActive() && vk < physicalKeyState.Length)
+					{
+						physicalKeyState[vk] = 0;
+						Console.WriteLine($"[HookState] Up tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
+					}
+					if (vk != customPrefix.Vk)
+					{
+						customPrefix.Used = true;
+						customPrefix.FireOnRelease = false;
+					}
+					TryPostHotkey(vk, keyUp: true, eventLevel, customPrefix.Vk);
+					return;
+				}
+
+				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = 0;
 					Console.WriteLine($"[HookState] Up tracked vk={vk} physMods={CurrentModifiersLR():X}");
@@ -1031,6 +1066,7 @@ namespace Keysharp.Core.Linux
 			if (hsSuppressTypedForHotkeyPrefix) return;
 			if (hsSuppressTypedForHotkeyOnce) { hsSuppressTypedForHotkeyOnce = false; return; }
 			if (InjectedActive()) return;
+			if (activeHotkeyDown && activeHotkeyVk != 0) return;
 
 			var ch = e.Data.KeyChar;
 			if (ch == '\0') return;
@@ -1241,7 +1277,11 @@ namespace Keysharp.Core.Linux
 				if (needAltGr) baseMods |= Mod5Mask; // AltGr
 
 				// Grab with CapsLock/NumLock variants like elsewhere.
-				uint[] variants =
+				// Grab with the base mods plus Caps/NumLock variants. Allow Shift as an extra
+				// modifier even when it isn't required so that shifted end-keys (e.g. holding
+				// Shift while pressing Space) still get swallowed and don't leak through to
+				// the target app when firing uppercase hotstrings.
+				var modsToGrab = new HashSet<uint>
 				{
 					baseMods,
 					baseMods | LockMask,
@@ -1249,7 +1289,15 @@ namespace Keysharp.Core.Linux
 					baseMods | LockMask | Mod2Mask
 				};
 
-				foreach (var mods in variants)
+				if (!needShift)
+				{
+					modsToGrab.Add(baseMods | ShiftMask);
+					modsToGrab.Add(baseMods | ShiftMask | LockMask);
+					modsToGrab.Add(baseMods | ShiftMask | Mod2Mask);
+					modsToGrab.Add(baseMods | ShiftMask | LockMask | Mod2Mask);
+				}
+
+				foreach (var mods in modsToGrab)
 				{
 					_ = XGrabKey(xDisplay, keycode, mods, xRoot, true, GrabModeAsync, GrabModeAsync);
 					hsActiveGrabVariants.Add((keycode, mods));
@@ -1430,7 +1478,19 @@ namespace Keysharp.Core.Linux
 			UngrabDynamic(); // clear any stale grabs
 
 			foreach (var (kc, mods) in list)
+			{
+				// If the same grab is already active (due to a normal hotkey on that suffix),
+				// don't duplicate it here; otherwise UngrabDynamic would remove it.
+				bool alreadyGrabbed = false;
+				foreach (var (gkc, gmods) in activeGrabs)
+				{
+					if (gkc == kc && gmods == mods) { alreadyGrabbed = true; break; }
+				}
+				if (alreadyGrabbed)
+					continue;
+
 				GrabKeyVariantsInto(kc, mods, activeDynamicGrabs);
+			}
 		}
 
 		private void RestoreLockStateIfNeeded(uint vk)
@@ -1466,7 +1526,7 @@ namespace Keysharp.Core.Linux
 
 		// -------------------- basic matcher → AHK_HOOK_HOTKEY --------------------
 		private static short PhysicalInputLevel => (short)(Keysharp.Core.Common.Keyboard.KeyboardMouseSender.SendLevelMax + 1);
-		private void TryPostHotkey(uint vk, bool keyUp, long eventLevel)
+		private void TryPostHotkey(uint vk, bool keyUp, long eventLevel, uint? requiredModifierVk = null)
 		{
 			uint? idWithFlags = null;
 			bool passThrough = true;
@@ -1485,6 +1545,7 @@ namespace Keysharp.Core.Linux
 				{
 					if (hk.Vk != vk) continue;
 					if (hk.KeyUp != keyUp) continue;
+					if (requiredModifierVk.HasValue && hk.ModifierVK != requiredModifierVk.Value) continue;
 
 					if (hk.ModifierVK != 0)
 					{
@@ -1524,7 +1585,7 @@ namespace Keysharp.Core.Linux
 			if (sendInProgress)
 				return;
 
-			if (InjectedActive())
+			if (InjectedActive() && !(keyUp && vk == activeHotkeyVk))
 			{
 				Console.WriteLine($"[Hook] TryPostHotkey vk={vk} skipped (injected active)");
 				return;
@@ -1577,6 +1638,12 @@ namespace Keysharp.Core.Linux
 			Console.WriteLine("[Hook] EndSend");
 			sendInProgress = false;
 			sendInProgressLevel = 0;
+			lock (injectedLock)
+			{
+				injectedHeld.Clear();
+				injectedActive = false;
+			}
+			EndInjectedIgnoreIfIdle();
 		}
 
 		internal void BeginInjectedIgnore()
@@ -1590,11 +1657,7 @@ namespace Keysharp.Core.Linux
 
 		internal void EndInjectedIgnore()
 		{
-			lock (injectedLock)
-			{
-				injectedActive = false;
-				Console.WriteLine("[Hook] EndInjectedIgnore");
-			}
+			EndInjectedIgnoreIfIdle();
 		}
 
 		internal void MarkModifiersDown(uint mods)
@@ -1649,6 +1712,10 @@ namespace Keysharp.Core.Linux
 				if (!injectedActive)
 					return;
 
+				// Keep ignore mode active while sending or while injected key holds remain.
+				if (sendInProgress)
+					return;
+
 				lock (ignoreNextVk)
 				{
 					foreach (var kv in ignoreNextVk)
@@ -1657,6 +1724,9 @@ namespace Keysharp.Core.Linux
 							return;
 					}
 				}
+
+				if (injectedHeld.Count > 0)
+					return;
 
 				injectedActive = false;
 				Console.WriteLine("[Hook] EndInjectedIgnore");
@@ -2307,7 +2377,17 @@ namespace Keysharp.Core.Linux
 			}
 
 			foreach (var (kc, mods) in activeDynamicGrabs)
-				_ = XUngrabKey(xDisplay, kc, mods, xRoot);
+			{
+				// If this grab is also part of the static grab set, leave it in place.
+				bool shared = false;
+				foreach (var (gkc, gmods) in activeGrabs)
+				{
+					if (gkc == kc && gmods == mods) { shared = true; break; }
+				}
+
+				if (!shared)
+					_ = XUngrabKey(xDisplay, kc, mods, xRoot);
+			}
 			activeDynamicGrabs.Clear();
 			XSync(xDisplay, false);
 		}

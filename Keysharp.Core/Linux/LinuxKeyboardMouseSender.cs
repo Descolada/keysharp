@@ -938,7 +938,8 @@ namespace Keysharp.Core.Linux
 				// so its injected press isn't swallowed by the grab, but still let real releases through.
 				if (lht?.ActiveHotkeyVk is uint activeVk && activeVk != 0 && !lht.HasKeyUpHotkey(activeVk))
 				{
-					lht.IgnoreNext(activeVk, 1);
+					// Ignore both the synthetic down and up we emit for the suffix during Send.
+					lht.IgnoreNext(activeVk, 2);
 					lht.ForceReleaseEndKeyX11(activeVk);
 				}
 				LinuxHookThread.GrabSnapshot? grabSnapshot = lht?.BeginSendUngrab();

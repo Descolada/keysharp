@@ -229,7 +229,7 @@ namespace Keysharp.Scripting
             parser.compilationUnit = parser.compilationUnit
                 .AddMembers(parser.namespaceDeclaration)
                 .AddAttributeLists(attributeList);
-            //.NormalizeWhitespace("\t");
+            //.NormalizeWhitespace("\t", Environment.NewLine);
 
 			return parser.compilationUnit;
         }

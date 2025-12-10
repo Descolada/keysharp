@@ -1,7 +1,9 @@
 ﻿using Antlr4.Runtime;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+#if WINDOWS
 using ScintillaNET;
+#endif
 
 namespace Keyview
 {
@@ -52,7 +54,9 @@ namespace Keyview
 		private readonly char[] trimend = ['\n', '\r'];
 		private readonly double updateFreqSeconds = 1;
 		private readonly CompilerHelper ch = new ();
+#if WINDOWS
 		private readonly CSharpStyler csStyler = new ();
+#endif
 		private bool force = false;
 		private string fullCode = "";
 		private DateTime lastCompileTime = DateTime.UtcNow;
@@ -74,6 +78,9 @@ namespace Keyview
 			keywords2 = Script.TheScript.GetPublicStaticPropertyNames();
 			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
 			Icon = Script.TheScript.normalIcon;
+#if !WINDOWS
+			btnCopyFullCode.Size = new Size(120, 30);
+#endif
 			btnCopyFullCode.Text = "Copy full code";
 			btnCopyFullCode.Click += CopyFullCode_Click;
 			btnCopyFullCode.Margin = new Padding(15);
@@ -90,6 +97,9 @@ namespace Keyview
 			};
 			_ = toolStrip1.Items.Add(host);
 			Text += $" {Assembly.GetExecutingAssembly().GetName().Version}";
+#if !WINDOWS
+			btnRunScript.Size = new Size(120, 30);
+#endif
 			btnRunScript.Text = btnRunScriptText["Run"];
 			btnRunScript.Margin = new Padding(15);
 			host = new ToolStripControlHost(btnRunScript)
@@ -131,7 +141,13 @@ namespace Keyview
 
 		private void clearSelectionToolStripMenuItem_Click(object sender, EventArgs e)
 		{
+			// Reset selection to the start without changing the caret position more than necessary.
+#if WINDOWS
 			txtIn.SetEmptySelection(0);
+#else
+			txtIn.SelectionStart = Math.Min(txtIn.SelectionStart, txtIn.Text.Length);
+			txtIn.SelectionLength = 0;
+#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -147,7 +163,12 @@ namespace Keyview
 			}
 		}
 
-		private void collapseAllToolStripMenuItem_Click(object sender, EventArgs e) => txtIn.FoldAll(FoldAction.Contract);
+		private void collapseAllToolStripMenuItem_Click(object sender, EventArgs e)
+		{
+#if WINDOWS
+			txtIn.FoldAll(FoldAction.Contract);
+#endif
+		}
 
 		private void CopyFullCode_Click(object sender, EventArgs e)
 		{
@@ -176,7 +197,12 @@ namespace Keyview
 			lastKeyTime = DateTime.UtcNow;
 		}
 
-		private void expandAllToolStripMenuItem_Click(object sender, EventArgs e) => txtIn.FoldAll(FoldAction.Expand);
+		private void expandAllToolStripMenuItem_Click(object sender, EventArgs e)
+		{
+#if WINDOWS
+			txtIn.FoldAll(FoldAction.Expand);
+#endif
+		}
 
 		private void findAndReplaceToolStripMenuItem_Click(object sender, EventArgs e) => OpenReplaceDialog();
 
@@ -195,7 +221,9 @@ namespace Keyview
 		private void hiddenCharactersToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			hiddenCharactersItem.Checked = !hiddenCharactersItem.Checked;
+#if WINDOWS
 			txtIn.ViewWhitespace = hiddenCharactersItem.Checked ? WhitespaceMode.VisibleAlways : WhitespaceMode.Invisible;
+#endif
 		}
 
 		private void Indent()
@@ -209,7 +237,9 @@ namespace Keyview
 		private void indentGuidesToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			indentGuidesItem.Checked = !indentGuidesItem.Checked;
+#if WINDOWS
 			txtIn.IndentationGuides = indentGuidesItem.Checked ? IndentView.LookBoth : IndentView.None;
+#endif
 		}
 
 		private void indentSelectionToolStripMenuItem_Click(object sender, EventArgs e) => Indent();
@@ -229,6 +259,7 @@ namespace Keyview
 		//  marker.SetForeColor(IntToColor(0x000000));
 		//  marker.SetAlpha(100);
 		//}
+#if WINDOWS
 		private void InitCodeFolding(Scintilla txt)
 		{
 			txt.SetFoldMarginColor(true, IntToColor(BACK_COLOR));
@@ -262,35 +293,6 @@ namespace Keyview
 		}
 
 		private void InitColors(Scintilla txt) => txt.CaretForeColor = Color.Black;
-
-		private void InitDragDropFile()
-		{
-			txtIn.AllowDrop = true;
-			txtIn.DragEnter += TxtIn_DragEnter;
-			txtIn.DragDrop += TxtIn_DragDrop;
-		}
-
-		private void InitHotkeys()
-		{
-			// register the hotkeys with the form
-			HotKeyManager.AddHotKey(this, OpenSearch, Keys.F, true);
-			HotKeyManager.AddHotKey(this, OpenFindDialog, Keys.F, true, false, true);
-			HotKeyManager.AddHotKey(this, OpenReplaceDialog, Keys.R, true);
-			HotKeyManager.AddHotKey(this, OpenReplaceDialog, Keys.H, true);
-			HotKeyManager.AddHotKey(this, Uppercase, Keys.U, true);
-			HotKeyManager.AddHotKey(this, Lowercase, Keys.L, true);
-			HotKeyManager.AddHotKey(this, ZoomIn, Keys.Oemplus, true);
-			HotKeyManager.AddHotKey(this, ZoomOut, Keys.OemMinus, true);
-			HotKeyManager.AddHotKey(this, ZoomDefault, Keys.D0, true);
-			HotKeyManager.AddHotKey(this, CloseSearch, Keys.Escape);
-			HotKeyManager.AddHotKey(this, RunStopScript, Keys.F9);
-			//Remove conflicting hotkeys from scintilla.
-			txtIn.ClearCmdKey(Keys.Control | Keys.F);
-			txtIn.ClearCmdKey(Keys.Control | Keys.R);
-			txtIn.ClearCmdKey(Keys.Control | Keys.H);
-			txtIn.ClearCmdKey(Keys.Control | Keys.L);
-			txtIn.ClearCmdKey(Keys.Control | Keys.U);
-		}
 
 		private void InitNumberMargin(Scintilla txt)
 		{
@@ -377,6 +379,38 @@ namespace Keyview
 			txt.SetKeywords(0, keywords1);
 			txt.SetKeywords(1, keywords2);
 		}
+#endif
+
+		private void InitDragDropFile()
+		{
+			txtIn.AllowDrop = true;
+			txtIn.DragEnter += TxtIn_DragEnter;
+			txtIn.DragDrop += TxtIn_DragDrop;
+		}
+
+		private void InitHotkeys()
+		{
+			// register the hotkeys with the form
+			HotKeyManager.AddHotKey(this, OpenSearch, Keys.F, true);
+			HotKeyManager.AddHotKey(this, OpenFindDialog, Keys.F, true, false, true);
+			HotKeyManager.AddHotKey(this, OpenReplaceDialog, Keys.R, true);
+			HotKeyManager.AddHotKey(this, OpenReplaceDialog, Keys.H, true);
+			HotKeyManager.AddHotKey(this, Uppercase, Keys.U, true);
+			HotKeyManager.AddHotKey(this, Lowercase, Keys.L, true);
+			HotKeyManager.AddHotKey(this, ZoomIn, Keys.Oemplus, true);
+			HotKeyManager.AddHotKey(this, ZoomOut, Keys.OemMinus, true);
+			HotKeyManager.AddHotKey(this, ZoomDefault, Keys.D0, true);
+			HotKeyManager.AddHotKey(this, CloseSearch, Keys.Escape);
+			HotKeyManager.AddHotKey(this, RunStopScript, Keys.F9);
+#if WINDOWS
+			//Remove conflicting hotkeys from scintilla.
+			txtIn.ClearCmdKey(Keys.Control | Keys.F);
+			txtIn.ClearCmdKey(Keys.Control | Keys.R);
+			txtIn.ClearCmdKey(Keys.Control | Keys.H);
+			txtIn.ClearCmdKey(Keys.Control | Keys.L);
+			txtIn.ClearCmdKey(Keys.Control | Keys.U);
+#endif
+		}
 
 		private void InvokeIfNeeded(Action action)
 		{
@@ -404,6 +438,7 @@ namespace Keyview
 
 		private void Keyview_Load(object sender, EventArgs e)
 		{
+#if WINDOWS
 			InitColors(txtIn);
 			InitColors(txtOut);
 			InitSyntaxColoring(txtIn);//Keysharp syntax for txtIn.
@@ -422,6 +457,14 @@ namespace Keyview
 			//InitBookmarkMargin();
 			InitCodeFolding(txtIn);
 			InitCodeFolding(txtOut);
+#else
+			ConfigureEditor(txtIn, false);
+			ConfigureEditor(txtOut, true);
+			collapseAllToolStripMenuItem.Enabled = false;
+			expandAllToolStripMenuItem.Enabled = false;
+			indentGuidesItem.Enabled = false;
+			hiddenCharactersItem.Enabled = false;
+#endif
 			InitDragDropFile();
 			InitHotkeys();
 			//txtIn.StyleNeeded += TxtIn_StyleNeeded;
@@ -432,7 +475,22 @@ namespace Keyview
 			timer.Interval = 1000;
 			timer.Tick += Timer_Tick;
 			timer.Start();
+#if !WINDOWS
+			var area = System.Windows.Forms.Screen.FromControl(this).WorkingArea;
+			WindowState = FormWindowState.Normal;
+			Size = new Size((int)(area.Width * 0.9), (int)(area.Height * 0.9));
+			StartPosition = FormStartPosition.CenterScreen;
+#endif
 		}
+
+#if !WINDOWS
+		private void ConfigureEditor(RichTextBox editor, bool readOnly)
+		{
+			editor.Font = new Font("Consolas", 10F);
+			editor.ReadOnly = readOnly;
+			editor.WordWrap = true;
+		}
+#endif
 
 		private void Keyview_ResizeEnd(object sender, EventArgs e) => splitContainer.SplitterDistance = Width / 2;
 
@@ -449,9 +507,19 @@ namespace Keyview
 		private void Lowercase()
 		{
 			var start = txtIn.SelectionStart;
+#if WINDOWS
 			var end = txtIn.SelectionEnd;
 			txtIn.ReplaceSelection(txtIn.GetTextRange(start, end - start).ToLower());
 			txtIn.SetSelection(start, end);
+#else
+			var length = txtIn.SelectionLength;
+			if (length > 0)
+			{
+				txtIn.SelectedText = txtIn.Text.Substring(start, length).ToLower();
+				txtIn.SelectionStart = start;
+				txtIn.SelectionLength = length;
+			}
+#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -519,8 +587,23 @@ namespace Keyview
 
 		private void selectLineToolStripMenuItem_Click(object sender, EventArgs e)
 		{
+			if (string.IsNullOrEmpty(txtIn.Text))
+				return;
+#if WINDOWS
 			Line line = txtIn.Lines[txtIn.CurrentLine];
 			txtIn.SetSelection(line.Position + line.Length, line.Position);
+#else
+			var caret = txtIn.SelectionStart;
+			var text = txtIn.Text;
+			var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
+			var lineEnd = text.IndexOf('\n', caret);
+
+			if (lineEnd < 0)
+				lineEnd = text.Length;
+
+			txtIn.SelectionStart = lineStart;
+			txtIn.SelectionLength = Math.Max(0, lineEnd - lineStart);
+#endif
 		}
 
 		private void SetFailure()
@@ -552,7 +635,9 @@ namespace Keyview
 			txtOut.ReadOnly = false;
 			txtOut.Text = txt;
 			txtOut.ReadOnly = true;
+#if WINDOWS
 			UpdateNumberMarginWidth(txtOut);
+#endif
 		}
 
 		private void splitContainer_DoubleClick(object sender, EventArgs e) => splitContainer.SplitterDistance = Width / 2;
@@ -591,7 +676,9 @@ namespace Keyview
 					s = new Script();//Start completely fresh for every compilation.
 					CompilerHelper.compiledasm = null;
 					btnRunScript.Enabled = false;
+#if WINDOWS
 					var oldIndex = txtOut.FirstVisibleLine;
+#endif
 					SetStart();
 					tslCodeStatus.Text = "Creating DOM from script...";
 					Refresh();
@@ -619,7 +706,7 @@ namespace Keyview
 
 					var code = PrettyPrinter.Print(units[0]);
 #if DEBUG
-					var normalized = units[0].NormalizeWhitespace("\t").ToString();
+					var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
 					if (code != normalized)
 					{
 						throw new Exception("Code formatting mismatch");
@@ -648,7 +735,9 @@ namespace Keyview
 
 						trimmedCode = sb.ToString().TrimEnd(trimend);
 						SetTxtOut(chkFullCode.Checked ? fullCode : trimmedCode);
+#if WINDOWS
 						txtOut.FirstVisibleLine = oldIndex;
+#endif
 						File.WriteAllText(lastrun, txtIn.Text);
 						_ = ms.Seek(0, SeekOrigin.Begin);
 						var arr = ms.ToArray();
@@ -702,7 +791,11 @@ namespace Keyview
 			{
 				StartInfo = new ProcessStartInfo
 				{
+#if WINDOWS
 					FileName = "Keysharp.exe",
+#else
+					FileName = "Keysharp",
+#endif
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
@@ -766,6 +859,7 @@ namespace Keyview
 				lastKeyTime = DateTime.UtcNow;
 		}
 
+#if WINDOWS
 		private void txtIn_MarginClick(object sender, MarginClickEventArgs e)
 		{
 			var txt = sender as Scintilla;
@@ -788,16 +882,21 @@ namespace Keyview
 				}
 			}
 		}
+#endif
 
 		private void txtIn_TextChanged(object sender, EventArgs e)
 		{
+#if WINDOWS
 			UpdateNumberMarginWidth(txtIn);
+#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
 		private void txtOut_TextChanged(object sender, EventArgs e)
 		{
+#if WINDOWS
 			UpdateNumberMarginWidth(txtOut);
+#endif
 		}
 
 		private void txtOut_KeyDown(object sender, KeyEventArgs e) => txtIn_KeyDown(sender, e);
@@ -820,9 +919,19 @@ namespace Keyview
 		private void Uppercase()
 		{
 			var start = txtIn.SelectionStart;
+#if WINDOWS
 			var end = txtIn.SelectionEnd;
 			txtIn.ReplaceSelection(txtIn.GetTextRange(start, end - start).ToUpper());
 			txtIn.SetSelection(start, end);
+#else
+			var length = txtIn.SelectionLength;
+			if (length > 0)
+			{
+				txtIn.SelectedText = txtIn.Text.Substring(start, length).ToUpper();
+				txtIn.SelectionStart = start;
+				txtIn.SelectionLength = length;
+			}
+#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -831,34 +940,66 @@ namespace Keyview
 		private void wordWrapToolStripMenuItem1_Click(object sender, EventArgs e)
 		{
 			wordWrapItem.Checked = !wordWrapItem.Checked;
+#if WINDOWS
 			txtOut.WrapMode = txtIn.WrapMode = wordWrapItem.Checked ? WrapMode.Word : WrapMode.None;
+#else
+			txtOut.WordWrap = txtIn.WordWrap = wordWrapItem.Checked;
+#endif
 		}
 
 		private void zoom100ToolStripMenuItem_Click(object sender, EventArgs e) => ZoomDefault();
 
 		private void ZoomDefault()
 		{
+#if WINDOWS
 			txtIn.Zoom = 0;
 			txtOut.Zoom = 0;
+#else
+			ResetFont(txtIn);
+			ResetFont(txtOut);
+#endif
 		}
 
 		private void ZoomIn()
 		{
+#if WINDOWS
 			txtIn.ZoomIn();
 			txtOut.ZoomIn();
 			UpdateNumberMarginWidth(txtIn);
 			UpdateNumberMarginWidth(txtOut);
+#else
+			BumpFont(txtIn, 1.1f);
+			BumpFont(txtOut, 1.1f);
+#endif
 		}
 
 		private void zoomInToolStripMenuItem_Click(object sender, EventArgs e) => ZoomIn();
 
 		private void ZoomOut()
 		{
+#if WINDOWS
 			txtIn.ZoomOut();
 			txtOut.ZoomOut();
 			UpdateNumberMarginWidth(txtIn);
 			UpdateNumberMarginWidth(txtOut);
+#else
+			BumpFont(txtIn, 1 / 1.1f);
+			BumpFont(txtOut, 1 / 1.1f);
+#endif
 		}
+
+#if !WINDOWS
+		private void BumpFont(RichTextBox box, float factor)
+		{
+			var size = Math.Max(6f, box.Font.Size * factor);
+			box.Font = new Font(box.Font.FontFamily, size, box.Font.Style);
+		}
+
+		private void ResetFont(RichTextBox box)
+		{
+			box.Font = new Font("Consolas", 10F, box.Font.Style);
+		}
+#endif
 
 		private void zoomOutToolStripMenuItem_Click(object sender, EventArgs e) => ZoomOut();
 	}

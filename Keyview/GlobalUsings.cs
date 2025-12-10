@@ -1,6 +1,8 @@
 ﻿global using global::Keysharp.Core;
 global using global::Keysharp.Scripting;
+#if WINDOWS
 global using global::ScintillaNET;
+#endif
 global using global::System;
 global using global::System.Collections.Generic;
 global using global::System.Diagnostics;

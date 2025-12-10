@@ -9,7 +9,9 @@ namespace Keyview
 		private static void Main()
 		{
 			var s = new Script();
+#if WINDOWS
 			_ = Application.SetHighDpiMode(HighDpiMode.SystemAware);
+#endif
 			Application.EnableVisualStyles();
 			Application.SetCompatibleTextRenderingDefault(false);
 			Application.Run(new Keyview());

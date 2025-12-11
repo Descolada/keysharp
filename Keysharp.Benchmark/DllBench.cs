@@ -1,4 +1,5 @@
-﻿namespace Keysharp.Benchmark
+﻿#if WINDOWS
+namespace Keysharp.Benchmark
 {
 	[IterationCount(5)]
 	[InvocationCount(5)]
@@ -83,3 +84,4 @@
 		}
 	}
 }
+#endif

@@ -511,14 +511,6 @@ namespace Keysharp.Tests
 
 			if (System.IO.File.Exists("./testshortcut.lnk"))
 				System.IO.File.Delete("./testshortcut.lnk");
-
-			VarRef outTarget = new(null);
-            VarRef outDir = new(null);
-            VarRef outArgs = new(null);
-            VarRef outDescription = new(null);
-            VarRef outIcon = new(null);
-            VarRef outIconNum = new(null);
-            VarRef outRunState = new(null);
 #endif
             Files.FileCreateShortcut
 			(

@@ -7,8 +7,8 @@ namespace Keysharp.Core.Linux.X11
 		private const string libDlName = "libdl.so";
 		private const string libGdiPlusName = "libgdiplus";
 		private const string libPthreadName = "libpthread.so.0";
-		private const string libX11Name = "libX11";
-		private const string libXfixesName = "libXfixes";//"libXfixes.so.3",
+		private const string libX11Name = "libX11.so.6";
+		private const string libXfixesName = "libXfixes.so.3";
 
 		[DllImport(libXfixesName)]
 		internal static extern void XFixesSelectSelectionInput(nint display, nint root, nint atom, SelectionNotifyMask mask);
@@ -22,7 +22,7 @@ namespace Keysharp.Core.Linux.X11
 		[DllImport(libX11Name)]
 		internal static extern int XDefaultScreen(nint display);
 
-		[DllImport("X11")]
+		[DllImport(libX11Name)]
 		internal static extern int XFree(nint ptr);
 
 		[DllImport(libX11Name)]

@@ -11,6 +11,7 @@
 
 	<PropertyGroup>
 		<IsPackable>false</IsPackable>
+		<IsPublishable>false</IsPublishable>
 		<OutputType>WinExe</OutputType>
 		<CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
 		<GenerateRuntimeConfigDevFile>true</GenerateRuntimeConfigDevFile>

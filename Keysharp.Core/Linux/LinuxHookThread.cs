@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics;
 using SharpHook;
 using SharpHook.Data;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
@@ -20,6 +21,10 @@ namespace Keysharp.Core.Linux
 	/// </summary>
 	internal class LinuxHookThread : Keysharp.Core.Common.Threading.HookThread
 	{
+		private static readonly bool HookDisabled = ShouldDisableHook();
+		[Conditional("DEBUG")]
+		private static void DebugLog(string message) => Console.WriteLine(message);
+
 		// --- SharpHook ---
 		private SimpleGlobalHook? globalHook;
 		private Task? hookRunTask;
@@ -450,6 +455,13 @@ namespace Keysharp.Core.Linux
 
 		private void StartGlobalHookIfNeeded(HookType req)
 		{
+			if (HookDisabled)
+			{
+				StopGlobalHook();
+				KeysharpEnhancements.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
+				return;
+			}
+
 			keyboardEnabled = (req & HookType.Keyboard) != 0;
 			mouseEnabled = (req & HookType.Mouse) != 0;
 
@@ -528,6 +540,13 @@ namespace Keysharp.Core.Linux
 			lock (injectedLock) injectedActive = false;
 		}
 
+		private static bool ShouldDisableHook()
+		{
+			var env = Environment.GetEnvironmentVariable("KEYSHARP_DISABLE_HOOK");
+			return !string.IsNullOrEmpty(env) &&
+				   (env.Equals("1") || env.Equals("true", StringComparison.OrdinalIgnoreCase) || env.Equals("yes", StringComparison.OrdinalIgnoreCase));
+		}
+
 		// -------------------- event handlers --------------------
 
 		private void OnKeyPressed(object? sender, KeyboardHookEventArgs e)
@@ -542,7 +561,7 @@ namespace Keysharp.Core.Linux
 				{
 					ignoreNextVk[vk] = n - 1;
 					if (ignoreNextVk[vk] <= 0) ignoreNextVk.Remove(vk);
-					Console.WriteLine($"[Hook] KeyDown vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
+					DebugLog($"[Hook] KeyDown vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
 					EndInjectedIgnoreIfIdle();
 					return;
 				}
@@ -551,36 +570,36 @@ namespace Keysharp.Core.Linux
 			{
 				if (injectedHeld.ContainsKey(vk))
 				{
-					Console.WriteLine($"[Hook] KeyDown vk={vk} filtered injectedHold");
+					DebugLog($"[Hook] KeyDown vk={vk} filtered injectedHold");
 					return;
 				}
 			}
-			if (InjectedActive()) { Console.WriteLine($"[Hook] KeyDown vk={vk} filtered injected"); return; }
+			if (InjectedActive()) { DebugLog($"[Hook] KeyDown vk={vk} filtered injected"); return; }
 
 			long eventLevel = sendInProgress ? sendInProgressLevel : (e.IsEventSimulated ? 0 : PhysicalInputLevel);
 			if (eventLevel == 0)
 			{
-				Console.WriteLine($"[Hook] KeyDown vk={vk} ignored (eventLevel=0)");
+				DebugLog($"[Hook] KeyDown vk={vk} ignored (eventLevel=0)");
 				return;
 			}
 
 			// Suppress repeat if we still think the key is down physically.
 			if (!e.IsEventSimulated && vk < physicalKeyState.Length && (physicalKeyState[vk] & StateDown) != 0)
 			{
-				Console.WriteLine($"[Hook] KeyDown vk={vk} filtered repeat (phys still down)");
+				DebugLog($"[Hook] KeyDown vk={vk} filtered repeat (phys still down)");
 				return;
 			}
 
 			// Suppress auto-repeat for an already-active hotkey suffix while the key is held.
 			if (activeHotkeyDown && activeHotkeyVk == vk)
 			{
-				Console.WriteLine($"[Hook] KeyDown vk={vk} filtered (active suffix still down)");
+				DebugLog($"[Hook] KeyDown vk={vk} filtered (active suffix still down)");
 				return;
 			}
 
 			var indicatorsBefore = RefreshIndicatorSnapshot();
 			LogKeyHistory(false, vk);
-			Console.WriteLine($"[Hook] KeyDown vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]} artificial={e.IsEventSimulated}");
+			DebugLog($"[Hook] KeyDown vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]} artificial={e.IsEventSimulated}");
 
 			try
 			{
@@ -590,7 +609,7 @@ namespace Keysharp.Core.Linux
 					if (!InjectedActive() && !sendInProgress && vk < physicalKeyState.Length)
 					{
 						physicalKeyState[vk] = StateDown;
-						Console.WriteLine($"[HookState] Down tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
+						DebugLog($"[HookState] Down tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
 					}
 					if (vk != customPrefix.Vk)
 					{
@@ -643,7 +662,7 @@ namespace Keysharp.Core.Linux
 				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = StateDown;
-					Console.WriteLine($"[HookState] Down tracked vk={vk} physMods={CurrentModifiersLR():X}");
+					DebugLog($"[HookState] Down tracked vk={vk} physMods={CurrentModifiersLR():X}");
 				}
 
 				// Map neutral modifiers to left variants to keep physical state consistent.
@@ -890,7 +909,7 @@ namespace Keysharp.Core.Linux
 						hsIgnoreNextReleaseFor = 0;
 
 					// Do not mutate physical state for synthetic releases; wait for the real one.
-					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
+					DebugLog($"[Hook] KeyUp vk={vk} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(vk)}");
 					EndInjectedIgnoreIfIdle();
 					return;
 				}
@@ -904,13 +923,13 @@ namespace Keysharp.Core.Linux
 						// Allow the active suffix release to flow through while balancing injected count.
 						if (heldCount <= 1) injectedHeld.Remove(vk);
 						else injectedHeld[vk] = heldCount - 1;
-						Console.WriteLine($"[Hook] KeyUp vk={vk} injectedHold (active suffix pass-through)");
+						DebugLog($"[Hook] KeyUp vk={vk} injectedHold (active suffix pass-through)");
 					}
 					else
 					{
 						if (heldCount <= 1) injectedHeld.Remove(vk);
 						else injectedHeld[vk] = heldCount - 1;
-						Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injectedHold");
+						DebugLog($"[Hook] KeyUp vk={vk} filtered injectedHold");
 						return;
 					}
 				}
@@ -932,7 +951,7 @@ namespace Keysharp.Core.Linux
 			{
 				if (vk != activeHotkeyVk)
 				{
-					Console.WriteLine($"[Hook] KeyUp vk={vk} filtered injected");
+					DebugLog($"[Hook] KeyUp vk={vk} filtered injected");
 					return;
 				}
 
@@ -944,7 +963,7 @@ namespace Keysharp.Core.Linux
 			long eventLevel = sendInProgress ? sendInProgressLevel : (e.IsEventSimulated ? 0 : PhysicalInputLevel);
 			if (eventLevel == 0)
 			{
-				Console.WriteLine($"[Hook] KeyUp vk={vk} ignored (eventLevel=0)");
+				DebugLog($"[Hook] KeyUp vk={vk} ignored (eventLevel=0)");
 
 				// Even for simulated/ignored events, ensure custom prefix state is cleared so it
 				// doesn't remain active and treat later keys as suffixes.
@@ -957,7 +976,7 @@ namespace Keysharp.Core.Linux
 				return;
 			}
 
-			Console.WriteLine($"[Hook] KeyUp vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]}");
+			DebugLog($"[Hook] KeyUp vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]}");
 			LogKeyHistory(true, vk);
 
 			try
@@ -1002,7 +1021,7 @@ namespace Keysharp.Core.Linux
 					if (!InjectedActive() && vk < physicalKeyState.Length)
 					{
 						physicalKeyState[vk] = 0;
-						Console.WriteLine($"[HookState] Up tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
+						DebugLog($"[HookState] Up tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
 					}
 					if (vk != customPrefix.Vk)
 					{
@@ -1016,7 +1035,7 @@ namespace Keysharp.Core.Linux
 				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = 0;
-					Console.WriteLine($"[HookState] Up tracked vk={vk} physMods={CurrentModifiersLR():X}");
+					DebugLog($"[HookState] Up tracked vk={vk} physMods={CurrentModifiersLR():X}");
 				}
 				switch (vk)
 				{
@@ -1074,7 +1093,7 @@ namespace Keysharp.Core.Linux
 			long eventLevel = sendInProgress ? sendInProgressLevel : (e.IsEventSimulated ? 0 : PhysicalInputLevel);
 			if (eventLevel == 0)
 			{
-				Console.WriteLine($"[Hook] KeyTyped ignored level=0 ch={ch}");
+				DebugLog($"[Hook] KeyTyped ignored level=0 ch={ch}");
 				return;
 			}
 
@@ -1185,11 +1204,11 @@ namespace Keysharp.Core.Linux
 		// Temporarily release all grabs (keyboard + passive keys) during a send, then re-apply them.
 		internal GrabSnapshot BeginSendUngrab()
 		{
-			Console.WriteLine("[Hook] BeginSendUngrab");
+			DebugLog("[Hook] BeginSendUngrab");
 			var snap = new GrabSnapshot { Active = xDisplay != IntPtr.Zero && xRoot != IntPtr.Zero };
 			if (!snap.Active)
 			{
-				Console.WriteLine("[Hook] BeginSendUngrab skipped (no xDisplay/xRoot)");
+				DebugLog("[Hook] BeginSendUngrab skipped (no xDisplay/xRoot)");
 				return snap;
 			}
 
@@ -1228,7 +1247,7 @@ namespace Keysharp.Core.Linux
 				_ = XFlush(xDisplay);
 			}
 			catch { /* best-effort */ }
-			Console.WriteLine("[Hook] EndSendUngrab");
+			DebugLog("[Hook] EndSendUngrab");
 		}
 
 		private void DisarmHotstring()
@@ -1538,7 +1557,7 @@ namespace Keysharp.Core.Linux
 
 				var currentLR = GetCurrentModifiersLRExcludingSuffix(vk);
 				var currentNeutral = ConvertModifiersLR(currentLR); // to MOD_SHIFT/MOD_CONTROL/MOD_ALT/MOD_WIN
-				Console.WriteLine($"[Hook] TryPostHotkey vk={vk} keyUp={keyUp} currentLR={currentLR:X} neutral={currentNeutral:X}");
+				DebugLog($"[Hook] TryPostHotkey vk={vk} keyUp={keyUp} currentLR={currentLR:X} neutral={currentNeutral:X}");
 
 				// naive linear scan (list is typically small)
 				foreach (var hk in linuxHotkeys)
@@ -1587,14 +1606,14 @@ namespace Keysharp.Core.Linux
 
 			if (InjectedActive() && !(keyUp && vk == activeHotkeyVk))
 			{
-				Console.WriteLine($"[Hook] TryPostHotkey vk={vk} skipped (injected active)");
+				DebugLog($"[Hook] TryPostHotkey vk={vk} skipped (injected active)");
 				return;
 			}
 
 			// Suppress auto-repeat re-entry for the same suffix until its real KeyUp.
 			if (!keyUp && activeHotkeyDown && activeHotkeyVk == vk)
 				return;
-			Console.WriteLine($"[DbgHot] PostHotkey vk={vk} keyUp={keyUp} actVk={activeHotkeyVk} actDown={activeHotkeyDown}");
+			DebugLog($"[DbgHot] PostHotkey vk={vk} keyUp={keyUp} actVk={activeHotkeyVk} actDown={activeHotkeyDown}");
 
 			if (!keyUp)
 			{
@@ -1628,14 +1647,14 @@ namespace Keysharp.Core.Linux
 
 		internal void BeginSend(long sendLevel)
 		{
-			Console.WriteLine("[Hook] BeginSend");
+			DebugLog("[Hook] BeginSend");
 			sendInProgressLevel = sendLevel;
 			sendInProgress = true;
 		}
 
 		internal void EndSend()
 		{
-			Console.WriteLine("[Hook] EndSend");
+			DebugLog("[Hook] EndSend");
 			sendInProgress = false;
 			sendInProgressLevel = 0;
 			lock (injectedLock)
@@ -1651,7 +1670,7 @@ namespace Keysharp.Core.Linux
 			lock (injectedLock)
 			{
 				injectedActive = true;
-				Console.WriteLine("[Hook] BeginInjectedIgnore");
+				DebugLog("[Hook] BeginInjectedIgnore");
 			}
 		}
 
@@ -1729,7 +1748,7 @@ namespace Keysharp.Core.Linux
 					return;
 
 				injectedActive = false;
-				Console.WriteLine("[Hook] EndInjectedIgnore");
+				DebugLog("[Hook] EndInjectedIgnore");
 			}
 		}
 
@@ -1825,7 +1844,7 @@ namespace Keysharp.Core.Linux
 			{
 				ignoreNextVk.TryGetValue(vk, out var curr);
 				ignoreNextVk[vk] = curr + count;
-				Console.WriteLine($"[Hook] Ignoring next {count} events for vk={vk} (total now {ignoreNextVk[vk]})");
+				DebugLog($"[Hook] Ignoring next {count} events for vk={vk} (total now {ignoreNextVk[vk]})");
 			}
 		}
 
@@ -2265,7 +2284,7 @@ namespace Keysharp.Core.Linux
 			foreach (var ch in hm.hsBuf)
 				sb.Append(EscapeChar(ch));
 
-			Console.WriteLine($"[HS] {reason}: len={hm.hsBuf.Count} buf=\"{sb}\" armed={hsArmed}");
+			DebugLog($"[HS] {reason}: len={hm.hsBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 		}
 
 		// -------------------- X11 (blocking) --------------------

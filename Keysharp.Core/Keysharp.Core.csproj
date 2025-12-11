@@ -53,8 +53,6 @@
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<PackageReference Include="SharpHook" Version="7.1.0" />
 		<ProjectReference Include="..\..\System.Windows.Forms\System.Windows.Forms\System.Windows.Forms.csproj" />
-		<PackageReference Include="GtkSharp" Version="3.24.24.95" />
-		<PackageReference Include="EvDevSharpWrapper" Version="0.3.0" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
 		<EmbeddedResource Remove="Common\Window\KeysharpActiveX.resx" />
 	</ItemGroup>

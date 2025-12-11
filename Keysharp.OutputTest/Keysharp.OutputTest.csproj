@@ -12,6 +12,7 @@
   
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <IsPublishable>false</IsPublishable>
     <StartupObject>Keysharp.CompiledMain.Program</StartupObject>
     <ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
     <Version>0.0.0.12</Version>

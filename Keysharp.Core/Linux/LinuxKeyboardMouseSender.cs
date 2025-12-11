@@ -1,5 +1,6 @@
 #if LINUX
 using System.Text;
+using System.Diagnostics;
 using System.Linq;
 using SharpHook;
 using SharpHook.Native;
@@ -15,6 +16,9 @@ namespace Keysharp.Core.Linux
 	/// </summary>
 	internal partial class LinuxKeyboardMouseSender : Common.Keyboard.KeyboardMouseSender
 	{
+		[Conditional("DEBUG")]
+		private static void DebugLog(string message) => Console.WriteLine(message);
+
 		internal IEventSimulator sim => backend.sim;
 		private readonly SharpHookKeySimulationBackend backend = new();
 		private IEventSimulationSequenceBuilder eventBuilder;
@@ -949,16 +953,16 @@ namespace Keysharp.Core.Linux
 				else if (mode == SendModes.Play) mode = SendModes.Event;
 
 				var modsInitial = lht != null ? lht.CurrentModifiersLR() : self.GetModifierLRState(true);
-				Console.WriteLine($"[Send] modsInitial={modsInitial:X}");
+				DebugLog($"[Send] modsInitial={modsInitial:X}");
 				var capsOn = Script.TheScript.HookThread.IsKeyToggledOn(VK_CAPITAL);
 				// Preserve held modifiers when in {Blind} mode so wildcard hotkeys propagate them.
 				var modsDuring = ctx.InBlindMode ? modsInitial : 0u;
 				// When sending text-only in Input mode, avoid modifier adjustments to reduce duplicate/resend noise.
 				var adjustMods = (modsInitial != modsDuring || capsOn);
-				Console.WriteLine($"[Send] adjustMods={adjustMods} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");
+				DebugLog($"[Send] adjustMods={adjustMods} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");
 
 				if (adjustMods)
-					Console.WriteLine($"[Send] Adjust mods from {modsInitial:X} to {modsDuring:X} capsOn={capsOn}");
+					DebugLog($"[Send] Adjust mods from {modsInitial:X} to {modsDuring:X} capsOn={capsOn}");
 				if (adjustMods)
 					self.SetModifierLRState(modsDuring, modsInitial, 0, false, true, KeyboardMouseSender.KeyIgnore);
 
@@ -973,12 +977,12 @@ namespace Keysharp.Core.Linux
 				{
 					if (mode == SendModes.Input)
 					{
-						Console.WriteLine("[Send] ExecuteAsInput");
+						DebugLog("[Send] ExecuteAsInput");
 						ExecuteAsInput(ctx.Instructions, self, backend, lht, modsInitial);
 						return;
 					}
 
-					Console.WriteLine("[Send] ExecuteAsEvent");
+					DebugLog("[Send] ExecuteAsEvent");
 					ExecuteAsEvent(ctx.Instructions, self, keyDelay, keyDuration);
 				}
 				finally
@@ -1021,7 +1025,7 @@ namespace Keysharp.Core.Linux
 				{
 					if (lht != null && injectedHeld.Add(vk))
 						lht.TrackInjectedHold(vk, true);
-					Console.WriteLine($"[SendSeq {seqId}] KeyDown vk={vk}");
+					DebugLog($"[SendSeq {seqId}] KeyDown vk={vk}");
 					EnsureSeq();
 					seq!.AddKeyDown(vk);
 				}
@@ -1029,7 +1033,7 @@ namespace Keysharp.Core.Linux
 				{
 					if (lht != null && injectedHeld.Remove(vk))
 						lht.TrackInjectedHold(vk, false);
-					Console.WriteLine($"[SendSeq {seqId}] KeyUp vk={vk}");
+					DebugLog($"[SendSeq {seqId}] KeyUp vk={vk}");
 					EnsureSeq();
 					seq!.AddKeyUp(vk);
 				}
@@ -1063,7 +1067,7 @@ namespace Keysharp.Core.Linux
 					if (seq != null)
 					{
 						ReleaseHeldTextMods(EnsureSeq);
-						Console.WriteLine($"[SendInputTrace] Commit sequence id={seqId}");
+						DebugLog($"[SendInputTrace] Commit sequence id={seqId}");
 						seq.Commit();
 						seq = null;
 					}
@@ -1094,7 +1098,7 @@ namespace Keysharp.Core.Linux
 					{
 						if (fb.Length > 0)
 						{
-							Console.WriteLine($"[SendInputTrace] Fallback text \"{fb}\" via SimulateTextEntry");
+							DebugLog($"[SendInputTrace] Fallback text \"{fb}\" via SimulateTextEntry");
 							FlushSeq(); // releases held text mods
 							self.sim.SimulateTextEntry(fb.ToString());
 							fb.Clear();
@@ -1147,7 +1151,7 @@ namespace Keysharp.Core.Linux
 						if (LinuxCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
 							&& !KeyIsHeld(vk))
 						{
-							Console.WriteLine($"[SendInputTrace] Rune {rune} -> vk={vk} shift={needShift} altgr={needAltGr}");
+							DebugLog($"[SendInputTrace] Rune {rune} -> vk={vk} shift={needShift} altgr={needAltGr}");
 							FlushFallback();
 							EnsureSeq();
 							PressTextMods(needShift, needAltGr);
@@ -1156,7 +1160,7 @@ namespace Keysharp.Core.Linux
 						else
 						{
 							// If the physical key is held (e.g., suffix), fall back to text entry to avoid conflicts.
-							Console.WriteLine($"[SendInputTrace] Rune {rune} fallback to SimulateTextEntry");
+							DebugLog($"[SendInputTrace] Rune {rune} fallback to SimulateTextEntry");
 							FlushSeq();
 							fb.Append(rune.ToString());
 						}
@@ -1177,24 +1181,24 @@ namespace Keysharp.Core.Linux
 
 				foreach (var instr in instructions)
 				{
-					Console.WriteLine($"[SendInputTrace] Instr type={instr.Type} vk={instr.Vk} text=\"{instr.Text}\" repeat={instr.RepeatCount}");
+					DebugLog($"[SendInputTrace] Instr type={instr.Type} vk={instr.Vk} text=\"{instr.Text}\" repeat={instr.RepeatCount}");
 					switch (instr.Type)
 					{
 						case SendInstructionType.Text:
-							Console.WriteLine($"[SendInput] Text \"{instr.Text}\"");
+							DebugLog($"[SendInput] Text \"{instr.Text}\"");
 							// Coalesce in Input mode
 							textBatch.Append(instr.Text);
 							break;
 
 						case SendInstructionType.KeyDown:
 							FlushTextBatch();
-							Console.WriteLine($"[SendInput] KeyDown vk={instr.Vk}");
+							DebugLog($"[SendInput] KeyDown vk={instr.Vk}");
 							SeqDown(instr.Vk);
 							break;
 
 						case SendInstructionType.KeyUp:
 							FlushTextBatch();
-							Console.WriteLine($"[SendInput] KeyUp vk={instr.Vk}");
+							DebugLog($"[SendInput] KeyUp vk={instr.Vk}");
 							SeqUp(instr.Vk);
 							break;
 
@@ -1202,7 +1206,7 @@ namespace Keysharp.Core.Linux
 							FlushTextBatch();
 							for (var i = 0L; i < instr.RepeatCount; i++)
 							{
-								Console.WriteLine($"[SendInput] KeyStroke vk={instr.Vk}");
+								DebugLog($"[SendInput] KeyStroke vk={instr.Vk}");
 								SeqDown(instr.Vk);
 								SeqUp(instr.Vk);
 							}
@@ -1252,13 +1256,13 @@ namespace Keysharp.Core.Linux
 				long keyDelay,
 				long keyDuration)
 			{
-				Console.WriteLine("[SendEvent] Begin");
+				DebugLog("[SendEvent] Begin");
 				var lht = Script.TheScript.HookThread as LinuxHookThread;
 				var injectedHeld = new HashSet<uint>();
 
 				void Press(uint vk)
 				{
-					Console.WriteLine($"[SendEvent] KeyStroke vk={vk}");
+					DebugLog($"[SendEvent] KeyStroke vk={vk}");
 					self.backend.KeyDown(vk);
 					if (lht != null && injectedHeld.Add(vk)) lht.TrackInjectedHold(vk, true);
 					if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
@@ -1409,14 +1413,14 @@ namespace Keysharp.Core.Linux
 					switch (instr.Type)
 					{
 						case SendInstructionType.KeyDown:
-							Console.WriteLine($"[SendEvent] KeyDown vk={instr.Vk}");
+							DebugLog($"[SendEvent] KeyDown vk={instr.Vk}");
 							self.backend.KeyDown(instr.Vk);
 							if (lht != null && injectedHeld.Add(instr.Vk)) lht.TrackInjectedHold(instr.Vk, true);
 							if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
 							break;
 
 						case SendInstructionType.KeyUp:
-							Console.WriteLine($"[SendEvent] KeyUp vk={instr.Vk}");
+							DebugLog($"[SendEvent] KeyUp vk={instr.Vk}");
 							self.backend.KeyUp(instr.Vk);
 							if (lht != null && injectedHeld.Remove(instr.Vk)) lht.TrackInjectedHold(instr.Vk, false);
 							if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
@@ -1847,7 +1851,7 @@ namespace Keysharp.Core.Linux
 					var code = SharpHookKeyMapper.VkToKeyCode(vk);
 					if (code != KeyCode.VcUndefined)
 					{
-						Console.WriteLine($"[SendEmit] KeyDown vk={vk} code={code}");
+						DebugLog($"[SendEmit] KeyDown vk={vk} code={code}");
 						sim.SimulateKeyPress(code);
 					}
 				}
@@ -1857,7 +1861,7 @@ namespace Keysharp.Core.Linux
 					var code = SharpHookKeyMapper.VkToKeyCode(vk);
 					if (code != KeyCode.VcUndefined)
 					{
-						Console.WriteLine($"[SendEmit] KeyUp vk={vk} code={code}");
+						DebugLog($"[SendEmit] KeyUp vk={vk} code={code}");
 						sim.SimulateKeyRelease(code);
 					}
 				}
@@ -1867,7 +1871,7 @@ namespace Keysharp.Core.Linux
 					var code = SharpHookKeyMapper.VkToKeyCode(vk);
 					if (code != KeyCode.VcUndefined)
 					{
-						Console.WriteLine($"[SendEmit] KeyStroke vk={vk} code={code}");
+						DebugLog($"[SendEmit] KeyStroke vk={vk} code={code}");
 						sim.SimulateKeyStroke(code);
 					}
 				}
@@ -1891,7 +1895,7 @@ namespace Keysharp.Core.Linux
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code != KeyCode.VcUndefined)
 				{
-					Console.WriteLine($"[SendEmit] Seq KeyDown vk={vk} code={code}");
+					DebugLog($"[SendEmit] Seq KeyDown vk={vk} code={code}");
 					builder.AddKeyPress(code);
 				}
 			}
@@ -1901,7 +1905,7 @@ namespace Keysharp.Core.Linux
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code != KeyCode.VcUndefined)
 				{
-					Console.WriteLine($"[SendEmit] Seq KeyUp vk={vk} code={code}");
+					DebugLog($"[SendEmit] Seq KeyUp vk={vk} code={code}");
 					builder.AddKeyRelease(code);
 				}
 			}
@@ -1911,7 +1915,7 @@ namespace Keysharp.Core.Linux
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code != KeyCode.VcUndefined)
 				{
-					Console.WriteLine($"[SendEmit] Seq KeyStroke vk={vk} code={code}");
+					DebugLog($"[SendEmit] Seq KeyStroke vk={vk} code={code}");
 					builder.AddKeyPress(code);
 					builder.AddKeyRelease(code);
 				}
@@ -1921,7 +1925,7 @@ namespace Keysharp.Core.Linux
 			{
 				if (committed) return;
 				committed = true;
-				Console.WriteLine("[SendEmit] Seq Commit");
+				DebugLog("[SendEmit] Seq Commit");
 				builder.Simulate();
 			}
 

@@ -63,20 +63,20 @@ namespace Keysharp.Tests
 			//Can't really test RunAs() or Shutdown(), but they have been manually tested individually.
 #else
 			_ = Run("xed", "", "max", pid);
-			_ = ProcessWait(pid);
+			_ = ProcessWait(pid.__Value);
 
 			//Skip process priority raising on linux, it can't be raised
 			//above normal without being root.
-			if (ProcessExist(pid) != 0)
+			if (ProcessExist(pid.__Value) != 0)
 			{
 				System.Threading.Thread.Sleep(2000);
-				_ = ProcessClose(pid);
-				_ = ProcessWaitClose(pid);
+				_ = ProcessClose(pid.__Value);
+				_ = ProcessWaitClose(pid.__Value);
 			}
 
 			System.Threading.Thread.Sleep(1000);
-			pid = ProcessExist("xed");
-			Assert.AreEqual(0L, pid);
+			pid.__Value = ProcessExist("xed");
+			Assert.AreEqual(0L, pid.__Value);
 			_ = RunWait("xed", "", "max");
 			System.Threading.Thread.Sleep(1000);
 			Assert.AreEqual(0L, ProcessExist("xed"));

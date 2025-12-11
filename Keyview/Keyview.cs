@@ -428,13 +428,18 @@ namespace Keyview
 		{
 			timer.Stop();
 			//Script.Stop();
+			WriteLastRunText();
+		}
+
+		private void WriteLastRunText()
+        {
 			var dir = Path.GetDirectoryName(lastrun);
 
 			if (!Directory.Exists(dir))
 				_ = Directory.CreateDirectory(dir);
-
+				
 			File.WriteAllText(lastrun, txtIn.Text);
-		}
+        }
 
 		private void Keyview_Load(object sender, EventArgs e)
 		{
@@ -738,7 +743,7 @@ namespace Keyview
 #if WINDOWS
 						txtOut.FirstVisibleLine = oldIndex;
 #endif
-						File.WriteAllText(lastrun, txtIn.Text);
+						WriteLastRunText();
 						_ = ms.Seek(0, SeekOrigin.Begin);
 						var arr = ms.ToArray();
 						CompilerHelper.compiledBytes = arr;

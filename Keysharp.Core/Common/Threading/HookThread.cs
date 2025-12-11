@@ -1191,10 +1191,10 @@ namespace Keysharp.Core.Common.Threading
 			return true;
 		}
 
-		internal abstract bool EarlyCollectInput(ulong extraInfo, uint vk, uint sc, bool keyUp, bool isIgnored
+		internal abstract bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 										, CollectInputState state, KeyHistoryItem keyHistoryCurr);
 
-		internal bool CollectInput(ulong extraInfo, uint vk, uint sc, bool keyUp, bool isIgnored
+		internal bool CollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 								   , CollectInputState state, KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut
 								   , ref CaseConformModes caseConformMode, ref char endChar
 								  )
@@ -1204,7 +1204,7 @@ namespace Keysharp.Core.Common.Threading
 		// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
 		// neutral one.
 		{
-			if (!state.earlyCollected && !EarlyCollectInput(extraInfo, vk, sc, keyUp, isIgnored, state, keyHistoryCurr))
+			if (!state.earlyCollected && !EarlyCollectInput(extraInfo, rawSC, vk, sc, keyUp, isIgnored, state, keyHistoryCurr))
 				return false;
 
 			if (keyUp)

@@ -1869,7 +1869,7 @@ namespace Keysharp.Core.Linux
 			return (uint)XKeysymToKeycode(xDisplay, (IntPtr)ks);
 		}
 
-		internal override bool EarlyCollectInput(ulong extraInfo, uint vk, uint sc, bool keyUp, bool isIgnored
+		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 										, CollectInputState state, KeyHistoryItem keyHistoryCurr) => throw new NotImplementedException();
 
 		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLr, nint keybdLayout, bool enableAZFallback = false)

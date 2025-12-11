@@ -1,5 +1,5 @@
 ﻿using static Keysharp.Core.Accessors;
-using static Keysharp.Core.COM.Com;
+//using static Keysharp.Core.COM.Com;
 using static Keysharp.Core.Common.Keyboard.HotkeyDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringDefinition;
 using static Keysharp.Core.Common.Keyboard.HotstringManager;

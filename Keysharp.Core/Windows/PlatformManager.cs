@@ -27,7 +27,7 @@ namespace Keysharp.Core.Windows
 		internal override bool SetDllDirectory(string path) => WindowsAPI.SetDllDirectory(path);
 
 		internal override int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
-			=> WindowsAPI.ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff.Length, cchBuff, wFlags, dwhkl);
+			=> WindowsAPI.ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff, pwszBuff.Length, wFlags, dwhkl);
 
 		internal override uint MapVirtualKeyToChar(uint wVirtKey, nint hkl) => WindowsAPI.MapVirtualKeyEx(wVirtKey, WindowsAPI.MAPVK_VK_TO_CHAR, hkl);
 

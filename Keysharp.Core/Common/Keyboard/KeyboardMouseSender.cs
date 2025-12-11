@@ -845,7 +845,7 @@ namespace Keysharp.Core.Common.Keyboard
 					if (script.HookThread.HasKbdHook())
 						Flow.SleepWithoutInterruption(0); // Don't use ternary operator to combine this with next due to "else if".
 #if WINDOWS
-					else if (GetWindowThreadProcessId(targetWindow, out var _) == script.ProcessesData.MainThreadID)
+					else if (WindowsAPI.GetWindowThreadProcessId(targetWindow, out var _) == script.ProcessesData.MainThreadID)
 						Flow.SleepWithoutInterruption(-1);
 #endif
 				}

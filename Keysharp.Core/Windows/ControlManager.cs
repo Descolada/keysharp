@@ -175,7 +175,7 @@ namespace Keysharp.Core.Windows
 			var winy = int.MinValue;
 			var ctrlx = int.MinValue;
 			var ctrly = int.MinValue;
-			var vk = TheScript.HookThread.ConvertMouseButton(whichButton);
+			var vk = HookThread.ConvertMouseButton(whichButton);
 			var posoverride = options.Contains("pos", StringComparison.OrdinalIgnoreCase);
 			bool d = false, u = false, na = false;
 

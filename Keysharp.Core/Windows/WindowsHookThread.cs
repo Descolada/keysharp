@@ -360,7 +360,7 @@ namespace Keysharp.Core.Windows
 				}
 
 				if ((hm.enabledCount > 0 && !isIgnored) || script.input != null)
-					if (!CollectInput(extraInfo, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar)) // Key should be invisible (suppressed).
+					if (!CollectInput(extraInfo, kbd.scanCode, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar)) // Key should be invisible (suppressed).
 						return SuppressThisKeyFunc(hook, ref kbd, vk, sc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar);
 
 				// Do this here since the above "return SuppressThisKey" will have already done it in that case.
@@ -610,7 +610,7 @@ namespace Keysharp.Core.Windows
 			return vk;
 		}
 
-		internal override bool EarlyCollectInput(ulong extraInfo, uint vk, uint sc, bool keyUp, bool isIgnored
+		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 										, CollectInputState state, KeyHistoryItem keyHistoryCurr)
 		// Returns true if the caller should treat the key as visible (non-suppressed).
 		// Always use the parameter aVK rather than event.vkCode because the caller or caller's caller
@@ -618,7 +618,7 @@ namespace Keysharp.Core.Windows
 		// neutral one. On the other hand, event.scanCode is the one we need for ToUnicodeEx() calls.
 		{
 			var script = Script.TheScript;
-			var platformManager = script.PlatformManager.Manager;
+			var platformManager = script.PlatformProvider.Manager;
 			state.earlyCollected = true;
 			state.used_dead_key_non_destructively = false;
 			state.charCount = 0;
@@ -722,7 +722,7 @@ namespace Keysharp.Core.Windows
 			{
 				// VK_PACKET corresponds to a SendInput event with the KEYEVENTF_UNICODE flag.
 				charCount = 1;// SendInput only supports a single 16-bit character code.
-				ch[0] = (char)ev.scanCode; // No translation needed.
+				ch[0] = (char)rawSC; // No translation needed.
 			}
 			else if (transcribeKey && vk != VK_MENU)
 			{
@@ -753,7 +753,7 @@ namespace Keysharp.Core.Windows
 				// benefit; in particular, the Alt+Numpad state is still affected.
 				// Credit to Ilya Zakharevich for pointing out this method @ https://stackoverflow.com/a/78173420/894589
 				var flags = interfere ? 1u : 3u;
-				var scanCode = ev.scanCode | (interfere ? 0u : 0x8000u);
+				var scanCode = rawSC | (interfere ? 0u : 0x8000u);
 				// Provide the correct logical modifier and CapsLock state for any translation below.
 				AdjustKeyState(keyState, kbdMsSender.modifiersLRLogical);
 				keyState[VK_CAPITAL] = (byte)(IsKeyToggledOn(VK_CAPITAL) ? 1 : 0);
@@ -794,7 +794,7 @@ namespace Keysharp.Core.Windows
 					var deadKey = new DeadKeyRecord()
 					{
 						vk = vk,
-						sc = ev.scanCode,
+						sc = rawSC,
 						modLR = kbdMsSender.modifiersLRLogical,
 						caps = keyState[VK_CAPITAL]
 					};
@@ -1054,7 +1054,7 @@ namespace Keysharp.Core.Windows
 			// later to avoid any change in behavior compared to v2.0 (such as dead keys affecting the translation prior
 			// to being suppressed by a hotkey), or not done at all if the event is suppressed by other means.
 			if (hook == kbdHook && script.inputBeforeHotkeysCount > 0
-					&& !EarlyCollectInput(kbd.dwExtraInfo, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr))
+					&& !EarlyCollectInput(kbd.dwExtraInfo, kbd.scanCode, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr))
 				return new nint(SuppressThisKeyFunc(hook, ref kbd, vk, sc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 
 			// v1.0.43: Block the Win keys during journal playback to prevent keystrokes hitting the Start Menu

@@ -2345,7 +2345,7 @@ namespace Keysharp.Core.Windows
 
 							if (subspan.StartsWith("Click", StringComparison.OrdinalIgnoreCase))
 							{
-								ht.ParseClickOptions(subspan.Slice(5).TrimStart(SpaceTab), ref clickX, ref clickY, ref vk
+								HookThread.ParseClickOptions(subspan.Slice(5).TrimStart(SpaceTab), ref clickX, ref clickY, ref vk
 													 , ref eventType, ref repeatCount, ref moveOffset);
 
 								if (repeatCount < 1) // Allow {Click 100, 100, 0} to do a mouse-move vs. click (but modifiers like ^{Click..} aren't supported in this case.

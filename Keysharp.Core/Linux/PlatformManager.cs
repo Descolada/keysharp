@@ -1,5 +1,7 @@
 ﻿#if LINUX
 
+using VirtualKeys = Keysharp.Core.Common.Keyboard.VirtualKeys;
+
 namespace Keysharp.Core.Linux
 {
 	/// <summary>
@@ -39,11 +41,87 @@ namespace Keysharp.Core.Linux
 				isGnome = true;//Assume Gnome if no other DE was found.
 		}
 
+		// Return the current xkb_keymap pointer as a stand-in for HKL.
 		internal override nint GetKeyboardLayout(uint idThread)
-		=> throw new NotImplementedException();
+		{
+			return LinuxKeyboardMouseSender.LinuxCharMapper.GetCurrentKeymapHandle();
+		}
 
 		internal override int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, int cchBuff, uint wFlags, nint dwhkl)
-		=> throw new NotImplementedException();
+		{
+			// Best-effort VK→char mapping for Linux; limited to US-style keys.
+			// Similar to Windows ToUnicodeEx but without dead-key handling.
+			if (pwszBuff == null || cchBuff <= 0)
+				return 0;
+
+			bool shift =
+				(lpKeyState.Length > VirtualKeys.VK_SHIFT && (lpKeyState[VirtualKeys.VK_SHIFT] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_LSHIFT && (lpKeyState[VirtualKeys.VK_LSHIFT] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_RSHIFT && (lpKeyState[VirtualKeys.VK_RSHIFT] & 0x80) != 0);
+
+			bool caps = lpKeyState.Length > VirtualKeys.VK_CAPITAL && (lpKeyState[VirtualKeys.VK_CAPITAL] & 0x01) != 0;
+
+			char ch = '\0';
+
+			// Letters
+			if (wVirtKey is >= (uint)'A' and <= (uint)'Z')
+			{
+				bool upper = shift ^ caps;
+				ch = (char)(upper ? wVirtKey : (wVirtKey + 32)); // make lowercase by adding 32
+			}
+			// Digits and shifted symbols on the number row
+			else if (wVirtKey is >= (uint)'0' and <= (uint)'9')
+			{
+				if (!shift)
+				{
+					ch = (char)wVirtKey;
+				}
+				else
+				{
+					// US keyboard shifted digits
+					ch = wVirtKey switch
+					{
+						'1' => '!',
+						'2' => '@',
+						'3' => '#',
+						'4' => '$',
+						'5' => '%',
+						'6' => '^',
+						'7' => '&',
+						'8' => '*',
+						'9' => '(',
+						'0' => ')',
+						_ => '\0'
+					};
+				}
+			}
+			else
+			{
+				// Common punctuation / OEM keys (US layout)
+				ch = wVirtKey switch
+				{
+					VirtualKeys.VK_SPACE => ' ',
+					VirtualKeys.VK_OEM_MINUS => shift ? '_' : '-',
+					VirtualKeys.VK_OEM_PLUS => shift ? '+' : '=',
+					VirtualKeys.VK_OEM_1 => shift ? ':' : ';',
+					VirtualKeys.VK_OEM_2 => shift ? '?' : '/',
+					VirtualKeys.VK_OEM_3 => shift ? '~' : '`',
+					VirtualKeys.VK_OEM_4 => shift ? '{' : '[',
+					VirtualKeys.VK_OEM_5 => shift ? '|' : '\\',
+					VirtualKeys.VK_OEM_6 => shift ? '}' : ']',
+					VirtualKeys.VK_OEM_7 => shift ? '"' : '\'',
+					VirtualKeys.VK_OEM_COMMA => shift ? '<' : ',',
+					VirtualKeys.VK_OEM_PERIOD => shift ? '>' : '.',
+					_ => '\0'
+				};
+			}
+
+			if (ch == '\0')
+				return 0;
+
+			pwszBuff[0] = ch;
+			return 1;
+		}
 
 		internal override bool SetDllDirectory(string path)
 		{

@@ -141,6 +141,16 @@ namespace Keysharp.Core.Linux
 				}
 			}
 
+			/// <summary>
+			/// Expose the current xkb_keymap pointer (or IntPtr.Zero if unavailable).
+			/// Useful for callers that need a layout token similar to Windows' HKL.
+			/// </summary>
+			internal static nint GetCurrentKeymapHandle()
+			{
+				EnsureInitialized();
+				return _keymap;
+			}
+
 			private static uint KeysymFromRune(Rune r)
 			{
 				uint cp = (uint)r.Value;

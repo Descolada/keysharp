@@ -1148,8 +1148,7 @@ namespace Keysharp.Core.Linux
 						}
 
 						// --- Printable / layout-aware mapping ---
-						if (LinuxCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
-							&& !KeyIsHeld(vk))
+						if (LinuxCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr))
 						{
 							DebugLog($"[SendInputTrace] Rune {rune} -> vk={vk} shift={needShift} altgr={needAltGr}");
 							FlushFallback();
@@ -1159,7 +1158,6 @@ namespace Keysharp.Core.Linux
 						}
 						else
 						{
-							// If the physical key is held (e.g., suffix), fall back to text entry to avoid conflicts.
 							DebugLog($"[SendInputTrace] Rune {rune} fallback to SimulateTextEntry");
 							FlushSeq();
 							fb.Append(rune.ToString());

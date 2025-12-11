@@ -55,6 +55,7 @@ namespace Keysharp.Core.Linux
 		private bool injectedActive;
 		private uint activeHotkeyVk;
 		private bool activeHotkeyDown;
+		private readonly bool[] logicalKeyState = new bool[VK_ARRAY_COUNT];
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
 		internal bool SendInProgress => sendInProgress;
 
@@ -464,6 +465,8 @@ namespace Keysharp.Core.Linux
 
 			keyboardEnabled = (req & HookType.Keyboard) != 0;
 			mouseEnabled = (req & HookType.Mouse) != 0;
+			kbdHook = keyboardEnabled ? 1 : 0;   // sentinel so HasKbdHook() reports correctly on Linux
+			mouseHook = mouseEnabled ? 1 : 0;
 
 			if (!keyboardEnabled && !mouseEnabled)
 			{
@@ -522,6 +525,9 @@ namespace Keysharp.Core.Linux
 
 			_ = RefreshIndicatorSnapshot();
 			hookRunTask = globalHook.RunAsync();
+			// Ensure hook flags stay set even after (re)start.
+			kbdHook = keyboardEnabled ? 1 : 0;
+			mouseHook = mouseEnabled ? 1 : 0;
 		}
 
 		private void StopGlobalHook()
@@ -538,6 +544,8 @@ namespace Keysharp.Core.Linux
 			kbdMsSender.modifiersLRPhysical = 0;
 			lock (ignoreNextVk) ignoreNextVk.Clear();
 			lock (injectedLock) injectedActive = false;
+			kbdHook = 0;
+			mouseHook = 0;
 		}
 
 		private static bool ShouldDisableHook()
@@ -662,6 +670,7 @@ namespace Keysharp.Core.Linux
 				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = StateDown;
+					logicalKeyState[vk] = true;
 					DebugLog($"[HookState] Down tracked vk={vk} physMods={CurrentModifiersLR():X}");
 				}
 
@@ -783,9 +792,16 @@ namespace Keysharp.Core.Linux
 		private static readonly uint[] RMods = { VK_RSHIFT, VK_RCONTROL, VK_RMENU, VK_RWIN };
 		internal uint CurrentModifiersLR()
 		{
-			// Prefer logical (non-ignored) state from the sender when the hook is active.
+			// Prefer logical (non-ignored) state from the sender when the hook is active
+			// and no send is in progress. During Send, the sender may temporarily drop
+			// modifiers to emit shifted characters; we should report what is physically
+			// held instead so that hotkey suffix checks (e.g. +h) keep seeing Shift.
 			if (HasKbdHook())
-				return kbdMsSender.modifiersLRLogicalNonIgnored;
+			{
+				if (!sendInProgress)
+					return kbdMsSender.modifiersLRLogicalNonIgnored;
+				// send in progress: fall through to physical snapshot
+			}
 
 			// With no hook, fall back to logical query via X11.
 			if (TryQueryModifierLRState(out var logicalMods))
@@ -852,6 +868,112 @@ namespace Keysharp.Core.Linux
 				return false;
 
 			return XQueryKeymap(xDisplay, keymap) != 0;
+		}
+
+		private bool TryQueryKeyState(uint vk, out bool isDown)
+		{
+			isDown = false;
+			if (!IsX11Available || xDisplay == IntPtr.Zero)
+				return false;
+
+			if (!TryQueryKeymap(out var keymap))
+				return false;
+
+			// Compute expected keysyms for this vk (primary and alternate, e.g. upper/lower).
+			var expected = VkToKeysyms(vk);
+			if (expected.Count == 0)
+				return false;
+
+			for (int keycode = 8; keycode < 256; keycode++)
+			{
+				var byteIndex = keycode >> 3;
+				var bitMask = 1 << (keycode & 7);
+				if ((keymap[byteIndex] & bitMask) == 0)
+					continue;
+
+				var keysym = (ulong)XKeycodeToKeysym(xDisplay, keycode, 0);
+				if (keysym == 0)
+					continue;
+
+				foreach (var ks in expected)
+				{
+					if ((ulong)ks == keysym)
+					{
+						isDown = true;
+						return true;
+					}
+				}
+			}
+
+			return true; // queried successfully; isDown stays false
+		}
+
+		private static List<uint> VkToKeysyms(uint vk)
+		{
+			var list = new List<uint>(2);
+
+			// Letters: add both lower and upper keysyms
+			if (vk is >= (uint)'A' and <= (uint)'Z')
+			{
+				var upper = vk;
+				var lower = vk + 32; // ASCII lowercase
+				list.Add(upper);
+				list.Add(lower);
+				return list;
+			}
+
+			// Digits
+			if (vk is >= (uint)'0' and <= (uint)'9')
+			{
+				list.Add(vk);
+				return list;
+			}
+
+			// Common OEM/punctuation keysyms (US layout assumptions)
+			switch (vk)
+			{
+				case VK_SPACE: list.Add((uint)' '); return list;
+				case VK_OEM_MINUS: list.Add((uint)'-'); list.Add((uint)'_'); return list;
+				case VK_OEM_PLUS: list.Add((uint)'='); list.Add((uint)'+'); return list;
+				case VK_OEM_1: list.Add((uint)';'); list.Add((uint)':'); return list;
+				case VK_OEM_2: list.Add((uint)'/'); list.Add((uint)'?'); return list;
+				case VK_OEM_3: list.Add((uint)'`'); list.Add((uint)'~'); return list;
+				case VK_OEM_4: list.Add((uint)'['); list.Add((uint)'{'); return list;
+				case VK_OEM_5: list.Add((uint)'\\'); list.Add((uint)'|'); return list;
+				case VK_OEM_6: list.Add((uint)']'); list.Add((uint)'}'); return list;
+				case VK_OEM_7: list.Add((uint)'\''); list.Add((uint)'"'); return list;
+				case VK_OEM_COMMA: list.Add((uint)','); list.Add((uint)'<'); return list;
+				case VK_OEM_PERIOD: list.Add((uint)'.'); list.Add((uint)'>'); return list;
+			}
+
+			// Modifiers and special keys: use X11 keysyms
+			switch (vk)
+			{
+				case VK_LSHIFT: list.Add(0xFFE1); break; // Shift_L
+				case VK_RSHIFT: list.Add(0xFFE2); break; // Shift_R
+				case VK_LCONTROL: list.Add(0xFFE3); break; // Control_L
+				case VK_RCONTROL: list.Add(0xFFE4); break; // Control_R
+				case VK_LMENU: list.Add(0xFFE9); break; // Alt_L
+				case VK_RMENU: list.Add(0xFFEA); break; // Alt_R
+				case VK_LWIN: list.Add(0xFFEB); break; // Super_L
+				case VK_RWIN: list.Add(0xFFEC); break; // Super_R
+				case VK_RETURN: list.Add(0xFF0D); break; // Return
+				case VK_TAB: list.Add(0xFF09); break; // Tab
+				case VK_ESCAPE: list.Add(0xFF1B); break; // Escape
+				case VK_BACK: list.Add(0xFF08); break; // Backspace
+				case VK_DELETE: list.Add(0xFFFF); break; // Delete
+				case VK_INSERT: list.Add(0xFF63); break; // Insert
+				case VK_HOME: list.Add(0xFF50); break;
+				case VK_END: list.Add(0xFF57); break;
+				case VK_PRIOR: list.Add(0xFF55); break; // PageUp
+				case VK_NEXT: list.Add(0xFF56); break;  // PageDown
+				case VK_LEFT: list.Add(0xFF51); break;
+				case VK_UP: list.Add(0xFF52); break;
+				case VK_RIGHT: list.Add(0xFF53); break;
+				case VK_DOWN: list.Add(0xFF54); break;
+			}
+
+			return list;
 		}
 
 
@@ -1021,6 +1143,7 @@ namespace Keysharp.Core.Linux
 					if (!InjectedActive() && vk < physicalKeyState.Length)
 					{
 						physicalKeyState[vk] = 0;
+						logicalKeyState[vk] = false;
 						DebugLog($"[HookState] Up tracked vk={vk} (custom prefix) physMods={CurrentModifiersLR():X}");
 					}
 					if (vk != customPrefix.Vk)
@@ -1035,6 +1158,7 @@ namespace Keysharp.Core.Linux
 				if (!InjectedActive() && vk < physicalKeyState.Length)
 				{
 					physicalKeyState[vk] = 0;
+					logicalKeyState[vk] = false;
 					DebugLog($"[HookState] Up tracked vk={vk} physMods={CurrentModifiersLR():X}");
 				}
 				switch (vk)
@@ -1619,6 +1743,9 @@ namespace Keysharp.Core.Linux
 			{
 				activeHotkeyDown = true;
 				activeHotkeyVk = vk;
+				// Reflect hotkey handling in logical state: suffix is blocked from the target app.
+				if (!passThrough && vk < logicalKeyState.Length)
+					logicalKeyState[vk] = false;
 			}
 			else if (vk == activeHotkeyVk)
 			{
@@ -1681,14 +1808,26 @@ namespace Keysharp.Core.Linux
 
 		internal void MarkModifiersDown(uint mods)
 		{
-			if ((mods & MOD_LSHIFT) != 0 && VK_LSHIFT < physicalKeyState.Length) physicalKeyState[VK_LSHIFT] = StateDown;
-			if ((mods & MOD_RSHIFT) != 0 && VK_RSHIFT < physicalKeyState.Length) physicalKeyState[VK_RSHIFT] = StateDown;
-			if ((mods & MOD_LCONTROL) != 0 && VK_LCONTROL < physicalKeyState.Length) physicalKeyState[VK_LCONTROL] = StateDown;
-			if ((mods & MOD_RCONTROL) != 0 && VK_RCONTROL < physicalKeyState.Length) physicalKeyState[VK_RCONTROL] = StateDown;
-			if ((mods & MOD_LALT) != 0 && VK_LMENU < physicalKeyState.Length) physicalKeyState[VK_LMENU] = StateDown;
-			if ((mods & MOD_RALT) != 0 && VK_RMENU < physicalKeyState.Length) physicalKeyState[VK_RMENU] = StateDown;
-			if ((mods & MOD_LWIN) != 0 && VK_LWIN < physicalKeyState.Length) physicalKeyState[VK_LWIN] = StateDown;
-			if ((mods & MOD_RWIN) != 0 && VK_RWIN < physicalKeyState.Length) physicalKeyState[VK_RWIN] = StateDown;
+			// Keep sender masks in sync so CurrentModifiersLR() reflects the restored state.
+			kbdMsSender.modifiersLRPhysical = mods;
+			kbdMsSender.modifiersLRLogical = mods;
+			kbdMsSender.modifiersLRLogicalNonIgnored = mods;
+
+			void SetDown(uint vk)
+			{
+				if (vk >= physicalKeyState.Length) return;
+				physicalKeyState[vk] = StateDown;
+				if (vk < logicalKeyState.Length) logicalKeyState[vk] = true;
+			}
+
+			if ((mods & MOD_LSHIFT) != 0) SetDown(VK_LSHIFT);
+			if ((mods & MOD_RSHIFT) != 0) SetDown(VK_RSHIFT);
+			if ((mods & MOD_LCONTROL) != 0) SetDown(VK_LCONTROL);
+			if ((mods & MOD_RCONTROL) != 0) SetDown(VK_RCONTROL);
+			if ((mods & MOD_LALT) != 0) SetDown(VK_LMENU);
+			if ((mods & MOD_RALT) != 0) SetDown(VK_RMENU);
+			if ((mods & MOD_LWIN) != 0) SetDown(VK_LWIN);
+			if ((mods & MOD_RWIN) != 0) SetDown(VK_RWIN);
 		}
 
 		internal void ClearIgnoreNext()
@@ -1802,15 +1941,12 @@ namespace Keysharp.Core.Linux
 
 		internal override bool IsKeyDown(uint vk)
 		{
-			if (HasKbdHook())
-			{
-				if (vk < physicalKeyState.Length)
-					return (physicalKeyState[vk] & StateDown) != 0;
-				return false;
-			}
+			if (HasKbdHook() && vk < logicalKeyState.Length)
+				return logicalKeyState[vk];
 
-			if (TryQueryModifierLRState(out var mods))
-				return (mods & VkToModMask(vk)) != 0;
+			// Fallback: query X11 logical state for any key.
+			if (TryQueryKeyState(vk, out var isDown))
+				return isDown;
 
 			return false;
 		}

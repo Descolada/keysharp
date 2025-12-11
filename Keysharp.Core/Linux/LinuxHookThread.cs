@@ -606,7 +606,8 @@ namespace Keysharp.Core.Linux
 			}
 
 			var indicatorsBefore = RefreshIndicatorSnapshot();
-			LogKeyHistory(false, vk);
+			var sc = (uint)e.Data.RawCode;
+			LogKeyHistory(false, vk, sc);
 			DebugLog($"[Hook] KeyDown vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]} artificial={e.IsEventSimulated}");
 
 			try
@@ -1099,7 +1100,8 @@ namespace Keysharp.Core.Linux
 			}
 
 			DebugLog($"[Hook] KeyUp vk={vk} physMods={CurrentModifiersLR():X} ctrlState={physicalKeyState[Math.Min(VK_CONTROL, (uint)physicalKeyState.Length - 1)]} lctrl={physicalKeyState[Math.Min(VK_LCONTROL, (uint)physicalKeyState.Length - 1)]} rctrl={physicalKeyState[Math.Min(VK_RCONTROL, (uint)physicalKeyState.Length - 1)]}");
-			LogKeyHistory(true, vk);
+			var sc = (uint)e.Data.RawCode;
+			LogKeyHistory(true, vk, sc);
 
 			try
 			{
@@ -1582,7 +1584,7 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		private void LogKeyHistory(bool keyUp, uint vk)
+		private void LogKeyHistory(bool keyUp, uint vk, uint sc = 0)
 		{
 			var kh = keyHistory;
 			if (kh == null || kh.Size == 0 || vk == 0)
@@ -1591,7 +1593,7 @@ namespace Keysharp.Core.Linux
 			var item = kh.NextItem();
 			item.keyUp = keyUp;
 			item.vk = vk;
-			item.sc = 0;
+			item.sc = sc;
 			item.eventType = ' ';
 
 			var win = Script.TheScript.WindowProvider.Manager.ActiveWindow;
@@ -1998,8 +2000,25 @@ namespace Keysharp.Core.Linux
 				_ => 0
 			};
 
-		internal override uint MapScToVk(uint sc) => 0;
-		internal override uint MapVkToSc(uint sc, bool returnSecondary = false) => 0;
+		internal override uint MapScToVk(uint sc)
+		{
+			if (!IsX11Available || xDisplay == IntPtr.Zero || sc == 0)
+				return 0;
+
+			var ks = (ulong)XKeycodeToKeysym(xDisplay, (int)sc, 0);
+			return ks != 0 ? VkFromKeysym(ks) : 0;
+		}
+
+		internal override uint MapVkToSc(uint vk, bool returnSecondary = false)
+		{
+			if (!IsX11Available || xDisplay == IntPtr.Zero || vk == 0)
+				return 0;
+
+			ulong ks = VkToKeysym(vk);
+			if (ks == 0) return 0;
+
+			return (uint)XKeysymToKeycode(xDisplay, (IntPtr)ks);
+		}
 
 		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLr, nint keybdLayout, bool enableAZFallback = false)
 		{
@@ -2016,14 +2035,25 @@ namespace Keysharp.Core.Linux
 			return 0;
 		}
 
-		internal override uint TextToSC(ReadOnlySpan<char> text, ref bool? specifiedByNumber) => 0;
+		internal override uint TextToSC(ReadOnlySpan<char> text, ref bool? specifiedByNumber)
+		{
+			if (keyToScAlt.Dictionary.Count > 0 && keyToScAlt.TryGetValue(text, out var sc))
+				return sc;
 
-		// Your fuller TextToVK implementation already lives in your current file; keep it.
+			// Numeric sc? Allow "SCnnn" like Windows if desired.
+			if (text.Length > 2 && text.StartsWith("SC", StringComparison.OrdinalIgnoreCase) && uint.TryParse(text[2..], System.Globalization.NumberStyles.HexNumber, null, out var scParsed))
+			{
+				specifiedByNumber = true;
+				return scParsed;
+			}
+
+			return 0;
+		}
 
 		internal override bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref uint? modifiersLr, nint keybdLayout)
 		{
 			vk = TextToVK(text, ref modifiersLr, false, false, keybdLayout);
-			sc = 0;
+			sc = vk != 0 ? MapVkToSc(vk) : 0;
 			return vk != 0;
 		}
 
@@ -2135,230 +2165,9 @@ namespace Keysharp.Core.Linux
 				return 0;
 			}
 
-			// Lowercase for name matching
-			var n = name.ToLowerInvariant();
-
-			// Function keys F1..F24
-			if ((n.Length >= 2) && (n[0] == 'f') && int.TryParse(n.AsSpan(1), out var fnum) && fnum >= 1 && fnum <= 24)
-			{
-				return VK_F1 + (uint)(fnum - 1);
-			}
-
-			// Common names & synonyms
-			switch (n)
-			{
-				// main editing / navigation
-				case "enter":
-				case "return":
-					return VK_RETURN;
-
-				case "tab":
-					return VK_TAB;
-
-				case "esc":
-				case "escape":
-					return VK_ESCAPE;
-
-				case "space":
-				case "spacebar":
-					return VK_SPACE;
-
-				case "backspace":
-				case "bs":
-					return VK_BACK;
-
-				case "delete":
-				case "del":
-					return VK_DELETE;
-
-				case "insert":
-				case "ins":
-					return VK_INSERT;
-
-				case "home":
-					return VK_HOME;
-
-				case "end":
-					return VK_END;
-
-				case "pgup":
-				case "pageup":
-					return VK_PRIOR;
-
-				case "pgdn":
-				case "pagedown":
-					return VK_NEXT;
-
-				case "left":
-					return VK_LEFT;
-				case "right":
-					return VK_RIGHT;
-				case "up":
-					return VK_UP;
-				case "down":
-					return VK_DOWN;
-
-				// lock keys / system
-				case "capslock":
-					return VK_CAPITAL;
-				case "scrolllock":
-					return VK_SCROLL;
-				case "numlock":
-					return VK_NUMLOCK;
-				case "printscreen":
-				case "printscr":
-				case "prtsc":
-					return VK_SNAPSHOT;
-				case "pause":
-				case "break":
-					return VK_PAUSE;
-
-				// modifiers (neutral name maps to left side like elsewhere in your code)
-				case "shift":
-					return VK_LSHIFT;
-				case "lshift":
-					return VK_LSHIFT;
-				case "rshift":
-					return VK_RSHIFT;
-
-				case "ctrl":
-				case "control":
-					return VK_LCONTROL;
-				case "lctrl":
-				case "lcontrol":
-					return VK_LCONTROL;
-				case "rctrl":
-				case "rcontrol":
-					return VK_RCONTROL;
-
-				case "alt":
-					return VK_LMENU;
-				case "lalt":
-					return VK_LMENU;
-				case "ralt":
-				case "altgr":
-					return VK_RMENU;
-
-				case "win":
-				case "lwin":
-					return VK_LWIN;
-				case "rwin":
-					return VK_RWIN;
-
-				case "apps":
-				case "appskey":
-				case "contextmenu":
-					return VK_APPS;
-
-				// OEM / punctuation by name (rare as names; usually typed as chars)
-				case "oem_3":
-				case "tilde":
-				case "backquote":
-					return VK_OEM_3;
-				case "oem_minus":
-					return VK_OEM_MINUS;
-				case "oem_plus":
-					return VK_OEM_PLUS;
-				case "oem_4":
-				case "openbracket":
-				case "lbracket":
-					return VK_OEM_4;
-				case "oem_6":
-				case "closebracket":
-				case "rbracket":
-					return VK_OEM_6;
-				case "oem_5":
-				case "backslash":
-					return VK_OEM_5;
-				case "oem_1":
-				case "semicolon":
-					return VK_OEM_1;
-				case "oem_7":
-				case "quote":
-				case "apostrophe":
-					return VK_OEM_7;
-				case "oem_comma":
-				case "comma":
-					return VK_OEM_COMMA;
-				case "oem_period":
-				case "period":
-				case "dot":
-					return VK_OEM_PERIOD;
-				case "oem_2":
-				case "slash":
-				case "fslash":
-					return VK_OEM_2;
-
-				// numpad
-				case "numpad0": return VK_NUMPAD0;
-				case "numpad1": return VK_NUMPAD1;
-				case "numpad2": return VK_NUMPAD2;
-				case "numpad3": return VK_NUMPAD3;
-				case "numpad4": return VK_NUMPAD4;
-				case "numpad5": return VK_NUMPAD5;
-				case "numpad6": return VK_NUMPAD6;
-				case "numpad7": return VK_NUMPAD7;
-				case "numpad8": return VK_NUMPAD8;
-				case "numpad9": return VK_NUMPAD9;
-
-				case "numpaddiv":
-				case "divide":
-				case "numdiv":
-				case "numslash":
-					return VK_DIVIDE;
-
-				case "numpadmult":
-				case "multiply":
-				case "nummult":
-				case "numasterisk":
-					return VK_MULTIPLY;
-
-				case "numpadsub":
-				case "subtract":
-				case "numsub":
-				case "numminus":
-					return VK_SUBTRACT;
-
-				case "numpadadd":
-				case "add":
-				case "numadd":
-				case "numplus":
-					return VK_ADD;
-
-				case "numpaddot":
-				case "numpaddecimal":
-				case "decimal":
-				case "numdot":
-					return VK_DECIMAL;
-
-				case "numpadenter":
-					return VK_RETURN; // most targets treat it as Return; keep a separate VK if you have one.
-
-				case "numpadclear":
-					return VK_CLEAR;
-
-				case "numpadseparator":
-					return VK_SEPARATOR;
-
-				// mouse buttons (Send can accept {LButton}/{RButton}/...; represent with VK_*BUTTON)
-				case "lbutton":
-				case "leftbutton":
-					return VK_LBUTTON;
-				case "rbutton":
-				case "rightbutton":
-					return VK_RBUTTON;
-				case "mbutton":
-				case "middlebutton":
-					return VK_MBUTTON;
-				case "xbutton1":
-					return VK_XBUTTON1;
-				case "xbutton2":
-					return VK_XBUTTON2;
-
-				// Click token (treat like left button if encountered here)
-				case "click":
-					return VK_LBUTTON;
-			}
+			// Dictionary-driven name lookup shared via HookThread.
+			if (keyToVkAlt.Dictionary.Count > 0 && keyToVkAlt.TryGetValue(name, out var vkFromDict))
+				return vkFromDict;
 
 			// If the token is a single letter/digit but we didn’t return yet (e.g. due to accents),
 			// try a last-chance simple path that mirrors AHK’s “letters inside braces force VK”.

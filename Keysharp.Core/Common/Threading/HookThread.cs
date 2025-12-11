@@ -115,6 +115,7 @@ namespace Keysharp.Core.Common.Threading
 
 			if (keyToVk == null)
 			{
+				// Prefer the more common/long form first so VKtoKeyName() has stable results.
 				keyToVk = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
 				{
 					{"Numpad0", VK_NUMPAD0},
@@ -166,12 +167,24 @@ namespace Keysharp.Core.Common.Threading
 					{"NumpadEnd", VK_END},
 					{"NumpadPgUp", VK_PRIOR},
 					{"NumpadPgDn", VK_NEXT},
+					{"Up", VK_UP},
+					{"Down", VK_DOWN},
+					{"Left", VK_LEFT},
+					{"Right", VK_RIGHT},
+					{"Home", VK_HOME},
+					{"End", VK_END},
+					{"PgUp", VK_PRIOR},
+					{"PageUp", VK_PRIOR},
+					{"PgDn", VK_NEXT},
+					{"PageDown", VK_NEXT},
 					{"PrintScreen", VK_SNAPSHOT},
 					{"CtrlBreak", VK_CANCEL}, // Might want to verify this, and whether it has any peculiarities.
 					{"Pause", VK_PAUSE}, // So that VKtoKeyName() delivers consistent results, always have the preferred name first.
 					{"Help", VK_HELP}, // VK_HELP is probably not the extended HELP key.  Not sure what this one is.
 					{"Sleep", VK_SLEEP},
 					{"AppsKey", VK_APPS},
+					{"Apps", VK_APPS},
+					{"ContextMenu", VK_APPS},
 					{"LControl", VK_LCONTROL}, // So that VKtoKeyName() delivers consistent results, always have the preferred name first.
 					{"RControl", VK_RCONTROL}, // So that VKtoKeyName() delivers consistent results, always have the preferred name first.
 					{"LCtrl", VK_LCONTROL}, // Abbreviated versions of the above.
@@ -188,6 +201,7 @@ namespace Keysharp.Core.Common.Threading
 					{"Ctrl", VK_CONTROL}, // An alternate for convenience.
 					{"Alt", VK_MENU},
 					{"Shift", VK_SHIFT},
+					{"Spacebar", VK_SPACE},
 					{"F1", VK_F1}, {"F2", VK_F2}, {"F3", VK_F3}, {"F4", VK_F4}, {"F5", VK_F5}, {"F6", VK_F6},
 					{"F7", VK_F7}, {"F8", VK_F8}, {"F9", VK_F9}, {"F10", VK_F10}, {"F11", VK_F11}, {"F12", VK_F12},
 					{"F13", VK_F13}, {"F14", VK_F14}, {"F15", VK_F15}, {"F16", VK_F16}, {"F17", VK_F17}, {"F18", VK_F18},
@@ -199,6 +213,7 @@ namespace Keysharp.Core.Common.Threading
 					{"XButton1", VK_XBUTTON1},
 					{"XButton2", VK_XBUTTON2},
 					// Custom/fake VKs for use by the mouse hook:
+					{"Click", VK_LBUTTON},
 					{"WheelDown", VK_WHEEL_DOWN},
 					{"WheelUp", VK_WHEEL_UP},
 					{"WheelLeft", VK_WHEEL_LEFT},

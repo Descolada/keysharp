@@ -497,7 +497,7 @@ break_twice:;
 		/// that can be recorded for display in the window (limit 500).<br/>
 		/// The key history is also reset, but the main window is not shown or refreshed.
 		/// Specify 0 to disable key history entirely.</param>
-		public static object KeyHistory(object maxEvents)
+		public static object KeyHistory(object maxEvents = null)
 		{
 			var script = Script.TheScript;
 

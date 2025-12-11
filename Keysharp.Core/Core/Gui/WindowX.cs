@@ -277,8 +277,8 @@ namespace Keysharp.Core
 		public static object SetProcessDPIAware()
 		{
 #if LINUX//Don't have Gtk working on Windows yet, but just in case we ever get it working.//TODO
-			//Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", "gtkplus");//This used to need to come first, but I'm not sure what it does now. It seems to have no effect.
-			Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", null);//Apparently gtkplus causes major tearing issues on Linux, so disable it.
+			Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", "gtkplus");//This used to need to come first, but I'm not sure what it does now. It seems to have no effect.
+			//Update: This seems to be needed to get GTK styles on Linux with Mono, but causes some tearing issues with Keyview. Need to investigate more.//TODO.
 #endif
 			Application.EnableVisualStyles();
 

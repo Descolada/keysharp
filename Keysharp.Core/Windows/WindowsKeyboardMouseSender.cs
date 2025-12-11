@@ -359,7 +359,7 @@ namespace Keysharp.Core.Windows
 			var script = Script.TheScript;
 
 			if (window == 0)
-				window = script.WindowProvider.Manager.GetForeGroundWindowHwnd();
+				window = script.WindowProvider.Manager.GetForegroundWindowHandle();
 
 			nint tempzero = 0;
 			return script.PlatformProvider.Manager.GetKeyboardLayout(script.WindowProvider.Manager.GetFocusedCtrlThread(ref tempzero, window));

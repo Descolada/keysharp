@@ -12,8 +12,7 @@ namespace Keysharp.Core.Windows
 
 		internal override bool ExitProgram(uint flags, uint reason) => WindowsAPI.ExitWindowsEx(flags, reason);
 
-		internal override nint GetKeyboardLayout(uint idThread)
-		=> WindowsAPI.GetKeyboardLayout(idThread);
+		internal override nint GetKeyboardLayout(uint idThread)=> WindowsAPI.GetKeyboardLayout(idThread);
 
 		internal override nint LoadLibrary(string path) => WindowsAPI.LoadLibrary(path);
 
@@ -27,8 +26,10 @@ namespace Keysharp.Core.Windows
 
 		internal override bool SetDllDirectory(string path) => WindowsAPI.SetDllDirectory(path);
 
-		internal override int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, int cchBuff, uint wFlags, nint dwhkl)
-		=> WindowsAPI.ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff, cchBuff, wFlags, dwhkl);
+		internal override int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
+			=> WindowsAPI.ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff.Length, cchBuff, wFlags, dwhkl);
+
+		internal override uint MapVirtualKeyToChar(uint wVirtKey, nint hkl) => WindowsAPI.MapVirtualKeyEx(wVirtKey, WindowsAPI.MAPVK_VK_TO_CHAR, hkl);
 
 		internal override bool UnregisterHotKey(nint hWnd, uint id) => WindowsAPI.UnregisterHotKey(hWnd, id);
 	}

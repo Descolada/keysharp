@@ -49,7 +49,7 @@ namespace Keysharp.Core.Linux
 
 		internal override uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => throw new NotImplementedException();
 
-		internal override nint GetForeGroundWindowHwnd() => new nint(_display.XGetInputFocusHandle());
+		internal override nint GetForegroundWindowHandle() => new nint(_display.XGetInputFocusHandle());
 
 		internal override bool IsWindow(nint handle)
 		{

@@ -135,7 +135,7 @@ namespace Keysharp.Core.Windows
 			return thread_id;
 		}
 
-		internal override nint GetForeGroundWindowHwnd() => WindowsAPI.GetForegroundWindow();
+		internal override nint GetForegroundWindowHandle() => WindowsAPI.GetForegroundWindow();
 
 		internal override bool IsWindow(nint handle) => WindowsAPI.IsWindow(handle) || handle == WindowsAPI.HWND_BROADCAST;
 

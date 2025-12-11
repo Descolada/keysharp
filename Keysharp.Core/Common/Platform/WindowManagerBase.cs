@@ -160,7 +160,7 @@ namespace Keysharp.Core.Common.Platform
 
 		internal abstract uint GetFocusedCtrlThread(ref nint apControl, nint aWindow);
 
-		internal abstract nint GetForeGroundWindowHwnd();
+		internal abstract nint GetForegroundWindowHandle();
 
 		internal abstract bool IsWindow(nint handle);
 

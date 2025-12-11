@@ -47,11 +47,11 @@ namespace Keysharp.Core.Linux
 			return LinuxKeyboardMouseSender.LinuxCharMapper.GetCurrentKeymapHandle();
 		}
 
-		internal override int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, int cchBuff, uint wFlags, nint dwhkl)
+		internal override int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
 		{
 			// Best-effort VK→char mapping for Linux; limited to US-style keys.
 			// Similar to Windows ToUnicodeEx but without dead-key handling.
-			if (pwszBuff == null || cchBuff <= 0)
+			if (pwszBuff == null || pwszBuff.Length == 0)
 				return 0;
 
 			bool shift =
@@ -121,6 +121,18 @@ namespace Keysharp.Core.Linux
 
 			pwszBuff[0] = ch;
 			return 1;
+		}
+
+		internal override uint MapVirtualKeyToChar(uint wVirtKey, nint hkl)
+		{
+			// Return the character code corresponding to the given virtual key.
+			// Similar to Windows MapVirtualKeyEx with MAPVK_VK_TO_CHAR.
+			char[] ch = new char[1];
+			int result = ToUnicode(wVirtKey, 0, new byte[256], ch, 0, hkl);
+			if (result > 0)
+				return ch[0];
+			else
+				return 0;
 		}
 
 		internal override bool SetDllDirectory(string path)

@@ -1960,9 +1960,6 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(user32, StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, int cchBuff, uint wFlags, nint dwhkl);
 
-		internal static int ToUnicodeOrAsciiEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl) =>
-		ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff, pwszBuff.Length, wFlags, dwhkl);
-
 		[LibraryImport(user32, EntryPoint = "UnhookWindowsHookEx")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool UnhookWindowsHookEx(nint hhk);

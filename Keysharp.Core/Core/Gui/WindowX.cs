@@ -50,7 +50,7 @@ namespace Keysharp.Core
 				if (windows.Count != 0 && windows.Count == group.activated.Count)
 					group.activated.Clear();
 
-				if (windows.Count == 1 && windows[0].Handle.ToInt64() == script.WindowProvider.Manager.GetForeGroundWindowHwnd().ToInt64())
+				if (windows.Count == 1 && windows[0].Handle.ToInt64() == script.WindowProvider.Manager.GetForegroundWindowHandle().ToInt64())
 					return 0L;
 
 				if (!m.Equals(Keyword_R, StringComparison.OrdinalIgnoreCase) && !windows.Any(w => w.Active))
@@ -164,7 +164,7 @@ namespace Keysharp.Core
 				if (allwindows.Count != 0 && windows.Count == group.deactivated.Count)
 					group.deactivated.Clear();
 
-				if (allwindows.Count == 1 && allwindows[0].Handle.ToInt64() == script.WindowProvider.Manager.GetForeGroundWindowHwnd().ToInt64())
+				if (allwindows.Count == 1 && allwindows[0].Handle.ToInt64() == script.WindowProvider.Manager.GetForegroundWindowHandle().ToInt64())
 					return DefaultObject;
 
 				if (!m.Equals(Keyword_R, StringComparison.OrdinalIgnoreCase) && windows.Any(w => w.Active))

@@ -282,15 +282,10 @@
 						backspaceCount--;
 					}
 
-				// Subtract 1 from backspaces because the final key pressed by the user to make a
-				// match was already suppressed by the hook (it wasn't sent through to the active
-				// window).  So what we do is backspace over all the other keys prior to that one,
-				// put in the replacement text (if applicable), then send the EndChar through
-				// (if applicable) to complete the sequence.
-
-				if (!endCharRequired)
-					--backspaceCount;
-
+				// Backspace over the entire typed abbreviation. For hotstrings with an explicit
+				// end-character, that end key is suppressed by the hook so only the abbreviation
+				// reached the target. For no-end hotstrings, all characters were sent, so we still
+				// need to erase the full abbreviation length.
 				for (var i = 0; i < backspaceCount; ++i)
 				{
 					_ = sb.Append('\b');  // Use raw backspaces, not {BS n}, in case the send will be raw.

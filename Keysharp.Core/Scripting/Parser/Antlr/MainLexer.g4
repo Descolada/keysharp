@@ -351,9 +351,9 @@ fragment NonWSCharacter: ~[\t\u000B\u000C\u0020\u00A0];
 
 fragment WhiteSpace: WSCharacter+;
 
-fragment DoubleStringCharacter: ~["`] | '`' EscapeSequence;
+fragment DoubleStringCharacter: ~["`\r\n\u2028\u2029] | '`' EscapeSequence;
 
-fragment SingleStringCharacter: ~['`] | '`' EscapeSequence;
+fragment SingleStringCharacter: ~['`\r\n\u2028\u2029] | '`' EscapeSequence;
 
 fragment NonColonStringCharacter: ~[;:`\r\n] | '`' EscapeSequence;
 

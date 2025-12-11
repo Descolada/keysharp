@@ -40,6 +40,8 @@ namespace Keysharp.Scripting
 		//Some unit tests use try..catch in non-script code, which causes ErrorOccurred to display the error dialog.
 		//This allows to suppress it, but only inside ErrorOccurred (not in TryCatch etc).
 		public bool SuppressErrorOccurredDialog = AppDomain.CurrentDomain.FriendlyName == "testhost";
+		//This allows to suppress all error processing
+		public uint SuppressErrorOccurred = 0;
 		internal const double DefaultErrorDouble = double.NaN;
 		internal const int DefaultErrorInt = int.MinValue;
 		internal const long DefaultErrorLong = long.MinValue;

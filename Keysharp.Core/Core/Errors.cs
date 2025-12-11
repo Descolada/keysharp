@@ -26,10 +26,13 @@ namespace Keysharp.Core
 		public static bool ErrorOccurred(Error err, string excType = Keyword_Return)
 		{
 			var exitThread = true;
+			var script = Script.TheScript;
+
+			if (script.SuppressErrorOccurred != 0)
+				return false;
 
 			if (!err.Processed && !Loops.IsExceptionCaught(err.GetType()))
 			{
-				var script = Script.TheScript;
 				err.ExcType = excType;
 
 				if (script.onErrorHandlers != null)
@@ -67,6 +70,25 @@ namespace Keysharp.Core
 				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
 
 			return exitThread;
+		}
+
+		//Used internally to suppress error processing, dialogs, and exiting via errors
+		internal sealed class SuppressErrors : IDisposable
+		{
+			private bool disposed;
+			public SuppressErrors()
+			{
+				TheScript.SuppressErrorOccurred++;
+			}
+
+			public void Dispose()
+			{
+				if (disposed)
+					return;
+
+				TheScript.SuppressErrorOccurred--;
+				disposed = true;
+			}
 		}
 
 		/// <summary>

@@ -548,6 +548,28 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
+		/// Allows using PushTry and PopTry with an using block
+		/// </summary>
+		internal sealed class TryScope : IDisposable
+		{
+			private bool disposed;
+
+			public TryScope(params Type[] exceptionTypes)
+			{
+				PushTry(exceptionTypes);
+			}
+
+			public void Dispose()
+			{
+				if (disposed)
+					return;
+
+				PopTry();   // Again, reuse your existing helper
+				disposed = true;
+			}
+		}
+
+		/// <summary>
 		/// Determines whether an exception type will be caught in any of the surrounding try blocks.
 		/// </summary>
 		public static bool IsExceptionCaught(Type exceptionType)

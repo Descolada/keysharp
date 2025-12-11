@@ -32,7 +32,8 @@ namespace Keysharp.Core
 
 				try
 				{
-					ed = Registrys.RegRead(@"HKCR\KeysharpScript\Shell\Edit\Command") as string;
+					using (new Errors.SuppressErrors()) //Suppress internal error processing
+						ed = Registrys.RegRead(@"HKCR\KeysharpScript\Shell\Edit\Command") as string;
 				}
 				catch
 				{

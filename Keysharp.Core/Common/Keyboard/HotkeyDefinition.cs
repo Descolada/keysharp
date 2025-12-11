@@ -450,6 +450,29 @@ namespace Keysharp.Core.Common.Keyboard
 				}
 			} // End of second pass loop.
 
+#if !WINDOWS
+			// On Linux we always rely on the hooks (XGrabKey lacks callbacks), so force hook handling
+			// for all active hotkeys rather than attempting RegisterHotkey-style optimization.
+			hkd.whichHookNeeded = 0;
+			for (i = 0; i < shk.Count; ++i)
+			{
+				if (hkIsInactive[i])
+					continue;
+
+				var hot = shk[i];
+				if (HK_TYPE_CAN_BECOME_KEYBD_HOOK(hot.type))
+					hot.type = HotkeyTypeEnum.KeyboardHook;
+
+				switch (hot.type)
+				{
+					case HotkeyTypeEnum.KeyboardHook: hkd.whichHookNeeded |= HookType.Keyboard; break;
+					case HotkeyTypeEnum.MouseHook: hkd.whichHookNeeded |= HookType.Mouse; break;
+					case HotkeyTypeEnum.BothHook: hkd.whichHookNeeded |= HookType.Keyboard | HookType.Mouse; break;
+				}
+			}
+
+#else
+
 			// THIRD PASS THROUGH THE HOTKEYS:
 			// v1.0.42: Reset sWhichHookNeeded because it's now possible that the hook was on before but no longer
 			// needed due to changing of a hotkey from hook to registered (for various reasons described above):
@@ -554,6 +577,7 @@ namespace Keysharp.Core.Common.Keyboard
 				}
 			} // for()
 
+#endif
 			// Check if anything else requires the hook.
 			// But do this part outside of the above block because these values may have changed since
 			// this function was first called.  By design, the Num/Scroll/CapsLock AlwaysOn/Off setting

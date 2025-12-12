@@ -1310,6 +1310,9 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(user32, EntryPoint = "CallNextHookEx")]
 		internal static partial nint CallNextHookEx(nint hhk, int nCode, nint wParam, ref MSDLLHOOKSTRUCT lParam);
 
+		[LibraryImport(user32, EntryPoint = "CallNextHookEx")]
+		internal static partial nint CallNextHookEx(nint hhk, int nCode, nint wParam, nint lParam);
+
 		[LibraryImport(kernel32, EntryPoint = "CloseHandle")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool CloseHandle(nint hObject);

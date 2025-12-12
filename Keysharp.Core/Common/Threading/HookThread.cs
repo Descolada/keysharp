@@ -1,7 +1,16 @@
-﻿using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
+﻿using System;
+using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
 using static Keysharp.Core.Common.Keyboard.ScanCodes;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
+
+#if WINDOWS
+using HookEventArgs = Keysharp.Core.Windows.HookEventArgs;
+using KeyboardHookEventArgs = Keysharp.Core.Windows.KeyboardHookEventArgs
+#else
+using HookEventArgs = SharpHook.HookEventArgs;
+using KeyboardHookEventArgs = SharpHook.KeyboardHookEventArgs;
+#endif
 
 namespace Keysharp.Core.Common.Threading
 {
@@ -59,6 +68,13 @@ namespace Keysharp.Core.Common.Threading
 			internal uint vk;
 		}
 
+		protected internal enum HookAction
+		{
+			Continue,
+			Suppress,
+			Allow
+		}
+
 		// The prefix key that's currently down (i.e. in effect).
 		// It's tracked this way, rather than as a count of the number of prefixes currently down, out of
 		// concern that such a count might accidentally wind up above zero (due to a key-up being missed somehow)
@@ -97,6 +113,10 @@ namespace Keysharp.Core.Common.Threading
 		protected internal nint mouseHook = 0;
 		protected internal bool undisguisedMenuInEffect = false;
 		protected volatile bool running;
+
+		protected internal virtual nint CallNextHook(HookEventArgs e) => nint.Zero;
+		protected internal virtual bool IsMouseMenuVisible() => false;
+		protected internal virtual void UpdateForegroundWindowData(KeyHistoryItem item, KeyHistory history) { }
 
 		internal HookThread()
 		{
@@ -1623,6 +1643,1964 @@ namespace Keysharp.Core.Common.Threading
 				y = pos.Y;
 			}
 		}
+
+		/// <summary>
+		/// v1.0.38.06: The keyboard and mouse hooks now call this common function to reduce code size and improve
+		/// maintainability.  The code size savings as of v1.0.38.06 is 3.5 KB of uncompressed code, but that
+		/// savings will grow larger if more complexity is ever added to the hooks.
+		/// </summary>
+		internal nint LowLevelCommon(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo, uint eventFlags)
+		{
+			var isKeyboardEvent = e is KeyboardHookEventArgs;
+			var hotkeyIdToPost = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
+			var isIgnored = IsIgnored(extraInfo);
+			var script = Script.TheScript;
+			var collectInputState = new CollectInputState()
+			{
+				earlyCollected = false
+			};
+			// The following is done for more than just convenience.  It solves problems that would otherwise arise
+			// due to the value of a global var such as KeyHistoryNext changing due to the reentrancy of
+			// this procedure.  For example, a call to KeyEvent() in here would alter the value of
+			// KeyHistoryNext, in most cases before we had a chance to finish using the old value.  In other
+			// words, we use an automatic variable so that every instance of this function will get its
+			// own copy of the variable whose value will stay constant until that instance returns:
+			KeyHistoryItem keyHistoryCurr; // Must not be static (see above).  Serves as a storage spot for a single keystroke in case key history is disabled.
+
+			if (keyHistory == null)
+			{
+				keyHistoryCurr = new KeyHistoryItem();  // Having a non-NULL pKeyHistoryCurr simplifies the code in other places.
+			}
+			else
+			{
+				var kh = keyHistory;//In case it's being updated on the channel thread.
+				keyHistoryCurr = kh.NextItem();
+				keyHistoryCurr.vk = vk; // aSC is done later below.
+				keyHistoryCurr.keyUp = keyUp;
+
+				UpdateForegroundWindowData(keyHistoryCurr, kh);
+			}
+
+			// Keep the following flush with the above to indicate that they're related.
+			// The following is done even if key history is disabled because firing a wheel hotkey via PostMessage gets
+			// the notch count from pKeyHistoryCurr.sc.
+			if (vk == (uint)Keys.Packet) // Win2k/XP: VK_PACKET is used to send Unicode characters as if they were keystrokes.  sc is a 16-bit character code in that case.
+			{
+				sc = 0; // This held a truncated character code, not to be mistaken for a real scan code.
+				keyHistoryCurr.sc = rawSc; // Get the full character code.
+				keyHistoryCurr.eventType = 'U'; // Give it a unique identifier even though it can be distinguished by the 4-digit "SC".  'U' vs 'u' to avoid confusion with 'u'=up.
+				// Artificial character input via VK_PACKET isn't supported by hotkeys, since they always work via
+				// keycode, but hotstrings and Input are supported via the macro below when #InputLevel is non-zero.
+				// Must return now to avoid misinterpreting aSC as an actual scancode in the code below.
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+			}
+
+			//else: Use usual modified value.
+			keyHistoryCurr.sc = isKeyboardEvent ? rawSc : sc; // For keyboard use original sc; mouse keeps current sc (e.g. wheel delta).
+
+			// After logging the wheel notch count (above), purify aSC for readability and maintainability.
+			if (IsWheelVK(vk))
+				sc = 0; // Also relied upon by sc_takes_precedence below.
+
+			// Even if the below is set to false, the event might be reclassified as artificial later (though it
+			// won't be logged as such).  See comments in KeybdEventIsPhysical() for details.
+			var isArtificial = e.IsEventSimulated;
+
+			if (!isKeyboardEvent)
+			{
+				if (!isArtificial) // It's a physical mouse event.
+					physicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+			}
+			else // Keybd hook.
+			{
+				// Track physical state of keyboard & mouse buttons. Also, if it's a modifier, let another section
+				// handle it because it's not as simple as just setting the value to true or false (e.g. if LShift
+				// goes up, the state of VK_SHIFT should stay down if VK_RSHIFT is down, or up otherwise).
+				// Also, even if this input event will wind up being suppressed (usually because of being
+				// a hotkey), still update the physical state anyway, because we want the physical state to
+				// be entirely independent of the logical state (i.e. we want the key to be reported as
+				// physically down even if it isn't logically down):
+				if (kvk[vk].asModifiersLR == 0 && KeybdEventIsPhysical(isArtificial, vk, keyUp))
+					physicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+			}
+
+			// The following is done even if key history is disabled because altTabMenuIsVisible relies on it:
+			keyHistoryCurr.eventType = isIgnored ? 'i' : (isArtificial ? 'a' : ' '); // v1.0.42.04: 'a' was added, but 'i' takes precedence over 'a'.
+
+			// v2.1: Process any InputHooks which have the H option.  This requires translating the event to text, which
+			// is done only once for each event.  If there are no InputHooks with the H option, the translation is done
+			// later to avoid any change in behavior compared to v2.0 (such as dead keys affecting the translation prior
+			// to being suppressed by a hotkey), or not done at all if the event is suppressed by other means.
+			if (isKeyboardEvent && script.inputBeforeHotkeysCount > 0
+					&& !EarlyCollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr))
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+
+			// v1.0.43: Block the Win keys during journal playback to prevent keystrokes hitting the Start Menu
+			// if the user accidentally presses one of those keys during playback.  Note: Keys other than Win
+			// don't need to be blocked because the playback hook defers them until after playback.
+			// Only block the down-events in case the user is physically holding down the key at the start
+			// of playback but releases it during the Send (avoids Win key becoming logically stuck down).
+			// This also serves to block Win shortcuts such as Win+R and Win+E during playback.
+			// Also, it seems best to block artificial LWIN keystrokes too, in case some other script or
+			// program tries to display the Start Menu during playback.
+			if (blockWinKeys && (vk == VK_LWIN || vk == VK_RWIN) && !keyUp)
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+
+			if (altTabMenuIsVisible && CancelAltTabMenu() == HookAction.Suppress)
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));// Testing shows that by contrast, the upcoming key-up on Escape doesn't require this logic.
+
+			// Pointer to the key record for the current key event.  Establishes this_key as an alias
+			// for the array element in kvk or ksc that corresponds to the vk or sc, respectively.
+			// I think the compiler can optimize the performance of reference variables better than
+			// pointers because the pointer indirection step is avoided.  In any case, this must be
+			// a true alias to the object, not a copy of it, because it's address (&this_key) is compared
+			// to other addresses for equality further below.
+			var scTakesPrecedence = ksc[sc].scTakesPrecedence;
+			// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+			var thisKey = (isKeyboardEvent && scTakesPrecedence) ? ksc[sc] : kvk[vk];
+			var thisKeyIndex = (isKeyboardEvent && scTakesPrecedence) ? sc : vk;
+
+			// Do this after above since AllowKeyToGoToSystem requires that sc be properly determined.
+			// Another reason to do it after the above is due to the fact that KEY_PHYS_IGNORE permits
+			// an ignored key to be considered physical input, which is handled above:
+			if (isIgnored)
+			{
+				// This is a key sent by our own app that we want to ignore.
+				// It's important never to change this to call the SuppressKey function because
+				// that function would cause an infinite loop when the Numlock key is pressed,
+				// which would likely hang the entire system:
+				// UPDATE: This next part is for cases where more than one script is using the hook
+				// simultaneously.  In such cases, it desirable for the KEYEVENT_PHYS() of one
+				// instance to affect the down-state of the current prefix-key in the other
+				// instances.  This check is done here -- even though there may be a better way to
+				// implement it -- to minimize the chance of side-effects that a more fundamental
+				// change might cause (i.e. a more fundamental change would require a lot more
+				// testing, though it might also fix more things):
+				if (extraInfo == KeyPhysIgnore && keyUp && prefixKey == thisKey)
+				{
+					thisKey.isDown = false;
+					thisKey.downPerformedAction = false;  // Seems best, but only for PHYS_IGNORE.
+					prefixKey = null;
+				}
+
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+			}
+
+			if (!keyUp) // Set defaults for this down event.
+			{
+				thisKey.hotkeyDownWasSuppressed = false;
+				// Don't do the following because key-repeat should not prevent a previously-selected
+				// key-up hotkey from executing (although it can still be overridden by selecting a
+				// different key-up hotkey below).  If this was done, a key-down hotkey which puts a
+				// modifier into effect would not allow the corresponding key-up to execute unless the
+				// key is released prior to key-repeat, or the key-up hotkey explicitly allows it
+				// (which would defeat the purpose of hotkey_to_fire_upon_release).
+				//thisKey.hotkeyToFireUponRelease = HotkeyDefinition.HOTKEY_ID_INVALID;
+				// Don't do the following because of the keyboard key-repeat feature.  In other words,
+				// the NO_SUPPRESS_NEXT_UP_EVENT should stay pending even in the face of consecutive
+				// down-events.  Even if it's possible for the flag to never be cleared due to never
+				// reaching any of the parts that clear it (which currently seems impossible), it seems
+				// inconsequential since by its very nature, this_key never consults the flag.
+				// this_key.no_suppress &= ~NO_SUPPRESS_NEXT_UP_EVENT;
+			}
+
+			if (!isKeyboardEvent)
+			{
+				// If no vk, there's no mapping for this key, so currently there's no way to process it.
+				if (vk == 0)
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+				// Also, if the script is displaying a menu (tray, main, or custom popup menu), always
+				// pass left-button events through -- even if LButton is defined as a hotkey -- so
+				// that menu items can be properly selected.  This is necessary because if LButton is
+				// a hotkey, it can't launch now anyway due to the script being uninterruptible while
+				// a menu is visible.  And since it can't launch, it can't do its typical "MouseClick
+				// left" to send a true mouse-click through as a replacement for the suppressed
+				// button-down and button-up events caused by the hotkey.  Also, for simplicity this
+				// is done regardless of which modifier keys the user is holding down since the desire
+				// to fire mouse hotkeys while a context or popup menu is displayed seems too rare.
+				//
+				// Update for 1.0.37.05: The below has been extended to look for menus beyond those
+				// supported by g_MenuIsVisible, namely the context menus of a MonthCal or Edit control
+				// (even the script's main window's edit control's context menu).  It has also been
+				// extended to include RButton because:
+				// 1) Right and left buttons may have been swapped via control panel to take on each others' functions.
+				// 2) Right-click is a valid way to select a context menu items (but apparently not popup or menu bar items).
+				// 3) Right-click should invoke another instance of the context menu (or dismiss existing menu, depending
+				//    on where the click occurs) if user clicks outside of our thread's existing context menu.
+				nint menuHwnd = 0;
+
+				if ((vk == VK_LBUTTON || vk == VK_RBUTTON) && IsMouseMenuVisible())
+				{
+					// Bug-fix for v1.0.22: If "LControl & LButton::" (and perhaps similar combinations)
+					// is a hotkey, the foreground window would think that the mouse is stuck down, at least
+					// if the user clicked outside the menu to dismiss it.  Specifically, this comes about
+					// as follows:
+					// The wrong up-event is suppressed:
+					// ...because down_performed_action was true when it should have been false
+					// ...because the while-menu-was-displayed up-event never set it to false
+					// ...because it returned too early here before it could get to that part further below.
+					thisKey.downPerformedAction = false; // Seems ok in this case to do this for both aKeyUp and !aKeyUp.
+					thisKey.isDown = !keyUp;
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+			} // Mouse hook.
+
+			// Any key-down event (other than those already ignored and returned from,
+			// above) should probably be considered an attempt by the user to use the
+			// prefix key that's currently being held down as a "modifier".  That way,
+			// if pPrefixKey happens to also be a suffix, its suffix action won't fire
+			// when the key is released, which is probably the correct thing to do 90%
+			// or more of the time.  But don't consider the modifiers themselves to have
+			// been modified by a prefix key, since that is almost never desirable:
+			if (prefixKey != null && prefixKey != thisKey && !keyUp // There is a prefix key being held down and the user has now pressed some other key.
+					&& prefixKey.wasJustUsed != KeyType.AS_PASSTHROUGH_PREFIX // v1.1.34.02: Retain this value for prefix key-up.
+					&& ((isKeyboardEvent ? (thisKey.asModifiersLR == 0 ? 1 : 0) : prefixKey.asModifiersLR) != 0))//Use ^ xor to toggle.
+				prefixKey.wasJustUsed = KeyType.AS_PREFIX; // Indicate that currently-down prefix key has been "used".
+
+			// Formerly, the above was done only for keyboard hook, not the mouse.  This was because
+			// most people probably would not want a prefix key's suffix-action to be stopped
+			// from firing just because a non-hotkey mouse button was pressed while the key
+			// was held down (i.e. for games).  But now a small exception to this has been made:
+			// Prefix keys that are also modifiers (ALT/SHIFT/CTRL/WIN) will now not fire their
+			// suffix action on key-up if they modified a mouse button event (since Ctrl-LeftClick,
+			// for example, is a valid native action and we don't want to give up that flexibility).
+			// WinAPI docs state that for both virtual keys and scan codes:
+			// "If there is no translation, the return value is zero."
+			// Therefore, zero is never a key that can be validly configured (and likely it's never received here anyway).
+			// UPDATE: For performance reasons, this check isn't even done.  Even if sc and vk are both zero, both kvk[0]
+			// and ksc[0] should have all their attributes initialized to FALSE so nothing should happen for that key
+			// anyway.
+			//if (!vk && !sc)
+			//    return AllowKeyToGoToSystem;
+
+			if (thisKey.usedAsPrefix == 0 && !thisKey.usedAsSuffix)
+			{
+				// Fix for v1.1.31.02: This is done regardless of used_as to ensure it doesn't get "stuck down"
+				// when a custom combination hotkey Suspends itself, thereby causing used_as to be reset to false.
+				// Fix for v1.1.31.03: Done conditionally because its previous value is used below.  This affects
+				// modifier keys as hotkeys, such as Shift::MsgBox.
+				thisKey.isDown = !keyUp;
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+			}
+
+			var hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
+			HotkeyVariant firingIsCertain = null;
+			uint hotkeyIdTemp; // For informal/temp storage of the ID-without-flags.
+			bool fireWithNoSuppress = false; // Set default.
+			bool downPerformedAction = false, wasDownBeforeUp = false;
+
+			if (keyUp)
+			{
+				// Save prior to reset.  These var's should only be used further below in conjunction with aKeyUp
+				// being TRUE.  Otherwise, their values will be unreliable (refer to some other key, probably).
+				wasDownBeforeUp = thisKey.isDown;
+				downPerformedAction = thisKey.downPerformedAction;  // Save prior to reset below.
+				// Reset these values in preparation for the next call to this procedure that involves this key:
+				thisKey.downPerformedAction = false;
+
+				if (thisKey.hotkeyToFireUponRelease != HotkeyDefinition.HOTKEY_ID_INVALID)
+				{
+					hotkeyIdWithFlags = thisKey.hotkeyToFireUponRelease;
+					// The line below is done even though the down-event also resets it in case it is ever
+					// possible for keys to generate multiple consecutive key-up events (faulty or unusual keyboards?)
+					thisKey.hotkeyToFireUponRelease = HotkeyDefinition.HOTKEY_ID_INVALID;
+				}
+
+				// v1.1.34.01: Use up the no-suppress ticket early for simplicity and maintainability.  Its value
+				// might not be used further below, but in any case the ticket shouldn't be applied to any event
+				// after this one.
+				if ((thisKey.noSuppress & HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT) != 0)
+				{
+					fireWithNoSuppress = true;
+					thisKey.noSuppress &= ~HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT; // This ticket has been used up, so remove it.
+				}
+			}
+
+			thisKey.isDown = !keyUp;
+			var modifiersWereCorrected = false;
+
+			if (isKeyboardEvent)
+			{
+				// The below was added to fix hotkeys that have a neutral suffix such as "Control & LShift".
+				// It may also fix other things and help future enhancements:
+				if (thisKey.asModifiersLR != 0)
+				{
+					// The neutral modifier "Win" is not currently supported.
+					kvk[VK_CONTROL].isDown = kvk[VK_LCONTROL].isDown || kvk[VK_RCONTROL].isDown;
+					kvk[VK_MENU].isDown = kvk[VK_LMENU].isDown || kvk[VK_RMENU].isDown;
+					kvk[VK_SHIFT].isDown = kvk[VK_LSHIFT].isDown || kvk[VK_RSHIFT].isDown;
+					// No longer possible because vk is translated early on from neutral to left-right specific:
+					// I don't think these ever happen with physical keyboard input, but it might with artificial input:
+					//case VK_CONTROL: kvk[sc == SC_RCONTROL ? VK_RCONTROL : VK_LCONTROL].is_down = !aKeyUp; break;
+					//case VK_MENU: kvk[sc == SC_RALT ? VK_RMENU : VK_LMENU].is_down = !aKeyUp; break;
+					//case VK_SHIFT: kvk[sc == SC_RSHIFT ? VK_RSHIFT : VK_LSHIFT].is_down = !aKeyUp; break;
+				}
+			}
+			else // Mouse hook
+			{
+				// If the mouse hook is installed without the keyboard hook, update kbdMsSender.modifiersLR_logical
+				// manually so that it can be referred to by the mouse hook after this point:
+				if (kbdHook == 0)
+				{
+					kbdMsSender.modifiersLRLogical = kbdMsSender.modifiersLRLogicalNonIgnored = kbdMsSender.GetModifierLRState(true);
+					modifiersWereCorrected = true;
+				}
+			}
+
+			uint modifiersLRnew;
+			var toggleVal = thisKey.ToggleVal(thisKeyIndex);
+			var thisToggleKeyCanBeToggled = toggleVal != null && toggleVal.Value == ToggleValueType.Neutral; // Relies on short-circuit boolean order.
+			var shk = script.HotkeyData.shk;
+
+			// Prior to considering whether to fire a hotkey, correct the hook's modifier state.
+			// Although this is rarely needed, there are times when the OS disables the hook, thus
+			// it is possible for it to miss keystrokes.  This should be done before pPrefixKey is
+			// consulted below as pPrefixKey itself might be corrected if it is a standard modifier.
+			// See comments in GetModifierLRState() for more info:
+			if (!modifiersWereCorrected)
+			{
+				modifiersWereCorrected = true;
+				_ = kbdMsSender.GetModifierLRState(true);
+			}
+
+			///////////////////////////////////////////////////////////////////////////////////////
+			// CASE #1 of 4: PREFIX key has been pressed down.  But use it in this capacity only if
+			// no other prefix is already in effect or if this key isn't a suffix.  Update: Or if
+			// this key-down is the same as the prefix already down, since we want to be able to
+			// a prefix when it's being used in its role as a modified suffix (see below comments).
+			///////////////////////////////////////////////////////////////////////////////////////
+			if (thisKey.usedAsPrefix != 0 && !keyUp && (prefixKey == null || !thisKey.usedAsSuffix || thisKey == prefixKey))
+			{
+				// v1.0.41: Even if this prefix key is non-suppressed (passes through to active window),
+				// still call PrefixHasNoEnabledSuffixes() because don't want to overwrite the old value of
+				// pPrefixKey (see comments in "else" later below).
+				// v1.0.44: Added check for PREFIX_ACTUAL so that a PREFIX_FORCED prefix will be considered
+				// a prefix even if it has no suffixes.  This fixes an unintentional change in v1.0.41 where
+				// naked, neutral modifier hotkeys Control::, Alt::, and Shift:: started firing on press-down
+				// rather than release as intended.  The PREFIX_FORCED facility may also provide the means to
+				// introduce a new hotkey modifier such as an "up2" keyword that makes any key into a prefix
+				// key even if it never acts as a prefix for other keys, which in turn has the benefit of firing
+				// on key-up, but only if the no other key was pressed while the user was holding it down.
+				bool suppressThisPrefix = (thisKey.noSuppress & HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE) == 0; // Set default.
+				bool hasNoEnabledSuffixes;
+
+				if (!(hasNoEnabledSuffixes = (thisKey.usedAsPrefix == KeyType.PREFIX_ACTUAL)
+											 && HotkeyDefinition.PrefixHasNoEnabledSuffixes(scTakesPrecedence ? sc : vk, scTakesPrecedence, ref suppressThisPrefix)))
+				{
+					// This check is necessary in cases such as the following, in which the "A" key continues
+					// to repeat because pressing a mouse button (unlike pressing a keyboard key) does not
+					// stop the prefix key from repeating:
+					// $a::send, a
+					// a & lbutton::
+					if (thisKey != prefixKey)
+					{
+						// Override any other prefix key that might be in effect with this one, in case the
+						// prior one, due to be old for example, was invalid somehow.  UPDATE: It seems better
+						// to leave the old one in effect to support the case where one prefix key is modifying
+						// a second one in its role as a suffix.  In other words, if key1 is a prefix and
+						// key2 is both a prefix and a suffix, we want to leave key1 in effect as a prefix,
+						// rather than key2.  Hence, a null-check was added in the above if-stmt:
+						prefixKey = thisKey;
+						// It should be safe to init this because even if the current key is repeating,
+						// it should be impossible to receive here the key-downs that occurred after
+						// the first, because there's a return-on-repeat check farther above (update: that check
+						// is gone now).  Even if that check weren't done, it's safe to reinitialize this to zero
+						// because on most (all?) keyboards & OSs, the moment the user presses another key while
+						// this one is held down, the key-repeating ceases and does not resume for
+						// this key (though the second key will begin to repeat if it too is held down).
+						// In other words, the fear that this would be wrongly initialized and thus cause
+						// this prefix's suffix-action to fire upon key-release seems unfounded.
+						// It seems easier (and may perform better than alternative ways) to init this
+						// here rather than say, upon the release of the prefix key:
+						thisKey.wasJustUsed = 0; // Init to indicate it hasn't yet been used in its role as a prefix.
+					}
+				}
+
+				//else this prefix has no enabled suffixes, so its role as prefix is also disabled.
+				// Therefore, don't set pPrefixKey to this_key because don't want the following line
+				// (in another section) to execute when a suffix comes in (there may be other reasons too,
+				// such as not wanting to lose track of the previous prefix key in cases where the user is
+				// holding down more than one prefix):
+				// pPrefixKey.was_just_used = AS_PREFIX
+
+				if (thisKey.usedAsSuffix) // v1.0.41: Added this check to avoid doing all of the below when unnecessary.
+				{
+					// This new section was added May 30, 2004, to fix scenarios such as the following example:
+					// a & b::Msgbox a & b
+					// $^a::MsgBox a
+					// Previously, the ^a hotkey would only fire on key-up (unless it was registered, in which
+					// case it worked as intended on the down-event).  When the user presses A, it's okay (and
+					// probably desirable) to have recorded that event as a prefix-key-down event (above).
+					// But in addition to that, we now check if this is a normal, modified hotkey that should
+					// fire now rather than waiting for the key-up event.  This is done because it makes sense,
+					// it's more correct, and also it makes the behavior of a hooked ^a hotkey consistent with
+					// that of a registered ^a.
+					// non_ignored is always used when considering whether a key combination is in place to
+					// trigger a hotkey:
+					modifiersLRnew = kbdMsSender.modifiersLRLogicalNonIgnored;
+
+					if (thisKey.asModifiersLR != 0) // This will always be false if our caller is the mouse hook.
+						// Hotkeys are not defined to modify themselves, so look for a match accordingly.
+						modifiersLRnew &= ~thisKey.asModifiersLR;
+
+					// This prefix key's hotkey needs to be checked even if it will ultimately fire only on release.
+					// If suppress_this_prefix == false, this prefix key's key-down hotkey should fire immediately.
+					// If suppress_this_prefix == true, its final value can only be confirmed by verifying whether
+					// this prefix key's hotkey has the no-suppress prefix (which should cause the hotkey to fire
+					// immediately and not be suppressed).
+					// This prefix key's hotkey should also be fired immediately if there are any modifiers down.
+					// Check hook type too in case a script ever explicitly specifies scan code zero as a hotkey:
+					//if (modifiersLRnew != 0 || hasNoEnabledSuffixes || (thisKey.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
+					//{
+					// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+					hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
+										? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
+					hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
+
+					if (HotkeyDefinition.IsAltTab(hotkeyIdTemp))
+					{
+						hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // Let it be rediscovered when the key is released.
+					}
+					else if (hotkeyIdWithFlags != HotkeyDefinition.HOTKEY_ID_INVALID)
+					{
+						if (!suppressThisPrefix) // v1.1.34.02: Retain this as a flag for key-up.
+							thisKey.wasJustUsed = KeyType.AS_PASSTHROUGH_PREFIX;
+
+						if (suppressThisPrefix && modifiersLRnew == 0) // So far, it looks like the prefix should be suppressed.
+						{
+							char? ch = null;
+							firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch);
+
+							if (firingIsCertain == null || !fireWithNoSuppress) // Hotkey is ineligible to fire or lacks the no-suppress prefix.
+							{
+								// Resetting the ID is necessary to avoid the following cases:
+								//  1) A key-down hotkey which isn't eligible to fire prevents the prefix key from being suppressed.
+								//  2) A key-down hotkey which isn't eligible to fire causes its key-up counterpart to fire even if
+								//     the prefix key was used to activate a custom combo.
+								//  3) A key-down hotkey without ~ fires immediately instead of on release.
+								//  4) A key-up hotkey without ~ fires even if the prefix key was used to activate a custom combo.
+								if (hotkeyIdWithFlags < shk.Count && hotkeyUp[(int)hotkeyIdWithFlags] != HotkeyDefinition.HOTKEY_ID_INVALID)
+								{
+									// This key-down hotkey has a key-up counterpart.
+									fireWithNoSuppress = false; // Reset for the call below.
+									var hkuwf = hotkeyUp[(int)hotkeyIdWithFlags];
+									var firingUp = HotkeyDefinition.CriterionFiringIsCertain(ref hkuwf, keyUp, extraInfo, ref fireWithNoSuppress, ref ch);
+									hotkeyUp[(int)hotkeyIdWithFlags] = hkuwf;
+
+									if (!(firingUp != null && fireWithNoSuppress)) // Both key-down and key-up are either ineligible or lack the no-suppress prefix.
+										hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // See comments above about resetting the ID.
+									else if (firingIsCertain != null) // Both key-down and key-up are eligible, but key-down should be suppressed.
+										fireWithNoSuppress = false; // For backward-compatibility, suppress the key-down but leave hotkey_id_with_flags set so it fires immediately.
+									else // Key-down is not eligible, but key-up is.
+									{
+										firingIsCertain = firingUp;
+										hotkeyIdWithFlags = hotkeyUp[(int)hotkeyIdWithFlags];
+									}
+								}
+								else
+									hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // See comments above about resetting the ID.
+							}
+						}
+
+						if ((hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_KEY_UP) != 0) // And it's okay even if it's is HotkeyDefinition.HOTKEY_ID_INVALID.
+						{
+							// Queue it for later, which is done here rather than upon release of the key so that
+							// the user can release the key's modifiers before releasing the key itself, which
+							// is likely to happen pretty often. v1.0.41: This is done even if the hotkey is subject
+							// to #HotIf because it seems more correct to check those criteria at the actual time
+							// the key is released rather than now:
+							thisKey.hotkeyToFireUponRelease = hotkeyIdWithFlags;
+							hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID;
+						}
+						else if (hotkeyIdWithFlags < shk.Count)//Valid key-down hotkey.
+						{
+							thisKey.hotkeyToFireUponRelease = hotkeyUp[(int)hotkeyIdWithFlags];//Might assign HotkeyDefinition.HOTKEY_ID_INVALID.
+							// Since this prefix key is being used in its capacity as a suffix instead,
+							// hotkey_id_with_flags now contains a hotkey ready for firing later below.
+							// v1.0.41: Above is done even if the hotkey is subject to #HotIf because:
+							// 1) The down-hotkey's #HotIf criteria might be different from that of the up's.
+							// 2) It seems more correct to check those criteria at the actual time the key is
+							// released rather than now (and also probably reduces code size).
+						}
+					}
+
+					// Alt-tab need not be checked here (like it is in the similar section below) because all
+					// such hotkeys use (or were converted at load-time to use) a modifier_vk, not a set of
+					// modifiers or modifierlr's.
+				} // if (this_key.used_as_suffix)
+
+				if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)
+				{
+					if (hasNoEnabledSuffixes)
+					{
+						keyHistoryCurr.eventType = '#'; // '#' to indicate this prefix key is disabled due to #HotIf WinActive/Exist criterion.
+					}
+
+					// In this case, a key-down event can't trigger a suffix, so return immediately.
+					// If our caller is the mouse hook, both of the following will always be false:
+					// this_key.as_modifiersLR
+					// this_toggle_key_can_be_toggled
+					if (!suppressThisPrefix) // Only for this condition. Not needed for toggle keys and not wanted for modifiers as it would prevent menu suppression.
+						thisKey.noSuppress |= HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT; // Since the "down" is non-suppressed, so should the "up".
+
+					if (thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled)
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+					// Mark this key as having been suppressed.  This currently doesn't have any known effect
+					// since the change to tilde (~) handling in v1.0.95 (commit 161162b8), but may in future.
+					thisKey.hotkeyDownWasSuppressed = true;
+					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+
+				//else valid suffix hotkey has been found; this will now fall through to Case #4 by virtue of aKeyUp==false.
+			}
+
+			//////////////////////////////////////////////////////////////////////////////////
+			// CASE #2 of 4: SUFFIX key (that's not a prefix, or is one but has just been used
+			// in its capacity as a suffix instead) has been released.
+			// This is done before Case #3 for performance reasons.
+			//////////////////////////////////////////////////////////////////////////////////
+			// v1.0.37.05: Added "|| down_performed_action" to the final check below because otherwise a
+			// script such as the following would send two M's for +b, one upon down and one upon up:
+			// +b::Send, M
+			// b & z::return
+			// I don't remember exactly what the "pPrefixKey != &this_key" check is for below, but it is kept
+			// to minimize the chance of breaking other things:
+			var fellThroughFromCase2 = false; // Set default.
+
+			if (thisKey.usedAsSuffix && keyUp && (prefixKey != thisKey || downPerformedAction)) // Note: hotkey_id_with_flags might be already valid due to this_key.hotkey_to_fire_upon_release.
+			{
+				if (prefixKey == thisKey) // v1.0.37.05: Added so that scripts such as the example above don't leave pPrefixKey wrongly non-NULL.
+					prefixKey = null;       // Also, it seems unnecessary to check this_key.it_put_alt_down and such like is done in Case #3.
+
+				// If it did perform an action, suppress this key-up event.  Do this even
+				// if this key is a modifier because it's previous key-down would have
+				// already been suppressed (since this case is for suffixes that aren't
+				// also prefixes), thus the key-up can be safely suppressed as well.
+				// It's especially important to do this for keys whose up-events are
+				// special actions within the OS, such as AppsKey, Lwin, and Rwin.
+				// Toggleable keys are also suppressed here on key-up because their
+				// previous key-down event would have been suppressed in order for
+				// down_performed_action to be true.  UPDATE: Added handling for
+				// NO_SUPPRESS_NEXT_UP_EVENT and also applied this next part to both
+				// mouse and keyboard.
+				// v1.0.40.01: It was observed that a hotkey that consists of a mouse button as a prefix and
+				// a keyboard key as a suffix can cause sticking keys in rare cases.  For example, when
+				// "MButton & LShift" is a hotkey, if you hold down LShift long enough for it to begin
+				// auto-repeating then press MButton, the hotkey fires the next time LShift auto-repeats (since
+				// pressing a mouse button doesn't stop a keyboard key from auto-repeating).  Fixing that type
+				// of firing seems likely to break more things than it fixes.  But since it isn't fixed, when
+				// the user releases LShift, the up-event is suppressed here, which causes the key to get
+				// stuck down.  That could be fixed in the following ways, but all of them seem likely to break
+				// more things than they fix, especially given the rarity that both a hotkey of this type would
+				// exist and its mirror image does something useful that isn't a hotkey (for example, Shift+MButton
+				// is a meaningful action in few if any applications):
+				// 1) Don't suppress the physical release of a suffix key if that key is logically down (as reported
+				//    by GetKeyState/GetAsyncKeyState): Seems too broad in scope because there might be cases where
+				//    the script or user wants the key to stay logically down (e.g. Send {Shift down}{a down}).
+				// 2) Same as #1 but limit the non-suppression to only times when the suffix key was logically down
+				//    when its first qualified physical down-event came in.  This is definitely better but like
+				//    #1, the uncertainty of breaking existing scripts and/or causing more harm than good seems too
+				//    high.
+				// 3) Same as #2 but limit it only to cases where the suffix key is a keyboard key and its prefix
+				//    is a mouse key.  Although very selective, it doesn't mitigate the fact it might still do more
+				//    harm than good and/or break existing scripts.
+				// In light of the above, it seems best to keep this documented here as a known limitation for now.
+				//
+				// v1.0.28: The following check is done to support certain keyboards whose keys or scroll wheels
+				// generate up events without first having generated any down-event for the key.  UPDATE: I think
+				// this check is now also needed to allow fall-through in cases like "b" and "b up" both existing.
+				if (!thisKey.usedAsKeyUp)
+				{
+					return (downPerformedAction && !fireWithNoSuppress) ?
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+
+				//else continue checking to see if the right modifiers are down to trigger one of this
+				// suffix key's key-up hotkeys.
+				fellThroughFromCase2 = true;
+			}
+
+			//////////////////////////////////////////////
+			// CASE #3 of 4: PREFIX key has been released.
+			//////////////////////////////////////////////
+			if (thisKey.usedAsPrefix != 0 && keyUp) // If these are true, hotkey_id_with_flags should be valid only by means of this_key.hotkey_to_fire_upon_release.
+			{
+				if (prefixKey == thisKey)
+					prefixKey = null;
+
+				// Else it seems best to keep the old one in effect.  This could happen, for example,
+				// if the user holds down prefix1, holds down prefix2, then releases prefix1.
+				// In that case, we would want to keep the most recent prefix (prefix2) in effect.
+				// This logic would fail to work properly in a case like this if the user releases
+				// prefix2 but still has prefix1 held down.  The user would then have to release
+				// prefix1 and press it down again to get the hook to realize that it's in effect.
+				// This seems very unlikely to be something commonly done by anyone, so for now
+				// it's just documented here as a limitation.
+
+				if (thisKey.itPutAltDown) // key pushed ALT down, or relied upon it already being down, so go up:
+				{
+					thisKey.itPutAltDown = false;
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_MENU);
+				}
+
+				if (thisKey.itPutShiftDown) // similar to above
+				{
+					thisKey.itPutShiftDown = false;
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_SHIFT);
+				}
+
+				if (thisToggleKeyCanBeToggled) // Always false if our caller is the mouse hook.
+				{
+					// It's done this way because CapsLock, for example, is a key users often
+					// press quickly while typing.  I suspect many users are like me in that
+					// they're in the habit of not having releasing the CapsLock key quite yet
+					// before they resume typing, expecting it's new mode to be in effect.
+					// This resolves that problem by always toggling the state of a toggleable
+					// key upon key-down.  If this key has just acted in its role of a prefix
+					// to trigger a suffix action, toggle its state back to what it was before
+					// because the firing of a hotkey should not have the side-effect of also
+					// toggling the key:
+					// Toggle the key by replacing this key-up event with a new sequence
+					// of our own.  This entire-replacement is done so that the system
+					// will see all three events in the right order:
+					if (thisKey.wasJustUsed == KeyType.AS_PREFIX_FOR_HOTKEY) // If this is true, it's probably impossible for hotkey_id_with_flags to be valid by means of this_key.hotkey_to_fire_upon_release.
+					{
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyPhysIgnore);// Mark it as physical for any other hook instances.
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk, sc);
+						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					}
+
+					// Otherwise, if it was used to modify a non-suffix key, or it was just
+					// pressed and released without any keys in between, don't suppress its up-event
+					// at all.  UPDATE: Don't return here if it didn't modify anything because
+					// this prefix might also be a suffix. Let later sections handle it then.
+					if (thisKey.wasJustUsed == KeyType.AS_PREFIX)
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+				else // It's not a toggleable key, or it is but it's being kept forcibly on or off.
+
+					// Seems safest to suppress this key if the user pressed any non-modifier key while it
+					// was held down.  As a side-effect of this, if the user holds down numlock, for
+					// example, and then presses another key that isn't actionable (i.e. not a suffix),
+					// the numlock state won't be toggled even it's normally configured to do so.
+					// This is probably the right thing to do in most cases.
+					// Older note:
+					// In addition, this suppression is relied upon to prevent toggleable keys from toggling
+					// when they are used to modify other keys.  For example, if "Capslock & A" is a hotkey,
+					// the state of the Capslock key should not be changed when the hotkey is pressed.
+					// Do this check prior to the below check (give it precedence).
+					if (thisKey.wasJustUsed > 0  // AS_PREFIX or AS_PREFIX_FOR_HOTKEY.  v1.1.34.02: Excludes AS_PASSTHROUGH_PREFIX, which would indicate the prefix key's suffix hotkey should always fire.
+							&& hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID) // v1.0.44.04: Must check this because this prefix might be being used in its role as a suffix instead.
+					{
+						if (thisKey.asModifiersLR != 0 // Always false if our caller is the mouse hook.
+								|| fireWithNoSuppress) // Shouldn't be true unless it's a modifier, but seems safest to check anyway.
+							return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));// Win/Alt will be disguised if needed.
+
+						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					}
+
+				// v1.0.41: This spot cannot be reached when a disabled prefix key's up-action fires on
+				// key-down instead (via Case #1).  This is because upon release, that prefix key would be
+				// returned from in Case #2 (by virtue of its check of down_performed_action).
+
+				// Since above didn't return, this key-up for this prefix key wasn't used in it's role
+				// as a prefix.  If it's not a suffix, we're done, so just return.  Don't do
+				// "DisguiseWinAlt" because we want the key's native key-up function to take effect.
+				// Also, allow key-ups for toggleable keys that the user wants to be toggleable to
+				// go through to the system, because the prior key-down for this prefix key
+				// wouldn't have been suppressed and thus this up-event goes with it (and this
+				// up-event is also needed by the OS, at least WinXP, to properly set the indicator
+				// light and toggle state):
+				if (!thisKey.usedAsSuffix)
+					// If our caller is the mouse hook, both of the following will always be false:
+					// this_key.as_modifiersLR
+					// this_toggle_key_can_be_toggled
+					return (thisKey.asModifiersLR != 0
+							|| fireWithNoSuppress
+							|| thisToggleKeyCanBeToggled) ?
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+
+				// Since the above didn't return, this key is both a prefix and a suffix, but
+				// is currently operating in its capacity as a suffix.
+				// If this key wasn't thought to be down prior to this up-event, it's probably because
+				// it is registered with another prefix by RegisterHotkey().  In this case, the keyup
+				// should be passed back to the system rather than performing it's key-up suffix
+				// action.  UPDATE: This can't happen with a low-level hook.  But if there's another
+				// low-level hook installed that receives events before us, and it's not
+				// well-implemented (i.e. it sometimes sends ups without downs), this check
+				// may help prevent unexpected behavior.  UPDATE: The check "!this_key.used_as_key_up"
+				// is now done too so that an explicit key-up hotkey can operate even if the key wasn't
+				// thought to be down before. One thing this helps with is certain keyboards (e.g. some
+				// Dells) that generate only up events for some of their special keys but no down events,
+				// even when *no* keyboard management software is installed). Some keyboards also have
+				// scroll wheels that generate a stream of up events in one direction and down in the other.
+				if (!(wasDownBeforeUp || thisKey.usedAsKeyUp)) // Verified correct.
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+				//else v1.0.37.05: Since no suffix action was triggered while it was held down, fall through
+				// rather than returning so that the key's own unmodified/naked suffix action will be considered.
+				// For example:
+				// a & b::
+				// a::   // This fires upon release of "a".
+			}
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////
+			// CASE #4 of 4: SUFFIX key has been pressed down (or released if it's a key-up event, in which case
+			// it fell through from CASE #3 or #2 above).  This case can also happen if it fell through from
+			// case #1 (i.e. it already determined the value of hotkey_id_with_flags).
+			////////////////////////////////////////////////////////////////////////////////////////////////////
+			HotkeyDefinition foundHk = null; // Custom combo hotkey found by case #4.
+
+			if (prefixKey != null && (!keyUp || thisKey.usedAsKeyUp) && hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID) // Helps performance by avoiding all the below checking.
+			{
+				// Action here is considered first, and takes precedence since a suffix's ModifierVK/SC should
+				// take effect regardless of whether any win/ctrl/alt/shift modifiers are currently down, even if
+				// those modifiers themselves form another valid hotkey with this suffix.  In other words,
+				// ModifierVK/SC combos take precedence over normally-modified combos:
+				for (hotkeyIdTemp = thisKey.firstHotkey; hotkeyIdTemp != HotkeyDefinition.HOTKEY_ID_INVALID;)
+				{
+					var this_hk = shk[(int)hotkeyIdTemp]; // hotkey_id_temp does not include flags in this case.
+
+					if (!(this_hk.modifierVK != 0 || this_hk.modifierSC != 0))
+						break; // Not a custom combo.
+
+					hotkeyIdTemp = this_hk.nextHotkey;
+					var thisModifierKey = this_hk.modifierVK != 0 ? kvk[this_hk.modifierVK] : ksc[this_hk.modifierSC];
+
+					// The following check supports the prefix+suffix pairs that have both an up hotkey and a down,
+					// such as:
+					//a & b::     ; Down.
+					//a & b up::  ; Up.
+					//MsgBox %A_ThisHotkey%
+					//return
+					if (thisModifierKey.isDown) // A prefix key qualified to trigger this suffix is down.
+					{
+						if (this_hk.keyUp)
+						{
+							if (!keyUp) // Key-up hotkey but the event is a down-event.
+							{
+								// Queue the up-hotkey for later so that the user is free to release the
+								// prefix key prior to releasing the suffix (which seems quite common and
+								// thus desirable).  v1.0.41: This is done even if the hotkey is subject
+								// to #HotIf because it seems more correct to check those criteria at the actual time
+								// the key is released rather than now:
+								thisKey.hotkeyToFireUponRelease = this_hk.id;
+
+								if (foundHk != null) // i.e. a previous iteration already found the down-event to fire.
+									break;
+
+								//else continue searching for the down hotkey that goes with this up (if any).
+							}
+							else // this hotkey is qualified to fire.
+							{
+								foundHk = this_hk;
+								break;
+							}
+						}
+						else // This is a normal hotkey that fires on suffix-key-down.
+						{
+							if (!keyUp)
+							{
+								if (foundHk == null) // Use the first one found (especially important when both "a & Control" and "a & LControl" are present).
+									foundHk = this_hk;
+
+								// and continue searching for the up hotkey (if any) to queue up for firing upon the key's release).
+							}
+
+							//else this key-down hotkey can't fire because the current event is a up-event.
+							// But continue searching for an up-hotkey in case this key is of the type that never
+							// generates down-events (e.g. certain Dell keyboards).
+						}
+					} // qualified prefix is down
+				} // for each prefix of this suffix
+
+				if (foundHk != null)
+				{
+					// Update pPrefixKey, even though it was probably already done close to the top of the
+					// function, just in case this hotkey uses a different prefix key (perhaps because there
+					// is currently more than one prefix being held down).
+					// Since the hook is now designed to receive only left/right specific modifier keys
+					// -- never the neutral keys -- never indicate that a neutral prefix key is down because
+					// then it would never be released properly by the other main prefix/suffix handling
+					// cases of the hook.  Instead, always identify which prefix key (left or right) is
+					// in effect:
+
+					prefixKey = foundHk.modifierVK switch
+				{
+						VK_SHIFT => kvk[kvk[VK_RSHIFT].isDown ? VK_RSHIFT : VK_LSHIFT],
+							VK_CONTROL => kvk[kvk[VK_RCONTROL].isDown ? VK_RCONTROL : VK_LCONTROL],
+							VK_MENU => kvk[kvk[VK_RMENU].isDown ? VK_RMENU : VK_LMENU],
+							0 => ksc[foundHk.modifierSC],
+							_ => kvk[foundHk.modifierVK],
+					};
+
+					if (foundHk.hookAction != 0)
+						hotkeyIdWithFlags = foundHk.hookAction;
+					else
+						hotkeyIdWithFlags = foundHk.id; // Flags not needed.
+
+					hotkeyIdTemp = hotkeyIdWithFlags;
+					// Let the section further below handle evaluating the hotkey's criterion, since it takes
+					// care of determining suppression based on a key-down hotkey's key-up counterpart, etc.
+				}
+
+				// Alt-tab: Alt-tab actions that require a prefix key are handled directly here rather than via
+				// posting a message back to the main window.  In part, this is because it would be difficult
+				// to design a way to tell the main window when to release the alt-key.
+				if (hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB || hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT)
+				{
+					if (prefixKey.wasJustUsed != KeyType.AS_PASSTHROUGH_PREFIX)
+						prefixKey.wasJustUsed = KeyType.AS_PREFIX_FOR_HOTKEY;
+
+					// Not sure if it's necessary to set this in this case.  Review.
+					if (!keyUp)
+						thisKey.downPerformedAction = true; // aKeyUp is known to be false due to an earlier check.
+
+					if ((kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) == 0)  // Neither ALT key is down.
+						// Note: Don't set the ignore-flag in this case because we want the hook to notice it.
+						// UPDATE: It might be best, after all, to have the hook ignore these keys.  That's because
+						// we want to avoid any possibility that other hotkeys will fire off while the user is
+						// alt-tabbing (though we can't stop that from happening if they were registered with
+						// RegisterHotkey).  In other words, since the
+						// alt-tab window is in the foreground until the user released the substitute-alt key,
+						// don't allow other hotkeys to be activated.  One good example that this helps is the case
+						// where <key1> & rshift is defined as alt-tab but <key1> & <key2> is defined as shift-alt-tab.
+						// In that case, if we didn't ignore these events, one hotkey might unintentionally trigger
+						// the other.
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+
+					// And leave it down until a key-up event on the prefix key occurs.
+
+					if ((vk == VK_LCONTROL || vk == VK_RCONTROL) && !keyUp)
+						// Even though this suffix key would have been suppressed, it seems that the
+						// OS's alt-tab functionality sees that it's down somehow and thus this is necessary
+						// to allow the alt-tab menu to appear.  This doesn't need to be done for any other
+						// modifier than Control, nor any normal key since I don't think normal keys
+						// being in a down-state causes any problems with alt-tab:
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc);
+
+					// Update the prefix key's
+					// flag to indicate that it was this key that originally caused the alt-key to go down,
+					// so that we know to set it back up again when the key is released.  UPDATE: Actually,
+					// it's probably better if this flag is set regardless of whether ALT is already down.
+					// That way, in case it's state go stuck down somehow, it will be reset by an Alt-TAB
+					// (i.e. alt-tab will always behave as expected even if ALT was down before starting).
+					// Note: pPrefixKey must already be non-NULL or this couldn't be an alt-tab event:
+					prefixKey.itPutAltDown = true;
+
+					if (hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT)
+					{
+						if ((kbdMsSender.modifiersLRLogical & (MOD_LSHIFT | MOD_RSHIFT)) == 0) // Neither SHIFT key is down.
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_SHIFT);  // Same notes apply to this key.
+
+						prefixKey.itPutShiftDown = true;
+					}
+					// And this may do weird things if VK_TAB itself is already assigned a as a naked hotkey, since
+					// it will recursively call the hook, resulting in the launch of some other action.  But it's hard
+					// to imagine someone ever reassigning the naked VK_TAB key (i.e. with no modifiers).
+					// UPDATE: The new "ignore" method should prevent that.  Or in the case of low-level hook:
+					// keystrokes sent by our own app by default will not fire hotkeys.  UPDATE: Even though
+					// the LL hook will have suppressed this key, it seems that the OS's alt-tab menu uses
+					// some weird method (apparently not GetAsyncState(), because then our attempt to put
+					// it up would fail) to determine whether the shift-key is down, so we need to still do this:
+					else if (hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB) // i.e. it's not shift-alt-tab
+					{
+						// Force it to be alt-tab as the user intended.
+						if ((vk == VK_LSHIFT || vk == VK_RSHIFT) && !keyUp)  // Needed.  See above comments. vk == VK_SHIFT not needed.
+							// If a shift key is the suffix key, this must be done every time,
+							// not just the first:
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc);
+
+						// UPDATE: Don't do "else" because sometimes the opposite key may be down, so the
+						// below needs to be unconditional:
+						//else
+
+						// In the below cases, it's not necessary to put the shift key back down because
+						// the alt-tab menu only disappears after the prefix key has been released (and
+						// it's not realistic that a user would try to trigger another hotkey while the
+						// alt-tab menu is visible).  In other words, the user will be releasing the
+						// shift key anyway as part of the alt-tab process, so it's not necessary to put
+						// it back down for the user here (the shift stays in effect as a prefix for us
+						// here because it's sent as an ignore event -- but the prefix will be correctly
+						// canceled when the user releases the shift key).
+						if ((kbdMsSender.modifiersLRLogical & MOD_LSHIFT) != 0)
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_LSHIFT);
+
+						if ((kbdMsSender.modifiersLRLogical & MOD_RSHIFT) != 0)
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RSHIFT);
+					}
+
+					// Any down control key prevents alt-tab from working.  This is similar to
+					// what's done for the shift-key above, so see those comments for details.
+					if ((kbdMsSender.modifiersLRLogical & MOD_LCONTROL) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_LCONTROL);
+
+					if ((kbdMsSender.modifiersLRLogical & MOD_RCONTROL) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RCONTROL);
+
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB);
+
+					if (hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT && prefixKey.itPutShiftDown
+							&& ((vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) || vk == VK_DECIMAL)) // dual-state numpad key.
+					{
+						// In this case, if there is a numpad key involved, it's best to put the shift key
+						// back up in between every alt-tab to avoid problems caused due to the fact that
+						// the shift key being down would CHANGE the VK being received when the key is
+						// released (due to the fact that SHIFT temporarily disables numlock).
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_SHIFT);
+						prefixKey.itPutShiftDown = false;  // Reset for next time since we put it back up already.
+					}
+
+					keyHistoryCurr.eventType = 'h'; // h = hook hotkey (not one registered with RegisterHotkey)
+
+					if (!keyUp)
+						thisKey.hotkeyDownWasSuppressed = true;
+
+					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+				} // end of alt-tab section.
+
+				// Since above didn't return, this isn't a prefix-triggered alt-tab action (though it might be
+				// a non-prefix alt-tab action, which is handled later below).
+			} // end of section that searches for a suffix modified by the prefix that's currently held down.
+
+			if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)  // Since above didn't find a hotkey, check if modifiers+this_key qualifies a firing.
+			{
+				modifiersLRnew = kbdMsSender.modifiersLRLogicalNonIgnored;
+
+				if (thisKey.asModifiersLR != 0)
+					// Hotkeys are not defined to modify themselves, so look for a match accordingly.
+					modifiersLRnew &= ~thisKey.asModifiersLR;
+
+				// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+				hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
+									? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
+
+				// Bug fix for v1.0.20: The below second attempt is no longer made if the current keystroke
+				// is a tab-down/up  This is because doing so causes any naked TAB that has been defined as
+				// a hook hotkey to incorrectly fire when the user holds down ALT and presses tab two or more
+				// times to advance through the alt-tab menu.  Here is the sequence:
+				// $TAB is defined as a hotkey in the script.
+				// User holds down ALT and presses TAB two or more times.
+				// The Alt-tab menu becomes visible on the first TAB keystroke.
+				// The $TAB hotkey fires on the second keystroke because of the below (now-fixed) logic.
+				// By the way, the overall idea behind the below might be considered faulty because
+				// you could argue that non-modified hotkeys should never be allowed to fire while ALT is
+				// down just because the alt-tab menu is visible.  However, it seems justified because
+				// the benefit (which I believe was originally and particularly that an unmodified mouse button
+				// or wheel hotkey could be used to advance through the menu even though ALT is artificially
+				// down due to support displaying the menu) outweighs the cost, which seems low since
+				// it would be rare that anyone would press another hotkey while they are navigating through
+				// the Alt-Tab menu.
+				if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID && altTabMenuIsVisible && vk != VK_TAB)
+				{
+					// Try again, this time without the ALT key in case the user is trying to
+					// activate an alt-tab related key (i.e. a special hotkey action such as AltTab
+					// that relies on the Alt key being logically but not physically down).
+					modifiersLRnew &= ~(MOD_LALT | MOD_RALT);
+					hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
+										? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
+					// Fix for v1.0.28: If the ID isn't an alt-tab type, don't consider it to be valid.
+					// Someone pointed out that pressing Alt-Tab and then pressing ESC while still holding
+					// down ALT fired the ~Esc hotkey even when it should just dismiss the alt-tab menu.
+					// Note: Both of the below checks must be done because the high-order bits of the
+					// hotkey_id_with_flags might be set to indicate no-suppress, etc:
+					hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
+
+					if (!HotkeyDefinition.IsAltTab(hotkeyIdTemp))
+						hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // Since it's not an Alt-tab action, don't fire this hotkey.
+				}
+
+				if ((hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_KEY_UP) != 0)
+				{
+					if (!keyUp) // Key-up hotkey but the event is a down-event.
+					{
+						// Fixed for v1.1.33.01: Any key-up hotkey already found by the custom combo section
+						// should take precedence over this hotkey.  This fixes "a up::" erroneously taking
+						// precedence over "b & a up::" when "a::" is not defined, which resulted in either
+						// firing the wrong hotkey or firing the right hotkey but not suppressing the key.
+						if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
+							thisKey.hotkeyToFireUponRelease = hotkeyIdWithFlags; // See comments above in other occurrences of this line.
+
+						// v1.1.33.03: ChangeHookState now avoids pairing an up hotkey with a more permissive
+						// down hotkey; e.g. "<^a up" and "^a" won't be paired, since that would cause "<^a up"
+						// to fire when RCtrl+A is pressed.  To support them both firing on LCtrl+A, this looks
+						// for any key-down hotkey which might be elegible to fire.  It's okay if this hotkey
+						// has no eligible variants, because Hotkey::CriterionFiringIsCertain will handle that.
+						hotkeyIdWithFlags = HotkeyDefinition.FindPairedHotkey(thisKey.firstHotkey, kbdMsSender.modifiersLRLogicalNonIgnored, false);
+					}
+
+					//else hotkey_id_with_flags contains the up-hotkey that is now eligible for firing.
+				}
+				else if (hotkeyIdWithFlags != HotkeyDefinition.HOTKEY_ID_INVALID) // hotkey_id_with_flags is a valid key-down hotkey.
+				{
+					hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
+
+					if (keyUp)
+					{
+						// Even though the key is being released, a hotkey should fire unconditionally because
+						// the only way we can reach this exact point for a non-key-up hotkey is when it fell
+						// through from Case #3, in which case this hotkey_id_with_flags is implicitly a key-up
+						// hotkey if there is no actual explicit key-up hotkey for it.  UPDATE: It is now possible
+						// to fall through from Case #2, so that is checked below.
+						if (hotkeyIdTemp < shk.Count && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
+						{
+							if (fellThroughFromCase2
+									|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) != null)
+							{
+								// The key-down hotkey isn't eligible for firing, so fall back to the key-up hotkey:
+								hotkeyIdWithFlags = hotkeyUp[(int)hotkeyIdTemp];
+							}
+
+							//else: the key-down hotkey is eligible for firing, so leave hotkey_id_with_flags as-is
+							// and SuppressThisKeyFunc() or AllowIt() will post both hotkey-down and hotkey-up,
+							// allowing remappings and other hotkey down-up pairs to work.
+						}
+						else // Leave it at its former value unless case#2.  See comments above and below.
+
+							// Fix for v1.0.44.09: Since no key-up counterpart was found above (either in hotkey_up[]
+							// or via the HOTKEY_KEY_UP flag), don't fire this hotkey when it fell through from Case #2.
+							// This prevents a hotkey like $^b from firing TWICE (once on down and again on up) when a
+							// key-up hotkey with different modifiers also exists, such as "#b" and "#b up" existing with $^b.
+							if (fellThroughFromCase2)
+								hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID;
+					}
+					else // hotkey_id_with_flags contains the down-hotkey that is now eligible for firing. But check if there's an up-event to queue up for later.
+						if (hotkeyIdTemp < shk.Count)
+						{
+							// Fixed for v1.1.33.01: Any key-up hotkey already found by the custom combo section
+							// should take precedence over this hotkey.  This fixes "b & a up::" not suppressing
+							// "a" when "a::" is defined but disabled by #If and "b & a::" is not defined.
+							if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
+								thisKey.hotkeyToFireUponRelease = hotkeyUp[(int)hotkeyIdTemp];
+						}
+				}
+
+				// Check hotkey_id_with_flags again now that the above possibly changed it:
+				if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)
+				{
+					// Even though at this point this_key is a valid suffix, no actionable ModifierVK/SC
+					// or modifiers were pressed down, so just let the system process this normally
+					// (except if it's a toggleable key).  This case occurs whenever a suffix key (which
+					// is also a prefix) is released but the key isn't configured to perform any action
+					// upon key-release.  Currently, I think the only way a key-up event will result
+					// in a hotkey action is for the release of a naked/modifierless prefix key.
+					// Example of a configuration that would result in this case whenever Rshift alone
+					// is pressed then released:
+					// RControl & RShift = Alt-Tab
+					// RShift & RControl = Shift-Alt-Tab
+					if (keyUp)
+						// These sequence is basically the same as the one used in Case #3
+						// when a prefix key that isn't a suffix failed to modify anything
+						// and was then released, so consider any modifications made here
+						// or there for inclusion in the other one.  UPDATE: Since
+						// the previous sentence is a bit obsolete, describe this better:
+						// If it's a toggleable key that the user wants to allow to be
+						// toggled, just allow this up-event to go through because the
+						// previous down-event for it (in its role as a prefix) would not
+						// have been suppressed:
+						return (thisKey.asModifiersLR != 0
+								// The following line was added for v1.0.37.02 to take into account key-up hotkeys,
+								// the release of which should never be suppressed if it didn't actually fire the
+								// up-hotkey (due to the wrong modifiers being down):
+								|| thisKey.usedAsPrefix == 0
+								|| fireWithNoSuppress
+								// The order on this line important; it relies on short-circuit boolean:
+								|| thisToggleKeyCanBeToggled) ?
+							   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
+							   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+
+					// v1.0.37.02: Added !this_key.used_as_prefix for mouse hook too (see comment above).
+
+					// For execution to have reached this point, the following must be true:
+					// 1) aKeyUp==false
+					// 2) this_key is not a prefix, or it is also a suffix but some other custom prefix key
+					//    is being held down (otherwise, Case #1 would have returned).
+					// 3) No hotkey is eligible to fire.
+					// If this_key is a prefix under these conditions, there are some combinations that are
+					// inconsistent with Case #1.  Case #1 would pass it through if it has no enabled suffixes,
+					// or it's a modifier/toggleable key, but otherwise would suppress it.  By contrast, this
+					// section would unconditionally pass through a prefix key if the user was already holding
+					// another prefix key.  Just suppressing it doesn't seem useful since it still wouldn't
+					// function as a prefix key (since case #1 didn't set pPrefixKey to this_key), and fixing
+					// that would change the behavior in ways that might be undesired, so it's left as is.
+					if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+					char? ch = null;
+
+					// Otherwise (v1.0.44): Since there is a hotkey to fire upon release (somewhat rare under these conditions),
+					// check if any of its criteria will allow it to fire, and if so whether that variant is non-suppressed.
+					// If it is, this down-even should be non-suppressed too (for symmetry).  This check isn't 100% reliable
+					// because the active/existing windows checked by the criteria might change before the user actually
+					// releases the key, but there doesn't seem any way around that.
+					if (HotkeyDefinition.CriterionFiringIsCertain(ref thisKey.hotkeyToFireUponRelease // firing_is_certain==false under these conditions, so no need to check it.
+							, true  // Always a key-up since it will fire upon release.
+							, extraInfo // May affect the result due to #InputLevel.  Assume the key-up's SendLevel will be the same as the key-down.
+							, ref fireWithNoSuppress, ref ch) == null)// fire_with_no_suppress is the value we really need to get back from it.
+						fireWithNoSuppress = true; // Although it's not "firing" in this case; just for use below.
+
+					thisKey.hotkeyDownWasSuppressed = !fireWithNoSuppress; // Fixed for v1.1.33.01: If this isn't set, the key-up won't be suppressed even after the key-down is.
+					return fireWithNoSuppress ?
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+
+				//else an eligible hotkey was found.
+			} // Final attempt to find hotkey based on suffix have the right combo of modifiers.
+
+			// Since above didn't return, hotkey_id_with_flags is now a valid hotkey.  The only thing that can
+			// stop it from firing now is CriterionFiringIsCertain().
+			// v1.0.41: This must be done prior to the setting of sDisguiseNextMenu below.
+			hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
+
+			if (hotkeyIdTemp < shk.Count// i.e. don't call the below for Alt-tab hotkeys and similar.
+					&& firingIsCertain == null // i.e. CriterionFiringIsCertain() wasn't already called earlier.
+					&& (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
+			{
+				if (keyHistoryCurr.eventType == 'i') // This non-zero SendLevel event is being ignored due to #InputLevel, so unconditionally pass it through, like with is_ignored.
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+				// v1.1.08: Although the hotkey corresponding to this event is disabled, it may need to
+				// be suppressed if it has a counterpart (key-down or key-up) hotkey which is enabled.
+				// This can be broken down into two cases:
+				//  1) This is a key-up event and the key-down event was already suppressed.
+				//     Prior to v1.1.08, the key-up was passed through; this caused problems in a
+				//     few specific cases, such as XButton1 and XButton2 (which act when released).
+				//  2) This is a key-down event, but there is also a key-up hotkey which is enabled.
+				//     In that case, the documentation indicates the key-down will be suppressed.
+				//     Prior to v1.1.08, neither event was suppressed.
+				if (keyUp)
+					return thisKey.hotkeyDownWasSuppressed ?
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+				if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+				char? ch = null;
+				// Otherwise, this is a key-down event with a corresponding key-up hotkey.
+				fireWithNoSuppress = false; // Reset it for the check below.
+				// This check should be identical to the section above dealing with hotkey_to_fire_upon_release:
+				firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref thisKey.hotkeyToFireUponRelease // firing_is_certain==false under these conditions, so no need to check it.
+								  , true  // Always a key-up since it will fire upon release.
+								  , extraInfo // May affect the result due to #InputLevel.  Assume the key-up's SendLevel will be the same as the key-down.
+								  , ref fireWithNoSuppress, ref ch); // fire_with_no_suppress is the value we really need to get back from it.
+
+				if (firingIsCertain == null || fireWithNoSuppress)
+				{
+					thisKey.noSuppress |= HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT;
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				}
+
+				// Both this down event and the corresponding up event should be suppressed.
+				thisKey.hotkeyDownWasSuppressed = true;
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+			}
+
+			hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK; // Update in case CriterionFiringIsCertain() changed the naked/raw ID.
+
+			// If prefixKey is part of the reason for this hotkey firing, update was_just_used
+			// so that when the prefix key is released, it won't perform its key-up action.
+			// To match the behavior prior to v1.1.37, this is done on key-up for custom combos
+			// but not standard hotkeys.  Note that if there are multiple key-up hotkeys with
+			// different modifier combinations, the one that fires might depend on the modifier
+			// state at the time the key was pressed, rather than when it was released.  In other
+			// words, prefixKey may be unrelated to the key-up hotkey if it is a standard modifier.
+			if (prefixKey != null && (foundHk != null || (prefixKey.asModifiersLR != 0 && !keyUp))
+					&& prefixKey.wasJustUsed != KeyType.AS_PASSTHROUGH_PREFIX)
+				prefixKey.wasJustUsed = KeyType.AS_PREFIX_FOR_HOTKEY;
+
+			// Now above has ensured that everything is in place for an action to be performed.
+			// Determine the final ID at this late stage to improve maintainability:
+			var hotkeyIdToFire = hotkeyIdTemp;
+
+			// Check if the WIN or ALT key needs to be masked:
+			if ((kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT | MOD_LWIN | MOD_RWIN)) != 0 // ALT and/or WIN is down.
+					&& !fireWithNoSuppress // This hotkey will be suppressed (hotkeys with ~no-suppress should not require masking).
+					&& (undisguisedMenuInEffect || !isKeyboardEvent)) // Menu has not already been disguised (as tracked by the keyboard hook), or this is the mouse hook, which may require masking anyway.
+			{
+				// If only a windows key was held down to activate this hotkey, suppress the next win-up
+				// event so that the Start Menu won't appear.  The appearance of the Start Menu would be
+				// caused by the fact that the hotkey's suffix key was suppressed, therefore the OS doesn't
+				// see that the WIN key "modified" anything while it was held down.
+				// Although having other modifiers present prevents the Start Menu from appearing, that's
+				// handled by later checks since the WIN key can auto-repeat, putting an unmodified WIN
+				// back into effect after the other mods are released.  This only happens if the WIN key
+				// is the most recently pressed physical key, such as if this hotkey is a mouse button.
+				// When the user finally releases the WIN key, that release will be disguised if called
+				// for by the logic below and in AllowIt().
+				if ((kbdMsSender.modifiersLRLogical & (MOD_LWIN | MOD_RWIN)) != 0 // One or both are down and may require disguising.
+						&& HotkeyDefinition.HotkeyRequiresModLR(hotkeyIdToFire, MOD_LWIN | MOD_RWIN) != 0) // Avoid masking hotkeys which could be intended to send {LWin up}, such as for AppsKey::RWin.
+				{
+					disguiseNextMenu = true;
+					// An earlier stage has ensured that the keyboard hook is installed for suppression of LWin/RWin if
+					// this is a mouse hotkey, because the sending of CTRL directly (here) would otherwise not suppress
+					// the Start Menu (though it does supress menu bar activation for ALT hotkeys, as described below).
+				}
+
+				// For maximum reliability on the maximum range of systems, it seems best to do the above
+				// for ALT keys also, to prevent them from invoking the icon menu or menu bar of the
+				// foreground window (rarer than the Start Menu problem, above, I think).
+				// Update for v1.0.25: This is usually only necessary for hotkeys whose only modifier is ALT.
+				// For example, Shift-Alt hotkeys do not need it if Shift is pressed after Alt because Alt
+				// "modified" the shift so the OS knows it's not a naked ALT press to activate the menu bar.
+				// Conversely, if Shift is pressed prior to Alt, but released before Alt, I think the shift-up
+				// counts as a "modification" and the same rule applies.  However, if shift is released after Alt,
+				// that would activate the menu bar unless the ALT key is disguised below.  This issue does
+				// not apply to the WIN key above because apparently it is disguised automatically
+				// whenever some other modifier was involved with it in any way and at any time during the
+				// keystrokes that comprise the hotkey.
+				if (!disguiseNextMenu // It's not already going to be disguised due to the section above or a previous hotkey.
+						&& (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0// If RAlt==AltGr, it should never need disguising, but in that case LCtrl is also down, so ActiveWindowLayoutHasAltGr() isn't checked.
+						&& (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) != 0 // No need to mask if Ctrl is down (the key-repeat issue that affects the WIN key does not affect ALT).
+						&& HotkeyDefinition.HotkeyRequiresModLR(hotkeyIdToFire, MOD_LALT | MOD_RALT) != 0) // Avoid masking hotkeys which could be intended to send {Alt up}, such as for AppsKey::Alt.
+				{
+					if (HasKbdHook())
+						disguiseNextMenu = true;
+					else
+						// Since no keyboard hook, no point in setting the variable because it would never be acted upon.
+						// Instead, disguise the key now with a CTRL keystroke. Note that this is not done for
+						// mouse buttons that use the WIN key as a prefix because it does not work reliably for them
+						// (i.e. sometimes the Start Menu appears, even if two CTRL keystrokes are sent rather than one).
+						// Therefore, as of v1.0.25.05, mouse button hotkeys that use only the WIN key as a modifier cause
+						// the keyboard hook to be installed.  This determination is made during the hotkey loading stage.
+						kbdMsSender.SendKeyEventMenuMask(KeyEventTypes.KeyDownAndUp);
+				}
+			}
+
+			//Had to pull this out of the case statement because it's not allowed to fall though.
+			if (hotkeyIdToFire == HotkeyDefinition.HOTKEY_ID_ALT_TAB_MENU_DISMISS && !altTabMenuIsVisible)// This case must occur before HOTKEY_ID_ALT_TAB_MENU due to non-break.
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)); // Let the key do its native function.
+
+			switch (hotkeyIdToFire)
+			{
+				// else fall through to the next case.
+				case HotkeyDefinition.HOTKEY_ID_ALT_TAB_MENU:  // These cases must occur before the Alt-tab ones due to conditional break.
+				case HotkeyDefinition.HOTKEY_ID_ALT_TAB_AND_MENU:
+				{
+					var whichAltDown = 0u;
+
+					if ((kbdMsSender.modifiersLRLogical & MOD_LALT) != 0)
+						whichAltDown = VK_LMENU;
+					else if ((kbdMsSender.modifiersLRLogical & MOD_RALT) != 0)
+						whichAltDown = VK_RMENU;
+
+					if (altTabMenuIsVisible)  // Can be true even if which_alt_down is zero.
+					{
+						if (hotkeyIdToFire != HotkeyDefinition.HOTKEY_ID_ALT_TAB_AND_MENU) // then it is MENU or DISMISS.
+						{
+							// Since it is possible for the menu to be visible when neither ALT
+							// key is down, always send an alt-up event if one isn't down
+							// so that the menu is dismissed as intended:
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, whichAltDown != 0 ? whichAltDown : VK_MENU);
+
+							if (thisKey.asModifiersLR != 0 && vk != VK_LWIN && vk != VK_RWIN && !keyUp)
+								// Something strange seems to happen with the foreground app
+								// thinking the modifier is still down (even though it was suppressed
+								// entirely [confirmed!]).  For example, if the script contains
+								// the line "lshift::AltTabMenu", pressing lshift twice would
+								// otherwise cause the newly-activated app to think the shift
+								// key is down.  Sending an extra UP here seems to fix that,
+								// hopefully without breaking anything else.  Note: It's not
+								// done for Lwin/Rwin because most (all?) apps don't care whether
+								// LWin/RWin is down, and sending an up event might risk triggering
+								// the start menu in certain hotkey configurations.  This policy
+								// might not be the right one for everyone, however:
+								kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk); // Can't send sc here since it's not defined for the mouse hook.
+
+							altTabMenuIsVisible = false;
+							break;
+						}
+
+						// else HOTKEY_ID_ALT_TAB_AND_MENU, do nothing (don't break) because we want
+						// the switch to fall through to the Alt-Tab case.
+					}
+					else // alt-tab menu is not visible
+					{
+						// Unlike CONTROL, SHIFT, AND ALT, the LWIN/RWIN keys don't seem to need any
+						// special handling to make them work with the alt-tab features.
+						var vkIsAlt = vk == VK_LMENU || vk == VK_RMENU;  // Translated & no longer needed: || vk == VK_MENU;
+						var vkIsShift = vk == VK_LSHIFT || vk == VK_RSHIFT;  // || vk == VK_SHIFT;
+						var vkIsControl = vk == VK_LCONTROL || vk == VK_RCONTROL;  // || vk == VK_CONTROL;
+						var whichShiftDown = 0u;
+
+						if ((kbdMsSender.modifiersLRLogical & MOD_LSHIFT) != 0)
+							whichShiftDown = VK_LSHIFT;
+						else if ((kbdMsSender.modifiersLRLogical & MOD_RSHIFT) != 0)
+							whichShiftDown = VK_RSHIFT;
+						else if (!keyUp && vkIsShift)
+							whichShiftDown = vk;
+
+						var whichControlDown = 0u;
+
+						if ((kbdMsSender.modifiersLRLogical & MOD_LCONTROL) != 0)
+							whichControlDown = VK_LCONTROL;
+						else if ((kbdMsSender.modifiersLRLogical & MOD_RCONTROL) != 0)
+							whichControlDown = VK_RCONTROL;
+						else if (!keyUp && vkIsControl)
+							whichControlDown = vk;
+
+						var shift_put_up = false;
+
+						if (whichShiftDown != 0)
+						{
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, whichShiftDown);
+							shift_put_up = true;
+						}
+
+						if (whichControlDown != 0)
+						{
+							// In this case, the control key must be put up because the OS, at least
+							// WinXP, knows the control key is down even though the down event was
+							// suppressed by the hook.  So put it up and leave it up, because putting
+							// it back down would cause it to be down even after the user releases
+							// it (since the up-event of a hotkey is also suppressed):
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, whichControlDown);
+						}
+
+						// Alt-tab menu is not visible, or was not made visible by us.  In either case,
+						// try to make sure it's displayed:
+						// Don't put alt down if it's already down, it might mess up cases where the
+						// ALT key itself is assigned to be one of the alt-tab actions:
+
+						if (vkIsAlt)
+						{
+							if (keyUp)
+								// The system won't see it as down for the purpose of alt-tab, so remove this
+								// modifier from consideration.  This is necessary to allow something like this
+								// to work:
+								// LAlt & WheelDown::AltTab
+								// LAlt::AltTabMenu   ; Since LAlt is a prefix key above, it will be a key-up hotkey here.
+								whichAltDown = 0;
+							else // Because there hasn't been a chance to update kbdMsSender.modifiersLR_logical yet:
+								whichAltDown = vk;
+						}
+
+						if (whichAltDown == 0)
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB); // v1.0.28: KEYDOWNANDUP vs. KEYDOWN.
+
+						// Only put it put it back down if it wasn't the hotkey itself, because
+						// the system would never have known it was down because the down-event
+						// on the hotkey would have been suppressed.  And since the up-event
+						// will also be suppressed, putting it down like this would result in
+						// it being permanently down even after the user releases the key!:
+						if (shift_put_up && !vkIsShift) // Must do this regardless of the value of aKeyUp.
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, whichShiftDown);
+
+						// Update: Can't do this one because going down on control will instantly
+						// dismiss the alt-tab menu, which we don't want if we're here.
+						//if (control_put_up && !vk_is_control) // Must do this regardless of the value of aKeyUp.
+						//  KeyEvent(KEYDOWN, which_control_down);
+						// At this point, the alt-tab menu has displayed and advanced by one icon
+						// (to the next window in the z-order).  Rather than sending a shift-tab to
+						// go back to the first icon in the menu, it seems best to leave it where
+						// it is because usually the user will want to go forward at least one item.
+						// Going backward through the menu is a lot more rare for most people.
+						altTabMenuIsVisible = true;
+						break;
+					}
+				}
+				break;
+
+				case HotkeyDefinition.HOTKEY_ID_ALT_TAB:
+				case HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT:
+				{
+					// Since we're here, this ALT-TAB hotkey didn't have a prefix or it would have
+					// already been handled and we would have returned above.  Therefore, this
+					// hotkey is defined as taking effect only if the alt-tab menu is currently
+					// displayed, otherwise it will just be passed through to perform it's native
+					// function.  Example:
+					// MButton::AltTabMenu
+					// WheelDown::AltTab     ; But if the menu is displayed, the wheel will function normally.
+					// WheelUp::ShiftAltTab  ; But if the menu is displayed, the wheel will function normally.
+					if (!altTabMenuIsVisible)
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+
+					// Unlike CONTROL, SHIFT, AND ALT, the LWIN/RWIN keys don't seem to need any
+					// special handling to make them work with the alt-tab features.
+
+					// Must do this to prevent interference with Alt-tab when these keys
+					// are used to do the navigation.  Don't put any of these back down
+					// after putting them up since that would probably cause them to become
+					// stuck down due to the fact that the user's physical release of the
+					// key will be suppressed (since it's a hotkey):
+					if (!keyUp && (vk == VK_LCONTROL || vk == VK_RCONTROL || vk == VK_LSHIFT || vk == VK_RSHIFT))
+						// Don't do the ALT key because it causes more problems than it solves
+						// (in fact, it might not solve any at all).
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk); // Can't send sc here since it's not defined for the mouse hook.
+
+					// Even when the menu is visible, it's possible that neither of the ALT keys
+					// is down (such as if Ctrl+Alt+Tab was used, and perhaps other cases):
+					if ((kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) == 0// Neither ALT key is down
+							|| (keyUp && (vk == VK_LMENU || vk == VK_RMENU))) // Or the suffix key for Alt-tab *is* an ALT key and it's being released: must push ALT down for upcoming TAB to work.
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+
+					// And never put it back up because that would dismiss the menu.
+					// Otherwise, use keystrokes to navigate through the menu:
+					var shiftPutDown = false;
+
+					if (hotkeyIdToFire == HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT && (kbdMsSender.modifiersLRLogical & (MOD_LSHIFT | MOD_RSHIFT)) == 0) // Neither SHIFT key is down.
+					{
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_SHIFT);
+						shiftPutDown = true;
+					}
+
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB);
+
+					if (shiftPutDown)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_SHIFT);
+
+					break;
+				}
+
+				default:
+					// Notify the main thread (via its main window) of which hotkey has been pressed.
+					// Post the message rather than sending it, because Send would need
+					// SendMessageTimeout(), which is undesirable because the whole point of
+					// making this hook thread separate from the main thread is to have it be
+					// maximally responsive (especially to prevent mouse cursor lag).
+					// v1.0.42: The hotkey variant is not passed via the message below because
+					// upon receipt of the message, the variant is recalculated in case conditions
+					// have changed between msg-post and arrival.  See comments in the message loop for details.
+					// v1.0.42.01: the message is now posted at the latest possible moment to avoid
+					// situations in which the message arrives and is processed by the main thread
+					// before we finish processing the hotkey's final keystroke here.  This avoids
+					// problems with a script calling GetKeyState() and getting an inaccurate value
+					// because the hook thread is either pre-empted or is running in parallel
+					// (multiprocessor) and hasn't yet returned 1 or 0 to determine whether the final
+					// keystroke is suppressed or passed through to the active window.  Similarly, this solves
+					// the fact that previously, g_PhysicalKeyState was not updated for modifier keys until after
+					// the hotkey message was posted, which on some PCs caused the hotkey subroutine to see
+					// the wrong key state via KeyWait (which defaults to detecting the physical key state).
+					// For example, the following hotkeys would be a problem on certain PCs, presumably due to
+					// split-second timing where the hook thread gets preempted and the main thread gets a
+					// timeslice that allows it to launch a script subroutine before the hook can get
+					// another timeslice to finish up:
+					//$LAlt::
+					//if not GetKeyState("LAlt", "P")
+					//  ToolTip `nProblem 1`n
+					//return
+					//
+					//~LControl::
+					//if not (DllCall("GetAsyncKeyState", int, 0xA2) & 0x8000)
+					//    ToolTip `nProblem 2`n
+					//return
+					hotkeyIdToPost = hotkeyIdToFire; // Set this only when it is certain that this ID should be sent to the main thread via msg.
+
+					if (firingIsCertain.hotCriterion != null)
+					{
+						// To avoid evaluating the expression twice, indicate to the main thread that the appropriate variant
+						// has already been determined, by packing the variant's index into the high word of the param:
+						//hotkeyIdToPost |= (uint)(firingIsCertain.index << 16);
+					}
+					else
+						firingIsCertain = null;
+
+					// Otherwise CriterionFiringIsCertain() might have returned a global variant (not necessarily the one
+					// that will actually fire), so if we ever decide to do the above for other criterion types rather than
+					// just re-evaluating the criterion later, must make sure not to send the mIndex of a global variant.
+					//if (firing_is_certain.mHotCriterion) // i.e. a specific variant has already been determined.
+					break;
+			}
+
+			keyHistoryCurr.eventType = 'h'; // h = hook hotkey (not one registered with RegisterHotkey)
+
+			if (thisToggleKeyCanBeToggled && keyUp && thisKey.usedAsPrefix != 0)
+			{
+				// In this case, since all the above conditions are true, the key-down
+				// event for this key-up (which fired a hotkey) would not have been
+				// suppressed.  Thus, we should toggle the state of the key back
+				// the what it was before the user pressed it (due to the policy that
+				// the natural function of a key should never take effect when that
+				// key is used as a hotkey suffix).  You could argue that instead
+				// of doing this, we should change *pForceToggle's value to make the
+				// key untoggleable whenever it's both a prefix and a naked
+				// (key-up triggered) suffix.  However, this isn't too much harder
+				// and has the added benefit of allowing the key to be toggled if
+				// a modifier is held down before it (e.g. alt-CapsLock would then
+				// be able to toggle the CapsLock key):
+				kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyPhysIgnore);// Mark it as physical for any other hook instances.
+				kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk, sc);
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+			}
+
+			if (keyUp)
+			{
+				if (thisKey.asModifiersLR != 0)
+					// Since this hotkey is fired on a key-up event, and since it's a modifier, must
+					// not suppress the key because otherwise the system's state for this modifier
+					// key would be stuck down due to the fact that the previous down-event for this
+					// key (which is presumably a prefix *and* a suffix) was not suppressed. UPDATE:
+					// For v1.0.28, if the new field hotkey_down_was_suppressed is true, also suppress
+					// this up event, one purpose of which is to allow a pair of remappings such
+					// as the following to display the Start Menu (because otherwise the non-suppressed
+					// Alt key events would prevent it):
+					// *LAlt up::Send {LWin up}
+					// *LAlt::Send {LWin down}
+					return thisKey.hotkeyDownWasSuppressed ?
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain)) :
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+
+				if (fireWithNoSuppress) // Plus we know it's not a modifier since otherwise it would've returned above.
+				{
+					// Although it seems more sensible to suppress the key-up if the key-down was suppressed,
+					// it probably does no harm to let the key-up pass through, and in this case, it's exactly
+					// what the script is asking to happen (by prefixing the key-up hotkey with '~').
+					// this_key.pForceToggle isn't checked because AllowIt() handles that.
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+				} // No suppression.
+			}
+			else // Key Down
+			{
+				// Do this only for DOWN (not UP) events that triggered an action:
+				thisKey.downPerformedAction = true;
+
+				if (fireWithNoSuppress)
+				{
+					// Since this hotkey is firing on key-down but the user specified not to suppress its native
+					// function, substitute an DOWN+UP pair of events for this event, since we want the
+					// DOWN to precede the UP.  It's necessary to send the UP because the user's physical UP
+					// will be suppressed automatically when this function is called for that event.
+					// UPDATE: The below method causes side-effects due to the fact that it is simulated
+					// input vs. physical input, e.g. when used with the Input command, which distinguishes
+					// between "ignored" and physical input.  Therefore, let this down event pass through
+					// and set things up so that the corresponding up-event is also not suppressed:
+					//KeyEvent(KEYDOWNANDUP, aVK, aSC);
+					// No longer relevant due to the above change:
+					// Now let it just fall through to suppress this down event, because we can't use it
+					// since doing so would result in the UP event having preceded the DOWN, which would
+					// be the wrong order.
+					thisKey.noSuppress |= HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT;
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+				}
+				// Fix for v1.1.37.02 and v2.0.6: The following is also done for LWin/RWin because otherwise,
+				// the system does not generate WM_SYSKEYDOWN (or even WM_KEYDOWN) messages for combinations
+				// that correspond to some global hotkeys, even though they aren't actually triggering global
+				// hotkeys because the logical key state doesn't match.  For example, with LWin::Alt, LWin-T
+				// would not activate the Tools menu on a menu bar.
+				// Fixes for v1.1.37.02 and v2.0.8:
+				//  1) Apply this to Ctrl hotkeys because otherwise, the OS thinks Ctrl is being held down
+				//     and therefore translates Alt-key combinations to WM_KEYDOWN instead of WM_SYSKEYDOWN.
+				//     (confirmed on Windows 7, but might not be necessary on Windows 11).
+				//  2) Apply this to Shift as well for simplicity and consistency.  Although this hasn't been
+				//     confirmed, it might be necessary for correct system handling in some cases, such as with
+				//     certain language-switching hotkeys, IME or advanced keyboard layouts.
+				//  3) Don't apply this if the modifier is logically down, since in that case the system *should*
+				//     consider the key to be held down.  For example, pressing Ctrl+Alt should produce WM_KEYDOWN,
+				//     but if the system thinks Ctrl has been released, it will instead produce WM_SYSKEYDOWN.
+				//     This was confirmed necessary for LCtrl::Alt and LAlt::LCtrl to work correctly on Windows 7.
+				else if ((thisKey.asModifiersLR & ~kbdMsSender.modifiersLRLogical) != 0)
+				{
+					// Fix for v1.1.26.01: Added KEY_BLOCK_THIS to suppress the Alt key-up, which fixes an issue
+					// which could be reproduced as follows:
+					//  - Test with an Alt-blocking hotkey such as LAlt::return or LAlt::LCtrl.
+					//  - Open Notepad and alt-tab away using the other Alt key or a remapping such as LCtrl::LAlt.
+					//  - Reactivate Notepad and note that the keyboard accelerators (underlined letters) are still
+					//    visible in the menus (usually).
+					//  - Press LAlt and the menus are activated once, even though LAlt is supposed to be blocked.
+					// Additionally, a Windows 10 check was added because the original issue this workaround was
+					// intended for doesn't appear to occur on Windows 10 (tested on 10.0.15063).  This check was
+					// removed for v1.1.27.00 to ensure consistent behavior of AltGr hotkeys across OS versions.
+					// (Sending RAlt up on a layout with AltGr causes the system to send LCtrl up.)
+					// Testing on XP, Vista and 8.1 showed that the #LAlt issue below only occurred if the key-up
+					// was allowed to pass through to the active window.  It appeared to be a non-issue on Win 10
+					// even when the Alt key-up was passed through.
+					// Fix for v1.0.34: For some reason, the release of the ALT key here causes the Start Menu
+					// to appear instantly for the hotkey #LAlt (and probably #RAlt), even when the hotkey does
+					// nothing other than return.  This seems like an OS quirk since it doesn't conform to any
+					// known Start Menu activation sequence.  This happens only when neither Shift nor Control is
+					// down.  To work around it, send the menu-suppressing Control keystroke here.  Another one
+					// will probably be sent later when the WIN key is physically released, but it seems best
+					// for simplicity and avoidance of side-effects not to make this one prevent that one.
+					//if (   (kbdMsSender.modifiersLR_logical & (MOD_LWIN | MOD_RWIN))   // At least one WIN key is down.
+					//  && !(kbdMsSender.modifiersLR_logical & (MOD_LSHIFT | MOD_RSHIFT | MOD_LCONTROL | MOD_RCONTROL))   ) // But no SHIFT or CONTROL key is down to help us.
+					//  KeyEventMenuMask(KEYDOWNANDUP);
+					// Since this is a hotkey that fires on ALT-DOWN and it's a normal (suppressed) hotkey,
+					// send an up-event to "turn off" the OS's low-level handling for the alt key with
+					// respect to having it modify keypresses.  For example, the following hotkeys would
+					// fail to work properly without this workaround because the OS apparently sees that
+					// the ALT key is physically down even though it is not logically down:
+					// RAlt::Send f  ; Actually triggers !f, which activates the FILE menu if the active window has one.
+					// RAlt::Send {PgDn}  ; Fails to work because ALT-PgDn usually does nothing.
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyBlockThis);
+				}
+			}
+
+			// Otherwise:
+			if (!keyUp)
+				thisKey.hotkeyDownWasSuppressed = true;
+
+			return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+		}
+
+				internal long SuppressThisKeyFunc(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo,
+										  KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant,
+										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0)
+		// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
+		// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
+		// neutral one.
+		{
+			var isKeyboardEvent = e is KeyboardHookEventArgs;
+			if (keyHistoryCurr.eventType == ' ') // then it hasn't been already set somewhere else
+				keyHistoryCurr.eventType = 's';
+
+			// This handles the troublesome Numlock key, which on some (most/all?) keyboards
+			// will change state independent of the keyboard's indicator light even if its
+			// keydown and up events are suppressed.  This is certainly true on the
+			// MS Natural Elite keyboard using default drivers on WinXP.  SetKeyboardState()
+			// doesn't resolve this, so the only alternative to the below is to use the
+			// Win9x method of setting the Numlock state explicitly whenever the key is released.
+			// That might be complicated by the fact that the unexpected state change described
+			// here can't be detected by GetKeyboardState() and such (it sees the state indicated
+			// by the numlock light on the keyboard, which is wrong).  In addition, doing it this
+			// way allows Numlock to be a prefix key for something like Numpad7, which would
+			// otherwise be impossible because Numpad7 would become NumpadHome the moment
+			// Numlock was pressed down.  Note: this problem doesn't appear to affect Capslock
+			// or Scrolllock for some reason, possibly hardware or driver related.
+			// Note: the check for KEY_IGNORE isn't strictly necessary, but here just for safety
+			// in case this is ever called for a key that should be ignored.  If that were
+			// to happen and we didn't check for it, and endless loop of keyboard events
+			// might be caused due to the keybd events sent below.
+			if (isKeyboardEvent)
+			{
+				var nl = (uint)Keys.NumLock;
+
+				if (vk == nl && !keyUp && !IsIgnored(extraInfo))
+				{
+					// This seems to undo the faulty indicator light problem and toggle
+					// the key back to the state it was in prior to when the user pressed it.
+					// Originally, I had two keydowns and before that some keyups too, but
+					// testing reveals that only a single key-down is needed.  UPDATE:
+					// It appears that all 4 of these key events are needed to make it work
+					// in every situation, especially the case when ForceNumlock is on but
+					// numlock isn't used for any hotkeys.
+					// Note: The only side-effect I've discovered of this method is that the
+					// indicator light can't be toggled after the program is exitted unless the
+					// key is pressed twice:
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, nl);
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, nl);
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, nl);
+				}
+
+				UpdateKeybdState(rawSc, extraInfo, e.IsEventSimulated, vk, sc, keyUp, true);
+			}
+
+			// These should be posted only at the last possible moment before returning in order to
+			// minimize the chance that the main thread will receive and process the message before
+			// our thread can finish updating key states and other maintenance.  This has been proven
+			// to be a problem on single-processor systems when the hook thread gets preempted
+			// before it can return.  Apparently, the fact that the hook thread is much higher in priority
+			// than the main thread is not enough to prevent the main thread from getting a timeslice
+			// before the hook thread gets back another (at least on some systems, perhaps due to their
+			// system settings of the same ilk as "favor background processes").
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar);
+			return 1;
+		}
+
+		/// <summary>
+		/// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
+		/// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
+		/// neutral one.
+		/// </summary>
+		internal long AllowIt(HookEventArgs e, uint vk, uint sc, uint rawSc,
+							  bool keyUp, ulong extraInfo, CollectInputState state, KeyHistoryItem keyHistoryCurr,
+							  uint hotkeyIDToPost, HotkeyVariant variant)
+		{
+			var isKeyboardEvent = e is KeyboardHookEventArgs;
+			HotstringDefinition hsOut = null;
+			var caseConformMode = CaseConformModes.None;
+			var endChar = (char)0;
+			var script = Script.TheScript;
+			var hm = script.HotstringManager;
+
+			// Prevent toggleable keys from being toggled (if the user wanted that) by suppressing it.
+			// Seems best to suppress key-up events as well as key-down, since a key-up by itself,
+			// if seen by the system, doesn't make much sense and might have unwanted side-effects
+			// in rare cases (e.g. if the foreground app takes note of these types of key events).
+			// Don't do this for ignored keys because that could cause an endless loop of
+			// numlock events due to the keybd events that SuppressThisKey sends.
+			// It's a little more readable and comfortable not to rely on short-circuit
+			// booleans and instead do these conditions as separate IF statements.
+			if (!isKeyboardEvent)
+			{
+				// Since a mouse button that is physically down is not necessarily logically down -- such as
+				// when the mouse button is a suppressed hotkey -- only update the logical state (which is the
+				// state the OS believes the key to be in) when this event is non-supressed (i.e. allowed to
+				// go to the system):
+				//Only for FUTURE_USE_MOUSE_BUTTONS_LOGICAL
+				// THIS ENTIRE SECTION might never be necessary if it's true that GetAsyncKeyState() and
+				// GetKeyState() can retrieve the logical mouse button state on Windows NT/2000/XP, which are
+				// the only OSes that matter for this purpose because the hooks aren't supported on Win9x.
+				//KBDLLHOOKSTRUCT& event = *(PMSDLLHOOKSTRUCT) lParam;  // For convenience, maintainability, and possibly performance.
+				//
+				//switch (wParam)
+				//{
+				//  case WM_LBUTTONUP: g_mouse_buttons_logical &= ~MK_LBUTTON; break;
+				//
+				//  case WM_RBUTTONUP: g_mouse_buttons_logical &= ~MK_RBUTTON; break;
+				//
+				//  case WM_MBUTTONUP: g_mouse_buttons_logical &= ~MK_MBUTTON; break;
+				//
+				//  // WM_NCXBUTTONUP is a click in the non-client area of a window.  MSDN implies this message can be
+				//  // received by the mouse hook  but it seems doubtful because its counterparts, such as WM_NCLBUTTONUP,
+				//  // are apparently never received:
+				//  case WM_NCXBUTTONUP:
+				//  case WM_XBUTTONUP:
+				//      g_mouse_buttons_logical &= ~(   (HIWORD(event.mouseData)) == XBUTTON1 ? MK_XBUTTON1 : MK_XBUTTON2   );
+				//      break;
+				//
+				//  case WM_LBUTTONDOWN: g_mouse_buttons_logical |= MK_LBUTTON; break;
+				//
+				//  case WM_RBUTTONDOWN: g_mouse_buttons_logical |= MK_RBUTTON; break;
+				//
+				//  case WM_MBUTTONDOWN: g_mouse_buttons_logical |= MK_MBUTTON; break;
+				//
+				//  case WM_NCXBUTTONDOWN:
+				//  case WM_XBUTTONDOWN:
+				//      g_mouse_buttons_logical |= (HIWORD(event.mouseData) == XBUTTON1) ? MK_XBUTTON1 : MK_XBUTTON2;
+				//      break;
+				//}
+			}
+			else // Our caller is the keyboard hook.
+			{
+				var isIgnored = IsIgnored(extraInfo);
+
+				if (!isIgnored)
+				{
+					var forceToggle = kvk[vk].ToggleVal(vk);
+
+					if (forceToggle != null) // Key is a toggleable key.
+						if (forceToggle != ToggleValueType.Neutral) // Prevent toggle.
+							return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant);
+				}
+
+				if ((hm.enabledCount > 0 && !isIgnored) || script.input != null)
+					if (!CollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar)) // Key should be invisible (suppressed).
+						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar);
+
+				// Do this here since the above "return SuppressThisKey" will have already done it in that case.
+				UpdateKeybdState(rawSc, extraInfo, e.IsEventSimulated, vk, sc, keyUp, false);
+
+				// UPDATE: The Win-L and Ctrl-Alt-Del workarounds below are still kept in effect in spite of the
+				// anti-stick workaround done via GetModifierLRState().  This is because ResetHook() resets more
+				// than just the modifiers and physical key state, which seems appropriate since the user might
+				// be away for a long period of time while the computer is locked or the security screen is displayed.
+				// Win-L uses logical keys, unlike Ctrl-Alt-Del which uses physical keys (i.e. Win-L can be simulated,
+				// but Ctrl-Alt-Del must be physically pressed by the user):
+				if (vk == 'L' && !keyUp && (kbdMsSender.modifiersLRLogical == MOD_LWIN  // i.e. *no* other keys but WIN.
+											|| kbdMsSender.modifiersLRLogical == MOD_RWIN || kbdMsSender.modifiersLRLogical == (MOD_LWIN | MOD_RWIN)))
+				{
+					// Since the user has pressed Win-L with *no* other modifier keys held down, and since
+					// this key isn't being suppressed (since we're here in this function), the computer
+					// is about to be locked.  When that happens, the hook is apparently disabled or
+					// deinstalled until the user logs back in.  Because it is disabled, it will not be
+					// notified when the user releases the LWIN or RWIN key, so we should assume that
+					// it's now not in the down position.  This avoids it being thought to be down when the
+					// user logs back in, which might cause hook hotkeys to accidentally fire.
+					// Update: I've received an indication from a single Win2k user (unconfirmed from anyone
+					// else) that the Win-L hotkey doesn't work on Win2k.  AutoIt3 docs confirm this.
+					// Thus, it probably doesn't work on NT either.  So it's been changed to happen only on XP:
+					ResetHook(true); // We already know that *only* the WIN key is down.
+					// Above will reset g_PhysicalKeyState, especially for the windows keys and the 'L' key
+					// (in our case), in preparation for re-logon:
+				}
+
+				// Although the delete key itself can be simulated (logical or physical), the user must be physically
+				// (not logically) holding down CTRL and ALT for the ctrl-alt-del sequence to take effect,
+				// which is why g_modifiersLR_physical is used vs. kbdMsSender.modifiersLR_logical (which is used above since
+				// it's different).  Also, this is now done for XP -- in addition to NT4 & Win2k -- in case XP is
+				// configured to display the NT/2k style security window instead of the task manager.  This is
+				// probably very common because whenever the welcome screen is disabled, that's the default behavior?:
+				// Control Panel > User Accounts > Use the welcome screen for fast and easy logon
+				if ((vk == VK_DELETE || vk == VK_DECIMAL) && !keyUp         // Both of these qualify, see notes.
+						// Below: At least one CTRL key is physically down.  physical and ctrlaltdel_mask are combined
+						// because ctrlaltdel_mask excludes fake LCtrl (from AltGr) but might not be tracked as reliably.
+						&& (kbdMsSender.modifiersLRPhysical & kbdMsSender.modifiersLRCtrlAltDelMask & (MOD_LCONTROL | MOD_RCONTROL)) != 0
+						&& (kbdMsSender.modifiersLRPhysical & (MOD_LALT | MOD_RALT)) != 0        // At least one ALT key is physically down.
+						&& (kbdMsSender.modifiersLRPhysical & (MOD_LSHIFT | MOD_RSHIFT)) == 0)// Neither shift key is phys. down (WIN is ok).
+				{
+					// Similar to the above case except for Windows 2000.  I suspect it also applies to NT,
+					// but I'm not sure.  It seems safer to apply it to NT until confirmed otherwise.
+					// Note that Ctrl-Alt-Delete works with *either* delete key, and it works regardless
+					// of the state of Numlock (at least on XP, so it's probably that way on Win2k/NT also,
+					// though it would be nice if this too is someday confirmed).  Here's the key history
+					// someone for when the pressed ctrl-alt-del and then pressed esc to dismiss the dialog
+					// on Win2k (Win2k invokes a 6-button dialog, with choices such as task manager and lock
+					// workstation, if I recall correctly -- unlike XP which invokes task mgr by default):
+					// A4  038      d   21.24   Alt
+					// A2  01D      d   0.00    Ctrl
+					// A2  01D      d   0.52    Ctrl
+					// 2E  053      d   0.02    Num Del         <-- notice how there's no following up event
+					// 1B  001      u   2.80    Esc             <-- notice how there's no preceding down event
+					// Other notes: On XP at least, shift key must not be down, otherwise Ctrl-Alt-Delete does
+					// not take effect.  Windows key can be down, however.
+					// Since the user will be gone for an unknown amount of time, it seems best just to reset
+					// all hook tracking of the modifiers to the "up" position.  The user can always press them
+					// down again upon return.  It also seems best to reset both logical and physical, just for
+					// peace of mind and simplicity:
+					ResetHook(true);
+					// The above will also reset g_PhysicalKeyState so that especially the following will not
+					// be thought to be physically down:CTRL, ALT, and DEL keys.  This is done in preparation
+					// for returning from the security screen.  The neutral keys (VK_MENU and VK_CONTROL)
+					// must also be reset -- not just because it's correct but because CollectInput() relies on it.
+				}
+
+				// Bug-fix for v1.0.20: The below section was moved out of LowLevelKeybdProc() to here because
+				// altTabMenuIsVisible should not be set to true prior to knowing whether the current tab-down
+				// event will be suppressed.  This is because if it is suppressed, the menu will not become visible
+				// after all since the system will never see the tab-down event.
+				// Having this extra check here, in addition to the other(s) that set altTabMenuIsVisible to be
+				// true, allows AltTab and ShiftAltTab hotkeys to function even when the AltTab menu was invoked by
+				// means other than an AltTabMenu or AltTabAndMenu hotkey.  The alt-tab menu becomes visible only
+				// under these exact conditions, at least under WinXP:
+				if (vk == VK_TAB && !keyUp && !altTabMenuIsVisible
+						&& (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0 // At least one ALT key is down.
+						&& (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0) // Neither CTRL key is down.
+					altTabMenuIsVisible = true;
+
+				uint modLR;
+
+				if ((modLR = kvk[vk].asModifiersLR) != 0) // It's a modifier key.
+				{
+					// Don't do it this way because then the alt key itself can't be reliably used as "AltTabMenu"
+					// (due to ShiftAltTab causing altTabMenuIsVisible to become false):
+					//if (   altTabMenuIsVisible && !((kbdMsSender.modifiersLR_logical & MOD_LALT) || (kbdMsSender.modifiersLR_logical & MOD_RALT))
+					//  && !(aKeyUp && keyHistoryCurr.event_type == 'h')   )  // In case the alt key itself is "AltTabMenu"
+					if (altTabMenuIsVisible && // Release of Alt key (the check above confirmed it is a modifier):
+							(keyUp && (vk == VK_LMENU || vk == VK_RMENU || vk == VK_MENU))
+							// In case the alt key itself is "AltTabMenu":
+							&& keyHistoryCurr.eventType != 'h' && keyHistoryCurr.eventType != 's')
+						// It's important to reset in this case because if altTabMenuIsVisible were to
+						// stay true and the user presses ALT in the future for a purpose other than to
+						// display the Alt-tab menu, we would incorrectly believe the menu to be displayed:
+						altTabMenuIsVisible = false;
+
+					if (!keyUp) // Key-down.
+					{
+						// undisguisedMenuInEffect can be true or false prior to this.
+						//  LAlt (true) + LWin = both disguised (false).
+						//  LWin (true) + LAlt = both disguised (false).
+						if ((modLR & (MOD_LWIN | MOD_RWIN)) != 0)
+							undisguisedMenuInEffect = (kbdMsSender.modifiersLRLogical & ~(MOD_LWIN | MOD_RWIN)) == 0; // If any other modifier is down, disguise is already in effect.
+						else if ((modLR & (MOD_LALT | MOD_RALT)) != 0)
+							undisguisedMenuInEffect = (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0; // If Ctrl is down (including if this Alt is AltGr), disguise is already in effect.
+						else // Shift or Ctrl: pressing either serves to disguise any previous Alt or Win.
+							undisguisedMenuInEffect = false;
+					}
+					else if (disguiseNextMenu)
+					{
+						// If a menu key is still physically down (or down due to an explicit Send, such as a remapping),
+						// keep watching until it is released so that if key-repeat puts it back into effect, it will be
+						// disguised again.  _non_ignored is used to ignore temporary modifier changes made during a
+						// Send which aren't explicit, such as `Send x` temporarily releasing LWin/RWin.  Without this,
+						// something like AppsKey::RWin would not work well with other hotkeys which Send.
+						// v1.1.27.01: This section now also handles Ctrl-up and Shift-up events, which not only fail to
+						// disguise Win but actually cause the Start menu to immediately appear even though the Win key
+						// has not been released.  This only occurs if it was not already disguised by the Ctrl/Shift down
+						// event; i.e. when an isolated Ctrl/Shift up event is received without a corresponding down event.
+						// "Physical" events of this kind can be sent by the system when switching from a window with UK
+						// layout to a window with US layout.  This is likely related to the UK layout having AltGr.
+						// v1.1.33.03: This is now applied to LAlt/RAlt, to fix issues with hotkeys like !WheelUp:: in
+						// programs with non-standard handling of the Alt key, such as Firefox.
+						if ((kbdMsSender.modifiersLRLogicalNonIgnored & (MOD_LWIN | MOD_RWIN | MOD_LALT | MOD_RALT)) == 0)
+						{
+							if ((modLR & (MOD_LCONTROL | MOD_RCONTROL | MOD_LSHIFT | MOD_RSHIFT)) != 0)
+							{
+								// v1.1.27.01: Since this key being released is Ctrl/Shift and Win is not down, this must
+								// be in combination with Alt, which can be disguised by this event.  By contrast, if the
+								// Win key was down and undisguisedMenuInEffect == true (meaning there was no Ctrl/Shift
+								// down event prior to this up event), this event needs to be disguised for the reason
+								// described above.
+								undisguisedMenuInEffect = false;
+							}
+
+							disguiseNextMenu = false;
+						}
+
+						// Since the below call to KeyEvent() calls the keybd hook recursively, a quick down-and-up
+						// is all that is necessary to disguise the key.  This is because the OS will see that the
+						// keystroke occurred while ALT or WIN is still down because we haven't done CallNextHookEx() yet.
+						if (undisguisedMenuInEffect)
+							kbdMsSender.SendKeyEventMenuMask(KeyEventTypes.KeyDownAndUp); // This should also cause undisguisedMenuInEffect to be reset.
+					}
+					else // A modifier key was released and sDisguiseNextMenu was false.
+					{
+						// Now either no menu keys are down or they have been disguised by this keyup event.
+						// Key-repeat may put the menu key back into effect, but that will be detected above.
+						undisguisedMenuInEffect = false;
+					}
+				} // It's a modifier key.
+				else // It's not a modifier key.
+				{
+					// Any key press or release serves to disguise the menu key.
+					undisguisedMenuInEffect = false;
+				}
+			} // Keyboard vs. mouse hook.
+
+			// Since above didn't return, this keystroke is being passed through rather than suppressed.
+			if (hm.hsResetUponMouseClick && (vk == VK_LBUTTON || vk == VK_RBUTTON)) // v1.0.42.03
+			{
+				hm.ClearBuf();
+			}
+
+			// In case CallNextHookEx() is high overhead or can sometimes take a long time to return,
+			// call it before posting the messages.  This solves conditions in which the main thread is
+			// able to launch a script subroutine before the hook thread can finish updating its key state.
+			// Search on AHK_HOOK_HOTKEY in this file for more comments.
+			var resultToReturn = CallNextHook(e);
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar);
+			return resultToReturn.ToInt64();
+		}
+
+		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
+		{
+			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
+			{
+				var inputLevel = InputLevelFromInfo((long)extraInfo);
+				_ = channel.Writer.TryWrite(new KeysharpMsg()
+				{
+					message = (uint)UserMessages.AHK_HOOK_HOTKEY,
+					wParam = new nint(hotkeyIDToPost),//Would be so much better to eventually pass around object references rather than array indexes.//TODO
+					lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel)),
+					obj = variant
+				});
+
+				if (keyUp && hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK] != HotkeyDefinition.HOTKEY_ID_INVALID)
+				{
+					// This is a key-down hotkey being triggered by releasing a prefix key.
+					// There's also a corresponding key-up hotkey, so fire it too:
+					_ = channel.Writer.TryWrite(new KeysharpMsg()
+					{
+						message = (uint)UserMessages.AHK_HOOK_HOTKEY,
+						wParam = new nint(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK]),
+						lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel))
+						//Do not pass the variant.
+					});
+				}
+			}
+
+			if (hs != null)
+			{
+				_ = channel.Writer.TryWrite(new KeysharpMsg()
+				{
+					message = (uint)UserMessages.AHK_HOTSTRING,
+					obj = new HotstringMsg()
+					{
+						hs = hs,
+						caseMode = caseConformMode,
+						endChar = endChar
+					}
+				});
+			}
+		}
+
+		internal virtual HookAction CancelAltTabMenu() => HookAction.Continue;
 
 		internal bool PostMessage(KeysharpMsg msg)
 		=> IsReadThreadRunning()&& channel.Writer.TryWrite(msg);

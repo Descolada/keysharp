@@ -4,21 +4,21 @@ namespace Keysharp.Core.Linux
 	/// <summary>
 	/// Concrete implementation of WindowManager for the linux platfrom.
 	/// </summary>
-	internal class WindowManager : WindowManagerBase
+	internal class WindowManager : WindowManagerBase, IWindowManager
 	{
 		internal static Lock xLibLock = new (); //The X11 Winforms implementation uses this, so attempt to do the same here.
 
 		// ToDo: There may be more than only one xDisplay
-		private XDisplay _display = null;
+		private static XDisplay Display => XDisplay.Default;
 
-		internal override WindowItemBase ActiveWindow => new WindowItem(_display.XGetInputFocusWindow());
+		public static WindowItemBase ActiveWindow => new WindowItem(Display.XGetInputFocusWindow());
 
 		/// <summary>
 		/// Return all top level windows.
 		/// This behaves differently on linux in that it *does* recurse into child windows.
 		/// This is needed because otherwise none of the windows will be properly found.
 		/// </summary>
-		internal override IEnumerable<WindowItemBase> AllWindows
+		public static IEnumerable<WindowItemBase> AllWindows
 		{
 			get
 			{
@@ -26,38 +26,37 @@ namespace Keysharp.Core.Linux
 				var doHidden = ThreadAccessors.A_DetectHiddenWindows;
 				var filter = (long id) =>
 				{
-					if (Xlib.XGetWindowAttributes(_display.Handle, id, ref attr) != 0)
+					if (Xlib.XGetWindowAttributes(Display.Handle, id, ref attr) != 0)
 						if (doHidden || attr.map_state == MapState.IsViewable)
 							return true;
 
 					return false;
 				};
 				//return _display.XQueryTree(filter).Select(w => new WindowItem(w));
-				return _display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w));
+				return Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w));
 			}
 		}
 
 		internal WindowManager()
 		{
-			_display = XDisplay.Default;
 			Script.TheScript.ProcessesData.CurrentThreadID = (uint)Xlib.gettid();
 		}
 
-		internal override WindowItemBase CreateWindow(nint id) => new WindowItem(id);
+		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);
 
-		internal override IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows) => windows;
+		public static IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows) => windows;
 
-		internal override uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => throw new NotImplementedException();
+		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => throw new NotImplementedException();
 
-		internal override nint GetForegroundWindowHandle() => new nint(_display.XGetInputFocusHandle());
+		public static nint GetForegroundWindowHandle() => new nint(Display.XGetInputFocusHandle());
 
-		internal override bool IsWindow(nint handle)
+		public static bool IsWindow(nint handle)
 		{
 			var attr = new XWindowAttributes();
-			return Xlib.XGetWindowAttributes(_display.Handle, handle.ToInt64(), ref attr) != 0;
+			return Xlib.XGetWindowAttributes(Display.Handle, handle.ToInt64(), ref attr) != 0;
 		}
 
-		internal override void MaximizeAll()
+		public static void MaximizeAll()
 		{
 			foreach (var window in AllWindows)
 			{
@@ -66,7 +65,7 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		internal override void MinimizeAll()
+		public static void MinimizeAll()
 		{
 			foreach (var window in AllWindows)
 			{
@@ -75,7 +74,7 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		internal override void MinimizeAllUndo()
+		public static void MinimizeAllUndo()
 		{
 			foreach (var window in AllWindows)
 			{
@@ -95,7 +94,7 @@ namespace Keysharp.Core.Linux
 			xev.ClientMessageEvent.ptr1 = l0;
 			xev.ClientMessageEvent.ptr2 = l1;
 			xev.ClientMessageEvent.ptr3 = l2;
-			_ = Xlib.XSendEvent(_display.Handle, window, false, EventMasks.NoEvent, ref xev);
+			_ = Xlib.XSendEvent(Display.Handle, window, false, EventMasks.NoEvent, ref xev);
 		}
 
 		internal void SendNetWMMessage(nint window, nint message_type, nint l0, nint l1, nint l2, nint l3)
@@ -110,10 +109,10 @@ namespace Keysharp.Core.Linux
 			xev.ClientMessageEvent.ptr2 = l1;
 			xev.ClientMessageEvent.ptr3 = l2;
 			xev.ClientMessageEvent.ptr4 = l3;
-			_ = Xlib.XSendEvent(_display.Handle, _display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev);
+			_ = Xlib.XSendEvent(Display.Handle, Display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev);
 		}
 
-		internal override WindowItemBase WindowFromPoint(Keysharp.Core.Common.Window.POINT location)
+		public static WindowItemBase WindowFromPoint(POINT location)
 		{
 			var x = location.X;
 			var y = location.Y;

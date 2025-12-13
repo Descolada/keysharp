@@ -20,7 +20,7 @@ namespace Keysharp.Core.Linux
 		{
 			get
 			{
-				if (IsSpecified && manager.ActiveWindow is WindowItem item)
+				if (IsSpecified && WindowManager.ActiveWindow is WindowItem item)
 				{
 					//KeysharpEnhancements.OutputDebugLine($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}");
 					if (item.Handle.ToInt64() == Handle.ToInt64())
@@ -33,7 +33,7 @@ namespace Keysharp.Core.Linux
 			{
 				if (IsSpecified)
 				{
-					if (manager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
+					if (WindowManager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
 					{
 						if (IsIconic)
 						{
@@ -130,7 +130,7 @@ namespace Keysharp.Core.Linux
 
 					return false;
 				};
-				windows.AddRange(xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(w => manager.CreateWindow((nint)w.ID)));
+				windows.AddRange(xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(w => WindowManager.CreateWindow((nint)w.ID)));
 				return windows;
 			}
 		}

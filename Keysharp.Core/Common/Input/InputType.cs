@@ -222,7 +222,7 @@ namespace Keysharp.Core.Common.Input
 							var ch = new char[2];
 							state[(int)Keys.ShiftKey] |= 0x80; // Indicate that the neutral shift key is down for conversion purposes.
 							var active_window_keybd_layout = hook.kbdMsSender.GetFocusedKeybdLayout(0);
-							var count = script.PlatformProvider.Manager.ToUnicode(endingVK, hook.MapVkToSc(endingVK), state // Nothing is done about ToAsciiEx's dead key side-effects here because it seems to rare to be worth it (assuming its even a problem).
+							var count = ToUnicode(endingVK, hook.MapVkToSc(endingVK), state // Nothing is done about ToAsciiEx's dead key side-effects here because it seems to rare to be worth it (assuming its even a problem).
 										, ch, script.menuIsVisible != MenuType.None ? 1u : 0u, active_window_keybd_layout); // v1.0.44.03: Changed to call ToAsciiEx() so that active window's layout can be specified (see hook.cpp for details).
 							keyName = keyName.Substring(0, count);
 						}
@@ -515,7 +515,7 @@ namespace Keysharp.Core.Common.Input
 						// Otherwise, for any key name which has a VK shared by two possible SCs
 						// (such as Up and NumpadUp), handle it by SC so it's identified correctly.
 						var nextkey = sub.Slice(0, endPos).ToString();
-						vk = ht.TextToVK(nextkey, ref modifiersLR, true, true, script.PlatformProvider.Manager.GetKeyboardLayout(0));
+						vk = ht.TextToVK(nextkey, ref modifiersLR, true, true, GetKeyboardLayout(0));
 
 						if (vk != 0)
 						{
@@ -544,7 +544,7 @@ namespace Keysharp.Core.Common.Input
 
 						singleCharString = ch.ToString();
 						modifiersLR = 0u;  // Init prior to below.
-						vk = ht.TextToVK(singleCharString, ref modifiersLR, true, true, script.PlatformProvider.Manager.GetKeyboardLayout(0));
+						vk = ht.TextToVK(singleCharString, ref modifiersLR, true, true, GetKeyboardLayout(0));
 						vkByNumber = false;
 						scByNumber = false;
 						break;

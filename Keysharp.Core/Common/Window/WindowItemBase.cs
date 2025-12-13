@@ -284,7 +284,7 @@
 			//Potentially the slowest, so match it last
 			if (!string.IsNullOrEmpty(criteria.Group))
 			{
-				if (Script.TheScript.WindowProvider.Manager.Groups.TryGetValue(criteria.Group, out var stack))
+				if (TheScript.WindowProvider.Manager.Groups.TryGetValue(criteria.Group, out var stack))
 				{
 					if (stack.sc.Count > 0)//An empty group is assumed to want to match all windows.
 					{

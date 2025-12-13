@@ -230,16 +230,16 @@ namespace Keysharp.Core
 										 object flag = null)
 		{
 			var mode = flag.Al(0L);
-			var pos = Cursor.Position;
+			GetCursorPos(out POINT pos);
 			var aX = 0;
 			var aY = 0;
 			var script = Script.TheScript;
-			script.PlatformProvider.Manager.CoordToScreen(ref aX, ref aY, Core.CoordMode.Mouse);//Determine where 0,0 in window or client coordinates are on the screen.
+			CoordToScreen(ref aX, ref aY, Core.CoordMode.Mouse);//Determine where 0,0 in window or client coordinates are on the screen.
 			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
 			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
 			if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", DefaultObject);
 			if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
-            var child = script.WindowProvider.Manager.WindowFromPoint(new Keysharp.Core.Common.Window.POINT(pos));
+            var child = WindowManager.WindowFromPoint(pos);
 
 			if (child == null || child.Handle == 0)
 				return DefaultErrorObject;
@@ -256,7 +256,7 @@ namespace Keysharp.Core
 				parent.ChildFindPoint(pah);
 
 				if (pah.hwndFound != 0)
-					child = script.WindowProvider.Manager.CreateWindow(pah.hwndFound);
+					child = WindowManager.CreateWindow(pah.hwndFound);
 			}
 
 #endif
@@ -347,13 +347,13 @@ namespace Keysharp.Core
 
 			if (ThreadAccessors.A_CoordModeMouse == CoordModeType.Window)
 			{
-				var rect = script.WindowProvider.Manager.ActiveWindow.Location;
+				var rect = WindowManager.ActiveWindow.Location;
 				x += rect.Left;
 				y += rect.Top;
 			}
 			else if (ThreadAccessors.A_CoordModeMouse == CoordModeType.Client)
 			{
-				var pt = script.WindowProvider.Manager.ActiveWindow.ClientToScreen();
+				var pt = WindowManager.ActiveWindow.ClientToScreen();
 				x += pt.X;
 				y += pt.Y;
 			}
@@ -373,7 +373,7 @@ namespace Keysharp.Core
 
 			if (ThreadAccessors.A_CoordModeMouse == CoordModeType.Window)
 			{
-				var rect = script.WindowProvider.Manager.ActiveWindow.Location;
+				var rect = WindowManager.ActiveWindow.Location;
 				x1 += rect.Left;
 				y1 += rect.Top;
 				x2 += rect.Left;
@@ -381,7 +381,7 @@ namespace Keysharp.Core
 			}
 			else if (ThreadAccessors.A_CoordModeMouse == CoordModeType.Client)
 			{
-				var pt = script.WindowProvider.Manager.ActiveWindow.ClientToScreen();
+				var pt = WindowManager.ActiveWindow.ClientToScreen();
 				x1 += pt.X;
 				y1 += pt.Y;
 				x2 += pt.X;
@@ -400,7 +400,7 @@ namespace Keysharp.Core
 			//for cross platform purposes, should use something like Form.ActiveForm.PointToScreen() etc...
 			if (modeType == CoordModeType.Window)//This does not account for the mode value of other coord settings, like menu.//TODO
 			{
-				var rect = Script.TheScript.WindowProvider.Manager.ActiveWindow.Location;
+				var rect = WindowManager.ActiveWindow.Location;
 				return new Point(p.X - rect.Left, p.Y - rect.Top);
 			}
 

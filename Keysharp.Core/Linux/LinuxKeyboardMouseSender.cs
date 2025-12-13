@@ -1,13 +1,18 @@
 #if LINUX
 using System.Text;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Linq;
 using SharpHook;
 using SharpHook.Native;
 using SharpHook.Data;
+using Keysharp.Core;
 using static Keysharp.Core.Linux.SharpHookKeyMapper;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+using Keysharp.Core.Common.Mouse;
+using SharpHook.Testing;
+using System.Runtime.InteropServices.Swift;
 
 namespace Keysharp.Core.Linux
 {
@@ -163,7 +168,7 @@ namespace Keysharp.Core.Linux
 					outX = X; outY = Y;
 					if (outX == int.MinValue || Y == int.MinValue)
 					{
-						var pos = System.Windows.Forms.Cursor.Position;
+						_ = GetCursorPos(out POINT pos);
 						if (outX == int.MinValue) outX = pos.X;
 						if (outY == int.MinValue) outY = pos.Y;
 					}
@@ -921,6 +926,143 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
+        internal override bool MouseButtonsSwapped {
+			get {
+				if (!PlatformManager.IsX11Available)
+					return false;
+
+				// X11 supports up to 256 buttons, but 3 is enough for swap detection
+				byte[] map = new byte[3];
+				int count = Xlib.XGetPointerMapping(XDisplay.Default.Handle, map, map.Length);
+
+				if (count < 3)
+					return false;
+
+				// If physical button 1 does not map to logical button 1,
+				// the primary button is swapped.
+				return map[0] != 1;
+			}
+		}
+
+		internal override void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y)
+		{
+			if (eventBuilder == null)
+				return;
+
+			void EnsureCoords(ref int cx, ref int cy)
+			{
+				if (cx != CoordUnspecified && cy != CoordUnspecified)
+					return;
+
+				if (GetCursorPos(out POINT pos))
+				{
+					if (cx == CoordUnspecified)
+						cx = pos.X;
+					if (cy == CoordUnspecified)
+						cy = pos.Y;
+				}
+				else
+				{
+					if (cx == CoordUnspecified)
+						cx = 0;
+					if (cy == CoordUnspecified)
+						cy = 0;
+				}
+			}
+
+			var actionFlags = eventFlags & (0x1FFFu & ~(uint)MOUSEEVENTF.MOVE);
+			var relativeMove = (eventFlags & MsgOffsetMouseMove) != 0;
+
+			if (actionFlags == 0)
+			{
+				var mx = x;
+				var my = y;
+				if (!relativeMove)
+					EnsureCoords(ref mx, ref my);
+
+				if (relativeMove)
+					eventBuilder.AddMouseMovementRelative((short)mx, (short)my);
+				else
+					eventBuilder.AddMouseMovement((short)mx, (short)my);
+
+				eventCount++;
+				return;
+			}
+
+			void AddButtonEvent(MouseButton button, bool isDown, int bx, int by)
+			{
+				if (button == MouseButton.NoButton)
+					return;
+
+				var px = bx;
+				var py = by;
+				EnsureCoords(ref px, ref py);
+
+				if (isDown)
+					eventBuilder.AddMousePress((short)px, (short)py, button);
+				else
+					eventBuilder.AddMouseRelease((short)px, (short)py, button);
+
+				eventCount++;
+			}
+
+			switch (actionFlags)
+			{
+				case (uint)MOUSEEVENTF.LEFTDOWN:
+					AddButtonEvent(MouseButton.Button1, true, x, y);
+					return;
+				case (uint)MOUSEEVENTF.LEFTUP:
+					AddButtonEvent(MouseButton.Button1, false, x, y);
+					return;
+				case (uint)MOUSEEVENTF.RIGHTDOWN:
+					AddButtonEvent(MouseButton.Button2, true, x, y);
+					return;
+				case (uint)MOUSEEVENTF.RIGHTUP:
+					AddButtonEvent(MouseButton.Button2, false, x, y);
+					return;
+				case (uint)MOUSEEVENTF.MIDDLEDOWN:
+					AddButtonEvent(MouseButton.Button3, true, x, y);
+					return;
+				case (uint)MOUSEEVENTF.MIDDLEUP:
+					AddButtonEvent(MouseButton.Button3, false, x, y);
+					return;
+				case (uint)MOUSEEVENTF.XDOWN:
+					AddButtonEvent(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, true, x, y);
+					return;
+				case (uint)MOUSEEVENTF.XUP:
+					AddButtonEvent(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, false, x, y);
+					return;
+				case (uint)MOUSEEVENTF.WHEEL:
+					eventBuilder.AddMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
+					eventCount++;
+					return;
+				case (uint)MOUSEEVENTF.HWHEEL:
+					eventBuilder.AddMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
+					eventCount++;
+					return;
+			}
+		}
+
+		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
+		{
+			if (eventBuilder == null)
+				return;
+
+			var isKeyUp = (eventFlags & (uint)KEYEVENTF_KEYUP) != 0;
+			var isUnicode = (eventFlags & (uint)KEYEVENTF_UNICODE) != 0;
+
+			var keyCode = SharpHookKeyMapper.VkToKeyCode(vk);
+
+			if (keyCode == KeyCode.VcUndefined) return;
+
+			if (isKeyUp)
+				eventBuilder.AddKeyRelease(keyCode);
+			else
+				eventBuilder.AddKeyPress(keyCode);
+
+			eventCount++;
+		}
+
 		internal static class SendExecutor
 		{
 			public static void Execute(
@@ -932,18 +1074,12 @@ namespace Keysharp.Core.Linux
 				var lht = Script.TheScript.HookThread as LinuxHookThread;
 				var sendLevel = ThreadAccessors.A_SendLevel;
 				lht?.BeginSend(sendLevel);
-				var startedInjectIgnore = false;
-				if (sendLevel == 0)
-				{
-					lht?.BeginInjectedIgnore();
-					startedInjectIgnore = true;
-				}
 				// If the active hotkey suffix has no key-up hotkey, ignore the synthetic release
 				// so its injected press isn't swallowed by the grab, but still let real releases through.
-				if (lht?.ActiveHotkeyVk is uint activeVk && activeVk != 0 && !lht.HasKeyUpHotkey(activeVk))
+				var hotkeyName = A_ThisHotkey;
+				if (!string.IsNullOrEmpty(hotkeyName)
+						&& lht?.ActiveHotkeyVk is uint activeVk && activeVk != 0 && !lht.HasKeyUpHotkey(activeVk))
 				{
-					// Ignore both the synthetic down and up we emit for the suffix during Send.
-					lht.IgnoreNext(activeVk, 2);
 					lht.ForceReleaseEndKeyX11(activeVk);
 				}
 				LinuxHookThread.GrabSnapshot? grabSnapshot = lht?.BeginSendUngrab();
@@ -954,17 +1090,17 @@ namespace Keysharp.Core.Linux
 
 				var modsInitial = lht != null ? lht.CurrentModifiersLR() : self.GetModifierLRState(true);
 				DebugLog($"[Send] modsInitial={modsInitial:X}");
-				var capsOn = Script.TheScript.HookThread.IsKeyToggledOn(VK_CAPITAL);
 				// Preserve held modifiers when in {Blind} mode so wildcard hotkeys propagate them.
 				var modsDuring = ctx.InBlindMode ? modsInitial : 0u;
 				// When sending text-only in Input mode, avoid modifier adjustments to reduce duplicate/resend noise.
-				var adjustMods = (modsInitial != modsDuring || capsOn);
-				DebugLog($"[Send] adjustMods={adjustMods} mode={mode} capsOn={capsOn} modsDuring={modsDuring:X}");
+				var adjustMods = modsInitial != modsDuring;
+				DebugLog($"[Send] adjustMods={adjustMods} mode={mode} modsDuring={modsDuring:X}");
 
 				if (adjustMods)
-					DebugLog($"[Send] Adjust mods from {modsInitial:X} to {modsDuring:X} capsOn={capsOn}");
-				if (adjustMods)
+					DebugLog($"[Send] Adjust mods from {modsInitial:X} to {modsDuring:X}");
+				if (adjustMods) {
 					self.SetModifierLRState(modsDuring, modsInitial, 0, false, true, KeyboardMouseSender.KeyIgnore);
+				}
 
 				bool IsModifierVk(uint vk) =>
 					vk == VK_LSHIFT || vk == VK_RSHIFT || vk == VK_LCONTROL || vk == VK_RCONTROL
@@ -990,15 +1126,10 @@ namespace Keysharp.Core.Linux
 					if (adjustMods)
 						self.SetModifierLRState(modsInitial, self.GetModifierLRState(), 0, false, true, KeyboardMouseSender.KeyIgnore);
 					if (grabSnapshot.HasValue)
-					lht?.EndSendUngrab(grabSnapshot.Value);
+						lht?.EndSendUngrab(grabSnapshot.Value);
 					if (grabSnapshot != null && grabSnapshot.Value.Active && lht != null)
 						lht.sendUngrabActive = false;
-					// Restore physical modifier tracking to what it was before the send so held prefixes remain.
-					if (lht != null)
-						lht.MarkModifiersDown(modsInitial);
 					lht?.EndSend();
-					if (startedInjectIgnore)
-						lht?.EndInjectedIgnore();
 				}
 			}
 			private static void ExecuteAsInput(
@@ -1010,7 +1141,6 @@ namespace Keysharp.Core.Linux
 			{
 				IKeySimulationSequence? seq = null;
 				int seqId = Environment.TickCount;
-				HashSet<uint> injectedHeld = new();
 
 				// Keep these held across a run of mapped characters to minimize toggles
 				// Start with no modifiers held; we handle presses per character and restore afterward.
@@ -1023,16 +1153,12 @@ namespace Keysharp.Core.Linux
 
 				void SeqDown(uint vk)
 				{
-					if (lht != null && injectedHeld.Add(vk))
-						lht.TrackInjectedHold(vk, true);
 					DebugLog($"[SendSeq {seqId}] KeyDown vk={vk}");
 					EnsureSeq();
 					seq!.AddKeyDown(vk);
 				}
 				void SeqUp(uint vk)
 				{
-					if (lht != null && injectedHeld.Remove(vk))
-						lht.TrackInjectedHold(vk, false);
 					DebugLog($"[SendSeq {seqId}] KeyUp vk={vk}");
 					EnsureSeq();
 					seq!.AddKeyUp(vk);
@@ -1255,17 +1381,13 @@ namespace Keysharp.Core.Linux
 				long keyDuration)
 			{
 				DebugLog("[SendEvent] Begin");
-				var lht = Script.TheScript.HookThread as LinuxHookThread;
-				var injectedHeld = new HashSet<uint>();
 
 				void Press(uint vk)
 				{
 					DebugLog($"[SendEvent] KeyStroke vk={vk}");
 					self.backend.KeyDown(vk);
-					if (lht != null && injectedHeld.Add(vk)) lht.TrackInjectedHold(vk, true);
 					if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
 					self.backend.KeyUp(vk);
-					if (lht != null && injectedHeld.Remove(vk)) lht.TrackInjectedHold(vk, false);
 				}
 
 				bool heldShift = false, heldAltGr = false;
@@ -1275,28 +1397,24 @@ namespace Keysharp.Core.Linux
 					if (needAltGr && !heldAltGr)
 					{
 						self.backend.KeyDown(VK_ALTGR);
-						if (lht != null && injectedHeld.Add(VK_ALTGR)) lht.TrackInjectedHold(VK_ALTGR, true);
 						heldAltGr = true;
 						if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
 					}
 					if (needShift && !heldShift)
 					{
 						self.backend.KeyDown(VK_SHIFT);
-						if (lht != null && injectedHeld.Add(VK_SHIFT)) lht.TrackInjectedHold(VK_SHIFT, true);
 						heldShift = true;
 						if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
 					}
 					if (!needShift && heldShift)
 					{
 						self.backend.KeyUp(VK_SHIFT);
-						if (lht != null && injectedHeld.Remove(VK_SHIFT)) lht.TrackInjectedHold(VK_SHIFT, false);
 						heldShift = false;
 						if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
 					}
 					if (!needAltGr && heldAltGr)
 					{
 						self.backend.KeyUp(VK_ALTGR);
-						if (lht != null && injectedHeld.Remove(VK_ALTGR)) lht.TrackInjectedHold(VK_ALTGR, false);
 						heldAltGr = false;
 						if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
 					}
@@ -1307,14 +1425,12 @@ namespace Keysharp.Core.Linux
 					if (heldShift)
 					{
 						self.backend.KeyUp(VK_SHIFT);
-						if (lht != null && injectedHeld.Remove(VK_SHIFT)) lht.TrackInjectedHold(VK_SHIFT, false);
 						heldShift = false;
 						if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
 					}
 					if (heldAltGr)
 					{
 						self.backend.KeyUp(VK_ALTGR);
-						if (lht != null && injectedHeld.Remove(VK_ALTGR)) lht.TrackInjectedHold(VK_ALTGR, false);
 						heldAltGr = false;
 						if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
 					}
@@ -1413,14 +1529,12 @@ namespace Keysharp.Core.Linux
 						case SendInstructionType.KeyDown:
 							DebugLog($"[SendEvent] KeyDown vk={instr.Vk}");
 							self.backend.KeyDown(instr.Vk);
-							if (lht != null && injectedHeld.Add(instr.Vk)) lht.TrackInjectedHold(instr.Vk, true);
 							if (keyDuration >= 0) Flow.SleepWithoutInterruption(keyDuration);
 							break;
 
 						case SendInstructionType.KeyUp:
 							DebugLog($"[SendEvent] KeyUp vk={instr.Vk}");
 							self.backend.KeyUp(instr.Vk);
-							if (lht != null && injectedHeld.Remove(instr.Vk)) lht.TrackInjectedHold(instr.Vk, false);
 							if (keyDelay >= 0) Flow.SleepWithoutInterruption(keyDelay);
 							break;
 
@@ -1475,65 +1589,7 @@ namespace Keysharp.Core.Linux
 			eventCount = 0;
 		}
 
-		internal override void DoKeyDelay(long delay = long.MinValue)
-		{
-			if (delay == long.MinValue)
-				delay = ThreadAccessors.A_KeyDelay;
-
-			if (delay < 0)
-				return;
-
-			Flow.SleepWithoutInterruption(delay);
-		}
-
-		internal override void DoMouseDelay()
-		{
-			var mouseDelay = ThreadAccessors.A_MouseDelay;
-
-			if (mouseDelay < 0)
-				return;
-
-			if (mouseDelay < 11)
-				_ = Flow.Sleep(mouseDelay);
-			else
-				Flow.SleepWithoutInterruption(mouseDelay);
-		}
-
 		internal override nint GetFocusedKeybdLayout(nint window) => 0;
-		internal override uint GetModifierLRState(bool explicitlyGet = false)
-		{
-			var ht = Script.TheScript.HookThread;
-
-			// If the hook is running and cached state is acceptable, reuse the hook-tracked modifiers.
-			if (ht is LinuxHookThread lht && ht.HasKbdHook() && !explicitlyGet)
-				return lht.CurrentModifiersLR();
-
-			var mods = 0u;
-
-			// If no hook is present, try a logical query via X11 once.
-			if (ht is LinuxHookThread lhtNoHook && !ht.HasKbdHook() && lhtNoHook.TryQueryModifierLRState(out var logicalMods))
-			{
-				mods = logicalMods;
-			}
-			else
-			{
-				if (ht.IsKeyDownAsync(VK_LSHIFT)) mods |= MOD_LSHIFT;
-				if (ht.IsKeyDownAsync(VK_RSHIFT)) mods |= MOD_RSHIFT;
-				if (ht.IsKeyDownAsync(VK_LCONTROL)) mods |= MOD_LCONTROL;
-				if (ht.IsKeyDownAsync(VK_RCONTROL)) mods |= MOD_RCONTROL;
-				if (ht.IsKeyDownAsync(VK_LMENU)) mods |= MOD_LALT;
-				if (ht.IsKeyDownAsync(VK_RMENU)) mods |= MOD_RALT;
-				if (ht.IsKeyDownAsync(VK_LWIN)) mods |= MOD_LWIN;
-				if (ht.IsKeyDownAsync(VK_RWIN)) mods |= MOD_RWIN;
-			}
-
-			// Keep sender snapshots aligned when the hook is absent or explicit refresh requested.
-			modifiersLRPhysical = mods;
-			modifiersLRLogical = mods;
-			modifiersLRLogicalNonIgnored = mods;
-
-			return mods;
-		}
 
 		internal override void InitEventArray(int maxEvents, uint modifiersLR)
 		{
@@ -1550,30 +1606,6 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		internal override void MouseClickDrag(uint vk, int x1, int y1, int x2, int y2, long speed, bool relative)
-		{
-			var button = VkToMouseButton(vk);
-			if (button == MouseButton.NoButton)
-				return;
-
-			if (sendMode == SendModes.Input && eventBuilder != null)
-			{
-				eventBuilder.AddMouseMovement((short)x1, (short)y1);
-				eventBuilder.AddMousePress((short)x1, (short)y1, button);
-				eventBuilder.AddMouseMovement((short)x2, (short)y2);
-				eventBuilder.AddMouseRelease((short)x2, (short)y2, button);
-				eventCount += 4;
-			}
-			else
-			{
-				sim.SimulateMouseMovement((short)x1, (short)y1);
-				sim.SimulateMousePress((short)x1, (short)y1, button);
-				sim.SimulateMouseMovement((short)x2, (short)y2);
-				sim.SimulateMouseRelease((short)x2, (short)y2, button);
-				DoMouseDelay();
-			}
-		}
-
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
 			var button = VkToMouseButton(eventFlags & 0xFFFF);
@@ -1584,7 +1616,7 @@ namespace Keysharp.Core.Linux
 
 			if (finalX == CoordUnspecified || finalY == CoordUnspecified)
 			{
-				var pos = System.Windows.Forms.Cursor.Position;
+				_ = GetCursorPos(out POINT pos);
 				finalX = pos.X;
 				finalY = pos.Y;
 			}
@@ -1666,73 +1698,9 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		internal override void SendKey(uint vk, uint sc, uint modifiersLR, uint modifiersLRPersistent
-									   , long repeatCount, KeyEventTypes eventType, uint keyAsModifiersLR, nint targetWindow
-									   , int x = CoordUnspecified, int y = CoordUnspecified, bool moveOffset = false)
-		{
-			var modifiersLRSpecified = (modifiersLR | modifiersLRPersistent);
-			var script = Script.TheScript;
-			var vkIsMouse = script.HookThread.IsMouseVK(vk);
-			var tv = script.Threads.CurrentThread.configData;
-			var sendLevel = tv.sendLevel;
-
-			for (var i = 0L; i < repeatCount; ++i)
-			{
-				if (sendMode == SendModes.Event)
-					LongOperationUpdateForSendKeys();
-
-				if (keyAsModifiersLR == 0)
-				{
-					SetModifierLRState(modifiersLRSpecified, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState()
-									   , targetWindow, false, true, sendLevel != 0 ? KeyIgnoreLevel(sendLevel) : KeyIgnore);
-				}
-
-				if (vkIsMouse && targetWindow == 0)
-				{
-					MouseClick(vk, x, y, 1, tv.defaultMouseSpeed, eventType, moveOffset);
-				}
-				else
-				{
-					SendKeyEvent(eventType, vk, sc, targetWindow, true, KeyIgnoreLevel(sendLevel));
-				}
-			}
-
-			if (keyAsModifiersLR == 0)
-			{
-				var stateNow = sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState();
-				var winAltToBeReplaced = (stateNow & ~modifiersLRPersistent)
-										 & (MOD_LWIN | MOD_RWIN | MOD_LALT | MOD_RALT);
-
-				if (winAltToBeReplaced != 0)
-				{
-					SetModifierLRState(0u, winAltToBeReplaced, targetWindow, true, false);
-				}
-			}
-		}
-
 		internal override ResultType LayoutHasAltGrDirect(nint layout)
 		{
 			return ResultType.ConditionFalse;
-		}
-
-		internal override void SendKeyEventMenuMask(KeyEventTypes eventType, long extraInfo = KeyIgnoreAllExceptModifier)
-		{
-			// On Linux, mask Win/Alt release by sending a quick Ctrl tap to avoid menu activation in some environments.
-			var maskVk = VK_LCONTROL;
-
-			switch (eventType)
-			{
-				case KeyEventTypes.KeyDown:
-					SendKeyEvent(KeyEventTypes.KeyDown, maskVk, 0u, default, false, extraInfo);
-					break;
-				case KeyEventTypes.KeyUp:
-					SendKeyEvent(KeyEventTypes.KeyUp, maskVk, 0u, default, false, extraInfo);
-					break;
-				case KeyEventTypes.KeyDownAndUp:
-					SendKeyEvent(KeyEventTypes.KeyDown, maskVk, 0u, default, false, extraInfo);
-					SendKeyEvent(KeyEventTypes.KeyUp, maskVk, 0u, default, false, extraInfo);
-					break;
-			}
 		}
 
 		internal override int SiEventCount() => eventCount;
@@ -1756,9 +1724,7 @@ namespace Keysharp.Core.Linux
 
 			if (desiredOn && !current || desiredOff && current || toggleValue == ToggleValueType.Toggle)
 			{
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
-				if (code != KeyCode.VcUndefined)
-					sim.SimulateKeyStroke(code);
+				backend.KeyStroke(vk);
 			}
 
 			if (desiredOn) return ToggleValueType.On;
@@ -1777,45 +1743,51 @@ namespace Keysharp.Core.Linux
 			bool doKeyDelay = false,
 			long extraInfo = 0)
 		{
-			var code = VkToKeyCode(vk);
-			if (code == KeyCode.VcUndefined)
+			if (vk == 0)
 				return;
 
-			if (sendMode == SendModes.Input && eventBuilder != null)
+			void EmitImmediate(KeyEventTypes type)
 			{
+				switch (type)
+				{
+					case KeyEventTypes.KeyDown:
+						backend.KeyDown(vk);
+						break;
+					case KeyEventTypes.KeyUp:
+						backend.KeyUp(vk);
+						break;
+					case KeyEventTypes.KeyDownAndUp:
+						backend.KeyDown(vk);
+						backend.KeyUp(vk);
+						break;
+				}
+			}
+
+			if (sendMode == SendModes.Input)
+			{
+				using var seq = backend.BeginSequence();
 				switch (eventType)
 				{
 					case KeyEventTypes.KeyDown:
-						eventBuilder.AddKeyPress(code);
+						seq.AddKeyDown(vk);
 						break;
 					case KeyEventTypes.KeyUp:
-						eventBuilder.AddKeyRelease(code);
+						seq.AddKeyUp(vk);
 						break;
 					case KeyEventTypes.KeyDownAndUp:
-						eventBuilder.AddKeyPress(code);
-						eventBuilder.AddKeyRelease(code);
+						seq.AddKeyDown(vk);
+						seq.AddKeyUp(vk);
 						break;
 				}
-				eventCount++;
+				seq.Commit();
 			}
 			else
 			{
-				switch (eventType)
-				{
-					case KeyEventTypes.KeyDown:
-						sim.SimulateKeyPress(code);
-						break;
-					case KeyEventTypes.KeyUp:
-						sim.SimulateKeyRelease(code);
-						break;
-					case KeyEventTypes.KeyDownAndUp:
-						sim.SimulateKeyStroke(code);
-						break;
-				}
-
-				if (doKeyDelay)
-					DoKeyDelay();
+				EmitImmediate(eventType);
 			}
+
+			if (doKeyDelay)
+				DoKeyDelay();
 		}
 
 		internal override void SendKeys(string keys, SendRawModes sendRaw, SendModes sendModeOrig, nint targetWindow)
@@ -1835,7 +1807,38 @@ namespace Keysharp.Core.Linux
 			SendExecutor.Execute(ctx, sendMode, this, backend);
 		}
 
+		internal override void SendUnicodeChar(char ch, uint modifiers)
+		{
+			// Set modifier keystate as specified by caller.  Generally this will be 0, since
+			// key combinations with Unicode packets either do nothing at all or do the same as
+			// without the modifiers.  All modifiers are known to interfere in some applications.
+			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, KeyIgnore);
+			var sendLevel = ThreadAccessors.A_SendLevel;
+
+			if (sendMode == SendModes.Input)
+			{
+				// Calling SendInput() now would cause characters to appear out of sequence.
+				// Instead, put them into the array and allow them to be sent in sequence.
+				PutKeybdEventIntoArray(0, 0, ch, KEYEVENTF_UNICODE, KeyIgnoreLevel(sendLevel));
+				PutKeybdEventIntoArray(0, 0, ch, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, KeyIgnoreLevel(sendLevel));
+				return;
+			}
+
+			SendKeyEvent(KeyEventTypes.KeyDownAndUp, 0, ch, 0, false, KeyIgnoreLevel(sendLevel));
+		}
+
+		internal override void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow
+				, bool disguiseDownWinAlt, bool disguiseUpWinAlt, long extraInfo = KeyIgnoreAllExceptModifier)
+		{
+			base.SetModifierLRState(modifiersLRnew, modifiersLRnow, targetWindow,
+				disguiseDownWinAlt, disguiseUpWinAlt, extraInfo);
+			modifiersLRLogical = modifiersLRnew;
+			modifiersLRLogicalNonIgnored = modifiersLRnew;
+		}
+
 		protected override void RegisterHook() { }
+
+		internal override int MouseCoordToAbs(int coord, int width_or_height) => ((65536 * coord) / width_or_height) + (coord < 0 ? -1 : 1);
 
 		internal sealed class SharpHookKeySimulationBackend
 		{
@@ -1844,87 +1847,88 @@ namespace Keysharp.Core.Linux
 			public SharpHookKeySimulationBackend(IEventSimulator? sim = null)
 				=> this.sim = sim ?? new EventSimulator();
 
-				public void KeyDown(uint vk)
-				{
-					var code = SharpHookKeyMapper.VkToKeyCode(vk);
-					if (code != KeyCode.VcUndefined)
-					{
-						DebugLog($"[SendEmit] KeyDown vk={vk} code={code}");
-						sim.SimulateKeyPress(code);
-					}
-				}
+			private static void RegisterSynthetic(KeyCode code, bool keyUp)
+			{
+				if (code == KeyCode.VcUndefined)
+					return;
 
-				public void KeyUp(uint vk)
-				{
-					var code = SharpHookKeyMapper.VkToKeyCode(vk);
-					if (code != KeyCode.VcUndefined)
-					{
-						DebugLog($"[SendEmit] KeyUp vk={vk} code={code}");
-						sim.SimulateKeyRelease(code);
-					}
-				}
+				if (Script.TheScript.HookThread is LinuxHookThread lht)
+					lht.RegisterSyntheticEvent(code, keyUp);
+			}
 
-				public void KeyStroke(uint vk)
-				{
-					var code = SharpHookKeyMapper.VkToKeyCode(vk);
-					if (code != KeyCode.VcUndefined)
-					{
-						DebugLog($"[SendEmit] KeyStroke vk={vk} code={code}");
-						sim.SimulateKeyStroke(code);
-					}
-				}
+			public void KeyDown(uint vk)
+			{
+				var code = SharpHookKeyMapper.VkToKeyCode(vk);
+				if (code == KeyCode.VcUndefined)
+					return;
+
+				RegisterSynthetic(code, false);
+				DebugLog($"[SendEmit] KeyDown vk={vk} code={code}");
+				sim.SimulateKeyPress(code);
+			}
+
+			public void KeyUp(uint vk)
+			{
+				var code = SharpHookKeyMapper.VkToKeyCode(vk);
+				if (code == KeyCode.VcUndefined)
+					return;
+
+				RegisterSynthetic(code, true);
+				DebugLog($"[SendEmit] KeyUp vk={vk} code={code}");
+				sim.SimulateKeyRelease(code);
+			}
+
+			public void KeyStroke(uint vk)
+			{
+				KeyDown(vk);
+				KeyUp(vk);
+			}
 
 			public IKeySimulationSequence BeginSequence()
-				=> new SharpHookKeySequence(sim);
+				=> new SharpHookKeySequence(this);
 		}
 
 		internal sealed class SharpHookKeySequence : IKeySimulationSequence
 		{
-			private readonly IEventSimulationSequenceBuilder builder;
+			private enum ActionType { Down, Up }
+
+			private readonly SharpHookKeySimulationBackend backend;
+			private readonly List<(ActionType Type, uint Vk)> actions = new();
 			private bool committed;
 
-			public SharpHookKeySequence(IEventSimulator sim)
-			{
-				builder = sim.Sequence();
-			}
+			public SharpHookKeySequence(SharpHookKeySimulationBackend backend)
+				=> this.backend = backend;
 
 			public void AddKeyDown(uint vk)
-			{
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
-				if (code != KeyCode.VcUndefined)
-				{
-					DebugLog($"[SendEmit] Seq KeyDown vk={vk} code={code}");
-					builder.AddKeyPress(code);
-				}
-			}
+				=> actions.Add((ActionType.Down, vk));
 
 			public void AddKeyUp(uint vk)
-			{
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
-				if (code != KeyCode.VcUndefined)
-				{
-					DebugLog($"[SendEmit] Seq KeyUp vk={vk} code={code}");
-					builder.AddKeyRelease(code);
-				}
-			}
+				=> actions.Add((ActionType.Up, vk));
 
 			public void AddKeyStroke(uint vk)
 			{
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
-				if (code != KeyCode.VcUndefined)
-				{
-					DebugLog($"[SendEmit] Seq KeyStroke vk={vk} code={code}");
-					builder.AddKeyPress(code);
-					builder.AddKeyRelease(code);
-				}
+				AddKeyDown(vk);
+				AddKeyUp(vk);
 			}
 
 			public void Commit()
 			{
 				if (committed) return;
 				committed = true;
-				DebugLog("[SendEmit] Seq Commit");
-				builder.Simulate();
+
+				if (actions.Count > 0)
+				{
+					DebugLog("[SendEmit] Seq Commit");
+					foreach (var (type, vk) in actions)
+					{
+						if (type == ActionType.Down)
+							backend.KeyDown(vk);
+						else
+							backend.KeyUp(vk);
+					}
+				}
+
+				actions.Clear();
 			}
 
 			public void Dispose()

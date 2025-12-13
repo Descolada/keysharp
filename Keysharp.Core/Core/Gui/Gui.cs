@@ -1,6 +1,4 @@
-﻿using System.Runtime.Intrinsics.Arm;
-
-namespace Keysharp.Core
+﻿namespace Keysharp.Core
 {
 	internal class GuiData
 	{

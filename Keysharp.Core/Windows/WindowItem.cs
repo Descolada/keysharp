@@ -1,4 +1,6 @@
 ﻿#if WINDOWS
+using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+
 //#define DPI
 namespace Keysharp.Core.Windows
 {
@@ -13,7 +15,7 @@ namespace Keysharp.Core.Windows
 		{
 			get
 			{
-				if (IsSpecified && Script.TheScript.WindowProvider.Manager.ActiveWindow is WindowItem item)
+				if (IsSpecified && WindowManager.ActiveWindow is WindowItem item)
 				{
 					//KeysharpEnhancements.OutputDebugLine($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}");
 					//Keysharp.Core.File.FileAppend($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}\n", "out.txt");
@@ -27,7 +29,7 @@ namespace Keysharp.Core.Windows
 			{
 				if (IsSpecified)
 				{
-					if (Script.TheScript.WindowProvider.Manager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
+					if (WindowManager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
 					{
 						if (IsIconic)
 							_ = WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_RESTORE);
@@ -79,7 +81,7 @@ namespace Keysharp.Core.Windows
 					_ = WindowsAPI.EnumChildWindows(Handle, (nint hwnd, int lParam) =>
 					{
 						//if (detectHiddenText || WindowsAPI.IsWindowVisible(hwnd))
-						_ = children.Add(TheScript.WindowProvider.Manager.CreateWindow(hwnd));
+						_ = children.Add(TheWindowManager.CreateWindow(hwnd));
 						return true;
 					}, 0);
 				}
@@ -91,7 +93,7 @@ namespace Keysharp.Core.Windows
 					form.Invoke(() =>
 					{
 						foreach (var ctrl in form.GetAllControlsRecursive<Control>())
-							_ = children.Add(TheScript.WindowProvider.Manager.CreateWindow(ctrl.Handle));//HashSet takes care of avoiding dupes.
+							_ = children.Add(TheWindowManager.CreateWindow(ctrl.Handle));//HashSet takes care of avoiding dupes.
 					});
 				}
 
@@ -176,9 +178,9 @@ namespace Keysharp.Core.Windows
 			}
 		}
 
-		internal override WindowItemBase NonChildParentWindow => TheScript.WindowProvider.Manager.CreateWindow(WindowsAPI.GetNonChildParent(Handle));
+		internal override WindowItemBase NonChildParentWindow => TheWindowManager.CreateWindow(WindowsAPI.GetNonChildParent(Handle));
 
-		internal override WindowItemBase ParentWindow => TheScript.WindowProvider.Manager.CreateWindow(WindowsAPI.GetAncestor(Handle, gaFlags.GA_PARENT));
+		internal override WindowItemBase ParentWindow => TheWindowManager.CreateWindow(WindowsAPI.GetAncestor(Handle, gaFlags.GA_PARENT));
 
 		internal override string Path
 		{
@@ -461,7 +463,7 @@ namespace Keysharp.Core.Windows
 
 			if (origForegroundWnd != 0) // Might be NULL from above.
 			{
-				var foregroundwin = TheScript.WindowProvider.Manager.CreateWindow(origForegroundWnd);
+				var foregroundwin = TheWindowManager.CreateWindow(origForegroundWnd);
 				// Based on MSDN docs, these calls should always succeed due to the other
 				// checks done above (e.g. that none of the HWND's are NULL):
 				foreThread = WindowsAPI.GetWindowThreadProcessId(origForegroundWnd, out var id);

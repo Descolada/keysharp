@@ -48,6 +48,7 @@ global using global::System.Windows.Forms;
 
 // Alias String to avoid conflicts with Keysharp.Core.String
 global using String = System.String;
+global using POINT = Keysharp.Core.Common.Window.POINT;
 
 //Our usings.
 global using global::Keysharp.Core;
@@ -96,3 +97,12 @@ global using static global::Keysharp.Core.Accessors;
 global using static global::Keysharp.Core.KeysharpEnhancements;
 global using static global::Keysharp.Scripting.Keywords;
 global using static global::Keysharp.Scripting.Script;
+global using static global::Keysharp.Core.Common.Platform.PlatformManagerBase;
+
+#if WINDOWS
+	global using static global::Keysharp.Core.Windows.PlatformManager;
+#endif
+
+#if LINUX
+	global using static global::Keysharp.Core.Linux.PlatformManager;
+#endif

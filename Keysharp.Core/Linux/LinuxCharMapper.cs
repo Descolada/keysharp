@@ -201,8 +201,7 @@ namespace Keysharp.Core.Linux
 							{
 								try { XInitThreads(); _xThreadsInited = true; } catch { }
 							}
-							_xDisplay = XOpenDisplay(IntPtr.Zero);
-							if (_xDisplay != IntPtr.Zero && SetupKeymapFromX11())
+							if (SetupKeymapFromX11())
 							{
 								FinalizeKeymapCommon();
 								_ready = true;

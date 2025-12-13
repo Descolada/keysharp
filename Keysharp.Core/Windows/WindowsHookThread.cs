@@ -3,6 +3,7 @@ using System;
 using System.Runtime.CompilerServices;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
+using static Keysharp.Core.Common.Mouse.MouseUtils;
 using static Keysharp.Core.Common.Keyboard.ScanCodes;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 using static Keysharp.Core.Windows.WindowsAPI;
@@ -531,7 +532,6 @@ namespace Keysharp.Core.Windows
 		// neutral one. On the other hand, event.scanCode is the one we need for ToUnicodeEx() calls.
 		{
 			var script = Script.TheScript;
-			var platformManager = script.PlatformProvider.Manager;
 			state.earlyCollected = true;
 			state.used_dead_key_non_destructively = false;
 			state.charCount = 0;
@@ -594,9 +594,9 @@ namespace Keysharp.Core.Windows
 			// v1.1.28.01: active_window is left as the active window; the above is not done because it disrupts
 			// hotstrings when the first keypress causes a change in focus, such as to enter editing mode in Excel.
 			// See Get_active_window_keybd_layout macro definition for related comments.
-			var activeWindow = script.WindowProvider.Manager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
+			var activeWindow = WindowManager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 			nint tempzero = 0;
-			var activeWindowKeybdLayout = platformManager.GetKeyboardLayout(script.WindowProvider.Manager.GetFocusedCtrlThread(ref tempzero, activeWindow));
+			var activeWindowKeybdLayout = GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, activeWindow));
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 
@@ -653,7 +653,7 @@ namespace Keysharp.Core.Windows
 						AdjustKeyState(keyState, dead_key.modLR);
 						keyState[VK_CAPITAL] = (byte)dead_key.caps;
 						System.Array.Clear(ch, 0, ch.Length);
-						_ = platformManager.ToUnicode(dead_key.vk, dead_key.sc, keyState, ch, 0, activeWindowKeybdLayout);
+						_ = ToUnicode(dead_key.vk, dead_key.sc, keyState, ch, 0, activeWindowKeybdLayout);
 					}
 				}
 
@@ -671,7 +671,7 @@ namespace Keysharp.Core.Windows
 				AdjustKeyState(keyState, kbdMsSender.modifiersLRLogical);
 				keyState[VK_CAPITAL] = (byte)(IsKeyToggledOn(VK_CAPITAL) ? 1 : 0);
 				System.Array.Clear(ch, 0, ch.Length);
-				charCount = platformManager.ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
+				charCount = ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
 
 				if (charCount == 0 && (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0 && (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0u && !interfere)
 				{
@@ -680,7 +680,7 @@ namespace Keysharp.Core.Windows
 					// conditions.  transcribe_key and modifier state checked above imply that the M option was used.
 					keyState[VK_MENU] = 0;
 					System.Array.Clear(ch, 0, ch.Length);
-					charCount = platformManager.ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
+					charCount = ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
 				}
 
 				if (charCount <= 0 && interfere) // A key with no text translation, or possibly a chained dead key (if < 0).
@@ -692,7 +692,7 @@ namespace Keysharp.Core.Windows
 					// but then changed to using VK_DECIMAL and apparently never explained either choice.  Still, VK_DECIMAL
 					// seems like a safe choice for clearing the state; probably any key which produces text will work, but
 					// the loop is needed in case of an unconventional layout which makes VK_DECIMAL itself a dead key.
-					while (platformManager.ToUnicode(VK_DECIMAL, 0, keyState, ignored, flags, activeWindowKeybdLayout) == -1) ;
+					while (ToUnicode(VK_DECIMAL, 0, keyState, ignored, flags, activeWindowKeybdLayout) == -1) ;
 				}
 
 				if (charCount > 0)
@@ -825,7 +825,7 @@ namespace Keysharp.Core.Windows
 
 		protected internal override void UpdateForegroundWindowData(KeyHistoryItem item, KeyHistory history)
 		{
-			var hwnd = script.WindowProvider.Manager.GetForegroundWindowHandle();
+			var hwnd = WindowManager.GetForegroundWindowHandle();
 
 			if (hwnd != 0)
 			{

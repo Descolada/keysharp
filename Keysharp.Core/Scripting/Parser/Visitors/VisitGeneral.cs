@@ -444,7 +444,7 @@ namespace Keysharp.Scripting
             string tempcp1, remapSource, remapDest, remapDestModifiers; // Must fit the longest key name (currently Browser_Favorites [17]), but buffer overflow is checked just in case.
             bool remapSourceIsCombo, remapSourceIsMouse, remapDestIsMouse, remapKeybdToMouse, remapWheel;
             var ht = Script.TheScript.HookThread;
-            var kbLayout = Script.TheScript.PlatformProvider.Manager.GetKeyboardLayout(0);
+            var kbLayout = GetKeyboardLayout(0);
 
             ht.TextToVKandSC(remapName = HotkeyDefinition.TextToModifiers(remapName, null), ref remapDestVk, ref remapDestSc, ref modLR, kbLayout);
 

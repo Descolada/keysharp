@@ -279,8 +279,7 @@ namespace Keysharp.Scripting
 
 			_ = Script.TheScript.Threads.PushThreadVariables(0, true, false, true);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
 			var pd = this.ProcessesData;
-			mgr = this.PlatformProvider.Manager;
-			pd.MainThreadID = mgr.CurrentThreadId();
+			pd.MainThreadID = CurrentThreadId();
 			pd.ManagedMainThreadID = Thread.CurrentThread.ManagedThreadId;//Figure out how to do this on linux.//TODO
 
 			msgFilter = new MessageFilter(this);
@@ -327,19 +326,19 @@ namespace Keysharp.Scripting
 		{
 			if (dll.Length == 0)
 			{
-				if (!mgr.SetDllDirectory(null))//An empty #DllLoad restores the default search order.
+				if (!SetDllDirectory(null))//An empty #DllLoad restores the default search order.
 					if (throwOnFailure)
 					{
-						_ = Errors.ErrorOccurred("PlatformProvider.Manager.SetDllDirectory(null) failed.", null, Keyword_ExitApp);
+						_ = Errors.ErrorOccurred("PlatformManager.SetDllDirectory(null) failed.", null, Keyword_ExitApp);
 						return;
 					}
 			}
 			else if (Directory.Exists(dll))
 			{
-				if (!mgr.SetDllDirectory(dll))
+				if (!SetDllDirectory(dll))
 					if (throwOnFailure)
 					{
-						_ = Errors.ErrorOccurred($"PlatformProvider.Manager.SetDllDirectory({dll}) failed.", null, Keyword_ExitApp);
+						_ = Errors.ErrorOccurred($"PlatformManager.SetDllDirectory({dll}) failed.", null, Keyword_ExitApp);
 						return;
 					}
 			}
@@ -352,7 +351,7 @@ namespace Keysharp.Scripting
 					dllname += ".dll";
 
 #endif
-				var hmodule = mgr.LoadLibrary(dllname);
+				var hmodule = LoadLibrary(dllname);
 
 				if (hmodule != 0)
 				{

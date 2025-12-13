@@ -81,7 +81,6 @@ namespace Keysharp.Core.Common.Threading
 		// and never come back down, thus penalizing performance until the program is restarted:
 		internal KeyType prefixKey = null;
 
-		protected internal PlatformManagerBase mgr;
 		// Whether the alt-tab menu was shown by an AltTab hotkey or alt-tab was detected
 		// by the hook.  This might be inaccurate if the menu was displayed before the hook
 		// was installed or the keys weren't detected because of UIPI.  If this turns out to
@@ -120,7 +119,6 @@ namespace Keysharp.Core.Common.Threading
 
 		internal HookThread()
 		{
-			mgr = Script.TheScript.PlatformProvider.Manager;
 			EnsureKeyLookups();
 		}
 
@@ -828,7 +826,7 @@ namespace Keysharp.Core.Common.Threading
 			AddRemoveHooks(hooksToBeActive);
 		}
 
-		internal bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
+		internal virtual bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
 											  KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar)
 		{
 			var suppressHotstringFinalChar = false; // Set default.
@@ -1294,8 +1292,7 @@ namespace Keysharp.Core.Common.Threading
 						//   :*:jsá::jsmith@somedomain.com
 						System.Array.Clear(ignored, 0, ignored.Length);
 
-						var platformManager = Script.TheScript.PlatformProvider.Manager;
-						while (platformManager.ToUnicode(VK_DECIMAL, 0, physicalKeyState, ignored, 1, activeWindowKeybdLayout) == -1) ;
+						while (ToUnicode(VK_DECIMAL, 0, physicalKeyState, ignored, 1, activeWindowKeybdLayout) == -1) ;
 					}
 
 					return false; // Suppress.
@@ -1638,7 +1635,7 @@ namespace Keysharp.Core.Common.Threading
 			}
 			else if (x == CoordUnspecified && y == CoordUnspecified)//Neither was specified, so just use the cursor position.
 			{
-				var pos = Cursor.Position;
+				GetCursorPos(out POINT pos);
 				x = pos.X;
 				y = pos.Y;
 			}
@@ -3239,7 +3236,7 @@ namespace Keysharp.Core.Common.Threading
 			return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
 		}
 
-				internal long SuppressThisKeyFunc(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo,
+		internal long SuppressThisKeyFunc(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo,
 										  KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant,
 										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0)
 		// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
@@ -3600,6 +3597,8 @@ namespace Keysharp.Core.Common.Threading
 			}
 		}
 
+		internal virtual void PrepareToSendHotstringReplacement(char endChar) { }
+
 		internal virtual HookAction CancelAltTabMenu() => HookAction.Continue;
 
 		internal bool PostMessage(KeysharpMsg msg)
@@ -3896,7 +3895,7 @@ namespace Keysharp.Core.Common.Threading
 				return 0;
 
 			if (keybdLayout == 0)
-				keybdLayout = Script.TheScript.PlatformProvider.Manager.GetKeyboardLayout(0);
+				keybdLayout = GetKeyboardLayout(0);
 
 			// Don't trim() aText or modify it because that will mess up the caller who expects it to be unchanged.
 			// Instead, for now, just check it as-is.  The only extra whitespace that should exist, due to trimming
@@ -4205,14 +4204,13 @@ namespace Keysharp.Core.Common.Threading
 		/// <returns></returns>
 		internal virtual char VKtoChar(uint vk, nint keybdLayout)
 		{
-			var platformManager = Script.TheScript.PlatformProvider.Manager;
 			if (keybdLayout == 0)
-				keybdLayout = platformManager.GetKeyboardLayout(0);
+				keybdLayout = GetKeyboardLayout(0);
 
 			// MapVirtualKeyEx() always produces 'A'-'Z' for those keys regardless of keyboard layout,
 			// but for any other keys it produces the correct results, so we'll use it:
 			if (vk > 'Z' || vk < 'A')
-				return (char)platformManager.MapVirtualKeyToChar(vk, keybdLayout);
+				return (char)MapVirtualKeyToChar(vk, keybdLayout);
 
 			// For any other keys,
 			var ch = new char[3];
@@ -4225,19 +4223,19 @@ namespace Keysharp.Core.Common.Threading
 			// We don't want that to happen, so as a workaround we pass a key-code which doesn't combine
 			// with any dead chars, and will therefore pull it out.  VK_DECIMAL is used because it is
 			// almost always valid; see http://www.siao2.com/2007/10/27/5717859.aspx
-			if (platformManager.ToUnicode(VK_DECIMAL, 0, keyState, ch, 0, keybdLayout) == 2)
+			if (ToUnicode(VK_DECIMAL, 0, keyState, ch, 0, keybdLayout) == 2)
 			{
 				// Save the char to be later re-injected.
 				deadChar = ch[0];
 			}
 
 			// Retrieve the character that corresponds to aVK, if any.
-			n = platformManager.ToUnicode(vk, 0, keyState, ch, 0, keybdLayout);
+			n = ToUnicode(vk, 0, keyState, ch, 0, keybdLayout);
 
 			if (n < 0) // aVK is a dead key, and we've just placed it into aKeybdLayout's buffer.
 			{
 				// Flush it out in the same manner as before (see above).
-				_ = platformManager.ToUnicode(VK_DECIMAL, 0, keyState, chNotUsed, 0, keybdLayout);
+				_ = ToUnicode(VK_DECIMAL, 0, keyState, chNotUsed, 0, keybdLayout);
 			}
 
 			if (deadChar != (char)0)
@@ -4250,7 +4248,7 @@ namespace Keysharp.Core.Common.Threading
 				if (dead_vk != 0)
 				{
 					AdjustKeyState(keyState, modLR.Value);
-					_ = platformManager.ToUnicode(dead_vk, 0, keyState, chNotUsed, 0, keybdLayout);
+					_ = ToUnicode(dead_vk, 0, keyState, chNotUsed, 0, keybdLayout);
 				}
 
 				//else: can't do it.
@@ -4284,7 +4282,7 @@ namespace Keysharp.Core.Common.Threading
 		// that it was in the middle of, though it could start something new immediately after).
 		{
 			//Make sure this is not called within the channel thread because it would deadlock if so.
-			if (channelThreadID != mgr.CurrentThreadId() && IsReadThreadRunning())
+			if (channelThreadID != CurrentThreadId() && IsReadThreadRunning())
 			{
 				hookSynced = false;
 
@@ -4329,7 +4327,7 @@ namespace Keysharp.Core.Common.Threading
 				{
 					Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;//AHK Sets this to critical which seems extreme.
 					var reader = channel.Reader;
-					channelThreadID = mgr.CurrentThreadId();
+					channelThreadID = CurrentThreadId();
 
 					await foreach (var item in reader.ReadAllAsync())//This should be totally reworked to use object types/casting rather than packing all manner of obscure meaning into bits and bytes of wparam and lparam.
 						//while (true)
@@ -4342,7 +4340,7 @@ namespace Keysharp.Core.Common.Threading
 						//var item = await reader.ReadAsync();
 						//var theasyncfunc = async () =>
 						nint criterion_found_hwnd = 0;
-						channelThreadID = mgr.CurrentThreadId();
+						channelThreadID = CurrentThreadId();
 
 						if (item is KeysharpMsg msg)
 						{

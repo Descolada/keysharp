@@ -381,6 +381,8 @@
 			if (!(doBackspace || omitEndChar) && sendMode != SendModes.Event) // The final character of the abbreviation (or its EndChar) was not suppressed by the hook.
 				Thread.Sleep(0);
 
+			ht.PrepareToSendHotstringReplacement(endChar);
+
 			kbdMouseSender.SendKeys(sendBuf, sendRaw, sendMode, 0); // Send the backspaces and/or replacement.
 			// Restore original values.
 			tv.keyDelay = oldDelay;

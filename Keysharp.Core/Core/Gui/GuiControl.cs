@@ -32,7 +32,7 @@
 
 			public bool AltSubmit { get; internal set; } = false;
 
-			public string ClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
+			public string ClassNN => WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
 
 			public System.Windows.Forms.Control Ctrl => _control;
 
@@ -54,7 +54,7 @@
 				set => _control.Name = value.ToString();
 			}
 
-			public string NetClassNN => Script.TheScript.WindowProvider.Manager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
+			public string NetClassNN => WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
 
 			public object Parent
 			{
@@ -1972,8 +1972,8 @@
 
 			internal void _control_KeyDown(object sender, KeyEventArgs e)
 			{
-				if (eventHandlerActive && e.KeyCode == Keys.Apps || (e.KeyCode == Keys.F10 && ((System.Windows.Forms.Control.ModifierKeys & Keys.Shift) == Keys.Shift)))
-					CallContextMenuChangeHandlers(true, Cursor.Position.X, Cursor.Position.Y);
+				if ((eventHandlerActive && e.KeyCode == Keys.Apps || (e.KeyCode == Keys.F10 && ((System.Windows.Forms.Control.ModifierKeys & Keys.Shift) == Keys.Shift))) && GetCursorPos(out POINT pt))
+					CallContextMenuChangeHandlers(true, pt.X, pt.Y);
 			}
 
 			internal void _control_LostFocus(object sender, EventArgs e)

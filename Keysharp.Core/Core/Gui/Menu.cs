@@ -371,8 +371,9 @@
 		/// </param>
 		public object Show(object x = null, object y = null)
 		{
-			var _x = x.Ai(Cursor.Position.X);
-			var _y = y.Ai(Cursor.Position.Y);
+			_ = GetCursorPos(out POINT def);
+			var _x = x.Ai(def.X);
+			var _y = y.Ai(def.Y);
 			var pt = new Point(_x, _y);
 
 			if (ThreadAccessors.A_CoordModeMenu == CoordModeType.Screen)

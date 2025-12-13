@@ -1,5 +1,7 @@
 ﻿using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+using static Keysharp.Core.Common.Mouse.MouseUtils;
+using Keysharp.Core.Common.Mouse;
 
 namespace Keysharp.Core.Common.Keyboard
 {
@@ -85,7 +87,6 @@ namespace Keysharp.Core.Common.Keyboard
 		internal bool inBlindMode;
 		internal uint modifiersLRPersistent;
 		internal uint modifiersLRRemapped;
-		protected internal PlatformManagerBase mgr = Script.TheScript.PlatformProvider.Manager;
 		protected ArrayPool<byte> keyStatePool = ArrayPool<byte>.Create(256, 100);
 		protected SendModes sendMode = SendModes.Event;//Note this is different than the one in Accessors and serves as a temporary.
 		private const int retention = 1024;
@@ -94,9 +95,22 @@ namespace Keysharp.Core.Common.Keyboard
 		private readonly List<HotstringDefinition> hotstrings;
 		private readonly Dictionary<Keys, bool> pressed;
 
+		internal uint prevEventModifierDown;
+		internal KeyEventTypes prevEventType;
+		internal uint prevVK;
+
 		internal nint targetKeybdLayout;
 		// Set by SendKeys() for use by the functions it calls directly and indirectly.
 		internal ResultType targetLayoutHasAltGr;
+
+		internal uint menuMaskKeySC = ScanCodes.LControl;
+		internal uint menuMaskKeyVK = VK_CONTROL;
+
+		//Tracks/predicts cursor position as SendInput array is built.
+		internal uint workaroundVK;
+
+		//Tracks cursor position over multiple calls to SendInput
+		internal POINT sendInputCursorPos;
 
 		public KeyboardMouseSender()
 		{
@@ -109,6 +123,8 @@ namespace Keysharp.Core.Common.Keyboard
 
 			RegisterHook();
 		}
+
+		internal abstract bool MouseButtonsSwapped { get; }
 
 		public string ApplyCase(string typedstr, string hotstr)
 		{
@@ -213,13 +229,259 @@ namespace Keysharp.Core.Common.Keyboard
 
 		internal abstract void CleanupEventArray(long aFinalKeyDelay);
 
-		internal abstract void DoKeyDelay(long delay);
+		/// <summary>
+		/// For v1.0.25, the following situation is fixed by the code below: If LWin or LAlt
+		/// becomes a persistent modifier (e.g. via Send {LWin down}) and the user physically
+		/// releases LWin immediately before: 1) the {LWin up} is scheduled; and 2) SendKey()
+		/// returns.  Then SendKey() will push the modifier back down so that it is in effect
+		/// for other things done by its caller (SendKeys) and also so that if the Send
+		/// operation ends, the key will still be down as the user intended (to modify future
+		/// keystrokes, physical or simulated).  However, since that down-event is followed
+		/// immediately by an up-event, the Start Menu appears for WIN-key or the active
+		/// window's menu bar is activated for ALT-key.  SOLUTION: Disguise Win-up and Alt-up
+		/// events in these cases.  This workaround has been successfully tested.  It's also
+		/// limited is scope so that a script can still explicitly invoke the Start Menu with
+		/// "Send {LWin}", or activate the menu bar with "Send {Alt}".
+		/// The check of sPrevEventModifierDown allows "Send {LWinDown}{LWinUp}" etc., to
+		/// continue to work.
+		/// v1.0.40: For maximum flexibility and minimum interference while in blind mode,
+		/// don't disguise Win and Alt keystrokes then.
+		/// </summary>
+		/// <param name="vk"></param>
+		internal virtual void DisguiseWinAltIfNeeded(uint vk)
+		{
+			// Caller has ensured that vk is about to have a key-up event, so if the event immediately
+			// prior to this one is a key-down of the same type of modifier key, it's our job here
+			// to send the disguising keystrokes now (if appropriate).
+			if (prevEventType == KeyEventTypes.KeyDown && prevEventModifierDown != vk && !inBlindMode
+					// SendPlay mode can't display Start Menu, so no need for disguise keystrokes (such keystrokes might cause
+					// unwanted effects in certain games):
+					&& ((vk == VK_LWIN || vk == VK_RWIN) && (prevVK == VK_LWIN || prevVK == VK_RWIN) && sendMode != SendModes.Play
+						|| (vk == VK_LMENU || (vk == VK_RMENU && targetLayoutHasAltGr != ResultType.ConditionTrue)) && (prevVK == VK_LMENU || prevVK == VK_RMENU)))
+				SendKeyEventMenuMask(KeyEventTypes.KeyDownAndUp); // Disguise it to suppress Start Menu or prevent activation of active window's menu bar.
+		}
 
-		internal abstract void DoMouseDelay();
+		/// <summary>
+		/// Doesn't need to be thread safe because it should only ever be called from main thread.
+		/// </summary>
+		/// <param name="delay"></param>
+		internal virtual void DoKeyDelay(long delay = long.MinValue)
+		{
+			if (delay == long.MinValue)
+				delay = (sendMode == SendModes.Play) ? ThreadAccessors.A_KeyDelayPlay : ThreadAccessors.A_KeyDelay;
+
+			if (delay < 0) // To support user-specified KeyDelay of -1 (fastest send rate).
+				return;
+
+			if (sendMode != SendModes.Event)
+			{
+				if (sendMode == SendModes.Play && delay > 0) // Zero itself isn't supported by playback hook, so no point in inserting such delays into the array.
+					PutKeybdEventIntoArray(0, 0, 0, 0, (uint)delay); // Passing zero for vk and sc signals it that aExtraInfo contains the delay.
+
+				//else for other types of arrays, never insert a delay or do one now.
+				return;
+			}
+
+			Flow.SleepWithoutInterruption(delay);
+		}
+
+		internal virtual void DoMouseDelay()// Helper function for the mouse functions below.
+		{
+			var mouseDelay = sendMode == SendModes.Play ? ThreadAccessors.A_MouseDelayPlay : ThreadAccessors.A_MouseDelay;
+
+			if (mouseDelay < 0) // To support user-specified KeyDelay of -1 (fastest send rate).
+				return;
+
+			if (sendMode != SendModes.Event)
+			{
+				if (sendMode == SendModes.Play && mouseDelay > 0) // Zero itself isn't supported by playback hook, so no point in inserting such delays into the array.
+					PutKeybdEventIntoArray(0, 0, 0, 0, (uint)mouseDelay); // Passing zero for vk and sc signals to it that aExtraInfo contains the delay.
+
+				//else for other types of arrays, never insert a delay or do one now (caller should have already
+				// checked that, so it's written this way here only for maintainability).
+				return;
+			}
+
+			// I believe the varying sleep methods below were put in place to avoid issues when simulating
+			// clicks on the script's own windows.  There are extensive comments in MouseClick() and the
+			// hook about these issues.  Here are more details from an older comment:
+			// Always sleep a certain minimum amount of time between events to improve reliability,
+			// but allow the user to specify a higher time if desired.  A true sleep is done if the
+			// delay period is small.  This fixes a small issue where if LButton is a hotkey that
+			// includes "MouseClick left" somewhere in its subroutine, the script's own main window's
+			// title bar buttons for min/max/close would not properly respond to left-clicks.
+			if (mouseDelay < 11)
+				_ = Flow.Sleep(mouseDelay);
+			else
+				Flow.SleepWithoutInterruption(mouseDelay);
+		}
 
 		internal abstract nint GetFocusedKeybdLayout(nint aWindow);
 
-		internal abstract uint GetModifierLRState(bool aExplicitlyGet = false);
+		//  // SendInput() appears to be limited to 5000 chars (10000 events in array), at least on XP.  This is
+		//  // either an undocumented SendInput limit or perhaps it's due to the system setting that determines
+		//  // how many messages can get backlogged in each thread's msg queue before some start to get dropped.
+		//  // Note that SendInput()'s return value always seems to indicate that all the characters were sent
+		//  // even when the ones beyond the limit were clearly never received by the target window.
+		//  // In any case, it seems best not to restrict to 5000 here in case the limit can vary for any reason.
+		//  // The 5000 limit is documented in the help file.
+		//  try
+		//  {
+		//      eventSi.Add(new INPUT());
+		//      eventPb.Add(new PlaybackEvent());
+		//      maxEvents = eventSi.Count;
+		//      return ResultType.Ok;
+		//  }
+		//  catch
+		//  {
+		//      abortArraySend = true;//Usually better to send nothing rather than partial.
+		//      return ResultType.Fail;//Leave sEventSI and sMaxEvents in their current valid state, to be freed by CleanupEventArray().
+		//  }
+		//}
+		/// <summary>
+		/// Try to report a more reliable state of the modifier keys than GetKeyboardState alone could.
+		/// Fix for v1.0.42.01: On Windows 2000/XP or later, GetAsyncKeyState() should be called rather than
+		/// GetKeyState().  This is because our callers always want the current state of the modifier keys
+		/// rather than their state at the time of the currently-in-process message was posted.  For example,
+		/// if the control key wasn't down at the time our thread's current message was posted, but it's logically
+		/// down according to the system, we would want to release that control key before sending non-control
+		/// keystrokes, even if one of our thread's own windows has keyboard focus (because if it does, the
+		/// control-up keystroke should wind up getting processed after our thread realizes control is down).
+		/// This applies even when the keyboard/mouse hook call use because keystrokes routed to the hook via
+		/// the hook's message pump aren't messages per se, and thus GetKeyState and GetAsyncKeyState probably
+		/// return the exact same thing whenever there are no messages in the hook's thread-queue (which is almost
+		/// always the case).
+		/// </summary>
+		/// <param name="explicitlyGet"></param>
+		/// <returns></returns>
+		internal virtual uint GetModifierLRState(bool explicitlyGet = false)
+		{
+			var ht = Script.TheScript.HookThread;
+
+			// If the hook is active, rely only on its tracked value rather than calling Get():
+			if (ht.HasKbdHook() && !explicitlyGet)
+				return modifiersLRLogical;
+
+			// Very old comment:
+			// Use GetKeyState() rather than GetKeyboardState() because it's the only way to get
+			// accurate key state when a console window is active, it seems.  I've also seen other
+			// cases where GetKeyboardState() is incorrect (at least under WinXP) when GetKeyState(),
+			// in its place, yields the correct info.  Very strange.
+			var modifiersLR = 0u;  // Allows all to default to up/off to simplify the below.
+
+			if (ht.IsKeyDownAsync(VK_LSHIFT)) modifiersLR |= MOD_LSHIFT;
+
+			if (ht.IsKeyDownAsync(VK_RSHIFT)) modifiersLR |= MOD_RSHIFT;
+
+			if (ht.IsKeyDownAsync(VK_LCONTROL)) modifiersLR |= MOD_LCONTROL;
+
+			if (ht.IsKeyDownAsync(VK_RCONTROL)) modifiersLR |= MOD_RCONTROL;
+
+			if (ht.IsKeyDownAsync(VK_LMENU)) modifiersLR |= MOD_LALT;
+
+			if (ht.IsKeyDownAsync(VK_RMENU)) modifiersLR |= MOD_RALT;
+
+			if (ht.IsKeyDownAsync(VK_LWIN)) modifiersLR |= MOD_LWIN;
+
+			if (ht.IsKeyDownAsync(VK_RWIN)) modifiersLR |= MOD_RWIN;
+
+			// Thread-safe: The following section isn't thread-safe because either the hook thread
+			// or the main thread can be calling it.  However, given that anything dealing with
+			// keystrokes isn't thread-safe in the sense that keystrokes can be coming in simultaneously
+			// from multiple sources, it seems acceptable to keep it this way (especially since
+			// the consequences of a thread collision seem very mild in this case).
+			if (ht.HasKbdHook())
+			{
+				// Since hook is installed, fix any modifiers that it incorrectly thinks are down.
+				// Though rare, this situation does arise during periods when the hook cannot track
+				// the user's keystrokes, such as when the OS is doing something with the hardware,
+				// e.g. switching to TV-out or changing video resolutions.  There are probably other
+				// situations where this happens -- never fully explored and identified -- so it
+				// seems best to do this, at least when the caller specified aExplicitlyGet = true.
+				// To limit the scope of this workaround, only change the state of the hook modifiers
+				// to be "up" for those keys the hook thinks are logically down but which the OS thinks
+				// are logically up.  Note that it IS possible for a key to be physically down without
+				// being logically down (i.e. during a Send command where the user is physically holding
+				// down a modifier, but the Send command needs to put it up temporarily), so do not
+				// change the hook's physical state for such keys in that case.
+				// UPDATE: The following adjustment is now also relied upon by the SendInput method
+				// to correct physical modifier state during periods when the hook was temporarily removed
+				// to allow a SendInput to be uninterruptible.
+				// UPDATE: The modifier state might also become incorrect due to keyboard events which
+				// are missed due to User Interface Privelege Isolation; i.e. because a window belonging
+				// to a process with higher integrity level than our own became active while the key was
+				// down, so we saw the down event but not the up event.
+				var modifiersWronglyDown = modifiersLRLogical & ~modifiersLR;
+
+				// modifiers_wrongly_down can sometimes include modifiers that have only just been pressed
+				// but aren't yet reflected by IsKeyDownAsync().  This happens much more often if a keyboard
+				// hook is installed AFTER our own.  The following simple script was enough to reproduce this:
+				//  ~*RWin::GetKeyState("RWin", "P")
+				//  >#/::MsgBox  ; This hotkey sometimes or always failed to fire.
+				// The sequence of events was probably something like this:
+				//  - OS detects RWin down.
+				//  - OS calls other hook.
+				//  - Other hook calls ours via CallNextHookEx (meaning its thread is blocked
+				//    waiting for the call to return).
+				//  - Our hook updates key state, posts AHK_HOOK_HOTKEY and RETURNS IMMEDIATELY
+				//    (but the other hook is in another thread, so it doesn't resume immediately).
+				//  - Script thread receives AHK_HOOK_HOTKEY and fires hotkey.
+				//  - Hotkey calls Send or GetKeyState, triggering the section below, adjusting
+				//    g_modifiersLR_logical to match GetAsyncKeyState().
+				//  - Other hook's thread wakes up and returns.
+				//  - OS updates key state, so then GetAsyncKeyState() reports the correct state
+				//    and g_modifiersLR_logical is incorrect.
+				//  - RWin+/ doesn't fire the hotkey because the hook thinks RWin isn't down,
+				//    even though KeyHistory shows that it should be down.
+				// The issue occurred with maybe 50% frequency if the other hook was an AutoHotkey hook,
+				// and 100% frequency if the other hook was implemented by a script (which is slower).
+				// Only the last pressed modifier is excluded, since any other key-down or key-up being
+				// detected would usually mean that the previous call to the hook has finished (although
+				// the hook can be called recursively with artificial input).
+				if (modifiersLRLastPressed != 0 && ((DateTime.UtcNow - modifiersLRLastPressedTime).TotalMilliseconds < 20))
+				{
+					if ((modifiersWronglyDown & modifiersLRLastPressed) != 0)
+					{
+						// It's logically down according to the hook, but not according to IsKeyDownAsync().
+						// Trust the hook in this case.
+						modifiersWronglyDown &= ~modifiersLRLastPressed;
+						// v2.0.12: Report that the modifier is down, consistent with g_modifiersLR_logical.
+						// This fixes an issue where Send erroneously releases modifiers in {Blind} mode.
+						modifiersLR |= modifiersLRLastPressed;
+					}
+				}
+
+				if (modifiersWronglyDown != 0)
+				{
+					// Adjust the physical and logical hook state to release the keys that are wrongly down.
+					// If a key is wrongly logically down, it seems best to release it both physically and
+					// logically, since the hook's failure to see the up-event probably makes its physical
+					// state wrong in most such cases.
+					modifiersLRPhysical &= ~modifiersWronglyDown;
+					modifiersLRLogical &= ~modifiersWronglyDown;
+					modifiersLRLogicalNonIgnored &= ~modifiersWronglyDown;
+					// Also adjust physical state so that the GetKeyState command will retrieve the correct values:
+					AdjustKeyState(ht.physicalKeyState, modifiersLRPhysical);
+
+					// Also reset pPrefixKey if it is one of the wrongly-down modifiers.
+					if (prefixKey != null && (prefixKey.asModifiersLR & modifiersWronglyDown) != 0)
+						prefixKey = null;
+				}
+			}
+
+			return modifiersLR;
+			// Only consider a modifier key to be really down if both the hook's tracking of it
+			// and GetKeyboardState() agree that it should be down.  The should minimize the impact
+			// of the inherent unreliability present in each method (and each method is unreliable in
+			// ways different from the other).  I have verified through testing that this eliminates
+			// many misfires of hotkeys.  UPDATE: Both methods are fairly reliable now due to starting
+			// to send scan codes with keybd_event(), using MapVirtualKey to resolve zero-value scan
+			// codes in the keyboardproc(), and using GetKeyState() rather than GetKeyboardState().
+			// There are still a few cases when they don't agree, so return the bitwise-and of both
+			// if the keyboard hook is active.  Bitwise and is used because generally it's safer
+			// to assume a modifier key is up, when in doubt (e.g. to avoid firing unwanted hotkeys):
+			//  return g_KeybdHook ? (g_modifiersLR_logical & g_modifiersLR_get) : g_modifiersLR_get;
+		}
 
 		internal abstract void InitEventArray(int maxEvents, uint aModifiersLR);
 
@@ -248,13 +510,381 @@ namespace Keysharp.Core.Common.Keyboard
 
 		internal abstract ResultType LayoutHasAltGrDirect(nint layout);
 
-		internal abstract void MouseClick(uint aVK, int aX, int aY, long aRepeatCount, long aSpeed, KeyEventTypes aEventType, bool aMoveOffset);
+		internal virtual bool MouseClickPreLRButton(KeyEventTypes eventType)
+		{
+			// Default implementation does nothing.
+			return false;
+		}
 
-		internal abstract void MouseClickDrag(uint vk, int x1, int y1, int x2, int y2, long speed, bool relative);
+		internal virtual void MouseClick(uint vk, int x, int y, long repeatCount, long speed, KeyEventTypes eventType, bool moveOffset)
+		{
+			// Check if one of the coordinates is missing, which can happen in cases where this was called from
+			// a source that didn't already validate it (such as MouseClick, %x%, %BlankVar%).
+			// Allow aRepeatCount<1 to simply "do nothing", because it increases flexibility in the case where
+			// the number of clicks is a dereferenced script variable that may sometimes (by intent) resolve to
+			// zero or negative.  For backward compatibility, a RepeatCount <1 does not move the mouse (unlike
+			// the Click command and Send {Click}).
+			if ((x == CoordUnspecified && y != CoordUnspecified) || (x != CoordUnspecified && y == CoordUnspecified) || (repeatCount < 1L))
+				return;
+
+			var eventFlags = 0u; // Set default.
+
+			if (x != CoordUnspecified && y != CoordUnspecified)//Both coordinates were specified.
+			{
+				// The movement must be a separate event from the click, otherwise it's completely unreliable with
+				// SendInput() and probably keybd_event() too.  SendPlay is unknown, but it seems best for
+				// compatibility and peace-of-mind to do it for that too.  For example, some apps may be designed
+				// to expect mouse movement prior to a click at a *new* position, which is not unreasonable given
+				// that this would be the case 99.999% of the time if the user were moving the mouse physically.
+				MouseMove(ref x, ref y, ref eventFlags, speed, moveOffset); // It calls DoMouseDelay() and also converts aX and aY to MOUSEEVENTF_ABSOLUTE coordinates.
+				// v1.0.43: eventFlags was added to improve reliability.  Explanation: Since the mouse was just moved to an
+				// explicitly specified set of coordinates, use those coordinates with subsequent clicks.  This has been
+				// shown to significantly improve reliability in cases where the user is moving the mouse during the
+				// MouseClick/Drag commands.
+			}
+
+			// Above must be done prior to below because initial mouse-move is supported even for wheel turning.
+
+			// For wheel turning, if the user activated this command via a hotkey, and that hotkey
+			// has a modifier such as CTRL, the user is probably still holding down the CTRL key
+			// at this point.  Therefore, there's some merit to the fact that we should release
+			// those modifier keys prior to turning the mouse wheel (since some apps disable the
+			// wheel or give it different behavior when the CTRL key is down -- for example, MSIE
+			// changes the font size when you use the wheel while CTRL is down).  However, if that
+			// were to be done, there would be no way to ever hold down the CTRL key explicitly
+			// (via Send, {CtrlDown}) unless the hook were installed.  The same argument could probably
+			// be made for mouse button clicks: modifier keys can often affect their behavior.  But
+			// changing this function to adjust modifiers for all types of events would probably break
+			// some existing scripts.  Maybe it can be a script option in the future.  In the meantime,
+			// it seems best not to adjust the modifiers for any mouse events and just document that
+			// behavior in the MouseClick command.
+			switch (vk)
+			{
+				case VK_WHEEL_UP:
+					MouseEvent(eventFlags | (uint)MOUSEEVENTF.WHEEL, (uint)(repeatCount * WHEEL_DELTA), x, y);  // It ignores aX and aY when MOUSEEVENTF_MOVE is absent.
+					return;
+
+				case VK_WHEEL_DOWN:
+					MouseEvent(eventFlags | (uint)MOUSEEVENTF.WHEEL, (uint)(-(repeatCount * WHEEL_DELTA)), x, y);//Unsure if casting a negative int to uint will work, need to test scrolling with mouse events.//TODO
+					return;
+
+				// v1.0.48: Lexikos: Support horizontal scrolling in Windows Vista and later.
+				case VK_WHEEL_LEFT:
+					MouseEvent(eventFlags | (uint)MOUSEEVENTF.HWHEEL, (uint)(-(repeatCount * WHEEL_DELTA)), x, y);
+					return;
+
+				case VK_WHEEL_RIGHT:
+					MouseEvent(eventFlags | (uint)MOUSEEVENTF.HWHEEL, (uint)(repeatCount * WHEEL_DELTA), x, y);
+					return;
+			}
+
+			// Since above didn't return:
+			// Although not thread-safe, the following static vars seem okay because:
+			// 1) This function is currently only called by the main thread.
+			// 2) Even if that isn't true, the serialized nature of simulated mouse clicks makes it likely that
+			//    the statics will produce the correct behavior anyway.
+			// 3) Even if that isn't true, the consequences of incorrect behavior seem minimal in this case.
+			uint eventDown = 0, eventUp = 0, eventData = 0; // Set default.
+
+			// MSDN: If [eventFlags] is not MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, or MOUSEEVENTF_XUP, then [eventData]
+			// should be zero.
+			// v2.0: Always translate logical buttons into physical ones.  Which physical button it becomes depends
+			// on whether the mouse buttons are swapped via the Control Panel.
+			if ((vk == VK_LBUTTON || vk == VK_RBUTTON) && sendMode != SendModes.Play && MouseButtonsSwapped)
+				vk = (vk == VK_LBUTTON) ? VK_RBUTTON : VK_LBUTTON;
+
+			switch (vk)
+			{
+				case VK_LBUTTON:
+				case VK_RBUTTON:
+
+					if (MouseClickPreLRButton(eventType))
+						return;
+
+					// sWorkaroundVK is reset later below.
+
+					// Since above didn't return, the work-around isn't in effect and normal click(s) will be sent:
+					if (vk == VK_LBUTTON)
+					{
+						eventDown = (uint)MOUSEEVENTF.LEFTDOWN;
+						eventUp = (uint)MOUSEEVENTF.LEFTUP;
+					}
+					else // vk == VK_RBUTTON
+					{
+						eventDown = (uint)MOUSEEVENTF.RIGHTDOWN;
+						eventUp = (uint)MOUSEEVENTF.RIGHTUP;
+					}
+
+					break;
+
+				case VK_MBUTTON:
+					eventDown = (uint)MOUSEEVENTF.MIDDLEDOWN;
+					eventUp = (uint)MOUSEEVENTF.MIDDLEUP;
+					break;
+
+				case VK_XBUTTON1:
+				case VK_XBUTTON2:
+					eventDown = (uint)MOUSEEVENTF.XDOWN;
+					eventUp = (uint)MOUSEEVENTF.XUP;
+					eventData = (vk == VK_XBUTTON1) ? XBUTTON1 : XBUTTON2;
+					break;
+			} // switch()
+
+			// For simplicity and possibly backward compatibility, LONG_OPERATION_INIT/UPDATE isn't done.
+			// In addition, some callers might do it for themselves, at least when aRepeatCount==1.
+			for (var i = 0L; i < repeatCount; ++i)
+			{
+				if (eventType != KeyEventTypes.KeyUp) // It's either KEYDOWN or KEYDOWNANDUP.
+				{
+					// v1.0.43: Reliability is significantly improved by specifying the coordinates with the event (if
+					// caller gave us coordinates).  This is mostly because of SetMouseDelay: In previously versions,
+					// the delay between a MouseClick's move and its click allowed time for the user to move the mouse
+					// away from the target position before the click was sent.
+					MouseEvent(eventFlags | eventDown, eventData, x, y); // It ignores aX and aY when MOUSEEVENTF_MOVE is absent.
+
+					// It seems best to always Sleep a certain minimum time between events
+					// because the click-down event may cause the target app to do something which
+					// changes the context or nature of the click-up event.  AutoIt3 has also been
+					// revised to do this. v1.0.40.02: Avoid doing the Sleep between the down and up
+					// events when the workaround is in effect because any MouseDelay greater than 10
+					// would cause DoMouseDelay() to pump messages, which would defeat the workaround:
+					if (workaroundVK == 0)
+						DoMouseDelay(); // Inserts delay for all modes except SendInput, for which it does nothing.
+				}
+
+				if (eventType != KeyEventTypes.KeyDown) // It's either KEYUP or KEYDOWNANDUP.
+				{
+					MouseEvent(eventFlags | eventUp, eventData, x, y); // It ignores aX and aY when MOUSEEVENTF_MOVE is absent.
+					// It seems best to always do this one too in case the script line that caused
+					// us to be called here is followed immediately by another script line which
+					// is either another mouse click or something that relies upon the mouse click
+					// having been completed:
+					DoMouseDelay(); // Inserts delay for all modes except SendInput, for which it does nothing.
+				}
+			} // for()
+
+			workaroundVK = 0; // Reset this indicator in all cases except those for which above already returned.
+		}
+
+		internal virtual void MouseClickDrag(uint vk, int x1, int y1, int x2, int y2, long speed, bool relative)
+		{
+			// Check if one of the coordinates is missing, which can happen in cases where this was called from
+			// a source that didn't already validate it. Can't call Line::ValidateMouseCoords() because that accepts strings.
+			if ((x1 == CoordUnspecified ^ y1 == CoordUnspecified) || (x2 == CoordUnspecified ^ y2 == CoordUnspecified))
+				return;
+
+			// I asked Jon, "Have you discovered that insta-drags almost always fail?" and he said
+			// "Yeah, it was weird, absolute lack of drag... Don't know if it was my config or what."
+			// However, testing reveals "insta-drags" work ok, at least on my system, so leaving them enabled.
+			// User can easily increase the speed if there's any problem:
+			//if (aSpeed < 2)
+			//  aSpeed = 2;
+			// v2.0: Always translate logical buttons into physical ones.  Which physical button it becomes depends
+			// on whether the mouse buttons are swapped via the Control Panel.  Note that journal playback doesn't
+			// need the swap because every aspect of it is "logical".
+			if ((vk == VK_LBUTTON || vk == VK_RBUTTON) && sendMode != SendModes.Play && MouseButtonsSwapped)
+				vk = (vk == VK_LBUTTON) ? VK_RBUTTON : VK_LBUTTON;//Need to figure out making this cross platform.//TODO
+
+			// MSDN: If [event_flags] is not MOUSEEVENTF_WHEEL, [MOUSEEVENTF_HWHEEL,] MOUSEEVENTF_XDOWN,
+			// or MOUSEEVENTF_XUP, then [event_data] should be zero.
+			var eventdata = 0u; // Set defaults for some.
+			var eventup = 0u;
+			var eventdown = 0u;
+			var eventflags = 0u;
+
+			switch (vk)
+			{
+				case VK_LBUTTON:
+					eventdown = (uint)MOUSEEVENTF.LEFTDOWN;
+					eventup = (uint)MOUSEEVENTF.LEFTUP;
+					break;
+
+				case VK_RBUTTON:
+					eventdown = (uint)MOUSEEVENTF.RIGHTDOWN;
+					eventup = (uint)MOUSEEVENTF.RIGHTUP;
+					break;
+
+				case VK_MBUTTON:
+					eventdown = (uint)MOUSEEVENTF.MIDDLEDOWN;
+					eventup = (uint)MOUSEEVENTF.MIDDLEUP;
+					break;
+
+				case VK_XBUTTON1:
+				case VK_XBUTTON2:
+					eventdown = (uint)MOUSEEVENTF.XDOWN;
+					eventup = (uint)MOUSEEVENTF.XUP;
+					eventdata = (vk == VK_XBUTTON1) ? XBUTTON1 : XBUTTON2;
+					break;
+			}
+
+			// If the drag isn't starting at the mouse's current position, move the mouse to the specified position:
+			if (x1 != CoordUnspecified && y1 != CoordUnspecified)
+			{
+				// The movement must be a separate event from the click, otherwise it's completely unreliable with
+				// SendInput() and probably keybd_event() too.  SendPlay is unknown, but it seems best for
+				// compatibility and peace-of-mind to do it for that too.  For example, some apps may be designed
+				// to expect mouse movement prior to a click at a *new* position, which is not unreasonable given
+				// that this would be the case 99.999% of the time if the user were moving the mouse physically.
+				MouseMove(ref x1, ref y1, ref eventflags, speed, relative); // It calls DoMouseDelay() and also converts aX1 and aY1 to MOUSEEVENTF_ABSOLUTE coordinates.
+				// v1.0.43: event_flags was added to improve reliability.  Explanation: Since the mouse was just moved to an
+				// explicitly specified set of coordinates, use those coordinates with subsequent clicks.  This has been
+				// shown to significantly improve reliability in cases where the user is moving the mouse during the
+				// MouseClick/Drag commands.
+			}
+
+			MouseEvent(eventflags | eventdown, eventdata, x1, y1); // It ignores aX and aY when MOUSEEVENTF_MOVE is absent.
+			DoMouseDelay(); // Inserts delay for all modes except SendInput, for which it does nothing.
+			// Now that the mouse button has been pushed down, move the mouse to perform the drag:
+			MouseMove(ref x2, ref y2, ref eventflags, speed, relative); // It calls DoMouseDelay() and also converts aX2 and aY2 to MOUSEEVENTF_ABSOLUTE coordinates.
+			DoMouseDelay(); // Duplicate, see below.
+			// Above is a *duplicate* delay because MouseMove() already did one. But it seems best to keep it because:
+			// 1) MouseClickDrag can be a CPU intensive operation for the target window depending on what it does
+			//    during the drag (selecting objects, etc.)  Thus, and extra delay might help a lot of things.
+			// 2) It would probably break some existing scripts to remove the delay, due to timing issues.
+			// 3) Dragging is pretty rarely used, so the added performance of removing the delay wouldn't be
+			//    a big benefit.
+			MouseEvent(eventflags | eventup, eventdata, x2, y2); // It ignores aX and aY when MOUSEEVENTF_MOVE is absent.
+			DoMouseDelay();
+			// Above line: It seems best to always do this delay too in case the script line that
+			// caused us to be called here is followed immediately by another script line which
+			// is either another mouse click or something that relies upon this mouse drag
+			// having been completed:
+		}
 
 		internal abstract void MouseEvent(uint aEventFlags, uint aData, int aX = CoordUnspecified, int aY = CoordUnspecified);
 
-		internal abstract void MouseMove(ref int aX, ref int aY, ref uint aEventFlags, long aSpeed, bool aMoveOffset);
+		/// <summary>
+		/// This function also does DoMouseDelay() for the caller.
+		/// This function converts x and aY for the caller into MOUSEEVENTF_ABSOLUTE coordinates.
+		/// The exception is when the playback mode is in effect, in which case such a conversion would be undesirable
+		/// both here and by the caller.
+		/// It also puts appropriate bit-flags into eventFlags.
+		/// </summary>
+		/// <param name="x"></param>
+		/// <param name="y"></param>
+		/// <param name="eventFlags"></param>
+		/// <param name="speed"></param>
+		/// <param name="moveOffset"></param>
+		internal virtual void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
+		{
+			// Most callers have already validated this, but some haven't.  Since it doesn't take too long to check,
+			// do it here rather than requiring all callers to do (helps maintainability).
+			if (x == CoordUnspecified || y == CoordUnspecified)
+				return;
+
+			if (sendMode == SendModes.Play) // Journal playback mode.
+			{
+				// Mouse speed (aSpeed) is ignored for SendInput/Play mode: the mouse always moves instantaneously
+				// (though in the case of playback-mode, MouseDelay still applies between each movement and click).
+				// Playback-mode ignores mouse speed because the cases where the user would want to move the mouse more
+				// slowly (such as a demo) seem too rare to justify the code size and complexity, especially since the
+				// incremental-move code would have to be implemented in the hook itself to ensure reliability.  This is
+				// because calling GetCursorPos() before playback begins could cause the mouse to wind up at the wrong
+				// destination, especially if our thread is preempted while building the array (which would give the user
+				// a chance to physically move the mouse before uninterruptibility begins).
+				// For creating demonstrations that user slower mouse movement, the older MouseMove command can be used
+				// in conjunction with BlockInput. This also applies to SendInput because it's conceivable that mouse
+				// speed could be supported there (though it seems useless both visually and to improve reliability
+				// because no mouse delays are possible within SendInput).
+				//
+				// MSG_OFFSET_MOUSE_MOVE is used to have the playback hook apply the offset (rather than doing it here
+				// like is done for SendInput mode).  This adds flexibility in cases where a new window becomes active
+				// during playback, or the active window changes position -- if that were to happen, the offset would
+				// otherwise be wrong while CoordMode is Relative because the changes can only be observed and
+				// compensated for during playback.
+				PutMouseEventIntoArray((uint)MOUSEEVENTF.MOVE | (moveOffset ? MsgOffsetMouseMove : 0),
+									   0, x, y);//The playback hook uses normal vs. MOUSEEVENTF_ABSOLUTE coordinates.
+				DoMouseDelay();
+
+				if (moveOffset)
+				{
+					// Now that we're done using the old values of x and aY above, reset them to CoordUnspecified
+					// for the caller so that any subsequent clicks it does will be marked as "at current coordinates".
+					x = CoordUnspecified;
+					y = CoordUnspecified;
+				}
+
+				return; // Other parts below rely on this returning early to avoid converting aX/aY into MOUSEEVENTF_ABSOLUTE.
+			}
+
+			// The playback mode returned from above doesn't need these flags added because they're ignored for clicks:
+			eventFlags |= (uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE;//Done here for caller, for easier maintenance.
+			POINT cursor_pos;
+
+			if (moveOffset)  // We're moving the mouse cursor relative to its current position.
+			{
+				if (sendMode == SendModes.Input)
+				{
+					// Since GetCursorPos() can't be called to find out a future cursor position, use the position
+					// tracked for SendInput (facilitates MouseClickDrag's R-option as well as Send{Click}'s).
+					if (sendInputCursorPos.X == CoordUnspecified) // Initial/starting value hasn't yet been set.
+					{
+						if (GetCursorPos(out sendInputCursorPos)) // Start it off where the cursor is now.
+						{
+							x += sendInputCursorPos.X;
+							y += sendInputCursorPos.Y;
+						}
+					}
+					else
+					{
+						x += sendInputCursorPos.X;
+						y += sendInputCursorPos.Y;
+					}
+				}
+				else
+				{
+					if (GetCursorPos(out cursor_pos)) // None of this is done for playback mode since that mode already returned higher above.
+					{
+						x += cursor_pos.X;
+						y += cursor_pos.Y;
+					}
+				}
+			}
+			else
+			{
+				// Convert relative coords to screen coords if necessary (depends on CoordMode).
+				// None of this is done for playback mode since that mode already returned higher above.
+				CoordToScreen(ref x, ref y, CoordMode.Mouse);
+			}
+
+			if (sendMode == SendModes.Input) // Track predicted cursor position for use by subsequent events put into the array.
+			{
+				sendInputCursorPos.X = x; // Always stores normal coords (non-MOUSEEVENTF_ABSOLUTE).
+				sendInputCursorPos.Y = y; //
+			}
+
+			// Find dimensions of primary monitor.
+			var screen_width = (int)A_ScreenWidth;
+			var screen_height = (int)A_ScreenHeight;
+			x = MouseCoordToAbs(x, screen_width);
+			y = MouseCoordToAbs(y, screen_height);
+			// x and aY MUST BE SET UNCONDITIONALLY because the output parameters must be updated for caller.
+			// The incremental-move section further below also needs it.
+
+			if (speed < 0)  // This can happen during script's runtime due to something like: MouseMove, X, Y, %VarContainingNegative%
+				speed = 0;  // 0 is the fastest.
+			else if (speed > MaxMouseSpeed)
+				speed = MaxMouseSpeed;
+
+			if (speed == 0 || sendMode == SendModes.Input) // Instantaneous move to destination coordinates with no incremental positions in between.
+			{
+				// See the comments in the playback-mode section at the top of this function for why SM_INPUT ignores aSpeed.
+				MouseEvent((int)MOUSEEVENTF.MOVE | (int)MOUSEEVENTF.ABSOLUTE, 0, x, y);
+				DoMouseDelay(); // Inserts delay for all modes except SendInput, for which it does nothing.
+				return;
+			}
+
+			// Since above didn't return, use the incremental mouse move to gradually move the cursor until
+			// it arrives at the destination coordinates.
+			// Convert the cursor's current position to mouse event coordinates (MOUSEEVENTF_ABSOLUTE).
+			if (GetCursorPos(out cursor_pos))
+			{
+				DoIncrementalMouseMove(
+					MouseCoordToAbs(cursor_pos.X, screen_width), //Source/starting coords.
+					MouseCoordToAbs(cursor_pos.Y, screen_height),
+					x, y, speed);                             //Destination/ending coords.
+			}
+		}
 
 		internal abstract int PbEventCount();
 
@@ -419,13 +1049,194 @@ namespace Keysharp.Core.Common.Keyboard
 
 		internal abstract void SendEventArray(ref long aFinalKeyDelay, uint aModsDuringSend);
 
-		internal abstract void SendKey(uint aVK, uint aSC, uint aModifiersLR, uint aModifiersLRPersistent
-									   , long aRepeatCount, KeyEventTypes aEventType, uint aKeyAsModifiersLR, nint aTargetWindow
-									   , int aX = CoordUnspecified, int aY = CoordUnspecified, bool aMoveOffset = false);
+		/// <summary>
+		/// Caller has ensured that: 1) vk or sc may be zero, but not both; 2) aRepeatCount > 0.
+		/// This function is responsible for first setting the correct state of the modifier keys
+		/// (as specified by the caller) before sending the key.  After sending, it should put the
+		/// modifier keys  back to the way they were originally (UPDATE: It does this only for Win/Alt
+		/// for the reasons described near the end of this function).
+		/// </summary>
+		/// <param name="vk"></param>
+		/// <param name="sc"></param>
+		/// <param name="modifiersLR"></param>
+		/// <param name="modifiersLRPersistent"></param>
+		/// <param name="repeatCount"></param>
+		/// <param name="eventType"></param>
+		/// <param name="keyAsModifiersLR"></param>
+		/// <param name="targetWindow"></param>
+		/// <param name="x"></param>
+		/// <param name="y"></param>
+		/// <param name="moveOffset"></param>
+		internal virtual void SendKey(uint vk, uint sc, uint modifiersLR, uint modifiersLRPersistent
+									   , long repeatCount, KeyEventTypes eventType, uint keyAsModifiersLR, nint targetWindow
+									   , int x = CoordUnspecified, int y = CoordUnspecified, bool moveOffset = false)
+		{
+			// Caller is now responsible for verifying this:
+			// Avoid changing modifier states and other things if there is nothing to be sent.
+			// Otherwise, menu bar might activated due to ALT keystrokes that don't modify any key,
+			// the Start Menu might appear due to WIN keystrokes that don't modify anything, etc:
+			//if ((!vk && !aSC) || aRepeatCount < 1)
+			//  return;
+			// I thought maybe it might be best not to release unwanted modifier keys that are already down
+			// (perhaps via something like "Send, {altdown}{esc}{altup}"), but that harms the case where
+			// modifier keys are down somehow, unintentionally: The send command wouldn't behave as expected.
+			// e.g. "Send, abc" while the control key is held down by other means, would send ^a^b^c,
+			// possibly dangerous.  So it seems best to default to making sure all modifiers are in the
+			// proper down/up position prior to sending any Keybd events.  UPDATE: This has been changed
+			// so that only modifiers that were actually used to trigger that hotkey are released during
+			// the send.  Other modifiers that are down may be down intentionally, e.g. due to a previous
+			// call to Send such as: Send {ShiftDown}.
+			// UPDATE: It seems best to save the initial state only once, prior to sending the key-group,
+			// because only at the beginning can the original state be determined without having to
+			// save and restore it in each loop iteration.
+			// UPDATE: Not saving and restoring at all anymore, due to interference (side-effects)
+			// caused by the extra keybd events.
+			// The combination of modifiersLR and modifiersLRPersistent are the modifier keys that
+			// should be down prior to sending the specified vk/aSC. modifiersLR are the modifiers
+			// for this particular vk keystroke, but modifiersLRPersistent are the ones that will stay
+			// in pressed down even after it's sent.
+			var modifiersLRSpecified = (modifiersLR | modifiersLRPersistent);
+			var script = Script.TheScript;
+			var vkIsMouse = script.HookThread.IsMouseVK(vk); // Caller has ensured that VK is non-zero when it wants a mouse click.
+			var tv = script.Threads.CurrentThread.configData;
+			var sendLevel = tv.sendLevel;
 
-		internal abstract void SendKeyEventMenuMask(KeyEventTypes aEventType, long aExtraInfo = KeyIgnoreAllExceptModifier);
+			for (var i = 0L; i < repeatCount; ++i)
+			{
+				if (sendMode == SendModes.Event)
+					LongOperationUpdateForSendKeys();  // This does not measurably affect the performance of SendPlay/Event.
+
+				// These modifiers above stay in effect for each of these keypresses.
+				// Always on the first iteration, and thereafter only if the send won't be essentially
+				// instantaneous.  The modifiers are checked before every key is sent because
+				// if a high repeat-count was specified, the user may have time to release one or more
+				// of the modifier keys that were used to trigger a hotkey.  That physical release
+				// will cause a key-up event which will cause the state of the modifiers, as seen
+				// by the system, to change.  For example, if user releases control-key during the operation,
+				// some of the D's won't be control-D's:
+				// ^c::Send,^{d 15}
+				// Also: Seems best to do SetModifierLRState() even if Keydelay < 0:
+				// Update: If this key is itself a modifier, don't change the state of the other
+				// modifier keys just for it, since most of the time that is unnecessary and in
+				// some cases, the extra generated keystrokes would cause complications/side-effects.
+				if (keyAsModifiersLR == 0)
+				{
+					// DISGUISE UP: Pass "true" to disguise UP-events on WIN and ALT due to hotkeys such as:
+					// !a::Send test
+					// !a::Send {LButton}
+					// v1.0.40: It seems okay to tell SetModifierLRState to disguise Win/Alt regardless of
+					// whether our caller is in blind mode.  This is because our caller already put any extra
+					// blind-mode modifiers into modifiersLR_specified, which prevents any actual need to
+					// disguise anything (only the release of Win/Alt is ever disguised).
+					// DISGUISE DOWN: Pass "false" to avoid disguising DOWN-events on Win and Alt because Win/Alt
+					// will be immediately followed by some key for them to "modify".  The exceptions to this are
+					// when vk is a mouse button (e.g. sending !{LButton} or #{LButton}).  But both of those are
+					// so rare that the flexibility of doing exactly what the script specifies seems better than
+					// a possibly unwanted disguising.  Also note that hotkeys such as #LButton automatically use
+					// both hooks so that the Start Menu doesn't appear when the Win key is released, so we're
+					// not responsible for that type of disguising here.
+					SetModifierLRState(modifiersLRSpecified, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState()
+									   , targetWindow, false, true, sendLevel != 0 ? KeyIgnoreLevel(sendLevel) : KeyIgnore); // See keyboard_mouse.h for explanation of KEY_IGNORE.
+					// Above: Fixed for v1.1.27 to use KEY_IGNORE except when SendLevel is non-zero (since that
+					// would indicate that the script probably wants to trigger a hotkey).  KEY_IGNORE is used
+					// (and was prior to v1.1.06.00) to prevent the temporary modifier state changes here from
+					// interfering with the use of hotkeys while a Send is in progress.
+					// SetModifierLRState() also does DoKeyDelay(g->PressDuration).
+				}
+
+				// v1.0.42.04: Mouse clicks are now handled here in the same loop as keystrokes so that the modifiers
+				// will be readjusted (above) if the user presses/releases modifier keys during the mouse clicks.
+				if (vkIsMouse && targetWindow == 0)
+				{
+					MouseClick(vk, x, y, 1, tv.defaultMouseSpeed, eventType, moveOffset);
+				}
+				// Above: Since it's rare to send more than one click, it seems best to simplify and reduce code size
+				// by not doing more than one click at a time event when mode is SendInput/Play.
+				else
+				{
+					// Sending mouse clicks via ControlSend is not supported, so in that case fall back to the
+					// old method of sending the VK directly (which probably has no effect 99% of the time):
+					SendKeyEvent(eventType, vk, sc, targetWindow, true, KeyIgnoreLevel(sendLevel));
+				}
+			} // for() [aRepeatCount]
+
+			// The final iteration by the above loop does a key or mouse delay (KeyEvent and MouseClick do it internally)
+			// prior to us changing the modifiers below.  This is a good thing because otherwise the modifiers would
+			// sometimes be released so soon after the keys they modify that the modifiers are not in effect.
+			// This can be seen sometimes when/ ctrl-shift-tabbing back through a multi-tabbed dialog:
+			// The last ^+{tab} might otherwise not take effect because the CTRL key would be released too quickly.
+
+			// Release any modifiers that were pressed down just for the sake of the above
+			// event (i.e. leave any persistent modifiers pressed down).  The caller should
+			// already have verified that modifiersLR does not contain any of the modifiers
+			// in modifiersLRPersistent.  Also, call GetModifierLRState() again explicitly
+			// rather than trying to use a saved value from above, in case the above itself
+			// changed the value of the modifiers (i.e. aVk/aSC is a modifier).  Admittedly,
+			// that would be pretty strange but it seems the most correct thing to do (another
+			// reason is that the user may have pressed or released modifier keys during the
+			// final mouse/key delay that was done above).
+			if (keyAsModifiersLR == 0) // See prior use of this var for explanation.
+			{
+				// It seems best not to use KEY_IGNORE_ALL_EXCEPT_MODIFIER in this case, though there's
+				// a slight chance that a script or two might be broken by not doing so.  The chance
+				// is very slight because the only thing KEY_IGNORE_ALL_EXCEPT_MODIFIER would allow is
+				// something like the following example.  Note that the hotkey below must be a hook
+				// hotkey (even more rare) because registered hotkeys will still see the logical modifier
+				// state and thus fire regardless of whether g_modifiersLR_logical_non_ignored says that
+				// they shouldn't:
+				// #b::Send, {CtrlDown}{AltDown}
+				// $^!a::MsgBox You pressed the A key after pressing the B key.
+				// In the above, making ^!a a hook hotkey prevents it from working in conjunction with #b.
+				// UPDATE: It seems slightly better to have it be KEY_IGNORE_ALL_EXCEPT_MODIFIER for these reasons:
+				// 1) Persistent modifiers are fairly rare.  When they're in effect, it's usually for a reason
+				//    and probably a pretty good one and from a user who knows what they're doing.
+				// 2) The condition that g_modifiersLR_logical_non_ignored was added to fix occurs only when
+				//    the user physically presses a suffix key (or auto-repeats one by holding it down)
+				//    during the course of a SendKeys() operation.  Since the persistent modifiers were
+				//    (by definition) already in effect prior to the Send, putting them back down for the
+				//    purpose of firing hook hotkeys does not seem unreasonable, and may in fact add value.
+				// DISGUISE DOWN: When SetModifierLRState() is called below, it should only release keys, not press
+				// any down (except if the user's physical keystrokes interfered).  Therefore, passing true or false
+				// for the disguise-down-events parameter doesn't matter much (but pass "true" in case the user's
+				// keystrokes did interfere in a way that requires a Alt or Win to be pressed back down, because
+				// disguising it seems best).
+				// DISGUISE UP: When SetModifierLRState() is called below, it is passed "false" for disguise-up
+				// to avoid generating unnecessary disguise-keystrokes.  They are not needed because if our keystrokes
+				// were modified by either WIN or ALT, the release of the WIN or ALT key will already be disguised due to
+				// its having modified something while it was down.  The exceptions to this are when vk is a mouse button
+				// (e.g. sending !{LButton} or #{LButton}).  But both of those are so rare that the flexibility of doing
+				// exactly what the script specifies seems better than a possibly unwanted disguising.
+				// UPDATE for v1.0.42.04: Only release Win and Alt (if appropriate), not Ctrl and Shift, since we know
+				// Win/Alt don't have to be disguised but our caller would have trouble tracking that info or making that
+				// determination.  This avoids extra keystrokes, while still procrastinating the release of Ctrl/Shift so
+				// that those can be left down if the caller's next keystroke happens to need them.
+				var stateNow = sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState();
+				var winAltToBeReplaced = (stateNow & ~modifiersLRPersistent) // The modifiers to be released...
+										 & (MOD_LWIN | MOD_RWIN | MOD_LALT | MOD_RALT); // ... but restrict them to only Win/Alt.
+
+				if (winAltToBeReplaced != 0)
+				{
+					// Originally used the following for mods new/now: state_now & ~winAltToBeReplaced, state_now
+					// When AltGr is to be released, the above formula passes LCtrl+RAlt as the current state and just
+					// LCtrl as the new state, which results in LCtrl being pushed back down after it is released via
+					// AltGr.  Although our caller releases LCtrl if needed, it usually uses KEY_IGNORE, so if we put
+					// LCtrl down here, it would be wrongly stuck down in g_modifiersLR_logical_non_ignored, which
+					// causes ^-modified hotkeys to fire when they shouldn't and prevents non-^ hotkeys from firing.
+					// By ignoring the current modifier state and only specifying the modifiers we want released,
+					// we avoid any chance of sending any unwanted key-down:
+					SetModifierLRState(0u, winAltToBeReplaced, targetWindow, true, false); // It also does DoKeyDelay(g->PressDuration).
+				}
+			}
+		}
+
+		// For #MenuMaskKey.
+		internal virtual void SendKeyEventMenuMask(KeyEventTypes eventType, long extraInfo = KeyIgnoreAllExceptModifier) => SendKeyEvent(eventType, menuMaskKeyVK, menuMaskKeySC, 0, false, extraInfo);
 
 		internal abstract void SendKeys(string aKeys, SendRawModes aSendRaw, SendModes aSendModeOrig, nint aTargetWindow);
+
+		internal abstract void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y);
+
+		internal abstract void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo);
 
 		internal abstract int SiEventCount();
 
@@ -442,9 +1253,256 @@ namespace Keysharp.Core.Common.Keyboard
 		//protected internal abstract void Send(Keys key);
 		protected internal abstract void SendKeyEvent(KeyEventTypes aEventType, uint aVK, uint aSC = 0u, nint aTargetWindow = default, bool aDoKeyDelay = false, long aExtraInfo = KeyIgnoreAllExceptModifier);
 
+		internal abstract void SendUnicodeChar(char ch, uint modifiers);
+
+		/// <summary>
+		/// Caller must be aware that keystrokes are sent directly (i.e. never to a target window via ControlSend mode).
+		/// ascii is a string to support explicit leading zeros because sending 216, for example, is not the same as
+		/// sending 0216.  The caller is also responsible for restoring any desired modifier keys to the down position
+		/// (this function needs to release some of them if they're down).
+		/// </summary>
+		/// <param name="ascii"></param>
+		internal virtual void SendASC(byte[] ascii)
+		{
+			// UPDATE: In v1.0.42.04, the left Alt key is always used below because:
+			// 1) It might be required on Win95/NT (though testing shows that RALT works okay on Windows 98se).
+			// 2) It improves maintainability because if the keyboard layout has AltGr, and the Control portion
+			//    of AltGr is released without releasing the RAlt portion, anything that expects LControl to
+			//    be down whenever RControl is down would be broken.
+			// The following test demonstrates that on previous versions under German layout, the right-Alt key
+			// portion of AltGr could be used to manifest Alt+Numpad combinations:
+			//   Send {RAlt down}{Asc 67}{RAlt up}  ; Should create a C character even when both the active window an AHK are set to German layout.
+			//   KeyHistory  ; Shows that the right-Alt key was successfully used rather than the left.
+			// Changing the modifier state via SetModifierLRState() (rather than some more error-prone multi-step method)
+			// also ensures that the ALT key is pressed down only after releasing any shift key that needed it above.
+			// Otherwise, the OS's switch-keyboard-layout hotkey would be triggered accidentally; e.g. the following
+			// in English layout: Send ~~��{^}.
+			//
+			// Make sure modifier state is correct: ALT pressed down and other modifiers UP
+			// because CTRL and SHIFT seem to interfere with this technique if they are down,
+			// at least under WinXP (though the Windows key doesn't seem to be a problem).
+			// Specify KEY_IGNORE so that this action does not affect the modifiers that the
+			// hook uses to determine which hotkey should be triggered for a suffix key that
+			// has more than one set of triggering modifiers (for when the user is holding down
+			// that suffix to auto-repeat it -- see keyboard_mouse.h for details).
+			var modifiersLRNow = sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState();
+			SetModifierLRState((modifiersLRNow | MOD_LALT) & ~(MOD_RALT | MOD_LCONTROL | MOD_RCONTROL | MOD_LSHIFT | MOD_RSHIFT)
+							   , modifiersLRNow, 0, false // Pass false because there's no need to disguise the down-event of LALT.
+							   , true, KeyIgnore); // Pass true so that any release of RALT is disguised (Win is never released here).
+			// Note: It seems best never to press back down any key released above because the
+			// act of doing so may do more harm than good (i.e. the keystrokes may caused
+			// unexpected side-effects.
+
+			// Known limitation (but obscure): There appears to be some OS limitation that prevents the following
+			// AltGr hotkey from working more than once in a row:
+			// <^>!i::Send {ASC 97}
+			// Key history indicates it's doing what it should, but it doesn't actually work.  You have to press the
+			// left-Alt key (not RAlt) once to get the hotkey working again.
+
+			// This is not correct because it is possible to generate unicode characters by typing
+			// Alt+256 and beyond:
+			// int value = ATOI(aAscii);
+			// if (value < 0 || value > 255) return 0; // Sanity check.
+
+			// Known issue: If the hotkey that triggers this Send command is CONTROL-ALT
+			// (and maybe either CTRL or ALT separately, as well), the {ASC nnnn} method
+			// might not work reliably due to strangeness with that OS feature, at least on
+			// WinXP.  I already tried adding delays between the keystrokes and it didn't help.
+
+			// Caller relies upon us to stop upon reaching the first non-digit character:
+			for (var index = 0; ascii[index] >= 48 && ascii[index] <= 57; ++index)//48 and 57 are 0 and 9.
+			{
+				// A comment from AutoIt3: ASCII 0 is 48, NUMPAD0 is 96, add on 48 to the ASCII.
+				// Also, don't do WinDelay after each keypress in this case because it would make
+				// such keys take up to 3 or 4 times as long to send (AutoIt3 avoids doing the
+				// delay also).  Note that strings longer than 4 digits are allowed because
+				// some or all OSes support Unicode characters 0 through 65535.
+				SendKeyEvent(KeyEventTypes.KeyDownAndUp, (uint)(ascii[index] + 48));
+			}
+
+			// Must release the key regardless of whether it was already down, so that the sequence will take effect
+			// immediately.  Otherwise, our caller might not release the Alt key (since it might need to stay down for
+			// other purposes), in which case Alt+Numpad character would never appear and the caller's subsequent
+			// keystrokes might get absorbed by the OS's special state of "waiting for Alt+Numpad sequence to complete".
+			// Another reason is that the user may be physically holding down Alt, in which case the caller might never
+			// release it.  In that case, we want the Alt+Numpad character to appear immediately rather than waiting for
+			// the user to release Alt (in the meantime, the caller will likely press Alt back down to match the physical
+			// state).
+			SendKeyEvent(KeyEventTypes.KeyUp, VK_MENU);
+		}
+
+		/// <summary>
+		/// Caller must be aware that keystrokes are sent directly (i.e. never to a target window via ControlSend mode).
+		/// It must also be aware that the event type KEYDOWNANDUP is always what's used since there's no way
+		/// to support anything else.  Furthermore, there's no way to support "modifiersLR_for_next_key" such as ^�
+		/// (assuming � is a character for which SendKeySpecial() is required in the current layout) with ASC mode.
+		/// This function uses some of the same code as SendKey() above, so maintain them together.
+		/// </summary>
+		/// <param name="ch"></param>
+		/// <param name="repeatCount"></param>
+		/// <param name="modifiersLR"></param>
+		internal void SendKeySpecial(char ch, long repeatCount, uint modifiersLR)
+		{
+			// Caller must verify that aRepeatCount >= 1.
+			// Avoid changing modifier states and other things if there is nothing to be sent.
+			// Otherwise, menu bar might activated due to ALT keystrokes that don't modify any key,
+			// the Start Menu might appear due to WIN keystrokes that don't modify anything, etc:
+			//if (aRepeatCount < 1)
+			//  return;
+			// v1.0.40: This function was heavily simplified because the old method of simulating
+			// characters via dead keys apparently never executed under any keyboard layout.  It never
+			// got past the following on the layouts I tested (Russian, German, Danish, Spanish):
+			//      if (!send1 && !send2) // Can't simulate aChar.
+			//          return;
+			// This might be partially explained by the fact that the following old code always exceeded
+			// the bounds of the array (because aChar was always between 0 and 127), so it was never valid
+			// in the first place:
+			//      asc_int = cAnsiToAscii[(int)((aChar - 128) & 0xff)] & 0xff;
+			// Producing ANSI characters via Alt+Numpad and a leading zero appears standard on most languages
+			// and layouts (at least those whose active code page is 1252/Latin 1 US/Western Europe).  However,
+			// Russian (code page 1251 Cyrillic) is apparently one exception as shown by the fact that sending
+			// all of the characters above Chr(127) while under Russian layout produces Cyrillic characters
+			// if the active window's focused control is an Edit control (even if its an ANSI app).
+			// I don't know the difference between how such characters are actually displayed as opposed to how
+			// they're stored in memory (in notepad at least, there appears to be some kind of on-the-fly
+			// translation to Unicode as shown when you try to save such a file).  But for now it doesn't matter
+			// because for backward compatibility, it seems best not to change it until some alternative is
+			// discovered that's high enough in value to justify breaking existing scripts that run under Russian
+			// and other non-code-page-1252 layouts.
+			//
+			// Production of ANSI characters above 127 has been tested on both Windows XP and 98se (but not the
+			// Win98 command prompt).
+			var useSendasc = sendMode == SendModes.Play; // See SendUnicodeChar for why it isn't called for SM_PLAY.
+			var ascString = new byte[16];
+			var wc = '0';
+
+			if (useSendasc)
+			{
+				// The following range isn't checked because this function appears never to be called for such
+				// characters (tested in English and Russian so far), probably because VkKeyScan() finds a way to
+				// manifest them via Control+VK combinations:
+				//if (aChar > -1 && aChar < 32)
+				//  return;
+				var index = 0;
+
+				if ((ch & ~127) != 0)    // Try using ANSI.
+					ascString[index++] = (byte)'0';  // ANSI mode is achieved via leading zero in the Alt+Numpad keystrokes.
+
+				//else use Alt+Numpad without the leading zero, which allows the characters a-z, A-Z, and quite
+				// a few others to be produced in Russian and perhaps other layouts, which was impossible in versions
+				// prior to 1.0.40.
+				var str = ((int)ch).ToString();
+				var bytes = Encoding.ASCII.GetBytes(str);
+				System.Array.Copy(bytes, 0, ascString, index, Math.Min(ascString.Length - index, bytes.Length));
+			}
+			else
+			{
+				wc = ch;
+			}
+
+			for (var i = 0L; i < repeatCount; ++i)
+			{
+				if (sendMode == SendModes.Event)
+					LongOperationUpdateForSendKeys();
+
+				if (useSendasc)
+					SendASC(ascString);
+				else
+					SendUnicodeChar(wc, modifiersLR);
+
+				DoKeyDelay(); // It knows not to do the delay for SM_INPUT.
+			}
+
+			// It is not necessary to do SetModifierLRState() to put a caller-specified set of persistent modifier
+			// keys back into effect because:
+			// 1) Our call to SendASC above (if any) at most would have released some of the modifiers (though never
+			//    WIN because it isn't necessary); but never pushed any new modifiers down (it even releases ALT
+			//    prior to returning).
+			// 2) Our callers, if they need to push ALT back down because we didn't do it, will either disguise it
+			//    or avoid doing so because they're about to send a keystroke (just about anything) that ALT will
+			//    modify and thus not need to be disguised.
+		}
+
+		/// <summary>
+		/// aX1 and aY1 are the starting coordinates, and "2" are the destination coordinates.
+		/// Caller has ensured that aSpeed is in the range 0 to 100, inclusive.
+		/// </summary>
+		/// <param name="x1"></param>
+		/// <param name="y1"></param>
+		/// <param name="x2"></param>
+		/// <param name="y2"></param>
+		/// <param name="speed"></param>
+		internal void DoIncrementalMouseMove(long x1, long y1, long x2, long y2, long speed)
+		{
+			// AutoIt3: So, it's a more gradual speed that is needed :)
+			long delta;
+			const int incrMouseMinSpeed = 32;
+
+			while (x1 != x2 || y1 != y2)
+			{
+				if (x1 < x2)
+				{
+					delta = (x2 - x1) / speed;
+
+					if (delta == 0 || delta < incrMouseMinSpeed)
+						delta = incrMouseMinSpeed;
+
+					if ((x1 + delta) > x2)
+						x1 = x2;
+					else
+						x1 += delta;
+				}
+				else if (x1 > x2)
+				{
+					delta = (x1 - x2) / speed;
+
+					if (delta == 0 || delta < incrMouseMinSpeed)
+						delta = incrMouseMinSpeed;
+
+					if ((x1 - delta) < x2)
+						x1 = x2;
+					else
+						x1 -= delta;
+				}
+
+				if (y1 < y2)
+				{
+					delta = (y2 - y1) / speed;
+
+					if (delta == 0 || delta < incrMouseMinSpeed)
+						delta = incrMouseMinSpeed;
+
+					if ((y1 + delta) > y2)
+						y1 = y2;
+					else
+						y1 += delta;
+				}
+				else if (y1 > y2)
+				{
+					delta = (y1 - y2) / speed;
+
+					if (delta == 0 || delta < incrMouseMinSpeed)
+						delta = incrMouseMinSpeed;
+
+					if ((y1 - delta) < y2)
+						y1 = y2;
+					else
+						y1 -= delta;
+				}
+
+				MouseEvent((uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE, 0, (int)x1, (int)y1);
+				DoMouseDelay();
+				// Above: A delay is required for backward compatibility and because it's just how the incremental-move
+				// feature was originally designed in AutoIt v3.  It may in fact improve reliability in some cases,
+				// especially with the mouse_event() method vs. SendInput/Play.
+			} // while()
+		}
+
 		protected abstract void RegisterHook();
 
-				/// <summary>
+		internal abstract int MouseCoordToAbs(int coord, int width_or_height);
+
+		/// <summary>
 		/// This function is designed to be called from only the main thread; it's probably not thread-safe.
 		/// Puts modifiers into the specified state, releasing or pressing down keys as needed.
 		/// The modifiers are released and pressed down in a very delicate order due to their interactions with
@@ -464,7 +1522,7 @@ namespace Keysharp.Core.Common.Keyboard
 		/// <param name="disguiseDownWinAlt"></param>
 		/// <param name="disguiseUpWinAlt"></param>
 		/// <param name="extraInfo"></param>
-		internal void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow
+		internal virtual void SetModifierLRState(uint modifiersLRnew, uint modifiersLRnow, nint targetWindow
 										 , bool disguiseDownWinAlt, bool disguiseUpWinAlt, long extraInfo = KeyIgnoreAllExceptModifier)
 		{
 			if (modifiersLRnow == modifiersLRnew) // They're already in the right state, so avoid doing all the checks.

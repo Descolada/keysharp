@@ -98,7 +98,7 @@ namespace Keysharp.Core
 		/// PID: The Process ID, which is a number that uniquely identifies one specific process (this number is valid only during the lifetime of that process).<br/>
 		/// The PID of a newly launched process can be determined via the Run function. Similarly, the PID of a window can be determined with <see cref="WinGetPID"/>. <see cref="ProcessExist"/> can also be used to discover a PID.<br/>
 		/// Name: The name of a process is usually the same as its executable (without path), e.g. notepad.exe or winword.exe. Since a name might match multiple running processes, only the first process will be operated upon. The name is not case-sensitive.<br/>
-		/// If omitted, the script’s own process is used.
+		/// If omitted, the scriptï¿½s own process is used.
 		/// </param>
 		/// <returns>
 		/// The executable name of the specified process, for example: <c>notepad.exe</c>.<br/>
@@ -127,17 +127,17 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// Returns the full path of the specified process’s executable.
+		/// Returns the full path of the specified processï¿½s executable.
 		/// </summary>
 		/// <param name="pidOrName">
 		/// Specify either a number (the PID) or a process name:<br/>
 		/// PID: The Process ID, which is a number that uniquely identifies one specific process (this number is valid only during the lifetime of that process).<br/>
 		/// The PID of a newly launched process can be determined via the Run function. Similarly, the PID of a window can be determined with <see cref="WinGetPID"/>. <see cref="ProcessExist"/> can also be used to discover a PID.<br/>
 		/// Name: The name of a process is usually the same as its executable (without path), e.g. notepad.exe or winword.exe. Since a name might match multiple running processes, only the first process will be operated upon. The name is not case-sensitive.<br/>
-		/// If omitted, the script’s own process is used.
+		/// If omitted, the scriptï¿½s own process is used.
 		/// </param>
 		/// <returns>
-		/// The full path of the specified process’s executable, for example: <c>C:\Windows\notepad.exe</c>.<br/>
+		/// The full path of the specified processï¿½s executable, for example: <c>C:\Windows\notepad.exe</c>.<br/>
 		/// Throws a TargetError if the process could not be found, or an OSError if the path could not be retrieved.
 		/// </returns>
 		public static string ProcessGetPath(object pidOrName = null)
@@ -415,7 +415,7 @@ namespace Keysharp.Core
 		/// </summary>
 		public static object Shutdown(object obj)
 		{
-			_ = Script.TheScript.PlatformProvider.Manager.ExitProgram((uint)obj.Al(), 0);
+			_ = ExitProgram((uint)obj.Al(), 0);
 			return DefaultObject;
 		}
 
@@ -489,7 +489,7 @@ namespace Keysharp.Core
 					return (uint)result.Length;
 				}
 
-				// convert device path (\Device\HarddiskVolumeX\...) to drive letter C:\…
+				// convert device path (\Device\HarddiskVolumeX\...) to drive letter C:\ï¿½
 				var device = new char[MAX_PATH];
 				var logicalPath = path;
 

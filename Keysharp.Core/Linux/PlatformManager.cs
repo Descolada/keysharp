@@ -7,19 +7,21 @@ namespace Keysharp.Core.Linux
 	/// <summary>
 	/// Concrete implementation of PlatformManager for the linux platfrom.
 	/// </summary>
-	internal class PlatformManager : PlatformManagerBase
+	internal class PlatformManager : PlatformManagerBase, IPlatformManager
 	{
-		private readonly bool isGnome, isKde, isXfce, isMate, isCinnamon, isLxqt, isLxde;
+		private static readonly bool isGnome, isKde, isXfce, isMate, isCinnamon, isLxqt, isLxde;
 
-		internal bool IsGnome => isGnome;
-		internal bool IsKde => isKde;
-		internal bool IsXfce => isXfce;
-		internal bool IsMate => isMate;
-		internal bool IsCinnamon => isCinnamon;
-		internal bool IsLxqt => isLxqt;
-		internal bool IsLxde => isLxde;
+		internal static bool IsGnome => isGnome;
+		internal static bool IsKde => isKde;
+		internal static bool IsXfce => isXfce;
+		internal static bool IsMate => isMate;
+		internal static bool IsCinnamon => isCinnamon;
+		internal static bool IsLxqt => isLxqt;
+		internal static bool IsLxde => isLxde;
 
-		internal PlatformManager()
+		internal static bool IsX11Available => XDisplay.Default.Handle != 0;
+
+		static PlatformManager()
 		{
 			var session = "echo $DESKTOP_SESSION".Bash().ToLower();
 
@@ -42,12 +44,12 @@ namespace Keysharp.Core.Linux
 		}
 
 		// Return the current xkb_keymap pointer as a stand-in for HKL.
-		internal override nint GetKeyboardLayout(uint idThread)
+		public static nint GetKeyboardLayout(uint idThread)
 		{
 			return LinuxKeyboardMouseSender.LinuxCharMapper.GetCurrentKeymapHandle();
 		}
 
-		internal override int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
+		public static int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
 		{
 			// Best-effort VK→char mapping for Linux; limited to US-style keys.
 			// Similar to Windows ToUnicodeEx but without dead-key handling.
@@ -123,7 +125,7 @@ namespace Keysharp.Core.Linux
 			return 1;
 		}
 
-		internal override uint MapVirtualKeyToChar(uint wVirtKey, nint hkl)
+		public static uint MapVirtualKeyToChar(uint wVirtKey, nint hkl)
 		{
 			// Return the character code corresponding to the given virtual key.
 			// Similar to Windows MapVirtualKeyEx with MAPVK_VK_TO_CHAR.
@@ -135,7 +137,7 @@ namespace Keysharp.Core.Linux
 				return 0;
 		}
 
-		internal override bool SetDllDirectory(string path)
+		public static bool SetDllDirectory(string path)
 		{
 			if (path == null)
 			{
@@ -162,13 +164,13 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		internal override nint LoadLibrary(string path) => Xlib.dlopen(path, Xlib.RTLD_LAZY);//Assume lazy is more efficient. Use RTLD_NOW if this doesn't work.
+		public static nint LoadLibrary(string path) => Xlib.dlopen(path, Xlib.RTLD_LAZY);//Assume lazy is more efficient. Use RTLD_NOW if this doesn't work.
 
-		internal override uint CurrentThreadId() => (uint)Xlib.gettid();
+		public static uint CurrentThreadId() => (uint)Xlib.gettid();
 
-		internal override bool DestroyIcon(nint icon) => Xlib.GdipDisposeImage(icon) == 0;//Unsure if this works or is even needed on linux.
+		public static bool DestroyIcon(nint icon) => Xlib.GdipDisposeImage(icon) == 0;//Unsure if this works or is even needed on linux.
 
-		internal override bool ExitProgram(uint flags, uint reason)
+		public static bool ExitProgram(uint flags, uint reason)
 		{
 			var cmd = "";
 			var force = false;
@@ -255,15 +257,43 @@ namespace Keysharp.Core.Linux
 			return true;
 		}
 
-		internal override bool UnregisterHotKey(nint hWnd, uint id) => true;
+		public static bool UnregisterHotKey(nint hWnd, uint id) => true;
 
-		internal override bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam) => true;
+		public static bool PostMessage(nint hWnd, uint msg, nint wParam, nint lParam) => true;
 
-		internal override bool PostMessage(nint hWnd, uint msg, uint wParam, uint lParam) => true;
+		public static bool PostMessage(nint hWnd, uint msg, uint wParam, uint lParam) => true;
 
-		internal override bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam) => true;
+		public static bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam) => true;
 
-		internal override bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk) => true;
+		public static bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk) => true;
+
+		public static bool GetCursorPos(out POINT lpPoint)
+		{
+			lpPoint = default;
+
+			if (!IsX11Available)
+				return false;
+
+			nint root = (nint)XDisplay.Default.Root.ID;
+
+			bool success = Xlib.XQueryPointer(
+				XDisplay.Default.Handle,
+				root,
+				out _,
+				out _,
+				out int rootX,
+				out int rootY,
+				out _,
+				out _,
+				out _
+			);
+
+			if (!success)
+				return false;
+
+			lpPoint = new POINT(rootX, rootY);
+			return true;
+		}
 	}
 }
 #endif

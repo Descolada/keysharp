@@ -29,6 +29,11 @@ namespace Keysharp.Core.Common.Keyboard
 		internal const uint MODLR_RMASK = MOD_RCONTROL | MOD_RALT | MOD_RSHIFT | MOD_RWIN;
 		internal const uint MODLR_MASK = MODLR_LMASK | MODLR_RMASK;
 
+		internal const int KEYEVENTF_EXTENDEDKEY = 1;
+		internal const int KEYEVENTF_KEYUP = 2;
+		internal const int KEYEVENTF_UNICODE = 4;
+		internal const int KEYEVENTF_SCANCODE = 8;
+
 		internal static string[] SEND_MODES = ["Event", "Input", "Play", "InputThenPlay"]; // Must match the SendModes enum.
 
 		internal static uint MakeLong(short lowPart, short highPart) => ((ushort)lowPart) | (uint)(highPart << 16);
@@ -183,6 +188,8 @@ namespace Keysharp.Core.Common.Keyboard
 		Raw,
 		RawText
 	}
+
+
 
 	internal enum Actions
 	{

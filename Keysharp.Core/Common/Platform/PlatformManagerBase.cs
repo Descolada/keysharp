@@ -1,5 +1,45 @@
 ﻿namespace Keysharp.Core.Common.Platform
 {
+	internal interface IPlatformManager
+	{
+		/// <summary>
+		/// aX and aY are interpreted according to the current coord mode.  If necessary, they are converted to
+		/// screen coordinates based on the position of the active window's upper-left corner (or its client area).
+		/// </summary>
+		/// <param name="aX"></param>
+		/// <param name="aY"></param>
+		/// <param name="aWhichMode"></param>
+		internal static abstract void CoordToScreen(ref int aX, ref int aY, CoordMode modeType);
+
+		internal static abstract uint CurrentThreadId();
+
+		internal static abstract bool DestroyIcon(nint icon);
+
+		internal static abstract bool ExitProgram(uint flags, uint reason);
+
+		internal static abstract nint GetKeyboardLayout(uint idThread);
+
+		internal static abstract nint LoadLibrary(string path);
+
+		internal static abstract bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam);
+
+		internal static abstract bool PostMessage(nint hWnd, uint Msg, nint wParam, nint lParam);
+
+		internal static abstract bool PostMessage(nint hWnd, uint msg, uint wParam, uint lParam);
+
+		internal static abstract bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk);
+
+		internal static abstract bool SetDllDirectory(string path);
+
+		internal static abstract int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl);
+
+		internal static abstract uint MapVirtualKeyToChar(uint wVirtKey, nint hkl);
+
+		internal static abstract bool UnregisterHotKey(nint hWnd, uint id);
+
+		internal static abstract bool GetCursorPos(out POINT lpPoint);
+	}
+
 	internal abstract class PlatformManagerBase
 	{
 		/// <summary>
@@ -9,7 +49,7 @@
 		/// <param name="aX"></param>
 		/// <param name="aY"></param>
 		/// <param name="aWhichMode"></param>
-		internal void CoordToScreen(ref int aX, ref int aY, CoordMode modeType)
+		public static void CoordToScreen(ref int aX, ref int aY, CoordMode modeType)
 		{
 			var script = Script.TheScript;
 			var coordMode = ThreadAccessors.GetCoordMode(modeType);
@@ -17,7 +57,7 @@
 			if (coordMode == CoordModeType.Screen)
 				return;
 
-			var activeWindow = script.WindowProvider.Manager.ActiveWindow;
+			var activeWindow = WindowManager.ActiveWindow;
 
 			if (activeWindow.Handle != 0 && !activeWindow.IsIconic)
 			{
@@ -44,31 +84,5 @@
 			// issue where the mouse will move to the upper-left corner of the screen rather than the
 			// intended coordinates (v1.0.17).
 		}
-
-		internal abstract uint CurrentThreadId();
-
-		internal abstract bool DestroyIcon(nint icon);
-
-		internal abstract bool ExitProgram(uint flags, uint reason);
-
-		internal abstract nint GetKeyboardLayout(uint idThread);
-
-		internal abstract nint LoadLibrary(string path);
-
-		internal abstract bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam);
-
-		internal abstract bool PostMessage(nint hWnd, uint Msg, nint wParam, nint lParam);
-
-		internal abstract bool PostMessage(nint hWnd, uint msg, uint wParam, uint lParam);
-
-		internal abstract bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk);
-
-		internal abstract bool SetDllDirectory(string path);
-
-		internal abstract int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl);
-
-		internal abstract uint MapVirtualKeyToChar(uint wVirtKey, nint hkl);
-
-		internal abstract bool UnregisterHotKey(nint hWnd, uint id);
 	}
 }

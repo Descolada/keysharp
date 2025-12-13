@@ -242,25 +242,6 @@ namespace Keysharp.Core.Windows
 		internal int iOrder;
 	}
 
-	[Flags]
-	public enum MOUSEEVENTF : uint
-	{
-		MOVE = 0x0001,  // mouse move
-		LEFTDOWN = 0x0002,  // left button down
-		LEFTUP = 0x0004,  // left button up
-		RIGHTDOWN = 0x0008,  // right button down
-		RIGHTUP = 0x0010,  // right button up
-		MIDDLEDOWN = 0x0020,  // middle button down
-		MIDDLEUP = 0x0040,  // middle button up
-		XDOWN = 0x0080,  // x button down
-		XUP = 0x0100,  // x button down
-		WHEEL = 0x0800,  // wheel button rolled
-		VIRTUALDESK = 0x4000,  // map to entire virtual desktop
-		ABSOLUTE = 0x8000,  // absolute move
-		HWHEEL = 0x01000, // hwheel button rolled
-		MOVE_NOCOALESCE = 0x2000//do not coalesce mouse moves.
-	}
-
 	[StructLayout(LayoutKind.Sequential)]
 	internal struct FILETIME
 	{
@@ -500,11 +481,6 @@ namespace Keysharp.Core.Windows
 
 		internal const uint IOCTL_STORAGE_LOAD_MEDIA = 0x2d480c;
 
-		internal const int KEYEVENTF_EXTENDEDKEY = 1;
-		internal const int KEYEVENTF_KEYUP = 2;
-		internal const int KEYEVENTF_UNICODE = 4;
-		internal const int KEYEVENTF_SCANCODE = 8;
-
 		internal const int LWA_ALPHA = 0x2;
 
 		internal const int LWA_COLORKEY = 0x1;
@@ -573,11 +549,6 @@ namespace Keysharp.Core.Windows
 
 		internal const int LV_REMOTE_BUF_SIZE = 1024;// 8192 (below) seems too large in hindsight, given that an LV can only display the first 260 chars in a field.
 		internal const int LV_TEXT_BUF_SIZE = 8192;// Max amount of text in a ListView sub-item.  Somewhat arbitrary: not sure what the real limit is, if any.
-
-		internal const uint WHEEL_DELTA = 120;
-		internal const uint XBUTTON1 = 0x0001;
-		internal const uint XBUTTON2 = 0x0002;
-
 
 		internal const int WM_HOTKEY = 0x0312;
 		internal const int WM_KEYDOWN = 0x0100;

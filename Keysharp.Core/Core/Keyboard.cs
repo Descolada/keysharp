@@ -1,3 +1,5 @@
+using System.Windows.Forms;
+
 namespace Keysharp.Core
 {
 	/// <summary>
@@ -108,10 +110,10 @@ namespace Keysharp.Core
 				Y = info.rcCaret.Top
 			};
 			var script = Script.TheScript;
-			var caretWnd = script.WindowProvider.Manager.CreateWindow(info.hwndCaret);
+			var caretWnd = WindowManager.CreateWindow(info.hwndCaret);
 			caretWnd.ClientToScreen(ref pt);// Unconditionally convert to screen coordinates, for simplicity.
 			int x = 0, y = 0;
-			script.PlatformProvider.Manager.CoordToScreen(ref x, ref y, CoordMode.Caret);// Now convert back to whatever is expected for the current mode.
+			CoordToScreen(ref x, ref y, CoordMode.Caret);// Now convert back to whatever is expected for the current mode.
 			pt.X -= x;
 			pt.Y -= y;
             Script.SetPropertyValue(outputVarX, "__Value", (long)pt.X);
@@ -168,7 +170,7 @@ namespace Keysharp.Core
 			JoyControls joy;
 			uint? joystickid = 0u;
 			uint? dummy = null;
-			var vk = ht.TextToVK(keyname, ref dummy, false, true, script.PlatformProvider.Manager.GetKeyboardLayout(0));
+			var vk = ht.TextToVK(keyname, ref dummy, false, true, GetKeyboardLayout(0));
 
 			if (vk == 0)
 			{
@@ -571,7 +573,7 @@ break_twice:;
 			var kbdMouseSender = ht.kbdMsSender;
 			uint? modLR = null;
 
-			if ((vk = ht.TextToVK(keyname, ref modLR, false, true, script.PlatformProvider.Manager.GetKeyboardLayout(0))) == 0)
+			if ((vk = ht.TextToVK(keyname, ref modLR, false, true, GetKeyboardLayout(0))) == 0)
 			{
 				joy = Joystick.ConvertJoy(keyname, ref joystickId);
 
@@ -1017,7 +1019,7 @@ break_twice:;
 			var vk = 0u;
 			var sc = 0u;
 			uint? modLR = null;
-			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref modLR, script.PlatformProvider.Manager.GetKeyboardLayout(0));//Need to make cross platform.
+			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref modLR, GetKeyboardLayout(0));//Need to make cross platform.
 
 			return callid switch
 		{

@@ -1,6 +1,4 @@
-﻿using static Antlr4.Runtime.Atn.SemanticContext;
-
-namespace Keysharp.Core
+﻿namespace Keysharp.Core
 {
 	internal class ToolTipData
 	{
@@ -15,7 +13,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// An array of all tooltip positions used to avoid position flickering.
 		/// </summary>
-		internal readonly Point?[] persistentTooltipsPositions = new Point?[MaxToolTips];
+		internal readonly POINT?[] persistentTooltipsPositions = new POINT?[MaxToolTips];
 	}
 
 	/// <summary>
@@ -80,7 +78,7 @@ namespace Keysharp.Core
 
 			var handle = 0L;
 			ToolTip tt = null;
-			Point? ttp = persistentTooltipsPositions[id];
+			POINT? ttp = persistentTooltipsPositions[id];
 			tooltipInvokerForm.CheckedInvoke(() =>
 			{
 				if (persistentTooltips[id] == null)
@@ -119,9 +117,6 @@ namespace Keysharp.Core
 			var coordModeToolTip = ThreadAccessors.A_CoordModeToolTip;
 			tooltipInvokerForm.CheckedBeginInvoke(() =>
 			{
-
-
-				var script = Script.TheScript;
 #if WINDOWS
 				//We use SetTool() via reflection in this function because it bypasses ToolTip.Show()'s check for whether or not the window
 				//is active.
@@ -134,7 +129,7 @@ namespace Keysharp.Core
 				tt.Active = true;
 				var tempx = _x;
 				var tempy = _y;
-				Point temppt;
+				POINT temppt;
 
 				if (one_or_both_coords_specified && coordModeToolTip != CoordModeType.Screen)
 				{
@@ -149,16 +144,16 @@ namespace Keysharp.Core
 					//  var m = tt.GetType().GetMethod("SetTool", BindingFlags.Instance | BindingFlags.NonPublic);
 					//  _ = m.Invoke(tt, new object[] { tooltipInvokerForm, text, 2, new Point(tempx, tempy) });
 					//}
-					var foreground = script.WindowProvider.Manager.ActiveWindow;
+					var foreground = WindowManager.ActiveWindow;
 
 					if (foreground.Handle != 0)
-						script.PlatformProvider.Manager.CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
+						CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
 				}
 
 				if (_x == int.MinValue || _y == int.MinValue) //At least one coordinate was missing, so default it to the mouse position
 				{
 					coordModeToolTip = CoordModeType.Screen;
-					temppt = Cursor.Position;
+					_ = GetCursorPos(out temppt);
 
 					if (_x == int.MinValue)
 						tempx = temppt.X + 10;
@@ -170,7 +165,7 @@ namespace Keysharp.Core
 				if (ttp != null && ttp?.X == tempx && ttp?.Y == tempy && tt.GetToolTip(tooltipInvokerForm) == t)
 					return;
 
-				persistentTooltipsPositions[id] = new Point(tempx, tempy);
+				persistentTooltipsPositions[id] = new POINT(tempx, tempy);
 #if WINDOWS
 				_ = mSetTrackPosition.Invoke(tt, [tempx, tempy]);
 				_ = mSetTool.Invoke(tt, [tooltipInvokerForm, t, 2, persistentTooltipsPositions[id]]);
@@ -243,7 +238,7 @@ namespace Keysharp.Core
 					}
 					finally
 					{
-						_ =  script.PlatformProvider.Manager.DestroyIcon(ptr);
+						_ =  DestroyIcon(ptr);
 					}
 				}
 			}

@@ -2853,7 +2853,7 @@ namespace Keysharp.Core.Common.Threading
 				// keystrokes that comprise the hotkey.
 				if (!disguiseNextMenu // It's not already going to be disguised due to the section above or a previous hotkey.
 						&& (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0// If RAlt==AltGr, it should never need disguising, but in that case LCtrl is also down, so ActiveWindowLayoutHasAltGr() isn't checked.
-						&& (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) != 0 // No need to mask if Ctrl is down (the key-repeat issue that affects the WIN key does not affect ALT).
+						&& (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0 // No need to mask if Ctrl is down (the key-repeat issue that affects the WIN key does not affect ALT).
 						&& HotkeyDefinition.HotkeyRequiresModLR(hotkeyIdToFire, MOD_LALT | MOD_RALT) != 0) // Avoid masking hotkeys which could be intended to send {Alt up}, such as for AppsKey::Alt.
 				{
 					if (HasKbdHook())

@@ -6,8 +6,8 @@ namespace Keysharp.Core.Windows
 	/// </summary>
 	internal class WindowManager : WindowManagerBase, IWindowManager
 	{
-		public static WindowItemBase ActiveWindow => TheWindowManager.CreateWindow(WindowsAPI.GetForegroundWindow());
-		private int lastWindowCount = 64;
+		public static WindowItemBase ActiveWindow => CreateWindow(WindowsAPI.GetForegroundWindow());
+		private static int lastWindowCount = 64;
 
 		/// <summary>
 		/// Return all top level windows. This does not recurse into child windows.
@@ -18,11 +18,10 @@ namespace Keysharp.Core.Windows
 			{
 				var windows = new List<WindowItemBase>(lastWindowCount);
 				var doHidden = ThreadAccessors.A_DetectHiddenWindows;
-				var mgr = Script.TheWindowManager;
 				_ = WindowsAPI.EnumWindows(delegate (nint hwnd, int lParam)
 				{
 					if (doHidden || WindowsAPI.IsWindowVisible(hwnd))
-						windows.Add(mgr.CreateWindow(hwnd));
+						windows.Add(CreateWindow(hwnd));
 
 					return true;
 				}, 0);

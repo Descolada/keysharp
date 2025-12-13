@@ -1,5 +1,6 @@
 ﻿#if WINDOWS
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+using Keysharp.Core.Common.Mouse;
 
 //#define DPI
 namespace Keysharp.Core.Windows
@@ -81,7 +82,7 @@ namespace Keysharp.Core.Windows
 					_ = WindowsAPI.EnumChildWindows(Handle, (nint hwnd, int lParam) =>
 					{
 						//if (detectHiddenText || WindowsAPI.IsWindowVisible(hwnd))
-						_ = children.Add(TheWindowManager.CreateWindow(hwnd));
+						_ = children.Add(WindowManager.CreateWindow(hwnd));
 						return true;
 					}, 0);
 				}
@@ -93,7 +94,7 @@ namespace Keysharp.Core.Windows
 					form.Invoke(() =>
 					{
 						foreach (var ctrl in form.GetAllControlsRecursive<Control>())
-							_ = children.Add(TheWindowManager.CreateWindow(ctrl.Handle));//HashSet takes care of avoiding dupes.
+							_ = children.Add(WindowManager.CreateWindow(ctrl.Handle));//HashSet takes care of avoiding dupes.
 					});
 				}
 
@@ -178,9 +179,9 @@ namespace Keysharp.Core.Windows
 			}
 		}
 
-		internal override WindowItemBase NonChildParentWindow => TheWindowManager.CreateWindow(WindowsAPI.GetNonChildParent(Handle));
+		internal override WindowItemBase NonChildParentWindow => WindowManager.CreateWindow(WindowsAPI.GetNonChildParent(Handle));
 
-		internal override WindowItemBase ParentWindow => TheWindowManager.CreateWindow(WindowsAPI.GetAncestor(Handle, gaFlags.GA_PARENT));
+		internal override WindowItemBase ParentWindow => WindowManager.CreateWindow(WindowsAPI.GetAncestor(Handle, gaFlags.GA_PARENT));
 
 		internal override string Path
 		{
@@ -463,7 +464,7 @@ namespace Keysharp.Core.Windows
 
 			if (origForegroundWnd != 0) // Might be NULL from above.
 			{
-				var foregroundwin = TheWindowManager.CreateWindow(origForegroundWnd);
+				var foregroundwin = WindowManager.CreateWindow(origForegroundWnd);
 				// Based on MSDN docs, these calls should always succeed due to the other
 				// checks done above (e.g. that none of the HWND's are NULL):
 				foreThread = WindowsAPI.GetWindowThreadProcessId(origForegroundWnd, out var id);

@@ -165,7 +165,7 @@ namespace Keysharp.Core.Windows
 			{
 				Type = MouseWheelScrollType.Unit,
 				Rotation = delta,
-				Delta = WHEEL_DELTA,
+				Delta = (int)WHEEL_DELTA,
 				Direction = delta < 0 ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Vertical,
 				X = x,
 				Y = y
@@ -596,7 +596,7 @@ namespace Keysharp.Core.Windows
 			// See Get_active_window_keybd_layout macro definition for related comments.
 			var activeWindow = WindowManager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 			nint tempzero = 0;
-			var activeWindowKeybdLayout = GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, activeWindow));
+			var activeWindowKeybdLayout = PlatformManager.GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, activeWindow));
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 
@@ -896,7 +896,7 @@ namespace Keysharp.Core.Windows
 
 		internal override nint GetAltTabMenuHandle() => FindWindow("#32771", null);
 
-		internal override HookAction CancelAltTabMenu() {
+		internal override HookAction CancelAltTabMenu(uint vk, bool keyUp) {
 			// v1.0.37.07: Cancel the alt-tab menu upon receipt of Escape so that it behaves like the OS's native Alt-Tab.
 			// Even if is_ignored==true, it seems more flexible/useful to cancel the Alt-Tab menu upon receiving
 			// an Escape keystroke of any kind.
@@ -932,7 +932,7 @@ namespace Keysharp.Core.Windows
 				nint altTabWindow;
 
 				if ((altTabWindow = GetAltTabMenuHandle()) != 0 // There is an alt-tab window...
-						&& GetWindowThreadProcessId(altTabWindow, out _) == mgr.CurrentThreadId()) // ...and it's owned by the hook thread (not the main thread).
+						&& GetWindowThreadProcessId(altTabWindow, out _) == PlatformManager.CurrentThreadId()) // ...and it's owned by the hook thread (not the main thread).
 				{
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_ESCAPE);
 					// By definition, an Alt key should be logically down if the alt-tab menu is visible (even if it
@@ -953,9 +953,8 @@ namespace Keysharp.Core.Windows
 				// in any of the cases here because there is logic elsewhere in the hook that does that more
 				// reliably; it takes into account things such as whether the Escape keystroke will be suppressed
 				// due to being a hotkey).
-
-				return HookAction.Continue;
 			}
+			return HookAction.Continue;
 		}
 
 		internal unsafe nint LowLevelMouseHandler(int code, nint param, ref MSDLLHOOKSTRUCT lParam)
@@ -1017,7 +1016,7 @@ namespace Keysharp.Core.Windows
 					{
 						Type = MouseWheelScrollType.Unit,
 						Rotation = wheelDelta,
-						Delta = WHEEL_DELTA,
+						Delta = (int)WHEEL_DELTA,
 						Direction = iwParam == WM_MOUSEWHEEL ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Horizontal,
 						X = lParam.pt.X,
 						Y = lParam.pt.Y

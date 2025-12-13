@@ -510,7 +510,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 		internal abstract ResultType LayoutHasAltGrDirect(nint layout);
 
-		internal virtual bool MouseClickPreLRButton(KeyEventTypes eventType)
+		internal virtual bool MouseClickPreLRButton(KeyEventTypes eventType, uint vk)
 		{
 			// Default implementation does nothing.
 			return false;
@@ -598,7 +598,7 @@ namespace Keysharp.Core.Common.Keyboard
 				case VK_LBUTTON:
 				case VK_RBUTTON:
 
-					if (MouseClickPreLRButton(eventType))
+					if (MouseClickPreLRButton(eventType, vk))
 						return;
 
 					// sWorkaroundVK is reset later below.

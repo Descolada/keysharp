@@ -252,7 +252,7 @@ namespace Keysharp.Core.Windows
 				_ = WindowsAPI.ClientToScreen(item.Handle, ref rect);
 				var pah = new PointAndHwnd(rect);
 				item.ChildFindPoint(pah);
-				item = pah.hwndFound != 0 ? TheWindowManager.CreateWindow(pah.hwndFound) : item;
+				item = pah.hwndFound != 0 ? WindowManager.CreateWindow(pah.hwndFound) : item;
 			}
 
 			if (item == null)
@@ -286,12 +286,12 @@ namespace Keysharp.Core.Windows
 
 			if (vk_is_wheel)
 			{
-				wparam = (uint)(clickCount * ((vk == VirtualKeys.VK_WHEEL_UP) ? WindowsAPI.WHEEL_DELTA : -WindowsAPI.WHEEL_DELTA)) << 16;  // High order word contains the delta.
+				wparam = (uint)(clickCount * ((vk == VirtualKeys.VK_WHEEL_UP) ? WHEEL_DELTA : -WHEEL_DELTA)) << 16;  // High order word contains the delta.
 				msg_down = WindowsAPI.WM_MOUSEWHEEL;
 			}
 			else if (vk_is_hwheel)  // Lexikos: Support horizontal scrolling in Windows Vista and later.
 			{
-				wparam = (uint)(clickCount * ((vk == VirtualKeys.VK_WHEEL_LEFT) ? -WindowsAPI.WHEEL_DELTA : WindowsAPI.WHEEL_DELTA)) << 16;
+				wparam = (uint)(clickCount * ((vk == VirtualKeys.VK_WHEEL_LEFT) ? -WHEEL_DELTA : WHEEL_DELTA)) << 16;
 				msg_down = WindowsAPI.WM_MOUSEHWHEEL;
 			}
 			else
@@ -306,7 +306,7 @@ namespace Keysharp.Core.Windows
 
 					case VirtualKeys.VK_XBUTTON1: msg_down = WindowsAPI.WM_XBUTTONDOWN; msg_up = WindowsAPI.WM_XBUTTONUP; wparam_up = VirtualKeys.VK_XBUTTON1 << 16; wparam = WindowsAPI.MK_XBUTTON1 | wparam_up; break;
 
-					case VirtualKeys.VK_XBUTTON2: msg_down = WindowsAPI.WM_XBUTTONDOWN; msg_up = WindowsAPI.WM_XBUTTONUP; wparam_up = WindowsAPI.XBUTTON2 << 16; wparam = WindowsAPI.MK_XBUTTON2 | wparam_up; break;
+					case VirtualKeys.VK_XBUTTON2: msg_down = WindowsAPI.WM_XBUTTONDOWN; msg_up = WindowsAPI.WM_XBUTTONUP; wparam_up = XBUTTON2 << 16; wparam = WindowsAPI.MK_XBUTTON2 | wparam_up; break;
 				}
 			}
 

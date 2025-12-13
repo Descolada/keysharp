@@ -1,8 +1,8 @@
 #if WINDOWS
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
-using static Keysharp.Core.Common.Mouse.MouseUtils;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 using static Keysharp.Core.Windows.WindowsAPI;
+using Keysharp.Core.Common.Mouse;
 
 namespace Keysharp.Core.Windows
 {
@@ -153,7 +153,7 @@ namespace Keysharp.Core.Windows
 							var o = key.GetValue("Layout File");
 
 							if (o is string s)
-								hmod = LoadLibrary(s);
+								hmod = WindowsAPI.LoadLibrary(s);
 						}
 					}
 				}
@@ -193,7 +193,7 @@ namespace Keysharp.Core.Windows
 				window = WindowManager.GetForegroundWindowHandle();
 
 			nint tempzero = 0;
-			return GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, window));
+			return PlatformManager.GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, window));
 		}
 
 		//internal ResultType ExpandEventArray()
@@ -253,7 +253,7 @@ namespace Keysharp.Core.Windows
 			return hasaltgr;
 		}
 
-		internal override void MouseClickPreLRButton(KeyEventTypes eventType) {
+		internal override bool MouseClickPreLRButton(KeyEventTypes eventType, uint vk) {
 			// v1.0.43 The first line below means: We're not in SendInput/Play mode or we are but this
 			// will be the first event inside the array.  The latter case also implies that no initial
 			// mouse-move was done above (otherwise there would already be a MouseMove event in the array,
@@ -315,7 +315,7 @@ namespace Keysharp.Core.Windows
 				//    Drag to the left.  The window starts moving.  This is caused by the fact that the down-click is
 				//    suppressed, thus the remap's hotkey subroutine thinks the mouse button is down, thus its
 				//    auto-repeat suppression doesn't work and it sends another click.
-				_ = GetCursorPos(out var point); // Assuming success seems harmless.
+				_ = PlatformManager.GetCursorPos(out var point); // Assuming success seems harmless.
 				// Despite what MSDN says, WindowFromPoint() appears to fetch a non-NULL value even when the
 				// mouse is hovering over a disabled control (at least on XP).
 				nint childUnderCursor, parentUnderCursor;
@@ -336,9 +336,9 @@ namespace Keysharp.Core.Windows
 							// of its title bar buttons is down-clicked.
 							workaroundVK = vk;
 							workaroundHitTest = hitTest;
-							_ = WindowItem.SetForegroundWindowEx(TheWindowManager.CreateWindow(parentUnderCursor)); // Try to reproduce customary behavior.
+							_ = WindowItem.SetForegroundWindowEx(WindowManager.CreateWindow(parentUnderCursor)); // Try to reproduce customary behavior.
 							// For simplicity, aRepeatCount>1 is ignored and DoMouseDelay() is not done.
-							return;
+							return true;
 						}
 						else // KEYUP
 						{
@@ -350,6 +350,7 @@ namespace Keysharp.Core.Windows
 					}
 				} // Work-around for sending mouse clicks to one of our thread's own windows.
 			}
+			return false;
 		}
 
 		/// <summary>
@@ -485,7 +486,7 @@ namespace Keysharp.Core.Windows
 							// Since the user nor anything else can move the cursor during our playback, GetCursorPos()
 							// should accurately reflect the position set by any previous mouse-move done by this playback.
 							// This seems likely to be true even for DirectInput games, though hasn't been tested yet.
-							if (GetCursorPos(out var cursor))
+							if (PlatformManager.GetCursorPos(out var cursor))
 							{
 								ev.paramL = (uint)cursor.X;
 								ev.paramH = (uint)cursor.Y;
@@ -1091,7 +1092,7 @@ namespace Keysharp.Core.Windows
 						&& sendModeOrig != SendModes.Play // SM_PLAY is reported to be incapable of locking the computer.
 						&& !inBlindMode // The philosophy of blind-mode is that the script should have full control, so don't do any waiting during blind mode.
 						&& sendRaw != SendRawModes.RawText // {Text} mode does not trigger Win+L.
-						&& mgr.CurrentThreadId() == pd.MainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
+						&& PlatformManager.CurrentThreadId() == pd.MainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
 				   )
 				{
 					var waitForWinKeyRelease = false;
@@ -1147,7 +1148,7 @@ namespace Keysharp.Core.Windows
 				keybdLayoutThread = WindowManager.GetFocusedCtrlThread(ref tempzero, 0);
 			}
 
-			targetKeybdLayout = GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
+			targetKeybdLayout = PlatformManager.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
 			targetLayoutHasAltGr = LayoutHasAltGr(targetKeybdLayout);  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
 			// Below is now called with "true" so that the hook's modifier state will be corrected (if necessary)
 			// prior to every send.
@@ -1557,7 +1558,7 @@ namespace Keysharp.Core.Windows
 										// Although MSDN says WM_CHAR uses UTF-16, it seems to really do automatic
 										// translation between ANSI and UTF-16; we rely on this for correct results:
 										for (var ii = 0L; ii < repeatCount; ++ii)
-											_ = PostMessage(targetWindow, WM_CHAR, subspan[0], 0);
+											_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, subspan[0], 0);
 									}
 									else
 										SendKeySpecial(subspan[0], repeatCount, modsForNextKey.Value | persistentModifiersForThisSendKeys);
@@ -1632,10 +1633,10 @@ namespace Keysharp.Core.Windows
 										// Although MSDN says WM_CHAR uses UTF-16, PostMessageA appears to truncate it to 8-bit.
 										// This probably means it does automatic translation between ANSI and UTF-16.  Since we
 										// specifically want to send a Unicode character value, use PostMessageW:
-										_ = PostMessage(targetWindow, WM_CHAR, wc1, 0);
+										_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, wc1, 0);
 
 										if (wc2 != 0)
-											_ = PostMessage(targetWindow, WM_CHAR, wc2, 0);
+											_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, wc2, 0);
 									}
 									else
 									{
@@ -1720,7 +1721,7 @@ namespace Keysharp.Core.Windows
 						if (targetWindow != 0)
 							// Although MSDN says WM_CHAR uses UTF-16, it seems to really do automatic
 							// translation between ANSI and UTF-16; we rely on this for correct results:
-							_ = PostMessage(targetWindow, WM_CHAR, sub[keyIndex], 0);
+							_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, sub[keyIndex], 0);
 						else
 							SendKeySpecial(sub[keyIndex], 1, modsForNextKey.Value | persistentModifiersForThisSendKeys);
 					}
@@ -1936,7 +1937,7 @@ namespace Keysharp.Core.Windows
 			tv.keyDuration = origPressDuration;
 		}
 
-		internal void SendUnicodeChar(char ch, uint modifiers)
+		internal override void SendUnicodeChar(char ch, uint modifiers)
 		{
 			// Set modifier keystate as specified by caller.  Generally this will be 0, since
 			// key combinations with Unicode packets either do nothing at all or do the same as
@@ -2311,7 +2312,7 @@ namespace Keysharp.Core.Windows
 				var lParam = (long)(sc << 16);
 
 				if (eventType != KeyEventTypes.KeyUp)  // i.e. always do it for KEYDOWNANDUP
-					_ = PostMessage(targetWindow, WM_KEYDOWN, vk, (uint)(lParam | 0x00000001));
+					_ = WindowsAPI.PostMessage(targetWindow, WM_KEYDOWN, vk, (uint)(lParam | 0x00000001));
 
 				// The press-duration delay is done only when this is a down-and-up because otherwise,
 				// the normal g->KeyDelay will be in effect.  In other words, it seems undesirable in
@@ -2320,7 +2321,7 @@ namespace Keysharp.Core.Windows
 					DoKeyDelay(ThreadAccessors.A_KeyDuration); // Since aTargetWindow!=NULL, sendMode!=SM_PLAY, so no need for to ever use the SendPlay press-duration.
 
 				if (eventType != KeyEventTypes.KeyDown)
-					_ = PostMessage(targetWindow, WM_KEYUP, vk, (uint)(lParam | 0xC0000001));
+					_ = WindowsAPI.PostMessage(targetWindow, WM_KEYUP, vk, (uint)(lParam | 0xC0000001));
 			}
 			else // Keystrokes are to be sent with keybd_event() or the event array rather than PostMessage().
 			{

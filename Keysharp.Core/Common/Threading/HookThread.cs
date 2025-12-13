@@ -5,11 +5,11 @@ using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
 
 #if WINDOWS
-using HookEventArgs = Keysharp.Core.Windows.HookEventArgs;
-using KeyboardHookEventArgs = Keysharp.Core.Windows.KeyboardHookEventArgs
+	using HookEventArgs = Keysharp.Core.Windows.HookEventArgs;
+	using KeyboardHookEventArgs = Keysharp.Core.Windows.KeyboardHookEventArgs;
 #else
-using HookEventArgs = SharpHook.HookEventArgs;
-using KeyboardHookEventArgs = SharpHook.KeyboardHookEventArgs;
+	using HookEventArgs = SharpHook.HookEventArgs;
+	using KeyboardHookEventArgs = SharpHook.KeyboardHookEventArgs;
 #endif
 
 namespace Keysharp.Core.Common.Threading
@@ -1743,7 +1743,7 @@ namespace Keysharp.Core.Common.Threading
 			if (blockWinKeys && (vk == VK_LWIN || vk == VK_RWIN) && !keyUp)
 				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 
-			if (altTabMenuIsVisible && CancelAltTabMenu() == HookAction.Suppress)
+			if (altTabMenuIsVisible && CancelAltTabMenu(vk, keyUp) == HookAction.Suppress)
 				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));// Testing shows that by contrast, the upcoming key-up on Escape doesn't require this logic.
 
 			// Pointer to the key record for the current key event.  Establishes this_key as an alias
@@ -3599,7 +3599,7 @@ namespace Keysharp.Core.Common.Threading
 
 		internal virtual void PrepareToSendHotstringReplacement(char endChar) { }
 
-		internal virtual HookAction CancelAltTabMenu() => HookAction.Continue;
+		internal virtual HookAction CancelAltTabMenu(uint vk, bool keyUp) => HookAction.Continue;
 
 		internal bool PostMessage(KeysharpMsg msg)
 		=> IsReadThreadRunning()&& channel.Writer.TryWrite(msg);

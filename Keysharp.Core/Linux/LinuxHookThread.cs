@@ -31,6 +31,8 @@ namespace Keysharp.Core.Linux
 		private SimpleGlobalHook? globalHook;
 		private Task? hookRunTask;
 
+		private readonly Lock hookStateLock = new();
+
 		// Cached on/off
 		private volatile bool keyboardEnabled;
 		private volatile bool mouseEnabled;
@@ -38,7 +40,6 @@ namespace Keysharp.Core.Linux
 		// Custom modifier tracking (e.g. CapsLock & a)
 		private CustomPrefixState customPrefix;
 		private IndicatorSnapshot indicatorSnapshot = new(false, false, false);
-		private readonly Dictionary<(KeyCode, bool), int> ignoreNextVk = new();
 
 		private readonly struct IndicatorSnapshot
 		{
@@ -58,19 +59,28 @@ namespace Keysharp.Core.Linux
 		private uint activeHotkeyVk;
 		private KeyCode activeHotkeyKc;
 		private bool activeHotkeyDown;
-		private readonly bool[] logicalKeyState = new bool[VK_ARRAY_COUNT];
+		private readonly byte[] logicalKeyState = new byte[VK_ARRAY_COUNT];
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
 		internal KeyCode ActiveHotkeyKc => activeHotkeyKc;
 		internal bool SendInProgress => sendInProgress;
 
-		private struct SyntheticCounters
+		internal readonly struct SyntheticToken
 		{
-			public int Down;
-			public int Up;
-			public bool IsEmpty => Down == 0 && Up == 0;
+			internal readonly DateTimeOffset EnqueueTime;   // TickCount64-based
+			internal readonly KeyCode KeyCode;
+			internal readonly bool KeyUp;
+			internal readonly long ExtraInfo;     // what you want hook to see
+			internal SyntheticToken(KeyCode keyCode, bool keyUp, DateTimeOffset ms, long extraInfo)
+			{
+				KeyCode = keyCode;
+				KeyUp = keyUp;
+				EnqueueTime = ms;
+				ExtraInfo = extraInfo;
+			}
 		}
 
-		private readonly Dictionary<KeyCode, SyntheticCounters> pendingSynthetic = new();
+		private readonly List<SyntheticToken> pendingSynthetic = new();
+		internal const long SyntheticEventTimeoutMs = 200;
 		private readonly Dictionary<uint, int> suppressedHotkeyReleases = new();
 		private char lastTypedChar;
 		private uint lastKeyboardEventVk;
@@ -161,10 +171,8 @@ namespace Keysharp.Core.Linux
 		}
 
 		// --- Simple hotkey map for Linux (vk + LR-mods, up/down) ---
-		private readonly object hkLock = new();
+		internal readonly Lock hkLock = new();
 		private readonly List<LinuxHotkey> linuxHotkeys = new(); // minimal matcher
-		private long sendInProgressLevel;
-		internal bool sendUngrabActive;
 
 		private struct LinuxHotkey
 		{
@@ -208,8 +216,129 @@ namespace Keysharp.Core.Linux
 
 		internal override void AddRemoveHooks(HookType hooksToBeActive, bool changeIsTemporary = false)
 		{
-			StartGlobalHookIfNeeded(hooksToBeActive & (HookType.Keyboard | HookType.Mouse));
+			ChangeHookStateLinux(hooksToBeActive & (HookType.Keyboard | HookType.Mouse), changeIsTemporary);
 		}
+
+		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary)
+		{
+			if (HookDisabled)
+			{
+				lock (hookStateLock)
+				{
+					keyboardEnabled = false;
+					mouseEnabled = false;
+					kbdHook = 0;
+					mouseHook = 0;
+
+					// permanent stop if hook is disabled via env var
+					StopGlobalHookCore(dispose: true);
+				}
+
+				KeysharpEnhancements.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
+				return;
+			}
+
+			bool wantKeyboard = (req & HookType.Keyboard) != 0;
+			bool wantMouse    = (req & HookType.Mouse) != 0;
+
+			lock (hookStateLock)
+			{
+				// Remember previous "caller wants it" state (since these bools are now dual-purpose).
+				bool hadKeyboard = keyboardEnabled;
+				bool hadMouse    = mouseEnabled;
+
+				// ---- transition gate OFF (prevents racing init / mid-transition events) ----
+
+
+				// If nothing requested:
+				if (!wantKeyboard && !wantMouse)
+				{
+					keyboardEnabled = false; kbdHook = 0;
+					mouseEnabled = false; mouseHook = 0;
+					
+					if (changeIsTemporary)
+					{
+						// Keep SimpleGlobalHook running, just stop processing events.
+						// (Do NOT reset state here; we’ll resync on re-enable.)
+						return;
+					}
+
+					// Permanent removal: stop + clear.
+					StopGlobalHookCore(dispose: true);
+					return;
+				}
+
+				// Ensure the hook is running (only start/attach once).
+				if (globalHook == null || !globalHook.IsRunning)
+				{
+					StopGlobalHookCore(dispose: true); // clean restart if something half-exists
+
+					globalHook = new SimpleGlobalHook();
+
+					globalHook.KeyPressed += OnKeyPressed;
+					globalHook.KeyReleased += OnKeyReleased;
+
+					globalHook.MousePressed += OnMousePressed;
+					globalHook.MouseReleased += OnMouseReleased;
+					globalHook.MouseMoved += (_, __) => { if (!mouseEnabled) return; /* TODO */ };
+					globalHook.MouseWheel += OnMouseWheel;
+
+					// Start hook thread
+					hookRunTask = globalHook.RunAsync();
+				}
+
+				// Respect Windows semantics: ResetHook only for non-temporary transitions
+				// and only when something is newly enabled.
+				if (!changeIsTemporary)
+				{
+					if (wantKeyboard && !hadKeyboard)
+					{
+						keyboardEnabled = false; kbdHook = 0;
+						// Always resync snapshots right before enabling processing.
+						// This prevents “stuck key”/wrong modifier state after temporary disable,
+						// and also ensures no stale state after restart.
+						InitSnapshotFromX11();
+						ResetHook(false, HookType.Keyboard, true);
+					}
+					if (wantMouse && !hadMouse)
+					{
+						mouseEnabled = false; mouseHook = 0;
+						ResetHook(false, HookType.Mouse, true);
+					}
+				}
+
+				// ---- transition complete: enable processing AND indicate desired state ----
+				keyboardEnabled = wantKeyboard;
+				mouseEnabled = wantMouse;
+
+				kbdHook = wantKeyboard ? 1 : 0;   // sentinel for HasKbdHook()
+				mouseHook = wantMouse ? 1 : 0;
+			}
+		}
+
+		private void StopGlobalHookCore(bool dispose)
+		{
+			// Must be called under hookStateLock.
+
+			if (dispose)
+			{
+				try { globalHook?.Dispose(); } catch { }
+				try { if (hookRunTask != null && !hookRunTask.IsCompleted) hookRunTask.Wait(50); } catch { }
+				globalHook = null;
+				hookRunTask = null;
+
+				// When permanently disposing, clear state like before.
+				System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
+				System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
+				kbdMsSender.modifiersLRLogical = 0;
+				kbdMsSender.modifiersLRLogicalNonIgnored = 0;
+				kbdMsSender.modifiersLRPhysical = 0;
+				lock (injectedLock) injectedActive = false;
+			}
+			// If dispose==false: we intentionally keep the hook alive and keep current
+			// state around; the processing gate is controlled by keyboardEnabled/mouseEnabled.
+		}
+
 
 		internal override void ChangeHookState(List<HotkeyDefinition> hk, HookType whichHook, HookType whichHookAlways)
 		{
@@ -294,6 +423,55 @@ namespace Keysharp.Core.Linux
 		internal override void Unhook() => DeregisterHooks();
 		internal override void Unhook(nint hook) => DeregisterHooks();
 
+		private void InitSnapshotFromX11()
+		{
+			if (!TryQueryKeymap(out var km))
+				return;
+
+			// Clear first
+			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
+			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
+
+			// Populate physicalKeyState + logicalKeyState from the keymap bits
+			for (int keycode = 8; keycode < 256; keycode++)
+			{
+				var byteIndex = keycode >> 3;
+				var bitMask = 1 << (keycode & 7);
+				if ((km[byteIndex] & bitMask) == 0) continue;
+
+				var ks = XDisplay.Default.XKeycodeToKeysym(keycode, 0);
+				if (ks == 0) continue;
+
+				var vk = VkFromKeysym((ulong)ks);
+				if (vk != 0 && vk < physicalKeyState.Length)
+				{
+					physicalKeyState[vk] = StateDown;
+					logicalKeyState[vk] = StateDown;
+				}
+			}
+
+			// Derive modifiers from keymap for logical masks
+			if (TryQueryModifierLRState(out var modsInit, km))
+			{
+				kbdMsSender.modifiersLRPhysical = modsInit;
+				kbdMsSender.modifiersLRLogical = modsInit;
+				kbdMsSender.modifiersLRLogicalNonIgnored = modsInit;
+
+				void SetLogical(uint modMask, uint vk)
+				{
+					if ((modsInit & modMask) != 0 && vk < logicalKeyState.Length)
+						logicalKeyState[vk] = StateDown;
+				}
+
+				SetLogical(MOD_LSHIFT,   VK_LSHIFT);   SetLogical(MOD_RSHIFT,   VK_RSHIFT);
+				SetLogical(MOD_LCONTROL, VK_LCONTROL); SetLogical(MOD_RCONTROL, VK_RCONTROL);
+				SetLogical(MOD_LALT,     VK_LMENU);    SetLogical(MOD_RALT,     VK_RMENU);
+				SetLogical(MOD_LWIN,     VK_LWIN);     SetLogical(MOD_RWIN,     VK_RWIN);
+			}
+
+			_ = RefreshIndicatorSnapshot();
+		}
+
 		private void StartGlobalHookIfNeeded(HookType req)
 		{
 			if (HookDisabled)
@@ -352,8 +530,7 @@ namespace Keysharp.Core.Linux
 					if (vk != 0 && vk < physicalKeyState.Length)
 					{
 						physicalKeyState[vk] = StateDown;
-						if (vk < logicalKeyState.Length)
-							logicalKeyState[vk] = true;
+						logicalKeyState[vk] = StateDown;
 					}
 				}
 
@@ -367,7 +544,7 @@ namespace Keysharp.Core.Linux
 					void SetLogical(uint modMask, uint vk)
 					{
 						if ((modsInit & modMask) != 0 && vk < logicalKeyState.Length)
-							logicalKeyState[vk] = true;
+							logicalKeyState[vk] = StateDown;
 					}
 					SetLogical(MOD_LSHIFT,   VK_LSHIFT); 	SetLogical(MOD_RSHIFT,   VK_RSHIFT);
 					SetLogical(MOD_LCONTROL, VK_LCONTROL); 	SetLogical(MOD_RCONTROL, VK_RCONTROL);
@@ -381,6 +558,11 @@ namespace Keysharp.Core.Linux
 			// Ensure hook flags stay set even after (re)start.
 			kbdHook = keyboardEnabled ? 1 : 0;
 			mouseHook = mouseEnabled ? 1 : 0;
+
+			if (keyboardEnabled)
+				ResetHook(false, HookType.Keyboard, true);
+			if (mouseEnabled)
+				ResetHook(false, HookType.Mouse, true);
 		}
 
 		private void StopGlobalHook()
@@ -396,7 +578,6 @@ namespace Keysharp.Core.Linux
 			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
 			kbdMsSender.modifiersLRPhysical = 0;
 			lock (injectedLock) injectedActive = false;
-			ignoreNextVk.Clear();
 			kbdHook = 0;
 			mouseHook = 0;
 		}
@@ -423,28 +604,23 @@ namespace Keysharp.Core.Linux
 			CaptureCharsFromEvent(e);
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
-			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false);
-			var extraInfo = ComputeExtraInfo(isInjected);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 
 			// Track logical state as seen by apps.
 			UpdateLogicalKeyFromHook(vk, keyUp: false, wasGrabbed);
 
-			if (ShouldIgnoreNext(keyCode, isInjected, false)) 
-			{
-				UpdateKeybdState(sc, extraInfo, isInjected, vk, sc, keyUp: false, isSuppressed: false);
-				return;
-			}
-
 			if (!isInjected && grabbedByHotstring)
 				ForceReleaseEndKeyX11(vk);
 
-			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected}");
+			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected} extraInfo={extraInfo}");
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, (uint)(isInjected ? 0x10 : 0));
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, false);
 		}
+
+		int counter = 0;
 
 		private void OnKeyReleased(object? sender, KeyboardHookEventArgs e)
 		{
@@ -459,21 +635,16 @@ namespace Keysharp.Core.Linux
 			lastCharCount = 0;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
-
-			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true);
-			var extraInfo = ComputeExtraInfo(isInjected);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 
 			UpdateLogicalKeyFromHook(vk, keyUp: true, wasGrabbed);
 
-			if (ShouldIgnoreNext(keyCode, isInjected, false)) 
-			{
-				UpdateKeybdState(sc, extraInfo, isInjected, vk, sc, keyUp: true, isSuppressed: false);
-				return;
-			}
-
 			DebugLog($"[Hook] KeyUp vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected}");
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
+			if (vk == 88 && isInjected == false)
+			Console.WriteLine("Breakpoint");
+
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, (uint)(isInjected ? 0x10 : 0));
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, true);
@@ -716,8 +887,7 @@ namespace Keysharp.Core.Linux
 			lastHookEventWasKeyboard = false;
 			var vk = MapWheelVk(e);
 			var sc = (uint)e.Data.Rotation;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false);
-			var extraInfo = ComputeExtraInfo(isInjected);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 
 			_ = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
 		}
@@ -729,8 +899,7 @@ namespace Keysharp.Core.Linux
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false);
-			var extraInfo = ComputeExtraInfo(isInjected);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 
 			_ = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
 		}
@@ -742,8 +911,7 @@ namespace Keysharp.Core.Linux
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true);
-			var extraInfo = ComputeExtraInfo(isInjected);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
 
 			_ = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
 		}
@@ -763,34 +931,6 @@ namespace Keysharp.Core.Linux
 			if (e.Data.Direction == MouseWheelScrollDirection.Vertical)
 				return e.Data.Rotation < 0 ? VK_WHEEL_UP : VK_WHEEL_DOWN;
 			return e.Data.Rotation < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT;
-		}
-
-		private bool ShouldIgnoreNext(KeyCode kc, bool isInjected, bool keyUp)
-		{
-			if (kc == 0) return false;
-
-			if (!isInjected)
-				return false;
-
-			var key = (kc, keyUp);
-
-			if (PeekSyntheticEvent(kc, keyUp))
-				return false;
-
-			lock (ignoreNextVk)
-			{
-				if (ignoreNextVk.TryGetValue(key, out var n) && n > 0)
-				{
-					ignoreNextVk[key] = n - 1;
-					if (ignoreNextVk[key] <= 0)
-						ignoreNextVk.Remove(key);
-
-					DebugLog($"[Hook] vk={kc} filtered ignoreNext remaining={ignoreNextVk.GetValueOrDefault(key)}");
-					return true;
-				}
-			}
-
-			return false;
 		}
 
 		private static readonly FieldInfo? rawEventField = typeof(HookEventArgs).GetField("<RawEvent>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -857,35 +997,43 @@ namespace Keysharp.Core.Linux
 			return false;
 		}
 
-		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp)
+		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp, DateTime ms, long extraInfo)
 		{
 			if (keyCode == KeyCode.VcUndefined)
 				return;
 
 			lock (pendingSynthetic)
 			{
-				pendingSynthetic.TryGetValue(keyCode, out var curr);
-				if (keyUp) curr.Up++;
-				else curr.Down++;
-				pendingSynthetic[keyCode] = curr;
-				DebugLog($"[Hook] pendingSynthetic[{keyCode}] {(keyUp ? "up" : "down")}++ => {curr.Down}/{curr.Up}");
+				pendingSynthetic.Add(new SyntheticToken(keyCode, keyUp, ms, extraInfo));
+				DebugLog($"[Hook] Registered synthetic [{keyCode}] {(keyUp ? "up" : "down")} at {ms.Ticks} with extraInfo={extraInfo}");
 			}
 		}
 
-		private bool PeekSyntheticEvent(KeyCode keyCode, bool keyUp)
+		private bool PeekSyntheticEvent(KeyCode keyCode, bool keyUp, DateTimeOffset ms)
 		{
 			if (keyCode == KeyCode.VcUndefined)
 				return false;
 
 			lock (pendingSynthetic)
 			{
-				if (pendingSynthetic.TryGetValue(keyCode, out var curr))
+				int count = pendingSynthetic.Count;
+				for (int i = 0; i < count; i++)
 				{
-					bool hasValue = keyUp ? curr.Up > 0 : curr.Down > 0;
-					if (hasValue)
+					var s = pendingSynthetic[i];
+					var diffMs = (ms - s.EnqueueTime).TotalMilliseconds;
+					if (diffMs > SyntheticEventTimeoutMs) // Enqueued >200ms in past, remove stale event
 					{
-						DebugLog($"[Hook] pendingSynthetic[{keyCode}] {(keyUp ? "up" : "down")} peek => {curr.Down}/{curr.Up}");
-						return true;
+						pendingSynthetic.RemoveAt(i);
+						i--; count--;
+					}
+					else if (diffMs < 0) // Enqueued in future compared to hook event
+					{
+						break;
+					}
+					else
+					{
+						if (s.KeyCode == keyCode && s.KeyUp == keyUp)
+							return true;
 					}
 				}
 			}
@@ -893,28 +1041,37 @@ namespace Keysharp.Core.Linux
 			return false;
 		}
 
-		private bool ConsumeSyntheticEvent(KeyCode keyCode, bool keyUp)
+		private bool ConsumeSyntheticEvent(KeyCode keyCode, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
 		{
+			extraInfo = 0;
 			if (keyCode == KeyCode.VcUndefined)
 				return false;
 
 			lock (pendingSynthetic)
 			{
-				if (pendingSynthetic.TryGetValue(keyCode, out var curr))
+				int count = pendingSynthetic.Count;
+				for (int i = 0; i < count; i++)
 				{
-					bool hasValue = keyUp ? curr.Up > 0 : curr.Down > 0;
-					if (hasValue)
+					var s = pendingSynthetic[i];
+					var diffMs = (ms - s.EnqueueTime).TotalMilliseconds;
+					if (diffMs > SyntheticEventTimeoutMs) // Enqueued >200ms in past, remove stale event
 					{
-						if (keyUp) curr.Up--;
-						else curr.Down--;
-
-						if (curr.IsEmpty)
-							pendingSynthetic.Remove(keyCode);
-						else
-							pendingSynthetic[keyCode] = curr;
-
-						DebugLog($"[Hook] pendingSynthetic[{keyCode}] {(keyUp ? "up" : "down")}-- => {curr.Down}/{curr.Up}");
-						return true;
+						pendingSynthetic.RemoveAt(i);
+						i--; count--;
+					}
+					else if (diffMs < 0) // Enqueued in future compared to hook event
+					{
+						break;
+					}
+					else
+					{
+						if (s.KeyCode == keyCode && s.KeyUp == keyUp) 
+						{
+							extraInfo = (ulong)s.ExtraInfo;
+							pendingSynthetic.RemoveAt(i);
+							DebugLog($"[Hook] Removed synthetic [{keyCode}] {(keyUp ? "up" : "down")} at {ms.Ticks} with extraInfo={s.ExtraInfo}");
+							return true;
+						}
 					}
 				}
 			}
@@ -947,12 +1104,15 @@ namespace Keysharp.Core.Linux
 			return activeHotkeyDown && activeHotkeyVk == vk;
 		}
 
-		private bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp)
+		private bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
 		{
 			var mask = e.RawEvent.Mask;
 			var simulated = (mask & EventMask.SimulatedEvent) != 0;
+			extraInfo = 0;
 
-			if (!simulated && (ConsumeSyntheticEvent(keyCode, keyUp) || IsLogicallyDownPhysicallyUp(vk)))
+			if (!simulated && (ConsumeSyntheticEvent(keyCode, keyUp, DateTime.UtcNow, out extraInfo)
+				 //|| IsLogicallyDownPhysicallyUp(vk)
+				 ))
 			{
 				var raw = e.RawEvent;
 				raw.Mask |= EventMask.SimulatedEvent;
@@ -960,13 +1120,16 @@ namespace Keysharp.Core.Linux
 				simulated = true;
 			}
 
+			if (simulated && extraInfo == 0)
+        		extraInfo = (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
+
 			return simulated;
 		}
 
 		private ulong ComputeExtraInfo(bool isSimulated)
 		{
 			if (sendInProgress || isSimulated)
-				return (ulong)KeyboardMouseSender.KeyIgnore;
+				return (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
 
 			return 0;
 		}
@@ -977,62 +1140,66 @@ namespace Keysharp.Core.Linux
 			if (!IsX11Available)
 				return false;
 
-			uint xcode = e.RawEvent.Keyboard.RawCode;
-
-			// Fallback: derive keycode from vk if RawCode was unavailable.
-			if (xcode == 0 && vk != 0 && TryMapToXGrab(vk, 0, out var kcFromVk, out _))
-				xcode = kcFromVk;
-
-			if (xcode == 0)
-				return false;
-
-			uint mods = CurrentXGrabMask();
-			bool hotstringGrabbed = false;
-
-			static bool ModsMatch(uint grabbed, uint actual)
+			lock (hkLock)
 			{
-				// Ignore Caps/Num/Scroll variants when comparing; we grab all variants already.
-				const uint lockBits = LockMask | Mod2Mask;
-				return grabbed == AnyModifier || grabbed == actual || (grabbed & ~lockBits) == (actual & ~lockBits);
-			}
+				uint xcode = e.RawEvent.Keyboard.RawCode;
 
-			bool MatchList(HashSet<(uint keycode, uint mods)> list, bool markHotstring)
-			{
-				foreach (var (kc, m) in list)
+				// Fallback: derive keycode from vk if RawCode was unavailable.
+				if (xcode == 0 && vk != 0 && TryMapToXGrab(vk, 0, out var kcFromVk, out _))
+					xcode = kcFromVk;
+
+				if (xcode == 0)
+					return false;
+
+				uint mods = CurrentXGrabMask();
+				bool hotstringGrabbed = false;
+
+				static bool ModsMatch(uint grabbed, uint actual)
 				{
-					if (kc == xcode && ModsMatch(m, mods))
+					// Ignore Caps/Num/Scroll variants when comparing; we grab all variants already.
+					const uint lockBits = LockMask | Mod2Mask;
+					return grabbed == AnyModifier || grabbed == actual || (grabbed & ~lockBits) == (actual & ~lockBits);
+				}
+
+				bool MatchList(HashSet<(uint keycode, uint mods)> list, bool markHotstring)
+				{
+					foreach (var (kc, m) in list)
 					{
-						if (markHotstring)
-							hotstringGrabbed = true;
-						return true;
+						if (kc == xcode && ModsMatch(m, mods))
+						{
+							if (markHotstring)
+								hotstringGrabbed = true;
+							return true;
+						}
+					}
+					return false;
+				}
+
+				var grabbed = MatchList(activeGrabs, false)
+					|| MatchList(activeHotstringGrabs, true)
+					|| MatchList(hsActiveGrabVariants, true);
+
+				grabbedByHotstring = hotstringGrabbed;
+				if (grabbed)
+				{
+					DebugLog($"[Hook] WasKeyGrabbed kc={xcode} mods={mods:X} hotstring={grabbedByHotstring}");
+				}
+
+				if (grabbed)
+				{
+					// The hook itself can't suppress on Linux; mark the raw event so downstream logic
+					// can treat it as swallowed by XGrabKey.
+					var raw = e.RawEvent;
+					if ((raw.Mask & EventMask.SuppressEvent) == 0)
+					{
+						raw.Mask |= EventMask.SuppressEvent;
+						SetRawEvent(e, raw);
 					}
 				}
-				return false;
+
+
+				return grabbed;
 			}
-
-			var grabbed = MatchList(activeGrabs, false)
-				|| MatchList(activeHotstringGrabs, true)
-				|| MatchList(hsActiveGrabVariants, true);
-
-			grabbedByHotstring = hotstringGrabbed;
-			if (grabbed)
-			{
-				DebugLog($"[Hook] WasKeyGrabbed kc={xcode} mods={mods:X} hotstring={grabbedByHotstring}");
-			}
-
-			if (grabbed)
-			{
-				// The hook itself can't suppress on Linux; mark the raw event so downstream logic
-				// can treat it as swallowed by XGrabKey.
-				var raw = e.RawEvent;
-				if ((raw.Mask & EventMask.SuppressEvent) == 0)
-				{
-					raw.Mask |= EventMask.SuppressEvent;
-					SetRawEvent(e, raw);
-				}
-			}
-
-			return grabbed;
 		}
 
 		private uint CurrentXGrabMask()
@@ -1057,10 +1224,9 @@ namespace Keysharp.Core.Linux
 		private void ReplayGrabbedKey(KeyCode kc, uint vk, uint sc, bool keyUp)
 		{
 			if (vk == 0) return;
-			IgnoreNext(kc, keyUp);
 			kbdMsSender.SendKeyEvent(keyUp ? KeyEventTypes.KeyUp : KeyEventTypes.KeyDown, vk, sc, default, false, KeyboardMouseSender.KeyIgnore);
 			if (vk < logicalKeyState.Length)
-				logicalKeyState[vk] = !keyUp;
+				logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
 		}
 
 		// Cancel any active keyboard grab that might be in effect due to a passive XGrabKey match.
@@ -1125,27 +1291,119 @@ namespace Keysharp.Core.Linux
 			DebugLog($"[Hook] EndSendUngrab grabs={snap.Grabs?.Count ?? 0} hs={snap.HotstringGrabs?.Count ?? 0}");
 		}
 
+		internal uint TemporarilyUngrabKey(uint vk)
+		{
+			if (!IsX11Available) return 0;
+
+			uint deactivated = 0;
+
+			// VK -> KeySym -> keycode
+			ulong ks = VkToKeysym(vk);
+			if (ks == 0) return 0;
+
+			var targetXcode = XDisplay.Default.XKeysymToKeycode((IntPtr)ks);
+			if (targetXcode == 0) return 0;
+
+			try
+			{
+				foreach (var (xcode, mods) in activeGrabs)
+				{
+					if (xcode == targetXcode) 
+					{
+						_ = XDisplay.Default.XUngrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID);
+						deactivated = xcode;
+					}
+				}
+				foreach (var (xcode, mods) in activeHotstringGrabs)
+				{
+					if (xcode == targetXcode)
+					{
+						_ = XDisplay.Default.XUngrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID);
+						deactivated = xcode;
+					}
+				}
+
+				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
+				_ = XDisplay.Default.XSync(false);
+				_ = XDisplay.Default.XFlush();
+			}
+			catch { /* best-effort */ }
+
+			return deactivated;
+		}
+
+		internal void RegrabKey(uint targetXcode)
+		{
+			if (targetXcode == 0) return;
+			try
+			{
+				foreach (var (xcode, mods) in activeGrabs)
+				{
+					if (xcode == targetXcode) 
+						_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+				}
+				foreach (var (xcode, mods) in activeHotstringGrabs)
+				{
+					if (xcode == targetXcode)
+						_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+				}
+
+				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
+				_ = XDisplay.Default.XSync(false);
+				_ = XDisplay.Default.XFlush();
+			}
+			catch { /* best-effort */ }
+		}
+
+		/*
+		internal void WaitForPendingSyntheticDrain(int timeoutMs)
+		{
+			var sw = Stopwatch.StartNew();
+			while (sw.ElapsedMilliseconds < timeoutMs)
+			{
+				lock (pendingSynthetic)
+				{
+					bool any = false;
+					foreach (var kv in pendingSynthetic)
+					{
+						if (kv.Value.Down != 0 || kv.Value.Up != 0)
+						{
+							any = true;
+							break;
+						}
+					}
+					if (!any)
+						return;
+				}
+				Thread.Sleep(1);
+			}
+		}
+		*/
+
 		internal void DisarmHotstring()
 		{
 			if (!hsArmed)
 				return;
 
-			DebugLog("Disarming hotstring");
-
-			if (IsX11Available)
+			lock (hkLock)
 			{
-				foreach (var (kc, mods) in hsActiveGrabVariants)
-					_ = XDisplay.Default.XUngrabKey(kc, mods);
+				DebugLog("Disarming hotstring");
 
-				hsActiveGrabVariants.Clear();
-				activeHotstringGrabs.Clear();
-				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
-				_ = XDisplay.Default.XSync(false);
+				if (IsX11Available)
+				{
+					foreach (var (kc, mods) in hsActiveGrabVariants)
+						_ = XDisplay.Default.XUngrabKey(kc, mods);
+
+					hsActiveGrabVariants.Clear();
+					activeHotstringGrabs.Clear();
+					_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
+					_ = XDisplay.Default.XSync(false);
+				}
+
+				hsArmedEnds.Clear();
+				hsArmed = false;
+				hsSuppressTypedForEnd = false;
 			}
-
-			hsArmedEnds.Clear();
-			hsArmed = false;
-			hsSuppressTypedForEnd = false;
 		}
 
 		// Arm a set of end characters (all that would complete a match NOW)
@@ -1155,67 +1413,70 @@ namespace Keysharp.Core.Linux
 			if (endsToArm.Count == 0 || !IsX11Available)
 				return;
 
-			foreach (var endChar in endsToArm)
+			lock (hkLock)
 			{
-				if (!MapEndCharToVkAndNeeds(endChar, out var vk, out var needShift, out var needAltGr))
-					continue;
-
-				var ks = VkToKeysym(vk);
-				if (ks == 0)
-					continue;
-
-				uint xcode = XDisplay.Default.XKeysymToKeycode((IntPtr)ks);
-				if (xcode == 0)
-					continue;
-
-				uint baseMods = 0;
-				if (needShift) baseMods |= ShiftMask;
-				if (needAltGr) baseMods |= Mod5Mask; // AltGr
-
-				// Grab with CapsLock/NumLock variants like elsewhere.
-				// Grab with the base mods plus Caps/NumLock variants. Allow Shift as an extra
-				// modifier even when it isn't required so that shifted end-keys (e.g. holding
-				// Shift while pressing Space) still get swallowed and don't leak through to
-				// the target app when firing uppercase hotstrings.
-				var modsToGrab = new HashSet<uint>
+				foreach (var endChar in endsToArm)
 				{
-					baseMods,
-					baseMods | LockMask,
-					baseMods | Mod2Mask,
-					baseMods | LockMask | Mod2Mask
-				};
+					if (!MapEndCharToVkAndNeeds(endChar, out var vk, out var needShift, out var needAltGr))
+						continue;
 
-				if (!needShift)
-				{
-					modsToGrab.Add(baseMods | ShiftMask);
-					modsToGrab.Add(baseMods | ShiftMask | LockMask);
-					modsToGrab.Add(baseMods | ShiftMask | Mod2Mask);
-					modsToGrab.Add(baseMods | ShiftMask | LockMask | Mod2Mask);
+					var ks = VkToKeysym(vk);
+					if (ks == 0)
+						continue;
+
+					uint xcode = XDisplay.Default.XKeysymToKeycode((IntPtr)ks);
+					if (xcode == 0)
+						continue;
+
+					uint baseMods = 0;
+					if (needShift) baseMods |= ShiftMask;
+					if (needAltGr) baseMods |= Mod5Mask; // AltGr
+
+					// Grab with CapsLock/NumLock variants like elsewhere.
+					// Grab with the base mods plus Caps/NumLock variants. Allow Shift as an extra
+					// modifier even when it isn't required so that shifted end-keys (e.g. holding
+					// Shift while pressing Space) still get swallowed and don't leak through to
+					// the target app when firing uppercase hotstrings.
+					var modsToGrab = new HashSet<uint>
+					{
+						baseMods,
+						baseMods | LockMask,
+						baseMods | Mod2Mask,
+						baseMods | LockMask | Mod2Mask
+					};
+
+					if (!needShift)
+					{
+						modsToGrab.Add(baseMods | ShiftMask);
+						modsToGrab.Add(baseMods | ShiftMask | LockMask);
+						modsToGrab.Add(baseMods | ShiftMask | Mod2Mask);
+						modsToGrab.Add(baseMods | ShiftMask | LockMask | Mod2Mask);
+					}
+
+					foreach (var mods in modsToGrab)
+					{
+						_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+						hsActiveGrabVariants.Add((xcode, mods));
+						if (!activeHotstringGrabs.Contains((xcode, mods)))
+							activeHotstringGrabs.Add((xcode, mods));
+					}
+
+					hsArmedEnds.Add(new ArmedEnd
+					{
+						Keycode = xcode,
+						XModsBase = baseMods,
+						Vk = vk,
+						EndChar = endChar,
+						NeedShift = needShift,
+						NeedAltGr = needAltGr
+					});
 				}
 
-				foreach (var mods in modsToGrab)
+				if (hsActiveGrabVariants.Count > 0)
 				{
-					_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
-					hsActiveGrabVariants.Add((xcode, mods));
-					if (!activeHotstringGrabs.Contains((xcode, mods)))
-						activeHotstringGrabs.Add((xcode, mods));
+					XDisplay.Default.XSync(false);
+					hsArmed = true;
 				}
-
-				hsArmedEnds.Add(new ArmedEnd
-				{
-					Keycode = xcode,
-					XModsBase = baseMods,
-					Vk = vk,
-					EndChar = endChar,
-					NeedShift = needShift,
-					NeedAltGr = needAltGr
-				});
-			}
-
-			if (hsActiveGrabVariants.Count > 0)
-			{
-				XDisplay.Default.XSync(false);
-				hsArmed = true;
 			}
 		}
 
@@ -1296,16 +1557,162 @@ namespace Keysharp.Core.Linux
 			if (xKeycode == 0) return;
 
 			// Send a synthetic KeyRelease now, so the target won’t think the key is held
-			RegisterSyntheticEvent(VkToKeyCode(vk), true);
+			RegisterSyntheticEvent(VkToKeyCode(vk), true, DateTime.UtcNow, KeyIgnoreAllExceptModifier);
 			_ = XDisplay.Default.XTestFakeKeyEvent(xKeycode, isPress: false, delay: 0);
 			_ = XDisplay.Default.XFlush();
 
 			// Update our local state and ignore the real release we’ll get shortly
 			if (vk < logicalKeyState.Length)
-				logicalKeyState[vk] = false;
+				logicalKeyState[vk] = 0;
 		}
 
 		internal void ForceReleaseEndKeyX11(uint vk) => ForceReleaseKeyX11(vk, markHotstring: true);
+
+		// Force an X11 press/release for vk and mark it synthetic for the hook.
+		private void ForceKeyEventX11(uint vk, bool isPress)
+		{
+			if (!IsX11Available) return;
+			if (vk == 0) return;
+			if (!TryGetXKeycodeForVk(vk, out var xKeycode)) return;
+
+			// Make sure the hook can recognize it as simulated even if uiohook doesn't set the flag.
+			RegisterSyntheticEvent(VkToKeyCode(vk), keyUp: !isPress, DateTime.UtcNow, KeyIgnoreAllExceptModifier);
+
+			try
+			{
+				_ = XDisplay.Default.XTestFakeKeyEvent(xKeycode, isPress: isPress, delay: 0);
+				_ = XDisplay.Default.XFlush();
+			}
+			catch
+			{
+				// best effort
+			}
+
+			// Keep our logical snapshot aligned with the "server logical" state we just forced.
+			if (vk < logicalKeyState.Length)
+				logicalKeyState[vk] = (byte)(isPress ? StateDown : 0);
+		}
+
+		private void ForceKeycodeEventX11(uint xKeycode, bool isPress, uint vkForBookkeeping = 0)
+		{
+			if (!IsX11Available) return;
+			if (xKeycode == 0) return;
+
+			// Mark synthetic for the hook when we can map it.
+			if (vkForBookkeeping != 0)
+				RegisterSyntheticEvent(VkToKeyCode(vkForBookkeeping), keyUp: !isPress, DateTime.UtcNow, KeyIgnoreAllExceptModifier);
+
+			try
+			{
+				_ = XDisplay.Default.XTestFakeKeyEvent(xKeycode, isPress: isPress, delay: 0);
+				_ = XDisplay.Default.XFlush();
+			}
+			catch { /* best effort */ }
+
+			// Keep our internal logical snapshot aligned when possible.
+			if (vkForBookkeeping != 0 && vkForBookkeeping < logicalKeyState.Length)
+				logicalKeyState[vkForBookkeeping] = (byte)(isPress ? StateDown : 0);
+		}
+
+		private bool TryGetXKeycodeForVk(uint vk, out uint xKeycode)
+		{
+			xKeycode = 0;
+			if (!IsX11Available) return false;
+
+			ulong ks = VkToKeysym(vk);
+			if (ks == 0) return false;
+
+			xKeycode = XDisplay.Default.XKeysymToKeycode((IntPtr)ks);
+			return xKeycode != 0;
+		}
+
+		internal readonly struct ReleasedKey
+		{
+			public readonly uint XKeycode; // 8..255
+			public readonly uint Vk;       // 0 if unknown
+			public ReleasedKey(uint xKeycode, uint vk) { XKeycode = xKeycode; Vk = vk; }
+		}
+
+		private static bool IsModifierKeysym(ulong ks) => ks is
+			0xFFE1 or 0xFFE2 or // Shift_L / Shift_R
+			0xFFE3 or 0xFFE4 or // Control_L / Control_R
+			0xFFE9 or 0xFFEA or // Alt_L / Alt_R
+			0xFFEB or 0xFFEC;   // Super_L / Super_R
+
+		internal List<ReleasedKey> ForceReleaseKeysForSend(HashSet<uint> vks)
+		{
+			var released = new List<ReleasedKey>(16);
+
+			if (!IsX11Available)
+				return released;
+
+			var keymap = new byte[32];
+			if (XDisplay.Default.XQueryKeymap(keymap) == 0)
+				return released;
+
+			for (uint xk = 8; xk < 256; xk++)
+			{
+				var byteIndex = (int)(xk >> 3);
+				var bitMask = 1 << (int)(xk & 7);
+				if ((keymap[byteIndex] & bitMask) == 0)
+					continue; // X11 does not think this keycode is down
+
+				// Try to classify.
+				ulong ks = 0;
+				uint vk = 0;
+				try
+				{
+					ks = (ulong)XDisplay.Default.XKeycodeToKeysym((int)xk, 0);
+					if (ks != 0)
+						vk = VkFromKeysym(ks);
+				}
+				catch { /* ignore mapping failures */ }
+
+				// Skip modifiers (either by vk or by keysym).
+				if ((vk != 0 && IsModifierVk(vk)) || (ks != 0 && IsModifierKeysym(ks)))
+					continue;
+
+				// Skip mouse/wheel vks if they somehow map here.
+				if (vk != 0 && (MouseUtils.IsMouseVK(vk) || MouseUtils.IsWheelVK(vk)))
+					continue;
+				
+				if (vk != 0 && !vks.Contains(vk))
+					continue; // not in the requested set
+
+				// Force it up at the X server.
+				ForceKeycodeEventX11(xk, isPress: false, vkForBookkeeping: vk);
+				released.Add(new ReleasedKey(xk, vk));
+			}
+
+			return released;
+		}
+
+		/// <summary>
+		/// Re-press keys that we previously force-released, but only if they are STILL physically held.
+		/// This keeps our logical snapshot aligned with the user still holding the key.
+		/// </summary>
+		internal void RestoreNonModifierKeysAfterSend(List<ReleasedKey> released)
+		{
+			if (released == null || released.Count == 0)
+				return;
+
+			for (int i = 0; i < released.Count; i++)
+			{
+				var rk = released[i];
+				if (rk.XKeycode == 0)
+					continue;
+
+				// Only restore if we can confirm the user still holds it.
+				// (This is why we keep using the hook physical snapshot here.)
+				if (rk.Vk == 0 || rk.Vk >= physicalKeyState.Length)
+					continue;
+
+				if ((physicalKeyState[rk.Vk] & StateDown) == 0)
+					continue;
+
+				ForceKeycodeEventX11(rk.XKeycode, isPress: true, vkForBookkeeping: rk.Vk);
+			}
+		}
 
 		private void UpdateLogicalKeyFromHook(uint vk, bool keyUp, bool wasGrabbed)
 		{
@@ -1313,7 +1720,7 @@ namespace Keysharp.Core.Linux
 				return;
 
 			if (!wasGrabbed)
-				logicalKeyState[vk] = !keyUp;
+				logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
 		}
 
 		// Map a candidate end character to VK + required modifiers (layout-aware)
@@ -1367,26 +1774,6 @@ namespace Keysharp.Core.Linux
 			return false;
 		}
 
-		internal void BeginSend(long sendLevel)
-		{
-			DebugLog("[Hook] BeginSend");
-			sendInProgressLevel = sendLevel;
-			sendInProgress = true;
-			lastSendTimestampUtc = DateTime.UtcNow;
-		}
-
-		internal void EndSend()
-		{
-			DebugLog("[Hook] EndSend");
-			sendInProgress = false;
-			sendInProgressLevel = 0;
-			lastSendTimestampUtc = DateTime.UtcNow;
-			lock (injectedLock)
-			{
-				injectedActive = false;
-			}
-		}
-
 		internal void ResetActiveHotkeyState()
 		{
 			activeHotkeyDown = false;
@@ -1403,7 +1790,7 @@ namespace Keysharp.Core.Linux
 			if (vk >= physicalKeyState.Length || (physicalKeyState[vk] & StateDown) != 0)
 				return false;
 
-			if (vk < logicalKeyState.Length && logicalKeyState[vk])
+			if (vk < logicalKeyState.Length && (logicalKeyState[vk] & StateDown) != 0)
 				return true;
 
 			return false;
@@ -1458,7 +1845,7 @@ namespace Keysharp.Core.Linux
 			if (HasKbdHook())
 			{
 				if (vk < logicalKeyState.Length)
-					return logicalKeyState[vk];
+					return (logicalKeyState[vk] & StateDown) != 0;
 			}
 
 			// Fallback: query X11 logical state for any key.
@@ -1483,12 +1870,6 @@ namespace Keysharp.Core.Linux
 
 			return false;
 		}
-
-		internal override bool IsMouseVK(uint vk)
-			=> vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2;
-
-		internal override bool IsWheelVK(uint vk)
-			=> vk == VK_WHEEL_UP || vk == VK_WHEEL_DOWN || vk == VK_WHEEL_LEFT || vk == VK_WHEEL_RIGHT;
 
 		// Route hotstring collection through the Linux arming logic so end-keys can be grabbed/ungrabbed.
 		internal override bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
@@ -1554,20 +1935,6 @@ namespace Keysharp.Core.Linux
 			}
 
 			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar);
-		}
-
-		internal void IgnoreNext(KeyCode kc, bool keyUp)
-		{
-			if (kc == KeyCode.VcUndefined) return;
-			var key = (kc, keyUp);
-			lock (ignoreNextVk)
-			{
-				if (!ignoreNextVk.ContainsKey(key))
-					ignoreNextVk[key] = 1;
-				else
-					ignoreNextVk[key]++;
-				DebugLog($"[Hook] Ignoring next {(keyUp ? "up" : "down")} event for kc={kc} (total now {ignoreNextVk[key]})");
-			}
 		}
 
 		internal override void PrepareToSendHotstringReplacement(char endChar)
@@ -1999,11 +2366,14 @@ namespace Keysharp.Core.Linux
 		{
 			if (!IsX11Available) return;
 
-			foreach (var (kc, mods) in activeGrabs)
-				_ = XDisplay.Default.XUngrabKey(kc, mods);
-			activeGrabs.Clear();
-			activeHotstringGrabs.Clear();
-			XDisplay.Default.XSync(false);
+			lock (hkLock)
+			{
+				foreach (var (kc, mods) in activeGrabs)
+					_ = XDisplay.Default.XUngrabKey(kc, mods);
+				activeGrabs.Clear();
+				activeHotstringGrabs.Clear();
+				XDisplay.Default.XSync(false);
+			}
 		}
 
 		// -------------------- KeySym mapping for XGrabKey --------------------

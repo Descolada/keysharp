@@ -798,14 +798,6 @@ namespace Keysharp.Core.Windows
 
 		internal override bool IsKeyToggledOn(uint vk) => (GetKeyState((int)vk) & 0x01) != 0;
 
-		internal override bool IsMouseVK(uint vk)
-		{
-			return vk >= VK_LBUTTON && vk <= VK_XBUTTON2 && vk != VK_CANCEL
-				   || vk >= VK_NEW_MOUSE_FIRST && vk <= VK_NEW_MOUSE_LAST;
-		}
-
-		internal override bool IsWheelVK(uint vk) => vk >= VK_WHEEL_LEFT&& vk <= VK_WHEEL_UP;
-
 		internal static bool IsKeybdEventArtificial(uint flags) => (flags & LLKHF_INJECTED) != 0 && (flags & LLKHF_LOWER_IL_INJECTED) == 0;
 		internal static bool IsMouseEventArtificial(uint flags) => (flags & LLMHF_INJECTED) != 0 && (flags & LLMHF_LOWER_IL_INJECTED) == 0;
 

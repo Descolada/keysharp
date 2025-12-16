@@ -916,7 +916,7 @@ break_twice:;
 
 			// Check SC first to properly differentiate between Home/NumpadHome, End/NumpadEnd, etc.
 			// v1.0.43: WheelDown/Up store the notch/turn count in SC, so don't consider that to be a valid SC.
-			if (sc != 0 && !ht.IsWheelVK(vk) && ht.SCtoKeyName(sc, false) != "")
+			if (sc != 0 && !MouseUtils.IsWheelVK(vk) && ht.SCtoKeyName(sc, false) != "")
 			{
 				return buf;
 				// Otherwise this key is probably one we can handle by VK.
@@ -970,7 +970,7 @@ break_twice:;
 					return ht.IsKeyToggledOn(vk); // This also works for non-"lock" keys, but in that case the toggle state can be out of sync with other processes/
 
 				case KeyStateTypes.Physical: // Physical state of key.
-					if (ht.IsMouseVK(vk)) // mouse button
+					if (MouseUtils.IsMouseVK(vk)) // mouse button
 					{
 						return ht.HasMouseHook() ? (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0 : ht.IsKeyDownAsync(vk); // mouse hook is installed, so use it's tracking of physical state.
 					}

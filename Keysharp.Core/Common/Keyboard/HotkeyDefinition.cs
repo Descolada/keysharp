@@ -540,8 +540,8 @@ namespace Keysharp.Core.Common.Keyboard
 							// when it happens while the while key is down (though it does disguise a Win-up).
 							|| ((hot.modifiersConsolidatedLR & (MOD_LWIN | MOD_RWIN)) != 0 && (hot.modifiersConsolidatedLR & (MOD_LALT | MOD_RALT)) == 0)
 							// For v1.0.30, above has been expanded to include Win+Shift and Win+Control modifiers.
-							|| (hot.vk != 0 && !ht.IsMouseVK(hot.vk)) // e.g. "RButton & Space"
-							|| (hot.modifierVK != 0 && !ht.IsMouseVK(hot.modifierVK)))) // e.g. "Space & RButton"
+							|| (hot.vk != 0 && !MouseUtils.IsMouseVK(hot.vk)) // e.g. "RButton & Space"
+							|| (hot.modifierVK != 0 && !MouseUtils.IsMouseVK(hot.modifierVK)))) // e.g. "Space & RButton"
 					hot.type = HotkeyTypeEnum.BothHook;  // Needed by ChangeHookState().
 
 				// For the above, the following types of mouse hotkeys do not need the keyboard hook:
@@ -1554,7 +1554,7 @@ namespace Keysharp.Core.Common.Keyboard
 			{
 				if (isModifier)
 				{
-					if (ht.IsWheelVK(tempVk))
+					if (MouseUtils.IsWheelVK(tempVk))
 						return (ResultType)Errors.ValueErrorOccurred("Unsupported prefix key.", text, ResultType.Fail);
 				}
 				else
@@ -1564,7 +1564,7 @@ namespace Keysharp.Core.Common.Keyboard
 					if (thisHotkey != null)
 						thisHotkey.vkWasSpecifiedByNumber = text.StartsWith("VK", StringComparison.OrdinalIgnoreCase);
 
-				isMouse = ht.IsMouseVK(tempVk);
+				isMouse = MouseUtils.IsMouseVK(tempVk);
 
 				if ((modifiersLR.Value & (MOD_LSHIFT | MOD_RSHIFT)) != 0)
 					if (tempVk >= 'A' && tempVk <= 'Z')  // VK of an alpha char is the same as the ASCII code of its uppercase version.
@@ -2137,7 +2137,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 			VariadicFunction vf = (o) =>
 			{
-				if (ht.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
+				if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
 					A_EventInfo = (long)Conversions.LowWord(lParamVal); // v1.0.43.03: Override the thread default of 0 with the number of notches by which the wheel was turned.
 
 				A_SendLevel = variant.inputLevel;

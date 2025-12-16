@@ -1,4 +1,6 @@
 
+using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+
 namespace Keysharp.Core.Common.Mouse
 {
 	[Flags]
@@ -25,5 +27,13 @@ namespace Keysharp.Core.Common.Mouse
 		internal const uint WHEEL_DELTA = 120;
 		internal const uint XBUTTON1 = 0x0001;
 		internal const uint XBUTTON2 = 0x0002;
+
+        internal static bool IsMouseVK(uint vk)
+		{
+			return vk >= VK_LBUTTON && vk <= VK_XBUTTON2 && vk != VK_CANCEL
+				   || vk >= VK_NEW_MOUSE_FIRST && vk <= VK_NEW_MOUSE_LAST;
+		}
+
+		internal static bool IsWheelVK(uint vk) => vk >= VK_WHEEL_LEFT && vk <= VK_WHEEL_UP;
 	}
 }

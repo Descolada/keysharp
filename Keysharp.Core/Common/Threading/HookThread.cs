@@ -1391,11 +1391,20 @@ namespace Keysharp.Core.Common.Threading
 
 		internal abstract bool IsKeyDown(uint vk);
 
+		internal bool IsKeyPhysicallyDown(uint vk)
+		{
+			if (!HasKbdHook())
+				return IsKeyDown(vk);
+
+			if (vk == 0 || vk >= physicalKeyState.Length)
+				return false;
+
+			return (physicalKeyState[vk] & StateDown) != 0;
+		}
+
 		internal abstract bool IsKeyDownAsync(uint vk);
 
 		internal abstract bool IsKeyToggledOn(uint vk);
-
-		internal abstract bool IsMouseVK(uint vk);
 
 		internal virtual bool IsHookThreadRunning() => false;
 
@@ -1410,8 +1419,6 @@ namespace Keysharp.Core.Common.Threading
 		channelReadThread != null&&
 		channelReadThread.Result != null&&
 		!channelReadThread.Result.IsCompleted;
-
-		internal abstract bool IsWheelVK(uint vk);
 
 		/// <summary>
 		/// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
@@ -1696,7 +1703,7 @@ namespace Keysharp.Core.Common.Threading
 			keyHistoryCurr.sc = isKeyboardEvent ? rawSc : sc; // For keyboard use original sc; mouse keeps current sc (e.g. wheel delta).
 
 			// After logging the wheel notch count (above), purify aSC for readability and maintainability.
-			if (IsWheelVK(vk))
+			if (MouseUtils.IsWheelVK(vk))
 				sc = 0; // Also relied upon by sc_takes_precedence below.
 
 			// Even if the below is set to false, the event might be reclassified as artificial later (though it
@@ -2567,6 +2574,8 @@ namespace Keysharp.Core.Common.Threading
 			if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)  // Since above didn't find a hotkey, check if modifiers+this_key qualifies a firing.
 			{
 				modifiersLRnew = kbdMsSender.modifiersLRLogicalNonIgnored;
+
+				Console.WriteLine($"ModifiersLRNew before adjustment: {modifiersLRnew:X}");
 
 				if (thisKey.asModifiersLR != 0)
 					// Hotkeys are not defined to modify themselves, so look for a match accordingly.
@@ -3560,6 +3569,7 @@ namespace Keysharp.Core.Common.Threading
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
 				var inputLevel = InputLevelFromInfo((long)extraInfo);
+				Console.WriteLine($"Sending AHK_HOOK_HOTKEY hotkeyIDToPost={hotkeyIDToPost} keystate={(keyUp ? "up" : "down")} variant with inputlevel={inputLevel} and sc={keyHistoryCurr.sc} idMask={(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK}");
 				_ = channel.Writer.TryWrite(new KeysharpMsg()
 				{
 					message = (uint)UserMessages.AHK_HOOK_HOTKEY,
@@ -3985,7 +3995,7 @@ namespace Keysharp.Core.Common.Threading
 				// Reset pPrefixKey only if the corresponding hook is being reset.  This fixes
 				// custom combo mouse hotkeys breaking when the prefix key does something which
 				// causes the keyboard hook to be reset, or vice versa.
-				bool isMouseKey = IsMouseVK(prefixKey.Pos);
+				bool isMouseKey = MouseUtils.IsMouseVK(prefixKey.Pos);
 
 				if ((whichHook & (isMouseKey ? HookType.Mouse : HookType.Keyboard)) != 0)
 					prefixKey = null;
@@ -4056,7 +4066,7 @@ namespace Keysharp.Core.Common.Threading
 				if (resetKVKandKSC)
 				{
 					for (var i = 0u; i < kvk.Length; ++i)
-						if (!IsMouseVK(i))  // Don't do mouse VKs since those must be handled by the mouse section.
+						if (!MouseUtils.IsMouseVK(i))  // Don't do mouse VKs since those must be handled by the mouse section.
 							kvk[i].ResetKeyTypeState();
 
 					for (var i = 0; i < ksc.Length; ++i)
@@ -4079,7 +4089,6 @@ namespace Keysharp.Core.Common.Threading
 			// future, so we need to make sure the physical state of the modifiers is updated
 			// in our tracking system even though the key is being suppressed:
 			uint modLR;
-
 			if ((modLR = kvk[vk].asModifiersLR) != 0) // Update our tracking of LWIN/RWIN/RSHIFT etc.
 			{
 				// Caller has ensured that vk has been translated from neutral to left/right if necessary

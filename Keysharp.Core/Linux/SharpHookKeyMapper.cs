@@ -268,7 +268,7 @@ namespace Keysharp.Core.Linux
         void AddKeyDown(uint vk);
         void AddKeyUp(uint vk);
         void AddKeyStroke(uint vk);
-        void Commit();
+        void Commit(long extraInfo);
     }
 }
 #endif

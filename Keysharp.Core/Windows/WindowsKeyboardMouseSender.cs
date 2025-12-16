@@ -27,8 +27,6 @@ namespace Keysharp.Core.Windows
 	/// </summary>
 	internal class WindowsKeyboardMouseSender : KeyboardMouseSender
 	{
-		internal const int MaxInitialEventsPB = 1500;
-		internal const int MaxInitialEventsSI = 500;
 		internal int currentEvent;
 		internal List<PlaybackEvent> eventPb = new (MaxInitialEventsPB);
 		internal List<INPUT> eventSi = new (MaxInitialEventsSI);
@@ -40,8 +38,6 @@ namespace Keysharp.Core.Windows
 		internal long workaroundHitTest;
 
 		private readonly StringBuilder buf = new (4);
-
-		private readonly List<CachedLayoutType> cachedLayouts = new (10);
 
 		// Below uses a pseudo-random value.  It's best that this be constant so that if multiple instances
 		// of the app are running, they will all ignore each other's keyboard & mouse events.  Also, a value
@@ -213,44 +209,6 @@ namespace Keysharp.Core.Windows
 			firstCallForThisEvent = true;
 			// The above isn't a local static inside PlaybackProc because PlaybackProc might get aborted in the
 			// middle of a NEXT/SKIP pair by user pressing Ctrl-Esc, etc, which would make it unreliable.
-		}
-
-		/// <summary>
-		/// Thread-safety: While not thoroughly thread-safe, due to the extreme simplicity of the cache array, even if
-		/// a collision occurs it should be inconsequential.
-		/// Caller must ensure that layout is a valid layout (special values like 0 aren't supported here).
-		/// If aHasAltGr is not at its default of LAYOUT_UNDETERMINED, the specified layout's has_altgr property is
-		/// updated to the new value, but only if it is currently undetermined (callers can rely on this).
-		/// </summary>
-		/// <param name="layout"></param>
-		/// <returns></returns>
-		internal ResultType LayoutHasAltGr(nint layout)
-		{
-			// Layouts are cached for performance (to avoid the discovery loop later below).
-			for (var i = 0; i < cachedLayouts.Count && cachedLayouts[i].hkl != 0; ++i)
-				if (cachedLayouts[i].hkl == layout) // Match Found.
-					return cachedLayouts[i].has_altgr;
-
-			// Since above didn't return, this layout isn't cached yet.  So create a new cache entry for it and
-			// determine whether this layout has an AltGr key.  An LRU/MRU algorithm (timestamp) isn't used because running out
-			// of slots seems too unlikely, and the consequences of running out are merely a slight degradation in performance.
-			// The old approach here was to call VkKeyScanEx for each character code and find any that require
-			// AltGr.  However, that was unacceptably slow for the wider character range of the Unicode build.
-			// It was also unreliable (as noted below), so required additional logic in Send and the hook to
-			// compensate.  Instead, read the AltGr value directly from the keyboard layout DLL.
-			// This method has been compared to the VkKeyScanEx method and another one using Send and hotkeys,
-			// and was found to have 100% accuracy for the 203 standard layouts on Windows 10, whereas the
-			// VkKeyScanEx method failed for two layouts:
-			//   - N'Ko has AltGr but does not appear to use it for anything.
-			//   - Ukrainian has AltGr but only uses it for one character, which is also assigned to a naked
-			//     VK (so VkKeyScanEx returns that one).  Likely the key in question is absent from some keyboards.
-			var hasaltgr = LayoutHasAltGrDirect(layout);
-			cachedLayouts.Add(new CachedLayoutType()
-			{
-				has_altgr = hasaltgr,
-				hkl = layout// This is done here (immediately after has_altgr is set) rather than earlier to minimize the consequences of not being fully thread-safe.
-			});
-			return hasaltgr;
 		}
 
 		internal override bool MouseClickPreLRButton(KeyEventTypes eventType, uint vk) {
@@ -942,999 +900,29 @@ namespace Keysharp.Core.Windows
 			// actually hit the active window until the playback finishes).
 		}
 
-		/// <summary>
-		/// thisHotkeyModifiersLR, if non-zero,
-		/// should be the set of modifiers used to trigger the hotkey that called the subroutine
-		/// containing the Send that got us here.  If any of those modifiers are still down,
-		/// they will be released prior to sending the batch of keys specified in <keys>.
-		/// v1.0.43: sendModeOrig was added.
-		/// </summary>
-		/// <param name="keys"></param>
-		/// <param name="sendRaw"></param>
-		/// <param name="sendModeOrig"></param>
-		/// <param name="targetWindow"></param>
-		internal override void SendKeys(string keys, SendRawModes sendRaw, SendModes sendModeOrig, nint targetWindow)
+		internal override void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowItemBase tempitem, nint targetWindow)
 		{
-			if (keys?.Length == 0)
-				return;
-
-			var script = Script.TheScript;
-			var origLastPeekTime = script.lastPeekTime;
-			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
-			var i = 0;
-			var sub = keys.AsSpan();
-			var ht = script.HookThread;
-
-			if (inBlindMode = ((sendRaw == SendRawModes.NotRaw) && keys.StartsWith("{Blind", StringComparison.OrdinalIgnoreCase))) // Don't allow {Blind} while in raw mode due to slight chance {Blind} is intended to be sent as a literal string.
-			{
-				// Blind Mode (since this seems too obscure to document, it's mentioned here):  Blind Mode relies
-				// on modifiers already down for something like ^c because ^c is saying "manifest a ^c", which will
-				// happen if ctrl is already down.  By contrast, Blind does not release shift to produce lowercase
-				// letters because avoiding that adds flexibility that couldn't be achieved otherwise.
-				// Thus, ^c::Send {Blind}c produces the same result when ^c is substituted for the final c.
-				// But Send {Blind}{LControl down} will generate the extra events even if ctrl already down.
-				var modMask = MODLR_MASK;
-				var keySpan = keys.AsSpan(6);
-
-				for (i = 0; i < keySpan.Length && keySpan[i] != '}'; ++i)
-				{
-					uint mod = 0;
-
-					switch (keySpan[i])
-					{
-						case '<': modMask = MODLR_LMASK; continue;
-
-						case '>': modMask = MODLR_RMASK; continue;
-
-						case '^': mod = MOD_LCONTROL | MOD_RCONTROL; break;
-
-						case '+': mod = MOD_LSHIFT | MOD_RSHIFT; break;
-
-						case '!': mod = MOD_LALT | MOD_RALT; break;
-
-						case '#': mod = MOD_LWIN | MOD_RWIN; break;
-
-						case '\0': return; // Just ignore the error.
-					}
-
-					modsExcludedFromBlind |= mod & modMask;
-					modMask = MODLR_MASK; // Reset for the next modifier.
-				}
-
-				sub = keySpan.Slice(i);
-			}
-
-			if ((sendRaw == SendRawModes.NotRaw) && sub.StartsWith("{Text}", StringComparison.OrdinalIgnoreCase))
-			{
-				// Setting this early allows CapsLock and the Win+L workaround to be skipped:
-				sendRaw = SendRawModes.RawText;
-				sub = sub.Slice(6);
-			}
-
-			var tv = script.Threads.CurrentThread.configData;
-			var origKeyDelay = tv.keyDelay;
-			var origPressDuration = tv.keyDuration;
-
-			if (sendModeOrig == SendModes.Input || sendModeOrig == SendModes.InputThenPlay) // Caller has ensured aTargetWindow==NULL for SendInput and SendPlay modes.
-			{
-				// Both of these modes fall back to a different mode depending on whether some other script
-				// is running with a keyboard/mouse hook active.  Of course, the detection of this isn't foolproof
-				// because older versions of AHK may be running and/or other apps with LL keyboard hooks. It's
-				// just designed to add a lot of value for typical usage because SendInput is preferred due to it
-				// being considerably faster than SendPlay, especially for long replacements when the CPU is under
-				// heavy load.
-				if (ht.SystemHasAnotherKeybdHook() // This function has been benchmarked to ensure it doesn't yield our timeslice, etc.  200 calls take 0ms according to tick-count, even when CPU is maxed.
-						|| ((sendRaw == SendRawModes.NotRaw) && ht.SystemHasAnotherMouseHook() && sub.Contains("{Click", StringComparison.OrdinalIgnoreCase))) // Ordered for short-circuit boolean performance.  v1.0.43.09: Fixed to be strcasestr vs. !strcasestr
-				{
-					// Need to detect in advance what type of array to build (for performance and code size).  That's why
-					// it done this way, and here are the comments about it:
-					// strcasestr() above has an unwanted amount of overhead if aKeys is huge, but it seems acceptable
-					// because it's called only when system has another mouse hook but *not* another keybd hook (very rare).
-					// Also, for performance reasons, {LButton and such are not checked for, which is documented and seems
-					// justified because the new {Click} method is expected to become prevalent, especially since this
-					// whole section only applies when the new SendInput mode is in effect.
-					// Finally, checking aSendRaw isn't foolproof because the string might contain {Raw} prior to {Click,
-					// but the complexity and performance of checking for that seems unjustified given the rarity,
-					// especially since there are almost never any consequences to reverting to hook mode vs. SendInput.
-					if (sendModeOrig == SendModes.InputThenPlay)
-						sendModeOrig = SendModes.Play;
-					else // aSendModeOrig == SM_INPUT, so fall back to EVENT.
-					{
-						sendModeOrig = SendModes.Event;
-						// v1.0.43.08: When SendInput reverts to SendEvent mode, the majority of users would want
-						// a fast sending rate that is more comparable to SendInput's speed that the default KeyDelay
-						// of 10ms.  PressDuration may be generally superior to KeyDelay because it does a delay after
-						// each changing of modifier state (which tends to improve reliability for certain apps).
-						// The following rules seem likely to be the best benefit in terms of speed and reliability:
-						// KeyDelay 0+,-1+ --> -1, 0
-						// KeyDelay -1, 0+ --> -1, 0
-						// KeyDelay -1,-1 --> -1, -1
-						tv.keyDuration = (tv.keyDelay < 0L && tv.keyDuration < 0L) ? -1L : 0L;
-						tv.keyDelay = -1L; // Above line must be done before this one.
-					}
-				}
-				else // SendInput is available and no other impacting hooks are obviously present on the system, so use SendInput unconditionally.
-					sendModeOrig = SendModes.Input; // Resolve early so that other sections don't have to consider SM_INPUT_FALLBACK_TO_PLAY a valid value.
-			}
-
-			// Might be better to do this prior to changing capslock state.  UPDATE: In v1.0.44.03, the following section
-			// has been moved to the top of the function because:
-			// 1) For ControlSend, GetModifierLRState() might be more accurate if the threads are attached beforehand.
-			// 2) Determines sTargetKeybdLayout and sTargetLayoutHasAltGr early (for maintainability).
-			var threadsAreAttached = false; // Set default.
-			uint keybdLayoutThread = 0;     //
-			uint targetThread = 0;
+			var pd = TheScript.ProcessesData;
 			var tempitem = WindowManager.CreateWindow(targetWindow);
-			var pd = script.ProcessesData;
 
-			if (targetWindow != 0) // Caller has ensured this is NULL for SendInput and SendPlay modes.
+			if ((targetThread = GetWindowThreadProcessId(targetWindow, out _)) != 0 // Assign.
+					&& targetThread != pd.MainThreadID && !tempitem.IsHung)
 			{
-				if ((targetThread = GetWindowThreadProcessId(targetWindow, out _)) != 0 // Assign.
-						&& targetThread != pd.MainThreadID && !tempitem.IsHung)
-				{
-					threadsAreAttached = AttachThreadInput(pd.MainThreadID, targetThread, true);
-					keybdLayoutThread = targetThread; // Testing shows that ControlSend benefits from the adapt-to-layout technique too.
-				}
-
-				//else no target thread, or it's our thread, or it's hung; so keep keybd_layout_thread at its default.
-			}
-			else
-			{
-				// v1.0.48.01: On Vista or later, work around the fact that an "L" keystroke (physical or artificial) will
-				// lock the computer whenever either Windows key is physically pressed down (artificially releasing the
-				// Windows key isn't enough to solve it because Win+L is apparently detected aggressively like
-				// Ctrl-Alt-Delete.  Unlike the handling of SM_INPUT in another section, this one here goes into
-				// effect for all Sends because waiting for an "L" keystroke to be sent would be too late since the
-				// Windows would have already been artificially released by then, so IsKeyDownAsync() wouldn't be
-				// able to detect when the user physically releases the key.
-				if ((thisHotkeyModifiersLR & (MOD_LWIN | MOD_RWIN)) != 0 // Limit the scope to only those hotkeys that have a Win modifier, since anything outside that scope hasn't been fully analyzed.
-						&& (DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < 50 // Ensure g_script.mThisHotkeyModifiersLR is up-to-date enough to be reliable.
-						&& sendModeOrig != SendModes.Play // SM_PLAY is reported to be incapable of locking the computer.
-						&& !inBlindMode // The philosophy of blind-mode is that the script should have full control, so don't do any waiting during blind mode.
-						&& sendRaw != SendRawModes.RawText // {Text} mode does not trigger Win+L.
-						&& PlatformManager.CurrentThreadId() == pd.MainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
-				   )
-				{
-					var waitForWinKeyRelease = false;
-
-					if (sendRaw != SendRawModes.NotRaw)
-					{
-						waitForWinKeyRelease = sub.IndexOfAny(llChars) != -1; // StrChrAny(aKeys, ("Ll")) != NULL;
-					}
-					else
-					{
-						// It seems worthwhile to scan for any "L" characters to avoid waiting for the release
-						// of the Windows key when there are no L's.  For performance and code size, the check
-						// below isn't comprehensive (e.g. it fails to consider things like {L} and #L).
-						// Although RegExMatch() could be used instead of the below, that would use up one of
-						// the RegEx cache entries, plus it would probably perform worse.  So scan manually.
-						int L_pos, brace_pos = 0;
-						var bracesub = sub;
-
-						for (waitForWinKeyRelease = false; (L_pos = bracesub.IndexOfAny(llCharsSv, brace_pos)) != -1;)
-						{
-							// Encountering a #L seems too rare, and the consequences too mild (or nonexistent), to
-							// justify the following commented-out section:
-							//if (L_pos > aKeys && L_pos[-1] == '#') // A simple check; it won't detect things like #+L.
-							//  brace_pos = L_pos + 1;
-							//else
-							brace_pos = bracesub.IndexOfAny(bracecharsSv, L_pos + 1);
-
-							if (brace_pos == -1 || bracesub[brace_pos] == '{') // See comment below.
-							{
-								waitForWinKeyRelease = true;
-								break;
-							}
-
-							//else it found a '}' without a preceding '{', which means this "L" is inside braces.
-							// For simplicity, ignore such L's (probably not a perfect check, but seems worthwhile anyway).
-						}
-					}
-
-					if (waitForWinKeyRelease)
-						while (ht.IsKeyDownAsync(VK_LWIN) || ht.IsKeyDownAsync(VK_RWIN)) // Even if the keyboard hook is installed, it seems best to use IsKeyDownAsync() vs. g_PhysicalKeyState[] because it's more likely to produce consistent behavior.
-							Flow.SleepWithoutInterruption(Flow.intervalUnspecified); // Seems best not to allow other threads to launch, for maintainability and because SendKeys() isn't designed to be interruptible.
-				}
-
-				// v1.0.44.03: The following change is meaningful only to people who use more than one keyboard layout.
-				// It seems that the vast majority of them would want the Send command (as well as other features like
-				// Hotstrings and the Input command) to adapt to the keyboard layout of the active window (or target window
-				// in the case of ControlSend) rather than sticking with the script's own keyboard layout.  In addition,
-				// testing shows that this adapt-to-layout method costs almost nothing in performance, especially since
-				// the active window, its thread, and its layout are retrieved only once for each Send rather than once
-				// for each keystroke.
-				// v1.1.27.01: Use the thread of the focused control, which may differ from the active window.
-				nint tempzero = 0;
-				keybdLayoutThread = WindowManager.GetFocusedCtrlThread(ref tempzero, 0);
+				threadsAreAttached = AttachThreadInput(pd.MainThreadID, targetThread, true);
+				keybdLayoutThread = targetThread; // Testing shows that ControlSend benefits from the adapt-to-layout technique too.
 			}
 
-			targetKeybdLayout = PlatformManager.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
-			targetLayoutHasAltGr = LayoutHasAltGr(targetKeybdLayout);  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
-			// Below is now called with "true" so that the hook's modifier state will be corrected (if necessary)
-			// prior to every send.
-			var modsCurrent = GetModifierLRState(true); // Current "logical" modifier state.
-			// For any modifiers put in the "down" state by {xxx DownR}, keep only those which
-			// are still logically down before each Send starts.  Otherwise each Send would reset
-			// the modifier to "down" even after the user "releases" it by some other means.
-			modifiersLRRemapped &= modsCurrent;
-			// Make a best guess of what the physical state of the keys is prior to starting (there's no way
-			// to be certain without the keyboard hook). Note: It's possible for a key to be down physically
-			// but not logically such as when RControl, for example, is a suffix hotkey and the user is
-			// physically holding it down.
-			uint modsDownPhysicallyOrig, modsDownPhysicallyButNotLogicallyOrig;
-			var ad = script.AccessorData;
-
-			//if (hookId != 0)
-			if (ht.HasKbdHook())
-			{
-				// Since hook is installed, use its more reliable tracking to determine which
-				// modifiers are down.
-				modsDownPhysicallyOrig = modifiersLRPhysical;
-				modsDownPhysicallyButNotLogicallyOrig = modifiersLRPhysical & ~modifiersLRLogical;
-			}
-			else // Use best-guess instead.
-			{
-				// Even if TickCount has wrapped due to system being up more than about 49 days,
-				// DWORD subtraction still gives the right answer as long as g_script.mThisHotkeyStartTime
-				// itself isn't more than about 49 days ago:
-				if ((DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // Elapsed time < timeout-value
-					modsDownPhysicallyOrig = modsCurrent & thisHotkeyModifiersLR; // Bitwise AND is set intersection.
-				else
-					// Since too much time as passed since the user pressed the hotkey, it seems best,
-					// based on the action that will occur below, to assume that no hotkey modifiers
-					// are physically down:
-					modsDownPhysicallyOrig = 0;
-
-				modsDownPhysicallyButNotLogicallyOrig = 0; // There's no way of knowing, so assume none.
-			}
-
-			// Any of the external modifiers that are down but NOT due to the hotkey are probably
-			// logically down rather than physically (perhaps from a prior command such as
-			// `Send "{CtrlDown}"`.  Since there's no way to be sure without the keyboard hook
-			// or some driver-level monitoring, it seems best to assume that they are logically
-			// vs. physically down.
-			// persistent_modifiers_for_this_SendKeys contains the modifiers that we will not
-			// attempt to change (e.g. `Send "A"` will not release LWin before sending "A" if
-			// this value indicates that LWin is down).
-			// This used to be = modifiersLR_current & ~modifiersLR_down_physically_and_logically,
-			// but v1.0.13 added g_modifiersLR_persistent to limit it to only mods which the script
-			// put into effect.  Old comment explains: [[ To improve the above, we now exclude from
-			// the set of persistent modifiers any that weren't made persistent by this script.
-			// Such a policy seems likely to do more good than harm as there have been cases where
-			// a modifier was detected as persistent just because A_HotkeyModifierTimeout expired
-			// while the user was still holding down the key, but then when the user released it,
-			// this logic here would think it's still persistent and push it back down again
-			// to enforce it as "always-down" during the send operation.  Thus, the key would
-			// basically get stuck down even after the send was over. ]]
-			// v2.0.13: The original bitmask ~modifiersLR_down_physically_and_logically is removed.
-			// It was originally described as "all the down-keys in mods_current except any that are
-			// physically down due to the hotkey itself".  For example, ^a::Send,b requires the user
-			// to hold Ctrl to activate the hotkey, so he probably doesn't want to send ^b.
-			// However, sModifiersLR_persistent achieves the purpose of preventing Ctrl from being
-			// sent in such cases, while the original bitmask only serves to prevent {Ctrl Down} from
-			// being persistent if the user happens to physically hold Ctrl (for any purpose).
-			// For example, when Send "{Shift Down}" and *KEY::Send "a" are used in combination,
-			// the result should be "A" regardless of whether KEY = Shift.
-			modifiersLRPersistent &= modsCurrent;
-			uint persistentModifiersForThisSendKeys;
-			var modsReleasedForSelectiveBlind = 0u;
-
-			if (inBlindMode)
-			{
-				// The following value is usually zero unless the user is currently holding down
-				// some modifiers as part of a hotkey. These extra modifiers are the ones that
-				// this send operation (along with all its calls to SendKey and similar) should
-				// consider to be down for the duration of the Send (unless they go up via an
-				// explicit {LWin up}, etc.)
-				persistentModifiersForThisSendKeys = modsCurrent;
-
-				if (modsExcludedFromBlind != 0) // Caller specified modifiers to exclude from Blind treatment.
-				{
-					persistentModifiersForThisSendKeys &= ~modsExcludedFromBlind;
-					modsReleasedForSelectiveBlind = modsCurrent ^ persistentModifiersForThisSendKeys;
-				}
-			}
-			else
-			{
-				persistentModifiersForThisSendKeys = modifiersLRPersistent;
-			}
-
-			// Above:
-			// Keep sModifiersLR_persistent and persistent_modifiers_for_this_SendKeys in sync with each other from now on.
-			// By contrast to persistent_modifiers_for_this_SendKeys, sModifiersLR_persistent is the lifetime modifiers for
-			// this script that stay in effect between sends.  For example, "Send {LAlt down}" leaves the alt key down
-			// even after the Send ends, by design.
-			//
-			// It seems best not to change persistent_modifiers_for_this_SendKeys in response to the user making physical
-			// modifier changes during the course of the Send.  This is because it seems more often desirable that a constant
-			// state of modifiers be kept in effect for the entire Send rather than having the user's release of a hotkey
-			// modifier key, which typically occurs at some unpredictable time during the Send, to suddenly alter the nature
-			// of the Send in mid-stride.  Another reason is to make the behavior of Send consistent with that of SendInput.
-			// The default behavior is to turn the capslock key off prior to sending any keys
-			// because otherwise lowercase letters would come through as uppercase and vice versa.
-			// Remember that apps like MS Word have an auto-correct feature that might make it
-			// wrongly seem that the turning off of Capslock below needs a Sleep(0) to take effect.
-			var priorCapslockState = tv.storeCapsLockMode && !inBlindMode && sendRaw != SendRawModes.RawText
-									 ? ToggleKeyState(VK_CAPITAL, ToggleValueType.Off)
-									 : ToggleValueType.Invalid; // In blind mode, don't do store capslock (helps remapping and also adds flexibility).
-			// sendMode must be set only after setting Capslock state above, because the hook method
-			// is incapable of changing the on/off state of toggleable keys like Capslock.
-			// However, it can change Capslock state as seen in the window to which playback events are being
-			// sent; but the behavior seems inconsistent and might vary depending on OS type, so it seems best
-			// not to rely on it.
-			sendMode = sendModeOrig;
-
-			if (sendMode != SendModes.Event) // Build an array.  We're also responsible for setting sendMode to SM_EVENT prior to returning.
-			{
-				maxEvents = sendMode == SendModes.Input ? MaxInitialEventsSI : MaxInitialEventsPB;
-				InitEventArray(maxEvents, modsCurrent);
-			}
-
-			var kbd = script.KeyboardData;
-			var blockinputPrev = kbd.blockInput;
-			var doSelectiveBlockInput = (kbd.blockInputMode == ToggleValueType.Send || kbd.blockInputMode == ToggleValueType.SendAndMouse)
-										&& sendMode == SendModes.Event && targetWindow == 0;
-
-			if (doSelectiveBlockInput)
-				_ = Keyboard.ScriptBlockInput(true); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
-
-			var vk = 0u;
-			var sc = 0u;
-			var keyAsModifiersLR = 0u;
-			uint? modsForNextKey = 0u;
-			// Above: For v1.0.35, it was changed to modLR vs. mod so that AltGr keys such as backslash and '{'
-			// are supported on layouts such as German when sending to apps such as Putty that are fussy about
-			// which ALT key is held down to produce the character.
-			var thisEventModifierDown = 0u;
-			var keyTextLength = 0;
-			var keyNameLength = 0;
-			int endPos;//, spacePos;
-			//char oldChar;
-			var keyDownType = KeyDownTypes.Temp;
-			var eventType = KeyEventTypes.KeyDown;
-			long repeatCount = 0;
-			int clickX = 0, clickY = 0;
-			var moveOffset = false;
-			uint placeholder = 0;
-			//var msg = new Msg();//May not be needed.//TOOD
-			var keyIndex = 0;
-
-			//for (; *aKeys; ++aKeys, prevEventModifierDown = this_event_modifier_down)
-			for (; keyIndex < sub.Length; ++keyIndex, prevEventModifierDown = thisEventModifierDown)
-			{
-				thisEventModifierDown = 0; // Set default for this iteration, overridden selectively below.
-
-				if (sendMode == SendModes.Event)
-					LongOperationUpdateForSendKeys(); // This does not measurably affect the performance of SendPlay/Event.
-
-				var ch = sub[keyIndex];
-
-				if (sendRaw == SendRawModes.NotRaw && sendKeyChars.Contains(ch))//  _tcschr(("^+!#{}"), *aKeys))
-				{
-					switch (ch)
-					{
-						case '^':
-							if ((persistentModifiersForThisSendKeys & (MOD_LCONTROL | MOD_RCONTROL)) == 0)
-								modsForNextKey |= MOD_LCONTROL;
-
-							// else don't add it, because the value of mods_for_next_key may also used to determine
-							// which keys to release after the key to which this modifier applies is sent.
-							// We don't want persistent modifiers to ever be released because that's how
-							// AutoIt2 behaves and it seems like a reasonable standard.
-							continue;
-
-						case '+':
-							if ((persistentModifiersForThisSendKeys & (MOD_LSHIFT | MOD_RSHIFT)) == 0)
-								modsForNextKey |= MOD_LSHIFT;
-
-							continue;
-
-						case '!':
-							if ((persistentModifiersForThisSendKeys & (MOD_LALT | MOD_RALT)) == 0)
-								modsForNextKey |= MOD_LALT;
-
-							continue;
-
-						case '#':
-							if ((persistentModifiersForThisSendKeys & (MOD_LWIN | MOD_RWIN)) == 0)
-								modsForNextKey |= MOD_LWIN;
-
-							continue;
-
-						case '}': continue;  // Important that these be ignored.  Be very careful about changing this, see below.
-
-						case '{':
-						{
-							if ((endPos = sub.IndexOf('}', keyIndex + 1)) == -1) // Ignore it and due to rarity, don't reset mods_for_next_key.
-								continue; // This check is relied upon by some things below that assume a '}' is present prior to the terminator.
-
-							keyIndex = sub.FindFirstNotOf(SpaceTab, keyIndex + 1);
-
-							if ((keyTextLength = (endPos - keyIndex)) == 0)
-							{
-								var lenok = sub.Length > endPos + 1;
-
-								if (lenok && sub[endPos + 1] == '}')
-								{
-									// The literal string "{}}" has been encountered, which is interpreted as a single "}".
-									++endPos;
-									keyTextLength = 1;
-								}
-								else
-								{
-									var nextWord = ReadOnlySpan<char>.Empty;
-									var braceTabIndex = sub.IndexOfAny(SpaceTab);
-
-									if (braceTabIndex != -1)
-										nextWord = sub.Slice(braceTabIndex).TrimStart();
-
-									if (nextWord.Length > 0)// v1.0.48: Support "{} down}", "{} downtemp}" and "{} up}".
-									{
-										if (nextWord.StartsWith("Down", StringComparison.OrdinalIgnoreCase) // "Down" or "DownTemp" (or likely enough).
-												|| nextWord.StartsWith("Up", StringComparison.OrdinalIgnoreCase))
-										{
-											if ((endPos = sub.IndexOf('}', keyIndex + 2)) == -1)//See comments at similar section above.
-												continue;
-
-											keyTextLength = endPos - keyIndex; // This result must be non-zero due to the checks above.
-										}
-										else
-											goto bracecaseend;  // The loop's ++aKeys will now skip over the '}', ignoring it.
-									}
-									else // Empty braces {} were encountered (or all whitespace, but literal whitespace isn't sent).
-										goto bracecaseend;  // The loop's ++aKeys will now skip over the '}', ignoring it.
-								}
-							}
-
-							var subspan = sub.Slice(keyIndex, keyTextLength);
-
-							if (subspan.StartsWith("Click", StringComparison.OrdinalIgnoreCase))
-							{
-								HookThread.ParseClickOptions(subspan.Slice(5).TrimStart(SpaceTab), ref clickX, ref clickY, ref vk
-													 , ref eventType, ref repeatCount, ref moveOffset);
-
-								if (repeatCount < 1) // Allow {Click 100, 100, 0} to do a mouse-move vs. click (but modifiers like ^{Click..} aren't supported in this case.
-									MouseMove(ref clickX, ref clickY, ref placeholder, tv.defaultMouseSpeed, moveOffset);
-								else // Use SendKey because it supports modifiers (e.g. ^{Click}) SendKey requires repeat_count>=1.
-									SendKey(vk, 0, modsForNextKey.Value, persistentModifiersForThisSendKeys
-											, repeatCount, eventType, 0, targetWindow, clickX, clickY, moveOffset);
-
-								goto bracecaseend; // This {} item completely handled, so move on to next.
-							}
-							else if (subspan.StartsWith("Raw", StringComparison.OrdinalIgnoreCase)) // This is used by auto-replace hotstrings too.
-							{
-								// As documented, there's no way to switch back to non-raw mode afterward since there's no
-								// correct way to support special (non-literal) strings such as {Raw Off} while in raw mode.
-								sendRaw = SendRawModes.Raw;
-								goto bracecaseend; // This {} item completely handled, so move on to next.
-							}
-							else if (subspan.StartsWith("Text", StringComparison.OrdinalIgnoreCase)) // Added in v1.1.27
-							{
-								if (subspan.Slice(4).TrimStart(SpaceTab).Length == 0)//Pointing at the closing '}'.
-									sendRaw = SendRawModes.RawText;
-
-								//else: ignore this {Text something} to reserve for future use.
-								goto bracecaseend; // This {} item completely handled, so move on to next.
-							}
-
-							// Since above didn't "goto", this item isn't {Click}.
-							eventType = KeyEventTypes.KeyDownAndUp;         // Set defaults.
-							repeatCount = 1L;
-							keyNameLength = keyTextLength;
-							var splitct = 0;
-							var firstSplit = ReadOnlySpan<char>.Empty;
-
-							foreach (Range r in subspan.SplitAny(SpaceTab))
-							{
-								var split = subspan[r].Trim();
-
-								if (split.Length > 0)
-								{
-									if (splitct == 0)
-									{
-										keyNameLength = split.Length;
-										firstSplit = split;
-									}
-									else
-									{
-										var nextWord = split;
-										subspan = firstSplit;
-
-										if (nextWord.StartsWith("Down", StringComparison.OrdinalIgnoreCase))
-										{
-											eventType = KeyEventTypes.KeyDown;
-
-											// v1.0.44.05: Added key_down_is_persistent (which is not initialized except here because
-											// it's only applicable when event_type==KEYDOWN).  It avoids the following problem:
-											// When a key is remapped to become a modifier (such as F1::Control), launching one of
-											// the script's own hotkeys via F1 would lead to bad side-effects if that hotkey uses
-											// the Send command. This is because the Send command assumes that any modifiers pressed
-											// down by the script itself (such as Control) are intended to stay down during all
-											// keystrokes generated by that script. To work around this, something like KeyWait F1
-											// would otherwise be needed. within any hotkey triggered by the F1 key.
-											if (nextWord.StartsWith("DownTemp", StringComparison.OrdinalIgnoreCase)) // "DownTemp" means non-persistent.
-												keyDownType = KeyDownTypes.Temp;
-											else if (nextWord.Length > 4 && char.ToUpper(nextWord[4]) == 'R') // "DownR" means treated as a physical modifier (R = remap); i.e. not kept down during Send, but restored after Send (unlike Temp).
-												keyDownType = KeyDownTypes.Remap;
-											else
-												keyDownType = KeyDownTypes.Persistent;
-										}
-										else if (nextWord.StartsWith("Up", StringComparison.OrdinalIgnoreCase))
-										{
-											eventType = KeyEventTypes.KeyUp;
-										}
-										else if (!subspan.StartsWith("ASC", StringComparison.OrdinalIgnoreCase))
-										{
-											if (long.TryParse(nextWord, out var templ))
-											{
-												repeatCount = templ;//.Value;
-											}
-											else
-											{
-												_ = Dialogs.MsgBox($"Invalid character passed to Send(): {nextWord}", null, "16");
-												return;
-											}
-										}
-									}
-
-									splitct++;
-									// Above: If negative or zero, that is handled further below.
-									// There is no complaint for values <1 to support scripts that want to conditionally send
-									// zero keystrokes, e.g. Send {a %Count%}
-								}
-							}
-
-							_ = ht.TextToVKandSC(subspan, ref vk, ref sc, ref modsForNextKey, targetKeybdLayout);
-
-							if (repeatCount < 1L)
-								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.
-
-							subspan = sub.Slice(1).TrimStart(SpaceTab);//Consider the entire string, minus the first {, below.
-
-							if (vk != 0 || sc != 0)
-							{
-								bool? b = null;
-
-								if ((keyAsModifiersLR = ht.KeyToModifiersLR(vk, sc, ref b)) != 0) // Assign
-								{
-									if (targetWindow == 0)
-									{
-										if (eventType == KeyEventTypes.KeyDown) // i.e. make {Shift down} have the same effect {ShiftDown}
-										{
-											thisEventModifierDown = vk;
-
-											if (keyDownType == KeyDownTypes.Persistent) // v1.0.44.05.
-												modifiersLRPersistent |= keyAsModifiersLR;
-											else if (keyDownType == KeyDownTypes.Remap) // v1.1.27.00
-												modifiersLRRemapped |= keyAsModifiersLR;
-
-											persistentModifiersForThisSendKeys |= keyAsModifiersLR; // v1.0.44.06: Added this line to fix the fact that "DownTemp" should keep the key pressed down after the send.
-										}
-										else if (eventType == KeyEventTypes.KeyUp) // *not* KEYDOWNANDUP, since that would be an intentional activation of the Start Menu or menu bar.
-										{
-											DisguiseWinAltIfNeeded(vk);
-											modifiersLRPersistent &= ~keyAsModifiersLR;
-											modifiersLRRemapped &= ~keyAsModifiersLR;
-											persistentModifiersForThisSendKeys &= ~keyAsModifiersLR;
-
-											// Fix for v1.0.43: Also remove LControl if this key happens to be AltGr.
-											if (vk == VK_RMENU && targetLayoutHasAltGr == ResultType.ConditionTrue) // It is AltGr.
-												persistentModifiersForThisSendKeys &= ~MOD_LCONTROL;
-										}
-
-										// else must never change sModifiersLR_persistent in response to KEYDOWNANDUP
-										// because that would break existing scripts.  This is because that same
-										// modifier key may have been pushed down via {ShiftDown} rather than "{Shift Down}".
-										// In other words, {Shift} should never undo the effects of a prior {ShiftDown}
-										// or {Shift down}.
-									}
-
-									//else don't add this event to sModifiersLR_persistent because it will not be
-									// manifest via keybd_event.  Instead, it will done via less intrusively
-									// (less interference with foreground window) via SetKeyboardState() and
-									// PostMessage().  This change is for ControlSend in v1.0.21 and has been
-									// documented.
-								}
-
-								// Below: sModifiersLR_persistent stays in effect (pressed down) even if the key
-								// being sent includes that same modifier.  Surprisingly, this is how AutoIt2
-								// behaves also, which is good.  Example: Send, {AltDown}!f  ; this will cause
-								// Alt to still be down after the command is over, even though F is modified
-								// by Alt.
-								SendKey(vk, sc, modsForNextKey.Value, persistentModifiersForThisSendKeys
-										, repeatCount, eventType, keyAsModifiersLR, targetWindow);
-							}
-							else if (keyNameLength == 1) // No vk/sc means a char of length one is sent via special method.
-							{
-								// v1.0.40: SendKeySpecial sends only keybd_event keystrokes, not ControlSend style
-								// keystrokes.
-								// v1.0.43.07: Added check of event_type!=KEYUP, which causes something like Send {� up} to
-								// do nothing if the curr. keyboard layout lacks such a key.  This is relied upon by remappings
-								// such as F1::� (i.e. a destination key that doesn't have a VK, at least in English).
-								if (eventType != KeyEventTypes.KeyUp) // In this mode, mods_for_next_key and event_type are ignored due to being unsupported.
-								{
-									if (targetWindow != 0)
-									{
-										// Although MSDN says WM_CHAR uses UTF-16, it seems to really do automatic
-										// translation between ANSI and UTF-16; we rely on this for correct results:
-										for (var ii = 0L; ii < repeatCount; ++ii)
-											_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, subspan[0], 0);
-									}
-									else
-										SendKeySpecial(subspan[0], repeatCount, modsForNextKey.Value | persistentModifiersForThisSendKeys);
-								}
-							}
-							// See comment "else must never change sModifiersLR_persistent" above about why
-							// !aTargetWindow is used below:
-							else if ((vk = ht.TextToSpecial(subspan, ref eventType
-															, ref persistentModifiersForThisSendKeys, targetWindow == 0)) != 0) // Assign.
-							{
-								if (targetWindow == 0)
-								{
-									if (eventType == KeyEventTypes.KeyDown)
-										thisEventModifierDown = vk;
-									else // It must be KEYUP because TextToSpecial() never returns KEYDOWNANDUP.
-										DisguiseWinAltIfNeeded(vk);
-								}
-
-								// Since we're here, repeat_count > 0.
-								// v1.0.42.04: A previous call to SendKey() or SendKeySpecial() might have left modifiers
-								// in the wrong state (e.g. Send +{F1}{ControlDown}).  Since modifiers can sometimes affect
-								// each other, make sure they're in the state intended by the user before beginning:
-								SetModifierLRState(persistentModifiersForThisSendKeys
-												   , sendMode == SendModes.Event ? eventModifiersLR : GetModifierLRState()
-												   , targetWindow, false, false); // It also does DoKeyDelay(g->PressDuration).
-
-								for (var ii = 0L; ii < repeatCount; ++ii)
-								{
-									// Don't tell it to save & restore modifiers because special keys like this one
-									// should have maximum flexibility (i.e. nothing extra should be done so that the
-									// user can have more control):
-									SendKeyEvent(eventType, vk, 0, targetWindow, true);
-
-									if (sendMode == SendModes.Event)
-										LongOperationUpdateForSendKeys();
-								}
-							}
-							else if (keyTextLength > 4 && subspan.StartsWith("ASC ", StringComparison.OrdinalIgnoreCase) && targetWindow == 0) // {ASC nnnnn}
-							{
-								// Include the trailing space in "ASC " to increase uniqueness (selectivity).
-								// Also, sending the ASC sequence to window doesn't work, so don't even try:
-								//GetBytes() should really work with spans but for some reason it doesn't.//.NET 9
-								SendASC(Encoding.ASCII.GetBytes(subspan.Slice(3).TrimStart().ToString()));
-								// Do this only once at the end of the sequence:
-								DoKeyDelay(); // It knows not to do the delay for SM_INPUT.
-							}
-							else if (keyTextLength > 2 && subspan.StartsWith("U+", StringComparison.OrdinalIgnoreCase))
-							{
-								// L24: Send a unicode value as shown by Character Map.
-								var hexstop = subspan.FirstIndexOf(ch => !ch.IsHex(), 2);
-								var hexsub = subspan.Slice(2, hexstop == -1 ? subspan.Length - 2 : hexstop - 2);
-
-								if (long.TryParse(hexsub, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var uCode))
-								{
-									char wc1, wc2;
-
-									if (uCode >= 0x10000)
-									{
-										// Supplementary characters are encoded as UTF-16 and split into two messages.
-										uCode -= 0x10000;
-										wc1 = (char)(0xd800 + ((uCode >> 10) & 0x3ff));
-										wc2 = (char)(0xdc00 + (uCode & 0x3ff));
-									}
-									else
-									{
-										wc1 = (char)uCode;
-										wc2 = (char)0;
-									}
-
-									if (targetWindow != 0)
-									{
-										// Although MSDN says WM_CHAR uses UTF-16, PostMessageA appears to truncate it to 8-bit.
-										// This probably means it does automatic translation between ANSI and UTF-16.  Since we
-										// specifically want to send a Unicode character value, use PostMessageW:
-										_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, wc1, 0);
-
-										if (wc2 != 0)
-											_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, wc2, 0);
-									}
-									else
-									{
-										// Use SendInput in unicode mode if available, otherwise fall back to SendASC.
-										// To know why the following requires sendMode != SM_PLAY, see SendUnicodeChar.
-										if (sendMode != SendModes.Play)
-										{
-											SendUnicodeChar(wc1, modsForNextKey.Value | persistentModifiersForThisSendKeys);
-
-											if (wc2 != 0)
-												SendUnicodeChar(wc2, modsForNextKey.Value | persistentModifiersForThisSendKeys);
-										}
-										else // Note that this method generally won't work with Unicode characters except
-										{
-											// with specific controls which support it, such as RichEdit (tested on WordPad).
-											var asc = new byte[8];
-											asc[0] = (byte)'0';
-											var str = ((int)uCode).ToString();
-											var bytes = Encoding.ASCII.GetBytes(str);
-											System.Array.Copy(bytes, 0, asc, 1, Math.Min(asc.Length - 1, bytes.Length));
-											SendASC(asc);
-										}
-									}
-
-									DoKeyDelay();
-								}
-								else
-								{
-									_ = Errors.ErrorOccurred($"Could not parse {hexsub} as a hexadecimal number when trying to send a unicode character.");
-									return;
-								}
-							}
-
-							//else do nothing since it isn't recognized as any of the above "else if" cases (see below).
-							// If what's between {} is unrecognized, such as {Bogus}, it's safest not to send
-							// the contents literally since that's almost certainly not what the user intended.
-							// In addition, reset the modifiers, since they were intended to apply only to
-							// the key inside {}.  Also, the below is done even if repeat-count is zero.
-							bracecaseend: // This label is used to simplify the code without sacrificing performance.
-							keyIndex = endPos;
-							modsForNextKey = 0;
-							continue;
-						} // case '{'
-					} // switch()
-				} // if (!aSendRaw && strchr("^+!#{}", *aKeys))
-				else // Encountered a character other than ^+!#{} ... or we're in raw mode.
-				{
-					if (sendRaw == SendRawModes.RawText)
-					{
-						// \b needs to produce VK_BACK for auto-replace hotstrings to work (this is more useful anyway).
-						// \r and \n need to produce VK_RETURN for decent compatibility.  SendKeySpecial('\n') works for
-						// some controls (such as Scintilla) but has no effect in other common applications.
-						// \t has more utility if translated to VK_TAB.  SendKeySpecial('\t') has no effect in many
-						// common cases, and seems to only work in cases where {tab} would work just as well.
-						if (sub[keyIndex] == '\r' && sub[keyIndex + 1] == '\n') // Translate \r but ignore any trailing \n, since \r\n -> {Enter 2} is counter-intuitive.
-							keyIndex++;
-
-						vk = sub[keyIndex] switch
-					{
-							'\n' => VK_RETURN,
-							'\b' => VK_BACK,
-							'\t' => VK_TAB,
-							_ => 0,
-					};
-				}
-				else
-				{
-					// Best to call this separately, rather than as first arg in SendKey, since it changes the
-					// value of modifiers and the updated value is *not* guaranteed to be passed.
-					// In other words, SendKey(TextToVK(...), modifiers, ...) would often send the old
-					// value for modifiers.
-					vk = ht.CharToVKAndModifiers(sub[keyIndex], ref modsForNextKey, targetKeybdLayout
-												 , (modsForNextKey | persistentModifiersForThisSendKeys) != 0 && sendRaw == SendRawModes.NotRaw); // v1.1.27.00: Disable the a-z to vk41-vk5A fallback translation when modifiers are present since it would produce the wrong printable characters.
-						// CharToVKAndModifiers() takes no measurable time compared to the amount of time SendKey takes.
-					}
-
-					if (vk != 0)
-						SendKey(vk, 0, modsForNextKey.Value, persistentModifiersForThisSendKeys, 1, KeyEventTypes.KeyDownAndUp, 0, targetWindow);
-					else // Try to send it by alternate means.
-					{
-						// In this mode, mods_for_next_key is ignored due to being unsupported.
-						if (targetWindow != 0)
-							// Although MSDN says WM_CHAR uses UTF-16, it seems to really do automatic
-							// translation between ANSI and UTF-16; we rely on this for correct results:
-							_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, sub[keyIndex], 0);
-						else
-							SendKeySpecial(sub[keyIndex], 1, modsForNextKey.Value | persistentModifiersForThisSendKeys);
-					}
-
-					modsForNextKey = 0;  // Safest to reset this regardless of whether a key was sent.
-				}
-			} // for()
-
-			uint modsToSet;
-
-			if (sendMode != SendModes.Event)
-			{
-				var finalKeyDelay = -1L;  // Set default.
-
-				if (!abortArraySend && TotalEventCount() > 0) // Check for zero events for performance, but more importantly because playback hook will not operate correctly with zero.
-				{
-					// Add more events to the array (prior to sending) to support the following:
-					// Restore the modifiers to match those the user is physically holding down, but do it as *part*
-					// of the single SendInput/Play call.  The reasons it's done here as part of the array are:
-					// 1) It avoids the need for A_HotkeyModifierTimeout (and it's superior to it) for both SendInput
-					//    and SendPlay.
-					// 2) The hook will not be present during the SendInput, nor can it be reinstalled in time to
-					//    catch any physical events generated by the user during the Send. Consequently, there is no
-					//    known way to reliably detect physical keystate changes.
-					// 3) Changes made to modifier state by SendPlay are seen only by the active window's thread.
-					//    Thus, it would be inconsistent and possibly incorrect to adjust global modifier state
-					//    after (or during) a SendPlay.
-					// So rather than resorting to A_HotkeyModifierTimeout, we can restore the modifiers within the
-					// protection of SendInput/Play's uninterruptibility, allowing the user's buffered keystrokes
-					// (if any) to hit against the correct modifier state when the SendInput/Play completes.
-					// For example, if #c:: is a hotkey and the user releases Win during the SendInput/Play, that
-					// release would hit after SendInput/Play restores Win to the down position, and thus Win would
-					// not be stuck down.  Furthermore, if the user didn't release Win, Win would be in the
-					// correct/intended position.
-					// This approach has a few weaknesses (but the strengths appear to outweigh them):
-					// 1) Hitting SendInput's 5000 char limit would omit the tail-end keystrokes, which would mess up
-					//    all the assumptions here.  But hitting that limit should be very rare, especially since it's
-					//    documented and thus scripts will avoid it.
-					// 2) SendInput's assumed uninterruptibility is false if any other app or script has an LL hook
-					//    installed.  This too is documented, so scripts should generally avoid using SendInput when
-					//    they know there are other LL hooks in the system.  In any case, there's no known solution
-					//    for it, so nothing can be done.
-					modsToSet = persistentModifiersForThisSendKeys
-								| modifiersLRRemapped // Restore any modifiers which were put in the down state by remappings or {key DownR} prior to this Send.
-								| (inBlindMode ? modsReleasedForSelectiveBlind
-								   : (modsDownPhysicallyOrig & ~modsDownPhysicallyButNotLogicallyOrig)); // The last item is usually 0.
-					// Above: When in blind mode, don't restore physical modifiers.  This is done to allow a hotkey
-					// such as the following to release Shift:
-					//    +space::SendInput/Play {Blind}{Shift up}
-					// Note that SendPlay can make such a change only from the POV of the target window; i.e. it can
-					// release shift as seen by the target window, but not by any other thread; so the shift key would
-					// still be considered to be down for the purpose of firing hotkeys (it can't change global key state
-					// as seen by GetAsyncKeyState).
-					// For more explanation of above, see a similar section for the non-array/old Send below.
-					SetModifierLRState(modsToSet, eventModifiersLR, 0, true, true); // Disguise in case user released or pressed Win/Alt during the Send (seems best to do it even for SendPlay, though it probably needs only Alt, not Win).
-					// mods_to_set is used further below as the set of modifiers that were explicitly put into effect at the tail end of SendInput.
-					SendEventArray(ref finalKeyDelay, modsToSet);
-				}
-
-				CleanupEventArray(finalKeyDelay);
-			}
-			else // A non-array send is in effect, so a more elaborate adjustment to logical modifiers is called for.
-			{
-				// Determine (or use best-guess, if necessary) which modifiers are down physically now as opposed
-				// to right before the Send began.
-				var modsDownPhysically = 0u; // As compared to modsDownPhysicallyOrig.
-
-				if (ht.HasKbdHook())
-					modsDownPhysically = modifiersLRPhysical;
-				else // No hook, so consult g_HotkeyModifierTimeout to make the determination.
-					// Assume that the same modifiers that were phys+logically down before the Send are still
-					// physically down (though not necessarily logically, since the Send may have released them),
-					// but do this only if the timeout period didn't expire (or the user specified that it never
-					// times out; i.e. elapsed time < timeout-value; DWORD subtraction gives the right answer even if
-					// tick-count has wrapped around).
-					modsDownPhysically = (ad.hotkeyModifierTimeout < 0 // It never times out or...
-										  || (DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < ad.hotkeyModifierTimeout) // It didn't time out.
-										 ? modsDownPhysicallyOrig : 0;
-
-				// Put any modifiers in sModifiersLR_remapped back into effect, as if they were physically down.
-				modsDownPhysically |= modifiersLRRemapped;
-				// Restore the state of the modifiers to be those the user is physically holding down right now.
-				// Any modifiers that are logically "persistent", as detected upon entrance to this function
-				// (e.g. due to something such as a prior "Send, {LWinDown}"), are also pushed down if they're not already.
-				// Don't press back down the modifiers that were used to trigger this hotkey if there's
-				// any doubt that they're still down, since doing so when they're not physically down
-				// would cause them to be stuck down, which might cause unwanted behavior when the unsuspecting
-				// user resumes typing.
-				// v1.0.42.04: Now that SendKey() is lazy about releasing Ctrl and/or Shift (but not Win/Alt),
-				// the section below also releases Ctrl/Shift if appropriate.  See SendKey() for more details.
-				modsToSet = persistentModifiersForThisSendKeys; // Set default.
-
-				if (inBlindMode) // This section is not needed for the array-sending modes because they exploit uninterruptibility to perform a more reliable restoration.
-				{
-					// For selective {Blind!#^+}, restore any modifiers that were automatically released at the
-					// start, such as for *^1::Send "{Blind^}2" when Ctrl+Alt+1 is pressed (Ctrl is released).
-					// But do this before the below so that if the key was physically down at the start and has
-					// since been released, it won't be pushed back down.
-					modsToSet |= modsReleasedForSelectiveBlind;
-					// At the end of a blind-mode send, modifiers are restored differently than normal. One
-					// reason for this is to support the explicit ability for a Send to turn off a hotkey's
-					// modifiers even if the user is still physically holding them down.  For example:
-					//   #space::Send {LWin up}  ; Fails to release it, by design and for backward compatibility.
-					//   #space::Send {Blind}{LWin up}  ; Succeeds, allowing LWin to be logically up even though it's physically down.
-					var modsChangedPhysicallyDuringSend = modsDownPhysicallyOrig ^ modsDownPhysically;
-					// Fix for v1.0.42.04: To prevent keys from getting stuck down, compensate for any modifiers
-					// the user physically pressed or released during the Send (especially those released).
-					// Remove any modifiers physically released during the send so that they don't get pushed back down:
-					modsToSet &= ~(modsChangedPhysicallyDuringSend & modsDownPhysicallyOrig); // Remove those that changed from down to up.
-					// Conversely, add any modifiers newly, physically pressed down during the Send, because in
-					// most cases the user would want such modifiers to be logically down after the Send.
-					// Obsolete comment from v1.0.40: For maximum flexibility and minimum interference while
-					// in blind mode, never restore modifiers to the down position then.
-					modsToSet |= modsChangedPhysicallyDuringSend & modsDownPhysically; // Add those that changed from up to down.
-				}
-				else // Regardless of whether the keyboard hook is present, the following formula applies.
-					modsToSet |= modsDownPhysically & ~modsDownPhysicallyButNotLogicallyOrig; // The second item is usually 0.
-
-				// Above takes into account the fact that the user may have pressed and/or released some modifiers
-				// during the Send.
-				// So it includes all keys that are physically down except those that were down physically but not
-				// logically at the *start* of the send operation (since the send operation may have changed the
-				// logical state).  In other words, we want to restore the keys to their former logical-down
-				// position to match the fact that the user is still holding them down physically.  The
-				// previously-down keys we don't do this for are those that were physically but not logically down,
-				// such as a naked Control key that's used as a suffix without being a prefix.  More details:
-				// mods_down_physically_but_not_logically_orig is used to distinguish between the following two cases,
-				// allowing modifiers to be properly restored to the down position when the hook is installed:
-				// 1) A naked modifier key used only as suffix: when the user phys. presses it, it isn't
-				//    logically down because the hook suppressed it.
-				// 2) A modifier that is a prefix, that triggers a hotkey via a suffix, and that hotkey sends
-				//    that modifier.  The modifier will go back up after the SEND, so the key will be physically
-				//    down but not logically.
-				// Use KEY_IGNORE_ALL_EXCEPT_MODIFIER to tell the hook to adjust g_modifiersLR_logical_non_ignored
-				// because these keys being put back down match the physical pressing of those same keys by the
-				// user, and we want such modifiers to be taken into account for the purpose of deciding whether
-				// other hotkeys should fire (or the same one again if auto-repeating):
-				// v1.0.42.04: A previous call to SendKey() might have left Shift/Ctrl in the down position
-				// because by procrastinating, extraneous keystrokes in examples such as "Send ABCD" are
-				// eliminated (previously, such that example released the shift key after sending each key,
-				// only to have to press it down again for the next one.  For this reason, some modifiers
-				// might get released here in addition to any that need to get pressed down.  That's why
-				// SetModifierLRState() is called rather than the old method of pushing keys down only,
-				// never releasing them.
-				// Put the modifiers in mods_to_set into effect.  Although "true" is passed to disguise up-events,
-				// there generally shouldn't be any up-events for Alt or Win because SendKey() would have already
-				// released them.  One possible exception to this is when the user physically released Alt or Win
-				// during the send (perhaps only during specific sensitive/vulnerable moments).
-				// g_modifiersLR_numpad_mask is used to work around an issue where our changes to shift-key state
-				// trigger the system's shift-numpad handling (usually in combination with actual user input),
-				// which in turn causes the Shift key to stick down.  If non-zero, the Shift key is currently "up"
-				// but should be "released" anyway, since the system will inject Shift-down either before the next
-				// keyboard event or after the Numpad key is released.  Find "fake shift" for more details.
-				SetModifierLRState(modsToSet, GetModifierLRState() | modifiersLRNumpadMask, targetWindow, true, true); // It also does DoKeyDelay(g->PressDuration).
-			} // End of non-array Send.
-
-			// For peace of mind and because that's how it was tested originally, the following is done
-			// only after adjusting the modifier state above (since that adjustment might be able to
-			// affect the global variables used below in a meaningful way).
-			if (ht.HasKbdHook())
-			{
-				// Ensure that g_modifiersLR_logical_non_ignored does not contain any down-modifiers
-				// that aren't down in g_modifiersLR_logical.  This is done mostly for peace-of-mind,
-				// since there might be ways, via combinations of physical user input and the Send
-				// commands own input (overlap and interference) for one to get out of sync with the
-				// other.  The below uses ^ to find the differences between the two, then uses & to
-				// find which are down in non_ignored that aren't in logical, then inverts those bits
-				// in g_modifiersLR_logical_non_ignored, which sets those keys to be in the up position:
-				modifiersLRLogicalNonIgnored &= ~((modifiersLRLogical ^ modifiersLRLogicalNonIgnored)
-												  & modifiersLRLogicalNonIgnored);
-			}
-
-			if (priorCapslockState == ToggleValueType.AlwaysOn) // The current user setting requires us to turn it back on.
-				_ = ToggleKeyState(VK_CAPITAL, ToggleValueType.AlwaysOn);
-
-			// Might be better to do this after changing capslock state, since having the threads attached
-			// tends to help with updating the global state of keys (perhaps only under Win9x in this case):
-			if (threadsAreAttached)
-				_ = AttachThreadInput(pd.MainThreadID, targetThread, false);
-
-			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
-				_ = Keyboard.ScriptBlockInput(false);
-
-			//THIS IS PROBABLY NOT NEEDED, SINCE WE PROCESS HOTKEYS ON A DIFFERENT THREAD ANYWAY, SO THERE SHOULDN'T BE ANY NON-CRITICAL BUFFERING.//TODO
-			// The following MsgSleep(-1) solves unwanted buffering of hotkey activations while SendKeys is in progress
-			// in a non-Critical thread.  Because SLEEP_WITHOUT_INTERRUPTION is used to perform key delays, any incoming
-			// hotkey messages would be left in the queue.  It is not until the next interruptible sleep that hotkey
-			// messages may be processed, and potentially discarded due to #MaxThreadsPerHotkey (even #MaxThreadsBuffer
-			// should only allow one buffered activation).  But if the hotkey thread just calls Send in a loop and then
-			// returns, it never performs an interruptible sleep, so the hotkey messages are processed one by one after
-			// each new hotkey thread returns, even though Critical was not used.  Also note SLEEP_WITHOUT_INTERRUPTION
-			// causes g_script.mLastScriptRest to be reset, so it's unlikely that a sleep would occur between Send calls.
-			// To solve this, call MsgSleep(-1) now (unless no delays were performed, or the thread is uninterruptible):
-			if (sendModeOrig == SendModes.Event && script.lastPeekTime != origLastPeekTime && script.Threads.IsInterruptible())
-				_ = Flow.Sleep(0); // MsgSleep(-1);//MsgSleep() is going to be extremely hard to implement, so just do regular sleep for now until we get real threads implemented.//TODO
-
-			// v1.0.43.03: Someone reported that when a non-autoreplace hotstring calls us to do its backspacing, the
-			// hotstring's subroutine can execute a command that activates another window owned by the script before
-			// the original window finished receiving its backspaces.  Although I can't reproduce it, this behavior
-			// fits with expectations since our thread won't necessarily have a chance to process the incoming
-			// keystrokes before executing the command that comes after SendInput.  If those command(s) activate
-			// another of this thread's windows, that window will most likely intercept the keystrokes (assuming
-			// that the message pump dispatches buffered keystrokes to whichever window is active at the time the
-			// message is processed).
-			// This fix does not apply to the SendPlay or SendEvent modes, the former due to the fact that it sleeps
-			// a lot while the playback is running, and the latter due to key-delay and because testing has never shown
-			// a need for it.
-			if (sendModeOrig == SendModes.Input && GetWindowThreadProcessId(GetForegroundWindow(), out _) == pd.MainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
-				Flow.SleepWithoutInterruption(-1);
-
-			// v1.0.43.08: Restore the original thread key-delay values in case above temporarily overrode them.
-			tv.keyDelay = origKeyDelay;
-			tv.keyDuration = origPressDuration;
+			//else no target thread, or it's our thread, or it's hung; so keep keybd_layout_thread at its default.
+		}
+
+		internal override void DetachTargetWindowThread(uint mainThread, uint targetThread)
+		{
+			_ = AttachThreadInput(mainThread, targetThread, false);
+		}
+
+		internal override void SendCharToTargetWindow(char ch, nint targetWindow)
+		{
+			_ = WindowsAPI.PostMessage(targetWindow, WM_CHAR, ch, 0);
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -2149,257 +1137,102 @@ namespace Keysharp.Core.Windows
 		    }
 		*/
 
-		/// <summary>
-		/// aSC or vk (but not both), can be zero to cause the default to be used.
-		/// For keys like NumpadEnter -- that have a unique scancode but a non-unique virtual key --
-		/// caller can just specify the sc.  In addition, the scan code should be specified for keys
-		/// like NumpadPgUp and PgUp.  In that example, the caller would send the same scan code for
-		/// both except that PgUp would be extended.   sc_to_vk() would map both of them to the same
-		/// virtual key, which is fine since it's the scan code that matters to apps that can
-		/// differentiate between keys with the same vk.
-		///
-		/// Thread-safe: This function is not fully thread-safe because keystrokes can get interleaved,
-		/// but that's always a risk with anything short of SendInput.  In fact,
-		/// when the hook ISN'T installed, keystrokes can occur in another thread, causing the key state to
-		/// change in the middle of KeyEvent, which is the same effect as not having thread-safe key-states
-		/// such as GetKeyboardState in here.  Also, the odds of both our threads being in here simultaneously
-		/// is greatly reduced by the fact that the hook thread never passes "true" for aDoKeyDelay, thus
-		/// its calls should always be very fast.  Even if a collision does occur, there are thread-safety
-		/// things done in here that should reduce the impact to nearly as low as having a dedicated
-		/// KeyEvent function solely for calling by the hook thread (which might have other problems of its own).
-		/// </summary>
-		/// <param name="eventType"></param>
-		/// <param name="vk"></param>
-		/// <param name="sc"></param>
-		/// <param name="targetWindow"></param>
-		/// <param name="doKeyDelay"></param>
-		/// <param name="extraInfo"></param>
-		///
-		protected internal override void SendKeyEvent(KeyEventTypes eventType, uint vk, uint sc = 0u, nint targetWindow = default, bool doKeyDelay = false, long extraInfo = KeyIgnoreAllExceptModifier)
+		internal override void SendKeyEventToTargetWindow(KeyEventTypes eventType, uint vk, uint sc = 0u, nint targetWindow = default, bool doKeyDelay = false, long extraInfo = KeyIgnoreAllExceptModifier)
 		{
-			if ((vk | sc) == 0)//If neither VK nor SC was specified, return.
-				return;
-
-			if (extraInfo == 0) // Shouldn't be called this way because 0 is considered false in some places below (search on " = aExtraInfo" to find them).
-				extraInfo = KeyIgnoreAllExceptModifier; // Seems slightly better to use a standard default rather than something arbitrary like 1.
-
-			// Since calls from the hook thread could come in even while the SendInput array is being constructed,
-			// don't let those events get interspersed with the script's explicit use of SendInput.
 			var ht = Script.TheScript.HookThread;
-			//Note that the threading model in Keysharp is different than AHK, so this doesn't apply.
-			//In AHK, the low level keyboard proc runs in its own thread, however in Keysharp it turns on the main window thread.
-			//Further, after hours of extreme scrutiny in AHK, there seems to be no code in HookThreadProc() where a keyboard event could be sent here.
-			//So just hard code callerIsKeybdHook to false.
-			var callerIsKeybdHook = false;// WindowsAPI.GetCurrentThreadId() == Keysharp.Core.Processes.MainThreadID;//Hook runs on the main window thread.
-			var putEventIntoArray = sendMode != SendModes.Event && !callerIsKeybdHook;
+			bool? b = null;
 
-			if (sendMode == SendModes.Input || callerIsKeybdHook) // First check is necessary but second is just for maintainability.
-				doKeyDelay = false;
-
-			// Even if the sc_to_vk() mapping results in a zero-value vk, don't return.
-			// I think it may be valid to send keybd_events that have a zero vk.
-			// In any case, it's unlikely to hurt anything:
-			if (vk == 0)
-				vk = ht.MapScToVk(sc);
-			else if (sc == 0)
-				// In spite of what the MSDN docs say, the scan code parameter *is* used, as evidenced by
-				// the fact that the hook receives the proper scan code as sent by the below, rather than
-				// zero like it normally would.  Even though the hook would try to use MapVirtualKey() to
-				// convert zero-value scan codes, it's much better to send it here also for full compatibility
-				// with any apps that may rely on scan code (and such would be the case if the hook isn't
-				// active because the user doesn't need it; also for some games maybe).
-				sc = ht.MapVkToSc(vk);
-
-			var scLowByte = sc & 0xFF;
-			var eventFlags = ((sc >> 8) & 0xFF) != 0 ? KEYEVENTF_EXTENDEDKEY : 0u;
-
-			// v1.0.43: Apparently, the journal playback hook requires neutral modifier keystrokes
-			// rather than left/right ones.  Otherwise, the Shift key can't capitalize letters, etc.
-			if (sendMode == SendModes.Play)
+			if (ht.KeyToModifiersLR(vk, sc, ref b) != 0)
 			{
+				// When sending modifier keystrokes directly to a window, use the AutoIt3 SetKeyboardState()
+				// technique to improve the reliability of changes to modifier states.  If this is not done,
+				// sometimes the state of the SHIFT key (and perhaps other modifiers) will get out-of-sync
+				// with what's intended, resulting in uppercase vs. lowercase problems (and that's probably
+				// just the tip of the iceberg).  For this to be helpful, our caller must have ensured that
+				// our thread is attached to aTargetWindow's (but it seems harmless to do the below even if
+				// that wasn't done for any reason).  Doing this here in this function rather than at a
+				// higher level probably isn't best in terms of performance (e.g. in the case where more
+				// than one modifier is being changed, the multiple calls to Get/SetKeyboardState() could
+				// be consolidated into one call), but it is much easier to code and maintain this way
+				// since many different functions might call us to change the modifier state:
+				var state = keyStatePool.Rent(256);//Original did not clear state here, so presumably GetKeyboardState() overwrites all elements.
+				_ = GetKeyboardState(state);
+
+				if (eventType == KeyEventTypes.KeyDown)
+					state[vk] |= 0x80;
+				else if (eventType == KeyEventTypes.KeyUp)
+					state[vk] &= 0x7F;//This is probably better, no error.
+
+				//state[vk] &= ~0x80;//Compiler says this is an error.
+				// else KEYDOWNANDUP, in which case it seems best (for now) not to change the state at all.
+				// It's rarely if ever called that way anyway.
+
+				// If vk is a left/right specific key, be sure to also update the state of the neutral key:
 				switch (vk)
 				{
 					case VK_LCONTROL:
-					case VK_RCONTROL: vk = VK_CONTROL; break; // But leave scan code set to a left/right specific value rather than converting it to "left" unconditionally.
+					case VK_RCONTROL:
+						if ((state[VK_LCONTROL] & 0x80) != 0 || (state[VK_RCONTROL] & 0x80) != 0)
+							state[VK_CONTROL] |= 0x80;
+						else
+							state[VK_CONTROL] &= 0x7F;
+
+						break;
 
 					case VK_LSHIFT:
-					case VK_RSHIFT: vk = VK_SHIFT; break;
+					case VK_RSHIFT:
+						if ((state[VK_LSHIFT] & 0x80) != 0 || (state[VK_RSHIFT] & 0x80) != 0)
+							state[VK_SHIFT] |= 0x80;
+						else
+							state[VK_SHIFT] &= 0x7F;
+
+						break;
 
 					case VK_LMENU:
-					case VK_RMENU: vk = VK_MENU; break;
+					case VK_RMENU:
+						if ((state[VK_LMENU] & 0x80) != 0 || (state[VK_RMENU] & 0x80) != 0)
+							state[VK_MENU] |= 0x80;
+						else
+							state[VK_MENU] &= 0x7F;
+
+						break;
 				}
+
+				_ = SetKeyboardState(state);
+				keyStatePool.Return(state);
+				// Even after doing the above, we still continue on to send the keystrokes
+				// themselves to the window, for greater reliability (same as AutoIt3).
 			}
 
-			// aTargetWindow is almost always passed in as NULL by our caller, even if the overall command
-			// being executed is ControlSend.  This is because of the following reasons:
-			// 1) Modifiers need to be logically changed via keybd_event() when using ControlSend against
-			//    a cmd-prompt, console, or possibly other types of windows.
-			// 2) If a hotkey triggered the ControlSend that got us here and that hotkey is a naked modifier
-			//    such as RAlt:: or modified modifier such as ^#LShift, that modifier would otherwise auto-repeat
-			//    an possibly interfere with the send operation.  This auto-repeat occurs because unlike a normal
-			//    send, there are no calls to keybd_event() (keybd_event() stop the auto-repeat as a side-effect).
-			// One exception to this is something like "ControlSend, Edit1, {Control down}", which explicitly
-			// calls us with a target window.  This exception is by design and has been bug-fixed and documented
-			// in ControlSend for v1.0.21:
-			if (targetWindow != 0) // This block shouldn't affect overall thread-safety because hook thread never calls it in this mode.
+			// lowest 16 bits: repeat count: always 1 for up events, probably 1 for down in our case.
+			// highest order bits: 11000000 (0xC0) for keyup, usually 00000000 (0x00) for keydown.
+			var lParam = (long)(sc << 16);
+
+			if (eventType != KeyEventTypes.KeyUp)  // i.e. always do it for KEYDOWNANDUP
+				_ = WindowsAPI.PostMessage(targetWindow, WM_KEYDOWN, vk, (uint)(lParam | 0x00000001));
+
+			// The press-duration delay is done only when this is a down-and-up because otherwise,
+			// the normal g->KeyDelay will be in effect.  In other words, it seems undesirable in
+			// most cases to do both delays for only "one half" of a keystroke:
+			if (doKeyDelay && eventType == KeyEventTypes.KeyDownAndUp)
+				DoKeyDelay(ThreadAccessors.A_KeyDuration); // Since aTargetWindow!=NULL, sendMode!=SM_PLAY, so no need for to ever use the SendPlay press-duration.
+
+			if (eventType != KeyEventTypes.KeyDown)
+				_ = WindowsAPI.PostMessage(targetWindow, WM_KEYUP, vk, (uint)(lParam | 0xC0000001));
+		}
+
+		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
+		{
+			var scLowByte = sc & 0xFF;
+			var eventFlags = ((sc >> 8) & 0xFF) != 0 ? KEYEVENTF_EXTENDEDKEY : 0u;
+			if ((eventType  == KeyEventTypes.KeyDown) || (eventType  == KeyEventTypes.KeyDownAndUp))
+				keybd_event((byte)vk, (byte)scLowByte, eventFlags, (uint)extraInfo);
+			
+			if ((eventType == KeyEventTypes.KeyUp) || (eventType  == KeyEventTypes.KeyDownAndUp))
 			{
-				bool? b = null;
-
-				if (ht.KeyToModifiersLR(vk, sc, ref b) != 0)
-				{
-					// When sending modifier keystrokes directly to a window, use the AutoIt3 SetKeyboardState()
-					// technique to improve the reliability of changes to modifier states.  If this is not done,
-					// sometimes the state of the SHIFT key (and perhaps other modifiers) will get out-of-sync
-					// with what's intended, resulting in uppercase vs. lowercase problems (and that's probably
-					// just the tip of the iceberg).  For this to be helpful, our caller must have ensured that
-					// our thread is attached to aTargetWindow's (but it seems harmless to do the below even if
-					// that wasn't done for any reason).  Doing this here in this function rather than at a
-					// higher level probably isn't best in terms of performance (e.g. in the case where more
-					// than one modifier is being changed, the multiple calls to Get/SetKeyboardState() could
-					// be consolidated into one call), but it is much easier to code and maintain this way
-					// since many different functions might call us to change the modifier state:
-					var state = keyStatePool.Rent(256);//Original did not clear state here, so presumably GetKeyboardState() overwrites all elements.
-					_ = GetKeyboardState(state);
-
-					if (eventType == KeyEventTypes.KeyDown)
-						state[vk] |= 0x80;
-					else if (eventType == KeyEventTypes.KeyUp)
-						state[vk] &= 0x7F;//This is probably better, no error.
-
-					//state[vk] &= ~0x80;//Compiler says this is an error.
-					// else KEYDOWNANDUP, in which case it seems best (for now) not to change the state at all.
-					// It's rarely if ever called that way anyway.
-
-					// If vk is a left/right specific key, be sure to also update the state of the neutral key:
-					switch (vk)
-					{
-						case VK_LCONTROL:
-						case VK_RCONTROL:
-							if ((state[VK_LCONTROL] & 0x80) != 0 || (state[VK_RCONTROL] & 0x80) != 0)
-								state[VK_CONTROL] |= 0x80;
-							else
-								state[VK_CONTROL] &= 0x7F;
-
-							break;
-
-						case VK_LSHIFT:
-						case VK_RSHIFT:
-							if ((state[VK_LSHIFT] & 0x80) != 0 || (state[VK_RSHIFT] & 0x80) != 0)
-								state[VK_SHIFT] |= 0x80;
-							else
-								state[VK_SHIFT] &= 0x7F;
-
-							break;
-
-						case VK_LMENU:
-						case VK_RMENU:
-							if ((state[VK_LMENU] & 0x80) != 0 || (state[VK_RMENU] & 0x80) != 0)
-								state[VK_MENU] |= 0x80;
-							else
-								state[VK_MENU] &= 0x7F;
-
-							break;
-					}
-
-					_ = SetKeyboardState(state);
-					keyStatePool.Return(state);
-					// Even after doing the above, we still continue on to send the keystrokes
-					// themselves to the window, for greater reliability (same as AutoIt3).
-				}
-
-				// lowest 16 bits: repeat count: always 1 for up events, probably 1 for down in our case.
-				// highest order bits: 11000000 (0xC0) for keyup, usually 00000000 (0x00) for keydown.
-				var lParam = (long)(sc << 16);
-
-				if (eventType != KeyEventTypes.KeyUp)  // i.e. always do it for KEYDOWNANDUP
-					_ = WindowsAPI.PostMessage(targetWindow, WM_KEYDOWN, vk, (uint)(lParam | 0x00000001));
-
-				// The press-duration delay is done only when this is a down-and-up because otherwise,
-				// the normal g->KeyDelay will be in effect.  In other words, it seems undesirable in
-				// most cases to do both delays for only "one half" of a keystroke:
-				if (doKeyDelay && eventType == KeyEventTypes.KeyDownAndUp)
-					DoKeyDelay(ThreadAccessors.A_KeyDuration); // Since aTargetWindow!=NULL, sendMode!=SM_PLAY, so no need for to ever use the SendPlay press-duration.
-
-				if (eventType != KeyEventTypes.KeyDown)
-					_ = WindowsAPI.PostMessage(targetWindow, WM_KEYUP, vk, (uint)(lParam | 0xC0000001));
+				eventFlags |= KEYEVENTF_KEYUP;
+				keybd_event((byte)vk, (byte)scLowByte, eventFlags, (uint)extraInfo);
 			}
-			else // Keystrokes are to be sent with keybd_event() or the event array rather than PostMessage().
-			{
-				// The following static variables are intentionally NOT thread-safe because their whole purpose
-				// is to watch the combined stream of keystrokes from all our   Due to our threads'
-				// keystrokes getting interleaved with the user's and those of other threads, this kind of
-				// monitoring is never 100% reliable.  All we can do is aim for an astronomically low chance
-				// of failure.
-				// Users of the below want them updated only for keybd_event() keystrokes (not PostMessage ones):
-				prevEventType = eventType;
-				prevVK = vk;
-				var tempTargetLayoutHasAltGr = (callerIsKeybdHook ? LayoutHasAltGr(GetFocusedKeybdLayout(0)) : targetLayoutHasAltGr) == ResultType.ConditionTrue; // i.e. not CONDITION_FALSE (which is nonzero) or FAIL (zero).
-				var hookableAltGr = (vk == VK_RMENU) && tempTargetLayoutHasAltGr && !putEventIntoArray && ht.HasKbdHook();// hookId != 0;
-				// Calculated only once for performance (and avoided entirely if not needed):
-				bool? b = null;
-				var keyAsModifiersLR = putEventIntoArray ? ht.KeyToModifiersLR(vk, sc, ref b) : 0;
-				var doKeyHistory = !callerIsKeybdHook // If caller is hook, don't log because it does.
-								   && sendMode != SendModes.Play// In playback mode, the journal hook logs so that timestamps are accurate.
-								   && (!ht.HasKbdHook() || sendMode == SendModes.Input); // In the remaining cases, log only when the hook isn't installed or won't be at the time of the event.
-
-				if (eventType != KeyEventTypes.KeyUp)  // i.e. always do it for KEYDOWNANDUP
-				{
-					if (putEventIntoArray)
-						PutKeybdEventIntoArray(keyAsModifiersLR, vk, sc, eventFlags, extraInfo);
-					else
-					{
-						// The following global is used to flag as our own the keyboard driver's LCtrl-down keystroke
-						// that is triggered by RAlt-down (AltGr).  The hook prevents those keystrokes from triggering
-						// hotkeys such as "*Control::" anyway, but this ensures the LCtrl-down is marked as "ignored"
-						// and given the correct SendLevel.  It may fix other obscure side-effects and bugs, since the
-						// event should be considered script-generated even though indirect.  Note: The problem with
-						// having the hook detect AltGr's automatic LControl-down is that the keyboard driver seems
-						// to generate the LControl-down *before* notifying the system of the RAlt-down.  That makes
-						// it impossible for the hook to automatically adjust its SendLevel based on the RAlt-down.
-						if (hookableAltGr)
-							altGrExtraInfo = extraInfo;
-
-						keybd_event((byte)vk, (byte)scLowByte, eventFlags, (uint)extraInfo);// naked scan code (the 0xE0 prefix, if any, is omitted)
-						altGrExtraInfo = 0; // Unconditional reset.
-					}
-
-					if (doKeyHistory && ht.keyHistory is KeyHistory kh)
-						kh.UpdateKeyEventHistory(false, vk, sc); // Should be thread-safe since if no hook means only one thread ever sends keystrokes (with possible exception of mouse hook, but that seems too rare).
-				}
-
-				// The press-duration delay is done only when this is a down-and-up because otherwise,
-				// the normal g->KeyDelay will be in effect.  In other words, it seems undesirable in
-				// most cases to do both delays for only "one half" of a keystroke:
-				if (doKeyDelay && eventType == KeyEventTypes.KeyDownAndUp) // Hook should never specify a delay, so no need to check if caller is hook.
-					DoKeyDelay(sendMode == SendModes.Play ? ThreadAccessors.A_KeyDurationPlay : ThreadAccessors.A_KeyDuration); // DoKeyDelay() is not thread safe but since the hook thread should never pass true for aKeyDelay, it shouldn't be an issue.
-
-				if (eventType != KeyEventTypes.KeyDown)  // i.e. always do it for KEYDOWNANDUP
-				{
-					eventFlags |= KEYEVENTF_KEYUP;
-
-					if (putEventIntoArray)
-						PutKeybdEventIntoArray(keyAsModifiersLR, vk, sc, eventFlags, extraInfo);
-					else
-					{
-						if (hookableAltGr) // See comments in similar section above for details.
-							altGrExtraInfo = extraInfo;
-
-						keybd_event((byte)vk, (byte)scLowByte, eventFlags, (uint)extraInfo);
-						altGrExtraInfo = 0; // Unconditional reset.
-					}
-
-					// The following is done to avoid an extraneous artificial {LCtrl Up} later on,
-					// since the keyboard driver should insert one in response to this {RAlt Up}:
-					if (targetLayoutHasAltGr == ResultType.ConditionTrue && sc == ScanCodes.RAlt)
-						eventModifiersLR &= ~MOD_LCONTROL;
-
-					if (doKeyHistory && ht.keyHistory is KeyHistory kh)
-						kh.UpdateKeyEventHistory(true, vk, sc);
-				}
-			}
-
-			if (doKeyDelay) // SM_PLAY also uses DoKeyDelay(): it stores the delay item in the event array.
-				DoKeyDelay(); // Thread-safe because only called by main thread in this mode.  See notes above.
 		}
 
 		//protected override void Backspace(int length)
@@ -2561,12 +1394,6 @@ namespace Keysharp.Core.Windows
 		    }
 		    }
 		*/
-
-		internal class CachedLayoutType
-		{
-			internal ResultType has_altgr = ResultType.Fail;
-			internal nint hkl = 0;
-		};
 
 		private delegate KBDTABLES64 KbdTables();
 

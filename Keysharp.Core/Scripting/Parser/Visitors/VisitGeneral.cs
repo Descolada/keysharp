@@ -451,10 +451,10 @@ namespace Keysharp.Scripting
             // These will be ignored in other stages if it turns out not to be a remap later below:
             remapSourceVk = ht.TextToVK(tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null), ref modifiersLR, false, true, kbLayout);//An earlier stage verified that it's a valid hotkey, though VK could be zero.
             remapSourceIsCombo = tempcp1.Contains(HotkeyDefinition.COMPOSITE_DELIMITER);
-            remapSourceIsMouse = ht.IsMouseVK(remapSourceVk);
-            remapDestIsMouse = ht.IsMouseVK(remapDestVk);
+            remapSourceIsMouse = MouseUtils.IsMouseVK(remapSourceVk);
+            remapDestIsMouse = MouseUtils.IsMouseVK(remapDestVk);
             remapKeybdToMouse = !remapSourceIsMouse && remapDestIsMouse;
-            remapWheel = ht.IsWheelVK(remapSourceVk) || ht.IsWheelVK(remapDestVk);
+            remapWheel = MouseUtils.IsWheelVK(remapSourceVk) || MouseUtils.IsWheelVK(remapDestVk);
             remapSource = (remapSourceIsCombo ? "" : "*") +// v1.1.27.01: Omit * when the remap source is a custom combo.
                             (tempcp1.Length == 1 && char.IsUpper(tempcp1[0]) ? "+" : "") +// Allow A::b to be different than a::b.
                             hotName;// Include any modifiers too, e.g. ^b::c.

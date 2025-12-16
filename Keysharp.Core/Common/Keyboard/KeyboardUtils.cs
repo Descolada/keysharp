@@ -145,6 +145,14 @@ namespace Keysharp.Core.Common.Keyboard
 			return modifiers;
 		}
 
+		internal static bool IsModifierVk(uint vk) => vk switch
+		{
+			VK_LSHIFT or VK_RSHIFT or VK_SHIFT or
+			VK_LCONTROL or VK_RCONTROL or VK_CONTROL or
+			VK_LMENU or VK_RMENU or VK_MENU or
+			VK_LWIN or VK_RWIN => true,
+			_ => false
+		};
 	}
 
 	[Flags]

@@ -61,6 +61,7 @@ global using global::Keysharp.Core.Common.Input;
 global using global::Keysharp.Core.Common.Invoke;
 global using global::Keysharp.Core.Common.Joystick;
 global using global::Keysharp.Core.Common.Keyboard;
+global using global::Keysharp.Core.Common.Mouse;
 global using global::Keysharp.Core.Common.Mapper;
 global using global::Keysharp.Core.Common.ObjectBase;
 global using global::Keysharp.Core.Common.Patterns;

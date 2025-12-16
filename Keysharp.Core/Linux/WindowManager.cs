@@ -46,7 +46,7 @@ namespace Keysharp.Core.Linux
 
 		public static IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows) => windows;
 
-		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => throw new NotImplementedException();
+		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => 0;
 
 		public static nint GetForegroundWindowHandle() => new nint(Display.XGetInputFocusHandle());
 

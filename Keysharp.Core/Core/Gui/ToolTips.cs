@@ -13,7 +13,7 @@
 		/// <summary>
 		/// An array of all tooltip positions used to avoid position flickering.
 		/// </summary>
-		internal readonly POINT?[] persistentTooltipsPositions = new POINT?[MaxToolTips];
+		internal readonly Point?[] persistentTooltipsPositions = new Point?[MaxToolTips];
 	}
 
 	/// <summary>
@@ -78,7 +78,7 @@
 
 			var handle = 0L;
 			ToolTip tt = null;
-			POINT? ttp = persistentTooltipsPositions[id];
+			Point? ttp = persistentTooltipsPositions[id];
 			tooltipInvokerForm.CheckedInvoke(() =>
 			{
 				if (persistentTooltips[id] == null)
@@ -165,7 +165,7 @@
 				if (ttp != null && ttp?.X == tempx && ttp?.Y == tempy && tt.GetToolTip(tooltipInvokerForm) == t)
 					return;
 
-				persistentTooltipsPositions[id] = new POINT(tempx, tempy);
+				persistentTooltipsPositions[id] = new Point(tempx, tempy);
 #if WINDOWS
 				_ = mSetTrackPosition.Invoke(tt, [tempx, tempy]);
 				_ = mSetTool.Invoke(tt, [tooltipInvokerForm, t, 2, persistentTooltipsPositions[id]]);

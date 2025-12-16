@@ -1419,7 +1419,6 @@ namespace Keysharp.Core.Common.Keyboard
 			// 2) Determines sTargetKeybdLayout and sTargetLayoutHasAltGr early (for maintainability).
 			var threadsAreAttached = false; // Set default.
 			uint keybdLayoutThread = 0;     //
-			uint targetThread = 0;
 			WindowItemBase tempitem = null;
 			var pd = script.ProcessesData;
 
@@ -2251,7 +2250,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// Might be better to do this after changing capslock state, since having the threads attached
 			// tends to help with updating the global state of keys (perhaps only under Win9x in this case):
 			if (threadsAreAttached)
-				DetachTargetWindowThread(pd.MainThreadID, targetThread);
+				DetachTargetWindowThread(pd.MainThreadID, keybdLayoutThread);
 
 			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
 				_ = Core.Keyboard.ScriptBlockInput(false);
@@ -2281,7 +2280,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// This fix does not apply to the SendPlay or SendEvent modes, the former due to the fact that it sleeps
 			// a lot while the playback is running, and the latter due to key-delay and because testing has never shown
 			// a need for it.
-			if (sendModeOrig == SendModes.Input && WindowManager.GetWindowThreadProcessId(GetForegroundWindow(), out _) == pd.MainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
+			if (sendModeOrig == SendModes.Input && WindowsAPI.GetWindowThreadProcessId(WindowsAPI.GetForegroundWindow(), out _) == pd.MainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
 				Flow.SleepWithoutInterruption(-1);
 #endif
 

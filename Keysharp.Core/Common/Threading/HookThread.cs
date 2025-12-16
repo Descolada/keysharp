@@ -3569,7 +3569,6 @@ namespace Keysharp.Core.Common.Threading
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
 				var inputLevel = InputLevelFromInfo((long)extraInfo);
-				Console.WriteLine($"Sending AHK_HOOK_HOTKEY hotkeyIDToPost={hotkeyIDToPost} keystate={(keyUp ? "up" : "down")} variant with inputlevel={inputLevel} and sc={keyHistoryCurr.sc} idMask={(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK}");
 				_ = channel.Writer.TryWrite(new KeysharpMsg()
 				{
 					message = (uint)UserMessages.AHK_HOOK_HOTKEY,

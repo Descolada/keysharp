@@ -903,7 +903,8 @@ namespace Keysharp.Core.Windows
 		internal override void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowItemBase tempitem, nint targetWindow)
 		{
 			var pd = TheScript.ProcessesData;
-			var tempitem = WindowManager.CreateWindow(targetWindow);
+			tempitem = WindowManager.CreateWindow(targetWindow);
+			uint targetThread;
 
 			if ((targetThread = GetWindowThreadProcessId(targetWindow, out _)) != 0 // Assign.
 					&& targetThread != pd.MainThreadID && !tempitem.IsHung)

@@ -480,8 +480,6 @@ namespace Keysharp.Core.Common.Keyboard
 				}
 			}
 
-			Console.WriteLine("GetModifierLRState returned: " + ModifiersLRToText(modifiersLR));
-
 			return modifiersLR;
 			// Only consider a modifier key to be really down if both the hook's tracking of it
 			// and GetKeyboardState() agree that it should be down.  The should minimize the impact

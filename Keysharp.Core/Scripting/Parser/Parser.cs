@@ -565,7 +565,7 @@ namespace Keysharp.Scripting
             //var listener = new TraceListener();
             //mainParser.AddParseListener(listener);
 
-            //mainParser.ErrorHandler = new BailErrorStrategy();
+            mainParser.ErrorHandler = new BailWithListenerErrorStrategy();
             //mainParser.AddErrorListener(new DiagnosticErrorListener());
             //mainParser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
 

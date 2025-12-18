@@ -641,9 +641,6 @@ namespace Keysharp.Core.Linux
 
 			DebugLog($"[Hook] KeyUp vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected}");
 
-			if (vk == 88 && isInjected == false)
-			Console.WriteLine("Breakpoint");
-
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, (uint)(isInjected ? 0x10 : 0));
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)

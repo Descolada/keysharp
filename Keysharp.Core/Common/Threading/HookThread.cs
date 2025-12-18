@@ -2575,8 +2575,6 @@ namespace Keysharp.Core.Common.Threading
 			{
 				modifiersLRnew = kbdMsSender.modifiersLRLogicalNonIgnored;
 
-				Console.WriteLine($"ModifiersLRNew before adjustment: {modifiersLRnew:X}");
-
 				if (thisKey.asModifiersLR != 0)
 					// Hotkeys are not defined to modify themselves, so look for a match accordingly.
 					modifiersLRnew &= ~thisKey.asModifiersLR;

@@ -1,9 +1,29 @@
-using Antlr4.Runtime;
 using System.Collections.Generic;
 using System.IO;
-using static MainParser;
-using Antlr4.Runtime.Atn;
 using System.Threading.Channels;
+using Antlr4.Runtime;
+using Antlr4.Runtime.Atn;
+using Antlr4.Runtime.Misc;
+using static MainParser;
+
+// This is needed for Linux because without it MainParserErrorListener.SyntaxError crashes the program and debugger with the InvalidOperationException
+public sealed class BailWithListenerErrorStrategy : DefaultErrorStrategy
+{
+	public override void Recover(Antlr4.Runtime.Parser recognizer, RecognitionException e)
+	{
+		ReportError(recognizer, e);
+		throw new ParseCanceledException(e);
+	}
+
+	public override IToken RecoverInline(Antlr4.Runtime.Parser recognizer)
+	{
+		var e = new InputMismatchException(recognizer);
+		ReportInputMismatch(recognizer, e);
+		throw new ParseCanceledException(e);
+	}
+
+	public override void Sync(Antlr4.Runtime.Parser recognizer) { /* no-op */ }
+}
 
 public class MainParserErrorListener : IAntlrErrorListener<IToken>
 {

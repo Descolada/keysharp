@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Atn;
 using Antlr4.Runtime.Misc;
+using Keysharp.Core;
 using static MainParser;
 
 // This is needed for Linux because without it MainParserErrorListener.SyntaxError crashes the program and debugger with the InvalidOperationException
@@ -12,7 +13,10 @@ public sealed class BailWithListenerErrorStrategy : DefaultErrorStrategy
 	public override void Recover(Antlr4.Runtime.Parser recognizer, RecognitionException e)
 	{
 		ReportError(recognizer, e);
-		throw new ParseCanceledException(e);
+        recognizer.InputStream.Seek(recognizer.InputStream.Size);
+        var tokens = recognizer.TokenStream;
+        tokens.Seek(tokens.Size);
+        recognizer.Context.Stop = tokens.LT(1);
 	}
 
 	public override IToken RecoverInline(Antlr4.Runtime.Parser recognizer)
@@ -36,11 +40,15 @@ public class MainParserErrorListener : IAntlrErrorListener<IToken>
         string msg,
         RecognitionException e)
     {
-		string fullPath = offendingSymbol.InputStream?.SourceName ?? "<unknown file>";
-		string fileName = Path.GetFileName(fullPath);
+		string fullPath = offendingSymbol?.InputStream?.SourceName ?? "<unknown file>";
+		string fileName = fullPath == "<unknown file>" ? "" : Path.GetFileName(fullPath);
+		string offendingText = offendingSymbol?.Text ?? "";
+		string message = $"Syntax error{(fileName != "" ? " in file " + fileName : "")} at line {line}:{charPositionInLine} \"{offendingText}\" - {msg}";
 
-		// Throw an exception to stop parsing
-		throw new InvalidOperationException($"Syntax error{(fileName != "" ? " in file " + fileName : "")} at line {line}:{charPositionInLine} \"{offendingSymbol.Text}\" - {msg}", e);
+		if (recognizer is MainParserBase parser)
+			parser.SetSyntaxError(message, line, charPositionInLine, fullPath, offendingText);
+		else
+			throw new ParseException(message, line, offendingText, fullPath == "<unknown file>" ? "" : fullPath);
     }
 }
 
@@ -52,6 +60,11 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
 {
     private readonly Stack<string> _tagNames = new Stack<string>();
     private uint _derefDepth = 0;
+	internal string LastSyntaxErrorMessage { get; private set; }
+	internal int LastSyntaxErrorLine { get; private set; }
+	internal int LastSyntaxErrorColumn { get; private set; }
+	internal string LastSyntaxErrorFile { get; private set; }
+	internal string LastSyntaxErrorCode { get; private set; }
 
     public static HashSet<int> flowKeywords = new HashSet<int> {
         MainLexer.If,
@@ -85,6 +98,15 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         RemoveErrorListeners();
         AddErrorListener(new MainParserErrorListener());
     }
+
+	internal void SetSyntaxError(string message, int line, int column, string file, string code)
+	{
+		LastSyntaxErrorMessage = message;
+		LastSyntaxErrorLine = line;
+		LastSyntaxErrorColumn = column;
+		LastSyntaxErrorFile = file == "<unknown file>" ? "" : file;
+		LastSyntaxErrorCode = code ?? "";
+	}
 
     /// <summary>
     /// Short form for prev(String str)

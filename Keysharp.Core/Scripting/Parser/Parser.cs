@@ -1,5 +1,6 @@
 using Antlr4.Runtime;
 using Antlr4.Runtime.Atn;
+using Antlr4.Runtime.Misc;
 using Keysharp.Core.Scripting.Parser.Helpers;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -571,7 +572,27 @@ namespace Keysharp.Scripting
 
             //var profilingATNSimulator = new ProfilingATNSimulator(mainParser);
 
-            MainParser.ProgramContext programContext = mainParser.program();
+			MainParser.ProgramContext programContext = null;
+			try
+			{
+				programContext = mainParser.program();
+			}
+			catch (ParseCanceledException)
+			{
+                if (string.IsNullOrEmpty(mainParser.LastSyntaxErrorMessage))
+				    throw;
+			}
+
+            if (!string.IsNullOrEmpty(mainParser.LastSyntaxErrorMessage))
+            {
+                var parseEx = new ParseException(
+                    mainParser.LastSyntaxErrorMessage,
+                    mainParser.LastSyntaxErrorLine,
+                    mainParser.LastSyntaxErrorCode ?? "",
+                    mainParser.LastSyntaxErrorFile ?? "");
+                parseEx.Column = mainParser.LastSyntaxErrorColumn;
+                throw parseEx;
+            }
 
             //ProfileParser(mainParser);
             //Console.WriteLine("End");

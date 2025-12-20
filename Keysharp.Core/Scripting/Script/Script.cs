@@ -107,9 +107,7 @@ namespace Keysharp.Scripting
 		private ComMethodData comMethodData;
 #endif
 		private ControlProvider controlProvider;
-#if WINDOWS
 		private DllData dllData;
-#endif
 		private DriveTypeMapper driveTypeMapper;
 		private ExecutableMemoryPoolManager exeMemoryPoolManager;
 		private FlowData flowData;
@@ -151,9 +149,7 @@ namespace Keysharp.Scripting
 		internal ComMethodData ComMethodData => comMethodData ?? (comMethodData = new ());
 #endif
 		internal ControlProvider ControlProvider => controlProvider ?? (controlProvider = new ());
-#if WINDOWS
 		internal DllData DllData => dllData ?? (dllData = new ());
-#endif
 		internal DriveTypeMapper DriveTypeMapper => driveTypeMapper ?? (driveTypeMapper = new ());
 		internal ExecutableMemoryPoolManager ExecutableMemoryPoolManager => exeMemoryPoolManager ?? (exeMemoryPoolManager = new ());
 		internal FlowData FlowData => flowData ?? (flowData = new ());

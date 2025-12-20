@@ -71,7 +71,7 @@ using static Keysharp.Core.ControlX;
 using static Keysharp.Core.Debug;
 using static Keysharp.Core.Dialogs;
 using static Keysharp.Core.Dir;
-//using static Keysharp.Core.Dll;
+using static Keysharp.Core.Dll;
 using static Keysharp.Core.Drive;
 using static Keysharp.Core.EditX;
 using static Keysharp.Core.Env;

@@ -1,5 +1,4 @@
-﻿#if WINDOWS
-namespace Keysharp.Core.Common.Invoke
+﻿namespace Keysharp.Core.Common.Invoke
 {
 	internal class ComArgumentHelper : ArgumentHelper
 	{
@@ -561,4 +560,3 @@ namespace Keysharp.Core.Common.Invoke
 		}
 	}
 }
-#endif

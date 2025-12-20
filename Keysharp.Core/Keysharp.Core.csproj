@@ -52,6 +52,7 @@
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<PackageReference Include="SharpHook" Version="7.1.0" />
+		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
 		<ProjectReference Include="..\..\System.Windows.Forms\System.Windows.Forms\System.Windows.Forms.csproj" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
 		<EmbeddedResource Remove="Common\Window\KeysharpActiveX.resx" />

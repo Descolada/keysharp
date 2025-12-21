@@ -1,5 +1,6 @@
 ﻿#if LINUX
 //#define DPI
+using System.Text;
 using WindowStyles = System.Windows.Forms.WindowStyles;
 using WindowExStyles = System.Windows.Forms.WindowExStyles;
 
@@ -142,11 +143,99 @@ namespace Keysharp.Core.Linux
 				if (!IsSpecified)
 					return DefaultErrorString;
 
-				var hint = new XClassHintStr();
-
-				if (Xlib.GetClassHint(xwindow.XDisplay.Handle, xwindow.ID, ref hint) != 0)
+				static string PickClassName(string resClass, string resName)
 				{
-					return hint.resClass;
+					if (!string.IsNullOrEmpty(resClass))
+						return resClass;
+
+					if (!string.IsNullOrEmpty(resName))
+						return resName;
+
+						return null;
+				}
+
+				bool TryGetWmClass(long windowId, out string resClass, out string resName)
+				{
+					resClass = null;
+					resName = null;
+
+					var wmClassAtom = Xlib.XInternAtom(xwindow.XDisplay.Handle, "WM_CLASS", true);
+					if (wmClassAtom == 0 || windowId == 0)
+						return false;
+
+					nint prop = 0;
+					var result = Xlib.XGetWindowProperty(xwindow.XDisplay.Handle,
+						windowId,
+						wmClassAtom,
+						0,
+						new nint(256),
+						false,
+						(nint)XAtom.AnyPropertyType,
+						out _,
+						out _,
+						out var nitems,
+						out _,
+						ref prop);
+
+					try
+					{
+						if (result != 0 || prop == 0 || nitems.ToInt64() == 0)
+							return false;
+
+						var bytes = new byte[nitems.ToInt64()];
+						Marshal.Copy(prop, bytes, 0, bytes.Length);
+						var firstNull = System.Array.IndexOf(bytes, (byte)0);
+						if (firstNull < 0)
+							firstNull = bytes.Length;
+
+						resName = firstNull > 0 ? Encoding.ASCII.GetString(bytes, 0, firstNull) : string.Empty;
+
+						var secondStart = Math.Min(firstNull + 1, bytes.Length);
+						var secondNull = System.Array.IndexOf(bytes, (byte)0, secondStart);
+						if (secondNull < 0)
+							secondNull = bytes.Length;
+
+						if (secondStart < bytes.Length && secondNull > secondStart)
+							resClass = Encoding.ASCII.GetString(bytes, secondStart, secondNull - secondStart);
+
+						return true;
+					}
+					finally
+					{
+						if (prop != 0)
+							_ = Xlib.XFree(prop);
+					}
+				}
+
+				if (Xlib.TryGetClassHint(xwindow.XDisplay.Handle, xwindow.ID, out var resName, out var resClass))
+				{
+					var className = PickClassName(resClass, resName);
+					if (!string.IsNullOrEmpty(className))
+						return className;
+				}
+
+				if (TryGetWmClass(xwindow.ID, out var wmClass, out var wmName))
+				{
+					var className = PickClassName(wmClass, wmName);
+					if (!string.IsNullOrEmpty(className))
+						return className;
+				}
+
+				if (Control.FromHandle(Handle) is Control ctrl)
+					return ctrl.GetType().Name;
+
+				var tempParent = ParentWindow;
+				var depth = 0;
+				while (tempParent != null && depth++ < 16 && tempParent.Handle.ToInt64() != xwindow.XDisplay.Root.ID)
+				{
+					if (TryGetWmClass(tempParent.Handle.ToInt64(), out wmClass, out wmName))
+					{
+						var className = PickClassName(wmClass, wmName);
+						if (!string.IsNullOrEmpty(className))
+							return className;
+					}
+
+					tempParent = tempParent.ParentWindow;
 				}
 
 				return DefaultObject;
@@ -277,16 +366,51 @@ namespace Keysharp.Core.Linux
 				if (!IsSpecified)
 					return null;
 
-				var parent = ParentWindow;
-				var tempParent = parent;
+				var parent = (WindowItemBase)this;
+				WindowItemBase wmStateCandidate = null;
+				var tempParent = (WindowItemBase)this;
+				var wmStateAtom = Xlib.XInternAtom(xwindow.XDisplay.Handle, "WM_STATE", true);
 
+				bool HasWmState(WindowItemBase item)
+				{
+					if (wmStateAtom == 0 || item == null || item.Handle == 0)
+						return false;
+
+					nint prop = 0;
+					var result = Xlib.XGetWindowProperty(xwindow.XDisplay.Handle,
+						item.Handle.ToInt64(),
+						wmStateAtom,
+						0,
+						new nint(2),
+						false,
+						(nint)XAtom.AnyPropertyType,
+						out _,
+						out _,
+						out var nitems,
+						out _,
+						ref prop);
+
+					if (prop != 0)
+						_ = Xlib.XFree(prop);
+
+					return result == 0 && nitems.ToInt64() > 0;
+				}
+
+				if (HasWmState(tempParent))
+					wmStateCandidate = tempParent;
+
+				tempParent = ParentWindow;
 				while (tempParent != null && tempParent.Handle.ToInt64() != xwindow.XDisplay.Root.ID)
 				{
 					parent = tempParent;
+
+					if (wmStateCandidate == null && HasWmState(tempParent))
+						wmStateCandidate = tempParent;
+
 					tempParent = parent.ParentWindow;
 				}
 
-				return parent;
+				return wmStateCandidate ?? parent;
 			}
 		}
 
@@ -442,7 +566,24 @@ namespace Keysharp.Core.Linux
 
 				try
 				{
-					return Xlib.GetWMName(xwindow.XDisplay.Handle, xwindow.ID);
+					var wmName = Xlib.GetWMName(xwindow.XDisplay.Handle, xwindow.ID);
+					if (!string.IsNullOrEmpty(wmName))
+						return wmName;
+
+					var prop = new XTextProperty();
+					if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, xwindow.ID, ref prop, (XAtom)xwindow.XDisplay._NET_WM_NAME) != 0)
+					{
+						if (prop.value != 0 && prop.format == 8 && prop.nitems > 0)
+						{
+							var title = prop.encoding == xwindow.XDisplay.UTF8_STRING
+								? Marshal.PtrToStringUTF8(prop.value)
+								: Marshal.PtrToStringAuto(prop.value);
+							prop.Free();
+							return title;
+						}
+
+						prop.Free();
+					}
 				}
 				catch (Exception ex)
 				{
@@ -684,7 +825,63 @@ namespace Keysharp.Core.Linux
 		{
 		}
 
-		internal override void ChildFindPoint(PointAndHwnd pah) => throw new NotImplementedException();
+		internal override void ChildFindPoint(PointAndHwnd pah)
+		{
+			if (!IsSpecified)
+				return;
+
+			var root = xwindow.XDisplay.Root.ID;
+
+			foreach (var child in xwindow.XDisplay.XQueryTreeRecursive(xwindow, id =>
+			{
+				var attr = new XWindowAttributes();
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) == 0)
+					return false;
+
+				if (attr.map_state != MapState.IsViewable)
+					return false;
+
+				if (pah.ignoreDisabled && Control.FromHandle(new nint(id)) is Control ctrl && !ctrl.Enabled)
+					return false;
+
+				return true;
+			}))
+			{
+				var attr = new XWindowAttributes();
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, child.ID, ref attr) == 0)
+					continue;
+
+				if (!Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, child.ID, root, 0, 0, out var absX, out var absY, out _))
+					continue;
+
+				var rect = new Rectangle(absX, absY, attr.width, attr.height);
+				if (pah.pt.X < rect.Left || pah.pt.X >= rect.Right || pah.pt.Y < rect.Top || pah.pt.Y >= rect.Bottom)
+					continue;
+
+				var centerx = rect.Left + ((double)rect.Width / 2);
+				var centery = rect.Top + ((double)rect.Height / 2);
+				var distance = Math.Sqrt(Math.Pow(pah.pt.X - centerx, 2.0) + Math.Pow(pah.pt.Y - centery, 2.0));
+				var updateIt = pah.hwndFound == 0;
+
+				if (!updateIt)
+				{
+					if (rect.Left >= pah.rectFound.Left && rect.Right <= pah.rectFound.Right
+							&& rect.Top >= pah.rectFound.Top && rect.Bottom <= pah.rectFound.Bottom)
+						updateIt = true;
+					else if (distance < pah.distanceFound &&
+							 (pah.rectFound.Left < rect.Left || pah.rectFound.Right > rect.Right
+							  || pah.rectFound.Top < rect.Top || pah.rectFound.Bottom > rect.Bottom))
+						updateIt = true;
+				}
+
+				if (updateIt)
+				{
+					pah.hwndFound = new nint(child.ID);
+					pah.rectFound = rect;
+					pah.distanceFound = distance;
+				}
+			}
+		}
 
 		/// <summary>
 		/// Left-Clicks on this window/control

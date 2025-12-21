@@ -114,20 +114,51 @@ namespace Keysharp.Core.Linux
 
 		public static WindowItemBase WindowFromPoint(POINT location)
 		{
-			var x = location.X;
-			var y = location.Y;
+			if (!PlatformManager.IsX11Available)
+				return null;
 
-			//Manually searched windows, but that likely is not what we need, given the context it's used in. Mostl likely will need to revisit using AtSpi.//TODO
-			foreach (var window in AllWindows)
+			var root = (nint)Display.Root.ID;
+			if (!Xlib.XQueryPointer(Display.Handle, root,
+					out _,
+					out var child,
+					out _,
+					out _,
+					out _,
+					out _,
+					out _))
+				return null;
+
+			if (child == 0)
+				return null;
+
+			// Walk down to the deepest child under the pointer.
+			nint current = child;
+			while (true)
 			{
-				var wloc = window.Location;
+				if (!Xlib.XQueryPointer(Display.Handle, current,
+						out _,
+						out var childReturn,
+						out _,
+						out _,
+						out _,
+						out _,
+						out _))
+					break;
 
-				if (x >= wloc.X && x < wloc.X + wloc.Width &&
-						y >= wloc.Y && y < wloc.Y + wloc.Height)
-					return window;
+				if (childReturn == 0)
+					break;
+
+				current = childReturn;
 			}
 
-			return null;
+			if (current == 0)
+				return null;
+
+			var attr = new XWindowAttributes();
+			if (Xlib.XGetWindowAttributes(Display.Handle, current, ref attr) == 0 || attr.map_state != MapState.IsViewable)
+				return null;
+
+			return new WindowItem(new nint(current));
 		}
 	}
 }

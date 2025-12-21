@@ -1,5 +1,8 @@
 ﻿#if LINUX
 
+using Keysharp.Core.Linux.X11;
+using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+
 namespace Keysharp.Core.Linux
 {
 	/// <summary>
@@ -106,6 +109,145 @@ namespace Keysharp.Core.Linux
 
 		internal override void ControlClick(object ctrlorpos, object title, object text, string whichButton, int clickCount, string options, object excludeTitle, object excludeText)
 		{
+			var winx = int.MinValue;
+			var winy = int.MinValue;
+			var ctrlx = int.MinValue;
+			var ctrly = int.MinValue;
+			var vk = HookThread.ConvertMouseButton(whichButton);
+			var posoverride = options?.Contains("pos", StringComparison.OrdinalIgnoreCase) ?? false;
+			bool d = false, u = false;
+			var posAppliedToChild = false;
+
+			if (!string.IsNullOrEmpty(options))
+			{
+				foreach (Range r in options.AsSpan().SplitAny(Spaces))
+				{
+					var opt = options.AsSpan(r).Trim();
+
+					if (opt.Length > 0)
+					{
+						if (opt.Equals("d", StringComparison.OrdinalIgnoreCase))
+							d = true;
+						else if (opt.Equals("u", StringComparison.OrdinalIgnoreCase))
+							u = true;
+						else if (Options.TryParse(opt, "x", ref ctrlx)) { }
+						else if (Options.TryParse(opt, "y", ref ctrly)) { }
+					}
+				}
+			}
+
+			if (d) u = false;
+			if (u) d = false;
+
+			if (ctrlorpos is string s && s.StartsWith("x", StringComparison.OrdinalIgnoreCase) && s.Contains(' ') && s.Contains('y', StringComparison.OrdinalIgnoreCase))
+			{
+				foreach (Range r in s.AsSpan().SplitAny(Spaces))
+				{
+					var opt = s.AsSpan(r).Trim();
+
+					if (opt.Length > 0)
+					{
+						if (Options.TryParse(opt, "x", ref winx)) { }
+						else if (Options.TryParse(opt, "y", ref winy)) { }
+					}
+				}
+			}
+
+			WindowItemBase item = null;
+			var getctrlbycoords = false;
+
+			if (ctrlorpos.IsNullOrEmpty())
+			{
+				item = WindowSearch.SearchWindow(title, text, excludeTitle, excludeText, true);
+			}
+			else if (!posoverride)
+			{
+				item = WindowSearch.SearchControl(ctrlorpos, title, text, excludeTitle, excludeText, false);
+
+				if (item == null)
+				{
+					if (winx != int.MinValue && winy != int.MinValue)
+						getctrlbycoords = true;
+					else
+						_ = Errors.TargetErrorOccurred($"Could not get control {ctrlorpos}", title, text, excludeTitle, excludeText);
+				}
+			}
+			else
+			{
+				if (winx != int.MinValue && winy != int.MinValue)
+					getctrlbycoords = true;
+			}
+
+			if (getctrlbycoords)
+			{
+				item = WindowSearch.SearchWindow(title, text, excludeTitle, excludeText, true);
+				if (item != null)
+				{
+					var pt = new POINT(winx, winy);
+					item.ClientToScreen(ref pt);
+					var pah = new PointAndHwnd(pt);
+					item.ChildFindPoint(pah);
+					if (pah.hwndFound != 0)
+					{
+						item = WindowManager.CreateWindow(pah.hwndFound);
+						if (ctrlx == int.MinValue || ctrly == int.MinValue)
+						{
+							ctrlx = pt.X - pah.rectFound.Left;
+							ctrly = pt.Y - pah.rectFound.Top;
+						}
+						posAppliedToChild = true;
+					}
+				}
+			}
+
+			if (item == null || clickCount < 1)
+				return;
+
+			var target = item as WindowItem;
+			if (target == null)
+				return;
+
+			var size = target.Size;
+			var clickX = ctrlx != int.MinValue ? ctrlx : size.Width / 2;
+			var clickY = ctrly != int.MinValue ? ctrly : size.Height / 2;
+
+			if (!posAppliedToChild && winx != int.MinValue && winy != int.MinValue)
+			{
+				clickX = winx;
+				clickY = winy;
+			}
+
+			var clickPoint = new Point(clickX, clickY);
+			var vkIsWheel = MouseUtils.IsWheelVK(vk);
+
+			Buttons button;
+			if (vk == VK_LBUTTON) button = Buttons.Left;
+			else if (vk == VK_RBUTTON) button = Buttons.Right;
+			else if (vk == VK_MBUTTON) button = Buttons.Middle;
+			else if (vk == VK_XBUTTON1) button = Buttons.Four;
+			else if (vk == VK_XBUTTON2) button = Buttons.Five;
+			else if (vk == VK_WHEEL_UP) button = Buttons.Four;
+			else if (vk == VK_WHEEL_DOWN) button = Buttons.Five;
+			else if (vk == VK_WHEEL_LEFT) button = (Buttons)6;
+			else if (vk == VK_WHEEL_RIGHT) button = (Buttons)7;
+			else return;
+
+			for (var i = 0; i < clickCount; i++)
+			{
+				if (vkIsWheel || !u)
+				{
+					target.SendMouseEvent(XEventName.ButtonPress, EventMasks.ButtonPress, button, clickPoint);
+					_ = Xlib.XFlush(XDisplay.Default.Handle);
+					WindowItemBase.DoControlDelay();
+				}
+
+				if (vkIsWheel || !d)
+				{
+					target.SendMouseEvent(XEventName.ButtonRelease, EventMasks.ButtonRelease, button, clickPoint);
+					_ = Xlib.XFlush(XDisplay.Default.Handle);
+					WindowItemBase.DoControlDelay();
+				}
+			}
 		}
 
 		internal override void ControlDeleteItem(int n, object ctrl, object title, object text, object excludeTitle, object excludeText)
@@ -301,10 +443,12 @@ namespace Keysharp.Core.Linux
 
 		internal override void ControlSend(string str, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
+			ControlSendHelper(str, ctrl, title, text, excludeTitle, excludeText, SendRawModes.NotRaw);
 		}
 
 		internal override void ControlSendText(string str, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
+			ControlSendHelper(str, ctrl, title, text, excludeTitle, excludeText, SendRawModes.RawText);
 		}
 
 		internal override void ControlSetChecked(object val, object ctrl, object title, object text, object excludeTitle, object excludeText)
@@ -344,10 +488,48 @@ namespace Keysharp.Core.Linux
 
 		internal override void ControlSetExStyle(object val, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
+			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
+			{
+				if (val is long l)
+					item.ExStyle = l;
+				else if (val is double d)
+					item.ExStyle = (long)d;
+				else if (val is string s)
+				{
+					long temp = 0;
+
+					if (Options.TryParse(s, "+", ref temp)) { item.ExStyle |= temp; }
+					else if (Options.TryParse(s, "-", ref temp)) { item.ExStyle &= ~temp; }
+					else if (Options.TryParse(s, "^", ref temp)) { item.ExStyle ^= temp; }
+					else item.ExStyle = val.ParseLong(true).Value;
+				}
+			}
 		}
 
 		internal override void ControlSetStyle(object val, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
+			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
+			{
+				if (val is long l)
+					item.Style = l;
+				else if (val is double d)
+					item.Style = (long)d;
+				else if (val is string s)
+				{
+					long temp = 0;
+
+					if (Options.TryParse(s, "+", ref temp)) { item.Style |= temp; }
+					else if (Options.TryParse(s, "-", ref temp)) { item.Style &= ~temp; }
+					else if (Options.TryParse(s, "^", ref temp)) { item.Style ^= temp; }
+					else item.Style = val.ParseLong(true).Value;
+				}
+			}
+		}
+
+		private static void ControlSendHelper(string str, object ctrl, object title, object text, object excludeTitle, object excludeText, SendRawModes mode)
+		{
+			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
+				Script.TheScript.HookThread.kbdMsSender.SendKeys(str, mode, SendModes.Event, item.Handle);
 		}
 
 		internal override void ControlShowDropDown(object ctrl, object title, object text, object excludeTitle, object excludeText) =>

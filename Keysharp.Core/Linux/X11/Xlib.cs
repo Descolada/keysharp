@@ -61,35 +61,33 @@ namespace Keysharp.Core.Linux.X11
 		[DllImport(libX11Name)]
 		internal static extern int XGetClassHint(nint display, long window, ref XClassHint classHint);
 
-		internal static int GetClassHint(nint display, long window, ref XClassHintStr classHint)
+		internal static bool TryGetClassHint(nint display, long window, out string resName, out string resClass)
 		{
+			resName = string.Empty;
+			resClass = string.Empty;
+
 			var localClassHint = XClassHint.Zero;
 
 			if (XGetClassHint(display, window, ref localClassHint) == 0)
+				return false;
+
+			try
 			{
-				// Clean up unmanaged memory.
-				// --------------------------
-				// Typically: _classHint.res_name == 0
-				// Freeing a 0 is not prohibited.
-				// Use first member (at offset 0) to free the structure itself.
-				_ = XFree(localClassHint.resName);
-				classHint = XClassHintStr.Zero;
-				return 0;
+				if (localClassHint.resName != 0)
+					resName = Marshal.PtrToStringAuto(localClassHint.resName) ?? string.Empty;
+
+				if (localClassHint.resClass != 0)
+					resClass = Marshal.PtrToStringAuto(localClassHint.resClass) ?? string.Empty;
 			}
-			else
+			finally
 			{
-				classHint = new XClassHintStr();
-				// Marshal data from an unmanaged block of memory to a managed object.
-				classHint.resName  = Marshal.PtrToStringAuto(localClassHint.resName);
-				classHint.resClass = Marshal.PtrToStringAuto(localClassHint.resClass);
-				// Clean up unmanaged memory.
-				// --------------------------
-				// Freeing a 0 is not prohibited.
-				// First structure member (at offset 0) frees  the structure itself as well.
-				_ = XFree(localClassHint.resName);
-				_ = XFree(localClassHint.resClass);
-				return 1;
+				if (localClassHint.resName != 0)
+					_ = XFree(localClassHint.resName);
+				if (localClassHint.resClass != 0)
+					_ = XFree(localClassHint.resClass);
 			}
+
+			return true;
 		}
 
 		[DllImport(libX11Name)]
@@ -155,7 +153,7 @@ namespace Keysharp.Core.Linux.X11
 			{
 				var title = "";
 
-				if (titleNameProp.value == 0 || titleNameProp.format != 8 || titleNameProp.nitems > 0)
+				if (titleNameProp.value != 0 && titleNameProp.format == 8 && titleNameProp.nitems > 0)
 					title = Marshal.PtrToStringAuto(titleNameProp.value);
 
 				_ = XFree(titleNameProp.value);

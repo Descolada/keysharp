@@ -2863,30 +2863,30 @@
 				e.IsInputKey = true;
 		}
 
-		private static VerticalAlignment GetVerticalAlignment(ContentAlignment alignment) => alignment switch
+		private static GuiOptions.VerticalAlignment GetVerticalAlignment(ContentAlignment alignment) => alignment switch
 		{
-			ContentAlignment.TopLeft or ContentAlignment.TopCenter or ContentAlignment.TopRight => VerticalAlignment.Top,
-			ContentAlignment.MiddleLeft or ContentAlignment.MiddleCenter or ContentAlignment.MiddleRight => VerticalAlignment.Middle,
-			_ => VerticalAlignment.Bottom
+			ContentAlignment.TopLeft or ContentAlignment.TopCenter or ContentAlignment.TopRight => GuiOptions.VerticalAlignment.Top,
+			ContentAlignment.MiddleLeft or ContentAlignment.MiddleCenter or ContentAlignment.MiddleRight => GuiOptions.VerticalAlignment.Middle,
+			_ => GuiOptions.VerticalAlignment.Bottom
 		};
 
-		private static HorizontalAlignment GetHorizontalAlignment(ContentAlignment alignment) => alignment switch
+		private static GuiOptions.HorizontalAlignment GetHorizontalAlignment(ContentAlignment alignment) => alignment switch
 		{
-			ContentAlignment.TopLeft or ContentAlignment.MiddleLeft or ContentAlignment.BottomLeft => HorizontalAlignment.Left,
-			ContentAlignment.TopCenter or ContentAlignment.MiddleCenter or ContentAlignment.BottomCenter => HorizontalAlignment.Center,
-			_ => HorizontalAlignment.Right
+			ContentAlignment.TopLeft or ContentAlignment.MiddleLeft or ContentAlignment.BottomLeft => GuiOptions.HorizontalAlignment.Left,
+			ContentAlignment.TopCenter or ContentAlignment.MiddleCenter or ContentAlignment.BottomCenter => GuiOptions.HorizontalAlignment.Center,
+			_ => GuiOptions.HorizontalAlignment.Right
 		};
 
-		private static ContentAlignment CombineAlignment(VerticalAlignment vertical, HorizontalAlignment horizontal) => (vertical, horizontal) switch
+		private static ContentAlignment CombineAlignment(GuiOptions.VerticalAlignment vertical, GuiOptions.HorizontalAlignment horizontal) => (vertical, horizontal) switch
 		{
-			(VerticalAlignment.Top, HorizontalAlignment.Left) => ContentAlignment.TopLeft,
-			(VerticalAlignment.Top, HorizontalAlignment.Center) => ContentAlignment.TopCenter,
-			(VerticalAlignment.Top, HorizontalAlignment.Right) => ContentAlignment.TopRight,
-			(VerticalAlignment.Middle, HorizontalAlignment.Left) => ContentAlignment.MiddleLeft,
-			(VerticalAlignment.Middle, HorizontalAlignment.Center) => ContentAlignment.MiddleCenter,
-			(VerticalAlignment.Middle, HorizontalAlignment.Right) => ContentAlignment.MiddleRight,
-			(VerticalAlignment.Bottom, HorizontalAlignment.Left) => ContentAlignment.BottomLeft,
-			(VerticalAlignment.Bottom, HorizontalAlignment.Center) => ContentAlignment.BottomCenter,
+			(GuiOptions.VerticalAlignment.Top, GuiOptions.HorizontalAlignment.Left) => ContentAlignment.TopLeft,
+			(GuiOptions.VerticalAlignment.Top, GuiOptions.HorizontalAlignment.Center) => ContentAlignment.TopCenter,
+			(GuiOptions.VerticalAlignment.Top, GuiOptions.HorizontalAlignment.Right) => ContentAlignment.TopRight,
+			(GuiOptions.VerticalAlignment.Middle, GuiOptions.HorizontalAlignment.Left) => ContentAlignment.MiddleLeft,
+			(GuiOptions.VerticalAlignment.Middle, GuiOptions.HorizontalAlignment.Center) => ContentAlignment.MiddleCenter,
+			(GuiOptions.VerticalAlignment.Middle, GuiOptions.HorizontalAlignment.Right) => ContentAlignment.MiddleRight,
+			(GuiOptions.VerticalAlignment.Bottom, GuiOptions.HorizontalAlignment.Left) => ContentAlignment.BottomLeft,
+			(GuiOptions.VerticalAlignment.Bottom, GuiOptions.HorizontalAlignment.Center) => ContentAlignment.BottomCenter,
 			_ => ContentAlignment.BottomRight
 		};
 #endif

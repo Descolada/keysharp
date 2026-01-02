@@ -1190,9 +1190,9 @@ namespace Keysharp.Core
 				else if (_control is KeysharpTrackBar tb)
 				{
 					if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Center)
-						slider.TickStyle = TickStyle.Both;
+						tb.TickStyle = TickStyle.Both;
 					else if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
-						slider.TickStyle = TickStyle.TopLeft;
+						tb.TickStyle = TickStyle.TopLeft;
 					else if (opts.noticks.IsTrue())
 						tb.TickStyle = TickStyle.None;
 

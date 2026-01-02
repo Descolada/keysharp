@@ -122,7 +122,7 @@ namespace System.Windows.Forms
 		internal static IEnumerable<Control> GetControls(this Form form)
 		{
 #if WINDOWS
-			return form.Controls;
+			return form.Controls.OfType<Control>();
 #else
 			return form.Children.Where(ctrl => ctrl is not PixelLayout);
 #endif
@@ -733,7 +733,10 @@ namespace System.Windows.Forms
 			}
 		}
 
-#if !WINDOWS
+#if WINDOWS
+		internal static int Count(this System.Windows.Forms.Control.ControlCollection collection) => collection.Count;
+
+#else
 		private static int GetChildCount(Control parent)
 		{
 			parent = parent.EnsureLayoutContainer();

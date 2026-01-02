@@ -22,7 +22,7 @@
 			}
 			else
 			{
-				foreach (var tempItem in strip.Items)
+				foreach (ToolStripItem tempItem in strip.Items)
 				{
 					if (MenuMatchHelper(tempItem.Text, topLevel))
 					{
@@ -56,7 +56,7 @@
 				}
 				else
 				{
-					foreach (var tempItem in menuItem.DropDownItems)
+					foreach (ToolStripItem tempItem in menuItem.DropDownItems)
 					{
 						if (MenuMatchHelper(tempItem.Text, item))
 						{

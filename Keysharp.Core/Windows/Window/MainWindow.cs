@@ -1,7 +1,7 @@
 ﻿#if WINDOWS
 namespace Keysharp.Scripting
 {
-	public class MainWindow : KeysharpForm
+	public partial class MainWindow : KeysharpForm
 	{
 		public static Font OurDefaultFont = new ("MS Shell Dlg", 8F);
 		internal FormWindowState lastWindowState = FormWindowState.Normal;

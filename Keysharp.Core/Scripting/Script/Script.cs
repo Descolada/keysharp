@@ -78,13 +78,13 @@ namespace Keysharp.Scripting
 				if (_normalIcon == null)
 					_normalIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 #endif
-				return _normalIcon ??= Core.Properties.Resources.Keysharp_ico;
+				return _normalIcon ??= ImageHelper.IconFromByteArray(Core.Properties.Resources.Keysharp_ico);
 			}
 		}
 		private Icon _pausedIcon;
-		internal Icon pausedIcon => _pausedIcon ??= Core.Properties.Resources.Keysharp_p_ico;
+		internal Icon pausedIcon => _pausedIcon ??= ImageHelper.IconFromByteArray(Core.Properties.Resources.Keysharp_p_ico);
 		private Icon _suspendedIcon;
-		internal Icon suspendedIcon => _suspendedIcon ??= Core.Properties.Resources.Keysharp_s_ico;
+		internal Icon suspendedIcon => _suspendedIcon ??= ImageHelper.IconFromByteArray(Core.Properties.Resources.Keysharp_s_ico);
 		internal bool persistent;
 		internal nint playbackHook = 0;
 		internal DateTime priorHotkeyStartTime = DateTime.UtcNow;

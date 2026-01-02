@@ -14,8 +14,10 @@ global using global::System.Threading;
 global using global::System.Threading.Tasks;
 #if WINDOWS
 	global using global::System.Windows.Forms;
+	global using global::System.Drawing;
 #else
 	global using global::Eto.Forms;
+	global using global::Eto.Drawing;
 #endif
 
 //Our usings.

@@ -11,6 +11,7 @@ global using global::System.Text;
     global using global::ScintillaNET;
     global using global::System.Drawing;
     global using global::System.Windows.Forms;
+    global using UITimer = System.Windows.Forms.Timer;
 #else
     global using global::Eto.Drawing;
     global using global::Eto.Forms;

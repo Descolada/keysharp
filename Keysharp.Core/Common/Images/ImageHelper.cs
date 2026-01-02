@@ -1,9 +1,17 @@
-﻿using Eto.GtkSharp;
+﻿#if LINUX
+using Eto.GtkSharp;
+#endif
 
 namespace Keysharp.Core.Common.Images
 {
 	internal static class ImageHelper
 	{
+		internal static Icon IconFromByteArray(byte[] bytes)
+		{
+			using (var ms = new MemoryStream(bytes))
+				return new Icon(ms);
+		}
+
 		internal static Bitmap ConvertCursorToBitmap(Cursor c)
 		{
 #if WINDOWS
@@ -64,16 +72,11 @@ namespace Keysharp.Core.Common.Images
 
 				try
 				{
-#if WINDOWS
-					icon = (Icon)resource.GetObject(iconName);
-#else
-
 					if (resource.GetObject(iconName) is byte[] bytes)
 					{
 						using (var ms = new MemoryStream(bytes))
 							icon = new Icon(ms);
 					}
-#endif
 					if (icon != null)
 						break;
 				}

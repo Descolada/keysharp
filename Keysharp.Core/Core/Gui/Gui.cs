@@ -1733,24 +1733,21 @@
 								finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : (int)Math.Round(5 * fontpixels);
 								goto heightdone;
 							}
-							else if (ctrl is KeysharpLabel lbl
-							)
+							else if (ctrl is KeysharpLabel lbl)
 							{
 								bool hasW = opts.width != int.MinValue || opts.wp != int.MinValue;
 								bool hasH = opts.height != int.MinValue || opts.hp != int.MinValue;
 
 								if (hasW && !hasH)
 								{
-									var lblWidth = ctrl.GetSize().Width;
-									ctrl.MinimumSize = new Size(lblWidth, 0);
-									ctrl.MaximumSize = new Size(lblWidth, int.MaxValue);
+									ctrl.MinimumSize = new Size(finalWidth, 0);
+									ctrl.MaximumSize = new Size(finalWidth, int.MaxValue);
 									lbl.AutoSize = true;
 								}
 								else if (!hasW && hasH)
 								{
-									var lblHeight = ctrl.GetSize().Height;
-									ctrl.MinimumSize = new Size(0, lblHeight);
-									ctrl.MaximumSize = new Size(int.MaxValue, lblHeight);
+									ctrl.MinimumSize = new Size(0, finalHeight);
+									ctrl.MaximumSize = new Size(int.MaxValue, finalHeight);
 									lbl.AutoSize = true;
 								} 
 								else if (!hasW && !hasH)

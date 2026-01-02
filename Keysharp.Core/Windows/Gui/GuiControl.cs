@@ -169,7 +169,7 @@ namespace Keysharp.Core
 						return pic.Filename;
 					else if (_control is KeysharpActiveX kax)
 						return kax.Iid;
-					else if (_control is Control ctrl)
+					else if (_control is Forms.Control ctrl)
 						return KeysharpEnhancements.NormalizeEol(ctrl.Text);
 					return DefaultObject;
 				}
@@ -292,18 +292,12 @@ namespace Keysharp.Core
 							}
 						}
 					}
-					else if (_control is Control ctrl)
+					else if (_control is Forms.Control ctrl)
 						ctrl.Text = KeysharpEnhancements.NormalizeEol(val, Environment.NewLine);
 
 					if (ParentForm.Visible == true)
 						_control.Refresh();
 				}
-			}
-
-			public object Visible
-			{
-				get => _control.Visible;
-				set => _control.Visible = Options.OnOff(value) ?? false;
 			}
 
 			public override object __New(params object[] args)

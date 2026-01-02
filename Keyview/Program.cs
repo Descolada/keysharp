@@ -11,10 +11,14 @@ namespace Keyview
 			var s = new Script();
 #if WINDOWS
 			_ = Application.SetHighDpiMode(HighDpiMode.SystemAware);
-#endif
 			Application.EnableVisualStyles();
 			Application.SetCompatibleTextRenderingDefault(false);
 			Application.Run(new Keyview());
+#else
+			if (Application.Instance == null)
+				new Eto.Forms.Application(Eto.Platforms.Gtk);
+			Application.Instance.Run(new Keyview());
+#endif
 		}
 	}
 }

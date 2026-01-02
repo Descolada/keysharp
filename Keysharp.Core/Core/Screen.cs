@@ -33,26 +33,12 @@ namespace Keysharp.Core
 			var h = height.Ai();
 			var f = filename.As();
 
-			var format = System.Windows.Forms.Screen.PrimaryScreen.BitsPerPixel switch
-		{
-				8 or 16 => PixelFormat.Format16bppRgb565,
-				24 => PixelFormat.Format24bppRgb,
-				32 => PixelFormat.Format32bppArgb,
-				_ => PixelFormat.Format32bppArgb,
-		};
-
-		var bmp = new Bitmap(w, h, format);
-
 			Mouse.AdjustPoint(ref x, ref y);
+			
+			var bmp = GuiHelper.GetScreen(x, y, w, h);
 
-			using (var g = Graphics.FromImage(bmp))
-			{
-				g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
-
-				if (f.Length > 0)
-					bmp.Save(f);
-			}
-
+			if (f.Length > 0)
+				bmp.Save(f);
 			return bmp;
 		}
 
@@ -159,8 +145,7 @@ namespace Keysharp.Core
 			//because X11 will throw an exception if we do.
 			var maxX = Math.Min(A_TotalScreenWidth.Ai(), _x2) - start.X;
 			var maxY = Math.Min(A_TotalScreenHeight.Ai(), _y2) - start.Y;
-			var bound = new Size(maxX, maxY);
-			var source = GuiHelper.GetScreen(new Rectangle(start, bound));
+			var source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
 			var searchImg = new ImageFinder(source) { Variation = variation };
 			Point? location;
 
@@ -207,25 +192,10 @@ namespace Keysharp.Core
 
 			try
 			{
+				Mouse.AdjustPoint(ref _x, ref _y);
 
-				format = System.Windows.Forms.Screen.PrimaryScreen.BitsPerPixel switch
-			{
-					8 or 16 => PixelFormat.Format16bppRgb565,
-					24 => PixelFormat.Format24bppRgb,
-					32 => PixelFormat.Format32bppArgb,
-					_ => PixelFormat.Format32bppArgb,
-			};
-
-			using (var bmp = new Bitmap(1, 1, format))
-				{
-					Mouse.AdjustPoint(ref _x, ref _y);
-
-					using (var g = Graphics.FromImage(bmp))
-					{
-						g.CopyFromScreen(_x, _y, 0, 0, size1, CopyPixelOperation.SourceCopy);
-						pixel = bmp.GetPixel(0, 0).ToArgb() & 0xffffff;
-					}
-				}
+				using (var bmp = GuiHelper.GetScreen(_x, _y, 1, 1))
+					pixel = bmp.GetPixel(0, 0).ToArgb() & 0xffffff;
 
 				return $"0x{pixel:X6}";
 			}
@@ -277,8 +247,7 @@ namespace Keysharp.Core
 			x2 = x2temp;
 			y1 = y1temp;
 			y2 = y2temp;
-			var region = new Rectangle(x1, y1, x2 - x1, y2 - y1);
-			var finder = new ImageFinder(GuiHelper.GetScreen(region)) { Variation = (byte)variation };
+			var finder = new ImageFinder(GuiHelper.GetScreen(x1, y2, x2 - x1, y2 - y1)) { Variation = (byte)variation };
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
 			Point? location;
 

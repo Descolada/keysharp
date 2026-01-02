@@ -77,13 +77,23 @@
 		/// attempts to provide such functionality.
 		/// </summary>
 		/// <returns>True if empty, else false.</returns>
-		public static bool IsClipboardEmpty() => !dataFormats.Any(Clipboard.ContainsData);
+		public static bool IsClipboardEmpty() => !dataFormats.Any(
+#if WINDOWS
+			Clipboard.ContainsData
+#else
+			Clipboard.Instance.Contains
+#endif
+		);
 
 		/// <summary>
 		/// Shows the debug tab in the main window.
 		/// Using this anywhere in the script will also make it persistent.
 		/// </summary>
-		public static object ShowDebug() => Script.TheScript.mainWindow?.ShowDebug();
+		public static object ShowDebug()
+		{
+			Script.TheScript.mainWindow?.ShowDebug();
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Sends a string followed by a newline to the debugger (if any) for display.

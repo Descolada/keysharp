@@ -6,8 +6,9 @@
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework> <!-- net10.0 required so VSCode debugger doesn't crash on exceptions -->
 		<DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+		<LangVersion>14.0</LangVersion>
 	</PropertyGroup>
 	
 	<PropertyGroup>
@@ -51,11 +52,19 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-		<PackageReference Include="SharpHook" Version="7.1.0" />
+		<PackageReference Include="Eto.Forms" Version="2.10.2" />
+		<PackageReference Include="Eto.Platform.Gtk" Version="2.10.2" />
+		<PackageReference Include="SharpHook" Version="7.1.1" />
 		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
-		<ProjectReference Include="..\..\System.Windows.Forms\System.Windows.Forms\System.Windows.Forms.csproj" />
+
+		<Compile Remove="Common\Window\AboutBox.Designer.cs" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
+		<Compile Remove="Properties\Resources.Designer.cs" />
+		<Compile Remove="Windows\Window\MainWindow.Designer.cs" />
+		<Compile Remove="Windows\Gui\Dialogs\InputDialog.resx" />
 		<EmbeddedResource Remove="Common\Window\KeysharpActiveX.resx" />
+		<EmbeddedResource Remove="Common\Window\AboutBox.resx" />
+		<EmbeddedResource Remove="Windows\Window\MainWindow.resx" />
 	</ItemGroup>
 	
 	<ItemGroup>
@@ -64,6 +73,7 @@
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0-2.final" />
 		<PackageReference Include="PCRE.NET" Version="1.2.2" />
 		<PackageReference Include="Semver" Version="3.0.0" />
+		<PackageReference Include="System.Resources.Extensions" Version="9.0.0" />
 		<PackageReference Include="System.Management" Version="10.0.0-rc.2.25502.107" />
 	</ItemGroup>
 	

@@ -8,7 +8,7 @@
 #if WINDOWS
 		public static ScintillaNET.Scintilla TextArea;
 #else
-		public static System.Windows.Forms.RichTextBox TextArea;
+		public static Forms.RichTextBox TextArea;
 #endif
 
 		public static void Find(bool next, bool incremental)

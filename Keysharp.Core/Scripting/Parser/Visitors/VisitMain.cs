@@ -13,7 +13,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
 

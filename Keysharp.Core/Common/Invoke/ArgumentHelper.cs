@@ -504,12 +504,14 @@
 				{
 					SetupPointerArg();
 				}
+#if WINDOWS
 				else if (Marshal.IsComObject(p))
 				{
 					var pUnk = Marshal.GetIUnknownForObject(p);
 					args[n] = pUnk;
 					_ = Marshal.Release(pUnk);
 				}
+#endif
 				else
 				{
 					SetupPointerArg();

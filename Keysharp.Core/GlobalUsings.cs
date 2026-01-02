@@ -17,9 +17,6 @@ global using global::System.Collections.ObjectModel;
 global using global::System.Collections.Specialized;
 global using global::System.ComponentModel;
 global using global::System.Diagnostics;
-global using global::System.Drawing;
-global using global::System.Drawing.Drawing2D;
-global using global::System.Drawing.Imaging;
 global using global::System.Globalization;
 global using global::System.IO;
 global using global::System.IO.Compression;
@@ -44,11 +41,32 @@ global using global::System.Text.RegularExpressions;
 global using global::System.Threading;
 global using global::System.Threading.Channels;
 global using global::System.Threading.Tasks;
-global using global::System.Windows.Forms;
+#if WINDOWS
+	global using global::System.Windows.Forms;
+	global using Forms = System.Windows.Forms;
+	global using global::System.Drawing;
+	global using global::System.Drawing.Drawing2D;
+	global using global::System.Drawing.Imaging;
+#else
+	global using global::Eto.Drawing;
+	global using global::Eto.Forms;
+	global using Forms = Eto.Forms;
+	global using Range = System.Range;
+	global using Keyboard = Keysharp.Core.Keyboard;
+	global using FormWindowState = Eto.Forms.WindowState;
+	global using StatusStrip = Keysharp.Core.KeysharpStatusStrip;
+	global using DockStyle = System.Windows.Forms.DockStyle;
+	global using ColumnHeader = System.Windows.Forms.ColumnHeader;
+	global using TextBoxBase = Eto.Forms.TextBox;
+	global using Keys = Keysharp.Core.Linux.Keys;
+#endif
 
 // Alias String to avoid conflicts with Keysharp.Core.String
 global using String = System.String;
 global using POINT = Keysharp.Core.Common.Window.POINT;
+#if WINDOWS
+	global using UITimer = System.Windows.Forms.Timer;
+#endif
 
 //Our usings.
 global using global::Keysharp.Core;

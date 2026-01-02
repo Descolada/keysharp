@@ -1,5 +1,3 @@
-using System.Windows.Forms;
-
 namespace Keysharp.Core
 {
 	/// <summary>
@@ -865,7 +863,11 @@ break_twice:;
 		/// <summary>
 		/// Get the hotkey descriptions and put them in the Vars tab of the main window.
 		/// </summary>
-		public static object ListHotkeys() => Script.TheScript.mainWindow?.ListHotkeys();
+		public static object ListHotkeys()
+		{
+			Script.TheScript.mainWindow?.ListHotkeys();
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Internal helper to convert an input mode from a string to a <see cref="ToggleValueType"/>.

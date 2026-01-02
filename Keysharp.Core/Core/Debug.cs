@@ -79,6 +79,14 @@ namespace Keysharp.Core
 			var typesToProps = new SortedDictionary<string, List<PropertyInfo>>();
 			_ = sb.AppendLine($"**User defined**\n");
 
+			foreach (var fieldKv in script.Vars.globalVars.Where(kv => kv.Value is FieldInfo))
+			{
+					FieldInfo fi2 = fieldKv.Value as FieldInfo;
+					var val = fi2.GetValue(null);
+					var fieldType = val != null ? val.GetType().Name : fi2.FieldType.Name;
+					_ = Misc.PrintProps(val, fieldKv.Key, sb, ref tabLevel);
+			}
+
 			foreach (var typeKv in script.ReflectionsData.staticFields.Where(tkv => tkv.Key.Name.StartsWith("program", StringComparison.OrdinalIgnoreCase)))
 			{
 				foreach (var fieldKv in typeKv.Value.OrderBy(f => f.Key))
@@ -205,7 +213,11 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static object ListVars() => Script.TheScript.mainWindow?.ShowInternalVars(true);
+		public static object ListVars()
+		{
+			Script.TheScript.mainWindow?.ShowInternalVars(true);
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Sends a string to the debugger (if any) for display.

@@ -269,29 +269,8 @@ namespace Keysharp.Core.Linux
 
 		public static bool GetCursorPos(out POINT lpPoint)
 		{
-			lpPoint = default;
-
-			if (!IsX11Available)
-				return false;
-
-			nint root = (nint)XDisplay.Default.Root.ID;
-
-			bool success = Xlib.XQueryPointer(
-				XDisplay.Default.Handle,
-				root,
-				out _,
-				out _,
-				out int rootX,
-				out int rootY,
-				out _,
-				out _,
-				out _
-			);
-
-			if (!success)
-				return false;
-
-			lpPoint = new POINT(rootX, rootY);
+			var pos = Forms.Mouse.Position;
+			lpPoint = new POINT(pos.X.Ai(), pos.Y.Ai());
 			return true;
 		}
 	}

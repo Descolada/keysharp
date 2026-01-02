@@ -7,28 +7,6 @@ using Antlr4.Runtime.Misc;
 using Keysharp.Core;
 using static MainParser;
 
-// This is needed for Linux because without it MainParserErrorListener.SyntaxError crashes the program and debugger with the InvalidOperationException
-public sealed class BailWithListenerErrorStrategy : DefaultErrorStrategy
-{
-	public override void Recover(Antlr4.Runtime.Parser recognizer, RecognitionException e)
-	{
-		ReportError(recognizer, e);
-        recognizer.InputStream.Seek(recognizer.InputStream.Size);
-        var tokens = recognizer.TokenStream;
-        tokens.Seek(tokens.Size);
-        recognizer.Context.Stop = tokens.LT(1);
-	}
-
-	public override IToken RecoverInline(Antlr4.Runtime.Parser recognizer)
-	{
-		var e = new InputMismatchException(recognizer);
-		ReportInputMismatch(recognizer, e);
-		throw new ParseCanceledException(e);
-	}
-
-	public override void Sync(Antlr4.Runtime.Parser recognizer) { /* no-op */ }
-}
-
 public class MainParserErrorListener : IAntlrErrorListener<IToken>
 {
     public void SyntaxError(
@@ -42,13 +20,9 @@ public class MainParserErrorListener : IAntlrErrorListener<IToken>
     {
 		string fullPath = offendingSymbol?.InputStream?.SourceName ?? "<unknown file>";
 		string fileName = fullPath == "<unknown file>" ? "" : Path.GetFileName(fullPath);
-		string offendingText = offendingSymbol?.Text ?? "";
-		string message = $"Syntax error{(fileName != "" ? " in file " + fileName : "")} at line {line}:{charPositionInLine} \"{offendingText}\" - {msg}";
-
-		if (recognizer is MainParserBase parser)
-			parser.SetSyntaxError(message, line, charPositionInLine, fullPath, offendingText);
-		else
-			throw new ParseException(message, line, offendingText, fullPath == "<unknown file>" ? "" : fullPath);
+		
+        // Throw an exception to stop parsing
+        throw new InvalidOperationException($"Syntax error{(fileName != "" ? " in file " + fileName : "")} at line {line}:{charPositionInLine} \"{offendingSymbol.Text}\" - {msg}", e);
     }
 }
 

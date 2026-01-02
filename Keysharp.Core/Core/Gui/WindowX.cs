@@ -280,6 +280,7 @@ namespace Keysharp.Core
 			Environment.SetEnvironmentVariable("MONO_VISUAL_STYLES", "gtkplus");//This used to need to come first, but I'm not sure what it does now. It seems to have no effect.
 			//Update: This seems to be needed to get GTK styles on Linux with Mono, but causes some tearing issues with Keyview. Need to investigate more.//TODO.
 #endif
+#if WINDOWS
 			Application.EnableVisualStyles();
 
 			if (!Script.dpimodeset)
@@ -293,7 +294,6 @@ namespace Keysharp.Core
 				catch { } // Fails if a window already exists, like when running from Keyview
 			}
 
-#if WINDOWS
 			_ = Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 			//_ = Application.SetHighDpiMode(HighDpiMode.SystemAware);
 #endif
@@ -714,7 +714,11 @@ namespace Keysharp.Core
 			{
 				var color = (int)win.TransparentColor.Al();
 				var tempbgr = Color.FromArgb(color);
+#if WINDOWS
 				color = Color.FromArgb(tempbgr.A, tempbgr.B, tempbgr.G, tempbgr.R).ToArgb();
+#else
+				color = Color.FromArgb(tempbgr.Ab, tempbgr.Bb, tempbgr.Gb, tempbgr.Rb).ToArgb();
+#endif
 				return color != int.MinValue ? $"0x{color:X6}" : "";
 			}
 

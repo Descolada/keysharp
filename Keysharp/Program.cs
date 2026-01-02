@@ -6,7 +6,12 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+#if WINDOWS
 using System.Windows.Forms;
+#else
+using Eto.Forms;
+using MessageBoxIcon = Eto.Forms.MessageBoxType;
+#endif
 using Keysharp.Core;
 using Keysharp.Scripting;
 using Microsoft.CodeAnalysis;

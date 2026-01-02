@@ -1,7 +1,6 @@
-﻿#if LINUX
-
-using Keysharp.Core.Linux.X11;
+﻿#if !WINDOWS
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+using static Keysharp.Core.KeysharpListView;
 
 namespace Keysharp.Core.Linux
 {
@@ -10,17 +9,33 @@ namespace Keysharp.Core.Linux
 	/// </summary>
 	internal class ControlManager : ControlManagerBase
 	{
+		private static int FindDataStoreIndex(IEnumerable dataStore, string value)
+		{
+			if (dataStore == null || string.IsNullOrEmpty(value))
+				return -1;
+
+			var index = 0;
+			foreach (var item in dataStore)
+			{
+				if (string.Equals(item?.ToString(), value, StringComparison.OrdinalIgnoreCase))
+					return index;
+				index++;
+			}
+
+			return -1;
+		}
+
 		internal override long ControlAddItem(string str, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{
 				var res = 0L;
 				var ctrl2 = Control.FromHandle(item.Handle);
-
-				if (ctrl2 is ComboBox cb)
-					res = cb.Items.Add(str);
-				else if (ctrl2 is ListBox lb)
-					res = lb.Items.Add(str);
+				if (ctrl2 is ListControl cb)
+				{
+					res = cb.Items.Count;
+					cb.Items.Add(str);
+				}
 				else
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
@@ -282,9 +297,9 @@ namespace Keysharp.Core.Linux
 				var ctrl2 = Control.FromHandle(item.Handle);
 
 				if (ctrl2 is ComboBox cb)
-					return cb.Items.IndexOf(str) + 1L;
+					return FindDataStoreIndex(cb.DataStore, str) + 1L;
 				else if (ctrl2 is ListBox lb)
-					return lb.Items.IndexOf(str) + 1L;
+					return FindDataStoreIndex(lb.DataStore, str) + 1L;
 				else
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
@@ -312,7 +327,11 @@ namespace Keysharp.Core.Linux
 				var ctrl2 = Control.FromHandle(item.Handle);
 
 				if (ctrl2 is CheckBox cb)
+#if WINDOWS
 					return cb.Checked ? 1L : 0L;
+#else
+					return cb.Checked == null ? -1L : cb.Checked.Value ? 1L : 0L;
+#endif
 				else
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
@@ -327,11 +346,8 @@ namespace Keysharp.Core.Linux
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowItem item)
 			{
 				var ctrl2 = Control.FromHandle(item.Handle);
-
-				if (ctrl2 is ComboBox cb)
-					return cb.SelectedItem != null ? cb.SelectedItem.ToString() : "";
-				else if (ctrl2 is ListBox lb)
-					return lb.SelectedItem != null ? lb.SelectedItem.ToString() : "";
+				if (ctrl2 is ListControl lc)
+					return lc.SelectedValue?.ToString() ?? "";
 				else
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
@@ -654,7 +670,7 @@ namespace Keysharp.Core.Linux
 					else if (Options.TryParse(opt, "col", ref col)) { col--; }
 				}
 
-				if (Control.FromHandle(item.Handle) is ListView lv)
+				if (Control.FromHandle(item.Handle) is KeysharpListView lv)
 				{
 					if (count && sel)
 						ret = (long)lv.SelectedItems.Count;

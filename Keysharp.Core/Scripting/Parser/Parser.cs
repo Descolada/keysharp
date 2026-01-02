@@ -566,33 +566,13 @@ namespace Keysharp.Scripting
             //var listener = new TraceListener();
             //mainParser.AddParseListener(listener);
 
-            mainParser.ErrorHandler = new BailWithListenerErrorStrategy();
+            //mainParser.ErrorHandler = new BailErrorStrategy();
             //mainParser.AddErrorListener(new DiagnosticErrorListener());
             //mainParser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
 
             //var profilingATNSimulator = new ProfilingATNSimulator(mainParser);
 
-			MainParser.ProgramContext programContext = null;
-			try
-			{
-				programContext = mainParser.program();
-			}
-			catch (ParseCanceledException)
-			{
-                if (string.IsNullOrEmpty(mainParser.LastSyntaxErrorMessage))
-				    throw;
-			}
-
-            if (!string.IsNullOrEmpty(mainParser.LastSyntaxErrorMessage))
-            {
-                var parseEx = new ParseException(
-                    mainParser.LastSyntaxErrorMessage,
-                    mainParser.LastSyntaxErrorLine,
-                    mainParser.LastSyntaxErrorCode ?? "",
-                    mainParser.LastSyntaxErrorFile ?? "");
-                parseEx.Column = mainParser.LastSyntaxErrorColumn;
-                throw parseEx;
-            }
+			MainParser.ProgramContext programContext = mainParser.program();
 
             //ProfileParser(mainParser);
             //Console.WriteLine("End");

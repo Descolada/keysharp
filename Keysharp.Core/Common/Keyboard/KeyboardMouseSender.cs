@@ -1772,7 +1772,7 @@ namespace Keysharp.Core.Common.Keyboard
 							var splitct = 0;
 							var firstSplit = ReadOnlySpan<char>.Empty;
 
-							foreach (Range r in subspan.SplitAny(SpaceTab))
+							foreach (System.Range r in subspan.SplitAny(SpaceTab))
 							{
 								var split = subspan[r].Trim();
 

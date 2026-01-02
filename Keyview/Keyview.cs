@@ -10,6 +10,7 @@ namespace Keyview
 	/// <summary>
 	/// Much of the Scintilla-related code was taken from: https://github.com/robinrodricks/ScintillaNET.Demo
 	/// </summary>
+#if WINDOWS
 	internal partial class Keyview : Form
 	{
 		/// <summary>
@@ -50,13 +51,11 @@ namespace Keyview
 		private readonly Button btnCopyFullCode = new ();
 		private readonly CheckBox chkFullCode = new ();
 		private readonly string lastrun;
-		private readonly System.Windows.Forms.Timer timer = new ();
+		private readonly UITimer timer = new ();
 		private readonly char[] trimend = ['\n', '\r'];
 		private readonly double updateFreqSeconds = 1;
 		private readonly CompilerHelper ch = new ();
-#if WINDOWS
 		private readonly CSharpStyler csStyler = new ();
-#endif
 		private bool force = false;
 		private string fullCode = "";
 		private DateTime lastCompileTime = DateTime.UtcNow;
@@ -78,9 +77,6 @@ namespace Keyview
 			keywords2 = Script.TheScript.GetPublicStaticPropertyNames();
 			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
 			Icon = Script.TheScript.normalIcon;
-#if !WINDOWS
-			btnCopyFullCode.Size = new Size(120, 30);
-#endif
 			btnCopyFullCode.Text = "Copy full code";
 			btnCopyFullCode.Click += CopyFullCode_Click;
 			btnCopyFullCode.Margin = new Padding(15);
@@ -97,9 +93,6 @@ namespace Keyview
 			};
 			_ = toolStrip1.Items.Add(host);
 			Text += $" {Assembly.GetExecutingAssembly().GetName().Version}";
-#if !WINDOWS
-			btnRunScript.Size = new Size(120, 30);
-#endif
 			btnRunScript.Text = btnRunScriptText["Run"];
 			btnRunScript.Margin = new Padding(15);
 			host = new ToolStripControlHost(btnRunScript)
@@ -142,12 +135,7 @@ namespace Keyview
 		private void clearSelectionToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			// Reset selection to the start without changing the caret position more than necessary.
-#if WINDOWS
 			txtIn.SetEmptySelection(0);
-#else
-			txtIn.SelectionStart = Math.Min(txtIn.SelectionStart, txtIn.Text.Length);
-			txtIn.SelectionLength = 0;
-#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -165,9 +153,7 @@ namespace Keyview
 
 		private void collapseAllToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-#if WINDOWS
 			txtIn.FoldAll(FoldAction.Contract);
-#endif
 		}
 
 		private void CopyFullCode_Click(object sender, EventArgs e)
@@ -199,9 +185,7 @@ namespace Keyview
 
 		private void expandAllToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-#if WINDOWS
 			txtIn.FoldAll(FoldAction.Expand);
-#endif
 		}
 
 		private void findAndReplaceToolStripMenuItem_Click(object sender, EventArgs e) => OpenReplaceDialog();
@@ -221,9 +205,7 @@ namespace Keyview
 		private void hiddenCharactersToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			hiddenCharactersItem.Checked = !hiddenCharactersItem.Checked;
-#if WINDOWS
 			txtIn.ViewWhitespace = hiddenCharactersItem.Checked ? WhitespaceMode.VisibleAlways : WhitespaceMode.Invisible;
-#endif
 		}
 
 		private void Indent()
@@ -237,9 +219,7 @@ namespace Keyview
 		private void indentGuidesToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			indentGuidesItem.Checked = !indentGuidesItem.Checked;
-#if WINDOWS
 			txtIn.IndentationGuides = indentGuidesItem.Checked ? IndentView.LookBoth : IndentView.None;
-#endif
 		}
 
 		private void indentSelectionToolStripMenuItem_Click(object sender, EventArgs e) => Indent();
@@ -259,7 +239,6 @@ namespace Keyview
 		//  marker.SetForeColor(IntToColor(0x000000));
 		//  marker.SetAlpha(100);
 		//}
-#if WINDOWS
 		private void InitCodeFolding(Scintilla txt)
 		{
 			txt.SetFoldMarginColor(true, IntToColor(BACK_COLOR));
@@ -379,7 +358,6 @@ namespace Keyview
 			txt.SetKeywords(0, keywords1);
 			txt.SetKeywords(1, keywords2);
 		}
-#endif
 
 		private void InitDragDropFile()
 		{
@@ -402,14 +380,12 @@ namespace Keyview
 			HotKeyManager.AddHotKey(this, ZoomDefault, Keys.D0, true);
 			HotKeyManager.AddHotKey(this, CloseSearch, Keys.Escape);
 			HotKeyManager.AddHotKey(this, RunStopScript, Keys.F9);
-#if WINDOWS
 			//Remove conflicting hotkeys from scintilla.
 			txtIn.ClearCmdKey(Keys.Control | Keys.F);
 			txtIn.ClearCmdKey(Keys.Control | Keys.R);
 			txtIn.ClearCmdKey(Keys.Control | Keys.H);
 			txtIn.ClearCmdKey(Keys.Control | Keys.L);
 			txtIn.ClearCmdKey(Keys.Control | Keys.U);
-#endif
 		}
 
 		private void InvokeIfNeeded(Action action)
@@ -443,7 +419,6 @@ namespace Keyview
 
 		private void Keyview_Load(object sender, EventArgs e)
 		{
-#if WINDOWS
 			InitColors(txtIn);
 			InitColors(txtOut);
 			InitSyntaxColoring(txtIn);//Keysharp syntax for txtIn.
@@ -462,14 +437,6 @@ namespace Keyview
 			//InitBookmarkMargin();
 			InitCodeFolding(txtIn);
 			InitCodeFolding(txtOut);
-#else
-			ConfigureEditor(txtIn, false);
-			ConfigureEditor(txtOut, true);
-			collapseAllToolStripMenuItem.Enabled = false;
-			expandAllToolStripMenuItem.Enabled = false;
-			indentGuidesItem.Enabled = false;
-			hiddenCharactersItem.Enabled = false;
-#endif
 			InitDragDropFile();
 			InitHotkeys();
 			//txtIn.StyleNeeded += TxtIn_StyleNeeded;
@@ -480,22 +447,7 @@ namespace Keyview
 			timer.Interval = 1000;
 			timer.Tick += Timer_Tick;
 			timer.Start();
-#if !WINDOWS
-			var area = System.Windows.Forms.Screen.FromControl(this).WorkingArea;
-			WindowState = FormWindowState.Normal;
-			Size = new Size((int)(area.Width * 0.9), (int)(area.Height * 0.9));
-			StartPosition = FormStartPosition.CenterScreen;
-#endif
 		}
-
-#if !WINDOWS
-		private void ConfigureEditor(RichTextBox editor, bool readOnly)
-		{
-			editor.Font = new Font("Consolas", 10F);
-			editor.ReadOnly = readOnly;
-			editor.WordWrap = true;
-		}
-#endif
 
 		private void Keyview_ResizeEnd(object sender, EventArgs e) => splitContainer.SplitterDistance = Width / 2;
 
@@ -512,19 +464,9 @@ namespace Keyview
 		private void Lowercase()
 		{
 			var start = txtIn.SelectionStart;
-#if WINDOWS
 			var end = txtIn.SelectionEnd;
 			txtIn.ReplaceSelection(txtIn.GetTextRange(start, end - start).ToLower());
 			txtIn.SetSelection(start, end);
-#else
-			var length = txtIn.SelectionLength;
-			if (length > 0)
-			{
-				txtIn.SelectedText = txtIn.Text.Substring(start, length).ToLower();
-				txtIn.SelectionStart = start;
-				txtIn.SelectionLength = length;
-			}
-#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -594,21 +536,8 @@ namespace Keyview
 		{
 			if (string.IsNullOrEmpty(txtIn.Text))
 				return;
-#if WINDOWS
 			Line line = txtIn.Lines[txtIn.CurrentLine];
 			txtIn.SetSelection(line.Position + line.Length, line.Position);
-#else
-			var caret = txtIn.SelectionStart;
-			var text = txtIn.Text;
-			var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
-			var lineEnd = text.IndexOf('\n', caret);
-
-			if (lineEnd < 0)
-				lineEnd = text.Length;
-
-			txtIn.SelectionStart = lineStart;
-			txtIn.SelectionLength = Math.Max(0, lineEnd - lineStart);
-#endif
 		}
 
 		private void SetFailure()
@@ -640,9 +569,7 @@ namespace Keyview
 			txtOut.ReadOnly = false;
 			txtOut.Text = txt;
 			txtOut.ReadOnly = true;
-#if WINDOWS
 			UpdateNumberMarginWidth(txtOut);
-#endif
 		}
 
 		private void splitContainer_DoubleClick(object sender, EventArgs e) => splitContainer.SplitterDistance = Width / 2;
@@ -673,99 +600,29 @@ namespace Keyview
 			if ((force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && txtIn.Text != "")
 			{
 				timer.Enabled = false;
-				Script s = null;
+				var oldIndex = txtOut.FirstVisibleLine;
 
-				try
-				{
-					lastCompileTime = DateTime.UtcNow;
-					s = new Script();//Start completely fresh for every compilation.
-					CompilerHelper.compiledasm = null;
-					btnRunScript.Enabled = false;
-#if WINDOWS
-					var oldIndex = txtOut.FirstVisibleLine;
-#endif
-					SetStart();
-					tslCodeStatus.Text = "Creating DOM from script...";
-					Refresh();
-					var (units, domerrs) = ch.CreateCompilationUnitFromFile(txtIn.Text);
-					//var (domunits, domerrs) = ch.CreateDomFromFile([txtIn.Text]);
+				KeyviewCompilerRunner.RunCompile(
+					txtIn.Text,
+					ch,
+					ref fullCode,
+					ref trimmedCode,
+					trimend,
+					trimstr,
+					ref lastCompileTime,
+					SetStart,
+					SetSuccess,
+					SetFailure,
+					text => tslCodeStatus.Text = text,
+					Refresh,
+					SetTxtOut,
+					() => chkFullCode.Checked,
+					() => btnRunScript.Enabled = false,
+					() => btnRunScript.Enabled = true,
+					WriteLastRunText,
+					() => oldIndex = txtOut.FirstVisibleLine,
+					() => txtOut.FirstVisibleLine = oldIndex);
 
-					if (domerrs.HasErrors)
-					{
-						var (errors, warnings) = CompilerHelper.GetCompilerErrors(domerrs);
-						SetFailure();
-						var txt = "Error creating DOM from script.";
-
-						if (errors.Length > 0)
-							txt += $"\n\n{errors}";
-
-						if (warnings.Length > 0)
-							txt += $"\n\n{warnings}";
-
-						SetTxtOut(txt);
-						goto theend;
-					}
-
-					tslCodeStatus.Text = "Creating C# code from DOM...";
-					Refresh();
-
-					var code = PrettyPrinter.Print(units[0]);
-#if DEBUG
-					var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
-					if (code != normalized)
-					{
-						throw new Exception("Code formatting mismatch");
-					}
-#endif
-
-					tslCodeStatus.Text = "Compiling C# code...";
-					var (results, ms, compileexc) = ch.Compile(units[0], "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)));
-
-					if (results == null)
-					{
-						SetFailure();
-						SetTxtOut($"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{code}");
-					}
-					else if (results.Success)
-					{
-						SetSuccess((DateTime.UtcNow - lastCompileTime).TotalSeconds);
-						fullCode = code;
-						var token = "[System.STAThreadAttribute()]";
-						var start = code.IndexOf(token);
-						code = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
-						var sb = new StringBuilder(code.Length);
-
-						foreach (var line in code.SplitLines())
-							_ = sb.AppendLine(line.TrimNofAnyFromStart(trimstr, 2));
-
-						trimmedCode = sb.ToString().TrimEnd(trimend);
-						SetTxtOut(chkFullCode.Checked ? fullCode : trimmedCode);
-#if WINDOWS
-						txtOut.FirstVisibleLine = oldIndex;
-#endif
-						WriteLastRunText();
-						_ = ms.Seek(0, SeekOrigin.Begin);
-						var arr = ms.ToArray();
-						CompilerHelper.compiledBytes = arr;
-						CompilerHelper.compiledasm = Assembly.Load(arr);
-					}
-					else
-					{
-						SetFailure();
-						SetTxtOut(CompilerHelper.HandleCompilerErrors(results.Diagnostics, "Keyview", "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
-					}
-
-					ms?.Dispose();
-				}
-				catch (Exception ex)
-				{
-					SetFailure();
-					SetTxtOut(ex.ToString());
-				}
-
-				theend:
-				s?.Stop();
-				btnRunScript.Enabled = true;
 				timer.Enabled = true;
 			}
 
@@ -796,11 +653,7 @@ namespace Keyview
 			{
 				StartInfo = new ProcessStartInfo
 				{
-#if WINDOWS
 					FileName = "Keysharp.exe",
-#else
-					FileName = "Keysharp",
-#endif
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
@@ -864,7 +717,6 @@ namespace Keyview
 				lastKeyTime = DateTime.UtcNow;
 		}
 
-#if WINDOWS
 		private void txtIn_MarginClick(object sender, MarginClickEventArgs e)
 		{
 			var txt = sender as Scintilla;
@@ -887,21 +739,16 @@ namespace Keyview
 				}
 			}
 		}
-#endif
 
 		private void txtIn_TextChanged(object sender, EventArgs e)
 		{
-#if WINDOWS
 			UpdateNumberMarginWidth(txtIn);
-#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
 		private void txtOut_TextChanged(object sender, EventArgs e)
 		{
-#if WINDOWS
 			UpdateNumberMarginWidth(txtOut);
-#endif
 		}
 
 		private void txtOut_KeyDown(object sender, KeyEventArgs e) => txtIn_KeyDown(sender, e);
@@ -924,19 +771,9 @@ namespace Keyview
 		private void Uppercase()
 		{
 			var start = txtIn.SelectionStart;
-#if WINDOWS
 			var end = txtIn.SelectionEnd;
 			txtIn.ReplaceSelection(txtIn.GetTextRange(start, end - start).ToUpper());
 			txtIn.SetSelection(start, end);
-#else
-			var length = txtIn.SelectionLength;
-			if (length > 0)
-			{
-				txtIn.SelectedText = txtIn.Text.Substring(start, length).ToUpper();
-				txtIn.SelectionStart = start;
-				txtIn.SelectionLength = length;
-			}
-#endif
 			lastKeyTime = DateTime.UtcNow;
 		}
 
@@ -945,67 +782,1064 @@ namespace Keyview
 		private void wordWrapToolStripMenuItem1_Click(object sender, EventArgs e)
 		{
 			wordWrapItem.Checked = !wordWrapItem.Checked;
-#if WINDOWS
 			txtOut.WrapMode = txtIn.WrapMode = wordWrapItem.Checked ? WrapMode.Word : WrapMode.None;
-#else
-			txtOut.WordWrap = txtIn.WordWrap = wordWrapItem.Checked;
-#endif
 		}
 
 		private void zoom100ToolStripMenuItem_Click(object sender, EventArgs e) => ZoomDefault();
 
 		private void ZoomDefault()
 		{
-#if WINDOWS
 			txtIn.Zoom = 0;
 			txtOut.Zoom = 0;
-#else
-			ResetFont(txtIn);
-			ResetFont(txtOut);
-#endif
 		}
 
 		private void ZoomIn()
 		{
-#if WINDOWS
 			txtIn.ZoomIn();
 			txtOut.ZoomIn();
 			UpdateNumberMarginWidth(txtIn);
 			UpdateNumberMarginWidth(txtOut);
-#else
-			BumpFont(txtIn, 1.1f);
-			BumpFont(txtOut, 1.1f);
-#endif
 		}
 
 		private void zoomInToolStripMenuItem_Click(object sender, EventArgs e) => ZoomIn();
 
 		private void ZoomOut()
 		{
-#if WINDOWS
 			txtIn.ZoomOut();
 			txtOut.ZoomOut();
 			UpdateNumberMarginWidth(txtIn);
 			UpdateNumberMarginWidth(txtOut);
-#else
-			BumpFont(txtIn, 1 / 1.1f);
-			BumpFont(txtOut, 1 / 1.1f);
-#endif
 		}
-
-#if !WINDOWS
-		private void BumpFont(RichTextBox box, float factor)
-		{
-			var size = Math.Max(6f, box.Font.Size * factor);
-			box.Font = new Font(box.Font.FontFamily, size, box.Font.Style);
-		}
-
-		private void ResetFont(RichTextBox box)
-		{
-			box.Font = new Font("Consolas", 10F, box.Font.Style);
-		}
-#endif
 
 		private void zoomOutToolStripMenuItem_Click(object sender, EventArgs e) => ZoomOut();
+	}
+#endif
+
+#if !WINDOWS
+	internal sealed class Keyview : Eto.Forms.Form
+	{
+		private readonly struct TextSnapshot
+		{
+			public TextSnapshot(string text, int selectionStart, int selectionLength)
+			{
+				Text = text ?? "";
+				SelectionStart = selectionStart;
+				SelectionLength = selectionLength;
+			}
+
+			public string Text { get; }
+			public int SelectionStart { get; }
+			public int SelectionLength { get; }
+		}
+
+		private readonly Stack<TextSnapshot> undoStack = new ();
+		private readonly Stack<TextSnapshot> redoStack = new ();
+		private readonly TextArea inputArea = new ();
+		private readonly TextArea outputArea = new ();
+		private readonly TextBox searchBox = new ();
+		private readonly Button nextSearchButton = new () { Text = "Next" };
+		private readonly Button prevSearchButton = new () { Text = "Prev" };
+		private readonly Button closeSearchButton = new () { Text = "Close" };
+		private readonly CheckBox fullCodeCheck = new () { Text = "Full code" };
+		private readonly Button copyFullCodeButton = new () { Text = "Copy full code" };
+		private readonly Button runScriptButton = new () { Text = "▶ Run script (F9)" };
+		private readonly Label codeStatusLabel = new () { Text = "" };
+		private readonly Panel searchPanel = new ();
+		private readonly ButtonMenuItem undoMenuItem = new () { Text = "&Undo" };
+		private readonly ButtonMenuItem redoMenuItem = new () { Text = "&Redo" };
+		private Splitter editorSplitter;
+		private readonly UITimer timer = new ();
+		private readonly CompilerHelper ch = new ();
+		private readonly char[] trimend = ['\n', '\r'];
+		private readonly string trimstr = "{}\t";
+		private readonly double updateFreqSeconds = 1;
+		private readonly string lastrun;
+		private readonly Dictionary<string, string> runScriptText = new ()
+		{
+			{ "Run", "▶ Run script (F9)" },
+			{ "Stop", "◾️ Stop script (F9)" }
+		};
+
+		private bool force;
+		private string fullCode = "";
+		private DateTime lastCompileTime = DateTime.UtcNow;
+		private DateTime lastKeyTime = DateTime.UtcNow;
+		private bool searchIsOpen;
+		private string trimmedCode = "";
+		private Process scriptProcess;
+		private string lastSearch = "";
+		private int lastSearchIndex;
+		private bool suppressUndo;
+		private string lastText = "";
+		private int lastSelectionStart;
+		private int lastSelectionLength;
+
+		public Keyview()
+		{
+			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
+			Title = $"Keyview {Assembly.GetExecutingAssembly().GetName().Version}";
+			InitializeWindowIcon();
+			ShowInTaskbar = true;
+			Resizable = true;
+			Minimizable = true;
+			Maximizable = true;
+			WindowStyle = WindowStyle.Default;
+			ClientSize = new Eto.Drawing.Size(1400, 900);
+
+			InitializeMenu();
+			InitializeEditors();
+			InitializeSearchPanel();
+			InitializeStatusBar();
+			InitializeLayout();
+
+			timer.Interval = updateFreqSeconds;
+			timer.Elapsed += Timer_Elapsed;
+			timer.Start();
+
+			Shown += (_, _) =>
+			{
+				InitializeWindowIcon();
+				FitToScreen();
+				if (editorSplitter != null)
+					editorSplitter.Position = Math.Max(200, ClientSize.Width / 2);
+			};
+
+			Closed += (_, _) =>
+			{
+				timer.Stop();
+				WriteLastRunText();
+			};
+
+			if (File.Exists(lastrun))
+				inputArea.Text = File.ReadAllText(lastrun);
+			ResetUndoHistory();
+		}
+
+		private void InitializeMenu()
+		{
+			var fileMenu = new ButtonMenuItem { Text = "&File" };
+			var openItem = new ButtonMenuItem { Text = "&Open..." };
+			openItem.Click += (_, _) => OpenFile();
+			fileMenu.Items.Add(openItem);
+
+			var editMenu = new ButtonMenuItem { Text = "&Edit" };
+			undoMenuItem.Click += (_, _) => Undo();
+			redoMenuItem.Click += (_, _) => Redo();
+			var cutItem = new ButtonMenuItem { Text = "Cu&t" };
+			cutItem.Click += (_, _) => { CutSelection(); lastKeyTime = DateTime.UtcNow; };
+			var copyItem = new ButtonMenuItem { Text = "&Copy" };
+			copyItem.Click += (_, _) => { CopySelection(); lastKeyTime = DateTime.UtcNow; };
+			var pasteItem = new ButtonMenuItem { Text = "&Paste" };
+			pasteItem.Click += (_, _) => { PasteFromClipboard(); lastKeyTime = DateTime.UtcNow; };
+			var selectLineItem = new ButtonMenuItem { Text = "Select &Line" };
+			selectLineItem.Click += (_, _) => SelectLine();
+			var selectAllItem = new ButtonMenuItem { Text = "Select &All" };
+			selectAllItem.Click += (_, _) => inputArea.SelectAll();
+			var clearSelectionItem = new ButtonMenuItem { Text = "Clea&r Selection" };
+			clearSelectionItem.Click += (_, _) =>
+			{
+				var (start, _) = GetSelection();
+				SetSelection(start, 0);
+				lastKeyTime = DateTime.UtcNow;
+			};
+			var indentItem = new ButtonMenuItem { Text = "&Indent" };
+			indentItem.Click += (_, _) => AdjustIndent(false);
+			var outdentItem = new ButtonMenuItem { Text = "&Outdent" };
+			outdentItem.Click += (_, _) => AdjustIndent(true);
+			var uppercaseItem = new ButtonMenuItem { Text = "&Uppercase" };
+			uppercaseItem.Click += (_, _) => TransformSelection(s => s.ToUpperInvariant());
+			var lowercaseItem = new ButtonMenuItem { Text = "&Lowercase" };
+			lowercaseItem.Click += (_, _) => TransformSelection(s => s.ToLowerInvariant());
+			editMenu.Items.AddRange(new MenuItem[]
+			{
+				undoMenuItem, redoMenuItem, new SeparatorMenuItem(),
+				cutItem, copyItem, pasteItem, new SeparatorMenuItem(),
+				selectLineItem, selectAllItem, clearSelectionItem, new SeparatorMenuItem(),
+				indentItem, outdentItem, new SeparatorMenuItem(),
+				uppercaseItem, lowercaseItem
+			});
+
+			var searchMenu = new ButtonMenuItem { Text = "&Search" };
+			var findItem = new ButtonMenuItem { Text = "&Quick Find..." };
+			findItem.Click += (_, _) => OpenSearch();
+			searchMenu.Items.Add(findItem);
+
+			var viewMenu = new ButtonMenuItem { Text = "&View" };
+			var wordWrapItem = new CheckMenuItem { Text = "&Word Wrap", Checked = true };
+			wordWrapItem.Click += (_, _) => SetWordWrap(wordWrapItem.Checked == true);
+			var zoomInItem = new ButtonMenuItem { Text = "Zoom &In" };
+			zoomInItem.Click += (_, _) => ZoomIn();
+			var zoomOutItem = new ButtonMenuItem { Text = "Zoom &Out" };
+			zoomOutItem.Click += (_, _) => ZoomOut();
+			var zoomDefaultItem = new ButtonMenuItem { Text = "&Zoom 100%" };
+			zoomDefaultItem.Click += (_, _) => ZoomDefault();
+			viewMenu.Items.AddRange(new MenuItem[]
+			{
+				wordWrapItem, new SeparatorMenuItem(),
+				zoomInItem, zoomOutItem, zoomDefaultItem
+			});
+
+			Menu = new Eto.Forms.MenuBar
+			{
+				Items = { fileMenu, editMenu, searchMenu, viewMenu }
+			};
+		}
+
+		private void InitializeEditors()
+		{
+			var font = TryMonospaceFont(10);
+			inputArea.Font = font;
+			outputArea.Font = font;
+			outputArea.ReadOnly = true;
+			inputArea.Wrap = true;
+			outputArea.Wrap = true;
+			inputArea.TextChanged += InputArea_TextChanged;
+			inputArea.KeyDown += InputArea_KeyDown;
+			inputArea.MouseUp += (_, _) => UpdateSelectionSnapshot();
+			outputArea.KeyDown += InputArea_KeyDown;
+		}
+
+		private static Font TryMonospaceFont(float size)
+		{
+			var candidates = new[]
+			{
+				"Consolas",
+				"JetBrains Mono",
+				"Fira Code",
+				"DejaVu Sans Mono",
+				"Liberation Mono",
+				"Monospace"
+			};
+
+			foreach (var name in candidates)
+			{
+				try
+				{
+					return new Font(name, size);
+				}
+				catch
+				{
+				}
+			}
+
+			return SystemFonts.Default(size);
+		}
+
+		private void InitializeSearchPanel()
+		{
+			searchBox.Width = 280;
+			searchBox.TextChanged += (_, _) => UpdateSearchText();
+			searchBox.KeyDown += SearchBox_KeyDown;
+			nextSearchButton.Click += (_, _) => Find(true, false);
+			prevSearchButton.Click += (_, _) => Find(false, false);
+			closeSearchButton.Click += (_, _) => CloseSearch();
+			searchPanel.Content = new StackLayout
+			{
+				Orientation = Orientation.Horizontal,
+				Spacing = 6,
+				Items = { searchBox, prevSearchButton, nextSearchButton, closeSearchButton }
+			};
+			searchPanel.Visible = false;
+		}
+
+		private void InitializeStatusBar()
+		{
+			fullCodeCheck.CheckedChanged += (_, _) => UpdateOutputFromCache();
+			copyFullCodeButton.Click += (_, _) => CopyFullCode();
+			runScriptButton.Click += (_, _) => RunStopScript();
+			runScriptButton.Enabled = false;
+			codeStatusLabel.Text = "";
+		}
+
+		private void InitializeLayout()
+		{
+			editorSplitter = new Splitter
+			{
+				Orientation = Orientation.Horizontal,
+				SplitterWidth = 2,
+				FixedPanel = SplitterFixedPanel.None,
+				RelativePosition = 0.5,
+				Panel1MinimumSize = 200,
+				Panel2MinimumSize = 200,
+				Panel1 = new Panel { Content = inputArea },
+				Panel2 = new Panel { Content = outputArea }
+			};
+
+			var statusRow = new StackLayout
+			{
+				Orientation = Orientation.Horizontal,
+				Spacing = 8,
+				Items =
+				{
+					new StackLayoutItem(new Panel()) { Expand = true },
+					new Label { Text = "Code compile:" },
+					codeStatusLabel,
+					fullCodeCheck,
+					copyFullCodeButton,
+					runScriptButton
+				}
+			};
+
+			var statusContainer = new Panel
+			{
+				Padding = new Padding(8, 6, 8, 6),
+				Content = statusRow
+			};
+
+			Content = new TableLayout
+			{
+				Spacing = new Eto.Drawing.Size(0, 0),
+				Rows =
+				{
+					new TableRow(searchPanel),
+					new TableRow(editorSplitter) { ScaleHeight = true },
+					new TableRow(statusContainer)
+				}
+			};
+		}
+
+		private void InitializeWindowIcon()
+		{
+			var icon = TryLoadIcon();
+			if (icon != null)
+				Icon = icon;
+		}
+
+		private static Icon TryLoadIcon()
+		{
+			foreach (var candidate in EnumerateIconPaths("Keysharp.png"))
+			{
+				if (!File.Exists(candidate))
+					continue;
+
+				try
+				{
+					return new Icon(1f, new Bitmap(candidate));
+				}
+				catch
+				{
+				}
+			}
+
+			foreach (var candidate in EnumerateIconPaths("Keysharp.ico"))
+			{
+				if (!File.Exists(candidate))
+					continue;
+
+				try
+				{
+					return new Icon(candidate);
+				}
+				catch
+				{
+					// Gtk cannot load some compressed .ico files; ignore.
+				}
+			}
+
+			return null;
+		}
+
+		private static IEnumerable<string> EnumerateIconPaths(string fileName)
+		{
+			var candidates = new List<DirectoryInfo>();
+			var appBase = new DirectoryInfo(AppContext.BaseDirectory);
+			candidates.Add(appBase);
+			if (!string.IsNullOrEmpty(Environment.CurrentDirectory))
+				candidates.Add(new DirectoryInfo(Environment.CurrentDirectory));
+			if (!string.IsNullOrEmpty(Environment.ProcessPath))
+				candidates.Add(new DirectoryInfo(Path.GetDirectoryName(Environment.ProcessPath)));
+
+			foreach (var baseDir in candidates.Where(dir => dir.Exists))
+			{
+				for (var current = baseDir; current != null; current = current.Parent)
+				{
+					yield return Path.Combine(current.FullName, fileName);
+					yield return Path.Combine(current.FullName, "Keysharp", fileName);
+				}
+			}
+		}
+
+		private void FitToScreen()
+		{
+			var screen = Eto.Forms.Screen.PrimaryScreen;
+			if (screen == null)
+				return;
+			
+			RectangleF area = new RectangleF(0, 0, 1200, 800);
+			try {
+				area = screen.WorkingArea;
+			} catch { }
+			var width = (int)Math.Min(ClientSize.Width, area.Width);
+			var height = (int)Math.Min(ClientSize.Height, area.Height);
+			ClientSize = new Eto.Drawing.Size(width, height);
+			Location = new Point(
+				(int)area.X + Math.Max(0, (int)(area.Width - Size.Width) / 2),
+				(int)area.Y + Math.Max(0, (int)(area.Height - Size.Height) / 2));
+		}
+
+		private void InputArea_TextChanged(object sender, EventArgs e)
+		{
+			RecordUndoSnapshot();
+			lastKeyTime = DateTime.UtcNow;
+		}
+
+		private void InputArea_KeyDown(object sender, KeyEventArgs e)
+		{
+			if (ReferenceEquals(sender, inputArea))
+				UpdateSelectionSnapshot();
+
+			if (e.Key == Keys.F5)
+			{
+				force = true;
+				return;
+			}
+
+			if (e.Key == Keys.F9)
+			{
+				RunStopScript();
+				e.Handled = true;
+				return;
+			}
+
+			if (e.Key == Keys.Escape && searchIsOpen)
+			{
+				CloseSearch();
+				e.Handled = true;
+				return;
+			}
+
+			if (ReferenceEquals(sender, inputArea))
+			{
+				if (e.Key == Keys.Z && e.Modifiers == Keys.Control)
+				{
+					Undo();
+					e.Handled = true;
+					return;
+				}
+
+				if (e.Key == Keys.Y && e.Modifiers == Keys.Control)
+				{
+					Redo();
+					e.Handled = true;
+					return;
+				}
+
+				if (e.Key == Keys.Z && e.Modifiers == (Keys.Control | Keys.Shift))
+				{
+					Redo();
+					e.Handled = true;
+					return;
+				}
+			}
+
+			if (e.Modifiers == Keys.Control)
+			{
+				switch (e.Key)
+				{
+					case Keys.F:
+						OpenSearch();
+						e.Handled = true;
+						break;
+					case Keys.U:
+						TransformSelection(s => s.ToUpperInvariant());
+						e.Handled = true;
+						break;
+					case Keys.L:
+						TransformSelection(s => s.ToLowerInvariant());
+						e.Handled = true;
+						break;
+					case Keys.Equal:
+						ZoomIn();
+						e.Handled = true;
+						break;
+					case Keys.Minus:
+						ZoomOut();
+						e.Handled = true;
+						break;
+					case Keys.D0:
+						ZoomDefault();
+						e.Handled = true;
+						break;
+				}
+			}
+		}
+
+		private void SearchBox_KeyDown(object sender, KeyEventArgs e)
+		{
+			if (e.Key == Keys.Enter && e.Modifiers == Keys.None)
+			{
+				Find(true, false);
+				e.Handled = true;
+				return;
+			}
+
+			if (e.Key == Keys.Enter && (e.Modifiers == Keys.Shift || e.Modifiers == Keys.Control))
+			{
+				Find(false, false);
+				e.Handled = true;
+			}
+		}
+
+		private void CopySelection()
+		{
+			var selection = inputArea.Selection;
+			if (selection.Length() <= 0)
+				return;
+			Clipboard.Instance.Text = inputArea.Text?.Substring(selection.Start, selection.Length()) ?? "";
+		}
+
+		private void CutSelection()
+		{
+			var selection = inputArea.Selection;
+			if (selection.Length() <= 0)
+				return;
+			CopySelection();
+			var text = inputArea.Text ?? "";
+			inputArea.Text = text.Remove(selection.Start, selection.Length());
+			SetSelection(selection.Start, 0);
+		}
+
+		private void PasteFromClipboard()
+		{
+			var clip = Clipboard.Instance.Text ?? "";
+			if (clip.Length == 0)
+				return;
+			var (start, length) = GetSelection();
+			var text = inputArea.Text ?? "";
+			var before = text.Substring(0, start);
+			var after = text.Substring(start + length);
+			inputArea.Text = before + clip + after;
+			SetSelection(start + clip.Length, 0);
+		}
+
+		private (int start, int length) GetSelection()
+		{
+			var selection = inputArea.Selection;
+			var start = Math.Max(0, selection.Start);
+			var end = Math.Max(0, selection.End);
+			if (end < start)
+				(end, start) = (start, end);
+			return (start, end - start);
+		}
+
+		private void SetSelection(int start, int length)
+		{
+			inputArea.Selection = new Range<int>(start, start + Math.Max(0, length));
+		}
+
+		private void UpdateSelectionSnapshot()
+		{
+			var (start, length) = GetSelection();
+			lastSelectionStart = start;
+			lastSelectionLength = length;
+		}
+
+		private TextSnapshot CaptureSnapshot()
+		{
+			var (start, length) = GetSelection();
+			return new TextSnapshot(inputArea.Text ?? "", start, length);
+		}
+
+		private void ApplySnapshot(TextSnapshot snapshot)
+		{
+			suppressUndo = true;
+			try
+			{
+				inputArea.Text = snapshot.Text ?? "";
+				var textLength = inputArea.Text?.Length ?? 0;
+				var start = Math.Min(Math.Max(0, snapshot.SelectionStart), textLength);
+				var length = Math.Min(Math.Max(0, snapshot.SelectionLength), Math.Max(0, textLength - start));
+				SetSelection(start, length);
+				lastText = inputArea.Text ?? "";
+				lastSelectionStart = start;
+				lastSelectionLength = length;
+			}
+			finally
+			{
+				suppressUndo = false;
+			}
+
+			lastKeyTime = DateTime.UtcNow;
+			UpdateUndoRedoState();
+		}
+
+		private void RecordUndoSnapshot()
+		{
+			if (suppressUndo)
+				return;
+
+			var currentText = inputArea.Text ?? "";
+			if (currentText == lastText)
+				return;
+
+			undoStack.Push(new TextSnapshot(lastText, lastSelectionStart, lastSelectionLength));
+			redoStack.Clear();
+			lastText = currentText;
+			UpdateSelectionSnapshot();
+			UpdateUndoRedoState();
+		}
+
+		private void ResetUndoHistory()
+		{
+			undoStack.Clear();
+			redoStack.Clear();
+			lastText = inputArea.Text ?? "";
+			UpdateSelectionSnapshot();
+			UpdateUndoRedoState();
+		}
+
+		private void UpdateUndoRedoState()
+		{
+			var canUndo = undoStack.Count > 0;
+			var canRedo = redoStack.Count > 0;
+			undoMenuItem.Enabled = canUndo;
+			redoMenuItem.Enabled = canRedo;
+		}
+
+		private void Undo()
+		{
+			if (undoStack.Count == 0)
+				return;
+
+			redoStack.Push(CaptureSnapshot());
+			ApplySnapshot(undoStack.Pop());
+		}
+
+		private void Redo()
+		{
+			if (redoStack.Count == 0)
+				return;
+
+			undoStack.Push(CaptureSnapshot());
+			ApplySnapshot(redoStack.Pop());
+		}
+
+		private void OpenSearch()
+		{
+			if (!searchIsOpen)
+			{
+				searchIsOpen = true;
+				searchPanel.Visible = true;
+				searchBox.Text = lastSearch;
+			}
+
+			searchBox.Focus();
+			searchBox.SelectAll();
+		}
+
+		private void CloseSearch()
+		{
+			searchIsOpen = false;
+			searchPanel.Visible = false;
+		}
+
+		private void UpdateSearchText()
+		{
+			lastSearch = searchBox.Text ?? "";
+			lastSearchIndex = 0;
+		}
+
+		private void Find(bool next, bool incremental)
+		{
+			var needle = searchBox.Text ?? "";
+			lastSearch = needle;
+
+			if (string.IsNullOrEmpty(needle))
+				return;
+
+			var text = inputArea.Text ?? "";
+			var (selectionStart, selectionLength) = GetSelection();
+			var searchStart = next
+				? (incremental ? Math.Max(0, lastSearchIndex - 1) : selectionStart + selectionLength)
+				: Math.Max(0, selectionStart - 1);
+
+			int index;
+
+			if (next)
+			{
+				index = text.IndexOf(needle, searchStart, StringComparison.CurrentCulture);
+				if (index == -1 && searchStart > 0)
+					index = text.IndexOf(needle, 0, StringComparison.CurrentCulture);
+			}
+			else
+			{
+				index = text.LastIndexOf(needle, searchStart, StringComparison.CurrentCulture);
+				if (index == -1 && text.Length > 0)
+					index = text.LastIndexOf(needle, text.Length - 1, StringComparison.CurrentCulture);
+			}
+
+			if (index == -1)
+			{
+				SetSelection(0, 0);
+				return;
+			}
+
+			lastSearchIndex = index + needle.Length;
+			SetSelection(index, needle.Length);
+			if (!incremental)
+				inputArea.Focus();
+		}
+
+		private void SelectLine()
+		{
+			var caret = GetSelection().start;
+			var text = inputArea.Text ?? "";
+			var lineStart = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
+			var lineEnd = text.IndexOf('\n', caret);
+			if (lineEnd < 0)
+				lineEnd = text.Length;
+			SetSelection(lineStart, Math.Max(0, lineEnd - lineStart));
+		}
+
+		private void AdjustIndent(bool outdent)
+		{
+			var text = inputArea.Text ?? "";
+			var (selStart, selLength) = GetSelection();
+
+			if (text.Length == 0)
+				return;
+
+			if (selLength == 0)
+			{
+				var lineStart = text.LastIndexOf('\n', Math.Max(0, selStart - 1)) + 1;
+				var lineEnd = text.IndexOf('\n', selStart);
+				if (lineEnd < 0)
+					lineEnd = text.Length;
+
+				selStart = lineStart;
+				selLength = lineEnd - lineStart;
+			}
+
+			var startLine = text.LastIndexOf('\n', Math.Max(0, selStart - 1)) + 1;
+			var endLine = text.IndexOf('\n', selStart + selLength);
+			if (endLine < 0)
+				endLine = text.Length;
+
+			var before = text.Substring(0, startLine);
+			var block = text.Substring(startLine, endLine - startLine);
+			var after = text.Substring(endLine);
+			var lines = block.Split('\n');
+
+			for (var i = 0; i < lines.Length; i++)
+			{
+				if (outdent)
+				{
+					if (lines[i].StartsWith("\t", StringComparison.Ordinal))
+						lines[i] = lines[i].Substring(1);
+					else if (lines[i].StartsWith("  ", StringComparison.Ordinal))
+						lines[i] = lines[i].Substring(2);
+				}
+				else
+				{
+					lines[i] = "\t" + lines[i];
+				}
+			}
+
+			var newBlock = string.Join("\n", lines);
+			inputArea.Text = before + newBlock + after;
+			SetSelection(startLine, newBlock.Length);
+			lastKeyTime = DateTime.UtcNow;
+		}
+
+		private void TransformSelection(Func<string, string> transform)
+		{
+			var text = inputArea.Text ?? "";
+			var (start, length) = GetSelection();
+
+			if (length <= 0)
+				return;
+
+			var selected = text.Substring(start, length);
+			var transformed = transform(selected);
+			inputArea.Text = text.Substring(0, start) + transformed + text.Substring(start + length);
+			SetSelection(start, transformed.Length);
+			lastKeyTime = DateTime.UtcNow;
+		}
+
+		private void SetWordWrap(bool enabled)
+		{
+			inputArea.Wrap = enabled;
+			outputArea.Wrap = enabled;
+		}
+
+		private void ZoomDefault()
+		{
+			var font = TryMonospaceFont(10);
+			inputArea.Font = font;
+			outputArea.Font = font;
+		}
+
+		private void ZoomIn()
+		{
+			inputArea.Font = new Font(inputArea.Font.Family, Math.Min(48, inputArea.Font.Size * 1.1f));
+			outputArea.Font = new Font(outputArea.Font.Family, Math.Min(48, outputArea.Font.Size * 1.1f));
+		}
+
+		private void ZoomOut()
+		{
+			inputArea.Font = new Font(inputArea.Font.Family, Math.Max(6, inputArea.Font.Size / 1.1f));
+			outputArea.Font = new Font(outputArea.Font.Family, Math.Max(6, outputArea.Font.Size / 1.1f));
+		}
+
+		private void CopyFullCode()
+		{
+			var text = string.IsNullOrEmpty(fullCode) ? outputArea.Text : fullCode;
+			Clipboard.Instance.Text = text ?? "";
+		}
+
+		private void OpenFile()
+		{
+			var dialog = new OpenFileDialog();
+			if (dialog.ShowDialog(this) == DialogResult.Ok)
+			{
+				LoadDataFromFile(dialog.FileName);
+			}
+		}
+
+		private void LoadDataFromFile(string path)
+		{
+			if (!File.Exists(path))
+				return;
+
+			inputArea.Text = File.ReadAllText(path);
+			lastKeyTime = DateTime.UtcNow;
+			ResetUndoHistory();
+		}
+
+		private void SetStart()
+		{
+			fullCode = trimmedCode = "";
+			codeStatusLabel.TextColor = Colors.Black;
+			codeStatusLabel.Text = "";
+		}
+
+		private void SetSuccess(double seconds)
+		{
+			codeStatusLabel.TextColor = Colors.Green;
+			codeStatusLabel.Text = $"Ok ({seconds:F1}s)";
+		}
+
+		private void SetFailure()
+		{
+			codeStatusLabel.TextColor = Colors.Red;
+			codeStatusLabel.Text = "Error";
+			SetOutputText("");
+		}
+
+		private void SetOutputText(string text)
+		{
+			outputArea.Text = text;
+		}
+
+		private void UpdateOutputFromCache()
+		{
+			var desired = fullCodeCheck.Checked == true ? fullCode : trimmedCode;
+			if (string.IsNullOrEmpty(desired))
+				return;
+			SetOutputText(desired);
+		}
+
+		private void Timer_Elapsed(object sender, EventArgs e)
+		{
+			if ((force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && !string.IsNullOrEmpty(inputArea.Text))
+			{
+				timer.Stop();
+
+				KeyviewCompilerRunner.RunCompile(
+					inputArea.Text,
+					ch,
+					ref fullCode,
+					ref trimmedCode,
+					trimend,
+					trimstr,
+					ref lastCompileTime,
+					SetStart,
+					SetSuccess,
+					SetFailure,
+					text => codeStatusLabel.Text = text,
+					null,
+					SetOutputText,
+					() => fullCodeCheck.Checked == true,
+					() => runScriptButton.Enabled = false,
+					() => runScriptButton.Enabled = true,
+					WriteLastRunText,
+					null,
+					null);
+
+				timer.Start();
+			}
+
+			if (force)
+				force = false;
+		}
+
+		private void RunStopScript()
+		{
+			if (scriptProcess != null)
+			{
+				scriptProcess.Kill();
+				scriptProcess = null;
+			}
+
+			if (runScriptButton.Text == runScriptText["Stop"])
+				return;
+
+			if (CompilerHelper.compiledasm == null)
+			{
+				MessageBox.Show(this, "Please wait, code is still compiling...", "Error", MessageBoxButtons.OK, MessageBoxType.Error);
+				return;
+			}
+
+			scriptProcess = new Process
+			{
+				StartInfo = new ProcessStartInfo
+				{
+					FileName = "Keysharp",
+					Arguments = "--assembly *",
+					RedirectStandardInput = true,
+					RedirectStandardOutput = true,
+					UseShellExecute = false,
+					CreateNoWindow = true
+				}
+			};
+			scriptProcess.EnableRaisingEvents = true;
+			scriptProcess.Exited += (_, _) =>
+			{
+				Application.Instance.AsyncInvoke(() =>
+				{
+					runScriptButton.Text = runScriptText["Run"];
+					scriptProcess = null;
+				});
+			};
+			_ = scriptProcess.Start();
+
+			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream))
+			{
+				writer.Write(CompilerHelper.compiledBytes.Length);
+				writer.Write(CompilerHelper.compiledBytes);
+				writer.Flush();
+			}
+
+			runScriptButton.Text = runScriptText["Stop"];
+		}
+
+		private void WriteLastRunText()
+		{
+			var dir = Path.GetDirectoryName(lastrun);
+			if (!Directory.Exists(dir))
+				_ = Directory.CreateDirectory(dir);
+			File.WriteAllText(lastrun, inputArea.Text ?? "");
+		}
+	}
+#endif
+
+	internal static class KeyviewCompilerRunner
+	{
+		internal static void RunCompile(
+			string inputText,
+			CompilerHelper compiler,
+			ref string fullCode,
+			ref string trimmedCode,
+			char[] trimend,
+			string trimstr,
+			ref DateTime lastCompileTime,
+			Action setStart,
+			Action<double> setSuccess,
+			Action setFailure,
+			Action<string> setStatus,
+			Action refreshStatus,
+			Action<string> setOutput,
+			Func<bool> useFullCode,
+			Action disableRunButton,
+			Action enableRunButton,
+			Action writeLastRun,
+			Action beforeOutput,
+			Action afterOutput)
+		{
+			Script script = null;
+			try
+			{
+				lastCompileTime = DateTime.UtcNow;
+				script = new Script();
+				CompilerHelper.compiledasm = null;
+				disableRunButton?.Invoke();
+				setStart?.Invoke();
+				setStatus?.Invoke("Creating DOM from script...");
+				refreshStatus?.Invoke();
+				var (units, domerrs) = compiler.CreateCompilationUnitFromFile(inputText);
+
+				if (domerrs.HasErrors)
+				{
+					var (errors, warnings) = CompilerHelper.GetCompilerErrors(domerrs);
+					setFailure?.Invoke();
+					var txt = "Error creating DOM from script.";
+					if (errors.Length > 0)
+						txt += $"\n\n{errors}";
+					if (warnings.Length > 0)
+						txt += $"\n\n{warnings}";
+					setOutput?.Invoke(txt);
+					return;
+				}
+
+				setStatus?.Invoke("Creating C# code from DOM...");
+				refreshStatus?.Invoke();
+				var code = PrettyPrinter.Print(units[0]);
+
+#if DEBUG
+				var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
+				if (code != normalized)
+					throw new Exception("Code formatting mismatch");
+#endif
+
+				setStatus?.Invoke("Compiling C# code...");
+				refreshStatus?.Invoke();
+				var (results, ms, compileexc) = compiler.Compile(units[0], "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)));
+
+				if (results == null)
+				{
+					setFailure?.Invoke();
+					setOutput?.Invoke($"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{code}");
+				}
+				else if (results.Success)
+				{
+					setSuccess?.Invoke((DateTime.UtcNow - lastCompileTime).TotalSeconds);
+					fullCode = code;
+					var token = "[System.STAThreadAttribute()]";
+					var start = code.IndexOf(token);
+					code = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
+					var sb = new StringBuilder(code.Length);
+
+					foreach (var line in code.SplitLines())
+						_ = sb.AppendLine(line.TrimNofAnyFromStart(trimstr, 2));
+
+					trimmedCode = sb.ToString().TrimEnd(trimend);
+					beforeOutput?.Invoke();
+					setOutput?.Invoke(useFullCode() ? fullCode : trimmedCode);
+					afterOutput?.Invoke();
+					writeLastRun?.Invoke();
+					_ = ms.Seek(0, SeekOrigin.Begin);
+					var arr = ms.ToArray();
+					CompilerHelper.compiledBytes = arr;
+					CompilerHelper.compiledasm = Assembly.Load(arr);
+				}
+				else
+				{
+					setFailure?.Invoke();
+					setOutput?.Invoke(CompilerHelper.HandleCompilerErrors(results.Diagnostics, "Keyview", "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
+				}
+
+				ms?.Dispose();
+			}
+			catch (Exception ex)
+			{
+				setFailure?.Invoke();
+				setOutput?.Invoke(ex.ToString());
+			}
+			finally
+			{
+				script?.Stop();
+				enableRunButton?.Invoke();
+			}
+		}
 	}
 }

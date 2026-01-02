@@ -137,7 +137,10 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 			"Keysharp.Core.dll",
 			"System.CodeDom.dll",
 			"PCRE.NET.dll",
-			"BitFaster.Caching.dll"
+			"BitFaster.Caching.dll",
+#if !WINDOWS
+			"Eto.dll",
+#endif
 		};
 		public static readonly string[] requiredNativeDependencies = new[]
 		{
@@ -150,12 +153,17 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 			"System.Collections",
 			"System.Collections.Generic",
 			"System.Data",
+#if WINDOWS
 			"System.Drawing",
+			"System.Windows.Forms",
+#else
+			"Eto.Drawing",
+			"Eto.Forms",
+#endif
 			"System.IO",
 			"System.Linq",
 			"System.Reflection",
 			"System.Runtime",
-			"System.Windows.Forms",
 			"System.Runtime.InteropServices",
 			"Keysharp.Core",
 		};
@@ -383,7 +391,9 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 			IEnumerable<ResourceDescription> resourceDescriptions = null;
 			HashSet<string> allDependencies = null;
 			var coreDir = Path.GetDirectoryName(typeof(object).GetTypeInfo().Assembly.Location);
+#if WINDOWS
 			var desktopDir = Path.GetDirectoryName(typeof(Form).GetTypeInfo().Assembly.Location);
+#endif
 			var ksCoreDir = Path.GetDirectoryName(A_KeysharpCorePath);
 
 			if (minimalexeout)
@@ -444,8 +454,10 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 				MetadataReference.CreateFromFile(Path.Combine(coreDir, "System.Reflection.dll")),
 				MetadataReference.CreateFromFile(Path.Combine(coreDir, "System.Runtime.dll")),
 				MetadataReference.CreateFromFile(Path.Combine(coreDir, "System.Private.CoreLib.dll")),
+#if WINDOWS
 				MetadataReference.CreateFromFile(Path.Combine(desktopDir, "System.Drawing.Common.dll")),
 				MetadataReference.CreateFromFile(Path.Combine(desktopDir, "System.Windows.Forms.dll")),
+#endif
 			};
 
 			// Do not load metadata from all dependencies, but just a select few. We need the metadata
@@ -621,7 +633,11 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 				if (stdout)
 					Console.WriteLine(s);
 				else
+#if WINDOWS
 					_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+#else
+					_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxType.Error);
+#endif
 			}
 		}
 

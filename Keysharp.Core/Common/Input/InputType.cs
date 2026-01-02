@@ -13,7 +13,7 @@ namespace Keysharp.Core.Common.Input
 
 	internal class InputData
 	{
-		internal System.Windows.Forms.Timer inputTimer;
+		internal UITimer inputTimer;
 	}
 
 	internal class InputType//This is also Windows specific, and needs to eventually be made into a common base with derived OS specific classes.//TODO
@@ -642,8 +642,12 @@ namespace Keysharp.Core.Common.Input
 
 				if (inputTimer == null)
 				{
-					inputTimer = new System.Windows.Forms.Timer();
+					inputTimer = new UITimer();
+#if WINDOWS
 					inputTimer.Tick += InputTimer_Tick;
+#else
+					inputTimer.Elapsed += InputTimer_Tick;
+#endif
 					script.InputData.inputTimer = inputTimer;
 				}
 

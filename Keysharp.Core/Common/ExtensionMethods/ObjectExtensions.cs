@@ -94,8 +94,10 @@
 				return gui.form;
 			else if (obj is Gui.Control ctrl)
 				return ctrl.Ctrl;
+#if WINDOWS
 			else if (obj is Keysharp.Core.Menu menu)
 				return menu.GetMenu();
+#endif
 			else if (obj is Control control)//Final check in the event it's some kind of native control or form.
 				return control;
 

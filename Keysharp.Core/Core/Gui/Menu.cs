@@ -44,9 +44,18 @@
 					defaultItem = item;
 
 					foreach (var defitem in allitems)
+#if WINDOWS
 						defitem.Font = defitem == item
 									   ? new Font(item.Font, item.Font.Style | FontStyle.Bold)
 									   : new Font(item.Font, item.Font.Style & ~FontStyle.Bold);
+#else
+						try 
+						{
+							defitem.Font = defitem == item
+									   ? new Font(item.Font.Family.Name, item.Font.Size, item.Font.FontStyle | FontStyle.Bold)
+									   : new Font(item.Font.Family.Name, item.Font.Size, item.Font.FontStyle & ~FontStyle.Bold);
+						} catch {}
+#endif
 				}
 				else
 					defaultItem = null;
@@ -378,7 +387,12 @@
 
 			if (ThreadAccessors.A_CoordModeMenu == CoordModeType.Screen)
 				if (Form.ActiveForm is Form form)
+#if WINDOWS
 					pt = form.PointToClient(pt);
+#else
+					pt = new Point(form.PointFromScreen(pt));
+#endif
+					
 
 			MenuItem.Show(pt);
 			return DefaultObject;
@@ -536,10 +550,16 @@
 						_ = item.DropDownItems.Add(moveItem);
 #else
 						//Windows automatically removes a menu item from one collection when it is added to another, but linux doesn't.
-						//So it must be done manually here by reassigning the owner.
+						//So it must be done manually here by moving the item between collections.
+						fromMenuItems.RemoveAt(0);
+						moveItem.ResetEtoItemRecursive();
+						item.DropDownItems.Add(moveItem);
 						moveItem.Owner = item.DropDown;
 #endif
 					}
+#if !WINDOWS
+					item.Owner?.SyncEtoItems();
+#endif
 				}
 				else
 					clickHandlers.GetOrAdd(item).ModifyEventHandlers(Functions.GetFuncObj(funcorsub, null, true), 1);
@@ -655,7 +675,14 @@
 		/// Gets the <see cref="MenuStrip"/>.
 		/// </summary>
 		/// <returns>A <see cref="ToolStrip"/></returns>
-		protected internal override ToolStrip GetMenu() => MenuStrip;
+		protected internal override ToolStrip GetMenu()
+		{
+#if WINDOWS
+			return MenuStrip;
+#else
+			return MenuStrip.ToolStrip;
+#endif
+		}
 
 		/// <summary>
 		/// Gets the index of the passed in <see cref="ToolStripItem"/> within <see cref="MenuStrip"/>.

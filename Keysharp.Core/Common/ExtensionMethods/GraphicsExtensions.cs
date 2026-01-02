@@ -1,6 +1,8 @@
-﻿using System.Diagnostics.CodeAnalysis;
-
+﻿#if WINDOWS
 namespace System.Drawing
+#else
+namespace Eto.Drawing
+#endif
 {
 	/// <summary>
 	/// An improved color structure that allows the values to be set after construction.<br/>
@@ -116,6 +118,7 @@ namespace System.Drawing
 			if (src.Width == width && src.Height == height)
 				return new Bitmap(src);
 
+#if WINDOWS
 			// Use premultiplied ARGB for best compositing behavior
 			var dst = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
 
@@ -145,6 +148,9 @@ namespace System.Drawing
 			}
 
 			return dst;
+#else
+			return new Bitmap(src, width, height, ImageInterpolation.High);
+#endif
 		}
 	}
 }

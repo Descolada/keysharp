@@ -1,5 +1,3 @@
-﻿using System.Windows.Forms;
-
 namespace Keysharp.Core
 {
 	/// <summary>

@@ -26,7 +26,11 @@
 			];
 
 		internal Dictionary<object, object> controls = [];
+#if WINDOWS
 		internal bool dpiscaling = true;
+#else
+		internal bool dpiscaling = false;
+#endif
 		internal double dpiscale => !dpiscaling ? 1.0 : A_ScaledScreenDPI;
 		internal MenuBar menuBar;
 		bool marginsInit = false;
@@ -47,12 +51,17 @@
 			{
 				"Border", (f, o) =>
 				{
+#if WINDOWS
 					if (o is bool b && b)
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedSingle;//No such thing as a resizable single pixel border.
 					else
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
+#else
+					f.form.WindowStyle = o is bool b && b ? WindowStyle.Default : WindowStyle.Utility;
+#endif
 				}
 			},
+#if WINDOWS
 			{
 				"Caption", (f, o) =>
 				{
@@ -62,6 +71,7 @@
 						f.form.FormBorderStyle = FormBorderStyle.None;
 				}
 			},
+#endif
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
@@ -167,13 +177,14 @@
 						{
 							f.owner = hwnd;
 #if !WINDOWS
-							if (System.Windows.Forms.Control.FromHandle(new nint(hwnd)) is Form theform)
+							if (Forms.Control.FromHandle(new nint(hwnd)) is Form theform)
 								f.form.Owner = theform;
 #endif
 						}
 					}
 				}
 			},
+#if WINDOWS
 			{
 				"Parent", (f, o) =>
 				{
@@ -181,22 +192,24 @@
 					{
 						if (int.TryParse(s, out var hwnd))
 						{
-							if (System.Windows.Forms.Control.FromHandle(new nint(hwnd)) is Form theform)
+							if (Forms.Control.FromHandle(new nint(hwnd)) is Form theform)
 								f.form.Parent = theform;
 						}
 					}
 				}
 			},
+#endif
 			{
 				"Resize", (f, o) =>
 				{
 					if (o is bool b)
 					{
 						f.resizable = b;
-						f.form.FormBorderStyle = b ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
 						f.form.MaximizeBox = b;
+#if WINDOWS
+						f.form.FormBorderStyle = b ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
 						f.form.SizeGripStyle = b ? SizeGripStyle.Show : SizeGripStyle.Hide;
-
+#endif
 						if (b)
 							f.form.AutoSize = false;
 					}
@@ -255,7 +268,7 @@
 			}
 		}
 
-		public System.Windows.Forms.Control FocusedCtrl => form.ActiveControl;
+		public Forms.Control FocusedCtrl => form.ActiveControl;
 
 		public long Hwnd => form.Handle;
 
@@ -294,8 +307,14 @@
 			set
 			{
 				menuBar = value;
+#if WINDOWS
 				form.TagAndAdd(menuBar.MenuStrip);
 				form.MainMenuStrip = menuBar.MenuStrip;
+#else
+				menuBar.MenuStrip.SyncEtoMenuBar();
+				form.Menu = menuBar.MenuStrip.EtoMenuBar;
+				form.MainMenuStrip = menuBar.MenuStrip;
+#endif
 			}
 		}
 
@@ -321,18 +340,40 @@
 
 		internal Font Font { get; set; }
 
-		internal System.Windows.Forms.Control LastContainer { get; set; }
+		internal Forms.Control LastContainer
+		{
+			get => lastContainer;
+			set => lastContainer = NormalizeContainer(value);
+		}
 
-		internal System.Windows.Forms.Control LastControl
+		private Forms.Control lastContainer;
+
+		private static Forms.Control NormalizeContainer(Forms.Control container)
+		{
+#if WINDOWS
+			return container;
+#else
+			if (container is PixelLayout layout && layout.Parent is Forms.Control parent)
+				return parent;
+
+			return container;
+#endif
+		}
+
+		internal Forms.Control LastControl
 		{
 			get
 			{
 				if (LastContainer != null)
 				{
-					System.Windows.Forms.Control lastControl = null;
+					Forms.Control lastControl = null;
 					int maxIndex = int.MinValue;
 
-					foreach (System.Windows.Forms.Control ctrl in LastContainer.Controls)
+					var container = LastContainer?.GetLayoutContainer();
+					if (container == null)
+						return null;
+
+					foreach (Forms.Control ctrl in container.Controls)
 					{
 						if (ctrl is KeysharpStatusStrip)
 							continue;
@@ -354,7 +395,7 @@
 			}
 		}
 
-		internal System.Windows.Forms.Control Section { get; set; }
+		internal Forms.Control Section { get; set; }
 
 		internal StatusStrip StatusStrip { get; set; }
 
@@ -368,7 +409,7 @@
 			{
 				form = kf;
 
-				foreach (var ctrl in form.GetAllControlsRecursive<System.Windows.Forms.Control>())//In order for searches that use allGuiHwnds, we must make all of the child controls point here.
+				foreach (var ctrl in form.GetAllControlsRecursive<Forms.Control>())//In order for searches that use allGuiHwnds, we must make all of the child controls point here.
 					ctrl.Tag = new Gui.Control(this, ctrl, ctrl.Name, true);//Supposed to be name like "label", "edit" etc, but just pass the name since this is only used with the main window.
 			}
 
@@ -402,7 +443,7 @@
 				{
 					eventObj = eventObj,
 					FormBorderStyle = FormBorderStyle.FixedSingle,//Default to a non-resizeable window, with the maximize box disabled.
-					Icon = Properties.Resources.Keysharp_ico,
+					Icon = TheScript.normalIcon,
 					Name = $"Keysharp window {newCount}",
 					MaximizeBox = false,
 					SizeGripStyle = SizeGripStyle.Hide,
@@ -416,7 +457,7 @@
 				var handleStr = $"{formHandle}";
 				LastContainer = form;
 
-				//This will be added to allGuiHwnds on show.
+				script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
 
 				if (lastfound)
 					script.HwndLastUsed = Hwnd;
@@ -454,7 +495,7 @@
 			var dpiscale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
 			var dpiinv = 1.0 / dpiscale;
 			var opts = ParseOpt(type, text, options);
-			System.Windows.Forms.Control ctrl = null;
+			Forms.Control ctrl = null;
 
 			switch (type)
 			{
@@ -463,6 +504,9 @@
 					var lbl = new KeysharpLabel(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						Font = Conversions.ConvertFont(form.Font),
+#if !WINDOWS
+						Wrap = !opts.wordwrap.HasValue || opts.wordwrap.Value ? Forms.WrapMode.Word : Forms.WrapMode.None,
+#endif
 						//UseCompatibleTextRendering = true // Using this will cause some fonts to display boxes instead of the proper characters
 					};
 					ctrl = lbl;
@@ -481,7 +525,6 @@
 					if (opts.limit == int.MinValue && !ml)
 						opts.remstyle |= WindowsAPI.WS_HSCROLL | WindowsAPI.ES_AUTOHSCROLL;
 
-#endif
 					var txt = new KeysharpTextBox(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						AcceptsTab = opts.wanttab ?? false,
@@ -491,12 +534,6 @@
 						WordWrap = ml,
 						Font = Conversions.ConvertFont(form.Font)
 					};
-#if !WINDOWS
-
-					if (opts.number)
-						txt.IsNumeric = true;
-
-#endif
 
 					if (opts.limit != int.MinValue)
 						txt.MaxLength = opts.limit;
@@ -529,13 +566,127 @@
 						txt.KeyDown += SuppressCtrlAKeyDown;
 					}
 
-#if WINDOWS
-
 					if (txt.Multiline && opts.tabstops.Any())
 						_ = WindowsAPI.SendMessage(txt.Handle, WindowsAPI.EM_SETTABSTOPS, opts.tabstops.Count, opts.tabstops.ToArray());
 
-#endif
 					ctrl = txt;
+#else
+					if (!ml) {
+						KeysharpTextBox txt = null;
+						KeysharpPasswordBox ptxt = null;
+
+						if (opts.pwd)
+							ptxt = new KeysharpPasswordBox(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
+						else
+							txt = new KeysharpTextBox(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
+
+						if (txt != null)
+						{
+							txt.ReadOnly = opts.rdonly ?? false;
+							txt.Font = Conversions.ConvertFont(form.Font);
+						}
+						else
+						{
+							ptxt.ReadOnly = opts.rdonly ?? false;
+							ptxt.Font = Conversions.ConvertFont(form.Font);
+						}
+
+						if (opts.number)
+						{
+							if (txt != null)
+								txt.IsNumeric = true;
+							else
+								ptxt.IsNumeric = true;
+						}
+
+						if (opts.limit != int.MinValue)
+						{
+							if (txt != null)
+								txt.MaxLength = opts.limit;
+							else
+								ptxt.MaxLength = opts.limit;
+						}
+
+						if (opts.lowercase.IsTrue())
+						{
+							if (txt != null)
+								txt.CharacterCasing = CharacterCasing.Lower;
+							else
+								ptxt.CharacterCasing = CharacterCasing.Lower;
+						}
+						else if (opts.uppercase.IsTrue())
+						{
+							if (txt != null)
+								txt.CharacterCasing = CharacterCasing.Upper;
+							else
+								ptxt.CharacterCasing = CharacterCasing.Upper;
+						}
+						else
+						{
+							if (txt != null)
+								txt.CharacterCasing = CharacterCasing.Normal;
+							else
+								ptxt.CharacterCasing = CharacterCasing.Normal;
+						}
+
+						if (opts.pwd)
+						{
+							if (opts.pwdch != "")
+								ptxt.PasswordChar = opts.pwdch[0];
+							else
+								ptxt.UseSystemPasswordChar = true;
+						}
+
+						if (opts.wantctrla.IsFalse())
+						{
+							if (txt != null)
+								txt.KeyDown += SuppressCtrlAKeyDown;
+							else
+								ptxt.KeyDown += SuppressCtrlAKeyDown;
+						}
+						ctrl = txt ?? (Forms.Control)ptxt;
+					} 
+					else
+					{
+						var txt = new KeysharpTextArea(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
+						{
+							AcceptsTab = opts.wanttab ?? true,
+							AcceptsReturn = opts.wantreturn ?? true,
+							Multiline = ml,
+							ReadOnly = opts.rdonly ?? false,
+							WordWrap = ml,
+							Font = Conversions.ConvertFont(form.Font)
+						};
+
+						if (opts.number)
+							txt.IsNumeric = true;
+
+						if (opts.limit != int.MinValue)
+							txt.MaxLength = opts.limit;
+
+						if (opts.lowercase.IsTrue())
+							txt.CharacterCasing = CharacterCasing.Lower;
+						else if (opts.uppercase.IsTrue())
+							txt.CharacterCasing = CharacterCasing.Upper;
+						else
+							txt.CharacterCasing = CharacterCasing.Normal;
+
+						if (opts.pwd)
+						{
+							if (opts.pwdch != "")
+								txt.PasswordChar = opts.pwdch[0];
+							else
+								txt.UseSystemPasswordChar = true;
+						}
+
+						if (opts.wantctrla.IsFalse())
+						{
+							txt.KeyDown += SuppressCtrlAKeyDown;
+						}
+						ctrl = txt;
+					}
+
+#endif
 					holder = new Edit(this, ctrl, typeo);
 				}
 				break;
@@ -585,7 +736,9 @@
 
 					if (opts.wantctrla.IsFalse())
 					{
+#if WINDOWS
 						txt.PreviewKeyDown += SuppressCtrlAPreviewKeyDown;
+#endif
 						txt.KeyDown += SuppressCtrlAKeyDown;
 					}
 
@@ -626,10 +779,17 @@
 					if (opts.nudhigh.HasValue)
 						nud.Maximum = opts.nudhigh.Value;
 
+#if WINDOWS
 					if (obj2 != null)
 						nud.Value = (decimal)obj2.Ad();
 					else
 						nud.Value = Math.Min(nud.Minimum, 0m);
+#else
+					if (obj2 != null)
+						nud.Value = obj2.Ad();
+					else
+						nud.Value = Math.Min(nud.Minimum, 0d);
+#endif
 
 					ctrl = nud;
 					holder = new UpDown(this, ctrl, typeo);
@@ -677,9 +837,10 @@
 						AutoSize = opts.width == int.MinValue && opts.wp == int.MinValue && opts.height == int.MinValue && opts.hp == int.MinValue,
 						Font = Conversions.ConvertFont(form.Font)
 					};
-
+#if WINDOWS
 					if (opts.btndef.IsTrue())
 						form.AcceptButton = (IButtonControl)ctrl;
+#endif
 
 					holder = new Button(this, ctrl, typeo);
 				}
@@ -713,12 +874,24 @@
 
 				case Keyword_Radio:
 				{
-					var rad = new KeysharpRadioButton(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
+#if !WINDOWS
+					KeysharpRadioButton controller = null;
+					if (!opts.group && LastControl is KeysharpRadioButton)
 					{
-						AutoSize = true,
-						Text = text,
-						Font = Conversions.ConvertFont(form.Font)
-					};
+						var radioLayoutContainer = LastContainer?.GetLayoutContainer();
+						if (radioLayoutContainer != null)
+							controller = radioLayoutContainer.Controls.OfType<KeysharpRadioButton>().FirstOrDefault();
+					}
+
+					KeysharpRadioButton rad = controller != null
+						? new KeysharpRadioButton(controller, opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
+						: new KeysharpRadioButton(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
+#else
+					var rad = new KeysharpRadioButton(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
+#endif
+					rad.AutoSize = true;
+					rad.Text = text;
+					rad.Font = Conversions.ConvertFont(form.Font);
 					ctrl = rad;
 					holder = new Radio(this, ctrl, typeo);
 				}
@@ -742,13 +915,13 @@
 					else
 					{
 #if WINDOWS
-						ddl = new KeysharpComboBox(opts.addstyle, opts.addexstyle, opts.limit != int.MinValue ? (opts.remstyle | WindowsAPI.CBS_AUTOHSCROLL) : opts.remstyle, opts.remexstyle)
+						if (opts.limit != int.MinValue) opts.remstyle |= WindowsAPI.CBS_AUTOHSCROLL;
+#endif
+
+						ddl = new KeysharpComboBox(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 						{
 							Font = Conversions.ConvertFont(form.Font)
 						};
-#else
-						ddl = new KeysharpComboBox(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
-#endif
 						ddl.DropDownStyle = opts.cmbsimple.IsTrue() ? ComboBoxStyle.Simple : ComboBoxStyle.DropDown;
 					}
 
@@ -758,8 +931,12 @@
 
 						if (isCombo)
 						{
+#if WINDOWS
 							ddl.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
 							ddl.AutoCompleteSource = AutoCompleteSource.ListItems;
+#else
+							ddl.AutoComplete = true;
+#endif
 						}
 					}
 
@@ -853,6 +1030,10 @@
 					lv.LabelEdit = opts.rdonly.IsFalse();
 					lv.View = opts.lvview ?? View.Details;
 
+#if !WINDOWS
+					lv.SyncColumns();
+					Reflections.SafeSetProperty(lv, "AllowF2Edit", !opts.wantf2.IsFalse());
+#endif
 					if (lv.LabelEdit && !opts.wantf2.IsFalse())//Note that checking !IsFalse() is not the same as IsTrue().
 						lv.KeyDown += Tv_Lv_KeyDown;
 
@@ -880,8 +1061,17 @@
 						lv.HeaderStyle = opts.header.IsFalse() ? ColumnHeaderStyle.None : ColumnHeaderStyle.Clickable;
 					else if (opts.clickheader.HasValue)
 						lv.HeaderStyle = opts.clickheader.IsFalse() ? ColumnHeaderStyle.Nonclickable : ColumnHeaderStyle.Clickable;
+#if WINDOWS
 					else if (opts.sortheader.HasValue)
 						lv.HeaderStyle = opts.sortheader.IsFalse() ? ColumnHeaderStyle.Nonclickable : ColumnHeaderStyle.Clickable;
+#else
+					if (opts.sortheader.HasValue)
+						lv.AutoSortHeader = opts.sortheader.IsTrue();
+					else if (opts.clickheader.HasValue && opts.clickheader.IsFalse())
+						lv.AutoSortHeader = false;
+					else
+						lv.AutoSortHeader = true;
+#endif
 
 					lv.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
                     ctrl = lv;
@@ -893,10 +1083,6 @@
 				{
 #if WINDOWS
 					var tv = new KeysharpTreeView(!opts.hscroll ? (opts.addstyle | WindowsAPI.TVS_NOHSCROLL) : opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
-#else
-					var tv = new KeysharpTreeView(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
-#endif
-					tv.Font = Conversions.ConvertFont(form.Font);
 
                     if (opts.buttons.HasValue)
 						tv.ShowPlusMinus = opts.buttons.Value;
@@ -908,6 +1094,22 @@
 
 					if (tv.LabelEdit && !opts.wantf2.IsFalse())//Note that checking !IsFalse() is not the same as IsTrue().
 						tv.KeyDown += Tv_Lv_KeyDown;
+#else
+					var tv = new KeysharpTreeView(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle);
+					tv.CheckBoxes = opts.ischecked.HasValue && opts.ischecked.Value != 0;
+					if (opts.buttons.HasValue)
+						tv.ShowPlusMinus = opts.buttons.Value;
+
+					if (opts.lines.HasValue)
+						tv.ShowLines = opts.lines.Value;
+
+					tv.LabelEdit = opts.rdonly.IsFalse();
+					tv.HideSelection = false;
+
+					if (tv.LabelEdit && !opts.wantf2.IsFalse())//Note that checking !IsFalse() is not the same as IsTrue().
+						tv.KeyDown += Tv_Lv_KeyDown;
+#endif
+					tv.Font = Conversions.ConvertFont(form.Font);
 
 					if (opts.ilid != long.MinValue && ImageLists.IL_Get(opts.ilid) is ImageList il)
 						tv.ImageList = il;
@@ -939,7 +1141,7 @@
 						hk.Limit = (HotkeyBox.Limits)opts.limit;
 
 					if (!string.IsNullOrEmpty(text))
-						hk.SetText(text);
+						hk.Text = text;
 
 					ctrl = hk;
 					holder = new Hotkey(this, ctrl, typeo);
@@ -954,6 +1156,7 @@
 					};
 					dtp.SetFormat(text);
 
+#if WINDOWS
 					if (opts.rightj.IsTrue())
 						dtp.DropDownAlign = LeftRightAlignment.Right;
 
@@ -961,6 +1164,7 @@
 
 					if (opts.c.HasValue)
 						dtp.CalendarForeColor = opts.c.Value;//This will only have an effect if visual styles are disabled.
+#endif
 
 					if (opts.dtlow != System.DateTime.MinValue)
 						dtp.MinDate = opts.dtlow;
@@ -968,6 +1172,7 @@
 					if (opts.dthigh != System.DateTime.MaxValue)
 						dtp.MaxDate = opts.dthigh;
 
+#if WINDOWS
 					if (opts.choosenone)
 					{
 						dtp.ShowCheckBox = true;
@@ -992,6 +1197,7 @@
 						if (opts.dtChoose >= dtp.MinDate && opts.dtChoose <= dtp.MaxDate)
 							dtp.Value = opts.dtChoose;
 					}
+#endif
 
 					ctrl = dtp;
 					holder = new DateTime(this, ctrl, typeo);
@@ -1011,6 +1217,7 @@
 					if (opts.dthigh != System.DateTime.MaxValue)
 						cal.MaxDate = opts.dthigh;
 
+#if WINDOWS
 					cal.ShowWeekNumbers = opts.opt4;
 					cal.ShowTodayCircle = !opts.opt8;
 					cal.ShowToday = !opts.opt16;
@@ -1025,6 +1232,7 @@
 
 					if (opts.bgcolor.HasValue)
 						cal.TitleBackColor = opts.bgcolor.Value;
+#endif
 
 					ctrl = cal;
 					holder = new MonthCal(this, ctrl, typeo);
@@ -1102,7 +1310,7 @@
 
 					bool smooth = opts.smooth.IsTrue();
 
-					var prg = new KeysharpProgressBar(smooth || opts.bgcolor.HasValue || opts.c != System.Windows.Forms.Control.DefaultForeColor,
+					var prg = new KeysharpProgressBar(smooth || opts.bgcolor.HasValue || opts.c != Forms.Control.DefaultForeColor,
 													  opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						Font = Conversions.ConvertFont(form.Font)
@@ -1121,10 +1329,18 @@
 					if (opts.bgcolor.HasValue)
 						prg.BackColor = opts.bgcolor.Value;
 
+#if !WINDOWS
+					if (opts.c.HasValue)
+						prg.BarColor = opts.c.Value;
+#endif
+
 #if WINDOWS
 
 					if (opts.vertical && opts.width == int.MinValue && opts.height == int.MinValue)
-							(prg.Height, prg.Width) = (prg.Width, prg.Height);
+					{
+						var prgSize = prg.GetSize();
+						prg.SetSize(new Size(prgSize.Height, prgSize.Width));
+					}
 
 #endif
 					ctrl = prg;
@@ -1151,7 +1367,21 @@
 						Font = Conversions.ConvertFont(form.Font)
 					};//This will also support image lists just like TreeView for setting icons on tabs, instead of using SendMessage().
 					if (al != null)
+#if WINDOWS
 						kstc.TabPages.AddRange(al.Cast<(object, object)>().Select(x => x.Item2).Select(x => new TabPage(x.Str())).ToArray());
+#else
+					{
+						var pages = al.Cast<(object, object)>()
+							.Select(x => x.Item2.Str())
+							.Select(text => new TabPage
+							{
+								Text = text,
+								Content = new PixelLayout()
+							})
+							.ToArray();
+						kstc.TabPages.AddRange(pages);
+					}
+#endif
 					if (opts.leftj.IsTrue())
 						kstc.Alignment = TabAlignment.Left;
 					else if (opts.rightj.IsTrue())
@@ -1259,13 +1489,19 @@
 			if (opts.wordwrap.HasValue)
 				Reflections.SafeSetProperty(ctrl, "WordWrap", opts.wordwrap.Value);
 
+#if WINDOWS
 			if (opts.thinborder.HasValue)
 				Reflections.SafeSetProperty(ctrl, "BorderStyle", opts.thinborder.Value ? BorderStyle.FixedSingle : BorderStyle.None);
+#endif 
 
 			if (opts.autosize.HasValue)
 				Reflections.SafeSetProperty(ctrl, "AutoSize", opts.autosize.Value);
 
-			if (text != null && ctrl is not KeysharpDateTimePicker && ctrl is not HotkeyBox && ctrl is not KeysharpLinkLabel)
+			if (text != null && ctrl is not KeysharpDateTimePicker && ctrl is not HotkeyBox
+#if WINDOWS
+			 && ctrl is not KeysharpLinkLabel
+#endif
+			 )
 				ctrl.Text = text;
 
 			if (ctrl is not KeysharpStatusStrip)//Don't want status strip to have a margin, so it can be placed at the bottom of the form when autosize is true, and have it look exactly like it would if it were docked when autosize is false.
@@ -1284,8 +1520,10 @@
 			else
 				ctrl.ForeColor = form.ForeColor;
 
+#if WINDOWS
 			if (opts.tabstop.HasValue)
 				ctrl.TabStop = opts.tabstop.Value;
+#endif
 
 			if (opts.bgtrans)
 				ctrl.BackColor = Color.Transparent;
@@ -1301,20 +1539,76 @@
 
 			controls[ctrl.Handle.ToInt64()] = holder;
 			var prevParent = LastContainer;
-			var ctrlIsLabel = ctrl is KeysharpLabel;
 
 			if (opts.altsubmit.HasValue)
 				holder.AltSubmit = opts.altsubmit.Value;
 
-			var fontpixels = GetFontPixels(ctrl.Font);// * dpiinv;
-			var scaledPref = (double)ctrl.PreferredSize.Width;
-			var w = scaledPref;
 			var lastControl = LastControl;
 
 			if (lastControl is KeysharpRadioButton && (ctrl is not KeysharpRadioButton || opts.group))//Pop container if we've ended a radio group.
 			{
-				LastContainer = LastContainer.Parent;
+				LastContainer = LastContainer.GetLogicalParent();
 				lastControl = LastControl;//Will retrieve the last control in the LastContainer we just assigned.
+			}
+
+			var isNewRadioGroup = ctrl is KeysharpRadioButton && (lastControl == null || lastControl is not KeysharpRadioButton || opts.group);
+			var isTabControl = ctrl is KeysharpTabControl;
+			var rbContainer = lastControl?.GetLogicalParent() ?? LastContainer;
+			bool xSpecified = opts.xpos != GuiOptions.Positioning.None;
+			bool ySpecified = opts.ypos != GuiOptions.Positioning.None;
+			bool needsContainerMostForPositioning =
+				(!ySpecified && (opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Container || opts.xpos == GuiOptions.Positioning.Margin))
+				|| (!xSpecified && (opts.ypos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Container || opts.ypos == GuiOptions.Positioning.Margin));
+			bool needsSectionMostForPositioning =
+				Section?.Parent != null
+				&& ((!ySpecified && opts.xpos == GuiOptions.Positioning.Section) || (!xSpecified && opts.ypos == GuiOptions.Positioning.Section));
+			bool needsLastParentMostForPositioning = lastControl != null
+				&& lastControl.Dock == DockStyle.None
+				&& Section == null
+				&& ((!ySpecified && opts.xpos == GuiOptions.Positioning.Section) || (!xSpecified && opts.ypos == GuiOptions.Positioning.Section));
+			(Forms.Control right, Forms.Control bottom) rbContainerMost = needsContainerMostForPositioning && rbContainer != null
+				? rbContainer.RightBottomMost()
+				: (null, null);
+			(Forms.Control right, Forms.Control bottom) sectionMost = needsSectionMostForPositioning
+				? Section.Parent.RightBottomMostSince(Section)
+				: (null, null);
+			(Forms.Control right, Forms.Control bottom) lastControlParentMost = needsLastParentMostForPositioning && lastControl?.Parent != null
+				? lastControl.Parent.RightBottomMost()
+				: (null, null);
+			var layoutContainer = LastContainer?.GetLayoutContainer();
+			var lastContainerChildCount = layoutContainer == null ? 0 : layoutContainer.Controls.Count();
+
+			Panel radioGroupPanel = null;
+
+			// Attach before sizing so PreferredSize/GetPreferredSize doesn't access unattached widgets.
+			if (isNewRadioGroup)
+			{
+				radioGroupPanel = new Panel();
+				LastContainer.TagAndAdd(radioGroupPanel);
+				radioGroupPanel.TagAndAdd(holder);
+			}
+			else
+			{
+				var sizingParent = ctrl is KeysharpStatusStrip ? form : isTabControl ? prevParent : LastContainer;
+				sizingParent.TagAndAdd(holder);
+			}
+
+			var fontpixels = GetFontPixels(ctrl.Font);// * dpiinv;
+			var scaledPref = (double)ctrl.PreferredSize.Width;
+			int finalWidth = -1, finalHeight = -1;
+			var w = scaledPref;
+
+			int lcLeft = 0, lcTop = 0, lcBottom = 0, lcRight = 0, lcWidth = 0, lcHeight = 0;
+			if (lastControl != null)
+			{
+				var lcLoc = lastControl.GetLocation();
+				var lcSize = lastControl.GetSize();
+				lcLeft = lcLoc.X;
+				lcTop = lcLoc.Y;
+				lcRight = lcLoc.X + lcSize.Width;
+				lcBottom = lcLoc.Y + lcSize.Height;
+				lcWidth = lcSize.Width;
+				lcHeight = lcSize.Height;
 			}
 
 			if (opts.autosize.IsTrue())
@@ -1322,7 +1616,7 @@
 
 			if (opts.wp != int.MinValue)
 			{
-				w = lastControl != null ? lastControl.Width + opts.wp * dpiscale : 0.0;
+				w = lastControl != null ? lcWidth + opts.wp * dpiscale : 0.0;
 			}
 			else if (opts.width != int.MinValue)
 			{
@@ -1332,11 +1626,11 @@
 			else if (ctrl is KeysharpProgressBar kpb && ((kpb.AddStyle & 0x04) == 0x04))
 				w = fontpixels * 2;
 			else if (ctrl is KeysharpNumericUpDown)
-				w = lastControl.Width;
-			else if (ctrl is KeysharpComboBox || ctrl is HotkeyBox || ctrl is KeysharpListBox || ctrl is KeysharpNumericUpDown || ctrl is KeysharpProgressBar || ctrl is KeysharpTextBox)
+				w = lcWidth;
+			else if (ctrl is KeysharpComboBox || ctrl is HotkeyBox || ctrl is KeysharpListBox || ctrl is KeysharpNumericUpDown || ctrl is KeysharpProgressBar || ctrl is KeysharpTextBox || ctrl is KeysharpPasswordBox)
 				w = fontpixels * 15;
 			else if (ctrl is KeysharpTrackBar trk)
-				w = trk.Orientation == Orientation.Horizontal ? fontpixels * 2 : fontpixels * 15;//Documentation didn't mention a default for vertical trackbars, so just make it the same a vertical progress bar.
+				w = trk.Orientation == Orientation.Horizontal ? fontpixels * 15 : fontpixels * 2;//Documentation didn't mention a default for vertical trackbars, so just make it the same a vertical progress bar.
 			else if (ctrl is KeysharpGroupBox)
 				w = fontpixels * 18;
 			else if (ctrl is TabPage || ctrl is KeysharpTabControl)
@@ -1349,18 +1643,20 @@
 				w = fontpixels * 10;
 
 #endif
-			ctrl.Width = opts.width == int.MinValue && opts.wp == int.MinValue ? Math.Max((int)w, (int)Math.Round(scaledPref)) : (holder.requestedSize.Width = (int)Math.Round(w));
+			finalWidth = opts.width == int.MinValue && opts.wp == int.MinValue ? Math.Max((int)w, (int)Math.Round(scaledPref)) : (holder.requestedSize.Width = (int)Math.Round(w));
 
 			if (opts.hp != int.MinValue)
 			{
-				ctrl.Height = lastControl != null ? lastControl.Height + (int)(opts.hp * dpiscale) : 0;
+				var ctrlSize = ctrl.GetSize();
+				var newHeight = lastControl != null ? lcHeight + (int)(opts.hp * dpiscale) : 0;
+				ctrl.SetSize(new Size(ctrlSize.Width, newHeight));
 			}
 			else
 			{
 				if (opts.height != int.MinValue)
 				{
 					if (opts.height != -1)
-						ctrl.Height = holder.requestedSize.Height = (int)Math.Round(dpiscale * opts.height);
+						finalHeight = holder.requestedSize.Height = (int)Math.Round(dpiscale * opts.height);
 				}
 				else
 				{
@@ -1376,6 +1672,8 @@
 						r = 2;
 					else if (ctrl is KeysharpTextBox tb)
 						r = tb.Multiline ? 3 : 1;
+					else if (ctrl is KeysharpPasswordBox)
+						r = 1;
 					else if (ctrl is KeysharpDateTimePicker || ctrl is HotkeyBox || ctrl is KeysharpProgressBar)
 						r = 1;
 					else if (ctrl is TabPage || ctrl is KeysharpTabControl)
@@ -1395,29 +1693,34 @@
 					}
 					else if (ctrl is KeysharpListBox lb)
 					{
-						lb.Height = lb.ItemHeight * r + (lb.Height - lb.ClientSize.Height) + lb.Margin.Bottom;
+						var chromeHeight = lb.ClientSize.Height > 1 ? lb.GetSize().Height - lb.ClientSize.Height : lb.ItemHeight;//This is mostly needed on Linux because ClientSize isn't calculated before showing the form.		
+						finalHeight = lb.ItemHeight * r + chromeHeight + lb.Margin.Bottom;
 					}
 					else if (ctrl is KeysharpTreeView tv)
 					{
-						tv.Height = tv.ItemHeight * r - tv.Margin.Bottom;//For some reason, TreeView doesn't appear to need to have DPI scaling applied, and also is a bit too large, so we subtract the margin.
+#if WINDOWS
+						finalHeight = tv.ItemHeight * r - tv.Margin.Bottom;//For some reason, TreeView doesn't appear to need to have DPI scaling applied, and also is a bit too large, so we subtract the margin.
+#else
+						finalHeight = defheight;
+#endif
 					}
 					else if (ctrl is KeysharpGroupBox gb)
 					{
-						gb.Height = defheight + ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
+						finalHeight = defheight + ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
 					}
 					else if (ctrl is KeysharpListView lv)
 					{
-						lv.Height = defheight + lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
+						finalHeight = defheight + lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
 					}
 					else if (ctrl is KeysharpTabControl tc2)
 					{
-						tc2.Height = defheight + (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
+						finalHeight = defheight + (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
 					}
 
 #if WINDOWS
 					else if (ctrl is KeysharpCustomControl)
 					{
-						ctrl.Height = fontRows + ctrl.Margin.Top;
+						finalHeight = fontRows + ctrl.Margin.Top;
 					}
 
 #endif
@@ -1427,24 +1730,27 @@
 						{
 							if (ctrl is KeysharpTrackBar trk && opts.thick == int.MinValue)//Separate check for TrackBar because the documentation specifies it in pixels. Skip this if thickness has been specified.
 							{
-								ctrl.Height = trk.Orientation == Orientation.Horizontal ? 30 : (int)Math.Round(5 * fontpixels);
+								finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : (int)Math.Round(5 * fontpixels);
 								goto heightdone;
 							}
-							else if (ctrl is KeysharpLabel lbl)
+							else if (ctrl is KeysharpLabel lbl
+							)
 							{
 								bool hasW = opts.width != int.MinValue || opts.wp != int.MinValue;
 								bool hasH = opts.height != int.MinValue || opts.hp != int.MinValue;
 
 								if (hasW && !hasH)
 								{
-									lbl.MinimumSize = new Size(lbl.Width, 0);
-									lbl.MaximumSize = new Size(lbl.Width, int.MaxValue);
+									var lblWidth = ctrl.GetSize().Width;
+									ctrl.MinimumSize = new Size(lblWidth, 0);
+									ctrl.MaximumSize = new Size(lblWidth, int.MaxValue);
 									lbl.AutoSize = true;
 								}
 								else if (!hasW && hasH)
 								{
-									lbl.MinimumSize = new Size(0, lbl.Height);
-									lbl.MaximumSize = new Size(int.MaxValue, lbl.Height);
+									var lblHeight = ctrl.GetSize().Height;
+									ctrl.MinimumSize = new Size(0, lblHeight);
+									ctrl.MaximumSize = new Size(int.MaxValue, lblHeight);
 									lbl.AutoSize = true;
 								} 
 								else if (!hasW && !hasH)
@@ -1457,67 +1763,64 @@
 
 						if (r > 0)
 						{
-							ctrl.Height = ctrl.Height - ctrl.ClientSize.Height + fontRows;
+							finalHeight = finalHeight - ctrl.ClientSize.Height + fontRows;
 						}
 						else
 						{
 							var ctrlheight = ctrl.PreferredSize.Height;
-							ctrlheight += ctrl.Height - ctrl.ClientSize.Height;//Account for the border.
-							ctrl.Height = ctrlheight;
+#if WINDOWS
+							ctrlheight += ctrl.GetSize().Height - ctrl.ClientSize.Height;//Account for the border.
+#endif
+							finalHeight = ctrlheight.Ai();
 						}
 					}
 				}
 			}
 
 		heightdone:
+			ctrl.SetSize(new Size(finalWidth, finalHeight));
 			Point loc;
-
-			int lcLeft = 0, lcTop = 0, lcBottom = 0, lcRight = 0, lcWidth = 0, lcHeight = 0;
-			if (lastControl != null)
-			{
-				lcLeft = lastControl.Left; lcTop = lastControl.Top; lcBottom = lastControl.Bottom; lcRight = lastControl.Right; lcWidth = lastControl.Width; lcHeight = lastControl.Height;
-			}
 
 			var xoffset = (double)lcLeft;
 			var yoffset = (double)lcTop;
 
-			if ((opts.xpos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Absolute) && LastContainer != null)
+			if (opts.xpos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Absolute
+				|| opts.xpos == GuiOptions.Positioning.Margin || opts.ypos == GuiOptions.Positioning.Margin)
 			{
-				Point p = LastContainer.GetLocationRelativeToForm();
+				Point p = LastContainer?.GetLocationRelativeToForm() ?? Point.Empty;
 
-				if (opts.xpos == GuiOptions.Positioning.Absolute)
-					xoffset = p.X;
-
-				if (opts.ypos == GuiOptions.Positioning.Absolute)
+				if (opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Margin)
+					xoffset = p.X; 
+				if (opts.ypos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Margin)
 					yoffset = p.Y;
 			}
 
 			if (opts.xpos == GuiOptions.Positioning.Absolute)
-				xoffset = opts.x * dpiscale - (LastContainer == null ? 0 : xoffset);
+				xoffset = opts.x * dpiscale - xoffset;
 			else if (opts.xpos == GuiOptions.Positioning.PreviousBottomRight)
 				xoffset += lcWidth + (opts.x * dpiscale);
 			else if (opts.xpos == GuiOptions.Positioning.PreviousTopLeft)
 				xoffset += opts.x * dpiscale;
 			else if (opts.xpos == GuiOptions.Positioning.Margin)
-				xoffset = form.Margin.Left + (opts.x * dpiscale);
+				xoffset = form.Margin.Left + (opts.x * dpiscale) - xoffset;
 			else if (opts.xpos == GuiOptions.Positioning.Section)
-				xoffset = (Section?.Location.X ?? 0) + (opts.x * dpiscale);
+				xoffset = (Section?.GetLocation().X ?? 0) + (opts.x * dpiscale);
 			else if (opts.xpos == GuiOptions.Positioning.Container)
 				xoffset = opts.x * dpiscale;
 			else
 				xoffset = int.MinValue;
 
 			if (opts.ypos == GuiOptions.Positioning.Absolute)
-				yoffset = opts.y * dpiscale - (LastContainer == null ? 0 : yoffset);
+				yoffset = opts.y * dpiscale - yoffset;
 			else if (opts.ypos == GuiOptions.Positioning.PreviousBottomRight)
 				yoffset += lcHeight + (opts.y * dpiscale);
 			else if (opts.ypos == GuiOptions.Positioning.PreviousTopLeft)
 				yoffset += opts.y * dpiscale;
 			else if (opts.ypos == GuiOptions.Positioning.Margin)
-				yoffset = form.Margin.Top + (opts.y * dpiscale);
+				yoffset = form.Margin.Top + (opts.y * dpiscale) - yoffset;
 			else if (opts.ypos == GuiOptions.Positioning.Section)
-				yoffset = (Section?.Location.Y ?? 0) + (opts.y * dpiscale);
-			else if (opts.xpos == GuiOptions.Positioning.Container)
+				yoffset = (Section?.GetLocation().Y ?? 0) + (opts.y * dpiscale);
+			else if (opts.ypos == GuiOptions.Positioning.Container)
 				yoffset = opts.y * dpiscale;
 			else
 				yoffset = int.MinValue;
@@ -1529,15 +1832,19 @@
 					yoffset = lcBottom + form.Margin.Top;
 				else if (opts.xpos == GuiOptions.Positioning.PreviousBottomRight || opts.xpos == GuiOptions.Positioning.PreviousTopLeft)//X+n or XP+nonzero (Already checked for xp == 0 above): Same as the previous control's top edge (YP).
 					yoffset = lcTop;
-				else if (opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Container || opts.xpos == GuiOptions.Positioning.Margin)//Xn or XM: Beneath all previous controls (maximum Y extent plus margin).
+				else if ((opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Container || opts.xpos == GuiOptions.Positioning.Margin) && needsContainerMostForPositioning)//Xn or XM: Beneath all previous controls (maximum Y extent plus margin).
 				{
-					var (r, b) = (lastControl?.Parent ?? LastContainer).RightBottomMost();//Get the bottom-most control in the current container.
-					yoffset = (b?.Top ?? 0) + (b?.Height ?? 0) + form.Margin.Top;
+					var (r, b) = rbContainerMost;//Get the bottom-most control in the current container.
+					var bLoc = b?.GetLocation() ?? Point.Empty;
+					var bSize = b?.GetSize() ?? Size.Empty;
+					yoffset = bLoc.Y + bSize.Height + form.Margin.Top;
 				}
-				else if (opts.xpos == GuiOptions.Positioning.Section && Section != null)//XS: Beneath all previous controls since the most recent use of the Section option.
+				else if (opts.xpos == GuiOptions.Positioning.Section && needsSectionMostForPositioning)//XS: Beneath all previous controls since the most recent use of the Section option.
 				{
-					var (r, b) = Section.Parent.RightBottomMostSince(Section);//Get the bottom-most control in the current section.
-					yoffset = (b?.Bottom ?? 0) + form.Margin.Top;
+					var (r, b) = sectionMost;//Get the bottom-most control in the current section.
+					var bLoc = b?.GetLocation() ?? Point.Empty;
+					var bSize = b?.GetSize() ?? Size.Empty;
+					yoffset = bLoc.Y + bSize.Height + form.Margin.Top;
 				}
 			}
 			else if (xoffset == int.MinValue && yoffset != int.MinValue)//Y, but not X.
@@ -1546,15 +1853,19 @@
 					xoffset = lcRight + form.Margin.Left;
 				else if (opts.ypos == GuiOptions.Positioning.PreviousBottomRight || opts.ypos == GuiOptions.Positioning.PreviousTopLeft)//Y+n or YP+nonzero (Already checked for yp == 0 above): Same as the previous control's left edge (XP).
 					xoffset = lcLeft;
-				else if (opts.ypos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Container || opts.ypos == GuiOptions.Positioning.Margin)//Yn or YM: To the right of all previous controls (maximum X extent plus margin).
+				else if ((opts.ypos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Container || opts.ypos == GuiOptions.Positioning.Margin) && needsContainerMostForPositioning)//Yn or YM: To the right of all previous controls (maximum X extent plus margin).
 				{
-					var (r, b) = (lastControl?.Parent ?? LastContainer).RightBottomMost();//Get the right-most control in the current container.
-					xoffset = (r?.Right ?? 0) + form.Margin.Left;
+					var (r, b) = rbContainerMost;//Get the right-most control in the current container.
+					var rLoc = r?.GetLocation() ?? Point.Empty;
+					var rSize = r?.GetSize() ?? Size.Empty;
+					xoffset = rLoc.X + rSize.Width + form.Margin.Left;
 				}
-				else if (opts.ypos == GuiOptions.Positioning.Section && Section != null)//YS: To the right of all previous controls since the most recent use of the Section option.
+				else if (opts.ypos == GuiOptions.Positioning.Section && needsSectionMostForPositioning)//YS: To the right of all previous controls since the most recent use of the Section option.
 				{
-					var (r, b) = Section.Parent.RightBottomMostSince(Section);//Get the right-most control in the current section.
-					xoffset = (r?.Right ?? 0) + form.Margin.Left;
+					var (r, b) = sectionMost;//Get the right-most control in the current section.
+					var rLoc = r?.GetLocation() ?? Point.Empty;
+					var rSize = r?.GetSize() ?? Size.Empty;
+					xoffset = rLoc.X + rSize.Width + form.Margin.Left;
 				}
 			}
 			else if (xoffset == int.MinValue && yoffset == int.MinValue && ctrl is KeysharpNumericUpDown)
@@ -1567,47 +1878,52 @@
 			//Note we check DockStyle here because if the previous control was docked to a side, then we can't really use its location as a reference to base this control's location off of.
 			if (ctrl is KeysharpStatusStrip ksss)//Need to figure out how to do this without resizing all tab controls on every add. Maybe at the end before show(), and also on every add after show()?//TODO
 			{
+				form.UpdateStatusStripLayout();
 			}
 			else if (loc.X != int.MinValue && loc.Y != int.MinValue)//If both x and y were specified, that takes precedence over everything else.
 			{
-				ctrl.Location = loc;
 			}
 			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.X == int.MinValue && loc.Y == int.MinValue)
 			{
-				ctrl.Location = new Point(lastControl.Location.X, lastControl.Location.Y + lastControl.Height + form.Margin.Bottom);
+				loc = new Point(lcLeft, lcTop + lcHeight + form.Margin.Bottom);
 			}
-			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.X == int.MinValue)
+			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.X == int.MinValue && needsLastParentMostForPositioning)
 			{
 				//Will only have gotten here if y was specified in absolute coords using Yn with x omitted.
-				var (r, b) = lastControl.Parent.RightBottomMost();//Get the right-most control in the current container.
-				ctrl.Location =  new Point(r.Left + r.Width + r.Margin.Right, loc.Y);
+				var (r, b) = lastControlParentMost;//Get the right-most control in the current container.
+				var rLoc = r?.GetLocation() ?? Point.Empty;
+				var rSize = r?.GetSize() ?? Size.Empty;
+				loc = new Point(rLoc.X + rSize.Width + r.Margin.Right, loc.Y);
 			}
-			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.Y == int.MinValue)//Same but for loc.X.
+			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.Y == int.MinValue && needsLastParentMostForPositioning)//Same but for loc.X.
 			{
 				//Will only have gotten here if x was specified in absolute coords using Xn with y omitted.
-				var (r, b) = lastControl.Parent.RightBottomMost();//Get the bottom-most control in the current container.
-				ctrl.Location = new Point(loc.X, b.Top + b.Height + b.Margin.Bottom);
+				var (r, b) = lastControlParentMost;//Get the bottom-most control in the current container.
+				var bLoc = b?.GetLocation() ?? Point.Empty;
+				var bSize = b?.GetSize() ?? Size.Empty;
+				loc = new Point(loc.X, bLoc.Y + bSize.Height + b.Margin.Bottom);
 			}
 			else//Final fallback when nothing else has worked.
 			{
 				var top = (double)prevParent.Margin.Top;
 
 				if (prevParent is Form f && f.MainMenuStrip != null)
-					top += f.MainMenuStrip.Height;
+					top += f.MainMenuStrip.GetSize().Height;
 
 				if (loc.Y == int.MinValue && LastContainer is KeysharpGroupBox gblast)
 				{
 					//Top needs to be manually adjusted when the container is a GroupBox, we're adding the first control, and they haven't explicitly specified a Y coordinate.
-					if (gblast.Controls.Count == 0)
+					if (lastContainerChildCount == 0)
 						top += gblast.Margin.Top + gblast.Padding.Bottom;
 				}
 
-				ctrl.Location = new Point(opts.x != int.MinValue ? opts.x : prevParent.Margin.Left,
+				loc = new Point(opts.x != int.MinValue ? opts.x : prevParent.Margin.Left,
 										  opts.y != int.MinValue ? opts.y : (int)Math.Round(top));
 			}
 
-			if (ctrl is KeysharpTabControl ktc)
+			if (isTabControl)
 			{
+				var ktc = (KeysharpTabControl)ctrl;
 				if (ktc.TabPages.Count >= 0)
 					holder.UseTab(1);//Will set this object's CurrentTab value, as well as the LastContainer values.
 
@@ -1616,48 +1932,57 @@
 				else if (opts.bgcolor.HasValue)
 					ktc.SetColor(opts.bgcolor.Value);
 
-				prevParent.TagAndAdd(holder);
-
 				if (prevParent != form)
-					ctrl.Size = new Size(Math.Min(prevParent.Width - (2 * prevParent.Margin.Right), ctrl.Right), Math.Min(prevParent.Height - (2 * prevParent.Margin.Top), ctrl.Bottom));
+				{
+					var parentSize = prevParent.GetSize();
+					var ctrlRight = loc.X + finalWidth;
+					var ctrlBottom = loc.Y + finalHeight;
+					ctrl.SetSize(new Size(Math.Min(parentSize.Width - (2 * prevParent.Margin.Right), ctrlRight), Math.Min(parentSize.Height - (2 * prevParent.Margin.Top), ctrlBottom)));
+				}
 			}
 			else if (ctrl is KeysharpRadioButton krb)
 			{
-				if (lastControl == null || lastControl is not KeysharpRadioButton || opts.group)
+				if (isNewRadioGroup)
 				{
-					var panel = new Panel();
+					var panel = radioGroupPanel ?? new Panel();
 					var parent = LastContainer;
 					//panel.BorderStyle = BorderStyle.FixedSingle;//For debugging so we can see where the panel is.
-					panel.Location = new Point(Math.Max(parent.Margin.Left, ctrl.Left), Math.Max(parent.Margin.Top, ctrl.Top));
-					parent.TagAndAdd(panel);
-					ctrl.Location = new Point(panel.Margin.Left, panel.Margin.Top);
-					panel.Size = new Size(ctrl.Width + panel.Margin.Left + panel.Margin.Right, ctrl.Height + panel.Margin.Top + panel.Margin.Bottom);
+					if (radioGroupPanel == null)
+						parent.TagAndAdd(panel);
+					panel.SetLocation(new Point(Math.Max(parent.Margin.Left, loc.X), Math.Max(parent.Margin.Top, loc.Y)));
+					loc = new Point(panel.Margin.Left, panel.Margin.Top);
+					panel.SetSize(new Size(finalWidth + panel.Margin.Left + panel.Margin.Right, finalHeight + panel.Margin.Top + panel.Margin.Bottom));
+#if WINDOWS
 					panel.AutoSize = true;
-					panel.TagAndAdd(holder);
+#endif
+					if (radioGroupPanel == null)
+						panel.TagAndAdd(holder);
 					LastContainer = panel;
 				}
-				else if (LastContainer is Panel pnl)
+				else
 				{
-					pnl.TagAndAdd(holder);
+#if !WINDOWS
+					var pnl = LastContainer as Panel ?? LastContainer?.Parent as Panel;
+					if (pnl != null)
+					{
+						var pnlSize = pnl.GetSize();
+						var neededWidth = Math.Max(pnlSize.Width, loc.X + finalWidth + pnl.Margin.Right);
+						var neededHeight = Math.Max(pnlSize.Height, loc.Y + finalHeight + pnl.Margin.Bottom);
+						if (neededWidth != pnlSize.Width || neededHeight != pnlSize.Height)
+							pnl.SetSize(new Size(neededWidth, neededHeight));
+					}
+#endif
 				}
 
 				krb.Checked = opts.ischecked.HasValue && opts.ischecked.Value > 0;
 			}
 			else if (ctrl is KeysharpGroupBox gb)
 			{
-				LastContainer.TagAndAdd(holder);
-
 				if (opts.group)
 					LastContainer = gb;
 			}
-			else if (ctrl is KeysharpStatusStrip ksss2)
-			{
-				form.TagAndAdd(holder);//For status bars, don't add to whatever container we were on, instead always add to the form.
-			}
-			else
-			{
-				LastContainer.TagAndAdd(holder);
-			}
+
+			ctrl.SetLocation(loc);
 
 #if WINDOWS
 
@@ -1678,12 +2003,19 @@
 							ratio = 1;
 
 						if (opts.width < 0)
-							pbox.Width = (int)(pbox.Height * ratio);
+						{
+							var pboxSize = pbox.GetSize();
+							pbox.SetSize(new Size((int)(pboxSize.Height * ratio), pboxSize.Height));
+						}
 						else
-							pbox.Height = (int)(pbox.Width / ratio);
+						{
+							var pboxSize = pbox.GetSize();
+							pbox.SetSize(new Size(pboxSize.Width, (int)(pboxSize.Width / ratio)));
+						}
 					}
 
 					pbox.Image = bmp;
+					pbox.SetSize(bmp.Size);
 					//pbox.BackgroundImage = bmp;
 				}
 			}
@@ -1698,6 +2030,15 @@
 
 			if (opts.section)
 				Section = ctrl;
+
+#if !WINDOWS
+			if (form.Visible) 
+			{
+				form.Invalidate();
+				form.UpdateLayout();
+				form.Show();
+			}
+#endif
 
 			return holder;
 		}
@@ -1801,18 +2142,25 @@
 			var width = obj2.Ai(int.MinValue);
 			var height = obj3.Ai(int.MinValue);
 			var scale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+			var formLoc = form.GetLocation();
+			var formSize = form.GetSize();
 
 			if (x != int.MinValue)
-				form.Left = x;
+				formLoc.X = x;
 
 			if (y != int.MinValue)
-				form.Top = y;
+				formLoc.Y = y;
 
 			if (width != int.MinValue)
-				form.Width = (int)Math.Round(width * scale);
+				formSize.Width = (int)Math.Round(width * scale);
 
 			if (height != int.MinValue)
-				form.Height = (int)Math.Round(height * scale);
+				formSize.Height = (int)Math.Round(height * scale);
+
+			if (x != int.MinValue || y != int.MinValue)
+				form.SetLocation(formLoc);
+			if (width != int.MinValue || height != int.MinValue)
+				form.SetSize(formSize);
 
 			return DefaultObject;
 		}
@@ -1992,22 +2340,24 @@
 			}
 
 			ResizeTabControls();
-			var status = form.Controls.OfType<KeysharpStatusStrip>().ToArray();
+			var status = form.GetControls().OfType<KeysharpStatusStrip>().ToArray();
 			(int, int) FixStatusStrip(KeysharpStatusStrip ss)
 			{
 				var maxx = 0;
 				var maxy = 0;
 
-				foreach (System.Windows.Forms.Control ctrl in form.Controls)
+				foreach (Forms.Control ctrl in form.GetControls())
 				{
 					if (ctrl != ss)
 					{
-						var yval = ctrl.Bottom;
+						var ctrlLoc = ctrl.GetLocation();
+						var ctrlSize = ctrl.GetSize();
+						var yval = ctrlLoc.Y + ctrlSize.Height;
 
 						if (yval > maxy)
 							maxy = yval;
 
-						var xval = ctrl.Right;
+						var xval = ctrlLoc.X + ctrlSize.Width;
 
 						if (xval > maxx)
 							maxx = xval;
@@ -2025,21 +2375,22 @@
                 if (status.Length > 0)
                 {
                     ss = status[0];
-                    ssHeight = ss.Height;
+                    ssHeight = ss.GetSize().Height;
                 }
 
 				(maxx, maxy) = FixStatusStrip(ss);
 			}
 
+			Size size = Size.Empty;
 			if (auto || (!form.BeenShown && !showCalled && requestedSize.Width == int.MinValue && requestedSize.Height == int.MinValue))//The calculations in this block are not exact, but are as close as we can possibly get in a generic way.
 			{
 				//AHK always autosizes on first show when no dimensions are specified.
-				form.ClientSize = new Size(maxx + form.Margin.Left,
+				size = new Size(maxx + form.Margin.Left,
 										   maxy + ssHeight + form.Margin.Bottom);//Need to manually include the height of the status strip when it's docked.
 			}
 			else
 			{
-				var size = (form.BeenShown || showCalled) ? form.Size : new Size(800, 500);//Using this size because PreferredSize is so small it just shows the title bar.
+				size = (form.BeenShown || showCalled) ? form.GetSize() : new Size(800, 500);//Using this size because PreferredSize is so small it just shows the title bar.
 
 				if (requestedSize.Width != int.MinValue)
 					size.Width = (int)Math.Ceiling(requestedSize.Width * dpiscale);
@@ -2054,8 +2405,18 @@
 				form.ClientSize = size;
 			}
 
-			var location = form.BeenShown ? form.Location : new Point();
-			var screen = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+#if WINDOWS
+			form.ClientSize = size;
+			var screen = Forms.Screen.PrimaryScreen.Bounds;
+#else
+			form.Content.ClientSize = size;
+			form.Properties["AssignedSize"] = size;
+			RectangleF screen;
+			try { screen = Forms.Screen.PrimaryScreen.Bounds; }
+			catch { screen = Forms.Screen.DisplayBounds; }
+#endif
+
+			var location = form.BeenShown ? form.GetLocation() : new Point();
 			//We need to check showCalled because the user could have called Show("hide")
 			//Then called WinMove()
 			//Then called Show() again to actually show the window.
@@ -2063,8 +2424,9 @@
 			//Same above with size.
 			var firstShow = !showCalled && !form.BeenShown;
 
-			int centerX = ((screen.Width - form.Size.Width) / 2) + screen.X;
-			int centerY = ((screen.Height - form.Size.Height) / 2) + screen.Y;
+			var formSize = form.GetSize();
+			int centerX = (((int)screen.Width - formSize.Width) / 2) + (int)screen.X;
+			int centerY = (((int)screen.Height - formSize.Height) / 2) + (int)screen.Y;
 
 			if (cX) requestedLocation.X = centerX;
 			if (cY) requestedLocation.Y = centerY;
@@ -2076,17 +2438,18 @@
 			if (requestedLocation.Y != int.MinValue) location.Y = requestedLocation.Y;
 			else if (firstShow) location.Y = centerY;
 
-			if (!form.BeenShown)
+			if (!form.BeenShown && (requestedSize.Width == int.MinValue || requestedSize.Height == int.MinValue))
 			{
-				if (requestedSize.Width == int.MinValue) requestedSize.Width = (int)Math.Ceiling(form.Size.Width / dpiscale);
-				if (requestedSize.Height == int.MinValue) requestedSize.Height = (int)Math.Ceiling(form.Size.Height / dpiscale);
+				var currentSize = form.GetSize();
+				if (requestedSize.Width == int.MinValue) requestedSize.Width = (int)Math.Ceiling(currentSize.Width / dpiscale);
+				if (requestedSize.Height == int.MinValue) requestedSize.Height = (int)Math.Ceiling(currentSize.Height / dpiscale);
 			}
 
 			showCalled = true;
 			form.StartPosition = FormStartPosition.Manual;
 
 			if (firstShow || requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue)
-				form.Location = location;
+				form.SetLocation(location);
 
 			if (hide)
 				form.Hide();
@@ -2113,8 +2476,9 @@
 				form.Activate();
 				form.BringToFront();
 			}
-
+#if WINDOWS
 			form.Update();//Required for the very first state of the form to always be displayed.
+#endif
 			return DefaultObject;
 		}
 
@@ -2122,27 +2486,39 @@
 		{
 			var hide = ForceBool(obj ?? true);
 			var panels = new HashSet<Panel>();
-			var ctrls = form.Controls.Flatten(true);
+			var ctrls = form.GetControls().Flatten(true);
 			var result = new KeysharpObject();
 
-			foreach (System.Windows.Forms.Control control in form.Controls)
+			foreach (Forms.Control control in ctrls)
 			{
 				if (control.Name != "" && control.GetGuiControl() is Gui.Control guictrl)
 				{
-					if (control is KeysharpTextBox || control is KeysharpDateTimePicker || control is KeysharpMonthCalendar)//Just use value because it's the same and consolidates the formatting in one place, despite being slightly slower.
+					if (control is KeysharpTextBox || control is KeysharpPasswordBox || control is KeysharpDateTimePicker || control is KeysharpMonthCalendar)//Just use value because it's the same and consolidates the formatting in one place, despite being slightly slower.
 						result.DefinePropInternal(control.Name, new OwnPropsDesc(null, guictrl.Value));
 					else if (control is KeysharpRichEdit)
 						result.DefinePropInternal(control.Name,  new OwnPropsDesc(null, !guictrl.AltSubmit ? guictrl.Value : guictrl.RichText));
 					else if (control is KeysharpNumericUpDown nud)
 					{
+#if WINDOWS
 						decimal v = decimal.Round(nud.Value, nud.DecimalPlaces);
 						if (v == decimal.Truncate(v) && v >= long.MinValue && v <= long.MaxValue)
 							result.DefinePropInternal(nud.Name, new OwnPropsDesc(null, (long)v));
 						else
 							result.DefinePropInternal(nud.Name, new OwnPropsDesc(null, (double)v));
+#else
+						double v = nud.Value;
+						if (v == double.Truncate(v) && v >= long.MinValue && v <= long.MaxValue)
+							result.DefinePropInternal(nud.Name, new OwnPropsDesc(null, (long)v));
+						else
+							result.DefinePropInternal(nud.Name, new OwnPropsDesc(null, v));
+#endif
 					}
 					else if (control is KeysharpCheckBox cb)
+#if WINDOWS
 						result.DefinePropInternal(cb.Name, new OwnPropsDesc(null, cb.Checked ? 1L : 0L));
+#else
+						result.DefinePropInternal(cb.Name, new OwnPropsDesc(null, (cb.Checked ?? false) ? 1L : 0L));
+#endif
 					else if (control is KeysharpTabControl tc)
 						result.DefinePropInternal(tc.Name, new OwnPropsDesc(null, !guictrl.AltSubmit ? tc.SelectedTab != null ? tc.SelectedTab.Text : "" : (long)(tc.SelectedIndex + 1)));
 					else if (control is KeysharpComboBox cmb)
@@ -2162,7 +2538,7 @@
 						if (rb.Parent is Panel pnl && !panels.Contains(pnl))
 						{
 							_ = panels.Add(pnl);
-							var rbs = pnl.Controls.Cast<System.Windows.Forms.Control>().Where(pc => pc is RadioButton pcrb).Cast<RadioButton>().ToList();
+							var rbs = pnl.Controls.Cast<Forms.Control>().Where(pc => pc is RadioButton pcrb).Cast<RadioButton>().ToList();
 							var named = rbs.Where(rr => rr.Name != "").ToList();
 
 							if (named.Count == 1)
@@ -2203,7 +2579,7 @@
 
 		IEnumerator IEnumerable.GetEnumerator() => new GuiControlIterator(controls, 2);
 
-		internal static bool AnyExistingVisibleWindows() => Script.TheScript.GuiData.allGuiHwnds.Values.Any(g => g.form != null && g.form != Script.TheScript.mainWindow && g.form.Visible);
+		internal static bool AnyExistingVisibleWindows() => Script.TheScript.GuiData.allGuiHwnds.Values.Any(g => g.form != null && g.form.Visible);
 
 		internal static void DestroyAll()
 		{
@@ -2348,9 +2724,9 @@
 						options.addexstyle |= 0x00000020;
 						options.bgtrans = true;
 					}
-					else if (opt.Equals("-Background", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = System.Windows.Forms.Control.DefaultBackColor; }
-					else if (opt.Equals("Background", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = System.Windows.Forms.Control.DefaultBackColor; }
-					else if (opt.Equals("BackgroundDefault", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = System.Windows.Forms.Control.DefaultBackColor; }
+					else if (opt.Equals("-Background", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = Forms.Control.DefaultBackColor; }
+					else if (opt.Equals("Background", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = Forms.Control.DefaultBackColor; }
+					else if (opt.Equals("BackgroundDefault", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = Forms.Control.DefaultBackColor; }
 					else if (Options.TryParse(opt, "Background", ref tempcolor, StringComparison.OrdinalIgnoreCase, true)) { options.bgcolor = tempcolor; }
 					else if (Options.TryParse(opt, "Border", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.thinborder = tempbool; }
 					//Control specific.
@@ -2430,18 +2806,26 @@
 
 		internal static void SuppressCtrlAKeyDown(object o, KeyEventArgs e)
 		{
+#if WINDOWS
 			if (e.KeyData == (Keys.Control | Keys.A))
 				e.SuppressKeyPress = true;
+#else
+			if (e.KeyData == (Forms.Keys.Control | Forms.Keys.A))
+				e.Handled = true;
+#endif
 		}
 
+#if WINDOWS
 		internal static void SuppressCtrlAPreviewKeyDown(object o, PreviewKeyDownEventArgs e)
 		{
 			if (e.KeyData == (Keys.Control | Keys.A))
 				e.IsInputKey = true;
 		}
+#endif
 
 		internal static void Tv_Lv_KeyDown(object sender, KeyEventArgs e)
 		{
+#if WINDOWS
 			if (e.KeyCode == Keys.F2)
 			{
 				if (sender is KeysharpTreeView tv)
@@ -2449,6 +2833,15 @@
 				else if (sender is KeysharpListView lv && lv.SelectedItems.Count > 0)
 					lv.SelectedItems[0].BeginEdit();
 			}
+#else
+			if (e.Key == Forms.Keys.F2)
+			{
+				if (sender is KeysharpTreeView tv)
+					tv.BeginLabelEdit(tv.SelectedNode);
+				else if (sender is KeysharpListView lv && lv.SelectedItems.Count > 0)
+					lv.SelectedItems[0].BeginEdit();
+			}
+#endif
 		}
 
 		private static void Opt(object obj, ref int addStyle, ref int addExStyle, ref int removeStyle, ref int removeExStyle)

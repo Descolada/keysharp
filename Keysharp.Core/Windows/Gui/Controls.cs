@@ -1,4 +1,5 @@
-﻿using Label = System.Windows.Forms.Label;
+﻿#if WINDOWS
+using Label = System.Windows.Forms.Label;
 
 namespace Keysharp.Core
 {
@@ -350,6 +351,14 @@ namespace Keysharp.Core
 			}
 		}
 #endif
+	}
+
+	public class KeysharpPasswordBox : KeysharpTextBox
+	{
+		public KeysharpPasswordBox(int _addStyle = 0, int _addExStyle = 0, int _removeStyle = 0, int _removeExStyle = 0)
+			: base(_addStyle, _addExStyle, _removeStyle, _removeExStyle)
+		{
+		}
 	}
 
 	public class KeysharpGroupBox : GroupBox
@@ -1365,3 +1374,4 @@ namespace Keysharp.Core
 #endif
 	}
 }
+#endif

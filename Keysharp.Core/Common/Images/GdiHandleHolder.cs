@@ -1,25 +1,77 @@
 ﻿namespace Keysharp.Core.Common.Images
 {
-	internal sealed class GdiHandleHolder : KeysharpObject
+	public sealed class GdiHandleHolder : Any, IDisposable
 	{
 		private readonly bool disposeHandle = true;
+#if !WINDOWS
+		private static readonly ConcurrentDictionary<nint, GdiHandleHolder> handleCache = new ();
+		internal readonly Image Image;
+#endif	
 		private readonly nint handle;
+		private bool disposed;
 
+
+#if WINDOWS
 		internal GdiHandleHolder(nint h, bool d)
 		{
 			handle = h;
 			disposeHandle = d;
+			if (h == 0) 
+				_ = Errors.ErrorOccurred("Invalid HBITMAP provided");
+		}
+#else
+		internal GdiHandleHolder(Image img, bool d)
+		{
+			Image = img;
+			disposeHandle = d;
+			if (img == null) 
+				_ = Errors.ErrorOccurred("Invalid Image object provided");
+			handle = ((Gdk.Pixbuf)img.ControlObject).Handle;
+			handleCache[handle] = this;
+		}
+#endif
+
+		internal static bool TryGet(nint handle, out GdiHandleHolder holder)
+		{
+#if WINDOWS
+			holder = null;
+			return false;
+#else
+			return handleCache.TryGetValue(handle, out holder);
+#endif
 		}
 
-		~GdiHandleHolder()
+		internal static void Dispose(nint handle)
 		{
+#if WINDOWS
+			_ = WindowsAPI.DeleteObject(handle);
+#else
+			if (TryGet(handle, out var holder) && holder is IDisposable id)
+				id.Dispose();
+#endif
+		}
+
+		void IDisposable.Dispose()
+		{
+			if (disposed)
+				return;
+
+			disposed = true;
 #if WINDOWS
 
 			if (disposeHandle && handle != 0)
 				_ = WindowsAPI.DeleteObject(handle);//Windows specific, figure out how to do this, or if it's even needed on other platforms.//TODO
 
+#else
+			if (disposeHandle && Image != null)
+				Image.Dispose();
+			if (handle != 0)
+				_ = handleCache.TryRemove(handle, out _);
 #endif
 		}
+
+		internal nint Handle => handle;
+		public object Ptr => (long)handle;
 
 		public static implicit operator long(GdiHandleHolder holder) => holder.handle.ToInt64();
 

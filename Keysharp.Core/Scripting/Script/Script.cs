@@ -69,7 +69,7 @@ namespace Keysharp.Scripting
 		internal int nMessageBoxes;
 		internal List<IFuncObj> onErrorHandlers;
 		internal List<IFuncObj> onExitHandlers = [];
-		private Icon _normalIcon;
+		private Icon _normalIcon = null;
 		public Icon normalIcon
 		{
 			get
@@ -208,6 +208,7 @@ namespace Keysharp.Scripting
 		{
 			// Needed for string and file encodings such as Windows-1252
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+#if WINDOWS
 			Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
 			Application.ThreadException += (s, e) =>
@@ -215,6 +216,7 @@ namespace Keysharp.Scripting
 				if (e.Exception is Flow.UserRequestedExitException) return; // silence during shutdown
 				System.Diagnostics.Debug.Write("ThreadException caught: " + e.Exception);
 			};
+#endif
 
 			AppDomain.CurrentDomain.UnhandledException += (s, e) =>
 			{
@@ -229,6 +231,19 @@ namespace Keysharp.Scripting
 #if LINUX
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);//For some reason, linux needs this for rich text to work.
 			enc1252 = Encoding.GetEncoding(1252);
+			if (Application.Instance == null)
+			{
+				try
+				{
+					_ = new Application();
+					while (Application.Instance == null)
+						System.Threading.Thread.Sleep(1);
+				}
+				catch (Exception ex)
+				{
+					System.Diagnostics.Debug.WriteLine("Failed to initialize Eto Application: " + ex);
+				}
+			}
 #endif
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 
@@ -278,8 +293,13 @@ namespace Keysharp.Scripting
 			pd.MainThreadID = CurrentThreadId();
 			pd.ManagedMainThreadID = Thread.CurrentThread.ManagedThreadId;//Figure out how to do this on linux.//TODO
 
+#if WINDOWS
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
+#else
+			msgFilter = new MessageFilter(this);
+			msgFilter.Attach();
+#endif
 			if (hookMutexName != null && hookMutexName != "") HookThread.MutexName = hookMutexName;
 			_ = InitHook();//Why is this always being initialized even when there are no hooks? This is very inefficient.//TODO
 			//Init the data objects that the API classes will use.
@@ -292,7 +312,11 @@ namespace Keysharp.Scripting
 		~Script()
 		{
 			tickTimer?.Dispose();
+#if WINDOWS
 			Application.RemoveMessageFilter(msgFilter);
+#elif LINUX
+			msgFilter?.Detach();
+#endif
 		}
 
 		[MethodImpl(MethodImplOptions.NoInlining)]  // prevent inlining from collapsing frames
@@ -448,15 +472,15 @@ namespace Keysharp.Scripting
 				mainWindow.Text = title;
 
 			mainWindow.ClipboardUpdate += PrivateClipboardUpdate;
-			mainWindow.Icon = normalIcon;
+			if (normalIcon != null)
+				mainWindow.Icon = normalIcon;
 			persistent = _persistent;
 			mainWindowGui = new Gui(null, null, null, mainWindow);
 			//Only do these on Windows, because it seems to have the opposite effect on linux:
 			//The main window is always shown on startup, but in a broken non-drawn state.
-#if WINDOWS
 			mainWindow.AllowShowDisplay = false; // Prevent show on script startup
 			mainWindow.ShowInTaskbar = true; // Without this the main window won't have a taskbar icon
-#endif
+			
 			_ = mainWindow.BeginInvoke(() =>
 			{
 				var ret = Threads.BeginThread();
@@ -487,7 +511,11 @@ namespace Keysharp.Scripting
 
 				ExitIfNotPersistent();
 			});
+#if WINDOWS
 			Application.Run(mainWindow);
+#else
+			Application.Instance.Run(mainWindow);
+#endif
 		}
 
 		public void SetName(string s)
@@ -495,7 +523,13 @@ namespace Keysharp.Scripting
 			scriptName = s;
 
 			//If we're running via passing in a script and are not in a unit test, then set the working directory to that of the script file.
-			var path = Path.GetFileName(Application.ExecutablePath).ToLowerInvariant();
+			var path = Path.GetFileName(
+#if WINDOWS
+				Application.ExecutablePath
+#else
+				Environment.ProcessPath ?? string.Empty
+#endif
+				).ToLowerInvariant();
 
 			if (path != "testhost.exe" && path != "testhost.dll" && !A_IsCompiled)
 				_ = Dir.SetWorkingDir(A_ScriptDir);
@@ -633,6 +667,7 @@ namespace Keysharp.Scripting
 				}, false);
 			}
 
+#if WINDOWS
 			if (Tray != null && Tray.ContextMenuStrip != null)
 			{
 				Tray.ContextMenuStrip.CheckedInvoke(() =>
@@ -642,6 +677,7 @@ namespace Keysharp.Scripting
 					Tray = null;
 				}, true);
 			}
+#endif
 		}
 
 		public override string ToString()
@@ -805,8 +841,11 @@ namespace Keysharp.Scripting
 		{
 			var i = 0;
 			var b = false;//False means keep going, true means stop.
-
+#if WINDOWS
 			if (Clipboard.ContainsText() || Clipboard.ContainsFileDropList())
+#else
+			if (Clipboard.Instance.ContainsText)
+#endif
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(1));//Can't use foreach because the collection could be modified by the event.
 			else if (!KeysharpEnhancements.IsClipboardEmpty())
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(2));

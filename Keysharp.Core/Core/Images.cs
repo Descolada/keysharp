@@ -28,7 +28,11 @@
 		{
 			var file = filename.As();
 			var opts = options.As();
+#if WINDOWS
 			nint handle = 0;
+#else
+			Image handle = null;
+#endif
 			var width = int.MinValue;
 			var height = int.MinValue;
 			var icon = "";
@@ -53,7 +57,11 @@
 			if (ext == ".cur")
 			{
 				var cur = new Cursor(file);
+#if WINDOWS
 				handle = cur.Handle;
+#else
+				handle = ImageHelper.ConvertCursorToBitmap(cur);
+#endif
 				if (outImageType != null) Script.SetPropertyValue(outImageType, "__Value", 2L);
 			}
 			else if ((ret = ImageHelper.LoadImage(file, width, height, iconnumber)).Item1 is Bitmap bmp)
@@ -61,19 +69,31 @@
 				//Calling GetHbitmap() and GetHicon() creates a persistent handle that keeps the bitmap in memory, and must be destroyed later.
 				if (ret.Item2 is Icon ic)
 				{
+#if WINDOWS
 					handle = ic.Handle;
+#else
+					handle = ic;
+#endif
 					disposeHandle = false;
 					if (outImageType != null) Script.SetPropertyValue(outImageType, "__Value", 1L);
 				}
 				else if (ImageHelper.IsIcon(file))
 				{
+#if WINDOWS
 					handle = ret.Item1.GetHicon();
+#else
+					handle = ret.Item1;
+#endif
 					disposeHandle = true;
 					if (outImageType != null) Script.SetPropertyValue(outImageType, "__Value", 1L);
 				}
 				else
 				{
+#if WINDOWS
 					handle = bmp.GetHbitmap();
+#else
+					handle = bmp;
+#endif
 					disposeHandle = true;
 					if (outImageType != null) Script.SetPropertyValue(outImageType, "__Value", 0L);
 				}

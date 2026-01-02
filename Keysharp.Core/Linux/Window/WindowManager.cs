@@ -11,7 +11,15 @@ namespace Keysharp.Core.Linux
 		// ToDo: There may be more than only one xDisplay
 		private static XDisplay Display => XDisplay.Default;
 
-		public static WindowItemBase ActiveWindow => new WindowItem(Display.XGetInputFocusWindow());
+		public static WindowItemBase ActiveWindow 
+		{
+			get {
+				var focused = Display.XGetInputFocusWindow();
+				if (focused.ID == 1)
+					return new WindowItem(0);
+				return new WindowItem(focused);
+			}
+		}
 
 		/// <summary>
 		/// Return all top level windows.
@@ -52,8 +60,31 @@ namespace Keysharp.Core.Linux
 
 		public static bool IsWindow(nint handle)
 		{
+			if (!PlatformManager.IsX11Available || handle == 0)
+				return false;
+
 			var attr = new XWindowAttributes();
-			return Xlib.XGetWindowAttributes(Display.Handle, handle.ToInt64(), ref attr) != 0;
+			bool success = true;
+
+			lock (xLibLock)
+			{
+				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				{
+					success = false;
+					return 0;
+				});
+
+				try
+				{
+					var result = Xlib.XGetWindowAttributes(Display.Handle, handle.ToInt64(), ref attr) != 0;
+					_ = Xlib.XSync(Display.Handle, false);
+					return success && result;
+				}
+				finally
+				{
+					_ = Xlib.XSetErrorHandler(oldHandler);
+				}
+			}
 		}
 
 		public static void MaximizeAll()

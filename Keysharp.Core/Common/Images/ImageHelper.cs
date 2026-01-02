@@ -1,9 +1,12 @@
-﻿namespace Keysharp.Core.Common.Images
+﻿using Eto.GtkSharp;
+
+namespace Keysharp.Core.Common.Images
 {
 	internal static class ImageHelper
 	{
 		internal static Bitmap ConvertCursorToBitmap(Cursor c)
 		{
+#if WINDOWS
 			var bmp = new Bitmap(c.Size.Width, c.Size.Height);
 
 			using (var g = Graphics.FromImage(bmp))
@@ -12,6 +15,9 @@
 			}
 
 			return bmp;
+#else
+			return new Bitmap(c.ToGdk().Image.SaveToBuffer("png"));
+#endif
 		}
 
 		internal static bool IsIcon(string filename)
@@ -58,8 +64,16 @@
 
 				try
 				{
+#if WINDOWS
 					icon = (Icon)resource.GetObject(iconName);
+#else
 
+					if (resource.GetObject(iconName) is byte[] bytes)
+					{
+						using (var ms = new MemoryStream(bytes))
+							icon = new Icon(ms);
+					}
+#endif
 					if (icon != null)
 						break;
 				}
@@ -76,9 +90,26 @@
 
 			try
 			{
-#if WINDOWS
+				if (filename.StartsWith("HBITMAP:", StringComparison.OrdinalIgnoreCase))
+				{
+					var hstr = filename.AsSpan(8);
+					var dontClear = hstr[0] == '*';
 
-				if (filename.StartsWith("HICON:", StringComparison.OrdinalIgnoreCase))
+					if (dontClear)
+						hstr = hstr.Trim('*');
+
+					if (long.TryParse(hstr, out var handle))
+					{
+						var ptr = new nint(handle);
+						bmp = GetBitmapFromHBitmap(ptr);
+						bmp = ResizeBitmap(bmp, w, h);
+
+						if (!dontClear)
+							GdiHandleHolder.Dispose(ptr);
+					}
+				}
+#if WINDOWS
+				else if (filename.StartsWith("HICON:", StringComparison.OrdinalIgnoreCase))
 				{
 					var hstr = filename.AsSpan(6);
 					var dontClear = hstr[0] == '*';
@@ -98,31 +129,7 @@
 							temp = tempico;
 					}
 				}
-				else
 #endif
-					if (filename.StartsWith("HBITMAP:", StringComparison.OrdinalIgnoreCase))
-					{
-						var hstr = filename.AsSpan(8);
-						var dontClear = hstr[0] == '*';
-
-						if (dontClear)
-							hstr = hstr.Trim('*');
-
-						if (long.TryParse(hstr, out var handle))
-						{
-							var ptr = new nint(handle);
-#if WINDOWS
-							bmp = GetBitmapFromHBitmap(ptr);
-							bmp = ResizeBitmap(bmp, w, h);
-
-							if (!dontClear)
-									_ = WindowsAPI.DeleteObject(ptr);
-
-#else
-							bmp = Image.FromHbitmap(ptr);
-#endif
-						}
-					}
 
 				if (bmp == null)//Wasn't a handle, and instead was a filename.
 				{
@@ -156,10 +163,12 @@
 							{
 								bmp = ResizeBitmap(bmp, w, h);
 							}
+#if WINDOWS
 							else if (bmp.Size != SystemInformation.IconSize)
 							{
 								bmp = bmp.Resize(SystemInformation.IconSize.Width, SystemInformation.IconSize.Height);
 							}
+#endif
 
 							temp = ico;
 						}
@@ -169,6 +178,7 @@
 						if (w > 0 && h < 0) h = w;
 						if (h > 0 && w < 0) w = h;
 
+#if WINDOWS
 						Icon ico = (w <= 0 || h <= 0) ? new Icon(filename) : new Icon(filename, w, h);
 
 						var icos = GuiHelper.SplitIcon(ico);
@@ -207,10 +217,36 @@
 							bmp = ResizeBitmap(bmp, w, h);
 						else if (bmp.Size != SystemInformation.IconSize)
 							bmp = bmp.Resize(SystemInformation.IconSize.Width, SystemInformation.IconSize.Height);
+#else
+						var ico = new Icon(filename);
+						var frames = ico.Frames.ToList();
+
+						if (frames.Count > 0)
+						{
+							IconFrame frame;
+							if (w > 0 || h > 0)
+							{
+								var targetSize = new Size(w > 0 ? w : h, h > 0 ? h : w);
+								frame = frames.FirstOrDefault(tempFrame => tempFrame.PixelSize == targetSize) ?? frames[0];
+							}
+							else
+							{
+								var iconint = iconindex.Ai(int.MaxValue);
+								frame = iconint >= 0 && iconint < frames.Count ? frames[iconint] : frames[0];
+							}
+
+							temp = ico;
+							bmp = frame.Bitmap;
+						}
+
+						if (bmp != null && (w > 0 || h > 0))
+							bmp = ResizeBitmap(bmp, w, h);
+#endif
 					}
 					else if (ext == ".cur")
 					{
 						var tempcur = new Cursor(filename);
+#if WINDOWS
 						var curbm = new Bitmap(tempcur.Size.Width, tempcur.Size.Height);
 
 						using (var gr = Graphics.FromImage(curbm))
@@ -219,6 +255,11 @@
 							bmp = curbm;
 							temp = tempcur;
 						}
+#else
+						temp = tempcur;
+						bmp = ImageHelper.ConvertCursorToBitmap(tempcur);
+						bmp = ResizeBitmap(bmp, w, h);
+#endif
 					}
 					else
 					{
@@ -238,7 +279,7 @@
 			return (bmp, temp);
 		}
 
-		private static Bitmap ResizeBitmap(Bitmap bmp, int w, int h)
+		internal static Bitmap ResizeBitmap(Bitmap bmp, int w, int h)
 		{
 			if (w <= 0 && h <= 0)
 				return bmp;
@@ -247,8 +288,29 @@
 			if (h <= 0) h = w > 0 && h != 0 ? w : bmp.Height;
 
 			if (bmp.Width != w || bmp.Height != h)
+#if WINDOWS
 				bmp = bmp.Resize(w, h);
+#else
+				bmp = new Bitmap(bmp, w, h, ImageInterpolation.Default);
+#endif
 
+			return bmp;
+		}
+
+		// Image.FromHbitmap doesn't support transparency, so the following code is used as a workaround.
+		// Source: https://stackoverflow.com/questions/9275738/convert-hbitmap-to-bitmap-preserving-alpha-channel
+		internal static Bitmap GetBitmapFromHBitmap(nint nativeHBitmap)
+		{
+			Bitmap bmp = Bitmap.FromHbitmap(nativeHBitmap);
+#if WINDOWS
+			if (Bitmap.GetPixelFormatSize(bmp.PixelFormat) < 32)
+				return bmp;
+
+			BitmapData bmpData;
+
+			if (IsAlphaBitmap(bmp, out bmpData))
+				return GetlAlphaBitmapFromBitmapData(bmpData);
+#endif
 			return bmp;
 		}
 
@@ -268,23 +330,6 @@
 			var count = WindowsAPI.PrivateExtractIcons(path, index, w, h, hicons, ids, 1, 0);
 
 			return (count > 0 && hicons[0] != 0) ? Icon.FromHandle(hicons[0]) : null;
-		}
-
-		// Image.FromHbitmap doesn't support transparency, so the following code is used as a workaround.
-		// Source: https://stackoverflow.com/questions/9275738/convert-hbitmap-to-bitmap-preserving-alpha-channel
-		internal static Bitmap GetBitmapFromHBitmap(nint nativeHBitmap)
-		{
-			Bitmap bmp = Bitmap.FromHbitmap(nativeHBitmap);
-
-			if (Bitmap.GetPixelFormatSize(bmp.PixelFormat) < 32)
-				return bmp;
-
-			BitmapData bmpData;
-
-			if (IsAlphaBitmap(bmp, out bmpData))
-				return GetlAlphaBitmapFromBitmapData(bmpData);
-
-			return bmp;
 		}
 
 		private static Bitmap GetlAlphaBitmapFromBitmapData(BitmapData bmpData)
@@ -345,7 +390,11 @@
 			for (var i = 0; i < bmp.Height; i += h)
 				for (var j = 0; j < bmp.Width; j += w)
 					if (i + h < bmp.Height && j + w < bmp.Width)
+#if WINDOWS
 						list.Add(bmp.Clone(new Rectangle(j, i, w, h), bmp.PixelFormat));
+#else
+						list.Add(bmp.Clone(new Rectangle(j, i, w, h)));
+#endif
 
 			return list;
 		}

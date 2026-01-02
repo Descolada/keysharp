@@ -1,9 +1,4 @@
 ﻿#if LINUX
-//#define DPI
-using System.Text;
-using WindowStyles = System.Windows.Forms.WindowStyles;
-using WindowExStyles = System.Windows.Forms.WindowExStyles;
-
 namespace Keysharp.Core.Linux
 {
 	/// <summary>
@@ -287,20 +282,7 @@ namespace Keysharp.Core.Linux
 		{
 			get
 			{
-				if (!IsSpecified)
-					return 0L;
-
-				var ctrl = Control.FromHandle(Handle);
-
-				if (ctrl == null)
-				{
-					KeysharpEnhancements.OutputDebugLine($"Window with handle {Handle} was not a .NET Form or Control, so the ex style could not be retrieved. Returning 0.");
-					return 0;
-				}
-				else if (ctrl is Form form)
-					return ConvertFormPropsToCreateParams(form).ExStyle;
-				else
-					return ConvertControlPropsToCreateParams(ctrl).ExStyle;
+				return 0L;
 			}
 			set
 			{
@@ -350,7 +332,14 @@ namespace Keysharp.Core.Linux
 						y = value.Y;
 
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
-						ctrl.Location = new Point(x, y);
+					{
+						if (ctrl is Window window)
+							window.Location = new Point(x, y);
+						else if (ctrl.Parent is PixelLayout pixel)
+							PixelLayout.SetLocation(ctrl, new Point(x, y));
+						else
+							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, x, y);
+					}
 					else
 						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, x, y);//This is smart enough not to need manual processing for the title bar.
 
@@ -505,15 +494,13 @@ namespace Keysharp.Core.Linux
 
 				var ctrl = Control.FromHandle(Handle);
 
-				if (ctrl == null)
+				if (ctrl is Eto.Forms.Form form)
+					return (long)form.WindowStyle;
+				else
 				{
 					KeysharpEnhancements.OutputDebugLine($"Window with handle {Handle} was not a .NET Form or Control, so the style could not be retrieved. Returning 0.");
 					return 0;
 				}
-				else if (ctrl is Form form)
-					return ConvertFormPropsToCreateParams(form).Style;
-				else
-					return ConvertControlPropsToCreateParams(ctrl).Style;
 			}
 			set
 			{
@@ -1044,7 +1031,7 @@ namespace Keysharp.Core.Linux
 			return Xlib.XClearWindow(xwindow.XDisplay.Handle, xwindow.ID) != 0;
 		}
 
-		internal void SendMouseEvent(XEventName evName, EventMasks evMask, Buttons button, System.Drawing.Point? location = null)
+		internal void SendMouseEvent(XEventName evName, EventMasks evMask, Buttons button, Eto.Drawing.Point? location = null)
 		{
 			var click = new Point();
 
@@ -1090,363 +1077,6 @@ namespace Keysharp.Core.Linux
 			}
 
 			return Xlib.XMapWindow(xwindow.XDisplay.Handle, xwindow.ID) != 0;
-		}
-
-		private enum ClassStyle
-		{
-			CS_VREDRAW = 0x00000001,
-			CS_HREDRAW = 0x00000002,
-			CS_KEYCVTWINDOW = 0x00000004,
-			CS_DBLCLKS = 0x00000008,
-			CS_OWNDC = 0x00000020,
-			CS_CLASSDC = 0x00000040,
-			CS_PARENTDC = 0x00000080,
-			CS_NOKEYCVT = 0x00000100,
-			CS_NOCLOSE = 0x00000200,
-			CS_SAVEBITS = 0x00000800,
-			CS_BYTEALIGNCLIENT = 0x00001000,
-			CS_BYTEALIGNWINDOW = 0x00002000,
-			CS_GLOBALCLASS = 0x00004000,
-			CS_IME = 0x00010000,
-			// Windows XP+
-			CS_DROPSHADOW = 0x00020000
-		}
-
-		/// <summary>
-		/// Translate the various properties of a control to the equivalent Windows style.
-		/// Copied this from Control.cs in Mono.
-		/// </summary>
-		/// <returns></returns>
-		private CreateParams ConvertControlPropsToCreateParams(Control control)
-		{
-			CreateParams cp = new CreateParams();
-
-			try
-			{
-				cp.Caption = control.Text;
-			}
-			catch
-			{
-				cp.Caption = "";
-			}
-
-			try
-			{
-				cp.X = control.Left;
-			}
-			catch
-			{
-			}
-
-			try
-			{
-				cp.Y = control.Top;
-			}
-			catch
-			{
-			}
-
-			try
-			{
-				cp.Width = control.Width;
-			}
-			catch
-			{
-			}
-
-			try
-			{
-				cp.Height = control.Height;
-			}
-			catch
-			{
-			}
-
-			cp.ClassName = "SWFClass" + Thread.GetDomainID().ToString() + "." + control.GetType().ToString();
-			cp.ClassStyle = (int)(ClassStyle.CS_OWNDC | ClassStyle.CS_DBLCLKS);
-			cp.ExStyle = 0;
-			cp.Param = 0;
-
-			if (control.AllowDrop)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_ACCEPTFILES;
-			}
-
-			if ((control.Parent != null) && (control.Parent.IsHandleCreated))
-			{
-				cp.Parent = control.Parent.Handle;
-			}
-
-			cp.Style = (int)WindowStyles.WS_CHILD | (int)WindowStyles.WS_CLIPCHILDREN | (int)WindowStyles.WS_CLIPSIBLINGS;
-
-			if (control.Visible)
-			{
-				cp.Style |= (int)WindowStyles.WS_VISIBLE;
-			}
-
-			if (!control.Enabled)
-			{
-				cp.Style |= (int)WindowStyles.WS_DISABLED;
-			}
-
-			var props = control.GetType().GetProperties(BindingFlags.NonPublic | BindingFlags.Instance);
-			var prop = props.FirstOrDefault(p => p.Name == "InternalBorderStyle");
-			var borderStyle = (BorderStyle)prop.GetValue(control, null);
-
-			switch (borderStyle)
-			{
-				case BorderStyle.FixedSingle:
-					cp.Style |= (int)WindowStyles.WS_BORDER;
-					break;
-
-				case BorderStyle.Fixed3D:
-					cp.ExStyle |= (int)WindowExStyles.WS_EX_CLIENTEDGE;
-					break;
-			}
-
-			return cp;
-		}
-
-		/// <summary>
-		/// Translate the various properties of a window to the equivalent Windows style.
-		/// Copied this from Form.cs in Mono.
-		/// </summary>
-		/// <returns></returns>
-		private CreateParams ConvertFormPropsToCreateParams(Form form)
-		{
-			CreateParams cp = new CreateParams();
-
-			if (form.Text != null)
-				cp.Caption = form.Text.Replace(Environment.NewLine, string.Empty);
-
-			cp.ClassName = "SWFClass" + Thread.GetDomainID().ToString() + "." + form.GetType().ToString();
-			cp.ClassStyle = 0;
-			cp.Style = 0;
-			cp.ExStyle = 0;
-			cp.Param = 0;
-			cp.Parent = 0;
-
-			if (((form.Parent != null || !form.TopLevel) && !form.IsMdiChild))
-			{
-				// Parented forms and non-toplevel forms always gets the specified location, no matter what
-				cp.X = form.Left;
-				cp.Y = form.Top;
-			}
-			else
-			{
-				switch (form.StartPosition)
-				{
-					case FormStartPosition.Manual:
-						cp.X = form.Left;
-						cp.Y = form.Top;
-						break;
-
-					case FormStartPosition.CenterScreen:
-						if (form.IsMdiChild)
-						{
-							var mdiContainer = form.MdiParent.Controls.Cast<Control>().FirstOrDefault(c => c is MdiClient);
-
-							if (mdiContainer != null)
-							{
-								cp.X = Math.Max((mdiContainer.ClientSize.Width - form.Width) / 2, 0);
-								cp.Y = Math.Max((mdiContainer.ClientSize.Height - form.Height) / 2, 0);
-							}
-						}
-						else
-						{
-							cp.X = Math.Max((System.Windows.Forms.Screen.PrimaryScreen.WorkingArea.Width - form.Width) / 2, 0);
-							cp.Y = Math.Max((System.Windows.Forms.Screen.PrimaryScreen.WorkingArea.Height - form.Height) / 2, 0);
-						}
-
-						break;
-
-					case FormStartPosition.CenterParent:
-					case FormStartPosition.WindowsDefaultBounds:
-					case FormStartPosition.WindowsDefaultLocation:
-						cp.X = int.MinValue;
-						cp.Y = int.MinValue;
-						break;
-				}
-			}
-
-			cp.Width = form.Width;
-			cp.Height = form.Height;
-			cp.Style = (int)WindowStyles.WS_CLIPCHILDREN;
-
-			if (!form.Modal)
-			{
-				cp.WindowStyle |= WindowStyles.WS_CLIPSIBLINGS;
-			}
-
-			if (form.Parent != null && form.Parent.IsHandleCreated)
-			{
-				cp.Parent = form.Parent.Handle;
-				cp.Style |= (int)WindowStyles.WS_CHILD;
-			}
-
-			if (form.IsMdiChild)
-			{
-				cp.Style |= (int)(WindowStyles.WS_CHILD | WindowStyles.WS_CAPTION);
-
-				if (form.Parent != null)
-				{
-					cp.Parent = form.Parent.Handle;
-				}
-
-				cp.ExStyle |= (int)(WindowExStyles.WS_EX_WINDOWEDGE | WindowExStyles.WS_EX_MDICHILD);
-
-				switch (form.FormBorderStyle)
-				{
-					case FormBorderStyle.None:
-						break;
-
-					case FormBorderStyle.FixedToolWindow:
-					case FormBorderStyle.SizableToolWindow:
-						cp.ExStyle |= (int)WindowExStyles.WS_EX_TOOLWINDOW;
-						goto default;
-
-					default:
-						cp.Style |= (int)WindowStyles.WS_OVERLAPPEDWINDOW;
-						break;
-				}
-			}
-			else
-			{
-				switch (form.FormBorderStyle)
-				{
-					case FormBorderStyle.Fixed3D:
-					{
-						cp.Style |= (int)(WindowStyles.WS_CAPTION | WindowStyles.WS_BORDER);
-						cp.ExStyle |= (int)WindowExStyles.WS_EX_CLIENTEDGE;
-						break;
-					}
-
-					case FormBorderStyle.FixedDialog:
-					{
-						cp.Style |= (int)(WindowStyles.WS_CAPTION | WindowStyles.WS_BORDER);
-						cp.ExStyle |= (int)(WindowExStyles.WS_EX_DLGMODALFRAME | WindowExStyles.WS_EX_CONTROLPARENT);
-						break;
-					}
-
-					case FormBorderStyle.FixedSingle:
-					{
-						cp.Style |= (int)(WindowStyles.WS_CAPTION | WindowStyles.WS_BORDER);
-						break;
-					}
-
-					case FormBorderStyle.FixedToolWindow:
-					{
-						cp.Style |= (int)(WindowStyles.WS_CAPTION | WindowStyles.WS_BORDER);
-						cp.ExStyle |= (int)WindowExStyles.WS_EX_TOOLWINDOW;
-						break;
-					}
-
-					case FormBorderStyle.Sizable:
-					{
-						cp.Style |= (int)(WindowStyles.WS_BORDER | WindowStyles.WS_THICKFRAME | WindowStyles.WS_CAPTION);
-						break;
-					}
-
-					case FormBorderStyle.SizableToolWindow:
-					{
-						cp.Style |= (int)(WindowStyles.WS_BORDER | WindowStyles.WS_THICKFRAME | WindowStyles.WS_CAPTION);
-						cp.ExStyle |= (int)WindowExStyles.WS_EX_TOOLWINDOW;
-						break;
-					}
-
-					case FormBorderStyle.None:
-					{
-						break;
-					}
-				}
-			}
-
-			switch (form.WindowState)
-			{
-				case FormWindowState.Maximized:
-				{
-					cp.Style |= (int)WindowStyles.WS_MAXIMIZE;
-					break;
-				}
-
-				case FormWindowState.Minimized:
-				{
-					cp.Style |= (int)WindowStyles.WS_MINIMIZE;
-					break;
-				}
-			}
-
-			if (form.TopMost)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_TOPMOST;
-			}
-
-			if (form.ShowInTaskbar)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_APPWINDOW;
-			}
-
-			if (form.MaximizeBox)
-			{
-				cp.Style |= (int)WindowStyles.WS_MAXIMIZEBOX;
-			}
-
-			if (form.MinimizeBox)
-			{
-				cp.Style |= (int)WindowStyles.WS_MINIMIZEBOX;
-			}
-
-			if (form.ControlBox)
-			{
-				cp.Style |= (int)WindowStyles.WS_SYSMENU;
-			}
-
-			if (!form.ShowIcon)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_DLGMODALFRAME;
-			}
-
-			cp.ExStyle |= (int)WindowExStyles.WS_EX_CONTROLPARENT;
-
-			if (form.HelpButton && !form.MaximizeBox && !form.MinimizeBox)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_CONTEXTHELP;
-			}
-
-			// bug 80775:
-			//don't set WS_VISIBLE if we're changing visibility. We can't create forms visible,
-			//since we have to set the owner before making the form visible
-			//(otherwise Win32 will do strange things with task bar icons).
-			//The problem is that we set the internal is_visible to true before creating the control,
-			//so is_changing_visible_state is the only way of determining if we're
-			//in the process of creating the form due to setting Visible=true.
-			//This works because SetVisibleCore explicitly makes the form visibile afterwards anyways.
-			// bug 81957:
-			//only do this when on Windows, since X behaves weirdly otherwise
-			//modal windows appear below their parent/owner/ancestor.
-			//(confirmed on several window managers, so it's not a wm bug).
-			//int p = (int)Environment.OSVersion.Platform;
-			//bool is_unix = (p == 128) || (p == 4) || (p == 6);
-
-			//if ((Visible && (is_changing_visible_state == 0 || is_unix)) || form.IsRecreating)
-			//  cp.Style |= (int)WindowStyles.WS_VISIBLE;
-
-			if (form.Opacity < 1.0 || form.TransparencyKey != Color.Empty)
-			{
-				cp.ExStyle |= (int)WindowExStyles.WS_EX_LAYERED;
-			}
-
-			if (!form.Enabled/* && context == null*/)
-			{
-				cp.Style |= (int)WindowStyles.WS_DISABLED;
-			}
-
-			if (!form.ControlBox && form.Text == string.Empty)
-			{
-				cp.WindowStyle &= ~WindowStyles.WS_DLGFRAME;
-			}
-
-			return cp;
 		}
 
 		private Rectangle FrameExtents()

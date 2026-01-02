@@ -220,6 +220,7 @@
 
 				if (bmp != null)
 				{
+#if WINDOWS
 					var ptr = bmp.GetHicon();
 
 					try
@@ -240,13 +241,22 @@
 					{
 						_ =  DestroyIcon(ptr);
 					}
+#else
+					var icon = temp as Icon ?? new Icon(1f, bmp);
+					if (icon != null)
+					{
+						A_IconFile = filename;
+						A_IconNumber = iconNumber;
+						script.mainWindow.CheckedBeginInvoke(() => script.Tray.Icon = script.mainWindow.Icon = icon, false, false);
+					}
+#endif
 				}
 			}
 			else
 			{
 				A_IconFile = "";
 				A_IconNumber = 1;
-				script.mainWindow.CheckedBeginInvoke(() => script.Tray.Icon = script.mainWindow.Icon = Properties.Resources.Keysharp_ico, false, false);
+				script.mainWindow.CheckedBeginInvoke(() => script.Tray.Icon = script.mainWindow.Icon = script.normalIcon, false, false);
 			}
 
 			return DefaultObject;
@@ -290,13 +300,23 @@
 				return DefaultObject;
 			}
 
+#if WINDOWS
 			var icon = ToolTipIcon.None;
+#else
+			Image icon = null;
+#endif
 			void HandleInt(int? i)
 			{
 				if ((i & 4) == 4) { }//tray icon
+#if WINDOWS
 				else if ((i & 3) == 3) { icon = ToolTipIcon.Error; }
 				else if ((i & 2) == 2) { icon = ToolTipIcon.Warning; }
 				else if ((i & 1) == 1) { icon = ToolTipIcon.Info; }
+#else
+				else if ((i & 3) == 3) { icon = SystemIcons.Get(SystemIconType.Error, SystemIconSize.Large); }
+				else if ((i & 2) == 2) { icon = SystemIcons.Get(SystemIconType.Warning, SystemIconSize.Large); }
+				else if ((i & 1) == 1) { icon = SystemIcons.Get(SystemIconType.Information, SystemIconSize.Large); }
+#endif
 				else if ((i & 16) == 16) { }
 				else if ((i & 32) == 32) { }
 			}
@@ -309,9 +329,15 @@
 
 					if (opt.Length > 0)
 					{
+#if WINDOWS
 						if (opt.Equals("iconi", StringComparison.OrdinalIgnoreCase)) icon = ToolTipIcon.Info;
 						else if (opt.Equals("icon!", StringComparison.OrdinalIgnoreCase)) icon = ToolTipIcon.Warning;
 						else if (opt.Equals("iconx", StringComparison.OrdinalIgnoreCase)) icon = ToolTipIcon.Error;
+#else
+						if (opt.Equals("iconi", StringComparison.OrdinalIgnoreCase)) icon = SystemIcons.Get(SystemIconType.Information, SystemIconSize.Large);
+						else if (opt.Equals("icon!", StringComparison.OrdinalIgnoreCase)) icon = SystemIcons.Get(SystemIconType.Warning, SystemIconSize.Large);
+						else if (opt.Equals("iconx", StringComparison.OrdinalIgnoreCase)) icon = SystemIcons.Get(SystemIconType.Error, SystemIconSize.Large);
+#endif
 						else if (opt.Equals("mute", StringComparison.OrdinalIgnoreCase)) { }
 						else HandleInt(int.Parse(opt));
 					}
@@ -320,8 +346,18 @@
 			else if (opts != null)
 				HandleInt(opts.ParseInt());
 
+#if WINDOWS
 			script.Tray.Visible = true;
 			script.Tray.ShowBalloonTip(1000, _title, _text, icon);//Duration is now ignored by Windows.
+#else
+			var notification = new Notification
+			{
+				Title = _title,
+				Message = _text,
+				ContentImage = icon,
+			};
+			notification.Show();
+#endif
 			return DefaultObject;
 		}
 	}

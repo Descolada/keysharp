@@ -1,4 +1,3 @@
-using System.Windows.Forms;
 using Keysharp.Core.Scripting.Script;
 using static Keysharp.Core.Errors;
 
@@ -241,7 +240,11 @@ namespace Keysharp.Core
 			script.mainWindow.CheckedBeginInvoke(() =>
 			{
 				A_ExitReason = ExitReasons.Reload;
+#if WINDOWS
 				Application.Restart();//This will pass the same command line args to the new instance that were passed to this instance.
+#else
+				Application.Instance.Restart();
+#endif
 				ExitAppInternal(ExitReasons.Reload);
 			}, true, true);
 			var start = DateTime.UtcNow;
@@ -445,7 +448,11 @@ namespace Keysharp.Core
 			{
 				try
 				{
-					Application.DoEvents();//Can sometimes throw on linux.
+#if WINDOWS
+					Application.DoEvents();
+#else
+					Application.Instance.RunIteration();
+#endif
 				}
 				catch (UserRequestedExitException)
 				{
@@ -459,7 +466,11 @@ namespace Keysharp.Core
 			{
 				try
 				{
-					Application.DoEvents();//Can sometimes throw on linux.
+#if WINDOWS
+					Application.DoEvents();
+#else
+					Application.Instance.RunIteration();
+#endif
 				}
 				catch
 				{
@@ -636,6 +647,7 @@ namespace Keysharp.Core
 
 			script.tickTimer.Stop();
 			Dialogs.CloseMessageBoxes();
+			Dialogs.CloseToolTips();
 			var ec = exitCode.Ai();
 			A_ExitReason = exitReason.ToString();
 			var allowInterruption_prev = fd.allowInterruption;//Save current setting.

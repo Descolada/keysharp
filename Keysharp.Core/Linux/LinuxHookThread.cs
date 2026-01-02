@@ -990,7 +990,7 @@ namespace Keysharp.Core.Linux
 			var simulated = (mask & EventMask.SimulatedEvent) != 0;
 			extraInfo = 0;
 
-			if (!simulated && (ConsumeSyntheticEvent(keyCode, keyUp, DateTime.UtcNow, out extraInfo)
+			if (!simulated && (ConsumeSyntheticEvent(keyCode, keyUp, e.EventTime, out extraInfo)
 				 //|| IsLogicallyDownPhysicallyUp(vk)
 				 ))
 			{

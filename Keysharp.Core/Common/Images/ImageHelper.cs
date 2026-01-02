@@ -8,8 +8,12 @@ namespace Keysharp.Core.Common.Images
 	{
 		internal static Icon IconFromByteArray(byte[] bytes)
 		{
+#if WINDOWS
 			using (var ms = new MemoryStream(bytes))
 				return new Icon(ms);
+#else
+			return new Icon(1.0f, new Bitmap(bytes));
+#endif
 		}
 
 		internal static Bitmap ConvertCursorToBitmap(Cursor c)
@@ -74,8 +78,12 @@ namespace Keysharp.Core.Common.Images
 				{
 					if (resource.GetObject(iconName) is byte[] bytes)
 					{
+#if WINDOWS
 						using (var ms = new MemoryStream(bytes))
 							icon = new Icon(ms);
+#else
+						icon = new Icon(1.0f, new Bitmap(bytes));
+#endif
 					}
 					if (icon != null)
 						break;

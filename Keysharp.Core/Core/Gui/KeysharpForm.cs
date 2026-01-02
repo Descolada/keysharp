@@ -102,7 +102,7 @@
 			SetStyle(ControlStyles.StandardClick, true);
 			SetStyle(ControlStyles.StandardDoubleClick, true);
 #else
-			this.SetFont(MainWindow.OurDefaultFont);
+			this.Font = MainWindow.OurDefaultFont;
 #endif
 
             if (this is not MainWindow)

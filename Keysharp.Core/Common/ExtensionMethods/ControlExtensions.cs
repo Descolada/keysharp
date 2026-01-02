@@ -124,7 +124,7 @@ namespace System.Windows.Forms
 #if WINDOWS
 			return form.Controls.OfType<Control>();
 #else
-			return form.Children.Where(ctrl => ctrl is not PixelLayout);
+			return form.Children;
 #endif
 		}
 

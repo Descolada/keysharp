@@ -1189,10 +1189,10 @@ namespace Keysharp.Core
 				}
 				else if (_control is KeysharpTrackBar tb)
 				{
-					if (opts.center.IsTrue())
-						tb.TickStyle = TickStyle.Both;
-					else if (opts.leftj.IsTrue())
-						tb.TickStyle = TickStyle.TopLeft;
+					if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Center)
+						slider.TickStyle = TickStyle.Both;
+					else if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
+						slider.TickStyle = TickStyle.TopLeft;
 					else if (opts.noticks.IsTrue())
 						tb.TickStyle = TickStyle.None;
 
@@ -1295,14 +1295,20 @@ namespace Keysharp.Core
 					if (opts.wordwrap.HasValue)
 						tc.Multiline = opts.wordwrap.IsTrue();
 
-					if (opts.leftj.IsTrue())
-						tc.Alignment = TabAlignment.Left;
-					else if (opts.rightj.IsTrue())
-						tc.Alignment = TabAlignment.Right;
-					else if (opts.bottom)
-						tc.Alignment = TabAlignment.Bottom;
-					else if (opts.top)
-						tc.Alignment = TabAlignment.Top;
+					if (opts.halign.HasValue) 
+					{
+						if (opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
+							tc.Alignment = TabAlignment.Left;
+						else if (opts.halign.Value == GuiOptions.HorizontalAlignment.Right)
+							tc.Alignment = TabAlignment.Right;
+					}
+					if (opts.valign.HasValue) 
+					{
+						if (opts.valign.Value == GuiOptions.VerticalAlignment.Bottom)
+							tc.Alignment = TabAlignment.Bottom;
+						else if (opts.valign.Value == GuiOptions.VerticalAlignment.Top)
+							tc.Alignment = TabAlignment.Top;
+					}
 
 					if (opts.bgtrans)
 						tc.SetColor(Color.Transparent);
@@ -1311,8 +1317,8 @@ namespace Keysharp.Core
 				}
 				else if (_control is KeysharpNumericUpDown nud)
 				{
-					if (opts.leftj.HasValue)
-						nud.UpDownAlign = opts.leftj.Value ? LeftRightAlignment.Left : LeftRightAlignment.Right;
+					if (opts.halign.HasValue)
+						nud.UpDownAlign = opts.halign.Value == GuiOptions.HorizontalAlignment.Left ? LeftRightAlignment.Left : LeftRightAlignment.Right;
 
 					if (opts.nudinc.HasValue)
 						nud.Increment = opts.nudinc.Value;
@@ -1329,12 +1335,7 @@ namespace Keysharp.Core
 					nud.ThousandsSeparator = (opts.addstyle & 0x80) != 0x80;
 				}
 
-				if (opts.center.IsTrue())
-					Reflections.SafeSetProperty(_control, "TextAlign", ContentAlignment.MiddleCenter);
-				else if (opts.leftj.IsTrue())
-					Reflections.SafeSetProperty(_control, "TextAlign", ContentAlignment.MiddleLeft);
-				else if (opts.rightj.IsTrue())
-					Reflections.SafeSetProperty(_control, "TextAlign", ContentAlignment.MiddleRight);
+				SetContentAlignment(_control, opts);
 
 				if (opts.bgtrans)
 					_control.BackColor = Color.Transparent;

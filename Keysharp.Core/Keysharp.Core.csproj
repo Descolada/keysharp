@@ -59,7 +59,6 @@
 
 		<Compile Remove="Common\Window\AboutBox.Designer.cs" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
-		<Compile Remove="Properties\Resources.Designer.cs" />
 		<Compile Remove="Windows\Window\MainWindow.Designer.cs" />
 		<Compile Remove="Windows\Gui\Dialogs\InputDialog.resx" />
 		<EmbeddedResource Remove="Common\Window\KeysharpActiveX.resx" />

@@ -768,7 +768,7 @@
 					{
 						Increment = opts.nudinc ?? 1,
 						ThousandsSeparator = (opts.addstyle & 0x80) != 0x80,
-						UpDownAlign = opts.leftj.IsTrue() ? LeftRightAlignment.Left : LeftRightAlignment.Right,
+						UpDownAlign = opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Left ? LeftRightAlignment.Left : LeftRightAlignment.Right,
 						Hexadecimal = opts.hex.IsTrue(),
 						Font = Conversions.ConvertFont(form.Font)
 					};
@@ -864,7 +864,7 @@
 							chk.CheckState = CheckState.Indeterminate;
 					}
 
-					if (opts.rightj.HasValue)
+					if (opts.halign.GetValueOrDefault() == GuiOptions.HorizontalAlignment.Right)
 						chk.CheckAlign = ContentAlignment.MiddleRight;
 
 					ctrl = chk;
@@ -1157,7 +1157,7 @@
 					dtp.SetFormat(text);
 
 #if WINDOWS
-					if (opts.rightj.IsTrue())
+					if (opts.halign.HasValue && opts.halign == GuiOptions.HorizontalAlignment.Right)
 						dtp.DropDownAlign = LeftRightAlignment.Right;
 
 					dtp.ShowUpDown = opts.dtopt1;
@@ -1270,9 +1270,9 @@
 					if (o != null)
 						slider.Value = (int)Script.ForceLong(o);
 
-					if (opts.center.IsTrue())
+					if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Center)
 						slider.TickStyle = TickStyle.Both;
-					else if (opts.leftj.IsTrue())
+					else if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
 						slider.TickStyle = TickStyle.TopLeft;
 					else if (opts.noticks.IsTrue())
 						slider.TickStyle = TickStyle.None;
@@ -1382,14 +1382,20 @@
 						kstc.TabPages.AddRange(pages);
 					}
 #endif
-					if (opts.leftj.IsTrue())
-						kstc.Alignment = TabAlignment.Left;
-					else if (opts.rightj.IsTrue())
-						kstc.Alignment = TabAlignment.Right;
-					else if (opts.bottom)
-						kstc.Alignment = TabAlignment.Bottom;
-					else if (opts.top)
-						kstc.Alignment = TabAlignment.Top;
+					if (opts.halign.HasValue) 
+					{
+						if (opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
+							kstc.Alignment = TabAlignment.Left;
+						else if (opts.halign.Value == GuiOptions.HorizontalAlignment.Right)
+							kstc.Alignment = TabAlignment.Right;
+					}
+					if (opts.valign.HasValue) 
+					{
+						if (opts.valign.Value == GuiOptions.VerticalAlignment.Bottom)
+							kstc.Alignment = TabAlignment.Bottom;
+						else if (opts.valign.Value == GuiOptions.VerticalAlignment.Top)
+							kstc.Alignment = TabAlignment.Top;
+					}
 
 					if (opts.buttons.HasValue)
 						kstc.Appearance = TabAppearance.FlatButtons;
@@ -1530,12 +1536,7 @@
 			else if (opts.bgcolor.HasValue)
 				ctrl.BackColor = opts.bgcolor.Value;
 
-			if (opts.center.IsTrue())
-				Reflections.SafeSetProperty(ctrl, "TextAlign", ContentAlignment.MiddleCenter);
-			else if (opts.leftj.IsTrue())
-				Reflections.SafeSetProperty(ctrl, "TextAlign", ContentAlignment.MiddleLeft);
-			else if (opts.rightj.IsTrue())
-				Reflections.SafeSetProperty(ctrl, "TextAlign", ContentAlignment.MiddleRight);
+			SetContentAlignment(ctrl, opts);
 
 			controls[ctrl.Handle.ToInt64()] = holder;
 			var prevParent = LastContainer;
@@ -2661,7 +2662,6 @@
 					else if (opt.Equals("Check3", StringComparison.OrdinalIgnoreCase)) { options.check3 = true; }//Needs to come before any option starting with a 'c'.
 					else if (opt.Equals("CheckedGray ", StringComparison.OrdinalIgnoreCase)) { options.checkedgray = true; }
 					else if (Options.TryParse(opt, "Checked", ref temp, StringComparison.OrdinalIgnoreCase, true, 1)) { options.ischecked = temp; }
-					else if (Options.TryParse(opt, "Center", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.center = tempbool; }
 					else if (Options.TryParseString(opt, "Range", ref options.nudrange))
 					{
 						if (type == "datetime" || type == "monthcal")
@@ -2682,7 +2682,6 @@
 					}
 					else if (Options.TryParse(opt, "Choose", ref options.ddlchoose)) { options.ddlchoose--; options.choose.Add(options.ddlchoose); }
 					//
-					else if (Options.TryParse(opt, "c", ref tempcolor)) { options.c = tempcolor; }
 					else if (Options.TryParse(opt, "Vertical", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.vertical = tempbool; }
 					else if (Options.TryParseString(opt, "v", ref options.name)) { }
 					else if (Options.TryParse(opt, "Disabled", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.enabled = !tempbool; }
@@ -2706,8 +2705,6 @@
 					else if (Options.TryParse(opt, "xc", ref options.x, StringComparison.OrdinalIgnoreCase, true)) { options.xpos = GuiOptions.Positioning.Container; }
 					else if (Options.TryParse(opt, "yc", ref options.y, StringComparison.OrdinalIgnoreCase, true)) { options.ypos = GuiOptions.Positioning.Container; }
 					else if (Options.TryParse(opt, "AltSubmit", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.altsubmit = tempbool; }
-					else if (Options.TryParse(opt, "Left", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.leftj = tempbool; }
-					else if (Options.TryParse(opt, "Right", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.rightj = tempbool; }
 					else if (opt.Equals("Section", StringComparison.OrdinalIgnoreCase)) { options.section = true; }
 					else if (Options.TryParse(opt, "Tabstop", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.tabstop = tempbool; }
 					else if (Options.TryParse(opt, "Wrap", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.wordwrap = tempbool; }
@@ -2726,6 +2723,14 @@
 					else if (opt.Equals("BackgroundDefault", StringComparison.OrdinalIgnoreCase)) { options.bgcolor = Forms.Control.DefaultBackColor; }
 					else if (Options.TryParse(opt, "Background", ref tempcolor, StringComparison.OrdinalIgnoreCase, true)) { options.bgcolor = tempcolor; }
 					else if (Options.TryParse(opt, "Border", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.thinborder = tempbool; }
+
+					else if (opt.Equals("Left", StringComparison.OrdinalIgnoreCase)) { options.halign = GuiOptions.HorizontalAlignment.Left; }
+					else if (opt.Equals("Center", StringComparison.OrdinalIgnoreCase)) { options.halign = GuiOptions.HorizontalAlignment.Center; }
+					else if (opt.Equals("Right", StringComparison.OrdinalIgnoreCase)) { options.halign = GuiOptions.HorizontalAlignment.Right; }
+					else if (opt.Equals("Bottom", StringComparison.OrdinalIgnoreCase)) { options.valign = GuiOptions.VerticalAlignment.Bottom; }
+					else if (opt.Equals("Top", StringComparison.OrdinalIgnoreCase)) { options.valign = GuiOptions.VerticalAlignment.Top; }
+					else if (opt.Equals("Middle", StringComparison.OrdinalIgnoreCase)) { options.valign = GuiOptions.VerticalAlignment.Middle; }
+
 					//Control specific.
 					//Edit.
 					else if (Options.TryParse(opt, "limit", ref options.limit, StringComparison.OrdinalIgnoreCase, true)) { }
@@ -2741,7 +2746,6 @@
 					else if (opt.Equals("Group", StringComparison.OrdinalIgnoreCase)) { options.group = true; }
 					//UpDown.
 					else if (opt.Equals("Horz", StringComparison.OrdinalIgnoreCase)) { options.nudhorz = true; }
-					else if (opt.Equals("Left", StringComparison.OrdinalIgnoreCase)) { options.nudleft = true; }
 					//16
 					//0x80
 					//None unit inc/dec
@@ -2764,8 +2768,6 @@
 					else if (opt.Equals("ToolTipRight", StringComparison.OrdinalIgnoreCase)) { options.tooltipside = 3; }
 					else if (Options.TryParse(opt, "Smooth", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.smooth = tempbool; }
 					else if (Options.TryParse(opt, "Buttons", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.buttons = tempbool; }
-					else if (opt.Equals("Bottom", StringComparison.OrdinalIgnoreCase)) { options.bottom = true; }
-					else if (opt.Equals("Top", StringComparison.OrdinalIgnoreCase)) { options.top = true; }
 					else if (Options.TryParse(opt, "ImageList", ref options.ilid)) { }
 					else if (Options.TryParse(opt, "Lines", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.lines = tempbool; }
 					else if (Options.TryParse(opt, "WantF2", ref tempbool, StringComparison.OrdinalIgnoreCase, true, true)) { options.wantf2 = tempbool; }
@@ -2783,6 +2785,7 @@
 					//PictureBox.
 					else if (Options.TryParseString(opt, "Icon", ref tempstr)) { options.iconnumber = ImageHelper.PrepareIconNumber(tempstr); }
 					//Other.
+					else if (Options.TryParse(opt, "c", ref tempcolor)) { options.c = tempcolor; }
 					else if (opt == "4") { options.opt4 = true; }
 					else if (opt == "8") { options.opt8 = true; }
 					else if (opt == "16") { options.opt16 = true; }
@@ -2812,12 +2815,80 @@
 #endif
 		}
 
+		internal static void SetContentAlignment(Forms.Control ctrl, GuiOptions opts)
+		{
+#if WINDOWS
+			if (!opts.halign.HasValue && !opts.valign.HasValue)
+				return;
+
+			ContentAlignment current = Reflections.SafeGetProperty<ContentAlignment>(ctrl, "TextAlign");
+
+			var horizontal = GetHorizontalAlignment(current);
+			var vertical = GetVerticalAlignment(current);
+
+			if (opts.halign.HasValue)
+				horizontal = opts.halign.Value;
+
+			if (opts.valign.HasValue)
+				vertical = opts.valign.Value;
+
+			Reflections.SafeSetProperty(ctrl, "TextAlign", CombineAlignment(vertical, horizontal));
+#else
+			if (opts.halign.HasValue)
+			{
+				if (opts.halign.Value == GuiOptions.HorizontalAlignment.Center)
+					Reflections.SafeSetProperty(ctrl, "TextAlignment", TextAlignment.Center);
+				else if (opts.halign.Value == GuiOptions.HorizontalAlignment.Left)
+					Reflections.SafeSetProperty(ctrl, "TextAlignment", TextAlignment.Left);
+				else if (opts.halign.Value == GuiOptions.HorizontalAlignment.Right)
+					Reflections.SafeSetProperty(ctrl, "TextAlignment", TextAlignment.Right);
+			}
+			if (opts.valign.HasValue)
+			{
+				if (opts.valign.Value == GuiOptions.VerticalAlignment.Middle)
+					Reflections.SafeSetProperty(ctrl, "VerticalAlignment", VerticalAlignment.Center);
+				else if (opts.valign.Value == GuiOptions.VerticalAlignment.Top)
+					Reflections.SafeSetProperty(ctrl, "VerticalAlignment", VerticalAlignment.Top);
+				else if (opts.valign.Value == GuiOptions.VerticalAlignment.Bottom)
+					Reflections.SafeSetProperty(ctrl, "VerticalAlignment", VerticalAlignment.Bottom);
+			}	
+#endif
+		}
+		
+
 #if WINDOWS
 		internal static void SuppressCtrlAPreviewKeyDown(object o, PreviewKeyDownEventArgs e)
 		{
 			if (e.KeyData == (Keys.Control | Keys.A))
 				e.IsInputKey = true;
 		}
+
+		private static VerticalAlignment GetVerticalAlignment(ContentAlignment alignment) => alignment switch
+		{
+			ContentAlignment.TopLeft or ContentAlignment.TopCenter or ContentAlignment.TopRight => VerticalAlignment.Top,
+			ContentAlignment.MiddleLeft or ContentAlignment.MiddleCenter or ContentAlignment.MiddleRight => VerticalAlignment.Middle,
+			_ => VerticalAlignment.Bottom
+		};
+
+		private static HorizontalAlignment GetHorizontalAlignment(ContentAlignment alignment) => alignment switch
+		{
+			ContentAlignment.TopLeft or ContentAlignment.MiddleLeft or ContentAlignment.BottomLeft => HorizontalAlignment.Left,
+			ContentAlignment.TopCenter or ContentAlignment.MiddleCenter or ContentAlignment.BottomCenter => HorizontalAlignment.Center,
+			_ => HorizontalAlignment.Right
+		};
+
+		private static ContentAlignment CombineAlignment(VerticalAlignment vertical, HorizontalAlignment horizontal) => (vertical, horizontal) switch
+		{
+			(VerticalAlignment.Top, HorizontalAlignment.Left) => ContentAlignment.TopLeft,
+			(VerticalAlignment.Top, HorizontalAlignment.Center) => ContentAlignment.TopCenter,
+			(VerticalAlignment.Top, HorizontalAlignment.Right) => ContentAlignment.TopRight,
+			(VerticalAlignment.Middle, HorizontalAlignment.Left) => ContentAlignment.MiddleLeft,
+			(VerticalAlignment.Middle, HorizontalAlignment.Center) => ContentAlignment.MiddleCenter,
+			(VerticalAlignment.Middle, HorizontalAlignment.Right) => ContentAlignment.MiddleRight,
+			(VerticalAlignment.Bottom, HorizontalAlignment.Left) => ContentAlignment.BottomLeft,
+			(VerticalAlignment.Bottom, HorizontalAlignment.Center) => ContentAlignment.BottomCenter,
+			_ => ContentAlignment.BottomRight
+		};
 #endif
 
 		internal static void Tv_Lv_KeyDown(object sender, KeyEventArgs e)
@@ -3012,7 +3083,6 @@
 			internal bool? autosize;
 			internal Color? bgcolor;
 			internal bool bgtrans = false;
-			internal bool bottom = false;
 
 			//Ctrl specific.
 			//Button.
@@ -3022,7 +3092,6 @@
 			internal bool? buttons;
 
 			internal Color? c;
-			internal bool? center;
 
 			//Checkbox.
 			internal bool check3 = false;
@@ -3078,7 +3147,8 @@
 			internal bool? invert;
 
 			internal int? ischecked;
-			internal bool? leftj;
+			internal HorizontalAlignment? halign;
+			internal VerticalAlignment? valign;
 
 			//Edit.
 			internal int limit = int.MinValue;
@@ -3096,7 +3166,6 @@
 			internal bool nudhorz = false;
 
 			internal int? nudinc;
-			internal bool nudleft = false;
 			internal int? nudlow;
 			internal string nudrange = "";
 			internal bool number = false;
@@ -3114,7 +3183,6 @@
 			internal int remexstyle = 0;
 			internal int remlvstyle;
 			internal int remstyle = 0;
-			internal bool? rightj;
 			internal float rows = float.MinValue;
 			internal bool section = false;
 
@@ -3132,7 +3200,6 @@
 			internal int tickinterval = int.MinValue;
 			internal bool tooltip = false;
 			internal int tooltipside = 0;
-			internal bool top = false;
 			internal bool? uppercase;
 			internal bool vertical = false;
 			internal bool? visible;
@@ -3158,6 +3225,20 @@
 				Container,
 				Margin,
 				Section,
+			}
+
+			internal enum HorizontalAlignment
+			{
+				Left,
+				Center,
+				Right
+			}
+
+			internal enum VerticalAlignment
+			{
+				Top,
+				Middle,
+				Bottom
 			}
 		}
 	}

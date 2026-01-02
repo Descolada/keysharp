@@ -244,6 +244,26 @@ namespace Keysharp.Scripting
 					System.Diagnostics.Debug.WriteLine("Failed to initialize Eto Application: " + ex);
 				}
 			}
+
+			Application.Instance.UnhandledException += (s, e) =>
+			{
+				if (e.ExceptionObject is Flow.UserRequestedExitException) return; // silence during shutdown
+				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
+			};
+
+			try
+			{
+				var settings = Gtk.Settings.Default;
+				if (settings != null)
+				{
+					settings.SetProperty("gtk-menu-images", new GLib.Value(true));
+					settings.SetProperty("gtk-button-images", new GLib.Value(true));
+				}
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine("Failed to enable GTK menu images: " + ex);
+			}
 #endif
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 

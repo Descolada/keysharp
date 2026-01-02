@@ -1183,14 +1183,14 @@ candygui := Gui("-DPIScale +E0x02080000", "Candy Progress")
 candygui.OnEvent("Close", "CloseCandy")
 candygui.BackColor := "FFCC00"
 
-CandyProgress := candygui.Add("Progress", "xc+15 yc+30 w436 h36 BackgroundSilver")
+CandyProgress := candygui.Add("Progress", "xc+15 yc+30 w436 h36 Smooth BackgroundSilver")
 
 ; These currently don't work on linux.
-Icon1 := candygui.Add("Picture", "xc+15  yc+30 w18  h36 BackgroundTrans", "Icon1.ico")
-Icon2 := candygui.Add("Picture", "xc+33  yc+30 w400 h36 BackgroundTrans", "Icon2.ico")
-Icon3 := candygui.Add("Picture", "xc+433 yc+30 w18  h36 BackgroundTrans", "Icon3.ico")
+Icon1 := candygui.Add("Picture", "xc+15  yc+30 w18  h36 BackgroundTrans", "Icon1.png")
+Icon2 := candygui.Add("Picture", "xc+33  yc+30 w400 h36 BackgroundTrans", "Icon2.png")
+Icon3 := candygui.Add("Picture", "xc+433 yc+30 w18  h36 BackgroundTrans", "Icon3.png")
 
-CandyText := candygui.Add("Text" ,"xc+15 yc+30 w436 h40 Center BackgroundTrans")
+CandyText := candygui.Add("Text" ,"xc+15 yc+30 w436 h40 Center Middle BackgroundTrans")
 CandyText.SetFont("cFFFFFF")
 
 CandyTimerFunc := Func("CandyTimer")

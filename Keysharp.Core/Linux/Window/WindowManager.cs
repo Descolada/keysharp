@@ -14,10 +14,38 @@ namespace Keysharp.Core.Linux
 		public static WindowItemBase ActiveWindow 
 		{
 			get {
+				var activeId = 0L;
+				nint prop = 0;
+
+				if (Xlib.XGetWindowProperty(Display.Handle,
+						Display.Root.ID,
+						Display._NET_ACTIVE_WINDOW,
+						0,
+						new nint(1),
+						false,
+						(nint)XAtom.AnyPropertyType,
+						out _,
+						out _,
+						out var nitems,
+						out _,
+						ref prop) == 0)
+				{
+					if (nitems.ToInt64() > 0 && prop != 0)
+						activeId = Marshal.ReadInt64(prop);
+				}
+
+				if (prop != 0)
+					_ = Xlib.XFree(prop);
+
+				if (activeId != 0)
+					return new WindowItem(new nint(activeId));
+
 				var focused = Display.XGetInputFocusWindow();
-				if (focused.ID == 1)
+				if (focused.ID == 0 || focused.ID == 1)
 					return new WindowItem(0);
-				return new WindowItem(focused);
+
+				var item = new WindowItem(focused);
+				return item.NonChildParentWindow ?? item;
 			}
 		}
 
@@ -40,8 +68,20 @@ namespace Keysharp.Core.Linux
 
 					return false;
 				};
-				//return _display.XQueryTree(filter).Select(w => new WindowItem(w));
-				return Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w));
+				var topLevels = new List<WindowItemBase>();
+				var seen = new HashSet<long>();
+				foreach (var window in Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w)))
+				{
+					var topLevel = window.NonChildParentWindow ?? window;
+					if (topLevel == null || topLevel.Handle == 0)
+						continue;
+
+					var key = topLevel.Handle.ToInt64();
+					if (seen.Add(key))
+						topLevels.Add(topLevel);
+				}
+
+				return topLevels;
 			}
 		}
 

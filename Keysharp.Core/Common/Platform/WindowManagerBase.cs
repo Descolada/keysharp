@@ -72,6 +72,14 @@ namespace Keysharp.Core.Common.Platform
 				return null;
 			}
 
+			if (criteria.Title.Equals("A", StringComparison.OrdinalIgnoreCase))
+			{
+				var active = WindowManager.ActiveWindow;
+				if (active.Equals(criteria))
+					found = active;
+				return found;
+			}
+
 			foreach (var window in WindowManager.AllWindows)
 			{
 				if (window.Equals(criteria))

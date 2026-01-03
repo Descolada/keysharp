@@ -321,15 +321,18 @@ namespace Keysharp.Core.Linux
 			{
 				if (IsSpecified)
 				{
-					var loc = Location;
-					var x = loc.X;
-					var y = loc.Y;
+					int x = value.X, y = value.Y;
 
-					if (value.X != int.MinValue)
-						x = value.X;
+					if (x == int.MinValue || y == int.MinValue)
+					{
+						var loc = Location;
 
-					if (value.Y != int.MinValue)
-						y = value.Y;
+						if (value.X == int.MinValue)
+							x = loc.X;
+
+						if (value.Y == int.MinValue)
+							y = loc.Y;
+					}
 
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 					{

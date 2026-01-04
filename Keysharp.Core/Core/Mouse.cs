@@ -237,12 +237,15 @@ namespace Keysharp.Core
 			CoordToScreen(ref aX, ref aY, Core.CoordMode.Mouse);//Determine where 0,0 in window or client coordinates are on the screen.
 			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
 			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
-			if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", DefaultObject);
-			if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
-            var child = WindowManager.WindowFromPoint(pos);
 
-			if (child == null || child.Handle == 0)
+            var child = WindowManager.ChildWindowFromPoint(pos);
+
+			if (child == null || child.Handle == 0) 
+			{
+				if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", DefaultObject);
+				if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
 				return DefaultErrorObject;
+			}
 
 			var parent = child.NonChildParentWindow;
 			if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", (long)parent.Handle);
@@ -262,7 +265,10 @@ namespace Keysharp.Core
 #endif
 
 			if (child.Handle == parent.Handle)//If there's no control per se, make it blank.
+			{
+				if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
 				return DefaultObject;
+			}
 
 			if ((mode & 0x02) != 0)
 			{

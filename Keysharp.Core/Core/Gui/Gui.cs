@@ -51,17 +51,12 @@
 			{
 				"Border", (f, o) =>
 				{
-#if WINDOWS
 					if (o is bool b && b)
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedSingle;//No such thing as a resizable single pixel border.
 					else
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
-#else
-					f.form.WindowStyle = o is bool b && b ? WindowStyle.Default : WindowStyle.Utility;
-#endif
 				}
 			},
-#if WINDOWS
 			{
 				"Caption", (f, o) =>
 				{
@@ -71,7 +66,6 @@
 						f.form.FormBorderStyle = FormBorderStyle.None;
 				}
 			},
-#endif
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
@@ -206,10 +200,8 @@
 					{
 						f.resizable = b;
 						f.form.MaximizeBox = b;
-#if WINDOWS
 						f.form.FormBorderStyle = b ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
 						f.form.SizeGripStyle = b ? SizeGripStyle.Show : SizeGripStyle.Hide;
-#endif
 						if (b)
 							f.form.AutoSize = false;
 					}
@@ -413,6 +405,7 @@
 					ctrl.Tag = new Gui.Control(this, ctrl, ctrl.Name, true);//Supposed to be name like "label", "edit" etc, but just pass the name since this is only used with the main window.
 			}
 
+			form.Content = new PixelLayout();
 			LastContainer = form;
 			script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
 
@@ -455,6 +448,10 @@
 				_ = Opt(options);
 				var formHandle = form.Handle;//Force the creation.
 				var handleStr = $"{formHandle}";
+#if !WINDOWS
+				// Ensure the Eto content container exists before we size it later.
+				form.Content ??= new PixelLayout();
+#endif
 				LastContainer = form;
 
 				script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.

@@ -308,7 +308,7 @@
 			return true;
 		}
 
-		internal WindowItemBase FirstChild(SearchCriteria sc)
+		internal virtual WindowItemBase FirstChild(SearchCriteria sc)
 		{
 			WindowItemBase item = null;
 

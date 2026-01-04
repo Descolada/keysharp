@@ -158,7 +158,7 @@ namespace Keysharp.Core.Windows
 			WindowItemBase.DoWinDelay();
 		}
 
-		public static WindowItemBase WindowFromPoint(POINT location)
+		public static WindowItemBase ChildWindowFromPoint(POINT location)
 		{
 			var ctrl = WindowsAPI.WindowFromPoint(location);
 
@@ -166,6 +166,20 @@ namespace Keysharp.Core.Windows
 				return CreateWindow(ctrl);
 
 			return null;
+		}
+
+		public static WindowItemBase WindowFromPoint(POINT location)
+		{
+			var child = WindowsAPI.WindowFromPoint(location);
+
+			if (child == 0)
+				return null;
+
+			var top = WindowsAPI.GetAncestor(child, WindowsAPI.gaFlags.GA_ROOT);
+			if (top == 0)
+				top = child;
+
+			return CreateWindow(top);
 		}
 	}
 }

@@ -278,7 +278,7 @@ namespace Keysharp.Core.Windows
 				// mouse is hovering over a disabled control (at least on XP).
 				nint childUnderCursor, parentUnderCursor;
 
-				if ((childUnderCursor = WindowFromPoint(point)) != 0
+				if ((childUnderCursor = ChildWindowFromPoint(point)) != 0
 						&& (parentUnderCursor = GetNonChildParent(childUnderCursor)) != 0 // WM_NCHITTEST below probably requires parent vs. child.
 						&& GetWindowThreadProcessId(parentUnderCursor, out _) == Script.TheScript.ProcessesData.MainThreadID) // It's one of our thread's windows.
 				{

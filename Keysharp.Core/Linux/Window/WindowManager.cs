@@ -1,4 +1,6 @@
 #if LINUX
+#define DPI
+
 namespace Keysharp.Core.Linux
 {
 	/// <summary>
@@ -183,53 +185,73 @@ namespace Keysharp.Core.Linux
 			_ = Xlib.XSendEvent(Display.Handle, Display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev);
 		}
 
-		public static WindowItemBase WindowFromPoint(POINT location)
+		public static WindowItemBase ChildWindowFromPoint(POINT location)
 		{
 			if (!PlatformManager.IsX11Available)
 				return null;
 
-			var root = (nint)Display.Root.ID;
-			if (!Xlib.XQueryPointer(Display.Handle, root,
-					out _,
-					out var child,
-					out _,
-					out _,
-					out _,
-					out _,
-					out _))
-				return null;
-
-			if (child == 0)
-				return null;
-
-			// Walk down to the deepest child under the pointer.
-			nint current = child;
-			while (true)
+			// Adjust coordinates for DPI scaling if enabled.
+#if DPI
+			var scale = Accessors.A_ScaledScreenDPI;
+			if (scale > 0)
 			{
-				if (!Xlib.XQueryPointer(Display.Handle, current,
-						out _,
-						out var childReturn,
-						out _,
-						out _,
-						out _,
-						out _,
-						out _))
-					break;
+				location.X = (int)(location.X * scale);
+				location.Y = (int)(location.Y * scale);
+			}
+#endif
 
-				if (childReturn == 0)
-					break;
+			var root = (nint)Display.Root.ID;
+				return FindWindowAtPointRecursive(root, location.X, location.Y);
+		}
 
-				current = childReturn;
+		public static WindowItemBase WindowFromPoint(POINT location)
+		{
+			var child = ChildWindowFromPoint(location);
+			if (child == null || !child.IsSpecified)
+				return child;
+
+			return child.NonChildParentWindow ?? child;
+		}
+
+		private static WindowItemBase FindWindowAtPointRecursive(nint window, int rootX, int rootY)
+		{
+			var root = (nint)Display.Root.ID;
+			var attr = new XWindowAttributes();
+
+			if (Xlib.XGetWindowAttributes(Display.Handle, window, ref attr) == 0)
+				return null;
+
+			if (!Xlib.XTranslateCoordinates(Display.Handle, root, window, rootX, rootY, out var winX, out var winY, out _))
+				return null;
+
+			if (winX < 0 || winY < 0 || winX >= attr.width + attr.border_width || winY >= attr.height + attr.border_width)
+				return null;
+
+			nint childrenReturn = nint.Zero;
+
+			try
+			{
+				if (Xlib.XQueryTree(Display.Handle, window, out _, out _, out childrenReturn, out var nChildrenReturn) != 0 && childrenReturn != nint.Zero)
+				{
+					for (var i = nChildrenReturn - 1; i >= 0; i--)
+					{
+						var child = Marshal.ReadIntPtr(childrenReturn, i * IntPtr.Size);
+						if (child == nint.Zero)
+							continue;
+
+						var found = FindWindowAtPointRecursive(child, rootX, rootY);
+						if (found != null && found.IsSpecified)
+							return found;
+					}
+				}
+			}
+			finally
+			{
+				if (childrenReturn != nint.Zero)
+					_ = Xlib.XFree(childrenReturn);
 			}
 
-			if (current == 0)
-				return null;
-
-			var attr = new XWindowAttributes();
-			if (Xlib.XGetWindowAttributes(Display.Handle, current, ref attr) == 0 || attr.map_state != MapState.IsViewable)
-				return null;
-
-			return new WindowItem(new nint(current));
+			return attr.map_state == MapState.IsViewable ? new WindowItem(new nint(window)) : null;
 		}
 	}
 }

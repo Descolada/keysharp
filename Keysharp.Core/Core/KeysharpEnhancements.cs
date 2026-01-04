@@ -113,5 +113,14 @@
 		/// </param>
 		/// <returns>A new <see cref="Map"/> object.</returns>
 		public static HashMap HashMap(params object[] obj) => new HashMap(obj);
+
+
+		/// <summary>
+		/// Returns the handle of the window located at the given screen coordinates.
+		/// </summary>
+		/// <param name="x">The X screen coordinate.</param>
+		/// <param name="y">The Y screen coordinate.</param>
+		/// <returns>The window handle at the specified point, or 0 if none is found.</returns>
+		public static long WindowFromPoint(object x, object y) => WindowManager.WindowFromPoint(new Common.Window.POINT(x.Ai(), y.Ai())).Handle;
 	}
 }

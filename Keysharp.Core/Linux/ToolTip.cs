@@ -39,7 +39,9 @@ namespace Keysharp.Core
 			{
 				label.Text = text ?? "";
 				panel.Content = label;
-				ClientSize = panel.PreferredSize;
+				// Recalculate preferred size every time text changes so stale dimensions aren't reused.
+				var preferred = panel.GetPreferredSize();
+				ClientSize = new Size((int)Math.Ceiling(preferred.Width), (int)Math.Ceiling(preferred.Height));
 				Location = new Point(x, y);
 
 				if (Visible)

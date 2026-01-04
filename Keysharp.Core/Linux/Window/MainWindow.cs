@@ -287,8 +287,10 @@ namespace Keysharp.Scripting
 			beenShown = false;
 			if (!AllowShowDisplay)
 			{
-				Visible = false;
-				WindowState = WindowState.Minimized;
+				this.BeginInvoke(() => {
+					Visible = false;
+					WindowState = WindowState.Minimized;
+				});
 			}
 			beenShown = true;
 

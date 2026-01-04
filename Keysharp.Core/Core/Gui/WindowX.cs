@@ -819,24 +819,31 @@ namespace Keysharp.Core
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
 			{
-				var loc = win.Location;
+				if (_x != int.MinValue || _y != int.MinValue)
+				{
+					var loc = win.Location;
 
-				if (_x != int.MinValue)
-					loc.X = _x;
+					if (_x != int.MinValue)
+						loc.X = _x;
 
-				if (_y != int.MinValue)
-					loc.Y = _y;
+					if (_y != int.MinValue)
+						loc.Y = _y;
 
-				var size = win.Size;
+					win.Location = loc;
+				}
 
-				if (w != int.MinValue)
-					size.Width = w;
+				if (w != int.MinValue || h != int.MinValue)
+				{
+					var size = win.Size;
 
-				if (h != int.MinValue)
-					size.Height = h;
+					if (w != int.MinValue)
+						size.Width = w;
 
-				win.Location = loc;
-				win.Size = size;
+					if (h != int.MinValue)
+						size.Height = h;
+					
+					win.Size = size;
+				}
 				WindowItemBase.DoWinDelay();
 			}
 

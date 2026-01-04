@@ -164,7 +164,7 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		public static nint LoadLibrary(string path) => Xlib.dlopen(path, Xlib.RTLD_LAZY);//Assume lazy is more efficient. Use RTLD_NOW if this doesn't work.
+		public static nint LoadLibrary(string path) => NativeLibrary.TryLoad(path, out var module) ? module : 0;
 
 		public static uint CurrentThreadId() => (uint)Xlib.gettid();
 

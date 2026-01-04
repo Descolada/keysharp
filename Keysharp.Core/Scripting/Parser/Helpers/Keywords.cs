@@ -10,6 +10,12 @@
 #endif
 			;
 
+#if WINDOWS
+		public const string LibraryExtension = ".dll";
+#else
+		public const string LibraryExtension = ".so";
+#endif
+
 		public static readonly char[] BothBraces = "{}".ToCharArray();
 		public static readonly char[] BothParens = "()".ToCharArray();
 		public static readonly char[] BothBrackets = "[]".ToCharArray();

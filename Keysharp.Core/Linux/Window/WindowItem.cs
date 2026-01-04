@@ -1,4 +1,5 @@
 ﻿#if LINUX
+#define DPI
 namespace Keysharp.Core.Linux
 {
 	/// <summary>
@@ -332,7 +333,14 @@ namespace Keysharp.Core.Linux
 
 						if (value.Y == int.MinValue)
 							y = loc.Y;
-					}
+					}		
+					
+#if DPI
+					var scale = Accessors.A_ScaledScreenDPI;
+					int scaledX = (int)(scale * x), scaledY = (int)(scale * y);
+#else
+					int scaledX = x, scaledY = y;
+#endif
 
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 					{
@@ -341,10 +349,10 @@ namespace Keysharp.Core.Linux
 						else if (ctrl.Parent is PixelLayout pixel)
 							PixelLayout.SetLocation(ctrl, new Point(x, y));
 						else
-							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, x, y);
+							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);
 					}
 					else
-						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, x, y);//This is smart enough not to need manual processing for the title bar.
+						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);//This is smart enough not to need manual processing for the title bar.
 
 					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
 				}
@@ -475,13 +483,16 @@ namespace Keysharp.Core.Linux
 				if (IsSpecified)
 				{
 #if DPI
-					var scale = 1.0 / Accessors.A_ScaledScreenDPI;//Unsure if we need to use this.
+					var scale = Accessors.A_ScaledScreenDPI;//Unsure if we need to use this.
+					int w = (int)(value.Width * scale), h = (int)(value.Height * scale);
+#else
+					int w = value.Width, h = value.Height;
 #endif
 
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 						ctrl.Size = new Size(value.Width, value.Height);
 					else
-						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, value.Width, value.Height);
+						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, w, h);
 
 					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
 				}

@@ -362,9 +362,9 @@ namespace Keysharp.Scripting
 		/// </summary>
 		/// <param name="p"></param>
 		/// <param name="s"></param>
-		public void LoadDll(string dll, bool throwOnFailure = true)
+		public void LoadDll(string library, bool throwOnFailure = true)
 		{
-			if (dll.Length == 0)
+			if (library.Length == 0)
 			{
 				if (!SetDllDirectory(null))//An empty #DllLoad restores the default search order.
 					if (throwOnFailure)
@@ -373,25 +373,27 @@ namespace Keysharp.Scripting
 						return;
 					}
 			}
-			else if (Directory.Exists(dll))
+			else if (Directory.Exists(library))
 			{
-				if (!SetDllDirectory(dll))
+				if (!SetDllDirectory(library))
 					if (throwOnFailure)
 					{
-						_ = Errors.ErrorOccurred($"PlatformManager.SetDllDirectory({dll}) failed.", null, Keyword_ExitApp);
+						_ = Errors.ErrorOccurred($"PlatformManager.SetDllDirectory({library}) failed.", null, Keyword_ExitApp);
 						return;
 					}
 			}
 			else
 			{
-				var dllname = dll;
-#if WINDOWS
-
-				if (!dllname.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-					dllname += ".dll";
-
+				var libraryName = library;
+				if (libraryName.Length != 0 && !Path.HasExtension(libraryName)
+#if !WINDOWS
+					&& !File.Exists(libraryName)
 #endif
-				var hmodule = LoadLibrary(dllname);
+				)
+					libraryName += Keywords.LibraryExtension;
+
+			
+				var hmodule = LoadLibrary(libraryName);
 
 				if (hmodule != 0)
 				{
@@ -399,12 +401,12 @@ namespace Keysharp.Scripting
 					// "Pin" the dll so that the script cannot unload it with FreeLibrary.
 					// This is done to avoid undefined behavior when DllCall optimizations
 					// resolves a proc address in a dll loaded by this directive.
-					_ = WindowsAPI.GetModuleHandleEx(WindowsAPI.GET_MODULE_HANDLE_EX_FLAG_PIN, dllname, out hmodule);  // MSDN regarding hmodule: "If the function fails, this parameter is NULL."
+					_ = WindowsAPI.GetModuleHandleEx(WindowsAPI.GET_MODULE_HANDLE_EX_FLAG_PIN, libraryName, out hmodule);  // MSDN regarding hmodule: "If the function fails, this parameter is NULL."
 #endif
 				}
 				else if (throwOnFailure)
 				{
-					_ = Errors.ErrorOccurred($"Failed to load DLL {dllname}.", null, Keyword_ExitApp);
+					_ = Errors.ErrorOccurred($"Failed to load DLL {libraryName}.", null, Keyword_ExitApp);
 					return;
 				}
 			}

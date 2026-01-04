@@ -36,6 +36,8 @@ namespace Keysharp.Core.Common.Platform
 		internal static abstract void MinimizeAllUndo();
 
 		internal static abstract WindowItemBase WindowFromPoint(POINT location);
+
+		internal static abstract WindowItemBase ChildWindowFromPoint(POINT location);
 	}
 	internal class WindowGroup
 	{

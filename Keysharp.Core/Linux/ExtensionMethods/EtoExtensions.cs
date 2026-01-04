@@ -34,21 +34,57 @@ namespace Eto.Forms
             }
             internal FormBorderStyle FormBorderStyle
             {
-                get => form.Properties.TryGetValue("FormBorderStyle", out var value) && value is FormBorderStyle style
-                    ? style
-                    : FormBorderStyle.Sizable;
+                get
+                {
+                    if (form.Properties.TryGetValue("FormBorderStyle", out var value) && value is FormBorderStyle style)
+                        return style;
+
+                    return form.WindowStyle switch
+                    {
+                        WindowStyle.None => FormBorderStyle.None,
+                        WindowStyle.Utility => FormBorderStyle.SizableToolWindow,
+                        _ => FormBorderStyle.Sizable
+                    };
+                }
                 set
                 {
                     form.Properties["FormBorderStyle"] = value;
                     form.Resizable = value is FormBorderStyle.Sizable or FormBorderStyle.SizableToolWindow;
+                    // Map common WinForms border styles to Eto window styles.
+                    switch (value)
+                    {
+                        case FormBorderStyle.None:
+                            form.WindowStyle = WindowStyle.None;
+                            break;
+                        case FormBorderStyle.FixedToolWindow:
+                        case FormBorderStyle.SizableToolWindow:
+                            form.WindowStyle = WindowStyle.Utility;
+                            break;
+                        default:
+                            form.WindowStyle = WindowStyle.Default;
+                            break;
+                    }
                 }
             }
             internal SizeGripStyle SizeGripStyle
             {
-                get => form.Properties.TryGetValue("SizeGripStyle", out var value) && value is SizeGripStyle style
-                    ? style
-                    : SizeGripStyle.Auto;
-                set => form.Properties["SizeGripStyle"] = value;
+                get
+                {
+                    if (form.Properties.TryGetValue("SizeGripStyle", out var value) && value is SizeGripStyle style)
+                        return style;
+
+                    // Infer from resizable state if unset.
+                    return form.Resizable ? SizeGripStyle.Auto : SizeGripStyle.Hide;
+                }
+                set
+                {
+                    form.Properties["SizeGripStyle"] = value;
+                    // Eto doesn't expose a size grip; approximate by toggling resizability.
+                    if (value == SizeGripStyle.Hide)
+                        form.Resizable = false;
+                    else if (value == SizeGripStyle.Auto || value == SizeGripStyle.Show)
+                        form.Resizable = true;
+                }
             }
             internal bool ControlBox
             {

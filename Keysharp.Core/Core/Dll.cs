@@ -47,12 +47,6 @@ namespace Keysharp.Core
 #endif
 		};
 
-#if WINDOWS
-		private const string dllSuffix = ".dll";
-#else
-		private const string dllSuffix = ".so";
-#endif
-
 		/// <summary>
 		/// Calls a function inside a DLL, such as a standard Windows API function.
 		/// </summary>
@@ -147,7 +141,7 @@ namespace Keysharp.Core
 					}
 #endif
 
-					return Errors.ErrorOccurred($"Unable to locate {dllSuffix} with path {path}.");
+					return Errors.ErrorOccurred($"Unable to locate {LibraryExtension} with path {path}.");
 				}
 				else if (loadedDlls.Keys.FirstOrDefault(n => path.StartsWith(n, StringComparison.OrdinalIgnoreCase)) is string moduleName && moduleName != null)
 				{
@@ -171,7 +165,7 @@ namespace Keysharp.Core
 					}
 
 					if (address == 0)
-						return Errors.ErrorOccurred($"Unable to locate {dllSuffix} with path {path}.");
+						return Errors.ErrorOccurred($"Unable to locate {LibraryExtension} with path {path}.");
 					else
 					{
 #if TL
@@ -198,7 +192,7 @@ namespace Keysharp.Core
 						&& !File.Exists(path)
 #endif
 					)
-						path += dllSuffix;
+						path += LibraryExtension;
 
 					NativeLibrary.TryLoad(path, out handle);
 #if WINDOWS

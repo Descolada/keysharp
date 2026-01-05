@@ -278,8 +278,8 @@ namespace Keysharp.Core.Windows
 				// mouse is hovering over a disabled control (at least on XP).
 				nint childUnderCursor, parentUnderCursor;
 
-				if ((childUnderCursor = ChildWindowFromPoint(point)) != 0
-						&& (parentUnderCursor = GetNonChildParent(childUnderCursor)) != 0 // WM_NCHITTEST below probably requires parent vs. child.
+				if ((childUnderCursor = WindowsAPI.WindowFromPoint(point)) != 0
+						&& (parentUnderCursor = WindowsAPI.GetNonChildParent(childUnderCursor)) != 0 // WM_NCHITTEST below probably requires parent vs. child.
 						&& GetWindowThreadProcessId(parentUnderCursor, out _) == Script.TheScript.ProcessesData.MainThreadID) // It's one of our thread's windows.
 				{
 					var hitTest = SendMessage(parentUnderCursor, WM_NCHITTEST, 0, MakeLong((short)point.X, (short)point.Y));

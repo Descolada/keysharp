@@ -1136,9 +1136,9 @@ namespace Keysharp.Core.Windows
 							_ = Errors.ValueErrorOccurred($"Could not find menu.", $"{title}, {text}, {menu}, {sub1}, {sub2}, {sub3}, {sub4}, {sub5}, {sub6}, {excludeTitle}, {excludeText}");
 					}
 				}
-				else
+				else if (win is WindowItem win2)
 				{
-					var menuId = win.GetMenuItemId(menu, sub1, sub2, sub3, sub4, sub5, sub6);
+					var menuId = win2.GetMenuItemId(menu, sub1, sub2, sub3, sub4, sub5, sub6);
 
 					if (menuId != 0xFFFFFFFF)
 					{

@@ -175,7 +175,7 @@ namespace Keysharp.Core.Windows
 			if (child == 0)
 				return null;
 
-			var top = WindowsAPI.GetAncestor(child, WindowsAPI.gaFlags.GA_ROOT);
+			var top = WindowsAPI.GetAncestor(child, gaFlags.GA_ROOT);
 			if (top == 0)
 				top = child;
 

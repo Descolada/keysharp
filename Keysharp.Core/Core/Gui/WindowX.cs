@@ -15,7 +15,7 @@ namespace Keysharp.Core
 		public static long WinGetAlwaysOnTop(object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
-											 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win && win.AlwaysOnTop) ? 1L : 0L;
+											 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.AlwaysOnTop) ? 1L : 0L;
 	}
 
 	public static class WindowX
@@ -465,7 +465,7 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 				win.Active = true;
 
 			return DefaultObject;
@@ -476,7 +476,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowItemBase win)
 				win.Active = true;
 
 			return DefaultObject;
@@ -552,7 +552,7 @@ namespace Keysharp.Core
 		public static string WinGetClass(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
-										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.ClassName : "";
+										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ClassName : "";
 
 		public static object WinGetClientPos([ByRef][Optional()][DefaultParameterValue(null)] object outX,
 											 [ByRef][Optional()][DefaultParameterValue(null)] object outY,
@@ -592,13 +592,13 @@ namespace Keysharp.Core
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.ExStyle : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ExStyle : 0L;
 
 		public static object WinGetID(object winTitle = null,
 									  object winText = null,
 									  object excludeTitle = null,
 									  object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Handle.ToInt64() : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Handle.ToInt64() : 0L;
 
 		public static long WinGetIDLast(object winTitle = null,
 										object winText = null,
@@ -637,7 +637,7 @@ namespace Keysharp.Core
 		{
 			var val = 0L;
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				var state = win.WindowState;
 
@@ -656,7 +656,7 @@ namespace Keysharp.Core
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.PID : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.PID : 0L;
 
 		public static object WinGetPos([Optional()][DefaultParameterValue(null)] object outX,
 									   [Optional()][DefaultParameterValue(null)] object outY,
@@ -679,38 +679,38 @@ namespace Keysharp.Core
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.ProcessName : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ProcessName : "";
 
 		public static string WinGetProcessPath(object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Path : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Path : "";
 
 		public static long WinGetStyle(object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Style : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Style : 0L;
 
 		public static string WinGetText(object winTitle = null,
 										object winText = null,
 										object excludeTitle = null,
 										object excludeText = null) =>
-		string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Text : [""]);
+		string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Text : [""]);
 
 		public static string WinGetTitle(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win ? win.Title : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Title : "";
 
 		public static string WinGetTransColor(object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
 											  object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				var color = (int)win.TransparentColor.Al();
 				var tempbgr = Color.FromArgb(color);
@@ -730,7 +730,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				var color = win.Transparency.Al();
 				return color != -1 ? color : "";
@@ -817,7 +817,7 @@ namespace Keysharp.Core
 			var w = width.Ai(int.MinValue);
 			var h = height.Ai(int.MinValue);
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				if (_x != int.MinValue || _y != int.MinValue)
 				{
@@ -855,7 +855,7 @@ namespace Keysharp.Core
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win) win.Bottom = true; });
+			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = true; });
 			return DefaultObject;
 		}
 
@@ -864,7 +864,7 @@ namespace Keysharp.Core
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win) win.Bottom = false; });
+			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = false; });
 			return DefaultObject;
 		}
 
@@ -873,7 +873,7 @@ namespace Keysharp.Core
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win) _ = win.Redraw(); });
+			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) _ = win.Redraw(); });
 			return DefaultObject;
 		}
 
@@ -925,7 +925,7 @@ namespace Keysharp.Core
 		{
 			var opts = options.As();
 
-			if (!(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win))
+			if (!(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win))
 				return DefaultObject;
 
 			var w = int.MinValue;
@@ -1022,7 +1022,7 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.Title = newTitle.As();
 				WindowItemBase.DoWinDelay();
@@ -1037,7 +1037,7 @@ namespace Keysharp.Core
 											  object excludeTitle = null,
 											  object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.TransparentColor = color;
 				WindowItemBase.DoWinDelay();
@@ -1052,7 +1052,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.Transparency = n;
 				WindowItemBase.DoWinDelay();
@@ -1184,7 +1184,7 @@ namespace Keysharp.Core
 			var seconds = timeout.Ad();
 			var start = DateTime.UtcNow;
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItem win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				//KeysharpEnhancements.OutputDebugLine($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}");
 				//Keysharp.Core.File.FileAppend($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}\n", "out.txt");

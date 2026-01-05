@@ -102,8 +102,14 @@ namespace Keysharp.Core.Common.Platform
 			var (parsed, ptr) = WindowHelper.CtrlTonint(winTitle);
 
 			if (parsed)
+			{
 				if (!ignorePureID && WindowManager.IsWindow(ptr))
 					return LastFound = WindowManager.CreateWindow(ptr);
+#if !WINDOWS
+				if (Control.FromHandle(ptr) is Control ctrl)
+					return LastFound = new ControlItem(ctrl);
+#endif
+			}
 
 			var text = winText.As();
 			var exclTitle = excludeTitle.As();

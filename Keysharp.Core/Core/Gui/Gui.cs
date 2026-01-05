@@ -69,9 +69,11 @@
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
+#if WINDOWS
 			{
 				"DPIScale", (f, o) => { if (o is bool b) f.dpiscaling = b; }
 			},
+#endif
 			{
 				"LastFound", (f, o) =>
 				{

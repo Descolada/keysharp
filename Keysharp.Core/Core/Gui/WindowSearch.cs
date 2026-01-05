@@ -11,6 +11,10 @@ namespace Keysharp.Core
 
 			if (parsed)
 			{
+#if !WINDOWS
+				if (Control.FromHandle(ptr) is Control ks)
+					return new ControlItem(ks);
+#endif
 				if (WindowManager.IsWindow(ptr))
 					return WindowManager.CreateWindow(ptr);
 				else if (throwifnull && !script.IsMainWindowClosing)

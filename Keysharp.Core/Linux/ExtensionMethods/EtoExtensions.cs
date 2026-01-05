@@ -134,7 +134,7 @@ namespace Eto.Forms
                     if (handle == g.Key)
                         return g.Value.form;
                     if (g.Value.controls.TryGetValue((long)handle, out var ctrl))
-                        return ctrl as Control;
+                        return ctrl.GetControl();
                 }
                 return null;
             }
@@ -145,9 +145,30 @@ namespace Eto.Forms
             internal Eto.Forms.Keys KeyCode => args.Key;
         }
 
-		extension(Eto.Widget widget)
+        // P/Invoke for X11 window id
+        [DllImport("libgdk-3.so.0")]
+        private static extern IntPtr gdk_x11_window_get_xid(IntPtr window);
+
+        extension(Eto.Widget widget)
         {
-            internal nint Handle => widget.NativeHandle;
+            internal nint Handle {
+                get
+                {
+                    if (widget is Form form)
+                    {
+                        var native = form.ToNative() as Gtk.Window;
+                        var gdkWin = native?.Window;
+                        if (gdkWin != null)
+                        {
+                            var xid = gdk_x11_window_get_xid(gdkWin.Handle);
+                            if (xid != 0)
+                                return xid;
+                        }
+                    }
+
+                    return widget.NativeHandle;
+                }
+            }
             internal string Name
             {
                 get => widget.Properties.TryGetValue("Name", out object name) ? (string)name : "";

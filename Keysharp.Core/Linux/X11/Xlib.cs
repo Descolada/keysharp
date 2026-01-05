@@ -53,6 +53,15 @@ namespace Keysharp.Core.Linux.X11
 		internal static extern int XGetWindowAttributes(nint display, long window, ref XWindowAttributes attributes);
 
 		[DllImport(libX11Name)]
+		internal static extern IntPtr XGetImage(nint display, long drawable, int x, int y, uint width, uint height, ulong plane_mask, int format);
+
+		[DllImport(libX11Name)]
+		internal static extern ulong XGetPixel(IntPtr ximage, int x, int y);
+
+		[DllImport(libX11Name)]
+		internal static extern int XDestroyImage(IntPtr ximage);
+
+		[DllImport(libX11Name)]
 		internal static extern int XRaiseWindow(nint display, long window);
 
 		[DllImport(libX11Name)]

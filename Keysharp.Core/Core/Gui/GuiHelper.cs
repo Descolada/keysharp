@@ -1,5 +1,7 @@
 ﻿#if LINUX
 using Eto.GtkSharp;
+using Keysharp.Core.Linux.Proxies;
+using Keysharp.Core.Linux.X11;
 #endif
 namespace Keysharp.Core
 {
@@ -170,13 +172,12 @@ namespace Keysharp.Core
 					32 => PixelFormat.Format32bppRgb,
 					_ => PixelFormat.Format32bppRgb,
 				};
-				using (var img = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)))
-					bmp = new Bitmap(img);
+				bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
 #endif
 			} 
 			catch
 			{
-				return new Bitmap(0, 0, PixelFormat.Format24bppRgb);
+				return null;
 			}
 
 			return bmp;

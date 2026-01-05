@@ -1995,6 +1995,7 @@ namespace Keysharp.Core
 		public void EnsureVisible()
 		{
 			ExpandParents();
+			TreeView?.ScrollIntoView(this);
 		}
 
 		public void Expand()
@@ -2242,6 +2243,17 @@ namespace Keysharp.Core
 		{
 			var index = 0;
 			return TryFindVisibleRow(Nodes, node, ref index) ? index : -1;
+		}
+
+		internal void ScrollIntoView(TreeNode node)
+		{
+			if (node == null)
+				return;
+
+			var rowIndex = GetVisibleRowIndex(node);
+
+			if (rowIndex >= 0)
+				ScrollToRow(rowIndex);
 		}
 
 		private static bool TryFindVisibleRow(TreeNodeCollection nodes, TreeNode target, ref int index)

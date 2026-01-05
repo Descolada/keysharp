@@ -38,7 +38,7 @@ namespace Keysharp.Core
 			var bmp = GuiHelper.GetScreen(x, y, w, h);
 
 			if (f.Length > 0)
-				bmp.Save(f);
+				bmp?.Save(f);
 			return bmp;
 		}
 
@@ -195,7 +195,7 @@ namespace Keysharp.Core
 				Mouse.AdjustPoint(ref _x, ref _y);
 
 				using (var bmp = GuiHelper.GetScreen(_x, _y, 1, 1))
-					pixel = bmp.GetPixel(0, 0).ToArgb() & 0xffffff;
+					pixel = (bmp?.GetPixel(0, 0).ToArgb() & 0xffffff) ?? 0;
 
 				return $"0x{pixel:X6}";
 			}

@@ -1,4 +1,9 @@
 using static Keysharp.Core.Misc;
+#if LINUX
+using System.Linq;
+using Eto.Forms;
+using Keysharp.Core.Linux;
+#endif
 
 namespace Keysharp.Core
 {
@@ -262,6 +267,44 @@ namespace Keysharp.Core
 					child = WindowManager.CreateWindow(pah.hwndFound);
 			}
 
+#else
+
+			if (outputVarControl != null && Control.FromHandle(parent.Handle) is Control ksForm)
+			{
+				Control FindDeepest(Control ctrl)
+				{
+					Control best = null;
+
+					foreach (var visualChild in ctrl.VisualControls.Reverse())
+					{
+						var origin = visualChild.PointToScreen(Point.Empty);
+						var size = visualChild.GetSize();
+						var rect = new Eto.Drawing.Rectangle(origin.X.Ai(), origin.Y.Ai(), size.Width, size.Height);
+						if (!rect.Contains(pos.X, pos.Y))
+							continue;
+
+						var deeper = FindDeepest(visualChild);
+						best = deeper ?? visualChild;
+						break;
+					}
+
+					if (best != null)
+						return best;
+
+					var selfOrigin = ctrl.PointToScreen(Point.Empty);
+					var selfSize = ctrl.GetSize();
+					var selfRect = new Eto.Drawing.Rectangle(selfOrigin.X.Ai(), selfOrigin.Y.Ai(), selfSize.Width, selfSize.Height);
+					if (selfRect.Contains(pos.X, pos.Y))
+						return ctrl;
+
+					return null;
+				}
+
+				var hit = FindDeepest(ksForm);
+
+				if (hit != null)
+					child = new ControlItem(hit);
+			}
 #endif
 
 			if (child.Handle == parent.Handle)//If there's no control per se, make it blank.

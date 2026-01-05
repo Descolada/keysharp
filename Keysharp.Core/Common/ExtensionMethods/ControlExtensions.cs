@@ -733,6 +733,27 @@ namespace System.Windows.Forms
 			}
 		}
 
+		internal static Rectangle GetBounds(this Forms.Control ctrl)
+		{
+#if WINDOWS
+			return ctrl.Bounds;
+#else
+			var loc = ctrl.GetLocation();
+			var size = ctrl.GetSize();
+			return new Rectangle(loc.X, loc.Y, size.Width, size.Height);
+#endif
+		}
+
+		internal static void SetBounds(this Forms.Control ctrl, Rectangle rect)
+		{
+#if WINDOWS
+			ctrl.Bounds = rect;
+#else
+			ctrl.SetLocation(new Point(rect.X, rect.Y));
+			ctrl.SetSize(new Size(rect.Width, rect.Height));
+#endif
+		}
+
 #if WINDOWS
 		internal static int Count(this System.Windows.Forms.Control.ControlCollection collection) => collection.Count;
 

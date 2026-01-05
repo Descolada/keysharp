@@ -1214,8 +1214,8 @@ namespace Keysharp.Core
 				if (_control == null)
 					return DefaultObject;
 
-				var location = _control.Location;
-				var size = _control.Size;
+				var location = _control.GetLocation();
+				var size = _control.GetSize();
 				var nx = x is null ? location.X : x.Ai();
 				var ny = y is null ? location.Y : y.Ai();
 				var nw = width is null ? size.Width : width.Ai();

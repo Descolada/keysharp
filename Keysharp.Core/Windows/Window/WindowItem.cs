@@ -16,7 +16,7 @@ namespace Keysharp.Core.Windows
 		{
 			get
 			{
-				if (IsSpecified && WindowManager.ActiveWindow is WindowItem item)
+				if (IsSpecified && WindowManager.ActiveWindow is WindowItemBase item)
 				{
 					//KeysharpEnhancements.OutputDebugLine($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}");
 					//Keysharp.Core.File.FileAppend($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}\n", "out.txt");

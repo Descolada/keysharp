@@ -327,7 +327,7 @@ namespace Keysharp.Core
 			internal static void GetPosHelper(Forms.Control control, bool scaling, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
 			{
 				outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-				var rect = client ? control.ClientRectangle : control.Bounds;
+				var rect = client ? control.ClientRectangle : control.GetBounds();
 				if (!client && control?.Parent != null)
 				{
 					Point p = control.Parent.GetLocationRelativeToForm();

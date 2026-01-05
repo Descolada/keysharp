@@ -17,7 +17,7 @@ namespace Keysharp.Core.Linux
 		{
 			get
 			{
-				if (IsSpecified && WindowManager.ActiveWindow is WindowItem item)
+				if (IsSpecified && WindowManager.ActiveWindow is WindowItemBase item)
 				{
 					//KeysharpEnhancements.OutputDebugLine($"item.Handle: {item.Handle.ToInt64()}, item.Title: {item.Title}, Handle: {Handle.ToInt64()}, Title: {Title}");
 					if (item.Handle.ToInt64() == Handle.ToInt64())

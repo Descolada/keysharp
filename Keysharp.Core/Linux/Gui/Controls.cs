@@ -1726,10 +1726,42 @@ namespace Keysharp.Core
 	{
 		internal class StatusStripItemCollection : Collection<KeysharpToolStripStatusLabel>
 		{
+			private readonly KeysharpStatusStrip owner;
+
+			internal StatusStripItemCollection(KeysharpStatusStrip owner)
+			{
+				this.owner = owner;
+			}
+
 			public KeysharpToolStripStatusLabel Add(KeysharpToolStripStatusLabel item)
 			{
 				base.Add(item);
+				owner?.UpdateItems();
 				return item;
+			}
+
+			protected override void InsertItem(int index, KeysharpToolStripStatusLabel item)
+			{
+				base.InsertItem(index, item);
+				owner?.UpdateItems();
+			}
+
+			protected override void SetItem(int index, KeysharpToolStripStatusLabel item)
+			{
+				base.SetItem(index, item);
+				owner?.UpdateItems();
+			}
+
+			protected override void RemoveItem(int index)
+			{
+				base.RemoveItem(index);
+				owner?.UpdateItems();
+			}
+
+			protected override void ClearItems()
+			{
+				base.ClearItems();
+				owner?.UpdateItems();
 			}
 		}
 
@@ -1740,7 +1772,8 @@ namespace Keysharp.Core
 		internal Size ImageScalingSize { get; set; }
 		internal DockStyle Dock { get; set; }
 		internal bool SizingGrip { get; set; }
-		internal StatusStripItemCollection Items { get; } = new StatusStripItemCollection();
+		internal StatusStripItemCollection Items { get; }
+		private readonly List<Control> partControls = new();
 
 		public KeysharpStatusStrip(int _addStyle = 0, int _addExStyle = 0, int _removeStyle = 0, int _removeExStyle = 0)
 		{
@@ -1748,7 +1781,107 @@ namespace Keysharp.Core
 			addExStyle = _addExStyle;
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
+			Items = new StatusStripItemCollection(this);
+			BackgroundColor = Colors.LightGrey;
 		}
+
+		internal void UpdateItems()
+		{
+			partControls.Clear();
+
+			var parts = new List<StackLayoutItem>();
+
+			for (var i = 0; i < Items.Count; i++)
+			{
+				var item = Items[i];
+				var partControl = BuildPartControl(item, i);
+				if (item.Width > 0)
+					partControl.Width = item.Width;
+
+				partControls.Add(partControl);
+				parts.Add(new StackLayoutItem(partControl, item.Width <= 0 || item.Spring));
+			}
+
+			var body = new StackLayout
+			{
+				Orientation = Orientation.Horizontal,
+				Spacing = 0,
+				Padding = new Padding(0, 0, 0, 0)
+			};
+			body.Items.AddRange(parts);
+
+			var border = new Panel
+			{
+				BackgroundColor = Colors.Gray,
+				Height = 1
+			};
+
+			var layout = new StackLayout
+			{
+				Orientation = Orientation.Vertical,
+				Spacing = 0
+			};
+			layout.Items.Add(new StackLayoutItem(border, true));
+			layout.Items.Add(new StackLayoutItem(body, true));
+
+			Content = layout;
+		}
+
+		private Control BuildPartControl(KeysharpToolStripStatusLabel item, int index)
+		{
+			var back = item.BackColor.A > 0 ? item.BackColor : BackgroundColor;
+			Control textLayout = BuildTextLayout(item.Text ?? string.Empty, item.Font ?? this.Font, back);
+
+			if (item.Image != null)
+			{
+				var imgView = new ImageView { Image = item.Image, BackgroundColor = back };
+				textLayout = new StackLayout
+				{
+					Orientation = Orientation.Horizontal,
+					Spacing = 4,
+					Padding = new Padding(2, 0),
+					Items =
+					{
+						new StackLayoutItem(imgView, false),
+						new StackLayoutItem(textLayout, true)
+					}
+				};
+			}
+
+			var panel = new Panel
+			{
+				BackgroundColor = back,
+				Content = textLayout,
+				Padding = new Padding(4, 2)
+			};
+
+			return panel;
+		}
+
+		private static Control BuildTextLayout(string text, Font font, Color back)
+		{
+			var segments = text.Split('\t');
+			var left = segments.Length > 0 ? segments[0] : string.Empty;
+			var center = segments.Length > 1 ? segments[1] : string.Empty;
+			var right = segments.Length > 2 ? segments[2] : string.Empty;
+
+			var leftLabel = new Forms.Label { Text = left, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Left, VerticalAlignment = Forms.VerticalAlignment.Center };
+			var centerLabel = new Forms.Label { Text = center, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Center, VerticalAlignment = Forms.VerticalAlignment.Center };
+			var rightLabel = new Forms.Label { Text = right, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Right, VerticalAlignment = Forms.VerticalAlignment.Center };
+
+			var row = new TableRow(
+				new TableCell(leftLabel, true),
+				new TableCell(centerLabel, true),
+				new TableCell(rightLabel, true));
+
+			return new TableLayout
+			{
+				Padding = Padding.Empty,
+				Spacing = new Size(4, 0),
+				Rows = { row }
+			};
+		}
+
 	}
 
 	public class KeysharpTabControl : TabControl
@@ -1835,10 +1968,15 @@ namespace Keysharp.Core
 		internal readonly List<IFuncObj> doubleClickHandlers = [];
 
 		public bool AutoSize { get; set; }
+		public bool Spring { get; set; }
+		public int Width { get; set; } = -1;
+		// 0 sunken, 1 none, 2 raised
+		public int Style { get; set; } = 0;
 		public string Name { get; set; } = "";
 		public string Text { get; set; } = "";
 		public Font Font { get; set; }
 		public Color BackColor { get; set; }
+		public Bitmap Image { get; set; }
 
 		public KeysharpToolStripStatusLabel(string text = "")
 		{

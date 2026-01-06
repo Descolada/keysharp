@@ -1425,6 +1425,8 @@
 					ss.ImageScalingSize = new Size((int)Math.Round(28 * dpiscale), (int)Math.Round(28 * dpiscale));
 					ss.Dock = DockStyle.Bottom;//Docking must be used and must be on the bottom. Don't ever set form.AutoSize = true with this, they are incompatible.
 					ss.SizingGrip = false;
+					if (opts.bgcolor.HasValue)
+						ss.BackgroundColor = opts.bgcolor.Value;
 
 					if (!string.IsNullOrEmpty(text))
 					{
@@ -1434,9 +1436,6 @@
 							Name = $"AutoToolStripLabel{ss.Items.Count}",
 							Font = Conversions.ConvertFont(form.Font)
 						};
-
-						if (opts.bgcolor.HasValue)
-							tsl.BackColor = opts.bgcolor.Value;
 
 						_ = ss.Items.Add(tsl);
 					}
@@ -1642,7 +1641,9 @@
 #if WINDOWS
 			else if (ctrl is KeysharpCustomControl custom)
 				w = fontpixels * 10;
-
+#else
+			else if (ctrl is KeysharpStatusStrip strip)
+				w = form.GetSize().Width;
 #endif
 			finalWidth = opts.width == int.MinValue && opts.wp == int.MinValue ? Math.Max((int)w, (int)Math.Round(scaledPref)) : (holder.requestedSize.Width = (int)Math.Round(w));
 

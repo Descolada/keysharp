@@ -259,7 +259,7 @@ namespace Keysharp.Core.Linux
 		public ToolStripItemCollection Items { get; }
 		public string Name { get; set; } = "";
 		public DockStyle Dock { get; set; } = DockStyle.None;
-		public nint Handle => 0;
+		public nint Handle => ContextMenu.Handle;
 
 		public Color BackColor
 		{
@@ -297,12 +297,10 @@ namespace Keysharp.Core.Linux
 
 	public class ToolStripDropDownMenu : ToolStrip
 	{
-		public virtual void Show(Eto.Drawing.Point point)
+		public virtual void Show(Eto.Drawing.Point point, Control parent = null)
 		{
 			SyncEtoItems();
-			var parent = Application.Instance?.MainForm;
-			if (parent != null)
-				ContextMenu.Show(parent, point);
+			ContextMenu.Show(parent, point);
 		}
 	}
 

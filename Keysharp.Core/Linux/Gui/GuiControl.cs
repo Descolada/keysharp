@@ -1768,7 +1768,25 @@ namespace Keysharp.Core
 				_control.Invalidate();
 				return DefaultObject;
 			}
-			public nint SetIcon(object fileName, object iconNumber = null, object partNumber = null) => 0;
+			public nint SetIcon(object fileName, object iconNumber = null, object partNumber = null)
+			{
+				if (_control is KeysharpStatusStrip ss)
+				{
+					var filename = fileName.As();
+					var iconnumber = ImageHelper.PrepareIconNumber(iconNumber);
+					var part = partNumber.Ai(1) - 1;
+					(Bitmap, object) ret;
+
+					if (part >= 0 && part < ss.Items.Count && (ret = ImageHelper.LoadImage(filename, 0, 0, iconnumber)).Item1 is Bitmap bmp)
+					{
+						ss.Items[part].Image = bmp;
+						ss.UpdateItems();
+						return 0;
+					}
+				}
+
+				return 0;
+			}
 			public long SetImageList(object imageListID, object iconType = null)
 			{
 				var id = imageListID.Al();
@@ -1796,7 +1814,39 @@ namespace Keysharp.Core
 
 				return oldil;
 			}
-			public object SetParts(params object[] widths) => DefaultObject;
+			public object SetParts(params object[] widths)
+			{
+				if (_control is KeysharpStatusStrip ss)
+				{
+					ss.Items.Clear();
+
+					if (widths == null || widths.Length == 0)
+					{
+						ss.Items.Add(new KeysharpToolStripStatusLabel());
+						ss.UpdateItems();
+						return 0L;
+					}
+
+					for (var i = 0; i < widths.Length; i++)
+					{
+						var partWidth = widths[i]?.ParseInt();
+						if (partWidth.HasValue)
+						{
+							ss.Items.Add(new KeysharpToolStripStatusLabel
+							{
+								AutoSize = false,
+								Width = partWidth.Value
+							});
+						}
+					}
+
+					ss.Items.Add(new KeysharpToolStripStatusLabel { Spring = true, Width = -1 });
+					ss.UpdateItems();
+					return 0L;
+				}
+
+				return DefaultObject;
+			}
 			public object SetTabIcon(object tabIndex, object imageIndex)//New function since the original required SendMessage() to do this.
 			{
 				if (_control is KeysharpTabControl tc)
@@ -1815,6 +1865,24 @@ namespace Keysharp.Core
 
 			public bool SetText(object newText, object partNumber = null, object style = null)
 			{
+				if (_control is KeysharpStatusStrip ss)
+				{
+					var text = newText.As();
+					var part = partNumber.Ai(1) - 1;
+					var s = style.Al(-1);
+
+					if (part >= 0 && part < ss.Items.Count)
+					{
+						ss.Items[part].Text = text;
+						if (s >= 0)
+							ss.Items[part].Style = (int)s;
+						ss.UpdateItems();
+						return true;
+					}
+
+					return false;
+				}
+
 				Text = newText;
 				return true;
 			}
@@ -1831,6 +1899,17 @@ namespace Keysharp.Core
 			}
 
 			internal object InvokeMessageHandlers(ref System.Windows.Forms.Message m) => 0L;
+
+			private Point ConvertToClientPoint(int x, int y)
+			{
+				if (_control.ParentWindow is Window win)
+				{
+					var client = win.PointFromScreen(new PointF(x, y));
+					return new Point((int)Math.Round(client.X), (int)Math.Round(client.Y));
+				}
+
+				return new Point(x, y);
+			}
 
 			internal void _control_Click(object sender, EventArgs e)
 			{
@@ -1859,7 +1938,10 @@ namespace Keysharp.Core
 			internal void _control_KeyDown(object sender, KeyEventArgs e)
 			{
 				if ((eventHandlerActive && e.Key == Forms.Keys.RightApplication || (e.Key == Forms.Keys.F10 && ((e.Modifiers & Forms.Keys.Shift) == Forms.Keys.Shift))) && GetCursorPos(out POINT pt))
-					CallContextMenuChangeHandlers(true, pt.X, pt.Y);
+				{
+					var clientPt = ConvertToClientPoint(pt.X, pt.Y);
+					CallContextMenuChangeHandlers(true, clientPt.X, clientPt.Y);
+				}
 			}
 
 			internal void _control_MouseDown(object sender, MouseEventArgs e)
@@ -1877,7 +1959,11 @@ namespace Keysharp.Core
 				}
 
 				if (eventHandlerActive && e.Buttons == MouseButtons.Alternate)
-					CallContextMenuChangeHandlers(false, e.Location.X.Ai(), e.Location.Y.Ai());
+				{
+					var screenPt = _control.PointToScreen(e.Location);
+					var clientPt = ConvertToClientPoint((int)Math.Round(screenPt.X), (int)Math.Round(screenPt.Y));
+					CallContextMenuChangeHandlers(false, clientPt.X, clientPt.Y);
+				}
 			}
 
 			internal void Tv_AfterExpand(object sender, TreeGridViewItemEventArgs e)

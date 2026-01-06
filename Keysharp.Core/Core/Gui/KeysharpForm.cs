@@ -339,7 +339,7 @@
 
 			foreach (var ctrl in Content.Controls)
 			{
-				if (ctrl is KeysharpStatusStrip ss)
+				if (ctrl is KeysharpStatusStrip ss && ss.Visible)
 				{
 					statusStrip = ss;
 					break;
@@ -349,14 +349,14 @@
 			if (statusStrip == null)
 				return;
 
-			var client = Content.Size;
+			var client = ClientSize;
 			var currentSize = statusStrip.GetSize();
 			var height = currentSize.Height < 0 ? 1 : currentSize.Height;
 			var padding = this.Padding;
-			var width = Math.Max(1, client.Width + padding.Left + padding.Right);
+			var width = Math.Max(1, client.Width);
 
 			statusStrip.SetSize(new Size(width, height));
-			statusStrip.SetLocation(new Point(-padding.Left, client.Height - height + padding.Top));
+			statusStrip.SetLocation(new Point(0, client.Height - height));
 #endif
 		}
 

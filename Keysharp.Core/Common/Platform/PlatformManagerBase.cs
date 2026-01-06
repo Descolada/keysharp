@@ -11,6 +11,14 @@
 		/// <param name="aWhichMode"></param>
 		internal static abstract void CoordToScreen(ref int aX, ref int aY, CoordMode modeType);
 
+		/// <summary>
+		/// Converts screen coordinates to the current coord mode. Inverse of CoordToScreen.
+		/// </summary>
+		/// <param name="aX"></param>
+		/// <param name="aY"></param>
+		/// <param name="modeType"></param>
+		internal static abstract void ScreenToCoord(ref int aX, ref int aY, CoordMode modeType);
+
 		internal static abstract uint CurrentThreadId();
 
 		internal static abstract bool DestroyIcon(nint icon);
@@ -83,6 +91,38 @@
 			// a popup menu -- can be foreground while simultaneously being minimized.  This fixes an
 			// issue where the mouse will move to the upper-left corner of the screen rather than the
 			// intended coordinates (v1.0.17).
+		}
+
+		/// <summary>
+		/// Converts screen coordinates to the current coord mode. Inverse of CoordToScreen.
+		/// </summary>
+		/// <param name="aX"></param>
+		/// <param name="aY"></param>
+		/// <param name="modeType"></param>
+		public static void ScreenToCoord(ref int aX, ref int aY, CoordMode modeType)
+		{
+			var coordMode = ThreadAccessors.GetCoordMode(modeType);
+
+			if (coordMode == CoordModeType.Screen)
+				return;
+
+			var activeWindow = WindowManager.ActiveWindow;
+
+			if (activeWindow.Handle != 0 && !activeWindow.IsIconic)
+			{
+				if (coordMode == CoordModeType.Window)
+				{
+					var rect = activeWindow.Location;
+					aX -= rect.Left;
+					aY -= rect.Top;
+				}
+				else // CoordModeType.Window.Client
+				{
+					var pt = activeWindow.ClientToScreen();
+					aX -= pt.X;
+					aY -= pt.Y;
+				}
+			}
 		}
 	}
 }

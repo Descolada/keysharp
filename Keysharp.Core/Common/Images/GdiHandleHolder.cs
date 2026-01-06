@@ -5,13 +5,12 @@
 		private readonly bool disposeHandle = true;
 #if !WINDOWS
 		private static readonly ConcurrentDictionary<nint, GdiHandleHolder> handleCache = new ();
+#endif
 		internal readonly Image Image;
-#endif	
 		private readonly nint handle;
 		private bool disposed;
 
 
-#if WINDOWS
 		internal GdiHandleHolder(nint h, bool d)
 		{
 			handle = h;
@@ -19,17 +18,26 @@
 			if (h == 0) 
 				_ = Errors.ErrorOccurred("Invalid HBITMAP provided");
 		}
-#else
+
 		internal GdiHandleHolder(Image img, bool d)
 		{
-			Image = img;
 			disposeHandle = d;
 			if (img == null) 
 				_ = Errors.ErrorOccurred("Invalid Image object provided");
+#if WINDOWS
+			if (img is not Bitmap bmp)
+			{
+				img.Dispose();
+				_ = Errors.ErrorOccurred("Currently non-bitmap formats aren't supported");
+			}
+			handle = bmp.GetHbitmap();
+			img.Dispose();
+#else
+			Image = img;
 			handle = ((Gdk.Pixbuf)img.ControlObject).Handle;
 			handleCache[handle] = this;
-		}
 #endif
+		}
 
 		internal static bool TryGet(nint handle, out GdiHandleHolder holder)
 		{

@@ -349,6 +349,8 @@ namespace System.Windows.Forms
 		{
 #if LINUX
 			control.ResumeLayout();
+			if (control is TreeGridView tgv)
+				tgv.ReloadData();
 #elif WINDOWS
 			_ = WindowsAPI.SendMessage(control.Handle, WindowsAPI.WM_SETREDRAW, 1, 0);
 			control.Refresh();

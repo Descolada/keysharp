@@ -479,7 +479,6 @@ namespace Keysharp.Core
 						tv.DelayedExpandParent(node);
 						var id = node.Handle.ToInt64();
 						node.Name = id.ToString();
-						_ = tv.BeginInvoke(new Action(tv.ReloadData));
 						result = TreeViewHelper.TV_NodeOptions(node, parent, options, false);
 					}
 				else if (_control is KeysharpListView lv)
@@ -2025,7 +2024,7 @@ namespace Keysharp.Core
 					return;
 
 				node.Checked = !node.Checked;
-				_ = tv.BeginInvoke(new Action(tv.ReloadData));
+				tv.CheckedBeginInvoke(new Action(tv.ReloadData), true, false);
 				_ = (itemCheckHandlers?.InvokeEventHandlers(this, node.Handle.ToInt64(), node.Checked ? 1L : 0L));
 			}
 

@@ -60,9 +60,6 @@
 								node.Collapse();
 								tv.RemoveMarkForExpansion(node);
 							}
-#if !WINDOWS
-							_ = tv.BeginInvoke(new Action(tv.ReloadData));
-#endif
 						}
 						else if (opt.Equals("Select", StringComparison.OrdinalIgnoreCase))
 						{

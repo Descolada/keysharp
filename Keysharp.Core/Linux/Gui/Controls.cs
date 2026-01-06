@@ -2138,6 +2138,9 @@ namespace Keysharp.Core
 
 		public void Expand()
 		{
+			if (Nodes == null || Nodes.Count == 0)
+				return;
+
 			IsExpanded = true;
 			Expanded = true;
 		}
@@ -2391,7 +2394,9 @@ namespace Keysharp.Core
 			var rowIndex = GetVisibleRowIndex(node);
 
 			if (rowIndex >= 0)
-				ScrollToRow(rowIndex);
+				Application.Instance.AsyncInvoke(() =>
+					ScrollToRow(rowIndex));
+
 		}
 
 		private static bool TryFindVisibleRow(TreeNodeCollection nodes, TreeNode target, ref int index)
@@ -2416,7 +2421,13 @@ namespace Keysharp.Core
 		{
 			var parent = node.Parent ?? node;
 			if (expandStates.TryGetValue(parent, out var b) && b)
-				parent.Expanded = true;
+			{
+				if (parent.Expandable)
+				{
+					parent.Expanded = true;
+					_ = expandStates.Remove(parent);
+				}
+			}
 		}
 
 		internal void MarkForExpansion(TreeNode node) => expandStates[node] = true;
@@ -2435,10 +2446,10 @@ namespace Keysharp.Core
 				parent = parent.Parent as TreeNode;
 			}
 
+			SelectedItem = node;
 			SelectedNode = node;
 			if (ensureVisible)
 				node.EnsureVisible();
-			Application.Instance.AsyncInvoke(new Action(ReloadData));
 		}
 
 		public void Sort()

@@ -381,18 +381,12 @@
 		public object Show(object x = null, object y = null)
 		{
 			_ = GetCursorPos(out POINT def);
-			var _x = x.Ai(def.X);
-			var _y = y.Ai(def.Y);
-			var pt = new Point(_x, _y);
-
-			if (ThreadAccessors.A_CoordModeMenu == CoordModeType.Screen)
-				if (Form.ActiveForm is Form form)
-#if WINDOWS
-					pt = form.PointToClient(pt);
-#else
-					pt = new Point(form.PointFromScreen(pt));
-#endif
-					
+			var _x = x.Ai();
+			var _y = y.Ai();
+			if (x != null || y != null) CoordToScreen(ref _x, ref _y, Core.CoordMode.Menu);
+			if (x == null) _x = def.X;
+			if (y == null) _y = def.Y;
+			var pt = new Point(_x, _y);					
 
 			MenuItem.Show(pt);
 			return DefaultObject;

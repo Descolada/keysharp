@@ -1426,7 +1426,7 @@
 					ss.Dock = DockStyle.Bottom;//Docking must be used and must be on the bottom. Don't ever set form.AutoSize = true with this, they are incompatible.
 					ss.SizingGrip = false;
 					if (opts.bgcolor.HasValue)
-						ss.BackgroundColor = opts.bgcolor.Value;
+						ss.BackColor = opts.bgcolor.Value;
 
 					if (!string.IsNullOrEmpty(text))
 					{

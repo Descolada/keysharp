@@ -25,13 +25,16 @@
 			if (img == null) 
 				_ = Errors.ErrorOccurred("Invalid Image object provided");
 #if WINDOWS
-			if (img is not Bitmap bmp)
+			if (img is Bitmap bmp)
+			{
+				handle = bmp.GetHbitmap();
+				img.Dispose();
+			} 
+			else 
 			{
 				img.Dispose();
 				_ = Errors.ErrorOccurred("Currently non-bitmap formats aren't supported");
 			}
-			handle = bmp.GetHbitmap();
-			img.Dispose();
 #else
 			Image = img;
 			handle = ((Gdk.Pixbuf)img.ControlObject).Handle;

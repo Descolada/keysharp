@@ -144,10 +144,7 @@
 					//  var m = tt.GetType().GetMethod("SetTool", BindingFlags.Instance | BindingFlags.NonPublic);
 					//  _ = m.Invoke(tt, new object[] { tooltipInvokerForm, text, 2, new Point(tempx, tempy) });
 					//}
-					var foreground = WindowManager.ActiveWindow;
-
-					if (foreground.Handle != 0)
-						CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
+					CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
 				}
 
 				if (_x == int.MinValue || _y == int.MinValue) //At least one coordinate was missing, so default it to the mouse position

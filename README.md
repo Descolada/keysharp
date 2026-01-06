@@ -294,7 +294,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ `\K` is not supported, instead, try using `(?<=abc)`.
 		
 * The v1 `Map` methods `MaxIndex()` and `MinIndex()` are still supported. They are also supported for `Array`.
-* New function `GetScreenClip(x, y, width, height [, filename]) => Bitmap` can be used to return a bitmap screenshot of an area of the screen and optionally save it to file.
+* New function `ImageCapture(x, y, width, height [, filename]) => Bitmap` can be used to return a bitmap screenshot of an area of the screen and optionally save it to file.
 * Rich text boxes are supported by passing `RichEdit` to `Gui.Add()`. The same options from `Edit` are supported with the following caveats:
 	+ `Multiline` is true by default.
 	+ `WantReturn` and `Password` are not supported.

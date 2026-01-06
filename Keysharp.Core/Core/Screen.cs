@@ -25,7 +25,7 @@ namespace Keysharp.Core
 		/// <param name="height">The height of the clip rectangle.</param>
 		/// <param name="filename">An optional filename to save the clip to. Default: empty, no saving done.</param>
 		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
-		public static Bitmap GetScreenClip(object left, object top, object width, object height, object filename = null)
+		public static GdiHandleHolder ImageCapture(object left, object top, object width, object height, object filename = null)
 		{
 			var x = left.Ai();
 			var y = top.Ai();
@@ -33,13 +33,13 @@ namespace Keysharp.Core
 			var h = height.Ai();
 			var f = filename.As();
 
-			Mouse.AdjustPoint(ref x, ref y);
+			CoordToScreen(ref x, ref y, CoordMode.Pixel);
 			
 			var bmp = GuiHelper.GetScreen(x, y, w, h);
 
 			if (f.Length > 0)
 				bmp?.Save(f);
-			return bmp;
+			return new GdiHandleHolder(bmp, true);
 		}
 
 		/// <summary>
@@ -139,7 +139,10 @@ namespace Keysharp.Core
 			if (bmp == null)
 				return Errors.ValueErrorOccurred($"Loading icon or bitmap from {filename} failed.");
 
-			Mouse.AdjustRect(ref _x1, ref _y1, ref _x2, ref _y2);
+			int _px1 = _x1, _py1 = _y1;
+			CoordToScreen(ref _x1, ref _y1, CoordMode.Pixel);
+			_x2 += _x1 - _px1; _y2 += _y1 - _py1;
+
 			var start = new Point(_x1, _y1);
 			//Ensure we're not trying to search outside of the screen bounds,
 			//because X11 will throw an exception if we do.
@@ -160,9 +163,10 @@ namespace Keysharp.Core
 
 			if (location.HasValue)
 			{
-				location = Mouse.RevertPoint(location.Value, ThreadAccessors.A_CoordModePixel);
-				Script.SetPropertyValue(outX, "__Value", (long)location.Value.X);
-                Script.SetPropertyValue(outY, "__Value", (long)location.Value.Y);
+				int x = location.Value.X, y = location.Value.Y;
+				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
+				Script.SetPropertyValue(outX, "__Value", (long)x);
+                Script.SetPropertyValue(outY, "__Value", (long)y);
 			}
 			else
 			{
@@ -192,7 +196,7 @@ namespace Keysharp.Core
 
 			try
 			{
-				Mouse.AdjustPoint(ref _x, ref _y);
+				CoordToScreen(ref _x, ref _y, CoordMode.Pixel);
 
 				using (var bmp = GuiHelper.GetScreen(_x, _y, 1, 1))
 					pixel = (bmp?.GetPixel(0, 0).ToArgb() & 0xffffff) ?? 0;
@@ -236,7 +240,11 @@ namespace Keysharp.Core
 			var colorID = obj4.Al();
 			var variation = obj5.Al();
 			variation = Math.Clamp(variation, byte.MinValue, byte.MaxValue);
-			Mouse.AdjustRect(ref x1, ref y1, ref x2, ref y2);
+
+			int px1 = x1, py1 = y1;
+			CoordToScreen(ref x1, ref y1, CoordMode.Pixel);
+			x2 += x1 - px1; y2 += y1 - py1;
+
 			var ltr = x1 <= x2;
 			var ttb = y1 <= y2;
 			var x1temp = Math.Min(x1, x2);
@@ -262,9 +270,10 @@ namespace Keysharp.Core
 
 			if (location.HasValue)
 			{
-				location = Mouse.RevertPoint(location.Value, ThreadAccessors.A_CoordModePixel);
-				Script.SetPropertyValue(outX, "__Value", (long)location.Value.X);
-                Script.SetPropertyValue(outY, "__Value", (long)location.Value.Y);
+				int x = location.Value.X, y = location.Value.Y;
+				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
+				Script.SetPropertyValue(outX, "__Value", (long)x);
+                Script.SetPropertyValue(outY, "__Value", (long)y);
 				return 1L;
 			}
 			else

@@ -163,7 +163,7 @@ namespace Keysharp.Core
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X, y = location.Value.Y;
+				int x = location.Value.X + _x1, y = location.Value.Y + _y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				Script.SetPropertyValue(outX, "__Value", (long)x);
                 Script.SetPropertyValue(outY, "__Value", (long)y);
@@ -255,7 +255,7 @@ namespace Keysharp.Core
 			x2 = x2temp;
 			y1 = y1temp;
 			y2 = y2temp;
-			var finder = new ImageFinder(GuiHelper.GetScreen(x1, y2, x2 - x1, y2 - y1)) { Variation = (byte)variation };
+			var finder = new ImageFinder(GuiHelper.GetScreen(x1, y1, x2 - x1, y2 - y1)) { Variation = (byte)variation };
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
 			Point? location;
 
@@ -270,7 +270,7 @@ namespace Keysharp.Core
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X, y = location.Value.Y;
+				int x = location.Value.X + x1, y = location.Value.Y + y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				Script.SetPropertyValue(outX, "__Value", (long)x);
                 Script.SetPropertyValue(outY, "__Value", (long)y);

@@ -143,26 +143,33 @@ namespace Keysharp.Core
 			if (bmp == null)
 				return Errors.ValueErrorOccurred($"Loading icon or bitmap from {filename} failed.");
 
-			int _px1 = _x1, _py1 = _y1;
-			CoordToScreen(ref _x1, ref _y1, CoordMode.Pixel);
-			_x2 += _x1 - _px1; _y2 += _y1 - _py1;
-
-			var start = new Point(_x1, _y1);
-			//Ensure we're not trying to search outside of the screen bounds,
-			//because X11 will throw an exception if we do.
-			var maxX = Math.Min(A_TotalScreenWidth.Ai(), _x2) - start.X;
-			var maxY = Math.Min(A_TotalScreenHeight.Ai(), _y2) - start.Y;
-			var source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
-			var searchImg = new ImageFinder(source) { Variation = variation };
 			Point? location;
+			Bitmap source = null;
 
 			try
 			{
+				int _px1 = _x1, _py1 = _y1;
+				CoordToScreen(ref _x1, ref _y1, CoordMode.Pixel);
+				_x2 += _x1 - _px1; _y2 += _y1 - _py1;
+
+				var start = new Point(_x1, _y1);
+				//Ensure we're not trying to search outside of the screen bounds,
+				//because X11 will throw an exception if we do.
+				var maxX = Math.Min(A_TotalScreenWidth.Ai(), _x2) - start.X;
+				var maxY = Math.Min(A_TotalScreenHeight.Ai(), _y2) - start.Y;
+				source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
+				var searchImg = new ImageFinder(source) { Variation = variation };
+
 				location = searchImg.Find(bmp, trans);
 			}
 			catch (Exception ex)
 			{
 				return Errors.OSErrorOccurred(ex, "Error searching the screen for an image.");
+			}
+			finally
+			{
+				source?.Dispose();
+				bmp?.Dispose();
 			}
 
 			if (location.HasValue)
@@ -259,17 +266,24 @@ namespace Keysharp.Core
 			x2 = x2temp;
 			y1 = y1temp;
 			y2 = y2temp;
-			var finder = new ImageFinder(GuiHelper.GetScreen(x1, y1, x2 - x1, y2 - y1)) { Variation = (byte)variation };
+			Bitmap source = null;
+			ImageFinder finder = null;
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
 			Point? location;
 
 			try
 			{
+				source = GuiHelper.GetScreen(x1, y1, x2 - x1, y2 - y1);
+				finder = new ImageFinder(source) { Variation = (byte)variation };
 				location = finder.Find(needle, ltr, ttb);
 			}
 			catch (Exception ex)
 			{
 				return (long)Errors.OSErrorOccurred(ex, "Error searching a region of the screen for a pixel color.", DefaultErrorLong);
+			}
+			finally
+			{
+				source?.Dispose();
 			}
 
 			if (location.HasValue)

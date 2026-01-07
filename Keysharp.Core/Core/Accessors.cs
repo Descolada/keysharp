@@ -1483,7 +1483,14 @@
 					return x;
 				}
 #else
-				return Forms.Screen.PrimaryScreen.RealDPI;
+				try 
+				{
+					return Forms.Screen.PrimaryScreen.RealDPI;
+				} 
+				catch 
+				{
+					return 96.0;
+				}
 #endif
 			}
 		}

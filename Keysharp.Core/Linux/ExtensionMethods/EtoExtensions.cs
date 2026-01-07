@@ -586,8 +586,13 @@ namespace Eto.Forms
         {
             internal static Bitmap FromHbitmap(nint handle)
             {
-                if (GdiHandleHolder.TryGet(handle, out var holder))
-                    return (holder.Image as Bitmap)?.Clone();
+                if (ImageHandleManager.TryGetImage(handle, out var image))
+                {
+                    if (image is Bitmap bmp)
+                        return bmp.Clone();
+                    if (image is Icon ico)
+                        return ico.ToBitmap();
+                }
                 return null;
             }
         }

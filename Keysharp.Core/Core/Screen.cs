@@ -25,7 +25,7 @@ namespace Keysharp.Core
 		/// <param name="height">The height of the clip rectangle.</param>
 		/// <param name="filename">An optional filename to save the clip to. Default: empty, no saving done.</param>
 		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
-		public static GdiHandleHolder ImageCapture(object left, object top, object width, object height, object filename = null)
+		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
 		{
 			var x = left.Ai();
 			var y = top.Ai();
@@ -39,7 +39,11 @@ namespace Keysharp.Core
 
 			if (f.Length > 0)
 				bmp?.Save(f);
-			return new GdiHandleHolder(bmp, true);
+
+			if (bmp != null && ImageHandleManager.TryAddBitmap(bmp, ImageHandleKind.Bitmap, out var handle))
+				return handle.ToInt64();
+
+			return 0L;
 		}
 
 		/// <summary>

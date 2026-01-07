@@ -116,10 +116,9 @@ namespace Keysharp.Core.Common.Images
 						bmp = ResizeBitmap(bmp, w, h);
 
 						if (!dontClear)
-							GdiHandleHolder.Dispose(ptr);
+							ImageHandleManager.Dispose(ptr, ImageHandleKind.Bitmap);
 					}
 				}
-#if WINDOWS
 				else if (filename.StartsWith("HICON:", StringComparison.OrdinalIgnoreCase))
 				{
 					var hstr = filename.AsSpan(6);
@@ -130,17 +129,32 @@ namespace Keysharp.Core.Common.Images
 
 					if (long.TryParse(hstr, out var handle))
 					{
-						var tempico = Icon.FromHandle(new nint(handle));
-						bmp = tempico.ToBitmap();
+						var ptr = new nint(handle);
+
+#if WINDOWS
+						using (var tempico = Icon.FromHandle(ptr))
+							bmp = tempico.ToBitmap();
 						bmp = ResizeBitmap(bmp, w, h);
 
 						if (!dontClear)
-							_ = WindowsAPI.DestroyIcon(tempico.Handle);
-						else
-							temp = tempico;
+							ImageHandleManager.Dispose(ptr, ImageHandleKind.Icon);
+#else
+						if (ImageHandleManager.TryGetImage(ptr, out var img))
+						{
+							if (img is Icon ico)
+								bmp = ico.ToBitmap();
+							else if (img is Bitmap hBmp)
+								bmp = hBmp.Clone();
+						}
+
+						if (bmp != null)
+							bmp = ResizeBitmap(bmp, w, h);
+
+						if (!dontClear)
+							ImageHandleManager.Dispose(ptr, ImageHandleKind.Icon);
+#endif
 					}
 				}
-#endif
 
 				if (bmp == null)//Wasn't a handle, and instead was a filename.
 				{
@@ -408,6 +422,140 @@ namespace Keysharp.Core.Common.Images
 #endif
 
 			return list;
+		}
+	}
+
+	internal enum ImageHandleKind
+	{
+		Bitmap = 0,
+		Icon = 1,
+		Cursor = 2
+	}
+
+	internal static class ImageHandleManager
+	{
+		private sealed class ImageHandleEntry
+		{
+			internal ImageHandleEntry(ImageHandleKind kind, IDisposable owner, bool destroyHandle)
+			{
+				Kind = kind;
+				Owner = owner;
+				DestroyHandle = destroyHandle;
+			}
+
+			internal ImageHandleKind Kind { get; }
+			internal IDisposable Owner { get; }
+			internal bool DestroyHandle { get; }
+		}
+
+		private static readonly ConcurrentDictionary<nint, ImageHandleEntry> handleCache = new ();
+
+		internal static bool TryAddBitmap(Bitmap bmp, ImageHandleKind kind, out nint handle, bool disposeSource = true)
+		{
+			handle = 0;
+
+			if (bmp == null)
+				return false;
+
+#if WINDOWS
+			try
+			{
+				handle = kind == ImageHandleKind.Icon ? bmp.GetHicon() : bmp.GetHbitmap();
+			}
+			finally
+			{
+				if (disposeSource)
+					bmp.Dispose();
+			}
+
+			if (handle == 0)
+				return false;
+
+			handleCache[handle] = new ImageHandleEntry(kind, null, true);
+			return true;
+#else
+			handle = ((Gdk.Pixbuf)bmp.ControlObject).Handle;
+
+			if (handle == 0)
+			{
+				if (disposeSource)
+					bmp.Dispose();
+				return false;
+			}
+
+			handleCache[handle] = new ImageHandleEntry(kind, bmp, false);
+			return true;
+#endif
+		}
+
+		internal static bool TryAddCursor(Cursor cursor, out nint handle)
+		{
+			handle = 0;
+
+			if (cursor == null)
+				return false;
+
+#if WINDOWS
+			handle = cursor.Handle;
+
+			if (handle == 0)
+				return false;
+
+			handleCache[handle] = new ImageHandleEntry(ImageHandleKind.Cursor, cursor, false);
+			return true;
+#else
+			var bmp = ImageHelper.ConvertCursorToBitmap(cursor);
+			var added = TryAddBitmap(bmp, ImageHandleKind.Cursor, out handle);
+
+			if (cursor is IDisposable id)
+				id.Dispose();
+
+			return added;
+#endif
+		}
+
+		internal static bool TryGetImage(nint handle, out Image image)
+		{
+			image = null;
+
+			if (handle == 0)
+				return false;
+
+			if (handleCache.TryGetValue(handle, out var entry) && entry.Owner is Image img)
+			{
+				image = img;
+				return true;
+			}
+
+			return false;
+		}
+
+		internal static void Dispose(nint handle, ImageHandleKind kind)
+		{
+			if (handle == 0)
+				return;
+
+			if (handleCache.TryRemove(handle, out var entry))
+			{
+				entry.Owner?.Dispose();
+				if (entry.DestroyHandle)
+					DestroyHandleForKind(handle, entry.Kind);
+				return;
+			}
+
+#if WINDOWS
+			DestroyHandleForKind(handle, kind);
+#endif
+		}
+
+		private static void DestroyHandleForKind(nint handle, ImageHandleKind kind)
+		{
+#if WINDOWS
+			if (kind == ImageHandleKind.Bitmap)
+				_ = WindowsAPI.DeleteObject(handle);
+			else
+				_ = DestroyIcon(handle);
+#endif
 		}
 	}
 }

@@ -200,7 +200,6 @@ namespace Keysharp.Core
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		public static string PixelGetColor(object x, object y, object unsed = null)
 		{
-			PixelFormat format;
 			int pixel;
 			var _x = x.Ai();
 			var _y = y.Ai();

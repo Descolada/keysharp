@@ -121,6 +121,14 @@
 		/// <param name="x">The X screen coordinate.</param>
 		/// <param name="y">The Y screen coordinate.</param>
 		/// <returns>The window handle at the specified point, or 0 if none is found.</returns>
-		public static long WindowFromPoint(object x, object y) => WindowManager.WindowFromPoint(new Common.Window.POINT(x.Ai(), y.Ai())).Handle;
+		public static long WinFromPoint(object x, object y)
+		{
+			if (x == null || y == null)
+			{
+				GetCursorPos(out var point);
+				x ??= point.X; y ??= point.Y;
+			}
+			return WindowManager.WindowFromPoint(new Common.Window.POINT(x.Ai(), y.Ai())).Handle;
+		}
 	}
 }

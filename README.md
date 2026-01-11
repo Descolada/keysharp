@@ -224,6 +224,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `FileDirName(filename) => String` to return the full path to filename, without the actual filename or trailing directory separator character.
 	+ `FileFullPath(filename) => String` to return the full path to filename.
 * New window functions:
+	+ `WinFromPoint(x, y)` to get the window at a specific screen position.
 	+ `WinMaximizeAll()` to maximize all windows.
 	+ `WinGetAlwaysOnTop([winTitle, winText, excludeTitle, excludeText]) => Integer` to determine whether a window will always stay on top of other windows.
 * `Run/RunWait()` can take an extra string for the argument instead of appending it to the program name string. However, the original functionality still works too.

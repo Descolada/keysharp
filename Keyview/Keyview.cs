@@ -71,7 +71,7 @@ namespace Keyview
 			{ "Stop", "⏹ Stop script (F9)" }
 		};
 
-		public Keyview()
+		public Keyview(string initialFile = null)
 		{
 			InitializeComponent();
 			keywords2 = Script.TheScript.GetPublicStaticPropertyNames();
@@ -102,6 +102,15 @@ namespace Keyview
 			_ = toolStrip1.Items.Add(host);
 			btnRunScript.Enabled = false;
 			btnRunScript.Click += RunScript_Click;
+
+			if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
+			{
+				LoadDataFromFile(initialFile);
+			}
+			else if (File.Exists(lastrun))
+			{
+				LoadDataFromFile(lastrun);
+			}
 		}
 
 		private static Color IntToColor(int rgb) => Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
@@ -874,7 +883,7 @@ namespace Keyview
 		private int lastSelectionStart;
 		private int lastSelectionLength;
 
-		public Keyview()
+		public Keyview(string initialFile = null)
 		{
 			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
 			Title = $"Keyview {Assembly.GetExecutingAssembly().GetName().Version}";
@@ -910,10 +919,15 @@ namespace Keyview
 				WriteLastRunText();
 			};
 
-			if (File.Exists(lastrun))
-				inputArea.Text = File.ReadAllText(lastrun);
-			ResetUndoHistory();
-		}
+				if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
+				{
+					LoadDataFromFile(initialFile);
+				}
+				else if (File.Exists(lastrun))
+				{
+					LoadDataFromFile(lastrun);
+				}
+			}
 
 		private void InitializeMenu()
 		{

@@ -52,8 +52,15 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+<!--
 		<PackageReference Include="Eto.Forms" Version="2.10.2" />
 		<PackageReference Include="Eto.Platform.Gtk" Version="2.10.2" />
+-->
+		<!-- This custom branch fixes a bug with image functions not working if a tray menu is created in Linux,
+		as well as allows implementing the MsgBox timeout feature. Available here: https://github.com/Descolada/Eto/tree/MessgeBoxShowAsync  -->
+		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
+		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
+
 		<PackageReference Include="SharpHook" Version="7.1.1" />
 		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
 

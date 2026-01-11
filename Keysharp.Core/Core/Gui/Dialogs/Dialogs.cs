@@ -775,9 +775,10 @@ namespace Keysharp.Core
 			if (timeout != 0)
 			{
 				
+				script.nMessageBoxes++;
+#if WINDOWS
 				var timeoutclosed = false;
 				var w = new Form() { Size = new Size(0, 0) };//Gotten from https://stackoverflow.com/a/26418199
-				script.nMessageBoxes++;
 				//No need to show the form, it will work while hidden.
 				_ = Task.Delay(TimeSpan.FromSeconds(timeout))
 					.ContinueWith(t =>
@@ -785,14 +786,36 @@ namespace Keysharp.Core
 					w.Invoke(() => w.Close());
 					timeoutclosed = true;
 				}, TaskScheduler.FromCurrentSynchronizationContext());
-#if WINDOWS
 				var ret = MessageBox.Show(w, txt, caption, buttons, icon, defaultbutton, mbopts);
-#else
-				var ret = MessageBox.Show(w, txt, caption, buttons, icon, defaultbutton);
-#endif
 				script.nMessageBoxes--;
 				return timeoutclosed ? "Timeout" : ret.ToString();
-			}
+	#else
+					using var showCts = new CancellationTokenSource();
+					showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
+					var ownerControl = owner ?? Application.Instance?.MainForm;
+					Task<DialogResult> showTask;
+
+					try {
+						showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+						while (!showTask.IsCompleted)
+						{
+							Flow.TryDoEvents();
+						}
+
+						if (showTask.IsCanceled)
+						{
+							return "Timeout";
+						}
+
+						var ret = showTask.Result;
+						return ret.ToString();
+					}
+					finally
+					{
+						script.nMessageBoxes--;
+					}
+	#endif
+				}
 			else
 			{
 				script.nMessageBoxes++;

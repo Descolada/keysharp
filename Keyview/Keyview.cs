@@ -1312,20 +1312,24 @@ namespace Keyview
 			SetSelection(start + clip.Length, 0);
 		}
 
-		private (int start, int length) GetSelection()
-		{
-			var selection = inputArea.Selection;
-			var start = Math.Max(0, selection.Start);
-			var end = Math.Max(0, selection.End);
+			private (int start, int length) GetSelection()
+			{
+				var selection = inputArea.Selection;
+				var start = Math.Max(0, selection.Start);
+				var end = Math.Max(0, selection.End);
 			if (end < start)
 				(end, start) = (start, end);
 			return (start, end - start);
 		}
 
-		private void SetSelection(int start, int length)
-		{
-			inputArea.Selection = new Range<int>(start, start + Math.Max(0, length));
-		}
+			private void SetSelection(int start, int length)
+			{
+				var safeStart = Math.Max(0, start);
+				var safeLength = Math.Max(0, length);
+				// Eto.Range is inclusive at both ends; use start+length-1 for a length-based selection.
+				var end = safeLength > 0 ? safeStart + safeLength - 1 : safeStart - 1;
+				inputArea.Selection = new Range<int>(safeStart, end);
+			}
 
 		private void UpdateSelectionSnapshot()
 		{
@@ -1468,17 +1472,19 @@ namespace Keyview
 					index = text.LastIndexOf(needle, text.Length - 1, StringComparison.CurrentCulture);
 			}
 
-			if (index == -1)
-			{
-				SetSelection(0, 0);
-				return;
-			}
+				if (index == -1)
+				{
+					SetSelection(0, 0);
+					return;
+				}
 
-			lastSearchIndex = index + needle.Length;
-			SetSelection(index, needle.Length);
-			if (!incremental)
-				inputArea.Focus();
-		}
+				lastSearchIndex = index + needle.Length;
+				SetSelection(index, needle.Length);
+				var end = needle.Length > 0 ? index + needle.Length - 1 : index;
+				inputArea.ScrollTo(new Range<int>(index, end));
+				if (!incremental)
+					inputArea.Focus();
+			}
 
 		private void SelectLine()
 		{

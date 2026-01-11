@@ -67,9 +67,13 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+<!--
 		<PackageReference Include="Eto.Forms" Version="2.10.2" />
 		<PackageReference Include="Eto.Platform.Gtk" Version="2.10.2" />
-	</ItemGroup>
+-->
+		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
+		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
+	</ItemGroup> 
 
 	<ItemGroup>
 		<ProjectReference Include="..\Keysharp.Core\Keysharp.Core.csproj" />

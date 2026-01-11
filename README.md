@@ -8,7 +8,7 @@
 * [Code acknowledgements](#markdown-header-code-acknowledgements)
 
 ## How do I get set up? ##
-* If .NET 9 is not installed on your machine, you need to download and run the x64 ".NET Desktop Runtime" installer from [here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
+* If .NET 9 (or .NET 10 on Linux) is not installed on your machine, you need to download and run the x64 ".NET Desktop Runtime" installer from [here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
 
 ### Installing on Windows ###
 * Download and run the Keysharp installer from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
@@ -20,6 +20,14 @@
 * Download and unzip the zip file from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
 	+ CD to the unzipped folder.
 	+ Run `.\Keysharp.exe yourfilename.ahk`
+
+### Installing on Linux ###
+* Download and extract the Keysharp installer tarball from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
++ Run the install.sh script with sudo: `sudo sh ./install.sh` which does the following:
+	+ Installs all necessary dependencies except .NET 10 runtime. You need to install that manually.
+		+ Instructions for installing .NET on Linux can be found [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
+	+ Registers Keysharp as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
+	+ Creates a symlink at `/usr/local/bin/keysharp` so you can run it from the command line from anywhere.
 	
 ### Building from source on Windows ###
 * Download the latest version of [Visual Studio 2022](https://visualstudio.microsoft.com/vs/community/).
@@ -33,7 +41,7 @@
 
 Keysharp is a fork and improvement of the abandoned IronAHK project, which itself was a C# re-write of the C++ AutoHotkey project.
 
-The intent is for Keysharp to run on Windows, Linux and eventually Mac. For now, only Windows is supported.
+The intent is for Keysharp to run on Windows, Linux and eventually Mac. For now, only Windows is supported and partial support for Linux.
 
 This project is in the alpha testing stage and is not yet recommended for production systems.
 

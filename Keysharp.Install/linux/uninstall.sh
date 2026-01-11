@@ -13,7 +13,7 @@ maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 echo "Uninstalling from ${APP_DIR_TARGET} (prefix=${PREFIX})"
 
 rm -f "${BINDIR}/keysharp" "${BINDIR}/keyview"
-rm -f "${DESKTOP_DIR}/keyview.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png" "${ICON_DIR}/keysharp.ico"
+rm -f "${DESKTOP_DIR}/keyview.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png"
 rm -rf "${APP_DIR_TARGET}"
 
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true

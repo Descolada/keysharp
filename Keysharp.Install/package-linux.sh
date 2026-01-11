@@ -25,7 +25,7 @@ rsync -a "${ROOT}/bin/${CONFIG}/${TFM}/${RID}/publish/" "${APP_DIR}/"
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"
 cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
-cp "${ROOT}/Keysharp.png" "${ROOT}/Keysharp.ico" "${PKG_DIR}/"
+cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
 
 mkdir -p "${DIST_DIR}"
 tarball="${DIST_DIR}/${PKG_NAME}.tar.gz"

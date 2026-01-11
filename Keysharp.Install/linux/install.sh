@@ -48,17 +48,17 @@ install_deps() {
     return
   fi
 
-  echo "Package manager not detected; please ensure X11 libs, GTK3, libnotify, and AT-SPI2 are installed." >&2
+  echo "Package manager not detected; please ensure X11 libs, GTK3, libnotify, and optionally AT-SPI2 are installed." >&2
 }
 
 check_dotnet() {
   if ! command -v dotnet >/dev/null 2>&1; then
-    echo "dotnet runtime not found. Install .NET 9.0 runtime (framework-dependent publish) or rebuild self-contained." >&2
+    echo "dotnet runtime not found. Install .NET 10.0 runtime (framework-dependent publish) or rebuild self-contained." >&2
     return
   fi
 
-  if ! dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 9\.'; then
-    echo ".NET 9 runtime missing. Install it or rebuild self-contained." >&2
+  if ! dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 10\.'; then
+    echo ".NET 10 runtime missing. Install it or rebuild self-contained." >&2
   fi
 }
 
@@ -85,7 +85,6 @@ ln -sf "${APP_DIR_TARGET}/Keyview" "${BINDIR}/keyview"
 install -Dm644 "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
-install -Dm644 "${SCRIPT_DIR}/Keysharp.ico" "${ICON_DIR}/keysharp.ico"
 
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true
 maybe_run update-mime-database /usr/share/mime || true

@@ -5,7 +5,6 @@ Exec=/usr/local/bin/keyview %u
 Icon=keysharp
 Terminal=false
 Categories=Utility;Development;
-MimeType=application/x-keysharp;
 Actions=Edit;
 
 [Desktop Action Edit]

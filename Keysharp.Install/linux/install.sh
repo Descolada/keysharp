@@ -83,6 +83,7 @@ ln -sf "${APP_DIR_TARGET}/Keysharp" "${BINDIR}/keysharp"
 ln -sf "${APP_DIR_TARGET}/Keyview" "${BINDIR}/keyview"
 
 install -Dm644 "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
+install -Dm644 "${SCRIPT_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp.desktop"
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
 

@@ -1,4 +1,6 @@
 #if LINUX
+#define DPI
+
 using System.Text;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -303,6 +305,12 @@ namespace Keysharp.Core.Linux
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 			var ms = DateTime.UtcNow;
 
+#if DPI
+			double scale = Accessors.A_ScaledScreenDPI;
+#else
+			double scale = 1.0;
+#endif
+
 			WithSendScope(lht, () =>
 			{
 				WithSendUngrab(lht, () =>
@@ -424,14 +432,14 @@ namespace Keysharp.Core.Linux
 									break;
 
 								case ArrayEventType.MouseMoveRel:
-									sim.SimulateMouseMovementRelative((short)ev.X, (short)ev.Y);
+									sim.SimulateMouseMovementRelative((short)(ev.X * scale), (short)(ev.Y * scale));
 									break;
 
 								case ArrayEventType.MouseMoveAbs:
 								{
 									int mx = ev.X, my = ev.Y;
 									EnsureCoords(ref mx, ref my);
-									sim.SimulateMouseMovement((short)mx, (short)my);
+									sim.SimulateMouseMovement((short)(mx * scale), (short)(my * scale));
 									break;
 								}
 
@@ -447,7 +455,7 @@ namespace Keysharp.Core.Linux
 								{
 									int mx = ev.X, my = ev.Y;
 									EnsureCoords(ref mx, ref my);
-									sim.SimulateMouseRelease((short)mx, (short)my, ev.Button);
+									sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
 									break;
 								}
 
@@ -562,19 +570,25 @@ namespace Keysharp.Core.Linux
 				finalY = pos.Y;
 			}
 
-				switch (type)
-				{
-					case KeyEventTypes.KeyDown:
-						sim.SimulateMousePress((short)finalX, (short)finalY, button);
-						break;
-					case KeyEventTypes.KeyUp:
-						sim.SimulateMouseRelease((short)finalX, (short)finalY, button);
-						break;
-					case KeyEventTypes.KeyDownAndUp:
-						sim.SimulateMousePress((short)finalX, (short)finalY, button);
-						sim.SimulateMouseRelease((short)finalX, (short)finalY, button);
-						break;
-				}
+#if DPI
+			double scale = Accessors.A_ScaledScreenDPI;
+#else
+			double scale = 1.0;
+#endif
+
+			switch (type)
+			{
+				case KeyEventTypes.KeyDown:
+					sim.SimulateMousePress((short)(finalX * scale), (short)(finalY * scale), button);
+					break;
+				case KeyEventTypes.KeyUp:
+					sim.SimulateMouseRelease((short)(finalX * scale), (short)(finalY * scale), button);
+					break;
+				case KeyEventTypes.KeyDownAndUp:
+					sim.SimulateMousePress((short)(finalX * scale), (short)(finalY * scale), button);
+					sim.SimulateMouseRelease((short)(finalX * scale), (short)(finalY * scale), button);
+					break;
+			}
 
 			DoMouseDelay();
 		}
@@ -588,11 +602,16 @@ namespace Keysharp.Core.Linux
 				return;
 			}
 
+#if DPI
+			double scale = Accessors.A_ScaledScreenDPI;
+#else
+			double scale = 1.0;
+#endif
 
-				if (moveOffset)
-					sim.SimulateMouseMovementRelative((short)x, (short)y);
-				else
-					sim.SimulateMouseMovement((short)x, (short)y);
+			if (moveOffset)
+				sim.SimulateMouseMovementRelative((short)(x * scale), (short)(y * scale));
+			else
+				sim.SimulateMouseMovement((short)(x * scale), (short)(y * scale));
 
 			DoMouseDelay();
 		}

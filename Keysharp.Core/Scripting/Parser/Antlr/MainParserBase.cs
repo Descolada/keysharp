@@ -463,12 +463,12 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
             return false;
         if (CurrentToken.TokenIndex > 0) {
             var prev = ((ITokenStream)InputStream).Get(CurrentToken.TokenIndex - 1);
-            if (prev.Type == Modulus)
+            if (prev.Type == MainParser.Modulus)
                 return true;
         }
         if (CurrentToken.TokenIndex < (InputStream.Size - 1)) {
             var next = ((ITokenStream)InputStream).Get(CurrentToken.TokenIndex + 1);
-            if (next.Type == Modulus)
+            if (next.Type == MainParser.Modulus)
                 return true;
         }
         return false;

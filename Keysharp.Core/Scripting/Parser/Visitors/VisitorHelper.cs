@@ -41,7 +41,7 @@ namespace Keysharp.Scripting
         internal static Dictionary<int, string> binaryOperators = new Dictionary<int, string>()
         {
             {MainParser.Plus, "Add"},
-            {MainParser.Minus, "Minus"},
+            {MainParser.Minus, "Subtract"},
             {MainParser.Multiply, "Multiply"},
             {MainParser.Divide, "Divide"},
             {MainParser.IntegerDivide, "FloorDivide"},
@@ -72,7 +72,7 @@ namespace Keysharp.Scripting
 
         internal static Dictionary<int, string> unaryOperators = new Dictionary<int, string>()
         {
-            {MainParser.Plus, "Add" },
+            {MainParser.Plus, "Plus" },
             {MainParser.Minus, "Minus"},
             {MainParser.Not, "LogicalNot"},
             {MainParser.VerbalNot, "LogicalNot"},
@@ -648,9 +648,8 @@ namespace Keysharp.Scripting
         internal static InvocationExpressionSyntax CreateBinaryOperatorExpression(int op, ExpressionSyntax exprL, ExpressionSyntax exprR)
         {
             return SyntaxFactory.InvocationExpression(
-                ScriptOperateName,
+                CreateQualifiedName($"Keysharp.Scripting.Script.{binaryOperators[op]}"),
 				CreateArgumentList(
-				    CreateMemberAccess("Keysharp.Scripting.Script.Operator", binaryOperators[op]),
                     exprL,
                     exprR
                 )

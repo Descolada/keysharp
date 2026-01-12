@@ -362,7 +362,7 @@
 
 			var neg = false;
 
-			if (s[0] == Minus)
+			if (s[0] == Keywords.Minus)
 			{
 				neg = true;
 				s = s.Slice(1);
@@ -429,7 +429,7 @@
 
 			var neg = false;
 
-			if (s[0] == Minus)
+			if (s[0] == Keywords.Minus)
 			{
 				neg = true;
 				s = s.Slice(1);

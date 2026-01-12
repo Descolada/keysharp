@@ -872,7 +872,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual("this", text);
 			var buf1 = Files.FileRead(dir, "m4 raw");
 			var buf2 = new Keysharp.Core.Buffer(new byte[] { (byte)'t', (byte)'h', (byte)'i', (byte)'s' });
-			Assert.IsTrue((bool)Script.Operate(Script.Operator.ValueEquality, buf1, buf2));
+			Assert.IsTrue((bool)Script.ValueEquality(buf1, buf2));
 			Assert.IsTrue(TestScript("file-fileread", true));
 		}
 

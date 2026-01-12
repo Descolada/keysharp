@@ -42,8 +42,8 @@ namespace Keysharp.Scripting
 
 					return code[0] switch
 				{
-						//>>=
-						Greater or Less or Divide or TernaryA => true,
+					//>>=
+					Keywords.Greater or Keywords.Less or Keywords.Divide or Keywords.TernaryA => true,
 						_ => false,
 				};
 			}
@@ -322,7 +322,7 @@ namespace Keysharp.Scripting
 				case TrueTxt:
 					//result = 1L;
 					result = true;//Althought the AHK documentation says true/false are really just 1/0 under the hood, that causes problems here.
-					return true;//Particularly with the Force[type]() functions used in Operate(). Having them be a bool type makes it much easier to determine the caller's intent when comparing values.
+					return true;//Particularly with the Force[type]() functions used in binary operator methods. Having them be a bool type makes it much easier to determine the caller's intent when comparing values.
 
 				case FalseTxt:
 					//result = 0L;

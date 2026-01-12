@@ -17,7 +17,7 @@ namespace Keysharp.Benchmark
 
 		public object IncFunc()
 		{
-			x = Operate(Add, x, 1L);
+			x = Add(x, 1L);
 			return "";
 		}
 
@@ -64,7 +64,7 @@ namespace Keysharp.Benchmark
 				)
 			{
 				{
-					x = Operate(Add, x, 1L);
+					x = Add(x, 1L);
 					e1:
 					;
 				}
@@ -155,7 +155,7 @@ namespace Keysharp.Benchmark
 			{
 				object _ks_temp1 = null;
 				object _ks_temp2 = null;
-				return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Add, Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L), _ks_temp1, _ks_temp2));
+				return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(Keysharp.Scripting.Script.Add(Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L), _ks_temp1, _ks_temp2));
 			}
 
 			public static object Classinctestfuncscript(object @this)

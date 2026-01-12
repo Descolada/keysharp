@@ -70,9 +70,7 @@ namespace Keysharp.Scripting
 			internal static MethodReference MakeObjectTuple => new (typeof(Script), "MakeObjectTuple");
 			internal static MethodReference MultiStatement => new (typeof(Script), "MultiStatement");
 			internal static MethodReference Object => new (typeof(Objects), "Object");
-			internal static MethodReference Operate => new (typeof(Script), "Operate");
 			internal static MethodReference OperateTernary => new (typeof(Script), "OperateTernary");
-			internal static MethodReference OperateUnary => new (typeof(Script), "OperateUnary");
 			internal static MethodReference OperateZero => new (typeof(Script), "OperateZero");
 			internal static MethodReference PostfixIncDecIndex => new (typeof(Script), "PostfixIncDecIndex");
 			internal static MethodReference PostfixIncDecProp => new (typeof(Script), "PostfixIncDecProp");

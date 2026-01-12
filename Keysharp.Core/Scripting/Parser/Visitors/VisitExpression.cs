@@ -734,11 +734,10 @@ namespace Keysharp.Scripting
         public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
         {
             var arguments = new List<ExpressionSyntax>() {
-                CreateQualifiedName("Keysharp.Scripting.Script.Operator." + unaryOperators[type]),
                 (ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1))
             };
             var argumentList = CreateArgumentList(arguments);
-            return SyntaxFactory.InvocationExpression(ScriptOperateUnaryName, argumentList);
+            return SyntaxFactory.InvocationExpression(CreateQualifiedName($"Keysharp.Scripting.Script.{unaryOperators[type]}"), argumentList);
         }
 
 		public override SyntaxNode VisitVerbalNotExpression([NotNull] VerbalNotExpressionContext context)
@@ -1291,8 +1290,8 @@ namespace Keysharp.Scripting
                     memberExpression = elementAccess
                         .WithArgumentList(SyntaxFactory.BracketedArgumentList(SyntaxFactory.SeparatedList(indexTemps.Select(index => SyntaxFactory.Argument(index)).ToList())));
 
-                    // Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Add, _ks_temp1, rightExpression)
-                    binaryOperation = CreateBinaryOperatorExpression(
+					// Keysharp.Scripting.Script.Add(_ks_temp1, rightExpression)
+					binaryOperation = CreateBinaryOperatorExpression(
 						operatorToken,
                         resultTemp,
                         rightExpression
@@ -1478,7 +1477,7 @@ namespace Keysharp.Scripting
             return assignmentOperator switch
             {
                 "+=" => "Add",
-                "-=" => "Minus",
+                "-=" => "Subtract",
                 "*=" => "Multiply",
                 "/=" => "Divide",
                 "%=" => "Modulus",

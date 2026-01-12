@@ -1,4 +1,6 @@
 ﻿#if WINDOWS
+using CommandLine;
+
 namespace Keysharp.Benchmark
 {
 	[IterationCount(5)]
@@ -7,12 +9,12 @@ namespace Keysharp.Benchmark
 	public class DllBench : BaseTest
 	{
 		private static readonly object mcode_e = new Keysharp.Core.Map("1", 4L, "2", 1L);
-		private static readonly object mcode_c = (_ = Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.ValueEquality, Accessors.A_PtrSize, 8L)) ? (object)(_ = "x64") : (object)(_ = "x86"));
+		private static readonly object mcode_c = (_ = Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.ValueEquality(Accessors.A_PtrSize, 8L)) ? (object)(_ = "x64") : (object)(_ = "x86"));
 		private static object p = 0L, ptr = 0L, result = 0L;
 
 		public static object CallbackTwoArgs(object arg1, object arg2)
 		{
-			return _ = Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Add, arg1, arg2);
+			return _ = Keysharp.Scripting.Script.Add(arg1, arg2);
 		}
 
 		public static object MCode(object mcode)
@@ -22,21 +24,21 @@ namespace Keysharp.Benchmark
 			object? p = null;
 			object? op = null;
 
-			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.OperateUnary(Keysharp.Scripting.Script.Operator.LogicalNot, Keysharp.Core.RegEx.RegExMatch(mcode, Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Concat, "^([0-9]+),(", Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Concat, Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Concat, Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.Concat, mcode_c, ":|.*?,"), mcode_c), ":)([^,]+)")), new VarRef(() => m, v => m = v)))))
+			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.LogicalNot(Keysharp.Core.RegEx.RegExMatch(mcode, Keysharp.Scripting.Script.Concat("^([0-9]+),(", Keysharp.Scripting.Script.Concat(Keysharp.Scripting.Script.Concat(Keysharp.Scripting.Script.Concat(mcode_c, ":|.*?,"), mcode_c), ":)([^,]+)")), new VarRef(() => m, v => m = v)))))
 			{
 				return _ = "";
 			}
 
 			s = 0L;
 
-			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.OperateUnary(Keysharp.Scripting.Script.Operator.LogicalNot, Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.Index(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", 0L, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L))))
+			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.LogicalNot(Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.Index(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", 0L, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L))))
 			{
 				return _ = "";
 			}
 
 			p = Keysharp.Core.Dll.DllCall("GlobalAlloc", "uint", 0L, "ptr", s, "ptr");
 
-			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.Operate(Keysharp.Scripting.Script.Operator.ValueEquality, mcode_c, "x64")))
+			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.ValueEquality(mcode_c, "x64")))
 			{
 				op = 0L;
 				_ = Keysharp.Core.Dll.DllCall("VirtualProtect", "ptr", p, "ptr", s, "uint", 64L, "uint*", new VarRef(() => op, value => op = value));
@@ -65,7 +67,7 @@ namespace Keysharp.Benchmark
 					)
 				{
 					p = Keysharp.Core.Dll.CallbackCreate(Keysharp.Core.Functions.Func(CallbackTwoArgs));
-					result = Keysharp.Core.Dll.DllCall(ptr, "ptr", p, "int", Keysharp.Scripting.Script.OperateUnary(Keysharp.Scripting.Script.Operator.Subtract, 1L), "int", 4L);
+					result = Keysharp.Core.Dll.DllCall(ptr, "ptr", p, "int", Keysharp.Scripting.Script.Minus(1L), "int", 4L);
 					_ = Keysharp.Core.Dll.CallbackFree(p);
 					_ks_e1:
 					;

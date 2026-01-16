@@ -31,27 +31,58 @@ namespace Keysharp.Core
 		/// <returns>Yield return an <see cref="IEnumerable"/> which allows the caller can run the loop.</returns>
 		public static IEnumerable Loop(object obj)
 		{
-			if (!(obj is string ss) || ss != string.Empty)
+			// Special case: Loop "" runs zero iterations.
+			if (obj is string ss && ss == string.Empty)
+				return System.Array.Empty<object>();
+
+			var n = obj.Al();
+			var info = Peek(LoopType.Normal); // The calling code must have called Push() with this type.
+			return new NormalLoopEnumerable(info, n);
+		}
+
+		/// <summary>
+		/// Custom enumerable/enumerator for the normal counted loop.
+		///
+		/// This avoids per-iteration boxing caused by "yield return ++info.index" in a non-generic
+		/// iterator method (IEnumerator.Current is object). Boxing only occurs if Current is read.
+		/// </summary>
+		private sealed class NormalLoopEnumerable : IEnumerable
+		{
+			private readonly LoopInfo info;
+			private readonly long n;
+
+			public NormalLoopEnumerable(LoopInfo info, long n)
 			{
-				var n = obj.Al();
-				var info = Peek(LoopType.Normal);//The calling code must have called Push() with this type.
+				this.info = info;
+				this.n = n;
+			}
 
-				if (n != -1)
+			public IEnumerator GetEnumerator() => new NormalLoopEnumerator(info, n);
+
+			private sealed class NormalLoopEnumerator : IEnumerator
+			{
+				private readonly LoopInfo info;
+				private readonly long n;
+
+				public NormalLoopEnumerator(LoopInfo info, long n)
 				{
-					for (; info.index < n;)//Check info.index because the caller can change A_Index inside of the loop.
-						yield return ++info.index;
-				}
-				else
-				{
-					while (true)
-						yield return ++info.index;
+					this.info = info;
+					this.n = n;
 				}
 
-				//The caller *MUST* call Pop(). This design is used because this
-				//function may exit prematurely if the caller does a goto or break out
-				//of the loop. In which case, all code below the yield return statement
-				//would not get executed. So the burden is shifted to the caller to pop.
-				//Problem: What if an exception gets thrown in the loop? Pop() will never get called.
+				public object Current => info.index;
+
+				public bool MoveNext()
+				{
+					// Check info.index because the caller can change A_Index inside of the loop.
+					if (n != -1 && info.index >= n)
+						return false;
+
+					info.index++;
+					return true;
+				}
+
+				public void Reset() => throw new NotSupportedException();
 			}
 		}
 

@@ -12,24 +12,14 @@ namespace Keysharp.Scripting
 			else if (input is Any a)
 				return true;
 
-			var pb = input.ParseBool();
-
-			if (pb.HasValue)
-				return pb.Value;
+			if (input.ParseBool(out bool pb))
+				return pb;
 			else if (input.ParseLong(out long l))
 				return l != 0;
 			else if (input.ParseDouble(out double d, true))
 				return d != 0.0;
 			else if (input is string s)
 				return !string.IsNullOrEmpty(s);
-			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
-			{
-				foreach (var mi in mis)
-					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(bool))
-						return (bool)mi.Invoke(input, [input]);
-					else if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(long))
-						return (long)mi.Invoke(input, [input]) != 0;
-			}
 
 			return true;//Any non-null, non-empty string is considered true.
 		}

@@ -214,11 +214,10 @@ namespace Keysharp.Core
 
 			try
 			{
-				var helper = new ArgumentHelper(parameters);
+				using var helper = new ArgumentHelper(parameters);
 				var value = NativeInvoke(address, helper.args, helper.floatingTypeMask);
 				FixParamTypesAndCopyBack(parameters, helper);
 				var result = helper.ConvertReturnValue(value);
-				helper.Dispose();
 				return result;
 			}
 			catch (KeysharpException)
@@ -553,7 +552,7 @@ namespace Keysharp.Core
 		internal static unsafe void FixParamTypesAndCopyBack(object[] parameters, ArgumentHelper helper)
 		{
 			//Ensure arguments passed in are in the proper format when writing back.
-			foreach (var pair in helper.outputVars)
+			foreach (var pair in helper.OutputVars)
 			{
 				var pi = pair.Key;
 				var n = pi / 2;

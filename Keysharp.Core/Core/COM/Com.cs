@@ -335,11 +335,10 @@ namespace Keysharp.Core.COM
 				return Errors.ValueErrorOccurred($"The passed in object was not a ComObject or a raw COM interface.");
 
 			var pVtbl = Marshal.ReadIntPtr(pUnk);
-			var helper = new ComArgumentHelper(parameters);
+			using var helper = new ComArgumentHelper(parameters);
 			var value = NativeInvoke(pUnk.ToInt64(), Marshal.ReadIntPtr(nint.Add(pVtbl, idx * sizeof(nint))), helper.args, helper.floatingTypeMask);
 			Dll.FixParamTypesAndCopyBack(parameters, helper);
 			var result = helper.ConvertReturnValue(value);
-			helper.Dispose();
 			return result;
 		}
 

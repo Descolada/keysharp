@@ -12,11 +12,12 @@
 		protected bool isCom = false;
 		protected bool cdecl = false;
 		protected bool hresult = false;
-		protected List<GCHandle> gcHandles = [];
+		protected List<GCHandle> gcHandles;
 		protected bool hasReturn = false;
 		protected Type returnType = typeof(int);
 		//int is the index in the argument list, and bool specifies if it's a VarRef (false) or Ptr (true)
-		internal Dictionary<int, (Type, bool)> outputVars = [];
+		internal Dictionary<int, (Type, bool)> outputVars;
+		internal Dictionary<int, (Type, bool)> OutputVars => outputVars ??= new();
 		internal bool CDecl => cdecl;
 		internal bool HRESULT => hresult;
 		internal bool HasReturn => hasReturn;
@@ -36,8 +37,6 @@
 			ConvertParameters(parameters);
 		}
 
-		~ArgumentHelper() => Dispose();
-
 		public void Dispose()
 		{
 			if (!_isDisposed)
@@ -47,7 +46,7 @@
 					Marshal.FreeBSTR(_bstrs[i]);
 
 				// free GCHandles
-				for (int i = 0; i < gcHandles.Count; i++)
+				for (int i = 0; i < gcHandles?.Count; i++)
 					gcHandles[i].Free();
 
 				_isDisposed = true;
@@ -66,6 +65,7 @@
 			int n = -1;
 			void SetupPointerArg()
 			{
+				gcHandles ??= new List<GCHandle>(4);
 				var gch = GCHandle.Alloc(p, GCHandleType.Pinned);
 				gcHandles.Add(gch);
 				args[n] = gch.AddrOfPinnedObject();
@@ -123,7 +123,7 @@
 							|| Script.TryGetPropertyValue(out kptr, kso, "ptr")))
 						{
 							if (last == '*' || (char)(last | 0x20) == 'p')
-								outputVars[paramIndex] = (typeof(nint), true);
+								OutputVars[paramIndex] = (typeof(nint), true);
 
 							p = kptr;
 						}
@@ -136,7 +136,7 @@
 					span = span.Slice(0, --len);
 
 					if (p is KeysharpObject kso 
-						&& !outputVars.ContainsKey(paramIndex) //must not be a Ptr object
+						&& !OutputVars.ContainsKey(paramIndex) //must not be a Ptr object
 						&& Script.TryGetPropertyValue(out object kptr, kso, "__Value"))
 						p = kptr;
 
@@ -201,13 +201,13 @@
 					// Special case for strings passed by reference but not with "str*", since strings are always by reference
 					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(out object kptr, kso2, "__Value"))
 					{
-						outputVars[paramIndex] = (typeof(nint), false);
+						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;
 					}
 
 					if (p is string s)
 					{
-						if (outputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
+						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
 						{
 							var sb = new StringBuffer(s);
 							gcHandles.Add(GCHandle.Alloc(sb, GCHandleType.Normal));
@@ -246,13 +246,13 @@
 					}
 					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(out object kptr, kso2, "__Value"))
 					{
-						outputVars[paramIndex] = (typeof(nint), false);
+						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;
 					}
 
 					if (p is string s)
 					{
-						if (outputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
+						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
 						{
 							var sb = new StringBuffer(s, null, "ANSI");
 							gcHandles.Add(GCHandle.Alloc(sb, GCHandleType.Normal));
@@ -489,7 +489,7 @@
 						floatingTypeMask |= 1UL << (n + 1);
 				}
 				else
-					outputVars[paramIndex] = (type, outputVars.ContainsKey(paramIndex));
+					OutputVars[paramIndex] = (type, outputVars.ContainsKey(paramIndex));
 			}
 
 			void ConvertPtr()

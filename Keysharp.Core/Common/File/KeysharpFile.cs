@@ -107,7 +107,7 @@
 
 				if (filename.StartsWith("h*", StringComparison.OrdinalIgnoreCase))
 				{
-					var handle = filename.Substring(2).ParseLong(false);
+					var handle = filename.Substring(2).ParseLong();
 
 					if (handle.HasValue)
 					{
@@ -235,7 +235,7 @@
 				if (buf is Array arr)
 				{
 					len = count != long.MinValue ? Math.Min(arr.Count, (int)count) : arr.Count;
-					bw.Write(arr.array.ConvertAll(el => (byte)el.ParseLong(false).Value).ToArray(), 0, len);//No way to know what is in the array since they are objects, so convert them to bytes.
+					bw.Write(arr.array.ConvertAll(el => (byte)el.ParseLong().Value).ToArray(), 0, len);//No way to know what is in the array since they are objects, so convert them to bytes.
 				}
 				else if (buf is string s)
 				{

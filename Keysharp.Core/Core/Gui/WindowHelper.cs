@@ -122,7 +122,7 @@ namespace Keysharp.Core
 						if (Options.TryParse(s, "+", ref temp)) { win.ExStyle |= temp; }
 						else if (Options.TryParse(s, "-", ref temp)) { win.ExStyle &= ~temp; }
 						else if (Options.TryParse(s, "^", ref temp)) { win.ExStyle ^= temp; }
-						else win.ExStyle = val.ParseLong(true).Value;
+						else win.ExStyle = val.Al();
 					}
 				}
 				else
@@ -142,7 +142,7 @@ namespace Keysharp.Core
 						if (Options.TryParse(s, "+", ref temp)) { win.Style |= temp; }
 						else if (Options.TryParse(s, "-", ref temp)) { win.Style &= ~temp; }
 						else if (Options.TryParse(s, "^", ref temp)) { win.Style ^= temp; }
-						else win.Style = val.ParseLong(true).Value;
+						else win.Style = val.ParseLong().Value;
 					}
 				}
 

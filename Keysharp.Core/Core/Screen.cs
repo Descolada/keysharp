@@ -117,7 +117,7 @@ namespace Keysharp.Core
 
 			if (opts.TryGetValue(Keyword_Trans, out var vartrans) && vartrans != "")
 			{
-				var temp = vartrans.ParseInt(false);
+				var temp = vartrans.ParseLong();
 
 				if (temp.HasValue)
 					trans = temp.Value;

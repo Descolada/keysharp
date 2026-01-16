@@ -36,7 +36,7 @@
 		{
 			if (value.ParseLong(out long l))
 				return l;
-			else if (value.ParseDouble(out double d, false, true))
+			else if (value.ParseDouble(out double d, true))
 				return (long)d;
 			return Errors.TypeErrorOccurred(value, typeof(double));
 		}
@@ -52,14 +52,9 @@
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
 		public static object Call(object @this, object value)
 		{
-			try
-			{
-				return value is double d ? d : value.Ad();
-			}
-			catch (Exception)
-			{
-				return Errors.TypeErrorOccurred(value, typeof(double));
-			}
+			if (value.ParseDouble() is double d)
+				return d;
+			return Errors.TypeErrorOccurred(value, typeof(double));
 		}
 	}
 }

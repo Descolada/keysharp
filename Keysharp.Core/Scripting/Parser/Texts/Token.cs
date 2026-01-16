@@ -340,7 +340,7 @@ namespace Keysharp.Scripting
 				return false;
 
 			var codeTrim = code.Trim(Spaces);
-			var longresult = codeTrim.ParseLong(false, false);//Also supports hex, but do not consider raw hex, because then a variable name like a would be returned as 10.
+			var longresult = codeTrim.ParseLong();//Also supports hex, but do not consider raw hex, because then a variable name like a would be returned as 10.
 
 			if (longresult.HasValue)
 			{

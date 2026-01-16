@@ -16,9 +16,9 @@ namespace Keysharp.Scripting
 
 			if (pb.HasValue)
 				return pb.Value;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return l != 0;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return d != 0.0;
 			else if (input is string s)
 				return !string.IsNullOrEmpty(s);
@@ -38,9 +38,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0.0D;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return d;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return l;
 			else if (input.ParseBool() is bool b)
 				return b ? 1.0 : 0.0;
@@ -62,9 +62,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return (int)l;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return (int)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1 : 0;
@@ -86,9 +86,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0L;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return l;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return (long)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1L : 0L;

@@ -402,7 +402,7 @@ namespace Keysharp.Core.Common.Images
 		{
 			if (iconnumber == null)
 				return 0;
-			else if (iconnumber.ParseLong(false) is long l && l > 0)//Note this allows us to pass the icon number as a string, however that also prevents us from loading an icon from a .NET DLL that happens to be named that same number. This is an extremely unlikely scenario.
+			else if (iconnumber.ParseLong() is long l && l > 0)//Note this allows us to pass the icon number as a string, however that also prevents us from loading an icon from a .NET DLL that happens to be named that same number. This is an extremely unlikely scenario.
 				return l - 1;
 			else
 				return iconnumber;

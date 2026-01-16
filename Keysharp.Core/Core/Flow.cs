@@ -31,7 +31,7 @@ namespace Keysharp.Core
 			script.FlowData.callingCritical = true;
 			var tv = script.Threads.CurrentThread;
 			var on = onOffNumeric == null;
-			long freq = !on ? (onOffNumeric.ParseLong(false) ?? 0L) : 0L;
+			long freq = !on ? onOffNumeric.Al() : 0L;
 
 			if (!on)
 			{

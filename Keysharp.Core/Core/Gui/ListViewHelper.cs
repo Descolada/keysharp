@@ -312,8 +312,8 @@ namespace Keysharp.Core
 			{
 				if (l is ListViewItem x && r is ListViewItem y && col.Index < x.SubItems.Count && col.Index < y.SubItems.Count)
 				{
-					var i1 = x.SubItems[col.Index].Text.ParseLong(false);
-					var i2 = y.SubItems[col.Index].Text.ParseLong(false);
+					var i1 = x.SubItems[col.Index].Text.ParseLong();
+					var i2 = y.SubItems[col.Index].Text.ParseLong();
 					return (i1 < i2 ? -1 : i1 > i2 ? 1 : 0) * SortOrder();
 				}
 

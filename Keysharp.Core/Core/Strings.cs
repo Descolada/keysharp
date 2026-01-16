@@ -412,7 +412,7 @@ namespace Keysharp.Core
 					}
 					else if (splits[i].StartsWith("D", StringComparison.OrdinalIgnoreCase))
 					{
-						var di = splits[i].Substring(1).ParseLong(false).Value;
+						var di = splits[i].Substring(1).ParseLong().Value;
 
 						if (di == 0x80000000)
 							if (!haslsys)
@@ -420,7 +420,7 @@ namespace Keysharp.Core
 					}
 					else if (splits[i].StartsWith("T", StringComparison.OrdinalIgnoreCase))
 					{
-						var ti = splits[i].Substring(1).ParseLong(false).Value;
+						var ti = splits[i].Substring(1).ParseLong().Value;
 
 						if (ti == 0x80000000)
 							if (!haslsys)
@@ -1007,7 +1007,7 @@ namespace Keysharp.Core
 			}
 			else//Second argument could have been either length or encoding.
 			{
-				var l = length != null ? length.ParseLong(false) : long.MinValue;
+				var l = length != null ? length.ParseLong() : long.MinValue;
 
 				if (l != null)
 					len = l.Value;
@@ -1201,7 +1201,7 @@ namespace Keysharp.Core
 						len = lengthChars * CharSize(encoding);
 					}
 					// 3-parameter with Length (String, Target, Length) – native encoding
-					else if ((obj[2].ParseLong(false, true) ?? long.MinValue) is long ll && ll != long.MinValue)
+					else if ((obj[2].ParseLong() ?? long.MinValue) is long ll && ll != long.MinValue)
 					{
 						lengthProvided = true;
 						var lengthChars = ll;

@@ -11,7 +11,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
 		/// <returns>The object as a bool if conversion succeeded, else def.</returns>
-		public static bool Ab(this object obj, bool def = default) => obj?.ParseBool() ?? def;
+		public static bool Ab(this object obj, bool def = default) => obj != null && obj.ParseBool(out var b) ? b : def;
 
 		/// <summary>
 		/// Converts an object to a double.
@@ -27,7 +27,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a float if it was not null, else def.</returns>
-		public static float Af(this object obj, float def = default) => obj?.ParseFloat() ?? def;
+		public static float Af(this object obj, float def = default) => obj != null && obj.ParseDouble(out double d) ? unchecked((float)d) : def;
 
 		/// <summary>
 		/// Converts an object to an int.
@@ -35,7 +35,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an int if it was not null, else def.</returns>
-		public static int Ai(this object obj, int def = default) => obj?.ParseInt() ?? def;
+		public static int Ai(this object obj, int def = default) => obj != null && obj.ParseLong(out long l) ? unchecked((int)l) : def;
 
 		/// <summary>
 		/// Converts an object to a long.
@@ -59,7 +59,7 @@
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as an unsigned int if it was not null, else def.</returns>
-		public static uint Aui(this object obj, uint def = default) => obj?.ParseUInt() ?? def;
+		public static uint Aui(this object obj, uint def = default) => obj != null && obj.ParseLong(out long ll) ? unchecked((uint)ll) : def;
 
 		/// <summary>
 		/// Wrapper around casting an object to a type <typeparamref name="T"/>.
@@ -109,7 +109,24 @@
 		/// </summary>
 		/// <param name="result">The callback result to examine.</param>
 		/// <returns>True if non-empty, else false.</returns>
-		public static bool IsCallbackResultNonEmpty(this object result) => result != null && ((result.ParseLong(out long l, false) && l != 0) || (result.ParseDouble(out double dl, false) && dl != 0.0) || result.ParseBool().IsTrue() || (result is string s && s != ""));
+		public static bool IsCallbackResultNonEmpty(this object result)
+		{
+			if (result == null) return false;
+			else if (result is long ll) return ll != 0;
+			else if (result is double dbl) return dbl != 0.0;
+			else if (result is bool b) return b;
+			else if (result is string str)
+			{
+				if (str.AsSpan().Trim().Length == 0) return false;
+				if (str.ParseLong(out long l))
+					return l != 0;
+				if (str.ParseDouble(out double dl))
+					return dl != 0.0;
+				return true;
+			}
+			else if (result is BoolResult br) return br;
+			return true;
+		}
 
 		/// <summary>
 		/// Returns whether an object is a <see cref="Gui"/>, <see cref="GuiControl"/> or <see cref="Menu"/>.
@@ -139,80 +156,51 @@
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
 		/// <returns>The nullable bool resulting from the conversion.</returns>
-		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false)
+		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false) => obj.ParseBool(out bool b, parseBoolKeywords) ? b : null;
+
+		public static bool ParseBool(this object obj, out bool outvar, bool parseBoolKeywords = false)
 		{
 			if (obj is bool b)
-				return b;
+			{
+				outvar = b;
+				return true;
+			}
 
 			if (obj is long l && (l == 0 || l == 1))
-				return l != 0;
+			{
+				outvar = l != 0;
+				return true;
+			}
 
 			if (obj is BoolResult br)
-				return br.o.ParseBool();
-
-			return parseBoolKeywords ? Options.OnOff(obj) : null;
-		}
-
-		/// <summary>
-		/// Attempts various methods for converting an object to a decimal value.<br/>
-		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
-		/// </summary>
-		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
-		/// <param name="requiredot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
-		/// <returns>The converted value as a nullable decimal.</returns>
-		public static decimal? ParseDecimal(this object obj, bool doconvert = true, bool requiredot = false)
-		{
-			if (obj is decimal m)
-				return m;
-
-			if (obj is long l)
-				return l;
-
-			if (obj is BoolResult br)
-				return br.o.ParseDecimal(doconvert, requiredot);
-
-			if (obj is int i)//int is seldom used in Keysharp, so check last.
-				return i;
-
-			var s = obj.ToString().AsSpan().Trim();
-
-			if (s.Length == 0)
-				return new decimal? ();
-
-			if (requiredot && !s.Contains('.'))
-				return new decimal? ();
-
-			if (decimal.TryParse(s, out m))
-				return m;
-
-			if (!char.IsNumber(s[s.Length - 1]))//Handle a string specifying a double like "123.0D".
-				if (decimal.TryParse(s.Slice(0, s.Length - 1), out m))
-					return m;
-
-			try
 			{
-				return doconvert ? Convert.ToDecimal(obj) : new decimal? ();
+				return br.o.ParseBool(out outvar);
 			}
-			catch
+
+			if (parseBoolKeywords)
 			{
-				_ = Errors.TypeErrorOccurred(obj, typeof(decimal));
-				return default;
+				var onoff = Options.OnOff(obj);
+				if (onoff != null)
+				{
+					outvar = onoff.Value;
+					return true;
+				}
 			}
+
+			outvar = false;
+			return false;
 		}
 
 		/// <summary>
 		/// Attempts various methods for converting an object to a double value.<br/>
 		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
+		/// String parsing will be attempted after that.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
 		/// <param name="requiredot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
 		/// <returns>The converted value as a nullable double.</returns>
-		public static double? ParseDouble(this object obj, bool doconvert = true, bool requiredot = false) => obj.ParseDouble(out double d, doconvert, requiredot) ? d : null;
-		public static bool ParseDouble(this object obj, out double outvar, bool doconvert = true, bool requiredot = false)
+		public static double? ParseDouble(this object obj, bool requiredot = false) => obj.ParseDouble(out double d, requiredot) ? d : null;
+		public static bool ParseDouble(this object obj, out double outvar, bool requiredot = false)
 		{
 			if (obj is double d)
 			{
@@ -229,7 +217,7 @@
 
 			if (obj is BoolResult br)
 			{
-				return br.o.ParseDouble(out outvar, doconvert, requiredot);
+				return br.o.ParseDouble(out outvar, requiredot);
 			}
 
 			if (obj is int i)//int is seldom used in Keysharp, so check last.
@@ -239,7 +227,13 @@
 				return true;
 			}
 
-			var s = obj.ToString().AsSpan().Trim();
+			if (obj is Any)
+			{
+				outvar = default;
+				return false;
+			}
+
+			var s = (obj as string ?? obj.ToString()).AsSpan().Trim();
 
 			if (s.Length == 0)
 			{
@@ -260,145 +254,40 @@
 				if (double.TryParse(s.Slice(0, s.Length - 1), out outvar))
 					return true;
 
-			try
-			{
-				if (doconvert)
-				{
-					outvar = Convert.ToDouble(obj);
-					return true;
-				}
-			}
-			catch
-			{
-				return (bool)Errors.TypeErrorOccurred(obj, typeof(double), false);
-			}
-
 			return false;
 		}
 
 		/// <summary>
 		/// Attempts various methods for converting an object to a float value.<br/>
 		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
+		/// String parsing will be attempted after that.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
 		/// <param name="requiredot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
 		/// <returns>The converted value as a nullable float.</returns>
-		public static float? ParseFloat(this object obj, bool doconvert = true, bool requiredot = false)
-		{
-			if (obj is float d)
-				return d;
-
-			if (obj is double dd)//Check for double here, but not the reverse in ParseDouble() because most decimal numbers will be double.
-				return (float)dd;
-
-			if (obj is long l)
-				return l;
-
-			if (obj is BoolResult br)
-				return br.o.ParseFloat(doconvert, requiredot);
-
-			if (obj is int i)//int is seldom used in Keysharp, so check last.
-				return i;
-
-			var s = obj.ToString().AsSpan().Trim();
-
-			if (s.Length == 0)
-				return new float? ();
-
-			if (requiredot && !s.Contains('.'))
-				return new float? ();
-
-			if (float.TryParse(s, out d))
-				return d;
-
-			if (!char.IsNumber(s[s.Length - 1]))//Handle a string specifying a double like "123.0D".
-				if (float.TryParse(s.Slice(0, s.Length - 1), out d))
-					return d;
-
-			try
-			{
-				return doconvert ? (float)Convert.ToDouble(obj) : new float? ();
-			}
-			catch
-			{
-				_ = Errors.TypeErrorOccurred(obj, typeof(float));
-				return default;
-			}
-		}
+		public static float? ParseFloat(this object obj, bool requiredot = false) => (float?)obj.ParseDouble(requiredot);
 
 		/// <summary>
 		/// Attempts various methods for converting an object to a int value.<br/>
 		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
+		/// String parsing will be attempted after that.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
 		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
 		/// <returns>The converted value as a nullable int.</returns>
-		public static int? ParseInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
-		{
-			if (obj is int i)
-				return i;
-
-			if (obj is long l)
-				return (int)l;
-
-			if (obj is BoolResult br)
-				return br.o.ParseInt(doconvert);
-
-			var s = obj.ToString().AsSpan().Trim();
-
-			if (s.Length == 0)
-				return new int? ();
-
-			if (int.TryParse(s, out i))
-				return i;
-
-			if (!char.IsNumber(s[s.Length - 1]))//Handle a string specifying a int like "123I".
-				if (int.TryParse(s.Slice(0, s.Length - 1), out i))
-					return i;
-
-			var neg = false;
-
-			if (s[0] == Keywords.Minus)
-			{
-				neg = true;
-				s = s.Slice(1);
-			}
-
-			if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
-					int.TryParse(s.Slice(2), NumberStyles.HexNumber, Parser.inv, out var ii))
-				return neg ? -ii : ii;
-
-			if (donoprefixhex)
-				if (int.TryParse(s, NumberStyles.HexNumber, Parser.inv, out ii))
-					return neg ? -ii : ii;
-
-			try
-			{
-				return doconvert ? Convert.ToInt32(obj) : new int? ();
-			}
-			catch
-			{
-				_ = Errors.TypeErrorOccurred(obj, typeof(int));
-				return default;
-			}
-		}
+		public static int? ParseInt(this object obj, bool donoprefixhex = true) => (int?)obj.ParseLong(donoprefixhex);
 
 		/// <summary>
 		/// Attempts various methods for converting an object to a long value.<br/>
 		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
+		/// String parsing will be attempted after that.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
 		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
 		/// <returns>The converted value as a nullable long.</returns>
-		public static long? ParseLong(this object obj, bool doconvert = true, bool donoprefixhex = true) => obj.ParseLong(out long l, doconvert, donoprefixhex) ? l : null;
+		public static long? ParseLong(this object obj, bool donoprefixhex = true) => obj.ParseLong(out long l, donoprefixhex) ? l : null;
 
-		public static bool ParseLong(this object obj, out long outvar, bool doconvert = true, bool donoprefixhex = true)
+		public static bool ParseLong(this object obj, out long outvar, bool donoprefixhex = false)
 		{
 			if (obj is long l)
 			{
@@ -407,9 +296,15 @@
 			}
 
 			if (obj is BoolResult br)
-				return br.o.ParseLong(out outvar, doconvert);
+				return br.o.ParseLong(out outvar);
 
-            ReadOnlySpan<char> s = (obj as string ?? obj.ToString()).AsSpan().Trim();
+			if (obj is Any)
+			{
+				outvar = default;
+				return false;
+			}
+
+			ReadOnlySpan<char> s = (obj as string ?? obj.ToString()).AsSpan().Trim();
 
 			if (s.Length == 0)
 			{
@@ -453,19 +348,6 @@
 				return true;
 			}
 
-			try
-			{
-				if (doconvert)
-				{
-					outvar = Convert.ToInt64(obj);
-					return true;
-				}
-			}
-			catch
-			{
-				_ = Errors.TypeErrorOccurred(obj, typeof(long));
-			}
-
 			outvar = 0L;
 			return false;
 		}
@@ -476,60 +358,6 @@
 		/// <param name="obj">The object to examine.</param>
 		/// <returns>The .o field of the object if it was a BoolResult, else the object itself.</returns>
 		public static object ParseObject(this object obj) => obj is BoolResult br ? br.o : obj;
-
-		/// <summary>
-		/// Attempts various methods for converting an object to a uint value.<br/>
-		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that, then using the <see cref="Convert"/> class as a final attempt.
-		/// </summary>
-		/// <param name="obj">The object to convert.</param>
-		/// <param name="doconvert">Whether to attempt using the <see cref="Convert"/> class if all other attempts fail.</param>
-		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
-		/// <returns>The converted value as a nullable uint.</returns>
-		public static uint? ParseUInt(this object obj, bool doconvert = true, bool donoprefixhex = true)
-		{
-			if (obj is uint i)
-				return i;
-
-			if (obj is BoolResult br)
-				return br.o.ParseUInt(doconvert);
-
-			if (obj is long l)
-				return unchecked((uint)l);
-
-			var s = obj.ToString().AsSpan().Trim();
-
-			if (s.Length == 0)
-				return new uint? ();
-
-			if (long.TryParse(s, out var ll))
-				return unchecked((uint)ll);
-
-			if (uint.TryParse(s, out i))
-				return i;
-
-			if (!char.IsNumber(s[s.Length - 1]))//Handle a string specifying a uint like "123U".
-				if (uint.TryParse(s.Slice(0, s.Length - 1), out i))
-					return i;
-
-			if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
-					uint.TryParse(s.Slice(2), NumberStyles.HexNumber, Parser.inv, out var ii))
-				return ii;
-
-			if (donoprefixhex)
-				if (uint.TryParse(s, NumberStyles.HexNumber, Parser.inv, out ii))
-					return ii;
-
-			try
-			{
-				return doconvert ? Convert.ToUInt32(obj) : new uint? ();
-			}
-			catch
-			{
-				_ = Errors.TypeErrorOccurred(obj, typeof(uint));
-				return default;
-			}
-		}
 
 		/// <summary>
 		/// Returns the string representation of an object.

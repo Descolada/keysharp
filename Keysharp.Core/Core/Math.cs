@@ -449,14 +449,14 @@
 
 				if (s.Contains('.'))
 				{
-					var val = s.ParseDouble(false);
+					var val = s.ParseDouble();
 
 					if (val.HasValue)
 						return val.Value;
 				}
 				else
 				{
-					var val = s.ParseLong(false);
+					var val = s.ParseLong();
 
 					if (val.HasValue)
 						return val.Value;

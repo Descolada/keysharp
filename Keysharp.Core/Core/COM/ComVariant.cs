@@ -1370,25 +1370,25 @@ namespace Keysharp.Core.COM
 			}
 
 			// Element VARTYPE from array header
-			int hr = Keysharp.Core.OleAuto.SafeArrayGetVartype(psa, out ushort vtElemHdrRaw);
+			int hr = Keysharp.Core.COM.OleAuto.SafeArrayGetVartype(psa, out ushort vtElemHdrRaw);
 			var vtElemHdr = (VarEnum)vtElemHdrRaw;
-			int dims = Keysharp.Core.OleAuto.SafeArrayGetDim(psa);
+			int dims = Keysharp.Core.COM.OleAuto.SafeArrayGetDim(psa);
 
 			System.Diagnostics.Debug.WriteLine($"{indent}elemVT(header)=0x{vtElemHdrRaw:X4} ({vtElemHdr}), dims={dims}");
 
 			// Bounds
 			for (uint d = 1; d <= dims; d++)
 			{
-				_ = Keysharp.Core.OleAuto.SafeArrayGetLBound(psa, d, out int lb);
-				_ = Keysharp.Core.OleAuto.SafeArrayGetUBound(psa, d, out int ub);
+				_ = Keysharp.Core.COM.OleAuto.SafeArrayGetLBound(psa, d, out int lb);
+				_ = Keysharp.Core.COM.OleAuto.SafeArrayGetUBound(psa, d, out int ub);
 				System.Diagnostics.Debug.WriteLine($"{indent}dim{d}: [{lb}..{ub}] (len={ub - lb + 1})");
 			}
 
 			// Peek first element’s VT (especially useful for VT_VARIANT arrays)
 			if (dims == 1)
 			{
-				_ = Keysharp.Core.OleAuto.SafeArrayGetLBound(psa, 1, out int lb);
-				_ = Keysharp.Core.OleAuto.SafeArrayGetUBound(psa, 1, out int ub);
+				_ = Keysharp.Core.COM.OleAuto.SafeArrayGetLBound(psa, 1, out int lb);
+				_ = Keysharp.Core.COM.OleAuto.SafeArrayGetUBound(psa, 1, out int ub);
 				int count = ub - lb + 1;
 				if (count > 0)
 				{
@@ -1396,7 +1396,7 @@ namespace Keysharp.Core.COM
 					if (vtElem == VarEnum.VT_VARIANT)
 					{
 						// Access raw data and read first VARIANT
-						hr = Keysharp.Core.OleAuto.SafeArrayAccessData(psa, out nint pData);
+						hr = Keysharp.Core.COM.OleAuto.SafeArrayAccessData(psa, out nint pData);
 						if (hr >= 0)
 						{
 							try
@@ -1413,7 +1413,7 @@ namespace Keysharp.Core.COM
 							}
 							finally
 							{
-								_ = Keysharp.Core.OleAuto.SafeArrayUnaccessData(psa);
+								_ = Keysharp.Core.COM.OleAuto.SafeArrayUnaccessData(psa);
 							}
 						}
 						else
@@ -1427,7 +1427,7 @@ namespace Keysharp.Core.COM
 						try
 						{
 							int[] idx = { lb };
-							_ = Keysharp.Core.OleAuto.SafeArrayGetElement(psa, idx, out object pv);
+							_ = Keysharp.Core.COM.OleAuto.SafeArrayGetElement(psa, idx, out object pv);
 							System.Diagnostics.Debug.WriteLine($"{indent}elem[0] (typed {vtElem}) = {Preview(pv)}");
 						}
 						catch (Exception ex)

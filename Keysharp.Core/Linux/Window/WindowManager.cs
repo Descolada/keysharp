@@ -1,6 +1,4 @@
 #if LINUX
-#define DPI
-
 namespace Keysharp.Core.Linux
 {
 	/// <summary>

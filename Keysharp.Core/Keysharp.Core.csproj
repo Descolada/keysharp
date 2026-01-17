@@ -7,7 +7,7 @@
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<TargetFramework>net10.0</TargetFramework> <!-- net10.0 required so VSCode debugger doesn't crash on exceptions -->
-		<DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+		<DefineConstants>$(DefineConstants);LINUX;DPI</DefineConstants>
 		<LangVersion>14.0</LangVersion>
 	</PropertyGroup>
 	

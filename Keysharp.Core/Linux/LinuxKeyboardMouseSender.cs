@@ -1,5 +1,4 @@
 #if LINUX
-#define DPI
 
 using System.Text;
 using System.Diagnostics;
@@ -192,6 +191,28 @@ namespace Keysharp.Core.Linux
 
 		internal override void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y)
 		{
+			// Linux MouseClick encodes type in the high word; handle that before the legacy MOUSEEVENTF path.
+			if ((eventFlags & 0xFFFF0000) != 0)
+			{
+				var type = (KeyEventTypes)(eventFlags >> 16);
+
+				if (type == KeyEventTypes.KeyDown || type == KeyEventTypes.KeyUp || type == KeyEventTypes.KeyDownAndUp)
+				{
+					var button = VkToMouseButton(eventFlags & 0xFFFF);
+
+					if (button != MouseButton.NoButton)
+					{
+						if (type != KeyEventTypes.KeyUp)
+							AddArrayEvent(ArrayEvent.MouseButtonEvent(ArrayEventType.MousePress, button, x, y));
+
+						if (type != KeyEventTypes.KeyDown)
+							AddArrayEvent(ArrayEvent.MouseButtonEvent(ArrayEventType.MouseRelease, button, x, y));
+
+						return;
+					}
+				}
+			}
+
 			var actionFlags = eventFlags & (0x1FFFu & ~(uint)MOUSEEVENTF.MOVE);
 			var relativeMove = (eventFlags & MsgOffsetMouseMove) != 0;
 
@@ -446,16 +467,30 @@ namespace Keysharp.Core.Linux
 								case ArrayEventType.MousePress:
 								{
 									int mx = ev.X, my = ev.Y;
-									EnsureCoords(ref mx, ref my);
-									sim.SimulateMousePress((short)mx, (short)my, ev.Button);
+									if (mx == CoordUnspecified && my == CoordUnspecified)
+									{
+										sim.SimulateMousePress(ev.Button);
+									}
+									else
+									{
+										EnsureCoords(ref mx, ref my);
+										sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
+									}
 									break;
 								}
 
 								case ArrayEventType.MouseRelease:
 								{
 									int mx = ev.X, my = ev.Y;
-									EnsureCoords(ref mx, ref my);
-									sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+									if (mx == CoordUnspecified && my == CoordUnspecified)
+									{
+										sim.SimulateMouseRelease(ev.Button);
+									}
+									else
+									{
+										EnsureCoords(ref mx, ref my);
+										sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+									}
 									break;
 								}
 
@@ -549,58 +584,216 @@ namespace Keysharp.Core.Linux
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
-			// If we're building an array, record.
-			if (sendMode == SendModes.Input)
+			if (sendMode != SendModes.Event)
 			{
 				PutMouseEventIntoArray(eventFlags, data, x, y);
 				return;
 			}
 
-			// Otherwise emit immediately.
-			var button = VkToMouseButton(eventFlags & 0xFFFF);
-			var type = (KeyEventTypes)(eventFlags >> 16);
-
-			var finalX = x;
-			var finalY = y;
-
-			if (finalX == CoordUnspecified || finalY == CoordUnspecified)
+			// Legacy Linux usage: high word encodes KeyEventTypes, low word encodes vk.
+			if ((eventFlags & 0xFFFF0000) != 0)
 			{
-				_ = GetCursorPos(out POINT pos);
-				finalX = pos.X;
-				finalY = pos.Y;
+				var legacyButton = VkToMouseButton(eventFlags & 0xFFFF);
+				var legacyType = (KeyEventTypes)(eventFlags >> 16);
+				EmitButton(legacyButton, legacyType, x, y);
+				return;
 			}
 
-#if DPI
-			double scale = Accessors.A_ScaledScreenDPI;
-#else
-			double scale = 1.0;
-#endif
+			var actionFlags = eventFlags & (0x1FFFu & ~(uint)MOUSEEVENTF.MOVE);
+			var hasMove = (eventFlags & (uint)MOUSEEVENTF.MOVE) != 0;
+			var relativeMove = (eventFlags & MsgOffsetMouseMove) != 0;
 
-			switch (type)
+			if (hasMove)
+				EmitMove(relativeMove, x, y);
+
+			switch (actionFlags)
 			{
-				case KeyEventTypes.KeyDown:
-					sim.SimulateMousePress((short)(finalX * scale), (short)(finalY * scale), button);
+				case 0:
+					break; // movement-only (handled above)
+
+				case (uint)MOUSEEVENTF.LEFTDOWN:
+					EmitButton(MouseButton.Button1, KeyEventTypes.KeyDown, x, y);
 					break;
-				case KeyEventTypes.KeyUp:
-					sim.SimulateMouseRelease((short)(finalX * scale), (short)(finalY * scale), button);
+				case (uint)MOUSEEVENTF.LEFTUP:
+					EmitButton(MouseButton.Button1, KeyEventTypes.KeyUp, x, y);
 					break;
-				case KeyEventTypes.KeyDownAndUp:
-					sim.SimulateMousePress((short)(finalX * scale), (short)(finalY * scale), button);
-					sim.SimulateMouseRelease((short)(finalX * scale), (short)(finalY * scale), button);
+				case (uint)MOUSEEVENTF.RIGHTDOWN:
+					EmitButton(MouseButton.Button2, KeyEventTypes.KeyDown, x, y);
+					break;
+				case (uint)MOUSEEVENTF.RIGHTUP:
+					EmitButton(MouseButton.Button2, KeyEventTypes.KeyUp, x, y);
+					break;
+				case (uint)MOUSEEVENTF.MIDDLEDOWN:
+					EmitButton(MouseButton.Button3, KeyEventTypes.KeyDown, x, y);
+					break;
+				case (uint)MOUSEEVENTF.MIDDLEUP:
+					EmitButton(MouseButton.Button3, KeyEventTypes.KeyUp, x, y);
+					break;
+				case (uint)MOUSEEVENTF.XDOWN:
+					EmitButton(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, KeyEventTypes.KeyDown, x, y);
+					break;
+				case (uint)MOUSEEVENTF.XUP:
+					EmitButton(data == MouseUtils.XBUTTON2 ? MouseButton.Button5 : MouseButton.Button4, KeyEventTypes.KeyUp, x, y);
+					break;
+				case (uint)MOUSEEVENTF.WHEEL:
+					sim.SimulateMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
+					break;
+				case (uint)MOUSEEVENTF.HWHEEL:
+					sim.SimulateMouseWheel(unchecked((short)data), MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
 					break;
 			}
 
 			DoMouseDelay();
+
+			void EmitMove(bool rel, int mx, int my)
+			{
+#if DPI
+				double scale = Accessors.A_ScaledScreenDPI;
+#else
+				double scale = 1.0;
+#endif
+				if (rel)
+				{
+					sim.SimulateMouseMovementRelative((short)(mx * scale), (short)(my * scale));
+				}
+				else
+				{
+					EnsureCoords(ref mx, ref my);
+					sim.SimulateMouseMovement((short)(mx * scale), (short)(my * scale));
+				}
+			}
+
+			void EmitButton(MouseButton button, KeyEventTypes type, int mx, int my)
+			{
+				if (button == MouseButton.NoButton)
+					return;
+
+				bool noCoords = mx == CoordUnspecified && my == CoordUnspecified;
+
+				if (!noCoords)
+					EnsureCoords(ref mx, ref my);
+
+				switch (type)
+				{
+					case KeyEventTypes.KeyDown:
+						if (noCoords)
+							sim.SimulateMousePress(button);
+						else
+						{
+#if DPI
+							double scale = Accessors.A_ScaledScreenDPI;
+#else
+							double scale = 1.0;
+#endif
+							sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), button);
+						}
+						break;
+					case KeyEventTypes.KeyUp:
+						if (noCoords)
+							sim.SimulateMouseRelease(button);
+						else
+						{
+#if DPI
+							double scale = Accessors.A_ScaledScreenDPI;
+#else
+							double scale = 1.0;
+#endif
+							sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), button);
+						}
+						break;
+					case KeyEventTypes.KeyDownAndUp:
+						if (noCoords)
+						{
+							sim.SimulateMousePress(button);
+							sim.SimulateMouseRelease(button);
+						}
+						else
+						{
+#if DPI
+							double scale = Accessors.A_ScaledScreenDPI;
+#else
+							double scale = 1.0;
+#endif
+							sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), button);
+							sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), button);
+						}
+						break;
+				}
+			}
+
+			void EnsureCoords(ref int cx, ref int cy)
+			{
+				if (cx != CoordUnspecified && cy != CoordUnspecified)
+					return;
+
+				if (!GetCursorPos(out POINT pos))
+					pos = new POINT(0, 0);
+
+				if (cx == CoordUnspecified) cx = pos.X;
+				if (cy == CoordUnspecified) cy = pos.Y;
+			}
 		}
 
 		internal override void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
 		{
-			if (sendMode == SendModes.Input)
+			if (x == CoordUnspecified || y == CoordUnspecified)
+				return;
+
+			if (sendMode == SendModes.Play)
 			{
-				if (moveOffset) AddArrayEvent(ArrayEvent.MouseMoveRel(x, y));
-				else           AddArrayEvent(ArrayEvent.MouseMoveAbs(x, y));
+				PutMouseEventIntoArray((uint)MOUSEEVENTF.MOVE | (moveOffset ? MsgOffsetMouseMove : 0), 0, x, y);
+				DoMouseDelay();
+
+				if (moveOffset)
+				{
+					x = CoordUnspecified;
+					y = CoordUnspecified;
+				}
 				return;
 			}
+
+			if (moveOffset)
+			{
+				if (sendMode == SendModes.Input)
+				{
+					if (sendInputCursorPos.X == CoordUnspecified)
+					{
+						if (GetCursorPos(out sendInputCursorPos))
+						{
+							x += sendInputCursorPos.X;
+							y += sendInputCursorPos.Y;
+						}
+					}
+					else
+					{
+						x += sendInputCursorPos.X;
+						y += sendInputCursorPos.Y;
+					}
+				}
+				else if (GetCursorPos(out POINT pos))
+				{
+					x += pos.X;
+					y += pos.Y;
+				}
+			}
+			else
+			{
+				CoordToScreen(ref x, ref y, CoordMode.Mouse);
+			}
+
+			if (sendMode == SendModes.Input)
+			{
+				sendInputCursorPos.X = x;
+				sendInputCursorPos.Y = y;
+				AddArrayEvent(ArrayEvent.MouseMoveAbs(x, y));
+				DoMouseDelay();
+				return;
+			}
+
+			if (speed < 0)
+				speed = 0;
+			else if (speed > MaxMouseSpeed)
+				speed = MaxMouseSpeed;
 
 #if DPI
 			double scale = Accessors.A_ScaledScreenDPI;
@@ -608,19 +801,44 @@ namespace Keysharp.Core.Linux
 			double scale = 1.0;
 #endif
 
-			if (moveOffset)
-				sim.SimulateMouseMovementRelative((short)(x * scale), (short)(y * scale));
-			else
-				sim.SimulateMouseMovement((short)(x * scale), (short)(y * scale));
-
-			DoMouseDelay();
-		}
-
-		internal override void MouseClick(uint vk, int x, int y, long repeatCount, long speed, KeyEventTypes eventType, bool moveOffset)
-		{
-			for (var i = 0; i < repeatCount; i++)
+			if (speed == 0)
 			{
-				MouseEvent(((uint)eventType << 16) | vk, 0, x, y);
+				sim.SimulateMouseMovement((short)(x * scale), (short)(y * scale));
+				DoMouseDelay();
+				return;
+			}
+
+			if (!GetCursorPos(out POINT cursorPos))
+			{
+				sim.SimulateMouseMovement((short)(x * scale), (short)(y * scale));
+				DoMouseDelay();
+				return;
+			}
+
+			long cx = cursorPos.X;
+			long cy = cursorPos.Y;
+			const int incrMouseMinSpeed = 32;
+
+			void Step(ref long cur, long dest)
+			{
+				if (cur == dest)
+					return;
+
+				var delta = (dest > cur ? dest - cur : cur - dest) / speed;
+				if (delta == 0 || delta < incrMouseMinSpeed)
+					delta = incrMouseMinSpeed;
+
+				if (dest > cur)
+					cur = Math.Min(dest, cur + delta);
+				else
+					cur = Math.Max(dest, cur - delta);
+			}
+
+			while (cx != x || cy != y)
+			{
+				Step(ref cx, x);
+				Step(ref cy, y);
+				sim.SimulateMouseMovement((short)(cx * scale), (short)(cy * scale));
 				DoMouseDelay();
 			}
 		}

@@ -46,7 +46,11 @@
 		/// <returns></returns>
 		internal static StatusBarBase CreateStatusBar(nint hwnd)
 		{
+#if WINDOWS
 			return new Core.Windows.StatusBar(hwnd);
+#else
+			return new Core.Linux.StatusBar(hwnd);
+#endif
 		}
 	}
 

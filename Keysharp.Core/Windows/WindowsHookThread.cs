@@ -172,7 +172,7 @@ namespace Keysharp.Core.Windows
 			};
 		}
 
-		internal new MouseWheelEventData Data { get; init; }
+		internal MouseWheelEventData Data { get; init; }
 	}
 
 	/// <summary>
@@ -1025,7 +1025,6 @@ namespace Keysharp.Core.Windows
 					var hookEvent = new MouseWheelHookEventArgs(structPtr, wheelDelta, lParam.flags, isArtificial, lParam.pt.X, lParam.pt.Y, mouseHook, code, param);
 					return LowLevelCommon(hookEvent, vk, sc, sc, keyUp, lParam.dwExtraInfo, lParam.flags);
 				}
-				break;
 
 				case WM_LBUTTONUP:
 					vk = VK_LBUTTON; break;

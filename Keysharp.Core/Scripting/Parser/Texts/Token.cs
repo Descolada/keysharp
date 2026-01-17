@@ -340,7 +340,7 @@ namespace Keysharp.Scripting
 				return false;
 
 			var codeTrim = code.Trim(Spaces);
-			var longresult = codeTrim.ParseLong(false, false);//Also supports hex, but do not consider raw hex, because then a variable name like a would be returned as 10.
+			var longresult = codeTrim.ParseLong();//Also supports hex, but do not consider raw hex, because then a variable name like a would be returned as 10.
 
 			if (longresult.HasValue)
 			{
@@ -348,7 +348,7 @@ namespace Keysharp.Scripting
 				goto exp;
 			}
 
-			if (double.TryParse(codeTrim, NumberStyles.Any, culture, out var d))//This will make any number be a double internally. Not sure if this is what AHK does.
+			if (double.TryParse(codeTrim, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))//This will make any number be a double internally. Not sure if this is what AHK does.
 			{
 				result = d;
 				goto exp;

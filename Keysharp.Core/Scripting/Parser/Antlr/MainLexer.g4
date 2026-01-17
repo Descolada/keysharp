@@ -44,6 +44,7 @@ channels {
 options {
     superClass = MainLexerBase;
     caseInsensitive = true;
+    accessLevel = internal;
 }
 
 tokens {
@@ -408,7 +409,7 @@ fragment IntegerLiteral: Minus? DecimalIntegerLiteral;
 
 fragment ExponentPart: 'e' [+-]? [0-9_]+;
 
-fragment IdentifierPart: IdentifierStart | [\p{Mn}] | [\p{Nd}] | [\p{Pc}] |  [\p{Cf}] | '\u200C' | '\u200D';
+fragment IdentifierPart: IdentifierStart | [\p{Mn}] | [\p{Nd}] | [\p{Pc}] |  [\p{Cf}];
 
 fragment IdentifierStart: [\p{L}] | [$_] | '\\' UnicodeEscapeSequence;
 

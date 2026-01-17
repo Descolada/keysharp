@@ -13,6 +13,8 @@ using Antlr4.Runtime.Misc;
 using Keysharp.Core.Common.Invoke;
 using Keysharp.Scripting;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Keysharp.Scripting.Parser;
 using static MainParser;

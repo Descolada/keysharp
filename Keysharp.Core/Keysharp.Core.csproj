@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-		<TargetFramework>net9.0-windows</TargetFramework>
+		<TargetFramework>net10.0-windows</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
 		<Platforms>x64</Platforms>
 	</PropertyGroup>
@@ -76,11 +76,11 @@
 	<ItemGroup>
 		<PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
 		<PackageReference Include="BitFaster.Caching" Version="2.5.4" />
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0-2.final" />
-		<PackageReference Include="PCRE.NET" Version="1.2.2" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+		<PackageReference Include="PCRE.NET" Version="1.4.0" />
 		<PackageReference Include="Semver" Version="3.0.0" />
-		<PackageReference Include="System.Resources.Extensions" Version="9.0.0" />
-		<PackageReference Include="System.Management" Version="10.0.0-rc.2.25502.107" />
+		<PackageReference Include="System.Resources.Extensions" Version="10.0.2" />
+		<PackageReference Include="System.Management" Version="10.0.2" />
 	</ItemGroup>
 	
 	<ItemGroup>

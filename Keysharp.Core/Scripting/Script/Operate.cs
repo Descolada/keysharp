@@ -778,10 +778,10 @@ namespace Keysharp.Scripting
 			{
 				firstl = b ? 1L : 0L;
 			}
-			else if (left.ParseLong(out firstl, false, false))
+			else if (left.ParseLong(out firstl))
 			{
 			}
-			else if (left.ParseDouble(out firstd, false, true))
+			else if (left.ParseDouble(out firstd, true))
 			{
 				firstIsDouble = true;
 			}
@@ -805,10 +805,10 @@ namespace Keysharp.Scripting
 			{
 				secondl = b ? 1L : 0L;
 			}
-			else if (right.ParseLong(out secondl, false, false))
+			else if (right.ParseLong(out secondl))
 			{
 			}
-			else if (right.ParseDouble(out secondd, false, true))
+			else if (right.ParseDouble(out secondd, true))
 			{
 				secondIsDouble = true;
 			}
@@ -856,9 +856,9 @@ namespace Keysharp.Scripting
 				return rd == 0d ? rd : -rd;
 			else if (right is long rl)
 				return -rl;
-			else if (right.ParseLong(out long l, false, false))
+			else if (right.ParseLong(out long l))
 				return -l;
-			else if (right.ParseDouble(out double d, false, true))
+			else if (right.ParseDouble(out double d, true))
 				return d == 0d ? d : -d;
 			else
 				return Errors.TypeErrorOccurred(right, typeof(double));
@@ -874,7 +874,7 @@ namespace Keysharp.Scripting
 			if (right is double)
 				return Errors.TypeErrorOccurred(right, typeof(long));
 
-			if (right.ParseLong(out long l, false, false))
+			if (right.ParseLong(out long l))
 				return ~l;
 
 			return Errors.TypeErrorOccurred(right, typeof(long));

@@ -8,7 +8,7 @@
 * [Code acknowledgements](#markdown-header-code-acknowledgements)
 
 ## How do I get set up? ##
-* If .NET 9 (or .NET 10 on Linux) is not installed on your machine, you need to download and run the x64 ".NET Desktop Runtime" installer from [here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
+* If .NET 10 is not installed on your machine, you need to download and run the x64 ".NET Desktop Runtime" installer from [here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
 
 ### Installing on Windows ###
 * Download and run the Keysharp installer from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
@@ -31,11 +31,17 @@
 	
 ### Building from source on Windows ###
 * Download the latest version of [Visual Studio 2022](https://visualstudio.microsoft.com/vs/community/).
-	+ This should install .NET 9. If it doesn't, you need to install it manually from the link above.
+	+ This should install .NET 10. If it doesn't, you need to install it manually from the link above.
 * Open Keysharp.sln
 * Build all (building the installer is not necessary).
-* CD to bin\release\net9.0-windows
+* CD to bin\release\net10.0-windows
 * Run `.\Keysharp.exe yourtestfile.ahk`
+
+### Building from source on Linux ###
+* Install the .NET 10 SDK (not just the runtime) as described in "Installing on Linux"
+* In the same parent folder as keysharp, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/Descolada/Eto.git` from within `foo`.
+* Run `Keysharp.Install/package-linux.sh`
+* A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. These can then be installed to your system via the steps in "Installing on Linux" above. Note that the folder and tarball are portable so both source repositories can be safely deleted.
 	
 ## Overview ##
 
@@ -575,5 +581,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * Various posts on [Stack Overflow](https://stackoverflow.com/)
 
 ## Who do I talk to? ##
+
 
 Please make an account here and post a ticket.

@@ -31,7 +31,7 @@ namespace Keysharp.Core
 			script.FlowData.callingCritical = true;
 			var tv = script.Threads.CurrentThread;
 			var on = onOffNumeric == null;
-			long freq = !on ? (onOffNumeric.ParseLong(false) ?? 0L) : 0L;
+			long freq = !on ? onOffNumeric.Al() : 0L;
 
 			if (!on)
 			{
@@ -138,20 +138,22 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="obj">The value to examine.</param>
 		/// <returns>True if the value is true and the script is running, else false.</returns>
-		public static bool IsTrueAndRunning(object obj)
+		public static bool IsTrueAndRunning(object obj) => IsTrueAndRunning(obj is bool ob ? ob : Script.ForceBool(obj));
+		public static bool IsTrueAndRunning(bool b)
 		{
 			var script = Script.TheScript;
-			var b = (obj is bool ob ? ob : Script.ForceBool(obj)) && !script.hasExited;
+			if (!b || script.hasExited)
+				return false;
 
 			//Use Environment.TickCount because it's the fastest and we don't want to add extra time to each loop.
 			//Its precision is around 15ms which is the amount we're testing for, so it should be ok.
 			//https://stackoverflow.com/questions/243351/environment-tickcount-vs-datetime-now
-			if (b && script.loopShouldDoEvents)
+			if (script.loopShouldDoEvents)
 			{
 				TryDoEvents(true, false);
 			}
 
-			return b;
+			return true;
 		}
 
 		/// <summary>

@@ -183,11 +183,10 @@ namespace Keysharp.Core
 				set
 				{
 					var val = value != null ? value.ToString() : "";
-					var temp = value.ParseInt(false);
-					var ival = temp ?? 0;
+					var ival = value.Ai();
 
 					if (_control is KeysharpNumericUpDown nud)
-						nud.Value = (double)value.ParseDecimal().Value;
+						nud.Value = (double)value.ParseDouble().Value;
 					else if (_control is KeysharpCheckBox cb)
 					{
 						var cbstate = ival;
@@ -212,7 +211,7 @@ namespace Keysharp.Core
 							lb.SelectedIndices.Clear();
 
 							foreach (var arval in ar)
-								lb.SetSelected(arval.ParseInt().GetValueOrDefault() - 1, true);
+								lb.SetSelected(arval.Ai() - 1, true);
 						}
 						else
 						{
@@ -1828,7 +1827,7 @@ namespace Keysharp.Core
 
 					for (var i = 0; i < widths.Length; i++)
 					{
-						var partWidth = widths[i]?.ParseInt();
+						var partWidth = widths[i]?.Ai();
 						if (partWidth.HasValue)
 						{
 							ss.Items.Add(new KeysharpToolStripStatusLabel

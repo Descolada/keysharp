@@ -1,7 +1,4 @@
 ﻿//System usings.
-global using global::Microsoft.CodeAnalysis;
-global using global::Microsoft.CodeAnalysis.CSharp;
-global using global::Microsoft.CodeAnalysis.Emit;
 global using global::Microsoft.VisualBasic.FileIO;//See if this is cross platform or not. //TODO
 global using global::System;
 global using global::System.Buffers;

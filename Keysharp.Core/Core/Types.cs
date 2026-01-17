@@ -81,9 +81,9 @@ namespace Keysharp.Core
 			double? val;
 
 			if (value is string s)
-				val = s.Trim().ParseDouble(false, true);
+				val = s.Trim().ParseDouble(true);
 			else
-				val = o.ParseDouble(false, true);
+				val = o.ParseDouble(true);
 
 			return val.HasValue ? 1L : 0L;
 		}
@@ -108,9 +108,9 @@ namespace Keysharp.Core
 			long? val;
 
 			if (value is string s)
-				val = s.Trim().ParseLong(false, false);
+				val = s.Trim().ParseLong(false);
 			else
-				val = o.ParseLong(false, false);
+				val = o.ParseLong(false);
 
 			return val.HasValue ? 1L : 0L;
 		}

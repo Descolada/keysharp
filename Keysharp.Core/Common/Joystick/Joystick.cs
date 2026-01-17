@@ -28,8 +28,8 @@
 
 			if (index < buf.Length) // The string starts with a number.
 			{
-				var val = buf.ParseUInt(false);
-				var joystick_id = val.HasValue ? val.Value - 1 : 0u;
+				var val = buf.ParseInt(false);
+				var joystick_id = val.HasValue && val.Value > 0 ? (uint)val.Value - 1 : 0u;
 
 				if (joystick_id < 0 || joystick_id >= JoystickData.MaxJoysticks)
 					return JoyControls.Invalid;

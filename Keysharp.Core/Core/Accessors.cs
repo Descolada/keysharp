@@ -232,7 +232,7 @@
 
 						if (Clipboard.GetData(DataFormats.SymbolicLink) is string sym)
 							return sym;
-
+						
 						if (Clipboard.GetData(DataFormats.UnicodeText) is string uni)
 							return uni;
 

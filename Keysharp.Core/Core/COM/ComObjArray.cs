@@ -1,5 +1,5 @@
 ﻿#if WINDOWS
-namespace Keysharp.Core
+namespace Keysharp.Core.COM
 {
 	/// <summary>
 	/// Describes the bounds (element count and lower bound) of a single dimension of a SAFEARRAY.

@@ -287,11 +287,7 @@ namespace Keysharp.Main
 							{
 								var deps = minimalexeout ? ["Keysharp.Core.dll"]
 										   : CompilerHelper.requiredManagedDependencies
-#if DEBUG
-										   //This is only required for non-published projects.
-										   .Concat(CompilerHelper.requiredNativeDependencies.Select(s => $"runtimes{Path.DirectorySeparatorChar}{RuntimeInformation.RuntimeIdentifier}{Path.DirectorySeparatorChar}native{Path.DirectorySeparatorChar}{s}"))
-#endif
-										   .Concat(CompilerHelper.requiredNativeDependencies);
+										   .Concat(CompilerHelper.requiredNativeDependencies.Select(s => $"runtimes{Path.DirectorySeparatorChar}{RuntimeInformation.RuntimeIdentifier}{Path.DirectorySeparatorChar}native{Path.DirectorySeparatorChar}{s}"));
 
 								//Need to copy Keysharp.Core and other dependencies from the install path to
 								//the folder the script resides in. Without them, the compiled exe cannot be run in a standalone manner.

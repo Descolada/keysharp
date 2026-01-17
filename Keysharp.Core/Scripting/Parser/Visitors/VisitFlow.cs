@@ -8,6 +8,8 @@ using Antlr4.Runtime.Misc;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using System.Drawing.Imaging;
 using Antlr4.Runtime;
 using System.IO;
@@ -107,17 +109,9 @@ namespace Keysharp.Scripting
                     untilStatement)
             );
 
-            // Generate the `for` loop
-            var forLoop = SyntaxFactory.ForStatement(
-                SyntaxFactory.Token(SyntaxKind.ForKeyword),
-				SyntaxFactory.Token(SyntaxKind.OpenParenToken),
-                default,
-				SyntaxFactory.SeparatedList<ExpressionSyntax>(), // No initializer
-				SyntaxFactory.Token(SyntaxKind.SemicolonToken),
+            // Generate the `while` loop
+            var whileLoop = SyntaxFactory.WhileStatement(
                 loopCondition,
-				SyntaxFactory.Token(SyntaxKind.SemicolonToken),
-                SyntaxFactory.SeparatedList<ExpressionSyntax>(), // No incrementor
-				SyntaxFactory.Token(SyntaxKind.CloseParenToken),
                 loopBody
             );
 
@@ -274,7 +268,7 @@ namespace Keysharp.Scripting
 
             // Wrap the loop in a try-finally statement
             var tryFinallyStatement = SyntaxFactory.TryStatement(
-                SyntaxFactory.Block(forLoop), // Try block containing the loop
+                SyntaxFactory.Block(whileLoop), // Try block containing the loop
                 SyntaxFactory.List<CatchClauseSyntax>(), // No catch clauses
                 SyntaxFactory.FinallyClause(
                     SyntaxFactory.Token(SyntaxKind.FinallyKeyword),
@@ -284,8 +278,8 @@ namespace Keysharp.Scripting
 
             List<StatementSyntax> blockElements = new()
             {
-				SyntaxFactory.LocalDeclarationStatement(enumeratorDeclaration),
 				pushStatement,
+				SyntaxFactory.LocalDeclarationStatement(enumeratorDeclaration),
 				tryFinallyStatement,
 				endLabel
 			};
@@ -604,11 +598,8 @@ namespace Keysharp.Scripting
             );
 
             // Generate the `for` loop structure
-            var forLoop = SyntaxFactory.ForStatement(
-                null, // No initializer
-                SyntaxFactory.SeparatedList<ExpressionSyntax>(), // No initializer
+            var whileLoop = SyntaxFactory.WhileStatement(
                 loopCondition,
-                SyntaxFactory.SeparatedList<ExpressionSyntax>(), // No incrementor
                 loopBody
             );
 
@@ -663,7 +654,7 @@ namespace Keysharp.Scripting
 
             // Wrap the for loop in a try-finally statement
             var tryFinallyStatement = SyntaxFactory.TryStatement(
-                SyntaxFactory.Block(forLoop), // Try block containing the loop
+                SyntaxFactory.Block(whileLoop), // Try block containing the loop
                 SyntaxFactory.List<CatchClauseSyntax>(), // No catch clauses
                 SyntaxFactory.FinallyClause(finallyBlock) // Finally block
             );

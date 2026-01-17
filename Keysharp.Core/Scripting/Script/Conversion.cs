@@ -12,24 +12,14 @@ namespace Keysharp.Scripting
 			else if (input is Any a)
 				return true;
 
-			var pb = input.ParseBool();
-
-			if (pb.HasValue)
-				return pb.Value;
-			else if (input.ParseLong(out long l, false, false))
+			if (input.ParseBool(out bool pb))
+				return pb;
+			else if (input.ParseLong(out long l))
 				return l != 0;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return d != 0.0;
 			else if (input is string s)
 				return !string.IsNullOrEmpty(s);
-			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
-			{
-				foreach (var mi in mis)
-					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(bool))
-						return (bool)mi.Invoke(input, [input]);
-					else if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(long))
-						return (long)mi.Invoke(input, [input]) != 0;
-			}
 
 			return true;//Any non-null, non-empty string is considered true.
 		}
@@ -38,9 +28,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0.0D;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return d;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return l;
 			else if (input.ParseBool() is bool b)
 				return b ? 1.0 : 0.0;
@@ -62,9 +52,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return (int)l;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return (int)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1 : 0;
@@ -86,9 +76,9 @@ namespace Keysharp.Scripting
 		{
 			if (input == null)
 				return 0L;
-			else if (input.ParseLong(out long l, false, false))
+			else if (input.ParseLong(out long l))
 				return l;
-			else if (input.ParseDouble(out double d, false, true))
+			else if (input.ParseDouble(out double d, true))
 				return (long)d;
 			else if (input.ParseBool() is bool b)
 				return b ? 1L : 0L;

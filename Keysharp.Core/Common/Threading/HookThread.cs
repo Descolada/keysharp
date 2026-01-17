@@ -1599,7 +1599,7 @@ namespace Keysharp.Core.Common.Threading
 					// Parameters can occur in almost any order to enhance usability (at the cost of
 					// slightly diminishing the ability to unambiguously add more parameters in the future).
 					// Seems okay to support floats because ATOI() will just omit the decimal portion.
-					if (double.TryParse(opt, NumberStyles.Float, Parser.inv, out var d))
+					if (double.TryParse(opt, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
 					{
 						var val = (int)d;
 
@@ -1642,9 +1642,6 @@ namespace Keysharp.Core.Common.Threading
 			}
 			else if (x == CoordUnspecified && y == CoordUnspecified)//Neither was specified, so just use the cursor position.
 			{
-				GetCursorPos(out POINT pos);
-				x = pos.X;
-				y = pos.Y;
 			}
 		}
 
@@ -1832,7 +1829,6 @@ namespace Keysharp.Core.Common.Threading
 				// 2) Right-click is a valid way to select a context menu items (but apparently not popup or menu bar items).
 				// 3) Right-click should invoke another instance of the context menu (or dismiss existing menu, depending
 				//    on where the click occurs) if user clicks outside of our thread's existing context menu.
-				nint menuHwnd = 0;
 
 				if ((vk == VK_LBUTTON || vk == VK_RBUTTON) && IsMouseMenuVisible())
 				{

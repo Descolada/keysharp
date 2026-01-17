@@ -1,9 +1,8 @@
 using static Keysharp.Scripting.Parser;
 using Antlr4.Runtime;
-using System.Linq;
-using System.Collections.Generic;
-using System.Xml.Linq;
-using static System.Net.Mime.MediaTypeNames;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace Keysharp.Scripting
 {

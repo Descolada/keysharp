@@ -176,11 +176,10 @@ namespace Keysharp.Core
 				set
 				{
 					var val = value != null ? value.ToString() : "";
-					var temp = value.ParseInt(false);
-					var ival = temp ?? 0;
+					var ival = value.Ai();
 
 					if (_control is KeysharpNumericUpDown nud)
-						nud.Value = value.ParseDecimal().Value;
+						nud.Value = (decimal)value.ParseDouble().Value;
 					else if (_control is KeysharpCheckBox cb)
 					{
 						var cbstate = ival;
@@ -201,7 +200,7 @@ namespace Keysharp.Core
 							lb.ClearSelected();
 
 							foreach (var arval in ar)
-								lb.SetSelected(arval.ParseInt().GetValueOrDefault() - 1, true);
+								lb.SetSelected(arval.Ai() - 1, true);
 						}
 						else
 							lb.SelectedIndex = ival - 1;
@@ -1472,7 +1471,7 @@ namespace Keysharp.Core
 
 						if (part != null)
 						{
-							var width = part.ParseInt().Value;
+							var width = part.Ai();
 							tssl = new KeysharpToolStripStatusLabel
 							{
 								AutoSize = false,

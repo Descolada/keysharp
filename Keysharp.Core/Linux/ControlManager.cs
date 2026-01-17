@@ -520,7 +520,7 @@ namespace Keysharp.Core.Linux
 					if (Options.TryParse(s, "+", ref temp)) { item.ExStyle |= temp; }
 					else if (Options.TryParse(s, "-", ref temp)) { item.ExStyle &= ~temp; }
 					else if (Options.TryParse(s, "^", ref temp)) { item.ExStyle ^= temp; }
-					else item.ExStyle = val.ParseLong(true).Value;
+					else item.ExStyle = val.Al();
 				}
 			}
 		}
@@ -540,7 +540,7 @@ namespace Keysharp.Core.Linux
 					if (Options.TryParse(s, "+", ref temp)) { item.Style |= temp; }
 					else if (Options.TryParse(s, "-", ref temp)) { item.Style &= ~temp; }
 					else if (Options.TryParse(s, "^", ref temp)) { item.Style ^= temp; }
-					else item.Style = val.ParseLong(true).Value;
+					else item.Style = val.ParseLong().Value;
 				}
 			}
 		}

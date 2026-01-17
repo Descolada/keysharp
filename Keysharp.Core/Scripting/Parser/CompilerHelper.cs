@@ -1,4 +1,7 @@
-﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
+﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Keysharp.Scripting
 {
@@ -135,7 +138,7 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 		public static readonly string[] requiredManagedDependencies = new[]
 		{
 			"Keysharp.Core.dll",
-			"System.CodeDom.dll",
+			"Antlr4.Runtime.Standard.dll",
 			"PCRE.NET.dll",
 			"BitFaster.Caching.dll",
 #if !WINDOWS

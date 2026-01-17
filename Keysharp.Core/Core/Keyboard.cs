@@ -613,7 +613,7 @@ break_twice:;
 								break;
 						}
 
-						sleepDuration = (int)(numstr.ParseDouble(false) * 1000);
+						sleepDuration = (int)(numstr.ParseDouble() * 1000);
 						break;
 				}
 			}

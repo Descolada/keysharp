@@ -2974,7 +2974,7 @@
 		{
 			get
 			{
-				var handle = controlname.ParseLong(false);
+				var handle = controlname.ParseLong();
 
 				if (handle.HasValue)
 				{

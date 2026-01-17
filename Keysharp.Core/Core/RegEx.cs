@@ -116,7 +116,7 @@
 								 (long)pcre_callout.Number,
 								 pcre_callout.PatternPosition,
 								 haystack,
-								 needle).ParseInt() ?? 0;
+								 needle).Ai();
 
 				if (result > 1)
 					result = 1;

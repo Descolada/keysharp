@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Scripting
+﻿using Microsoft.CodeAnalysis;
+
+namespace Keysharp.Scripting
 {
 	/// <summary>
 	/// This is a lightweight version of the Keysharp main program, which is used to parse and compile

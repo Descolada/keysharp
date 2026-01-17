@@ -331,7 +331,7 @@
 			}
 
 			if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) &&
-					long.TryParse(s.Slice(2), NumberStyles.HexNumber, Parser.inv, out outvar))
+					long.TryParse(s.Slice(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out outvar))
 			{
 				if (neg)
 					outvar = -outvar;
@@ -340,7 +340,7 @@
 			}
 
 			if (donoprefixhex &&
-					long.TryParse(s, NumberStyles.HexNumber, Parser.inv, out outvar))
+					long.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out outvar))
 			{
 				if (neg)
 					outvar = -outvar;

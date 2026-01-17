@@ -2,6 +2,9 @@ using Antlr4.Runtime;
 using Antlr4.Runtime.Atn;
 using Antlr4.Runtime.Misc;
 using Keysharp.Core.Scripting.Parser.Helpers;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Keysharp.Scripting
@@ -20,9 +23,6 @@ namespace Keysharp.Scripting
     };
     internal partial class Parser
 	{
-        public static readonly CultureInfo culture = CultureInfo.CreateSpecificCulture("en-US");
-		public static readonly CultureInfo inv = CultureInfo.InvariantCulture;
-
 		internal const string scopeChar = "_";
 		internal const string varsPropertyName = "Vars";
 

@@ -3,6 +3,9 @@ using Antlr4.Runtime.Misc;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 
 namespace Keysharp.Scripting
 {

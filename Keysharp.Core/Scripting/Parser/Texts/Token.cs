@@ -348,7 +348,7 @@ namespace Keysharp.Scripting
 				goto exp;
 			}
 
-			if (double.TryParse(codeTrim, NumberStyles.Any, culture, out var d))//This will make any number be a double internally. Not sure if this is what AHK does.
+			if (double.TryParse(codeTrim, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))//This will make any number be a double internally. Not sure if this is what AHK does.
 			{
 				result = d;
 				goto exp;

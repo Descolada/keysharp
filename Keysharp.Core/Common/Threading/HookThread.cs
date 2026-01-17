@@ -1599,7 +1599,7 @@ namespace Keysharp.Core.Common.Threading
 					// Parameters can occur in almost any order to enhance usability (at the cost of
 					// slightly diminishing the ability to unambiguously add more parameters in the future).
 					// Seems okay to support floats because ATOI() will just omit the decimal portion.
-					if (double.TryParse(opt, NumberStyles.Float, Parser.inv, out var d))
+					if (double.TryParse(opt, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
 					{
 						var val = (int)d;
 

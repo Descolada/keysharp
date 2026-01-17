@@ -8,6 +8,8 @@ using Antlr4.Runtime.Misc;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using System.Drawing.Imaging;
 using Antlr4.Runtime;
 using System.IO;

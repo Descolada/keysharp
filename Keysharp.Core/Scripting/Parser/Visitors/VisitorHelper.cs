@@ -1,5 +1,8 @@
 ﻿using Antlr4.Runtime.Tree;
 using Antlr4.Runtime;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static MainParser;
 using System.Data.Common;

@@ -46,7 +46,7 @@
 		/// <returns></returns>
 		internal static StatusBarBase CreateStatusBar(nint hwnd)
 		{
-			return new StatusBar(hwnd);
+			return new Core.Windows.StatusBar(hwnd);
 		}
 	}
 

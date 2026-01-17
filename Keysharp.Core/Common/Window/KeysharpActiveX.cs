@@ -15,7 +15,6 @@ namespace Keysharp.Core.Common.Window
 		/// about the runtime callable wrapper being disconnected from its underlying
 		/// COM object.
 		/// </summary>
-		private object ob;
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
 		public string AxText { get; set; }

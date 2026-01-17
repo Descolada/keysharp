@@ -366,9 +366,9 @@ namespace System.Windows.Forms
 			if (control is Form)
 				return Point.Empty;
 
+#if !WINDOWS
 			Form form;
 
-#if !WINDOWS
 			if ((form = control.FindForm()) != null && form.Visible)
 			{
 				try

@@ -1,5 +1,6 @@
 ﻿namespace Keysharp.Scripting
 {
+	[PublicHiddenFromUser]
 	public static class Keywords
 	{
 		public const bool IsDebug =

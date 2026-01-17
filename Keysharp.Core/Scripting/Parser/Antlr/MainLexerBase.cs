@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 /// All lexer methods that used in grammar
 /// should start with Upper Case Char similar to Lexer rules.
 /// </summary>
-public abstract class MainLexerBase : Lexer
+internal abstract class MainLexerBase : Lexer
 {
     protected readonly ICharStream _input;
     private IToken _lastToken = null;
@@ -16,12 +16,12 @@ public abstract class MainLexerBase : Lexer
     private int _currentDepth = 0;
     private bool _hotstringIsLiteral = true;
 
-    public MainLexerBase(ICharStream input) : base(input)
+    internal MainLexerBase(ICharStream input) : base(input)
     {
         _input = input;
     }
 
-    public MainLexerBase(ICharStream input, TextWriter output, TextWriter errorOutput) : this(input)
+    internal MainLexerBase(ICharStream input, TextWriter output, TextWriter errorOutput) : this(input)
     {
         RemoveErrorListeners(); // Remove default error listeners
         AddErrorListener(new MainLexerErrorListener());

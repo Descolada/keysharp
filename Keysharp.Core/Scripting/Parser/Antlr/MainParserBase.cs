@@ -7,7 +7,7 @@ using Antlr4.Runtime.Misc;
 using Keysharp.Core;
 using static MainParser;
 
-public class MainParserErrorListener : IAntlrErrorListener<IToken>
+internal class MainParserErrorListener : IAntlrErrorListener<IToken>
 {
     public void SyntaxError(
         TextWriter errorOutput,

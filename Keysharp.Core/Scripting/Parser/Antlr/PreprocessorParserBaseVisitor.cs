@@ -33,7 +33,7 @@ using ParserRuleContext = Antlr4.Runtime.ParserRuleContext;
 [System.CodeDom.Compiler.GeneratedCode("ANTLR", "4.13.1")]
 [System.Diagnostics.DebuggerNonUserCode]
 [System.CLSCompliant(false)]
-public partial class PreprocessorParserBaseVisitor<Result> : AbstractParseTreeVisitor<Result>, IPreprocessorParserVisitor<Result> {
+internal partial class PreprocessorParserBaseVisitor<Result> : AbstractParseTreeVisitor<Result>, IPreprocessorParserVisitor<Result> {
 	/// <summary>
 	/// Visit a parse tree produced by the <c>preprocessorDeclaration</c>
 	/// labeled alternative in <see cref="PreprocessorParser.preprocessor_directive"/>.

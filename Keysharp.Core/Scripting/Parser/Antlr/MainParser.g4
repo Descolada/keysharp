@@ -38,6 +38,7 @@ parser grammar MainParser;
 options {
     tokenVocab = MainLexer;
     superClass = MainParserBase;
+    accessLevel = internal;
 }
 
 program

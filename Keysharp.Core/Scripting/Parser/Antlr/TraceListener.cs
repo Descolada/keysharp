@@ -1,7 +1,7 @@
 ﻿using Antlr4.Runtime.Tree;
 using Antlr4.Runtime;
 
-public class TraceListener : IParseTreeListener
+internal class TraceListener : IParseTreeListener
 {
     public void VisitTerminal(ITerminalNode node)
     {

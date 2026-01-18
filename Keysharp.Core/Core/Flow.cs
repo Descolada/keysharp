@@ -142,18 +142,17 @@ namespace Keysharp.Core
 		public static bool IsTrueAndRunning(bool b)
 		{
 			var script = Script.TheScript;
-			if (!b || script.hasExited)
+
+			if (script.hasExited)
 				return false;
 
 			//Use Environment.TickCount because it's the fastest and we don't want to add extra time to each loop.
 			//Its precision is around 15ms which is the amount we're testing for, so it should be ok.
 			//https://stackoverflow.com/questions/243351/environment-tickcount-vs-datetime-now
 			if (script.loopShouldDoEvents)
-			{
 				TryDoEvents(true, false);
-			}
 
-			return true;
+			return b;
 		}
 
 		/// <summary>

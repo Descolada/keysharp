@@ -12,11 +12,12 @@
 		protected bool isCom = false;
 		protected bool cdecl = false;
 		protected bool hresult = false;
-		protected List<GCHandle> gcHandles;
+		private List<GCHandle> _gcHandles;
+		protected List<GCHandle> gcHandles => _gcHandles ??= new();
 		protected bool hasReturn = false;
 		protected Type returnType = typeof(int);
 		//int is the index in the argument list, and bool specifies if it's a VarRef (false) or Ptr (true)
-		internal Dictionary<int, (Type, bool)> outputVars;
+		protected Dictionary<int, (Type, bool)> outputVars;
 		internal Dictionary<int, (Type, bool)> OutputVars => outputVars ??= new();
 		internal bool CDecl => cdecl;
 		internal bool HRESULT => hresult;
@@ -47,7 +48,7 @@
 
 				// free GCHandles
 				for (int i = 0; i < gcHandles?.Count; i++)
-					gcHandles[i].Free();
+					_gcHandles[i].Free();
 
 				_isDisposed = true;
 			}
@@ -65,7 +66,6 @@
 			int n = -1;
 			void SetupPointerArg()
 			{
-				gcHandles ??= new List<GCHandle>(4);
 				var gch = GCHandle.Alloc(p, GCHandleType.Pinned);
 				gcHandles.Add(gch);
 				args[n] = gch.AddrOfPinnedObject();

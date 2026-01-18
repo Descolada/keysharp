@@ -52,7 +52,7 @@ namespace Keysharp.Core.Windows
 			});
 		}
 
-		public static WindowItemBase FindWindow(SearchCriteria criteria, bool last = false)
+		public static new WindowItemBase FindWindow(SearchCriteria criteria, bool last = false)
 		{
 			WindowItemBase found = null;
 

@@ -31,7 +31,7 @@ namespace Keysharp.Core.COM
 		internal const int DISPID_PROPERTYPUT = -3;
 
 		[DllImport(WindowsAPI.ole32, CharSet = CharSet.Unicode)]
-		public static extern int CoCreateInstance(ref Guid clsid,
+		internal static extern int CoCreateInstance(ref Guid clsid,
 				[MarshalAs(UnmanagedType.IUnknown)] object inner,
 				uint context,
 				ref Guid uuid,

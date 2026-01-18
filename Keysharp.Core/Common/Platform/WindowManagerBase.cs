@@ -129,7 +129,7 @@ namespace Keysharp.Core.Common.Platform
 			else
 			{
 				var criteria = SearchCriteria.FromString(winTitle, text, excludeTitle, excludeText);
-				foundWindow = FindWindow(criteria, last);
+				foundWindow = WindowManager.FindWindow(criteria, last);
 			}
 
 			if (foundWindow != null && foundWindow.IsSpecified)
@@ -196,7 +196,7 @@ namespace Keysharp.Core.Common.Platform
 			else
 			{
 				criteria = SearchCriteria.FromString(winTitle, text, exclTitle, exclText);
-				foundWindows = FindWindowGroup(criteria, forceAll);
+				foundWindows = WindowManager.FindWindowGroup(criteria, forceAll);
 
 				if (foundWindows != null && foundWindows.Count > 0 && foundWindows[0].IsSpecified)
 					LastFound = foundWindows[0];

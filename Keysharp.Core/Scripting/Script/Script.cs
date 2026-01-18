@@ -354,7 +354,7 @@ namespace Keysharp.Scripting
 		[DebuggerStepThrough]
 		void TickTimerCallback(object sender, EventArgs e)
 		{
-			loopShouldDoEvents = true;
+			TheScript.loopShouldDoEvents = true;
 		}
 
 		/// <summary>

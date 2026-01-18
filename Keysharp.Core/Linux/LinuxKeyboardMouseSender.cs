@@ -378,7 +378,6 @@ namespace Keysharp.Core.Linux
 			{
 				void SendAction()
 				{
-					Console.WriteLine($"[SendArray] SendAction start events={st.Events.Count}");
 					List<LinuxHookThread.ReleasedKey>? released = null;
 					try
 					{
@@ -462,7 +461,6 @@ namespace Keysharp.Core.Linux
 
 						foreach (var ev in st.Events)
 						{
-							Console.WriteLine($"[SendArray] EvType={ev.Type} vk={ev.Vk} btn={ev.Button}");
 							if (ev.Type == ArrayEventType.Text)
 							{
 								textBatch.Append(ev.Text);
@@ -551,7 +549,6 @@ namespace Keysharp.Core.Linux
 					}
 					finally
 					{
-						Console.WriteLine("[SendArray] SendAction finally");
 						if (released != null)
 							lht.RestoreNonModifierKeysAfterSend(released);
 					}

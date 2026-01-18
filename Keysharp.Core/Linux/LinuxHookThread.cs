@@ -376,7 +376,9 @@ namespace Keysharp.Core.Linux
 				linuxHotkeys.Clear();
 				customPrefixSuppress.Clear();
 				dynamicPrefixGrabs.Clear();
-				UngrabAll();
+
+				var newKeyGrabs = new HashSet<(uint keycode, uint mods)>();
+				var newButtonGrabs = new HashSet<(uint button, uint mods)>();
 
 				if (hk != null)
 				{
@@ -417,10 +419,8 @@ namespace Keysharp.Core.Linux
 
 							if (MouseUtils.IsMouseVK(entry.Vk) && TryMapMouseVkToButton(entry.Vk, out var btn))
 							{
-								if (entry.AllowExtra)
-									GrabButtonWithExtraModifiers(btn, xmods);
-								else
-									GrabButton(btn, xmods);
+								foreach (var m in ButtonGrabMaskVariants(xmods, entry.AllowExtra))
+									newButtonGrabs.Add((btn, m));
 							}
 							else if (MouseUtils.IsWheelVK(entry.Vk))
 							{
@@ -438,10 +438,8 @@ namespace Keysharp.Core.Linux
 							}
 							else if (TryMapToXGrab(entry.Vk, modsForGrab, out var keycode, out var mods))
 							{
-								if (entry.AllowExtra)
-									GrabKeyWithExtraModifiers(keycode, mods);
-								else
-									GrabKey(keycode, mods);
+								foreach (var pair in KeyGrabVariants(keycode, mods, entry.AllowExtra))
+									newKeyGrabs.Add(pair);
 							}
 						}
 					}
@@ -452,9 +450,26 @@ namespace Keysharp.Core.Linux
 						{
 							if (!kvp.Value) continue; // tilde allows the prefix to pass through
 							if (TryMapToXGrab(kvp.Key, 0, out var prefixKeycode, out _))
-								GrabKeyVariantsInto(prefixKeycode, AnyModifier, activeGrabs, anyModifier: true);
+							{
+								foreach (var pair in KeyGrabVariants(prefixKeycode, AnyModifier, anyModifier: true))
+									newKeyGrabs.Add(pair);
+							}
 						}
 					}
+				}
+
+				if (IsX11Available)
+				{
+					ApplyGrabDiff(activeGrabs, newKeyGrabs,
+						ungrab: (kc, m) => _ = XDisplay.Default.XUngrabKey(kc, m),
+						grab: (kc, m) => _ = XDisplay.Default.XGrabKey(kc, m, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync));
+
+					ApplyGrabDiff(activeButtonGrabs, newButtonGrabs,
+						ungrab: (btn, m) => _ = XDisplay.Default.XUngrabButton(btn, m, (nint)XDisplay.Default.Root.ID),
+						grab: (btn, m) => _ = XDisplay.Default.XGrabButton(btn, m, (nint)XDisplay.Default.Root.ID, true,
+							(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero));
+
+					XDisplay.Default.XSync(false);
 				}
 			}
 		}
@@ -556,12 +571,15 @@ namespace Keysharp.Core.Linux
 			if (!isInjected && grabbedByHotstring)
 				ForceReleaseEndKeyX11(vk);
 
-			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected} extraInfo={extraInfo}");
+			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected} extraInfo={extraInfo} time={DateTime.Now.ToString("hh.mm.ss.ffffff")}");
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, (uint)(isInjected ? 0x10 : 0));
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, false);
+
+			if (result != 0)
+				e.SuppressEvent = true;
 		}
 
 		private void OnKeyReleased(object? sender, KeyboardHookEventArgs e)
@@ -586,6 +604,9 @@ namespace Keysharp.Core.Linux
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, true);
+
+			if (result != 0)
+				e.SuppressEvent = true;
 		}
 
 		// On Linux we derive typed characters during EarlyCollectInput; no KeyTyped handler needed.
@@ -827,7 +848,9 @@ namespace Keysharp.Core.Linux
 			var sc = (uint)e.Data.Rotation;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 
-			_ = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			if (result != 0)
+				e.SuppressEvent = true;
 		}
 
 		private void OnMouseMoved(object? sender, MouseHookEventArgs e)
@@ -854,7 +877,9 @@ namespace Keysharp.Core.Linux
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 
-			_ = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			if (result != 0)
+				e.SuppressEvent = true;
 		}
 
 		private void OnMouseReleased(object? sender, MouseHookEventArgs e)
@@ -866,7 +891,9 @@ namespace Keysharp.Core.Linux
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
 
-			_ = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
+			if (result != 0)
+				e.SuppressEvent = true;
 		}
 
 		private static uint MapMouseVk(MouseButton button) => button switch
@@ -2294,23 +2321,58 @@ namespace Keysharp.Core.Linux
 			GrabButtonVariantsInto(button, modifiers, activeButtonGrabs);
 		}
 
+		private static IEnumerable<uint> KeyGrabMaskVariants(uint modifiers, bool anyModifier = false)
+		{
+			if (anyModifier)
+			{
+				yield return AnyModifier;
+				yield break;
+			}
+
+			yield return modifiers;
+			yield return modifiers | LockMask;
+			yield return modifiers | Mod2Mask;
+			yield return modifiers | LockMask | Mod2Mask;
+		}
+
+		private static IEnumerable<(uint keycode, uint mods)> KeyGrabVariants(uint keycode, uint modifiers, bool anyModifier = false)
+		{
+			foreach (var m in KeyGrabMaskVariants(modifiers, anyModifier))
+				yield return (keycode, m);
+		}
+
+		private static IEnumerable<uint> ButtonGrabMaskVariants(uint modifiers, bool allowExtra)
+		{
+			if (!allowExtra)
+			{
+				yield return modifiers;
+				yield return modifiers | LockMask;
+				yield return modifiers | Mod2Mask;
+				yield return modifiers | LockMask | Mod2Mask;
+				yield break;
+			}
+
+			var seen = new HashSet<uint>();
+			int comboCount = 1 << ExtraGrabMasks.Length;
+			for (int maskBits = 0; maskBits < comboCount; maskBits++)
+			{
+				uint mods = modifiers;
+				for (int i = 0; i < ExtraGrabMasks.Length; i++)
+				{
+					if ((maskBits & (1 << i)) != 0)
+						mods |= ExtraGrabMasks[i];
+				}
+
+				if (seen.Add(mods))
+					yield return mods;
+			}
+		}
+
 		private void GrabKeyVariantsInto(uint xCode, uint modifiers, HashSet<(uint keycode, uint mods)> sink, bool anyModifier = false)
 		{
 			if (!IsX11Available) return;
 
-			uint[] variants = anyModifier
-				? new[] { 
-					AnyModifier,					
-				}
-				: new[]
-				{
-					modifiers,
-					modifiers | LockMask,
-					modifiers | Mod2Mask,
-					modifiers | LockMask | Mod2Mask
-				};
-
-			foreach (var m in variants)
+			foreach (var m in KeyGrabMaskVariants(modifiers, anyModifier))
 			{
 				_ = XDisplay.Default.XGrabKey(xCode, m, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
 				sink.Add((xCode, m));
@@ -2322,17 +2384,7 @@ namespace Keysharp.Core.Linux
 		{
 			if (!IsX11Available) return;
 
-			uint[] variants = anyModifier
-				? new[] { AnyModifier }
-				: new[]
-				{
-					modifiers,
-					modifiers | LockMask,
-					modifiers | Mod2Mask,
-					modifiers | LockMask | Mod2Mask
-				};
-
-			foreach (var m in variants)
+			foreach (var m in ButtonGrabMaskVariants(modifiers, allowExtra: false))
 			{
 				_ = XDisplay.Default.XGrabButton(button, m, (nint)XDisplay.Default.Root.ID, true,
 					(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero);
@@ -2379,6 +2431,25 @@ namespace Keysharp.Core.Linux
 			}
 
 			XDisplay.Default.XSync(false);
+		}
+
+		private static void ApplyGrabDiff(HashSet<(uint first, uint second)> current, HashSet<(uint first, uint second)> desired, Action<uint, uint> ungrab, Action<uint, uint> grab)
+		{
+			foreach (var oldVal in current)
+			{
+				if (!desired.Contains(oldVal))
+					ungrab(oldVal.first, oldVal.second);
+			}
+
+			foreach (var add in desired)
+			{
+				if (!current.Contains(add))
+					grab(add.first, add.second);
+			}
+
+			current.Clear();
+			foreach (var v in desired)
+				current.Add(v);
 		}
 
 		private void GrabButtonWithExtraModifiers(uint button, uint baseMods)

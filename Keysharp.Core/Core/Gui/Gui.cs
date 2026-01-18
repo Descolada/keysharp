@@ -1408,6 +1408,8 @@
 
 					if (opts.bgcolor.HasValue)
 						kstc.SetColor(opts.bgcolor.Value);
+					else if (form.BackColor != SystemColors.Control)
+						kstc.SetColor(form.BackColor);
 
 					ctrl = kstc;
 					holder = new Tab(this, ctrl, typeo);
@@ -1649,9 +1651,7 @@
 
 			if (opts.hp != int.MinValue)
 			{
-				var ctrlSize = ctrl.GetSize();
-				var newHeight = lastControl != null ? lcHeight + (int)(opts.hp * dpiscale) : 0;
-				ctrl.SetSize(new Size(ctrlSize.Width, newHeight));
+				finalHeight = lastControl != null ? lcHeight + (int)(opts.hp * dpiscale) : 0;
 			}
 			else
 			{
@@ -1692,6 +1692,7 @@
 					if (ctrl is KeysharpComboBox cmb)
 					{
 						cmb.MaxDropDownItems = r;
+						finalHeight = cmb.PreferredSize.Height;
 					}
 					else if (ctrl is KeysharpListBox lb)
 					{

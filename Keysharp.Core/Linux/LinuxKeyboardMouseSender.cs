@@ -325,6 +325,48 @@ namespace Keysharp.Core.Linux
 
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 			var ms = DateTime.UtcNow;
+			var ungrabKeycodes = new HashSet<uint>();
+			var ungrabButtons = new HashSet<uint>();
+			var vksToRelease = CollectVksWeWillPress(st.Events);
+			var logicalMods = GetModifierLRState();
+			var modsToPreRelease = CollectModifierUpsForArray(st.Events, logicalMods, lht);
+
+			void AddKeycodeForUngrab(uint vk)
+			{
+				var xk = lht.VkToXKeycode(vk);
+				if (xk != 0) ungrabKeycodes.Add(xk);
+			}
+
+			foreach (var vk in vksToRelease)
+				AddKeycodeForUngrab(vk);
+			foreach (var vk in modsToPreRelease)
+				AddKeycodeForUngrab(vk);
+
+			foreach (var ev in st.Events)
+			{
+				switch (ev.Type)
+				{
+					case ArrayEventType.KeyDown:
+					case ArrayEventType.KeyUp:
+						AddKeycodeForUngrab(ev.Vk);
+						break;
+					case ArrayEventType.Text:
+						AddKeycodeForUngrab(VK_TAB);
+						AddKeycodeForUngrab(VK_BACK);
+						AddKeycodeForUngrab(VK_RETURN);
+						break;
+					case ArrayEventType.MousePress:
+					case ArrayEventType.MouseRelease:
+					{
+						var xbtn = lht.MouseButtonToXButton(ev.Button);
+						if (xbtn != 0) ungrabButtons.Add(xbtn);
+						break;
+					}
+				}
+			}
+
+			var needUngrab = ungrabKeycodes.Count != 0 || ungrabButtons.Count != 0;
+			DebugLog($"[SendArray] Events={st.Events.Count} needUngrab={needUngrab} ungrabKeys={ungrabKeycodes.Count} ungrabButtons={ungrabButtons.Count} vksToRelease={vksToRelease.Count} modsToPreRelease={modsToPreRelease.Count}");
 
 #if DPI
 			double scale = Accessors.A_ScaledScreenDPI;
@@ -334,19 +376,17 @@ namespace Keysharp.Core.Linux
 
 			WithSendScope(lht, () =>
 			{
-				WithSendUngrab(lht, () =>
+				void SendAction()
 				{
+					Console.WriteLine($"[SendArray] SendAction start events={st.Events.Count}");
 					List<LinuxHookThread.ReleasedKey>? released = null;
 					try
 					{
-						var vksToRelease = CollectVksWeWillPress(st.Events); // only keys we will press down
 						if (vksToRelease.Count != 0)
 							released = lht.ForceReleaseKeysForSend(vksToRelease);
 
-						var logicalMods = GetModifierLRState();
 						// Send up-strokes for modifiers which aren't pressed down, because some key grabs otherwise
 						// block the modifiers from being sent. Otherwise this doesn't generate X11 events anyway.
-						var modsToPreRelease = CollectModifierUpsForArray(st.Events, logicalMods, lht);
 						if (modsToPreRelease.Count != 0)
 						{
 							foreach (var vk in modsToPreRelease)
@@ -422,6 +462,7 @@ namespace Keysharp.Core.Linux
 
 						foreach (var ev in st.Events)
 						{
+							Console.WriteLine($"[SendArray] EvType={ev.Type} vk={ev.Vk} btn={ev.Button}");
 							if (ev.Type == ArrayEventType.Text)
 							{
 								textBatch.Append(ev.Text);
@@ -439,6 +480,7 @@ namespace Keysharp.Core.Linux
 									break;
 
 								case ArrayEventType.KeyDown:
+									DebugLog($"[SendArray] KeyDown vk={ev.Vk}");
 									backend.KeyDown(ev.Vk, ms, extraInfo);
 									if (KeyboardUtils.IsModifierVk(ev.Vk) && IsX11Available)
 									{
@@ -449,6 +491,7 @@ namespace Keysharp.Core.Linux
 									break;
 
 								case ArrayEventType.KeyUp:
+									DebugLog($"[SendArray] KeyUp vk={ev.Vk}");
 									backend.KeyUp(ev.Vk, ms, extraInfo);
 									break;
 
@@ -508,10 +551,21 @@ namespace Keysharp.Core.Linux
 					}
 					finally
 					{
+						Console.WriteLine("[SendArray] SendAction finally");
 						if (released != null)
 							lht.RestoreNonModifierKeysAfterSend(released);
 					}
-				});
+				}
+
+				if (needUngrab)
+				{
+					DebugLog($"[SendArray] BeginSendUngrab keys={ungrabKeycodes.Count} buttons={ungrabButtons.Count}");
+					var snap = lht.BeginSendUngrab(ungrabKeycodes, ungrabButtons);
+					try { SendAction(); }
+					finally { lht.EndSendUngrab(snap); }
+				}
+				else
+					SendAction();
 			});
 
 			void EnsureCoords(ref int cx, ref int cy)

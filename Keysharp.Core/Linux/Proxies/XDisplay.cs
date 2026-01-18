@@ -412,6 +412,10 @@ namespace Keysharp.Core.Linux.Proxies
 			=> Xlib.XGrabKey(Handle, keycode, modifiers, grab_window, owner_events, pointer_mode, keyboard_mode);
 		internal int XUngrabKey(uint keycode, uint modifiers, long? grab_window = default)
 			=> Xlib.XUngrabKey(Handle, keycode, modifiers, (nint)(grab_window ?? Root.ID));
+		internal int XGrabButton(uint button, uint modifiers, nint grab_window, bool owner_events, uint event_mask, int pointer_mode, int keyboard_mode, nint confine_to, nint cursor)
+			=> Xlib.XGrabButton(Handle, button, modifiers, grab_window, owner_events, event_mask, pointer_mode, keyboard_mode, confine_to, cursor);
+		internal int XUngrabButton(uint button, uint modifiers, long? grab_window = default)
+			=> Xlib.XUngrabButton(Handle, button, modifiers, (nint)(grab_window ?? Root.ID));
 		internal int XUngrabKeyboard(ulong time) => Xlib.XUngrabKeyboard(Handle, time);
 		internal int XSync(bool discard) => Xlib.XSync(Handle, discard);
 		internal int XFlush() => Xlib.XFlush(Handle);

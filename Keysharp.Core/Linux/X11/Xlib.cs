@@ -272,6 +272,8 @@ namespace Keysharp.Core.Linux.X11
 		[DllImport(libX11Name)] internal static extern int XkbGetState(nint dpy, uint deviceSpec, out XkbStateRec state);
 		[DllImport(libX11Name)] internal static extern uint XkbKeysymToModifiers(nint dpy, uint keysym);
 		[DllImport(libX11Name)] internal static extern int XGetPointerMapping(nint display, byte[] map, int nmap);
+		[DllImport(libX11Name)] internal static extern int XGrabButton(nint display, uint button, uint modifiers, nint grab_window, bool owner_events, uint event_mask, int pointer_mode, int keyboard_mode, nint confine_to, nint cursor);
+		[DllImport(libX11Name)] internal static extern int XUngrabButton(nint display, uint button, uint modifiers, nint grab_window);
 
 		[StructLayout(LayoutKind.Sequential)]
 		internal struct XkbStateRec

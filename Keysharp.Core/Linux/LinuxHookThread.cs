@@ -10,6 +10,7 @@ using SharpHook;
 using SharpHook.Data;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
+using Keysharp.Core.Common.Mouse;
 using static Keysharp.Core.Linux.SharpHookKeyMapper;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
 using static Keysharp.Core.Linux.X11.Xlib;
@@ -186,6 +187,7 @@ namespace Keysharp.Core.Linux
 		// Tracks plain hotkeys grabbed via XGrabKey as well as dynamic grabs for custom prefixes.
 		private readonly HashSet<(uint xCode, uint mods)> activeGrabs = new();
 		private readonly HashSet<(uint xCode, uint mods)> activeHotstringGrabs = new();
+		private readonly HashSet<(uint button, uint mods)> activeButtonGrabs = new();
 		private bool sendInProgress;
 		private int sendDepth;
 		internal readonly struct SendScope : IDisposable
@@ -211,6 +213,7 @@ namespace Keysharp.Core.Linux
 			public bool Active;
 			public HashSet<(uint xcode, uint mods)> Grabs;
 			public HashSet<(uint xcode, uint mods)> HotstringGrabs;
+			public HashSet<(uint button, uint mods)> ButtonGrabs;
 		}
 
 		internal LinuxHookThread()
@@ -410,8 +413,21 @@ namespace Keysharp.Core.Linux
 							if (entry.ModifierVK != 0)
 								modsForGrab |= KeyToModifiersLR(entry.ModifierVK, 0, ref neutral);
 
+							var xmods = ModifiersLRToXMask(modsForGrab);
+
+							if (MouseUtils.IsMouseVK(entry.Vk) && TryMapMouseVkToButton(entry.Vk, out var btn))
+							{
+								if (entry.AllowExtra)
+									GrabButtonWithExtraModifiers(btn, xmods);
+								else
+									GrabButton(btn, xmods);
+							}
+							else if (MouseUtils.IsWheelVK(entry.Vk))
+							{
+								// Wheel hotkeys aren't grabbed; handled via hook suppression.
+							}
 							// For custom prefixes that aren't real modifiers, grab the suffix only while the prefix is held.
-							if (entry.ModifierVK != 0 && modsForGrab == 0)
+							else if (entry.ModifierVK != 0 && modsForGrab == 0)
 							{
 								if (TryMapToXGrab(entry.Vk, modsForGrab, out var keycode, out var mods))
 								{
@@ -1084,19 +1100,52 @@ namespace Keysharp.Core.Linux
 
 		private uint CurrentXGrabMask()
 		{
-			uint mods = 0;
-			var modifiersLR = CurrentModifiersLR();
-
-			if ((modifiersLR & (MOD_LCONTROL | MOD_RCONTROL)) != 0) mods |= ControlMask;
-			if ((modifiersLR & (MOD_LSHIFT | MOD_RSHIFT)) != 0) mods |= ShiftMask;
-			if ((modifiersLR & (MOD_LALT | MOD_RALT)) != 0) mods |= Mod1Mask; // Alt / AltGr on some layouts
-			if ((modifiersLR & (MOD_LWIN | MOD_RWIN)) != 0) mods |= Mod4Mask;
+			var mods = ModifiersLRToXMask(CurrentModifiersLR());
 
 			// Locks are grabbed in all variants; include them for exact matches when we know the state.
 			var ind = RefreshIndicatorSnapshot();
 			if (ind.Caps) mods |= LockMask;
 			if (ind.Num) mods |= Mod2Mask;
 			if (ind.Scroll) mods |= Mod5Mask;
+
+			return mods;
+		}
+
+		internal bool HasButtonGrab(uint button)
+		{
+			if (!IsX11Available || button == 0)
+				return false;
+
+			lock (hkLock)
+			{
+				foreach (var (btn, _) in activeButtonGrabs)
+				{
+					if (btn == button)
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+		internal uint MouseButtonToXButton(MouseButton btn) => btn switch
+		{
+			MouseButton.Button1 => 1u,
+			MouseButton.Button2 => 3u, // X uses 3 for right
+			MouseButton.Button3 => 2u,
+			MouseButton.Button4 => 8u,
+			MouseButton.Button5 => 9u,
+			_ => 0u
+		};
+
+		private static uint ModifiersLRToXMask(uint modifiersLR)
+		{
+			uint mods = 0;
+
+			if ((modifiersLR & (MOD_LCONTROL | MOD_RCONTROL)) != 0) mods |= ControlMask;
+			if ((modifiersLR & (MOD_LSHIFT | MOD_RSHIFT)) != 0) mods |= ShiftMask;
+			if ((modifiersLR & (MOD_LALT | MOD_RALT)) != 0) mods |= Mod1Mask; // Alt / AltGr on some layouts
+			if ((modifiersLR & (MOD_LWIN | MOD_RWIN)) != 0) mods |= Mod4Mask;
 
 			return mods;
 		}
@@ -1110,7 +1159,7 @@ namespace Keysharp.Core.Linux
 		}
 
 		// Temporarily release all grabs (keyboard + passive keys) during a send, then re-apply them.
-		internal GrabSnapshot BeginSendUngrab()
+		internal GrabSnapshot BeginSendUngrab(HashSet<uint>? keycodes = null, HashSet<uint>? buttons = null)
 		{
 			DebugLog($"[Hook] BeginSendUngrab grabs={activeGrabs.Count} hs={activeHotstringGrabs.Count}");
 			var snap = new GrabSnapshot { Active = IsX11Available };
@@ -1120,8 +1169,21 @@ namespace Keysharp.Core.Linux
 				return snap;
 			}
 
-			snap.Grabs = new HashSet<(uint keycode, uint mods)>(activeGrabs);
-			snap.HotstringGrabs = new HashSet<(uint keycode, uint mods)>(activeHotstringGrabs);
+			IEnumerable<(uint keycode, uint mods)> KeyMatches(HashSet<(uint keycode, uint mods)> src)
+			{
+				if (keycodes == null) return src;
+				return src.Where(km => keycodes.Contains(km.keycode));
+			}
+
+			IEnumerable<(uint button, uint mods)> ButtonMatches(HashSet<(uint button, uint mods)> src)
+			{
+				if (buttons == null) return src;
+				return src.Where(bm => buttons.Contains(bm.button));
+			}
+
+			snap.Grabs = new HashSet<(uint keycode, uint mods)>(KeyMatches(activeGrabs));
+			snap.HotstringGrabs = new HashSet<(uint keycode, uint mods)>(KeyMatches(activeHotstringGrabs));
+			snap.ButtonGrabs = new HashSet<(uint button, uint mods)>(ButtonMatches(activeButtonGrabs));
 
 			try
 			{
@@ -1129,6 +1191,8 @@ namespace Keysharp.Core.Linux
 					_ = XDisplay.Default.XUngrabKey(kc, mods, (nint)XDisplay.Default.Root.ID);
 				foreach (var (kc, mods) in snap.HotstringGrabs)
 					_ = XDisplay.Default.XUngrabKey(kc, mods, (nint)XDisplay.Default.Root.ID);
+				foreach (var (button, mods) in snap.ButtonGrabs)
+					_ = XDisplay.Default.XUngrabButton(button, mods, (nint)XDisplay.Default.Root.ID);
 
 				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
 				_ = XDisplay.Default.XSync(false);
@@ -1144,12 +1208,20 @@ namespace Keysharp.Core.Linux
 			if (!snap.Active || !IsX11Available)
 				return;
 
+			if ((snap.Grabs == null || snap.Grabs.Count == 0) &&
+				(snap.HotstringGrabs == null || snap.HotstringGrabs.Count == 0) &&
+				(snap.ButtonGrabs == null || snap.ButtonGrabs.Count == 0))
+				return;
+
 			try
 			{
 				foreach (var (xcode, mods) in snap.Grabs)
 					_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
 				foreach (var (xcode, mods) in snap.HotstringGrabs)
 					_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+				foreach (var (button, mods) in snap.ButtonGrabs)
+					_ = XDisplay.Default.XGrabButton(button, mods, (nint)XDisplay.Default.Root.ID, true,
+						(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero);
 
 				_ = XDisplay.Default.XSync(false);
 				_ = XDisplay.Default.XFlush();
@@ -2134,6 +2206,14 @@ namespace Keysharp.Core.Linux
 		internal override bool SystemHasAnotherKeybdHook() => false;
 		internal override bool SystemHasAnotherMouseHook() => false;
 
+		internal uint VkToXKeycode(uint vk)
+		{
+			ulong ks = VkToKeysym(vk);
+			if (ks == 0) return 0;
+
+			return (uint)XDisplay.Default.XKeysymToKeycode((IntPtr)ks);
+		}
+
 		private void ClearHotstringBuffer(string reason)
 		{
 			var hm = Script.TheScript.HotstringManager;
@@ -2190,9 +2270,28 @@ namespace Keysharp.Core.Linux
 			return true;
 		}
 
+		private static bool TryMapMouseVkToButton(uint vk, out uint button)
+		{
+			button = vk switch
+			{
+				VK_LBUTTON => 1u,
+				VK_MBUTTON => 2u,
+				VK_RBUTTON => 3u,
+				VK_XBUTTON1 => 8u,
+				VK_XBUTTON2 => 9u,
+				_ => 0u
+			};
+			return button != 0;
+		}
+
 		private void GrabKey(uint keycode, uint modifiers)
 		{
 			GrabKeyVariantsInto(keycode, modifiers, activeGrabs);
+		}
+
+		private void GrabButton(uint button, uint modifiers)
+		{
+			GrabButtonVariantsInto(button, modifiers, activeButtonGrabs);
 		}
 
 		private void GrabKeyVariantsInto(uint xCode, uint modifiers, HashSet<(uint keycode, uint mods)> sink, bool anyModifier = false)
@@ -2215,6 +2314,29 @@ namespace Keysharp.Core.Linux
 			{
 				_ = XDisplay.Default.XGrabKey(xCode, m, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
 				sink.Add((xCode, m));
+			}
+			XDisplay.Default.XSync(false);
+		}
+
+		private void GrabButtonVariantsInto(uint button, uint modifiers, HashSet<(uint button, uint mods)> sink, bool anyModifier = false)
+		{
+			if (!IsX11Available) return;
+
+			uint[] variants = anyModifier
+				? new[] { AnyModifier }
+				: new[]
+				{
+					modifiers,
+					modifiers | LockMask,
+					modifiers | Mod2Mask,
+					modifiers | LockMask | Mod2Mask
+				};
+
+			foreach (var m in variants)
+			{
+				_ = XDisplay.Default.XGrabButton(button, m, (nint)XDisplay.Default.Root.ID, true,
+					(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero);
+				sink.Add((button, m));
 			}
 			XDisplay.Default.XSync(false);
 		}
@@ -2259,6 +2381,44 @@ namespace Keysharp.Core.Linux
 			XDisplay.Default.XSync(false);
 		}
 
+		private void GrabButtonWithExtraModifiers(uint button, uint baseMods)
+		{
+			if (!IsX11Available) return;
+
+			uint[] baseVariants =
+			{
+				baseMods,
+				baseMods | LockMask,
+				baseMods | Mod2Mask,
+				baseMods | LockMask | Mod2Mask
+			};
+
+			var seen = new HashSet<uint>();
+
+			foreach (var variant in baseVariants)
+			{
+				int comboCount = 1 << ExtraGrabMasks.Length;
+				for (int maskBits = 0; maskBits < comboCount; maskBits++)
+				{
+					uint mods = variant;
+					for (int i = 0; i < ExtraGrabMasks.Length; i++)
+					{
+						if ((maskBits & (1 << i)) != 0)
+							mods |= ExtraGrabMasks[i];
+					}
+
+					if (!seen.Add(mods))
+						continue;
+
+					_ = XDisplay.Default.XGrabButton(button, mods, (nint)XDisplay.Default.Root.ID, true,
+						(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero);
+					activeButtonGrabs.Add((button, mods));
+				}
+			}
+
+			XDisplay.Default.XSync(false);
+		}
+
 		private void UngrabAll()
 		{
 			if (!IsX11Available) return;
@@ -2267,8 +2427,11 @@ namespace Keysharp.Core.Linux
 			{
 				foreach (var (kc, mods) in activeGrabs)
 					_ = XDisplay.Default.XUngrabKey(kc, mods);
+				foreach (var (btn, mods) in activeButtonGrabs)
+					_ = XDisplay.Default.XUngrabButton(btn, mods);
 				activeGrabs.Clear();
 				activeHotstringGrabs.Clear();
+				activeButtonGrabs.Clear();
 				XDisplay.Default.XSync(false);
 			}
 		}

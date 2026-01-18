@@ -13,37 +13,17 @@
 
 		public static implicit operator long(RegExMatchInfoCs r) => r.Pos();
 
-		public IFuncObj __Enum(object count) => new RegExIteratorCs(match, count.Ai()).fo;
-
 		public new object __New(params object[] args)
 		{
 			match = args[0] as Match;
-
-			for (int i = 0; i < match.Groups.Count; i++)
-			{
-				var g = match.Groups[i];
-				_ = DefineProp(g.Name,
-							   new KeysharpObject(
-								   [
-									   "get",
-									   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(g.Name)
-								   ]));
-
-				if (i.ToString() != g.Name)//No need to add it twice if the name matches the index.
-					_ = DefineProp(i,
-								   new KeysharpObject(
-									   [
-										   "get",
-										   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(g.Name)
-									   ]));
-			}
-
 			return DefaultObject;
 		}
 
-		public IEnumerator<(object, object)> GetEnumerator() => new RegExIteratorCs(match, 2);
+		public object __Get(object name, object args) => name is string s && s.ParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 
-		public object GetWrapper(object obj1, object obj2) => this[obj1];
+		public IFuncObj __Enum(object count) => new RegExIteratorCs(match, count.Ai()).fo;
+
+		public IEnumerator<(object, object)> GetEnumerator() => new RegExIteratorCs(match, 2);
 
 		public long Len(object obj)
 		{

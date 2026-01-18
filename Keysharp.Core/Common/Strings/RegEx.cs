@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core.Common.Strings
+﻿using System.Text.RegularExpressions;
+
+namespace Keysharp.Core.Common.Strings
 {
 	public class RegExMatchInfo : KeysharpObject, I__Enum, IEnumerable<(object, object)>
 	{
@@ -17,39 +19,16 @@
 		{
 			match = args[0] as PcreMatch;
 			holder = args[1] as RegexHolder;
-
-			for (int i = 0; i < match.Groups.Count; i++)
-			{
-				_ = DefineProp(i,
-							   new KeysharpObject(
-								   [
-									   "get",
-									   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(i)
-								   ]));
-			}
-
-			foreach (var name in holder.info.GroupNames)
-			{
-				if (match.Groups[name] != null)
-					_ = DefineProp(name,
-								   new KeysharpObject(
-									   [
-										   "get",
-										   Functions.GetFuncObj("GetWrapper", this, 2, true).Bind(name)
-									   ]));
-			}
-
 			return DefaultObject;
 		}
+
+		public object __Get(object name, object args) => name is string s && s.ParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 
 		public IFuncObj __Enum(object count) => new RegExIterator(this, count.Ai()).fo;
 
 		public IEnumerator<(object, object)> GetEnumerator() => new RegExIterator(this, 2);
 
 		IEnumerator IEnumerable.GetEnumerator() => new RegExIterator(this, 2);
-
-
-		public object GetWrapper(object obj1, object obj2) => this[obj1];
 
 		public long get_Len(object obj = null) => Len(obj);
 

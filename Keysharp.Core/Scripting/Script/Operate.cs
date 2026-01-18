@@ -377,8 +377,7 @@ namespace Keysharp.Scripting
 			if (right == null)
 				return (bool)Errors.UnsetErrorOccurred($"Right side operand of regular expression", false);
 
-			VarRef outvar = new VarRef(null);
-			return Core.RegEx.RegExMatch(ForceString(left), ForceString(right), outvar, 1);
+			return Core.RegEx.RegExMatch(ForceString(left), ForceString(right));
 		}
 
 		public static object FloorDivide(object left, object right)

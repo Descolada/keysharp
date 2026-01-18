@@ -102,16 +102,82 @@ namespace Keysharp.Scripting
 				return string.Empty;
 			else if (input is string s)
 				return s;
-			else if (input is char c)
-				return c.ToString();
 			else if (input is bool b)
 				return b ? "1" : "0";
+			else if (input is long l)
+				return l.ToString();
+			else if (input is double dd)
+				return dd.ToString().TrimEnd(zerochars);//Remove trailing zeroes for string compare.
+			else if (input is Any)
+			{
+				if (input is Map map)
+				{
+					var buffer = new StringBuilder();
+					_ = buffer.Append(BlockOpen);
+					var first = true;
+
+					foreach (var (k, v) in map)
+					{
+						if (first)
+							first = false;
+						else
+							_ = buffer.Append(DefaultMulticast);
+
+						_ = buffer.Append(StringBound);
+						_ = buffer.Append(ForceString(k));
+						_ = buffer.Append(StringBound);
+						_ = buffer.Append(AssignPre);
+
+						if (v == null)
+						{
+							_ = buffer.Append(NullTxt);
+							continue;
+						}
+
+						var obj = v is System.Array || v is Map || v is FuncObj;// Delegate;
+
+						if (!obj)
+							_ = buffer.Append(StringBound);
+
+						_ = buffer.Append(ForceString(v));
+
+						if (!obj)
+							_ = buffer.Append(StringBound);
+					}
+
+					_ = buffer.Append(BlockClose);
+					return buffer.ToString();
+				}
+				else if (input is Core.Array array)
+				{
+					var buffer = new StringBuilder();
+					_ = buffer.Append(ArrayOpen);
+					var first = true;
+
+					foreach (var item in array)
+					{
+						if (first)
+							first = false;
+						else
+							_ = buffer.Append(DefaultMulticast);
+
+						_ = buffer.Append(ForceString(item));
+					}
+
+					_ = buffer.Append(ArrayClose);
+					return buffer.ToString();
+				}
+				else if (input is FuncObj fo)
+					return fo.Name;
+				else
+					return input.ToString();
+			}
+			else if (input is char c)
+				return c.ToString();
 			else if (input is byte[] arr)
 				return Encoding.Unicode.GetString(arr);
 			else if (input is decimal m)
 				return m.ToString();
-			else if (input is FuncObj fo)
-				return fo.Name;
 			else if (IsNumeric(input))
 			{
 				var t = input.GetType();
@@ -150,66 +216,7 @@ namespace Keysharp.Scripting
 					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(string))
 						return (string)mi.Invoke(input, [input]);
 			}
-
-			if (input is Map map)
-			{
-				var buffer = new StringBuilder();
-				_ = buffer.Append(BlockOpen);
-				var first = true;
-
-				foreach (var (k, v) in map)
-				{
-					if (first)
-						first = false;
-					else
-						_ = buffer.Append(DefaultMulticast);
-
-					_ = buffer.Append(StringBound);
-					_ = buffer.Append(ForceString(k));
-					_ = buffer.Append(StringBound);
-					_ = buffer.Append(AssignPre);
-
-					if (v == null)
-					{
-						_ = buffer.Append(NullTxt);
-						continue;
-					}
-
-					var obj = v is System.Array || v is Map || v is FuncObj;// Delegate;
-
-					if (!obj)
-						_ = buffer.Append(StringBound);
-
-					_ = buffer.Append(ForceString(v));
-
-					if (!obj)
-						_ = buffer.Append(StringBound);
-				}
-
-				_ = buffer.Append(BlockClose);
-				return buffer.ToString();
-			}
-			else if (input is Core.Array array)
-			{
-				var buffer = new StringBuilder();
-				_ = buffer.Append(ArrayOpen);
-				var first = true;
-
-				foreach (var item in array)
-				{
-					if (first)
-						first = false;
-					else
-						_ = buffer.Append(DefaultMulticast);
-
-					_ = buffer.Append(ForceString(item));
-				}
-
-				_ = buffer.Append(ArrayClose);
-				return buffer.ToString();
-			}
-			else
-				return input.ToString();
+			return input.ToString();
 		}
 
 		internal static object ForceType(Type requested, object value)

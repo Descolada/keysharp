@@ -34,20 +34,6 @@
 	public static partial class RegEx
 	{
 		/// <summary>
-		/// <see cref="RegExMatch(object, object, ref object, object)"/>
-		/// </summary>
-		public static long RegExMatch(object haystack, object needle)
-		{
-			object outvar = new VarRef(null);
-			return RegExMatch(haystack, needle, outvar, null);
-		}
-
-		/// <summary>
-		/// <see cref="RegExMatch(object, object, ref object, object)"/>
-		/// </summary>
-		public static long RegExMatch(object haystack, object needle, object outvar) => RegExMatch(haystack, needle, outvar, null);
-
-		/// <summary>
 		/// Determines whether a string contains a pattern (regular expression).
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched.</param>
@@ -75,7 +61,7 @@
 		/// </param>
 		/// <returns>The <see cref="RegExMatchInfo"/> object which contains the matches, if any.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown on failure.</exception>
-		public static long RegExMatch(object haystack, object needle, [ByRef] object outputVar, object startingPos)
+		public static long RegExMatch(object haystack, object needle, [ByRef] object outputVar = null, object startingPos = null)
 		{
 			var input = haystack.As();
 			var n = needle.As();
@@ -130,9 +116,12 @@
 
 			try
 			{
-				var res = new RegExMatchInfo(exp.regex.Match(input, index, MatchCalloutHandler), exp);
-				var pos = res.Pos();
-				Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? res : "");
+				var match = exp.regex.Match(input, index, MatchCalloutHandler);
+				long pos = match.Success ? match.Index + 1 : 0;
+				if (outputVar != null)
+				{
+					Script.SetPropertyValue(outputVar, "__Value", pos > 0 ? new RegExMatchInfo(match, exp) : "");
+				}
 				return pos;
 			}
 			catch (Exception ex)

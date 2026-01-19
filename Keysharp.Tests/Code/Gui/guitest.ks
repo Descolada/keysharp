@@ -77,7 +77,7 @@ MySB := MyGui.Add("StatusBar", "h36", "                       ")
 ; │  Start TAB  │
 ; └─────────────┘
 
-Tab := MyGui.Add("Tab3", , ["First","Second","Third", "GroupBoxes", "ControlZoo", "Send && Hotkey", "Dll & COM", "Sound"])
+Tab := MyGui.Add("Tab3", , ["First","Second","Third", "GroupBoxes", "ControlZoo", "Send && Hotkey", "Dll && COM", "Sound"])
 
 Tab.UseTab("First")
 
@@ -1993,18 +1993,20 @@ FuncBtnSix.OnEvent("Click", "GrabFromIni")
 FuncBtnSeven := MyGui.Add("Button", "xc+160 yp w150", "Toggle Hotkey from .INI")
 FuncBtnSeven.OnEvent("Click", "ToggleFromIni")
 
-F3HotkeyText := MyGui.Add("Text", "xc+10 y+30 w250", "Select files in explorer, press F3 to see names")
-F3HotkeyText.SetFont("cBlue s12")
+#if WINDOWS
+	F3HotkeyText := MyGui.Add("Text", "xc+10 y+30 w250", "Select files in explorer, press F3 to see names")
+	F3HotkeyText.SetFont("cBlue s12")
+#endif
 
 ; ┌────────────────────┐
 ; │  Hotkey functions  │
 ; └────────────────────┘
 boundText := ""
 
-	RealFn(a, b, c:="c") {
-		global boundText
-		MsgBox(boundText . "`n" . a . ", " . b, "A bound function test")
-	}
+RealFn(a, b, c:="c") {
+	global boundText
+	MsgBox(boundText . "`n" . a . ", " . b, "A bound function test")
+}
 	
 DoTricks(*) {
 	global boundText
@@ -2054,22 +2056,22 @@ FuncObjTest(*) {
 	fn2()
 }
 
-	ToggleHotkey(*) {
-		Try 
-		{
-			Hotkey("RCtrl & RShift", "Toggle")
-		}
-		Catch
-		{
-			MsgBox("Set the AltTab hotkeyfirst!", "ERROR", "T2")
-		}
-
+ToggleHotkey(*) {
+	Try 
+	{
+		Hotkey("RCtrl & RShift", "Toggle")
+	}
+	Catch
+	{
+		MsgBox("Set the AltTab hotkeyfirst!", "ERROR", "T2")
 	}
 
-	GrabFromIni(*) {
-		HotkeyVal := IniRead("hotkeyini_1.ini", "HotkeyToRead", "Key")
-		Hotkey(HotkeyVal, "AltTab")
-	}
+}
+
+GrabFromIni(*) {
+	HotkeyVal := IniRead("hotkeyini_1.ini", "HotkeyToRead", "Key")
+	Hotkey(HotkeyVal, "AltTab")
+}
 
 ToggleFromIni(*) {
 	Try 
@@ -2714,7 +2716,7 @@ F1 up::
 ; └──────────────────┘
 
 MyGui.UseGroup()
-Tab.UseTab("Dll & COM")
+Tab.UseTab("Dll && COM")
 
 hideCursorDllLabel := MyGui.Add("Text", "w400 xc+10 y+10 cBlue S10","Press Win+C to hide the cursor, and press again to restore it.")
 

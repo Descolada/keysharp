@@ -616,7 +616,7 @@ SliderPos(*) {
 ThirdText6 := MyGui.Add("Text", "xc+10 cBlue s10", "Progress bar - click buttons to move")
 MyProgress := MyGui.Add("Progress", "xc+10 y+10 cRed BackgroundGreen Smooth", 50)
 MyProgress.GetPos(&px, &py, &pw, &ph)
-MyVertProgress := MyGui.Add("Progress", "cRed BackgroundGreen x+70 yp-" . (pw - ph) . " Vertical w" . ph . " h" . pw, 50) ; Swap width and height.
+MyVertProgress := MyGui.Add("Progress", "cRed BackgroundGreen Smooth x+70 yp-" . (pw - ph) . " Vertical w" . ph . " h" . pw, 50) ; Swap width and height.
 
 Pbtn1 := MyGui.Add("Button", "s8 xc+10 y+5", "Lower")
 Pbtn2 := MyGui.Add("Button", "s8 xc+100 yp", "Higher")

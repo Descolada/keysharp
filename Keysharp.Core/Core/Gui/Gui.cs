@@ -953,11 +953,6 @@
 						ddl.IntegralHeight = false;
 						ddl.MaxDropDownItems = (int)opts.rows;
 					}
-					else if (opts.height != int.MinValue)
-					{
-						ddl.IntegralHeight = false;
-						ddl.DropDownHeight = opts.height;
-					}
 
 					ctrl = ddl;
 					holder = isCombo ? new ComboBox(this, ctrl, typeo) : new DDL(this, ctrl, typeo);
@@ -1662,27 +1657,49 @@
 				finalWidth = holder.requestedSize.Width = (int)Math.Round(w);
 			}
 
-			if (opts.hp != int.MinValue)
+			int r = 0;
+			var rowsSpecified = opts.rows != float.MinValue;
+			var heightSpecified = opts.height != int.MinValue;
+			var hpSpecified = opts.hp != int.MinValue;
+
+			if (hpSpecified)
 			{
 				finalHeight = lastControl != null ? lcHeight + (int)(opts.hp * dpiscale) : 0;
 			}
 			else
 			{
-				if (opts.height != int.MinValue)
+				if (rowsSpecified)
+				{
+					r = (int)Math.Round(opts.rows);
+				}
+				else if (heightSpecified)
 				{
 					if (opts.height != -1)
-						finalHeight = holder.requestedSize.Height = (int)Math.Round(dpiscale * opts.height);
+					{
+						if (ctrl is KeysharpComboBox cmb && cmb.DropDownStyle != ComboBoxStyle.Simple)
+						{
+							var combinedHeight = (int)Math.Round(dpiscale * opts.height);
+							var baseHeight = cmb.PreferredSize.Height;
+							var minDropHeight = GetComboMinDropHeight(cmb);
+							var dropHeight = Math.Max(minDropHeight, combinedHeight - baseHeight);
+							cmb.IntegralHeight = false;
+							cmb.DropDownHeight = dropHeight;
+							finalHeight = baseHeight;
+						}
+						else
+						{
+							finalHeight = holder.requestedSize.Height = (int)Math.Round(dpiscale * opts.height);
+						}
+					}
 				}
 				else
 				{
-					var r = 0;
-
-					if (opts.rows != float.MinValue)
-						r = (int)Math.Round(opts.rows);
-					else if (ctrl is KeysharpComboBox || ctrl is KeysharpListBox)
+					if (ctrl is KeysharpComboBox || ctrl is KeysharpListBox)
 						r = 3;
 					else if (ctrl is KeysharpListView || ctrl is KeysharpTreeView || (ctrl is KeysharpProgressBar kpb2 && ((kpb2.AddStyle & 0x04) == 0x04)))
 						r = 5;
+					else if (ctrl is KeysharpProgressBar)
+						r = 2;
 					else if (ctrl is KeysharpGroupBox)
 						r = 2;
 					else if (ctrl is KeysharpTextBox tb)
@@ -1699,13 +1716,25 @@
 						r = 5;//AHK used 5.
 
 #endif
+				}
+
+				if (rowsSpecified || !heightSpecified)
+				{
 					var fontRows = (int)(Math.Round(fontpixels + 0.5) * r);//This is a rough attempt to make text boxes tall enough to show the requested number of lines without having the scrollbars appear unnecessarily.
-					finalHeight = fontRows;//AHK used external leading, but just use fontpixels here because it's close enough.
+					var defheight = fontRows;//AHK used external leading, but just use fontpixels here because it's close enough.
 
 					if (ctrl is KeysharpComboBox cmb)
 					{
-						cmb.MaxDropDownItems = r;
-						finalHeight = cmb.PreferredSize.Height;
+						if (rowsSpecified)
+						{
+							var rowCount = Math.Max(r, 1);
+							cmb.MaxDropDownItems = rowCount;
+							if (cmb.DropDownStyle != ComboBoxStyle.Simple)
+							{
+								cmb.IntegralHeight = false;
+								cmb.DropDownHeight = GetComboDropHeight(cmb, rowCount);
+							}
+						}
 					}
 					else if (ctrl is KeysharpListBox lb)
 					{
@@ -1722,15 +1751,15 @@
 					}
 					else if (ctrl is KeysharpGroupBox gb)
 					{
-						finalHeight += ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
+						finalHeight = defheight + ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
 					}
 					else if (ctrl is KeysharpListView lv)
 					{
-						finalHeight += lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
+						finalHeight = defheight + lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
 					}
 					else if (ctrl is KeysharpTabControl tc2)
 					{
-						finalHeight += (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
+						finalHeight = defheight + (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
 					}
 
 #if WINDOWS
@@ -1742,7 +1771,7 @@
 #endif
 					else
 					{
-						if (opts.rows == float.MinValue) //Neither r or h were specified.
+						if (!rowsSpecified) //Neither r or h were specified.
 						{
 							if (ctrl is KeysharpTrackBar trk && opts.thick == int.MinValue)//Separate check for TrackBar because the documentation specifies it in pixels. Skip this if thickness has been specified.
 							{
@@ -1854,16 +1883,16 @@
 					yoffset = lcTop;
 				else if ((opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Container || opts.xpos == GuiOptions.Positioning.Margin) && needsContainerMostForPositioning)//Xn or XM: Beneath all previous controls (maximum Y extent plus margin).
 				{
-					var (r, b) = rbContainerMost;//Get the bottom-most control in the current container.
-					var bLoc = b?.GetLocation() ?? Point.Empty;
-					var bSize = b?.GetSize() ?? Size.Empty;
+					var (right, bottom) = rbContainerMost;//Get the bottom-most control in the current container.
+					var bLoc = bottom?.GetLocation() ?? Point.Empty;
+					var bSize = bottom?.GetSize() ?? Size.Empty;
 					yoffset = bLoc.Y + bSize.Height + form.Margin.Top;
 				}
 				else if (opts.xpos == GuiOptions.Positioning.Section && needsSectionMostForPositioning)//XS: Beneath all previous controls since the most recent use of the Section option.
 				{
-					var (r, b) = sectionMost;//Get the bottom-most control in the current section.
-					var bLoc = b?.GetLocation() ?? Point.Empty;
-					var bSize = b?.GetSize() ?? Size.Empty;
+					var (right, bottom) = sectionMost;//Get the bottom-most control in the current section.
+					var bLoc = bottom?.GetLocation() ?? Point.Empty;
+					var bSize = bottom?.GetSize() ?? Size.Empty;
 					yoffset = bLoc.Y + bSize.Height + form.Margin.Top;
 				}
 			}
@@ -1875,16 +1904,16 @@
 					xoffset = lcLeft;
 				else if ((opts.ypos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Container || opts.ypos == GuiOptions.Positioning.Margin) && needsContainerMostForPositioning)//Yn or YM: To the right of all previous controls (maximum X extent plus margin).
 				{
-					var (r, b) = rbContainerMost;//Get the right-most control in the current container.
-					var rLoc = r?.GetLocation() ?? Point.Empty;
-					var rSize = r?.GetSize() ?? Size.Empty;
+					var (right, bottom) = rbContainerMost;//Get the right-most control in the current container.
+					var rLoc = right?.GetLocation() ?? Point.Empty;
+					var rSize = right?.GetSize() ?? Size.Empty;
 					xoffset = rLoc.X + rSize.Width + form.Margin.Left;
 				}
 				else if (opts.ypos == GuiOptions.Positioning.Section && needsSectionMostForPositioning)//YS: To the right of all previous controls since the most recent use of the Section option.
 				{
-					var (r, b) = sectionMost;//Get the right-most control in the current section.
-					var rLoc = r?.GetLocation() ?? Point.Empty;
-					var rSize = r?.GetSize() ?? Size.Empty;
+					var (right, bottom) = sectionMost;//Get the right-most control in the current section.
+					var rLoc = right?.GetLocation() ?? Point.Empty;
+					var rSize = right?.GetSize() ?? Size.Empty;
 					xoffset = rLoc.X + rSize.Width + form.Margin.Left;
 				}
 			}
@@ -1905,23 +1934,29 @@
 			}
 			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.X == int.MinValue && loc.Y == int.MinValue)
 			{
-				loc = new Point(lcLeft, lcTop + lcHeight + form.Margin.Bottom);
+				var deadspace = 0;
+				if (IsTextLike(ctrl) && IsTextLike(lastControl)
+					&& lastControl.GetLogicalParent() == ctrl.GetLogicalParent())
+				{
+					deadspace = (int)Math.Round(4 * dpiscale);
+				}
+				loc = new Point(lcLeft, lcTop + lcHeight + form.Margin.Bottom + deadspace);
 			}
 			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.X == int.MinValue && needsLastParentMostForPositioning)
 			{
 				//Will only have gotten here if y was specified in absolute coords using Yn with x omitted.
-				var (r, b) = lastControlParentMost;//Get the right-most control in the current container.
-				var rLoc = r?.GetLocation() ?? Point.Empty;
-				var rSize = r?.GetSize() ?? Size.Empty;
-				loc = new Point(rLoc.X + rSize.Width + r.Margin.Right, loc.Y);
+				var (right, bottom) = lastControlParentMost;//Get the right-most control in the current container.
+				var rLoc = right?.GetLocation() ?? Point.Empty;
+				var rSize = right?.GetSize() ?? Size.Empty;
+				loc = new Point(rLoc.X + rSize.Width + right.Margin.Right, loc.Y);
 			}
 			else if (lastControl != null && lastControl.Dock == DockStyle.None && loc.Y == int.MinValue && needsLastParentMostForPositioning)//Same but for loc.X.
 			{
 				//Will only have gotten here if x was specified in absolute coords using Xn with y omitted.
-				var (r, b) = lastControlParentMost;//Get the bottom-most control in the current container.
-				var bLoc = b?.GetLocation() ?? Point.Empty;
-				var bSize = b?.GetSize() ?? Size.Empty;
-				loc = new Point(loc.X, bLoc.Y + bSize.Height + b.Margin.Bottom);
+				var (right, bottom) = lastControlParentMost;//Get the bottom-most control in the current container.
+				var bLoc = bottom?.GetLocation() ?? Point.Empty;
+				var bSize = bottom?.GetSize() ?? Size.Empty;
+				loc = new Point(loc.X, bLoc.Y + bSize.Height + bottom.Margin.Bottom);
 			}
 			else//Final fallback when nothing else has worked.
 			{
@@ -2050,6 +2085,8 @@
 
 			if (opts.section)
 				Section = ctrl;
+			else if (Section == null)
+				Section = ctrl;
 
 #if !WINDOWS
 			if (form.Visible) 
@@ -2061,6 +2098,42 @@
 #endif
 
 			return holder;
+
+			int GetComboItemHeight(KeysharpComboBox combo)
+			{
+#if WINDOWS
+				return combo.ItemHeight > 0 ? combo.ItemHeight : (int)Math.Round(fontpixels + 0.5);
+#else
+				return (int)Math.Round(fontpixels + 0.5);
+#endif
+			}
+
+			int GetComboDropChromeHeight()
+			{
+#if WINDOWS
+				return SystemInformation.BorderSize.Height * 2;
+#else
+				return 2;
+#endif
+			}
+
+			int GetComboMinDropHeight(KeysharpComboBox combo)
+			{
+				var itemHeight = GetComboItemHeight(combo);
+				var chrome = GetComboDropChromeHeight();
+				return itemHeight + chrome;
+			}
+
+			int GetComboDropHeight(KeysharpComboBox combo, int rows)
+			{
+				rows = Math.Max(rows, 1);
+				var itemHeight = GetComboItemHeight(combo);
+				var chrome = GetComboDropChromeHeight();
+				var height = (itemHeight * rows) + chrome;
+				var minHeight = itemHeight + chrome;
+				return Math.Max(height, minHeight);
+			}
+			bool IsTextLike(Forms.Control control) => control is KeysharpLabel || control is KeysharpLinkLabel;
 		}
 
 		public object AddActiveX(object obj0 = null, object obj1 = null) => Add(Keyword_ActiveX, obj0, obj1);

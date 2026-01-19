@@ -329,7 +329,7 @@ namespace Keysharp.Core
 		private readonly int addExStyle, removeExStyle;
 
 		public ComboBoxStyle DropDownStyle { get; set; } = ComboBoxStyle.DropDown;
-		public new ObservableCollection<object> Items { get; } = new ObservableCollection<object>();
+		public new ObservableCollection<object> Items => DataStore as ObservableCollection<object>;
 		public object SelectedItem { get; set; }
 		public bool DroppedDown { get; set; }
 		public int MaxDropDownItems { get; set; }
@@ -344,7 +344,7 @@ namespace Keysharp.Core
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
 			ItemTextBinding = Binding.Delegate<object, string>(item => item?.ToString());
-			DataStore = Items;
+			DataStore = new ObservableCollection<object>();
 		}
 
 		public void ResetText()
@@ -630,7 +630,7 @@ namespace Keysharp.Core
 		private readonly int addExStyle, removeExStyle;
 
 		public SelectionMode SelectionMode { get; set; } = SelectionMode.One;
-		public ObservableCollection<object> Items { get; } = new ObservableCollection<object>();
+		public new ObservableCollection<object> Items => DataStore as ObservableCollection<object>;
 		public IList<int> SelectedIndices { get; } = new List<int>();
 		public IList<object> SelectedItems { get; } = new List<object>();
 		public int ItemHeight { get; set; } = 16;
@@ -666,7 +666,7 @@ namespace Keysharp.Core
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
 			ItemTextBinding = Binding.Delegate<object, string>(item => item?.ToString());
-			DataStore = Items;
+			DataStore = new ObservableCollection<object>();
 		}
 
 		public void SetSelected(int index, bool value)

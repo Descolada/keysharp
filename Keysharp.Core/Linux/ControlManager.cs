@@ -31,10 +31,15 @@ namespace Keysharp.Core.Linux
 			{
 				var res = 0L;
 				var ctrl2 = item.Control;
-				if (ctrl2 is ListControl cb)
+				if (ctrl2 is KeysharpComboBox cb)
 				{
 					res = cb.Items.Count;
 					cb.Items.Add(str);
+				}
+				else if (ctrl2 is KeysharpListBox lb)
+				{
+					res = lb.Items.Count;
+					lb.Items.Add(str);
 				}
 				else
 				{
@@ -272,12 +277,12 @@ namespace Keysharp.Core.Linux
 				var ctrl2 = item.Control;
 				n--;
 
-				if (ctrl2 is ComboBox cb)
+				if (ctrl2 is KeysharpComboBox cb)
 				{
 					cb.Items.RemoveAt(n);
 					cb.SelectedIndex = -1;//On linux, if the selected item is deleted, it will throw an exception the next time the dropdown is clicked if SelectedIndex is not set to -1.
 				}
-				else if (ctrl2 is ListBox lb)
+				else if (ctrl2 is KeysharpListBox lb)
 				{
 					lb.Items.RemoveAt(n);
 				}
@@ -404,9 +409,9 @@ namespace Keysharp.Core.Linux
 			{
 				var ctrl2 = item.Control;
 
-				if (ctrl2 is ComboBox cb)
+				if (ctrl2 is KeysharpComboBox cb)
 					return new Keysharp.Core.Array(cb.Items.Cast<object>().Select(item => (object)item.ToString()));
-				else if (ctrl2 is ListBox lb)
+				else if (ctrl2 is KeysharpListBox lb)
 					return new Keysharp.Core.Array(lb.Items.Cast<object>().Select(item => (object)item.ToString()));
 				else
 				{

@@ -221,28 +221,28 @@
 					{
 						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
 
-						if (Clipboard.GetData(DataFormats.Text) is string text)
+						if (Clipboard.TryGetData<string>(DataFormats.Text, out var text))
 							return text;
 
-						if (Clipboard.GetData(DataFormats.Html) is string html)
+						if (Clipboard.TryGetData<string>(DataFormats.Html, out var html))
 							return html;
 
-						if (Clipboard.GetData(DataFormats.Rtf) is string rtf)
+						if (Clipboard.TryGetData<string>(DataFormats.Rtf, out var rtf))
 							return rtf;
 
-						if (Clipboard.GetData(DataFormats.SymbolicLink) is string sym)
+						if (Clipboard.TryGetData<string>(DataFormats.SymbolicLink, out var sym))
 							return sym;
 						
-						if (Clipboard.GetData(DataFormats.UnicodeText) is string uni)
+						if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni))
 							return uni;
 
-						if (Clipboard.GetData(DataFormats.OemText) is string oem)
+						if (Clipboard.TryGetData<string>(DataFormats.OemText, out var oem))
 							return oem;
 
-						if (Clipboard.GetData(DataFormats.CommaSeparatedValue) is string csv)
+						if (Clipboard.TryGetData<string>(DataFormats.CommaSeparatedValue, out var csv))
 							return csv;
 
-						if (Clipboard.GetData(DataFormats.FileDrop) is string[] files)
+						if (Clipboard.TryGetData<string[]>(DataFormats.FileDrop, out var files))
 							return string.Join(DefaultNewLine, files);
 					}
 					return DefaultObject;

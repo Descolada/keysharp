@@ -119,10 +119,15 @@ namespace Keysharp.Core
 
 					if (val is string s)
 					{
-						if (s.Length > 0 && tc.FindTab(s, exact) is TabPage tp)
+						if (s.Length > 0)
 						{
-							g.CurrentTab = tp;
-							g.LastContainer = tp;
+							if (tc.FindTab(s, exact) is TabPage tp)
+							{
+								g.CurrentTab = tp;
+								g.LastContainer = tp;
+							}
+							else
+								return Errors.ErrorOccurred($"No tab matching the name \"{s}\" found");
 						}
 					}
 					else if (val != null)
@@ -136,6 +141,8 @@ namespace Keysharp.Core
 							g.CurrentTab = tp;
 							g.LastContainer = tp;
 						}
+						else
+							return Errors.ErrorOccurred($"Tab index {i+1} out of bounds [1..{tc.TabPages.Count}]");
 					}
 					else
 					{

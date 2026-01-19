@@ -256,14 +256,18 @@ namespace System.Windows.Forms
 		/// <returns>The matching tab if found, else null.</returns>
 		internal static TabPage FindTab(this TabControl tc, string text, bool exact)
 		{
+			text = text.Replace("&&", "&");
 			foreach (TabPage tp in tc.TabPages)
+			{
+				var tabName = tp.Text.Replace("&&", "&");
 				if (exact)
 				{
-					if (string.Compare(tp.Text, text, true) == 0)
+					if (string.Compare(tabName, text, true) == 0)
 						return tp;
 				}
-				else if (tp.Text.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+				else if (tabName.StartsWith(text, StringComparison.OrdinalIgnoreCase))
 					return tp;
+			}
 
 			return null;
 		}

@@ -77,7 +77,7 @@ MySB := MyGui.Add("StatusBar", "h36", "                       ")
 ; │  Start TAB  │
 ; └─────────────┘
 
-Tab := MyGui.Add("Tab3", , ["First","Second","Third", "GroupBoxes", "ControlZoo", "Send & Hotkey", "Dll & COM", "Sound"])
+Tab := MyGui.Add("Tab3", , ["First","Second","Third", "GroupBoxes", "ControlZoo", "Send && Hotkey", "Dll & COM", "Sound"])
 
 Tab.UseTab("First")
 
@@ -328,7 +328,7 @@ UpdateOSD()  ; Make the first update immediate rather than waiting for the timer
 ; │  Insert Image for searching  │
 ; └──────────────────────────────┘
 
-SrchPic := MyGui.Add("Picture", "xc+10 y+10 h-1", A_ScriptDir . A_DirSeparator . "killbill.png")
+SrchPic := MyGui.Add("Picture", "xc+10 y+10 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
 SrchPicText := MyGui.Add("Text", "xc+10 y+15 w200", "^ Use top menu to find me!")
 SrchPicText.SetFont("s10 cBlue")
 ; ┌────────────────────────┐
@@ -615,10 +615,9 @@ SliderPos(*) {
 ; └────────────────┘
 ThirdText6 := MyGui.Add("Text", "xc+10 cBlue s10", "Progress bar - click buttons to move")
 MyProgress := MyGui.Add("Progress", "xc+10 y+10 cRed BackgroundGreen Smooth", 50)
-#if WINDOWS
-	MyProgress.GetPos(&px, &py, &pw, &ph)
-	MyVertProgress := MyGui.Add("Progress", "cRed BackgroundGreen x+70 yp-" . (pw - ph) . " Vertical w" . ph . " h" . pw, 50) ; Swap width and height.
-#endif
+MyProgress.GetPos(&px, &py, &pw, &ph)
+MyVertProgress := MyGui.Add("Progress", "cRed BackgroundGreen x+70 yp-" . (pw - ph) . " Vertical w" . ph . " h" . pw, 50) ; Swap width and height.
+
 Pbtn1 := MyGui.Add("Button", "s8 xc+10 y+5", "Lower")
 Pbtn2 := MyGui.Add("Button", "s8 xc+100 yp", "Higher")
 ProgressStatusText := MyGui.Add("Text", "x+5 yp cBlue s10 Autosize", "Value: ")
@@ -738,16 +737,14 @@ MyGui.UseGroup(gb1)
 CpText := MyGui.Add("Text", , "gb1 - Image copying tests")
 CpText.SetFont("s8 cBlue")
 MyRE := MyGui.Add("RichEdit", "xc+10 y+10 w300 h100")
-MySecondPic := LoadPicture(A_ScriptDir . A_DirSeparator . "Robin.png")
+MySecondPic := LoadPicture(A_WorkingDir . A_DirSeparator . "Robin.png")
 CopyImageToClipboard("HBITMAP:" MySecondPic)
 ShowBtn := MyGui.Add("Button", "xc+10 y+10", "Paste Pic")
 ShowBtn.OnEvent("Click", "PastePic")
 
 PastePic(*) {
 	ControlFocus(MyRE)
-#if WINDOWS
 	Send("^v")
-#endif
 }
 
 ; ┌──────────────────────────────┐
@@ -768,9 +765,7 @@ CopyPicFromFile(*) {
 		CopyImageToClipboard(SelectedFile)
 		Sleep(100)
 		ControlFocus(MyRE2)
-#if WINDOWS
 		Send("^v")
-#endif
 	}
 }
 
@@ -895,10 +890,9 @@ MenuHandler(Item, *) {
 		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
 }
 
-#if WINDOWS
 #z::MyMenu.Show()  ; i.e. press the Win-Z hotkey to show the menu.
 ;#z::Run("Notepad.exe")
-#endif
+
 ; ┌──────────────────┐
 ; │  ControlZoo Tab  │
 ; └──────────────────┘
@@ -1274,12 +1268,9 @@ TestTypes(*)
 	MsgBox(s)
 }
 
-#if WINDOWS
 ^!9:: {
 	GetPix()
 }
-
-#endif
 
 Gui2 := Gui(,"Testing Child GUI")
 Gui2.Opt("+Owner")
@@ -1419,7 +1410,6 @@ ThirdGUI(*) {
 
 
 MoveTheMouse(*) {
-#if WINDOWS
 	mx :=
 	my := 0
 	CoordMode("Mouse", "Screen")
@@ -1436,7 +1426,6 @@ MoveTheMouse(*) {
 	ToolTip("I'm back!")
 	Sleep(2000)
 	ToolTip()
-#endif
 }
 
 #if WINDOWS
@@ -1725,9 +1714,8 @@ Click_CB_Hide_Dropdown(*)
 	ControlHideDropDown(gb2_CZ_CB, MyGui)
 }
 
-#if WINDOWS
 LoadSC(*) {
-	Tab.UseTab("Send & Hotkey")
+	Tab.UseTab("Send && Hotkey")
 	path := A_Desktop . A_DirSeparator . "MyScreenClip.png"
 	If (!FileExist(path)) {
 		ImageCapture(100, 100, 200, 200, path)
@@ -1735,10 +1723,12 @@ LoadSC(*) {
 	}
 	MyThirdPic := LoadPicture(path)
 
-MyLoadedPic := MyGui.Add("Picture", "xc+450 yc+700 w170 h170", "HBITMAP:" MyThirdPic)
-Sleep(2000)
+	MyLoadedPic := MyGui.Add("Picture", "xc+450 yc+700 w170 h170", "HBITMAP:" MyThirdPic)
+	Sleep(2000)
 
+#if WINDOWS
 	DllCall("DestroyWindow", "Ptr", MyLoadedPic.Hwnd)
+#endif
 	; Tab.UseTab()
 	FileDelete(path)
 	MyThirdPic := ""
@@ -1753,7 +1743,7 @@ Sleep(2000)
 
 
 MyGui.UseGroup()
-Tab.UseTab("Send & Hotkey")
+Tab.UseTab("Send && Hotkey")
 SectionTopText := MyGui.Add("Text", "xc+10 yc+20 w600", "This section is for testing the various Send() variants and the Hotkey method.")
 SectionTopText.SetFont("cBlue s12")
 MySendEdit := MyGui.Add("Edit", "xc+10 y+10 w700 h250", "The buttons below this Edit will use various Send() variants.`n")
@@ -1849,8 +1839,10 @@ You should see the Blind mode syntax after the ellipses ... '{Blind}'
 MsgBox(TheSendTextMsg, "SendText")
 
 TheSendText := "I want to send some {Blind}{Text} with SendText followed by a newline.`r`n"
-Run("Notepad.exe")
-WinWaitActive("ahk_exe Notepad.exe")
+#if WINDOWS
+	Run("Notepad.exe")
+	WinWaitActive("ahk_exe Notepad.exe")
+#endif
 ;Sleep(500)
 SendText(TheSendText)
 Sleep(500)
@@ -2089,6 +2081,8 @@ ToggleFromIni(*) {
 		MsgBox("Set the .INI hotkeyfirst!", "ERROR", "T2")
 	}
 }
+
+#if WINDOWS
 
 #HotIf WinActive('ahk_class CabinetWClass ahk_exe explorer.exe')
 F3::MsgBox getSelected()
@@ -2332,7 +2326,7 @@ GetLineCount(*)
 MyFirstPic := ""
 MySecondPic := ""
 MyThirdPic := ""
-Monkey := A_ScriptDir . A_DirSeparator . "monkey.ico"
+Monkey := A_WorkingDir . A_DirSeparator . "monkey.ico"
 
 #if WINDOWS
 hSecondPic := GetIcon("W")
@@ -2369,7 +2363,7 @@ GetIcon(Theme, W:=0, H:=0)
 }
 
 Icon2 := "HICON:*" . hSecondPic ; The * is important so it can be reused.
-Icon3 := "HBITMAP:*" svgToHBITMAP(A_ScriptDir . A_DirSeparator . "check-mark.svg", 100, 100)
+Icon3 := "HBITMAP:*" svgToHBITMAP(A_WorkingDir . A_DirSeparator . "check-mark.svg", 100, 100)
 #endif
 
 LoadPic(*) {
@@ -2519,22 +2513,14 @@ CB_ButtonClicked(*) {
 Pbtn1Clicked(*) {
 	;MsgBox(MyProgress.Value)
 	MyProgress.Value -= 10
-#if WINDOWS
 	MyVertProgress.Value -= 10
 	ProgressStatusText.Value := "Values: " . MyProgress.Value . " " . MyVertProgress.Value
-#else
-	ProgressStatusText.Value := "Value: " . MyProgress.Value
-#endif
 }
 
 Pbtn2Clicked(*) {
 	MyProgress.Value += 10
-#if WINDOWS
 	MyVertProgress.Value += 10
 	ProgressStatusText.Value := "Values: " . MyProgress.Value . " " . MyVertProgress.Value
-#else
-	ProgressStatusText.Value := "Values: " . MyProgress.Value
-#endif
 }
 
 MC_Colors(*) {

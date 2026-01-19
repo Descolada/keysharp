@@ -84,7 +84,12 @@ namespace System.Windows.Forms
 		internal static void SetSize(this Control control, Size newSize)
 		{
 #if WINDOWS
-			control.Size = newSize;
+			if (newSize.Width >= 0 && newSize.Height >= 0)
+				control.Size = newSize;
+			else if (newSize.Width >= 0)
+				control.Width = newSize.Width;
+			else if (newSize.Height >= 0)
+				control.Height = newSize.Height;
 #else
 			control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
 			var requestedSize = new Size(newSize.Width == int.MinValue ? -1 : newSize.Width, newSize.Height == int.MinValue ? -1 : newSize.Height);

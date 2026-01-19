@@ -1599,6 +1599,8 @@
 			var scaledPref = (double)ctrl.PreferredSize.Width;
 			int finalWidth = -1, finalHeight = -1;
 			var w = scaledPref;
+			var widthAuto = opts.width == -1 && opts.wp == int.MinValue;
+			var heightAuto = opts.height == -1 && opts.hp == int.MinValue;
 
 			int lcLeft = 0, lcTop = 0, lcBottom = 0, lcRight = 0, lcWidth = 0, lcHeight = 0;
 			if (lastControl != null)
@@ -1647,7 +1649,18 @@
 			else if (ctrl is KeysharpStatusStrip strip)
 				w = form.GetSize().Width;
 #endif
-			finalWidth = opts.width == int.MinValue && opts.wp == int.MinValue ? Math.Max((int)w, (int)Math.Round(scaledPref)) : (holder.requestedSize.Width = (int)Math.Round(w));
+			if (widthAuto)
+			{
+				finalWidth = -1;
+			}
+			else if (opts.width == int.MinValue && opts.wp == int.MinValue)
+			{
+				finalWidth = Math.Max((int)w, (int)Math.Round(scaledPref));
+			}
+			else
+			{
+				finalWidth = holder.requestedSize.Width = (int)Math.Round(w);
+			}
 
 			if (opts.hp != int.MinValue)
 			{
@@ -1687,7 +1700,7 @@
 
 #endif
 					var fontRows = (int)(Math.Round(fontpixels + 0.5) * r);//This is a rough attempt to make text boxes tall enough to show the requested number of lines without having the scrollbars appear unnecessarily.
-					var defheight = fontRows;//AHK used external leading, but just use fontpixels here because it's close enough.
+					finalHeight = fontRows;//AHK used external leading, but just use fontpixels here because it's close enough.
 
 					if (ctrl is KeysharpComboBox cmb)
 					{
@@ -1704,20 +1717,20 @@
 #if WINDOWS
 						finalHeight = tv.ItemHeight * r - tv.Margin.Bottom;//For some reason, TreeView doesn't appear to need to have DPI scaling applied, and also is a bit too large, so we subtract the margin.
 #else
-						finalHeight = defheight;
+						finalHeight = fontRows;
 #endif
 					}
 					else if (ctrl is KeysharpGroupBox gb)
 					{
-						finalHeight = defheight + ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
+						finalHeight += ((gb.Margin.Top + gb.Margin.Bottom) * (2 + ((int)(r + 1.5) - 2)));//This odd formula comes straight from the AHK source.
 					}
 					else if (ctrl is KeysharpListView lv)
 					{
-						finalHeight = defheight + lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
+						finalHeight += lv.Margin.Top + lv.Margin.Bottom;//ListView doesn't have an ItemHeight property, so attempt to compute it here.
 					}
 					else if (ctrl is KeysharpTabControl tc2)
 					{
-						finalHeight = defheight + (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
+						finalHeight += (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
 					}
 
 #if WINDOWS
@@ -1738,8 +1751,8 @@
 							}
 							else if (ctrl is KeysharpLabel lbl)
 							{
-								bool hasW = opts.width != int.MinValue || opts.wp != int.MinValue;
-								bool hasH = opts.height != int.MinValue || opts.hp != int.MinValue;
+								bool hasW = !widthAuto && (opts.width != int.MinValue || opts.wp != int.MinValue);
+								bool hasH = !heightAuto && (opts.height != int.MinValue || opts.hp != int.MinValue);
 
 								if (hasW && !hasH)
 								{
@@ -1779,6 +1792,13 @@
 
 		heightdone:
 			ctrl.SetSize(new Size(finalWidth, finalHeight));
+
+			if (finalWidth < 0 || finalHeight < 0)
+			{
+				var actualSize = ctrl.GetSize();
+				if (finalWidth < 0) finalWidth = actualSize.Width;
+				if (finalHeight < 0) finalHeight = actualSize.Height;
+			}
 			Point loc;
 
 			var xoffset = (double)lcLeft;

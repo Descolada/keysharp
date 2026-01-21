@@ -771,7 +771,7 @@ namespace Keysharp.Scripting
                 var defaultKeysharpEx = SyntaxFactory.MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
                     defaultExceptionIdentifier,
-                    SyntaxFactory.IdentifierName("KeysharpEx")
+                    SyntaxFactory.IdentifierName("UserError")
                 );
                 var keysharpErrorCatch = SyntaxFactory.CatchClause(
 					SyntaxFactory.Token(SyntaxKind.CatchKeyword),
@@ -892,7 +892,7 @@ namespace Keysharp.Scripting
             var keysharpExExpression = SyntaxFactory.MemberAccessExpression(
                 SyntaxKind.SimpleMemberAccessExpression,
                 exceptionIdentifierExpression,
-                SyntaxFactory.IdentifierName("KeysharpEx")
+                SyntaxFactory.IdentifierName("UserError")
             );
             var exceptionType = SyntaxFactory.ParseTypeName("Keysharp.Core.KeysharpException");
             var errorType = SyntaxFactory.ParseTypeName("Keysharp.Core.Error");

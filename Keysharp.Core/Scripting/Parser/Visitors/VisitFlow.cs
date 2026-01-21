@@ -766,38 +766,31 @@ namespace Keysharp.Scripting
             // Ensure a catch clause for `Keysharp.Core.Error` exists
             if (catchClauses.Count == 0)
             {
+                var defaultExceptionIdentifierName = InternalPrefix + "ex_" + parser.tryDepth.ToString() + "_0";
+                var defaultExceptionIdentifier = SyntaxFactory.IdentifierName(defaultExceptionIdentifierName);
+                var defaultKeysharpEx = SyntaxFactory.MemberAccessExpression(
+                    SyntaxKind.SimpleMemberAccessExpression,
+                    defaultExceptionIdentifier,
+                    SyntaxFactory.IdentifierName("KeysharpEx")
+                );
                 var keysharpErrorCatch = SyntaxFactory.CatchClause(
 					SyntaxFactory.Token(SyntaxKind.CatchKeyword),
 					SyntaxFactory.CatchDeclaration(
-                        SyntaxFactory.ParseTypeName("Keysharp.Core.Error"),
-                        SyntaxFactory.Identifier(InternalPrefix + "ex_" + parser.tryDepth.ToString() + "_0")
+                        SyntaxFactory.ParseTypeName("Keysharp.Core.KeysharpException"),
+                        SyntaxFactory.Identifier(defaultExceptionIdentifierName)
                     ),
-                    default,
+                    SyntaxFactory.CatchFilterClause(
+                        SyntaxFactory.IsPatternExpression(
+                            defaultKeysharpEx,
+                            PredefinedKeywords.IsToken,
+                            SyntaxFactory.TypePattern(SyntaxFactory.ParseTypeName("Keysharp.Core.Error"))
+                        )
+                    ),
                     SyntaxFactory.Block()
                 );
 
                 catchClauses.Add(keysharpErrorCatch);
             }
-
-            catchClauses.Sort(
-                (c1, c2) =>
-                  {
-                      var t1 = Type.GetType(c1.Declaration?.Type.ToString() ?? "", false, true);
-                      var t2 = Type.GetType(c2.Declaration?.Type.ToString() ?? "", false, true);
-
-                      if (t1 == t2)
-                          return 0;
-
-                      var d1 = Keysharp.Scripting.Parser.TypeDistance(t1, typeof(KeysharpException));
-                      var d2 = Keysharp.Scripting.Parser.TypeDistance(t2, typeof(KeysharpException));
-
-                      if (d1 == d2)
-                          return 0;
-                      else if (d1 < d2)
-                          return 1;
-                      else
-                          return -1;
-                  });
 
 			// Gather every TypeSyntax we need to PushTry
 			var handledTypeSyntaxes = new List<TypeSyntax>();
@@ -894,104 +887,131 @@ namespace Keysharp.Scripting
             var block = (BlockSyntax)(Visit(context.flowBlock()));
 
             var catchAssignable = context.catchAssignable();
-            if (catchAssignable != null)
+            var exceptionIdentifier = SyntaxFactory.Identifier(exceptionIdentifierName);
+            var exceptionIdentifierExpression = SyntaxFactory.IdentifierName(exceptionIdentifierName);
+            var keysharpExExpression = SyntaxFactory.MemberAccessExpression(
+                SyntaxKind.SimpleMemberAccessExpression,
+                exceptionIdentifierExpression,
+                SyntaxFactory.IdentifierName("KeysharpEx")
+            );
+            var exceptionType = SyntaxFactory.ParseTypeName("Keysharp.Core.KeysharpException");
+            var errorType = SyntaxFactory.ParseTypeName("Keysharp.Core.Error");
+
+            string catchVarName = null;
+            var bindCatchVar = false;
+            var assignToExistingVar = false;
+
+            // Handle optional `As` and `identifier`
+            if (catchAssignable?.identifier() != null)
             {
-                // Handle optional `As` and `identifier`
-                if (catchAssignable.identifier() != null)
+                catchVarName = parser.NormalizeFunctionIdentifier(catchAssignable.identifier().GetText());
+                if (parser.IsVarDeclaredLocally(catchVarName) != null)
+                    assignToExistingVar = true;
+                else
+                    bindCatchVar = true;
+            }
+
+            if (assignToExistingVar)
+            {
+                var assignmentStatement = SyntaxFactory.ExpressionStatement(
+                    SyntaxFactory.AssignmentExpression(
+                        SyntaxKind.SimpleAssignmentExpression,
+                        SyntaxFactory.IdentifierName(catchVarName),
+						PredefinedKeywords.EqualsToken,
+						keysharpExExpression
+                    )
+                );
+                block = SyntaxFactory.Block(
+                    block.Statements.Insert(0, assignmentStatement)
+                );
+            }
+
+            ExpressionSyntax errorIdentifierExpression = bindCatchVar
+                ? SyntaxFactory.IdentifierName(catchVarName)
+                : keysharpExExpression;
+
+            var typeConditions = new List<ExpressionSyntax>();
+            var catchAll = true;
+
+            if (catchAssignable?.catchClasses() != null)
+            {
+                foreach (var catchClass in catchAssignable.catchClasses().identifier())
                 {
-                    var catchVarName = parser.NormalizeFunctionIdentifier(catchAssignable.identifier().GetText());
-                    if (parser.IsVarDeclaredLocally(catchVarName) != null)
+                    var catchClassText = catchClass.GetText();
+                    if (catchClassText.Equals("As", StringComparison.OrdinalIgnoreCase))
+                        continue;
+					else if (catchClassText.Equals("Any", StringComparison.OrdinalIgnoreCase))
                     {
-                        var assignmentStatement = SyntaxFactory.ExpressionStatement(
-                            SyntaxFactory.AssignmentExpression(
-                                SyntaxKind.SimpleAssignmentExpression,
-                                SyntaxFactory.IdentifierName(catchVarName),
-								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.IdentifierName(exceptionIdentifierName)
-                            )
-                        );
-                        block = SyntaxFactory.Block(
-                            block.Statements.Insert(0, assignmentStatement)
-                        );
-                    } else
-                        exceptionIdentifierName = catchVarName;
-                }
-                
-                SyntaxToken exceptionIdentifier = SyntaxFactory.Identifier(exceptionIdentifierName);
-
-                TypeSyntax exceptionType = SyntaxFactory.ParseTypeName("Keysharp.Core.Error");
-                var typeConditions = new List<ExpressionSyntax>();
-
-                if (catchAssignable.catchClasses() != null)
-                {
-                    string catchClassText = null;
-                    foreach (var catchClass in catchAssignable.catchClasses().identifier())
-                    {
-                        catchClassText = catchClass.GetText();
-                        if (catchClassText.Equals("As", StringComparison.OrdinalIgnoreCase))
-                            continue;
-					    else if (catchClassText.Equals("Any", StringComparison.OrdinalIgnoreCase))
-                            catchClassText = "Error";
-                        if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(catchClassText, out var t))
-                            catchClassText = t.FullName;
-                        else
-                            catchClassText = "Keysharp.Core." + catchClassText;
-
-                        // Create condition: `ex is IndexError`
-                        typeConditions.Add(
-                            SyntaxFactory.IsPatternExpression(
-								SyntaxFactory.IdentifierName(exceptionIdentifierName),
-								PredefinedKeywords.IsToken,
-								SyntaxFactory.TypePattern(SyntaxFactory.ParseTypeName(catchClassText))
-                            )
-                        );
+                        catchAll = true;
+                        typeConditions.Clear();
+                        break;
                     }
-                    if (typeConditions.Count == 1)
-                        exceptionType = SyntaxFactory.ParseTypeName(catchClassText);
-                } 
-                
-                if (typeConditions.Count == 0)
-                {
+
+                    catchAll = false;
+
+                    if (parser.UserTypes.ContainsKey(catchClassText))
+                        catchClassText = parser.NormalizeClassIdentifier(catchClassText);
+                    else if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(catchClassText, out var t))
+                        catchClassText = t.FullName;
+                    else
+                        catchClassText = "Keysharp.Core." + catchClassText;
+
+                    // Create condition: `err is IndexError`
                     typeConditions.Add(
                         SyntaxFactory.IsPatternExpression(
-                            SyntaxFactory.IdentifierName(exceptionIdentifierName),
+							errorIdentifierExpression,
 							PredefinedKeywords.IsToken,
-							SyntaxFactory.TypePattern(SyntaxFactory.ParseTypeName("Keysharp.Core.Error"))
+							SyntaxFactory.TypePattern(SyntaxFactory.ParseTypeName(catchClassText))
                         )
                     );
                 }
-
-                ExpressionSyntax conditionExpression = typeConditions[0];
-
-                for (int i = 1; i < typeConditions.Count; i++)
-                {
-                    conditionExpression = SyntaxFactory.BinaryExpression(
-                        SyntaxKind.LogicalOrExpression,
-                        conditionExpression,
-                        typeConditions[i]
-                    );
-                }
-
-                CatchFilterClauseSyntax whenClause = typeConditions.Count > 1
-                    ? SyntaxFactory.CatchFilterClause(conditionExpression)
-                    : null;
-
-                return SyntaxFactory.CatchClause(
-                    SyntaxFactory.Token(SyntaxKind.CatchKeyword),
-					SyntaxFactory.CatchDeclaration(exceptionType, exceptionIdentifier),
-                    whenClause,
-                    block
-				);
             }
 
-            // Catch-all clause
+            if (catchAll || typeConditions.Count == 0)
+            {
+                typeConditions.Clear();
+                typeConditions.Add(
+                    SyntaxFactory.IsPatternExpression(
+                        errorIdentifierExpression,
+						PredefinedKeywords.IsToken,
+						SyntaxFactory.TypePattern(errorType)
+                    )
+                );
+            }
+
+            ExpressionSyntax conditionExpression = typeConditions[0];
+
+            for (int i = 1; i < typeConditions.Count; i++)
+            {
+                conditionExpression = SyntaxFactory.BinaryExpression(
+                    SyntaxKind.LogicalOrExpression,
+                    conditionExpression,
+                    typeConditions[i]
+                );
+            }
+
+            if (bindCatchVar)
+            {
+                var bindingCondition = SyntaxFactory.IsPatternExpression(
+                    keysharpExExpression,
+                    PredefinedKeywords.IsToken,
+                    SyntaxFactory.VarPattern(
+                        SyntaxFactory.SingleVariableDesignation(SyntaxFactory.Identifier(catchVarName))
+                    )
+                );
+                conditionExpression = SyntaxFactory.BinaryExpression(
+                    SyntaxKind.LogicalAndExpression,
+                    bindingCondition,
+                    conditionExpression
+                );
+            }
+
+            var whenClause = SyntaxFactory.CatchFilterClause(conditionExpression);
+
             return SyntaxFactory.CatchClause(
-				SyntaxFactory.Token(SyntaxKind.CatchKeyword),
-				SyntaxFactory.CatchDeclaration(
-					SyntaxFactory.ParseTypeName("Keysharp.Core.Error"),
-					SyntaxFactory.Identifier(exceptionIdentifierName)
-				),
-                default,
+                SyntaxFactory.Token(SyntaxKind.CatchKeyword),
+				SyntaxFactory.CatchDeclaration(exceptionType, exceptionIdentifier),
+                whenClause,
                 block
 			);
         }

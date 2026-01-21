@@ -77,6 +77,12 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 ## Differences: ##
 
 ###	Behaviors/Functionality: ###
+* Linux support is currently partial.
+	+ Only X11 is supported at the moment, Wayland is not. This may change in the future when Wayland exposes more functionality to automate the desktop.
+	+ Control commands only work on windows created by the running Keysharp process. This is because "controls" don't exist in Linux the same way they do in Windows.
+		+ As an alternative it's recommended to use [AtSpi.ks](https://github.com/Descolada/keysharp/blob/master/Keysharp/Scripts/AtSpi.ks): running it directly displays AtSpiViewer which can be used to inspect windows, and it also contains methods to manipulate windows and controls similarly to Acc/UIA in Windows.
+	+ GUI support is mostly implemented, but some controls are missing or incomplete.
+	+ Registry functions are not supported.
 * Keysharp follows the .NET memory model.
 	+ There is no variable caching with strings vs numbers. All variables are C# objects.
 	+ Values not stored in variables are like regular variables, only eligible to be freed once they go out of scope.
@@ -105,10 +111,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	SetTimer(Func(Func1)) ; Pass a direct reference to the function as an argument to Func().
 	SetTimer(Func("Func1")) ; Pass the name of the function as an argument to Func().
 ```
-* Exception classes aren't, and can't be, derived from `KeysharpObject`.
-	+ That is because for the exception mechanics to work in C#, all exception objects must be derived from the base `System.Exception` class, and multiple inheritance is not allowed.
-	+ User-defined exception classes must derive from `Error`.
-	+ `Error is Error` evaluates to false, because currently `Error()` is implemented as a function, which is a `FuncObj`. `UserDefinedError is Error` evaluates to true.
+* Error stack traces start from where the error was thrown, not where it was constructed. 
 * `StrPtr()` works slightly differently because C# strings are constant.
 	+ `StrPtr(variable)` returns a custom `StringBuffer` object which is entangled with the original string. When this object is used with DllCall, NumPut etc, then the `StringBuffer` is used as the pointer, and the entangled string is updated after the function call. 
 	+ `StrPtr("literal")` with a literal string will pin the string from garbage collection and return the actual address of the string. This string must not be modified, and should be freed after use with `ObjFree()`.

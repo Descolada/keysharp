@@ -2196,7 +2196,7 @@ namespace Keysharp.Core.Common.Keyboard
 				_ = Interlocked.Increment(ref variant.existingThreads);
 				script.Threads.LaunchInThread(variant.priority, false, false, vf, [Name], false);
 			}
-			catch (Error ex)
+			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
 			}

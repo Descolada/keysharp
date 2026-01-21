@@ -67,7 +67,7 @@ namespace Keysharp.Core.COM
 				newEnum = Keysharp.Scripting.Script.Invoke(com, "_NewEnum");
 				enumerator = (IEnumerator)newEnum;
 			}
-			catch (Keysharp.Core.Error ex)
+			catch (KeysharpException ex)
 			{
 				_ = Errors.ErrorOccurred($"Could not retrieve the _NewEnum() method on a COM object while trying to create an enumerator: {ex}");
 			}

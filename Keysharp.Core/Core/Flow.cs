@@ -623,8 +623,8 @@ namespace Keysharp.Core
 		[StackTraceHidden]
 		public static object Throw(object errorObject = null)
 		{
-			if (errorObject is Exception ex)
-				ExceptionDispatchInfo.Capture(ex).Throw();
+			if (errorObject is Error ex)
+				ExceptionDispatchInfo.Capture(ex.Exception).Throw();
 			else if (errorObject == null)
 			{
 				throw new Error();
@@ -782,12 +782,12 @@ namespace Keysharp.Core
 				action();
 				return true;
 			}
-			catch (Error kserr)
+			catch (KeysharpException kserr)
 			{
 				//Processed would still be false of the user did a throw statement in the Script.TheScript.
 				//But if we're throwing from inside of Keysharp, Processed should always be true.
 				if (!kserr.Processed)
-					_ = ErrorOccurred(kserr, kserr.ExcType);
+					_ = ErrorOccurred(kserr.UserError, kserr.ExcType);
 
 				if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
 				{
@@ -812,10 +812,10 @@ namespace Keysharp.Core
 
 					return true;
 				}
-				else if (ex is Error kserr)
+				else if (ex is KeysharpException kserr)
 				{
 					if (!kserr.Processed)
-						_ = ErrorOccurred(kserr, kserr.ExcType);
+						_ = ErrorOccurred(kserr.UserError, kserr.ExcType);
 
 					if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
 					{

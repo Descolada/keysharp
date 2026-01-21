@@ -9,13 +9,6 @@ namespace Keysharp.Core
     public static class Errors
 	{
 		/// <summary>
-		/// Creates and returns a new <see cref="Error"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="Error"/> object.</returns>
-		public static Error Error(params object[] args) => new (args);
-
-		/// <summary>
 		/// Calls all registered error handlers, passing in the exception object to each.
 		/// If any callback returns a non-empty result, then no further callbacks are called.
 		/// If any callback returns -1 and err.ExcType == "Return", then the thread continues because
@@ -31,42 +24,42 @@ namespace Keysharp.Core
 			if (script.SuppressErrorOccurred != 0)
 				return false;
 
-			if (!err.Processed && !Loops.IsExceptionCaught(err.GetType()))
+			if (!err.Exception.Processed && !Loops.IsExceptionCaught(err.GetType()))
 			{
-				err.ExcType = excType;
+				err.Exception.ExcType = excType;
 
 				if (script.onErrorHandlers != null)
 				{
 					foreach (var handler in script.onErrorHandlers)
 					{
-						var result = handler.Call(err, err.ExcType);
+						var result = handler.Call(err, err.Exception.ExcType);
 						var lresult = Script.ForceLong(result);
 
 						if (lresult != 0L)
 						{
-							err.Handled = true;
+							err.Exception.Handled = true;
 
 							//Calling code will not throw if this is true.
-							if (lresult == -1L && err.ExcType == Keyword_Return)
+							if (lresult == -1L && err.Exception.ExcType == Keyword_Return)
 								exitThread = false;
 
 							break;
 						}
 					}
 
-					err.Processed = true;
+					err.Exception.Processed = true;
 				}
 
-				if (!err.Handled)
+				if (!err.Exception.Handled)
 				{
-					err.Handled = true;
-					err.Processed = true;
+					err.Exception.Handled = true;
+					err.Exception.Processed = true;
 					if (!script.SuppressErrorOccurredDialog)
 						return ErrorDialog.Show(err) != ErrorDialog.ErrorDialogResult.Continue;
 				}
 			}
 
-			if (err.ExcType == Keyword_ExitApp)
+			if (err.Exception.ExcType == Keyword_ExitApp)
 				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
 
 			return exitThread;
@@ -90,41 +83,6 @@ namespace Keysharp.Core
 				disposed = true;
 			}
 		}
-
-		/// <summary>
-		/// Creates and returns a new <see cref="IndexError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="IndexError"/> object.</returns>
-		public static IndexError IndexError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="KeyError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="KeyError"/> object.</returns>
-		public static KeyError KeyError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="MemberError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="MemberError"/> object.</returns>
-		public static MemberError MemberError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="MemoryError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="MemoryError"/> object.</returns>
-		public static MemoryError MemoryError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="MethodError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="MethodError"/> object.</returns>
-		public static MethodError MethodError(params object[] args) => new (args);
 
 		/// <summary>
 		/// Registers a function to be called automatically whenever an unhandled error occurs.<br/>
@@ -151,69 +109,6 @@ namespace Keysharp.Core
 			script.onErrorHandlers.ModifyEventHandlers(del, i);
 			return DefaultObject;
 		}
-
-		/// <summary>
-		/// Creates and returns a new <see cref="OSError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="OSError"/> object.</returns>
-		public static OSError OSError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="PropertyError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="PropertyError"/> object.</returns>
-		public static PropertyError PropertyError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="TargetError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="TargetError"/> object.</returns>
-		public static TargetError TargetError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="TimeoutError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="TimeoutError"/> object.</returns>
-		public static TimeoutError TimeoutError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="TypeError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="TypeError"/> object.</returns>
-		public static TypeError TypeError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="UnsetError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="UnsetError"/> object.</returns>
-		public static UnsetError UnsetError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="UnsetItemError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="UnsetItemError"/> object.</returns>
-		public static UnsetItemError UnsetItemError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="ValueError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="ValueError"/> object.</returns>
-		public static ValueError ValueError(params object[] args) => new (args);
-
-		/// <summary>
-		/// Creates and returns a new <see cref="ZeroDivisionError"/> exception object.
-		/// </summary>
-		/// <param name="args">The the parameters to pass to the constructor.</param>
-		/// <returns>An <see cref="ZeroDivisionError"/> object.</returns>
-		public static ZeroDivisionError ZeroDivisionError(params object[] args) => new (args);
 
 		/// <summary>
 		/// Internal helper to handle argument value errors. Throws a <see cref="ValueError"/> or returns <see cref="DefaultErrorObject"/>.
@@ -402,8 +297,9 @@ namespace Keysharp.Core
 	/// <summary>
 	/// A general exception object.
 	/// </summary>
-	public class Error : KeysharpException
+	public class Error : KeysharpObject
 	{
+		internal KeysharpException Exception;
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Error"/> class.
 		/// </summary>
@@ -411,7 +307,86 @@ namespace Keysharp.Core
 		public Error(params object[] args)
 			: base(args)
 		{
+			var (msg, what, extra) = args.L().S3();
+			Exception = new KeysharpException(this);
+			Exception.message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
+			Exception.What = what;
+			Exception.Extra = extra;
 		}
+
+		/// <summary>
+		/// Gets or sets the exception exit type.
+		/// This is used to determine whether the script should exit or not after an exception is thrown.
+		/// Must be ExcType and not Type, else the reflection dictionary sees it as a dupe from the base.
+		/// </summary>
+		public string ExcType { get => Exception.ExcType; internal set => Exception.ExcType = value; }
+
+		/// <summary>
+		/// Gets or sets the extra text.
+		/// </summary>
+		public string Extra { get => Exception.Extra; internal set => Exception.Extra = value; }
+
+		/// <summary>
+		/// Gets or sets the file the exception occurred in.
+		/// </summary>
+		public string File
+		{
+			get => Exception.File;
+			internal set => Exception.File = value;
+		}
+
+		/// <summary>
+		/// Whether this exception has been handled yet.
+		/// If true, further error messages will not be shown.
+		/// This should only ever be used internally or by the generated script code.
+		/// </summary>
+		public bool Handled { get => Exception.Handled; set => Exception.Handled = value; }
+
+		/// <summary>
+		/// Gets or sets the line the exception occured on.
+		/// </summary>
+		public long Line
+		{
+			get => Exception.Line.Al();
+			internal set => Exception.Line = value;
+		}
+
+		/// <summary>
+		/// Gets or sets the message.
+		/// Must be done this way, else the reflection dictionary sees it as a dupe from the base.
+		/// </summary>
+		public string Message => Exception.Message;
+
+		/// <summary>
+		/// Whether the global error event handlers have been called as a result
+		/// of this exception yet.
+		/// If true, they won't be called again for this error.
+		/// Note, this is separate from Handled above.
+		/// This should only ever be used internally or by the generated script code.
+		/// </summary>
+		public bool Processed { get => Exception.Processed; set => Exception.Processed = value; }
+
+		/// <summary>
+		/// Gets or sets the stack trace of where the exception occurred.
+		/// </summary>
+		public string Stack
+		{
+			get => Exception.Stack;
+			internal set => Exception.Stack = value;
+		}
+
+		/// <summary>
+		/// Gets or sets the description of the error that happened.
+		/// </summary>
+		public string What { get => Exception.What; set => Exception.What = value; }
+
+		public override string ToString()
+		{
+			return Exception.ToString();
+		}
+
+		[PublicHiddenFromUser]
+		public static implicit operator KeysharpException(Error err) => err.Exception;
 	}
 
     /// <summary>
@@ -449,10 +424,11 @@ namespace Keysharp.Core
 	/// </summary>
 	public class KeysharpException : Exception
 	{
+		public Error UserError;
 		/// <summary>
 		/// The message.
 		/// </summary>
-		protected string message = "";
+		internal string message = "";
 
 		/// <summary>
 		/// Whether the stack trace, file, and line information have been constructed.
@@ -460,16 +436,18 @@ namespace Keysharp.Core
 		private bool _isInitialized = false;
 
 		/// <summary>
-		/// Lazily initialized fields.
+		/// Stack info captured at construction; remaining fields are initialized on demand.
 		/// </summary>
 		private string _stack = null;
 		private string _file;
 		private long _line = long.MinValue;
+		private StackFrame[] _capturedFrames;
 
 		/// <summary>
 		/// Stack frames for mostly user-accessible functions (excludes C# built-in methods, some of our helpers etc).
 		/// </summary>
 		private IEnumerable<StackFrame> _stackFrames;
+		private string _errorTypeName;
 
 		/// <summary>
 		/// Gets or sets the exception exit type.
@@ -507,7 +485,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Gets or sets the line the exception occured on.
 		/// </summary>
-		public long Line
+		public object Line
 		{
 			get
 			{
@@ -515,7 +493,7 @@ namespace Keysharp.Core
 				return _line;
 			}
 
-			internal set => _line = value;
+			internal set => _line = value.Al();
 		}
 
 		/// <summary>
@@ -531,7 +509,7 @@ namespace Keysharp.Core
 		/// Note, this is separate from Handled above.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
-		public bool Processed { get; set; }
+		public bool Processed { get; set;}
 
 		/// <summary>
 		/// Gets or sets the stack trace of where the exception occurred.
@@ -541,7 +519,7 @@ namespace Keysharp.Core
 			get
 			{
 				EnsureInitialized();
-				return _stack ??= FormatStack(_stackFrames);
+				return _stack ??= FormatStack(_stackFrames ?? System.Array.Empty<StackFrame>());
 			}
 
 			internal set => _stack = value;
@@ -551,6 +529,18 @@ namespace Keysharp.Core
 		/// Gets or sets the description of the error that happened.
 		/// </summary>
 		public string What { get; set; }
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
+		/// </summary>
+		/// <param name="msg">A message describing the error that occurred.</param>
+		/// <param name="what">A message describing what happened.</param>
+		/// <param name="extra">Extra text describing in detail what happened.</param>
+		internal KeysharpException(Error owner)
+		{
+			UserError = owner;
+			_errorTypeName = owner.GetType().Name;
+		}
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
@@ -601,6 +591,9 @@ namespace Keysharp.Core
 				var type = method?.DeclaringType;
 
 				if (type == null || type.IsSubclassOf(typeof(Exception)) || type == typeof(Errors))
+					continue;
+
+				if (method is ConstructorInfo && typeof(Error).IsAssignableFrom(type))
 					continue;
 
 				string fullName = type.FullName ?? "";
@@ -655,7 +648,8 @@ namespace Keysharp.Core
 		{
 			EnsureInitialized();
 			var sb = new StringBuilder(512);
-			_ = sb.AppendLine($"Exception: {GetType().Name}");
+			var typeName = _errorTypeName ?? GetType().Name;
+			_ = sb.AppendLine($"Exception: {typeName}");
 			_ = sb.AppendLine($"Message: {message}");
 			_ = sb.AppendLine($"What: {What}");
 			_ = sb.AppendLine($"Extra/Code: {Extra}");
@@ -664,6 +658,8 @@ namespace Keysharp.Core
 			_ = sb.AppendLine($"Stack:{Environment.NewLine}\t{Stack}");
 			return sb.ToString();
 		}
+
+		public static implicit operator Error(KeysharpException err) => err.UserError;
 	}
 
 	/// <summary>
@@ -737,7 +733,7 @@ namespace Keysharp.Core
 				if (e.HResult < 0)
 				{
 					Number = e.HResult;
-					message = $"(0x{e.HResult.ToString("X2")}): {e.Message}";
+					Exception.message = $"(0x{e.HResult.ToString("X2")}): {e.Message}";
 					return;
 				}
 
@@ -745,7 +741,7 @@ namespace Keysharp.Core
 			}
 
 			Number = w32ex != null ? w32ex.ErrorCode : Marshal.GetLastPInvokeError();
-			message = new Win32Exception((int)Number).Message;
+			Exception.message = new Win32Exception((int)Number).Message;
 #else
 			Number = (long)A_LastError;
 #endif
@@ -755,7 +751,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// An exception class for parsing errors.
 	/// </summary>
-	internal class ParseException : Error
+	internal class ParseException : KeysharpException
 	{
 		public int Column = 0;
 		/// <summary>

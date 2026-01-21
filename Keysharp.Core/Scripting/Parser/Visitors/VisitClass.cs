@@ -423,47 +423,7 @@ namespace Keysharp.Scripting
             // Check if static __Init method already exists
             if (!parser.currentClass.ContainsMethod("__Init", true, true))
             {
-                List<ExpressionStatementSyntax> staticBody = new()
-                {
-                    // SetPropertyValue(Variables.Prototypes[typeof(ClassName)], "__Class", "UserDeclaredClassname");
-                    SyntaxFactory.ExpressionStatement(
-                        ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
-                        .WithArgumentList(
-                            CreateArgumentList(
-                                SyntaxFactory.ElementAccessExpression(
-                                    SyntaxFactory.MemberAccessExpression(
-                                        SyntaxKind.SimpleMemberAccessExpression,
-                                        VarsNameSyntax,
-                                        SyntaxFactory.IdentifierName("Prototypes")
-                                    ),
-                                    SyntaxFactory.BracketedArgumentList(
-                                        SyntaxFactory.SingletonSeparatedList(
-                                            SyntaxFactory.Argument(
-                                                SyntaxFactory.TypeOfExpression(
-                                                    SyntaxFactory.IdentifierName(className)
-                                                )
-                                            )
-                                        )
-                                    )
-                                ),
-                                SyntaxFactory.LiteralExpression(
-                                    SyntaxKind.StringLiteralExpression,
-                                    SyntaxFactory.Literal("__Class")
-                                ),
-                                SyntaxFactory.LiteralExpression(
-                                    SyntaxKind.StringLiteralExpression,
-                                    SyntaxFactory.Literal(
-                                        parser.ClassStack.Count == 1 ? parser.currentClass.UserDeclaredName :
-                                        string.Join(".",
-                                            parser.ClassStack.Reverse().Skip(1)
-                                            .Select(cls => cls.UserDeclaredName)
-                                        ) + "." + parser.currentClass.UserDeclaredName
-                                    )
-                                )
-							)
-                        )
-                    )
-                };
+                List<ExpressionStatementSyntax> staticBody = new();
                 // Static __Init method
                 var staticInitMethod = SyntaxFactory.MethodDeclaration(
                     SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.VoidKeyword)),

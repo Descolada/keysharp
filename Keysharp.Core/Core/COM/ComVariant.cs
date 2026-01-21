@@ -1197,7 +1197,7 @@ namespace Keysharp.Core.COM
 							// Clone so that the VARIANT owns its *own* SAFEARRAY (avoids double-destroy).
 							int hr = OleAuto.SafeArrayCopy(coa._psa, out nint psaCopy);
 							if (hr < 0)
-								throw Errors.OSError("SafeArrayCopy failed.", hr);
+								throw new OSError("SafeArrayCopy failed.", hr);
 
 							psaToStore = psaCopy;
 						}
@@ -1219,7 +1219,7 @@ namespace Keysharp.Core.COM
 						}
 						else
 						{
-							throw Errors.Error($"Cannot write VT_ARRAY payload from {value?.GetType().Name}.");
+							throw new Error($"Cannot write VT_ARRAY payload from {value?.GetType().Name}.");
 						}
 
 						Marshal.WriteIntPtr(dataPtr, psaToStore);
@@ -1227,7 +1227,7 @@ namespace Keysharp.Core.COM
 					}
 				// ── Unsupported ────────────────────────────────────────────────
 				default:
-					throw Errors.Error($"Writing VARTYPE {vt} is not supported.");
+					throw new Error($"Writing VARTYPE {vt} is not supported.");
 			}
 		}
 

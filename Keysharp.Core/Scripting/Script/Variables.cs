@@ -101,7 +101,7 @@ namespace Keysharp.Scripting
 
 			//FuncObj was initialized when Object wasn't, so define the bases
 			Prototypes[typeof(FuncObj)].SetBaseInternal(Prototypes[typeof(KeysharpObject)]);
-			Statics[typeof(FuncObj)].SetBaseInternal(Statics[typeof(Class)]);
+			Statics[typeof(FuncObj)].SetBaseInternal(Statics[typeof(KeysharpObject)]);
 
 			// Do not initialize the core types again
 			var typesToRemoveSet = new HashSet<Type>(new[] { typeof(Any), typeof(FuncObj), typeof(KeysharpObject), typeof(Class) });

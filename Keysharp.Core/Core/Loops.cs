@@ -497,7 +497,7 @@ namespace Keysharp.Core
 
 #endif
 			else if (obj is null)
-				_ = Errors.UnsetError("object");
+				_ = Errors.UnsetErrorOccurred("object");
 			else
 				_ = Errors.TypeErrorOccurred(obj.GetType(), typeof(KeysharpEnumerator));
 

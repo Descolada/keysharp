@@ -322,7 +322,7 @@ namespace Keysharp.Scripting
 					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.Flow.UserRequestedExitException")))
 					.WithBlock(SyntaxFactory.Block());
 
-			// ---- catch (Keysharp.Core.Error kserr) { ... } ----
+			// ---- catch (Keysharp.Core.KeysharpException kserr) { ... } ----
 			var kserrId = SyntaxFactory.Identifier("kserr");
 
 			// if (!kserr.Processed) Keysharp.Core.Errors.ErrorOccurred(kserr);
@@ -352,7 +352,7 @@ namespace Keysharp.Scripting
 
 			var catchKserr =
 				SyntaxFactory.CatchClause()
-					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.Error"), kserrId))
+					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.KeysharpException"), kserrId))
 					.WithBlock(SyntaxFactory.Block(ifNotProcessed, ifShowKeysharpMsg, exitApp1));
 
 			// ---- catch (System.Exception mainex) { ... } ----
@@ -377,11 +377,11 @@ namespace Keysharp.Scripting
 					)
 			);
 
-			// if (ex is Keysharp.Core.Error kserr) { ... } else if (!MainScript.SuppressErrorOccurredDialog) { MsgBox(...); }
+			// if (ex is Keysharp.Core.KeysharpException kserr) { ... } else if (!MainScript.SuppressErrorOccurredDialog) { MsgBox(...); }
 			var isKsErrorPattern = SyntaxFactory.IsPatternExpression(
 				SyntaxFactory.IdentifierName("ex"),
 				SyntaxFactory.DeclarationPattern(
-					Q("Keysharp.Core.Error"),
+					Q("Keysharp.Core.KeysharpException"),
 					SyntaxFactory.SingleVariableDesignation(kserrId)
 				)
 			);
@@ -1136,8 +1136,8 @@ namespace Keysharp.Scripting
             if (context.singleExpression() == null)
                 return SyntaxFactory.ThrowStatement(
 					SyntaxFactory.Token(SyntaxKind.ThrowKeyword),
-					SyntaxFactory.InvocationExpression(
-                        SyntaxFactory.IdentifierName("Error")
+                    SyntaxFactory.ObjectCreationExpression(
+                        CreateQualifiedName("Keysharp.Core.Error")
                     ),
                     PredefinedKeywords.SemicolonToken
                 );
@@ -1149,9 +1149,10 @@ namespace Keysharp.Scripting
                 // Wrap the literal in Keysharp.Core.Error
                 return SyntaxFactory.ThrowStatement(
                     SyntaxFactory.Token(SyntaxKind.ThrowKeyword),
-                    SyntaxFactory.InvocationExpression(
-                        SyntaxFactory.IdentifierName("Error"),
-						CreateArgumentList(expression)
+                    SyntaxFactory.ObjectCreationExpression(
+						CreateQualifiedName("Keysharp.Core.Error"),
+						CreateArgumentList(expression),
+                        null
                     ),
                     PredefinedKeywords.SemicolonToken
                 );
@@ -1162,7 +1163,7 @@ namespace Keysharp.Scripting
             // Otherwise, return a normal throw statement
             return SyntaxFactory.ThrowStatement(
 				SyntaxFactory.Token(SyntaxKind.ThrowKeyword), 
-                SyntaxFactory.CastExpression(SyntaxFactory.ParseTypeName("KeysharpException"), expression),
+                SyntaxFactory.CastExpression(SyntaxFactory.ParseTypeName("Error"), expression),
                 PredefinedKeywords.SemicolonToken
             );
         }

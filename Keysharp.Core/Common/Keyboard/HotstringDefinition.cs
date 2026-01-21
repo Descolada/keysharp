@@ -449,7 +449,7 @@
 				_ = Interlocked.Increment(ref existingThreads);//This is the thread count for this particular hotstring only.
 				script.Threads.LaunchInThread(priority, false, false, vf, [Name], false);
 			}
-			catch (Error ex)
+			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, "iconx");
 			}

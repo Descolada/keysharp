@@ -357,7 +357,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			throw new MissingMemberException($"Member '{name}' not found");
 		}
 
-		public Type UnderlyingSystemType => typeof(KeysharpObject);
+		Type IReflect.UnderlyingSystemType => typeof(KeysharpObject);
 		#endregion
 	}
 

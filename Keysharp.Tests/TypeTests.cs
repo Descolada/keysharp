@@ -11,8 +11,8 @@ namespace Keysharp.Tests
 		public void TestTypes()
 		{
 			Assert.IsTrue(typeof(Keysharp.Core.KeysharpException).IsAssignableTo(typeof(System.Exception)));
-			Assert.IsTrue(typeof(Keysharp.Core.Error).IsAssignableTo(typeof(Keysharp.Core.KeysharpException)));
-			Assert.IsTrue(typeof(Keysharp.Core.ParseException).IsAssignableTo(typeof(Keysharp.Core.Error)));
+			Assert.IsTrue(typeof(Keysharp.Core.ParseException).IsAssignableTo(typeof(Keysharp.Core.KeysharpException)));
+			Assert.IsTrue(typeof(Keysharp.Core.Error).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.Any)));
 			Assert.IsTrue(typeof(Keysharp.Core.IndexError).IsAssignableTo(typeof(Keysharp.Core.Error)));
 			Assert.IsTrue(typeof(Keysharp.Core.KeyError).IsAssignableTo(typeof(Keysharp.Core.Error)));
 			Assert.IsTrue(typeof(Keysharp.Core.MemberError).IsAssignableTo(typeof(Keysharp.Core.UnsetError)));

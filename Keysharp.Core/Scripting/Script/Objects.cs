@@ -24,7 +24,7 @@ namespace Keysharp.Scripting
 
 			store.Statics.AddLazy(t, () =>
 			{
-				// triggers the Prototypes’ factory (if not yet run),
+				// triggers the Prototypesâ€™ factory (if not yet run),
 				// which in turn set store.Statics[t] to the real staticInst.
 				var dummy = store.Prototypes[t];
 
@@ -212,6 +212,16 @@ namespace Keysharp.Scripting
 							ifo.Call((object)staticInst);
 					}
 					var nestedTypes = t.GetNestedTypes(BindingFlags.Public);
+
+					// Construct full class name
+					var className = t.GetCustomAttribute<UserDeclaredNameAttribute>()?.Name ?? t.Name; 
+					if (t.DeclaringType != null && t.DeclaringType != script.ProgramType)
+					{
+						script.Vars.Prototypes[t.DeclaringType].op.TryGetValue("__Class", out var declClassNameDesc);
+						className = $"{declClassNameDesc?.Value}.{className}";
+					}
+					proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, className));
+
 					foreach (var nestedType in nestedTypes)
 					{
 						RuntimeHelpers.RunClassConstructor(nestedType.TypeHandle);

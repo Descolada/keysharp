@@ -379,10 +379,6 @@ try ; this is a comment
 } catch ZeroDivisionError as errex { ; another comment
 	b := true
 }
-catch(KeysharpException) ; last comment
-{
-	b := false
-}
 catch(OSError) {
 	b := false
 } catch(IndexError) {

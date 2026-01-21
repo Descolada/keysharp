@@ -418,8 +418,8 @@ namespace Keysharp.Scripting
 
 		public override void VisitDeclarationExpression(DeclarationExpressionSyntax node)
 		{
-			// e.g. “var (”
-			Visit(node.Type);           // prints “var”
+			// e.g. "var ("
+			Visit(node.Type);           // prints "var"
 
 			// the designation can be a parenthesized tuple:
 			if (node.Designation is ParenthesizedVariableDesignationSyntax pvd)
@@ -442,6 +442,12 @@ namespace Keysharp.Scripting
 				// fallback
 				_sb.Append(node.Designation.ToString());
 			}
+		}
+
+		public override void VisitVarPattern(VarPatternSyntax node)
+		{
+			_sb.Append("var ");
+			AppendVariableDesignation(node.Designation);
 		}
 
 		public override void VisitLocalDeclarationStatement(LocalDeclarationStatementSyntax node)
@@ -1241,6 +1247,27 @@ namespace Keysharp.Scripting
 				Visit(t);
 			}
 			_sb.Append(">");
+		}
+
+		private void AppendVariableDesignation(VariableDesignationSyntax designation)
+		{
+			if (designation is ParenthesizedVariableDesignationSyntax pvd)
+			{
+				_sb.Append("(");
+				_sb.Append(string.Join(", ",
+					pvd.Variables.OfType<SingleVariableDesignationSyntax>()
+						.Select(v => v.Identifier.Text)));
+				_sb.Append(")");
+				return;
+			}
+
+			if (designation is SingleVariableDesignationSyntax svd)
+			{
+				_sb.Append(svd.Identifier.Text);
+				return;
+			}
+
+			_sb.Append(designation.ToString());
 		}
 
 		private bool EndsWithBlock(StatementSyntax stmt)

@@ -185,11 +185,11 @@
 		public override string ToString() => $"{Handle.ToInt64()}";
 
 		internal static void DoControlDelay()
-		{ }// => DoDelay(ThreadAccessors.A_ControlDelay);//These cause out of order execution bugs with threads and are not needed anyway.
+			=> DoDelay(ThreadAccessors.A_ControlDelay);//These cause out of order execution bugs with threads and are not needed anyway.
 
 		//public override string ToString() => IsSpecified ? Title : "not specified window";
 		internal static void DoWinDelay()
-		{ }// => DoDelay(ThreadAccessors.A_WinDelay);
+			 => DoDelay(ThreadAccessors.A_WinDelay);
 
 		internal abstract void ChildFindPoint(PointAndHwnd pah);
 

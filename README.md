@@ -145,8 +145,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * Menu items, whether shown or not, have no impact on threading.
 * `AddStandard()` detects menu items by string, instead of ID, because WinForms doesn't expose the ID.
 * `ControlMove()` and `ControlSetPos()` operate relative to their immediate parent, which may not be the main window if they are contained in a nested control.
-+ Delays are not inserted after every window and control related call. Due to the design of Keysharp, this is not needed and causes out of order message processing bugs.
-	+ `SetWinDelay()`, `A_WinDelay`, `SetControlDelay` and `A_ControlDelay` exist but have no effect.
 * Function objects are much slower than direct function calls due to the need to use reflection. So for repeated function calls, such as those involving math, it's best to use the functions directly.
 * The `File` object is internally named `KeysharpFile` so that it doesn't conflict with `System.IO.File`.
 * In `SetTimer()`, the priority is not in the range -2147483648 and 2147483647, instead it is only 0-4.
@@ -562,8 +560,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * The `/script` option for compiled scripts does not apply and is therefore not implemented.
 * The Help and Window Spy menu items are not implemented yet.
 * `Download()` only supports the `*0` option, and not any other numerical values.
-* Properties other than `__Item[]` cannot take parameters. If you need to pass a parameter, use a method instead.
-	+ This also applies to properties which have been dynamically defined with `DefineProp()`.
 * When passing `"Interrupt"` as the first argument to `Thread()`, the third argument for `LineCount` is not supported because Keysharp does not support line level awareness.
 * Tooltips do not automatically disappear when clicking on them.
 

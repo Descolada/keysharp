@@ -469,7 +469,7 @@ namespace Keysharp.Core
 						return args[i + 1];
 			}
 
-			return DefaultObject;
+			return null;
 		}
 
 #if WINDOWS

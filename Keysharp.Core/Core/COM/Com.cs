@@ -105,7 +105,29 @@ namespace Keysharp.Core.COM
 			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
 		}
 
-		public static object ComObjGet(object name) => Marshal.BindToMoniker(name.As());
+		public static object ComObjGet(object name)
+		{
+			var com = Marshal.BindToMoniker(name.As());
+			if (com is IDispatch id)
+			{
+				var ptr = Marshal.GetIDispatchForObject(id);
+				return new ComObject()
+				{
+					vt = VarEnum.VT_DISPATCH,
+					Ptr = ptr
+				};
+			} 
+			else if (Marshal.IsComObject(com)) 
+			{
+				var ptr = Marshal.GetIUnknownForObject(com);
+				return new ComValue()
+				{
+					vt = VarEnum.VT_UNKNOWN,
+					Ptr = ptr
+				};
+			}
+			return Errors.ErrorOccurred("Unknown COM object type");
+		}
 
 		public static object ComObjQuery(object comObj, object sidiid = null, object iid = null)
 		{

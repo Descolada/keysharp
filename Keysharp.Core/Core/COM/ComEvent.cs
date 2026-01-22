@@ -24,6 +24,9 @@ namespace Keysharp.Core.COM
 			{
 				prefix = s;
 
+				if (script.ReflectionsData.stringToTypeLocalMethods.Count == 0)
+					Reflections.FindAndCacheMethod(script.ProgramType, "", -1);
+
 				foreach (var kv in script.ReflectionsData.stringToTypeLocalMethods)
 				{
 					if (string.Compare(kv.Key, "Main", true) != 0 &&

@@ -658,7 +658,7 @@ namespace Keysharp.Core
 					string opts = null;
 
 					if (obj.Length > 0)
-						opts = obj[0].ToString();
+						opts = obj[0].As();
 
 					var lvo = opts is string options ? ListViewHelper.ParseListViewOptions(options) : new ListViewHelper.ListViewOptions();
 					var strs = obj.Length > 1 ? obj.Cast<object>().Skip(1).Select(x => x.Str()).ToList() : [];

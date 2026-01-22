@@ -589,6 +589,11 @@ namespace Keysharp.Core
 			nint pArgErr = Marshal.AllocHGlobal(sizeof(uint));
 			nint pNamed = 0;
 
+			if (pResult != 0)
+				VariantHelper.VariantInit(pResult);
+			Marshal.StructureToPtr(new EXCEPINFO(), pExcepInfo, false);
+			Marshal.WriteInt32(pArgErr, 0);
+
 			int argCount = args?.Length ?? 0;
 			var allocatedByRef = argCount > 0 ? new bool[argCount] : [];   // we allocated temp BYREF storage?
 			var suppressWriteback = argCount > 0 ? new bool[argCount] : []; // skip writeback for ComValue BYREFs

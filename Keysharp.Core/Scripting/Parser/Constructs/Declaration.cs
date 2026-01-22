@@ -10,6 +10,7 @@ namespace Keysharp.Scripting
 		{
 			public int Indent = 0;
 			public string Name = null;
+			public string FullName = null;
 			public string UserDeclaredName = null;
 			public string Base = "KeysharpObject";
 			public List<BaseTypeSyntax> BaseList = new();
@@ -113,7 +114,12 @@ namespace Keysharp.Scripting
 		{
 			ClassStack.Push(currentClass);
 			classDepth++;
-			currentClass = new Class(className, baseName);
+			var newClass = new Class(className, baseName);
+			if (currentClass != null && currentClass != mainClass && !string.IsNullOrWhiteSpace(currentClass.FullName))
+				newClass.FullName = currentClass.FullName + "." + newClass.Name;
+			else
+				newClass.FullName = newClass.Name;
+			currentClass = newClass;
 		}
 
 		public void PopClass()

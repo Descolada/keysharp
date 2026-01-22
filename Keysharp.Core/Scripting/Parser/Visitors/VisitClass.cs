@@ -36,14 +36,18 @@ namespace Keysharp.Scripting
             if (context.Extends() != null)
             {
                 var extendsParts = context.classExtensionName().identifier();
-                var baseClassName = parser.NormalizeClassIdentifier(extendsParts[0].GetText());
-                UserTypeNameToKeysharp(ref baseClassName);
-
+				var baseClassName = parser.NormalizeIdentifier(extendsParts[0].GetText(), eNameCase.Title);
 				for (int i = 1; i < extendsParts.Length; i++)
                 {
-                    baseClassName += "." + parser.NormalizeClassIdentifier(extendsParts[i].GetText());
+                    baseClassName += "." + parser.NormalizeIdentifier(extendsParts[i].GetText(), eNameCase.Title);
                 }
-                if (extendsParts.Length == 1 && Script.TheScript.ReflectionsData.stringToTypes.ContainsKey(baseClassName))
+				if (extendsParts.Length == 1)
+					UserTypeNameToKeysharp(ref baseClassName);
+
+				var resolvedBase = parser.ResolveUserTypeName(baseClassName);
+				if (resolvedBase != null)
+					baseClassName = parser.GetUserTypeCSharpName(resolvedBase);
+                else if (extendsParts.Length == 1 && Script.TheScript.ReflectionsData.stringToTypes.ContainsKey(baseClassName))
                 {
                     baseClassName = Script.TheScript.ReflectionsData.stringToTypes.First(pair => pair.Key.Equals(baseClassName, StringComparison.InvariantCultureIgnoreCase)).Key;
                 }

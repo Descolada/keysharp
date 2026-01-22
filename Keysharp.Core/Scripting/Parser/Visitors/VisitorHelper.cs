@@ -107,21 +107,34 @@ namespace Keysharp.Scripting
 
         internal void PopTempVar() => tempVarCount--;
 
-        private static List<ClassDeclarationContext> _classDeclarations = new();
-        internal static List<ClassDeclarationContext> GetClassDeclarationsRecursive(ProgramContext program)
+		internal readonly struct ClassDeclarationInfo
+		{
+			public readonly ClassDeclarationContext Declaration;
+			public readonly string FullName;
+
+			public ClassDeclarationInfo(ClassDeclarationContext declaration, string fullName)
+			{
+				Declaration = declaration;
+				FullName = fullName;
+			}
+		}
+
+		internal List<ClassDeclarationInfo> GetClassDeclarationsRecursive(ProgramContext program)
         {
-			var result = new List<ClassDeclarationContext>();
+			var result = new List<ClassDeclarationInfo>();
 
 			foreach (var se in program.sourceElements()?.sourceElement() ?? [])
 			{
 				var topClass = se.classDeclaration();
 				if (topClass != null)
-					GatherClassDeclarations(topClass);
+					GatherClassDeclarations(topClass, null);
 			}
 
-			void GatherClassDeclarations(ClassDeclarationContext cls)
+			void GatherClassDeclarations(ClassDeclarationContext cls, string parentFullName)
 			{
-				result.Add(cls);
+				var namePart = NormalizeIdentifier(cls.identifier().GetText(), eNameCase.Title);
+				var fullName = string.IsNullOrEmpty(parentFullName) ? namePart : parentFullName + "." + namePart;
+				result.Add(new ClassDeclarationInfo(cls, fullName));
 
 				var tail = cls.classTail();
 				if (tail == null) return;
@@ -129,7 +142,7 @@ namespace Keysharp.Scripting
 				foreach (var elem in tail.classElement())
 				{
 					if (elem is NestedClassDeclarationContext nested && nested != null)
-						GatherClassDeclarations(nested.classDeclaration());
+						GatherClassDeclarations(nested.classDeclaration(), fullName);
 				}
 			}
 
@@ -893,16 +906,22 @@ namespace Keysharp.Scripting
                 && currentClass != null
                 && script.ReflectionsData.stringToTypeProperties.ContainsKey(name))
             {
-                var baseName = currentClass.Base;
-                while (UserTypes.ContainsKey(baseName))
-                {
-                    if (baseName == UserTypes[baseName])
-                        break;
-                    baseName = UserTypes[baseName];
-                }
+				var currentClassName = currentClass?.FullName;
+				if (currentClassName != null && UserTypes.TryGetValue(currentClassName, out var baseName))
+				{
+					while (UserTypes.TryGetValue(baseName, out var nextBase))
+					{
+						if (string.Equals(baseName, nextBase, StringComparison.OrdinalIgnoreCase))
+							break;
+						baseName = nextBase;
+					}
 
-                if (script.ReflectionsData.stringToTypeProperties[name].Keys.Any(item => item.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase)))
-                    return script.ReflectionsData.stringToTypeProperties.FirstOrDefault(item => item.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Key;
+					var simpleBaseName = GetSimpleTypeName(baseName);
+					if (script.ReflectionsData.stringToTypeProperties[name].Keys
+						.Any(item => item.Name.Equals(simpleBaseName, StringComparison.OrdinalIgnoreCase)))
+						return script.ReflectionsData.stringToTypeProperties
+							.FirstOrDefault(item => item.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Key;
+				}
             }
             return match.Key;
         }
@@ -1260,21 +1279,23 @@ namespace Keysharp.Scripting
             }
 
             // 2. Handle UserTypes
-            if (targetExpression is IdentifierNameSyntax identifierName &&
-                UserTypes.ContainsKey(identifierName.Identifier.Text))
+            if (targetExpression is IdentifierNameSyntax identifierName)
             {
-                // Convert to Invoke(targetExpression, "Call", arguments)
-				return ((InvocationExpressionSyntax)InternalMethods.Invoke)
-                    .WithArgumentList(
-					CreateArgumentList(
-						targetExpression,
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                            SyntaxFactory.Literal("Call")
-                        ),
-						argumentList.Arguments // Include additional arguments
-                    )
-                );
+				if (ResolveUserTypeName(identifierName.Identifier.Text, UserTypeLookupMode.TopLevelOnly) != null)
+				{
+					// Convert to Invoke(targetExpression, "Call", arguments)
+					return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+						.WithArgumentList(
+						CreateArgumentList(
+							targetExpression,
+							SyntaxFactory.LiteralExpression(
+								SyntaxKind.StringLiteralExpression,
+								SyntaxFactory.Literal("Call")
+							),
+							argumentList.Arguments // Include additional arguments
+						)
+					);
+				}
             }
 
             // 3. Handle GetPropertyValue invocation
@@ -1387,6 +1408,84 @@ namespace Keysharp.Scripting
             return NormalizeIdentifier(name, nameCase);
         }
 
+		internal enum UserTypeLookupMode
+		{
+			Scoped,
+			GlobalOnly,
+			TopLevelOnly
+		}
+
+		internal string NormalizeQualifiedClassName(string name, eNameCase nameCase = eNameCase.Title)
+		{
+			if (string.IsNullOrWhiteSpace(name))
+				return name;
+
+			var parts = name.Split('.', StringSplitOptions.RemoveEmptyEntries);
+			for (int i = 0; i < parts.Length; i++)
+			{
+				var part = parts[i].TrimStart('@');
+				parts[i] = NormalizeIdentifier(part, nameCase);
+			}
+
+			return string.Join(".", parts);
+		}
+
+		internal string ResolveUserTypeName(
+			string name,
+			UserTypeLookupMode mode = UserTypeLookupMode.Scoped,
+			string currentClassFullName = null)
+		{
+			if (string.IsNullOrWhiteSpace(name))
+				return null;
+
+			var normalized = NormalizeQualifiedClassName(name);
+			if (mode == UserTypeLookupMode.TopLevelOnly)
+			{
+				if (string.IsNullOrEmpty(normalized) || normalized.Contains('.'))
+					return null;
+				return UserTypes.ContainsKey(normalized) ? normalized : null;
+			}
+
+			if (mode == UserTypeLookupMode.Scoped)
+			{
+				var contextName = currentClassFullName ?? currentClass?.FullName;
+				if (!string.IsNullOrWhiteSpace(contextName))
+				{
+					var parts = contextName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+					for (int i = parts.Length; i > 0; i--)
+					{
+						var prefix = string.Join(".", parts, 0, i);
+						var candidate = prefix + "." + normalized;
+						if (UserTypes.ContainsKey(candidate))
+							return candidate;
+					}
+				}
+			}
+
+			return UserTypes.ContainsKey(normalized) ? normalized : null;
+		}
+
+		internal string GetUserTypeCSharpName(string userTypeFullName)
+		{
+			if (string.IsNullOrWhiteSpace(userTypeFullName))
+				return userTypeFullName;
+
+			var normalized = NormalizeQualifiedClassName(userTypeFullName);
+			return string.IsNullOrWhiteSpace(normalized)
+				? userTypeFullName
+				: Keywords.MainClassName + "." + normalized;
+		}
+
+		internal static string GetSimpleTypeName(string typeName)
+		{
+			if (string.IsNullOrWhiteSpace(typeName))
+				return typeName;
+
+			var lastDot = typeName.LastIndexOf('.');
+			var name = lastDot >= 0 ? typeName[(lastDot + 1)..] : typeName;
+			return name.TrimStart('@');
+		}
+
         // A static variable is named "UPPERCASEFUNCTIONNAME_lowercasevariablename"
         internal string CreateStaticIdentifier(string name)
         {
@@ -1434,8 +1533,8 @@ namespace Keysharp.Scripting
             if (IsVarDeclaredGlobally(normalizedName, true) is string globalName && globalName != null)
                 return globalName;
 
-            if (UserTypes.ContainsKey(normalizedName))
-                return normalizedName;
+			if (ResolveUserTypeName(normalizedName, UserTypeLookupMode.TopLevelOnly) != null)
+				return normalizedName;
 
             var builtin = IsBuiltInProperty(name, false, true);
             if (builtin != null) return builtin;
@@ -1494,14 +1593,18 @@ namespace Keysharp.Scripting
         {
             if (Script.TheScript.ReflectionsData.stringToTypeProperties.TryGetValue(name, out var dttp))
             {
-                string className = currentClass.Name;
-                while (AllTypes.TryGetValue(className, out string classBase))
-                {
-                    className = classBase;
-                    if (dttp.Any(t => t.Key.Name == className))
-                        return Script.TheScript.ReflectionsData.stringToTypeProperties.Keys
-                            .FirstOrDefault(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase));
-                }
+				var className = currentClass?.FullName;
+				if (string.IsNullOrWhiteSpace(className))
+					return null;
+
+				while (AllTypes.TryGetValue(className, out string classBase))
+				{
+					className = classBase;
+					var simpleName = GetSimpleTypeName(className);
+					if (dttp.Any(t => t.Key.Name.Equals(simpleName, StringComparison.OrdinalIgnoreCase)))
+						return Script.TheScript.ReflectionsData.stringToTypeProperties.Keys
+							.FirstOrDefault(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase));
+				}
             }
             return null;
         }

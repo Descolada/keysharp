@@ -127,18 +127,32 @@ namespace Keysharp.Scripting
                 .AddModifiers(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken);
 
             // Map out all user class types and also any built-in types they derive from
-            var allClassDeclarations = GetClassDeclarationsRecursive(context);
-            foreach (var classDeclaration in allClassDeclarations)
-            {
-                var className = classDeclaration.identifier().GetText();
-                var classBase = classDeclaration.classExtensionName()?.GetText() ?? "KeysharpObject";
-                parser.UserTypes[className] = classBase;
-                parser.AllTypes[className] = classBase;
-                while (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(classBase, out Type baseType))
-                {
-                    classBase = parser.AllTypes[baseType.Name] = baseType.BaseType.Name;
-                }
-            }
+			var allClassDeclarations = parser.GetClassDeclarationsRecursive(context);
+			foreach (var classInfo in allClassDeclarations)
+			{
+				parser.UserTypes[classInfo.FullName] = classInfo.FullName;
+				parser.AllTypes[classInfo.FullName] = classInfo.FullName;
+			}
+
+			foreach (var classInfo in allClassDeclarations)
+			{
+				var baseText = classInfo.Declaration.classExtensionName()?.GetText();
+				var classBase = baseText == null ? "KeysharpObject" : parser.NormalizeQualifiedClassName(baseText);
+				if (!classBase.Contains('.'))
+					UserTypeNameToKeysharp(ref classBase);
+
+				var resolvedBase = parser.ResolveUserTypeName(classBase, Parser.UserTypeLookupMode.Scoped, classInfo.FullName);
+				var baseKey = resolvedBase ?? classBase;
+
+				parser.UserTypes[classInfo.FullName] = baseKey;
+				parser.AllTypes[classInfo.FullName] = baseKey;
+
+				var builtInBase = baseKey;
+				while (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(builtInBase, out Type baseType))
+				{
+					builtInBase = parser.AllTypes[baseType.Name] = baseType.BaseType.Name;
+				}
+			}
 
             // Create global FuncObj variables for all functions here, because otherwise during parsing
             // we might not know how to case the name.

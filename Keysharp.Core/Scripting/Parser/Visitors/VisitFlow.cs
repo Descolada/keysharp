@@ -949,12 +949,19 @@ namespace Keysharp.Scripting
 
                     catchAll = false;
 
-                    if (parser.UserTypes.ContainsKey(catchClassText))
-                        catchClassText = parser.NormalizeClassIdentifier(catchClassText);
-                    else if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(catchClassText, out var t))
-                        catchClassText = t.FullName;
-                    else
-                        catchClassText = "Keysharp.Core." + catchClassText;
+					var normalizedCatch = parser.NormalizeQualifiedClassName(catchClassText);
+					string resolvedUserType = null;
+					if (normalizedCatch.Contains('.'))
+						resolvedUserType = parser.ResolveUserTypeName(normalizedCatch, Parser.UserTypeLookupMode.GlobalOnly);
+					else
+						resolvedUserType = parser.ResolveUserTypeName(normalizedCatch, Parser.UserTypeLookupMode.TopLevelOnly);
+
+					if (resolvedUserType != null)
+						catchClassText = parser.GetUserTypeCSharpName(resolvedUserType);
+					else if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(catchClassText, out var t))
+						catchClassText = t.FullName;
+					else
+						catchClassText = "Keysharp.Core." + catchClassText;
 
                     // Create condition: `err is IndexError`
                     typeConditions.Add(

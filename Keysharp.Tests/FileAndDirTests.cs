@@ -538,9 +538,9 @@ namespace Keysharp.Tests
 			Assert.AreEqual(patharg, outDir.__Value.ToString());
 			Assert.AreEqual("TestDescription", outDescription.__Value.ToString());
 			Assert.AreEqual("", outArgs.__Value.ToString());
-			Assert.AreEqual(Path.GetFullPath("../../../Keysharp.ico"), outIcon.__Value.ToString());
+			Assert.AreEqual("../../../Keysharp.ico", outIcon.__Value.ToString());
 #if WINDOWS
-			Assert.AreEqual("0", outIconNum.__Value.ToString());
+			Assert.AreEqual("1", outIconNum.__Value.ToString());
 			Assert.AreEqual("1", outRunState.__Value.ToString());
 #else
 			Assert.AreEqual("Link", outIconNum.__Value.ToString());

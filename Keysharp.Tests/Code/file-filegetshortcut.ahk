@@ -94,13 +94,13 @@ if ("" == outArgs)
 else
 	FileAppend "fail", "*"
 
-if (FileFullPath("../../../Keysharp.ico") == outIcon)
+if ("../../../Keysharp.ico" == outIcon)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 #if WINDOWS
-	if ("0" == outIconNum)
+	if ("1" == outIconNum)
 		FileAppend "pass", "*"
 	else
 		FileAppend "fail", "*"

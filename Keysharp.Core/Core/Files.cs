@@ -289,9 +289,10 @@ namespace Keysharp.Core
 			if (t == "")
 				return Errors.ValueErrorOccurred("Shortcut target cannot be an empty string.");
 
+			t = Path.GetFullPath(t);
+
 #if LINUX
 			var type = shortcutType.As();
-			t = Path.GetFullPath(t);
 
 			if (w != "" || a != "" || d != "" || icon != "")
 			{

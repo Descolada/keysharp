@@ -1,4 +1,8 @@
-﻿namespace Keysharp.Core
+﻿using System.Drawing;
+using System.Runtime.CompilerServices;
+using System.Windows.Forms;
+
+namespace Keysharp.Core
 {
 	/// <summary>
 	/// Public interface for file-related functions.
@@ -517,160 +521,6 @@
 			return DefaultObject;
 		}
 
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj)
-		{
-			object outTarget = VarRef.Empty;
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
-			return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget)
-		{
-			object outDir = VarRef.Empty;
-			object outArgs = VarRef.Empty;
-			object outDescription = VarRef.Empty;
-			object outIcon = VarRef.Empty;
-			object outIconNum = VarRef.Empty;
-			object outRunState = VarRef.Empty;
-			return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir)
-		{
-            object outArgs = VarRef.Empty;
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs)
-		{
-            object outDescription = VarRef.Empty;
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription)
-		{
-            object outIcon = VarRef.Empty;
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon)
-		{
-            object outIconNum = VarRef.Empty;
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
-		/// <summary>
-		/// <see cref="FileGetShortcut(object, ref object, ref object, ref object, ref object, ref object, ref object, ref object)"/>
-		/// </summary>
-		public static object FileGetShortcut(object obj,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
-											 [ByRef] object outIconNum)
-		{
-            object outRunState = VarRef.Empty;
-            return FileGetShortcut(obj,
-								   outTarget,
-								   outDir,
-								   outArgs,
-								   outDescription,
-								   outIcon,
-								   outIconNum,
-								   outRunState);
-		}
-
 #if WINDOWS
 		/// <summary>
 		/// Retrieves information about a shortcut file.<br/>
@@ -734,67 +584,68 @@
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
 #endif
 		public static object FileGetShortcut(object linkFile,
-											 [ByRef] object outTarget,
-											 [ByRef] object outDir,
-											 [ByRef] object outArgs,
-											 [ByRef] object outDescription,
-											 [ByRef] object outIcon,
+											 [ByRef] object outTarget = null,
+											 [ByRef] object outDir = null,
+											 [ByRef] object outArgs = null,
+											 [ByRef] object outDescription = null,
+											 [ByRef] object outIcon = null,
 #if WINDOWS
-											 object outIconNum,
+											 [ByRef] object outIconNum = null,
 #else
-											 object outType,
+											 [ByRef] object outType = null,
 #endif
-											 object outRunState)
+											 [ByRef] object outRunState = null)
 		{
-			var link = Path.GetFullPath(linkFile.As());
-#if LINUX
-			var dest = $"readlink -f '{link}'".Bash();
-
-			if (link == dest)//Was not just a simple symlink.
+			string link = null;
+			try
 			{
-				var sc = new ShortcutCreator(link);
-				Script.SetPropertyValue(outTarget, "__Value", sc.Get("Exec"));
-				Script.SetPropertyValue(outDir, "__Value", sc.Get("Path"));
-				Script.SetPropertyValue(outDescription, "__Value", sc.Get("Comment"));
-				Script.SetPropertyValue(outIcon, "__Value", sc.Get("Icon"));
-				Script.SetPropertyValue(outType, "__Value", sc.Get("Type"));
+				link = Path.GetFullPath(linkFile.As());
+#if LINUX
+				var dest = $"readlink -f '{link}'".Bash();
 
-				if (GetPropertyValue(outTarget, "__Value") is string s && s.Length > 0)
+				if (link == dest)//Was not just a simple symlink.
 				{
-					if (s[0] != '"' && s[0] != '\'')
-					{
-						var splits = s.Split(SpaceTab, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+					var sc = new ShortcutCreator(link);
+					if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", sc.Get("Exec"));
+					if (outDir != null) Script.SetPropertyValue(outDir, "__Value", sc.Get("Path"));
+					if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", sc.Get("Comment"));
+					if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", sc.Get("Icon"));
+					if (outType != null) Script.SetPropertyValue(outType, "__Value", sc.Get("Type"));
 
-						if (splits.Length > 1)
-							Script.SetPropertyValue(outArgs, "__Value", splits[1]);
-						else
-							Script.SetPropertyValue(outArgs, "__Value", "");
-					}
-					else//It was quoted.
+					if (outTarget != null && GetPropertyValue(outTarget, "__Value") is string s && s.Length > 0)
 					{
-						var firstArgIndex = s.FindFirstNotInQuotes(" ");
-						var tempArgs = firstArgIndex != -1 && firstArgIndex < s.Length - 1 ? s.Substring(firstArgIndex + 1) : "";
-						Script.SetPropertyValue(outArgs, "__Value", tempArgs.Trim());
+						if (s[0] != '"' && s[0] != '\'')
+						{
+							var splits = s.Split(SpaceTab, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+							if (splits.Length > 1)
+								Script.SetPropertyValue(outArgs, "__Value", splits[1]);
+							else
+								Script.SetPropertyValue(outArgs, "__Value", "");
+						}
+						else//It was quoted.
+						{
+							var firstArgIndex = s.FindFirstNotInQuotes(" ");
+							var tempArgs = firstArgIndex != -1 && firstArgIndex < s.Length - 1 ? s.Substring(firstArgIndex + 1) : "";
+							Script.SetPropertyValue(outArgs, "__Value", tempArgs.Trim());
+						}
 					}
+					else if (outArgs != null)
+						Script.SetPropertyValue(outArgs, "__Value", "");//No way to determine args.
 				}
 				else
-					Script.SetPropertyValue(outArgs, "__Value", "");//No way to determine args.
-			}
-			else
-			{
-				Script.SetPropertyValue(outTarget, "__Value", dest);
-				Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(dest));
-				Script.SetPropertyValue(outArgs, "__Value", "");
-				Script.SetPropertyValue(outDescription, "__Value", "");
-				Script.SetPropertyValue(outIcon, "__Value", "");
-				Script.SetPropertyValue(outType, "__Value", "");
-			}
+				{
+					if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", dest);
+					if (outDir != null) Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(dest));
+					if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", "");
+					if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", "");
+					if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", "");
+					if (outType != null) Script.SetPropertyValue(outType, "__Value", "");
+				}
 
-			Script.SetPropertyValue(outRunState, "__Value", "");
+				Script.SetPropertyValue(outRunState, "__Value", "");
 #elif WINDOWS
 
-            try
-            {
 				var shell = new IWshRuntimeLibrary.WshShell();
 				var shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(Path.GetFullPath(link));
 				var commaindex = shortcut.IconLocation.LastIndexOf(',');
@@ -807,20 +658,27 @@
 					iconno = shortcut.IconLocation.Substring(commaindex + 1).Trim();
 				}
 
-                Script.SetPropertyValue(outTarget, "__Value", shortcut.TargetPath);
-                Script.SetPropertyValue(outDir, "__Value", shortcut.WorkingDirectory);
-                Script.SetPropertyValue(outArgs, "__Value", shortcut.Arguments);
-                Script.SetPropertyValue(outDescription, "__Value", shortcut.Description);
-                Script.SetPropertyValue(outIcon, "__Value", iconstr);
-                Script.SetPropertyValue(outIconNum, "__Value", iconno);//How to get this?
-                Script.SetPropertyValue(outRunState, "__Value", shortcut.WindowStyle);//How to get this?
+				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", shortcut.TargetPath);
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", shortcut.WorkingDirectory);
+				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", shortcut.Arguments);
+				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", shortcut.Description);
+				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", iconstr);
+				if (outIconNum != null) Script.SetPropertyValue(outIconNum, "__Value", iconno);//How to get this?
+				if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", shortcut.WindowStyle);//How to get this?
+
+#endif
 			}
 			catch (Exception ex)
 			{
-				return Errors.OSErrorOccurred(ex, $"Error getting shortcut information for {link}");
+				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", null);
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", null);
+				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", null);
+				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", null);
+				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", null);
+				if (outIconNum != null) Script.SetPropertyValue(outIconNum, "__Value", null);
+				if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", null);
+				return Errors.OSErrorOccurred(ex, $"Error getting shortcut information for {linkFile}");
 			}
-
-#endif
 			return DefaultObject;
 		}
 

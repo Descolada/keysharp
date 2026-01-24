@@ -40,17 +40,6 @@
 		<NoWarn>1701;1702;8981;0164;8974</NoWarn>
 	</PropertyGroup>
 
-	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-		<COMReference Include="IWshRuntimeLibrary.dll">
-			<Guid>f935dc20-1cf0-11d0-adb9-00c04fd58a0b</Guid>
-			<VersionMajor>1</VersionMajor>
-			<VersionMinor>0</VersionMinor>
-			<WrapperTool>tlbimp</WrapperTool>
-			<Lcid>0</Lcid>
-			<Isolated>false</Isolated>
-		</COMReference>
-	</ItemGroup>
-
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 <!--
 		<PackageReference Include="Eto.Forms" Version="2.10.2" />

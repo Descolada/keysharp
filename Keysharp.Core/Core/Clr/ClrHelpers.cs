@@ -756,6 +756,13 @@ namespace Keysharp.Core
 			return true;
 		}
 
+		private static int DelegateArity(Type delType)
+		{
+			// delType is known to be a delegate type
+			var inv = delType.GetMethod("Invoke");
+			return inv?.GetParameters().Length ?? 0;
+		}
+
 
 		// Lower is better.
 		private static int ScoreParameters(
@@ -764,6 +771,7 @@ namespace Keysharp.Core
 			bool favorDelegates = false,
 			bool penalizeComparerForCallable = false)
 		{
+			const int Reject = 1_000_000;
 			int score = 0;
 
 			for (int i = 0; i < ps.Length; i++)
@@ -780,6 +788,38 @@ namespace Keysharp.Core
 				// string-friendly
 				if (arg is string && (pt == typeof(string) || pt.FullName == "System.ReadOnlySpan`1[System.Char]"))
 				{ score += 1; continue; }
+
+				if (favorDelegates && arg is FuncObj fo && IsDelegateType(pt))
+				{
+					int arity = DelegateArity(pt);
+
+					if (!fo.IsVariadic)
+					{
+						// Exact-arity functions: must match, otherwise reject
+						if (arity < fo.MinParams || arity > fo.MaxParams) { score = Reject; continue; }
+
+						// Prefer exact match (usually 0)
+						score += Math.Abs(arity - (int)fo.MinParams);
+
+						// Prefer "delegate param when callable"
+						score -= 6;
+						continue;
+					}
+					else
+					{
+						// Variadic: must satisfy required fixed params
+						if (arity < fo.MinParams) { score = Reject; continue; }
+
+						// Heuristic: prefer VariadicIndex + 1
+						// p* only: VariadicIndex=0 => prefer 1-arg delegate (Func<T,bool>) over 2-arg (Func<T,int,bool>)
+						// a, p*: VariadicIndex=1 => prefer 2-arg delegate (Func<T,int,bool>) over 1-arg
+						int preferred = fo.VariadicIndex + 1;
+						score += Math.Abs(arity - preferred);
+
+						score -= 6;
+						continue;
+					}
+				}
 
 				// Prefer delegate params when the arg is callable
 				if (favorDelegates && IsCallableLike(arg) && IsDelegateType(pt)) { score -= 5; continue; }

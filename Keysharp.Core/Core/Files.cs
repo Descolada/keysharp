@@ -335,50 +335,46 @@ namespace Keysharp.Core
 
 #elif WINDOWS
 			var sc = shortcutKey.As();
-			var iconNum = iconNumber.Al(0);
-			var state = runState.Al(1);
-			var shell = new IWshRuntimeLibrary.WshShell();
-			var shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(Path.GetFullPath(l));
-			shortcut.TargetPath = Path.GetFullPath(t);
-
-			if (w != "")
-				shortcut.WorkingDirectory = Path.GetFullPath(w);
-
-			shortcut.Arguments = a;
-			shortcut.Description = d;
-
-			if (icon != "")
-				shortcut.IconLocation = $"{Path.GetFullPath(icon)}, {iconNum}";
-
-			var mods = "";
-			var i = 0;
-
-			for (; i < sc.Length; i++)
+			var iconNum = iconNumber.Ai(0);
+			var state = runState.Ai(1);
+			var shellLink = (WindowsAPI.IShellLinkW)new WindowsAPI.ShellLink();
+			var persistFile = (IPersistFile)shellLink;
+			iconNum -= iconNum > 0 ? 1 : 0; // Convert 1-based index to 0-based, but leave negative resource IDs as-is.
+			shellLink.SetPath(t);
+			shellLink.SetWorkingDirectory(w);
+			shellLink.SetArguments(a);
+			shellLink.SetDescription(d);
+			shellLink.SetIconLocation(icon, iconNum);
+			shellLink.SetShowCmd(state);
+			if (sc != string.Empty)
 			{
-				char ch = sc[i];
+				int mods = 0;
+				int i = 0;
+				foreach (char ch in sc)
+				{
+					if (ch == '^')
+						mods |= WindowsAPI.HOTKEYF_CONTROL;
+					else if (ch == '!')
+						mods |= WindowsAPI.HOTKEYF_ALT;
+					else if (ch == '+')
+						mods |= WindowsAPI.HOTKEYF_SHIFT;
+					else
+						break;
+					++i;
+				}
 
-				if (ch == '^')
-					mods += "Ctrl+";
-				else if (ch == '!')
-					mods += "Alt+";
-				else if (ch == '+')
-					mods += "Shift+";
-				else
-					break;
+				// For backwards compatibility: if modifiers omitted, assume CTRL+ALT.
+				if (0 == mods)
+					mods = WindowsAPI.HOTKEYF_CONTROL | WindowsAPI.HOTKEYF_ALT;
+
+				// If badly formatted, it's not a critical error, just continue.
+				uint? dummy = null;
+				uint vk = Script.TheScript.HookThread.TextToVK(sc[i..], ref dummy, false, true, GetKeyboardLayout(0));
+				if (vk != 0)
+					shellLink.SetHotkey( (short)((ushort)vk | mods << 8) );
 			}
 
-			if (sc.Length > 0)
-			{
-				if (mods.Length == 0)// For backwards compatibility: if modifiers omitted, assume CTRL+ALT.
-					shortcut.Hotkey = $"Ctrl+Alt+{sc}";
-				else
-					shortcut.Hotkey = $"{mods}{sc.Substring(i)}";
-			}
-			else
-				shortcut.Hotkey = "";
-
-			shortcut.WindowStyle = (int)state;
-			shortcut.Save();
+			persistFile.Save(Path.GetFullPath(l), true);
 #endif
 			return DefaultObject;
 		}
@@ -646,26 +642,51 @@ namespace Keysharp.Core
 				Script.SetPropertyValue(outRunState, "__Value", "");
 #elif WINDOWS
 
-				var shell = new IWshRuntimeLibrary.WshShell();
-				var shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(Path.GetFullPath(link));
-				var commaindex = shortcut.IconLocation.LastIndexOf(',');
-				var iconno = "0";
-				var iconstr = shortcut.IconLocation;
-
-				if (commaindex != -1)
+				var shellLink = (WindowsAPI.IShellLinkW)new WindowsAPI.ShellLink();
+				var persistFile = (IPersistFile)shellLink;
+				persistFile.Load(Path.GetFullPath(link), 0);
+				var sb = new StringBuilder(1024);
+				if (outTarget != null)
 				{
-					iconstr = iconstr.Substring(0, commaindex);
-					iconno = shortcut.IconLocation.Substring(commaindex + 1).Trim();
+					shellLink.GetPath(sb, sb.Capacity, 0, 0x2); // SLGP_UNCPRIORITY
+					string TargetPath = sb.ToString();
+					Script.SetPropertyValue(outTarget, "__Value", TargetPath);
 				}
-
-				if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", shortcut.TargetPath);
-				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", shortcut.WorkingDirectory);
-				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", shortcut.Arguments);
-				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", shortcut.Description);
-				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", iconstr);
-				if (outIconNum != null) Script.SetPropertyValue(outIconNum, "__Value", iconno);//How to get this?
-				if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", shortcut.WindowStyle);//How to get this?
-
+				if (outDir != null)
+				{
+					shellLink.GetWorkingDirectory(sb, sb.Capacity);
+					string WorkingDirectory = sb.ToString();
+					Script.SetPropertyValue(outDir, "__Value", WorkingDirectory);
+				}
+				if (outArgs != null) {
+					shellLink.GetArguments(sb, sb.Capacity);
+					string Arguments = sb.ToString();
+					Script.SetPropertyValue(outArgs, "__Value", Arguments);
+				}
+				if (outDescription != null) {
+					shellLink.GetDescription(sb, sb.Capacity);
+					string Description = sb.ToString();
+					Script.SetPropertyValue(outDescription, "__Value", Description);
+				}
+				if (outIcon != null || outIconNum != null)
+				{
+					shellLink.GetIconLocation(sb, sb.Capacity, out int icon_index);
+					if (outIcon != null)
+					{
+						string iconstr = sb.ToString();
+						Script.SetPropertyValue(outIcon, "__Value", iconstr);
+					}
+					if (outIconNum != null)
+					{
+						icon_index += (icon_index >> 31) ^ 1; // Convert from 0-based to 1-based for consistency with the Menu command, etc. but leave negative resource IDs as-is.
+						Script.SetPropertyValue(outIconNum, "__Value", icon_index);
+					}
+				}
+				if (outRunState != null)
+				{
+					shellLink.GetShowCmd(out int WindowStyle);
+					Script.SetPropertyValue(outRunState, "__Value", WindowStyle);
+				}
 #endif
 			}
 			catch (Exception ex)
@@ -1238,7 +1259,7 @@ namespace Keysharp.Core
 					failures++;
 				}
 			}
-			
+
 			if (failures != 0)
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();

@@ -1632,7 +1632,14 @@
 		/// <summary>
 		/// The name of the function currently being executed.
 		/// </summary>
-		public static string A_ThisFunc => new StackFrame(1).GetMethod().Name;
+		public static string A_ThisFunc
+		{
+			get
+			{
+				var meth = new StackFrame(1).GetMethod();
+				return GetUserDeclaredName(meth) ?? meth.Name;
+			}
+		}
 
 		/// <summary>
 		/// The key name of the most recently executed hotkey or hotstring.

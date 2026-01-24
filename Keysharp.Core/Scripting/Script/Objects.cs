@@ -67,6 +67,8 @@ namespace Keysharp.Scripting
 				{
 					if (method.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
 
+					string userDeclaredName = GetUserDeclaredName(method);
+
 					var methodName = method.Name;
 
 					bool isStatic = isBuiltin && method.IsStatic;
@@ -104,27 +106,21 @@ namespace Keysharp.Scripting
 							propertyMap.Set = new FuncObj(method);
 
 						if (isStatic)
-							staticInst.DefinePropInternal(propName, propertyMap);
+							staticInst.DefinePropInternal(userDeclaredName ?? propName, propertyMap);
 						else
-							proto.DefinePropInternal(propName, propertyMap);
+							proto.DefinePropInternal(userDeclaredName ?? propName, propertyMap);
 
 						continue;
-					}
-
-					var nameAttrs = method.GetCustomAttributes(typeof(UserDeclaredNameAttribute));
-					if (nameAttrs.Any())
-					{
-						methodName = ((UserDeclaredNameAttribute)nameAttrs.First()).Name;
 					}
 
 					if (isStatic)
 					{
-						staticInst.DefinePropInternal(methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
+						staticInst.DefinePropInternal(userDeclaredName ?? methodName, new OwnPropsDesc(staticInst, null, null, null, new FuncObj(method)));
 						continue;
 					}
 
 					// Wrap method in FuncObj
-					proto.DefinePropInternal(methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
+					proto.DefinePropInternal(userDeclaredName ??methodName, new OwnPropsDesc(proto, null, null, null, new FuncObj(method)));
 				}
 
 				// Get all instance and static properties
@@ -144,15 +140,22 @@ namespace Keysharp.Scripting
 				{
 					if (prop.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
 
+					string userDeclaredName = GetUserDeclaredName(prop);
+
 					var propertyName = prop.Name;
 					OwnPropsDesc propertyMap = null;
 					if ((prop.GetMethod?.IsStatic ?? false) || (prop.SetMethod?.IsStatic ?? false) || (propertyName.StartsWith(Keywords.ClassStaticPrefix)))
 					{
-						if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
-							propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
+						if (userDeclaredName == null)
+						{
+							if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
+								propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
 
-						if (propertyName.StartsWith("get_") || propertyName.StartsWith("set_"))
-							propertyName = propertyName.Substring(4);
+							if (propertyName.StartsWith("get_") || propertyName.StartsWith("set_"))
+								propertyName = propertyName.Substring(4);
+						}
+						else
+							propertyName = userDeclaredName;
 
 						propertyMap = staticInst.op != null && staticInst.op.TryGetValue(propertyName, out OwnPropsDesc staticPropDesc) ? staticPropDesc : new OwnPropsDesc();
 
@@ -171,6 +174,9 @@ namespace Keysharp.Scripting
 
 						continue;
 					}
+
+					if (userDeclaredName != null)
+						propertyName = userDeclaredName;
 
 					propertyMap = proto.op.TryGetValue(propertyName, out OwnPropsDesc propDesc) ? propDesc : new OwnPropsDesc();
 
@@ -214,7 +220,7 @@ namespace Keysharp.Scripting
 					var nestedTypes = t.GetNestedTypes(BindingFlags.Public);
 
 					// Construct full class name
-					var className = t.GetCustomAttribute<UserDeclaredNameAttribute>()?.Name ?? t.Name; 
+					var className = GetUserDeclaredName(t) ?? t.Name; 
 					if (t.DeclaringType != null && t.DeclaringType != script.ProgramType)
 					{
 						script.Vars.Prototypes[t.DeclaringType].op.TryGetValue("__Class", out var declClassNameDesc);
@@ -225,7 +231,8 @@ namespace Keysharp.Scripting
 					foreach (var nestedType in nestedTypes)
 					{
 						RuntimeHelpers.RunClassConstructor(nestedType.TypeHandle);
-						staticInst.DefinePropInternal(nestedType.Name,
+						
+						staticInst.DefinePropInternal(GetUserDeclaredName(nestedType) ?? nestedType.Name,
 							new OwnPropsDesc(staticInst, null,
 								new FuncObj((params object[] args) => script.Vars.Statics[nestedType]),
 								null,
@@ -244,6 +251,11 @@ namespace Keysharp.Scripting
 				return proto;
 			});
         }
+
+		public static string GetUserDeclaredName(MemberInfo mb)
+		{
+			return mb.GetCustomAttribute<UserDeclaredNameAttribute>()?.Name;
+		}
 
 		public static object Index(object item, params object[] index) => item == null ? null : IndexAt(item, index);
 

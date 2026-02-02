@@ -580,7 +580,7 @@ if (A_IconHidden == 0)
 else
 	FileAppend "fail", "*"
 
-if (EndsWith(A_IconTip, "props-script-settings.ahk"))
+if (A_IconTip.EndsWith("props-script-settings.ahk"))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

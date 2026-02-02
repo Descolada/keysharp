@@ -381,6 +381,8 @@ namespace Keysharp.Scripting
 
 		public static class PredefinedKeywords
         {
+			public static LiteralExpressionSyntax NullLiteral = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
+
 			public static SyntaxToken Object = SyntaxFactory.Token(SyntaxKind.ObjectKeyword);
 
 			public static TypeSyntax ObjectType = SyntaxFactory.PredefinedType(Object);
@@ -510,7 +512,7 @@ namespace Keysharp.Scripting
                     {
                         var literalList = new List<ExpressionSyntax>();
                         foreach (var s in Globals)
-                            literalList.Add(SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,SyntaxFactory.Literal(s)));
+                            literalList.Add(CreateStringLiteral(s));
 
                         // Create an array initializer: { "item1", "item2", ... }
                         var arrayInitializer = SyntaxFactory.InitializerExpression(

@@ -146,7 +146,7 @@ namespace Keysharp.Scripting
                             ),
                             SyntaxFactory.IdentifierName("index")
                         ),
-                        SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(0L))
+                        CreateNumericLiteral(0L)
                     ),
                     elseBody
                 );
@@ -186,7 +186,7 @@ namespace Keysharp.Scripting
                                             SyntaxFactory.SingletonList(
                                                 SyntaxFactory.ArrayRankSpecifier(
                                                     SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(
-                                                        SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(uniqueVariableNames.Count))
+                                                        CreateNumericLiteral(uniqueVariableNames.Count)
                                                     )
                                                 )
                                             )
@@ -216,10 +216,7 @@ namespace Keysharp.Scripting
                                     SyntaxFactory.BracketedArgumentList(
                                         SyntaxFactory.SingletonSeparatedList(
                                             SyntaxFactory.Argument(
-                                                SyntaxFactory.LiteralExpression(
-                                                    SyntaxKind.NumericLiteralExpression,
-                                                    SyntaxFactory.Literal(0)
-                                                )
+                                                CreateNumericLiteral(0)
                                             )
                                         )
                                     )
@@ -247,10 +244,7 @@ namespace Keysharp.Scripting
                                                 SyntaxFactory.BracketedArgumentList(
                                                     SyntaxFactory.SingletonSeparatedList(
                                                         SyntaxFactory.Argument(
-                                                            SyntaxFactory.LiteralExpression(
-                                                                SyntaxKind.NumericLiteralExpression,
-                                                                SyntaxFactory.Literal(index)
-                                                            )
+                                                            CreateNumericLiteral(index)
                                                         )
                                                     )
                                                 )
@@ -323,7 +317,7 @@ namespace Keysharp.Scripting
             // Determine the loop expression (or -1 for infinite loops)
             ExpressionSyntax loopExpression = context.singleExpression() != null
                 ? (ExpressionSyntax)Visit(context.singleExpression())
-                : SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(-1));
+                : CreateNumericLiteral(-1L);
 
             // Determine the `Until` condition, if present
             ExpressionSyntax untilCondition = context.untilProduction() != null ? (ExpressionSyntax)VisitUntilProduction(context.untilProduction()) : null;
@@ -366,10 +360,10 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //String
 					    , singleExprCount > 1 //DelimiterChars
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						    : PredefinedKeywords.NullLiteral
 					    , singleExprCount > 2 //OmitChars
 							? (ExpressionSyntax)Visit(context.singleExpression(2))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : PredefinedKeywords.NullLiteral];
                     loopType = "Parse";
                     enumeratorMethodName = "LoopParse";
                     break;
@@ -377,7 +371,7 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //FilePattern
                         , singleExprCount != 1 //Mode
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : PredefinedKeywords.NullLiteral];
 
                     loopType = "Directory";
                     enumeratorMethodName = "LoopFile";
@@ -386,7 +380,7 @@ namespace Keysharp.Scripting
                     enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //InputFile
                         , singleExprCount > 1 //OutputFile
                             ? (ExpressionSyntax)Visit(context.singleExpression(1))
-                            : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+                            : PredefinedKeywords.NullLiteral];
                     loopType = "File";
                     enumeratorMethodName = "LoopRead";
                     break;
@@ -394,7 +388,7 @@ namespace Keysharp.Scripting
 					enumeratorArguments = [(ExpressionSyntax)Visit(context.singleExpression(0)) //KeyName
 					    , singleExprCount > 1 //Mode
 						    ? (ExpressionSyntax)Visit(context.singleExpression(1))
-						    : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)];
+						    : PredefinedKeywords.NullLiteral];
                     loopType = "Registry";
                     enumeratorMethodName = "LoopRegistry";
                     break;
@@ -633,10 +627,7 @@ namespace Keysharp.Scripting
                             ),
                             SyntaxFactory.IdentifierName("index")
                         ),
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.NumericLiteralExpression,
-                            SyntaxFactory.Literal(0L)
-                        )
+                        CreateNumericLiteral(0L)
                     ),
                     elseBody
                 );
@@ -1046,7 +1037,7 @@ namespace Keysharp.Scripting
             // Extract case sensitivity (CaseSense)
             LiteralExpressionSyntax caseSense = context.literal() != null
                 ? (LiteralExpressionSyntax)Visit(context.literal())
-                : SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1)); // Default: case-sensitive
+                : CreateNumericLiteral(1); // Default: case-sensitive
             switchCaseSense = (caseSense.Token.Text == "1L" || caseSense.Token.Text == "1" || caseSense.Token.Text.Equals("on", StringComparison.InvariantCultureIgnoreCase));
 
             // Visit the case block
@@ -1302,9 +1293,7 @@ namespace Keysharp.Scripting
 				sections.Add(
 					SyntaxFactory.SwitchSection(
 						SyntaxFactory.SingletonList<SwitchLabelSyntax>(
-							SyntaxFactory.CaseSwitchLabel(
-								SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-									SyntaxFactory.Literal(labelInfo.Trimmed.ToLowerInvariant())))),
+							SyntaxFactory.CaseSwitchLabel(CreateStringLiteral(labelInfo.Trimmed.ToLowerInvariant()))),
 						SyntaxFactory.SingletonList<StatementSyntax>(
 							SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(parser.ToValidIdentifier(labelInfo.Trimmed))))));
 			}
@@ -1330,9 +1319,8 @@ namespace Keysharp.Scripting
 					    .WithArgumentList(
 						    SyntaxFactory.ArgumentList(
 							    SyntaxFactory.SeparatedList(new[]
-							    {
-								    SyntaxFactory.Argument(SyntaxFactory.LiteralExpression(
-									    SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(fmt))),
+								{
+								    SyntaxFactory.Argument(CreateStringLiteral(fmt)),
 								    SyntaxFactory.Argument(arg)
 							    })))))));
 

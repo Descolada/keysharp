@@ -524,10 +524,7 @@ namespace Keysharp.Scripting
 						CreateMemberAccess("Keysharp.Core.Functions", "Func")
 					).WithArgumentList(
 						CreateArgumentList(
-							SyntaxFactory.LiteralExpression(
-								SyntaxKind.StringLiteralExpression,
-								SyntaxFactory.Literal(member.Name)
-							),
+							CreateStringLiteral(member.Name),
 							SyntaxFactory.TypeOfExpression(CreateQualifiedName(targetTypeName))
 						)
 					);

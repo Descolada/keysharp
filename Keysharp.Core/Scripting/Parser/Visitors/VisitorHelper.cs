@@ -169,9 +169,7 @@ namespace Keysharp.Scripting
                 CreateQualifiedName(assemblyName))
                 .AddArgumentListArguments(
                     SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                            SyntaxFactory.Literal(value)))));
+                        CreateStringLiteral(value))));
             return;
         }
 
@@ -751,17 +749,17 @@ namespace Keysharp.Scripting
             else if (value.StartsWith("0x", StringComparison.InvariantCultureIgnoreCase))
             {
                 long.TryParse(value.Substring(2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
+                return CreateNumericLiteral(result);
             }
             else if (value.StartsWith("0b", StringComparison.InvariantCultureIgnoreCase))
             {
                 long.TryParse(value.Substring(2), NumberStyles.AllowBinarySpecifier, CultureInfo.InvariantCulture, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
+                return CreateNumericLiteral(result);
             }
             else
             {
                 long.TryParse(value, out long result);
-                return SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(result));
+                return CreateNumericLiteral(result);
             }
         }
 
@@ -1144,7 +1142,7 @@ namespace Keysharp.Scripting
                 .WithInitializer(
                     SyntaxFactory.EqualsValueClause(
 						PredefinedKeywords.EqualsToken,
-						SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						PredefinedKeywords.NullLiteral
                     )
                 )
             );
@@ -1341,10 +1339,7 @@ namespace Keysharp.Scripting
                             SyntaxFactory.EqualsValueClause(
                                 PredefinedKeywords.EqualsToken,
                                 CreateFuncObj(
-                                    SyntaxFactory.LiteralExpression(
-                                        SyntaxKind.StringLiteralExpression,
-                                        SyntaxFactory.Literal(functionName)
-                                    )
+                                    CreateStringLiteral(functionName)
                                 )
                             )
                         )
@@ -1362,7 +1357,7 @@ namespace Keysharp.Scripting
                         .WithInitializer(
                             SyntaxFactory.EqualsValueClause(
 								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+								PredefinedKeywords.NullLiteral
                             )
                         )
                     )
@@ -1424,10 +1419,7 @@ namespace Keysharp.Scripting
 						.WithArgumentList(
 						CreateArgumentList(
 							targetExpression,
-							SyntaxFactory.LiteralExpression(
-								SyntaxKind.StringLiteralExpression,
-								SyntaxFactory.Literal("Call")
-							),
+							CreateStringLiteral("Call"),
 							argumentList.Arguments // Include additional arguments
 						)
 					);
@@ -1463,10 +1455,7 @@ namespace Keysharp.Scripting
             .WithArgumentList(
                 CreateArgumentList(
 					targetExpression,
-                    SyntaxFactory.LiteralExpression(
-                        SyntaxKind.StringLiteralExpression,
-                        SyntaxFactory.Literal("Call")
-                    ),
+                    CreateStringLiteral("Call"),
 					argumentList.Arguments // Include additional arguments
                 )
            );
@@ -1595,10 +1584,7 @@ namespace Keysharp.Scripting
 						.WithRefOrOutKeyword(SyntaxFactory.Token(SyntaxKind.RefKeyword)),
 
                     // Argument: identifier as a string literal
-					SyntaxFactory.LiteralExpression(
-						SyntaxKind.StringLiteralExpression,
-						SyntaxFactory.Literal(currentClass.Name + "_" + identifier.Identifier.Text)
-					),
+					CreateStringLiteral(currentClass.Name + "_" + identifier.Identifier.Text),
 
                     // Argument: () => initializerValue
 					SyntaxFactory.ParenthesizedLambdaExpression(initializerValue)
@@ -1830,10 +1816,7 @@ namespace Keysharp.Scripting
                             .WithInitializer(
                                 SyntaxFactory.EqualsValueClause(
                                     PredefinedKeywords.EqualsToken,
-                                    SyntaxFactory.LiteralExpression(
-                                        SyntaxKind.StringLiteralExpression,
-                                        SyntaxFactory.Literal(value.ToString())
-                                    )
+                                    CreateStringLiteral(value.ToString())
                                 )
                             )
                         )
@@ -2135,7 +2118,22 @@ namespace Keysharp.Scripting
             throw new InvalidOperationException("Unsupported singleExpression type for VarRefExpression.");
         }
 
-        internal static bool IsLiteralOrConstant(ExpressionSyntax expression)
+		internal static LiteralExpressionSyntax CreateNumericLiteral(long value)
+	        => SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value));
+
+		internal static LiteralExpressionSyntax CreateNumericLiteral(int value)
+			=> SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value));
+
+		internal static LiteralExpressionSyntax CreateNumericLiteral(uint value)
+			=> SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value));
+
+		internal static LiteralExpressionSyntax CreateNumericLiteral(double value)
+			=> SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value));
+
+		internal static LiteralExpressionSyntax CreateStringLiteral(string value)
+			=> SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(value));
+
+		internal static bool IsLiteralOrConstant(ExpressionSyntax expression)
         {
             return expression is LiteralExpressionSyntax ||
                    expression is TypeOfExpressionSyntax ||
@@ -2236,7 +2234,7 @@ namespace Keysharp.Scripting
                 );
 
                 // Set the default value to null
-                value = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
+                value = PredefinedKeywords.NullLiteral;
             }
             else if (!isConstant)
             {
@@ -2250,7 +2248,7 @@ namespace Keysharp.Scripting
                 );
 
                 // Set the default value to null
-                value = SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
+                value = PredefinedKeywords.NullLiteral;
             }
 
             if (initializationStatement != null)

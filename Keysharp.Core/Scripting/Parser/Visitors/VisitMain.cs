@@ -73,7 +73,7 @@ namespace Keysharp.Scripting
 					)
 				);
 				var mainClassType = SyntaxFactory.TypeOfExpression(SyntaxFactory.IdentifierName(Keywords.MainClassName));
-				object[] mainScriptVarDeclarationArgs = parser.hookMutexName == "" ? [mainClassType] : [mainClassType, SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(parser.hookMutexName))];
+				object[] mainScriptVarDeclarationArgs = parser.hookMutexName == "" ? [mainClassType] : [mainClassType, CreateStringLiteral(parser.hookMutexName)];
 
 				var mainScriptVarDeclaration = Parser.CreateFieldDeclaration(
 					modifierList,
@@ -93,10 +93,7 @@ namespace Keysharp.Scripting
 						SyntaxFactory.InvocationExpression(
 							CreateMemberAccess(MainScriptVariableName, "SetName"),
 							Parser.CreateArgumentList(
-								SyntaxFactory.LiteralExpression(
-									SyntaxKind.StringLiteralExpression,
-									SyntaxFactory.Literal(parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName))
-								)
+								CreateStringLiteral(parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName))
 							)
 						)
 					)
@@ -109,10 +106,7 @@ namespace Keysharp.Scripting
 							SyntaxFactory.InvocationExpression(
 								CreateMemberAccess(MainScriptVariableName, "LoadDll"),
 								CreateArgumentList(
-									SyntaxFactory.LiteralExpression(
-										SyntaxKind.StringLiteralExpression,
-										SyntaxFactory.Literal(p)
-									),
+									CreateStringLiteral(p),
 									SyntaxFactory.LiteralExpression(s ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression)
 								)
 							)
@@ -233,10 +227,7 @@ namespace Keysharp.Scripting
 							((InvocationExpressionSyntax)InternalMethods.HotIf)
 							.WithArgumentList(
 								CreateArgumentList(
-									SyntaxFactory.LiteralExpression(
-										SyntaxKind.StringLiteralExpression,
-										SyntaxFactory.Literal("")
-									)
+									CreateStringLiteral("")
 								)
 							)
 						)
@@ -294,7 +285,7 @@ namespace Keysharp.Scripting
 							SyntaxFactory.IdentifierName(Keywords.MainScriptVariableName),
 							SyntaxFactory.IdentifierName("CurrentModuleType")
 						),
-						SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						PredefinedKeywords.NullLiteral
 					)
 				)
 			);
@@ -334,9 +325,9 @@ namespace Keysharp.Scripting
 			static InvocationExpressionSyntax Call(ExpressionSyntax target, params ExpressionSyntax[] args) =>
 				SyntaxFactory.InvocationExpression(target, Keysharp.Scripting.Parser.CreateArgumentList(args)); // VisitorHelper
 			static LiteralExpressionSyntax S(string s) =>
-				SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(s));
+				CreateStringLiteral(s);
 			static LiteralExpressionSyntax N(int i) =>
-				SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(i));
+				CreateNumericLiteral(i);
 			static ExpressionSyntax Not(ExpressionSyntax e) =>
 				SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, e);
 			static BinaryExpressionSyntax AndAlso(ExpressionSyntax a, ExpressionSyntax b) =>
@@ -998,7 +989,7 @@ namespace Keysharp.Scripting
 			if (text.Equals("null", StringComparison.OrdinalIgnoreCase))
 			{
 				if (parser.hasVisitedIdentifiers && parser.IsVariableDeclared("@null", false) == null)
-					return SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
+					return PredefinedKeywords.NullLiteral;
 			}
 
             // Handle special built-ins
@@ -1007,15 +998,12 @@ namespace Keysharp.Scripting
 				if (text.Equals("a_linenumber", StringComparison.OrdinalIgnoreCase))
 				{
 					var contextLineNumber = context.Start.Line;
-					return SyntaxFactory.CastExpression(
-						SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.LongKeyword)),
-						SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(contextLineNumber))
-					);
+					return CreateNumericLiteral((long)contextLineNumber);
 				}
 				if (text.Equals("a_linefile", StringComparison.OrdinalIgnoreCase))
 				{
 					string file = context.Start.InputStream.SourceName;
-					return SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(File.Exists(file) ? Path.GetFullPath(file) : file));
+					return CreateStringLiteral(File.Exists(file) ? Path.GetFullPath(file) : file);
 				}
             }
 
@@ -1039,10 +1027,7 @@ namespace Keysharp.Scripting
                 .WithArgumentList(
 					CreateArgumentList(
 					    SyntaxFactory.IdentifierName(vr),
-                        SyntaxFactory.LiteralExpression(
-							SyntaxKind.StringLiteralExpression,
-							SyntaxFactory.Literal("__Value")
-						)
+                        CreateStringLiteral("__Value")
                     )
                 );
             }
@@ -1223,7 +1208,7 @@ namespace Keysharp.Scripting
             }
             else if (context.op != null)
             {
-                return SyntaxFactory.ExpressionStatement(HandleCompoundAssignment(identifier, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Text == "++" ? "+=" : "-=", isPostFix: true));
+                return SyntaxFactory.ExpressionStatement(HandleCompoundAssignment(identifier, CreateNumericLiteral(1L), context.op.Text == "++" ? "+=" : "-=", isPostFix: true));
             }
 
             // Return null if no assignment is needed
@@ -1253,7 +1238,7 @@ namespace Keysharp.Scripting
                 if (isComma)
                 {
                     if (lastIsComma)
-                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                        arguments.Add(PredefinedKeywords.NullLiteral);
 
                     goto ShouldVisitNextChild;
                 }
@@ -1352,10 +1337,7 @@ namespace Keysharp.Scripting
         {
             if (context.NullLiteral() != null || context.Unset() != null)
             {
-                return SyntaxFactory.LiteralExpression(
-                    SyntaxKind.NullLiteralExpression,
-                    SyntaxFactory.Token(SyntaxKind.NullKeyword)
-                );
+                return PredefinedKeywords.NullLiteral;
             }
             else if (context.boolean() != null)
             {
@@ -1410,10 +1392,7 @@ namespace Keysharp.Scripting
                 
                 str = EscapedString(str, false);
 
-                return SyntaxFactory.LiteralExpression(
-                    SyntaxKind.StringLiteralExpression,
-                    SyntaxFactory.Literal(str)
-                );
+                return CreateStringLiteral(str);
             }
             else if (context.numericLiteral() != null)
             {
@@ -1424,10 +1403,7 @@ namespace Keysharp.Scripting
                 var value = context.bigintLiteral().GetText();
                 if (long.TryParse(value.TrimEnd('n'), out long bigint))
                 {
-                    return SyntaxFactory.LiteralExpression(
-                        SyntaxKind.NumericLiteralExpression,
-                        SyntaxFactory.Literal(bigint)
-                    );
+                    return CreateNumericLiteral(bigint);
                 }
                 throw new ValueError($"Invalid bigint literal: {value}");
             }
@@ -1477,10 +1453,7 @@ namespace Keysharp.Scripting
 				.WithArgumentList(
 					CreateArgumentList(
 						SyntaxFactory.IdentifierName(objectVarName),
-						SyntaxFactory.LiteralExpression(
-							SyntaxKind.StringLiteralExpression,
-							SyntaxFactory.Literal("Call")
-						),
+						CreateStringLiteral("Call"),
 						arrayExpression
 					)
 				);
@@ -1492,7 +1465,7 @@ namespace Keysharp.Scripting
             var propertyIdentifier = Visit(context.memberIdentifier());
             if (propertyIdentifier is IdentifierNameSyntax memberIdentifierName)
             {
-                propertyIdentifier = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(memberIdentifierName.Identifier.Text));
+                propertyIdentifier = CreateStringLiteral(memberIdentifierName.Identifier.Text);
             }
             // Keysharp.Scripting.Script.Vars[expression] should extract expression
             else if (propertyIdentifier is ElementAccessExpressionSyntax memberElementAccess)
@@ -1690,7 +1663,7 @@ namespace Keysharp.Scripting
             else if (context.QuestionMark() != null)
             {
                 // If QuestionMark is present, mark the parameter as optional with null default value
-                parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral);
             }
 
             return parameter;
@@ -1857,7 +1830,7 @@ namespace Keysharp.Scripting
                     .WithType(parameterType);
 
                 if (context.QuestionMark() != null)
-                    parameter = parser.AddOptionalParamValue(parameter, SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                    parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral);
             }
 
             parser.currentFunc.Params.Add(parameter);
@@ -1913,7 +1886,7 @@ namespace Keysharp.Scripting
 							var declarator = fds.Declaration.Variables.First();
 							mainClassBody[i] = fds.ReplaceNode(
 								declarator.Initializer.Value,
-								SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+								PredefinedKeywords.NullLiteral
 							);
 							break;
 						}

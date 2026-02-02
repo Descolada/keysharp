@@ -27,10 +27,7 @@ namespace Keysharp.Scripting
             foreach (var child in context.children)
             {
                 if (child is PropertyNameContext)
-                    parts.Add(SyntaxFactory.LiteralExpression(
-                        SyntaxKind.StringLiteralExpression,
-                        SyntaxFactory.Literal(child.GetText().Trim())
-                    ));
+                    parts.Add(CreateStringLiteral(child.GetText().Trim()));
                 else
                     parts.Add((ExpressionSyntax)Visit(child));
             }
@@ -97,10 +94,7 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitPropertyName([NotNull] PropertyNameContext context)
         {
-            return SyntaxFactory.LiteralExpression(
-                        SyntaxKind.StringLiteralExpression,
-                        SyntaxFactory.Literal(context.GetText().Trim('"', ' '))
-                    );
+            return CreateStringLiteral(context.GetText().Trim('"', ' '));
         }
 
 		public override SyntaxNode VisitAccessExpression([NotNull] AccessExpressionContext context)
@@ -197,9 +191,9 @@ namespace Keysharp.Scripting
 					    SyntaxFactory.BinaryExpression(
 						    SyntaxKind.EqualsExpression,
 							targetExpression,
-						    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+						    PredefinedKeywords.NullLiteral
 					    ),
-					    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+					    PredefinedKeywords.NullLiteral,
 						parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName)
 					);
 				}
@@ -237,9 +231,9 @@ namespace Keysharp.Scripting
                     SyntaxFactory.BinaryExpression(
                         SyntaxKind.EqualsExpression,
                         targetExpression,
-                        SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+                        PredefinedKeywords.NullLiteral
                     ),
-                    SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+                    PredefinedKeywords.NullLiteral,
                     indexInvocation
                 );
             }
@@ -335,7 +329,7 @@ namespace Keysharp.Scripting
                 if (isComma)
                 {
                     if (lastWasComma)
-                        arguments.Add(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression));
+                        arguments.Add(PredefinedKeywords.NullLiteral);
 
                     goto ShouldVisitNextChild;
                 }
@@ -362,17 +356,15 @@ namespace Keysharp.Scripting
         }
         */
 
-		public ExpressionSyntax ConcatenateExpressions(List<ExpressionSyntax> expressions)
+		public ExpressionSyntax HandleConcatenateExpressionVisit([NotNull] ParserRuleContext left, ParserRuleContext right)
         {
-            ExpressionSyntax finalExpression = expressions[0];
-            if (expressions.Count == 1)
-                return finalExpression;
+			var leftExpr = (ExpressionSyntax)Visit(left);
+			var rightExpr = (ExpressionSyntax)Visit(right);
 
-            for (var i = 1; i < expressions.Count; i++)
-            {
-                finalExpression = CreateBinaryOperatorExpression(MainParser.Dot, finalExpression, expressions[i]);
-            }
-            return finalExpression;
+            if (TryFoldBinaryExpression(leftExpr, rightExpr, MainParser.Dot, out var folded))
+				return folded;
+
+            return CreateBinaryOperatorExpression(MainParser.Dot, leftExpr, rightExpr);
         }
 
         public override SyntaxNode VisitPreIncrementDecrementExpression([NotNull] PreIncrementDecrementExpressionContext context)
@@ -381,7 +373,7 @@ namespace Keysharp.Scripting
 			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.expression());
 			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPreIncrementDecrementExpressionDuplicate([NotNull] PreIncrementDecrementExpressionDuplicateContext context)
@@ -390,7 +382,7 @@ namespace Keysharp.Scripting
 			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
 			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
+			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpression([NotNull] PostIncrementDecrementExpressionContext context)
@@ -399,7 +391,7 @@ namespace Keysharp.Scripting
 			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.expression());
 			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpressionDuplicate([NotNull] PostIncrementDecrementExpressionDuplicateContext context)
@@ -408,7 +400,7 @@ namespace Keysharp.Scripting
 			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
 			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
+			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
 		public override SyntaxNode VisitPowerExpression([NotNull] PowerExpressionContext context)
@@ -433,7 +425,193 @@ namespace Keysharp.Scripting
 
 		public SyntaxNode HandleBinaryExpressionVisit([NotNull] ParserRuleContext left, ParserRuleContext right, int op)
         {
-            return CreateBinaryOperatorExpression(op, (ExpressionSyntax)Visit(left), (ExpressionSyntax)Visit(right));
+			var leftExpr = (ExpressionSyntax)Visit(left);
+			var rightExpr = (ExpressionSyntax)Visit(right);
+
+			if (TryFoldBinaryExpression(leftExpr, rightExpr, op, out var folded))
+				return folded;
+
+            return CreateBinaryOperatorExpression(op, leftExpr, rightExpr);
+		}
+
+		private static bool TryGetConcatLiteral(ExpressionSyntax expression, out object value)
+		{
+			value = null;
+
+			if (expression is not LiteralExpressionSyntax literal)
+				return false;
+
+			if (literal.IsKind(SyntaxKind.StringLiteralExpression))
+			{
+				value = literal.Token.Value as string ?? "";
+				return true;
+			}
+
+			if (literal.IsKind(SyntaxKind.TrueLiteralExpression))
+			{
+				value = true;
+				return true;
+			}
+
+			if (literal.IsKind(SyntaxKind.FalseLiteralExpression))
+			{
+				value = false;
+				return true;
+			}
+
+			if (literal.IsKind(SyntaxKind.NullLiteralExpression))
+			{
+				value = null;
+				return true;
+			}
+
+			if (literal.IsKind(SyntaxKind.NumericLiteralExpression))
+			{
+				value = literal.Token.Value;
+				return true;
+			}
+
+			return false;
+		}
+
+		private static bool TryGetNumericLiteral(ExpressionSyntax expression, out bool isDouble, out double dbl, out long lng)
+		{
+			isDouble = false;
+			dbl = 0.0;
+			lng = 0L;
+
+			if (expression is not LiteralExpressionSyntax literal)
+				return false;
+
+			if (literal.IsKind(SyntaxKind.TrueLiteralExpression))
+			{
+				lng = 1L;
+				return true;
+			}
+
+			if (literal.IsKind(SyntaxKind.FalseLiteralExpression))
+			{
+				lng = 0L;
+				return true;
+			}
+
+			if (!literal.IsKind(SyntaxKind.NumericLiteralExpression))
+				return false;
+
+			switch (literal.Token.Value)
+			{
+				case long l:
+					lng = l;
+					return true;
+				case double d:
+					isDouble = true;
+					dbl = d;
+					return true;
+			}
+
+			return false;
+		}
+
+		private static bool TryFoldBinaryExpression(ExpressionSyntax leftExpr, ExpressionSyntax rightExpr, int op, out ExpressionSyntax folded)
+		{
+			folded = null;
+
+			if (op == MainParser.Dot)
+			{
+				if (TryGetConcatLiteral(leftExpr, out var leftVal) &&
+					TryGetConcatLiteral(rightExpr, out var rightVal))
+				{
+					// Concat() errors if right is null; preserve runtime behavior.
+					if (rightVal == null)
+						return false;
+
+					var result = string.Concat(Script.ForceString(leftVal), Script.ForceString(rightVal));
+					folded = CreateStringLiteral(result);
+					return true;
+				}
+				return false;
+			}
+
+			if (!TryGetNumericLiteral(leftExpr, out var leftIsDouble, out var leftD, out var leftL) ||
+				!TryGetNumericLiteral(rightExpr, out var rightIsDouble, out var rightD, out var rightL))
+				return false;
+
+			var useDouble = leftIsDouble || rightIsDouble;
+
+			switch (op)
+			{
+				case MainParser.Plus:
+					folded = useDouble ? CreateNumericLiteral((leftIsDouble ? leftD : leftL) + (rightIsDouble ? rightD : rightL))
+						: CreateNumericLiteral(leftL + rightL);
+					return true;
+				case MainParser.Minus:
+					folded = useDouble ? CreateNumericLiteral((leftIsDouble ? leftD : leftL) - (rightIsDouble ? rightD : rightL))
+						: CreateNumericLiteral(leftL - rightL);
+					return true;
+				case MainParser.Multiply:
+					folded = useDouble ? CreateNumericLiteral((leftIsDouble ? leftD : leftL) * (rightIsDouble ? rightD : rightL))
+						: CreateNumericLiteral(leftL * rightL);
+					return true;
+				case MainParser.Divide:
+					if ((rightIsDouble ? rightD : rightL) == 0)
+						return false;
+					folded = CreateNumericLiteral((leftIsDouble ? leftD : leftL) / (rightIsDouble ? rightD : rightL));
+					return true;
+				case MainParser.IntegerDivide:
+					if (useDouble || rightL == 0)
+						return false;
+					folded = CreateNumericLiteral(leftL / rightL);
+					return true;
+				case MainParser.Modulus:
+					if ((rightIsDouble ? rightD : rightL) == 0)
+						return false;
+					folded = useDouble ? CreateNumericLiteral((leftIsDouble ? leftD : leftL) % (rightIsDouble ? rightD : rightL))
+						: CreateNumericLiteral(leftL % rightL);
+					return true;
+				case MainParser.Power:
+					folded = useDouble
+						? CreateNumericLiteral(Math.Pow(leftIsDouble ? leftD : leftL, rightIsDouble ? rightD : rightL))
+						: CreateNumericLiteral((long)Math.Pow(leftL, rightL));
+					return true;
+				case MainParser.LeftShiftArithmetic:
+					if (useDouble)
+						return false;
+					if (rightL < 0 || rightL > 63)
+						return false;
+					folded = CreateNumericLiteral(leftL << (int)rightL);
+					return true;
+				case MainParser.RightShiftArithmetic:
+					if (useDouble)
+						return false;
+					if (rightL < 0 || rightL > 63)
+						return false;
+					folded = CreateNumericLiteral(leftL >> (int)rightL);
+					return true;
+				case MainParser.RightShiftLogical:
+					if (useDouble)
+						return false;
+					if (rightL < 0 || rightL > 63)
+						return false;
+					folded = CreateNumericLiteral((long)((ulong)leftL >> (int)rightL));
+					return true;
+				case MainParser.BitAnd:
+					if (useDouble)
+						return false;
+					folded = CreateNumericLiteral(leftL & rightL);
+					return true;
+				case MainParser.BitOr:
+					if (useDouble)
+						return false;
+					folded = CreateNumericLiteral(leftL | rightL);
+					return true;
+				case MainParser.BitXOr:
+					if (useDouble)
+						return false;
+					folded = CreateNumericLiteral(leftL ^ rightL);
+					return true;
+			}
+
+			return false;
 		}
 
         public SyntaxNode HandlePureBinaryExpressionVisit([NotNull] ParserRuleContext context)
@@ -508,22 +686,12 @@ namespace Keysharp.Scripting
 
 		public override SyntaxNode VisitConcatenateExpression([NotNull] ConcatenateExpressionContext context)
         {
-            var arguments = new List<ExpressionSyntax> {
-                (ExpressionSyntax)Visit(context.left),
-                (ExpressionSyntax)Visit(context.right)
-            };
-
-            return ConcatenateExpressions(arguments);
+            return HandleConcatenateExpressionVisit(context.left, context.right);
         }
 
 		public override SyntaxNode VisitConcatenateExpressionDuplicate([NotNull] ConcatenateExpressionDuplicateContext context)
 		{
-			var arguments = new List<ExpressionSyntax> {
-				(ExpressionSyntax)Visit(context.left),
-				(ExpressionSyntax)Visit(context.right)
-			};
-
-			return ConcatenateExpressions(arguments);
+			return HandleConcatenateExpressionVisit(context.left, context.right);
 		}
 
 		public override SyntaxNode VisitRegExMatchExpression([NotNull] RegExMatchExpressionContext context)
@@ -585,15 +753,12 @@ namespace Keysharp.Scripting
 						var nullComparison = SyntaxFactory.BinaryExpression(
 							SyntaxKind.EqualsExpression,
 							leftExpression,
-							SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+							PredefinedKeywords.NullLiteral
 						);
 						return nullComparison;
 					}
 
-					var classAsString = SyntaxFactory.LiteralExpression(
-						SyntaxKind.StringLiteralExpression,
-						SyntaxFactory.Literal(classAsRawString) // Convert class to its string representation
-					);
+					var classAsString = CreateStringLiteral(classAsRawString);
 
 					return CreateBinaryOperatorExpression(
 						MainLexer.Is,
@@ -824,12 +989,9 @@ namespace Keysharp.Scripting
                                 ),
                                 ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
                                     .WithArgumentList(
-										CreateArgumentList(
+                                        CreateArgumentList(
                                             leftExpression,
-                                            SyntaxFactory.LiteralExpression(
-                                                SyntaxKind.StringLiteralExpression,
-                                                SyntaxFactory.Literal("__Value")
-                                            ),
+                                            CreateStringLiteral("__Value"),
                                             rightExpression
                                         )
                                     )
@@ -924,10 +1086,7 @@ namespace Keysharp.Scripting
                     CreateMemberAccess("Keysharp.Scripting.Script", "SetPropertyValue"),
 					CreateArgumentList(
                         memberAccess.Expression,
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                            SyntaxFactory.Literal(memberAccess.Name.Identifier.Text)
-                        ),
+                        CreateStringLiteral(memberAccess.Name.Identifier.Text),
                         rightExpression
                     )
                 );
@@ -939,10 +1098,7 @@ namespace Keysharp.Scripting
 					CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
 					CreateArgumentList(
                         memberAccess.Expression,
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                            SyntaxFactory.Literal(memberAccess.Name.Identifier.Text)
-                        )
+                        CreateStringLiteral(memberAccess.Name.Identifier.Text)
                     )
                 );
 
@@ -964,10 +1120,7 @@ namespace Keysharp.Scripting
 					CreateMemberAccess("Keysharp.Scripting.Script", "GetPropertyValue"),
 					CreateArgumentList(
                         memberAccess.Expression,
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                            SyntaxFactory.Literal(memberAccess.Name.Identifier.Text)
-                        )
+                        CreateStringLiteral(memberAccess.Name.Identifier.Text)
                     )
                 ),
                 rightExpression
@@ -1456,7 +1609,7 @@ namespace Keysharp.Scripting
             // Simple identifier should be converted to string literal
             if (memberExpression is IdentifierNameSyntax memberIdentifierName)
             {
-                memberExpression = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(memberIdentifierName.Identifier.Text));
+                memberExpression = CreateStringLiteral(memberIdentifierName.Identifier.Text);
             }
             // Keysharp.Scripting.Script.Vars[expression] should extract expression
             else if (memberExpression is ElementAccessExpressionSyntax memberElementAccess)
@@ -1490,10 +1643,7 @@ namespace Keysharp.Scripting
 								    memberExpression
 							    )
 						    ),
-						    SyntaxFactory.LiteralExpression(
-							    SyntaxKind.StringLiteralExpression,
-							    SyntaxFactory.Literal("__Item")
-						    )
+						    CreateStringLiteral("__Item")
 						)
 					);
 				}

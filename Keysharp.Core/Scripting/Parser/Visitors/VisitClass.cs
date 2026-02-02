@@ -257,14 +257,14 @@ namespace Keysharp.Scripting
                 ExpressionSyntax targetExpression = null;
 
 				if (fieldDefinition.propertyName().Length == 1)
-					targetExpression = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(fieldDefinition.propertyName(0).GetText()));
+					targetExpression = CreateStringLiteral(fieldDefinition.propertyName(0).GetText());
                 else
                 {
                     for (int i = 0; i < (fieldDefinition.propertyName().Length - 1); i++)
                     {
-                        baseExpression = GenerateGetPropertyValue(baseExpression, SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(fieldDefinition.propertyName(i).GetText())));
+                        baseExpression = GenerateGetPropertyValue(baseExpression, CreateStringLiteral(fieldDefinition.propertyName(i).GetText()));
 					}
-					targetExpression = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(fieldDefinition.propertyName(fieldDefinition.propertyName().Length - 1).GetText()));
+					targetExpression = CreateStringLiteral(fieldDefinition.propertyName(fieldDefinition.propertyName().Length - 1).GetText());
 				}
 
                 if (fieldDefinition.expression() != null)
@@ -383,10 +383,7 @@ namespace Keysharp.Scripting
                         .WithArgumentList(
 							CreateArgumentList(
                                 parser.CreateSuperTuple(),
-                                SyntaxFactory.LiteralExpression(
-                                    SyntaxKind.StringLiteralExpression,
-                                    SyntaxFactory.Literal("__Init")
-                                )
+                                CreateStringLiteral("__Init")
                             )
                         )
                     )

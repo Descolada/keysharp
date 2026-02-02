@@ -54,7 +54,7 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		internal IdentifierInfo GetIdentifierInfo(string raw)
+		internal IdentifierInfo GetIdentifierInfo(string raw, bool onlyContextIndependent = false)
 		{
 			if (raw == null)
 				raw = string.Empty;
@@ -62,17 +62,17 @@ namespace Keysharp.Scripting
 			var trimmed = raw.Trim('"', '\'');
 			var isNullIdentifier = trimmed.Equals("null", StringComparison.OrdinalIgnoreCase);
 
-			if (!isNullIdentifier && identifierInfoCache.TryGetValue(raw, out var cached))
+			if (!onlyContextIndependent && !isNullIdentifier && identifierInfoCache.TryGetValue(raw, out var cached))
 				return cached;
 
 			var baseLower = ComputeIdentifierBaseLower(trimmed);
-			var normalizedLower = ToValidIdentifier(trimmed.ToLowerInvariant());
+			var normalizedLower = onlyContextIndependent ? baseLower : ToValidIdentifier(trimmed.ToLowerInvariant());
 			var normalizedTitle = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(trimmed);
 			var normalizedUpper = trimmed.ToUpperInvariant();
 
 			var info = new IdentifierInfo(raw, trimmed, baseLower, normalizedLower, normalizedTitle, normalizedUpper);
 
-			if (!isNullIdentifier)
+			if (!onlyContextIndependent && !isNullIdentifier)
 				identifierInfoCache[raw] = info;
 
 			return info;
@@ -1655,8 +1655,8 @@ namespace Keysharp.Scripting
 
 		internal string MakeStaticLocalFieldName(string funcLower, string varLower)
 		{
-			funcLower = GetIdentifierInfo(funcLower).BaseLower;
-			varLower = GetIdentifierInfo(varLower).BaseLower;
+			funcLower = GetIdentifierInfo(funcLower, true).BaseLower;
+			varLower = GetIdentifierInfo(varLower, true).BaseLower;
 
 			// Use invariant decimal lengths; underscores separate function and variable names.
 			return ToValidIdentifier($"{Keywords.StaticLocalFieldPrefix}{funcLower.Length}_{funcLower}_{varLower}");

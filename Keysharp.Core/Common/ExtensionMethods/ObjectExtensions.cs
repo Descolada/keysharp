@@ -294,6 +294,11 @@
 				outvar = l;
 				return true;
 			}
+			else if (obj is bool b)
+			{
+				outvar = b ? 1L : 0L;
+				return true;
+			}
 
 			if (obj is BoolResult br)
 				return br.o.ParseLong(out outvar);

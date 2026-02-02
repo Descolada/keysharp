@@ -771,7 +771,6 @@
 		{
 			get
 			{
-				return false;
 				var path = Path.GetFileName(
 #if WINDOWS
 					Application.ExecutablePath

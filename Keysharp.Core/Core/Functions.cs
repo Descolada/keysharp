@@ -52,6 +52,11 @@
 							key,
 							(k) => new FuncObj(s, moduleType, paramCount)
 						);
+						if (!del.IsValid)
+						{
+							// Fall back to global/built-in functions when the module doesn't define the method.
+							del = cachedFuncObj.GetOrAdd(s, (key) => new FuncObj(s, (object)null, paramCount));
+						}
 					}
 					else if (eventObj != null)
 					{

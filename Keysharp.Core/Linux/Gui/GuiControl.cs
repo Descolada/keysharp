@@ -339,8 +339,29 @@ namespace Keysharp.Core
 				if (wrap)//Just a holder for the controls in the main window.
 					return DefaultObject;
 
-				_control.MouseDown += _control_Click;
-				_control.MouseDoubleClick += _control_DoubleClick;
+				if (_control is Forms.Button btn)
+					btn.Click += _control_Click;
+				else if (_control is KeysharpRadioButton rb)
+					rb.Click += _control_Click;
+				else if (_control is LinkButton link)
+					link.Click += _control_Click;
+				else if (_control is ICommandItem ti)
+					ti.Click += _control_Click;
+				else if (_control is TabControl tc)
+				{
+					foreach (var tp in tc.Pages)
+						tp.Click += _control_Click;
+				}
+				else
+					_control.MouseDown += _control_Click;
+
+				// Do not hook TabControl mouse-down to the generic click handler; on GTK/Eto it swallows
+				// child clicks (e.g. DateTimePicker drop-downs) when the control sits inside a tab.
+				if (_control is not KeysharpTabControl)
+				{
+					_control.MouseDown += _control_MouseDown;
+					_control.MouseDoubleClick += _control_DoubleClick;
+				}
 
 				if (_control is KeysharpTreeView tv)
 				{
@@ -400,7 +421,6 @@ namespace Keysharp.Core
 				_control.GotFocus += _control_GotFocus;
 				_control.LostFocus += _control_LostFocus;
 				_control.KeyDown += _control_KeyDown;
-				_control.MouseDown += _control_MouseDown;
 
 				return DefaultObject;
 			}
@@ -539,11 +559,16 @@ namespace Keysharp.Core
 							obj = arr.array.ToArray();
 
 						if (_control is KeysharpListBox lb)//Using AddRange() relieves the caller of having to set -Redraw first.
-							lb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()).ToArray());
+							lb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()));
 						else if (_control is KeysharpComboBox cb)
-							cb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()).ToArray());
-						else if (_control is KeysharpTabControl tc)
-							tc.TabPages.AddRange(obj.Cast<object>().Select(x => new TabPage(x.Str())).ToArray());
+							cb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()));
+						else if (_control is KeysharpTabControl tc) 
+						{
+							var pages = obj.Cast<object>().Select(x => new TabPage(x.Str()));
+							foreach (var page in pages)
+								page.Click += _control_Click;
+							tc.TabPages.AddRange(pages);
+						}
 					}
 				}
 				finally
@@ -1944,18 +1969,6 @@ namespace Keysharp.Core
 
 			internal void _control_MouseDown(object sender, MouseEventArgs e)
 			{
-				if (_control is TextArea && e.Buttons == MouseButtons.Primary && !_control.HasFocus)
-				{
-					for (var parent = _control.Parent; parent != null; parent = parent.Parent)
-					{
-						if (parent is KeysharpTabControl)
-						{
-							Forms.Application.Instance.InvokeAsync(() => _control.Focus());
-							break;
-						}
-					}
-				}
-
 				if (eventHandlerActive && e.Buttons == MouseButtons.Alternate)
 				{
 					var screenPt = _control.PointToScreen(e.Location);

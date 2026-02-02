@@ -6,6 +6,7 @@
 /Keysharp.Tests/obj
 /.vs/Keysharp
 /bin
+/dist
 /Keysharp/bin
 /Keysharp/obj
 /Keysharp.Core/bin

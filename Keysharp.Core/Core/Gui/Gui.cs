@@ -1699,14 +1699,16 @@
 					else if (ctrl is KeysharpListView || ctrl is KeysharpTreeView || (ctrl is KeysharpProgressBar kpb2 && ((kpb2.AddStyle & 0x04) == 0x04)))
 						r = 5;
 					else if (ctrl is KeysharpProgressBar)
+#if WINDOWS
 						r = 2;
+#else
+						r = 1;
+#endif
 					else if (ctrl is KeysharpGroupBox)
 						r = 2;
 					else if (ctrl is KeysharpTextBox tb)
 						r = tb.Multiline ? 3 : 1;
-					else if (ctrl is KeysharpPasswordBox)
-						r = 1;
-					else if (ctrl is KeysharpDateTimePicker || ctrl is HotkeyBox || ctrl is KeysharpProgressBar)
+					else if (ctrl is KeysharpPasswordBox || ctrl is KeysharpDateTimePicker || ctrl is HotkeyBox)
 						r = 1;
 					else if (ctrl is TabPage || ctrl is KeysharpTabControl)
 						r = 10;

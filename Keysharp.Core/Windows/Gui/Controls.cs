@@ -1119,8 +1119,10 @@ namespace Keysharp.Core
 			addExStyle = _addExStyle;
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
+#if WINDOWS
 			Click += KeysharpTabControl_Click;
 			Enter += KeysharpTabControl_Enter;
+#endif
 			ControlAdded += KeysharpTabControl_ControlAdded;
 			//SetStyle(ControlStyles.UserPaint, true);
 			//SetStyle(ControlStyles.AllPaintingInWmPaint, true);
@@ -1209,21 +1211,21 @@ namespace Keysharp.Core
 				base.WndProc(ref m);
 		}
 
-#endif
-
 		/// <summary>
 		/// Focusing gets rid of the unsightly dotted selection box on the tab.
 		/// It may still show for a half second when donig custom drawing with bgcolor.
 		/// </summary>
 		private void KeysharpTabControl_Click(object sender, EventArgs e) => _ = SelectedTab.Focus();
 
+		private void KeysharpTabControl_Enter(object sender, EventArgs e) => _ = SelectedTab.Focus();
+
+#endif
+		
 		private void KeysharpTabControl_ControlAdded(object sender, ControlEventArgs e)
 		{
 			if (bgcolor.HasValue && e.Control is TabPage tp)
 				tp.BackColor = bgcolor.Value;
 		}
-
-		private void KeysharpTabControl_Enter(object sender, EventArgs e) => _ = SelectedTab.Focus();
 	}
 
 	public class KeysharpToolStripStatusLabel : ToolStripStatusLabel

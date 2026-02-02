@@ -697,7 +697,11 @@ namespace Keysharp.Core
 				if (outArgs != null) Script.SetPropertyValue(outArgs, "__Value", null);
 				if (outDescription != null) Script.SetPropertyValue(outDescription, "__Value", null);
 				if (outIcon != null) Script.SetPropertyValue(outIcon, "__Value", null);
+#if WINDOWS
 				if (outIconNum != null) Script.SetPropertyValue(outIconNum, "__Value", null);
+#else
+				if (outType != null) Script.SetPropertyValue(outType, "__Value", null);
+#endif
 				if (outRunState != null) Script.SetPropertyValue(outRunState, "__Value", null);
 				return Errors.OSErrorOccurred(ex, $"Error getting shortcut information for {linkFile}");
 			}

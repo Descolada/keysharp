@@ -92,6 +92,7 @@ namespace Keysharp.Scripting
 		internal string thisHotkeyName, priorHotkeyName;
 		internal DateTime thisHotkeyStartTime;
 		internal ThreadLocal<Threads> threads;
+		internal readonly ThreadLocal<ModuleData> moduleData = new ();
 		internal DateTime timeLastInputKeyboard;
 		internal DateTime timeLastInputMouse;
 		internal DateTime timeLastInputPhysical = DateTime.UtcNow;
@@ -486,6 +487,41 @@ namespace Keysharp.Scripting
 			return string.Join(' ', hs);
 		}
 
+		public ModuleData ModuleData
+		{
+			get
+			{
+				if (moduleData.Value == null)
+				{
+					var defaultType = Vars?.DefaultModuleType;
+					if (defaultType != null)
+						moduleData.Value = ModuleData.GetOrCreate(defaultType);
+				}
+
+				return moduleData.Value;
+			}
+		}
+
+		public Type CurrentModuleType
+		{
+			get => ModuleData?.ModuleType;
+			set
+			{
+				if (value == null)
+				{
+					moduleData.Value = null;
+					return;
+				}
+				else if (ModuleData?.ModuleType == value)
+					return;
+
+				if (!typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(value))
+					return;
+
+				moduleData.Value = ModuleData.GetOrCreate(value);
+			}
+		}
+
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
 			mainWindow = new MainWindow();
@@ -869,7 +905,7 @@ namespace Keysharp.Scripting
 			if (Clipboard.Instance.ContainsText)
 #endif
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(1));//Can't use foreach because the collection could be modified by the event.
-			else if (!KeysharpEnhancements.IsClipboardEmpty())
+			else if (!Ks.IsClipboardEmpty())
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(2));
 			else
 				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(0));

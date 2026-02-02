@@ -1,3 +1,5 @@
+import * from Ks
+
 #Hotstring NoMouse
 
 if (A_DefaultHotstringNoMouse)

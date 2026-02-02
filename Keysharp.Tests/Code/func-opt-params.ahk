@@ -170,9 +170,9 @@ class optfuncclass
 	f3(a, b, c?)
 	{
 		global
-		program.ga := a
-		program.gb := b
-		program.gc := c
+		ga := a
+		gb := b
+		gc := c
 		return c
 	}
 }

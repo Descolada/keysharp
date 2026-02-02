@@ -1,0 +1,1 @@
+export Success() => FileAppend("pass", "*")

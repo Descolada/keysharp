@@ -4,8 +4,9 @@ using Antlr4.Runtime.Misc;
 using Keysharp.Core.Scripting.Parser.Helpers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Emit;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
 namespace Keysharp.Scripting
 {
@@ -180,26 +181,108 @@ namespace Keysharp.Scripting
         public CompilationUnitSyntax compilationUnit;
         public NamespaceDeclarationSyntax namespaceDeclaration;
         public Class mainClass;
-        public List<MemberDeclarationSyntax> declaredTopLevelClasses = new();
-        public Function autoExecFunc;
-        public Function currentFunc;
+		public Function mainEntryFunc;
         public SeparatedSyntaxList<AttributeSyntax> assemblies = new();
-        public List<StatementSyntax> DHHR = new(); // positional directives, hotkeys, hotstrings, remaps
-		public uint hotIfCount = 0;
-        public uint hotkeyCount = 0;
-        public uint hotstringCount = 0;
-        public bool isHotkeyDefinition = false;
+		public Dictionary<string, Module> Modules = new(StringComparer.OrdinalIgnoreCase);
+		public Module currentModule;
+		internal bool isPrepass;
+		internal bool isFirstModulePass;
+		internal bool isFinalModulePass;
+		internal bool isMultiModuleParse;
+		internal bool isAssignmentTarget;
+		internal List<List<StatementSyntax>> moduleAutoExecBodies = new();
+		internal List<MemberDeclarationSyntax> allDeclaredTopLevelClasses = new();
+		internal List<string> moduleParseOrder = new();
 
         internal PreReader reader;
 
-        public Stack<(Function, HashSet<string>)> FunctionStack = new();
-		public Stack<Class> ClassStack = new();
-        public Stack<Loop> LoopStack = new();
+		public List<MemberDeclarationSyntax> declaredTopLevelClasses
+		{
+			get => currentModule.DeclaredTopLevelClasses;
+			set => currentModule.DeclaredTopLevelClasses = value;
+		}
 
-        public Class currentClass;
+		public Function autoExecFunc
+		{
+			get => currentModule.AutoExecFunc;
+			set => currentModule.AutoExecFunc = value;
+		}
 
-        public HashSet<string> globalVars = [];
-        public HashSet<string> accessibleVars = [];
+		public Function currentFunc
+		{
+			get => currentModule.CurrentFunc;
+			set => currentModule.CurrentFunc = value;
+		}
+
+		public List<StatementSyntax> DHHR
+		{
+			get => currentModule.DHHR;
+			set => currentModule.DHHR = value;
+		}
+
+		internal Class GlobalClass => currentModule?.ModuleClass ?? mainClass;
+		internal bool IsTopLevelContainerClass(Class cls) =>
+			cls == mainClass || cls == currentModule?.ModuleClass;
+
+		public uint hotIfCount
+		{
+			get => currentModule.HotIfCount;
+			set => currentModule.HotIfCount = value;
+		}
+
+		public uint hotkeyCount
+		{
+			get => currentModule.HotkeyCount;
+			set => currentModule.HotkeyCount = value;
+		}
+
+		public uint hotstringCount
+		{
+			get => currentModule.HotstringCount;
+			set => currentModule.HotstringCount = value;
+		}
+
+		public bool isHotkeyDefinition
+		{
+			get => currentModule.IsHotkeyDefinition;
+			set => currentModule.IsHotkeyDefinition = value;
+		}
+
+		public Stack<(Function, HashSet<string>)> FunctionStack
+		{
+			get => currentModule.FunctionStack;
+			set => currentModule.FunctionStack = value;
+		}
+
+		public Stack<Class> ClassStack
+		{
+			get => currentModule.ClassStack;
+			set => currentModule.ClassStack = value;
+		}
+
+		public Stack<Loop> LoopStack
+		{
+			get => currentModule.LoopStack;
+			set => currentModule.LoopStack = value;
+		}
+
+		public Class currentClass
+		{
+			get => currentModule.CurrentClass;
+			set => currentModule.CurrentClass = value;
+		}
+
+		public HashSet<string> globalVars
+		{
+			get => currentModule.GlobalVars;
+			set => currentModule.GlobalVars = value;
+		}
+
+		public HashSet<string> accessibleVars
+		{
+			get => currentModule.AccessibleVars;
+			set => currentModule.AccessibleVars = value;
+		}
 
         public static Dictionary<string, Type> _builtinTypes = null;
 		public static Dictionary<string, Type> BuiltinTopLevelTypes
@@ -219,17 +302,59 @@ namespace Keysharp.Scripting
 				return _builtinTypes;
 			}
         }
-        public Dictionary<string, string> AllTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        public Dictionary<string, string> UserTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        public HashSet<string> UserFuncs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> AllTypes
+		{
+			get => currentModule.AllTypes;
+			set => currentModule.AllTypes = value;
+		}
 
-        public uint loopDepth = 0;
-        public uint functionDepth = 0;
-		public uint classDepth = 0;
-        public uint tryDepth = 0;
-        public uint tempVarCount = 0;
+		public Dictionary<string, string> UserTypes
+		{
+			get => currentModule.UserTypes;
+			set => currentModule.UserTypes = value;
+		}
 
-		public uint lambdaCount = 0;
+		public HashSet<string> UserFuncs
+		{
+			get => currentModule.UserFuncs;
+			set => currentModule.UserFuncs = value;
+		}
+
+		public uint loopDepth
+		{
+			get => currentModule.LoopDepth;
+			set => currentModule.LoopDepth = value;
+		}
+
+		public uint functionDepth
+		{
+			get => currentModule.FunctionDepth;
+			set => currentModule.FunctionDepth = value;
+		}
+
+		public uint classDepth
+		{
+			get => currentModule.ClassDepth;
+			set => currentModule.ClassDepth = value;
+		}
+
+		public uint tryDepth
+		{
+			get => currentModule.TryDepth;
+			set => currentModule.TryDepth = value;
+		}
+
+		public uint tempVarCount
+		{
+			get => currentModule.TempVarCount;
+			set => currentModule.TempVarCount = value;
+		}
+
+		public uint lambdaCount
+		{
+			get => currentModule.LambdaCount;
+			set => currentModule.LambdaCount = value;
+		}
 
         public const string LoopEnumeratorBaseName = InternalPrefix + "e";
 
@@ -308,9 +433,12 @@ namespace Keysharp.Scripting
 		}
 		public class Function
         {
+			public Class Class = null;
+			public Function Parent = null;
 			public MethodDeclarationSyntax Method = null;
             public string Name = null;
-			public string UserDeclaredName = null;
+			public string UserDeclaredName = null; // Original name as declared by the user (before any mangling)
+			public string ImplMethodName = null; // Name of the generated method that implements this function
 			public List<StatementSyntax> Body = new();
             public List<ParameterSyntax> Params = new();
 			public List<AttributeSyntax> Attributes = new();
@@ -329,19 +457,21 @@ namespace Keysharp.Scripting
 
             public bool HasDerefs = false;
 
-            public Function(string name, TypeSyntax returnType = null)
-            {
-                if (string.IsNullOrWhiteSpace(name))
-                    throw new ArgumentException("Name cannot be null or empty.", nameof(name));
+			public Function(string normalizedNameLower, string userDeclaredName, string emittedMethodName, TypeSyntax returnType = null)
+			{
+				if (string.IsNullOrWhiteSpace(normalizedNameLower))
+					throw new ArgumentException(nameof(normalizedNameLower));
+				if (string.IsNullOrWhiteSpace(emittedMethodName))
+					throw new ArgumentException(nameof(emittedMethodName));
 
-                if (returnType == null)
-                    returnType = SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object);
-
-                Name = name;
-                Method = SyntaxFactory.MethodDeclaration(returnType, name);
+				Name = normalizedNameLower;          // semantic name (for lookups)
+				UserDeclaredName = userDeclaredName; // original spelling
+				ImplMethodName = emittedMethodName;  // emitted method name
+				Method = SyntaxFactory.MethodDeclaration(returnType ?? SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+														emittedMethodName);
 			}
 
-            public BlockSyntax AssembleBody()
+			public BlockSyntax AssembleBody()
             {
                 var statements = Locals.Values.ToList();
 
@@ -358,8 +488,23 @@ namespace Keysharp.Scripting
                             )
                         )
                     );
+					arguments.Add(
+						SyntaxFactory.Argument(
+							SyntaxFactory.LiteralExpression(
+								SyntaxKind.StringLiteralExpression,
+								SyntaxFactory.Literal(Name)
+							)
+						)
+					);
+					arguments.Add(
+						SyntaxFactory.Argument(
+							SyntaxFactory.TypeOfExpression(
+								SyntaxFactory.IdentifierName(Class?.Name ?? Keywords.MainClassName)
+							)
+						)
+					);
 
-                    if (Globals.Count == 0)
+					if (Globals.Count == 0)
                         arguments.Add(SyntaxFactory.Argument(SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)));
                     else
                     {
@@ -391,6 +536,7 @@ namespace Keysharp.Scripting
                     }
 
                     foreach (string localName in Locals.Keys) {
+						if (Variables.IsSpecialName(localName)) continue;
                         arguments.Add(
                             SyntaxFactory.Argument(
                                 SyntaxFactory.LiteralExpression(
@@ -403,24 +549,6 @@ namespace Keysharp.Scripting
                         arguments.Add(
                             SyntaxFactory.Argument(
                                 Parser.ConstructVarRefFromIdentifier(localName)
-                            )
-                        );
-                    }
-
-                    foreach (string staticName in Statics)
-                    {
-                        arguments.Add(
-                            SyntaxFactory.Argument(
-                                SyntaxFactory.LiteralExpression(
-                                    SyntaxKind.StringLiteralExpression,
-                                    SyntaxFactory.Literal(staticName.Substring(Name.Length + 1))
-                                )
-                            )
-                        );
-
-                        arguments.Add(
-                            SyntaxFactory.Argument(
-                                Parser.ConstructVarRefFromIdentifier(staticName)
                             )
                         );
                     }
@@ -479,7 +607,7 @@ namespace Keysharp.Scripting
 
                 Method = Method.WithModifiers(modifiers.Count == 0 ? default : SyntaxFactory.TokenList(modifiers));
 
-                if (UserDeclaredName != null && UserDeclaredName != Name)
+                if (UserDeclaredName != null && UserDeclaredName != ImplMethodName)
                 {
                     var value = SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(UserDeclaredName));
                     var nameAttr = SyntaxFactory.Attribute(
@@ -513,6 +641,41 @@ namespace Keysharp.Scripting
         public Parser(CompilerHelper ch)
 		{
 			Ch = ch;
+			currentModule = GetOrCreateModule(Keywords.MainModuleName);
+		}
+
+		internal Module GetOrCreateModule(string moduleName)
+		{
+			if (string.IsNullOrWhiteSpace(moduleName))
+				throw new ArgumentException("Module name cannot be null or whitespace.", nameof(moduleName));
+
+			if (!Modules.TryGetValue(moduleName, out var module))
+			{
+				module = new Module(moduleName);
+				Modules[moduleName] = module;
+			}
+
+			EnsureModuleClass(module);
+
+			return module;
+		}
+
+		private void EnsureModuleClass(Module module)
+		{
+			if (module.ModuleClass != null)
+				return;
+
+			var moduleClassName = NormalizeIdentifier(module.Name, eNameCase.Title).TrimStart('@');
+			module.ModuleClassName = moduleClassName;
+
+			var moduleClass = new Class(moduleClassName, "Module");
+			var modifiers = new List<SyntaxKind> { SyntaxKind.PublicKeyword, SyntaxKind.StaticKeyword };
+			module.ModuleClass = moduleClass;
+		}
+
+		internal void SwitchModule(string moduleName)
+		{
+			currentModule = GetOrCreateModule(moduleName);
 		}
 
         public static bool IsTypeOrBase(Type t1, string t2)
@@ -541,48 +704,81 @@ namespace Keysharp.Scripting
             reader = new PreReader(this);
 
 			fileName = name;
-            codeTokens = reader.ReadTokens(codeStream, name);
+            var moduleTokens = reader.ReadScriptTokens(codeStream, name);
+			codeTokens.Clear();
+			moduleAutoExecBodies.Clear();
+			allDeclaredTopLevelClasses.Clear();
+			moduleParseOrder = moduleTokens.ModuleOrder.ToList();
+			isMultiModuleParse = moduleParseOrder.Count > 1;
 
             codeStream.Close();
 
-			var codeTokenSource = new ListTokenSource(codeTokens);
-            var codeTokenStream = new CommonTokenStream(codeTokenSource);
+			VisitMain visitor = new VisitMain(this);
+			SyntaxNode compilationUnit = null;
+			var parsedPrograms = new Dictionary<string, MainParser.ProgramContext>(StringComparer.OrdinalIgnoreCase);
 
-            /*
-            foreach (var token in codeTokens)
-            {
-                Debug.WriteLine($"Token: {mainLexer.Vocabulary.GetSymbolicName(token.Type)}, Text: '{token.Text}'");
-            }
-			*/
+			isPrepass = true;
+			for (var i = 0; i < moduleParseOrder.Count; i++)
+			{
+				var moduleName = moduleParseOrder[i];
+				SwitchModule(moduleName);
 
-            MainParser mainParser = new MainParser(codeTokenStream);
+				if (!moduleTokens.TokensByModule.TryGetValue(moduleName, out var moduleCodeTokens))
+					continue;
 
-            //mainParser.EnableProfiling();
+				codeTokens = moduleCodeTokens;
 
-            //mainParser.Trace = true;
-            //var listener = new TraceListener();
-            //mainParser.AddParseListener(listener);
+				/*
+				foreach (var token in codeTokens)
+				{
+					Debug.WriteLine($"Token: {mainLexer.Vocabulary.GetSymbolicName(token.Type)}, Text: '{token.Text}'");
+				}
+				*/
 
-            //mainParser.ErrorHandler = new BailErrorStrategy();
-            //mainParser.AddErrorListener(new DiagnosticErrorListener());
-            //mainParser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
+				var codeTokenSource = new ListTokenSource(codeTokens);
+				var codeTokenStream = new CommonTokenStream(codeTokenSource);
+				MainParser mainParser = new MainParser(codeTokenStream);
 
-            //var profilingATNSimulator = new ProfilingATNSimulator(mainParser);
+				//mainParser.EnableProfiling();
 
-			MainParser.ProgramContext programContext = mainParser.program();
+				//mainParser.Trace = true;
+				//var listener = new TraceListener();
+				//mainParser.AddParseListener(listener);
 
-            //ProfileParser(mainParser);
-            //Console.WriteLine("End");
+				//mainParser.ErrorHandler = new BailErrorStrategy();
+				//mainParser.AddErrorListener(new DiagnosticErrorListener());
+				//mainParser.Interpreter.PredictionMode = PredictionMode.LL_EXACT_AMBIG_DETECTION;
 
-            VisitMain visitor = new VisitMain(this);
+				//var profilingATNSimulator = new ProfilingATNSimulator(mainParser);
 
-            //var profilingATNSimulator = new ProfilingATNSimulator(mainParser);
+				MainParser.ProgramContext programContext = mainParser.program();
 
-            SyntaxNode compilationUnit = visitor.Visit(programContext);
+				//ProfileParser(mainParser);
+				//Console.WriteLine("End");
+				//var decisionInfo = profilingATNSimulator.getDecisionInfo();
 
-            //var decisionInfo = profilingATNSimulator.getDecisionInfo();
+				parsedPrograms[moduleName] = programContext;
+				visitor.PrepassCollect(programContext);
 
-            mainParser.RemoveErrorListeners();
+				//mainParser.RemoveErrorListeners();
+			}
+			isPrepass = false;
+
+			visitor.EmitModuleImports();
+
+			for (var i = 0; i < moduleParseOrder.Count; i++)
+			{
+				var moduleName = moduleParseOrder[i];
+				SwitchModule(moduleName);
+
+				isFirstModulePass = i == 0;
+				isFinalModulePass = i == moduleParseOrder.Count - 1;
+
+				if (parsedPrograms.TryGetValue(moduleName, out var programContext))
+				{
+					compilationUnit = visitor.Visit(programContext);
+				}
+			}
 
 			return (T)(object)compilationUnit;
 		}

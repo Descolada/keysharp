@@ -3,7 +3,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// Public interface for network-related functions.
 	/// </summary>
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Sends an email.

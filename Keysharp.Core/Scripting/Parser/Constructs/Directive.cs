@@ -8,6 +8,13 @@ namespace Keysharp.Scripting
 		public AssemblyBuildVersionAttribute(string v) => Version = v;
 	}
 
+	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class, Inherited = false)]
+	public sealed class Export : Attribute
+	{
+		public Export()
+		{ }
+	}
+
 	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Interface, Inherited = false)]
 	public sealed class PublicHiddenFromUser : Attribute
 	{

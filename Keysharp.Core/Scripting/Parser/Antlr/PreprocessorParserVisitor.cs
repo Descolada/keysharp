@@ -30,7 +30,7 @@ using IToken = Antlr4.Runtime.IToken;
 /// <typeparam name="Result">The return type of the visit operation.</typeparam>
 [System.CodeDom.Compiler.GeneratedCode("ANTLR", "4.13.1")]
 [System.CLSCompliant(false)]
-internal interface IPreprocessorParserVisitor<Result> : IParseTreeVisitor<Result> {
+public interface IPreprocessorParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <summary>
 	/// Visit a parse tree produced by the <c>preprocessorDeclaration</c>
 	/// labeled alternative in <see cref="PreprocessorParser.preprocessor_directive"/>.

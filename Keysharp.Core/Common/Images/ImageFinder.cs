@@ -149,7 +149,7 @@
 				}
 				catch (Exception ex)
 				{
-					_ = KeysharpEnhancements.OutputDebugLine(ex.Message);
+					_ = Ks.OutputDebugLine(ex.Message);
 				}
 				finally
 				{

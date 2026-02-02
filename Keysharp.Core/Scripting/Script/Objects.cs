@@ -21,6 +21,7 @@ namespace Keysharp.Scripting
 			proto.type = typeof(Prototype); proto.isPrototype = true; proto.InitializePrivates();
 			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(actual);
 			staticInst.type = typeof(Class); staticInst.InitializePrivates();
+			var isModuleType = typeof(Module).IsAssignableFrom(t);
 
 			store.Statics.AddLazy(t, () =>
 			{
@@ -36,7 +37,23 @@ namespace Keysharp.Scripting
 				store.Prototypes[t] = proto;
 				store.Statics[t] = staticInst;
 
-				var isBuiltin = script.ProgramType.Namespace != t.Namespace;
+				// Built-in types do not follow the same naming conventions as user-declared ones. The main difference
+				// is that all user-declared methods are static, and prefixed with "static" if they should be part of
+				// the static instance. Built-in methods follow normal C# static/instance logic, *except* Primitive.
+				// This is because calling methods on Primitive types will not pass a Primitive object as `this` and
+				// instead the actual primitive is passed (eg string), which will throw a type conversion error. Thus
+				// Primitives are exempt and follow the same naming logic as user-declared types.
+				var isBuiltin = script.ProgramType.Namespace != t.Namespace && !typeof(Primitive).IsAssignableFrom(t);
+
+				if (isModuleType)
+				{
+					if (t != typeof(FuncObj) && t != typeof(Any))
+					{
+						proto.SetBaseInternal(script.Vars.Prototypes[t.BaseType]);
+						staticInst.SetBaseInternal(script.Vars.Statics[t.BaseType]);
+					}
+					return proto;
+				}
 
 				_ = proto.EnsureOwnProps();
 				_ = staticInst.EnsureOwnProps();
@@ -205,7 +222,7 @@ namespace Keysharp.Scripting
 					proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, name));
 				}
 
-				staticInst.DefinePropInternal("prototype", new OwnPropsDesc(staticInst, proto));
+				staticInst.DefinePropInternal("Prototype", new OwnPropsDesc(staticInst, proto));
 
 				if (t != typeof(FuncObj) && t != typeof(Any))
 					staticInst.SetBaseInternal(script.Vars.Statics[t.BaseType]);
@@ -219,9 +236,9 @@ namespace Keysharp.Scripting
 					}
 					var nestedTypes = t.GetNestedTypes(BindingFlags.Public);
 
-					// Construct full class name
-					var className = GetUserDeclaredName(t) ?? t.Name; 
-					if (t.DeclaringType != null && t.DeclaringType != script.ProgramType)
+					// Construct full class name (skip module container types)
+					var className = GetUserDeclaredName(t) ?? t.Name;
+					if (t.DeclaringType != null && t.DeclaringType != script.ProgramType && !IsModuleContainer(t.DeclaringType, script))
 					{
 						script.Vars.Prototypes[t.DeclaringType].op.TryGetValue("__Class", out var declClassNameDesc);
 						className = $"{declClassNameDesc?.Value}.{className}";
@@ -251,6 +268,10 @@ namespace Keysharp.Scripting
 				return proto;
 			});
         }
+
+		internal static bool IsModuleContainer(Type type, Script script) =>
+			type.DeclaringType == script.ProgramType
+			&& typeof(Module).IsAssignableFrom(type);
 
 		public static string GetUserDeclaredName(MemberInfo mb)
 		{

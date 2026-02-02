@@ -1112,7 +1112,6 @@ namespace Keysharp.Core.Windows
 					ret = sb.ToString();
 				}
 
-				WindowItemBase.DoControlDelay();
 				return ret;
 			}
 
@@ -1200,8 +1199,6 @@ namespace Keysharp.Core.Windows
 				if (!WindowsAPI.PostMessage(item.Handle, (uint)msg, new nint(wparam), new nint(lparam)))
 					_ = Errors.ErrorOccurred($"Could not post message with values msg: {msg}, lparam: {lparam}, wparam: {wparam} to control in window with criteria: title: {title}, text: {text}, exclude title: {excludeTitle}, exclude text: {excludeText}");
 			}
-
-			WindowItemBase.DoControlDelay();
 		}
 
 		internal override long SendMessage(uint msg, object wparam, object lparam, object ctrl, object title, object text, object excludeTitle, object excludeText, int timeout)
@@ -1246,7 +1243,6 @@ namespace Keysharp.Core.Windows
 				ret = result.ToInt64();
 			}
 
-			WindowItemBase.DoControlDelay();
 			return ret;
 		}
 

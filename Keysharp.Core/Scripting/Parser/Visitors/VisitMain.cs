@@ -8,6 +8,7 @@ using System.Xml.Linq;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
 using Antlr4.Runtime.Tree;
+using ExportKind = Keysharp.Scripting.Parser.Module.ExportKind;
 using Keysharp.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -28,143 +29,132 @@ namespace Keysharp.Scripting
 
 		public override SyntaxNode VisitProgram([NotNull] ProgramContext context)
         {
-            var usingDirectives = BuildUsingDirectiveSyntaxList(CompilerHelper.GlobalUsingStr);
+			if (parser.isFirstModulePass || parser.compilationUnit == null)
+			{
+				var usingDirectives = BuildUsingDirectiveSyntaxList(CompilerHelper.GlobalUsingStr);
 
-			parser.AddAssembly("Keysharp.Scripting.AssemblyBuildVersionAttribute", Accessors.A_AhkVersion);
+				parser.AddAssembly("Keysharp.Scripting.AssemblyBuildVersionAttribute", Accessors.A_AhkVersion);
 
-            parser.compilationUnit = SyntaxFactory.CompilationUnit()
-                .AddUsings(usingDirectives.ToArray());
+				parser.compilationUnit = SyntaxFactory.CompilationUnit()
+					.AddUsings(usingDirectives.ToArray());
 
-            // Create using directives
-            var usings = BuildUsingDirectiveSyntaxList(CompilerHelper.NamespaceUsingStr);
+				// Create using directives
+				var usings = BuildUsingDirectiveSyntaxList(CompilerHelper.NamespaceUsingStr);
 
-			parser.namespaceDeclaration = SyntaxFactory.NamespaceDeclaration(CreateQualifiedName(Keywords.MainNamespaceName))
-                .AddUsings(usings.ToArray());
+				parser.namespaceDeclaration = SyntaxFactory.NamespaceDeclaration(CreateQualifiedName(Keywords.MainNamespaceName))
+					.AddUsings(usings.ToArray());
 
-            parser.currentClass = new Parser.Class(Keywords.MainClassName, null);
-            parser.mainClass = parser.currentClass;
+				parser.currentClass = new Parser.Class(Keywords.MainClassName, null);
+				parser.mainClass = parser.currentClass;
 
-            var mainFunc = new Function("Main", SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.IntKeyword)));
+				parser.mainEntryFunc = new Function("Main", "Main", "Main", SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.IntKeyword)));
 
-            var mainFuncParam = SyntaxFactory.Parameter(SyntaxFactory.Identifier("args"))
-                .WithType(PredefinedKeywords.StringArrayType);
+				var mainFuncParam = SyntaxFactory.Parameter(SyntaxFactory.Identifier("args"))
+					.WithType(PredefinedKeywords.StringArrayType);
 
-            var staThreadAttribute = SyntaxFactory.Attribute(
-                CreateQualifiedName("System.STAThreadAttribute"))
-                .WithArgumentList(SyntaxFactory.AttributeArgumentList());
+				var staThreadAttribute = SyntaxFactory.Attribute(
+					CreateQualifiedName("System.STAThreadAttribute"))
+					.WithArgumentList(SyntaxFactory.AttributeArgumentList());
 
-            mainFunc.Attributes.Add(staThreadAttribute);
+				parser.mainEntryFunc.Attributes.Add(staThreadAttribute);
 
-            mainFunc.Params.Add(mainFuncParam);
+				parser.mainEntryFunc.Params.Add(mainFuncParam);
 
-            var modifierList = new List<SyntaxKind>() { SyntaxKind.PrivateKeyword, SyntaxKind.StaticKeyword };
+				var modifierList = new List<SyntaxKind>() { SyntaxKind.PrivateKeyword, SyntaxKind.StaticKeyword };
 
-			var hsManagerDeclaration = Parser.CreateFieldDeclaration(
-				modifierList, 
-                CreateQualifiedName("Keysharp.Core.Common.Keyboard.HotstringManager"), 
-                "MainHotstringManager",
-				SyntaxFactory.MemberAccessExpression(
-                    SyntaxKind.SimpleMemberAccessExpression,
-                    SyntaxFactory.IdentifierName("MainScript"),
-                    SyntaxFactory.IdentifierName("HotstringManager")
-                )
-            );
-            var mainClassType = SyntaxFactory.TypeOfExpression(SyntaxFactory.IdentifierName(Keywords.MainClassName));
-            object[] mainScriptVarDeclarationArgs = parser.hookMutexName == "" ? [mainClassType] : [mainClassType, SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(parser.hookMutexName))];
+				var hsManagerDeclaration = Parser.CreateFieldDeclaration(
+					modifierList, 
+					CreateQualifiedName("Keysharp.Core.Common.Keyboard.HotstringManager"), 
+					"MainHotstringManager",
+					SyntaxFactory.MemberAccessExpression(
+						SyntaxKind.SimpleMemberAccessExpression,
+						SyntaxFactory.IdentifierName("MainScript"),
+						SyntaxFactory.IdentifierName("HotstringManager")
+					)
+				);
+				var mainClassType = SyntaxFactory.TypeOfExpression(SyntaxFactory.IdentifierName(Keywords.MainClassName));
+				object[] mainScriptVarDeclarationArgs = parser.hookMutexName == "" ? [mainClassType] : [mainClassType, SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(parser.hookMutexName))];
 
-			var mainScriptVarDeclaration = Parser.CreateFieldDeclaration(
-				modifierList,
-                CreateQualifiedName("Keysharp.Scripting.Script"),
-				MainScriptVariableName,
-				SyntaxFactory.ObjectCreationExpression(
-	                CreateQualifiedName("Keysharp.Scripting.Script"),    // the type to construct
-	                CreateArgumentList(mainScriptVarDeclarationArgs),          // the argument list
-	                null           // no initializer
-                )
-			);
-			parser.mainClass.Body.Add(mainScriptVarDeclaration);
-			parser.mainClass.Body.Add(hsManagerDeclaration);
+				var mainScriptVarDeclaration = Parser.CreateFieldDeclaration(
+					modifierList,
+					CreateQualifiedName("Keysharp.Scripting.Script"),
+					MainScriptVariableName,
+					SyntaxFactory.ObjectCreationExpression(
+						CreateQualifiedName("Keysharp.Scripting.Script"),    // the type to construct
+						CreateArgumentList(mainScriptVarDeclarationArgs),          // the argument list
+						null           // no initializer
+					)
+				);
+				parser.mainClass.Body.Add(mainScriptVarDeclaration);
+				parser.mainClass.Body.Add(hsManagerDeclaration);
 
-            parser.mainFuncInitial.Add(
-                SyntaxFactory.ExpressionStatement(
-			        SyntaxFactory.InvocationExpression(
-                        CreateMemberAccess(MainScriptVariableName, "SetName"),
-				        Parser.CreateArgumentList(
-					        SyntaxFactory.LiteralExpression(
-						        SyntaxKind.StringLiteralExpression,
-						        SyntaxFactory.Literal(parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName))
-					        )
-                        )
-                    )
-			    )
-		    );
+				parser.mainFuncInitial.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.InvocationExpression(
+							CreateMemberAccess(MainScriptVariableName, "SetName"),
+							Parser.CreateArgumentList(
+								SyntaxFactory.LiteralExpression(
+									SyntaxKind.StringLiteralExpression,
+									SyntaxFactory.Literal(parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName))
+								)
+							)
+						)
+					)
+				);
 
-			foreach (var (p, s) in parser.reader.PreloadedDlls)
-            {
-                parser.mainFuncInitial.Add(
-				    SyntaxFactory.ExpressionStatement(
-				        SyntaxFactory.InvocationExpression(
-                            CreateMemberAccess(MainScriptVariableName, "LoadDll"),
-					        CreateArgumentList(
-						        SyntaxFactory.LiteralExpression(
-							        SyntaxKind.StringLiteralExpression,
-							        SyntaxFactory.Literal(p)
-						        ),
-						        SyntaxFactory.LiteralExpression(s ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression)
-					        )
-                        )
-				    )
-			    );
-            }
+				foreach (var (p, s) in parser.reader.PreloadedDlls)
+				{
+					parser.mainFuncInitial.Add(
+						SyntaxFactory.ExpressionStatement(
+							SyntaxFactory.InvocationExpression(
+								CreateMemberAccess(MainScriptVariableName, "LoadDll"),
+								CreateArgumentList(
+									SyntaxFactory.LiteralExpression(
+										SyntaxKind.StringLiteralExpression,
+										SyntaxFactory.Literal(p)
+									),
+									SyntaxFactory.LiteralExpression(s ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression)
+								)
+							)
+						)
+					);
+				}
 
-			var mainBodyBlock = CreateMainMethod(Keywords.MainScriptVariableName, Keywords.AutoExecSectionName, System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance), parser.mainFuncInitial);
-			mainFunc.Body = mainBodyBlock.Statements.ToList();
+				var mainBodyBlock = CreateMainMethod(Keywords.MainScriptVariableName, Keywords.AutoExecSectionName, System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance), parser.mainFuncInitial);
+				parser.mainEntryFunc.Body = mainBodyBlock.Statements.ToList();
 
-            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object));
+				GenerateGeneralDirectiveStatements();
+
+				parser.currentClass = parser.GlobalClass;
+			}
+			else
+			{
+				parser.currentClass = parser.GlobalClass;
+			}
+
+            parser.autoExecFunc = new Function(Keywords.AutoExecSectionName, Keywords.AutoExecSectionName, Keywords.AutoExecSectionName, SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object));
             parser.currentFunc = parser.autoExecFunc;
             parser.autoExecFunc.Scope = eScope.Global;
             parser.autoExecFunc.Method = parser.autoExecFunc.Method
                 .AddModifiers(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken);
 
-            // Map out all user class types and also any built-in types they derive from
-			var allClassDeclarations = parser.GetClassDeclarationsRecursive(context);
-			foreach (var classInfo in allClassDeclarations)
-			{
-				parser.UserTypes[classInfo.FullName] = classInfo.FullName;
-				parser.AllTypes[classInfo.FullName] = classInfo.FullName;
-			}
-
-			foreach (var classInfo in allClassDeclarations)
-			{
-				var baseText = classInfo.Declaration.classExtensionName()?.GetText();
-				var classBase = baseText == null ? "KeysharpObject" : parser.NormalizeQualifiedClassName(baseText);
-				if (!classBase.Contains('.'))
-					UserTypeNameToKeysharp(ref classBase);
-
-				var resolvedBase = parser.ResolveUserTypeName(classBase, Parser.UserTypeLookupMode.Scoped, classInfo.FullName);
-				var baseKey = resolvedBase ?? classBase;
-
-				parser.UserTypes[classInfo.FullName] = baseKey;
-				parser.AllTypes[classInfo.FullName] = baseKey;
-
-				var builtInBase = baseKey;
-				while (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(builtInBase, out Type baseType))
-				{
-					builtInBase = parser.AllTypes[baseType.Name] = baseType.BaseType.Name;
-				}
-			}
+            // Map out all user class types and also any built-in types they derive from.
+			// Handled during PrepassCollect.
 
             // Create global FuncObj variables for all functions here, because otherwise during parsing
             // we might not know how to case the name.
             var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
-			var mainClassBody = parser.mainClass.Body;
+			var mainClassBody = parser.GlobalClass.Body;
 			foreach (var funcName in scopeFunctionDeclarations)
             {
                 if (funcName.Name == "") continue;
                 parser.UserFuncs.Add(funcName.Name);
+				var semLower = parser.NormalizeIdentifier(funcName.Name, eNameCase.Lower).TrimStart('@');
+				var fieldName = parser.ToValidIdentifier(semLower);                     // SAME field name policy as before
+				var implName = parser.EmitName(EmitKind.TopLevelFunction, semLower);
 
 				var funcObjVariable = SyntaxFactory.FieldDeclaration(
-	                CreateFuncObjDelegateVariable(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(funcName.Name))
+	                CreateFuncObjDelegateVariable(fieldName, implName)
                 )
                 .WithModifiers(
 	                SyntaxFactory.TokenList(
@@ -172,6 +162,8 @@ namespace Keysharp.Scripting
 		                Parser.PredefinedKeywords.StaticToken
 	                )
                 );
+				if (parser.currentModule.ExportedFuncs.Contains(funcName.Name))
+					funcObjVariable = Parser.WithExportAttribute(funcObjVariable);
 				string funcObjName = funcObjVariable.Declaration.Variables.First().Identifier.Text;
 
 				for (int i = 0; i < mainClassBody.Count; i++)
@@ -185,64 +177,143 @@ namespace Keysharp.Scripting
 				}
 
                 if (funcObjVariable != null)
-				    parser.mainClass.Body.Add(funcObjVariable);
+				    parser.GlobalClass.Body.Add(funcObjVariable);
             }
 
             if (context.sourceElements() != null)
                 VisitSourceElements(context.sourceElements());
 
-            GenerateGeneralDirectiveStatements();
-
-            if (parser.persistent)
-				parser.DHHR.Add(SyntaxFactory.ExpressionStatement(
-	                SyntaxFactory.InvocationExpression(
-                        CreateMemberAccess("Keysharp.Core.Flow", "Persistent")
-	                )
-                ));
-
-			// Merge positional directives, hotkeys, hotstrings to the beginning of the auto-execute section
-			parser.DHHR.Add(SyntaxFactory.ExpressionStatement(
-                SyntaxFactory.InvocationExpression(
-                    CreateMemberAccess("Keysharp.Core.Common.Keyboard.HotkeyDefinition", "ManifestAllHotkeysHotstringsHooks")
-                )
-            ));
-
-            parser.autoExecFunc.Body = 
-                parser.generalDirectiveStatements.Concat(parser.DHHR)
-                .Concat(parser.autoExecFunc.Body)
-                .ToList();
-
-			ClassDeclarationSyntax userClasses =
-	            SyntaxFactory.ClassDeclaration(UserDeclaredClassesContainerName)
-		            .WithModifiers(
-						SyntaxFactory.TokenList(
-				            SyntaxFactory.Token(SyntaxKind.InternalKeyword), 
-                            SyntaxFactory.Token(SyntaxKind.StaticKeyword)
-			            )
-		            )
-		            .AddMembers(parser.declaredTopLevelClasses.ToArray());
-
-            parser.mainClass.Body.Insert(0, userClasses);
+			// Module auto-exec should not include DHHR; those are run in Program.AutoExecSection.
 
 			// Return "" by default
 			parser.autoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
-            parser.autoExecFunc.Method = parser.autoExecFunc.Assemble();
+			parser.autoExecFunc.Method = parser.autoExecFunc.Assemble();
 
-			mainFunc.Method = mainFunc.Assemble();
-            // Add the Main function to the beginning, and AutoExecSection to the end. Keyview requires Main to be at the beginning
-            parser.mainClass.Body.Insert(0, mainFunc.Method);
-            parser.mainClass.Body.Add(parser.autoExecFunc.Method);
-            parser.namespaceDeclaration = parser.namespaceDeclaration.AddMembers(parser.mainClass.Assemble());
+			if (parser.declaredTopLevelClasses.Count > 0)
+				parser.GlobalClass.Body.InsertRange(0, parser.declaredTopLevelClasses);
 
-            var attributeList = SyntaxFactory.AttributeList(parser.assemblies)
-                .WithTarget(SyntaxFactory.AttributeTargetSpecifier(SyntaxFactory.Token(SyntaxKind.AssemblyKeyword)));
+			parser.GlobalClass.Body.Add(parser.autoExecFunc.Method);
 
-            // Using tabs as indentation rather than spaces seems to be more performant.
-            // Not normalizing whitespaces is even faster though, but breaks code compilation.
-            parser.compilationUnit = parser.compilationUnit
-                .AddMembers(parser.namespaceDeclaration)
-                .AddAttributeLists(attributeList);
-            //.NormalizeWhitespace("\t", Environment.NewLine);
+			if (!parser.isFinalModulePass)
+				return parser.compilationUnit;
+
+			parser.mainEntryFunc.Method = parser.mainEntryFunc.Assemble();
+			EmitModuleImports();
+			var moduleClasses = new List<MemberDeclarationSyntax>();
+			foreach (var moduleName in parser.moduleParseOrder)
+			{
+				if (parser.Modules.TryGetValue(moduleName, out var module) && module.ModuleClass != null)
+					moduleClasses.Add(module.ModuleClass.Assemble());
+			}
+
+			if (moduleClasses.Count > 0)
+				parser.mainClass.Body.AddRange(moduleClasses);
+
+			var programAutoExecFunc = new Function(
+				Keywords.AutoExecSectionName,
+				Keywords.AutoExecSectionName,
+				Keywords.AutoExecSectionName,
+				SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object)
+			);
+			programAutoExecFunc.Method = programAutoExecFunc.Method
+				.AddModifiers(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken);
+
+			programAutoExecFunc.Body.AddRange(parser.generalDirectiveStatements);
+			for (int i = parser.moduleParseOrder.Count - 1; i >= 0; i--)
+			{
+				var moduleName = parser.moduleParseOrder[i];
+				if (!parser.Modules.TryGetValue(moduleName, out var module) || module.DHHR.Count == 0)
+					continue;
+
+				programAutoExecFunc.Body.AddRange(module.DHHR);
+				if (module.HotIfActive)
+				{
+					programAutoExecFunc.Body.Add(
+						SyntaxFactory.ExpressionStatement(
+							((InvocationExpressionSyntax)InternalMethods.HotIf)
+							.WithArgumentList(
+								CreateArgumentList(
+									SyntaxFactory.LiteralExpression(
+										SyntaxKind.StringLiteralExpression,
+										SyntaxFactory.Literal("")
+									)
+								)
+							)
+						)
+					);
+				}
+			}
+			if (parser.persistent)
+			{
+				programAutoExecFunc.Body.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.InvocationExpression(
+							CreateMemberAccess("Keysharp.Core.Flow", "Persistent")
+						)
+					)
+				);
+			}
+			programAutoExecFunc.Body.Add(
+				SyntaxFactory.ExpressionStatement(
+					SyntaxFactory.InvocationExpression(
+						CreateMemberAccess("Keysharp.Core.Common.Keyboard.HotkeyDefinition", "ManifestAllHotkeysHotstringsHooks")
+					)
+				)
+			);
+			foreach (var module in GetModuleExecutionOrder())
+			{
+				var moduleTypeName = $"{Keywords.MainClassName}.{module.ModuleClassName}";
+				var mainScriptId = SyntaxFactory.IdentifierName(Keywords.MainScriptVariableName);
+				programAutoExecFunc.Body.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.AssignmentExpression(
+							SyntaxKind.SimpleAssignmentExpression,
+							SyntaxFactory.MemberAccessExpression(
+								SyntaxKind.SimpleMemberAccessExpression,
+								mainScriptId,
+								SyntaxFactory.IdentifierName("CurrentModuleType")
+							),
+							SyntaxFactory.TypeOfExpression(CreateQualifiedName(moduleTypeName))
+						)
+					)
+				);
+				programAutoExecFunc.Body.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.InvocationExpression(
+							CreateMemberAccess(module.ModuleClassName, Keywords.AutoExecSectionName)
+						)
+					)
+				);
+			}
+			programAutoExecFunc.Body.Add(
+				SyntaxFactory.ExpressionStatement(
+					SyntaxFactory.AssignmentExpression(
+						SyntaxKind.SimpleAssignmentExpression,
+						SyntaxFactory.MemberAccessExpression(
+							SyntaxKind.SimpleMemberAccessExpression,
+							SyntaxFactory.IdentifierName(Keywords.MainScriptVariableName),
+							SyntaxFactory.IdentifierName("CurrentModuleType")
+						),
+						SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+					)
+				)
+			);
+			programAutoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
+			programAutoExecFunc.Method = programAutoExecFunc.Assemble();
+			// Add the Main function to the beginning, and AutoExecSection to the end. Keyview requires Main to be at the beginning
+			parser.mainClass.Body.Insert(0, parser.mainEntryFunc.Method);
+			parser.mainClass.Body.Add(programAutoExecFunc.Method);
+			parser.namespaceDeclaration = parser.namespaceDeclaration.AddMembers(parser.mainClass.Assemble());
+
+			var attributeList = SyntaxFactory.AttributeList(parser.assemblies)
+				.WithTarget(SyntaxFactory.AttributeTargetSpecifier(SyntaxFactory.Token(SyntaxKind.AssemblyKeyword)));
+
+			// Using tabs as indentation rather than spaces seems to be more performant.
+			// Not normalizing whitespaces is even faster though, but breaks code compilation.
+			parser.compilationUnit = parser.compilationUnit
+				.AddMembers(parser.namespaceDeclaration)
+				.AddAttributeLists(attributeList);
+			//.NormalizeWhitespace("\t", Environment.NewLine);
 
 			return parser.compilationUnit;
         }
@@ -338,12 +409,17 @@ namespace Keysharp.Scripting
 
 			// ---- catch (Keysharp.Core.KeysharpException kserr) { ... } ----
 			var kserrId = SyntaxFactory.Identifier("kserr");
+			var kserrUserError = MA(SyntaxFactory.IdentifierName(kserrId), "UserError");
 
 			// if (!kserr.Processed) Keysharp.Core.Errors.ErrorOccurred(kserr);
-			var processedExpr = MA(SyntaxFactory.IdentifierName(kserrId), "Processed");
-			var handledExpr = MA(SyntaxFactory.IdentifierName(kserrId), "Handled");
+			var processedExpr = MA(kserrUserError, "Processed");
+			var handledExpr = MA(kserrUserError, "Handled");
 
-			var errorOccurredCall = Call(SMA("Keysharp.Core.Errors", "ErrorOccurred"), SyntaxFactory.IdentifierName(kserrId));
+			var errorOccurredCall = Call(
+				SMA("Keysharp.Core.Errors", "ErrorOccurred"),
+				kserrUserError,
+				MA(kserrUserError, "ExcType")
+			);
 			var errorOccurredStmt = SyntaxFactory.ExpressionStatement(errorOccurredCall);
 
 			var ifNotProcessed = SyntaxFactory.IfStatement(Not(processedExpr), errorOccurredStmt);
@@ -493,7 +569,7 @@ namespace Keysharp.Scripting
                         throw new NoNullAllowedException();
                     else
                     {
-                        if (parser.functionDepth > 0 || (parser.currentClass != null && parser.currentClass != parser.mainClass))
+                        if (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass)))
                             throw new ParseException("Directives, remaps, hotkeys, and hotstrings cannot be declared inside functions and classes", child);
                         continue;
                     }
@@ -511,12 +587,12 @@ namespace Keysharp.Scripting
 				{
 					// This shouldn't happen anywhere else but the auto-execute section
 					// when the function declaration is inside a block for example
-					parser.mainClass.Body.Add(memberDeclarationSyntax);
+					parser.GlobalClass.Body.Add(memberDeclarationSyntax);
 				}
 				else if (visited is ClassDeclarationSyntax classDeclarationSyntax)
 				{
 					// In case a class is declared inside a function (such as some unit tests)
-					parser.mainClass.Body.Add(classDeclarationSyntax);
+					parser.GlobalClass.Body.Add(classDeclarationSyntax);
 				}
 				else
 					statements.Add(EnsureStatementSyntax(visited));
@@ -531,8 +607,224 @@ namespace Keysharp.Scripting
             return base.VisitSourceElement(context);
         }
 
-        public override SyntaxNode VisitStatement([NotNull] MainParser.StatementContext context)
-        {
+		public override SyntaxNode VisitImportStatement([NotNull] ImportStatementContext context)
+		{
+			if (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass)))
+				throw new ParseException("Import statements cannot be declared inside functions or classes", context);
+
+			var isExported = context.Export() != null;
+			var exportNames = new List<string>();
+			bool exportAll = false;
+			var exportList = context.exportImportList();
+			if (exportList?.exportImportSpecifierList() != null)
+			{
+				foreach (var spec in exportList.exportImportSpecifierList().exportImportSpecifier())
+				{
+					if (spec.Multiply() != null)
+					{
+						exportAll = true;
+						continue;
+					}
+					if (spec.identifierName() != null)
+						exportNames.Add(spec.identifierName().GetText());
+				}
+			}
+
+			var clause = context.importClause();
+			if (clause.importModule() != null)
+			{
+				var import = clause.importModule();
+				var moduleName = GetModuleName(import.moduleName());
+				var alias = import.identifierName()?.GetText();
+				var isQuoted = IsQuotedModuleName(import.moduleName());
+				if (alias == null && !isQuoted)
+					alias = moduleName;
+				parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.ModuleAlias,
+					ModuleName = moduleName,
+					Alias = alias,
+					IsQuoted = isQuoted,
+					IsExported = isExported,
+					ExportAll = exportAll,
+					ExportNames = exportNames
+				});
+			}
+			else if (clause.importNamedFrom() != null)
+			{
+				var import = clause.importNamedFrom();
+				var moduleName = GetModuleName(import.moduleName());
+				var isQuoted = IsQuotedModuleName(import.moduleName());
+				var entry = new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.Named,
+					ModuleName = moduleName,
+					IsQuoted = isQuoted,
+					IsExported = isExported,
+					ExportAll = exportAll,
+					ExportNames = exportNames
+				};
+
+				if (import.importSpecifierList() != null)
+				{
+					foreach (var spec in import.importSpecifierList().importSpecifier())
+					{
+						var name = spec.identifierName(0).GetText();
+						var alias = spec.identifierName().Length > 1 ? spec.identifierName(1).GetText() : name;
+						entry.Specifiers.Add(new Parser.Module.ImportSpecifier { Name = name, Alias = alias });
+					}
+				}
+
+				parser.currentModule.Imports.Add(entry);
+			}
+			else if (clause.importWildcardFrom() != null)
+			{
+				var import = clause.importWildcardFrom();
+				var moduleName = GetModuleName(import.moduleName());
+				parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.Wildcard,
+					ModuleName = moduleName,
+					IsQuoted = IsQuotedModuleName(import.moduleName()),
+					IsExported = isExported,
+					ExportAll = exportAll,
+					ExportNames = exportNames
+				});
+			}
+
+			return SyntaxFactory.Block().WithAdditionalAnnotations(new SyntaxAnnotation("MergeEnd"));
+		}
+
+		internal void PrepassCollect(ProgramContext context)
+		{
+			parser.currentModule.Imports.Clear();
+			parser.currentModule.ImportsEmitted = false;
+			parser.currentModule.ExportedVars.Clear();
+			parser.currentModule.ExportedFuncs.Clear();
+			parser.currentModule.ExportedTypes.Clear();
+			parser.currentModule.DefaultExport = Parser.Module.DefaultExportKind.None;
+			parser.currentModule.DefaultExportName = null;
+			parser.globalVars.Clear();
+			parser.UserFuncs.Clear();
+			parser.UserTypes.Clear();
+			parser.AllTypes.Clear();
+
+			parser.autoExecFunc = new Function(
+				Keywords.AutoExecSectionName,
+				Keywords.AutoExecSectionName,
+				Keywords.AutoExecSectionName,
+				SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object)
+			);
+			parser.currentFunc = parser.autoExecFunc;
+			parser.autoExecFunc.Scope = eScope.Global;
+			parser.currentClass = parser.GlobalClass;
+
+			if (context.sourceElements() != null)
+			{
+				CollectImportsFromSource(context.sourceElements());
+				CollectExportsFromSource(context.sourceElements());
+			}
+
+			var allClassDeclarations = parser.GetClassDeclarationsRecursive(context);
+			foreach (var classInfo in allClassDeclarations)
+			{
+				parser.UserTypes[classInfo.FullName] = classInfo.FullName;
+				parser.AllTypes[classInfo.FullName] = classInfo.FullName;
+			}
+
+			foreach (var classInfo in allClassDeclarations)
+			{
+				var baseText = classInfo.Declaration.classExtensionName()?.GetText();
+				var classBase = baseText == null ? "KeysharpObject" : parser.NormalizeQualifiedClassName(baseText);
+				if (!classBase.Contains('.'))
+					UserTypeNameToKeysharp(ref classBase);
+
+				var resolvedBase = parser.ResolveUserTypeName(classBase, Parser.UserTypeLookupMode.Scoped, classInfo.FullName);
+				var baseKey = resolvedBase ?? classBase;
+
+				parser.UserTypes[classInfo.FullName] = baseKey;
+				parser.AllTypes[classInfo.FullName] = baseKey;
+
+				var builtInBase = baseKey;
+				while (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(builtInBase, out Type baseType))
+				{
+					builtInBase = parser.AllTypes[baseType.Name] = baseType.BaseType.Name;
+				}
+			}
+
+			var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
+			foreach (var funcName in scopeFunctionDeclarations)
+			{
+				if (funcName.Name == "") continue;
+				parser.UserFuncs.Add(funcName.Name);
+			}
+		}
+
+		private void CollectImportsFromSource(SourceElementsContext context)
+		{
+			foreach (var element in context.sourceElement())
+			{
+				var importStmt = element?.importStatement();
+				if (importStmt != null)
+					VisitImportStatement(importStmt);
+			}
+		}
+
+		private string GetModuleName(ModuleNameContext context)
+		{
+			if (context == null)
+				return string.Empty;
+
+			if (context.identifierName() != null)
+				return context.identifierName().GetText();
+
+			var text = context.StringLiteral()?.GetText() ?? string.Empty;
+			if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
+				return text.Substring(1, text.Length - 2);
+
+			return text;
+		}
+
+		private static bool IsQuotedModuleName(ModuleNameContext context)
+		{
+			if (context == null)
+				return false;
+			return context.StringLiteral() != null;
+		}
+
+		private List<Parser.Module> GetModuleExecutionOrder()
+		{
+			var order = new List<Parser.Module>();
+			var executing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var executed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			void Visit(string moduleName)
+			{
+				if (string.IsNullOrWhiteSpace(moduleName))
+					return;
+				if (executed.Contains(moduleName) || executing.Contains(moduleName))
+					return;
+				if (!parser.Modules.TryGetValue(moduleName, out var module) || module.ModuleClassName == null)
+					return;
+
+				executing.Add(moduleName);
+				foreach (var import in module.Imports)
+				{
+					Visit(import.ModuleName);
+				}
+				executing.Remove(moduleName);
+				executed.Add(moduleName);
+				order.Add(module);
+			}
+
+			for (int i = parser.moduleParseOrder.Count - 1; i >= 0; i--)
+				Visit(parser.moduleParseOrder[i]);
+
+			return order;
+		}
+
+		public override SyntaxNode VisitStatement([NotNull] MainParser.StatementContext context)
+		{
             if (context.iterationStatement() != null)
             {
                 Parser.Loop loop;
@@ -559,6 +851,134 @@ namespace Keysharp.Scripting
 			return Visit(context.GetChild(0));
 		}
 
+		public override SyntaxNode VisitExportStatement([NotNull] ExportStatementContext context)
+		{
+			if (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass)))
+				throw new ParseException("Export statements cannot be declared inside functions or classes", context);
+
+			var clause = context.exportClause();
+			if (clause?.Default() != null)
+			{
+				var decl = clause.declaration();
+				if (decl?.functionDeclaration() != null)
+				{
+					var name = decl.functionDeclaration().functionHead().identifierName().GetText();
+					SetDefaultExport(name, Parser.Module.DefaultExportKind.Function, context);
+					return VisitFunctionDeclaration(decl.functionDeclaration());
+				}
+				if (decl?.classDeclaration() != null)
+				{
+					var name = decl.classDeclaration().identifier().GetText();
+					var typeName = parser.NormalizeIdentifier(name, eNameCase.Title);
+					SetDefaultExport(typeName, Parser.Module.DefaultExportKind.Type, context);
+					return VisitClassDeclaration(decl.classDeclaration());
+				}
+				throw new ParseException("Only function or class declarations are supported for default export.", context);
+			}
+			if (clause?.exportNamed() == null)
+				return SyntaxFactory.Block().WithAdditionalAnnotations(new SyntaxAnnotation("MergeEnd"));
+
+			var exportNamed = clause.exportNamed();
+			if (exportNamed.declaration() != null)
+			{
+				var decl = exportNamed.declaration();
+				if (decl.functionDeclaration() != null)
+				{
+					var name = decl.functionDeclaration().functionHead().identifierName().GetText();
+					parser.currentModule.ExportedFuncs.Add(name);
+					return VisitFunctionDeclaration(decl.functionDeclaration());
+				}
+				if (decl.classDeclaration() != null)
+				{
+					var name = decl.classDeclaration().identifier().GetText();
+					var typeName = parser.NormalizeIdentifier(name, eNameCase.Title);
+					parser.currentModule.ExportedTypes.Add(typeName);
+					return VisitClassDeclaration(decl.classDeclaration());
+				}
+			}
+			else if (exportNamed.variableDeclarationList() != null)
+			{
+				var prevScope = parser.currentFunc.Scope;
+				parser.currentFunc.Scope = eScope.Global;
+				var list = exportNamed.variableDeclarationList();
+
+				foreach (var variableDeclaration in list.variableDeclaration())
+				{
+					var raw = variableDeclaration.assignable().GetText();
+					var baseLower = parser.GetIdentifierInfo(raw).BaseLower;
+					parser.currentModule.ExportedVars.Add(baseLower);
+				}
+
+				var result = VisitVariableDeclarationList(list);
+				parser.currentFunc.Scope = prevScope;
+				return result;
+			}
+
+			return SyntaxFactory.Block().WithAdditionalAnnotations(new SyntaxAnnotation("MergeEnd"));
+		}
+
+		private void CollectExportsFromSource(SourceElementsContext context)
+		{
+			foreach (var element in context.sourceElement())
+			{
+				var exportStmt = element?.exportStatement();
+				if (exportStmt != null)
+					CollectExportStatement(exportStmt);
+			}
+		}
+
+		private void CollectExportStatement(ExportStatementContext context)
+		{
+			var clause = context.exportClause();
+			if (clause?.Default() != null)
+			{
+				var decl = clause.declaration();
+				if (decl?.functionDeclaration() != null)
+				{
+					var name = decl.functionDeclaration().functionHead().identifierName().GetText();
+					SetDefaultExport(name, Parser.Module.DefaultExportKind.Function, context);
+				}
+				else if (decl?.classDeclaration() != null)
+				{
+					var name = decl.classDeclaration().identifier().GetText();
+					var typeName = parser.NormalizeIdentifier(name, eNameCase.Title);
+					SetDefaultExport(typeName, Parser.Module.DefaultExportKind.Type, context);
+				}
+				return;
+			}
+			var named = clause?.exportNamed();
+			if (named == null)
+				return;
+
+			if (named.declaration() != null)
+			{
+				var decl = named.declaration();
+				if (decl.functionDeclaration() != null)
+				{
+					var name = decl.functionDeclaration().functionHead().identifierName().GetText();
+					parser.currentModule.ExportedFuncs.Add(name);
+				}
+				else if (decl.classDeclaration() != null)
+				{
+					var name = decl.classDeclaration().identifier().GetText();
+					var typeName = parser.NormalizeIdentifier(name, eNameCase.Title);
+					parser.currentModule.ExportedTypes.Add(typeName);
+				}
+				return;
+			}
+
+			if (named.variableDeclarationList() != null)
+			{
+				foreach (var variableDeclaration in named.variableDeclarationList().variableDeclaration())
+				{
+					var raw = variableDeclaration.assignable().GetText();
+					var baseLower = parser.GetIdentifierInfo(raw).BaseLower;
+					parser.currentModule.ExportedVars.Add(baseLower);
+					parser.currentModule.GlobalVars.Add(baseLower);
+				}
+			}
+		}
+
         // This should always return the identifier in the exact case needed
         // Built-in properties: a_scriptdir -> A_ScriptDir
         // Variables are turned lowercase: HellO -> hello
@@ -566,39 +986,37 @@ namespace Keysharp.Scripting
         // Special keywords do not get @ added here
         public override SyntaxNode VisitIdentifier([NotNull] IdentifierContext context)
         {
-            var text = context.GetText();
+			var info = parser.GetIdentifierInfo(context.GetText());
+			var text = info.Trimmed;
 
-            switch (text.ToLowerInvariant())
-            {
-                case "this":
-                    return PredefinedKeywords.This;
-                case "base":
-                    return parser.currentClass.Name == Keywords.MainClassName ? SyntaxFactory.IdentifierName("@base") : SyntaxFactory.BaseExpression();
-                case "super":
-                    return parser.CreateSuperTuple();
-                case "null":
-					if (parser.hasVisitedIdentifiers && parser.IsVariableDeclared("@null", false) == null)
-					{
-                        return SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
-					}
-                    break;
+			if (text.Equals("this", StringComparison.OrdinalIgnoreCase))
+				return PredefinedKeywords.This;
+			if (text.Equals("base", StringComparison.OrdinalIgnoreCase))
+				return parser.IsTopLevelContainerClass(parser.currentClass) ? SyntaxFactory.IdentifierName("@base") : SyntaxFactory.BaseExpression();
+			if (text.Equals("super", StringComparison.OrdinalIgnoreCase))
+				return parser.CreateSuperTuple();
+			if (text.Equals("null", StringComparison.OrdinalIgnoreCase))
+			{
+				if (parser.hasVisitedIdentifiers && parser.IsVariableDeclared("@null", false) == null)
+					return SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression);
 			}
 
             // Handle special built-ins
             if (parser.IsVarDeclaredGlobally(text) == null)
             {
-                switch (text.ToLowerInvariant())
-                {
-                    case "a_linenumber":
-                        var contextLineNumber = context.Start.Line;
-                        return SyntaxFactory.CastExpression(
-                            SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.LongKeyword)),
-                            SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(contextLineNumber))
-                        );
-                    case "a_linefile":
-                        string file = context.Start.InputStream.SourceName;
-						return SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(File.Exists(file) ? Path.GetFullPath(file) : file));
-                }
+				if (text.Equals("a_linenumber", StringComparison.OrdinalIgnoreCase))
+				{
+					var contextLineNumber = context.Start.Line;
+					return SyntaxFactory.CastExpression(
+						SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.LongKeyword)),
+						SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(contextLineNumber))
+					);
+				}
+				if (text.Equals("a_linefile", StringComparison.OrdinalIgnoreCase))
+				{
+					string file = context.Start.InputStream.SourceName;
+					return SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal(File.Exists(file) ? Path.GetFullPath(file) : file));
+				}
             }
 
             return HandleIdentifierName(text);
@@ -606,7 +1024,8 @@ namespace Keysharp.Scripting
 
         private SyntaxNode HandleIdentifierName(string text)
         {
-            text = parser.NormalizeFunctionIdentifier(text);
+			var info = parser.GetIdentifierInfo(text);
+            text = parser.NormalizeFunctionIdentifier(info.Trimmed);
 
             parser.MaybeAddClassStaticVariable(text, false); // This needs to be before FuncObj one, because "object" can be both
             parser.MaybeAddGlobalFuncObjVariable(text, false);
@@ -628,24 +1047,38 @@ namespace Keysharp.Scripting
                 );
             }
 
+			if (!parser.isPrepass && !parser.isAssignmentTarget && parser.IsVariableDeclared(text, false) == null)
+			{
+				var declaredType = parser.ResolveUserTypeName(info.Trimmed, Parser.UserTypeLookupMode.Scoped);
+				if (parser.UserFuncs.Contains(info.Trimmed)
+					|| declaredType != null
+					|| parser.currentModule.GlobalVars.Contains(info.BaseLower))
+				{
+					return SyntaxFactory.IdentifierName(text);
+				}
+
+				if (TryResolveImplicitImport(info, out var implicitExpr))
+					return implicitExpr;
+			}
+
             return SyntaxFactory.IdentifierName(text);
         }
 
         public override SyntaxNode VisitReservedWord([NotNull] ReservedWordContext context)
         {
-            return SyntaxFactory.IdentifierName(context.GetText().ToLowerInvariant());
+            return SyntaxFactory.IdentifierName(parser.GetIdentifierInfo(context.GetText()).BaseLower);
         }
 
         public override SyntaxNode VisitKeyword([NotNull] KeywordContext context)
         {
-            return HandleIdentifierName(context.GetText().ToLower());
+            return HandleIdentifierName(parser.GetIdentifierInfo(context.GetText()).BaseLower);
         }
 
         public override SyntaxNode VisitIdentifierName([NotNull] IdentifierNameContext context)
         {
             if (context.identifier() != null)
                 return VisitIdentifier(context.identifier());
-            return SyntaxFactory.IdentifierName(context.GetText().ToLower());
+            return SyntaxFactory.IdentifierName(parser.GetIdentifierInfo(context.GetText()).BaseLower);
         }
 
         public override SyntaxNode VisitVarRefExpression([NotNull] VarRefExpressionContext context)
@@ -673,13 +1106,17 @@ namespace Keysharp.Scripting
 
             // In this case we have a identifier composed of identifier parts and dereference expressions
             // such as a%b%. CreateDynamicVariableAccessor will return string.Concat<object>(new object[] {"a", b), so
-            // to turn it into an identifier we need to wrap it in Keysharp.Scripting.Script.Vars[]
+            // to turn it into an identifier we need to wrap it in MainScript.ModuleData.Vars[]
             return SyntaxFactory.ElementAccessExpression(
                 parser.currentFunc.Name == Keywords.AutoExecSectionName 
                     ? SyntaxFactory.MemberAccessExpression(
                         SyntaxKind.SimpleMemberAccessExpression,
-						SyntaxFactory.IdentifierName(Keywords.MainScriptVariableName),
-                        SyntaxFactory.IdentifierName("Vars")
+						SyntaxFactory.MemberAccessExpression(
+							SyntaxKind.SimpleMemberAccessExpression,
+							SyntaxFactory.IdentifierName("MainScript"),
+							SyntaxFactory.IdentifierName("ModuleData")
+						),
+						SyntaxFactory.IdentifierName("Vars")
                       )
                     : SyntaxFactory.IdentifierName(InternalPrefix + "Derefs")
                 ,
@@ -695,7 +1132,7 @@ namespace Keysharp.Scripting
         {
             var prevScope = parser.currentFunc.Scope;
             
-            switch (context.GetChild(0).GetText().ToLower())
+            switch (parser.GetIdentifierInfo(context.GetChild(0).GetText()).BaseLower)
             {
                 case "local":
                     parser.currentFunc.Scope = eScope.Local;
@@ -737,7 +1174,10 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitVariableDeclaration([NotNull] VariableDeclarationContext context)
         {
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
             SyntaxNode node = Visit(context.assignable());
+			parser.isAssignmentTarget = prevAssignmentTarget;
             if (!(node is IdentifierNameSyntax))
             {
                 throw new Error();
@@ -1030,11 +1470,20 @@ namespace Keysharp.Scripting
                 )
             );
 
-			return SyntaxFactory.ObjectCreationExpression(
-	            CreateQualifiedName("KeysharpObject"),
-				CreateArgumentList(arrayExpression),
-	            null // No object initializers
-            );
+			var objectVarName = parser.NormalizeIdentifier("object", eNameCase.Lower);
+			parser.MaybeAddClassStaticVariable(objectVarName, false);
+
+			return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+				.WithArgumentList(
+					CreateArgumentList(
+						SyntaxFactory.IdentifierName(objectVarName),
+						SyntaxFactory.LiteralExpression(
+							SyntaxKind.StringLiteralExpression,
+							SyntaxFactory.Literal("Call")
+						),
+						arrayExpression
+					)
+				);
         }
 
         public override SyntaxNode VisitPropertyExpressionAssignment([NotNull] PropertyExpressionAssignmentContext context)
@@ -1151,7 +1600,9 @@ namespace Keysharp.Scripting
                 return SyntaxFactory.ThrowStatement(
 					SyntaxFactory.Token(SyntaxKind.ThrowKeyword),
                     SyntaxFactory.ObjectCreationExpression(
-                        CreateQualifiedName("Keysharp.Core.Error")
+                        CreateQualifiedName("Keysharp.Core.Error"),
+                        SyntaxFactory.ArgumentList(),
+                        null
                     ),
                     PredefinedKeywords.SemicolonToken
                 );
@@ -1209,7 +1660,7 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitFormalParameterArg([Antlr4.Runtime.Misc.NotNull] FormalParameterArgContext context)
         {
             // Treat as a regular parameter
-            var parameterName = parser.ToValidIdentifier(context.identifier().GetText().Trim().ToLowerInvariant());
+            var parameterName = parser.NormalizeIdentifier(context.identifier().GetText(), eNameCase.Lower);
 
             ParameterSyntax parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
 					.WithType(PredefinedKeywords.ObjectType);
@@ -1250,7 +1701,8 @@ namespace Keysharp.Scripting
             ParameterSyntax parameter;
             if (context.Multiply() != null)
             {
-                var parameterName = parser.ToValidIdentifier(context.identifier()?.GetText().ToLowerInvariant().Trim() ?? "args");
+                var parameterRaw = context.identifier()?.GetText() ?? "args";
+                var parameterName = parser.NormalizeIdentifier(parameterRaw, eNameCase.Lower);
 
                 // Handle 'Multiply' for variadic arguments (params object[])
                 parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
@@ -1271,7 +1723,9 @@ namespace Keysharp.Scripting
             //Console.WriteLine("Assignable: " + context.GetText());
             //Console.WriteLine(context.children[0].GetText());
             if (parser.currentFunc.Scope == eScope.Static)
-                return SyntaxFactory.IdentifierName(parser.CreateStaticIdentifier(context.GetText()));
+            {
+                return SyntaxFactory.IdentifierName(parser.MakeStaticLocalFieldName(parser.currentFunc.Name, context.GetText()));
+            }
             return base.VisitAssignable(context);
         }
 
@@ -1306,17 +1760,24 @@ namespace Keysharp.Scripting
             return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName));
         }
 
-        private void PushFunction(string funcName, TypeSyntax returnType = null)
+        private void PushFunction(string userName, EmitKind emitKind, TypeSyntax returnType = null)
         {
-            parser.FunctionStack.Push((parser.currentFunc, parser.UserFuncs));
+            var parent = parser.currentFunc;
+			parser.FunctionStack.Push((parent, parser.UserFuncs));
 
             // Create shallow copy
             parser.UserFuncs = new HashSet<string>(parser.UserFuncs, parser.UserFuncs.Comparer);
 
             parser.functionDepth++;
 
-            parser.currentFunc = new Function(funcName, returnType);
-        }
+			var semLower = parser.NormalizeFunctionIdentifier(userName, eNameCase.Lower); // semantic AHK name
+			var implName = parser.EmitName(emitKind, semLower);            // C# method name (Fn_...)
+
+			parser.currentFunc = new Function(semLower, userName, implName, returnType);
+            parser.currentFunc.Parent = parent;
+            parser.currentFunc.Class = parser.currentClass;
+			// Export is carried on the FuncObj field, not the implementation method.
+		}
 
         private void PopFunction()
         {
@@ -1326,9 +1787,11 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFunctionHead([NotNull] FunctionHeadContext context)
         {
-            string userName = context.identifierName().GetText();
-			PushFunction(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(userName));
-            parser.currentFunc.UserDeclaredName = userName;
+			string userName = context.identifierName().GetText();
+            var emitKind = EmitKind.TopLevelFunction;
+            if (parser.classDepth > 0 && parser.functionDepth == 0)
+                emitKind = context.functionHeadPrefix()?.Static() != null ? EmitKind.StaticMethod : EmitKind.Method;
+			PushFunction(userName, emitKind);
 
 			VisitFunctionHeadPrefix(context.functionHeadPrefix());
 
@@ -1352,7 +1815,7 @@ namespace Keysharp.Scripting
             if (context.functionHead() != null)
                 return Visit(context.functionHead());
 
-            PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount);
+            PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
 
             VisitFunctionHeadPrefix(context.functionHeadPrefix());
 
@@ -1366,10 +1829,11 @@ namespace Keysharp.Scripting
             if (context.functionExpressionHead() != null)
                 return Visit(context.functionExpressionHead());
 
-            PushFunction(Keywords.AnonymousFatArrowLambdaPrefix + ++parser.lambdaCount);
+            PushFunction(Keywords.AnonymousFatArrowLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
             VisitFunctionHeadPrefix(context.functionHeadPrefix());
 
-            var parameterName = parser.ToValidIdentifier(context.identifierName()?.GetText().ToLowerInvariant().Trim() ?? "args");
+            var parameterRaw = context.identifierName()?.GetText() ?? "args";
+            var parameterName = parser.NormalizeIdentifier(parameterRaw, eNameCase.Lower);
             ParameterSyntax parameter;
             if (context.Multiply() != null)
             {
@@ -1403,26 +1867,31 @@ namespace Keysharp.Scripting
 
         public SyntaxNode FunctionExpressionCommon(MethodDeclarationSyntax methodDeclaration, ParserRuleContext context)
         {
-			// Case 1: If we are inside the auto-execute section and this is the only expression in the expression sequence
-			// then consider it a top-level function. The method declaration will be added to the main
-			// class in VisitExpressionSequence.
-			if (parser.currentFunc.Name == Keywords.AutoExecSectionName &&
-				context.Parent is ExpressionSequenceContext esc && esc.Parent is ExpressionStatementContext && esc.ChildCount == 1)
+            var parentFunc = parser.currentFunc.Parent;
+            var isAutoExecFunc = parentFunc == parser.autoExecFunc;
+            // Case 1: If we are inside the auto-execute section and this is the only expression in the expression sequence
+            // then consider it a top-level function. The method declaration will be added to the main
+            // class in VisitExpressionSequence.
+			if (isAutoExecFunc &&
+				((context.Parent is ExpressionSequenceContext esc && esc.Parent is ExpressionStatementContext && esc.ChildCount == 1)
+                || (context.Parent is HotkeyContext)
+                || (context.Parent is HotstringContext)
+				|| IsExportedDeclaration(context)))
 			{
 				return methodDeclaration;
 			}
 			// Case 2: If we are in the main class (not inside a class declaration)
 			// OR we are inside any method declaration besides the auto-execute one then add it as a closure.
 			// Function expressions inside the auto-execute section are added as static nested functions.
-			if (parser.currentClass.Name == Keywords.MainClassName || parser.currentFunc.Name != Keywords.AutoExecSectionName)
+			if (parser.IsTopLevelContainerClass(parser.currentClass) || !isAutoExecFunc)
             {
-                var methodName = methodDeclaration.Identifier.Text;
-                var variableName = methodName.ToLowerInvariant();
+                var methodName = parser.currentFunc.ImplMethodName;
+                var variableName = parser.currentFunc.Name;
 
                 var modifiers = methodDeclaration.Modifiers;
 
                 // Function expressions in AutoExec section should be static
-                if (parser.currentFunc.Name == Keywords.AutoExecSectionName)
+                if (isAutoExecFunc)
                 {
                     // Remove 'public' from the existing modifiers
                     var updatedModifiers = modifiers
@@ -1436,7 +1905,7 @@ namespace Keysharp.Scripting
                     modifiers = SyntaxFactory.TokenList(updatedModifiers);
 
                     // Modify the top-level field declaration to not assign the closure
-                    var mainClassBody = parser.mainClass.Body;
+					var mainClassBody = parser.GlobalClass.Body;
 					for (int i = 0; i < mainClassBody.Count; i++)
 					{
 						if (mainClassBody[i] is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == variableName)
@@ -1469,14 +1938,15 @@ namespace Keysharp.Scripting
                     !isStatic
                 );
 
-                parser.currentFunc.Body.Add(delegateSyntax);
+				parentFunc.Body.Add(delegateSyntax);
 
                 // If we are creating a closure in the auto-execute section then add a global
                 // variable for the delegate and assign it's value at the beginning of AutoExecSection
-                if (parser.currentFunc.Name == Keywords.AutoExecSectionName)
+                if (isAutoExecFunc || isStatic)
                 {
-                    parser.MaybeAddGlobalVariableDeclaration(variableName, true);
-                    parser.currentFunc.Body.Add(SyntaxFactory.ExpressionStatement(
+                    if (isAutoExecFunc)
+                        parser.MaybeAddGlobalVariableDeclaration(variableName, true);
+                    parser.currentFunc.Parent.Body.Add(SyntaxFactory.ExpressionStatement(
                         SyntaxFactory.AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
                             SyntaxFactory.IdentifierName(variableName), // Target variable
@@ -1485,32 +1955,17 @@ namespace Keysharp.Scripting
                         )
                     ));
                 }
-                else if (isStatic)
-                {
-					ExpressionSyntax initializerValue = CreateFuncObj(
-	                    SyntaxFactory.CastExpression(
-							CreateQualifiedName("System.Delegate"),
-		                    SyntaxFactory.IdentifierName(CultureInfo.CurrentCulture.TextInfo.ToTitleCase(methodName))
-	                    )
-                    );
-
-                    variableName = parser.CreateStaticIdentifier(variableName);
-
-					parser.currentFunc.Body.Add(parser.CreateStaticVariableInitializer(
-						SyntaxFactory.IdentifierName(variableName),
-						initializerValue));
-				}
                 else
                 {
                     var nullVariableDeclaration = SyntaxFactory.LocalDeclarationStatement(
                         CreateNullObjectVariable(variableName)
                     );
 
-                    // Add the variable declaration to the beginning of the current function body
-                    parser.currentFunc.Locals[variableName] = nullVariableDeclaration;
+					// Add the variable declaration to the beginning of the current function body
+					parentFunc.Locals[variableName] = nullVariableDeclaration;
 
-                    // Add the assignment statement to the `statements` list
-                    parser.currentFunc.Body.Add(SyntaxFactory.ExpressionStatement(
+					// Add the assignment statement to the `statements` list
+					parentFunc.Body.Add(SyntaxFactory.ExpressionStatement(
                         CreateSimpleAssignment(variableName, funcObj)
                     ));
                 }
@@ -1571,17 +2026,26 @@ namespace Keysharp.Scripting
             */
 
 			var methodDeclaration = parser.currentFunc.Assemble();
-            PopFunction();
-
-            if (parser.currentFunc.Name == Keywords.AutoExecSectionName)
-                return methodDeclaration;
-
 			var commonResult = FunctionExpressionCommon(methodDeclaration, context);
-            if (commonResult is IdentifierNameSyntax ins)
+			PopFunction();
+			if (commonResult is IdentifierNameSyntax ins)
             {
                 return SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(ins));
 			}
             return commonResult;
+		}
+
+		private static bool IsExportedDeclaration(ParserRuleContext context)
+		{
+			for (var cur = context.Parent; cur != null; cur = cur.Parent)
+			{
+				if (cur is ExportStatementContext)
+					return true;
+				if (cur is StatementContext)
+					break;
+			}
+
+			return false;
 		}
 
         public override SyntaxNode VisitFunctionExpression([NotNull] FunctionExpressionContext context)
@@ -1596,10 +2060,10 @@ namespace Keysharp.Scripting
             parser.currentFunc.Body.AddRange(functionBody.Statements.ToArray());
 
             var methodDeclaration = parser.currentFunc.Assemble();
-            PopFunction();
-
-            return FunctionExpressionCommon(methodDeclaration, context);
-        }
+            var commonResult = FunctionExpressionCommon(methodDeclaration, context);
+			PopFunction();
+            return commonResult;
+		}
 
         public override SyntaxNode VisitFatArrowExpression([Antlr4.Runtime.Misc.NotNull] FatArrowExpressionContext context)
         {
@@ -1629,9 +2093,9 @@ namespace Keysharp.Scripting
 			parser.currentFunc.Body.AddRange(functionBody.Statements.ToArray());
 
 			var methodDeclaration = parser.currentFunc.Assemble();
+            var commonResult = FunctionExpressionCommon(methodDeclaration, context);
 			PopFunction();
-
-			return FunctionExpressionCommon(methodDeclaration, context);
+			return commonResult;
 		}
 
         private BlockSyntax EnsureReturnStatement(BlockSyntax functionBody)
@@ -1652,7 +2116,7 @@ namespace Keysharp.Scripting
         {
             var parameters = new List<ParameterSyntax>();
 
-            if (parser.currentClass.Name != Keywords.MainClassName && parser.FunctionStack.Count == 1 && !parser.currentClass.isInitialization)
+            if (!parser.IsTopLevelContainerClass(parser.currentClass) && parser.FunctionStack.Count == 1 && !parser.currentClass.isInitialization)
             {
                 parameters.Add(PredefinedKeywords.ThisParam);
             }
@@ -1718,7 +2182,7 @@ namespace Keysharp.Scripting
 				{
 					if (fi.Static)
 					{
-						var staticName = parser.CreateStaticIdentifier(fi.Name);
+						var staticName = parser.MakeStaticLocalFieldName(parser.currentFunc.Name, fi.Name);
 						// Declare the variable in the containing class
 						parser.currentFunc.Statics.Add(staticName);
 						var prevScope = parser.currentFunc.Scope;
@@ -1728,7 +2192,7 @@ namespace Keysharp.Scripting
 					}
 					else
 					{
-						var variableName = fi.Name.ToLowerInvariant();
+						var variableName = parser.NormalizeIdentifier(fi.Name, eNameCase.Lower);
 						var nullVariableDeclaration = SyntaxFactory.LocalDeclarationStatement(
 							CreateNullObjectVariable(variableName)
 						);

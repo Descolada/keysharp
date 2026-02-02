@@ -194,6 +194,7 @@
 	{
 		protected MethodInfo mi;
 		internal MethodPropertyHolder mph;
+		private readonly Type moduleType;
 
 		[PublicHiddenFromUser]
 		public object Inst { get; set; }
@@ -202,7 +203,7 @@
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 		public bool IsMethod => (mi != null && !mi.IsStatic) || (mph != null && mph.parameters?.First().Name == "@this");
 		public bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
-		public bool IsValid => mi != null && mph != null && mph.CallFunc != null;
+		public bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
 		public string Name => mph.Name;
 		public (Type, object) super => (typeof(KeysharpObject), this);
 		public bool IsVariadic => mph.variadicParamIndex != -1;
@@ -220,13 +221,16 @@
         {
             if (o != null)
             {
-				var mitup = Script.GetMethodOrProperty(o, s, paramCount.Ai(-1));
-				if (mitup.Item2 is FuncObj fo)
-					return fo.mph.mi;
-				else if (mitup.Item2 is MethodPropertyHolder mph)
-					return mph.mi;
+				if (o is not Type)
+				{
+					var mitup = Script.GetMethodOrProperty(o, s, paramCount.Ai(-1));
+					if (mitup.Item2 is FuncObj fo)
+						return fo.mph.mi;
+					else if (mitup.Item2 is MethodPropertyHolder mph)
+						return mph.mi;
+				}
                 // Try to find and cache the method
-                var method = Reflections.FindAndCacheMethod(o.GetType(), s, paramCount.Ai(-1));
+                var method = Reflections.FindAndCacheMethod((o as Type) ?? o.GetType(), s, paramCount.Ai(-1));
                 if (method != null)
                     return method.mi;
 
@@ -251,6 +255,7 @@
 		{
 			mph = m;
 			mi = m?.mi;
+			moduleType = ResolveModuleType(mi?.DeclaringType);
 			Inst = o;
 
 			if (Script.TheScript.Vars.Prototypes.Count > 1)
@@ -279,17 +284,44 @@
 		public virtual IFuncObj Bind(params object[] args)
 		=> new BoundFunc(mph, args, Inst);
 
-		public virtual object Call(params object[] obj) => mph.CallFunc(Inst, obj);
+		public virtual object Call(params object[] obj)
+		{
+			if (moduleType != null && Script.TheScript.ModuleData is ModuleData md && md != null)
+			{
+				var previous = md.Push(moduleType, out var changed);
+				try
+				{
+					return mph.CallFunc(Inst, obj);
+				}
+				finally
+				{
+					md.Pop(previous, changed);
+				}
+			}
+
+			return mph.CallFunc(Inst, obj);
+		}
 		public virtual object CallInst(object inst, params object[] args)
 		{
+			if (moduleType != null && Script.TheScript.ModuleData is ModuleData md && md != null)
+			{
+				var previous = md.Push(moduleType, out var changed);
+				try
+				{
+					if (Inst == null)
+						return mph.CallFunc(inst, args);
+					return mph.CallFunc(Inst, args.Prepend(inst));
+				}
+				finally
+				{
+					md.Pop(previous, changed);
+				}
+			}
+
 			if (Inst == null)
-			{
 				return mph.CallFunc(inst, args);
-			}
-			else
-			{
-				return mph.CallFunc(Inst, args.Prepend(inst));
-			}
+
+			return mph.CallFunc(Inst, args.Prepend(inst));
 		}
         public virtual object CallWithRefs(params object[] args)
 		{
@@ -308,7 +340,23 @@
 					argsArray[i] = p;
 			}
 
-			var val = mph.CallFunc(Inst, argsArray);
+			object val;
+			if (moduleType != null)
+			{
+				var previous = Script.TheScript.ModuleData.Push(moduleType, out var changed);
+				try
+				{
+					val = mph.CallFunc(Inst, argsArray);
+				}
+				finally
+				{
+					Script.TheScript.ModuleData.Pop(previous, changed);
+				}
+			}
+			else
+			{
+				val = mph.CallFunc(Inst, argsArray);
+			}
 
 			for (var i = 0; i < args.Length; i++)
 			{
@@ -322,6 +370,17 @@
 			}
 
 			return val;
+		}
+
+		private static Type ResolveModuleType(Type type)
+		{
+			for (var t = type; t != null; t = t.DeclaringType)
+			{
+				if (typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(t))
+					return t;
+			}
+
+			return null;
 		}
 
 		public override bool Equals(object obj)

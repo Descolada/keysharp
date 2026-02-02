@@ -27,6 +27,7 @@ namespace Keysharp.Scripting
         {
             if (context.singleExpression() == null)
             {
+				parser.currentModule.HotIfActive = false;
                 parser.DHHR.Add(SyntaxFactory.ExpressionStatement(
                     ((InvocationExpressionSyntax)InternalMethods.HotIf)
                     .WithArgumentList(
@@ -40,6 +41,7 @@ namespace Keysharp.Scripting
                 ));
             } else
             {
+				parser.currentModule.HotIfActive = true;
                 var hotIfFunctionName = InternalPrefix + $"HotIf_{++parser.hotIfCount}";
 
                 // Visit the singleExpression and wrap it in an anonymous function
@@ -77,7 +79,7 @@ namespace Keysharp.Scripting
                     );
 
                 // Add the function declaration to the main class
-                parser.mainClass.Body.Add(hotIfFunction);
+                parser.GlobalClass.Body.Add(hotIfFunction);
 
                 // Add the function call to parser.DHHR
                 parser.DHHR.Add(
@@ -167,7 +169,7 @@ namespace Keysharp.Scripting
             parser.DHHR.Add(SyntaxFactory.ExpressionStatement(
                 SyntaxFactory.AssignmentExpression(
                     SyntaxKind.SimpleAssignmentExpression,
-					CreateMemberAccess("Keysharp.Core.KeysharpEnhancements", "A_SuspendExempt"),
+					CreateMemberAccess("Keysharp.Core.Ks", "A_SuspendExempt"),
 					PredefinedKeywords.EqualsToken,
 					(LiteralExpressionSyntax)value
                 )
@@ -209,7 +211,7 @@ namespace Keysharp.Scripting
             }
             else
             {
-                PushFunction(hotkeyFunctionName);
+                PushFunction(hotkeyFunctionName, EmitKind.TopLevelFunction);
 
                 // Visit the statement to generate the function body
                 var hotkeyStatement = Visit(context.statement());
@@ -247,7 +249,7 @@ namespace Keysharp.Scripting
             }
 
             // Add the hotkey function to the main class
-            parser.mainClass.Body.Add(hotkeyFunction);
+            parser.GlobalClass.Body.Add(hotkeyFunction);
 
             // Generate a HotkeyDefinition.AddHotkey call for each trigger
             foreach (var hotkeyTriggerContext in context.HotkeyTrigger())
@@ -306,7 +308,7 @@ namespace Keysharp.Scripting
             {
                 functionName = InternalPrefix + $"Hotstring_{++parser.hotstringCount}";
 
-                PushFunction(functionName);
+                PushFunction(functionName, EmitKind.TopLevelFunction);
 
                 // Visit the statement to generate the function body
                 var statementNode = Visit(context.statement());
@@ -339,7 +341,7 @@ namespace Keysharp.Scripting
                     .WithBody(parser.currentFunc.AssembleBody());
 
                 // Add the function to the main class
-                parser.mainClass.Body.Add(hotstringFunction);
+                parser.GlobalClass.Body.Add(hotstringFunction);
 
                 PopFunction();
             }
@@ -632,7 +634,7 @@ namespace Keysharp.Scripting
                 );
 
             // Add the functions to the main class
-            parser.mainClass.Body.AddRange(downFunction, upFunction);
+            parser.GlobalClass.Body.AddRange(downFunction, upFunction);
 
             // Add the "down" hotkey
             parser.DHHR.Add(
@@ -707,13 +709,22 @@ namespace Keysharp.Scripting
 
         private ArgumentSyntax GenerateFuncObjArgument(string functionName)
         {
+			ExpressionSyntax target = SyntaxFactory.IdentifierName(functionName);
+			if (parser.GlobalClass != null && parser.GlobalClass != parser.mainClass)
+			{
+				target = SyntaxFactory.MemberAccessExpression(
+					SyntaxKind.SimpleMemberAccessExpression,
+					SyntaxFactory.IdentifierName(parser.GlobalClass.Name),
+					SyntaxFactory.IdentifierName(functionName)
+				);
+			}
             return SyntaxFactory.Argument(
                 ((InvocationExpressionSyntax)InternalMethods.Func)
                 .WithArgumentList(
                     CreateArgumentList(
 						SyntaxFactory.CastExpression(
 							CreateQualifiedName("System.Delegate"),
-							SyntaxFactory.IdentifierName(functionName)
+							target
 						)
                     )
                 )

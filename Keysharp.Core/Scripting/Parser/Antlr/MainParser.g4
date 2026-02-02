@@ -59,6 +59,8 @@ sourceElement
     | hotstring
     | hotkey
     | statement
+    | importStatement
+    | exportStatement
     ;
 
 // Non-positional directives are handled elsewhere, mainly in PreReader.cs
@@ -108,9 +110,6 @@ statement
     | {this.isFunctionCallStatement()}? functionStatement
     | blockStatement
     | expressionStatement
-// These are TODO when at some point modules are supported
-//    | importStatement
-//    | exportStatement
     ;
 
 blockStatement
@@ -138,67 +137,67 @@ deleteStatement
     : Delete WS* singleExpression
     ;
 
-// TODO (import, export)
 importStatement
-    : Import WS* importFromBlock
+    : Export WS* Import WS* importClause exportImportList?
+    | Import WS* importClause
     ;
 
-importFromBlock
-    : importDefault? (importNamespace | importModuleItems) importFrom
-    | StringLiteral
+importClause
+    : importModule
+    | importWildcardFrom
+    | importNamedFrom
     ;
 
-importModuleItems
-    : '{' (importAliasName WS* ',')* (importAliasName (WS* ',')?)? '}'
+importModule
+    : moduleName (WS* As WS* identifierName)?
     ;
 
-importAliasName
-    : moduleExportName (As importedBinding)?
+importWildcardFrom
+    : Multiply WS* From WS* moduleName
     ;
 
-moduleExportName
+importNamedFrom
+    : '{' s* importSpecifierList? s* '}' s* From WS* moduleName
+    ;
+
+importSpecifierList
+    : importSpecifier (s* ',' s* importSpecifier)* (s* ',')?
+    ;
+
+importSpecifier
+    : identifierName (s* As s* identifierName)?
+    ;
+
+exportImportList
+    : '{' s* exportImportSpecifierList? s* '}'
+    ;
+
+exportImportSpecifierList
+    : exportImportSpecifier (s* ',' s* exportImportSpecifier)* (s* ',')?
+    ;
+
+exportImportSpecifier
+    : Multiply
+    | identifierName
+    ;
+
+moduleName
     : identifierName
     | StringLiteral
     ;
 
-importedBinding
-    : Identifier
-    | Yield
-    | Await
-    ;
-
-importDefault
-    : aliasName WS* ','
-    ;
-
-importNamespace
-    : ('*' | identifierName) (As identifierName)?
-    ;
-
-importFrom
-    : From StringLiteral
-    ;
-
-aliasName
-    : identifierName (As identifierName)?
-    ;
-
 exportStatement
-    : Export Default? (exportFromBlock | declaration) # ExportDeclaration
-    | Export Default singleExpression                 # ExportDefaultDeclaration
+    : Export WS* exportClause
     ;
 
-exportFromBlock
-    : importNamespace importFrom
-    | exportModuleItems importFrom?
+exportClause
+    : Default WS* declaration
+    | exportNamed
     ;
 
-exportModuleItems
-    : '{' (exportAliasName WS* ',')* (exportAliasName (WS* ',')?)? '}'
-    ;
-
-exportAliasName
-    : moduleExportName (As moduleExportName)?
+exportNamed
+    : declaration
+    | variableDeclarationList
     ;
 
 declaration

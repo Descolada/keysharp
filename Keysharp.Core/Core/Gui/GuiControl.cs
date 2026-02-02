@@ -60,14 +60,14 @@ namespace Keysharp.Core
 				get
 				{
 					if (_control is KeysharpRichEdit rtf)
-						return KeysharpEnhancements.NormalizeEol(rtf.Text);
+						return Ks.NormalizeEol(rtf.Text);
 
 					return DefaultErrorObject;
 				}
 				set
 				{
 					if (_control is KeysharpRichEdit rtf)
-						rtf.Rtf = KeysharpEnhancements.NormalizeEol(value);
+						rtf.Rtf = Ks.NormalizeEol(value);
 					else
 						_ = Errors.ErrorOccurred($"Can only set RichText on a RichEdit control. Attempted on a {_control?.GetType().Name ?? "null"} control.");
 				}

@@ -1,4 +1,4 @@
-
+import { Cosh } from Ks
 
 PI := 3.1415926535897931
 

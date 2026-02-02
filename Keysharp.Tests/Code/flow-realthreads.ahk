@@ -1,3 +1,5 @@
+import { RealThread, LockRun } from Ks
+
 lockit := ""
 tharr := []
 tharr.Length := 100
@@ -18,7 +20,7 @@ fo := Func("rtfunc1")
 
 Loop 100
 {
-	tharr[A_Index] := StartRealThread(fo, A_Index).ContinueWith(fo, 1)
+	tharr[A_Index] := RealThread(fo, A_Index).ContinueWith(fo, 1)
 }
 
 Loop 100
@@ -58,7 +60,7 @@ fo := Func("rtfunc2")
 
 Loop 100
 {
-	tharr[A_Index] := StartRealThread(fo)
+	tharr[A_Index] := RealThread(fo)
 }
 
 Loop 100
@@ -75,7 +77,7 @@ else
 
 CoordMode "Mouse", "Screen"
 
-StartRealThread(RealThreadEntry)
+RealThread(RealThreadEntry)
 
 cb2 := CallbackCreate(SetCoordModeMouseClient)
 Loop 10000 {

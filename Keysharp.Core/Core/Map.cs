@@ -62,24 +62,27 @@ namespace Keysharp.Core
 		}
 	}
 
-	/// <summary>
-	/// Map class that wraps a <see cref="Dictionary{object, object}"/> which does not sort the
-	/// entries before enumeration.
-	/// </summary>
-	public class HashMap : Map
+	public partial class Ks
 	{
 		/// <summary>
-		/// Returns the underlying unsorted map instead of the custom sorted enumerable returned by <see cref="Map"/>.
+		/// Map class that wraps a <see cref="Dictionary{object, object}"/> which does not sort the
+		/// entries before enumeration.
 		/// </summary>
-		protected override IEnumerable<KeyValuePair<object, object>> EnumerableMap => map;
+		public class HashMap : Map
+		{
+			/// <summary>
+			/// Returns the underlying unsorted map instead of the custom sorted enumerable returned by <see cref="Map"/>.
+			/// </summary>
+			protected override IEnumerable<KeyValuePair<object, object>> EnumerableMap => map;
 
-		/// <summary>
-		/// Initializes a new instance of the <see cref="HashMap"/> class, which does not sort
-		/// the entries before enumeration.
-		/// See <see cref="__New(object[])"/>.
-		/// </summary>
-		/// <param name="args">See <see cref="Map.__New(object[])"/>.</param>
-		public HashMap(params object[] args) : base(args) { }
+			/// <summary>
+			/// Initializes a new instance of the <see cref="HashMap"/> class, which does not sort
+			/// the entries before enumeration.
+			/// See <see cref="__New(object[])"/>.
+			/// </summary>
+			/// <param name="args">See <see cref="Map.__New(object[])"/>.</param>
+			public HashMap(params object[] args) : base(args) { }
+		}
 	}
 
 	/// <summary>

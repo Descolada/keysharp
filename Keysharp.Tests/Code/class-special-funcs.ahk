@@ -1,15 +1,18 @@
+import __Main
+import { Collect } from KS
+
 gval := 0
 
 class testclass
 {
 	__New()
 	{
-		program.gval := 100
+		__Main.gval := 100
 	}
 
 	__Delete()
 	{
-		program.gval := 999
+		__Main.gval := 999
 	}
 }
 

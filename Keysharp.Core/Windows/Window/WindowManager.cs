@@ -142,6 +142,7 @@ namespace Keysharp.Core.Windows
 		{
 			foreach (var window in AllWindows)
 				window.WindowState = FormWindowState.Maximized;
+			WindowItemBase.DoWinDelay();
 		}
 
 		public static void MinimizeAll()

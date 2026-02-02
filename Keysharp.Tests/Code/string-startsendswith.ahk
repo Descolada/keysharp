@@ -1,33 +1,31 @@
-﻿
+﻿s := "This is a test STRING"
 
-s := "This is a test STRING"
-
-if (EndsWith(s, " STRING", true))
+if (s.EndsWith(" STRING", true))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (!EndsWith(s, " string", true))
+if (!s.EndsWith(" string", true))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (EndsWith(s, " string", false))
+if (s.EndsWith(" string", false))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (StartsWith(s, "This ", true))
+if (s.StartsWith("This ", true))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (!StartsWith(s, "this ", true))
+if (!s.StartsWith("this ", true))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (StartsWith(s, "tHiS ", false))
+if (s.StartsWith("tHiS ", false))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

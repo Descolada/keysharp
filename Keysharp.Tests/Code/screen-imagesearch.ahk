@@ -1,3 +1,5 @@
+import { ImageCapture } from Ks
+
 x :=
 y := 0 
 CoordMode("Mouse", "Screen")

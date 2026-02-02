@@ -138,7 +138,7 @@ namespace Keysharp.Core
 #if DEBUG
 
 						if (s == "fail")
-							_ = KeysharpEnhancements.OutputDebugLine(s);
+							_ = Ks.OutputDebugLine(s);
 
 #endif
 
@@ -1501,7 +1501,7 @@ namespace Keysharp.Core
 		}
 	}
 
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Returns the full path to the directory of the specified filename.<br/>

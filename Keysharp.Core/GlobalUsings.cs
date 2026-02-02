@@ -64,6 +64,7 @@ global using POINT = Keysharp.Core.Common.Window.POINT;
 #if WINDOWS
 	global using UITimer = System.Windows.Forms.Timer;
 #endif
+global using Module = Keysharp.Core.Common.ObjectBase.Module;
 
 //Our usings.
 global using global::Keysharp.Core;
@@ -110,7 +111,7 @@ global using global::BitFaster.Caching.Scheduler;
 
 //Static
 global using static global::Keysharp.Core.Accessors;
-global using static global::Keysharp.Core.KeysharpEnhancements;
+global using static global::Keysharp.Core.Ks;
 global using static global::Keysharp.Scripting.Keywords;
 global using static global::Keysharp.Scripting.Script;
 global using static global::Keysharp.Core.Common.Platform.PlatformManagerBase;

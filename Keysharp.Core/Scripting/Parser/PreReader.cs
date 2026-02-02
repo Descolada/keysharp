@@ -10,21 +10,13 @@ namespace Keysharp.Scripting
 	{
 		private static readonly char[] libBrackets = ['<', '>'];
 		private static int hotifcount;
-		private readonly Stack<(bool, bool)> currentDefines = new ();
 
-		private readonly HashSet<string> defines =
-			[
-				"KEYSHARP",
-#if WINDOWS
-				"WINDOWS",
-#elif LINUX
-				"LINUX",
-#endif
-			];
-
-		private readonly List<string> includes = [];
+		private readonly Dictionary<string, HashSet<string>> includesByModule = new(StringComparer.OrdinalIgnoreCase);
+		private readonly Queue<string> pendingImports = new();
+		private readonly HashSet<string> loadedImportModules = new(StringComparer.OrdinalIgnoreCase);
 		private readonly Parser parser;
 		private string includePath = "./";
+		private string currentModuleName = Keywords.MainModuleName;
 		internal int NextHotIfCount => ++hotifcount;
 		internal List<(string, bool)> PreloadedDlls { get; } = [];
 		
@@ -68,28 +60,41 @@ namespace Keysharp.Scripting
 #endif
 			};
 
-        internal List<IToken> ReadScriptTokens(TextReader source, string name)
+		internal ModuleTokenResult ReadScriptTokens(TextReader source, string name)
 		{
+			var result = new ModuleTokenResult();
+			currentModuleName = Keywords.MainModuleName;
+			includesByModule.Clear();
+			pendingImports.Clear();
+			loadedImportModules.Clear();
+
             if (Env.FindCommandLineArgVal("include") is string cmdinc)
             {
                 if (File.Exists(cmdinc))
                 {
-                    if (!includes.Contains(cmdinc))
+					var includeSet = GetIncludesForModule(currentModuleName);
+                    if (!includeSet.Contains(cmdinc))
                     {
-                        _ = includes.AddUnique(cmdinc);
+						includeSet.Add(cmdinc);
                         using var reader = new StreamReader(cmdinc);
-                        parser.codeTokens.AddRange(ReadTokens(reader, cmdinc));
+                        ReadTokens(reader, cmdinc, result);
                     }
                 }
                 else
                     throw new ParseException($"Command line include file {cmdinc} specified with -/include not found.", 0, "");
             }
 
-            parser.codeTokens.AddRange(ReadTokens(source, name));
-			return parser.codeTokens;
+            ReadTokens(source, name, result);
+
+			ResolvePendingImports(result);
+
+			foreach (var tokens in result.TokensByModule.Values)
+				TrimLeadingWhitespace(tokens);
+
+			return result;
 		}
 
-		internal List<IToken> ReadTokens(TextReader source, string name)
+		private void ReadTokens(TextReader source, string name, ModuleTokenResult result)
 		{
 			var replace = (string[,])accessorReplaceTemplate.Clone();
 			replace[0, 1] = name; //Note that Name, with a capital N, is the initial script file, not any of the included files.
@@ -105,7 +110,7 @@ namespace Keysharp.Scripting
 			inputStream.name = name;
             MainLexer preprocessorLexer = new MainLexer(inputStream);
 
-            List<IToken> codeTokens = new List<IToken>();
+            var codeTokens = GetTokensForModule(result, currentModuleName);
             List<IToken> commentTokens = new List<IToken>();
 
             var tokens = preprocessorLexer.GetAllTokens();
@@ -116,7 +121,10 @@ namespace Keysharp.Scripting
 
             int index = 0;
             bool compiliedTokens = true;
-			//int enclosableDepth = 0;
+			int braceDepth = 0;
+			int parenDepth = 0;
+			int bracketDepth = 0;
+			int derefDepth = 0;
 			//int maybeIsFunctionCallStatement = -2;
 			int tokenCount = tokens.Count;
 
@@ -200,6 +208,21 @@ namespace Keysharp.Scripting
 					// Process some AHK directives which are easier to handle here rather than PreprocessorParserBase.cs
                     switch (directiveStr)
 					{
+                        case "MODULE":
+                            {
+								if (braceDepth > 0 || parenDepth > 0 || bracketDepth > 0 || derefDepth > 0)
+									throw new ParseException("#Module cannot be used inside a block, parentheses, brackets, or deref.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
+								if (directiveTokens.Count < 2)
+									throw new ParseException("Module name missing.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
+
+								var moduleName = directiveTokens[1].Text.Trim().Trim('"', '\'');
+								if (string.IsNullOrWhiteSpace(moduleName))
+									throw new ParseException("Module name missing.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
+
+								currentModuleName = moduleName;
+								codeTokens = GetTokensForModule(result, currentModuleName);
+							}
+                            break;
                         case "DLLLOAD":
                             {
                                 var p1 = directiveTokens[1].Text;
@@ -275,19 +298,20 @@ namespace Keysharp.Scripting
 
                                     foreach (var dir in paths)
                                     {
-                                        if (File.Exists(dir))
-                                        {
-                                            found = true;
+                                    if (File.Exists(dir))
+                                    {
+                                        found = true;
 
-                                            if (includeOnce && includes.Contains(dir))
-                                                break;
-
-                                            _ = includes.AddUnique(dir);
-                                            using var dirReader = new StreamReader(dir);
-                                            parser.codeTokens.AddRange(ReadTokens(dirReader, dir));
+										var includeSet = GetIncludesForModule(currentModuleName);
+                                        if (includeOnce && includeSet.Contains(dir))
                                             break;
-                                        }
+
+										includeSet.Add(dir);
+                                        using var dirReader = new StreamReader(dir);
+                                        ReadTokens(dirReader, dir, result);
+                                        break;
                                     }
+                                }
 
                                     if (!found && !silent)
                                         throw new ParseException($"Include file {p1} not found at any of the locations: {string.Join(Environment.NewLine, paths)}", token.Line, '#' + directiveTokens[0].Text + ' ' + directiveTokens[1].Text, token.TokenSource.SourceName);
@@ -312,12 +336,13 @@ namespace Keysharp.Scripting
                                     }
                                     else if (File.Exists(path))
                                     {
-                                        if (includeOnce && includes.Contains(path))
+										var includeSet = GetIncludesForModule(currentModuleName);
+                                        if (includeOnce && includeSet.Contains(path))
                                             break;
 
-                                        _ = includes.AddUnique(path);
+										includeSet.Add(path);
                                         using var pathReader = new StreamReader(path);
-                                        codeTokens.AddRange(ReadTokens(pathReader, path));
+                                        ReadTokens(pathReader, path, result);
                                     }
                                     else
                                     {
@@ -419,6 +444,8 @@ namespace Keysharp.Scripting
 							parser.errorStdOut = true;
 							break;
 						case "HOOKMUTEXNAME":
+							if (directiveTokens.Count < 2)
+								throw new ParseException($"Directive #{directiveStr} requires a parameter.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
                             parser.hookMutexName = directiveTokens[1].Text.Trim();
                             break;
 						case "CLIPBOARDTIMEOUT":
@@ -434,6 +461,8 @@ namespace Keysharp.Scripting
                         case "ASSEMBLYCOPYRIGHT":
                         case "ASSEMBLYTRADEMARK":
 						case "ASSEMBLYVERSION":
+							if (directiveTokens.Count < 2)
+								throw new ParseException($"Directive #{directiveStr} requires a parameter.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
 							parser.generalDirectives[directiveStr] = directiveTokens[1].Text.Trim();
                             break;
                         case "WINACTIVATEFORCE":
@@ -451,16 +480,22 @@ namespace Keysharp.Scripting
                     switch (token.Type)
                     {
 						case MainLexer.OpenBracket:
+							bracketDepth++;
+							break;
                         case MainLexer.DerefStart:
-							//enclosableDepth++;
+							derefDepth++;
 							break;
                         case MainLexer.CloseBracket:
+							if (bracketDepth > 0)
+								bracketDepth--;
+							break;
                         case MainLexer.DerefEnd:
-							//enclosableDepth--;
+							if (derefDepth > 0)
+								derefDepth--;
 							break;
                         case MainLexer.OpenParen:
                             SkipWhitespaces(index);
-							//enclosableDepth++;
+							parenDepth++;
 							break;
                         case MainLexer.Comma:
                             SkipWhitespaces(index);
@@ -478,7 +513,8 @@ namespace Keysharp.Scripting
                             }
                             break;
                         case MainLexer.CloseParen:
-							//enclosableDepth--;
+							if (parenDepth > 0)
+								parenDepth--;
 							PopWhitespaces(codeTokens.Count);
                             break;
 						//case MainLexer.BitAnd: // Can't be here because of VarRefs
@@ -606,9 +642,11 @@ namespace Keysharp.Scripting
                             codeTokens.Add(token);
                             AddWhitespaces(index, token.Type == MainLexer.Not || token.Type == MainLexer.VerbalNot);
                             goto SkipAdd;
-                        case MainLexer.CloseBrace:
+						case MainLexer.CloseBrace:
 							//if (enclosableDepth > 0)
 							//	enclosableDepth--;
+							if (braceDepth > 0)
+								braceDepth--;
 							i = PopWhitespaces(codeTokens.Count, false);
                             var eolToken = new CommonToken(MainLexer.EOL)
                             {
@@ -640,7 +678,26 @@ namespace Keysharp.Scripting
                             }
                             if (!eolPresent)
                                 codeTokens.Add(eolToken);
-                            goto SkipAdd;
+							goto SkipAdd;
+						case MainLexer.OpenBrace:
+							braceDepth++;
+							break;
+						case MainLexer.Import:
+							if (!TryParseImportStatement(index, out var importModuleName))
+							{
+								var identToken = new CommonToken(token)
+								{
+									Type = MainLexer.Identifier,
+									Text = token.Text
+								};
+								codeTokens.Add(identToken);
+								goto SkipAdd;
+							}
+							if (compiliedTokens)
+								TryQueueImportModule(importModuleName);
+							codeTokens.Add(token);
+							AddWhitespaces(index, false);
+							goto SkipAdd;
 						case MainLexer.HotIf:
 						case MainLexer.InputLevel:
 						case MainLexer.UseHook:
@@ -784,17 +841,6 @@ namespace Keysharp.Scripting
                 index++;
             }
 
-            for (int i = 0; i < codeTokens.Count; i++)
-            {
-                if (codeTokens[i].Type == MainLexer.WS || codeTokens[i].Type == MainLexer.EOL)
-                {
-                    codeTokens.RemoveAt(i);
-                    i--;
-                }
-                else
-                    break;
-            }
-
             int PopWhitespaces(int i, bool linebreaks = true)
             {
 				while (--i >= 0)
@@ -848,6 +894,186 @@ namespace Keysharp.Scripting
                 return i;
 			}
 
+			int NextNonWhitespace(int i, bool allowEol)
+			{
+				while (++i < tokens.Count)
+				{
+					if (tokens[i].Channel == MainLexer.ERROR)
+						return i;
+					if (tokens[i].Channel == MainLexer.DIRECTIVE)
+						continue;
+					if (tokens[i].Channel != Lexer.DefaultTokenChannel)
+						continue;
+					if (tokens[i].Type == MainLexer.WS)
+						continue;
+					if (allowEol && tokens[i].Type == MainLexer.EOL)
+						continue;
+					return i;
+				}
+				return i;
+			}
+
+			bool IsStatementStart()
+			{
+				for (int i = codeTokens.Count - 1; i >= 0; i--)
+				{
+					var t = codeTokens[i];
+					if (t.Channel != Lexer.DefaultTokenChannel)
+						continue;
+					if (t.Type == MainLexer.WS)
+						continue;
+					if (t.Type == MainLexer.EOL)
+						return true;
+					return t.Type == MainLexer.CloseBrace
+						|| t.Type == MainLexer.Export;
+				}
+				return true; // start of file
+			}
+
+			bool TryParseImportStatement(int startIndex, out string moduleName)
+			{
+				moduleName = null;
+				if (braceDepth > 0 || parenDepth > 0 || bracketDepth > 0 || derefDepth > 0)
+					return false;
+				if (!IsStatementStart())
+					return false;
+
+				bool allowExportList = false;
+				for (int scan = codeTokens.Count - 1; scan >= 0; scan--)
+				{
+					var t = codeTokens[scan];
+					if (t.Channel != Lexer.DefaultTokenChannel)
+						continue;
+					if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
+						continue;
+					allowExportList = t.Type == MainLexer.Export;
+					break;
+				}
+
+				int scanIndex = startIndex;
+				scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
+				if (scanIndex >= tokenCount)
+					return false;
+
+				switch (tokens[scanIndex].Type)
+				{
+					case MainLexer.OpenBrace:
+						int localDepth = 1;
+						while (++scanIndex < tokenCount)
+						{
+							var t = tokens[scanIndex];
+							if (t.Channel == MainLexer.DIRECTIVE || t.Channel == MainLexer.ERROR)
+								break;
+							if (t.Channel != Lexer.DefaultTokenChannel)
+								continue;
+							if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
+								continue;
+							if (t.Type == MainLexer.OpenBrace)
+								localDepth++;
+							else if (t.Type == MainLexer.CloseBrace)
+							{
+								localDepth--;
+								if (localDepth == 0)
+									break;
+							}
+						}
+						if (localDepth != 0 || scanIndex >= tokenCount)
+							return false;
+						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
+						if (scanIndex >= tokenCount || tokens[scanIndex].Type != MainLexer.From)
+							return false;
+						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
+						if (scanIndex < tokenCount && (tokens[scanIndex].Type == MainLexer.Identifier || tokens[scanIndex].Type == MainLexer.StringLiteral))
+						{
+							moduleName = ExtractModuleName(tokens[scanIndex]);
+							return !string.IsNullOrWhiteSpace(moduleName);
+						}
+						return false;
+					case MainLexer.Multiply:
+						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
+						if (scanIndex >= tokenCount || tokens[scanIndex].Type != MainLexer.From)
+							return false;
+						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
+						if (scanIndex < tokenCount && (tokens[scanIndex].Type == MainLexer.Identifier || tokens[scanIndex].Type == MainLexer.StringLiteral))
+						{
+							moduleName = ExtractModuleName(tokens[scanIndex]);
+							return !string.IsNullOrWhiteSpace(moduleName);
+						}
+						return false;
+					case MainLexer.Identifier:
+					case MainLexer.StringLiteral:
+						moduleName = ExtractModuleName(tokens[scanIndex]);
+						if (string.IsNullOrWhiteSpace(moduleName))
+							return false;
+
+						bool sawAlias = false;
+						int j = NextNonWhitespace(scanIndex, allowEol: false);
+						if (j < tokenCount && tokens[j].Type == MainLexer.As)
+						{
+							j = NextNonWhitespace(j, allowEol: false);
+							if (j >= tokenCount || tokens[j].Type != MainLexer.Identifier)
+								return false;
+							sawAlias = true;
+							j = NextNonWhitespace(j, allowEol: false);
+						}
+
+						if (allowExportList && !sawAlias && j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
+							return false;
+
+						if (allowExportList && j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
+						{
+							int depth = 1;
+							while (++j < tokenCount)
+							{
+								var t = tokens[j];
+								if (t.Channel == MainLexer.DIRECTIVE || t.Channel == MainLexer.ERROR)
+									break;
+								if (t.Channel != Lexer.DefaultTokenChannel)
+									continue;
+								if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
+									continue;
+								if (t.Type == MainLexer.OpenBrace)
+									depth++;
+								else if (t.Type == MainLexer.CloseBrace)
+								{
+									depth--;
+									if (depth == 0)
+										break;
+								}
+							}
+							if (depth != 0 || j >= tokenCount)
+								return false;
+							j = NextNonWhitespace(j, allowEol: false);
+						}
+
+						if (j >= tokenCount)
+							return true;
+						return tokens[j].Type == MainLexer.EOL || tokens[j].Type == MainLexer.Eof;
+					default:
+						return false;
+				}
+			}
+
+			void TryQueueImportModule(string moduleName)
+			{
+				if (string.IsNullOrWhiteSpace(moduleName))
+					return;
+				if (moduleName[0] == '*')
+					return; // TODO: embedded resource imports
+				pendingImports.Enqueue(moduleName);
+			}
+
+			string ExtractModuleName(IToken token)
+			{
+				if (token == null)
+					return string.Empty;
+				var text = token.Text ?? string.Empty;
+				text = text.Trim();
+				if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
+					text = text.Substring(1, text.Length - 2);
+				return text;
+			}
+
 			/*
             foreach (var token in codeTokens)
             {
@@ -857,8 +1083,165 @@ namespace Keysharp.Scripting
 
 			preprocessorLexer.RemoveErrorListeners();
 
-			return codeTokens;
-
         }
+
+		private List<IToken> GetTokensForModule(ModuleTokenResult result, string moduleName)
+		{
+			if (!result.TokensByModule.TryGetValue(moduleName, out var tokens))
+			{
+				tokens = new List<IToken>();
+				result.TokensByModule[moduleName] = tokens;
+				result.ModuleOrder.Add(moduleName);
+			}
+
+			_ = GetIncludesForModule(moduleName);
+			return tokens;
+		}
+
+		private HashSet<string> GetIncludesForModule(string moduleName)
+		{
+			if (!includesByModule.TryGetValue(moduleName, out var includeSet))
+			{
+				includeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+				includesByModule[moduleName] = includeSet;
+			}
+
+			return includeSet;
+		}
+
+		private static void TrimLeadingWhitespace(List<IToken> tokens)
+		{
+			for (int i = 0; i < tokens.Count; i++)
+			{
+				if (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL)
+				{
+					tokens.RemoveAt(i);
+					i--;
+				}
+				else
+					break;
+			}
+		}
+
+		internal sealed class ModuleTokenResult
+		{
+			public Dictionary<string, List<IToken>> TokensByModule { get; } = new(StringComparer.OrdinalIgnoreCase);
+			public List<string> ModuleOrder { get; } = new();
+		}
+
+		private void ResolvePendingImports(ModuleTokenResult result)
+		{
+			while (pendingImports.Count > 0)
+			{
+				var moduleName = pendingImports.Dequeue();
+				if (string.IsNullOrWhiteSpace(moduleName))
+					continue;
+				if (result.TokensByModule.ContainsKey(moduleName))
+					continue;
+				if (loadedImportModules.Contains(moduleName))
+					continue;
+				if (IsExternalModule(moduleName))
+				{
+					loadedImportModules.Add(moduleName);
+					continue;
+				}
+
+				var modulePath = ResolveImportPath(moduleName);
+				if (modulePath == null)
+					throw new ParseException($"Module '{moduleName}' not found.", 0, moduleName);
+
+				var prevModule = currentModuleName;
+				currentModuleName = moduleName;
+				loadedImportModules.Add(moduleName);
+				using (var reader = new StreamReader(modulePath))
+					ReadTokens(reader, modulePath, result);
+				currentModuleName = prevModule;
+			}
+		}
+
+		private bool IsExternalModule(string moduleName)
+		{
+			if (string.IsNullOrWhiteSpace(moduleName))
+				return false;
+			if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(moduleName, out var type))
+				return typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(type);
+			return false;
+		}
+
+		private string ResolveImportPath(string moduleName)
+		{
+			var scriptDir = Path.GetDirectoryName(parser.name);
+			var searchPath = Environment.GetEnvironmentVariable("AhkImportPath");
+			if (string.IsNullOrWhiteSpace(searchPath))
+				searchPath = ".;%A_MyDocuments%\\AutoHotkey;%A_AhkPath%\\..";
+			searchPath = ExpandAccessorVariables(searchPath, scriptDir, parser.name);
+
+			foreach (var rawDir in searchPath.Split(';', StringSplitOptions.RemoveEmptyEntries))
+			{
+				var dir = rawDir.Trim();
+				if (string.IsNullOrWhiteSpace(dir))
+					continue;
+				if (!Path.IsPathRooted(dir))
+					dir = Path.GetFullPath(Path.Combine(scriptDir ?? string.Empty, dir));
+
+				if (TryResolveModulePath(dir, moduleName, out var path))
+					return path;
+			}
+
+			return null;
+		}
+
+		private static bool TryResolveModulePath(string baseDir, string moduleName, out string path)
+		{
+			path = null;
+			if (string.IsNullOrWhiteSpace(moduleName))
+				return false;
+
+			var candidateBase = Path.IsPathRooted(moduleName)
+				? moduleName
+				: Path.Combine(baseDir, moduleName);
+
+			if (File.Exists(candidateBase))
+			{
+				path = candidateBase;
+				return true;
+			}
+
+			if (Directory.Exists(candidateBase))
+			{
+				var initPath = Path.Combine(candidateBase, "__Init.ahk");
+				if (File.Exists(initPath))
+				{
+					path = initPath;
+					return true;
+				}
+			}
+
+			var withExt = candidateBase + ".ahk";
+			if (File.Exists(withExt))
+			{
+				path = withExt;
+				return true;
+			}
+
+			return false;
+		}
+
+		private string ExpandAccessorVariables(string value, string scriptDir, string scriptPath)
+		{
+			if (string.IsNullOrEmpty(value))
+				return value;
+
+			var replace = (string[,])accessorReplaceTemplate.Clone();
+			replace[0, 1] = scriptPath ?? string.Empty;
+			replace[1, 1] = scriptDir ?? string.Empty;
+			replace[2, 1] = scriptPath ?? string.Empty;
+
+			var expanded = value;
+			for (var ii = 0; ii < replace.Length / 2; ii++)
+				expanded = expanded.Replace(replace[ii, 0], replace[ii, 1], StringComparison.OrdinalIgnoreCase);
+
+			return expanded;
+		}
     }
 }

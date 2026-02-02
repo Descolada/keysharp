@@ -69,7 +69,7 @@ namespace Keysharp.Core.Windows
 			}
 			catch (Exception ex)
 			{
-				ksexc = new OSError
+				ksexc = (KeysharpException)(Exception)new OSError
 				{
 					Extra = ex.Message
 				};

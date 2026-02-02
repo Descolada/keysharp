@@ -4,7 +4,7 @@
 	/// Public interface for real threads-releated functions.
 	/// These differ than the pseudo-threads used throughout the rest of the library.
 	/// </summary>
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Runs a function object inside of a lock statement.
@@ -24,69 +24,69 @@
 		}
 
 		/// <summary>
-		/// Runs a function object inside of a C# task.
+		/// An object that encapsulates a C# Task.
 		/// </summary>
-		/// <param name="obj">The name of the function or a function object.</param>
-		/// <param name="args">The arguments to pass to the function.</param>
-		/// <returns>The <see cref="RealThread"/> object.</returns>
-		public static object StartRealThread(object obj, params object[] args)
+		public sealed class RealThread : KeysharpObject
 		{
-			var funcObj = Functions.GetFuncObj(obj, null, true);
-			var tsk = Task.Run(() => funcObj.Call(args));
-			return new RealThread(tsk);
-		}
-	}
+			internal Task<object> task;
 
-	/// <summary>
-	/// An object that encapsulates a C# Task.
-	/// </summary>
-	public sealed class RealThread : KeysharpObject
-	{
-		internal Task<object> task;
-
-		/// <summary>
-		/// Constructor that takes a task to keep a reference to.
-		/// </summary>
-		/// <param name="t">The task to hold.</param>
-		public RealThread(Task<object> t)
-		{
-			task = t;
-		}
-
-		/// <summary>
-		/// Encapsulates a call to <see cref="Task.ContinueWith()"/>.
-		/// </summary>
-		/// <param name="obj">The name of the function or a function object.</param>
-		/// <param name="args">The arguments to pass to the function.</param>
-		/// <returns>The new <see cref="RealThread"/> object</returns>
-		public object ContinueWith(object obj, params object[] args)
-		{
-			var fo = Functions.GetFuncObj(obj, null, true);
-			var rt = task.ContinueWith((to) => fo.Call(args));
-			return new RealThread(rt);
-		}
-
-		/// <summary>
-		/// Wait for the existing task either indefinitely or for a timeout period.
-		/// </summary>
-		/// <param name="obj">The timeout duration to wait. Default: wait indefinitely.</param>
-		/// <returns>The result of the task.</returns>
-		public object Wait(object obj = null)
-		{
-			var timeout = obj.Ai(-1);
-			var start = DateTime.UtcNow;
-
-			while (!task.IsCompleted && (timeout < 0 || (DateTime.UtcNow - start).Milliseconds < timeout))
-				Flow.TryDoEvents();
-
-			try
+			/// <summary>
+			/// Constructor that takes a task to keep a reference to.
+			/// </summary>
+			/// <param name="t">The task to hold.</param>
+			public RealThread(Task<object> t)
 			{
-				return task.Result;
+				task = t;
 			}
-			catch (AggregateException ae)
+
+			/// <summary>
+			/// Runs a function object inside of a C# task.
+			/// </summary>
+			/// <param name="obj">The name of the function or a function object.</param>
+			/// <param name="args">The arguments to pass to the function.</param>
+			/// <returns>The <see cref="RealThread"/> object.</returns>
+			public static object Call(object @this, object obj, params object[] args)
 			{
-				// Mostly looking for UserRequestedExitException
-				throw ae.InnerException?.InnerException ?? ae.InnerException;
+				var funcObj = Functions.GetFuncObj(obj, null, true);
+				var tsk = Task.Run(() => funcObj.Call(args));
+				return new RealThread(tsk);
+			}
+
+			/// <summary>
+			/// Encapsulates a call to <see cref="Task.ContinueWith()"/>.
+			/// </summary>
+			/// <param name="obj">The name of the function or a function object.</param>
+			/// <param name="args">The arguments to pass to the function.</param>
+			/// <returns>The new <see cref="RealThread"/> object</returns>
+			public object ContinueWith(object obj, params object[] args)
+			{
+				var fo = Functions.GetFuncObj(obj, null, true);
+				var rt = task.ContinueWith((to) => fo.Call(args));
+				return new RealThread(rt);
+			}
+
+			/// <summary>
+			/// Wait for the existing task either indefinitely or for a timeout period.
+			/// </summary>
+			/// <param name="obj">The timeout duration to wait. Default: wait indefinitely.</param>
+			/// <returns>The result of the task.</returns>
+			public object Wait(object obj = null)
+			{
+				var timeout = obj.Ai(-1);
+				var start = DateTime.UtcNow;
+
+				while (!task.IsCompleted && (timeout < 0 || (DateTime.UtcNow - start).Milliseconds < timeout))
+					Flow.TryDoEvents();
+
+				try
+				{
+					return task.Result;
+				}
+				catch (AggregateException ae)
+				{
+					// Mostly looking for UserRequestedExitException
+					throw ae.InnerException?.InnerException ?? ae.InnerException;
+				}
 			}
 		}
 	}

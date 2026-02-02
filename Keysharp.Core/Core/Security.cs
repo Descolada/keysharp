@@ -3,7 +3,7 @@ namespace Keysharp.Core
 	/// <summary>
 	/// Public interface for security/cryptographic-related functions.
 	/// </summary>
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Encrypt or decrypt data with the AES algorithm.
@@ -12,7 +12,7 @@ namespace Keysharp.Core
 		/// <param name="key">The secret key.</param>
 		/// <param name="decrypt"><code>true</code> to decrypt the given <paramref name="value"/>, otherwise encrypt.</param>
 		/// <returns>The corresponding encrypted or decrypted data.</returns>
-		public static Array AES(object value, object key, bool decrypt = false) => new (Crypt.Encrypt(value, key, decrypt, Aes.Create()));
+		public static Buffer AES(object value, object key, bool decrypt = false) => new (Crypt.Encrypt(value, key, decrypt, Aes.Create()));
 
 		/// <summary>
 		/// Calculates the CRC32 polynomial of an object.
@@ -37,35 +37,52 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Generates a secure (cryptographic) random number.
 		/// </summary>
-		/// <param name="min">The lower bound.</param>
-		/// <param name="max">The upper bound.</param>
-		/// <returns>A random number between the specified range. Leave both parameters blank to give any 128-bit numeric result.
-		/// If <paramref name="min"/> and <paramref name="max"/> are both pure integers, the result would also be an integer without a remainder.</returns>
+		/// <param name="min">The lower bound. If either parameter is a <see cref="double"/>, the result uses the floating-point path.</param>
+		/// <param name="max">The upper bound. If both parameters are non-<see cref="double"/>, the integer path is used.</param>
+		/// <returns>A random number between the specified range. Leave both parameters blank to allow the full numeric range.
+		/// If <paramref name="min"/> and <paramref name="max"/> are both non-<see cref="double"/>, the result is an integer.</returns>
 		/// <remarks>A cryptographic random number generator produces an output that is computationally infeasible to predict with a probability that is better than one half.
 		/// <see cref="Random"/> uses a simpler algorithm which is much faster but less secure.</remarks>
-		public static decimal SecureRandom(decimal min = decimal.MinValue, decimal max = decimal.MaxValue)
+		public static object SecureRandom(object min = null, object max = null)
 		{
-			var diff = Math.Abs(min - max);
+			if (min is double || max is double)
+			{
+				var minVal = min.Ad(double.MinValue);
+				var maxVal = max.Ad(double.MaxValue);
+				var diff = Math.Abs(minVal - maxVal);
 
-			if (diff == 0 && !(min == 0 && max == 0))
-				return min;
+				if (diff == 0 && !(minVal == 0 && maxVal == 0))
+					return minVal;
 
-			var csp = RandomNumberGenerator.Create();
-			var rnd = new byte[4 * 3 + 1];
-			csp.GetBytes(rnd);
-			var s = new int[3];
+				Span<byte> rnd = stackalloc byte[8];
+				RandomNumberGenerator.Fill(rnd);
+				var value = BitConverter.ToUInt64(rnd);
+				var unit = value / (double)ulong.MaxValue;
 
-			for (var i = 0; i < s.Length; i++)
-				s[i] = BitConverter.ToInt32(rnd, i * 4);
+				var rem = (minVal % 1.0) != 0 || (maxVal % 1.0) != 0;
+				if (!rem)
+				{
+					var range = diff + 1.0;
+					var val = Math.Floor(unit * range);
+					return minVal + val;
+				}
 
-			var rem = decimal.Remainder(min, 1) != 0 || decimal.Remainder(max, 1) != 0;
-			byte scale = 0;
+				return minVal + (unit * diff);
+			}
 
-			if (rem)
-				scale = (byte)(rnd[12] % 28);
+			var minInt = min.Ai(int.MinValue);
+			var maxInt = max.Ai(int.MaxValue);
 
-			var val = new decimal(s[0], s[1], s[2], false, scale);
-			return diff == 0 ? val : min + val % diff;
+			if (minInt == maxInt)
+				return (long)minInt;
+
+			if (minInt > maxInt)
+			{
+				(minInt, maxInt) = (maxInt, minInt);
+			}
+
+			var randomInt = RandomNumberGenerator.GetInt32(minInt, maxInt);
+			return (long)randomInt;
 		}
 
 		/// <summary>

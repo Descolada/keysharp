@@ -30,7 +30,7 @@ using IToken = Antlr4.Runtime.IToken;
 /// <typeparam name="Result">The return type of the visit operation.</typeparam>
 [System.CodeDom.Compiler.GeneratedCode("ANTLR", "4.13.1")]
 [System.CLSCompliant(false)]
-internal interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
+public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.program"/>.
 	/// </summary>
@@ -157,91 +157,83 @@ internal interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitImportStatement([NotNull] MainParser.ImportStatementContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importFromBlock"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importClause"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportFromBlock([NotNull] MainParser.ImportFromBlockContext context);
+	Result VisitImportClause([NotNull] MainParser.ImportClauseContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importModuleItems"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importModule"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportModuleItems([NotNull] MainParser.ImportModuleItemsContext context);
+	Result VisitImportModule([NotNull] MainParser.ImportModuleContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importAliasName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importWildcardFrom"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportAliasName([NotNull] MainParser.ImportAliasNameContext context);
+	Result VisitImportWildcardFrom([NotNull] MainParser.ImportWildcardFromContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.moduleExportName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importNamedFrom"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitModuleExportName([NotNull] MainParser.ModuleExportNameContext context);
+	Result VisitImportNamedFrom([NotNull] MainParser.ImportNamedFromContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importedBinding"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importSpecifierList"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportedBinding([NotNull] MainParser.ImportedBindingContext context);
+	Result VisitImportSpecifierList([NotNull] MainParser.ImportSpecifierListContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importDefault"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importSpecifier"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportDefault([NotNull] MainParser.ImportDefaultContext context);
+	Result VisitImportSpecifier([NotNull] MainParser.ImportSpecifierContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importNamespace"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportList"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportNamespace([NotNull] MainParser.ImportNamespaceContext context);
+	Result VisitExportImportList([NotNull] MainParser.ExportImportListContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importFrom"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifierList"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitImportFrom([NotNull] MainParser.ImportFromContext context);
+	Result VisitExportImportSpecifierList([NotNull] MainParser.ExportImportSpecifierListContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.aliasName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifier"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitAliasName([NotNull] MainParser.AliasNameContext context);
+	Result VisitExportImportSpecifier([NotNull] MainParser.ExportImportSpecifierContext context);
 	/// <summary>
-	/// Visit a parse tree produced by the <c>ExportDeclaration</c>
-	/// labeled alternative in <see cref="MainParser.exportStatement"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.moduleName"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitExportDeclaration([NotNull] MainParser.ExportDeclarationContext context);
+	Result VisitModuleName([NotNull] MainParser.ModuleNameContext context);
 	/// <summary>
-	/// Visit a parse tree produced by the <c>ExportDefaultDeclaration</c>
-	/// labeled alternative in <see cref="MainParser.exportStatement"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportStatement"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitExportDefaultDeclaration([NotNull] MainParser.ExportDefaultDeclarationContext context);
+	Result VisitExportStatement([NotNull] MainParser.ExportStatementContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportFromBlock"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportClause"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitExportFromBlock([NotNull] MainParser.ExportFromBlockContext context);
+	Result VisitExportClause([NotNull] MainParser.ExportClauseContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportModuleItems"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportNamed"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	Result VisitExportModuleItems([NotNull] MainParser.ExportModuleItemsContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportAliasName"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitExportAliasName([NotNull] MainParser.ExportAliasNameContext context);
+	Result VisitExportNamed([NotNull] MainParser.ExportNamedContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.declaration"/>.
 	/// </summary>

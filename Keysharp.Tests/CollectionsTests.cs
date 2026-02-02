@@ -147,6 +147,12 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Collections")]
+		public void HashMap()
+		{
+			Assert.IsTrue(TestScript("collections-hashmap", false));
+		}
+
+		[Test, Category("Collections")]
 		public void Buffer()
 		{
 			var buf = new Buffer(5, 10);

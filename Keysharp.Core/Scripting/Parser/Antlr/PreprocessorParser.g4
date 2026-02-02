@@ -28,7 +28,8 @@ preprocessor_directive
     | Pragma Text directive_new_line_or_sharp { this.OnPreprocessorDirectivePragma(); }                                      # preprocessorPragma
     | Nullable Text directive_new_line_or_sharp { this.OnPreprocessorDirectiveNullable(); }                                  # preprocessorNullable
     // The following directives are handled in PreReader.cs, because it's easier that way
-    | ( Include
+    | ( Module
+      | Include
       | IncludeAgain
       | DllLoad
       | Requires

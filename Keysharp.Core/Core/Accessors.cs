@@ -592,6 +592,11 @@
 		}
 
 		/// <summary>
+		/// The callback (function object) which represents the current HotIf criteria for the Hotkey and Hotstring functions, or blank if none.
+		/// </summary>
+		public static object A_HotIf => (Script.TheScript.Threads.CurrentThread.hotCriterion as FuncObj) ?? (object)DefaultObject;
+
+		/// <summary>
 		/// The timeout used for checking if a window exists during a #HotIf check.
 		/// </summary>
 		public static object A_HotIfTimeout { get; set; } = 1000L;
@@ -766,6 +771,7 @@
 		{
 			get
 			{
+				return false;
 				var path = Path.GetFileName(
 #if WINDOWS
 					Application.ExecutablePath
@@ -1939,12 +1945,32 @@
 		}
 	}
 
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Whether timers are allowed to operate in the script. Default: true.
 		/// </summary>
 		public static object A_AllowTimers { get; set; } = true;
+
+		/// <summary>
+		/// Iterates through all timers in existence and returns the number of them which are enabled.
+		/// </summary>
+		public static Map A_Timers
+		{
+			get
+			{
+				var timerData = new List<object>();
+				foreach (var kv in Script.TheScript.FlowData.timers)
+				{
+					if (kv.Key is FuncObj func)
+					{
+						timerData.AddRange(func, kv.Value.Enabled);
+					}
+				}
+
+				return new Map(timerData.ToArray());
+			}
+		}
 
 		/// <summary>
 		/// The command line string used to run the script.

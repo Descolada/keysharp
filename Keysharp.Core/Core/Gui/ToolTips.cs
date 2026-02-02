@@ -170,7 +170,7 @@
 				var formPos = tooltipInvokerForm.Location;
 				tt.Show(t, tooltipInvokerForm, tempx, tempy);
 #endif
-				//KeysharpEnhancements.OutputDebugLine("invoked tooltip");
+				//Ks.OutputDebugLine("invoked tooltip");
 				//AHK did a large amount of work to make sure the tooltip didn't go off screen
 				//and also to ensure it was not behind the mouse cursor. This seems like overkill
 				//for two reasons.

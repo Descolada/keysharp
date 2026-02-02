@@ -208,6 +208,9 @@ namespace Keysharp.Core.Common.ObjectBase
 					 || name.Equals("_Item", StringComparison.OrdinalIgnoreCase)
 					 || name.Equals($"[DISPID={DISPID_VALUE}]", StringComparison.OrdinalIgnoreCase))
 			{
+				if ((invokeAttr & BindingFlags.InvokeMethod) != 0 && (target is not FuncObj))
+					return Com.ConvertToCOMType(Script.Invoke(target ?? this, "Call", usedArgs));
+
 				if (this is Array)
 				{
 					for (int i = 0; i < argCount - 1; i++)
@@ -282,7 +285,13 @@ namespace Keysharp.Core.Common.ObjectBase
 			// property setter?
 			if ((invokeAttr & BindingFlags.SetProperty) != 0 || (invokeAttr & BindingFlags.PutDispProperty) != 0)
 			{
-				Script.SetPropertyValue(target, name, argCount > 0 ? usedArgs[0] : null);
+				if (argCount == 0)
+				{
+					if ((invokeAttr & BindingFlags.InvokeMethod) != 0)
+						return Com.ConvertToCOMType(Script.Invoke(target, name, usedArgs));
+					return null;
+				}
+				Script.SetPropertyValue(target, name, usedArgs[0]);
 				return null;
 			}
 
@@ -439,7 +448,7 @@ namespace Keysharp.Core.Common.ObjectBase
 		public override object[] GetCustomAttributes(bool inherit) => System.Array.Empty<object>();
 		public override object[] GetCustomAttributes(Type attrType, bool inherit) => System.Array.Empty<object>();
 		public override bool IsDefined(Type attrType, bool inherit) => false;
-		public override Module Module => typeof(KeysharpObject).Module;
+		public override System.Reflection.Module Module => typeof(KeysharpObject).Module;
 		public override Type ReflectedType => typeof(KeysharpObject);
 		#endregion
 	}
@@ -477,7 +486,7 @@ namespace Keysharp.Core.Common.ObjectBase
 		public override object[] GetCustomAttributes(Type attrType, bool inherit) => System.Array.Empty<object>();
 		public override bool IsDefined(Type attrType, bool inherit) => false;
 		public override PropertyAttributes Attributes => PropertyAttributes.None;
-		public override Module Module => typeof(KeysharpObject).Module;
+		public override System.Reflection.Module Module => typeof(KeysharpObject).Module;
 		public override Type ReflectedType => typeof(KeysharpObject);
 		#endregion
 	}

@@ -1,4 +1,4 @@
-
+import { RandomSeed } from Ks
 
 if (Random() >= 0)
 	FileAppend "pass", "*"

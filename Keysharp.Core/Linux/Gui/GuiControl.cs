@@ -176,7 +176,7 @@ namespace Keysharp.Core
 					else if (_control is KeysharpPictureBox pic)
 						return pic.Filename;
 					else if (_control is TextControl ctrl)
-						return KeysharpEnhancements.NormalizeEol(ctrl.Text);
+						return Ks.NormalizeEol(ctrl.Text);
 
 					return DefaultObject;
 				}
@@ -309,7 +309,7 @@ namespace Keysharp.Core
 						}
 					}
 					else if (_control is TextControl ctrl)
-						ctrl.Text = KeysharpEnhancements.NormalizeEol(val, Environment.NewLine);
+						ctrl.Text = Ks.NormalizeEol(val, Environment.NewLine);
 					else if (_control != null)
 						_control.Text = val;
 

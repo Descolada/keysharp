@@ -422,6 +422,66 @@ class mylooppropclass
 	}
 }
 
+; Test for naming conflicts between functions, classes, global variables, and static variables.
+_() {
+    static __ := 1
+    return __++
+}
+
+__() {
+    static _ := 1
+    return _++
+}
+
+class Sl____ {
+}
+
+class Fn__ {
+}
+
+a := _()
+
+if (a = 1)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+a := __()
+
+if (a = 1)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+for _, __ in [6,7] {
+    if (A_Index == 1) {
+        if (_ = 1 && __ = 6) 
+            FileAppend "pass", "*"
+        else
+            FileAppend "fail", "*"
+    }
+    if (A_Index == 2) {
+        if (_ = 2 && __ = 7) 
+            FileAppend "pass", "*"
+        else
+            FileAppend "fail", "*"
+    }
+}
+
+a := _()
+
+if (a = 2)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+a := __()
+
+if (a = 2)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
 ;Test ending a file with a multiline comment.
 ExitApp()/*
 asdf

@@ -32,7 +32,7 @@ using DFA = Antlr4.Runtime.Dfa.DFA;
 
 [System.CodeDom.Compiler.GeneratedCode("ANTLR", "4.13.1")]
 [System.CLSCompliant(false)]
-internal partial class PreprocessorParser : PreprocessorParserBase {
+public partial class PreprocessorParser : PreprocessorParserBase {
 	protected static DFA[] decisionToDFA;
 	protected static PredictionContextCache sharedContextCache = new PredictionContextCache();
 	public const int
@@ -63,16 +63,16 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 		EOL=131, WS=132, UnexpectedCharacter=133, HotstringWhitespaces=134, HotstringMultiLineExpansion=135, 
 		HotstringSingleLineExpansion=136, HotstringUnexpectedCharacter=137, DirectiveWhitespaces=138, 
 		DirectiveContent=139, DirectiveUnexpectedCharacter=140, Digits=141, HotIf=142, 
-		InputLevel=143, SuspendExempt=144, UseHook=145, Hotstring=146, Define=147, 
-		Undef=148, ElIf=149, EndIf=150, Line=151, Error=152, Warning=153, Region=154, 
-		EndRegion=155, Pragma=156, Nullable=157, Include=158, IncludeAgain=159, 
-		DllLoad=160, Requires=161, SingleInstance=162, Persistent=163, Warn=164, 
-		HookMutexName=165, NoDynamicVars=166, ErrorStdOut=167, ClipboardTimeout=168, 
-		HotIfTimeout=169, MaxThreads=170, MaxThreadsBuffer=171, MaxThreadsPerHotkey=172, 
-		WinActivateForce=173, NoTrayIcon=174, Assembly=175, DirectiveHidden=176, 
-		ConditionalSymbol=177, DirectiveSingleLineComment=178, DirectiveNewline=179, 
-		UnexpectedDirectiveCharacter=180, Text=181, UnexpectedTextDirectiveCharacter=182, 
-		NoMouse=183, EndChars=184, HotstringOptions=185, UnexpectedHotstringOptionsCharacter=186;
+		InputLevel=143, SuspendExempt=144, UseHook=145, Hotstring=146, Module=147, 
+		Define=148, Undef=149, ElIf=150, EndIf=151, Line=152, Error=153, Warning=154, 
+		Region=155, EndRegion=156, Pragma=157, Nullable=158, Include=159, IncludeAgain=160, 
+		DllLoad=161, Requires=162, SingleInstance=163, Persistent=164, Warn=165, 
+		HookMutexName=166, NoDynamicVars=167, ErrorStdOut=168, ClipboardTimeout=169, 
+		HotIfTimeout=170, MaxThreads=171, MaxThreadsBuffer=172, MaxThreadsPerHotkey=173, 
+		WinActivateForce=174, NoTrayIcon=175, Assembly=176, DirectiveHidden=177, 
+		ConditionalSymbol=178, DirectiveSingleLineComment=179, DirectiveNewline=180, 
+		UnexpectedDirectiveCharacter=181, Text=182, UnexpectedTextDirectiveCharacter=183, 
+		NoMouse=184, EndChars=185, HotstringOptions=186, UnexpectedHotstringOptionsCharacter=187;
 	public const int
 		RULE_preprocessor_directive = 0, RULE_directive_new_line_or_sharp = 1, 
 		RULE_preprocessor_expression = 2;
@@ -97,7 +97,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 		"'extends'", "'super'", "'base'", "'export'", "'import'", "'from'", "'as'", 
 		"'async'", "'await'", "'static'", "'global'", "'local'", null, null, null, 
 		null, null, null, null, null, null, null, null, null, null, "'hotif'", 
-		"'inputlevel'", "'suspendexempt'", "'usehook'", "'hotstring'", "'define'", 
+		"'inputlevel'", "'suspendexempt'", "'usehook'", "'hotstring'", null, "'define'", 
 		"'undef'", "'elif'", "'endif'", "'line'", null, null, null, null, null, 
 		null, null, null, null, null, null, null, null, null, "'nodynamicvars'", 
 		"'errorstdout'", null, null, null, null, null, "'winactivateforce'", "'notrayicon'", 
@@ -130,14 +130,15 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 		"HotstringWhitespaces", "HotstringMultiLineExpansion", "HotstringSingleLineExpansion", 
 		"HotstringUnexpectedCharacter", "DirectiveWhitespaces", "DirectiveContent", 
 		"DirectiveUnexpectedCharacter", "Digits", "HotIf", "InputLevel", "SuspendExempt", 
-		"UseHook", "Hotstring", "Define", "Undef", "ElIf", "EndIf", "Line", "Error", 
-		"Warning", "Region", "EndRegion", "Pragma", "Nullable", "Include", "IncludeAgain", 
-		"DllLoad", "Requires", "SingleInstance", "Persistent", "Warn", "HookMutexName", 
-		"NoDynamicVars", "ErrorStdOut", "ClipboardTimeout", "HotIfTimeout", "MaxThreads", 
-		"MaxThreadsBuffer", "MaxThreadsPerHotkey", "WinActivateForce", "NoTrayIcon", 
-		"Assembly", "DirectiveHidden", "ConditionalSymbol", "DirectiveSingleLineComment", 
-		"DirectiveNewline", "UnexpectedDirectiveCharacter", "Text", "UnexpectedTextDirectiveCharacter", 
-		"NoMouse", "EndChars", "HotstringOptions", "UnexpectedHotstringOptionsCharacter"
+		"UseHook", "Hotstring", "Module", "Define", "Undef", "ElIf", "EndIf", 
+		"Line", "Error", "Warning", "Region", "EndRegion", "Pragma", "Nullable", 
+		"Include", "IncludeAgain", "DllLoad", "Requires", "SingleInstance", "Persistent", 
+		"Warn", "HookMutexName", "NoDynamicVars", "ErrorStdOut", "ClipboardTimeout", 
+		"HotIfTimeout", "MaxThreads", "MaxThreadsBuffer", "MaxThreadsPerHotkey", 
+		"WinActivateForce", "NoTrayIcon", "Assembly", "DirectiveHidden", "ConditionalSymbol", 
+		"DirectiveSingleLineComment", "DirectiveNewline", "UnexpectedDirectiveCharacter", 
+		"Text", "UnexpectedTextDirectiveCharacter", "NoMouse", "EndChars", "HotstringOptions", 
+		"UnexpectedHotstringOptionsCharacter"
 	};
 	public static readonly IVocabulary DefaultVocabulary = new Vocabulary(_LiteralNames, _SymbolicNames);
 
@@ -289,6 +290,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 		[System.Diagnostics.DebuggerNonUserCode] public Directive_new_line_or_sharpContext directive_new_line_or_sharp() {
 			return GetRuleContext<Directive_new_line_or_sharpContext>(0);
 		}
+		[System.Diagnostics.DebuggerNonUserCode] public ITerminalNode Module() { return GetToken(PreprocessorParser.Module, 0); }
 		[System.Diagnostics.DebuggerNonUserCode] public ITerminalNode Include() { return GetToken(PreprocessorParser.Include, 0); }
 		[System.Diagnostics.DebuggerNonUserCode] public ITerminalNode IncludeAgain() { return GetToken(PreprocessorParser.IncludeAgain, 0); }
 		[System.Diagnostics.DebuggerNonUserCode] public ITerminalNode DllLoad() { return GetToken(PreprocessorParser.DllLoad, 0); }
@@ -638,6 +640,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 				 this.OnPreprocessorDirectiveNullable(); 
 				}
 				break;
+			case Module:
 			case Include:
 			case IncludeAgain:
 			case DllLoad:
@@ -649,7 +652,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 				{
 				State = 80;
 				_la = TokenStream.LA(1);
-				if ( !(((((_la - 158)) & ~0x3f) == 0 && ((1L << (_la - 158)) & 131215L) != 0)) ) {
+				if ( !(((((_la - 147)) & ~0x3f) == 0 && ((1L << (_la - 147)) & 537456641L) != 0)) ) {
 				ErrorHandler.RecoverInline(this);
 				}
 				else {
@@ -767,7 +770,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 				{
 				State = 101;
 				_la = TokenStream.LA(1);
-				if ( !(((((_la - 168)) & ~0x3f) == 0 && ((1L << (_la - 168)) & 31L) != 0)) ) {
+				if ( !(((((_la - 169)) & ~0x3f) == 0 && ((1L << (_la - 169)) & 31L) != 0)) ) {
 				ErrorHandler.RecoverInline(this);
 				}
 				else {
@@ -1052,7 +1055,7 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 	}
 
 	private static int[] _serializedATN = {
-		4,1,186,154,2,0,7,0,2,1,7,1,2,2,7,2,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,
+		4,1,187,154,2,0,7,0,2,1,7,1,2,2,7,2,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,
 		0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,
 		1,0,1,0,1,0,1,0,1,0,3,0,38,8,0,1,0,1,0,3,0,42,8,0,1,0,1,0,1,0,1,0,1,0,
 		1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,3,0,59,8,0,1,0,1,0,1,0,1,0,1,0,
@@ -1061,49 +1064,49 @@ internal partial class PreprocessorParser : PreprocessorParserBase {
 		1,0,1,0,1,0,1,0,1,0,1,0,3,0,105,8,0,1,1,1,1,1,2,1,2,1,2,1,2,1,2,1,2,1,
 		2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,3,2,127,8,2,1,2,1,2,1,2,
 		1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,1,2,5,
-		2,149,8,2,10,2,12,2,152,9,2,1,2,0,1,4,3,0,2,4,0,5,3,0,158,161,165,165,
-		175,175,2,0,70,71,141,141,2,0,162,162,164,164,1,0,168,172,1,1,179,179,
-		186,0,104,1,0,0,0,2,106,1,0,0,0,4,126,1,0,0,0,6,7,5,147,0,0,7,8,5,177,
-		0,0,8,9,3,2,1,0,9,10,6,0,-1,0,10,105,1,0,0,0,11,12,5,148,0,0,12,13,5,177,
-		0,0,13,14,3,2,1,0,14,15,6,0,-1,0,15,105,1,0,0,0,16,17,5,101,0,0,17,18,
-		3,4,2,0,18,19,3,2,1,0,19,20,6,0,-1,0,20,105,1,0,0,0,21,22,5,149,0,0,22,
-		23,3,4,2,0,23,24,3,2,1,0,24,25,6,0,-1,0,25,105,1,0,0,0,26,27,5,87,0,0,
-		27,28,3,2,1,0,28,29,6,0,-1,0,29,105,1,0,0,0,30,31,5,150,0,0,31,32,3,2,
-		1,0,32,33,6,0,-1,0,33,105,1,0,0,0,34,41,5,151,0,0,35,37,5,141,0,0,36,38,
-		5,130,0,0,37,36,1,0,0,0,37,38,1,0,0,0,38,42,1,0,0,0,39,42,5,86,0,0,40,
-		42,5,176,0,0,41,35,1,0,0,0,41,39,1,0,0,0,41,40,1,0,0,0,42,43,1,0,0,0,43,
-		44,3,2,1,0,44,45,6,0,-1,0,45,105,1,0,0,0,46,47,5,152,0,0,47,48,5,181,0,
-		0,48,49,3,2,1,0,49,50,6,0,-1,0,50,105,1,0,0,0,51,52,5,153,0,0,52,53,5,
-		181,0,0,53,54,3,2,1,0,54,55,6,0,-1,0,55,105,1,0,0,0,56,58,5,154,0,0,57,
-		59,5,181,0,0,58,57,1,0,0,0,58,59,1,0,0,0,59,60,1,0,0,0,60,61,3,2,1,0,61,
-		62,6,0,-1,0,62,105,1,0,0,0,63,65,5,155,0,0,64,66,5,181,0,0,65,64,1,0,0,
-		0,65,66,1,0,0,0,66,67,1,0,0,0,67,68,3,2,1,0,68,69,6,0,-1,0,69,105,1,0,
-		0,0,70,71,5,156,0,0,71,72,5,181,0,0,72,73,3,2,1,0,73,74,6,0,-1,0,74,105,
-		1,0,0,0,75,76,5,157,0,0,76,77,5,181,0,0,77,78,3,2,1,0,78,79,6,0,-1,0,79,
-		105,1,0,0,0,80,81,7,0,0,0,81,82,5,181,0,0,82,105,3,2,1,0,83,85,5,163,0,
-		0,84,86,7,1,0,0,85,84,1,0,0,0,85,86,1,0,0,0,86,87,1,0,0,0,87,105,3,2,1,
-		0,88,90,7,2,0,0,89,91,5,181,0,0,90,89,1,0,0,0,90,91,1,0,0,0,91,92,1,0,
-		0,0,92,105,3,2,1,0,93,94,5,166,0,0,94,105,3,2,1,0,95,96,5,167,0,0,96,105,
-		3,2,1,0,97,98,5,173,0,0,98,105,3,2,1,0,99,100,5,174,0,0,100,105,3,2,1,
-		0,101,102,7,3,0,0,102,103,5,141,0,0,103,105,3,2,1,0,104,6,1,0,0,0,104,
-		11,1,0,0,0,104,16,1,0,0,0,104,21,1,0,0,0,104,26,1,0,0,0,104,30,1,0,0,0,
-		104,34,1,0,0,0,104,46,1,0,0,0,104,51,1,0,0,0,104,56,1,0,0,0,104,63,1,0,
-		0,0,104,70,1,0,0,0,104,75,1,0,0,0,104,80,1,0,0,0,104,83,1,0,0,0,104,88,
-		1,0,0,0,104,93,1,0,0,0,104,95,1,0,0,0,104,97,1,0,0,0,104,99,1,0,0,0,104,
-		101,1,0,0,0,105,1,1,0,0,0,106,107,7,4,0,0,107,3,1,0,0,0,108,109,6,2,-1,
-		0,109,110,5,70,0,0,110,127,6,2,-1,0,111,112,5,71,0,0,112,127,6,2,-1,0,
-		113,114,5,141,0,0,114,127,6,2,-1,0,115,116,5,177,0,0,116,127,6,2,-1,0,
-		117,118,5,10,0,0,118,119,3,4,2,0,119,120,5,11,0,0,120,121,6,2,-1,0,121,
-		127,1,0,0,0,122,123,5,27,0,0,123,124,3,4,2,5,124,125,6,2,-1,0,125,127,
-		1,0,0,0,126,108,1,0,0,0,126,111,1,0,0,0,126,113,1,0,0,0,126,115,1,0,0,
-		0,126,117,1,0,0,0,126,122,1,0,0,0,127,150,1,0,0,0,128,129,10,4,0,0,129,
-		130,5,44,0,0,130,131,3,4,2,5,131,132,6,2,-1,0,132,149,1,0,0,0,133,134,
-		10,3,0,0,134,135,5,43,0,0,135,136,3,4,2,4,136,137,6,2,-1,0,137,149,1,0,
-		0,0,138,139,10,2,0,0,139,140,5,50,0,0,140,141,3,4,2,3,141,142,6,2,-1,0,
-		142,149,1,0,0,0,143,144,10,1,0,0,144,145,5,51,0,0,145,146,3,4,2,2,146,
-		147,6,2,-1,0,147,149,1,0,0,0,148,128,1,0,0,0,148,133,1,0,0,0,148,138,1,
-		0,0,0,148,143,1,0,0,0,149,152,1,0,0,0,150,148,1,0,0,0,150,151,1,0,0,0,
-		151,5,1,0,0,0,152,150,1,0,0,0,10,37,41,58,65,85,90,104,126,148,150
+		2,149,8,2,10,2,12,2,152,9,2,1,2,0,1,4,3,0,2,4,0,5,4,0,147,147,159,162,
+		166,166,176,176,2,0,70,71,141,141,2,0,163,163,165,165,1,0,169,173,1,1,
+		180,180,186,0,104,1,0,0,0,2,106,1,0,0,0,4,126,1,0,0,0,6,7,5,148,0,0,7,
+		8,5,178,0,0,8,9,3,2,1,0,9,10,6,0,-1,0,10,105,1,0,0,0,11,12,5,149,0,0,12,
+		13,5,178,0,0,13,14,3,2,1,0,14,15,6,0,-1,0,15,105,1,0,0,0,16,17,5,101,0,
+		0,17,18,3,4,2,0,18,19,3,2,1,0,19,20,6,0,-1,0,20,105,1,0,0,0,21,22,5,150,
+		0,0,22,23,3,4,2,0,23,24,3,2,1,0,24,25,6,0,-1,0,25,105,1,0,0,0,26,27,5,
+		87,0,0,27,28,3,2,1,0,28,29,6,0,-1,0,29,105,1,0,0,0,30,31,5,151,0,0,31,
+		32,3,2,1,0,32,33,6,0,-1,0,33,105,1,0,0,0,34,41,5,152,0,0,35,37,5,141,0,
+		0,36,38,5,130,0,0,37,36,1,0,0,0,37,38,1,0,0,0,38,42,1,0,0,0,39,42,5,86,
+		0,0,40,42,5,177,0,0,41,35,1,0,0,0,41,39,1,0,0,0,41,40,1,0,0,0,42,43,1,
+		0,0,0,43,44,3,2,1,0,44,45,6,0,-1,0,45,105,1,0,0,0,46,47,5,153,0,0,47,48,
+		5,182,0,0,48,49,3,2,1,0,49,50,6,0,-1,0,50,105,1,0,0,0,51,52,5,154,0,0,
+		52,53,5,182,0,0,53,54,3,2,1,0,54,55,6,0,-1,0,55,105,1,0,0,0,56,58,5,155,
+		0,0,57,59,5,182,0,0,58,57,1,0,0,0,58,59,1,0,0,0,59,60,1,0,0,0,60,61,3,
+		2,1,0,61,62,6,0,-1,0,62,105,1,0,0,0,63,65,5,156,0,0,64,66,5,182,0,0,65,
+		64,1,0,0,0,65,66,1,0,0,0,66,67,1,0,0,0,67,68,3,2,1,0,68,69,6,0,-1,0,69,
+		105,1,0,0,0,70,71,5,157,0,0,71,72,5,182,0,0,72,73,3,2,1,0,73,74,6,0,-1,
+		0,74,105,1,0,0,0,75,76,5,158,0,0,76,77,5,182,0,0,77,78,3,2,1,0,78,79,6,
+		0,-1,0,79,105,1,0,0,0,80,81,7,0,0,0,81,82,5,182,0,0,82,105,3,2,1,0,83,
+		85,5,164,0,0,84,86,7,1,0,0,85,84,1,0,0,0,85,86,1,0,0,0,86,87,1,0,0,0,87,
+		105,3,2,1,0,88,90,7,2,0,0,89,91,5,182,0,0,90,89,1,0,0,0,90,91,1,0,0,0,
+		91,92,1,0,0,0,92,105,3,2,1,0,93,94,5,167,0,0,94,105,3,2,1,0,95,96,5,168,
+		0,0,96,105,3,2,1,0,97,98,5,174,0,0,98,105,3,2,1,0,99,100,5,175,0,0,100,
+		105,3,2,1,0,101,102,7,3,0,0,102,103,5,141,0,0,103,105,3,2,1,0,104,6,1,
+		0,0,0,104,11,1,0,0,0,104,16,1,0,0,0,104,21,1,0,0,0,104,26,1,0,0,0,104,
+		30,1,0,0,0,104,34,1,0,0,0,104,46,1,0,0,0,104,51,1,0,0,0,104,56,1,0,0,0,
+		104,63,1,0,0,0,104,70,1,0,0,0,104,75,1,0,0,0,104,80,1,0,0,0,104,83,1,0,
+		0,0,104,88,1,0,0,0,104,93,1,0,0,0,104,95,1,0,0,0,104,97,1,0,0,0,104,99,
+		1,0,0,0,104,101,1,0,0,0,105,1,1,0,0,0,106,107,7,4,0,0,107,3,1,0,0,0,108,
+		109,6,2,-1,0,109,110,5,70,0,0,110,127,6,2,-1,0,111,112,5,71,0,0,112,127,
+		6,2,-1,0,113,114,5,141,0,0,114,127,6,2,-1,0,115,116,5,178,0,0,116,127,
+		6,2,-1,0,117,118,5,10,0,0,118,119,3,4,2,0,119,120,5,11,0,0,120,121,6,2,
+		-1,0,121,127,1,0,0,0,122,123,5,27,0,0,123,124,3,4,2,5,124,125,6,2,-1,0,
+		125,127,1,0,0,0,126,108,1,0,0,0,126,111,1,0,0,0,126,113,1,0,0,0,126,115,
+		1,0,0,0,126,117,1,0,0,0,126,122,1,0,0,0,127,150,1,0,0,0,128,129,10,4,0,
+		0,129,130,5,44,0,0,130,131,3,4,2,5,131,132,6,2,-1,0,132,149,1,0,0,0,133,
+		134,10,3,0,0,134,135,5,43,0,0,135,136,3,4,2,4,136,137,6,2,-1,0,137,149,
+		1,0,0,0,138,139,10,2,0,0,139,140,5,50,0,0,140,141,3,4,2,3,141,142,6,2,
+		-1,0,142,149,1,0,0,0,143,144,10,1,0,0,144,145,5,51,0,0,145,146,3,4,2,2,
+		146,147,6,2,-1,0,147,149,1,0,0,0,148,128,1,0,0,0,148,133,1,0,0,0,148,138,
+		1,0,0,0,148,143,1,0,0,0,149,152,1,0,0,0,150,148,1,0,0,0,150,151,1,0,0,
+		0,151,5,1,0,0,0,152,150,1,0,0,0,10,37,41,58,65,85,90,104,126,148,150
 	};
 
 	public static readonly ATN _ATN =

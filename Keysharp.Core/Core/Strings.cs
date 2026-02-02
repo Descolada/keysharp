@@ -3,7 +3,7 @@ using System.Formats.Tar;
 
 namespace Keysharp.Core
 {
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		private static readonly object[] nullPlaceholder = [null];
 
@@ -66,15 +66,6 @@ namespace Keysharp.Core
 
 			return text.ReplaceLineEndings(eol);
 		}
-
-		/// <summary>
-		/// Determines if a string starts with a given string, using the current culture.
-		/// </summary>
-		/// <param name="str">The string to examine the start of.</param>
-		/// <param name="str2">The string to search for.</param>
-		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
-		/// <returns>1 if str started with str2, else 0.</returns>
-		public static long StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 	}
 
 	internal class StringsData
@@ -103,15 +94,6 @@ namespace Keysharp.Core
 		/// <param name="number">A Unicode value.</param>
 		/// <returns>The string corresponding to number. This is always a single Unicode character.</returns>
 		public static string Chr(object number) => char.ConvertFromUtf32(number.Ai());
-
-		/// <summary>
-		/// Determines if a string ends with a given string, using the current culture.
-		/// </summary>
-		/// <param name="str">The string to examine the end of.</param>
-		/// <param name="str2">The string to search for.</param>
-		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
-		/// <returns>1 if str ended with str2, else 0.</returns>
-		public static long EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 
 		/// <summary>
 		/// Formats a string using a format string containing placeholders (e.g. "{1:05d}" or "{}")

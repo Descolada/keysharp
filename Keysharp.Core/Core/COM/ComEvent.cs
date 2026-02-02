@@ -24,25 +24,24 @@ namespace Keysharp.Core.COM
 			{
 				prefix = s;
 
-				if (script.ReflectionsData.stringToTypeLocalMethods.Count == 0)
-					Reflections.FindAndCacheMethod(script.ProgramType, "", -1);
+				if (!script.ReflectionsData.typeToStringStaticMethods.ContainsKey(script.CurrentModuleType))
+					Reflections.FindAndCacheMethod(script.CurrentModuleType, "", -1);
 
-				foreach (var kv in script.ReflectionsData.stringToTypeLocalMethods)
+				foreach (var kv in script.ReflectionsData.typeToStringStaticMethods[script.CurrentModuleType])
 				{
-					if (string.Compare(kv.Key, "Main", true) != 0 &&
-							string.Compare(kv.Key, AutoExecSectionName, true) != 0)
+					if (string.Equals(kv.Key, AutoExecSectionName, StringComparison.OrdinalIgnoreCase))
+						continue;
+					
+					if (kv.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
 					{
-						if (kv.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-						{
-							methodMapper[kv.Key.Remove(0, prefix.Length)] = kv.Value.First().Value.First().Value;
-						}
+						methodMapper[kv.Key.Remove(0, prefix.Length)] = kv.Value.First().Value;
 					}
 				}
 
 				if (methodMapper.Count > 0)
 					dispatcher.EventReceived += Dispatcher_EventReceivedGlobalFunc;
 				else
-					_ = KeysharpEnhancements.OutputDebugLine($"No suitable global methods were found with the prefix {prefix} which could be used as COM event handlers. No COM event handlers will be triggered.");
+					_ = Ks.OutputDebugLine($"No suitable global methods were found with the prefix {prefix} which could be used as COM event handlers. No COM event handlers will be triggered.");
 			}
 			else if (sink is KeysharpObject ko)
 			{
@@ -115,17 +114,35 @@ namespace Keysharp.Core.COM
 		{
 			if (prefix is null) return;
 			if (logAll)
-				_ = KeysharpEnhancements.OutputDebugLine($"Dispatch ID {e.DispId}: {e.Name} received to be dispatched to a global function with {e.Arguments.Length} + 1 args.");
+				_ = Ks.OutputDebugLine($"Dispatch ID {e.DispId}: {e.Name} received to be dispatched to a global function with {e.Arguments.Length} + 1 args.");
 
 			var thisObj = thisArg[0];
 
 			if (thisObj != null && methodMapper.TryGetValue(e.Name, out var mph))
 			{
 				var args = e.Arguments.Concat(thisArg);
+				var moduleType = ResolveModuleType(mph.mi?.DeclaringType);
 				TheScript.Threads.LaunchThreadInMain(() =>
 				{
 					e.IsHandled = true;
-					e.Result = mph.CallFunc(null, args);
+					if (moduleType != null)
+					{
+						var script = Script.TheScript;
+						var prev = script.CurrentModuleType;
+						script.CurrentModuleType = moduleType;
+						try
+						{
+							e.Result = mph.CallFunc(null, args);
+						}
+						finally
+						{
+							script.CurrentModuleType = prev;
+						}
+					}
+					else
+					{
+						e.Result = mph.CallFunc(null, args);
+					}
 				});
 			}
 		}
@@ -135,7 +152,7 @@ namespace Keysharp.Core.COM
 			e.IsHandled = false;
 			if (sinkObj is null) return;
 			if (logAll)
-				_ = KeysharpEnhancements.OutputDebugLine($"Dispatch ID {e.DispId}: {e.Name} received to be dispatched to an object method with {e.Arguments.Length} + 1 args.");
+				_ = Ks.OutputDebugLine($"Dispatch ID {e.DispId}: {e.Name} received to be dispatched to an object method with {e.Arguments.Length} + 1 args.");
 
 			var (obj, target) = Script.GetMethodOrProperty(sinkObj, e.Name, -1, checkBase: true, throwIfMissing: false, invokeMeta: true);
 			if (target == null) return;
@@ -149,6 +166,17 @@ namespace Keysharp.Core.COM
 				e.IsHandled = true;
 				e.Result = Script.Invoke(sinkObj, e.Name, allArgs);
 			});
+		}
+
+		private static Type ResolveModuleType(Type type)
+		{
+			for (var t = type; t != null; t = t.DeclaringType)
+			{
+				if (typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(t))
+					return t;
+			}
+
+			return null;
 		}
 	}
 }

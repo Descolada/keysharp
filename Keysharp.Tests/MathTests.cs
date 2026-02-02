@@ -95,7 +95,7 @@ namespace Keysharp.Tests
 			{
 				var x = n[i];
 				var y = n[i - 1];
-				Assert.AreEqual(Math.Atan2(y, x), KeysharpEnhancements.ATan2(y, x));
+				Assert.AreEqual(Math.Atan2(y, x), Ks.ATan2(y, x));
 			}
 
 			Assert.IsTrue(TestScript("math-atan2", true));
@@ -126,7 +126,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Cosh(v), KeysharpEnhancements.Cosh(v));
+				Assert.AreEqual(Math.Cosh(v), Ks.Cosh(v));
 			}
 			Assert.IsTrue(TestScript("math-cosh", true));
 		}
@@ -249,7 +249,7 @@ namespace Keysharp.Tests
 		public void Integer()
 		{
 			foreach (var n in new[] { -1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual((double)(long)(n), Core.Integer.Call(null, n));
+				Assert.AreEqual((double)(long)(n), Core.Integer.staticCall(null, n));
 			Assert.IsTrue(TestScript("math-integer", true));
 		}
 
@@ -257,7 +257,7 @@ namespace Keysharp.Tests
 		public void Float()
 		{
 			foreach (var n in new object[] { -1, 1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual(n, Core.Float.Call(null, n));
+				Assert.AreEqual(n, Core.Float.staticCall(null, n));
 			Assert.IsTrue(TestScript("math-float", true));
 		}
 
@@ -552,7 +552,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Sinh(v), KeysharpEnhancements.Sinh(v));
+				Assert.AreEqual(Math.Sinh(v), Ks.Sinh(v));
 			}
 			Assert.IsTrue(TestScript("math-sinh", true));
 		}
@@ -594,7 +594,7 @@ namespace Keysharp.Tests
 			foreach (var n in new[] { -1, -0.5, 0, -0, 0.5, 1, 0.675 })
 			{
 				var v = n * Math.PI;
-				Assert.AreEqual(Math.Tanh(v), KeysharpEnhancements.Tanh(v));
+				Assert.AreEqual(Math.Tanh(v), Ks.Tanh(v));
 			}
 			Assert.IsTrue(TestScript("math-tanh", true));
 		}

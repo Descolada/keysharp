@@ -154,7 +154,6 @@ namespace Keysharp.Core
 						_ = arr.Add(ctrl.Handle.ToInt64());
 				}
 
-				WindowItemBase.DoWinDelay();
 				return arr;
 			}
 			else if (!script.IsMainWindowClosing)

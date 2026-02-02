@@ -418,6 +418,7 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitForInStatement([NotNull] ForInStatementContext context)
         {
+            var discardVariable = parser.DiscardVariable;
             var loopEnumeratorName = LoopEnumeratorBaseName + parser.LoopStack.Peek().Label;
 
             // Get the loop expression (e.g., `arr` in `for x in arr`)
@@ -438,13 +439,13 @@ namespace Keysharp.Scripting
                 if (paramType == MainLexer.In)
                 {
                     if (lastParamType == MainLexer.Comma)
-                        variableNames.Add("_");
+                        variableNames.Add(discardVariable);
                     break;
                 }
                 if (paramType == MainLexer.Comma)
                 {
                     if (lastParamType == MainLexer.Comma)
-                        variableNames.Add("_");
+                        variableNames.Add(discardVariable);
                 }
                 else
                 {
@@ -457,8 +458,8 @@ namespace Keysharp.Scripting
             }
             var variableNameCount = variableNames.Count;
 
-            if (variableNames.Any(name => name == "_"))
-                parser.MaybeAddVariableDeclaration("_");
+            if (variableNames.Any(name => name == discardVariable))
+                parser.MaybeAddVariableDeclaration(discardVariable);
 
             // Ensure the loop body is a block
             BlockSyntax loopBody = (BlockSyntax)Visit(context.flowBlock());
@@ -668,7 +669,7 @@ namespace Keysharp.Scripting
         {
             var targetLabel = parser.LoopStack.Peek().Label;
             if (context.propertyName() != null)
-                targetLabel = context.propertyName().GetText().Trim('"');
+				targetLabel = parser.GetIdentifierInfo(context.propertyName().GetText()).Trimmed;
             targetLabel = LoopEnumeratorBaseName + targetLabel + "_next";
 
             // Generate the goto statement
@@ -683,7 +684,7 @@ namespace Keysharp.Scripting
             var targetLabel = parser.loopDepth.ToString();
             if (context.propertyName() != null)
             {
-                targetLabel = context.propertyName().GetText().Trim('"');
+				targetLabel = parser.GetIdentifierInfo(context.propertyName().GetText()).Trimmed;
                 if (int.TryParse(targetLabel, out int result) && result <= parser.loopDepth && result > 0)
                 {
                     targetLabel = (parser.loopDepth + 1 - result).ToString();
@@ -1236,7 +1237,8 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitLabelledStatement([NotNull] LabelledStatementContext context)
         {
             // Get the label identifier
-            var labelName = parser.ToValidIdentifier(context.identifier().GetText().Trim('"'));
+			var labelText = parser.GetIdentifierInfo(context.identifier().GetText()).Trimmed;
+            var labelName = parser.ToValidIdentifier(labelText);
 
             // Return a labeled statement with an empty statement as the body
             return SyntaxFactory.LabeledStatement(
@@ -1265,12 +1267,13 @@ namespace Keysharp.Scripting
 		    }
 		}
 
-		public override SyntaxNode VisitGotoStatement([NotNull] GotoStatementContext context)
+        public override SyntaxNode VisitGotoStatement([NotNull] GotoStatementContext context)
         {
             if (context.propertyName() != null)
             {
                 // Get the target label
-                var labelName = parser.ToValidIdentifier(context.propertyName().GetText().Trim('"'));
+				var labelText = parser.GetIdentifierInfo(context.propertyName().GetText()).Trimmed;
+                var labelName = parser.ToValidIdentifier(labelText);
 
 				if (labelName == null)
                     throw new ArgumentException("Goto target label is missing.");
@@ -1295,14 +1298,15 @@ namespace Keysharp.Scripting
 			var sections = new List<SwitchSectionSyntax>(labels.Count + 1);
 			foreach (var li in labels)
 			{
+				var labelInfo = parser.GetIdentifierInfo(li.Raw);
 				sections.Add(
 					SyntaxFactory.SwitchSection(
 						SyntaxFactory.SingletonList<SwitchLabelSyntax>(
 							SyntaxFactory.CaseSwitchLabel(
 								SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression,
-									SyntaxFactory.Literal(li.Raw.ToLowerInvariant())))),
+									SyntaxFactory.Literal(labelInfo.Trimmed.ToLowerInvariant())))),
 						SyntaxFactory.SingletonList<StatementSyntax>(
-							SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(parser.ToValidIdentifier(li.Raw))))));
+							SyntaxFactory.GotoStatement(SyntaxKind.GotoStatement, SyntaxFactory.IdentifierName(parser.ToValidIdentifier(labelInfo.Trimmed))))));
 			}
 
 			sections.Add(

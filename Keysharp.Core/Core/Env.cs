@@ -141,7 +141,7 @@ namespace Keysharp.Core
 #else
 				if (!type ? Clipboard.Instance.ContainsText
 #endif
-						: !KeysharpEnhancements.IsClipboardEmpty())
+						: !Ks.IsClipboardEmpty())
 					return true;
 
 				Flow.Sleep(frequency);
@@ -203,6 +203,7 @@ namespace Keysharp.Core
 		/// Instead, it's used by the parser in the generated C# code.
 		/// </summary>
 		/// <param name="args">The command line arguments to process.</param>
+		[PublicHiddenFromUser]
 		public static object HandleCommandLineParams(string[] args)
 		{
 			if (args.Length > 0 && args[0].TrimStart(Keywords.DashSlash).ToUpper() == "SCRIPT")
@@ -214,101 +215,6 @@ namespace Keysharp.Core
 			}
 
 			_ = A_Args.AddRange(args);
-			return DefaultObject;
-		}
-
-		/// <summary>
-		/// Compiles and executes a C# script dynamically in a separate process.
-		/// </summary>
-		/// <param name="obj0">The script source result (as any object with a valid string representation).</param>
-		/// <param name="obj1">Whether to run the process as async (provide non-unset non-zero value) or not.
-		/// <param name="obj2">An optional name for the dynamically generated program; defaults to "DynamicScript".</param>
-		/// <param name="obj3">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
-		/// If provided a callback function then it's considered async and the function <c>Call</c> method will be
-		/// invoked when the process exits with the ProcessInfo as the only argument.</param>
-		/// <returns>
-		/// Returns a <see cref="ProcessInfo"/> wrapper around the spawned process.
-		/// If compilation fails without a flagged error, returns <c>null</c>.
-		/// </returns>
-		/// <exception cref="Error">Throws any compilation as <see cref="Error"/>.</exception>
-		public static object RunScript(object obj0, object obj1 = null, object obj2 = null, object obj3 = null)
-		{
-			string script = obj0.As();
-			IFuncObj cb = null;
-
-			if (obj1 != null)
-				cb = Functions.Func(obj1);
-
-			string name = obj2.As("DynamicScript");
-			string result = null;
-			byte[] compiledBytes = null;
-			var ch = new CompilerHelper();
-			(compiledBytes, result) = ch.CompileCodeToByteArray([script], name);
-
-			if (compiledBytes == null)
-				return Errors.ErrorOccurred(result);
-
-			var scriptProcess = new Process
-			{
-				StartInfo = new ProcessStartInfo
-				{
-					FileName = obj3 == null ? Path.GetFileName(Environment.ProcessPath) : obj3.As(),
-					Arguments = "--script --assembly *",
-					RedirectStandardInput = true,
-					RedirectStandardOutput = true,
-					UseShellExecute = false,
-					CreateNoWindow = true
-				}
-			};
-			var info = new ProcessInfo(scriptProcess);
-			scriptProcess.EnableRaisingEvents = true;
-			scriptProcess.Exited += (object sender, EventArgs e) => cb?.Call(info);
-			_ = scriptProcess.Start();
-
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream, Encoding.UTF8, leaveOpen: true))
-			{
-				writer.Write(compiledBytes.Length);
-				writer.Write(compiledBytes);
-				writer.Flush();
-			}
-
-			if (!ForceBool(obj1 ?? false))
-				scriptProcess.WaitForExit();
-
-			return info;
-		}
-
-		///
-		/// <summary>
-		/// Parses the provided script source or filename and validates it by invoking the parser.
-		/// On success this method returns <c>""</c>. On failure it returns a string containing
-		/// the formatted compiler errors.
-		/// </summary>
-		/// <param name="code">The script source or filename to parse.</param>
-		/// <returns>
-		/// Returns <see cref=""/> when parsing completes with no compiler errors and a valid compilation unit.
-		/// If the compiler reports errors or the first compilation unit is null, a string containing compiler error messages
-		/// (and warnings if present) is returned.
-		/// </returns>
-		/// <exception cref="Exception">
-		/// Any unexpected exception thrown by the underlying <see cref="CompilerHelper"/> APIs will propagate to the caller.
-		/// </exception>
-		public static object ParseScript(object code)
-		{
-			var ch = new CompilerHelper();
-			var (units, errs) = ch.CreateCompilationUnitFromFile([code.As()]);
-
-			if (errs.HasErrors || units[0] == null)
-			{
-				var (errors, warnings) = CompilerHelper.GetCompilerErrors(errs);
-
-				var sb = new StringBuilder(1024);
-
-				if (!string.IsNullOrEmpty(errors))
-					_ = sb.Append(errors);
-
-				return sb.ToString();
-			}
 			return DefaultObject;
 		}
 
@@ -573,11 +479,11 @@ namespace Keysharp.Core
 			var swapped = false;
 			var deviceNames = "xinput list --name-only".Bash().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 			//foreach (var name in deviceNames)
-			//  KeysharpEnhancements.OutputDebugLine($"{name}");
+			//  Ks.OutputDebugLine($"{name}");
 			var deviceIds = "xinput list --id-only".Bash().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
 			//foreach (var id in deviceIds)
-			//  KeysharpEnhancements.OutputDebugLine($"{id}");
+			//  Ks.OutputDebugLine($"{id}");
 
 			if (deviceNames.Length == deviceIds.Length)
 			{
@@ -590,7 +496,7 @@ namespace Keysharp.Core
 
 						if (buttonStrSplits.All(sp => int.TryParse(sp, out var _)))
 						{
-							//KeysharpEnhancements.OutputDebugLine($"Device {deviceIds[i]}: {deviceNames[i]} with buttons {buttonStr} getting examined.");
+							//Ks.OutputDebugLine($"Device {deviceIds[i]}: {deviceNames[i]} with buttons {buttonStr} getting examined.");
 							for (var j = 0; j < 3 && j < buttonStrSplits.Length; j++)
 							{
 								if (int.TryParse(buttonStrSplits[j], out var btn))
@@ -598,7 +504,7 @@ namespace Keysharp.Core
 									if (btn != j + 1)
 									{
 										swapped = true;
-										//KeysharpEnhancements.OutputDebugLine($"\tWas swapped.");
+										//Ks.OutputDebugLine($"\tWas swapped.");
 										break;
 									}
 								}
@@ -748,4 +654,102 @@ namespace Keysharp.Core
 	{
 	}
 #endif
+
+	public partial class Ks
+	{
+		/// <summary>
+		/// Compiles and executes a C# script dynamically in a separate process.
+		/// </summary>
+		/// <param name="obj0">The script source result (as any object with a valid string representation).</param>
+		/// <param name="obj1">Whether to run the process as async (provide non-unset non-zero value) or not.
+		/// <param name="obj2">An optional name for the dynamically generated program; defaults to "DynamicScript".</param>
+		/// <param name="obj3">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
+		/// If provided a callback function then it's considered async and the function <c>Call</c> method will be
+		/// invoked when the process exits with the ProcessInfo as the only argument.</param>
+		/// <returns>
+		/// Returns a <see cref="ProcessInfo"/> wrapper around the spawned process.
+		/// If compilation fails without a flagged error, returns <c>null</c>.
+		/// </returns>
+		/// <exception cref="Error">Throws any compilation as <see cref="Error"/>.</exception>
+		public static object RunScript(object obj0, object obj1 = null, object obj2 = null, object obj3 = null)
+		{
+			string script = obj0.As();
+			IFuncObj cb = null;
+
+			if (obj1 != null)
+				cb = Functions.Func(obj1);
+
+			string name = obj2.As("DynamicScript");
+			string result = null;
+			byte[] compiledBytes = null;
+			var ch = new CompilerHelper();
+			(compiledBytes, result) = ch.CompileCodeToByteArray([script], name);
+
+			if (compiledBytes == null)
+				return Errors.ErrorOccurred(result);
+
+			var scriptProcess = new Process
+			{
+				StartInfo = new ProcessStartInfo
+				{
+					FileName = obj3 == null ? Path.GetFileName(Environment.ProcessPath) : obj3.As(),
+					Arguments = "--script --assembly *",
+					RedirectStandardInput = true,
+					RedirectStandardOutput = true,
+					UseShellExecute = false,
+					CreateNoWindow = true
+				}
+			};
+			var info = new ProcessInfo(scriptProcess);
+			scriptProcess.EnableRaisingEvents = true;
+			scriptProcess.Exited += (object sender, EventArgs e) => cb?.Call(info);
+			_ = scriptProcess.Start();
+
+			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream, Encoding.UTF8, leaveOpen: true))
+			{
+				writer.Write(compiledBytes.Length);
+				writer.Write(compiledBytes);
+				writer.Flush();
+			}
+
+			if (!ForceBool(obj1 ?? false))
+				scriptProcess.WaitForExit();
+
+			return info;
+		}
+
+		///
+		/// <summary>
+		/// Parses the provided script source or filename and validates it by invoking the parser.
+		/// On success this method returns <c>""</c>. On failure it returns a string containing
+		/// the formatted compiler errors.
+		/// </summary>
+		/// <param name="code">The script source or filename to parse.</param>
+		/// <returns>
+		/// Returns <see cref=""/> when parsing completes with no compiler errors and a valid compilation unit.
+		/// If the compiler reports errors or the first compilation unit is null, a string containing compiler error messages
+		/// (and warnings if present) is returned.
+		/// </returns>
+		/// <exception cref="Exception">
+		/// Any unexpected exception thrown by the underlying <see cref="CompilerHelper"/> APIs will propagate to the caller.
+		/// </exception>
+		public static object ParseScript(object code)
+		{
+			var ch = new CompilerHelper();
+			var (units, errs) = ch.CreateCompilationUnitFromFile([code.As()]);
+
+			if (errs.HasErrors || units[0] == null)
+			{
+				var (errors, warnings) = CompilerHelper.GetCompilerErrors(errs);
+
+				var sb = new StringBuilder(1024);
+
+				if (!string.IsNullOrEmpty(errors))
+					_ = sb.Append(errors);
+
+				return sb.ToString();
+			}
+			return DefaultObject;
+		}
+	}
 }

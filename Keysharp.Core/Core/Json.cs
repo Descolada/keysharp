@@ -3,7 +3,7 @@
 	/// <summary>
 	/// Serialize JSON strings.
 	/// </summary>
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 
 		private const char ArrayClose = ']';

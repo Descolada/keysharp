@@ -17,36 +17,6 @@ namespace Keysharp.Core
 		private static readonly Size size1 = new (1, 1);
 
 		/// <summary>
-		/// Gets a screenclip from a specified region of the screen and return it as a <see cref="Bitmap"/>
-		/// </summary>
-		/// <param name="left">The x coordinate of the left side of the clip rectangle.</param>
-		/// <param name="top">The y coordinate of the top side of the clip rectangle.</param>
-		/// <param name="width">The width of the clip rectangle.</param>
-		/// <param name="height">The height of the clip rectangle.</param>
-		/// <param name="filename">An optional filename to save the clip to. Default: empty, no saving done.</param>
-		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
-		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
-		{
-			var x = left.Ai();
-			var y = top.Ai();
-			var w = width.Ai();
-			var h = height.Ai();
-			var f = filename.As();
-
-			CoordToScreen(ref x, ref y, CoordMode.Pixel);
-			
-			var bmp = GuiHelper.GetScreen(x, y, w, h);
-
-			if (f.Length > 0)
-				bmp?.Save(f);
-
-			if (bmp != null && ImageHandleManager.TryAddBitmap(bmp, ImageHandleKind.Bitmap, out var handle))
-				return handle.ToInt64();
-
-			return 0L;
-		}
-
-		/// <summary>
 		/// Searches a region of the screen for an image.
 		/// </summary>
 		/// <param name="outX">
@@ -315,5 +285,38 @@ namespace Keysharp.Core
 
 		[GeneratedRegex(@"\*[wW]([-0-9]*)")]
 		private static partial Regex WidthRegex();
+	}
+
+	public partial class Ks
+	{
+		/// <summary>
+		/// Gets a screenclip from a specified region of the screen and return it as a <see cref="Bitmap"/>
+		/// </summary>
+		/// <param name="left">The x coordinate of the left side of the clip rectangle.</param>
+		/// <param name="top">The y coordinate of the top side of the clip rectangle.</param>
+		/// <param name="width">The width of the clip rectangle.</param>
+		/// <param name="height">The height of the clip rectangle.</param>
+		/// <param name="filename">An optional filename to save the clip to. Default: empty, no saving done.</param>
+		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
+		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
+		{
+			var x = left.Ai();
+			var y = top.Ai();
+			var w = width.Ai();
+			var h = height.Ai();
+			var f = filename.As();
+
+			CoordToScreen(ref x, ref y, CoordMode.Pixel);
+
+			var bmp = GuiHelper.GetScreen(x, y, w, h);
+
+			if (f.Length > 0)
+				bmp?.Save(f);
+
+			if (bmp != null && ImageHandleManager.TryAddBitmap(bmp, ImageHandleKind.Bitmap, out var handle))
+				return handle.ToInt64();
+
+			return 0L;
+		}
 	}
 }

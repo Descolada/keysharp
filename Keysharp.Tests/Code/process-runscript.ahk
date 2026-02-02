@@ -1,3 +1,5 @@
+import { RunScript } from Ks
+
 info := RunScript("ExitApp(0)",,, "Keysharp.exe")
 if (info.ExitCode == 0)
 	FileAppend "pass", "*"

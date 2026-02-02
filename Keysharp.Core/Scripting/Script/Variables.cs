@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Xml.Linq;
 using Keysharp.Core.Common.Cryptography;
+using Keysharp.Core.Common.Invoke;
 
 namespace Keysharp.Scripting
 {
@@ -11,29 +12,169 @@ namespace Keysharp.Scripting
 		public LazyDictionary<Type, Any> Statics = new();
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;
-		internal readonly Dictionary<string, MemberInfo> globalVars = new (StringComparer.OrdinalIgnoreCase);
+		internal readonly Dictionary<string, MethodPropertyHolder> globalVars;
+		private readonly OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>> moduleVars;
+		private readonly List<Type> moduleTypes = new();
+		private readonly Type defaultModuleType;
+		internal Type DefaultModuleType => defaultModuleType;
 
 		public Variables()
 		{
-			var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
-			var fields = TheScript.ProgramType.GetFields(flags);
-			var props = TheScript.ProgramType.GetProperties(flags);
+			moduleVars = GatherModuleVariables(TheScript.ProgramType);
+			if (moduleVars.Count == 0) 
+				return;
+			defaultModuleType = moduleVars.Keys.FirstOrDefault(t => t.Name.Equals(Keywords.MainModuleName, StringComparison.OrdinalIgnoreCase)) ?? moduleVars.First().Key;
+			if (defaultModuleType != null && moduleVars.TryGetValue(defaultModuleType, out var defaultVars))
+				globalVars = defaultVars;
+			else
+				globalVars = GatherTypeVariables(TheScript.ProgramType);
+		}
 
-			// If ProgramType has a nested type called "UserDeclaredClasses", include its members too.
-			var udc = TheScript.ProgramType.GetNestedType(Keywords.UserDeclaredClassesContainerName, flags);
-			if (udc != null)
+		[Flags]
+		internal enum VariableType
+		{
+			Field = 1,
+			Property = 2,
+			NormalName = 4,
+			SpecialName = 8,
+		}
+
+		internal static Dictionary<string, MethodPropertyHolder> GatherTypeVariables(Type t, VariableType vartypes = VariableType.Field | VariableType.Property | VariableType.NormalName, string funcName = null)
+		{
+			var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+			PropertyInfo[] props = null;
+			FieldInfo[] fields = null;
+
+			if (vartypes.HasFlag(VariableType.Field))
+				fields = t.GetFields(flags);
+			if (vartypes.HasFlag(VariableType.Property))
+				props = t.GetProperties(flags);
+
+			var vars = new Dictionary<string, MethodPropertyHolder>((fields?.Length ?? 0) + (props?.Length ?? 0), StringComparer.OrdinalIgnoreCase);
+
+			bool wantnormal = vartypes.HasFlag(VariableType.NormalName);
+			bool wantspecial = vartypes.HasFlag(VariableType.SpecialName);
+
+			if (vartypes.HasFlag(VariableType.Field))
 			{
-				fields = fields.Concat(udc.GetFields(flags));
-				props = props.Concat(udc.GetProperties(flags));
+				foreach (var field in fields)
+				{
+					string name = field.Name;
+					if (name.StartsWith("@", StringComparison.Ordinal)) name = name.Substring(1);
+					if (name.StartsWith(Keywords.EscapePrefix)) name = name.Substring(Keywords.EscapePrefix.Length);
+					if (name.StartsWith(Keywords.StaticLocalFieldPrefix))
+					{
+						if (wantnormal) continue;
+						name = ExtractStaticLocalUserName(name, funcName);
+						if (name == null) continue;
+					}
+					else if (IsSpecialName(name))
+					{
+						if (wantnormal) continue;
+					}
+					else if (wantspecial) continue;
+					if (field.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
+					vars[name] = MethodPropertyHolder.GetOrAdd(field);
+				}
 			}
 
-			_ = globalVars.EnsureCapacity(fields.Length + props.Length);
+			if (vartypes.HasFlag(VariableType.Property))
+			{ 
+				foreach (var prop in props)
+				{
+					var name = prop.Name;
+					if (name.StartsWith("@", StringComparison.Ordinal)) name = name.Substring(1);
+					bool isSpecial = IsSpecialName(name);
+					if (wantspecial && !isSpecial) continue;
+					if (wantnormal && isSpecial) continue;
+					if (prop.GetCustomAttribute<PublicHiddenFromUser>() != null) continue;
+					vars[name] = MethodPropertyHolder.GetOrAdd(prop);
+				}
+			}
 
-			foreach (var field in fields)
-				globalVars[field.Name] = field;
+			return vars;
+		}
 
-			foreach (var prop in props)
-				globalVars[prop.Name] = prop;
+		internal static bool IsSpecialName(string name) => name.Length > 3 && char.IsAsciiLetterUpper(name[0]) && char.IsAsciiLetterUpper(name[1]) && name[2] == '_';
+
+		private static bool IsModuleType(Type type) =>
+			typeof(Module).IsAssignableFrom(type);
+
+		internal Type ResolveModuleType(Type type)
+		{
+			for (var cur = type; cur != null; cur = cur.DeclaringType)
+			{
+				if (IsModuleType(cur))
+					return cur;
+			}
+
+			return defaultModuleType;
+		}
+
+		private static OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>> GatherModuleVariables(Type programType)
+		{
+			var map = new OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>>();
+			if (programType == null)
+				return map;
+
+			var flags = BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public;
+			foreach (var nested in programType.GetNestedTypes(flags).Where(IsModuleType))
+				map[nested] = GatherTypeVariables(nested);
+
+			return map;
+		}
+
+		internal Dictionary<string, MethodPropertyHolder> GetModuleVars(Type moduleType)
+		{
+			if (moduleType == null)
+				return globalVars;
+
+			if (moduleVars.TryGetValue(moduleType, out var vars))
+				return vars;
+
+			vars = GatherTypeVariables(moduleType);
+			moduleVars[moduleType] = vars;
+			return vars;
+		}
+
+		internal static string ExtractStaticLocalUserName(string staticFieldName, string funcName = null)
+		{
+			var s = staticFieldName.TrimStart('@');
+
+			// Expect: SL_<lenF>_<func>_<var>
+			// Example: SL_7_my__func___a
+
+			var start = s.IndexOf(Keywords.StaticLocalFieldPrefix, StringComparison.Ordinal);
+
+			if (start == -1)
+				return null;
+
+			int i = start + Keywords.StaticLocalFieldPrefix.Length;
+
+			// read lenF
+			int lenF = 0;
+			while (i < s.Length && char.IsDigit(s[i]))
+			{
+				lenF = (lenF * 10) + (s[i] - '0');
+				i++;
+			}
+			if (i >= s.Length || s[i] != '_') return null;
+			i++; // skip '_'
+
+			if (i + lenF > s.Length) return null;
+			if (funcName != null)
+			{
+				var funcInField = s.Substring(i, lenF);
+				if (!string.Equals(funcInField, funcName, StringComparison.OrdinalIgnoreCase))
+					return null; // function name doesn't match
+			}
+			i += lenF;
+			if (i >= s.Length || s[i] != '_') return null;
+			i++; // skip '_'
+
+			if (i >= s.Length) return null;
+
+			return s.Substring(i);
 		}
 
 		public void InitClasses()
@@ -95,7 +236,7 @@ namespace Keysharp.Scripting
 
 			// Manually define Object static instance prototype property to be the Object prototype
 			var ksoStatic = Statics[typeof(KeysharpObject)];
-			ksoStatic.DefinePropInternal("prototype", new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]));
+			ksoStatic.DefinePropInternal("Prototype", new OwnPropsDesc(ksoStatic, Prototypes[typeof(KeysharpObject)]));
 			// Object.Base == Any
 			ksoStatic.SetBaseInternal(Statics[typeof(Any)]);
 
@@ -119,15 +260,18 @@ namespace Keysharp.Scripting
 			|| Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(key)
 			|| Script.TheScript.ReflectionsData.flatPublicStaticMethods.ContainsKey(key);
 
-        public object GetVariable(string key)
+		public bool HasVariable(Type moduleType, string key)
 		{
-			if (globalVars.TryGetValue(key, out var field))
-			{
-				if (field is PropertyInfo pi)
-					return pi.GetValue(null);
-				else if (field is FieldInfo fi)
-					return fi.GetValue(null);
-			}
+			var vars = GetModuleVars(moduleType);
+			return vars.ContainsKey(key)
+				|| Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(key)
+				|| Script.TheScript.ReflectionsData.flatPublicStaticMethods.ContainsKey(key);
+		}
+
+		public object GetVariable(string key)
+		{
+			if (globalVars.TryGetValue(key, out var mph))
+				return mph.CallFunc(null, null);
 
 			var rv = GetReservedVariable(key); // Try reserved variable first, to take precedence over IFuncObj
 			if (rv != null)
@@ -137,19 +281,58 @@ namespace Keysharp.Scripting
 
         }
 
+		public object GetVariable(Type moduleType, string key, bool exportsOnly = false)
+		{
+			var vars = GetModuleVars(moduleType);
+			if (vars.TryGetValue(key, out var mph) && (!exportsOnly || mph.IsExported))
+				return mph.CallFunc(null, null);
+
+			var rv = GetReservedVariable(key);
+			if (rv != null)
+				return rv;
+
+			return Functions.Func(key, moduleType);
+		}
+
 		public object SetVariable(string key, object value)
 		{
-			if (globalVars.TryGetValue(key, out var field))
-			{
-				if (field is PropertyInfo pi)
-					pi.SetValue(null, value);
-				else if (field is FieldInfo fi)
-					fi.SetValue(null, value);
-			}
+			if (globalVars.TryGetValue(key, out var mph))
+				SetMemberValue(mph, value);
 			else
 				_ = SetReservedVariable(key, value);
 
 			return value;
+		}
+
+		public object SetVariable(Type moduleType, string key, object value)
+		{
+			var vars = GetModuleVars(moduleType);
+			if (vars.TryGetValue(key, out var mph))
+				SetMemberValue(mph, value);
+			else
+				_ = SetReservedVariable(key, value);
+
+			return value;
+		}
+
+		private static void SetMemberValue(MethodPropertyHolder mph, object value)
+		{
+			if (mph.SetProp != null)
+			{
+				mph.SetProp(null, value);
+				return;
+			}
+
+			if (mph.pi != null)
+			{
+				mph.pi.SetValue(null, value);
+				return;
+			}
+
+			if (mph.fi != null)
+			{
+				mph.fi.SetValue(null, value);
+			}
 		}
 
 		private PropertyInfo FindReservedVariable(string name)
@@ -186,21 +369,25 @@ namespace Keysharp.Scripting
 			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1) ? Script.SetPropertyValue(kso, "__Value", value) : SetVariable(key.ToString(), value);
 		}
 
-		public class Dereference
-		{
-            private readonly Dictionary<string, object> vars = new(StringComparer.OrdinalIgnoreCase);
+			public class Dereference
+			{
+            private readonly Dictionary<string, object> locals = new(StringComparer.OrdinalIgnoreCase);
 			private eScope scope = eScope.Local;
 			private HashSet<string> globals;
-            public Dereference(eScope funcScope, string[] funcGlobals, params object[] args)
+			private Dictionary<string, MethodPropertyHolder> statics = null;
+			private readonly Type moduleType;
+            public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, params object[] args)
 			{
 				scope = funcScope;
 				globals = funcGlobals == null ? null : new HashSet<string>(funcGlobals, StringComparer.OrdinalIgnoreCase);
+				statics = GatherTypeVariables(parentType, VariableType.Field | VariableType.SpecialName, funcName);
+				moduleType = Script.TheScript.Vars.ResolveModuleType(parentType);
 
 				for (int i = 0; i < args.Length; i += 2)
 				{
 					if (args[i] is string varName)
 					{
-						vars[varName] = args[i + 1];
+						locals[varName] = args[i + 1];
 					}
 				}
 			}
@@ -211,9 +398,11 @@ namespace Keysharp.Scripting
 				{
 					if (key is KeysharpObject)
 						return GetPropertyValue(key, "__Value");
-					if (vars.TryGetValue(key.ToString(), out var val))
+					if (locals.TryGetValue(key.ToString(), out var val))
 						return GetPropertyValue(val, "__Value");
-					return Script.TheScript.Vars[key];
+					else if (statics.TryGetValue(key.ToString(), out var mph))
+						return mph.CallFunc(null, null);
+					return Script.TheScript.Vars.GetVariable(moduleType, key.ToString());
 				}
 				set
 				{
@@ -224,18 +413,23 @@ namespace Keysharp.Scripting
 					}
 
 					var s = key.ToString();
-					if (vars.TryGetValue(s, out var val))
+					if (locals.TryGetValue(s, out var val))
 					{
 						SetPropertyValue(val, "__Value", value);
 						return;
 					}
-					if ((scope == eScope.Global || (globals?.Contains(s) ?? false)) && Script.TheScript.Vars.HasVariable(s))
+					else if (statics.TryGetValue(s, out var mph))
 					{
-						Script.TheScript.Vars[s] = value;
+						SetMemberValue(mph, value);
+						return;
+					}
+					if ((scope == eScope.Global || (globals?.Contains(s) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, s))
+					{
+						Script.TheScript.Vars.SetVariable(moduleType, s, value);
 						return;
 					}
 
-					vars[s] = new VarRef(null);
+					locals[s] = new VarRef(null);
                 }
 			}
         }

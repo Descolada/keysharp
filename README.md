@@ -170,7 +170,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * The `#Requires` directive differs in the following ways:
 	+ In addition to supporting `AutoHotkey`, it also supports `Keysharp`.
 	+ Sub versions such as -alpha and -beta are not supported. Only the four numerical values values contained in the assembly version in the form of `0.0.0.0` are supported.	
-* Global variables can be accessed from anywhere by using the `Program.` prefix: `program.a := 123`.
 * For any `__Enum()` class method, it should have a parameter value of 2 when returning `Array` or `Map`, since their enumerators have two fields.
 * RegEx uses PCRE2 engine powered by the PCRE.NET library. There are a few limitations compared to the AutoHotkey implementation:
 	+ The following options are different:
@@ -182,14 +181,11 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ Callouts do not set `A_EventInfo`
 		+ The callout function must be a top-level function
 		+ A named callout must be enclosed in "", '', or {}
-	+ RegEx operator ~= returns a RegExMatchInfo, which is treated as an integer in comparison or math operations
 
 ###	Additions/Improvements: ###
-* `Map` internally uses a real hashmap, which means item access, insertions and removals are faster, which is especially true for larger datasets. To keep at least partial compatibility with AutoHotkey the `Map` object is copied and sorted before enumeration, which means modifying the `Map` during enumeration will not have the same effect as in AHK. 
-	+ A new `HashMap` class has been added which extends `Map` and does not perform sorting before enumeration.
-* The spread operator `*` may be used multiple times in one function call. `MyFunc(arr1*, arr2*)` is allowed.
-* Buffer has an `__Item[]` indexer which can be used to read a byte at a 1-based offset.
-* Buffer has `ToHex()`, `ToBase64()`, and `ToByteArray()` methods which can be used to convert the contents to string (hex or base64), or a byte-array to for example write to a file.
+* In addition to the AHK module, a KS module has been added which contains extra variabes and methods added to Keysharp. Accessing them requires using the `import` statement.
+	+ These include all new classes, functions and variables mentioned here (eg `HashMap`, `Sinh` etc)
+	+ Note: class method/property additions are always included and do not need to be imported (eg `String` or `Buffer` extra methods)
 * A new class named `StringBuffer` which can be used for passing string memory to `DllCall()` which will be written to inside of the call.
 	+ There are two methods for creating a `StringBuffer`:
 		+ `StringBuffer(str := "") => StringBuffer`: Creates a `StringBuffer` with a string of `str` and a capacity of 256.
@@ -214,26 +210,12 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	MsgBox(sb) ; No need to use StrGet() anymore.
 ```
 	+ `StringBuffer` internally uses a `StringBuilder` which is how C# P/Invoke handles string pointers.
-* New methods for `Array`:
-	+ `Add(value) => Integer` : Adds a single element to the array.
-		+ This should be more efficient than `Push(values*)` when adding a single item because it's not variadic. It also returns the length of the array after the add completes.
-	+ `Filter(callback: (value [, index]) => Boolean) => Array`: Applies a filter to each element of the array and returns a new array consisting of all elements for which `callback` returned true.
-	+ `FindIndex(callback: (value [, index]) => Boolean, startIndex := 1) => Integer`: Returns the index of the first element for which `callback` returned true, starting at `startIndex`. Returns 0 if `callback` never returned true.
-		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
-	+ `IndexOf(value, startIndex := 1) => Integer`: Returns the index of the first item in the array which equals value, starting at `startIndex`. Returns 0 if value is not found.
-		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
-	+ `Join(separator := ',') => String`: Joins together the string representation of all array elements, separated by `separator`.
-	+ `MapTo(callback: (value [, index]) => Any, startIndex := 1) => Array`: Maps each element of the array, starting at `startIndex`, into a new array where the mapping in `callback` performs some operation.
-```
-	lam := (x, i) => x * i
-	arr := [10, 20, 30]
-	arr2 := arr.MapTo(lam)
-```
-	+ `Sort(callback: (a, b) => Integer) => this`: Sorts the array in place. The callback should use the usual logic of returning -1 when `a < b`, 0 when `a == b` and 1 otherwise.
+
 * Hyperbolic versions of the trigonometric functions:
 	+ `Sinh(value) => Double`
 	+ `Cosh(value) => Double`
 	+ `Tanh(value) => Double`
+* A new `HashMap` class has been added which extends `Map` and does not perform sorting before enumeration.
 * A New function `RandomSeed(Integer)` to reinitialize the random number generator for the current thread with a specified numerical seed.
 * New file functions:
 	+ `FileDirName(filename) => String` to return the full path to filename, without the actual filename or trailing directory separator character.
@@ -241,43 +223,16 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * New window functions:
 	+ `WinFromPoint(x, y)` to get the window at a specific screen position.
 	+ `WinMaximizeAll()` to maximize all windows.
-	+ `WinGetAlwaysOnTop([winTitle, winText, excludeTitle, excludeText]) => Integer` to determine whether a window will always stay on top of other windows.
-* `Run/RunWait()` can take an extra string for the argument instead of appending it to the program name string. However, the original functionality still works too.
-	+ The new signature is: `Run/RunWait(target [, workingDir, options, &outputVarPID, args])`.
-* When specifying colors for GUI components, the list of supported known colors can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.drawing.knowncolor).
-* `ListView` supports a new method `DeleteCol(col) => Boolean` to remove a column. The value returned indicates whether the column was found and deleted.
-* New methods and properties for `Menu`:
-	+ `HideItem()`, `ShowItem()` and `ToggleItemVis()` which can show, hide or toggle the visibility of a specific menu item.
-	+ `MenuItemName()` to get the name of a menu item, rather than having to use `DllCall()`.
-	+ `SetForeColor()` to set the fore (text) color of a menu item.
-	+ `MenuItemCount` to get the number of sub items within a menu.
-* `Picture` supports clearing the picture by setting the `Value` property to empty.
-* New options for `UpDown`:
-	+ These relieve the caller of having to use native Windows API calls.
-	+ `IncrementXXX` to specify an increment other than 1.
-		+ `MyGui.Add("UpDown", "x5 y55 vMyNud Increment10", 1)`
-	+ `Hex` to show the numeric value in hexadecimal.
-* `TabControl` supports a new method `SetTabIcon(tabIndex, imageIndex)` to relieve the caller of having to use `SendMessage()`.
-* `TreeView` supports a new method `GetNode(nodeIndex) => TreeNode` which retrieves a raw winforms TreeNode object based on a passed in ID.
-* Gui controls support taking a boolean `Autosize` (default: `false`) argument in the `Add()` method to allow them to optimally size themselves.
-* `Gui` has a new property named `Visible` which get/set whether the window is visible or not.
 * A new function `ShowDebug()` to show the main window and focus the debug output tab.
 * A new function `OutputDebugLine()` which is the same as `OutputDebug()` but appends a linebreak at the end of the string.
-* `EnvUpdate()` is retained to provide for a cross platform way to update environment variables.
-* The 40 character limit for hotstring abbreviations has been removed. There is no limit to the length.
-* `FileGetSize()` supports `G` and `T` for gigabytes and terabytes.
-* `DateAdd()` and `DateDiff()` support taking a value of `"L"` for the `TimeUnits` parameter to add miLliseconds or return the elapsed time in milliseconds, respectively.
-	+ See the new accessors `A_NowMs`/`A_NowUTCMs`.
-* New function `FormatCs()` is an alternative to AHK `Format`. The syntax used in `Format()` is exactly that of `string.Format()` in C#, except with 1-based indexing. Traditional AHK style formatting is not supported.
-	+ Full documentation for the formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
-* `SubStr()` uses a default of 1 for the second parameter, `startingPos`, to relieve the caller of always having to specify it.
 * New string functions:
 	+ `Base64Decode(str) => Array` to convert a Base64 string to a Buffer containing the decoded bytes.
 	+ `Base64Encode(value) => String` to convert a byte array to a Base64 string.
 	+ `NormalizeEol(str, eol) => String` to make all line endings in a string match the value passed in, or the default for the current environment.
-	+ `StartsWith(value, token [,comparison]) => Boolean` and `EndsWith(value, token [,comparison]) => Boolean` to determine if the beginning or end of a string start/end with a given string.
 	+ `Join(separator, params*) => String` to join each parameter together as a string, separated by `separator`.
 		+ Pass params as `params*` if it's a collection.
+* New string methods:
+	+ `String.StartsWith(token [,comparison]) => Boolean` and `String.EndsWith(token [,comparison]) => Boolean` to determine if the beginning or end of a string start/end with a given string.
 * New RegEx functions `RegExMatchCs()` and `RegExReplaceCs()` which use the C# style regular expression syntax rather than PCRE2.
 	+ `OutputVar` in `RegExMatchCs()` will be of type `RegExMatchInfoCs`.
 	+ PCRE exceptions are not thrown when there is an error, instead C# regex exceptions are thrown.
@@ -308,41 +263,21 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 			+ -This is not supported.
 
 		+ `\K` is not supported, instead, try using `(?<=abc)`.
-		
-* The v1 `Map` methods `MaxIndex()` and `MinIndex()` are still supported. They are also supported for `Array`.
+* New function `FormatCs()` is an alternative to AHK `Format`. The syntax used in `Format()` is exactly that of `string.Format()` in C#, except with 1-based indexing. Traditional AHK style formatting is not supported.
+	+ Full documentation for the formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
 * New function `ImageCapture(x, y, width, height [, filename]) => Bitmap` can be used to return a bitmap screenshot of an area of the screen and optionally save it to file.
-* Rich text boxes are supported by passing `RichEdit` to `Gui.Add()`. The same options from `Edit` are supported with the following caveats:
-	+ `Multiline` is true by default.
-	+ `WantReturn` and `Password` are not supported.
-	+ `Uppercase` and `Lowercase` are supported, but only for key presses, not for pasting.
-	+ The `Gui.Control.Value` property will only get/set the displayed text of the control. To get/set the raw rich text, use the new property `Gui.Control.RichText`.
-		+ Use `AltSubmit` with `Submit()` to get the raw rich text.
-		+ Attempting to use `Gui.Control.RichText` on any control other than `RichEdit` will throw an exception.
-* Loading icons from .NET DLLs is supported by passing the name of the icon resource in place of the icon number.
-	+ To set the tray icon to the built in suspended icon:
-		+ `TraySetIcon(A_KeysharpCorePath, "Keysharp_s.ico")`
-	+ To set a menu item to the same:
-		+ `parentMenu.SetIcon("Menu caption", A_KeysharpCorePath, "Keysharp_s.ico")`
 * New clipboard functions:
 	+ `CopyImageToClipboard(filename [,options])` is supported which copies an image to the clipboard.
 		+ Uses the same arguments as `LoadPicture()`.
 		+ This is a fully separate copy and does not share any handle, or perform any file locking with the original image being read.
 	+ `IsClipboardEmpty() => Boolean` returns whether the clipboard is truly empty.
-* When sending a string through `SendMessage()` using the `WM_COPYDATA` message type, the caller is no longer responsible for creating the special `COPYDATA` struct.
-	+ Instead, just pass `WM_COPYDATA (0x4A)` as the message type and the string as the `lparam`, and `SendMessage()` will handle it internally.
-	+ Note, this will send the string as UTF-16 Unicode. If you need to send to a program which expects ASCII, then you'll need to manually create the `COPYDATA` struct.
 * A new function `Collect()` which calls `GC.Collect()` to force a memory collection.
 	+ This rarely ever has to be used in properly written code.
 	+ Calling `Collect()` may not always have an immediate effect. For example if an object is assigned to a variable inside a function and then the variable is assigned an empty string then calling `Collect()` after it will not cause the object destructor to be called. Only after the function has returned will the object be considered to have no references and `Collect()` starts working.
 	+ If an object destructor needs to be called immediately then it may better to call `Object.__Delete()` manually.
-* In addition to using `#ClipboardTimeout`, a new accessor named `A_ClipboardTimeout` can be used at any point in the program to get or set that value.
-* A compiled script can be reloaded.
-	+ AHK does not support reloading a compiled script.
 * A new function `RunScript(code, callbackOrAsync?, name := "DynamicScript", executable?)` which dynamically parses, compiles, and runs the provided code. Optionally provide the script name; whether to run it asynchronously (non-unset non-zero `callbackOrAsync` causes async run without a callback); an executable path to run the compiled assembly (defaults to the current process). 
   If `callbackOrAsync` is provided a function then it is called after the script has finished with the `ProcessInfo` as the only argument. Over multiple runs `RunScript` is faster than running the process manually and writing to StdIn because of assembly and compilation caching.   
   This function returns a `ProcessInfo` object encapsulating info and I/O for the process. Available properties: `HasExited`, `ExitCode`, `ExitTime` (YYYYMMDDHH24MISS), `StdOut`, `StdErr`, `StdIn` (as `KeysharpFile`). Available methods: `Kill()`.
-* `A_EventInfo` is not limited to positive values when reporting the mouse wheel scroll amount.
-	+ When scrolling up, the value will be positive, and negative when scrolling down.
 * New accessors:
 	+ `A_AllowTimers` returns whether timers are allowed or not. It's also easier to set this value rather than call `Thread("NoTimers")`.
 	+ `A_CommandLine` returns the command line string. This is preferred over passing `GetCommandLine` to `DllCall()` as noted above.
@@ -374,12 +309,116 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `A_WinActivateForce` returns whether the forceful method of activating a window is in effect because `#WinActivateForce` was specified.
 	+ `A_WorkAreaHeight` returns the height of the working area of the primary screen.
 	+ `A_WorkAreaWidth` returns the width of the working area of the primary screen.
+	+ `A_Timers` returns a `Map` of (Func, boolean) pairs where Func is the function object of the timer and boolean is the enabled state of the associated timer.
+* New functions for encrypting/decrypting an object:
+	+ Encrypt or decrypt an object using the AES algorithm: `AES(value, key, decrypt := false) => Buffer`.
+	+ Generate hash values using various algorithms: `MD5(value) => String`, `SHA1(value) => String`, `SHA256(value) => String`, `SHA384(value) => String`, `SHA512(value) => String`.
+	+ Calculate the CRC32 polynomial of an object: `CRC32(value) => Integer`.
+	+ Generate a secure cryptographic random number: `SecureRandom(min, max) => Decimal`.
+* New class and functions for managing real threads which are not related to the green threads that are used for the rest of the project.
+	+ A `RealThread` is created by calling the `RealThread` class static instance.
+```
+	class RealThread
+	{
+		static Call(funcobj [, params*]) => RealThread` Call `funcobj` in a real thread, optionally passing `params` to it, and return a `RealThread` object.
+		RealThread(Task)
+		RealThread ContinueWith(funcobj [, params*]) => RealThread ; Call `funcobj` after the task completes, optionally passing `params` to it and return a new `RealThread` object for the continuation thread.
+		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
+	}
+```
+* `LockRun(lockobj, funcobj [, params*])` Call `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
+	+ `lockobj` must be initialized to some value, such as an empty string.
+* New function `Mail(recipients, subject, message, options)` to send an email.
+	+ `recipients`: A list of receivers of the message.
+	+ `subject`: Subject of the message.
+	+ `message`: Message body.
+	+ `options`: A `Map` with any the following optional key/value pairs:
+		+ "attachments": A string or `Array` of strings of file paths to send as attachments.
+		+ "bcc": A string or `Array` of strings of blind carbon copy recipients.
+		+ "cc": A string or `Array` of strings of carbon copy recipients.
+		+ "from": A string of comma separated from address.
+		+ "replyto": A string of comma separated reply address.
+		+ "host": The SMTP client hostname and port string in the form "hostname:port".
+		+ "header": A string of additional header information.
+* Experimental `Clr` class has been added which aims to provide CLR interop with regular AutoHotkey syntax, meaning easy access to CLR libraries.
+	+ `Clr.Load(asmOrPath)` loads a CLR assembly from a dll file or assembly name, and returns a `ManagedAssembly` or `ManagedNamespace` object. Example: `System := Clr.Load("System")`
+		+ `ManagedNamespace` can be accessed with property access syntax to get namespaces and types (`ManagedType`). Example: `linq := System.Linq.Enumerable`
+		+ `ManagedType` may be accessed for static methods/properties, or called to create a new `ManagedInstance`. 
+		+ `ManagedInstance` may be accessed with normal AutoHotkey syntax for properties, methods, and indexer access. Example: `linq.Where(nums, isOdd)`
+		+ Basic type marshalling between AutoHotkey and CLR is supported (including function objects), more complicated types may not currently work. 
+	+ `Clr.GetNamespaceName(ManagedNamespace)` returns the full intenal namespace name of the namespace wrapped by `ManagedNamespace`.
+	+ `Clr.GetTypeName(ManagedType)` returns the full internal type name of the type wrapped by `ManagedType`.
+* `Map` internally uses a real hashmap, which means item access, insertions and removals are faster, which is especially true for larger datasets. To keep at least partial compatibility with AutoHotkey the `Map` object is copied and sorted before enumeration, which means modifying the `Map` during enumeration will not have the same effect as in AHK. 
+* The spread operator `*` may be used multiple times in one function call. `MyFunc(arr1*, arr2*)` is allowed.
+* Buffer has an `__Item[]` indexer which can be used to read a byte at a 1-based offset.
+* Buffer has `ToHex()`, `ToBase64()`, and `ToByteArray()` methods which can be used to convert the contents to string (hex or base64), or a byte-array to for example write to a file.
+* New methods for `Array`:
+	+ `Add(value) => Integer` : Adds a single element to the array.
+		+ This should be more efficient than `Push(values*)` when adding a single item because it's not variadic. It also returns the length of the array after the add completes.
+	+ `Filter(callback: (value [, index]) => Boolean) => Array`: Applies a filter to each element of the array and returns a new array consisting of all elements for which `callback` returned true.
+	+ `FindIndex(callback: (value [, index]) => Boolean, startIndex := 1) => Integer`: Returns the index of the first element for which `callback` returned true, starting at `startIndex`. Returns 0 if `callback` never returned true.
+		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
+	+ `IndexOf(value, startIndex := 1) => Integer`: Returns the index of the first item in the array which equals value, starting at `startIndex`. Returns 0 if value is not found.
+		+ If `startIndex` is negative, the search starts from the end of the array and moves toward the beginning.
+	+ `Join(separator := ',') => String`: Joins together the string representation of all array elements, separated by `separator`.
+	+ `MapTo(callback: (value [, index]) => Any, startIndex := 1) => Array`: Maps each element of the array, starting at `startIndex`, into a new array where the mapping in `callback` performs some operation.
+```
+	lam := (x, i) => x * i
+	arr := [10, 20, 30]
+	arr2 := arr.MapTo(lam)
+```
+	+ `Sort(callback: (a, b) => Integer) => this`: Sorts the array in place. The callback should use the usual logic of returning -1 when `a < b`, 0 when `a == b` and 1 otherwise.
+* `Run/RunWait()` can take an extra string for the argument instead of appending it to the program name string. However, the original functionality still works too.
+	+ The new signature is: `Run/RunWait(target [, workingDir, options, &outputVarPID, args])`.
+* When specifying colors for GUI components, the list of supported known colors can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.drawing.knowncolor).
+* `ListView` supports a new method `DeleteCol(col) => Boolean` to remove a column. The value returned indicates whether the column was found and deleted.
+* New methods and properties for `Menu`:
+	+ `HideItem()`, `ShowItem()` and `ToggleItemVis()` which can show, hide or toggle the visibility of a specific menu item.
+	+ `MenuItemName()` to get the name of a menu item, rather than having to use `DllCall()`.
+	+ `SetForeColor()` to set the fore (text) color of a menu item.
+	+ `MenuItemCount` to get the number of sub items within a menu.
+* `Picture` supports clearing the picture by setting the `Value` property to empty.
+* New options for `UpDown`:
+	+ These relieve the caller of having to use native Windows API calls.
+	+ `IncrementXXX` to specify an increment other than 1.
+		+ `MyGui.Add("UpDown", "x5 y55 vMyNud Increment10", 1)`
+	+ `Hex` to show the numeric value in hexadecimal.
+* `TabControl` supports a new method `SetTabIcon(tabIndex, imageIndex)` to relieve the caller of having to use `SendMessage()`.
+* `TreeView` supports a new method `GetNode(nodeIndex) => TreeNode` which retrieves a raw winforms TreeNode object based on a passed in ID.
+* Gui controls support taking a boolean `Autosize` (default: `false`) argument in the `Add()` method to allow them to optimally size themselves.
+* `Gui` has a new property named `Visible` which get/set whether the window is visible or not.
+* `EnvUpdate()` is retained to provide for a cross platform way to update environment variables.
+* The 40 character limit for hotstring abbreviations has been removed. There is no limit to the length.
+* `FileGetSize()` supports `G` and `T` for gigabytes and terabytes.
+* `DateAdd()` and `DateDiff()` support taking a value of `"L"` for the `TimeUnits` parameter to add miLliseconds or return the elapsed time in milliseconds, respectively.
+	+ See the new accessors `A_NowMs`/`A_NowUTCMs`.
+* `SubStr()` uses a default of 1 for the second parameter, `startingPos`, to relieve the caller of always having to specify it.
+* The v1 `Map` methods `MaxIndex()` and `MinIndex()` are still supported. They are also supported for `Array`.
+* Rich text boxes are supported by passing `RichEdit` to `Gui.Add()`. The same options from `Edit` are supported with the following caveats:
+	+ `Multiline` is true by default.
+	+ `WantReturn` and `Password` are not supported.
+	+ `Uppercase` and `Lowercase` are supported, but only for key presses, not for pasting.
+	+ The `Gui.Control.Value` property will only get/set the displayed text of the control. To get/set the raw rich text, use the new property `Gui.Control.RichText`.
+		+ Use `AltSubmit` with `Submit()` to get the raw rich text.
+		+ Attempting to use `Gui.Control.RichText` on any control other than `RichEdit` will throw an exception.
+* Loading icons from .NET DLLs is supported by passing the name of the icon resource in place of the icon number.
+	+ To set the tray icon to the built in suspended icon:
+		+ `TraySetIcon(A_KeysharpCorePath, "Keysharp_s.ico")`
+	+ To set a menu item to the same:
+		+ `parentMenu.SetIcon("Menu caption", A_KeysharpCorePath, "Keysharp_s.ico")`
+* When sending a string through `SendMessage()` using the `WM_COPYDATA` message type, the caller is no longer responsible for creating the special `COPYDATA` struct.
+	+ Instead, just pass `WM_COPYDATA (0x4A)` as the message type and the string as the `lparam`, and `SendMessage()` will handle it internally.
+	+ Note, this will send the string as UTF-16 Unicode. If you need to send to a program which expects ASCII, then you'll need to manually create the `COPYDATA` struct.
+* In addition to using `#ClipboardTimeout`, a new accessor named `A_ClipboardTimeout` can be used at any point in the program to get or set that value.
+* A compiled script can be reloaded.
+	+ AHK does not support reloading a compiled script.
+* `A_EventInfo` is not limited to positive values when reporting the mouse wheel scroll amount.
+	+ When scrolling up, the value will be positive, and negative when scrolling down.
 * `Log(number, base := 10)` is by default base 10, but it can accept a double as the second parameter to specify a custom base.
 * In `SetTimer()`:
 	+ In the callback function, `A_EventInfo` is set to the function object used to create the timer.
 	+ This allows the handler to alter the timer by passing the function object back to another call to `SetTimer()`.
 	+ Timers are not disabled when the program menu is shown.
-* A new timer function `EnabledTimerCount()` which returns the number of currently enabled timers in existence.
 * Reference parameters for functions using `&` are supported with the following improvements and caveats:
 	+ Passing class members, array indexes and map values by reference is supported.
 		+ `func(&classobj.classprop)`
@@ -405,47 +444,8 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		}
 	}
 ```
-* New functions for encrypting/decrypting an object:
-	+ Encrypt or decrypt an object using the AES algorithm: `AES(value, key, decrypt := false) => Array`.
-	+ Generate hash values using various algorithms: `MD5(value) => String`, `SHA1(value) => String`, `SHA256(value) => String`, `SHA384(value) => String`, `SHA512(value) => String`.
-	+ Calculate the CRC32 polynomial of an object: `CRC32(value) => Integer`.
-	+ Generate a secure cryptographic random number: `SecureRandom(min, max) => Decimal`.
-* New class and functions for managing real threads which are not related to the green threads that are used for the rest of the project.
-	+ A `RealThread` is created by calling `StartRealThread()`.
-```
-	class RealThread
-	{
-		RealThread(Task)
-		RealThread ContinueWith(funcobj [, params*]) => RealThread ; Call `funcobj` after the task completes, optionally passing `params` to it and return a new `RealThread` object for the continuation thread.
-		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
-	}
-```
-	+ `StartRealThread(funcobj [, params*]) => RealThread` Call `funcobj` in a real thread, optionally passing `params` to it, and return a `RealThread` object.
-	+ `LockRun(lockobj, funcobj [, params*])` Call `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
-		+ `lockobj` must be initialized to some value, such as an empty string.
-* `FuncObj()`, `IsFunc()`, `Any.HasProp()` and `ObjBindMethod()` take a new optional parameter which specifies the parameter count of the method to search for.
-	+ The new signatures are:
-		+ `ObjBindMethod(obj [, paramCount , method, params]) => FuncObj`
-		+ `FuncObj(name, object [, paramCount]) => FuncObj`
-		+ `IsFunc(functionName [, paramCount]) => Integer`
-		+ `Any.HasProp(propName [, paramCount]) => Integer`
-			+ The only properties which can have parameters are the `__Item[]` indexer properties.
-	+ This is needed to resolve the proper overloaded method. However, overloaded methods are currently not supported, but might be implemented in the future.
-	+ Omit `paramCount` or pass -1 to just use the first encountered method on the specified object with the specified name.
 * `KeysharpObject` has a new method `OwnPropCount()` which corresponds to the global function `ObjOwnPropCount()`.
 * `ComObjConnect()` takes an optional third parameter as a boolean (default: `false`) which specifies whether to write additional information to the debug output tab when events are received.
-* New function `Mail(recipients, subject, message, options)` to send an email.
-	+ `recipients`: A list of receivers of the message.
-	+ `subject`: Subject of the message.
-	+ `message`: Message body.
-	+ `options`: A `Map` with any the following optional key/value pairs:
-		+ "attachments": A string or `Array` of strings of file paths to send as attachments.
-		+ "bcc": A string or `Array` of strings of blind carbon copy recipients.
-		+ "cc": A string or `Array` of strings of carbon copy recipients.
-		+ "from": A string of comma separated from address.
-		+ "replyto": A string of comma separated reply address.
-		+ "host": The SMTP client hostname and port string in the form "hostname:port".
-		+ "header": A string of additional header information.
 * Preprocessor directives are supported using the familiar syntax of C#.
 	+ `#if symbol` is used to enable a section of code if symbol is defined.
 	+ By default, the following are defined:
@@ -496,14 +496,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ `#AssemblyCopyright`
 		+ `#AssemblyTrademark`
 		+ `#AssemblyVersion`
-* Experimental `Clr` class has been added which aims to provide CLR interop with regular AutoHotkey syntax, meaning easy access to CLR libraries.
-	+ `Clr.Load(asmOrPath)` loads a CLR assembly from a dll file or assembly name, and returns a `ManagedAssembly` or `ManagedNamespace` object. Example: `System := Clr.Load("System")`
-		+ `ManagedNamespace` can be accessed with property access syntax to get namespaces and types (`ManagedType`). Example: `linq := System.Linq.Enumerable`
-		+ `ManagedType` may be accessed for static methods/properties, or called to create a new `ManagedInstance`. 
-		+ `ManagedInstance` may be accessed with normal AutoHotkey syntax for properties, methods, and indexer access. Example: `linq.Where(nums, isOdd)`
-		+ Basic type marshalling between AutoHotkey and CLR is supported (including function objects), more complicated types may not currently work. 
-	+ `Clr.GetNamespaceName(ManagedNamespace)` returns the full intenal namespace name of the namespace wrapped by `ManagedNamespace`.
-	+ `Clr.GetTypeName(ManagedType)` returns the full internal type name of the type wrapped by `ManagedType`.
 * Command line switches may start with either `/` (Windows-only), `-` or `--`. 
 * Command line switches
     - `--script`    

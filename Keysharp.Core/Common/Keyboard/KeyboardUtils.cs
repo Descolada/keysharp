@@ -56,7 +56,7 @@ namespace Keysharp.Core.Common.Keyboard
 			{
 				var split = inputStr.AsSpan(r).Trim();
 
-				//KeysharpEnhancements.OutputDebugLine($"Examining split xinput string: {split}");
+				//Ks.OutputDebugLine($"Examining split xinput string: {split}");
 				if (split.Length > 0 && !split.Contains("XTEST", StringComparison.OrdinalIgnoreCase))
 				{
 					var mouse = split.Contains("slave  pointer", StringComparison.OrdinalIgnoreCase);//The double spaces are intentional.
@@ -67,7 +67,7 @@ namespace Keysharp.Core.Common.Keyboard
 						foreach (Range r2 in split.SplitAny(SpaceTab))
 						{
 							var lineSplit = split[r2].Trim();
-							//KeysharpEnhancements.OutputDebugLine($"Examining {(mouse ? "mouse" : "kb")} line split: {lineSplit}");
+							//Ks.OutputDebugLine($"Examining {(mouse ? "mouse" : "kb")} line split: {lineSplit}");
 
 							if (lineSplit.StartsWith("id=", StringComparison.OrdinalIgnoreCase))
 							{

@@ -24,42 +24,42 @@ namespace Keysharp.Core
 			if (script.SuppressErrorOccurred != 0)
 				return false;
 
-			if (!err.Exception.Processed && !Loops.IsExceptionCaught(err.GetType()))
+			if (!err.Processed && !Loops.IsExceptionCaught(err.GetType()))
 			{
-				err.Exception.ExcType = excType;
+				err.ExcType = excType;
 
 				if (script.onErrorHandlers != null)
 				{
 					foreach (var handler in script.onErrorHandlers)
 					{
-						var result = handler.Call(err, err.Exception.ExcType);
+						var result = handler.Call(err, err.ExcType);
 						var lresult = Script.ForceLong(result);
 
 						if (lresult != 0L)
 						{
-							err.Exception.Handled = true;
+							err.Handled = true;
 
 							//Calling code will not throw if this is true.
-							if (lresult == -1L && err.Exception.ExcType == Keyword_Return)
+							if (lresult == -1L && err.ExcType == Keyword_Return)
 								exitThread = false;
 
 							break;
 						}
 					}
 
-					err.Exception.Processed = true;
+					err.Processed = true;
 				}
 
-				if (!err.Exception.Handled)
+				if (!err.Handled)
 				{
-					err.Exception.Handled = true;
-					err.Exception.Processed = true;
+					err.Handled = true;
+					err.Processed = true;
 					if (!script.SuppressErrorOccurredDialog)
 						return ErrorDialog.Show(err) != ErrorDialog.ErrorDialogResult.Continue;
 				}
 			}
 
-			if (err.Exception.ExcType == Keyword_ExitApp)
+			if (err.ExcType == Keyword_ExitApp)
 				_ = Flow.ExitAppInternal(Flow.ExitReasons.Critical, null, true);
 
 			return exitThread;
@@ -299,7 +299,14 @@ namespace Keysharp.Core
 	/// </summary>
 	public class Error : KeysharpObject
 	{
-		internal KeysharpException Exception;
+		internal Exception Exception;
+		private string _message;
+		private string _what;
+		private string _extra;
+		private string _file;
+		private long _line = long.MinValue;
+		private string _stack;
+		private bool _stackInitialized;
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Error"/> class.
 		/// </summary>
@@ -308,10 +315,37 @@ namespace Keysharp.Core
 			: base(args)
 		{
 			var (msg, what, extra) = args.L().S3();
+			_message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
+			_what = what;
+			_extra = extra;
 			Exception = new KeysharpException(this);
-			Exception.message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
-			Exception.What = what;
-			Exception.Extra = extra;
+		}
+
+		internal Error(Exception ex)
+			: base(System.Array.Empty<object>())
+		{
+			Exception = ex;
+
+			if (ex is KeysharpException kex && kex.UserError != null)
+			{
+				var ue = kex.UserError;
+				_message = ue.Message;
+				_what = ue.What;
+				_extra = ue.Extra;
+				_file = ue.File;
+				_line = ue.Line;
+				_stack = ue.Stack;
+				ExcType = ue.ExcType;
+				Handled = ue.Handled;
+				Processed = ue.Processed;
+				_stackInitialized = true;
+				return;
+			}
+
+			_message = ex?.Message ?? GetType().Name;
+			_what = ex?.Source ?? "";
+			_stack = ex?.StackTrace;
+			_stackInitialized = true;
 		}
 
 		/// <summary>
@@ -319,20 +353,25 @@ namespace Keysharp.Core
 		/// This is used to determine whether the script should exit or not after an exception is thrown.
 		/// Must be ExcType and not Type, else the reflection dictionary sees it as a dupe from the base.
 		/// </summary>
-		public string ExcType { get => Exception.ExcType; internal set => Exception.ExcType = value; }
+		public string ExcType { get; internal set; } = Keyword_Exit;
 
 		/// <summary>
 		/// Gets or sets the extra text.
 		/// </summary>
-		public string Extra { get => Exception.Extra; internal set => Exception.Extra = value; }
+		public string Extra { get => _extra; internal set => _extra = value; }
 
 		/// <summary>
 		/// Gets or sets the file the exception occurred in.
 		/// </summary>
 		public string File
 		{
-			get => Exception.File;
-			internal set => Exception.File = value;
+			get
+			{
+				EnsureStackInfo();
+				return _file;
+			}
+
+			internal set => _file = value;
 		}
 
 		/// <summary>
@@ -340,22 +379,31 @@ namespace Keysharp.Core
 		/// If true, further error messages will not be shown.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
-		public bool Handled { get => Exception.Handled; set => Exception.Handled = value; }
+		public bool Handled { get; set; }
 
 		/// <summary>
 		/// Gets or sets the line the exception occured on.
 		/// </summary>
 		public long Line
 		{
-			get => Exception.Line.Al();
-			internal set => Exception.Line = value;
+			get
+			{
+				EnsureStackInfo();
+				return _line;
+			}
+
+			internal set => _line = value;
 		}
 
 		/// <summary>
 		/// Gets or sets the message.
 		/// Must be done this way, else the reflection dictionary sees it as a dupe from the base.
 		/// </summary>
-		public string Message => Exception.Message;
+		public string Message
+		{
+			get => _message;
+			internal set => _message = value;
+		}
 
 		/// <summary>
 		/// Whether the global error event handlers have been called as a result
@@ -364,29 +412,80 @@ namespace Keysharp.Core
 		/// Note, this is separate from Handled above.
 		/// This should only ever be used internally or by the generated script code.
 		/// </summary>
-		public bool Processed { get => Exception.Processed; set => Exception.Processed = value; }
+		public bool Processed { get; set; }
 
 		/// <summary>
 		/// Gets or sets the stack trace of where the exception occurred.
 		/// </summary>
 		public string Stack
 		{
-			get => Exception.Stack;
-			internal set => Exception.Stack = value;
+			get
+			{
+				EnsureStackInfo();
+				return _stack;
+			}
+
+			internal set => _stack = value;
 		}
 
 		/// <summary>
 		/// Gets or sets the description of the error that happened.
 		/// </summary>
-		public string What { get => Exception.What; set => Exception.What = value; }
+		public string What
+		{
+			get
+			{
+				if (_what.IsNullOrEmpty())
+					EnsureStackInfo();
+				return _what;
+			}
+			set => _what = value;
+		}
+
+		private void EnsureStackInfo()
+		{
+			if (_stackInitialized || Exception == null)
+				return;
+
+			_stackInitialized = true;
+			if (Exception is not KeysharpException ksEx)
+				return;
+
+			var info = ksEx.CaptureStackInfo(_what);
+			_stack ??= info.Stack;
+			if (_file == null)
+				_file = info.File;
+			if (_line == long.MinValue)
+				_line = info.Line;
+			if (_what.IsNullOrEmpty())
+				_what = info.What;
+		}
 
 		public override string ToString()
 		{
-			return Exception.ToString();
+			EnsureStackInfo();
+			var sb = new StringBuilder(512);
+			_ = sb.AppendLine($"Exception: {GetType().Name}");
+			_ = sb.AppendLine($"Message: {Message}");
+			_ = sb.AppendLine($"What: {What}");
+			_ = sb.AppendLine($"Extra/Code: {Extra}");
+			_ = sb.AppendLine($"File: {File}");
+			_ = sb.AppendLine($"Line: {Line}");
+			_ = sb.AppendLine($"Stack:{Environment.NewLine}\t{Stack}");
+			return sb.ToString();
+		}
+
+		public long Show(object obj = null)
+		{
+			string mode = obj.As("Return").Trim();
+			bool allowContinue = mode.Equals("return", StringComparison.OrdinalIgnoreCase) || mode.Equals("warn", StringComparison.OrdinalIgnoreCase);
+			var result = ErrorDialog.Show(Exception, allowContinue);
+			if (result == ErrorDialog.ErrorDialogResult.Continue) return -1L;
+			return 1L;
 		}
 
 		[PublicHiddenFromUser]
-		public static implicit operator KeysharpException(Error err) => err.Exception;
+		public static implicit operator Exception(Error err) => err.Exception;
 	}
 
     /// <summary>
@@ -425,110 +524,21 @@ namespace Keysharp.Core
 	public class KeysharpException : Exception
 	{
 		public Error UserError;
-		/// <summary>
-		/// The message.
-		/// </summary>
-		internal string message = "";
 
 		/// <summary>
-		/// Whether the stack trace, file, and line information have been constructed.
+		/// Whether the stack trace has been constructed.
 		/// </summary>
 		private bool _isInitialized = false;
 
 		/// <summary>
-		/// Stack info captured at construction; remaining fields are initialized on demand.
+		/// Stack info captured on demand.
 		/// </summary>
 		private string _stack = null;
-		private string _file;
-		private long _line = long.MinValue;
-		private StackFrame[] _capturedFrames;
 
 		/// <summary>
 		/// Stack frames for mostly user-accessible functions (excludes C# built-in methods, some of our helpers etc).
 		/// </summary>
 		private IEnumerable<StackFrame> _stackFrames;
-		private string _errorTypeName;
-
-		/// <summary>
-		/// Gets or sets the exception exit type.
-		/// This is used to determine whether the script should exit or not after an exception is thrown.
-		/// Must be ExcType and not Type, else the reflection dictionary sees it as a dupe from the base.
-		/// </summary>
-		public string ExcType { get; internal set; } = Keyword_Exit;
-
-		/// <summary>
-		/// Gets or sets the extra text.
-		/// </summary>
-		public string Extra { get; internal set; }
-
-		/// <summary>
-		/// Gets or sets the file the exception occurred in.
-		/// </summary>
-		public string File
-		{
-			get
-			{
-				EnsureInitialized();
-				return _file;
-			}
-
-			internal set => _file = value;
-		}
-
-		/// <summary>
-		/// Whether this exception has been handled yet.
-		/// If true, further error messages will not be shown.
-		/// This should only ever be used internally or by the generated script code.
-		/// </summary>
-		public bool Handled { get; set; }
-
-		/// <summary>
-		/// Gets or sets the line the exception occured on.
-		/// </summary>
-		public object Line
-		{
-			get
-			{
-				EnsureInitialized();
-				return _line;
-			}
-
-			internal set => _line = value.Al();
-		}
-
-		/// <summary>
-		/// Gets or sets the message.
-		/// Must be done this way, else the reflection dictionary sees it as a dupe from the base.
-		/// </summary>
-		public override string Message => message;
-
-		/// <summary>
-		/// Whether the global error event handlers have been called as a result
-		/// of this exception yet.
-		/// If true, they won't be called again for this error.
-		/// Note, this is separate from Handled above.
-		/// This should only ever be used internally or by the generated script code.
-		/// </summary>
-		public bool Processed { get; set;}
-
-		/// <summary>
-		/// Gets or sets the stack trace of where the exception occurred.
-		/// </summary>
-		public string Stack
-		{
-			get
-			{
-				EnsureInitialized();
-				return _stack ??= FormatStack(_stackFrames ?? System.Array.Empty<StackFrame>());
-			}
-
-			internal set => _stack = value;
-		}
-
-		/// <summary>
-		/// Gets or sets the description of the error that happened.
-		/// </summary>
-		public string What { get; set; }
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="KeysharpException"/> class.
@@ -539,7 +549,6 @@ namespace Keysharp.Core
 		internal KeysharpException(Error owner)
 		{
 			UserError = owner;
-			_errorTypeName = owner.GetType().Name;
 		}
 
 		/// <summary>
@@ -548,12 +557,34 @@ namespace Keysharp.Core
 		/// <param name="msg">A message describing the error that occurred.</param>
 		/// <param name="what">A message describing what happened.</param>
 		/// <param name="extra">Extra text describing in detail what happened.</param>
-		public KeysharpException(params object[] args)
+		public KeysharpException(string message = null) : base(message ?? string.Empty) { }
+
+		internal struct StackInfo
 		{
-			var (msg, what, extra) = args.L().S3();
-			message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
-			What = what;
-			Extra = extra;
+			public string Stack;
+			public string File;
+			public long Line;
+			public string What;
+		}
+
+		internal StackInfo CaptureStackInfo(string currentWhat)
+		{
+			EnsureInitialized();
+			var frames = _stackFrames ?? System.Array.Empty<StackFrame>();
+			var topFrame = frames.FirstOrDefault() ?? new StackFrame(1, true);
+			MethodBase method;
+			var what = currentWhat;
+
+			if (what.IsNullOrEmpty() && (method = topFrame.GetMethod()) != null)
+				what = $"{method.DeclaringType.FullName}.{method.Name}()";
+
+			return new StackInfo
+			{
+				Stack = _stack ??= FormatStack(frames),
+				File = topFrame.GetFileName(),
+				Line = topFrame.GetFileLineNumber(),
+				What = what
+			};
 		}
 
 		private void EnsureInitialized()
@@ -564,17 +595,6 @@ namespace Keysharp.Core
 			var st = new StackTrace(this, true);
 			var frames = (st.FrameCount == 0 ? new StackTrace(1, true) : st).GetFrames();
 			_stackFrames = FilterUserFrames(frames);
-			// First user-facing frame
-			var topFrame = _stackFrames.FirstOrDefault() ?? new StackFrame(1, true);
-			MethodBase method;
-
-			if (What.IsNullOrEmpty() && (method = topFrame.GetMethod()) != null)
-				What = $"{method.DeclaringType.FullName}.{method.Name}()";
-
-			if (_file == null)
-				_file = topFrame.GetFileName();
-			if (_line == long.MinValue)
-				_line = topFrame.GetFileLineNumber();
 		}
 
 		/// <summary>
@@ -590,10 +610,7 @@ namespace Keysharp.Core
 				var method = frame.GetMethod();
 				var type = method?.DeclaringType;
 
-				if (type == null || type.IsSubclassOf(typeof(Exception)) || type == typeof(Errors))
-					continue;
-
-				if (method is ConstructorInfo && typeof(Error).IsAssignableFrom(type))
+				if (type == null || type.IsSubclassOf(typeof(Exception)) || typeof(Error).IsAssignableFrom(type))
 					continue;
 
 				string fullName = type.FullName ?? "";
@@ -646,18 +663,10 @@ namespace Keysharp.Core
 		/// <returns>A summary of the exception.</returns>
 		public override string ToString()
 		{
-			EnsureInitialized();
-			var sb = new StringBuilder(512);
-			var typeName = _errorTypeName ?? GetType().Name;
-			_ = sb.AppendLine($"Exception: {typeName}");
-			_ = sb.AppendLine($"Message: {message}");
-			_ = sb.AppendLine($"What: {What}");
-			_ = sb.AppendLine($"Extra/Code: {Extra}");
-			_ = sb.AppendLine($"File: {File}");
-			_ = sb.AppendLine($"Line: {Line}");
-			_ = sb.AppendLine($"Stack:{Environment.NewLine}\t{Stack}");
-			return sb.ToString();
+			return UserError != null ? UserError.ToString() : base.ToString();
 		}
+
+		public override string Message => UserError?.Message ?? base.Message;
 
 		public static implicit operator Error(KeysharpException err) => err.UserError;
 	}
@@ -733,7 +742,7 @@ namespace Keysharp.Core
 				if (e.HResult < 0)
 				{
 					Number = e.HResult;
-					Exception.message = $"(0x{e.HResult.ToString("X2")}): {e.Message}";
+					Message = $"(0x{e.HResult.ToString("X2")}): {e.Message}";
 					return;
 				}
 
@@ -741,7 +750,7 @@ namespace Keysharp.Core
 			}
 
 			Number = w32ex != null ? w32ex.ErrorCode : Marshal.GetLastPInvokeError();
-			Exception.message = new Win32Exception((int)Number).Message;
+			Message = new Win32Exception((int)Number).Message;
 #else
 			Number = (long)A_LastError;
 #endif
@@ -751,9 +760,12 @@ namespace Keysharp.Core
 	/// <summary>
 	/// An exception class for parsing errors.
 	/// </summary>
-	internal class ParseException : KeysharpException
+	internal class ParseException : Exception
 	{
 		public int Column = 0;
+		public string File = "";
+		public object Line = 0L;
+		public string Extra = "";
 		/// <summary>
 		/// Initializes a new instance of the <see cref="ParseException"/> class.
 		/// </summary>
@@ -1126,7 +1138,7 @@ namespace Keysharp.Core
 		{
 			KeysharpException kex = ex as KeysharpException;
 			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex != null ? kex.ExcType == Keyword_Return : false);
+			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			dlg.ShowDialog();
 
 			switch (dlg.Result)
@@ -1366,7 +1378,7 @@ namespace Keysharp.Core
 		{
 			KeysharpException kex = ex as KeysharpException;
 			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex != null ? kex.ExcType == Keyword_Return : false);
+			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			dlg.ShowDialog();
 
 			switch (dlg.Result)

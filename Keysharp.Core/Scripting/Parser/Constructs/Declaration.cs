@@ -40,15 +40,7 @@ namespace Keysharp.Scripting
 					constraintClauses: default,
 					members: default
 					);
-
-				if (baseName != null)
-					Declaration = Declaration.WithBaseList(
-						SyntaxFactory.BaseList(
-							SyntaxFactory.SingletonSeparatedList<BaseTypeSyntax>(
-								SyntaxFactory.SimpleBaseType(CreateQualifiedName(baseName))
-							)
-						)
-					);
+				Base = baseName;
 			}
 			public AttributeListSyntax AssembleAttributes() => SyntaxFactory.AttributeList(
 			SyntaxFactory.SeparatedList<AttributeSyntax>(
@@ -74,6 +66,8 @@ namespace Keysharp.Scripting
 					var attributeList = new SyntaxList<AttributeListSyntax>(AssembleAttributes());
 					Declaration = Declaration.WithAttributeLists(attributeList);
 				}
+				if (!Base.IsNullOrEmpty())
+					BaseList.Insert(0, SyntaxFactory.SimpleBaseType(CreateQualifiedName(Base)));
 				return Declaration
 					.WithBaseList(BaseList.Count > 0 ? SyntaxFactory.BaseList(SyntaxFactory.SeparatedList(BaseList)) : default)
 					.AddMembers(Body.ToArray());

@@ -64,13 +64,17 @@
 		internal const char Divide = '/';
 
         internal const string ClassStaticPrefix = "static";
-		internal const string InternalPrefix = "_ks_";
-        internal const string TempVariablePrefix = InternalPrefix + "temp";
+		internal const string InternalPrefix = "KS_";
+		internal const string TopLevelFunctionPrefix = "FN_";
+		internal const string StaticLocalFieldPrefix = "SL_";
+		internal const string EscapePrefix = "ESC_";
+		internal const string TempVariablePrefix = InternalPrefix + "temp";
         internal const string AnonymousLambdaPrefix = InternalPrefix + "AnonLambda_";
         internal const string AnonymousFatArrowLambdaPrefix = InternalPrefix + "AnonFatArrowLambda_";
 
 		public const string MainNamespaceName = "Keysharp.CompiledMain";
 		public const string MainClassName = "Program";
+		public const string MainModuleName = "__Main";
 		public const string UserDeclaredClassesContainerName = "UserDeclaredClasses";
 		public const string AutoExecSectionName = "AutoExecSection";
 		public const string MainScriptVariableName = "MainScript";

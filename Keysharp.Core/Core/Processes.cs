@@ -312,15 +312,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// <see cref="Run(object, object, object, ref object, object)"/>
-		/// </summary>
-		public static long Run(object target, object workingDir = null, object options = null)
-		{
-			object pid = VarRef.Empty;
-			return Run(target, workingDir, options, pid, null);
-		}
-
-		/// <summary>
 		/// Runs an external program. Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until the program finishes before continuing.
 		/// </summary>
 		/// <param name="target">A document, URL, executable file (.exe, .com, .bat, etc.), shortcut (.lnk), CLSID, or system verb to launch (see remarks).</param>
@@ -339,7 +330,7 @@ namespace Keysharp.Core
 		/// <returns>Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until target is closed or exits,<br/>
 		/// at which time the return value will be the program's exit code.
 		/// </returns>
-		public static long Run(object target, object workingDir, object options, object outputVarPID, object args = null)
+		public static long Run(object target, object workingDir = null, object options = null, object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As());
 		}
@@ -535,7 +526,6 @@ namespace Keysharp.Core
 		private static long RunInternal(string target, string workingDir, string showMode, [ByRef] object outputVarPID, string args, bool wait = false)
 		{
 			ThreadAccessors.A_LastError = 0;
-			outputVarPID ??= VarRef.Empty;
 			var pid = 0;
 			var useRunAs = RunAsSpecified();
 
@@ -723,7 +713,7 @@ namespace Keysharp.Core
 					if (wait)
 					{
                         prc.WaitForExit();
-						Script.SetPropertyValue(outputVarPID, "__Value", pid);
+						if (outputVarPID != null ) Script.SetPropertyValue(outputVarPID, "__Value", pid);
 						return prc.ExitCode;
 					}
 				}
@@ -734,7 +724,7 @@ namespace Keysharp.Core
 				return (long)Errors.ErrorOccurred(ex.Message, DefaultErrorLong);
 			}
 
-            Script.SetPropertyValue(outputVarPID, "__Value", pid);
+            if (outputVarPID != null) Script.SetPropertyValue(outputVarPID, "__Value", pid);
             return 0L;
 		}
 	}

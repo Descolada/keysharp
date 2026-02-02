@@ -257,6 +257,7 @@ InputLevel             : 'inputlevel'            -> mode(DEFAULT_MODE);
 SuspendExempt          : 'suspendexempt'         -> mode(DEFAULT_MODE);
 UseHook                : 'usehook'               -> mode(DEFAULT_MODE);
 Hotstring              : 'hotstring'             -> mode(HOTSTRING_OPTIONS);
+Module                 : 'module' WhiteSpace     -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
 // General directives
 Define                 : 'define'                -> channel(DIRECTIVE);
 Undef                  : 'undef'                 -> channel(DIRECTIVE);

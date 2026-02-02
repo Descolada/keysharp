@@ -45,10 +45,11 @@ namespace Keysharp.Tests
 					}
 				}
 			});
-			var form = new Form
+			var form = new KeysharpForm
 			{
 				Size = new System.Drawing.Size(500, 500),
-				StartPosition = FormStartPosition.CenterScreen
+				StartPosition = FormStartPosition.CenterScreen,
+				Text = "MessageBox holder",
 			};
 			form.Shown += Form_Shown;
 			Application.Run(form);

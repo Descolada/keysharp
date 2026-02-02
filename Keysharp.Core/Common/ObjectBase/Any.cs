@@ -23,7 +23,10 @@ namespace Keysharp.Core.Common.ObjectBase
 		// Does THIS node define __Delete (own, not inherited)?
 		private volatile bool _ownHasDelete = false;
 
-		// Does the prototype chain have __Delete anywhere, and modifies GC finalizer state accordingly.
+		// Does this node's base chain include __Delete (self or inherited)?
+		private bool _hasDeleteInChain = false;
+
+		// Tracks whether finalization is enabled; toggles GC finalizer registration.
 		private bool _hasFinalizer;
 		protected internal bool HasFinalizer
 		{
@@ -84,7 +87,7 @@ namespace Keysharp.Core.Common.ObjectBase
 				__New(args);
 				return;
 			}
-			var proto = (Any)value.op["prototype"].Value;
+			var proto = (Any)value.op["Prototype"].Value;
 			SetBaseInternal(proto);
 			Script.InvokeMeta(this, "__Init");
 			Script.InvokeMeta(this, "__New", args);
@@ -103,6 +106,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			DestructorPump.Enqueue(this);
 		}
 
+		// These must be visible such that user classes can call base.__Init() without errors, and AHK also exposes them
 		public virtual object __Init() => "";
 		public virtual object static__Init() => "";
 
@@ -117,10 +121,10 @@ namespace Keysharp.Core.Common.ObjectBase
 		public virtual object static__Delete() => "";
 
 		private static Type GetCallingType()
-        {
-            var frame = new System.Diagnostics.StackTrace().GetFrame(2); // Get the caller two levels up
-            return frame?.GetMethod()?.DeclaringType;
-        }
+		{
+			var frame = new System.Diagnostics.StackTrace().GetFrame(2); // Get the caller two levels up
+			return frame?.GetMethod()?.DeclaringType;
+		}
 
 		public virtual object GetMethod(object obj0 = null, object obj1 = null) => Functions.GetMethod(this, obj0, obj1);
 
@@ -186,7 +190,6 @@ namespace Keysharp.Core.Common.ObjectBase
 				_base.children ??= new();
 				_base.children.Add(this);
 			}
-			MaybeActivateFinalizer();
 
 			OnPropertyChanged("base", OwnPropsMapType.Value);
 		}
@@ -194,9 +197,10 @@ namespace Keysharp.Core.Common.ObjectBase
 		internal void ActivatePrototype()
 		{
 			if (isPrototype) return;
-			
+
 			isPrototype = true;
-			if (_base != null) {
+			if (_base != null)
+			{
 				_base.children ??= new();
 				_base.children.Add(this);
 			}
@@ -208,14 +212,12 @@ namespace Keysharp.Core.Common.ObjectBase
 			{
 				HasFinalizer = true; return;
 			}
-			for (var item = this; item != null; item = item._base)
-			{
-				if (item._ownHasDelete)
-				{
-					HasFinalizer = true; return;
-				}
-			}
-			HasFinalizer = false;
+			HasFinalizer = _hasDeleteInChain;
+		}
+
+		private void UpdateHasDeleteInChain()
+		{
+			_hasDeleteInChain = _ownHasDelete || (_base?._hasDeleteInChain ?? false);
 		}
 
 		internal bool HasOwnPropInternal(string name) => op != null && op.ContainsKey(name);
@@ -224,6 +226,8 @@ namespace Keysharp.Core.Common.ObjectBase
 		// Internal method to notify of a property change, and to handle __Delete logic
 		internal virtual void OnPropertyChanged(string name, OwnPropsMapType type, bool selfChange = true, bool childHasOverride = false)
 		{
+			bool refreshDeleteChain = false;
+
 			if (name.Equals("__Delete", StringComparison.OrdinalIgnoreCase))
 			{
 				if (selfChange)
@@ -234,14 +238,24 @@ namespace Keysharp.Core.Common.ObjectBase
 						_ownHasDelete = nowHasDelete;
 					}
 				}
-				MaybeActivateFinalizer();
+				refreshDeleteChain = true;
+			}
+			else if (name.Equals("base", StringComparison.OrdinalIgnoreCase))
+			{
+				refreshDeleteChain = true;
 			}
 
-			if (children == null) return;
-
-			foreach (var child in children.GetLiveItems())
+			if (refreshDeleteChain)
 			{
-				child.OnPropertyChanged(name, type, false, childHasOverride);
+				UpdateHasDeleteInChain();
+				MaybeActivateFinalizer();
+
+				if (children == null) return;
+
+				foreach (var child in children.GetLiveItems())
+				{
+					child.OnPropertyChanged(name, type, false, childHasOverride);
+				}
 			}
 		}
 	}

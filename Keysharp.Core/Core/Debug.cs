@@ -2,14 +2,16 @@ namespace Keysharp.Core
 {
 	public static class Debug
 	{
-		public static object Edit()
+		public static object Edit(object obj = null)
 		{
-			if (A_IsCompiled)
+			if (obj == null && A_IsCompiled)
 			{
 				_ = Dialogs.MsgBox("Cannot edit a compiled script.");
 				return DefaultErrorObject;
 			}
 
+			string fileName = obj == null ? A_ScriptFullPath : obj.As();
+			string workingDir = obj == null ? A_ScriptDir : Path.GetDirectoryName(fileName);
 			var script = Script.TheScript;
 			var title = script.mainWindow != null ? script.mainWindow.Text : "";
 			var tv = script.Threads.CurrentThread.configData;
@@ -53,10 +55,10 @@ namespace Keysharp.Core
 				{
 					var prcIndex = ed.IndexOf('%');
 					ed = prcIndex != -1 ? ed.Substring(0, prcIndex) : ed;
-					_ = Processes.Run(ed, A_ScriptDir, "", pid, A_ScriptFullPath);
+					_ = Processes.Run(ed, workingDir, "", pid, fileName);
 				}
 				else
-					_ = Processes.Run($"Notepad.exe", A_ScriptDir, "", pid, A_ScriptFullPath);
+					_ = Processes.Run($"Notepad.exe", workingDir, "", pid, fileName);
 
 #endif
 			}
@@ -79,11 +81,11 @@ namespace Keysharp.Core
 			var typesToProps = new SortedDictionary<string, List<PropertyInfo>>();
 			_ = sb.AppendLine($"**User defined**\n");
 
-			foreach (var fieldKv in script.Vars.globalVars.Where(kv => kv.Value is FieldInfo))
+			foreach (var fieldKv in script.Vars.globalVars.Where(kv => kv.Value?.fi != null))
 			{
-					FieldInfo fi2 = fieldKv.Value as FieldInfo;
-					var val = fi2.GetValue(null);
-					var fieldType = val != null ? val.GetType().Name : fi2.FieldType.Name;
+					var mph = fieldKv.Value;
+					var val = mph.CallFunc(null, null);
+					var fieldType = val != null ? val.GetType().Name : mph.fi.FieldType.Name;
 					_ = Misc.PrintProps(val, fieldKv.Key, sb, ref tabLevel);
 			}
 

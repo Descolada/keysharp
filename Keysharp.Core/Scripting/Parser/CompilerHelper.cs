@@ -42,7 +42,7 @@ using static Keysharp.Core.Images;
 using static Keysharp.Core.Ini;
 using static Keysharp.Core.Input;
 using static Keysharp.Core.Keyboard;
-using static Keysharp.Core.KeysharpEnhancements;
+using static Keysharp.Core.Ks;
 using static Keysharp.Core.Loops;
 using static Keysharp.Core.Maths;
 using static Keysharp.Core.Menu;
@@ -89,7 +89,7 @@ using static Keysharp.Core.Images;
 using static Keysharp.Core.Ini;
 using static Keysharp.Core.Input;
 using static Keysharp.Core.Keyboard;
-using static Keysharp.Core.KeysharpEnhancements;
+using static Keysharp.Core.Ks;
 using static Keysharp.Core.Loops;
 using static Keysharp.Core.Maths;
 using static Keysharp.Core.Menu;
@@ -124,7 +124,6 @@ using Keysharp.Scripting
 using Array = Keysharp.Core.Array
 using Buffer = Keysharp.Core.Buffer
 using String = Keysharp.Core.String
-using static {MainClassName}.{UserDeclaredClassesContainerName}
 ";
 
 		/// <summary>
@@ -233,7 +232,7 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
 			BracingStyle = "C"
 		};
 
-		private readonly CodeDomProvider provider = CodeDomProvider.CreateProvider("csharp", new Dictionary<string, string>
+		internal readonly CodeDomProvider provider = CodeDomProvider.CreateProvider("csharp", new Dictionary<string, string>
 		{
 			{
 				"CompilerDirectoryPath", Path.Combine(Environment.CurrentDirectory, "./roslyn")
@@ -609,7 +608,7 @@ using static {MainClassName}.{UserDeclaredClassesContainerName}
                     }
                     catch (ParseException e)
                     {
-                        _ = errors.Add(new CompilerError(e.File, (int)e.Line, e.Column, "0", e.Message));
+                        _ = errors.Add(new CompilerError(e.File, e.Line.Ai(), e.Column, "0", e.Message));
                     }
                     catch (Exception e)
                     {

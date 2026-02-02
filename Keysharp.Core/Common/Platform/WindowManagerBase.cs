@@ -155,11 +155,11 @@ namespace Keysharp.Core.Common.Platform
 				return found;
 			}
 
-			//KeysharpEnhancements.OutputDebugLine($"About to iterate AllWindows in FindWindowGroup()");
+			//Ks.OutputDebugLine($"About to iterate AllWindows in FindWindowGroup()");
 
 			foreach (var window in WindowManager.AllWindows)
 			{
-				//KeysharpEnhancements.OutputDebugLine($"FindWindowGroup(): about to examine window: {window.Title}");
+				//Ks.OutputDebugLine($"FindWindowGroup(): about to examine window: {window.Title}");
 				if (criteria.IsEmpty || window.Equals(criteria))
 				{
 					found.Add(window);

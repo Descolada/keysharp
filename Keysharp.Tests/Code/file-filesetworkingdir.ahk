@@ -1,3 +1,5 @@
+import { FileFullPath } from Ks
+
 ; #Include %A_ScriptDir%/header.ahk
 
 origdir := A_WorkingDir

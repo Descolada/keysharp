@@ -46,7 +46,6 @@ namespace Keysharp.Core.Linux
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
 
-				WindowItemBase.DoControlDelay();
 				return res + 1L;
 			}
 
@@ -87,8 +86,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 		}
 
@@ -120,8 +117,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 
 			return index;
@@ -290,8 +285,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 		}
 
@@ -357,8 +350,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 
 			return DefaultObject;
@@ -505,8 +496,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 		}
 
@@ -720,8 +709,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 
 			return ret;
@@ -762,8 +749,6 @@ namespace Keysharp.Core.Linux
 				{
 					//How to do the equivalent of what the Windows derivation does, but on linux?
 				}
-
-				WindowItemBase.DoControlDelay();
 			}
 		}
 	}

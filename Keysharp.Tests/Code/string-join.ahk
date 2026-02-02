@@ -1,4 +1,4 @@
-
+import { Join } from Ks
 
 str := Join(",", "1", "2", "3")
 

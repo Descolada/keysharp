@@ -181,7 +181,11 @@ namespace Keysharp.Scripting
 			// Build "Outer.Inner" from declaring types (namespaces are not included here).
 			var names = new List<string>();
 			for (var cur = t; cur != null && cur != script.ProgramType; cur = cur.DeclaringType)
+			{
+				if (IsModuleContainer(cur, script))
+					continue;
 				names.Add(cur.Name);
+			}
 			names.Reverse();
 			return string.Join('.', names);
 		}

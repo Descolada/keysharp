@@ -35,5 +35,5 @@ global using global::Keysharp.Scripting;
 
 //Static
 global using static global::Keysharp.Core.Accessors;
-global using static global::Keysharp.Core.KeysharpEnhancements;
+global using static global::Keysharp.Core.Ks;
 global using static global::Keysharp.Scripting.Keywords;

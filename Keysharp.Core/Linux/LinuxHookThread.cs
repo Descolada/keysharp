@@ -261,7 +261,7 @@ namespace Keysharp.Core.Linux
 					StopGlobalHookCore(dispose: true);
 				}
 
-				KeysharpEnhancements.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
+				Ks.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
 				return;
 			}
 

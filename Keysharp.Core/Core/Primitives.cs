@@ -21,7 +21,25 @@
 		/// </summary>
 		/// <param name="value">The value to convert.</param>
 		/// <returns>The result of converting value to a string, or value itself if it was a string.</returns>
-		public static string Call(object @this, object value) => value.As();
+		public static string staticCall(object @this, object value) => value.As();
+
+		/// <summary>
+		/// Determines if a string starts with a given string, using the current culture.
+		/// </summary>
+		/// <param name="str">The string to examine the start of.</param>
+		/// <param name="str2">The string to search for.</param>
+		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
+		/// <returns>1 if str started with str2, else 0.</returns>
+		public static long StartsWith(object str, object str2, object ignoreCase = null) => str.As().StartsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
+
+		/// <summary>
+		/// Determines if a string ends with a given string, using the current culture.
+		/// </summary>
+		/// <param name="str">The string to examine the end of.</param>
+		/// <param name="str2">The string to search for.</param>
+		/// <param name="ignoreCase">True to ignore case, else case sensitive. Default: case sensitive.</param>
+		/// <returns>1 if str ended with str2, else 0.</returns>
+		public static long EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 	}
 
 	public class Integer : Primitive
@@ -32,7 +50,7 @@
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a long.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public static object Call(object @this, object value)
+		public static object staticCall(object @this, object value)
 		{
 			if (value.ParseLong(out long l))
 				return l;
@@ -50,7 +68,7 @@
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a double.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public static object Call(object @this, object value)
+		public static object staticCall(object @this, object value)
 		{
 			if (value.ParseDouble() is double d)
 				return d;

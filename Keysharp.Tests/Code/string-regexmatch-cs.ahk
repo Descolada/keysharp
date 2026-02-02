@@ -1,3 +1,5 @@
+import * from Ks
+
 match := ""
 
 RegExMatchCs("abc123abc456", "abc\d+", &match, 1)

@@ -375,27 +375,39 @@ namespace Keysharp.Scripting
             return finalExpression;
         }
 
-		public override SyntaxNode VisitPreIncrementDecrementExpression([NotNull] PreIncrementDecrementExpressionContext context)
+        public override SyntaxNode VisitPreIncrementDecrementExpression([NotNull] PreIncrementDecrementExpressionContext context)
 		{
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.expression());
+			parser.isAssignmentTarget = prevAssignmentTarget;
 			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPreIncrementDecrementExpressionDuplicate([NotNull] PreIncrementDecrementExpressionDuplicateContext context)
 		{
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
+			parser.isAssignmentTarget = prevAssignmentTarget;
 			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpression([NotNull] PostIncrementDecrementExpressionContext context)
 		{
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.expression());
+			parser.isAssignmentTarget = prevAssignmentTarget;
 			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpressionDuplicate([NotNull] PostIncrementDecrementExpressionDuplicateContext context)
 		{
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
+			parser.isAssignmentTarget = prevAssignmentTarget;
 			return HandleCompoundAssignment(expression, SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(1L)), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
 		}
 
@@ -760,7 +772,10 @@ namespace Keysharp.Scripting
 
         private SyntaxNode HandleAssignmentExpression(IParseTree left, IParseTree right, string assignmentOperator)
         {
+			var prevAssignmentTarget = parser.isAssignmentTarget;
+			parser.isAssignmentTarget = true;
             var leftExpression = (ExpressionSyntax)Visit(left);
+			parser.isAssignmentTarget = prevAssignmentTarget;
             var rightExpression = (ExpressionSyntax)Visit(right);
 
             return HandleAssignment(leftExpression, rightExpression, assignmentOperator);
@@ -777,16 +792,8 @@ namespace Keysharp.Scripting
 
         private ExpressionSyntax HandleAssignment(ExpressionSyntax leftExpression, ExpressionSyntax rightExpression, string assignmentOperator)
         {
-            
-            // Handle static member assignment
-            if (leftExpression is InvocationExpressionSyntax invocationExpression &&
-                IsStaticMemberAccessInvocation(invocationExpression))
-            {
-                return HandleStaticMemberAssignment(invocationExpression, rightExpression, assignmentOperator);
-            }
-
             // Handle ElementAccessExpression for array or indexed assignments
-            else if (leftExpression is ElementAccessExpressionSyntax elementAccess)
+            if (leftExpression is ElementAccessExpressionSyntax elementAccess)
             {
                 return HandleElementAccessAssignment(elementAccess, rightExpression, assignmentOperator);
             }
@@ -864,41 +871,6 @@ namespace Keysharp.Scripting
             // Handle compound assignments
             return HandleCompoundAssignment(leftExpression, rightExpression, assignmentOperator);
         }
-
-        private ExpressionSyntax HandleStaticMemberAssignment(
-            InvocationExpressionSyntax staticMemberInvocation,
-            ExpressionSyntax rightExpression,
-            string assignmentOperator)
-        {
-            if (assignmentOperator == "??=")
-            {
-                var getStaticMemberValue = staticMemberInvocation;
-                var setStaticMemberValue = CreateSetStaticMemberInvocation(getStaticMemberValue, rightExpression);
-
-                // Return: left ?? (SetStaticMemberValueT<typeName>(member, right))
-                return SyntaxFactory.BinaryExpression(
-                    SyntaxKind.CoalesceExpression,
-                    getStaticMemberValue,
-                    setStaticMemberValue
-                );
-            }
-
-            if (assignmentOperator == ":=")
-            {
-                return CreateSetStaticMemberInvocation(staticMemberInvocation, rightExpression);
-            }
-
-            // Handle compound assignments (e.g., "+=", "-=")
-            string binaryOperator = MapAssignmentOperatorToBinaryOperator(assignmentOperator);
-            var binaryOperation = CreateBinaryOperatorExpression(
-                GetOperatorToken(binaryOperator),
-                staticMemberInvocation,
-                rightExpression
-            );
-
-            return CreateSetStaticMemberInvocation(staticMemberInvocation, binaryOperation);
-        }
-
 
         private ExpressionSyntax HandleElementAccessAssignment(
             ElementAccessExpressionSyntax elementAccess,
@@ -1442,38 +1414,6 @@ namespace Keysharp.Scripting
             );
         }
 
-        private bool IsStaticMemberAccessInvocation(InvocationExpressionSyntax invocation)
-        {
-            return CheckInvocationExpressionName(invocation, "GetStaticMemberValueT", false);
-        }
-
-        private InvocationExpressionSyntax CreateSetStaticMemberInvocation(
-            InvocationExpressionSyntax getStaticMemberInvocation,
-            ExpressionSyntax newValue)
-        {
-            if (getStaticMemberInvocation.Expression is MemberAccessExpressionSyntax memberAccess
-                && memberAccess.Name is GenericNameSyntax genericName)
-            {
-                // Extract the type argument (e.g., `typeName` in `GetStaticMemberValueT<typeName>`)
-                var typeArgument = genericName.TypeArgumentList.Arguments.First();
-
-                // Extract the member argument (e.g., `member`)
-                var memberArgument = getStaticMemberInvocation.ArgumentList.Arguments.First();
-
-                // Create SetStaticMemberValueT<typeName>(member, newValue)
-                return SyntaxFactory.InvocationExpression(
-                    SyntaxFactory.GenericName("SetStaticMemberValueT")
-                        .WithTypeArgumentList(SyntaxFactory.TypeArgumentList(SyntaxFactory.SeparatedList(new[] { typeArgument }))),
-                    CreateArgumentList(
-                        memberArgument,
-                        newValue
-                    )
-                );
-            }
-
-            throw new InvalidOperationException("Invalid static member access invocation");
-        }
-
         // Helper function to map assignment operators to binary operators
         private string MapAssignmentOperatorToBinaryOperator(string assignmentOperator)
         {
@@ -1528,32 +1468,7 @@ namespace Keysharp.Scripting
 
             if (baseExpression is IdentifierNameSyntax identifierName)
             {
-                var name = parser.NormalizeIdentifier(identifierName.Identifier.Text);
-                if ((Script.TheScript.ReflectionsData.stringToTypes.ContainsKey(name) || name.Equals(Keywords.MainClassName, StringComparison.OrdinalIgnoreCase))
-                    && parser.IsVarDeclaredGlobally(name) == null && parser.IsVarDeclaredLocally(name) == null && parser.IsVarDeclaredInClass(parser.currentClass, name) == null)
-                {
-                    //name = Reflections.stringToTypes.SingleOrDefault(kv => kv.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Key;
-                    // Generate Keysharp.Scripting.Script.GetStaticMemberValueT<baseExpression>(memberExpression)
-                    if (name.Equals(Keywords.MainClassName, StringComparison.OrdinalIgnoreCase))
-                        return SyntaxFactory.InvocationExpression(
-                            SyntaxFactory.MemberAccessExpression(
-                                SyntaxKind.SimpleMemberAccessExpression,
-                                CreateQualifiedName("Keysharp.Scripting.Script"),
-                                SyntaxFactory.GenericName("GetStaticMemberValueT")
-                                    .WithTypeArgumentList(SyntaxFactory.TypeArgumentList(
-                                        SyntaxFactory.SingletonSeparatedList<TypeSyntax>(SyntaxFactory.IdentifierName(Keywords.MainClassName))
-                                    ))
-                            ),
-                                CreateArgumentList(
-                                    memberExpression,
-                                    SyntaxFactory.IdentifierName(name)
-                                )
-                            );
-                    else
-                        baseExpression = SyntaxFactory.IdentifierName(name);
-                }
-                else
-                    parser.MaybeAddGlobalFuncObjVariable(identifierName.Identifier.Text);
+                parser.MaybeAddGlobalFuncObjVariable(identifierName.Identifier.Text);
             }
 
             ArgumentListSyntax memberIndexArgList = SyntaxFactory.ArgumentList();

@@ -3,7 +3,7 @@ using static Keysharp.Core.WindowSearch;
 
 namespace Keysharp.Core
 {
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 
 		public static object WinMaximizeAll()
@@ -12,10 +12,21 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		public static long WinGetAlwaysOnTop(object winTitle = null,
-											 object winText = null,
-											 object excludeTitle = null,
-											 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.AlwaysOnTop) ? 1L : 0L;
+		/// <summary>
+		/// Returns the handle of the window located at the given screen coordinates.
+		/// </summary>
+		/// <param name="x">The X screen coordinate.</param>
+		/// <param name="y">The Y screen coordinate.</param>
+		/// <returns>The window handle at the specified point, or 0 if none is found.</returns>
+		public static long WinFromPoint(object x = null, object y = null)
+		{
+			if (x == null || y == null)
+			{
+				GetCursorPos(out var point);
+				x ??= point.X; y ??= point.Y;
+			}
+			return WindowManager.WindowFromPoint(new Common.Window.POINT(x.Ai(), y.Ai())).Handle;
+		}
 	}
 
 	public static class WindowX
@@ -371,7 +382,6 @@ namespace Keysharp.Core
 
 				if (part < sb.Captions.Length)
 				{
-					WindowItemBase.DoWinDelay();
 					return sb.Captions[part];
 				}
 			}
@@ -383,7 +393,6 @@ namespace Keysharp.Core
 
 					if (part < ss.Items.Count)
 					{
-						WindowItemBase.DoWinDelay();
 						return ss.Items[part].Text;
 					}
 				}
@@ -398,13 +407,11 @@ namespace Keysharp.Core
 
 				if (part < sb.Captions.Length)
 				{
-					WindowItemBase.DoWinDelay();
 					return sb.Captions[part];
 				}
 			}
 
 #endif
-			WindowItemBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -738,6 +745,16 @@ namespace Keysharp.Core
 
 			return DefaultObject;
 		}
+
+		public static long WinGetAlwaysOnTop(object winTitle = null,
+									 object winText = null,
+									 object excludeTitle = null,
+									 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.AlwaysOnTop) ? 1L : 0L;
+
+		public static long WinGetEnabled(object winTitle = null,
+							 object winText = null,
+							 object excludeTitle = null,
+							 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.Enabled) ? 1L : 0L;
 
 		public static object WinHide(object winTitle = null,
 									 object winText = null,
@@ -1186,7 +1203,7 @@ namespace Keysharp.Core
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
-				//KeysharpEnhancements.OutputDebugLine($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}");
+				//Ks.OutputDebugLine($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}");
 				//Keysharp.Core.File.FileAppend($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}\n", "out.txt");
 				WindowManager.LastFound = win;
 

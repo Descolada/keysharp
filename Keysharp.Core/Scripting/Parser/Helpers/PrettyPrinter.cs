@@ -178,8 +178,12 @@ namespace Keysharp.Scripting
 			{
 				var m = node.Members[i];
 				Visit(m);
-				if (i < node.Members.Count - 1 && NeedsMemberSpacer(m))
-					_sb.AppendLine();
+				if (i < node.Members.Count - 1)
+				{
+					var next = node.Members[i + 1];
+					if (NeedsMemberSpacer(m) || NeedsPropertyFieldSpacer(m, next) || NeedsPropertySpacer(m, next))
+						_sb.AppendLine();
+				}
 			}
 			//TrimTrailingNewLine();
 			_indent--;
@@ -190,6 +194,11 @@ namespace Keysharp.Scripting
 		static bool NeedsMemberSpacer(MemberDeclarationSyntax m) =>
 			   m is not FieldDeclarationSyntax
 			&& m is not PropertyDeclarationSyntax;
+
+		static bool NeedsPropertyFieldSpacer(MemberDeclarationSyntax current, MemberDeclarationSyntax next) =>
+			current is PropertyDeclarationSyntax && next is not PropertyDeclarationSyntax;
+
+		static bool NeedsPropertySpacer(MemberDeclarationSyntax current, MemberDeclarationSyntax next) => false;
 
 		public override void VisitMethodDeclaration(MethodDeclarationSyntax node)
 		{
@@ -265,6 +274,11 @@ namespace Keysharp.Scripting
 
 		public override void VisitFieldDeclaration(FieldDeclarationSyntax node)
 		{
+			foreach (var attrs in node.AttributeLists)
+			{
+				Visit(attrs);
+			}
+
 			WriteIndent();
 			foreach (var mod in node.Modifiers)
 				_sb.Append(mod.Text).Append(" ");
@@ -1049,7 +1063,6 @@ namespace Keysharp.Scripting
 			// 1) any attributes
 			foreach (var attrs in node.AttributeLists)
 			{
-				WriteIndent();
 				Visit(attrs);
 			}
 
@@ -1063,7 +1076,7 @@ namespace Keysharp.Scripting
 			// 3a) normal get/set block
 			if (node.AccessorList != null)
 			{
-				// detect “{ get; set; }” with no bodies
+				// detect "{ get; set; }" with no bodies
 				var accessors = node.AccessorList.Accessors;
 				if (accessors.All(a => a.Body == null && a.ExpressionBody == null))
 				{
@@ -1077,7 +1090,24 @@ namespace Keysharp.Scripting
 					return;
 				}
 
-				// otherwise fall back to multi‐line
+				// expression-bodied accessors: "{ get => ...; set => ...; }"
+				if (accessors.All(a => a.Body == null && a.ExpressionBody != null))
+				{
+					_sb.Append(" { ");
+					for (int i = 0; i < accessors.Count; i++)
+					{
+						var acc = accessors[i];
+						_sb.Append(acc.Keyword.Text);
+						Visit(acc.ExpressionBody);
+						_sb.Append(";");
+						if (i < accessors.Count - 1)
+							_sb.Append(" ");
+					}
+					_sb.AppendLine(" }");
+					return;
+				}
+
+				// otherwise fall back to multi-line
 				_sb.AppendLine();
 				Visit(node.AccessorList);
 			}

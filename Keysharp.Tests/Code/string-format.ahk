@@ -1,3 +1,4 @@
+import { FormatCs } from Ks
 
 ; Test 1: Basic number formatting.
 s := Format("{1}", 123)

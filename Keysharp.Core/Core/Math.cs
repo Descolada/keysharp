@@ -1,6 +1,6 @@
 ﻿namespace Keysharp.Core
 {
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		/// <summary>
 		/// Returns the angle whose tangent is the y/x number.
@@ -113,6 +113,14 @@
 		public static object ATan(object number) => Math.Atan(number is double d ? d : number.Ad());
 
 		/// <summary>
+		/// Returns the angle whose tangent is the y/x number.
+		/// </summary>
+		/// <param name="y">A number representing the Y value.</param>
+		/// <param name="x">A number representing the X value.</param>
+		/// <returns>An angle, θ, measured in radians, such that -π ≤ θ ≤ π.</returns>
+		public static object ATan2(object y, object x) => Math.Atan2(y is double d0 ? d0 : y.Ad(), x is double d1 ? d1 : x.Ad());
+
+		/// <summary>
 		/// Returns the specified number rounded up to the nearest integer.
 		/// </summary>
 		/// <param name="number">A number.</param>
@@ -142,7 +150,7 @@
 			var wasMs = s1.Contains('.');
 
 			if (s1.Length == 0)
-				s1 = A_NowMs;
+				s1 = Ks.A_NowMs;
 
 			var d1 = Conversions.ToDateTime(s1);
 
@@ -180,10 +188,10 @@
 			var units = timeUnits.As();
 
 			if (s1.Length == 0)
-				s1 = A_NowMs;
+				s1 = Ks.A_NowMs;
 
 			if (s2.Length == 0)
-				s2 = A_NowMs;
+				s2 = Ks.A_NowMs;
 
 			var d1 = Conversions.ToDateTime(s1);
 			var d2 = Conversions.ToDateTime(s2);

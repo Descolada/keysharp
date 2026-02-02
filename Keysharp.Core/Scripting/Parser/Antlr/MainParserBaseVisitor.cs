@@ -33,7 +33,7 @@ using ParserRuleContext = Antlr4.Runtime.ParserRuleContext;
 [System.CodeDom.Compiler.GeneratedCode("ANTLR", "4.13.1")]
 [System.Diagnostics.DebuggerNonUserCode]
 [System.CLSCompliant(false)]
-internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Result>, IMainParserVisitor<Result> {
+public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Result>, IMainParserVisitor<Result> {
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.program"/>.
 	/// <para>
@@ -240,7 +240,7 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// <return>The visitor result.</return>
 	public virtual Result VisitImportStatement([NotNull] MainParser.ImportStatementContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importFromBlock"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importClause"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -248,9 +248,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportFromBlock([NotNull] MainParser.ImportFromBlockContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportClause([NotNull] MainParser.ImportClauseContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importModuleItems"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importModule"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -258,9 +258,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportModuleItems([NotNull] MainParser.ImportModuleItemsContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportModule([NotNull] MainParser.ImportModuleContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importAliasName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importWildcardFrom"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -268,9 +268,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportAliasName([NotNull] MainParser.ImportAliasNameContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportWildcardFrom([NotNull] MainParser.ImportWildcardFromContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.moduleExportName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importNamedFrom"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -278,9 +278,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitModuleExportName([NotNull] MainParser.ModuleExportNameContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportNamedFrom([NotNull] MainParser.ImportNamedFromContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importedBinding"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importSpecifierList"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -288,9 +288,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportedBinding([NotNull] MainParser.ImportedBindingContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportSpecifierList([NotNull] MainParser.ImportSpecifierListContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importDefault"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.importSpecifier"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -298,9 +298,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportDefault([NotNull] MainParser.ImportDefaultContext context) { return VisitChildren(context); }
+	public virtual Result VisitImportSpecifier([NotNull] MainParser.ImportSpecifierContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importNamespace"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportList"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -308,9 +308,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportNamespace([NotNull] MainParser.ImportNamespaceContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportImportList([NotNull] MainParser.ExportImportListContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.importFrom"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifierList"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -318,9 +318,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitImportFrom([NotNull] MainParser.ImportFromContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportImportSpecifierList([NotNull] MainParser.ExportImportSpecifierListContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.aliasName"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifier"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -328,10 +328,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitAliasName([NotNull] MainParser.AliasNameContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportImportSpecifier([NotNull] MainParser.ExportImportSpecifierContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by the <c>ExportDeclaration</c>
-	/// labeled alternative in <see cref="MainParser.exportStatement"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.moduleName"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -339,10 +338,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitExportDeclaration([NotNull] MainParser.ExportDeclarationContext context) { return VisitChildren(context); }
+	public virtual Result VisitModuleName([NotNull] MainParser.ModuleNameContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by the <c>ExportDefaultDeclaration</c>
-	/// labeled alternative in <see cref="MainParser.exportStatement"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportStatement"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -350,9 +348,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitExportDefaultDeclaration([NotNull] MainParser.ExportDefaultDeclarationContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportStatement([NotNull] MainParser.ExportStatementContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportFromBlock"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportClause"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -360,9 +358,9 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitExportFromBlock([NotNull] MainParser.ExportFromBlockContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportClause([NotNull] MainParser.ExportClauseContext context) { return VisitChildren(context); }
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportModuleItems"/>.
+	/// Visit a parse tree produced by <see cref="MainParser.exportNamed"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -370,17 +368,7 @@ internal partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
-	public virtual Result VisitExportModuleItems([NotNull] MainParser.ExportModuleItemsContext context) { return VisitChildren(context); }
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportAliasName"/>.
-	/// <para>
-	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
-	/// on <paramref name="context"/>.
-	/// </para>
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	public virtual Result VisitExportAliasName([NotNull] MainParser.ExportAliasNameContext context) { return VisitChildren(context); }
+	public virtual Result VisitExportNamed([NotNull] MainParser.ExportNamedContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.declaration"/>.
 	/// <para>

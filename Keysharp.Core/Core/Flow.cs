@@ -291,27 +291,15 @@ namespace Keysharp.Core
 			if (once)
 				p = -p;
 
-			if (f is string s)//Make sure they don't keep adding the same function object via string.
-			{
-				if (script.FlowData.cachedFuncObj.TryGetValue(s, out var tempfunc))
-					func = tempfunc;
-				else
-					script.FlowData.cachedFuncObj[s] = func = Functions.GetFuncObj(s, null);
-			}
+			func = Functions.GetFuncObj(f, null);
 
 			if (f != null && func == null)
-			{
-				func = f as FuncObj;
+				return (long)Errors.TypeErrorOccurred(f, typeof(FuncObj));
 
-				if (func == null)
-					return (long)Errors.TypeErrorOccurred(f, typeof(nint));
-			}
-
-			if (func != null && script.FlowData.timers.TryGetValue(func, out timer))
-			{
-			}
-			else if (f == null)
+			if (f == null)
 				timer = script.Threads.CurrentThread.currentTimer;//This means: use the timer which has already been created for this thread/timer event which we are currently inside of.
+			else
+				_ = script.FlowData.timers.TryGetValue(func, out timer);
 
 			if (timer != null)
 			{
@@ -361,7 +349,7 @@ namespace Keysharp.Core
 				if (p == long.MaxValue)//Period omitted and timer didn't exist, so create one with a 250ms interval.
 					p = 250;
 
-				_ = script.FlowData.timers.TryAdd(func, timer = new ());
+				_ = script.FlowData.timers.TryAdd(func, timer = new());
 				timer.Tag = (int)pri;
 				timer.Interval = (int)p;
 			}
@@ -374,7 +362,7 @@ namespace Keysharp.Core
 				var v = script.Threads;
 
 				//If script has exited or we don't receive a TimerWithTag object, just exit
-				if (A_HasExited || (ss is not TimerWithTag t))
+				if (Ks.A_HasExited || (ss is not TimerWithTag t))
 					return;
 
 				if (!t.Enabled)//A way of checking to make sure the timer is not already executing.
@@ -386,7 +374,7 @@ namespace Keysharp.Core
 				//they just keep getting retried.
 				//The reason for this is that if a timer event calls Sleep() which calls DoEvents(),
 				//we can't also call those functions here or else the program will freeze/crash.
-				if ((!A_AllowTimers.Ab() && script.totalExistingThreads > 0)
+				if ((!Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
 						|| !v.AnyThreadsAvailable() || !script.Threads.IsInterruptible())
 				{
 					t.PushToMessageQueue();
@@ -565,13 +553,13 @@ namespace Keysharp.Core
 			{
 				var tv = TheScript.Threads.CurrentThread;
 				tv.isPaused = true;
-				var prevAllowTimers = A_AllowTimers;
-				A_AllowTimers = false;
+				var prevAllowTimers = Ks.A_AllowTimers;
+				Ks.A_AllowTimers = false;
 
 				while (tv.isPaused)
 					Flow.TryDoEvents();
 
-				A_AllowTimers = prevAllowTimers;
+				Ks.A_AllowTimers = prevAllowTimers;
 			}
 			else
 			{
@@ -606,7 +594,7 @@ namespace Keysharp.Core
 			var script = Script.TheScript;
 
 			if (string.Compare(sf, "notimers", true) == 0)
-				A_AllowTimers = !(Options.OnOff(value1.As()) ?? false);
+				Ks.A_AllowTimers = !(Options.OnOff(value1.As()) ?? false);
 			else if (string.Compare(sf, "priority", true) == 0)
 				script.Threads.CurrentThread.priority = value1.Al();
 			else if (string.Compare(sf, "interrupt", true) == 0)
@@ -682,7 +670,9 @@ namespace Keysharp.Core
 					if (val is Any kso) CallDeleteSilent(kso);
 				}
 
-				if (script.Vars.Statics.TryGetValue(t, out Any kso2) && kso2.HasOwnPropInternal("__Delete"))
+				if (script.Vars.Statics.IsInitialized(t) // Do not cause initalization if not already present
+					&& script.Vars.Statics.TryGetValue(t, out Any kso2) 
+					&& kso2.HasOwnPropInternal("__Delete"))
 					CallDeleteSilent(kso2);
 			}
 
@@ -784,12 +774,19 @@ namespace Keysharp.Core
 			}
 			catch (KeysharpException kserr)
 			{
+				var userErr = kserr.UserError;
 				//Processed would still be false of the user did a throw statement in the Script.TheScript.
 				//But if we're throwing from inside of Keysharp, Processed should always be true.
-				if (!kserr.Processed)
-					_ = ErrorOccurred(kserr.UserError, kserr.ExcType);
+				if (userErr != null && !userErr.Processed)
+					_ = ErrorOccurred(userErr, userErr.ExcType);
 
-				if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
+				if (userErr != null && !userErr.Handled && !TheScript.SuppressErrorOccurredDialog)
+				{
+					var (__pushed, __btv) = t.BeginThread();
+					_ = ErrorDialog.Show(kserr, false);
+					_ = t.EndThread((__pushed, __btv));
+				}
+				else if (userErr == null && !TheScript.SuppressErrorOccurredDialog)
 				{
 					var (__pushed, __btv) = t.BeginThread();
 					_ = ErrorDialog.Show(kserr, false);
@@ -814,10 +811,17 @@ namespace Keysharp.Core
 				}
 				else if (ex is KeysharpException kserr)
 				{
-					if (!kserr.Processed)
-						_ = ErrorOccurred(kserr.UserError, kserr.ExcType);
+					var userErr = kserr.UserError;
+					if (userErr != null && !userErr.Processed)
+						_ = ErrorOccurred(userErr, userErr.ExcType);
 
-					if (!kserr.Handled && !TheScript.SuppressErrorOccurredDialog)
+					if (userErr != null && !userErr.Handled && !TheScript.SuppressErrorOccurredDialog)
+					{
+						var (__pushed, __btv) = t.BeginThread();
+						_ = ErrorDialog.Show(kserr, false);
+						_ = t.EndThread((__pushed, __btv));
+					}
+					else if (userErr == null && !TheScript.SuppressErrorOccurredDialog)
 					{
 						var (__pushed, __btv) = t.BeginThread();
 						_ = ErrorDialog.Show(kserr, false);
@@ -826,9 +830,14 @@ namespace Keysharp.Core
 				}
 				else if (!TheScript.SuppressErrorOccurredDialog)
 				{
-					var (__pushed, __btv) = t.BeginThread();
-					_ = ErrorDialog.Show(ex);
-					_ = t.EndThread((__pushed, __btv));
+					var dummy = new Error(mainex);
+					_ = ErrorOccurred(dummy, Keywords.Keyword_Exit);
+					if (!dummy.Handled)
+					{
+						var (__pushed, __btv) = t.BeginThread();
+						_ = ErrorDialog.Show(ex);
+						_ = t.EndThread((__pushed, __btv));
+					}
 				}
 
 				if (pop)
@@ -859,22 +868,12 @@ namespace Keysharp.Core
 		}
 	}
 
-	public static partial class KeysharpEnhancements
-	{
-		/// <summary>
-		/// Iterates through all timers in existence and returns the number of them which are enabled.
-		/// </summary>
-		/// <returns>The number of currently enabled timers.</returns>
-		public static long EnabledTimerCount() => Script.TheScript.FlowData.timers.Count(kv => kv.Value.Enabled);
-	}
-
 	internal class FlowData
 	{
 		/// <summary>
 		/// Whether a thread can be interrupted/preempted by subsequent thread.
 		/// </summary>
 		internal bool allowInterruption = true;
-		internal ConcurrentDictionary<string, IFuncObj> cachedFuncObj = new (StringComparer.OrdinalIgnoreCase);
 		internal bool callingCritical;
 		internal Timer1 mainTimer;
 		internal int NoSleep = -1;

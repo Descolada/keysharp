@@ -35,7 +35,7 @@
 			if (ctid != Script.TheScript.ProcessesData.ManagedMainThreadID
 					|| threadVars.Index > 0)//Never pop the last object on the main thread.
 			{
-				//KeysharpEnhancements.OutputDebugLine($"About to pop with {threadVars.Index} existing threads");
+				//Ks.OutputDebugLine($"About to pop with {threadVars.Index} existing threads");
 				if (pushed && threadVars.TryPop(out var tv))
 				{
 					if (checkThread && ctid != tv.threadId)
@@ -96,14 +96,14 @@
 
 #if DEBUG
 				else
-					_ = KeysharpEnhancements.OutputDebugLine($"Thread stack limit exceeded");
+					_ = Ks.OutputDebugLine($"Thread stack limit exceeded");
 
 #endif
 				return (pushed, tv);
 			}
 			else
 			{
-				//KeysharpEnhancements.OutputDebugLine($"Wanted push, but only peeking with {threadVars.Index} existing threads");
+				//Ks.OutputDebugLine($"Wanted push, but only peeking with {threadVars.Index} existing threads");
 				return (false, threadVars.TryPeek());
 			}
 		}

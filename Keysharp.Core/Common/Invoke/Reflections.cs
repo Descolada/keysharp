@@ -76,19 +76,19 @@ namespace Keysharp.Core.Common.Invoke
 			var types = typesQuery.ToArray();   // materialize once
 
 			foreach (var t in types)
-				rd.stringToTypes[t.Name] = t;
+				rd.stringToTypes[Script.GetUserDeclaredName(t) ?? t.Name] = t;
 
 			var staticTypes = types.Where(t => t.IsSealed && t.IsAbstract);
 
 			foreach (var property in staticTypes
 					 .SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Static))
 					 .Where(p => p.GetCustomAttribute<PublicHiddenFromUser>() == null))
-				rd.flatPublicStaticProperties.TryAdd(property.Name, property);
+				rd.flatPublicStaticProperties.TryAdd(Script.GetUserDeclaredName(property) ?? property.Name, property);
 
 			foreach (var method in staticTypes
 					 .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
 					 .Where(m => !m.IsSpecialName && m.GetCustomAttribute<PublicHiddenFromUser>() == null))
-				rd.flatPublicStaticMethods.TryAdd(method.Name, method);
+				rd.flatPublicStaticMethods.TryAdd(Script.GetUserDeclaredName(method) ?? method.Name, method);
 
 #if DEBUG
 			//var typelist = tl.ToList();
@@ -125,9 +125,12 @@ namespace Keysharp.Core.Common.Invoke
 							if (fields.Length > 0)
 							{
 								foreach (var field in fields)
+								{
+									var nameToUse = Script.GetUserDeclaredName(field) ?? field.Name;
 									rd.staticFields.GetOrAdd(field.ReflectedType,
 										() => new Dictionary<string, FieldInfo>(fields.Length, StringComparer.OrdinalIgnoreCase))
-									[field.Name] = field;
+									[nameToUse] = field;
+								}
 							}
 							else//Make a dummy entry because this type has no fields. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
 							{
@@ -199,30 +202,31 @@ namespace Keysharp.Core.Common.Invoke
 							foreach (var meth in meths)
 							{
 								var mph = MethodPropertyHolder.GetOrAdd(meth);
+								var nameToUse = Script.GetUserDeclaredName(meth) ?? meth.Name;
 
 								// type -> name -> overloads
 								var byName = typeToMethods.GetOrAdd(meth.ReflectedType,
 												_ => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase));
 
-								var overloads = byName.GetOrAdd(meth.Name, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
+								var overloads = byName.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
 								overloads[mph.ParamLength] = mph;
 
 								// name -> type -> overloads
 								if (isStaticPhase)
 								{
-									rd.stringToTypeStaticMethods.GetOrAdd(meth.Name, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
+									rd.stringToTypeStaticMethods.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
 																[meth.ReflectedType] = overloads;
 
 									bool isLocal = meth.ReflectedType.FullName.StartsWith(script.ProgramNamespace, StringComparison.OrdinalIgnoreCase)
 												|| meth.ReflectedType.FullName.StartsWith("Keysharp.Tests",       StringComparison.OrdinalIgnoreCase);
 
 									var split = isLocal ? rd.stringToTypeLocalMethods : rd.stringToTypeBuiltInMethods;
-									split.GetOrAdd(meth.Name, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
+									split.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
 										 [meth.ReflectedType] = overloads;
 								}
 								else
 								{
-									rd.stringToTypeMethods.GetOrAdd(meth.Name, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
+									rd.stringToTypeMethods.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
 														  [meth.ReflectedType] = overloads;
 								}
 							}
@@ -243,18 +247,19 @@ namespace Keysharp.Core.Common.Invoke
 							foreach (var meth in meths)
 							{
 								var mph = MethodPropertyHolder.GetOrAdd(meth);
+								var nameToUse = Script.GetUserDeclaredName(meth) ?? meth.Name;
 
 								// type -> name -> overloads
 								var byName = typeToMethods
 									.GetOrAdd(meth.ReflectedType, () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(meths.Length, StringComparer.OrdinalIgnoreCase));
 
-								var overloads = byName.GetOrAdd(meth.Name, () => new Dictionary<int, MethodPropertyHolder>());
+								var overloads = byName.GetOrAdd(nameToUse, () => new Dictionary<int, MethodPropertyHolder>());
 								overloads[mph.ParamLength] = mph;
 
 								// name -> type -> overloads (lazy population of the reverse indices)
 								if (isStaticPhase)
 								{
-									rd.stringToTypeStaticMethods.GetOrAdd(meth.Name, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
+									rd.stringToTypeStaticMethods.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
 																.GetOrAdd(meth.ReflectedType, () => overloads);
 
 									// built-in vs local split only for static methods:
@@ -262,12 +267,12 @@ namespace Keysharp.Core.Common.Invoke
 												|| meth.ReflectedType.FullName.StartsWith("Keysharp.Tests", StringComparison.OrdinalIgnoreCase);
 
 									var split = isLocal ? rd.stringToTypeLocalMethods : rd.stringToTypeBuiltInMethods;
-									split.GetOrAdd(meth.Name, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
+									split.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
 										 .GetOrAdd(meth.ReflectedType, () => overloads);
 								}
 								else
 								{
-									rd.stringToTypeMethods.GetOrAdd(meth.Name, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
+									rd.stringToTypeMethods.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
 														  .GetOrAdd(meth.ReflectedType, () => overloads);
 								}
 							}
@@ -330,17 +335,18 @@ namespace Keysharp.Core.Common.Invoke
 								foreach (var prop in props)
 								{
 									var mph = MethodPropertyHolder.GetOrAdd(prop);
+									var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
 
 									// type -> name -> overloads
 									var byName = rd.typeToStringProperties.GetOrAdd(prop.ReflectedType,
 													_ => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase));
 
-									var overloads = byName.GetOrAdd(prop.Name, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
+									var overloads = byName.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
 									overloads[mph.ParamLength] = mph;
 
 									// name -> type -> overloads
 									rd.stringToTypeProperties
-										.GetOrAdd(prop.Name, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
+										.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
 										[prop.ReflectedType] = overloads;
 								}
 							}
@@ -358,16 +364,17 @@ namespace Keysharp.Core.Common.Invoke
 								foreach (var prop in props)
 								{
 									var mph = MethodPropertyHolder.GetOrAdd(prop);
+									var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
 
 									// type -> name -> overloads
 									var byName = rd.typeToStringProperties
 										.GetOrAdd(prop.ReflectedType, () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(props.Length, StringComparer.OrdinalIgnoreCase));
 
-									var overloads = byName.GetOrAdd(prop.Name, () => new Dictionary<int, MethodPropertyHolder>());
+									var overloads = byName.GetOrAdd(nameToUse, () => new Dictionary<int, MethodPropertyHolder>());
 									overloads[mph.ParamLength] = mph;
 
 									// name -> type -> overloads (lazy reverse index)
-									rd.stringToTypeProperties.GetOrAdd(prop.Name, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
+									rd.stringToTypeProperties.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
 															 .GetOrAdd(prop.ReflectedType, () => overloads);
 								}
 							}
@@ -413,8 +420,12 @@ namespace Keysharp.Core.Common.Invoke
 		internal static MethodPropertyHolder FindMethod(string name, int paramCount)
 		{
 			var script = TheScript;
-			if (script.Vars.globalVars.TryGetValue(name, out var v) && v is FieldInfo fi && fi.GetValue(null) is FuncObj fo)
-				return fo.mph;
+			if (script.Vars.globalVars.TryGetValue(name, out var mph) && mph != null)
+			{
+				var val = mph.CallFunc(null, null);
+				if (val is FuncObj fo)
+					return fo.mph;
+			}
 			if (script.ReflectionsData.flatPublicStaticMethods.TryGetValue(name, out var mi))
 				return MethodPropertyHolder.GetOrAdd(mi);
 			return null;
@@ -537,7 +548,8 @@ namespace Keysharp.Core.Common.Invoke
 
 		internal static T SafeGetProperty<T>(object item, string name) => (T)item.GetType().GetProperty(name, typeof(T))?.GetValue(item);
 
-		internal static bool SafeHasProperty(object item, string name) => item.GetType().GetProperties().Where(prop => prop.Name == name).Any();
+		internal static bool SafeHasProperty(object item, string name) =>
+			item.GetType().GetProperties().Any(prop => (Script.GetUserDeclaredName(prop) ?? prop.Name) == name);
 
 		internal static void SafeSetProperty(object item, string name, object value) => item.GetType().GetProperty(name, value.GetType())?.SetValue(item, value, null);
 
@@ -555,7 +567,7 @@ namespace Keysharp.Core.Common.Invoke
 				}
 				catch (Exception ex)
 				{
-					_ = KeysharpEnhancements.OutputDebugLine(ex.Message);
+					_ = Ks.OutputDebugLine(ex.Message);
 				}
 			}
 

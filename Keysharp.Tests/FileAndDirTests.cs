@@ -1086,7 +1086,7 @@ groupkey13=groupval13
 #endif
 			Assert.AreEqual(fullpath, Accessors.A_WorkingDir);//So it should remain unchanged.
 			Dir.SetWorkingDir(origdir);
-			Assert.IsTrue(TestScript("file-filesetworkingdir", true));
+			Assert.IsTrue(TestScript("file-filesetworkingdir", false));
 		}
 
 		[Test, Category("FileAndDir")]

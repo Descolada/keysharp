@@ -266,13 +266,13 @@
 						value = (metaGet is IFuncObj f)
 								? f.Call(item, namestr, new Keysharp.Core.Array(args))
 								: Invoke(metaGet, "Call", item, namestr, new Keysharp.Core.Array(args));
-						return true;
+						return value != null;
 					}
 
 					if (kso is IMetaObject mo)
 					{
 						value = mo.Get(namestr, args);
-						return true;
+						return value != null;
 					}
 				}
 
@@ -283,7 +283,7 @@
 					if (Marshal.IsComObject(item))
 					{
 						value = item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, args);
-						return true;
+						return value != null;
 					}
 #endif
 					// Reflection property (non-indexed only)
@@ -292,7 +292,7 @@
 						if (Reflections.FindAndCacheProperty(item.GetType(), namestr, 0) is MethodPropertyHolder mph)
 						{
 							value = mph.CallFunc(item, null);
-							return true;
+							return value != null;
 						}
 					}
 				}
@@ -369,6 +369,8 @@
 				// Fast path: IFuncObj asked for "Call".
 				if (obj is IFuncObj direct && methName.Equals("Call", StringComparison.OrdinalIgnoreCase))
 					return direct.Call(parameters);
+				else if (obj is Module module && module is IMetaObject mo)
+					return mo.Call(methName, parameters);
 
 				// Track real receiver (handles the (proto, this) "super" tuple)
 				bool isSuper = obj is ITuple superT && superT.Length > 1 && superT[0] is Any;
@@ -400,7 +402,25 @@
 						return mo.Call(methName, parameters);
 
 					case MethodPropertyHolder mph:
+					{
+						var moduleType = ResolveModuleType(mph.mi?.DeclaringType);
+						if (moduleType != null)
+						{
+							var script = Script.TheScript;
+							var prev = script.CurrentModuleType;
+							script.CurrentModuleType = moduleType;
+							try
+							{
+								return mph.CallFunc(mitup.Item1, parameters);
+							}
+							finally
+							{
+								script.CurrentModuleType = prev;
+							}
+						}
+
 						return mph.CallFunc(mitup.Item1, parameters);
+					}
 				}
 			}
 			catch (Exception e)
@@ -411,6 +431,17 @@
 			}
 
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
+		}
+
+		private static Type ResolveModuleType(Type type)
+		{
+			for (var t = type; t != null; t = t.DeclaringType)
+			{
+				if (typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(t))
+					return t;
+			}
+
+			return null;
 		}
 
 		public static bool IsCallable(object item)

@@ -1413,6 +1413,7 @@
                     </Rule>
                   </Rule>
                 </Rule>
+                <Property Name="Class" Value="ModuleTests" />
               </Rule>
             </Rule>
           </Rule>

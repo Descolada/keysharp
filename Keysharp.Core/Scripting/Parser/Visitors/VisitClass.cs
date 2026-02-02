@@ -31,6 +31,8 @@ namespace Keysharp.Scripting
 			string userDeclaredName = context.identifier().GetText();
             parser.PushClass(parser.NormalizeIdentifier(userDeclaredName, eNameCase.Title));
             parser.currentClass.UserDeclaredName = userDeclaredName;
+			var isTopLevelExported = parser.ClassStack.Count == 1
+				&& parser.currentModule.ExportedTypes.Contains(parser.currentClass.Name);
 
             // Determine the base class (Extends clause)
             if (context.Extends() != null)
@@ -52,12 +54,10 @@ namespace Keysharp.Scripting
                     baseClassName = Script.TheScript.ReflectionsData.stringToTypes.First(pair => pair.Key.Equals(baseClassName, StringComparison.InvariantCultureIgnoreCase)).Key;
                 }
                 parser.currentClass.Base = baseClassName;
-                parser.currentClass.BaseList.Add(SyntaxFactory.SimpleBaseType(CreateQualifiedName(baseClassName)));
             }
             else
             {
                 // Default base class is KeysharpObject
-                parser.currentClass.BaseList.Add(SyntaxFactory.SimpleBaseType(CreateQualifiedName("KeysharpObject")));
             }
 
 			string fieldDeclarationName = parser.NormalizeIdentifier(parser.currentClass.Name);
@@ -86,7 +86,7 @@ namespace Keysharp.Scripting
                 )
             );
 
-            if (parser.ClassStack.Count == 1)
+			if (parser.ClassStack.Count == 1)
             {
                 fieldDeclaration = SyntaxFactory.PropertyDeclaration(
                     Parser.PredefinedKeywords.ObjectType,
@@ -96,22 +96,18 @@ namespace Keysharp.Scripting
                 .WithExpressionBody(fieldDeclarationArrowClause)
                 .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
 
+				if (isTopLevelExported && fieldDeclaration is PropertyDeclarationSyntax prop)
+					fieldDeclaration = Parser.WithExportAttribute(prop);
+
 				parser.declaredTopLevelClasses.Add(fieldDeclaration);
-                parser.mainClass.cachedFieldNames.Add(fieldDeclarationName);
+                parser.GlobalClass.cachedFieldNames.Add(fieldDeclarationName);
             }
 
             if (parser.ClassStack.Count == 1)
             {
-
-                parser.MaybeAddGlobalVariableDeclaration("_");
-				var discardAssign = SyntaxFactory.ExpressionStatement(
-	                SyntaxFactory.AssignmentExpression(
-		                SyntaxKind.SimpleAssignmentExpression,
-		                SyntaxFactory.IdentifierName("_"),
-		                SyntaxFactory.IdentifierName(fieldDeclarationName)
-	                )
-                );
-				parser.autoExecFunc.Body.Add(discardAssign);
+                var discard = SyntaxFactory.ExpressionStatement(((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+                    .WithArgumentList(CreateArgumentList(SyntaxFactory.IdentifierName(fieldDeclarationName))));
+				parser.autoExecFunc.Body.Add(discard);
             }
 
             // Add the constructor
@@ -168,7 +164,7 @@ namespace Keysharp.Scripting
             MethodDeclarationSyntax getterMethod = null;
             if (propertyDefinition.propertyGetterDefinition().Length != 0 || propertyDefinition.expression() != null)
             {
-                PushFunction((isStatic ? Keywords.ClassStaticPrefix : "") + "get_" + propertyName);
+                PushFunction(propertyName, isStatic ? EmitKind.StaticGetter : EmitKind.Getter);
 
 				if (propertyNameSyntax.formalParameterList() != null)
                 {
@@ -203,7 +199,7 @@ namespace Keysharp.Scripting
             MethodDeclarationSyntax setterMethod = null;
             if (propertyDefinition.propertySetterDefinition().Length != 0)
             {
-                PushFunction((isStatic ? Keywords.ClassStaticPrefix : "") + "set_" + propertyName);
+                PushFunction(propertyName, isStatic ? EmitKind.StaticSetter : EmitKind.Setter);
 
 				if (propertyNameSyntax.formalParameterList() != null)
                 {
@@ -305,17 +301,7 @@ namespace Keysharp.Scripting
         {
             var methodDefinition = context.methodDefinition();
             Visit(methodDefinition.functionHead());
-            var rawMethodName = methodDefinition.functionHead().identifierName().GetText();
-
-            parser.currentFunc.UserDeclaredName = rawMethodName;
-            var methodName = parser.currentFunc.Name = parser.NormalizeClassIdentifier(rawMethodName);
-
-            var fieldName = methodName.ToLowerInvariant();
             var isStatic = context.methodDefinition().functionHead().functionHeadPrefix()?.Static() != null;
-
-            // parser.currentFunc.Static can't be used here, because all user-defined class methods must be static
-            if (isStatic)
-                methodName = Keywords.ClassStaticPrefix + methodName;
 
             // Visit method body
             BlockSyntax methodBody = (BlockSyntax)Visit(methodDefinition.functionBody());
@@ -324,7 +310,7 @@ namespace Keysharp.Scripting
             // Create method declaration
             parser.currentFunc.Method = SyntaxFactory.MethodDeclaration(
                     SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object), // Return type is object
-                    SyntaxFactory.Identifier(methodName)
+                    SyntaxFactory.Identifier(parser.currentFunc.ImplMethodName)
                 );
             var methodDeclaration = parser.currentFunc.Assemble();
 

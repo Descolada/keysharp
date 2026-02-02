@@ -4,7 +4,7 @@
 	/// A class to put functions which are new to Keysharp that serve as an
 	/// improvement/addition to AHK.
 	/// </summary>
-	public static partial class KeysharpEnhancements
+	public partial class Ks
 	{
 		private static readonly IEnumerable<string> dataFormats = typeof(DataFormats).GetFields(BindingFlags.Public | BindingFlags.Static)
 				.Select(f => f.Name);
@@ -101,34 +101,5 @@
 		/// <param name="obj0">The text to send to the debugger for display.</param>
 		/// <param name="obj1">True to first clear the display, else false to append.</param>
 		public static object OutputDebugLine(object obj0, object obj1 = null) => Debug.OutputDebugCommon($"{obj0.As()}{Environment.NewLine}", obj1.Ab());
-
-		/// <summary>
-		/// Creates a new <see cref="HashMap"/> object.
-		/// </summary>
-		/// <param name="obj">The optional data to initialize the <see cref="HashMap"/> with. This can be:<br/>
-		///     An existing <see cref="HashMap"/> object.<br/>
-		///     An <see cref="Array"/> of key,value pairs.<br/>
-		///     An existing <see cref="Dictionary{string, object}"/> object.<br/>
-		///     An object[] of key,value pairs.
-		/// </param>
-		/// <returns>A new <see cref="Map"/> object.</returns>
-		public static HashMap HashMap(params object[] obj) => new HashMap(obj);
-
-
-		/// <summary>
-		/// Returns the handle of the window located at the given screen coordinates.
-		/// </summary>
-		/// <param name="x">The X screen coordinate.</param>
-		/// <param name="y">The Y screen coordinate.</param>
-		/// <returns>The window handle at the specified point, or 0 if none is found.</returns>
-		public static long WinFromPoint(object x, object y)
-		{
-			if (x == null || y == null)
-			{
-				GetCursorPos(out var point);
-				x ??= point.X; y ??= point.Y;
-			}
-			return WindowManager.WindowFromPoint(new Common.Window.POINT(x.Ai(), y.Ai())).Handle;
-		}
 	}
 }

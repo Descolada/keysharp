@@ -213,7 +213,7 @@
 				"SysMenu", (f, o) => { if (o is bool b) f.form.ControlBox = b; }
 			},
 			{
-				"Theme", (f, o) => _ = KeysharpEnhancements.OutputDebugLine("Themes are not supported", false)
+				"Theme", (f, o) => _ = Ks.OutputDebugLine("Themes are not supported", false)
 			},
 			{
 				"ToolWindow", (f, o) => {

@@ -16,11 +16,11 @@
 		/// <param name="obj">The object to call the method on. Default: null for static functions.</param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first method found.</param>
 		/// <returns>An <see cref="IFuncObj"/> which can later be called like a function.</returns>
-		public static IFuncObj Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount);
+		public static IFuncObj Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount, obj != null);
 
-		public static IFuncObj Func(object funcName, Type t, object paramCount = null) => new FuncObj(funcName.As(), t, paramCount);
+		public static IFuncObj Func(object funcName, Type t, object paramCount = null) => GetFuncObj(funcName, t, paramCount, t != null);
 
-		public static IFuncObj Func(Delegate del, object obj = null) => new FuncObj(del, obj);
+		public static IFuncObj Func(Delegate del, object obj = null) => GetFuncObj(del, obj, null, obj != null);
 
 		public static IFuncObj Closure(Delegate del, object obj = null) => new Closure(del, obj);
 
@@ -37,13 +37,26 @@
 		{
 			IFuncObj del = null;
 			var cachedFuncObj = Script.TheScript.FunctionData.cachedFuncObj;
+			var moduleType = eventObj as Type;
+			if (moduleType == null && eventObj == null)
+				moduleType = Script.TheScript.CurrentModuleType;
 
 			if (h is string s)
 			{
 				if (s.Length > 0)
 				{
-					if (eventObj != null)
+					if (moduleType != null)
+					{
+						var key = new ModuleFuncKey(s, moduleType, paramCount.Ai(-1));
+						del = Script.TheScript.FunctionData.cachedModuleFuncObj.GetOrAdd(
+							key,
+							(k) => new FuncObj(s, moduleType, paramCount)
+						);
+					}
+					else if (eventObj != null)
+					{
 						del = new FuncObj(s, eventObj, paramCount);
+					}
 					else
 						del = cachedFuncObj.GetOrAdd(s, (key) => new FuncObj(s, eventObj, paramCount));
 
@@ -76,7 +89,7 @@
 			}
 			else if (h is Delegate d)
 			{
-				if (eventObj != null)
+				if (moduleType == null)
 					del = new FuncObj(d, eventObj);
 				else
 					del = cachedFuncObj.GetOrAdd(d, (key) => new FuncObj(d, eventObj));
@@ -222,8 +235,47 @@
 		}
 	}
 
+	internal readonly struct ModuleFuncKey : IEquatable<ModuleFuncKey>
+	{
+		internal readonly string Name;
+		internal readonly Type ModuleType;
+		internal readonly int ParamCount;
+
+		internal ModuleFuncKey(string name, Type moduleType, int paramCount)
+		{
+			Name = name;
+			ModuleType = moduleType;
+			ParamCount = paramCount;
+		}
+
+		public bool Equals(ModuleFuncKey other)
+			=> ParamCount == other.ParamCount
+				&& ReferenceEquals(ModuleType, other.ModuleType)
+				&& string.Equals(Name, other.Name, StringComparison.OrdinalIgnoreCase);
+
+		public override bool Equals(object obj) => obj is ModuleFuncKey other && Equals(other);
+
+		public override int GetHashCode()
+		{
+			unchecked
+			{
+				int h = StringComparer.OrdinalIgnoreCase.GetHashCode(Name ?? string.Empty);
+				h = (h * 397) ^ (ModuleType?.GetHashCode() ?? 0);
+				h = (h * 397) ^ ParamCount;
+				return h;
+			}
+		}
+	}
+
+	internal sealed class ModuleFuncKeyComparer : IEqualityComparer<ModuleFuncKey>
+	{
+		public bool Equals(ModuleFuncKey x, ModuleFuncKey y) => x.Equals(y);
+		public int GetHashCode(ModuleFuncKey obj) => obj.GetHashCode();
+	}
+
 	internal class FunctionData
 	{
 		internal ConcurrentLfu<object, IFuncObj> cachedFuncObj = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new CaseEqualityComp(eCaseSense.Off));
+		internal ConcurrentLfu<ModuleFuncKey, IFuncObj> cachedModuleFuncObj = new (Environment.ProcessorCount, 2000, new ThreadPoolScheduler(), new ModuleFuncKeyComparer());
 	}
 }

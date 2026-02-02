@@ -35,13 +35,13 @@ namespace Keysharp.Tests
 		{
 			SetupBeforeEachTest();
 			s.SetName(name);
-			_ = KeysharpEnhancements.OutputDebugLine(Environment.CurrentDirectory);
+			_ = Ks.OutputDebugLine(Environment.CurrentDirectory);
 			var ch = new CompilerHelper();
 			var (arr, code) = ch.CompileCodeToByteArray([source], name);
 
 			if (arr == null)
 			{
-				_ = KeysharpEnhancements.OutputDebugLine(code);
+				_ = Ks.OutputDebugLine(code);
 				return string.Empty;
 			}
 
@@ -100,7 +100,7 @@ namespace Keysharp.Tests
 						_ = error.AppendLine();
 						_ = error.AppendLine(ex.StackTrace);
 						var msg = error.ToString();
-						_ = KeysharpEnhancements.OutputDebugLine(msg);
+						_ = Ks.OutputDebugLine(msg);
 						Console.Write("fail");
 						Assert.IsTrue(false);
 					}
@@ -157,12 +157,30 @@ namespace Keysharp.Tests
 		protected string WrapInFunc(string source)
 		{
 			var sb = new StringBuilder();
-			_ = sb.AppendLine("TestFunc()");//This must be named TestFunc because it's referenced in some of the tests.
-			_ = sb.AppendLine("{");
 
 			using (var sr = new StringReader(source))
 			{
 				string line;
+
+				while ((line = sr.ReadLine()) != null)
+				{
+					var trimmed = line.TrimStart(Keywords.Spaces);
+					if (trimmed.Length == 0
+						|| trimmed.StartsWith(';')
+						|| trimmed.StartsWith("import ", StringComparison.OrdinalIgnoreCase))
+					{
+						_ = sb.AppendLine(line);
+						line = null;
+					}
+					else
+						break;
+				}
+
+				_ = sb.AppendLine("TestFunc()");//This must be named TestFunc because it's referenced in some of the tests.
+				_ = sb.AppendLine("{");
+
+				if (line != null)
+					_ = sb.AppendLine("\t" + line);
 
 				while ((line = sr.ReadLine()) != null)
 					_ = sb.AppendLine("\t" + line);

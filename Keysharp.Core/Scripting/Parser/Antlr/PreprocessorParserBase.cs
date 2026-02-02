@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Antlr4.Runtime;
 
-internal abstract class PreprocessorParserBase : Antlr4.Runtime.Parser
+public abstract class PreprocessorParserBase : Antlr4.Runtime.Parser
 {
     protected PreprocessorParserBase(ITokenStream input)
         : base(input)

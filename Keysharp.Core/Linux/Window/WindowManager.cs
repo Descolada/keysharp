@@ -131,7 +131,7 @@ namespace Keysharp.Core.Linux
 		{
 			foreach (var window in AllWindows)
 			{
-				//KeysharpEnhancements.OutputDebugLine($"MaximizeAll(): Examiniming window: {window.Title}");
+				//Ks.OutputDebugLine($"MaximizeAll(): Examiniming window: {window.Title}");
 				window.WindowState = FormWindowState.Maximized;
 			}
 		}
@@ -140,7 +140,7 @@ namespace Keysharp.Core.Linux
 		{
 			foreach (var window in AllWindows)
 			{
-				//KeysharpEnhancements.OutputDebugLine($"MinimizeAll(): Examiniming window: {window.Title}");
+				//Ks.OutputDebugLine($"MinimizeAll(): Examiniming window: {window.Title}");
 				window.WindowState = FormWindowState.Minimized;
 			}
 		}
@@ -149,7 +149,7 @@ namespace Keysharp.Core.Linux
 		{
 			foreach (var window in AllWindows)
 			{
-				//KeysharpEnhancements.OutputDebugLine($"MinimizeAllUndo(): Examiniming window: {window.Title}");
+				//Ks.OutputDebugLine($"MinimizeAllUndo(): Examiniming window: {window.Title}");
 				window.WindowState = FormWindowState.Normal;
 			}
 		}

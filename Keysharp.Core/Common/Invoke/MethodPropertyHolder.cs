@@ -40,9 +40,11 @@ namespace Keysharp.Core.Common.Invoke
                 return _callFunc;
 			}
         }
+		internal MemberInfo memberInfo => ((MemberInfo)mi ?? pi) ?? fi;
 		internal readonly MethodInfo mi;
 		internal readonly ParameterInfo[] parameters;
 		internal readonly PropertyInfo pi;
+		internal readonly FieldInfo fi;
 		internal readonly Action<object, object> SetProp;
 		protected readonly ConcurrentStackArrayPool<object> paramsPool;
 		internal readonly bool anyOptional;
@@ -55,9 +57,11 @@ namespace Keysharp.Core.Common.Invoke
 #if CONCURRENT
         internal static ConcurrentDictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
 		internal static ConcurrentDictionary<PropertyInfo, MethodPropertyHolder> propertyCache = new();
+		internal static ConcurrentDictionary<FieldInfo, MethodPropertyHolder> fieldCache = new();
 #else
 		internal static Dictionary<MethodInfo, MethodPropertyHolder> methodCache = new();
 		internal static Dictionary<PropertyInfo, MethodPropertyHolder> propertyCache = new();
+		internal static Dictionary<FieldInfo, MethodPropertyHolder> fieldCache = new();
 #endif
 
 		internal bool IsBind { get; private set; }
@@ -66,6 +70,7 @@ namespace Keysharp.Core.Common.Invoke
 		internal bool IsStaticFunc { get; private set; }
 		internal bool IsStaticProp { get; private set; }
 		internal bool IsVariadic => variadicParamIndex != -1;
+		internal bool IsExported => memberInfo?.GetCustomAttribute<Export>() != null;
 		internal int ParamLength { get; }
 		internal int MinParams = 0;
 		internal int MaxParams = 0;
@@ -84,12 +89,18 @@ namespace Keysharp.Core.Common.Invoke
 					return _name;
 
 				if (mi == null)
-					return _name = "";
-
-				var nameAttrs = mi.GetCustomAttributes(typeof(UserDeclaredNameAttribute));
-				if (nameAttrs.Any())
 				{
-					return _name = ((UserDeclaredNameAttribute)nameAttrs.First()).Name;
+					if (pi != null)
+						return _name = pi.Name;
+					if (fi != null)
+						return _name = fi.Name;
+					return _name = "";
+				}
+
+				var name = GetUserDeclaredName(mi);
+				if (name != null)
+				{
+					return _name = name;
 				}
 
 				string funcName = mi.Name;
@@ -103,14 +114,19 @@ namespace Keysharp.Core.Common.Invoke
 				if (mi.DeclaringType.Namespace != TheScript.ProgramType.Namespace || mi.DeclaringType.Name == Keywords.MainClassName)
 					return _name = funcName;
 
-				string declaringType = mi.DeclaringType.FullName;
+				var parts = new Stack<string>();
+				var script = TheScript;
+				for (var cur = mi.DeclaringType; cur != null && cur != script.ProgramType; cur = cur.DeclaringType)
+				{
+					if (IsModuleContainer(cur, script))
+						continue;
+					parts.Push(cur.Name);
+				}
 
-				var idx = declaringType.IndexOf(Keywords.MainClassName + "+");
-				string nestedPath = idx < 0
-					? declaringType       // no “Program.” found, just return whole
-					: declaringType.Substring(idx + Keywords.MainClassName.Length + 1);
+				if (parts.Count == 0)
+					return _name = funcName;
 
-				return _name = $"{nestedPath.Replace('+', '.')}.{funcName}";
+				return _name = $"{string.Join(".", parts)}.{funcName}";
 			}
 		}
 
@@ -133,6 +149,17 @@ namespace Keysharp.Core.Common.Invoke
 			if (propertyCache.TryGetValue(pi, out var mph))
 				return mph;
 			return propertyCache[pi] = new MethodPropertyHolder(pi);
+#endif
+        }
+
+		internal static MethodPropertyHolder GetOrAdd(FieldInfo fi)
+		{
+#if CONCURRENT
+            return fieldCache.GetOrAdd(fi, key => new MethodPropertyHolder(fi));
+#else
+			if (fieldCache.TryGetValue(fi, out var mph))
+				return mph;
+			return fieldCache[fi] = new MethodPropertyHolder(fi);
 #endif
         }
 
@@ -295,6 +322,28 @@ namespace Keysharp.Core.Common.Invoke
 			}
 		}
 
+		public MethodPropertyHolder(FieldInfo f)
+		{
+			fi = f;
+			IsStatic = fi.IsStatic;
+			isGuiType = Gui.IsGuiType(fi.DeclaringType);
+			parameters = System.Array.Empty<ParameterInfo>();
+			ParamLength = 0;
+			MinParams = MaxParams = 0;
+
+			if (!fi.IsInitOnly && !fi.IsLiteral)
+			{
+				var instParam = Expression.Parameter(typeof(object), "inst");
+				var valParam = Expression.Parameter(typeof(object), "value");
+				Expression assignExpr;
+				if (fi.IsStatic)
+					assignExpr = Expression.Assign(Expression.Field(null, fi), Expression.Convert(valParam, fi.FieldType));
+				else
+					assignExpr = Expression.Assign(Expression.Field(Expression.Convert(instParam, fi.DeclaringType), fi), Expression.Convert(valParam, fi.FieldType));
+				SetProp = Expression.Lambda<Action<object, object>>(assignExpr, instParam, valParam).Compile();
+			}
+		}
+
 		// Allow creating a "fake" MPH for ObjBindMethod
 		public MethodPropertyHolder(string name)
 		{
@@ -306,6 +355,7 @@ namespace Keysharp.Core.Common.Invoke
 		{
 			methodCache.Clear();
             propertyCache.Clear();
+			fieldCache.Clear();
 		}
 	}
     public class ArgumentError : Error
@@ -342,8 +392,17 @@ namespace Keysharp.Core.Common.Invoke
 			return CreateDelegate(MethodPropertyHolder.GetOrAdd(getter));
 		}
 
+		public static Func<object, object[], object> CreateDelegate(FieldInfo field)
+		{
+			if (field == null) throw new ArgumentNullException(nameof(field));
+			return CreateFieldDelegate(MethodPropertyHolder.GetOrAdd(field));
+		}
+
 		public static Func<object, object[], object> CreateDelegate(MethodPropertyHolder mph)
 		{
+			if (mph.fi != null)
+				return CreateFieldDelegate(mph);
+
 			var mi = mph.mi ?? throw new ArgumentNullException(nameof(mph.mi));
 			var ps = mph.parameters;
 			var isInstance = !mph.IsStatic;
@@ -578,6 +637,31 @@ namespace Keysharp.Core.Common.Invoke
 
 			return Expression.Lambda<Func<object, object[], int, object>>(body, pTarget, pArgs, pStart)
 							 .Compile();
+		}
+
+		private static Func<object, object[], object> CreateFieldDelegate(MethodPropertyHolder mph)
+		{
+			var fi = mph.fi ?? throw new ArgumentNullException(nameof(mph.fi));
+			var isStatic = fi.IsStatic;
+
+			var instParam = Expression.Parameter(typeof(object), "inst");
+			Expression fieldExpr;
+			if (isStatic)
+				fieldExpr = Expression.Field(null, fi);
+			else
+				fieldExpr = Expression.Field(Expression.Convert(instParam, fi.DeclaringType), fi);
+
+			var boxedField = Expression.Convert(fieldExpr, typeof(object));
+			var getter = Expression.Lambda<Func<object, object>>(boxedField, instParam).Compile();
+
+			return (inst, args) =>
+			{
+				object target = inst;
+				if (!isStatic && target == null && args != null && args.Length > 0)
+					target = args[0];
+
+				return getter(target);
+			};
 		}
 
 		private static object MaterializeDefault(ParameterInfo p)

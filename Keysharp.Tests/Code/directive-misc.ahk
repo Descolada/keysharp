@@ -1,3 +1,5 @@
+import * from Ks
+
 #CLIPBOARDTIMEOUT 2000
 #ERRORSTDOUT
 #USEHOOK true

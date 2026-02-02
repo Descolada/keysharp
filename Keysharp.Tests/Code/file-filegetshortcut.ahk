@@ -1,3 +1,5 @@
+import { FileDirName, FileFullPath } from Ks
+
 ; #Include %A_ScriptDir%/header.ahk
 
 if (DirExist("./FileGetShortcut"))

@@ -58,9 +58,9 @@ sourceElement
     | remap
     | hotstring
     | hotkey
-    | statement
     | importStatement
     | exportStatement
+    | statement
     ;
 
 // Non-positional directives are handled elsewhere, mainly in PreReader.cs
@@ -648,7 +648,10 @@ identifier
     | Throw
     | Yield  
     | Async
-    | Await)
+    | Await
+    | Import
+    | Export
+    | Delete)
     ;
 
 // None of these can be used as a variable name
@@ -680,17 +683,14 @@ keyword
     | Throw
     | As
     | VerbalAnd
+    | VerbalOr
+    | VerbalNot
     | Contains
     | In
     | Is
-    | VerbalNot
-    | VerbalOr
     | Super
     | Unset
-    | Instanceof
-    | Import
-    | Export
-    | Delete)
+    | Instanceof)
     ;
 
 s

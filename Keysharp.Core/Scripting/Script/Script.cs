@@ -743,25 +743,31 @@ namespace Keysharp.Scripting
 			return $"Script {scriptName} {instanceCount++}";
 		}
 
-		public void VerifyVersion(string ver, bool plus, int line, string code)
+		public static void VerifyVersion(string ver, bool reqAhk, int line, string code)
 		{
-			var ahkver = A_AhkVersion;
-			var reqvers = ParseVersionToInts(ver);
-			var thisvers = ParseVersionToInts(ahkver);
-
-			for (var i = 0; i < 4; i++)
+			static bool HasOperator(string v)
 			{
-				if (plus)
-				{
-					if (reqvers[i] > thisvers[i])
-						throw new ParseException($"This script requires Keysharp >= v{ver}, but you have v{ahkver}", line, code);
-				}
-				else if (reqvers[i] != thisvers[i])
-					throw new ParseException($"This script requires Keysharp == v{ver}, but you have v{ahkver}", line, code);
-
-				if (thisvers[i] > reqvers[i])
-					break;
+				return v.StartsWith("<", StringComparison.Ordinal)
+					|| v.StartsWith(">", StringComparison.Ordinal)
+					|| v.StartsWith("=", StringComparison.Ordinal);
 			}
+
+			var requirement = (ver ?? string.Empty).Trim();
+			if (requirement.EndsWith("+", StringComparison.Ordinal))
+				requirement = ">=" + requirement.TrimEnd('+').Trim();
+			bool hasOp = HasOperator(requirement);
+
+			var target = reqAhk ? "v2.1" : A_AhkVersion;
+			var cmp = Strings.VerCompare(target, requirement);
+			var ok = hasOp ? cmp == 1L : cmp >= 0L;
+
+			if (ok)
+				return;
+
+			if (reqAhk)
+				throw new ParseException($"This script requires AutoHotkey {ver}, but Keysharp supports AutoHotkey v2", line, code);
+
+			throw new ParseException($"This script requires Keysharp {ver}, but you have v{A_AhkVersion}", line, code);
 		}
 
 		public void WaitThreads()

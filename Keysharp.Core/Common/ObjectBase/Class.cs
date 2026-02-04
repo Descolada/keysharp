@@ -9,6 +9,15 @@ namespace Keysharp.Core.Common.ObjectBase
 
     public class Prototype : KeysharpObject
     {
-        public Prototype(params object[] args) : base(args) { }
+        public Prototype(params object[] args) : base(args) 
+        {
+            isPrototype = true;
+            type = typeof(Prototype);
+        }
+        internal Prototype(Type t) : base()
+        {
+            isPrototype = true;
+            type = t;
+        }
     }
 }

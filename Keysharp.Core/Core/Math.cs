@@ -62,7 +62,7 @@
 		/// <returns>The magnitude of <paramref name="n"/>.</returns>
 		public static object Abs(object number)
 		{
-			number = Number(number);
+			number = Number.staticCall(null, number);
 			if (number is long ll)
 				return Math.Abs(ll);
 			else if (number is bool bl)
@@ -434,43 +434,6 @@
 					return Errors.ErrorOccurred($"Mod() divisor argument of {divis} was 0.");
 
 				return divid % divis;
-			}
-		}
-
-		/// <summary>
-		/// Converts a numeric string to a pure integer or floating-point number.
-		/// </summary>
-		/// <param name="value">The value to convert.</param>
-		/// <returns>The result of converting Value to a pure integer or floating-point number, or value itself if it is<br/>
-		/// already an Integer or Float value.
-		/// </returns>
-		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the value cannot be converted.</exception>
-		public static object Number(object value)
-		{
-			if (value is long l)
-				return l;
-			else if (value is double d)
-				return d;
-			else
-			{
-				var s = value.As();
-
-				if (s.Contains('.'))
-				{
-					var val = s.ParseDouble();
-
-					if (val.HasValue)
-						return val.Value;
-				}
-				else
-				{
-					var val = s.ParseLong();
-
-					if (val.HasValue)
-						return val.Value;
-				}
-
-				return Errors.TypeErrorOccurred(s, typeof(double));
 			}
 		}
 

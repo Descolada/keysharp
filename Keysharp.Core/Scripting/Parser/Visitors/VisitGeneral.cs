@@ -209,6 +209,7 @@ namespace Keysharp.Scripting
             else
             {
                 PushFunction(hotkeyFunctionName, EmitKind.TopLevelFunction);
+                HandleScopeFunctions(context.statement().blockStatement());
 
                 // Visit the statement to generate the function body
                 var hotkeyStatement = Visit(context.statement());
@@ -303,9 +304,10 @@ namespace Keysharp.Scripting
                 functionName = InternalPrefix + $"Hotstring_{++parser.hotstringCount}";
 
                 PushFunction(functionName, EmitKind.TopLevelFunction);
+				HandleScopeFunctions(context.statement().blockStatement());
 
-                // Visit the statement to generate the function body
-                var statementNode = Visit(context.statement());
+				// Visit the statement to generate the function body
+				var statementNode = Visit(context.statement());
                 if (statementNode is BlockSyntax bs)
                     parser.currentFunc.Body.AddRange(bs.Statements);
                 else

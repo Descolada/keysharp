@@ -42,7 +42,47 @@
 		public static long EndsWith(object str, object str2, object ignoreCase = null) => str.As().EndsWith(str2.As(), ignoreCase.Ab() ? StringComparison.CurrentCulture : StringComparison.CurrentCultureIgnoreCase) ? 1L : 0L;
 	}
 
-	public class Integer : Primitive
+	public class Number : Primitive
+	{
+		/// <summary>
+		/// Converts a numeric string to a pure integer or floating-point number.
+		/// </summary>
+		/// <param name="value">The value to convert.</param>
+		/// <returns>The result of converting Value to a pure integer or floating-point number, or value itself if it is<br/>
+		/// already an Integer or Float value.
+		/// </returns>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the value cannot be converted.</exception>
+		public static object staticCall(object @this, object value)
+		{
+			if (value is long l)
+				return l;
+			else if (value is double d)
+				return d;
+			else
+			{
+				var s = value.As();
+
+				if (s.Contains('.'))
+				{
+					var val = s.ParseDouble();
+
+					if (val.HasValue)
+						return val.Value;
+				}
+				else
+				{
+					var val = s.ParseLong();
+
+					if (val.HasValue)
+						return val.Value;
+				}
+
+				return Errors.TypeErrorOccurred(s, typeof(double));
+			}
+		}
+	}
+
+	public class Integer : Number
 	{
 		/// <summary>
 		/// Converts a numeric string or floating-point value to an integer.
@@ -60,7 +100,7 @@
 		}
 	}
 
-	public class Float : Primitive
+	public class Float : Number
 	{
 		/// <summary>
 		/// Converts a numeric string or integer value to a floating-point number.

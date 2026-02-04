@@ -740,30 +740,11 @@ namespace Keysharp.Scripting
 			{
 				case MainLexer.Is:
 					var leftExpression = (ExpressionSyntax)Visit(left);
-					// Ensure the classExpression is treated as a string (e.g., "KeysharpObject")
-					var classAsRawString = right.GetText().Trim();
-					if (classAsRawString.IndexOfAny(Spaces) != -1)
-						throw new Error("Is expression comparison word cannot contain spaces: " + classAsRawString);
-
-					if (Keywords.TypeNameAliases.TryGetValue(classAsRawString, out var alias))
-						classAsRawString = alias;
-
-					if (classAsRawString == "unset" || classAsRawString == "null")
-					{
-						var nullComparison = SyntaxFactory.BinaryExpression(
-							SyntaxKind.EqualsExpression,
-							leftExpression,
-							PredefinedKeywords.NullLiteral
-						);
-						return nullComparison;
-					}
-
-					var classAsString = CreateStringLiteral(classAsRawString);
-
+                    var rightExpression = (ExpressionSyntax)Visit(right);
 					return CreateBinaryOperatorExpression(
 						MainLexer.Is,
 						leftExpression,
-						classAsString);
+						rightExpression);
 			}
 			throw new NotImplementedException();
 		}
@@ -1191,8 +1172,7 @@ namespace Keysharp.Scripting
 			InvocationExpressionSyntax binaryOperation;
             InvocationExpressionSyntax result = null;
 
-            while (leftExpression is ParenthesizedExpressionSyntax pes)
-                leftExpression = pes.Expression;
+            leftExpression = RemoveExcessParenthesis(leftExpression);
 
 			// If the left side is itself a simple assignment like "a = expr",
 			// rewrite (a = expr) <op>= rhs  into  a = (expr <op> rhs)

@@ -980,10 +980,6 @@ namespace Keysharp.Scripting
 			var info = parser.GetIdentifierInfo(context.GetText());
 			var text = info.Trimmed;
 
-			if (text.Equals("this", StringComparison.OrdinalIgnoreCase))
-				return PredefinedKeywords.This;
-			if (text.Equals("base", StringComparison.OrdinalIgnoreCase))
-				return parser.IsTopLevelContainerClass(parser.currentClass) ? SyntaxFactory.IdentifierName("@base") : SyntaxFactory.BaseExpression();
 			if (text.Equals("super", StringComparison.OrdinalIgnoreCase))
 				return parser.CreateSuperTuple();
 			if (text.Equals("null", StringComparison.OrdinalIgnoreCase))
@@ -1601,7 +1597,7 @@ namespace Keysharp.Scripting
             // Otherwise, return a normal throw statement
             return SyntaxFactory.ThrowStatement(
 				SyntaxFactory.Token(SyntaxKind.ThrowKeyword), 
-                SyntaxFactory.CastExpression(SyntaxFactory.ParseTypeName("Error"), expression),
+                SyntaxFactory.CastExpression(CreateQualifiedName("Keysharp.Core.Error"), expression),
                 PredefinedKeywords.SemicolonToken
             );
         }
@@ -1697,7 +1693,7 @@ namespace Keysharp.Scripting
             //Console.WriteLine(context.children[0].GetText());
             if (parser.currentFunc.Scope == eScope.Static)
             {
-                return SyntaxFactory.IdentifierName(parser.MakeStaticLocalFieldName(parser.currentFunc.Name, context.GetText()));
+                return SyntaxFactory.IdentifierName(parser.MakeStaticLocalFieldName(parser.currentFunc, context.GetText()));
             }
             return base.VisitAssignable(context);
         }
@@ -1733,6 +1729,41 @@ namespace Keysharp.Scripting
             return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName));
         }
 
+        private void PushFunction(FunctionHeadContext funcHead)
+        {
+            string userName = funcHead.identifierName().GetText();
+            var emitKind = EmitKind.TopLevelFunction;
+            if (parser.classDepth > 0 && parser.functionDepth == 0)
+                emitKind = funcHead.functionHeadPrefix()?.Static() != null ? EmitKind.StaticMethod : EmitKind.Method;
+			PushFunction(userName, emitKind);
+			PreRegisterParameterIdentifiers(funcHead.formalParameterList());
+		}
+
+        private void PushFunction(FunctionExpressionHeadContext funcExprHead)
+        {
+			if (funcExprHead.functionHead() is FunctionHeadContext funcHead && funcHead != null)
+			{
+				PushFunction(funcHead);
+			}
+			else
+			{
+				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
+				PreRegisterParameterIdentifiers(funcExprHead.formalParameterList());
+			}
+		}
+
+        private void PushFunction(FatArrowExpressionHeadContext funcExprHead)
+        {
+            if (funcExprHead.functionExpressionHead() is FunctionExpressionHeadContext funcHead && funcHead != null)
+                PushFunction(funcHead);
+            else
+			{
+				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
+				var parameterRaw = funcExprHead.identifierName()?.GetText() ?? "args";
+				PreRegisterParameterIdentifier(parameterRaw);
+			}
+		}
+
         private void PushFunction(string userName, EmitKind emitKind, TypeSyntax returnType = null)
         {
             var parent = parser.currentFunc;
@@ -1758,16 +1789,70 @@ namespace Keysharp.Scripting
             parser.functionDepth--;
         }
 
+		private void PreRegisterParameterIdentifiers(FormalParameterListContext context)
+		{
+			if (context == null)
+				return;
+
+			// Mirror VisitFormalParameterList without evaluating defaults.
+			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			if (!parser.IsTopLevelContainerClass(parser.currentClass)
+				&& parser.FunctionStack.Count == 1
+				&& !parser.currentClass.isInitialization)
+			{
+				var thisName = PredefinedKeywords.ThisParam.Identifier.Text;
+				if (seen.Add(thisName))
+					parser.currentFunc.Params.Add(
+						SyntaxFactory.Parameter(SyntaxFactory.Identifier(thisName))
+							.WithType(PredefinedKeywords.ObjectType));
+			}
+
+			foreach (var formalParameter in context.formalParameterArg())
+			{
+				var raw = formalParameter.identifier().GetText();
+				var name = parser.NormalizeIdentifier(raw, eNameCase.Lower);
+				if (seen.Add(name))
+					parser.currentFunc.Params.Add(
+						SyntaxFactory.Parameter(SyntaxFactory.Identifier(name))
+							.WithType(PredefinedKeywords.ObjectType));
+			}
+
+			var last = context.lastFormalParameterArg();
+			if (last != null)
+			{
+				string raw;
+				if (last.Multiply() != null)
+					raw = last.identifier()?.GetText() ?? "args";
+				else
+					raw = last.formalParameterArg()?.identifier()?.GetText();
+
+				if (!string.IsNullOrEmpty(raw))
+				{
+					var name = parser.NormalizeIdentifier(raw, eNameCase.Lower);
+					if (seen.Add(name))
+						parser.currentFunc.Params.Add(
+							SyntaxFactory.Parameter(SyntaxFactory.Identifier(name))
+								.WithType(PredefinedKeywords.ObjectType));
+				}
+			}
+		}
+
+		private void PreRegisterParameterIdentifier(string raw)
+		{
+			var name = parser.NormalizeIdentifier(raw, eNameCase.Lower);
+			if (string.IsNullOrEmpty(name))
+				return;
+			parser.currentFunc.Params.Add(
+				SyntaxFactory.Parameter(SyntaxFactory.Identifier(name))
+					.WithType(PredefinedKeywords.ObjectType));
+		}
+
         public override SyntaxNode VisitFunctionHead([NotNull] FunctionHeadContext context)
         {
-			string userName = context.identifierName().GetText();
-            var emitKind = EmitKind.TopLevelFunction;
-            if (parser.classDepth > 0 && parser.functionDepth == 0)
-                emitKind = context.functionHeadPrefix()?.Static() != null ? EmitKind.StaticMethod : EmitKind.Method;
-			PushFunction(userName, emitKind);
-
 			VisitFunctionHeadPrefix(context.functionHeadPrefix());
 
+			parser.currentFunc.Params.Clear();
             parser.currentFunc.Params.AddRange(((ParameterListSyntax)VisitFormalParameterList(context.formalParameterList())).Parameters);
 
             return null;
@@ -1788,10 +1873,9 @@ namespace Keysharp.Scripting
             if (context.functionHead() != null)
                 return Visit(context.functionHead());
 
-            PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
-
             VisitFunctionHeadPrefix(context.functionHeadPrefix());
 
+			parser.currentFunc.Params.Clear();
             parser.currentFunc.Params.AddRange(((ParameterListSyntax)VisitFormalParameterList(context.formalParameterList())).Parameters);
 
             return null;
@@ -1799,12 +1883,11 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFatArrowExpressionHead([NotNull] FatArrowExpressionHeadContext context)
         {
-            if (context.functionExpressionHead() != null)
-                return Visit(context.functionExpressionHead());
+			if (context.functionExpressionHead() != null)
+				return Visit(context.functionExpressionHead());
+			if (context.functionHeadPrefix() != null) Visit(context.functionHeadPrefix());
 
-            PushFunction(Keywords.AnonymousFatArrowLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
-            VisitFunctionHeadPrefix(context.functionHeadPrefix());
-
+			parser.currentFunc.Params.Clear();
             var parameterRaw = context.identifierName()?.GetText() ?? "args";
             var parameterName = parser.NormalizeIdentifier(parameterRaw, eNameCase.Lower);
             ParameterSyntax parameter;
@@ -1902,6 +1985,7 @@ namespace Keysharp.Scripting
                     .WithModifiers(modifiers);
 
                 var isStatic = modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword));
+				var insertAtTop = isStatic && !isAutoExecFunc;
 
 				InvocationExpressionSyntax funcObj = CreateFuncObj(
                     SyntaxFactory.CastExpression(
@@ -1911,7 +1995,10 @@ namespace Keysharp.Scripting
                     !isStatic
                 );
 
-				parentFunc.Body.Add(delegateSyntax);
+				if (insertAtTop)
+					parentFunc.Body.Insert(0, delegateSyntax);
+				else
+					parentFunc.Body.Add(delegateSyntax);
 
                 // If we are creating a closure in the auto-execute section then add a global
                 // variable for the delegate and assign it's value at the beginning of AutoExecSection
@@ -1919,14 +2006,18 @@ namespace Keysharp.Scripting
                 {
                     if (isAutoExecFunc)
                         parser.MaybeAddGlobalVariableDeclaration(variableName, true);
-                    parser.currentFunc.Parent.Body.Add(SyntaxFactory.ExpressionStatement(
+					var assignStatement = SyntaxFactory.ExpressionStatement(
                         SyntaxFactory.AssignmentExpression(
                             SyntaxKind.SimpleAssignmentExpression,
                             SyntaxFactory.IdentifierName(variableName), // Target variable
 							PredefinedKeywords.EqualsToken,
 							funcObj // Value to assign
                         )
-                    ));
+                    );
+					if (insertAtTop)
+						parser.currentFunc.Parent.Body.Insert(0, assignStatement);
+					else
+						parser.currentFunc.Parent.Body.Add(assignStatement);
                 }
                 else
                 {
@@ -1970,9 +2061,17 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFunctionDeclaration([NotNull] FunctionDeclarationContext context)
         {
-            Visit(context.functionHead());
+            var funcHead = context.functionHead();
+            PushFunction(funcHead);
+			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix()); // Determine whether the function is static, async etc
 
-            BlockSyntax functionBody = (BlockSyntax)VisitFunctionBody(context.functionBody());
+			var funcBody = context.functionBody();
+			var scopeContext = (ParserRuleContext)funcBody.block() ?? funcBody.expression();
+            HandleScopeFunctions(scopeContext); // Map variables and nested functions
+
+            Visit(funcHead); // Now visit the function head (along with param list), because variable names are now known
+
+            BlockSyntax functionBody = (BlockSyntax)VisitFunctionBody(funcBody);
             parser.currentFunc.Body.AddRange(functionBody.Statements.ToArray());
 
             /*
@@ -2023,9 +2122,13 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFunctionExpression([NotNull] FunctionExpressionContext context)
         {
-            Visit(context.functionExpressionHead());
+            var funcExprHead = context.functionExpressionHead();
+            PushFunction(funcExprHead);
+			VisitFunctionHeadPrefix(funcExprHead.functionHeadPrefix());
 
-            HandleScopeFunctions(context.block());
+			HandleScopeFunctions(context.block());
+
+            Visit(context.functionExpressionHead());
 
             //VisitVariableStatements(context.block());
 
@@ -2040,7 +2143,12 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFatArrowExpression([Antlr4.Runtime.Misc.NotNull] FatArrowExpressionContext context)
         {
-			Visit(context.fatArrowExpressionHead());
+            var funcHead = context.fatArrowExpressionHead();
+            PushFunction(funcHead);
+			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix());
+
+			HandleScopeFunctions(context.expression());
+			Visit(funcHead);
 
 			ExpressionSyntax returnExpression = (ExpressionSyntax)Visit(context.expression());
 
@@ -2147,6 +2255,8 @@ namespace Keysharp.Scripting
 
         public void HandleScopeFunctions(ParserRuleContext context)
         {
+            if (context == null) return;
+            
 			var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
 
 			foreach (var fi in scopeFunctionDeclarations)
@@ -2155,13 +2265,16 @@ namespace Keysharp.Scripting
 				{
 					if (fi.Static)
 					{
-						var staticName = parser.MakeStaticLocalFieldName(parser.currentFunc.Name, fi.Name);
-						// Declare the variable in the containing class
-						parser.currentFunc.Statics.Add(staticName);
-						var prevScope = parser.currentFunc.Scope;
-						parser.currentFunc.Scope = eScope.Static;
-						parser.AddVariableDeclaration(staticName);
-						parser.currentFunc.Scope = prevScope;
+						var staticName = parser.MakeStaticLocalFieldName(parser.currentFunc, fi.Name);
+						if (!parser.currentFunc.Statics.Contains(staticName))
+						{
+							// Declare the variable in the containing class
+							parser.currentFunc.Statics.Add(staticName);
+							var prevScope = parser.currentFunc.Scope;
+							parser.currentFunc.Scope = eScope.Static;
+							parser.AddVariableDeclaration(staticName);
+							parser.currentFunc.Scope = prevScope;
+						}
 					}
 					else
 					{
@@ -2180,8 +2293,6 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFunctionBody([NotNull] FunctionBodyContext context)
         {
-            HandleScopeFunctions(context);
-
 			//VisitVariableStatements(context);
             if (context.expression() != null)
             {

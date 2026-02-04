@@ -17,8 +17,8 @@ namespace Keysharp.Scripting
 			if (store.Prototypes.IsInitialized(t))
 				return;
 
-			var proto = (Any)RuntimeHelpers.GetUninitializedObject(actual);
-			proto.type = typeof(Prototype); proto.isPrototype = true; proto.InitializePrivates();
+			var proto = new Prototype(t);
+			proto.InitializePrivates();
 			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(actual);
 			staticInst.type = typeof(Class); staticInst.InitializePrivates();
 			var isModuleType = typeof(Module).IsAssignableFrom(t);
@@ -300,7 +300,7 @@ namespace Keysharp.Scripting
 						typetouse = t; item = o0;
 					} else if (otup[0] is Any a && otup[1] is object o1)
 					{
-                        item = o1; typetouse = a.GetType();
+                        item = o1; typetouse = a.type;
                     }
 				}
 				else if (item != null)
@@ -450,7 +450,7 @@ namespace Keysharp.Scripting
 					}
 					else if (otup[0] is Any a && otup[1] is object o1)
 					{
-						proto = a; typetouse = a.GetType(); item = o1;
+						proto = a; typetouse = a.type; item = o1;
 					}
 					else
 						return Errors.ErrorOccurred("Unknown tuple passed to indexer");

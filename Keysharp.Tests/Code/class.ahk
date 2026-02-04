@@ -90,3 +90,17 @@ if (classobj.ii == 16160)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; Just parsing tests: 
+; 1. In C# a method can't be the same name as the enclosing type
+; 2. Static variables need to be emitted using the final method name, otherwise we get two
+;	 __new_a static variables
+class Test {
+	Test() => 1
+	static __New() {
+		static a := 1
+	}
+	__New() {
+		static a := 2
+	}
+}

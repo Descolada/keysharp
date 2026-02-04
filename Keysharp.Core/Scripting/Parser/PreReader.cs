@@ -365,31 +365,22 @@ namespace Keysharp.Scripting
 
                                 if (splits.Length > 1)
                                 {
-                                    var ver = splits[1].Trim(new char[] { 'v', '+' });
-                                    var plus = splits[1].EndsWith('+');
-                                    var reqvers = Script.ParseVersionToInts(ver);
-
-                                    //If it's AHK v2.x, then we support it, so don't check.
-                                    if (reqAhk && (ver.StartsWith("2.") || ver == "2"))
-                                        break;
-
-                                    if (!reqvers.Any(x => x != 0))
-                                        throw new ParseException($"This script requires {p1}", lineNumber, name);
-
-                                    Script.TheScript.VerifyVersion(ver, plus, lineNumber, code);
+                                    var ver = splits[1].Trim().TrimStart('v', 'V');
+									
+									Script.VerifyVersion(ver, reqAhk, lineNumber, name);
 
 									//In addition to being checked here, it must be added to the code for when it runs as a compiled exe.
 									parser.mainFuncInitial.Add(
                                         SyntaxFactory.ExpressionStatement(
 		                                    SyntaxFactory.InvocationExpression(
-                                                CreateMemberAccess(Keywords.MainScriptVariableName, "VerifyVersion"),
-			                                    // (ver, plus, 0, name)
+                                                CreateMemberAccess("Keysharp.Scripting.Script", "VerifyVersion"),
+		                                    // (ver, reqAhk, 0, name)
 			                                    Parser.CreateArgumentList(
 				                                    SyntaxFactory.LiteralExpression(
 					                                    SyntaxKind.StringLiteralExpression,
 					                                    SyntaxFactory.Literal(ver)
 				                                    ),
-				                                    SyntaxFactory.LiteralExpression(plus ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression),
+													SyntaxFactory.LiteralExpression(reqAhk ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression),
 				                                    SyntaxFactory.LiteralExpression(
 					                                    SyntaxKind.NumericLiteralExpression,
 					                                    SyntaxFactory.Literal(lineNumber)
@@ -599,7 +590,7 @@ namespace Keysharp.Scripting
                         case MainLexer.NullishCoalescingAssign:
                         case MainLexer.QuestionMarkDot:
                         case MainLexer.Arrow:
-                            PopWhitespaces(codeTokens.Count);
+							PopWhitespaces(codeTokens.Count, IsVerbalOperator(token.Type) ? (!(IsPrecededByEol() && IsFollowedByOpenParen(index))) : true);
                             SkipWhitespaces(index);
                             break;
                         case MainLexer.Loop:
@@ -913,11 +904,11 @@ namespace Keysharp.Scripting
 				return i;
 			}
 
-			bool IsStatementStart()
-			{
-				for (int i = codeTokens.Count - 1; i >= 0; i--)
-				{
-					var t = codeTokens[i];
+            bool IsStatementStart()
+            {
+                for (int i = codeTokens.Count - 1; i >= 0; i--)
+                {
+                    var t = codeTokens[i];
 					if (t.Channel != Lexer.DefaultTokenChannel)
 						continue;
 					if (t.Type == MainLexer.WS)
@@ -927,7 +918,31 @@ namespace Keysharp.Scripting
 					return t.Type == MainLexer.CloseBrace
 						|| t.Type == MainLexer.Export;
 				}
-				return true; // start of file
+                return true; // start of file
+            }
+
+            bool IsVerbalOperator(int type)
+            {
+                return type == MainLexer.VerbalAnd || type == MainLexer.VerbalNot || type == MainLexer.VerbalOr;
+            }
+
+			bool IsPrecededByEol()
+			{
+				for (int i = codeTokens.Count - 1; i >= 0; i--)
+				{
+					var t = codeTokens[i];
+					if (t.Channel != Lexer.DefaultTokenChannel)
+						continue;
+					if (t.Type == MainLexer.WS)
+						continue;
+					return t.Type == MainLexer.EOL;
+				}
+				return false;
+			}
+
+			bool IsFollowedByOpenParen(int i)
+			{
+				return ++i < tokens.Count ? tokens[i].Type == MainLexer.OpenParen : false;
 			}
 
 			bool TryParseImportStatement(int startIndex, out string moduleName)

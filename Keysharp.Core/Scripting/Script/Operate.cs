@@ -38,8 +38,13 @@ namespace Keysharp.Scripting
 
 		public static bool IfLegacy(object subject, string op, string test, bool not = false)
 		{
-			var variable = ForceString(subject);
-			var varspan = variable.AsSpan();
+			string variable = null;
+			ReadOnlySpan<char> varspan = null;
+			if (op != Keyword_Is)
+			{
+				variable = ForceString(subject);
+				varspan = variable.AsSpan();
+			}
 			var ret = false;
 
 			switch (op)
@@ -750,7 +755,13 @@ namespace Keysharp.Scripting
 		{
 			if (left == null || right == null)
 				return left == right;
-			return IfLegacy(left, "is", ForceString(right));
+			if (Core.Primitive.IsNative(right))
+				right = TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(right)];
+			else if (right is Any kso && kso.op is var op && op != null && op.ContainsKey("Prototype"))
+				right = GetPropertyValue(right, "Prototype");
+			else
+				return Errors.ErrorOccurred("Invalid is operator right-side operand");
+			return Keysharp.Core.Types.HasBase(left, right);
 		}
 
 		internal static bool ParseNumericArgs(object left, object right, string desc, out bool firstIsDouble, out bool secondIsDouble, out double firstd, out long firstl, out double secondd, out long secondl, bool throwOnError = true)

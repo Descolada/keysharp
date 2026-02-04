@@ -1,4 +1,5 @@
 ﻿using System.Xml.Linq;
+using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Keysharp.Scripting.Parser;
@@ -289,19 +290,27 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitPropertyGetterDefinition([Antlr4.Runtime.Misc.NotNull] PropertyGetterDefinitionContext context)
         {
+			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.expression();
+			HandleScopeFunctions(scopeContext);
             return VisitFunctionBody(context.functionBody());
         }
 
         public override SyntaxNode VisitPropertySetterDefinition([NotNull] PropertySetterDefinitionContext context)
         {
+			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.expression();
+			HandleScopeFunctions(scopeContext);
             return (BlockSyntax)VisitFunctionBody(context.functionBody());
         }
 
         public override SyntaxNode VisitClassMethodDeclaration([NotNull] ClassMethodDeclarationContext context)
         {
             var methodDefinition = context.methodDefinition();
-            Visit(methodDefinition.functionHead());
-            var isStatic = context.methodDefinition().functionHead().functionHeadPrefix()?.Static() != null;
+            var funcHead = methodDefinition.functionHead();
+            PushFunction(funcHead);
+			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix());
+			var methodBodyContext = (ParserRuleContext)methodDefinition.functionBody().block() ?? methodDefinition.functionBody().expression();
+			HandleScopeFunctions(methodBodyContext);
+			Visit(funcHead);
 
             // Visit method body
             BlockSyntax methodBody = (BlockSyntax)Visit(methodDefinition.functionBody());

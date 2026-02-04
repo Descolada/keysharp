@@ -12,6 +12,8 @@ namespace Keysharp.Core
 		/// <param name="baseObj">The potential base object to test.</param>
 		/// <returns>This function returns 1 if baseObj is in value's chain of base objects, else 0.</returns>
 		public static long HasBase(object value, object baseObj) {
+			if (Core.Primitive.IsNative(value))
+				value = TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(value)];
             if (value is not Any any)
 				return baseObj.GetType().IsAssignableFrom(value.GetType()) ? 1L : 0L;
 			

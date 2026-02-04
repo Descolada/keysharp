@@ -10,6 +10,7 @@ namespace Keysharp.Scripting
 	{
         public LazyDictionary<Type, Any> Prototypes = new();
 		public LazyDictionary<Type, Any> Statics = new();
+		private readonly Dictionary<string, Type> classTypesByName = new(StringComparer.OrdinalIgnoreCase);
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;
 		internal readonly Dictionary<string, MethodPropertyHolder> globalVars;
@@ -189,6 +190,7 @@ namespace Keysharp.Scripting
 				var nested = Reflections.GetNestedTypes(script.ProgramType.GetNestedTypes()).Where(type => type.IsClass && anyType.IsAssignableFrom(type));
 				types = types.Concat(nested);
 			}
+			CacheClassTypeNames(types);
 
 			/*
             var types = AppDomain.CurrentDomain.GetAssemblies()
@@ -255,6 +257,34 @@ namespace Keysharp.Scripting
 			}
 		}
 
+		private void CacheClassTypeNames(IEnumerable<Type> types)
+		{
+			foreach (var type in types)
+			{
+				var name = Script.GetUserDeclaredName(type) ?? type.Name;
+				if (!string.IsNullOrEmpty(name))
+					classTypesByName[name] = type;
+
+				if (Keywords.TypeNameAliases.TryGetValue(type.Name, out var alias))
+					classTypesByName[alias] = type;
+			}
+		}
+
+		private bool TryGetClassValue(string key, out object value)
+		{
+			value = null;
+			if (!classTypesByName.TryGetValue(key, out var type))
+				return false;
+
+			if (Statics.TryGetValue(type, out var staticObj))
+			{
+				value = staticObj;
+				return true;
+			}
+
+			return false;
+		}
+
 		public bool HasVariable(string key) =>
 			globalVars.ContainsKey(key)
 			|| Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(key)
@@ -277,6 +307,9 @@ namespace Keysharp.Scripting
 			if (rv != null)
 				return rv;
 
+			if (TryGetClassValue(key, out var classValue))
+				return classValue;
+
 			return Functions.GetFuncObj(key, null);
 
         }
@@ -290,6 +323,9 @@ namespace Keysharp.Scripting
 			var rv = GetReservedVariable(key);
 			if (rv != null)
 				return rv;
+
+			if (TryGetClassValue(key, out var classValue))
+				return classValue;
 
 			return Functions.Func(key, moduleType);
 		}

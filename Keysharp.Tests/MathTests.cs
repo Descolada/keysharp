@@ -455,27 +455,29 @@ namespace Keysharp.Tests
 			Assert.IsTrue(caught);
 		}
 
+		private object PrimitiveNumber(object value) => Keysharp.Core.Number.staticCall(null, value);
+
 		[Test, Category("Math")]
 		public void Number()
 		{
-			Assert.AreEqual(Maths.Number("0"), 0L);
-			Assert.AreEqual(Maths.Number("0.0"), 0.0);
-			Assert.AreEqual(Maths.Number("1"), 1L);
-			Assert.AreEqual(Maths.Number("1.0"), 1.0);
-			Assert.AreNotEqual(Maths.Number("1.5"), 1L);
-			Assert.AreEqual(Maths.Number(1L), 1L);
-			Assert.AreNotEqual(Maths.Number(1.5), 1L);
-			Assert.AreEqual(Maths.Number(-1L), -1L);
-			Assert.AreEqual(Maths.Number("-1"), -1L);
-			Assert.AreEqual(Maths.Number("1L"), 1L);
-			Assert.AreEqual(Maths.Number("+1L"), 1L);
-			Assert.AreEqual(Maths.Number("-1.0"), -1.0);
-			Assert.AreEqual(Maths.Number("1.0D"), 1.0);
-			Assert.AreEqual(Maths.Number("1.0d"), 1.0);
-			Assert.AreEqual(Maths.Number("-1.0D"), -1.0);
-			Assert.AreEqual(Maths.Number("-1.0d"), -1.0);
-			Assert.AreEqual(Maths.Number("0xF"), 15L);
-			Assert.AreEqual(Maths.Number("-0xF"), -15L);
+			Assert.AreEqual(PrimitiveNumber("0"), 0L);
+			Assert.AreEqual(PrimitiveNumber("0.0"), 0.0);
+			Assert.AreEqual(PrimitiveNumber("1"), 1L);
+			Assert.AreEqual(PrimitiveNumber("1.0"), 1.0);
+			Assert.AreNotEqual(PrimitiveNumber("1.5"), 1L);
+			Assert.AreEqual(PrimitiveNumber(1L), 1L);
+			Assert.AreNotEqual(PrimitiveNumber(1.5), 1L);
+			Assert.AreEqual(PrimitiveNumber(-1L), -1L);
+			Assert.AreEqual(PrimitiveNumber("-1"), -1L);
+			Assert.AreEqual(PrimitiveNumber("1L"), 1L);
+			Assert.AreEqual(PrimitiveNumber("+1L"), 1L);
+			Assert.AreEqual(PrimitiveNumber("-1.0"), -1.0);
+			Assert.AreEqual(PrimitiveNumber("1.0D"), 1.0);
+			Assert.AreEqual(PrimitiveNumber("1.0d"), 1.0);
+			Assert.AreEqual(PrimitiveNumber("-1.0D"), -1.0);
+			Assert.AreEqual(PrimitiveNumber("-1.0d"), -1.0);
+			Assert.AreEqual(PrimitiveNumber("0xF"), 15L);
+			Assert.AreEqual(PrimitiveNumber("-0xF"), -15L);
 		}
 
 		[Test, Category("Math")]

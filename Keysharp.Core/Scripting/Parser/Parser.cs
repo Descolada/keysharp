@@ -493,7 +493,7 @@ namespace Keysharp.Scripting
 						SyntaxFactory.Argument(
 							SyntaxFactory.LiteralExpression(
 								SyntaxKind.StringLiteralExpression,
-								SyntaxFactory.Literal(Name)
+								SyntaxFactory.Literal(ImplMethodName)
 							)
 						)
 					);

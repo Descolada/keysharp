@@ -776,8 +776,23 @@ namespace Keysharp.Scripting
 
         // Checks whether a local or static variable is in the current function or any parent functions.
         // See also: IsVarDeclaredLocally
-        internal string IsLocalVar(string name, bool caseSense = true)
+		internal string IsLocalVar(string name, bool caseSense = true)
         {
+			bool MatchesBodyLocal(Function func)
+			{
+				if (func.Body == null)
+					return false;
+				foreach (var declaration in func.Body.OfType<LocalDeclarationStatementSyntax>())
+				{
+					var match = caseSense
+						? declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text == name)
+						: declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text.Equals(name, StringComparison.InvariantCultureIgnoreCase));
+					if (match != null)
+						return true;
+				}
+				return false;
+			}
+
             if (caseSense)
             {
                 if (currentFunc.Locals.ContainsKey(name) || currentFunc.Statics.Contains(name))
@@ -792,6 +807,9 @@ namespace Keysharp.Scripting
                 if (match != null)
                     return match;
             }
+
+			if (MatchesBodyLocal(currentFunc))
+				return name;
 
 			if (currentFunc.Params != null)
 			{
@@ -821,6 +839,9 @@ namespace Keysharp.Scripting
                         if (match != null)
                             return match;
                     }
+
+					if (MatchesBodyLocal(func))
+						return name;
 
 					if (func.Params != null)
 					{
@@ -904,7 +925,7 @@ namespace Keysharp.Scripting
 		{
             if (currentFunc == null) return null;
 			var localKey = name.ToLowerInvariant();
-            string staticName = MakeStaticLocalFieldName(currentFunc.Name, name);
+            string staticName = MakeStaticLocalFieldName(currentFunc, name);
 
             if (currentFunc.Statics.Contains(staticName)) return staticName;
             if (currentFunc.Locals.ContainsKey(localKey)) return null;
@@ -914,7 +935,7 @@ namespace Keysharp.Scripting
                 if (f.Name == Keywords.AutoExecSectionName)
                     break;
 
-                staticName = MakeStaticLocalFieldName(f.Name, name);
+                staticName = MakeStaticLocalFieldName(f, name);
                 if (f.Statics.Contains(staticName)) return staticName;
                 if (f.Locals.ContainsKey(localKey)) return null;
             }
@@ -1625,26 +1646,45 @@ namespace Keysharp.Scripting
 			// Static setters: ClassStaticPrefix + set_<TitleCasedName>
 			// Instance getters: get_<TitleCasedName>
 			// Instance setters: set_<TitleCasedName>
+			var methodName = normalizedTitleName;
+			if (kind == EmitKind.Method
+				&& currentClass != null
+				&& !IsTopLevelContainerClass(currentClass)
+				&& string.Equals(methodName, currentClass.Name, StringComparison.OrdinalIgnoreCase))
+			{
+				methodName = $"{Keywords.InternalPrefix}{methodName}";
+			}
+
 			var name = kind switch
 			{
 				EmitKind.TopLevelFunction => Keywords.TopLevelFunctionPrefix + normalizedTitleName,
-				EmitKind.StaticLocalField => MakeStaticLocalFieldName(currentFunc.Name, normalizedName),
+				EmitKind.StaticLocalField => MakeStaticLocalFieldName(currentFunc, normalizedName),
                 EmitKind.StaticGetter => $"{Keywords.ClassStaticPrefix}get_{normalizedTitleName}",
 				EmitKind.StaticSetter => $"{Keywords.ClassStaticPrefix}set_{normalizedTitleName}",
 				EmitKind.Getter => $"get_{normalizedTitleName}",
 				EmitKind.Setter => $"set_{normalizedTitleName}",
                 EmitKind.StaticMethod => $"{Keywords.ClassStaticPrefix}{normalizedTitleName}",
+				EmitKind.Method => methodName,
 				_ => normalizedTitleName,
 			};
             return ToValidIdentifier(name, false);
+		}
+
+		internal string MakeStaticLocalFieldName(Function func, string varLower)
+		{
+			var funcName = func?.ImplMethodName ?? func?.Name ?? string.Empty;
+			var funcKey = GetIdentifierInfo(funcName, true).BaseLower;
+
+			varLower = GetIdentifierInfo(varLower, true).BaseLower;
+
+			// Use invariant decimal lengths; underscores separate function and variable names.
+			return ToValidIdentifier($"{Keywords.StaticLocalFieldPrefix}{funcKey.Length}_{funcKey}_{varLower}");
 		}
 
 		internal string MakeStaticLocalFieldName(string funcLower, string varLower)
 		{
 			funcLower = GetIdentifierInfo(funcLower, true).BaseLower;
 			varLower = GetIdentifierInfo(varLower, true).BaseLower;
-
-			// Use invariant decimal lengths; underscores separate function and variable names.
 			return ToValidIdentifier($"{Keywords.StaticLocalFieldPrefix}{funcLower.Length}_{funcLower}_{varLower}");
 		}
 
@@ -1685,7 +1725,7 @@ namespace Keysharp.Scripting
                 return normalizedName;
 
             if (currentFunc.Scope == eScope.Static)
-                return MakeStaticLocalFieldName(currentFunc.Name, trimmedName);
+                return MakeStaticLocalFieldName(currentFunc, trimmedName);
 
             return normalizedName;
         }
@@ -1940,8 +1980,21 @@ namespace Keysharp.Scripting
         // In the case of index or property access, it uses the appropriate get/set methods.
         public ExpressionSyntax ConstructVarRef(ExpressionSyntax targetExpression, bool throwIfInvalid = true)
         {
-            // Handle the different cases of singleExpression
-            if (targetExpression is IdentifierNameSyntax identifierName)
+            targetExpression = RemoveExcessParenthesis(targetExpression);
+			if (targetExpression is AssignmentExpressionSyntax assignmentExpression)
+			{
+				var leftExpression = assignmentExpression.Left;
+				var varRef = ConstructVarRef(leftExpression, throwIfInvalid);
+				return ((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+					.WithArgumentList(
+						CreateArgumentList(
+							assignmentExpression,
+							varRef
+						)
+					);
+			}
+			// Handle the different cases of singleExpression
+			if (targetExpression is IdentifierNameSyntax identifierName)
             {
                 // Case: Variable identifier
                 var addedName = MaybeAddVariableDeclaration(identifierName.Identifier.Text);
@@ -2092,6 +2145,18 @@ namespace Keysharp.Scripting
                 {
                     return invocationExpression;
                 }
+                else if (CheckInvocationExpressionName(invocationExpression, "MultiStatement", true)
+                    && invocationExpression.ArgumentList.Arguments[^1].Expression is IdentifierNameSyntax leftExpression)
+                {
+					var varRef = ConstructVarRef(leftExpression, throwIfInvalid);
+					return ((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+						.WithArgumentList(
+							CreateArgumentList(
+								invocationExpression,
+								varRef
+							)
+						);
+				}
             } else if (targetExpression is ObjectCreationExpressionSyntax oces
                 && oces.Type.GetLastToken().ValueText == "VarRef")
             {
@@ -2117,6 +2182,13 @@ namespace Keysharp.Scripting
 
             throw new InvalidOperationException("Unsupported singleExpression type for VarRefExpression.");
         }
+
+        internal static ExpressionSyntax RemoveExcessParenthesis(ExpressionSyntax expression)
+        {
+			while (expression is ParenthesizedExpressionSyntax pes)
+				expression = pes.Expression;
+            return expression;
+		}
 
 		internal static LiteralExpressionSyntax CreateNumericLiteral(long value)
 	        => SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(value));

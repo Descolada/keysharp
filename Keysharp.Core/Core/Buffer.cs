@@ -76,6 +76,8 @@
 		/// <param name="args">The data to initially store in the buffer</param>
 		public Buffer(params object[] args) : base(args) { }
 
+		public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
+
 		/// <summary>
 		/// Creates a new <see cref="Buffer"/> object.
 		/// </summary>

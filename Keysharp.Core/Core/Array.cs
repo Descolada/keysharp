@@ -178,6 +178,8 @@
 			return iter.fo;
 		}
 
+		public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
+
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Array"/> class.
 		/// </summary>
@@ -920,7 +922,7 @@
 		public ArrayIndexValueIterator(List<object> a, int c)
 			: base(null, c)
 		{
-			arr = a;
+			arr = a ?? new List<object>();
 			var p = c <= 1 ? Script.TheScript.ArrayIndexValueIteratorData.p1 : Script.TheScript.ArrayIndexValueIteratorData.p2;
 			fo = (FuncObj)p.Clone();
 			fo.Inst = this;

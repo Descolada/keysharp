@@ -82,6 +82,8 @@ namespace Keysharp.Core
 			/// </summary>
 			/// <param name="args">See <see cref="Map.__New(object[])"/>.</param>
 			public HashMap(params object[] args) : base(args) { }
+
+			public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
 		}
 	}
 
@@ -208,6 +210,8 @@ namespace Keysharp.Core
 		/// </param>
 		/// <returns><see cref="KeysharpEnumerator"/></returns>
 		public IFuncObj __Enum(object count) => new MapKeyValueIterator(EnumerableMap, count.Ai()).fo;
+
+		public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Map"/> class.

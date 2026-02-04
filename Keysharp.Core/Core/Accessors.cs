@@ -50,16 +50,9 @@
 #endif
 
 		/// <summary>
-		/// The version of Keysharp.Core.dll
+		/// Hard-coded AutoHotkey version which Keysharp should support
 		/// </summary>
-		public static string A_AhkVersion
-		{
-			get
-			{
-				var ver = typeof(Accessors).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();
-				return ver != null ? ver.Version : "";
-			}
-		}
+		public static string A_AhkVersion => "2.1-alpha.18";
 
 		/// <summary>
 		/// Whether the script's main window is allowed to be opened via the tray icon.
@@ -1946,6 +1939,17 @@
 
 	public partial class Ks
 	{
+		/// <summary>
+		/// The version of Keysharp.Core.dll
+		/// </summary>
+		public static string A_KsVersion
+		{
+			get
+			{
+				var ver = typeof(Accessors).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>();
+				return ver != null ? ver.Version : "";
+			}
+		}
 		/// <summary>
 		/// Whether timers are allowed to operate in the script. Default: true.
 		/// </summary>

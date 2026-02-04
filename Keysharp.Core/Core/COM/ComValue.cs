@@ -129,6 +129,8 @@ namespace Keysharp.Core
 				nint psa = (nint)Reflections.GetPtrProperty(value);
 				return new ComObjArray(vt & ~VarEnum.VT_ARRAY, psa, flags.Ab());
 			}
+			if ((vt & VarEnum.VT_BYREF) != 0)
+				return new ComValueRef(varType, value, flags);
 			return vt == VarEnum.VT_DISPATCH ? new ComObject(varType, value, flags) : new ComValue(varType, value, flags);
 		}
 

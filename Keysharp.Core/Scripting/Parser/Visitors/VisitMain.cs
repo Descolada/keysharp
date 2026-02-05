@@ -383,13 +383,6 @@ namespace Keysharp.Scripting
 				)
 			);
 
-			// MainScript.WaitThreads();
-			tryStatements.Add(
-				SyntaxFactory.ExpressionStatement(
-					Call(MA(mainScriptId, "WaitThreads"))
-				)
-			);
-
 			var tryBlock = SyntaxFactory.Block(tryStatements);
 
 			// ---- catch (Keysharp.Core.Flow.UserRequestedExitException) { } ----

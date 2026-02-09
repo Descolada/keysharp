@@ -42,6 +42,7 @@
 * In the same parent folder as keysharp, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/Descolada/Eto.git` from within `foo`.
 * Run `Keysharp.Install/package-linux.sh`
 * A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. These can then be installed to your system via the steps in "Installing on Linux" above. Note that the folder and tarball are portable so both source repositories can be safely deleted.
+* **Alternatively**, on arch-based systems keysharp is provided as an [AUR package](https://aur.archlinux.org/packages/keysharp-git)
 	
 ## Overview ##
 
@@ -575,3 +576,4 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 
 
 Please make an account here and post a ticket.
+

@@ -42,7 +42,7 @@ namespace Keysharp.Benchmark
 		public void MapScriptIndexRead()
 		{
 			foreach (var s in strings)
-				_ = Index(mapScript, s);
+				_ = GetIndex(mapScript, s);
 		}
 
 		[Benchmark(Baseline = true)]

@@ -63,7 +63,7 @@ namespace Keysharp.Benchmark
 			var total = 0.0;
 
 			for (long i = 1; i <= Size; i++)
-				total += (double)Index(keysharparray, i);
+				total += (double)GetIndex(keysharparray, i);
 
 			if (!total.IsAlmostEqual(totalSum))
 				throw new Exception($"{total} was not equal to {totalSum}.");
@@ -140,8 +140,8 @@ namespace Keysharp.Benchmark
 				var d = val.Ad();
 				nativearray[i] = d;
 				nativedoublearray[i] = d;
-				_ = keysharparray.Add(d);
-				_ = dynamickeysharparray.Add(d);
+				((System.Collections.IList)keysharparray).Add(d);
+				_ = dynamickeysharparray.Push(d);
 				totalSum += d;
 			}
 		}
@@ -167,7 +167,7 @@ namespace Keysharp.Benchmark
 			keysharparray.Clear();
 
 			for (var i = 0; i < Size; i++)
-				_ = keysharparray.Add(o);
+				((System.Collections.IList)keysharparray).Add(o);
 
 			if (keysharparray.Count != Size)
 				throw new Exception($"Native list size of {keysharparray.Count} was not equal to Size {Size}.");
@@ -180,7 +180,7 @@ namespace Keysharp.Benchmark
 			keysharparray.Capacity = Size;
 
 			for (var i = 0; i < Size; i++)
-				_ = keysharparray.Add(o);
+				((System.Collections.IList)keysharparray).Add(o);
 
 			if (keysharparray.Count != Size)
 				throw new Exception($"Native list size of {keysharparray.Count} was not equal to Size {Size}.");

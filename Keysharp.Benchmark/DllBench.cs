@@ -31,7 +31,7 @@ namespace Keysharp.Benchmark
 
 			s = 0L;
 
-			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.LogicalNot(Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.Index(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", 0L, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L))))
+			if (Keysharp.Scripting.Script.IfTest(Keysharp.Scripting.Script.LogicalNot(Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.GetIndex(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", 0L, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L))))
 			{
 				return _ = "";
 			}
@@ -44,7 +44,7 @@ namespace Keysharp.Benchmark
 				_ = Keysharp.Core.Dll.DllCall("VirtualProtect", "ptr", p, "ptr", s, "uint", 64L, "uint*", new VarRef(() => op, value => op = value));
 			}
 
-			if (Keysharp.Scripting.Script.IfTest(Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.Index(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", p, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L)))
+			if (Keysharp.Scripting.Script.IfTest(Keysharp.Core.Dll.DllCall("crypt32\\CryptStringToBinary", "str", Keysharp.Scripting.Script.GetPropertyValue(m, "3"), "uint", 0L, "uint", Keysharp.Scripting.Script.GetIndex(mcode_e, Keysharp.Scripting.Script.GetPropertyValue(m, "1")), "ptr", p, "uint*", new VarRef(() => s, v => s = v), "ptr", 0L, "ptr", 0L)))
 			{
 				return _ = p;
 			}

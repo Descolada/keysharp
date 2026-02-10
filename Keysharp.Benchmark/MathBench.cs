@@ -64,7 +64,7 @@
 			totalCos = 0.0;
 			vals = new List<double>(Size);
 			objvals = new List<object>(Size);
-			fo = Func("Cos");
+			fo = Func((Delegate)Math.Cos);
 
 			for (var i = 0; i < Size; i++)
 			{

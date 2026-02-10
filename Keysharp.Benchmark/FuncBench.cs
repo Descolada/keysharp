@@ -7,7 +7,7 @@ namespace Keysharp.Benchmark
 {
 	public class FuncBench : BaseTest
 	{
-		private Myclass? cl;
+		private __Main.Myclass? cl;
 		private long totalSum;
 
 		[Params(500000L)]
@@ -24,7 +24,7 @@ namespace Keysharp.Benchmark
 		[Benchmark]
 		public void KeysharpClassFuncLoopIncrement()
 		{
-			_ = SetPropertyValue(0L, cl, "x");
+			_ = SetPropertyValue(cl, "x", 0L);
 			_ = Invoke(cl, "ClassIncTestFuncScript");
 
 			if ((long)GetPropertyValue(cl, "x") != totalSum)
@@ -138,73 +138,76 @@ namespace Keysharp.Benchmark
 		{
 			Size = 500000L;
 			totalSum = Size;
-			cl = (Myclass)Invoke(myclass, "Call");
+			cl = (__Main.Myclass)Invoke(__Main.myclass, "Call");
 
-			var mc = _ks_s.Vars.Prototypes[typeof(Myclass)];
+			var mc = _ks_s.Vars.Prototypes[typeof(__Main.Myclass)];
 		}
 
-		public object myclass => _ks_s.Vars.Statics[typeof(Myclass)];
-
-		public class Myclass : KeysharpObject
+		public class __Main : Module
 		{
-			public Myclass(params object[] args) : base(args)
-			{
-			}
 
-			public static object Classinc(object @this)
-			{
-				object _ks_temp1 = null;
-				object _ks_temp2 = null;
-				return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(Keysharp.Scripting.Script.Add(Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L), _ks_temp1, _ks_temp2));
-			}
+			public static object myclass => _ks_s.Vars.Statics[typeof(Myclass)];
 
-			public static object Classinctestfuncscript(object @this)
+			public class Myclass : KeysharpObject
 			{
-				object size = null;
-				size = 500000L;
-				Keysharp.Scripting.Script.SetPropertyValue(0L, @this, "x");
+				public Myclass(params object[] args) : base(args)
 				{
-					System.Collections.IEnumerator _ks_e1 = Keysharp.Core.Loops.Loop(size).GetEnumerator();
-					Keysharp.Core.Loops.Push(Keysharp.Core.LoopType.Normal);
-					try
-					{
-						for (; IsTrueAndRunning(_ks_e1.MoveNext());)
-						{
-							Keysharp.Scripting.Script.Invoke(@this, "ClassInc");
-						_ks_e1_next:
-							;
-						}
-					}
-					finally
-					{
-						Keysharp.Core.Loops.Pop();
-					}
-
-				_ks_e1_end:
-					;
 				}
 
-				return "";
-			}
+				public static object Classinc(object @this)
+				{
+					object _ks_temp1 = null;
+					object _ks_temp2 = null;
+					return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Scripting.Script.Add(Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
+				}
 
-			public static void __Init(object @this)
-			{
-				Keysharp.Scripting.Script.Invoke((object)(_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
-				Keysharp.Scripting.Script.SetPropertyValue(0L, @this, "x");
-			}
+				public static object Classinctestfuncscript(object @this)
+				{
+					object size = null;
+					size = 500000L;
+					Keysharp.Scripting.Script.SetPropertyValue(@this, "x", 0L);
+					{
+						Keysharp.Core.Loops.Push(Keysharp.Core.LoopType.Normal);
+						System.Collections.IEnumerator _ks_e1 = Keysharp.Core.Loops.Loop(size).GetEnumerator();
+						try
+						{
+							for (; IsTrueAndRunning(_ks_e1.MoveNext());)
+							{
+								Keysharp.Scripting.Script.Invoke(@this, "ClassInc");
+							_ks_e1_next:
+								;
+							}
+						}
+						finally
+						{
+							Keysharp.Core.Loops.Pop();
+						}
 
-			public static void static__Init(object @this)
-			{
-				Keysharp.Scripting.Script.SetPropertyValue("myclass", _ks_s.Vars.Prototypes[typeof(Myclass)], "__Class");
-			}
+					_ks_e1_end:
+						;
+					}
 
-			static Myclass()
-			{
-			}
+					return "";
+				}
 
-			public static Myclass staticCall(object @this, params object[] args)
-			{
-				return new Myclass(args);
+				public static void __Init(object @this)
+				{
+					Keysharp.Scripting.Script.InvokeOrNull((object)(_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
+					Keysharp.Scripting.Script.SetPropertyValue(@this, "x", 0L);
+				}
+
+				public static void static__Init(object @this)
+				{
+				}
+
+				static Myclass()
+				{
+				}
+
+				public static Myclass staticCall(object @this, params object[] args)
+				{
+					return new Myclass(args);
+				}
 			}
 		}
 	}

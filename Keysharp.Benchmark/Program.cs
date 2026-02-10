@@ -14,12 +14,12 @@ namespace Keysharp.Benchmark
 	[HideColumns("Error", "StdDev", "RatioSD", "Gen0", "Gen1", "Gen2")]
 	public class BaseTest
 	{
-		internal static Keysharp.Scripting.Script _ks_s = new ();
+		internal static Keysharp.Scripting.Script _ks_s;
 
 		public BaseTest()
 		{
 			if (_ks_s == null)
-				_ks_s = new ();
+				_ks_s = new (GetType().BaseType);
 		}
 	}
 
@@ -39,7 +39,9 @@ namespace Keysharp.Benchmark
 			_ = config.AddExporter([.. DefaultConfig.Instance.GetExporters()]);
 			_ = config.AddDiagnoser([.. DefaultConfig.Instance.GetDiagnosers()]);
 			_ = config.AddAnalyser([.. DefaultConfig.Instance.GetAnalysers()]);
+#if !DEBUG
 			_ = config.AddValidator([.. DefaultConfig.Instance.GetValidators()]);
+#endif
 #if !DEBUG
 			_ = config.AddJob([.. DefaultConfig.Instance.GetJobs()]);
 			config.UnionRule = ConfigUnionRule.AlwaysUseGlobal; // Overriding the default
@@ -62,7 +64,7 @@ namespace Keysharp.Benchmark
 				summary = BenchmarkRunner.Run<DllBench>();
 				MarkdownExporter.Console.ExportToLog(summary, logger);
 			*/
-			summary = BenchmarkRunner.Run<FuncBench>();
+			summary = BenchmarkRunner.Run<ReflectionBench>(config);
 			MarkdownExporter.Console.ExportToLog(summary, logger);
 			//ConclusionHelper.Print(logger, summary.BenchmarksCases.First().Config.GetCompositeAnalyser().Analyse(summary).ToList());
 			_ = Console.ReadLine();

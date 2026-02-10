@@ -181,7 +181,7 @@ namespace Keysharp.Core
 		{
 			Any val = value as Any;
 			if (val == null) return (long)Errors.ErrorOccurred("IsSetRef requires a VarRef parameter.", DefaultErrorLong);
-			return GetPropertyValueOrNull(val, "__Value") is object refvalue && refvalue != null ? 1L : 0L;
+			return GetPropertyValueOrNull(val, "__Value") is object refvalue ? 1L : 0L;
 		}
 
 		/// <summary>

@@ -335,7 +335,7 @@
 					return null;
 				}
 
-				// Not found ? per docs, internal lifecycle invocation should be a no-op (no __Call).
+				// Not found → per docs, internal lifecycle invocation should be a no-op (no __Call).
 				return null;
 			}
 			catch (Exception e)

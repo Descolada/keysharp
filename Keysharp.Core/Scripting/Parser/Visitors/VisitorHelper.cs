@@ -2281,7 +2281,7 @@ namespace Keysharp.Scripting
         // Non-constant optional parameter values get added to the top of the function body 
         // as `paramName ??= value` and the default value is set to null. This allows using
         // arbitrary expressions as default values.
-        internal ParameterSyntax AddOptionalParamValue(ParameterSyntax parameter, ExpressionSyntax value)
+        internal ParameterSyntax AddOptionalParamValue(ParameterSyntax parameter, ExpressionSyntax value, bool addOptionalAttribute = true)
         {
             // Extract the parameter name
             var parameterName = parameter.Identifier.Text;
@@ -2334,22 +2334,26 @@ namespace Keysharp.Scripting
                 currentFunc.Body.Add(initializationStatement);
             }
 
-            // Add the attributes for Optional and DefaultParameterValue
+            var attributes = new List<AttributeSyntax>();
+            if (addOptionalAttribute)
+                attributes.Add(SyntaxFactory.Attribute(SyntaxFactory.IdentifierName("Optional")));
+                
+            attributes.Add(
+                SyntaxFactory.Attribute(
+                    SyntaxFactory.IdentifierName("DefaultParameterValue"),
+                    SyntaxFactory.AttributeArgumentList(
+                        SyntaxFactory.SingletonSeparatedList(
+                            SyntaxFactory.AttributeArgument(value)
+                        )
+                    )
+                )
+            );
+
+            // Add the attributes for DefaultParameterValue (and Optional when allowed)
             return parameter.WithAttributeLists(
 				parameter.AttributeLists.Add(
                     SyntaxFactory.AttributeList(
-                        SyntaxFactory.SeparatedList(new[]
-                        {
-                            SyntaxFactory.Attribute(SyntaxFactory.IdentifierName("Optional")),
-                            SyntaxFactory.Attribute(
-                                SyntaxFactory.IdentifierName("DefaultParameterValue"),
-                                SyntaxFactory.AttributeArgumentList(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.AttributeArgument(value)
-                                    )
-                                )
-                            )
-                        })
+                        SyntaxFactory.SeparatedList(attributes)
                     )
                 )
             );

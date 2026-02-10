@@ -1631,6 +1631,11 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFormalParameterArg([Antlr4.Runtime.Misc.NotNull] FormalParameterArgContext context)
         {
+            return HandleFormalParameterArg(context, allowOptionalAttribute: true);
+        }
+
+        private ParameterSyntax HandleFormalParameterArg(FormalParameterArgContext context, bool allowOptionalAttribute)
+        {
             // Treat as a regular parameter
             var parameterName = parser.NormalizeIdentifier(context.identifier().GetText(), eNameCase.Lower);
 
@@ -1656,13 +1661,13 @@ namespace Keysharp.Scripting
                 var defaultValue = (ExpressionSyntax)Visit(context.singleExpression());
 
                 // Add [Optional] and [DefaultParameterValue(defaultValue)] attributes
-                parameter = parser.AddOptionalParamValue(parameter, defaultValue);
+                parameter = parser.AddOptionalParamValue(parameter, defaultValue, allowOptionalAttribute);
             }
             // Handle optional parameter
             else if (context.QuestionMark() != null)
             {
                 // If QuestionMark is present, mark the parameter as optional with null default value
-                parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral);
+                parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral, allowOptionalAttribute);
             }
 
             return parameter;
@@ -2178,23 +2183,55 @@ namespace Keysharp.Scripting
                 parameters.Add(PredefinedKeywords.ThisParam);
             }
 
+            List<FormalParameterArgContext> orderedParamContexts = null;
+            bool[] allowOptionalAttribute = null;
+
             if (context != null)
             {
+                orderedParamContexts = context.formalParameterArg().ToList();
+                var lastParamContext = context.lastFormalParameterArg()?.formalParameterArg();
+                if (lastParamContext != null)
+                    orderedParamContexts.Add(lastParamContext);
+
+                if (orderedParamContexts.Count > 0)
+                {
+                    var required = orderedParamContexts
+                        .Select(IsRequiredFormalParameter)
+                        .ToArray();
+                    allowOptionalAttribute = new bool[orderedParamContexts.Count];
+                    var requiredAfter = false;
+                    for (int i = orderedParamContexts.Count - 1; i >= 0; i--)
+                    {
+                        allowOptionalAttribute[i] = !requiredAfter;
+                        if (required[i])
+                            requiredAfter = true;
+                    }
+                }
+            }
+
+            if (context != null)
+            {
+                var index = 0;
                 foreach (var formalParameter in context.formalParameterArg())
                 {
-                    var parameter = (ParameterSyntax)VisitFormalParameterArg(formalParameter);
+                    var parameter = HandleFormalParameterArg(
+                        formalParameter,
+                        allowOptionalAttribute != null ? allowOptionalAttribute[index] : true);
 
                     // Add the parameter to the list
                     parameters.Add(parameter);
+                    index++;
                 }
             }
 
             // Handle the last formal parameter argument if it exists
             if (context?.lastFormalParameterArg() != null)
             {
-                var parameter = (ParameterSyntax)VisitLastFormalParameterArg(context.lastFormalParameterArg());
-                if (context.lastFormalParameterArg().Multiply() != null)
+                var lastFormal = context.lastFormalParameterArg();
+                ParameterSyntax parameter;
+                if (lastFormal.Multiply() != null)
                 {
+                    parameter = (ParameterSyntax)VisitLastFormalParameterArg(lastFormal);
                     var identifier = parameter.Identifier.Text;
                     var substitute = Keywords.InternalPrefix + identifier.TrimStart('@');
                     parameter = parameter.WithIdentifier(SyntaxFactory.Identifier(substitute));
@@ -2223,10 +2260,27 @@ namespace Keysharp.Scripting
 
                     parser.currentFunc.Body.Add(statement);
                 }
+                else if (lastFormal.formalParameterArg() != null)
+                {
+                    var allowOptional = allowOptionalAttribute != null
+                        && orderedParamContexts != null
+                        && allowOptionalAttribute.Length == orderedParamContexts.Count
+                        ? allowOptionalAttribute[orderedParamContexts.Count - 1]
+                        : true;
+                    parameter = HandleFormalParameterArg(lastFormal.formalParameterArg(), allowOptional);
+                }
+                else
+                    parameter = (ParameterSyntax)VisitLastFormalParameterArg(lastFormal);
+
                 parameters.Add(parameter);
             }
 
             return SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(parameters));
+        }
+
+        private static bool IsRequiredFormalParameter(FormalParameterArgContext context)
+        {
+            return context.singleExpression() == null && context.QuestionMark() == null;
         }
 
         public void HandleScopeFunctions(ParserRuleContext context)

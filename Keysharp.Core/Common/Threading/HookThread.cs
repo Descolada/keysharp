@@ -547,12 +547,12 @@ namespace Keysharp.Core.Common.Threading
 							// The hotkey's ModifierVK is itself a modifier.
 							SetModifierAsPrefix(hk.modifierVK, 0, true);
 						else
-						{
 							kvk[hk.modifierVK].usedAsPrefix = KeyType.PREFIX_ACTUAL;
 
-							if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
+						// Record the use of ~ on this prefix even if it's a standard modifier which wouldn't normally be
+						// suppressed, since this also affects whether the key's own hotkeys fire on press vs. release.
+						if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
 								kvk[hk.modifierVK].noSuppress |= HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE;
-						}
 					}
 					else //if (hk.mModifierSC)
 					{
@@ -563,14 +563,14 @@ namespace Keysharp.Core.Common.Threading
 						{
 							ksc[hk.modifierSC].usedAsPrefix = KeyType.PREFIX_ACTUAL;
 
-							if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
-								ksc[hk.modifierSC].noSuppress |= HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE;
-
 							// For some scan codes this was already set above.  But to support explicit scan code prefixes,
 							// such as "SC118 & SC122::MsgBox", make sure it's set for every prefix that uses an explicit
 							// scan code:
 							ksc[hk.modifierSC].scTakesPrecedence = true;
 						}
+
+						if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
+							ksc[hk.modifierSC].noSuppress |= HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE;
 					}
 
 					// Insert this hotkey at the front of the linked list of hotkeys which use this suffix key.

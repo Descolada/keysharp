@@ -2067,11 +2067,11 @@ namespace Keysharp.Core.Common.Threading
 						if (!suppressThisPrefix) // v1.1.34.02: Retain this as a flag for key-up.
 							thisKey.wasJustUsed = KeyType.AS_PASSTHROUGH_PREFIX;
 
+						char? ch = null;
+						firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch);
+
 						if (suppressThisPrefix && modifiersLRnew == 0) // So far, it looks like the prefix should be suppressed.
 						{
-							char? ch = null;
-							firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch);
-
 							if (firingIsCertain == null || !fireWithNoSuppress) // Hotkey is ineligible to fire or lacks the no-suppress prefix.
 							{
 								// Resetting the ID is necessary to avoid the following cases:
@@ -2144,7 +2144,9 @@ namespace Keysharp.Core.Common.Threading
 					if (!suppressThisPrefix) // Only for this condition. Not needed for toggle keys and not wanted for modifiers as it would prevent menu suppression.
 						thisKey.noSuppress |= HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT; // Since the "down" is non-suppressed, so should the "up".
 
-					if (thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled)
+					// If a fire-on-release variant was identified, suppression should depend only on that variant.
+						if (firingIsCertain != null ? fireWithNoSuppress :
+							(thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled))
 						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
 					// Mark this key as having been suppressed, so key-up will also be suppressed.

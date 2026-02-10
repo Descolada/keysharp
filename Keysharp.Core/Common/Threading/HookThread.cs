@@ -2147,8 +2147,7 @@ namespace Keysharp.Core.Common.Threading
 					if (thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled)
 						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
-					// Mark this key as having been suppressed.  This currently doesn't have any known effect
-					// since the change to tilde (~) handling in v1.0.95 (commit 161162b8), but may in future.
+					// Mark this key as having been suppressed, so key-up will also be suppressed.
 					thisKey.hotkeyDownWasSuppressed = true;
 					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 				}
@@ -2315,14 +2314,12 @@ namespace Keysharp.Core.Common.Threading
 				// up-event is also needed by the OS, at least WinXP, to properly set the indicator
 				// light and toggle state):
 				if (!thisKey.usedAsSuffix)
-					// If our caller is the mouse hook, both of the following will always be false:
-					// this_key.as_modifiersLR
-					// this_toggle_key_can_be_toggled
-					return (thisKey.asModifiersLR != 0
-							|| fireWithNoSuppress
-							|| thisToggleKeyCanBeToggled) ?
-						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
-						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					// For simplicity and to ensure consistency with the used_as_suffix == true case,
+					// don't reevaluate the conditions which were already evaluated on key-down.
+					return (thisKey.hotkeyDownWasSuppressed)
+						? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
+						: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						   
 
 				// Since the above didn't return, this key is both a prefix and a suffix, but
 				// is currently operating in its capacity as a suffix.
@@ -2682,38 +2679,13 @@ namespace Keysharp.Core.Common.Threading
 				// Check hotkey_id_with_flags again now that the above possibly changed it:
 				if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)
 				{
-					// Even though at this point this_key is a valid suffix, no actionable ModifierVK/SC
-					// or modifiers were pressed down, so just let the system process this normally
-					// (except if it's a toggleable key).  This case occurs whenever a suffix key (which
-					// is also a prefix) is released but the key isn't configured to perform any action
-					// upon key-release.  Currently, I think the only way a key-up event will result
-					// in a hotkey action is for the release of a naked/modifierless prefix key.
-					// Example of a configuration that would result in this case whenever Rshift alone
-					// is pressed then released:
-					// RControl & RShift = Alt-Tab
-					// RShift & RControl = Shift-Alt-Tab
+					// There's no hotkey to fire, but it's still possible that this event should be suppressed.
 					if (keyUp)
-						// These sequence is basically the same as the one used in Case #3
-						// when a prefix key that isn't a suffix failed to modify anything
-						// and was then released, so consider any modifications made here
-						// or there for inclusion in the other one.  UPDATE: Since
-						// the previous sentence is a bit obsolete, describe this better:
-						// If it's a toggleable key that the user wants to allow to be
-						// toggled, just allow this up-event to go through because the
-						// previous down-event for it (in its role as a prefix) would not
-						// have been suppressed:
-						return (thisKey.asModifiersLR != 0
-								// The following line was added for v1.0.37.02 to take into account key-up hotkeys,
-								// the release of which should never be suppressed if it didn't actually fire the
-								// up-hotkey (due to the wrong modifiers being down):
-								|| thisKey.usedAsPrefix == 0
-								|| fireWithNoSuppress
-								// The order on this line important; it relies on short-circuit boolean:
-								|| thisToggleKeyCanBeToggled) ?
-							   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
-							   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
-
-					// v1.0.37.02: Added !this_key.used_as_prefix for mouse hook too (see comment above).
+						// This takes into account both prefix keys and key-up hotkeys: suppress if and only if
+						// key-down was suppressed.
+						return (thisKey.hotkeyDownWasSuppressed) 
+							? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
+							: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
 					// For execution to have reached this point, the following must be true:
 					// 1) aKeyUp==false

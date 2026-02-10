@@ -2782,8 +2782,10 @@ namespace Keysharp.Core.Common.Threading
 			// different modifier combinations, the one that fires might depend on the modifier
 			// state at the time the key was pressed, rather than when it was released.  In other
 			// words, prefixKey may be unrelated to the key-up hotkey if it is a standard modifier.
-			if (prefixKey != null && (foundHk != null || (prefixKey.asModifiersLR != 0 && !keyUp))
-					&& prefixKey.wasJustUsed != KeyType.AS_PASSTHROUGH_PREFIX)
+			if (prefixKey != null && prefixKey.wasJustUsed != KeyType.AS_PASSTHROUGH_PREFIX
+				&& (prefixKey.asModifiersLR != 0 && !keyUp
+					|| shk[(int)hotkeyIdTemp].modifierVK != 0 // Can't rely on found_hk since this_key.hotkey_to_fire_upon_release may have been used.
+					|| shk[(int)hotkeyIdTemp].modifierSC != 0))
 				prefixKey.wasJustUsed = KeyType.AS_PREFIX_FOR_HOTKEY;
 
 			// Now above has ensured that everything is in place for an action to be performed.

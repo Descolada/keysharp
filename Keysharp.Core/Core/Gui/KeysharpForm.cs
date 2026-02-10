@@ -33,6 +33,7 @@
 
 		protected override void CreateHandle()
 		{
+			if (IsDisposed || IsHandleCreated) return;
 			base.CreateHandle();
 			beenConstructed = true;
 		}

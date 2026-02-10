@@ -60,7 +60,7 @@ namespace Keysharp.Scripting
 
 		public object this[object key]
 		{
-			get => TryGetPropertyValue(out object val, key, "__Value") ? val : Script.TheScript.Vars.GetVariable(moduleType, key.ToString()) ?? "";
+			get => GetPropertyValueOrNull(key, "__Value") ?? Script.TheScript.Vars.GetVariable(moduleType, key.ToString()) ?? "";
 			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1)
 				? Script.SetPropertyValue(kso, "__Value", value)
 				: Script.TheScript.Vars.SetVariable(moduleType, key.ToString(), value);

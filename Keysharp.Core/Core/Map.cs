@@ -259,12 +259,13 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Clears all elements from the map.
 		/// </summary>
-		public void Clear()
+		public object Clear()
 		{
 			if (enumerableMap != null)
 				enumerableMap = null;
 
 			map.Clear();
+			return DefaultObject;
 		}
 
 		/// <summary>

@@ -297,21 +297,21 @@ else
 arr := [1, 2, 3]
 arr.Length := 5
 
-if (arr[4] == null && arr[5] == null && arr.Length == 5)
+if (arr[4] is null && arr[5] is null && arr.Length == 5)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 arr.Capacity := 5
 
-if (arr[4] == null && arr[5] == null && arr.Length == 5 && arr.Capacity == 5)
+if (arr[4] is null && arr[5] is null && arr.Length == 5 && arr.Capacity == 5)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 arr.Capacity := 10
 
-if (arr[4] == null && arr[5] == null && arr.Length == 5 && arr.Capacity == 10)
+if (arr[4] is null && arr[5] is null && arr.Length == 5 && arr.Capacity == 10)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -729,7 +729,7 @@ else
 arr := [10, 20, 30]
 val := arr.RemoveAt(1, 1)
 
-if (val is unset && arr[1] = 20 && arr[2] == 30 && arr.Length == 2)
+if (val = "" && arr[1] = 20 && arr[2] == 30 && arr.Length == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -745,7 +745,7 @@ else
 arr := [10, 20, 30]
 val := arr.RemoveAt(1, 3)
 
-if (val is unset && arr.Length == 0)
+if (val = "" && arr.Length == 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -753,7 +753,7 @@ else
 arr := [10, 20, 30]
 val := arr.RemoveAt(-1, 1)
 
-if (val is unset && arr[1] = 10 && arr[2] == 20 && arr.Length == 2)
+if (val = "" && arr[1] = 10 && arr[2] == 20 && arr.Length == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -761,7 +761,7 @@ else
 arr := [10, 20, 30]
 val := arr.RemoveAt(-3, 3)
 
-if (val is unset && arr.Length == 0)
+if (val = "" && arr.Length == 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -873,7 +873,7 @@ if (a.Length == 3)
 else
 	FileAppend "fail", "*"
 
-if (a[1] == 1 && a[2] == unset && a[3] == 3)
+if (a[1] == 1 && a[2] is unset && a[3] == 3)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -885,7 +885,7 @@ if (a.Length == 2)
 else
 	FileAppend "fail", "*"
 
-if (a[1] == unset && a[2] == 2)
+if (a[1] is unset && a[2] == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

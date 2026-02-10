@@ -221,7 +221,7 @@ namespace Keysharp.Core
 				if (arg is null) return null;
 
 				// ByRef box
-				if (arg is KeysharpObject box && Script.TryGetPropertyValue(out var v, box, "__Value"))
+				if (arg is KeysharpObject box && Script.GetPropertyValueOrNull(box, "__Value") is object v)
 					arg = v;
 
 				if (arg is Clr.ManagedInstance mi) return mi._type;

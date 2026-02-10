@@ -260,7 +260,7 @@ namespace Keysharp.Core
 		internal static object UnsetErrorOccurred(string text, object ret = null)
 		{
 			Error err;
-			return ErrorOccurred(err = new UnsetError($"{text} is null.")) ? throw err : ret ?? DefaultErrorObject;
+			return ErrorOccurred(err = new UnsetError($"{text} was unset.")) ? throw err : ret ?? DefaultErrorObject;
 		}
 
 		/// <summary>

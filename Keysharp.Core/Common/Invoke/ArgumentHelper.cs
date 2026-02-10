@@ -1,4 +1,4 @@
-﻿namespace Keysharp.Core.Common.Invoke
+namespace Keysharp.Core.Common.Invoke
 {
 	internal class ComArgumentHelper : ArgumentHelper
 	{
@@ -120,7 +120,7 @@
 						object kptr;
 
 						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p') && ((kso is IPointable ip && (kptr = ip.Ptr) != null)
-							|| Script.TryGetPropertyValue(out kptr, kso, "ptr")))
+							|| (kptr = Script.GetPropertyValueOrNull(kso, "ptr")) != null))
 						{
 							if (last == '*' || (char)(last | 0x20) == 'p')
 								OutputVars[paramIndex] = (typeof(nint), true);
@@ -137,7 +137,7 @@
 
 					if (p is KeysharpObject kso 
 						&& !OutputVars.ContainsKey(paramIndex) //must not be a Ptr object
-						&& Script.TryGetPropertyValue(out object kptr, kso, "__Value"))
+						&& Script.GetPropertyValueOrNull(kso, "__Value") is object kptr)
 						p = kptr;
 
 					// Pin the object and store its address
@@ -199,7 +199,7 @@
 					}
 
 					// Special case for strings passed by reference but not with "str*", since strings are always by reference
-					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(out object kptr, kso2, "__Value"))
+					if (p is KeysharpObject kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
 					{
 						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;
@@ -244,7 +244,7 @@
 						type = isReturn ? typeof(char[]) : typeof(nint);
 						goto TypeDetermined;
 					}
-					if (p is KeysharpObject kso2 && Script.TryGetPropertyValue(out object kptr, kso2, "__Value"))
+					if (p is KeysharpObject kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
 					{
 						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;

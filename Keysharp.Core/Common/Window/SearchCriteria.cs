@@ -1,4 +1,4 @@
-﻿namespace Keysharp.Core.Common.Window
+namespace Keysharp.Core.Common.Window
 {
 	internal class SearchCriteria
 	{
@@ -33,7 +33,7 @@
 
 			object hwnd = null;
 
-			if (Script.TryGetPropertyValue(out hwnd, obj, "Hwnd") && hwnd != null)
+			if ((hwnd = Script.GetPropertyValueOrNull(obj, "Hwnd")) != null)
 			{
 				if (hwnd is long ll)
 				{

@@ -12,7 +12,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			var moduleType = GetType();
 			var value = TheScript.Vars.GetVariable(moduleType, name, true);
 			if (args != null && args.Length > 0)
-				return Keysharp.Scripting.Script.Index(value, args);
+				return Keysharp.Scripting.Script.GetIndexOrNull(value, args);
 			return value;
 		}
 
@@ -57,7 +57,7 @@ namespace Keysharp.Core.Common.ObjectBase
 
 			var tail = new object[indexArgs.Length - 1];
 			System.Array.Copy(indexArgs, 1, tail, 0, tail.Length);
-			return Keysharp.Scripting.Script.Index(value, tail);
+			return Keysharp.Scripting.Script.GetIndexOrNull(value, tail);
 		}
 
 		void IMetaObject.set_Item(object[] indexArgs, object value)
@@ -102,7 +102,7 @@ namespace Keysharp.Core.Common.ObjectBase
 				return null;
 
 			if (args != null && args.Length > 0)
-				return Keysharp.Scripting.Script.Index(value, args);
+				return Keysharp.Scripting.Script.GetIndexOrNull(value, args);
 			return value;
 		}
 

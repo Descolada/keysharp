@@ -228,10 +228,10 @@ namespace Keysharp.Core
 		///     application such as SysEdit or TextPad. However, it is less accurate for other purposes such as detecting controls inside a GroupBox control.<br/>
 		///     2: Stores the control's HWND in OutputVarControl rather than the control's ClassNN.
 		/// </param>
-		public static object MouseGetPos([ByRef][Optional()][DefaultParameterValue(null)] object outputVarX,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarY,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarWin,
-										 [ByRef][Optional()][DefaultParameterValue(null)] object outputVarControl,
+		public static object MouseGetPos([ByRef] object outputVarX = null,
+										 [ByRef] object outputVarY = null,
+										 [ByRef] object outputVarWin = null,
+										 [ByRef] object outputVarControl = null,
 										 object flag = null)
 		{
 			var mode = flag.Al(0L);

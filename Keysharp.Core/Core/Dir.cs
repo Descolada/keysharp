@@ -203,61 +203,6 @@
 		public static object SetWorkingDir(object dirName) => A_WorkingDir = dirName.As();
 
 		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj)
-		{
-			VarRef outFileName = new(null);
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-			return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName)
-		{
-            VarRef outDir = new(null);
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir)
-		{
-            VarRef outExtension = new(null);
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension)
-		{
-            VarRef outNameNoExt = new(null);
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
-		/// <seealso cref="SplitPath(path, outFileName, outDir, outExtension, outNameNoExt, outDrive)"/>
-		/// </summary>
-		public static object SplitPath(object obj, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt)
-		{
-            VarRef outDrive = new(null);
-            return SplitPath(obj, outFileName, outDir, outExtension, outNameNoExt, outDrive);
-		}
-
-		/// <summary>
 		/// Separates a file name or URL into its name, directory, extension, and drive.
 		/// </summary>
 		/// <param name="path">The file name or URL to be analyzed.</param>
@@ -281,16 +226,15 @@
 		/// If the file is on a local or mapped drive, the variable will be set to the drive letter followed by a colon (no backslash).<br/>
 		/// If the file is on a network path (UNC), the variable will be set to the share name, e.g. \\Workstation01
 		/// </param>
-		public static object SplitPath(object path, [ByRef] object outFileName, [ByRef] object outDir, [ByRef] object outExtension, [ByRef] object outNameNoExt, [ByRef] object outDrive)
+		public static object SplitPath(object path, [ByRef] object outFileName = null, [ByRef] object outDir = null, [ByRef] object outExtension = null, [ByRef] object outNameNoExt = null, [ByRef] object outDrive = null)
 		{
-			outFileName ??= VarRef.Empty; outDir ??= VarRef.Empty; outExtension ??= VarRef.Empty; outNameNoExt ??= VarRef.Empty; outDrive ??= VarRef.Empty;
-
             var p = path.As();
 
 			if (p.Contains("://"))
 			{
 				var uri = new Uri(p);
-                Script.SetPropertyValue(outDrive, "__Value", uri.Scheme + "://" + uri.Host);
+				string drive = uri.Scheme + "://" + uri.Host;
+				if (outDrive != null) Script.SetPropertyValue(outDrive, "__Value", drive);
 				var lastSlash = uri.LocalPath.LastIndexOf('/');
 				var localPath = uri.LocalPath;
 
@@ -300,27 +244,27 @@
 
 					if (tempFilename.Contains('.'))
 					{
-						Script.SetPropertyValue(outFileName, "__Value", tempFilename);
-                        Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(tempFilename).Trim('.'));
-                        Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(tempFilename));
+						if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", tempFilename);
+						if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(tempFilename).Trim('.'));
+						if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(tempFilename));
 						localPath = localPath.Substring(0, lastSlash);
 					}
 					else
 					{
-						Script.SetPropertyValue(outFileName, "__Value", "");
-                        Script.SetPropertyValue(outExtension, "__Value", "");
-                        Script.SetPropertyValue(outNameNoExt, "__Value", "");
+						if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", "");
+						if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", "");
+						if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", "");
                     }
 				}
 
-				Script.SetPropertyValue(outDir, "__Value", (Script.GetPropertyValue(outDrive, "__Value") + localPath).TrimEnd('/'));
+				if (outDir != null) Script.SetPropertyValue(outDir, "__Value", (drive + localPath).TrimEnd('/'));
 			}
 			else
 			{
 				var input = p == "" ? DefaultObject : Path.GetFullPath(p);
-                Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input) ?? DefaultObject);
-                Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input)?.Trim('.') ?? DefaultObject);
-                Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input) ?? DefaultObject);
+				if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input) ?? DefaultObject);
+				if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input)?.Trim('.') ?? DefaultObject);
+				if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input) ?? DefaultObject);
 
 				if (p.StartsWith(@"\\"))
 				{
@@ -328,25 +272,31 @@
 					var nextSlash = input.IndexOf('\\', 2);
 					var lastSlash = input.LastIndexOf('\\');
 
-					if (nextSlash == -1)
-                        Script.SetPropertyValue(outDrive, "__Value", p);
-					else
-                        Script.SetPropertyValue(outDrive, "__Value", input.Substring(0, nextSlash));
-
-					if (input.Contains('.'))
+					if (outDrive != null)
 					{
-						if (lastSlash == -1)
-                            Script.SetPropertyValue(outDir, "__Value", input);
+						if (nextSlash == -1)
+							Script.SetPropertyValue(outDrive, "__Value", p);
 						else
-                            Script.SetPropertyValue(outDir, "__Value", input.AsSpan().Slice(0, lastSlash).TrimEnd('\\').ToString());
+							Script.SetPropertyValue(outDrive, "__Value", input.Substring(0, nextSlash));
 					}
-					else
-                        Script.SetPropertyValue(outDir, "__Value", input.TrimEnd('\\'));
+
+					if (outDir != null)
+					{
+						if (input.Contains('.'))
+						{
+							if (lastSlash == -1)
+								Script.SetPropertyValue(outDir, "__Value", input);
+							else
+								Script.SetPropertyValue(outDir, "__Value", input.AsSpan().Slice(0, lastSlash).TrimEnd('\\').ToString());
+						}
+						else
+							Script.SetPropertyValue(outDir, "__Value", input.TrimEnd('\\'));
+					}
 				}
 				else
 				{
-                    Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input)?.TrimEnd('\\') ?? DefaultObject);
-                    Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input)?.TrimEnd('\\') ?? DefaultObject);
+					if (outDir != null) Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input)?.TrimEnd('\\') ?? DefaultObject);
+					if (outDrive != null) Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input)?.TrimEnd('\\') ?? DefaultObject);
 				}
 			}
 

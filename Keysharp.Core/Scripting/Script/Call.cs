@@ -193,24 +193,22 @@
 			return (null, null);
 		}
 
-		public static object GetPropertyValue(object item, object name, params object[] args)
-			=> TryGetPropertyValue(out object value, item, name, args)
-				? value
-				: Errors.ErrorOccurred($"Attempting to get property {name.ToString()} on object {item} failed.");
-
-		public static bool TryGetPropertyValue(out object value, object item, object name, params object[] args)
+		// . strict base, strict result
+		public static object GetPropertyValue(object item, object name, params object[] args) =>
+			GetPropertyValueOrNull(item, name, args) ?? Errors.UnsetErrorOccurred($"Property {name} of {item}");
+		// . in ?? context: strict base, allow null result
+		public static object GetPropertyValueOrNull(object item, object name, params object[] args)
 		{
-			value = null;
 			var namestr = name.ToString();
-			if (args == null) throw new Exception("Unexpected null in GetPropertyValue");
-
+			if (item == null) return Errors.UnsetErrorOccurred($"The base for property {name} access");
+			if (args == null) throw new UnsetError("Unexpected null arguments in GetPropertyValue");
+			
 			try
 			{
 				// VarRef fast-path
 				if (item is VarRef vr && namestr.Equals("__Value", StringComparison.OrdinalIgnoreCase))
 				{
-					value = vr.__Value;
-					return true;
+					return vr.__Value;
 				}
 
 				// Unwrap (proto, this) tuple
@@ -225,7 +223,7 @@
 				}
 				else if (Core.Primitive.IsNative(item))
 				{
-					return TryGetPropertyValue(out value,
+					return GetPropertyValueOrNull(
 						(TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item),
 						name, args);
 				}
@@ -237,42 +235,35 @@
 					{
 						if (opm.Value != null)
 						{
-							value = args.Length > 0 ? IndexAt(opm.Value, args) : opm.Value;
-							return true;
+							return args.Length > 0 ? GetIndexOrNull(opm.Value, args) : opm.Value;
 						}
 
 						if (opm.Get != null)
 						{
 							// Allow function or callable object
 							if (opm.Get is FuncObj ifo)
-								value = args.Length > 0 && ifo.MaxParams <= 1 && !ifo.IsVariadic ? IndexAt(ifo.Call(item), args) : ifo.CallInst(item, args);
+								return args.Length > 0 && ifo.MaxParams <= 1 && !ifo.IsVariadic ? GetIndexOrNull(ifo.Call(item), args) : ifo.CallInst(item, args);
 							else
-								value = Invoke(opm.Get, "Call", item, args);
-							return true;
+								return Invoke(opm.Get, "Call", item, args);
 						}
 
 						if (opm.Call != null)
 						{
-							value = opm.Call; // expose function object
-							return true;
+							return opm.Call; // expose function object
 						}
 
-						return false;
+						return null;
 					}
 
 					// __Get meta (function or callable object), only queried for Call and Value (but not Get)
 					if (TryGetOwnPropsMap(kso, "__Get", out var protoGet) && (protoGet.Call ?? protoGet.Value) is object metaGet)
 					{
-						value = (metaGet is IFuncObj f)
-								? f.Call(item, namestr, new Keysharp.Core.Array(args))
-								: Invoke(metaGet, "Call", item, namestr, new Keysharp.Core.Array(args));
-						return value != null;
+						return InvokeOrNull(metaGet, "Call", item, namestr, new Keysharp.Core.Array(args));
 					}
 
 					if (kso is IMetaObject mo)
 					{
-						value = mo.Get(namestr, args);
-						return value != null;
+						return mo.Get(namestr, args);
 					}
 				}
 
@@ -282,8 +273,7 @@
 					// COM
 					if (Marshal.IsComObject(item))
 					{
-						value = item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, args);
-						return value != null;
+						return item.GetType().InvokeMember(namestr, BindingFlags.InvokeMethod | BindingFlags.GetProperty, null, item, args);
 					}
 #endif
 					// Reflection property (non-indexed only)
@@ -291,8 +281,7 @@
 					{
 						if (Reflections.FindAndCacheProperty(item.GetType(), namestr, 0) is MethodPropertyHolder mph)
 						{
-							value = mph.CallFunc(item, null);
-							return value != null;
+							return mph.CallFunc(item, null);
 						}
 					}
 				}
@@ -303,7 +292,7 @@
 				throw;
 			}
 
-			return false;
+			return null;
 		}
 
 		public static object InvokeMeta(object obj, object meth, params object[] parameters)
@@ -346,7 +335,7 @@
 					return null;
 				}
 
-				// Not found → per docs, internal lifecycle invocation should be a no-op (no __Call).
+				// Not found ? per docs, internal lifecycle invocation should be a no-op (no __Call).
 				return null;
 			}
 			catch (Exception e)
@@ -356,11 +345,13 @@
 			}
 		}
 
-
-		public static object Invoke(object obj, object meth, params object[] parameters)
+		// . strict base, strict result
+		public static object Invoke(object obj, object meth, params object[] parameters) =>
+			InvokeOrNull(obj, meth, parameters) ?? Errors.UnsetErrorOccurred($"Invoke result of method {meth} on function {obj}");
+		// . in ?? context: strict base, allow null result
+		public static object InvokeOrNull(object obj, object meth, params object[] parameters)
 		{
-			if (obj == null)
-				throw new UnsetError("Cannot invoke property on an unset variable");
+			if (obj == null) return Errors.UnsetErrorOccurred($"The base object of method {meth}");
 
 			try
 			{
@@ -393,10 +384,10 @@
 					case KeysharpObject callable:
 						// Callable object meta: Call(receiver, name, ParamsArray)
 						if (mitup.Item1 == null)
-							return Invoke(callable, "Call", actualThis, methName, new Keysharp.Core.Array(parameters));
+							return InvokeOrNull(callable, "Call", actualThis, methName, new Keysharp.Core.Array(parameters));
 
 						// Normal callable object: Call(receiver, ...args)
-						return Invoke(callable, "Call", parameters.Prepend(actualThis));
+						return InvokeOrNull(callable, "Call", parameters.Prepend(actualThis));
 
 					case IMetaObject mo:
 						return mo.Call(methName, parameters);

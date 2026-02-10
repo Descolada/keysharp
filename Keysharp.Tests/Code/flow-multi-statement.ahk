@@ -187,14 +187,14 @@ else
 	
 arr := [func3(1, 2, 3),, func3(3, 4, 5)]
 
-if (arr.Length == 3 && arr[1] == 6 && arr[2] == unset && arr[3] == 12)
+if (arr.Length == 3 && arr[1] == 6 && arr[2] is unset && arr[3] == 12)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 arr := [,func3(1, 2, 3),]
 
-if (arr.Length == 2 && arr[1] == unset && arr[2] == 6)
+if (arr.Length == 2 && arr[1] is unset && arr[2] == 6)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

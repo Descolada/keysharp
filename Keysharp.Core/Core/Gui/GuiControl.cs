@@ -333,7 +333,6 @@ namespace Keysharp.Core
 
 			internal static void GetPosHelper(Forms.Control control, bool scaling, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
 			{
-				outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
 				var rect = client ? control.ClientRectangle : control.GetBounds();
 				if (!client && control?.Parent != null)
 				{
@@ -343,18 +342,18 @@ namespace Keysharp.Core
 
 				if (!scaling)
 				{
-					Script.SetPropertyValue(outX, "__Value", (long)rect.X);
-					Script.SetPropertyValue(outY, "__Value", (long)rect.Y);
-					Script.SetPropertyValue(outWidth, "__Value", (long)rect.Width);
-					Script.SetPropertyValue(outHeight, "__Value", (long)rect.Height);
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)rect.X);
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)rect.Y);
+					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (long)rect.Width);
+					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (long)rect.Height);
 				}
 				else
 				{
 					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					Script.SetPropertyValue(outX, "__Value", (long)Math.Ceiling(rect.X * scale));
-					Script.SetPropertyValue(outY, "__Value", (long)Math.Ceiling(rect.Y * scale));
-					Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * scale));
-					Script.SetPropertyValue(outHeight, "__Value", (long)Math.Ceiling(rect.Height * scale));
+					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)Math.Ceiling(rect.X * scale));
+					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)Math.Ceiling(rect.Y * scale));
+					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * scale));
+					if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", (long)Math.Ceiling(rect.Height * scale));
 				}
 			}
 

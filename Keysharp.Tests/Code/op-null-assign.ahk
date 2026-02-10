@@ -69,3 +69,91 @@ if (x is Array)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; Optional chaining tests
+optObj := unset
+optVal := optObj?.prop
+if !IsSet(optVal)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optObj := { prop: { inner: 7 } }
+optVal := optObj?.prop.inner
+if (optVal = 7)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optObj := { prop: unset }
+optVal := optObj?.prop?.inner
+if !IsSet(optVal)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optArr := [10, 20]
+optVal := optArr?.[2]
+if (optVal = 20)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optArr := unset
+optVal := optArr?.[1]
+if !IsSet(optVal)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optCount := 0
+Bump()
+{
+	global optCount
+	optCount += 1
+	return 42
+}
+
+class OptClass
+{
+	M(x)
+	{
+		return x + 1
+	}
+}
+
+optObj := unset
+optVal := optObj?.M(Bump())
+if (optCount = 0 && !IsSet(optVal))
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optObj := OptClass()
+optVal := optObj?.M(Bump())
+if (optCount = 1 && optVal = 43)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optObj := unset
+optVal := optObj?.prop ?? 55
+if (optVal = 55)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Optional chaining with ternary + coalesce (both branches)
+optObj := unset
+dummyObj := { prop: 1 }
+optVal := (true ? optObj?.prop : dummyObj?.prop) ?? 66
+if (optVal = 66)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+optVal := (false ? dummyObj?.prop : optObj?.prop) ?? 77
+if (optVal = 77)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

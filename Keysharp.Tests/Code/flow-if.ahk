@@ -91,21 +91,16 @@ if x = unset
 else if x != unset
 	FileAppend "pass", "*"
 	
-if x == unset
+if x is unset
 	FileAppend "fail", "*"
 else if x != unset
 	FileAppend "pass", "*"
 
-if (x = unset)
+if (x is unset)
 	FileAppend "fail", "*"
 else if (x != unset)
 	FileAppend "pass", "*"
-	
-if (x == unset)
-	FileAppend "fail", "*"
-else if (x != unset)
-	FileAppend "pass", "*"
-	
+
 x := ""
 b := true
 c := false

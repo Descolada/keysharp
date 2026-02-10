@@ -1,4 +1,4 @@
-﻿namespace Keysharp.Core.Common.File
+namespace Keysharp.Core.Common.File
 {
 	public class KeysharpFile : KeysharpObject, IDisposable
 	{
@@ -164,21 +164,22 @@
 
 		~KeysharpFile() => Dispose(false);
 
-		public void Close()
+		public object Close()
 		{
-			br?.Close();
-			bw?.Close();
-			tr?.Close();
-			tw?.Close();
-			fs?.Close();
-			disposed = true;
+			Dispose(false);
+			return DefaultObject;
 		}
 
 		public virtual void Dispose(bool disposing)
 		{
 			if (!disposed)
 			{
-				Close();
+				br?.Close();
+				bw?.Close();
+				tr?.Close();
+				tw?.Close();
+				fs?.Close();
+				disposed = true;
 			}
 		}
 
@@ -203,7 +204,7 @@
 				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
 				{
 					int buflen = int.MinValue;
-					if (buf is Any && TryGetPropertyValue(out object maybeSize, buf, "Size"))
+					if (buf is Any && GetPropertyValueOrNull(buf, "Size") is object maybeSize)
 						buflen = maybeSize.Ai(int.MinValue);
 					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
 					if (len < 0) return Errors.ErrorOccurred("Invalid byte count");
@@ -246,7 +247,7 @@
 				else if (Reflections.GetPtrProperty(buf) is long ptr && ptr != 0)
 				{
 					int buflen = int.MinValue;
-					if (buf is Any && TryGetPropertyValue(out object maybeSize, buf, "Size"))
+					if (buf is Any && GetPropertyValueOrNull(buf, "Size") is object maybeSize)
 						buflen = maybeSize.Ai(int.MinValue);
 					len = count == long.MinValue ? buflen : (buflen != int.MinValue ? Math.Min((int)count, buflen) : (int)count);
 					if (len < 0) return (long)Errors.ErrorOccurred("Invalid byte count", 0L);
@@ -294,7 +295,7 @@
 				s = new string(buf, 0, read);
 
 			s = HandleReadEol(s);
-			return s;
+			return s ?? DefaultObject;
 		}
 
 		public object ReadChar() => br != null ? (long)br.ReadByte() : DefaultObject;

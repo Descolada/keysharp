@@ -1612,7 +1612,21 @@ namespace Keysharp.Scripting
         }
         public override SyntaxNode VisitTernaryExpression([NotNull] TernaryExpressionContext context)
         {
-            return HandleTernaryCondition((ExpressionSyntax)Visit(context.ternCond), (ExpressionSyntax)Visit(context.ternTrue), (ExpressionSyntax)Visit(context.ternFalse));
+            if (!_coalesceOrNullAccess)
+                return HandleTernaryCondition((ExpressionSyntax)Visit(context.ternCond), (ExpressionSyntax)Visit(context.ternTrue), (ExpressionSyntax)Visit(context.ternFalse));
+
+            var prevCoalesceOrNullAccess = _coalesceOrNullAccess;
+            _coalesceOrNullAccess = false;
+            var condition = (ExpressionSyntax)Visit(context.ternCond);
+
+            _coalesceOrNullAccess = prevCoalesceOrNullAccess;
+            var trueExpression = (ExpressionSyntax)Visit(context.ternTrue);
+
+            _coalesceOrNullAccess = prevCoalesceOrNullAccess;
+            var falseExpression = (ExpressionSyntax)Visit(context.ternFalse);
+
+            _coalesceOrNullAccess = prevCoalesceOrNullAccess;
+            return HandleTernaryCondition(condition, trueExpression, falseExpression);
         }
 
         public override SyntaxNode VisitFormalParameterArg([Antlr4.Runtime.Misc.NotNull] FormalParameterArgContext context)
@@ -1937,14 +1951,20 @@ namespace Keysharp.Scripting
 				}
 
                 // Create a delegate or closure and add it to the current function's body
+                // Local functions cannot have access modifiers.
+                var localModifiers = SyntaxFactory.TokenList(modifiers
+                    .Where(m => m.IsKind(SyntaxKind.StaticKeyword)
+                        || m.IsKind(SyntaxKind.AsyncKeyword)
+                        || m.IsKind(SyntaxKind.UnsafeKeyword)));
+
                 var delegateSyntax = SyntaxFactory.LocalFunctionStatement(
                         methodDeclaration.ReturnType,
                         methodDeclaration.Identifier)
                     .WithParameterList(methodDeclaration.ParameterList)
                     .WithBody(methodDeclaration.Body)
-                    .WithModifiers(modifiers);
+                    .WithModifiers(localModifiers);
 
-                var isStatic = modifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword));
+                var isStatic = localModifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword));
 				var insertAtTop = isStatic && !isAutoExecFunc;
 
 				InvocationExpressionSyntax funcObj = CreateFuncObj(

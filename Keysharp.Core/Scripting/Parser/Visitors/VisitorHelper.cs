@@ -1,13 +1,15 @@
-﻿using Antlr4.Runtime.Tree;
-using Antlr4.Runtime;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using static MainParser;
+﻿using System;
 using System.Data.Common;
 using System.Linq.Expressions;
+using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
+using Antlr4.Runtime.Tree;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Emit;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
+using static MainParser;
 
 namespace Keysharp.Scripting
 {
@@ -1402,8 +1404,14 @@ namespace Keysharp.Scripting
 		public ExpressionSyntax GenerateFunctionInvocation(
             ExpressionSyntax targetExpression,
             ArgumentListSyntax argumentList,
-            string methodName)
+            string methodName,
+			bool useOrNull = false)
         {
+			var targetInvocation = targetExpression as InvocationExpressionSyntax;
+			var invokeMethod = useOrNull
+				? (InvocationExpressionSyntax)InternalMethods.InvokeOrNull
+				: (InvocationExpressionSyntax)InternalMethods.Invoke;
+
             // 1. Built-in functions: Directly invoke the built-in method
             // except in the case of a variadic function call
             if (!string.IsNullOrEmpty(methodName)
@@ -1432,7 +1440,7 @@ namespace Keysharp.Scripting
 				if (ResolveUserTypeName(identifierName.Identifier.Text, UserTypeLookupMode.TopLevelOnly) != null)
 				{
 					// Convert to Invoke(targetExpression, "Call", arguments)
-					return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+					return invokeMethod
 						.WithArgumentList(
 						CreateArgumentList(
 							targetExpression,
@@ -1444,11 +1452,13 @@ namespace Keysharp.Scripting
             }
 
             // 3. Handle GetPropertyValue invocation
-            if (targetExpression is InvocationExpressionSyntax invocationExpression &&
-                CheckInvocationExpressionName(invocationExpression, "GetPropertyValue"))
+            if (targetInvocation != null &&
+                (CheckInvocationExpressionName(targetInvocation, "GetPropertyValue")
+					|| CheckInvocationExpressionName(targetInvocation, "GetPropertyValueOrNull")
+					))
             {
                 // Extract arguments of GetPropertyValue
-                var propertyArguments = invocationExpression.ArgumentList.Arguments;
+                var propertyArguments = targetInvocation.ArgumentList.Arguments;
                 if (propertyArguments.Count == 2)
                 {
                     // Extract base expression and property name
@@ -1456,7 +1466,7 @@ namespace Keysharp.Scripting
                     var propertyNameExpression = propertyArguments[1].Expression;
 
                     // Generate Script.Invoke(obj, prop, args)
-                    return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                    return invokeMethod
                         .WithArgumentList(
                             CreateArgumentList(
                                 baseExpression,
@@ -1468,7 +1478,7 @@ namespace Keysharp.Scripting
             }
 
             // 4. Default behavior: Treat as callable object and invoke .Call
-            return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+            return invokeMethod
             .WithArgumentList(
                 CreateArgumentList(
 					targetExpression,
@@ -2075,13 +2085,13 @@ namespace Keysharp.Scripting
             }
             else if (targetExpression is InvocationExpressionSyntax invocationExpression)
             {
-                // Handle Keysharp.Scripting.Script.Index(varname, index)
-                if (CheckInvocationExpressionName(invocationExpression, "Index", true))
+                // Handle Keysharp.Scripting.Script.GetIndex(varname, index)
+                if (CheckInvocationExpressionName(invocationExpression, "GetIndex", true))
                 {
                     return SyntaxFactory.ObjectCreationExpression(
                         SyntaxFactory.IdentifierName("VarRef"),
                         CreateArgumentList(
-                        // Getter lambda: () => Keysharp.Scripting.Script.Index(varname, index)
+                        // Getter lambda: () => Keysharp.Scripting.Script.GetIndex(varname, index)
                             SyntaxFactory.ParenthesizedLambdaExpression(
                                 SyntaxFactory.ParameterList(),
                                 invocationExpression
@@ -2218,7 +2228,7 @@ namespace Keysharp.Scripting
                 || (ies.Expression is QualifiedNameSyntax qes && qes.Right.Identifier.Text.Equals(target, comparison));
         }
 
-        internal ExpressionSyntax CreateSuperTuple()
+		internal ExpressionSyntax CreateSuperTuple()
         {
             return SyntaxFactory.CastExpression(
                 SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),

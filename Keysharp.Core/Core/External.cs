@@ -1,4 +1,4 @@
-﻿namespace Keysharp.Core
+namespace Keysharp.Core
 {
 	/// <summary>
 	/// Public interface for external-related functions.
@@ -41,8 +41,8 @@
 				address = abuf.Ptr;
 				size = abuf.Size.Al();
 			}
-			else if (address is KeysharpObject kso && Script.TryGetPropertyValue(out object p, kso, "ptr")
-					 && Script.TryGetPropertyValue(out object s, kso, "size"))
+			else if (address is KeysharpObject kso && Script.GetPropertyValueOrNull(kso, "ptr") is object p
+					 && Script.GetPropertyValueOrNull(kso, "size") is object s)
 			{
 				address = p;
 				size = s.Al();
@@ -174,8 +174,8 @@
 				size = buf.Size.Al();
 				target = buf.Ptr;
 			}
-			else if (target is Any kso && Script.TryGetPropertyValue(out object p, kso, "ptr") && p != null
-					 && Script.TryGetPropertyValue(out object s, kso, "size") && s != null)
+			else if (target is Any kso && Script.GetPropertyValueOrNull(kso, "ptr") is object p && p != null
+					 && Script.GetPropertyValueOrNull(kso, "size") is object s && s != null)
 			{
 				size = s.Al();
 				target = p;

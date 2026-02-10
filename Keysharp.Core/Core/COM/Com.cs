@@ -1,4 +1,4 @@
-﻿#if WINDOWS
+#if WINDOWS
 namespace Keysharp.Core.COM
 {
 	internal class ComMethodData
@@ -133,7 +133,7 @@ namespace Keysharp.Core.COM
 		{
 			nint ptr;
 
-			if (comObj is Any kso && Script.TryGetPropertyValue(out object kptr, kso, "ptr"))
+			if (comObj is Any kso && Script.GetPropertyValueOrNull(kso, "ptr") is object kptr)
 				comObj = kptr;
 
 			if (comObj is long l)
@@ -343,7 +343,7 @@ namespace Keysharp.Core.COM
 
 			nint pUnk = 0;
 
-			if (comObj is Any kso && Script.TryGetPropertyValue(out object propPtr, comObj, "ptr"))
+			if (comObj is Any kso && Script.GetPropertyValueOrNull(comObj, "ptr") is object propPtr)
 				comObj = propPtr;
 
 			if (Marshal.IsComObject(comObj))

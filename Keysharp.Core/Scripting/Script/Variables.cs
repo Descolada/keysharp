@@ -401,7 +401,7 @@ namespace Keysharp.Scripting
 
 		public object this[object key]
         {
-			get => TryGetPropertyValue(out object val, key, "__Value") ? val : GetVariable(key.ToString()) ?? "";
+			get => GetPropertyValueOrNull(key, "__Value") ?? GetVariable(key.ToString()) ?? "";
 			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1) ? Script.SetPropertyValue(kso, "__Value", value) : SetVariable(key.ToString(), value);
 		}
 

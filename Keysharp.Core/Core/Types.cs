@@ -181,7 +181,7 @@ namespace Keysharp.Core
 		{
 			Any val = value as Any;
 			if (val == null) return (long)Errors.ErrorOccurred("IsSetRef requires a VarRef parameter.", DefaultErrorLong);
-			return TryGetPropertyValue(out object refvalue, val, "__Value") && refvalue != null ? 1L : 0L;
+			return GetPropertyValueOrNull(val, "__Value") is object refvalue && refvalue != null ? 1L : 0L;
 		}
 
 		/// <summary>
@@ -290,7 +290,7 @@ namespace Keysharp.Core
 				if (value is KeysharpObject kso && kso.op != null) {
 					if (kso.op.ContainsKey("__Class"))
 						return "Prototype";
-                    else if (Script.TryGetPropertyValue(out object oname, kso, "__Class") && oname is string name && name != null)
+                    else if (Script.GetPropertyValueOrNull(kso, "__Class") is object oname && oname is string name && name != null)
 						type = name;
                     else
 						return "Object";

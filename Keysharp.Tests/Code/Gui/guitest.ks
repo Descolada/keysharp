@@ -2960,7 +2960,7 @@ ComExecNotepadShell(*)
 {
 	global shell
 	
-	if (shell == unset)
+	if (shell is unset)
 		shell := ComObject("WScript.Shell")
 		
 	exec := shell.Exec("Notepad.exe")
@@ -2970,7 +2970,7 @@ ComRunNotepadShell(*)
 {
 	global shell
 
-	if (shell == unset)
+	if (shell is unset)
 		shell := ComObject("WScript.Shell")
 		
 	exec := shell.Run("Notepad.exe")

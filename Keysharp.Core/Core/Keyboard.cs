@@ -77,8 +77,8 @@ namespace Keysharp.Core
 		/// and the output variables are made blank. It returns 1 (true) if the system returned a caret position,<br/>
 		/// but this does not necessarily mean a caret is visible.
 		/// </returns>
-		public static bool CaretGetPos([ByRef][Optional()][DefaultParameterValue(null)] object outputVarX,
-									   [ByRef][Optional()][DefaultParameterValue(null)] object outputVarY)
+		public static bool CaretGetPos([ByRef] object outputVarX = null,
+									   [ByRef] object outputVarY = null)
 		{
 			outputVarX ??= VarRef.Empty; outputVarY ??= VarRef.Empty;
             // I believe only the foreground window can have a caret position due to relationship with focused control.
@@ -86,8 +86,8 @@ namespace Keysharp.Core
 
 			if (targetWindow == 0) // No window is in the foreground, report blank coordinate.
 			{
-				Script.SetPropertyValue(outputVarX, "__Value", 0L);
-                Script.SetPropertyValue(outputVarY, "__Value", 0L);
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", 0L);
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", 0L);
 				return false;
 			}
 
@@ -97,8 +97,8 @@ namespace Keysharp.Core
 
 			if (!result)
 			{
-                Script.SetPropertyValue(outputVarX, "__Value", 0L);
-                Script.SetPropertyValue(outputVarY, "__Value", 0L);
+				if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", 0L);
+				if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", 0L);
                 return false;
 			}
 
@@ -114,8 +114,8 @@ namespace Keysharp.Core
 			CoordToScreen(ref x, ref y, CoordMode.Caret);// Now convert back to whatever is expected for the current mode.
 			pt.X -= x;
 			pt.Y -= y;
-            Script.SetPropertyValue(outputVarX, "__Value", (long)pt.X);
-            Script.SetPropertyValue(outputVarY, "__Value", (long)pt.Y);
+			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)pt.X);
+			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)pt.Y);
 			return true;
 		}
 

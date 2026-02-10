@@ -1222,7 +1222,8 @@ namespace Keysharp.Core
 				// If Target is a buffer-like object, cap capacity to its Size and enforce rules.
 				if (buf != null)
 				{
-					var hasSize = TryGetPropertyValue(out object sz, buf, "Size");
+					object sz = GetPropertyValueOrNull(buf, "Size");
+					bool hasSize = sz != null;
 					var bufSize = hasSize ? sz.Al() : 0L;
 
 					if (!hasSize)
@@ -1289,25 +1290,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
-		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null)
-		{
-			object obj4 = null;
-			object outputVarCount = new VarRef(null);
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
-		}
-
-		/// <summary>
-		/// <see cref="StrReplace(object, object, object, object, VarRef, object)"/>
-		/// </summary>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, object outputVarCount)
-		{
-			object obj4 = null;
-			return StrReplace(haystack, needle, replaceText, caseSense, outputVarCount, obj4);
-		}
-
-		/// <summary>
 		/// Replaces the specified substring with a new string.
 		/// </summary>
 		/// <param name="haystack">The string whose content is searched and replaced.</param>
@@ -1328,7 +1310,7 @@ namespace Keysharp.Core
 		/// Otherwise, specify the maximum number of replacements to allow.
 		/// </param>
 		/// <returns>The newly modified string.</returns>
-		public static string StrReplace(object haystack, object needle, object replaceText, object caseSense, [ByRef] object outputVarCount, object limit)
+		public static string StrReplace(object haystack, object needle, object replaceText = null, object caseSense = null, [ByRef] object outputVarCount = null, object limit = null)
 		{
 			var input = haystack.As();
 			var search = needle.As();
@@ -1338,7 +1320,7 @@ namespace Keysharp.Core
 
 			if (IsAnyBlank(input, search))
 			{
-                Script.SetPropertyValue(outputVarCount, "__Value", 0L);
+                if (outputVarCount != null) Script.SetPropertyValue(outputVarCount, "__Value", 0L);
                 return DefaultObject;
 			}
 
@@ -1363,7 +1345,7 @@ namespace Keysharp.Core
 			if (n < input.Length)
 				_ = buf.Append(input, n, input.Length - n);
 
-			Script.SetPropertyValue(outputVarCount, "__Value", ct);
+			if (outputVarCount != null) Script.SetPropertyValue(outputVarCount, "__Value", ct);
 			return buf.ToString();
 		}
 
@@ -1541,7 +1523,7 @@ namespace Keysharp.Core
 			if (!(targetVar is KeysharpObject))
 				throw new TypeError($"Expected argument of type VarRef, but received {targetVar.GetType()}");
 
-			var target = Script.GetPropertyValue(targetVar, "__Value") ?? "";
+			var target = Script.GetPropertyValueOrNull(targetVar, "__Value") ?? "";
 			int capacity;
 			if (target is string targetStr)
 			{

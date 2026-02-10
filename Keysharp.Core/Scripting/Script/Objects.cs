@@ -278,8 +278,6 @@ namespace Keysharp.Scripting
 			return mb.GetCustomAttribute<UserDeclaredNameAttribute>()?.Name;
 		}
 
-		public static object Index(object item, params object[] index) => item == null ? null : IndexAt(item, index);
-
 		public static object SetObject(object item, params object[] args)
 		{
 			object key = null;
@@ -424,10 +422,15 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		private static object IndexAt(object item, params object[] index)
+		// . strict base, strict result
+		public static object GetIndex(object item, params object[] index) =>
+			GetIndexOrNull(item, index) ?? Errors.UnsetErrorOccurred($"Index {(index.Length > 0 ? index[0] : "[]")} of {item}");
+		// . in ?? context: strict base, allow null result
+		public static object GetIndexOrNull(object item, params object[] index)
 		{
+			if (item == null) return Errors.UnsetErrorOccurred($"The base object of indexer");
 			if (index == null) index = new object[] { null };
-			if (index.Length == 0) return GetPropertyValue(item, "__Item");
+			if (index.Length == 0) return GetPropertyValueOrNull(item, "__Item");
 
 			int len = index.Length;
 			object firstKey = index[0];
@@ -469,12 +472,16 @@ namespace Keysharp.Scripting
 						if (opm.Get != null)
 						{
 							if (opm.Get is IFuncObj fget)
+							{
 								return fget.CallInst(item, index);
-							// Callable object getter
-							return Invoke(opm.Get, "Call", item, index);
+							} else
+								// Callable object getter
+								return InvokeOrNull(opm.Get, "Call", item, index);
 						}
 						if (opm.Value != null)
-							return IndexAt(opm.Value, index);
+						{
+							return GetIndexOrNull(opm.Value, index);
+						}
 					}
 
 					if (proto is IMetaObject mo)
@@ -482,7 +489,7 @@ namespace Keysharp.Scripting
 				}
 				else if (Core.Primitive.IsNative(item))
 				{
-					return IndexAt((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
+					return GetIndexOrNull((TheScript.Vars.Prototypes[Core.Primitive.MapPrimitiveToNativeType(item)], item), index);
 				}
 
 				// Single-argument index fast paths
@@ -517,7 +524,9 @@ namespace Keysharp.Scripting
 				{
 					var t = typetouse ?? item.GetType();
 					if (Reflections.FindAndCacheInstanceMethod(t, "get_Item", len) is MethodPropertyHolder mph)
+					{
 						return mph.CallFunc(item, index);
+					}
 				}
 			}
 			catch (Exception e)
@@ -526,7 +535,7 @@ namespace Keysharp.Scripting
 				throw;
 			}
 
-			return Errors.ErrorOccurred($"Attempting to get index of {firstKey} on item {item} failed.");
+			return null;
 		}
 
 	}

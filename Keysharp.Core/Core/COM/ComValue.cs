@@ -335,7 +335,7 @@ namespace Keysharp.Core
 				var pm = new ParameterModifier(inputParameters.Length);
 				for (int i = 0; i < inputParameters.Length; i++)
 				{
-					if (inputParameters[i] is KeysharpObject kso && Script.TryGetPropertyValue(out object refval, kso, "__Value"))
+					if (inputParameters[i] is KeysharpObject kso && Script.GetPropertyValueOrNull(kso, "__Value") is object refval)
 					{
 						pm[i] = true;
 						refs[i] = kso; // remember for write-back
@@ -408,7 +408,7 @@ namespace Keysharp.Core
 			{
 				hr = RawInvoke(dispId, invokeKind, null, out result);
 				if (hr >= 0 && args.Length > 0)
-					return Index(this, args);
+					return GetIndexOrNull(this, args);
 			}
 			if (hr < 0)
 				return Errors.ErrorOccurred($"Get property failed for '{propertyName}' ({result})");
@@ -728,7 +728,10 @@ namespace Keysharp.Core
 					{
 						// Extract result
 						var resultVariant = Marshal.PtrToStructure<VARIANT>(pResult);
-						result = VariantHelper.VariantToValue(resultVariant);
+						var resultVt = (VarEnum)resultVariant.vt & ~VarEnum.VT_BYREF;
+						result = (resultVt == VarEnum.VT_NULL || resultVt == VarEnum.VT_EMPTY) 
+							? DefaultObject 
+							: VariantHelper.VariantToValue(resultVariant);
 					}
 
 					// Handle byref out parameters

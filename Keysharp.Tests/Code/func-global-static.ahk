@@ -56,7 +56,7 @@ func2()
 	global y := 22
 	static z
 
-	if (z == unset)
+	if (z is unset)
 		FileAppend "pass", "*"
 	else
 		FileAppend "fail", "*"

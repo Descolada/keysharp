@@ -561,19 +561,21 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ClassName : "";
 
-		public static object WinGetClientPos([ByRef][Optional()][DefaultParameterValue(null)] object outX,
-											 [ByRef][Optional()][DefaultParameterValue(null)] object outY,
-											 [ByRef][Optional()][DefaultParameterValue(null)] object outWidth,
-											 [ByRef][Optional()][DefaultParameterValue(null)] object outHeight,
+		public static object WinGetClientPos([ByRef] object outX = null,
+											 [ByRef] object outY = null,
+											 [ByRef] object outWidth = null,
+											 [ByRef] object outHeight = null,
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
 											 object excludeText = null)
 		{
-            outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-            object valX = Script.GetPropertyValue(outX, "__Value"), valY = Script.GetPropertyValue(outY, "__Value"), valWidth = Script.GetPropertyValue(outWidth, "__Value"), valHeight = Script.GetPropertyValue(outHeight, "__Value");
-            WinPosHelper(true, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
-            Script.SetPropertyValue(outX, "__Value", valX); Script.SetPropertyValue(outY, "__Value", valY); Script.SetPropertyValue(outWidth, "__Value", valWidth); Script.SetPropertyValue(outHeight, "__Value", valHeight);
+            object valX = null, valY = null, valWidth = null, valHeight = null;
+			WinPosHelper(true, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
+            if (outX != null) Script.SetPropertyValue(outX, "__Value", valX); 
+			if (outY != null) Script.SetPropertyValue(outY, "__Value", valY); 
+			if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", valWidth); 
+			if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", valHeight);
 			return null;
 		}
 
@@ -665,20 +667,21 @@ namespace Keysharp.Core
 									   object excludeText = null) =>
 		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.PID : 0L;
 
-		public static object WinGetPos([Optional()][DefaultParameterValue(null)] object outX,
-									   [Optional()][DefaultParameterValue(null)] object outY,
-									   [Optional()][DefaultParameterValue(null)] object outWidth,
-									   [Optional()][DefaultParameterValue(null)] object outHeight,
+		public static object WinGetPos([ByRef] object outX = null,
+									   [ByRef] object outY = null,
+									   [ByRef] object outWidth = null,
+									   [ByRef] object outHeight = null,
 									   object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-            outX ??= VarRef.Empty; outY ??= VarRef.Empty; outWidth ??= VarRef.Empty; outHeight ??= VarRef.Empty;
-            object valX = Script.GetPropertyValue(outX, "__Value"), valY = Script.GetPropertyValue(outY, "__Value"), valWidth = Script.GetPropertyValue(outWidth, "__Value"), valHeight = Script.GetPropertyValue(outHeight, "__Value");
-
-            WinPosHelper(false, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
-            Script.SetPropertyValue(outX, "__Value", valX); Script.SetPropertyValue(outY, "__Value", valY); Script.SetPropertyValue(outWidth, "__Value", valWidth); Script.SetPropertyValue(outHeight, "__Value", valHeight);
+            object valX = null, valY = null, valWidth = null, valHeight = null;
+			WinPosHelper(false, ref valX, ref valY, ref valWidth, ref valHeight, winTitle, winText, excludeTitle, excludeText);
+            if (outX != null) Script.SetPropertyValue(outX, "__Value", valX); 
+			if (outY != null) Script.SetPropertyValue(outY, "__Value", valY); 
+			if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", valWidth); 
+			if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", valHeight);
             return null;
 		}
 

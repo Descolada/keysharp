@@ -7,7 +7,7 @@ val1 := ""
 val2 := ""
 optreffunc(,&val2)
 
-if (val2 == unset)
+if (val2 is unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -17,7 +17,7 @@ val2 := ""
 fo := optreffunc
 fo(,&val2)
 
-if (val2 == unset)
+if (val2 is unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

@@ -330,7 +330,7 @@ namespace Keysharp.Core
 		/// <returns>Unlike <see cref="Run"/>, <see cref="RunWait"/> will wait until target is closed or exits,<br/>
 		/// at which time the return value will be the program's exit code.
 		/// </returns>
-		public static long Run(object target, object workingDir = null, object options = null, object outputVarPID = null, object args = null)
+		public static long Run(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As());
 		}
@@ -371,20 +371,13 @@ namespace Keysharp.Core
 			return DefaultObject;
 		}
 
-		/// <summary>
-		/// <see cref="RunWait(object, object, object, ref object, object)"/>.
-		/// </summary>
-		public static long RunWait(object target, object workingDir = null, object options = null)
-		{
-			return RunWait(target, workingDir, options, null, null);
-		}
 
 		/// <summary>
 		/// Runs an external program.<br/>
 		/// Unlike Run, <see cref="RunWait"/> will wait until the program finishes before continuing.
 		/// <see cref="Run"/>.
 		/// </summary>
-		public static long RunWait(object target, object workingDir, object options, [ByRef] object outputVarPID, object args = null)
+		public static long RunWait(object target, object workingDir = null, object options = null, [ByRef] object outputVarPID = null, object args = null)
 		{
 			return RunInternal(target.As(), workingDir.As(), options.As(), outputVarPID, args.As(), true);
 		}

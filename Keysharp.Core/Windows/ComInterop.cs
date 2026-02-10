@@ -231,7 +231,7 @@ namespace Keysharp.Core.Common.ObjectBase
 						if ((invokeAttr & BindingFlags.GetProperty) != 0
 							|| (invokeAttr & BindingFlags.GetField) != 0)
 						{
-							return Com.ConvertToCOMType(Script.Index(target ?? this, usedArgs));
+							return Com.ConvertToCOMType(Script.GetIndexOrNull(target ?? this, usedArgs));
 						}
 						else
 						{

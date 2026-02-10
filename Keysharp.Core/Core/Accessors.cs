@@ -730,7 +730,7 @@
 
 				for (var i = 0; i < addr.Length; i++)
 					if (addr[i].AddressFamily == AddressFamily.InterNetwork)
-						_ = ips.Add(addr[i].ToString());
+						_ = ips.Push(addr[i].ToString());
 
 				return ips;
 			}

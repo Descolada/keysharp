@@ -63,7 +63,7 @@ else
 	FileAppend "fail", "*"
 
 try {
-	if (arr[3] == unset)
+	if (arr[3] is unset)
 		FileAppend "fail", "*"
 	FileAppend "fail", "*"
 } catch {

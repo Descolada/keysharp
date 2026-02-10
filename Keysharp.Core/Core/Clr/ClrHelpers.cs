@@ -624,6 +624,8 @@ namespace Keysharp.Core
 				try
 				{
 					callResult = m.Invoke(m.IsStatic ? null : instance, inArgs);
+					if (m.ReturnType == typeof(void))
+						callResult = DefaultObject;
 				}
 				catch (TargetInvocationException ex)
 				{
@@ -911,7 +913,7 @@ namespace Keysharp.Core
 				var s = src[i];
 
 				// Keysharp "ByRef": box with __Value
-				if (s is KeysharpObject kso && Script.TryGetPropertyValue(out var v, kso, "__Value"))
+				if (s is KeysharpObject kso && Script.GetPropertyValueOrNull(kso, "__Value") is object v)
 				{
 					boxes.Add((i, kso));
 					s = v;

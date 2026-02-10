@@ -388,7 +388,7 @@ namespace Keysharp.Scripting
                         new[] // Add the call to Invoke((object)super, "__Init") as the first statement
                         {
                     SyntaxFactory.ExpressionStatement(
-                        ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                        ((InvocationExpressionSyntax)InternalMethods.InvokeOrNull)
                         .WithArgumentList(
 							CreateArgumentList(
                                 parser.CreateSuperTuple(),

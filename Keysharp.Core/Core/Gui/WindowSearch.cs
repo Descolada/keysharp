@@ -142,16 +142,17 @@ namespace Keysharp.Core
 				{
 					Capacity = controls.Count
 				};
+				var il = arr as IList;
 
 				if (nn)
 				{
 					foreach (var ctrl in controls)
-						_ = arr.Add(ctrl.GetClassNN(controls));
+						il.Add(ctrl.GetClassNN(controls));
 				}
 				else
 				{
 					foreach (var ctrl in controls)
-						_ = arr.Add(ctrl.Handle.ToInt64());
+						il.Add(ctrl.Handle.ToInt64());
 				}
 
 				return arr;

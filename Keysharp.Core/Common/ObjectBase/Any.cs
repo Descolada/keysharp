@@ -15,8 +15,8 @@ namespace Keysharp.Core.Common.ObjectBase
 	public class Any
 #endif
 	{
-		protected internal Type type;
-		protected internal Dictionary<string, OwnPropsDesc> op = null;
+		internal Type type;
+		internal Dictionary<string, OwnPropsDesc> op = null;
 		internal WeakCollection<Any> children = null;
 		internal bool isPrototype = false;
 

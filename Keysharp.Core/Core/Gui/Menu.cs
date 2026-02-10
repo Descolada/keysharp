@@ -129,7 +129,7 @@
 			if (menuItemName == null && callbackOrSubmenu == null && options == null)
 			{
 				_ = GetMenu().Items.Add(new ToolStripSeparator());
-				return null;
+				return DefaultObject;
 			}
 
 			return AddOrInsert("", menuItemName.As(), callbackOrSubmenu, options.As());

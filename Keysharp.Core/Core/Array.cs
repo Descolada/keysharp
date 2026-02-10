@@ -247,7 +247,7 @@
 		/// </summary>
 		/// <param name="value">The value to add</param>
 		/// <returns>The length of the array after value has been added.</returns>
-		public int Add(object value)
+		int IList.Add(object value)
 		{
 			array.Add(value);
 			return array.Count;
@@ -266,7 +266,12 @@
 		/// <summary>
 		/// Clears all elements from the array.
 		/// </summary>
-		public void Clear() => array.Clear();
+		public object Clear()
+		{
+			array.Clear();
+			return DefaultObject;
+		}
+		void IList.Clear() => array.Clear();
 
 		/// <summary>
 		/// Returns whether the passed in object is contained in the array.
@@ -449,7 +454,7 @@
 		/// </summary>
 		/// <param name="value">The value to search for.</param>
 		/// <returns>The index that value was found at, else 0 if none was found.</returns>
-		public int IndexOf(object value) => (int)IndexOf(value, 1L);
+		int IList.IndexOf(object value) => (int)IndexOf(value, 1L);
 
 		/// <summary>
 		/// Returns the index of the first item in the array
@@ -475,7 +480,7 @@
 		/// </summary>
 		/// <param name="index">The index to insert at.</param>
 		/// <param name="value">The value to insert at the given index.</param>
-		public void Insert(int index, object value) => InsertAt(index, value);
+		void IList.Insert(int index, object value) => InsertAt(index, value);
 
 		/// <summary>
 		/// Inserts one or more values at a given position.
@@ -483,7 +488,7 @@
 		/// <param name="index">The index to insert at. Specifying an index of 0 is the same as specifying Length + 1.</param>
 		/// <param name="args">The values to insert at the given index.</param>
 		/// <exception cref="ValueError">A <see cref="ValueError"/> exception is thrown if index is out of bounds.</exception>
-		public void InsertAt(params object[] args)
+		public object InsertAt(params object[] args)
 		{
 			var o = args;
 
@@ -501,12 +506,14 @@
 				else
 				{
 					_ = Errors.ValueErrorOccurred($"Invalid insertion index of {i}.");
-					return;
+					return DefaultObject;
 				}
 
 				for (i = 1; i < args.Length; i++)//Need to use values here and not o because the enumerator will make the elements into Tuples because of the special enumerator.
 					array.Insert(index++, args[i]);
 			}
+
+			return DefaultObject;
 		}
 
 		/// <summary>
@@ -743,11 +750,11 @@
 				{
 					var ob = array[i];
 					array.RemoveAt(i);
-					return ob;
+					return ob ?? DefaultObject;
 				}
 			}
 
-			return default;
+			return DefaultObject;
 		}
 
 		/// <summary>
@@ -788,7 +795,7 @@
 					if (val is string vs)
 						str = "\"" + vs + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
 					else
-						str = val.ToString();
+						str = val?.ToString() ?? "unset";
 
 					if (i < array.Count - 1)
 						_ = sb.Append($"{str}, ");

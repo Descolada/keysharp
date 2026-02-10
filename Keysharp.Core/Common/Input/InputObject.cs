@@ -180,7 +180,7 @@
 			return DefaultObject;
 		}
 
-		public void KeyOpt(object obj0, object obj1)
+		public object KeyOpt(object obj0, object obj1)
 		{
 			var keys = obj0.As();
 			var options = obj1.As();
@@ -225,8 +225,7 @@
 						continue;
 
 					default:
-						_ = Errors.ValueErrorOccurred($"Invalid option.", options);
-						return;
+						return Errors.ValueErrorOccurred($"Invalid option.", options);
 				}
 
 				if (adding)
@@ -250,30 +249,36 @@
 			}
 
 			input.SetKeyFlags(keys, false, removeFlags, addFlags);
+
+			return DefaultObject;
 		}
 
-		public void Start()
+		public object Start()
 		{
 			if (!input.InProgress())
 			{
 				input.buffer = "";
 				input.InputStart();
 			}
+			return DefaultObject;
 		}
 
-		public void Stop()
+		public object Stop()
 		{
 			if (input.InProgress())
 				input.Stop();
+			return DefaultObject;
 		}
 
-		public void Wait(object obj)
+		public object Wait(object obj)
 		{
 			var ms = obj.Ad(double.MaxValue) * 1000.0;
 			var tickStart = DateTime.UtcNow;
 
 			while (input.InProgress() && (DateTime.UtcNow - tickStart).TotalMilliseconds < ms)
 				_ = Flow.Sleep(20);
+
+			return DefaultObject;
 		}
 	}
 }

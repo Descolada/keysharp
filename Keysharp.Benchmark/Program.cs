@@ -41,8 +41,6 @@ namespace Keysharp.Benchmark
 			_ = config.AddAnalyser([.. DefaultConfig.Instance.GetAnalysers()]);
 #if !DEBUG
 			_ = config.AddValidator([.. DefaultConfig.Instance.GetValidators()]);
-#endif
-#if !DEBUG
 			_ = config.AddJob([.. DefaultConfig.Instance.GetJobs()]);
 			config.UnionRule = ConfigUnionRule.AlwaysUseGlobal; // Overriding the default
 #endif
@@ -64,7 +62,7 @@ namespace Keysharp.Benchmark
 				summary = BenchmarkRunner.Run<DllBench>();
 				MarkdownExporter.Console.ExportToLog(summary, logger);
 			*/
-			summary = BenchmarkRunner.Run<ReflectionBench>(config);
+			summary = BenchmarkRunner.Run<FuncBench>();
 			MarkdownExporter.Console.ExportToLog(summary, logger);
 			//ConclusionHelper.Print(logger, summary.BenchmarksCases.First().Config.GetCompositeAnalyser().Analyse(summary).ToList());
 			_ = Console.ReadLine();

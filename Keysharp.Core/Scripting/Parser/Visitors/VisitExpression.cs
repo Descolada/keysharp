@@ -74,7 +74,7 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitDereference([NotNull] DereferenceContext context)
         {
-            return Visit(context.expression());
+            return Visit(context.singleExpression());
         }
 
         public override SyntaxNode VisitMemberIdentifier([NotNull] MemberIdentifierContext context)
@@ -102,7 +102,7 @@ namespace Keysharp.Scripting
             var accessSuffix = context.accessSuffix();
 			if (accessSuffix.memberIdentifier() != null)
             {
-				return GenerateMemberDotAccess(context.primaryExpression(), accessSuffix.memberIdentifier(), accessSuffix.memberIndexArguments());
+				return GenerateMemberDotAccess((ExpressionSyntax)Visit(context.primaryExpression()), accessSuffix.memberIdentifier(), accessSuffix.memberIndexArguments());
 			} 
             else if (accessSuffix.memberIndexArguments() != null)
             {
@@ -244,10 +244,15 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitExpressionStatement([Antlr4.Runtime.Misc.NotNull] ExpressionStatementContext context)
         {
 			var sequence = context.expressionSequence();
-			if (parser.currentFunc.Name == Keywords.AutoExecSectionName && sequence.ChildCount == 1 && (sequence.expression(0) is FunctionExpressionContext || sequence.expression(0) is FatArrowExpressionContext))
-			{
-				return (MethodDeclarationSyntax)Visit(sequence.expression(0));
+            if (sequence.ChildCount == 1)
+            {
+                var exprContext = sequence.singleExpression(0);
+                if (parser.currentFunc.Name == Keywords.AutoExecSectionName && (exprContext is FunctionExpressionContext || exprContext is FatArrowExpressionContext))
+                {
+                    throw new Exception("Invalid parse: function expression detected instead of function declaration (bug)");
+                }
 			}
+
 			var sequenceArgList = (ArgumentListSyntax)Visit(sequence);
 			ArgumentListSyntax argumentList = CreateArgumentList(sequenceArgList.Arguments.ToArray());
 
@@ -333,7 +338,7 @@ namespace Keysharp.Scripting
 
                     goto ShouldVisitNextChild;
                 }
-                SyntaxNode expr = Visit((ExpressionContext)child);
+                SyntaxNode expr = Visit((SingleExpressionContext)child);
 				if (expr is MethodDeclarationSyntax)
 					return expr;
 				arguments.Add((ExpressionSyntax)expr);
@@ -371,30 +376,12 @@ namespace Keysharp.Scripting
 		{
 			var prevAssignmentTarget = parser.isAssignmentTarget;
 			parser.isAssignmentTarget = true;
-			var expression = (ExpressionSyntax)Visit(context.expression());
-			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
-		}
-
-		public override SyntaxNode VisitPreIncrementDecrementExpressionDuplicate([NotNull] PreIncrementDecrementExpressionDuplicateContext context)
-		{
-			var prevAssignmentTarget = parser.isAssignmentTarget;
-			parser.isAssignmentTarget = true;
 			var expression = (ExpressionSyntax)Visit(context.singleExpression());
 			parser.isAssignmentTarget = prevAssignmentTarget;
 			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=");
 		}
 
 		public override SyntaxNode VisitPostIncrementDecrementExpression([NotNull] PostIncrementDecrementExpressionContext context)
-		{
-			var prevAssignmentTarget = parser.isAssignmentTarget;
-			parser.isAssignmentTarget = true;
-			var expression = (ExpressionSyntax)Visit(context.expression());
-			parser.isAssignmentTarget = prevAssignmentTarget;
-			return HandleCompoundAssignment(expression, CreateNumericLiteral(1L), context.op.Type == MainLexer.PlusPlus ? "+=" : "-=", isPostFix: true);
-		}
-
-		public override SyntaxNode VisitPostIncrementDecrementExpressionDuplicate([NotNull] PostIncrementDecrementExpressionDuplicateContext context)
 		{
 			var prevAssignmentTarget = parser.isAssignmentTarget;
 			parser.isAssignmentTarget = true;
@@ -408,17 +395,7 @@ namespace Keysharp.Scripting
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitPowerExpressionDuplicate([NotNull] PowerExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitUnaryExpression([NotNull] UnaryExpressionContext context)
-		{
-			return HandleUnaryExpressionVisit(context, context.op.Type);
-		}
-
-		public override SyntaxNode VisitUnaryExpressionDuplicate([NotNull] UnaryExpressionDuplicateContext context)
 		{
 			return HandleUnaryExpressionVisit(context, context.op.Type);
 		}
@@ -629,110 +606,55 @@ namespace Keysharp.Scripting
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitMultiplicativeExpressionDuplicate([NotNull] MultiplicativeExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitAdditiveExpression([NotNull] AdditiveExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
-
-		public override SyntaxNode VisitAdditiveExpressionDuplicate([NotNull] AdditiveExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
 
 		public override SyntaxNode VisitBitShiftExpression([NotNull] BitShiftExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitBitShiftExpressionDuplicate([NotNull] BitShiftExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitBitAndExpression([NotNull] BitAndExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
-
-		public override SyntaxNode VisitBitAndExpressionDuplicate([NotNull] BitAndExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
 
 		public override SyntaxNode VisitBitXOrExpression([NotNull] BitXOrExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitBitXOrExpressionDuplicate([NotNull] BitXOrExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitBitOrExpression([NotNull] BitOrExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
-
-		public override SyntaxNode VisitBitOrExpressionDuplicate([NotNull] BitOrExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
 
 		public override SyntaxNode VisitConcatenateExpression([NotNull] ConcatenateExpressionContext context)
         {
             return HandleConcatenateExpressionVisit(context.left, context.right);
         }
 
-		public override SyntaxNode VisitConcatenateExpressionDuplicate([NotNull] ConcatenateExpressionDuplicateContext context)
-		{
-			return HandleConcatenateExpressionVisit(context.left, context.right);
-		}
-
 		public override SyntaxNode VisitRegExMatchExpression([NotNull] RegExMatchExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
-
-		public override SyntaxNode VisitRegExMatchExpressionDuplicate([NotNull] RegExMatchExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
 
 		public override SyntaxNode VisitRelationalExpression([NotNull] RelationalExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitRelationalExpressionDuplicate([NotNull] RelationalExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitEqualityExpression([NotNull] EqualityExpressionContext context)
         {
             return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
         }
 
-		public override SyntaxNode VisitEqualityExpressionDuplicate([NotNull] EqualityExpressionDuplicateContext context)
-		{
-			return HandleBinaryExpressionVisit(context.left, context.right, context.op.Type);
-		}
-
 		public override SyntaxNode VisitContainExpression([NotNull] ContainExpressionContext context)
         {
             return HandleContainExpressionVisit(context.left, context.right, context.op.Type);
         }
-
-		public override SyntaxNode VisitContainExpressionDuplicate([NotNull] ContainExpressionDuplicateContext context)
-		{
-			return HandleContainExpressionVisit(context.left, context.right, context.op.Type);
-		}
 
 		private SyntaxNode HandleContainExpressionVisit(ParserRuleContext left, ParserRuleContext right, int type)
         {
@@ -826,16 +748,8 @@ namespace Keysharp.Scripting
         {
             return HandleLogicalAndExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
         }
-        public override SyntaxNode VisitLogicalAndExpressionDuplicate([NotNull] LogicalAndExpressionDuplicateContext context)
-        {
-            return HandleLogicalAndExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
-        }
 
         public override SyntaxNode VisitLogicalOrExpression([NotNull] LogicalOrExpressionContext context)
-        {
-            return HandleLogicalOrExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
-        }
-        public override SyntaxNode VisitLogicalOrExpressionDuplicate([NotNull] LogicalOrExpressionDuplicateContext context)
         {
             return HandleLogicalOrExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
         }
@@ -887,10 +801,6 @@ namespace Keysharp.Scripting
         {
             return HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
         }
-        public override SyntaxNode VisitCoalesceExpressionDuplicate([NotNull] CoalesceExpressionDuplicateContext context)
-        {
-			return HandleCoalesceExpression((ExpressionSyntax)Visit(context.left), (ExpressionSyntax)Visit(context.right));
-		}
 
         public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
         {
@@ -905,11 +815,6 @@ namespace Keysharp.Scripting
         {
             return HandleUnaryExpressionVisit(context, context.op.Type);
         }
-
-		public override SyntaxNode VisitVerbalNotExpressionDuplicate([NotNull] VerbalNotExpressionDuplicateContext context)
-		{
-			return HandleUnaryExpressionVisit(context, context.op.Type);
-		}
 
 		public override SyntaxNode VisitArrayLiteralExpression([NotNull] ArrayLiteralExpressionContext context)
         {
@@ -927,11 +832,6 @@ namespace Keysharp.Scripting
             return HandleAssignment(leftExpression, rightExpression, assignmentOperator);
         }
         public override SyntaxNode VisitAssignmentExpression([NotNull] AssignmentExpressionContext context)
-        {
-            return HandleAssignmentExpression(context.left, context.right, context.assignmentOperator().GetText());
-        }
-
-        public override SyntaxNode VisitAssignmentExpressionDuplicate([NotNull] AssignmentExpressionDuplicateContext context)
         {
             return HandleAssignmentExpression(context.left, context.right, context.assignmentOperator().GetText());
         }
@@ -1577,12 +1477,8 @@ namespace Keysharp.Scripting
             return binaryOperators.FirstOrDefault(kvp => kvp.Value == binaryOperator).Key;
         }
 
-        private InvocationExpressionSyntax GenerateMemberDotAccess(PrimaryExpressionContext baseIdentifier, MemberIdentifierContext memberIdentifier, MemberIndexArgumentsContext propertyIndexArguments)
+        private InvocationExpressionSyntax GenerateMemberDotAccess(ExpressionSyntax baseExpression, MemberIdentifierContext memberIdentifier, MemberIndexArgumentsContext propertyIndexArguments)
         {
-            // Visit the base expression (e.g., `arr` in `arr.Length`)
-            ExpressionSyntax baseExpression;
-            baseExpression = (ExpressionSyntax)Visit(baseIdentifier);
-
             // Determine the property or method being accessed
             ExpressionSyntax memberExpression = (ExpressionSyntax)Visit(memberIdentifier);
 

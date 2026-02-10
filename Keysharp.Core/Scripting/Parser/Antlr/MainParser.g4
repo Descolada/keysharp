@@ -107,9 +107,10 @@ statement
     | tryStatement
     | awaitStatement
     | deleteStatement
-    | {this.isFunctionCallStatement()}? functionStatement
     | blockStatement
-    | expressionStatement
+    | functionDeclaration
+    | {this.isFunctionCallStatement()}? functionStatement
+    | {!this.next(OpenBrace) && !this.nextIsStatementKeyword()}? expressionStatement
     ;
 
 blockStatement
@@ -161,7 +162,7 @@ importNamedFrom
     ;
 
 importSpecifierList
-    : importSpecifier (s* ',' s* importSpecifier)* (s* ',')?
+    : importSpecifier (WS* ',' importSpecifier)* (WS* ',')?
     ;
 
 importSpecifier
@@ -173,7 +174,7 @@ exportImportList
     ;
 
 exportImportSpecifierList
-    : exportImportSpecifier (s* ',' s* exportImportSpecifier)* (s* ',')?
+    : exportImportSpecifier (WS* ',' exportImportSpecifier)* (WS* ',')?
     ;
 
 exportImportSpecifier
@@ -210,7 +211,7 @@ variableDeclarationList
     ;
 
 variableDeclaration
-    : assignable (assignmentOperator expression | op = ('++' | '--'))?
+    : assignable (assignmentOperator singleExpression | op = ('++' | '--'))?
     ;
 
 functionStatement
@@ -268,11 +269,11 @@ breakStatement
     ;
 
 returnStatement
-    : Return WS* expression?
+    : Return WS* singleExpression?
     ;
 
 yieldStatement
-    : Yield WS* expression?
+    : Yield WS* singleExpression?
     ;
 
 switchStatement
@@ -341,24 +342,20 @@ classTail
     ;
 
 classElement
-    : methodDefinition                                            # ClassMethodDeclaration
+    : functionDeclaration                                         # ClassMethodDeclaration
     | (Static WS*)? propertyDefinition                            # ClassPropertyDeclaration
     | (Static WS*)? fieldDefinition (WS* ',' fieldDefinition)*    # ClassFieldDeclaration
     | classDeclaration                                            # NestedClassDeclaration
     ;
 
-methodDefinition
-    : functionHead functionBody
-    ;
-
 propertyDefinition
-    : classPropertyName '=>' expression
+    : classPropertyName '=>' singleExpression
     | classPropertyName s* '{' (propertyGetterDefinition EOL | propertySetterDefinition EOL | EOL)+ '}'
     ;
 
 classPropertyName
     : propertyName
-    | propertyName '[' formalParameterList? s* ']'
+    | propertyName '[' formalParameterList? ']'
     ;
 
 propertyGetterDefinition
@@ -370,7 +367,7 @@ propertySetterDefinition
     ;
 
 fieldDefinition
-    : (propertyName ('.' propertyName)*) ':=' expression
+    : (propertyName ('.' propertyName)*) ':=' singleExpression
     ;
 
 formalParameterList
@@ -378,7 +375,7 @@ formalParameterList
     ;
 
 formalParameterArg
-    : BitAnd? identifier (':=' expression | WS* QuestionMark)? // expression instead of singleExpression because it's always enclosed in parenthesis and thus function expressions can be unambiguously parsed
+    : BitAnd? identifier (':=' singleExpression | QuestionMark)? // expression instead of singleExpression because it's always enclosed in parenthesis and thus function expressions can be unambiguously parsed
     ;
 
 lastFormalParameterArg
@@ -387,12 +384,12 @@ lastFormalParameterArg
     ;
 
 arrayLiteral
-    : '[' (WS | EOL)* (arguments (WS | EOL)*)? ']'
+    : '[' arguments? ']'
     ;
 
 // Allow [expr1:expr2, expr3:expr4] to create a Map
 mapLiteral
-    : '[' (WS | EOL)* mapElementList (WS | EOL)* ']'
+    : '[' mapElementList ']'
     ;
 
 mapElementList
@@ -400,11 +397,11 @@ mapElementList
     ;
 
 mapElement
-    : key = expression ':' value = expression
+    : key = singleExpression ':' value = singleExpression
     ;
 
 propertyAssignment
-    : memberIdentifier (WS | EOL)* ':' (WS | EOL)* expression                           # PropertyExpressionAssignment
+    : memberIdentifier (WS | EOL)* ':' (WS | EOL)* singleExpression                           # PropertyExpressionAssignment
     // These might be implemented at some point in the future
     //| functionHeadPrefix? '*'? propertyName '(' formalParameterList? ')' functionBody # FunctionProperty
     //| getter '(' ')' functionBody                                        # PropertyGetter
@@ -419,7 +416,7 @@ propertyName
     ;
 
 dereference
-    : DerefStart expression DerefEnd
+    : DerefStart singleExpression DerefEnd
     ;
 
 arguments
@@ -428,70 +425,42 @@ arguments
     ;
 
 argument
-    : expression (Multiply | QuestionMark)?
+    : singleExpression (Multiply | QuestionMark)?
     ;
 
 expressionSequence
-    : expression (WS* ',' expression)*
+    : singleExpression (WS* ',' singleExpression)*
     ;
 
 memberIndexArguments
-    : '[' s* (arguments s*)? ']'
-    ;
-
-// ifStatement and loops require that they don't contain a bodied function expression.
-// The only way I could solve this was to duplicate the expressions with and without function expressions.
-// expression can contain function expressions, whereas singleExpression can not.
-expression
-    : left = expression op = ('++' | '--')                                   # PostIncrementDecrementExpression
-    | op = ('--' | '++') right = expression                                  # PreIncrementDecrementExpression
-    | <assoc = right> left = expression op = '**' right = expression         # PowerExpression
-    | (WS | EOL)* op = ('-' | '+' | '!' | '~') right = expression            # UnaryExpression
-    | left = expression (op = ('*' | '/' | '//') (WS | EOL)*) right = expression  # MultiplicativeExpression
-    | left = expression ((WS | EOL)* op = ('+' | '-') (WS | EOL)*) right = expression   # AdditiveExpression
-    | left = expression op = ('<<' | '>>' | '>>>') right = expression              # BitShiftExpression
-    | left = expression ((WS | EOL)* op = '&' (WS | EOL)*) right = expression      # BitAndExpression
-    | left = expression op = '^' right = expression                                # BitXOrExpression
-    | left = expression op = '|' right = expression                                # BitOrExpression
-    | left = expression (ConcatDot | WS+) right = expression                       # ConcatenateExpression
-    | left = expression op = '~=' right = expression                               # RegExMatchExpression
-    | left = expression op = ('<' | '>' | '<=' | '>=') right = expression          # RelationalExpression
-    | left = expression op = ('=' | '!=' | '==' | '!==') right = expression        # EqualityExpression
-    | left = expression ((WS | EOL)* op = (Instanceof | Is | In | Contains) (WS | EOL)*) right = primaryExpression  # ContainExpression
-    | op = VerbalNot WS* right = expression                                                         # VerbalNotExpression
-    | left = expression (op = '&&' | op = VerbalAnd) right = expression  # LogicalAndExpression
-    | left = expression (op = '||' | op = VerbalOr) right = expression   # LogicalOrExpression
-    | <assoc = right> left = expression op = '??' right = expression                               # CoalesceExpression
-    | <assoc = right> ternCond = expression (WS | EOL)* '?' (WS | EOL)* ternTrue = expression (WS | EOL)* ':' (WS | EOL)* ternFalse = expression # TernaryExpression 
-    | <assoc = right> left = primaryExpression op = assignmentOperator right = expression          # AssignmentExpression
-    | fatArrowExpressionHead '=>' expression             # FatArrowExpression // Not sure why, but this needs to be lower than coalesce expression
-    | functionExpressionHead (WS | EOL)* block                   # FunctionExpression
-    | primaryExpression                                  # ExpressionDummy
+    : '[' arguments? ']'
     ;
 
 singleExpression
-    : left = singleExpression op = ('++' | '--')                                              # PostIncrementDecrementExpressionDuplicate
-    | op = ('--' | '++') right = singleExpression                                             # PreIncrementDecrementExpressionDuplicate
-    | <assoc = right> left = singleExpression op = '**' right = singleExpression              # PowerExpressionDuplicate
-    | (WS | EOL)* op = ('-' | '+' | '!' | '~') right = singleExpression                       # UnaryExpressionDuplicate
-    | left = singleExpression (op = ('*' | '/' | '//') (WS | EOL)*) right = singleExpression  # MultiplicativeExpressionDuplicate
-    | left = singleExpression ((WS | EOL)* op = ('+' | '-') (WS | EOL)*) right = singleExpression   # AdditiveExpressionDuplicate
-    | left = singleExpression op = ('<<' | '>>' | '>>>') right = singleExpression              # BitShiftExpressionDuplicate
-    | left = singleExpression ((WS | EOL)* op = '&' (WS | EOL)*) right = singleExpression      # BitAndExpressionDuplicate
-    | left = singleExpression op = '^' right = singleExpression                                # BitXOrExpressionDuplicate
-    | left = singleExpression op = '|' right = singleExpression                                # BitOrExpressionDuplicate
-    | left = singleExpression (ConcatDot | WS+) right = singleExpression                       # ConcatenateExpressionDuplicate
-    | left = singleExpression op = '~=' right = singleExpression                               # RegExMatchExpressionDuplicate
-    | left = singleExpression op = ('<' | '>' | '<=' | '>=') right = singleExpression          # RelationalExpressionDuplicate
-    | left = singleExpression op = ('=' | '!=' | '==' | '!==') right = singleExpression        # EqualityExpressionDuplicate
-    | left = singleExpression ((WS | EOL)* op = (Instanceof | Is | In | Contains) (WS | EOL)*) right = primaryExpression  # ContainExpressionDuplicate
-    | op = VerbalNot WS* right = singleExpression                                                         # VerbalNotExpressionDuplicate
-    | left = singleExpression (op = '&&' | op = VerbalAnd) right = singleExpression  # LogicalAndExpressionDuplicate
-    | left = singleExpression (op = '||' | op = VerbalOr) right = singleExpression   # LogicalOrExpressionDuplicate
-    | <assoc = right> left = singleExpression op = '??' right = singleExpression                               # CoalesceExpressionDuplicate
-    | <assoc = right> ternCond = singleExpression (WS | EOL)* '?' (WS | EOL)* ternTrue = expression (WS | EOL)* ':' (WS | EOL)* ternFalse = singleExpression # TernaryExpressionDuplicate
-    | <assoc = right> left = primaryExpression op = assignmentOperator right = singleExpression          # AssignmentExpressionDuplicate
-    | primaryExpression                                  # SingleExpressionDummy
+    : left = singleExpression op = ('++' | '--')                                               # PostIncrementDecrementExpression
+    | op = ('--' | '++') right = singleExpression                                              # PreIncrementDecrementExpression
+    | <assoc = right> left = singleExpression op = '**' right = singleExpression               # PowerExpression
+    | op = ('-' | '+' | '!' | '~') right = singleExpression                                    # UnaryExpression
+    | left = singleExpression (op = ('*' | '/' | '//') (WS | EOL)*) right = singleExpression   # MultiplicativeExpression
+    | left = singleExpression ((WS | EOL)* op = ('+' | '-')) right = singleExpression          # AdditiveExpression
+    | left = singleExpression op = ('<<' | '>>' | '>>>') right = singleExpression              # BitShiftExpression
+    | left = singleExpression ((WS | EOL)* op = '&' (WS | EOL)*) right = singleExpression      # BitAndExpression
+    | left = singleExpression op = '^' right = singleExpression                                # BitXOrExpression
+    | left = singleExpression op = '|' right = singleExpression                                # BitOrExpression
+    | left = singleExpression (ConcatDot | {this.wsConcatAllowed()}? WS+) right = singleExpression                        # ConcatenateExpression
+    | left = singleExpression op = '~=' right = singleExpression                               # RegExMatchExpression
+    | left = singleExpression op = ('<' | '>' | '<=' | '>=') right = singleExpression          # RelationalExpression
+    | left = singleExpression op = ('=' | '!=' | '==' | '!==') right = singleExpression        # EqualityExpression
+    | left = singleExpression ((WS | EOL)* op = (Instanceof | Is | In | Contains) (WS | EOL)*) right = primaryExpression  # ContainExpression
+    | op = VerbalNot WS* right = singleExpression                                    # VerbalNotExpression
+    | left = singleExpression (op = '&&' | op = VerbalAnd) right = singleExpression  # LogicalAndExpression
+    | left = singleExpression (op = '||' | op = VerbalOr) right = singleExpression   # LogicalOrExpression
+    | <assoc = right> left = singleExpression op = '??' right = singleExpression                               # CoalesceExpression
+    | <assoc = right> ternCond = singleExpression '?' ternTrue = singleExpression (WS | EOL)* ':' (WS | EOL)* ternFalse = singleExpression # TernaryExpression
+    | <assoc = right> left = primaryExpression op = assignmentOperator right = singleExpression          # AssignmentExpression
+    | {!this.isStatementStart()}? fatArrowExpressionHead '=>' singleExpression  # FatArrowExpression // Not sure why, but this needs to be lower than coalesce expression
+    | {this.isFuncExprAllowed()}? functionExpressionHead (WS | EOL)* block      # FunctionExpression
+    | primaryExpression                                                         # SingleExpressionDummy
     ;
 
 primaryExpression
@@ -512,12 +481,6 @@ accessSuffix
     | modifier = '?'
     ;
 
-memberDot
-    : (WS | EOL)+ '.'
-    | '.' (WS | EOL)*
-    | (WS | EOL)* '?.' (WS | EOL)*
-    ;
-
 memberIdentifier
     : propertyName
     | dynamicIdentifier
@@ -530,7 +493,7 @@ dynamicIdentifier
     ;
 
 initializer
-    : ':=' expression
+    : ':=' singleExpression
     ;
 
 assignable
@@ -550,18 +513,16 @@ functionHeadPrefix
     ;
 
 functionExpressionHead
-    : functionHead
-    | functionHeadPrefix? '(' formalParameterList? ')'
+    : identifierName? '(' formalParameterList? ')'
     ;
 
 fatArrowExpressionHead
-    : (functionHeadPrefix? identifierName)? Multiply 
-    | functionHeadPrefix? BitAnd? identifierName QuestionMark?
+    : identifierName
     | functionExpressionHead
     ;
 
 functionBody
-    : '=>' expression
+    : '=>' singleExpression
     | (WS | EOL)* block
     ;
 

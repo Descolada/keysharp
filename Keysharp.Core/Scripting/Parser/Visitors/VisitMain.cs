@@ -1168,7 +1168,7 @@ namespace Keysharp.Scripting
                 parser.currentFunc.Globals.Add(name);
                 if (context.assignmentOperator() != null)
                 {
-                    var initializerValue = (ExpressionSyntax)Visit(context.expression());
+                    var initializerValue = (ExpressionSyntax)Visit(context.singleExpression());
 
                     return SyntaxFactory.ExpressionStatement(HandleAssignment(
                         identifier,
@@ -1183,7 +1183,7 @@ namespace Keysharp.Scripting
             // Check if there is an initializer (e.g., ':= singleExpression')
             if (context.assignmentOperator() != null)
             {
-                var initializerValue = (ExpressionSyntax)Visit(context.expression());
+                var initializerValue = (ExpressionSyntax)Visit(context.singleExpression());
 
                 if (parser.currentFunc.Scope == eScope.Static)
                 {
@@ -1287,8 +1287,8 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitArgument([NotNull] ArgumentContext context)
         {
             ExpressionSyntax arg = null;
-            if (context.expression() != null)
-                arg = (ExpressionSyntax)Visit(context.expression());
+            if (context.singleExpression() != null)
+                arg = (ExpressionSyntax)Visit(context.singleExpression());
 
             if (arg != null)
             {
@@ -1464,7 +1464,7 @@ namespace Keysharp.Scripting
             else
                 throw new Error("Invalid property name expression identifier");
 
-            var propertyValue = (ExpressionSyntax)Visit(context.expression());
+            var propertyValue = (ExpressionSyntax)Visit(context.singleExpression());
 
             // Return an initializer combining the property name and value
             return SyntaxFactory.InitializerExpression(
@@ -1530,9 +1530,9 @@ namespace Keysharp.Scripting
         {
             ExpressionSyntax returnExpression;
 
-            if (context.expression() != null)
+            if (context.singleExpression() != null)
             {
-                returnExpression = (ExpressionSyntax)Visit(context.expression());
+                returnExpression = (ExpressionSyntax)Visit(context.singleExpression());
             }
             else
             {
@@ -1614,10 +1614,6 @@ namespace Keysharp.Scripting
         {
             return HandleTernaryCondition((ExpressionSyntax)Visit(context.ternCond), (ExpressionSyntax)Visit(context.ternTrue), (ExpressionSyntax)Visit(context.ternFalse));
         }
-        public override SyntaxNode VisitTernaryExpressionDuplicate([NotNull] TernaryExpressionDuplicateContext context)
-        {
-            return HandleTernaryCondition((ExpressionSyntax)Visit(context.ternCond), (ExpressionSyntax)Visit(context.ternTrue), (ExpressionSyntax)Visit(context.ternFalse));
-        }
 
         public override SyntaxNode VisitFormalParameterArg([Antlr4.Runtime.Misc.NotNull] FormalParameterArgContext context)
         {
@@ -1641,9 +1637,9 @@ namespace Keysharp.Scripting
 			}
 
             // Handle default value assignment (:=) or optional parameter (QuestionMark)
-            if (context.expression() != null)
+            if (context.singleExpression() != null)
             {
-                var defaultValue = (ExpressionSyntax)Visit(context.expression());
+                var defaultValue = (ExpressionSyntax)Visit(context.singleExpression());
 
                 // Add [Optional] and [DefaultParameterValue(defaultValue)] attributes
                 parameter = parser.AddOptionalParamValue(parameter, defaultValue);
@@ -1702,25 +1698,28 @@ namespace Keysharp.Scripting
             // Visit the singleExpression (the method to be called)
             ExpressionSyntax targetExpression = (ExpressionSyntax)Visit(context.primaryExpression());
 
-            if (!(targetExpression is IdentifierNameSyntax || targetExpression is IdentifierNameSyntax
-                || targetExpression is MemberAccessExpressionSyntax 
-                || (targetExpression is InvocationExpressionSyntax ies && 
-                    ((ies.Expression is IdentifierNameSyntax identifier && identifier.Identifier.Text.Equals("GetPropertyValue", StringComparison.OrdinalIgnoreCase))
-                    || ies.Expression is MemberAccessExpressionSyntax memberAccess && memberAccess.Name.Identifier.Text.Equals("GetPropertyValue", StringComparison.OrdinalIgnoreCase)
-                    ))))
-                return SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(targetExpression));
-
-            string methodName = ExtractMethodName(targetExpression);
-
-            // Get the argument list
-            ArgumentListSyntax argumentList;
-            if (context.arguments() != null)
-                argumentList = (ArgumentListSyntax)VisitArguments(context.arguments());
-            else
-                argumentList = SyntaxFactory.ArgumentList();
-
-            return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName));
+			return HandleFunctionStatement(targetExpression, context.arguments() != null ? (ArgumentListSyntax)Visit(context.arguments()) : null);
         }
+
+		public ExpressionStatementSyntax HandleFunctionStatement(ExpressionSyntax targetExpression, ArgumentListSyntax argumentList = null)
+		{
+			if (!(targetExpression is IdentifierNameSyntax || targetExpression is IdentifierNameSyntax
+				|| targetExpression is MemberAccessExpressionSyntax
+				|| (targetExpression is InvocationExpressionSyntax ies &&
+					((ies.Expression is IdentifierNameSyntax identifier && identifier.Identifier.Text.Equals("GetPropertyValue", StringComparison.OrdinalIgnoreCase))
+					|| ies.Expression is MemberAccessExpressionSyntax memberAccess && memberAccess.Name.Identifier.Text.Equals("GetPropertyValue", StringComparison.OrdinalIgnoreCase)
+					))))
+			{
+				if (argumentList != null)
+					throw new Exception("Function statement had arguments when it shouldn't have had any (probable bug)");
+				return SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(targetExpression));
+			}
+
+			string methodName = ExtractMethodName(targetExpression);
+			argumentList ??= SyntaxFactory.ArgumentList();
+
+			return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName));
+		}
 
         private void PushFunction(FunctionHeadContext funcHead)
         {
@@ -1734,15 +1733,10 @@ namespace Keysharp.Scripting
 
         private void PushFunction(FunctionExpressionHeadContext funcExprHead)
         {
-			if (funcExprHead.functionHead() is FunctionHeadContext funcHead && funcHead != null)
-			{
-				PushFunction(funcHead);
-			}
-			else
-			{
-				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
-				PreRegisterParameterIdentifiers(funcExprHead.formalParameterList());
-			}
+			string userName = funcExprHead.identifierName()?.GetText() ?? (Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount);
+			PushFunction(userName, EmitKind.TopLevelFunction);
+			parser.currentFunc.Static = false;
+			PreRegisterParameterIdentifiers(funcExprHead.formalParameterList());
 		}
 
         private void PushFunction(FatArrowExpressionHeadContext funcExprHead)
@@ -1752,6 +1746,7 @@ namespace Keysharp.Scripting
             else
 			{
 				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
+				parser.currentFunc.Static = false;
 				var parameterRaw = funcExprHead.identifierName()?.GetText() ?? "args";
 				PreRegisterParameterIdentifier(parameterRaw);
 			}
@@ -1863,11 +1858,6 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitFunctionExpressionHead([NotNull] FunctionExpressionHeadContext context)
         {
-            if (context.functionHead() != null)
-                return Visit(context.functionHead());
-
-            VisitFunctionHeadPrefix(context.functionHeadPrefix());
-
 			parser.currentFunc.Params.Clear();
             parser.currentFunc.Params.AddRange(((ParameterListSyntax)VisitFormalParameterList(context.formalParameterList())).Parameters);
 
@@ -1878,36 +1868,15 @@ namespace Keysharp.Scripting
         {
 			if (context.functionExpressionHead() != null)
 				return Visit(context.functionExpressionHead());
-			if (context.functionHeadPrefix() != null) Visit(context.functionHeadPrefix());
 
 			parser.currentFunc.Params.Clear();
             var parameterRaw = context.identifierName()?.GetText() ?? "args";
             var parameterName = parser.NormalizeIdentifier(parameterRaw, eNameCase.Lower);
             ParameterSyntax parameter;
-            if (context.Multiply() != null)
-            {
-                // Handle 'Multiply' for variadic arguments (params object[])
-                parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
-                    .WithType(PredefinedKeywords.ObjectArrayType)
-                    .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.ParamsKeyword)));
-            }
-            else
-            {
-                TypeSyntax parameterType;
-                if (context.BitAnd() != null)
-                {
-                    parser.currentFunc.VarRefs.Add(parameterName);
-                    parameterType = SyntaxFactory.ParseTypeName("VarRef");
-                }
-                else
-                    parameterType = PredefinedKeywords.ObjectType;
 
-                parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
-                    .WithType(parameterType);
+            parameter = SyntaxFactory.Parameter(SyntaxFactory.Identifier(parameterName))
+                .WithType(PredefinedKeywords.ObjectType);
 
-                if (context.QuestionMark() != null)
-                    parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral);
-            }
 
             parser.currentFunc.Params.Add(parameter);
 
@@ -1922,9 +1891,7 @@ namespace Keysharp.Scripting
             // then consider it a top-level function. The method declaration will be added to the main
             // class in VisitExpressionSequence.
 			if (isAutoExecFunc &&
-				((context.Parent is ExpressionSequenceContext esc && esc.Parent is ExpressionStatementContext && esc.ChildCount == 1)
-                || (context.Parent is HotkeyContext)
-                || (context.Parent is HotstringContext)
+				(context is FunctionDeclarationContext
 				|| IsExportedDeclaration(context)))
 			{
 				return methodDeclaration;
@@ -2059,7 +2026,7 @@ namespace Keysharp.Scripting
 			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix()); // Determine whether the function is static, async etc
 
 			var funcBody = context.functionBody();
-			var scopeContext = (ParserRuleContext)funcBody.block() ?? funcBody.expression();
+			var scopeContext = (ParserRuleContext)funcBody.block() ?? funcBody.singleExpression();
             HandleScopeFunctions(scopeContext); // Map variables and nested functions
 
             Visit(funcHead); // Now visit the function head (along with param list), because variable names are now known
@@ -2117,8 +2084,6 @@ namespace Keysharp.Scripting
         {
             var funcExprHead = context.functionExpressionHead();
             PushFunction(funcExprHead);
-			VisitFunctionHeadPrefix(funcExprHead.functionHeadPrefix());
-
 			HandleScopeFunctions(context.block());
 
             Visit(context.functionExpressionHead());
@@ -2138,12 +2103,10 @@ namespace Keysharp.Scripting
         {
             var funcHead = context.fatArrowExpressionHead();
             PushFunction(funcHead);
-			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix());
-
-			HandleScopeFunctions(context.expression());
+			HandleScopeFunctions(context.singleExpression());
 			Visit(funcHead);
 
-			ExpressionSyntax returnExpression = (ExpressionSyntax)Visit(context.expression());
+			ExpressionSyntax returnExpression = (ExpressionSyntax)Visit(context.singleExpression());
 
 			BlockSyntax functionBody;
 
@@ -2287,9 +2250,9 @@ namespace Keysharp.Scripting
         public override SyntaxNode VisitFunctionBody([NotNull] FunctionBodyContext context)
         {
 			//VisitVariableStatements(context);
-            if (context.expression() != null)
+            if (context.singleExpression() != null)
             {
-                var expression = (ExpressionSyntax)Visit(context.expression());
+                var expression = (ExpressionSyntax)Visit(context.singleExpression());
                 if (parser.currentFunc.Void)
                     return SyntaxFactory.Block(
                         SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(expression)),

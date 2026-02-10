@@ -321,7 +321,7 @@ class myrefclass2
 {
 	member1 := memberfunc(a, &b) => b := (a * b * 2)
 	member2 := (&a, b) => a := (a * b * 2)
-	member3 := &a => a := (a * 2)
+	member3 := (&a) => a := (a * 2)
 }
 
 x := 100

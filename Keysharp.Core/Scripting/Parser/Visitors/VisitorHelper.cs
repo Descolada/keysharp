@@ -319,17 +319,29 @@ namespace Keysharp.Scripting
 			{
 				var head = context
 					.fatArrowExpressionHead()
-					.functionExpressionHead()?
-					.functionHead();
+					.functionExpressionHead();
 				AddFunction(head);
 				return null;
 			}
 
 			public override object VisitFunctionExpression([NotNull] FunctionExpressionContext context)
 			{
-				var head = context.functionExpressionHead().functionHead();
+				var head = context.functionExpressionHead();
 				AddFunction(head);
 				return null;
+			}
+
+			private void AddFunction(FunctionExpressionHeadContext head)
+            {
+				if (head == null || head.identifierName() == null)
+					return;
+
+				var info = new FunctionInfo
+				{
+					Name = head.identifierName().GetText(),
+					Static = false,
+				};
+				functionInfos.Add(info);
 			}
 
 			private void AddFunction(FunctionHeadContext head)
@@ -395,7 +407,7 @@ namespace Keysharp.Scripting
 							}
 						}
 
-                        if (varDecl.expression() != null)
+                        if (varDecl.singleExpression() != null)
                             Visit(varDecl);
 					}
 
@@ -422,11 +434,6 @@ namespace Keysharp.Scripting
 				MaybeAddExpressionDeclaration(context.left);
 				return base.VisitCoalesceExpression(context);
 			}
-			public override object VisitCoalesceExpressionDuplicate([NotNull] CoalesceExpressionDuplicateContext context)
-			{
-				MaybeAddExpressionDeclaration(context.left);
-				return base.VisitCoalesceExpressionDuplicate(context);
-			}
 
             private void MaybeAddExpressionDeclaration(ParserRuleContext context)
             {
@@ -447,17 +454,6 @@ namespace Keysharp.Scripting
 					if (result is IdentifierNameSyntax identifierNameSyntax)
 						_ = parser.MaybeAddVariableDeclaration(identifierNameSyntax.Identifier.Text);
 				}
-			}
-
-			public override object VisitAssignmentExpressionDuplicate([NotNull] AssignmentExpressionDuplicateContext context)
-			{
-				if (context.left is IdentifierExpressionContext iec)
-                {
-					SyntaxNode result = mainVisitor.Visit(iec);
-					if (result is IdentifierNameSyntax identifierNameSyntax)
-						_ = parser.MaybeAddVariableDeclaration(identifierNameSyntax.Identifier.Text);
-				}
-				return base.VisitAssignmentExpressionDuplicate(context);
 			}
 
 			// ---------- label & goto capture ----------

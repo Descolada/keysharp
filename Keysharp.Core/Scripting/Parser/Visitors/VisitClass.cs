@@ -163,7 +163,7 @@ namespace Keysharp.Scripting
 
             // Generate getter method
             MethodDeclarationSyntax getterMethod = null;
-            if (propertyDefinition.propertyGetterDefinition().Length != 0 || propertyDefinition.expression() != null)
+            if (propertyDefinition.propertyGetterDefinition().Length != 0 || propertyDefinition.singleExpression() != null)
             {
                 PushFunction(propertyName, isStatic ? EmitKind.StaticGetter : EmitKind.Getter);
 
@@ -179,12 +179,12 @@ namespace Keysharp.Scripting
                     var getterBody = (BlockSyntax)Visit(propertyDefinition.propertyGetterDefinition(0));
                     parser.currentFunc.Body.AddRange(getterBody.Statements);
                 }
-                else if (propertyDefinition.expression() != null)
+                else if (propertyDefinition.singleExpression() != null)
                 {
                     var getterBody = SyntaxFactory.Block(
                         SyntaxFactory.ReturnStatement(
                             PredefinedKeywords.ReturnToken,
-                            (ExpressionSyntax)Visit(propertyDefinition.expression()),
+                            (ExpressionSyntax)Visit(propertyDefinition.singleExpression()),
                             PredefinedKeywords.SemicolonToken
                         )
                     );
@@ -268,9 +268,9 @@ namespace Keysharp.Scripting
 					targetExpression = CreateStringLiteral(fieldDefinition.propertyName(fieldDefinition.propertyName().Length - 1).GetText());
 				}
 
-                if (fieldDefinition.expression() != null)
+                if (fieldDefinition.singleExpression() != null)
                 {
-                    initializerValue = (ExpressionSyntax)Visit(fieldDefinition.expression());
+                    initializerValue = (ExpressionSyntax)Visit(fieldDefinition.singleExpression());
 
                     if (IsLiteralOrConstant(initializerValue))
                     {
@@ -290,25 +290,25 @@ namespace Keysharp.Scripting
 
         public override SyntaxNode VisitPropertyGetterDefinition([Antlr4.Runtime.Misc.NotNull] PropertyGetterDefinitionContext context)
         {
-			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.expression();
+			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.singleExpression();
 			HandleScopeFunctions(scopeContext);
             return VisitFunctionBody(context.functionBody());
         }
 
         public override SyntaxNode VisitPropertySetterDefinition([NotNull] PropertySetterDefinitionContext context)
         {
-			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.expression();
+			var scopeContext = (ParserRuleContext)context.functionBody()?.block() ?? context.functionBody()?.singleExpression();
 			HandleScopeFunctions(scopeContext);
             return (BlockSyntax)VisitFunctionBody(context.functionBody());
         }
 
         public override SyntaxNode VisitClassMethodDeclaration([NotNull] ClassMethodDeclarationContext context)
         {
-            var methodDefinition = context.methodDefinition();
+            var methodDefinition = context.functionDeclaration();
             var funcHead = methodDefinition.functionHead();
             PushFunction(funcHead);
 			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix());
-			var methodBodyContext = (ParserRuleContext)methodDefinition.functionBody().block() ?? methodDefinition.functionBody().expression();
+			var methodBodyContext = (ParserRuleContext)methodDefinition.functionBody().block() ?? methodDefinition.functionBody().singleExpression();
 			HandleScopeFunctions(methodBodyContext);
 			Visit(funcHead);
 

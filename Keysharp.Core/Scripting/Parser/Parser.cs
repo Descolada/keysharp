@@ -712,7 +712,7 @@ namespace Keysharp.Scripting
 			moduleParseOrder = moduleTokens.ModuleOrder.ToList();
 			isMultiModuleParse = moduleParseOrder.Count > 1;
 
-            codeStream.Close();
+			codeStream.Close();
 
 			VisitMain visitor = new VisitMain(this);
 			SyntaxNode compilationUnit = null;

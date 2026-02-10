@@ -117,6 +117,11 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         return ((ITokenStream)this.InputStream).LT(1).Text.Equals(str, StringComparison.OrdinalIgnoreCase);
     }
 
+    protected bool next(int token)
+    {
+        return ((ITokenStream)this.InputStream).LT(1).Type == token;
+    }
+
     protected bool second(int token) {
         return _input.LA(2) == token;
     }
@@ -382,9 +387,43 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         return ((ITokenStream)this.InputStream).LT(1).Type == CloseBrace;
     }
 
+    protected bool isStatementStart()
+    {
+        return Context is StatementContext || Context is ExpressionStatementContext;
+    }
+
     protected bool isFuncExprAllowed() {
-        if (_input.Index == 0) return true;
-        return !flowKeywords.Contains(_input.LA(-1));
+        bool enclosed = false;
+
+        if (isStatementStart())
+            return false;
+
+        for (var ctx = this.Context; ctx != null; ctx = ctx.Parent as ParserRuleContext)
+        {
+            if (ctx is ParenthesizedExpressionContext
+                || ctx is ArrayLiteralExpressionContext
+                || ctx is MapLiteralExpressionContext
+                || ctx is ObjectLiteralExpressionContext
+                || ctx is ArgumentsContext
+                || ctx is MemberIndexArgumentsContext)
+            {
+                enclosed = true;
+            }
+
+            if (ctx is IterationStatementContext
+                || ctx is IfStatementContext
+                || ctx is UntilProductionContext
+                || ctx is ForInParametersContext
+                || ctx is SwitchStatementContext
+                || ctx is PositionalDirectiveContext)
+            {
+                return enclosed;
+            }
+
+            if (ctx is StatementContext) break;
+        }
+
+        return true;
     }
 
     protected bool isFunctionDeclarationExpressionAllowed() {
@@ -444,6 +483,63 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         if (CurrentToken.TokenIndex < 1) return true;
         var prevToken = TokenStream.Get(CurrentToken.TokenIndex - 1);
         return prevToken.Channel != TokenConstants.DefaultChannel || MainLexerBase.lineContinuationOperators.Contains(prevToken.Type);
+    }
+
+    protected bool wsConcatAllowed()
+    {
+        int i = 1;
+        int t = TokenStream.LA(i);
+        while (t == WS || t == EOL)
+        {
+            i++;
+            t = TokenStream.LA(i);
+        }
+
+        if (t == MainLexer.Plus
+            || t == MainLexer.Minus
+            || t == MainLexer.OpenBrace)
+        {
+            return false;
+        }
+
+        if (Context?.Parent?.Parent is not ExpressionStatementContext)
+            return true;
+
+        if (Context is SingleExpressionDummyContext)
+            return false;
+
+		return true;
+	}
+
+    protected bool nextNonWsIs(int tokenType)
+    {
+        int i = 1;
+        int t = TokenStream.LA(i);
+        while (t == WS || t == EOL)
+        {
+            i++;
+            t = TokenStream.LA(i);
+        }
+        return t == tokenType;
+    }
+
+    protected bool nextIsFunctionCallToken()
+    {
+        var t = ((ITokenStream)this.InputStream).LT(1)?.Type;
+        if (t == MainLexer.OpenBrace || t == MainLexer.OpenParen)
+            return false;
+
+        return !nextIsStatementKeyword();
+    }
+
+    protected bool nextIsStatementKeyword()
+    {
+        var t = ((ITokenStream)this.InputStream).LT(1)?.Type;
+        if (t == MainLexer.Throw || t == MainLexer.If || t == MainLexer.Loop || t == MainLexer.For || t == MainLexer.Switch || t == MainLexer.While || t == MainLexer.Until || t == MainLexer.Try || t == MainLexer.Await || t == MainLexer.Delete)
+        {
+            return true;
+        }
+        return false;
     }
 
     protected bool isFunctionExpressionAllowed() {

@@ -1136,7 +1136,7 @@ namespace Keysharp.Scripting
             {
                 // Visit the case expressions and generate case labels
                 var caseLabels = context.expressionSequence()
-                    .expression()
+                    .singleExpression()
                     .Select(expr =>
                     {
                         ++caseClauseCount;

@@ -472,17 +472,21 @@ namespace Keysharp.Scripting
                     {
 						case MainLexer.OpenBracket:
 							bracketDepth++;
+                            SkipWhitespaces(index);
 							break;
                         case MainLexer.DerefStart:
 							derefDepth++;
+                            SkipWhitespaces(index);
 							break;
                         case MainLexer.CloseBracket:
 							if (bracketDepth > 0)
 								bracketDepth--;
+                            PopWhitespaces(codeTokens.Count);
 							break;
                         case MainLexer.DerefEnd:
 							if (derefDepth > 0)
 								derefDepth--;
+                            PopWhitespaces(codeTokens.Count);
 							break;
                         case MainLexer.OpenParen:
                             SkipWhitespaces(index);
@@ -490,17 +494,24 @@ namespace Keysharp.Scripting
 							break;
                         case MainLexer.Comma:
                             SkipWhitespaces(index);
-                            i = codeTokens.Count;
-                            while (--i > 0 && codeTokens.Count > 0)
+                            if (derefDepth > 0 || braceDepth > 0 || parenDepth > 0)
+                                PopWhitespaces(codeTokens.Count);
+                            else
                             {
-                                if (codeTokens[i].Channel != Lexer.DefaultTokenChannel)
-                                    continue;
-                                if (codeTokens[i].Type == MainLexer.WS)
-                                    continue;
-                                else if (codeTokens[i].Type == MainLexer.EOL)
-                                    codeTokens.RemoveAt(i);
-                                else
-                                    break;
+                                // Because function call argument list might start with comma, et
+                                // MsgBox , "Test"
+                                i = codeTokens.Count;
+                                while (--i > 0 && codeTokens.Count > 0)
+                                {
+                                    if (codeTokens[i].Channel != Lexer.DefaultTokenChannel)
+                                        continue;
+                                    if (codeTokens[i].Type == MainLexer.WS)
+                                        continue;
+                                    else if (codeTokens[i].Type == MainLexer.EOL)
+                                        codeTokens.RemoveAt(i);
+                                    else
+                                        break;
+                                }
                             }
                             break;
                         case MainLexer.CloseParen:
@@ -588,6 +599,7 @@ namespace Keysharp.Scripting
                         case MainLexer.BitOrAssign:
                         case MainLexer.PowerAssign:
                         case MainLexer.NullishCoalescingAssign:
+                        case MainLexer.QuestionMark:
                         case MainLexer.QuestionMarkDot:
                         case MainLexer.Arrow:
 							PopWhitespaces(codeTokens.Count, IsVerbalOperator(token.Type) ? (!(IsPrecededByEol() && IsFollowedByOpenParen(index))) : true);

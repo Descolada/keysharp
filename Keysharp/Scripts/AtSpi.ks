@@ -26,6 +26,8 @@
             Running this file directly opens AtSpi.Viewer for inspection.
 */
 
+import { WinFromPoint } from Ks
+
 #DllLoad libatspi
 #DllLoad libglib-2.0.so.0
 #DllLoad libgobject-2.0.so.0

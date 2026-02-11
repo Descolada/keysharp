@@ -50,8 +50,10 @@
 
 		internal KeyHistoryItem NextItem()
 		{
-			var next = Interlocked.Increment(ref keyHistoryNext);
-			var item = keyHistory[(next - 1) % keyHistory.Count];
+			var index = keyHistoryNext;
+			if (++keyHistoryNext >= keyHistory.Count)
+				keyHistoryNext = 0;
+			var item = keyHistory[index];
 			UpdateTimestamp(item);
 			return item;
 		}

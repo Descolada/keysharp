@@ -1697,7 +1697,7 @@ namespace Keysharp.Core.Common.Threading
 			}
 
 			//else: Use usual modified value.
-			keyHistoryCurr.sc = isKeyboardEvent ? rawSc : sc; // For keyboard use original sc; mouse keeps current sc (e.g. wheel delta).
+			keyHistoryCurr.sc = sc; // Will be zero if our caller is the mouse hook (except for wheel notch count).
 
 			// After logging the wheel notch count (above), purify aSC for readability and maintainability.
 			if (MouseUtils.IsWheelVK(vk))
@@ -1887,18 +1887,16 @@ namespace Keysharp.Core.Common.Threading
 			var hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
 			HotkeyVariant firingIsCertain = null;
 			uint hotkeyIdTemp; // For informal/temp storage of the ID-without-flags.
+
 			bool fireWithNoSuppress = false; // Set default.
-			bool downPerformedAction = false, wasDownBeforeUp = false;
+			bool wasDownBeforeUp = false;
+			bool downPerformedAction = thisKey.downPerformedAction; // Save prior to reset.
+			// Reset this in preparation for the next call to this procedure that involves this key:
+			thisKey.downPerformedAction = false;
 
 			if (keyUp)
 			{
-				// Save prior to reset.  These var's should only be used further below in conjunction with aKeyUp
-				// being TRUE.  Otherwise, their values will be unreliable (refer to some other key, probably).
-				wasDownBeforeUp = thisKey.isDown;
-				downPerformedAction = thisKey.downPerformedAction;  // Save prior to reset below.
-				// Reset these values in preparation for the next call to this procedure that involves this key:
-				thisKey.downPerformedAction = false;
-
+				wasDownBeforeUp = thisKey.isDown; // Save prior to reset.
 				if (thisKey.hotkeyToFireUponRelease != HotkeyDefinition.HOTKEY_ID_INVALID)
 				{
 					hotkeyIdWithFlags = thisKey.hotkeyToFireUponRelease;
@@ -1986,7 +1984,7 @@ namespace Keysharp.Core.Common.Threading
 				bool hasNoEnabledSuffixes;
 
 				if (!(hasNoEnabledSuffixes = (thisKey.usedAsPrefix == KeyType.PREFIX_ACTUAL)
-											 && HotkeyDefinition.PrefixHasNoEnabledSuffixes(scTakesPrecedence ? sc : vk, scTakesPrecedence, ref suppressThisPrefix)))
+					&& HotkeyDefinition.PrefixHasNoEnabledSuffixes(scTakesPrecedence ? sc : vk, scTakesPrecedence, ref suppressThisPrefix)))
 				{
 					// This check is necessary in cases such as the following, in which the "A" key continues
 					// to repeat because pressing a mouse button (unlike pressing a keyboard key) does not
@@ -2145,7 +2143,7 @@ namespace Keysharp.Core.Common.Threading
 						thisKey.noSuppress |= HotkeyDefinition.NO_SUPPRESS_NEXT_UP_EVENT; // Since the "down" is non-suppressed, so should the "up".
 
 					// If a fire-on-release variant was identified, suppression should depend only on that variant.
-						if (firingIsCertain != null ? fireWithNoSuppress :
+					if (firingIsCertain != null ? fireWithNoSuppress :
 							(thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled))
 						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
@@ -2318,7 +2316,7 @@ namespace Keysharp.Core.Common.Threading
 				if (!thisKey.usedAsSuffix)
 					// For simplicity and to ensure consistency with the used_as_suffix == true case,
 					// don't reevaluate the conditions which were already evaluated on key-down.
-					return (thisKey.hotkeyDownWasSuppressed)
+					return thisKey.hotkeyDownWasSuppressed
 						? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
 						: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 						   
@@ -2429,13 +2427,13 @@ namespace Keysharp.Core.Common.Threading
 					// in effect:
 
 					prefixKey = foundHk.modifierVK switch
-				{
-						VK_SHIFT => kvk[kvk[VK_RSHIFT].isDown ? VK_RSHIFT : VK_LSHIFT],
+						{
+							VK_SHIFT => kvk[kvk[VK_RSHIFT].isDown ? VK_RSHIFT : VK_LSHIFT],
 							VK_CONTROL => kvk[kvk[VK_RCONTROL].isDown ? VK_RCONTROL : VK_LCONTROL],
 							VK_MENU => kvk[kvk[VK_RMENU].isDown ? VK_RMENU : VK_LMENU],
 							0 => ksc[foundHk.modifierSC],
 							_ => kvk[foundHk.modifierVK],
-					};
+						};
 
 					if (foundHk.hookAction != 0)
 						hotkeyIdWithFlags = foundHk.hookAction;
@@ -2576,7 +2574,7 @@ namespace Keysharp.Core.Common.Threading
 
 				// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
 				hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
-									? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
+					? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 
 				// Bug fix for v1.0.20: The below second attempt is no longer made if the current keystroke
 				// is a tab-down/up  This is because doing so causes any naked TAB that has been defined as
@@ -2601,7 +2599,7 @@ namespace Keysharp.Core.Common.Threading
 					// that relies on the Alt key being logically but not physically down).
 					modifiersLRnew &= ~(MOD_LALT | MOD_RALT);
 					hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
-										? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
+						? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 					// Fix for v1.0.28: If the ID isn't an alt-tab type, don't consider it to be valid.
 					// Someone pointed out that pressing Alt-Tab and then pressing ESC while still holding
 					// down ALT fired the ~Esc hotkey even when it should just dismiss the alt-tab menu.
@@ -2648,7 +2646,7 @@ namespace Keysharp.Core.Common.Threading
 						if (hotkeyIdTemp < shk.Count && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
 						{
 							if (fellThroughFromCase2
-									|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) != null)
+								|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
 							{
 								// The key-down hotkey isn't eligible for firing, so fall back to the key-up hotkey:
 								hotkeyIdWithFlags = hotkeyUp[(int)hotkeyIdTemp];
@@ -2685,7 +2683,7 @@ namespace Keysharp.Core.Common.Threading
 					if (keyUp)
 						// This takes into account both prefix keys and key-up hotkeys: suppress if and only if
 						// key-down was suppressed.
-						return (thisKey.hotkeyDownWasSuppressed) 
+						return thisKey.hotkeyDownWasSuppressed
 							? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
 							: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
@@ -3073,10 +3071,8 @@ namespace Keysharp.Core.Common.Threading
 					{
 						// To avoid evaluating the expression twice, indicate to the main thread that the appropriate variant
 						// has already been determined, by packing the variant's index into the high word of the param:
-						//hotkeyIdToPost |= (uint)(firingIsCertain.index << 16);
+						hotkeyIdToPost |= (uint)(firingIsCertain.index << 16);
 					}
-					else
-						firingIsCertain = null;
 
 					// Otherwise CriterionFiringIsCertain() might have returned a global variant (not necessarily the one
 					// that will actually fire), so if we ever decide to do the above for other criterion types rather than
@@ -4348,8 +4344,11 @@ namespace Keysharp.Core.Common.Threading
 									break;
 
 								case (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY:
-									keyHistory = new KeyHistory((int)wParamVal);
+								{
+									var max = (int)wParamVal;
+									keyHistory = max > 0 ? new KeyHistory(max) : null;
 									break;
+								}
 
 								//These were taken from MsgSleep().
 								case (uint)UserMessages.AHK_HOTSTRING:

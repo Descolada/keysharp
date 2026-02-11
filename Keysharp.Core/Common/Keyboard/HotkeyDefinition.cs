@@ -867,8 +867,16 @@ namespace Keysharp.Core.Common.Keyboard
 			}
 
 			// Otherwise, this hotkey has no variants that can fire.  Caller wants a few things updated in that case.
-			if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty.
-				fireWithNoSuppress = true; // Fix for v1.0.47.04: Added this line and the one above to fix the fact that a context-sensitive hotkey like "a UP::" would block the down-event of that key even when the right window/criteria aren't met.
+			
+			// v1.1.37: The following isn't done anymore because it makes logic elsewhere harder to follow,
+			// and was causing a bug where the key-up event of a custom prefix key wasn't suppressed if the
+			// key had an ineligible key-down hotkey and an eligible key-up hotkey.  Another reason not to
+			// do it is that some callers will consider alternative hotkeys after we return false, so the
+			// proper value of fireWithNoSuppress can only be known when firing IS certain.  The simple
+			// and logical solution to the issue mentioned below is for certain callers to check our return
+			// value, and if false, don't suppress.
+			//if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty.
+			//	fireWithNoSuppress = true; // Fix for v1.0.47.04: Added this line and the one above to fix the fact that a context-sensitive hotkey like "a UP::" would block the down-event of that key even when the right window/criteria aren't met.
 
 			if (singleChar.HasValue && singleChar != 'i') // 'i' takes precedence because it's used to detect when #InputLevel prevented the hotkey from firing, to prevent it from being suppressed.
 				singleChar = '#'; // '#' in KeyHistory to indicate this hotkey is disabled due to #HotIf WinActive/Exist() criterion.

@@ -798,8 +798,8 @@ namespace Keysharp.Core.Windows
 
 		internal override bool IsKeyToggledOn(uint vk) => (GetKeyState((int)vk) & 0x01) != 0;
 
-		internal static bool IsKeybdEventArtificial(uint flags) => (flags & LLKHF_INJECTED) != 0 && (flags & LLKHF_LOWER_IL_INJECTED) == 0;
-		internal static bool IsMouseEventArtificial(uint flags) => (flags & LLMHF_INJECTED) != 0 && (flags & LLMHF_LOWER_IL_INJECTED) == 0;
+		internal static bool IsKeybdEventArtificial(uint flags) => (flags & LLKHF_INJECTED) != 0 || (flags & LLKHF_LOWER_IL_INJECTED) != 0;
+		internal static bool IsMouseEventArtificial(uint flags) => (flags & LLMHF_INJECTED) != 0 || (flags & LLMHF_LOWER_IL_INJECTED) != 0;
 
 		protected internal override nint CallNextHook(HookEventArgs e) 
 			=> CallNextHookEx(e.Hook, e.Code, e.WParam, e.StructPtr);

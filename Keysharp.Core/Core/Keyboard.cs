@@ -516,7 +516,7 @@ break_twice:;
 						});
 					}
 					else
-						ht.keyHistory = new KeyHistory((int)max);
+						ht.keyHistory = max > 0 ? new KeyHistory((int)max) : null;
 				}
 			}
 			else if (script.mainWindow != null)

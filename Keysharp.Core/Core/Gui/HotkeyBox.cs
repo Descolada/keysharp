@@ -6,6 +6,7 @@ namespace Keysharp.Core
 	internal class HotkeyBox : TextBox
 	{
 		private Keys key, mod;
+		private bool updatingDisplayText;
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public Limits Limit { get; set; }
@@ -17,22 +18,46 @@ namespace Keysharp.Core
 			Text = "";
 #if WINDOWS
 			Multiline = false;
+			ShortcutsEnabled = false;
 			ContextMenuStrip = new ContextMenuStrip();
 			PreviewKeyDown += (sender, e) =>
 			{
-				if (e.KeyCode == Keys.Tab)
+				if (e.KeyCode == Keys.Tab || e.Control || e.Alt)
 					e.IsInputKey = true;
 			};
 			KeyPress += (sender, e) => e.Handled = true;
 #endif
 			KeyUp += (sender, e) =>
 			{
-				if (e.KeyCode == Keys.None && e.Modifiers == Keys.None)
+				var isModKey =
+					e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.LShiftKey || e.KeyCode == Keys.RShiftKey ||
+					e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.LControlKey || e.KeyCode == Keys.RControlKey ||
+					e.KeyCode == Keys.Menu || e.KeyCode == Keys.LMenu || e.KeyCode == Keys.RMenu;
+
+				if (isModKey)
+				{
+					if (key == Keys.None)
+					{
+						mod = e.Modifiers;
+
+						if (mod == Keys.None)
+							key = Keys.None;
+
+						UpdateDisplayText();
+					}
+				}
+				else if (e.KeyCode == Keys.None && e.Modifiers == Keys.None)
+				{
 					key = Keys.None;
+					UpdateDisplayText();
+				}
 			};
 			KeyDown += (sender, e) =>
 			{
 				e.Handled = true;
+#if WINDOWS
+				e.SuppressKeyPress = true;
+#endif
 				//if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
 				//{
 				//  key = mod = Keys.None;
@@ -43,7 +68,7 @@ namespace Keysharp.Core
 					mod = e.Modifiers;
 					Validate();
 				}
-				Text = null;
+				UpdateDisplayText();
 			};
 		}
 
@@ -51,6 +76,9 @@ namespace Keysharp.Core
 		{
 			get
 			{
+				if (updatingDisplayText)
+					return base.Text;
+
 				var str = "";
 
 				if ((mod & Keys.Control) == Keys.Control)
@@ -61,6 +89,9 @@ namespace Keysharp.Core
 
 				if ((mod & Keys.Alt) == Keys.Alt)
 					str += Keyword_ModifierAlt;
+
+				if (key == Keys.None)
+					return mod == Keys.None ? "None" : str;
 
 				return str + key.ToString();
 			}
@@ -98,6 +129,18 @@ namespace Keysharp.Core
 					Validate();
 				}
 
+				UpdateDisplayText();
+			}
+		}
+
+		private void UpdateDisplayText()
+		{
+			if (updatingDisplayText)
+				return;
+
+			updatingDisplayText = true;
+			try
+			{
 				var buf = new StringBuilder(45);
 				const string sep = " + ";
 
@@ -119,8 +162,19 @@ namespace Keysharp.Core
 					_ = buf.Append(sep);
 				}
 
-				_ = buf.Append(key.ToString());
-				base.Text = buf.ToString();
+				if (key != Keys.None)
+				{
+					_ = buf.Append(key.ToString());
+				}
+
+				var newText = key != Keys.None || mod != Keys.None ? buf.ToString() : "None";
+
+				if (!string.Equals(base.Text, newText, StringComparison.Ordinal))
+					base.Text = newText;
+			}
+			finally
+			{
+				updatingDisplayText = false;
 			}
 		}
 
@@ -135,7 +189,7 @@ namespace Keysharp.Core
 			for (var i = 0; i < 3; i++)
 			{
 				if (key == sym[i, 1] && (mod & sym[i, 0]) == sym[i, 0])
-					mod &= ~sym[i, 0];
+					key = Keys.None;
 			}
 
 			if ((Limit & Limits.PreventUnmodified) == Limits.PreventUnmodified)

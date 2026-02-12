@@ -26,8 +26,6 @@
         public object Call(params object[] obj);
 		public object CallInst(object inst, params object[] obj);
 
-        public object CallWithRefs(params object[] obj);
-
         public bool IsByRef(object obj = null);
 
 		public bool IsOptional(object obj = null);
@@ -77,6 +75,7 @@
 
 		public override bool Equals(object obj) => ReferenceEquals(this, obj);
 
+		[PublicHiddenFromUser]
 		public override int GetHashCode() => RuntimeHelpers.GetHashCode(this);
 
 		public override IFuncObj Bind(params object[] args)
@@ -101,52 +100,12 @@
 		}
 
 		/// <summary>
-		/// Even calling with no args might still need ref processing because some of the
-		/// bound args might be refs. So always forward to <see cref="CallWithRefs(object[])"/>
-		/// </summary>
-		/// <param name="args">Forwarded on to <see cref="CallWithRefs(object[])"/></param>
+		/// Calls the target function along with any bound arguments.
 		/// <returns>The return value of the bound function.</returns>
 		public override object Call(params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args).ToArray()) : base.Call(CreateArgs(args).ToArray());
+		[PublicHiddenFromUser]
 		public override object CallInst(object inst, params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args.Prepend(inst)).ToArray()) : base.Call(CreateArgs(args.Prepend(inst)).ToArray());
 
-        public override object CallWithRefs(params object[] args)
-		{
-			var argsList = CreateArgs(args);
-			var argsArray = new object[argsList.Count];
-
-			for (var i = 0; i < argsList.Count; ++i)
-			{
-				var p = argsList[i];
-
-				if (p is RefHolder rh)
-				{
-					rh.index = i;//Must change the index since the array has changed.
-					argsArray[i] = rh.val;
-				}
-				else
-					argsArray[i] = p;
-			}
-
-			var val = base.Call(argsArray);
-
-			for (int i = 0, argsIndex = 0; i < argsList.Count; ++i)
-			{
-				//If it was a RefHolder, then reassign regardless if it was passed from the bound args or the passed in args.
-				if (argsList[i] is RefHolder rh)
-				{
-					rh.reassign(argsArray[rh.index]);//Use value from new array.
-				}
-				else if (argsIndex < args.Length
-						 && i < mph.parameters.Length//This seems like it should always be true.
-						 && mph.parameters[i].ParameterType.IsByRef
-						)//It wasn't a RefHolder, so determine where it should go.
-				{
-					args[argsIndex++] = argsArray[i];//Reassign all the way back to the original.
-				}
-			}
-
-			return val;
-		}
 
 		private List<object> CreateArgs(params object[] args)
 		{
@@ -198,14 +157,12 @@
 
 		[PublicHiddenFromUser]
 		public object Inst { get; set; }
-		[PublicHiddenFromUser]
-		public Type DeclaringType => mi?.DeclaringType;
+		internal Type DeclaringType => mi?.DeclaringType;
 		public bool IsClosure => Inst != null && mi.DeclaringType?.DeclaringType == Inst.GetType();
 		public bool IsMethod => (mi != null && !mi.IsStatic) || (mph != null && mph.parameters?.First().Name == "@this");
 		public bool IsBuiltIn => mi?.DeclaringType.Namespace != TheScript.ProgramType.Namespace;
 		public bool IsValid => (mi != null && mph != null && mph.CallFunc != null) || (Inst is Any && mph.memberInfo == null);
 		public string Name => mph.Name;
-		public (Type, object) super => (typeof(KeysharpObject), this);
 		public bool IsVariadic => mph.variadicParamIndex != -1;
 		public long MaxParams { get; internal set; } = 0;
 		public long MinParams { get; internal set; } = 0;
@@ -216,6 +173,11 @@
 			: this(GetMethodInfo(s, o, paramCount), o)
 		{
 		}
+
+		public FuncObj(params object[] args) : base(args) { }
+
+		public static object Call(object @this, object funcName, object obj = null, object paramCount = null)
+			=> Functions.GetFuncObj(funcName, obj, paramCount, obj != null);
 
         private static MethodInfo GetMethodInfo(string s, object o, object paramCount)
         {
@@ -301,6 +263,7 @@
 
 			return mph.CallFunc(Inst, obj);
 		}
+		[PublicHiddenFromUser]
 		public virtual object CallInst(object inst, params object[] args)
 		{
 			if (moduleType != null && Script.TheScript.ModuleData is ModuleData md && md != null)
@@ -323,55 +286,6 @@
 
 			return mph.CallFunc(Inst, args.Prepend(inst));
 		}
-        public virtual object CallWithRefs(params object[] args)
-		{
-			var argsArray = new object[args.Length];
-
-			for (var i = 0; i < args.Length; i++)
-			{
-				var p = args[i];
-
-				if (p is RefHolder rh)
-				{
-					rh.index = i;//Might not be needed here, but just to be safe.
-					argsArray[i] = rh.val;
-				}
-				else
-					argsArray[i] = p;
-			}
-
-			object val;
-			if (moduleType != null)
-			{
-				var previous = Script.TheScript.ModuleData.Push(moduleType, out var changed);
-				try
-				{
-					val = mph.CallFunc(Inst, argsArray);
-				}
-				finally
-				{
-					Script.TheScript.ModuleData.Pop(previous, changed);
-				}
-			}
-			else
-			{
-				val = mph.CallFunc(Inst, argsArray);
-			}
-
-			for (var i = 0; i < args.Length; i++)
-			{
-				if (args[i] is RefHolder rh)
-					rh.reassign(argsArray[rh.index]);
-				//args.Length could exceed parameters.Length if the last param was variadic.
-				//So don't assign back because variadic parameters aren't expected to be reference params, even though
-				//they might technically be able to be called that way with reflection.
-				else if (i < args.Length && i < mph.parameters.Length && mph.parameters[i].ParameterType.IsByRef)
-					args[i] = argsArray[i];//Reassign all the way back to the original.
-			}
-
-			return val;
-		}
-
 		private static Type ResolveModuleType(Type type)
 		{
 			for (var t = type; t != null; t = t.DeclaringType)
@@ -390,6 +304,7 @@
 			return obj is FuncObj fo ? fo.mi == mi && fo.Inst == Inst : false;
 		}
 
+		[PublicHiddenFromUser]
 		public override int GetHashCode()
 		{
 			unchecked

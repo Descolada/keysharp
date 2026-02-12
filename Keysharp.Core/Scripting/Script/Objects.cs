@@ -97,6 +97,8 @@ namespace Keysharp.Scripting
 
 					if (methodName.StartsWith("get_") || methodName.StartsWith("set_"))
 					{
+						if (method.IsSpecialName) continue; // Handled below as property
+
 						var propName = methodName.Substring(4);
 
 						if (propName == "Item")
@@ -160,6 +162,10 @@ namespace Keysharp.Scripting
 					string userDeclaredName = GetUserDeclaredName(prop);
 
 					var propertyName = prop.Name;
+
+					if (propertyName == "Item")
+						propertyName = "__Item";
+
 					OwnPropsDesc propertyMap = null;
 					if ((prop.GetMethod?.IsStatic ?? false) || (prop.SetMethod?.IsStatic ?? false) || (propertyName.StartsWith(Keywords.ClassStaticPrefix)))
 					{

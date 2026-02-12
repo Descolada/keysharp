@@ -7,8 +7,6 @@
 		public object Mark => match.Groups.Count > 0 ? match.Groups[ ^ 1].Name : "";
 		public object Success => match.Success;
 
-		public (Type, object) super => (typeof(KeysharpObject), this);
-
 		public RegExMatchInfoCs(params object[] args) : base(args) { }
 
 		public static implicit operator long(RegExMatchInfoCs r) => r.Pos();

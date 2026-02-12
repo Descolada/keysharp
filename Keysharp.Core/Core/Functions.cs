@@ -16,12 +16,13 @@
 		/// <param name="obj">The object to call the method on. Default: null for static functions.</param>
 		/// <param name="paramCount">The number of parameters the method has. Default: use the first method found.</param>
 		/// <returns>An <see cref="IFuncObj"/> which can later be called like a function.</returns>
+		[PublicHiddenFromUser]
 		public static IFuncObj Func(object funcName, object obj = null, object paramCount = null) => GetFuncObj(funcName, obj, paramCount, obj != null);
-
+		[PublicHiddenFromUser]
 		public static IFuncObj Func(object funcName, Type t, object paramCount = null) => GetFuncObj(funcName, t, paramCount, t != null);
-
+		[PublicHiddenFromUser]
 		public static IFuncObj Func(Delegate del, object obj = null) => GetFuncObj(del, obj, null, obj != null);
-
+		[PublicHiddenFromUser]
 		public static IFuncObj Closure(Delegate del, object obj = null) => new Closure(del, obj);
 
 		/// <summary>
@@ -33,6 +34,7 @@
 		/// <returns>An <see cref="IFuncObj"/> which may be a newly recreated one, or h if it was already one.</returns>
 		/// <exception cref="MethodError">A <see cref="MethodError"/> exception is thrown if a function object couldn't be created</exception>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if h was not a string or existing function object.</exception>
+		[PublicHiddenFromUser]
 		public static IFuncObj GetFuncObj(object h, object eventObj, object paramCount = null, bool throwIfBad = false)
 		{
 			IFuncObj del = null;

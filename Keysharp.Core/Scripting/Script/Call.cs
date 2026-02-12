@@ -358,7 +358,7 @@
 				var methName = (string)meth;
 
 				// Fast path: IFuncObj asked for "Call".
-				if (obj is IFuncObj direct && methName.Equals("Call", StringComparison.OrdinalIgnoreCase))
+				if (obj is IFuncObj direct && methName.Equals("Call", StringComparison.OrdinalIgnoreCase) && direct.IsValid)
 					return direct.Call(parameters);
 				else if (obj is Module module && module is IMetaObject mo)
 					return mo.Call(methName, parameters);

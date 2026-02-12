@@ -73,10 +73,7 @@ namespace Keysharp.Core
 				}
 			}
 
-			public (Type, object) super => (typeof(KeysharpObject), this);
-
 			public string Type => typename;
-
 
 			public object Visible
 			{

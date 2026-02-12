@@ -216,7 +216,7 @@ namespace Keysharp.Core.Common.Invoke
 			if (isFuncObj && mi.Name == "Bind")
 				IsBind = true;
 
-			if (isFuncObj && mi.Name == "Call")
+			if (isFuncObj && mi.Name == "Call" && !mi.IsStatic)
 			{
 				_callFunc = (inst, obj) => ((IFuncObj)inst).Call(obj);
 			}

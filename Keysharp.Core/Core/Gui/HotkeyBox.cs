@@ -29,10 +29,7 @@ namespace Keysharp.Core
 #endif
 			KeyUp += (sender, e) =>
 			{
-				var isModKey =
-					e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.LShiftKey || e.KeyCode == Keys.RShiftKey ||
-					e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.LControlKey || e.KeyCode == Keys.RControlKey ||
-					e.KeyCode == Keys.Menu || e.KeyCode == Keys.LMenu || e.KeyCode == Keys.RMenu;
+				var isModKey = IsModifierKey(e.KeyCode);
 
 				if (isModKey)
 				{
@@ -70,6 +67,21 @@ namespace Keysharp.Core
 				}
 				UpdateDisplayText();
 			};
+		}
+
+		private static bool IsModifierKey(Keys keyCode)
+		{
+#if WINDOWS
+			return
+				keyCode == Keys.ShiftKey || keyCode == Keys.LShiftKey || keyCode == Keys.RShiftKey ||
+				keyCode == Keys.ControlKey || keyCode == Keys.LControlKey || keyCode == Keys.RControlKey ||
+				keyCode == Keys.Menu || keyCode == Keys.LMenu || keyCode == Keys.RMenu;
+#else
+			return
+				keyCode == Keys.Shift || keyCode == Keys.LeftShift || keyCode == Keys.RightShift ||
+				keyCode == Keys.Control || keyCode == Keys.LeftControl || keyCode == Keys.RightControl ||
+				keyCode == Keys.Alt || keyCode == Keys.LeftAlt || keyCode == Keys.RightAlt;
+#endif
 		}
 
 		public override string Text
@@ -182,15 +194,25 @@ namespace Keysharp.Core
 		{
 #if WINDOWS
 			Keys[,] sym = { { Keys.Control, Keys.ControlKey }, { Keys.Shift, Keys.ShiftKey }, { Keys.Alt, Keys.Menu } };
-#else
-			Keys[,] sym = { { Keys.Control, Keys.Control }, { Keys.Shift, Keys.Shift }, { Keys.Alt, Keys.RightAlt } };
-#endif
 
 			for (var i = 0; i < 3; i++)
 			{
 				if (key == sym[i, 1] && (mod & sym[i, 0]) == sym[i, 0])
 					key = Keys.None;
 			}
+#else
+			if ((mod & Keys.Control) == Keys.Control &&
+				(key == Keys.Control || key == Keys.LeftControl || key == Keys.RightControl))
+				key = Keys.None;
+
+			if ((mod & Keys.Shift) == Keys.Shift &&
+				(key == Keys.Shift || key == Keys.LeftShift || key == Keys.RightShift))
+				key = Keys.None;
+
+			if ((mod & Keys.Alt) == Keys.Alt &&
+				(key == Keys.Alt || key == Keys.LeftAlt || key == Keys.RightAlt))
+				key = Keys.None;
+#endif
 
 			if ((Limit & Limits.PreventUnmodified) == Limits.PreventUnmodified)
 			{

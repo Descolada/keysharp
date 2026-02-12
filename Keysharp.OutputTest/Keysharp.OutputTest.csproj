@@ -15,7 +15,7 @@
     <IsPublishable>false</IsPublishable>
     <StartupObject>Keysharp.CompiledMain.Program</StartupObject>
     <ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
-    <Version>0.0.0.13</Version>
+    <Version>0.0.0.14</Version>
     <Authors>Matt Feemster</Authors>
     <Company>Keysharp</Company>
     <Description>A simple test program to paste generated code into for debugging</Description>

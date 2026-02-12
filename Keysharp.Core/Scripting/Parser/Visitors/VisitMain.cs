@@ -14,6 +14,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using ParserSymbolInfo = Keysharp.Scripting.Parser.SymbolInfo;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
 
@@ -135,44 +136,8 @@ namespace Keysharp.Scripting
             // Map out all user class types and also any built-in types they derive from.
 			// Handled during PrepassCollect.
 
-            // Create global FuncObj variables for all functions here, because otherwise during parsing
-            // we might not know how to case the name.
-            var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
-			var mainClassBody = parser.GlobalClass.Body;
-			foreach (var funcName in scopeFunctionDeclarations)
-            {
-                if (funcName.Name == "") continue;
-                parser.UserFuncs.Add(funcName.Name);
-				var semLower = parser.NormalizeIdentifier(funcName.Name, eNameCase.Lower).TrimStart('@');
-				var fieldName = parser.ToValidIdentifier(semLower);                     // SAME field name policy as before
-				var implName = parser.EmitName(EmitKind.TopLevelFunction, semLower);
-
-				var funcObjVariable = SyntaxFactory.FieldDeclaration(
-	                CreateFuncObjDelegateVariable(fieldName, implName)
-                )
-                .WithModifiers(
-	                SyntaxFactory.TokenList(
-		                Parser.PredefinedKeywords.PublicToken,
-		                Parser.PredefinedKeywords.StaticToken
-	                )
-                );
-				if (parser.currentModule.ExportedFuncs.Contains(funcName.Name))
-					funcObjVariable = Parser.WithExportAttribute(funcObjVariable);
-				string funcObjName = funcObjVariable.Declaration.Variables.First().Identifier.Text;
-
-				for (int i = 0; i < mainClassBody.Count; i++)
-				{
-					if (mainClassBody[i] is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == funcObjName)
-					{
-                        mainClassBody[i] = funcObjVariable;
-                        funcObjVariable = null;
-						break;
-					}
-				}
-
-                if (funcObjVariable != null)
-				    parser.GlobalClass.Body.Add(funcObjVariable);
-            }
+			// Emit all pre-pass symbols (FuncObj globals and built-in class static vars) up-front.
+			EmitPrepassSymbols();
 
             if (context.sourceElements() != null)
                 VisitSourceElements(context.sourceElements());
@@ -307,6 +272,106 @@ namespace Keysharp.Scripting
 			//.NormalizeWhitespace("\t", Environment.NewLine);
 
 			return parser.compilationUnit;
+
+			void EmitPrepassSymbols()
+			{
+				var mainClassBody = parser.GlobalClass.Body;
+
+				foreach (var symbol in parser.currentModule.Symbols.All)
+				{
+					if (symbol.EmitKind == SymbolEmitKind.ClassStaticVar)
+						UpsertField(CreateClassStaticVarField(symbol));
+				}
+
+				foreach (var symbol in parser.currentModule.Symbols.All)
+				{
+					if (symbol.EmitKind == SymbolEmitKind.GlobalFuncObj)
+						UpsertField(CreateFuncObjField(symbol));
+				}
+
+				void UpsertField(FieldDeclarationSyntax field)
+				{
+					var identifier = field.Declaration.Variables.First().Identifier.Text;
+					for (int i = 0; i < mainClassBody.Count; i++)
+					{
+						if (mainClassBody[i] is FieldDeclarationSyntax fds
+							&& fds.Declaration.Variables.First().Identifier.Text == identifier)
+						{
+							mainClassBody[i] = field;
+							return;
+						}
+					}
+					mainClassBody.Add(field);
+				}
+
+				FieldDeclarationSyntax CreateClassStaticVarField(ParserSymbolInfo symbol)
+				{
+					return SyntaxFactory.FieldDeclaration(
+						SyntaxFactory.VariableDeclaration(
+							Parser.PredefinedKeywords.ObjectType,
+							SyntaxFactory.SingletonSeparatedList(
+								SyntaxFactory.VariableDeclarator(symbol.CSharpName)
+									.WithInitializer(
+										SyntaxFactory.EqualsValueClause(
+											PredefinedKeywords.EqualsToken,
+											SyntaxFactory.ElementAccessExpression(
+												SyntaxFactory.MemberAccessExpression(
+													SyntaxKind.SimpleMemberAccessExpression,
+													VarsNameSyntax,
+													SyntaxFactory.IdentifierName("Statics")
+												),
+												SyntaxFactory.BracketedArgumentList(
+													SyntaxFactory.SingletonSeparatedList(
+														SyntaxFactory.Argument(
+															SyntaxFactory.TypeOfExpression(
+																SyntaxFactory.IdentifierName(symbol.DeclaredName)
+															)
+														)
+													)
+												)
+											)
+										)
+									)
+							)
+						)
+					)
+					.AddModifiers(
+						Parser.PredefinedKeywords.PublicToken,
+						Parser.PredefinedKeywords.StaticToken
+					);
+				}
+
+				FieldDeclarationSyntax CreateFuncObjField(ParserSymbolInfo symbol)
+				{
+					FieldDeclarationSyntax funcObjVariable;
+					if (parser.UserFuncs.Contains(symbol.DeclaredName))
+					{
+						var semLower = parser.NormalizeIdentifier(symbol.DeclaredName, eNameCase.Lower).TrimStart('@');
+						var implName = parser.EmitName(EmitKind.TopLevelFunction, semLower);
+						funcObjVariable = SyntaxFactory.FieldDeclaration(
+							CreateFuncObjDelegateVariable(symbol.CSharpName, implName)
+						);
+					}
+					else
+					{
+						funcObjVariable = SyntaxFactory.FieldDeclaration(
+							parser.CreateFuncObjVariable(symbol.SemanticLower)
+						);
+					}
+
+					funcObjVariable = funcObjVariable.WithModifiers(
+						SyntaxFactory.TokenList(
+							Parser.PredefinedKeywords.PublicToken,
+							Parser.PredefinedKeywords.StaticToken
+						)
+					);
+
+					if (parser.currentModule.ExportedFuncs.Contains(symbol.DeclaredName))
+						funcObjVariable = Parser.WithExportAttribute(funcObjVariable);
+
+					return funcObjVariable;
+				}
+			}
         }
 
 		internal static BlockSyntax CreateMainMethod(
@@ -599,84 +664,96 @@ namespace Keysharp.Scripting
 			var isExported = context.Export() != null;
 			var exportNames = new List<string>();
 			bool exportAll = false;
-			var exportList = context.exportImportList();
-			if (exportList?.exportImportSpecifierList() != null)
-			{
-				foreach (var spec in exportList.exportImportSpecifierList().exportImportSpecifier())
-				{
-					if (spec.Multiply() != null)
-					{
-						exportAll = true;
-						continue;
-					}
-					if (spec.identifierName() != null)
-						exportNames.Add(spec.identifierName().GetText());
-				}
-			}
 
 			var clause = context.importClause();
-			if (clause.importModule() != null)
+			if (clause != null)
 			{
-				var import = clause.importModule();
+				if (clause.importNamedFrom() != null)
+				{
+					var import = clause.importNamedFrom();
+					var moduleName = GetModuleName(import.moduleName());
+					var isQuoted = IsQuotedModuleName(import.moduleName());
+					var entry = new Parser.Module.ImportEntry
+					{
+						Kind = Parser.Module.ImportKind.Named,
+						ModuleName = moduleName,
+						IsQuoted = isQuoted,
+						IsExported = isExported,
+						ExportAll = exportAll,
+						ExportNames = exportNames
+					};
+					PopulateImportSpecifiers(entry, import.importList());
+					parser.currentModule.Imports.Add(entry);
+				}
+				else if (clause.importWildcardFrom() != null)
+				{
+					var import = clause.importWildcardFrom();
+					var moduleName = GetModuleName(import.moduleName());
+					parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
+					{
+						Kind = Parser.Module.ImportKind.Wildcard,
+						ModuleName = moduleName,
+						IsQuoted = IsQuotedModuleName(import.moduleName()),
+						IsExported = isExported,
+						ExportAll = exportAll,
+						ExportNames = exportNames
+					});
+				}
+			}
+			else if (context.importModule() != null)
+			{
+				var import = context.importModule();
 				var moduleName = GetModuleName(import.moduleName());
 				var alias = import.identifierName()?.GetText();
 				var isQuoted = IsQuotedModuleName(import.moduleName());
-				if (alias == null && !isQuoted)
-					alias = moduleName;
-				parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
-				{
-					Kind = Parser.Module.ImportKind.ModuleAlias,
-					ModuleName = moduleName,
-					Alias = alias,
-					IsQuoted = isQuoted,
-					IsExported = isExported,
-					ExportAll = exportAll,
-					ExportNames = exportNames
-				});
-			}
-			else if (clause.importNamedFrom() != null)
-			{
-				var import = clause.importNamedFrom();
-				var moduleName = GetModuleName(import.moduleName());
-				var isQuoted = IsQuotedModuleName(import.moduleName());
-				var entry = new Parser.Module.ImportEntry
-				{
-					Kind = Parser.Module.ImportKind.Named,
-					ModuleName = moduleName,
-					IsQuoted = isQuoted,
-					IsExported = isExported,
-					ExportAll = exportAll,
-					ExportNames = exportNames
-				};
+				var importList = context.importList();
 
-				if (import.importSpecifierList() != null)
+				// import Test { a as b } => named import list from Test (no "from" needed).
+				if (importList != null)
 				{
-					foreach (var spec in import.importSpecifierList().importSpecifier())
+					var entry = new Parser.Module.ImportEntry
 					{
-						var name = spec.identifierName(0).GetText();
-						var alias = spec.identifierName().Length > 1 ? spec.identifierName(1).GetText() : name;
-						entry.Specifiers.Add(new Parser.Module.ImportSpecifier { Name = name, Alias = alias });
-					}
+						Kind = Parser.Module.ImportKind.Named,
+						ModuleName = moduleName,
+						IsQuoted = isQuoted,
+						IsExported = isExported,
+						ExportAll = exportAll,
+						ExportNames = exportNames
+					};
+					PopulateImportSpecifiers(entry, importList);
+					parser.currentModule.Imports.Add(entry);
 				}
-
-				parser.currentModule.Imports.Add(entry);
-			}
-			else if (clause.importWildcardFrom() != null)
-			{
-				var import = clause.importWildcardFrom();
-				var moduleName = GetModuleName(import.moduleName());
-				parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
+				else
 				{
-					Kind = Parser.Module.ImportKind.Wildcard,
-					ModuleName = moduleName,
-					IsQuoted = IsQuotedModuleName(import.moduleName()),
-					IsExported = isExported,
-					ExportAll = exportAll,
-					ExportNames = exportNames
-				});
+					if (alias == null && !isQuoted)
+						alias = moduleName;
+					parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
+					{
+						Kind = Parser.Module.ImportKind.ModuleAlias,
+						ModuleName = moduleName,
+						Alias = alias,
+						IsQuoted = isQuoted,
+						IsExported = isExported,
+						ExportAll = exportAll,
+						ExportNames = exportNames
+					});
+				}
 			}
 
 			return SyntaxFactory.Block().WithAdditionalAnnotations(new SyntaxAnnotation("MergeEnd"));
+		}
+
+		private static void PopulateImportSpecifiers(Parser.Module.ImportEntry entry, ImportListContext importList)
+		{
+			if (entry == null || importList?.importSpecifierList() == null)
+				return;
+
+			foreach (var spec in importList.importSpecifierList().importSpecifier())
+			{
+				var name = spec.identifierName(0).GetText();
+				var alias = spec.identifierName().Length > 1 ? spec.identifierName(1).GetText() : name;
+				entry.Specifiers.Add(new Parser.Module.ImportSpecifier { Name = name, Alias = alias });
+			}
 		}
 
 		internal void PrepassCollect(ProgramContext context)
@@ -686,6 +763,8 @@ namespace Keysharp.Scripting
 			parser.currentModule.ExportedVars.Clear();
 			parser.currentModule.ExportedFuncs.Clear();
 			parser.currentModule.ExportedTypes.Clear();
+			parser.currentModule.Symbols.Clear();
+			parser.currentModule.ReferencedIdentifiers.Clear();
 			parser.currentModule.DefaultExport = Parser.Module.DefaultExportKind.None;
 			parser.currentModule.DefaultExportName = null;
 			parser.globalVars.Clear();
@@ -709,11 +788,18 @@ namespace Keysharp.Scripting
 				CollectExportsFromSource(context.sourceElements());
 			}
 
+			CollectReferencedIdentifiers(context);
+
 			var allClassDeclarations = parser.GetClassDeclarationsRecursive(context);
 			foreach (var classInfo in allClassDeclarations)
 			{
 				parser.UserTypes[classInfo.FullName] = classInfo.FullName;
 				parser.AllTypes[classInfo.FullName] = classInfo.FullName;
+
+				var classInfoLower = parser.GetIdentifierInfo(classInfo.FullName).BaseLower;
+				parser.currentModule.Symbols.TryAdd(
+					ParserSymbolInfo.CreateClass(parser.currentModule.Name, classInfoLower, classInfo.FullName)
+				);
 			}
 
 			foreach (var classInfo in allClassDeclarations)
@@ -741,6 +827,89 @@ namespace Keysharp.Scripting
 			{
 				if (funcName.Name == "") continue;
 				parser.UserFuncs.Add(funcName.Name);
+
+				var funcInfo = parser.GetIdentifierInfo(funcName.Name);
+				var semLower = parser.NormalizeIdentifier(funcInfo.Trimmed, eNameCase.Lower).TrimStart('@');
+				var fieldName = parser.ToValidIdentifier(semLower);
+				parser.currentModule.Symbols.TryAdd(
+					ParserSymbolInfo.CreateFunction(parser.currentModule.Name, funcInfo.BaseLower, funcName.Name, fieldName)
+				);
+			}
+
+			AddBuiltinFunctionSymbols();
+			AddBuiltinClassStaticSymbols();
+
+			void AddBuiltinFunctionSymbols()
+			{
+				var referenced = parser.currentModule.ReferencedIdentifiers;
+				foreach (var name in Script.TheScript.ReflectionsData.flatPublicStaticMethods.Keys)
+				{
+					var info = parser.GetIdentifierInfo(name);
+					if (!referenced.Contains(info.BaseLower))
+						continue;
+					var fieldName = parser.ToValidIdentifier(info.BaseLower);
+					parser.currentModule.Symbols.TryAdd(
+						ParserSymbolInfo.CreateFunction(parser.currentModule.Name, info.BaseLower, name, fieldName)
+					);
+				}
+			}
+
+			void AddBuiltinClassStaticSymbols()
+			{
+				var referenced = parser.currentModule.ReferencedIdentifiers;
+				foreach (var typeName in Parser.BuiltinTopLevelTypes.Keys)
+				{
+					var typeInfo = parser.GetIdentifierInfo(typeName);
+					if (referenced.Contains(typeInfo.BaseLower))
+						AddBuiltinClassStaticSymbol(typeName, typeName);
+
+					if (Keywords.TypeNameAliases.TryGetValue(typeName, out var alias))
+					{
+						var aliasInfo = parser.GetIdentifierInfo(alias);
+						if (referenced.Contains(aliasInfo.BaseLower))
+							AddBuiltinClassStaticSymbol(alias, typeName);
+					}
+				}
+			}
+
+			void AddBuiltinClassStaticSymbol(string semanticName, string typeName)
+			{
+				var info = parser.GetIdentifierInfo(semanticName);
+				var fieldName = parser.ToValidIdentifier(info.BaseLower);
+				parser.currentModule.Symbols.TryAdd(
+					ParserSymbolInfo.CreateClassStaticVar(parser.currentModule.Name, info.BaseLower, typeName, fieldName)
+				);
+			}
+		}
+
+		private void CollectReferencedIdentifiers(ProgramContext context)
+		{
+			var collector = new PrepassIdentifierCollector(parser);
+			collector.Visit(context);
+		}
+
+		private sealed class PrepassIdentifierCollector : MainParserBaseVisitor<object>
+		{
+			private readonly Parser parser;
+
+			public PrepassIdentifierCollector(Parser parser)
+			{
+				this.parser = parser;
+			}
+
+			public override object VisitIdentifierExpression([NotNull] IdentifierExpressionContext context)
+			{
+				var raw = context.identifier().GetText();
+				var info = parser.GetIdentifierInfo(raw, true);
+				parser.currentModule.ReferencedIdentifiers.Add(info.BaseLower);
+				return base.VisitIdentifierExpression(context);
+			}
+
+			public override object VisitObjectLiteralExpression([NotNull] ObjectLiteralExpressionContext context)
+			{
+				var info = parser.GetIdentifierInfo("object", true);
+				parser.currentModule.ReferencedIdentifiers.Add(info.BaseLower);
+				return base.VisitObjectLiteralExpression(context);
 			}
 		}
 
@@ -1004,8 +1173,17 @@ namespace Keysharp.Scripting
 			var info = parser.GetIdentifierInfo(text);
             text = parser.NormalizeFunctionIdentifier(info.Trimmed);
 
-            parser.MaybeAddClassStaticVariable(text, false); // This needs to be before FuncObj one, because "object" can be both
-            parser.MaybeAddGlobalFuncObjVariable(text, false);
+			var normalizedInfo = text.Equals(info.NormalizedLower, StringComparison.Ordinal) || text.Equals(info.Trimmed, StringComparison.Ordinal)
+				? info
+				: parser.GetIdentifierInfo(text);
+
+			if (parser.IsVariableDeclaredNoBuiltin(text, true) == null)
+			{
+				if (parser.TryGetClassStaticSymbol(normalizedInfo, out var classSymbol)) // "object" can be both
+					text = classSymbol.CSharpName;
+				else if (parser.TryGetFuncObjSymbol(normalizedInfo, out var funcSymbol))
+					text = funcSymbol.CSharpName;
+			}
 
             var vr = parser.IsVarRef(text);
             if (vr != null)
@@ -1436,7 +1614,9 @@ namespace Keysharp.Scripting
             );
 
 			var objectVarName = parser.NormalizeIdentifier("object", eNameCase.Lower);
-			parser.MaybeAddClassStaticVariable(objectVarName, false);
+			var objectInfo = parser.GetIdentifierInfo(objectVarName);
+			if (parser.TryGetClassStaticSymbol(objectInfo, out var objectSymbol))
+				objectVarName = objectSymbol.CSharpName;
 
 			return ((InvocationExpressionSyntax)InternalMethods.Invoke)
 				.WithArgumentList(

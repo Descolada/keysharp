@@ -79,6 +79,31 @@ namespace Keysharp.Scripting
 			return info;
 		}
 
+		internal bool TryGetSymbol(SymbolKind kind, string semanticLower, out SymbolInfo symbol)
+		{
+			symbol = null;
+			var module = currentModule;
+			if (module == null)
+				return false;
+			return module.Symbols.TryGet(new SymbolKey(kind, module.Name, semanticLower), out symbol);
+		}
+
+		internal bool TryGetClassStaticSymbol(IdentifierInfo info, out SymbolInfo symbol)
+		{
+			if (TryGetSymbol(SymbolKind.Class, info.BaseLower, out symbol) && symbol.EmitKind == SymbolEmitKind.ClassStaticVar)
+				return true;
+			symbol = null;
+			return false;
+		}
+
+		internal bool TryGetFuncObjSymbol(IdentifierInfo info, out SymbolInfo symbol)
+		{
+			if (TryGetSymbol(SymbolKind.Function, info.BaseLower, out symbol) && symbol.EmitKind == SymbolEmitKind.GlobalFuncObj)
+				return true;
+			symbol = null;
+			return false;
+		}
+
 		private static string ComputeIdentifierBaseLower(string trimmed)
 		{
 			var name = trimmed.TrimStart('@');
@@ -1089,12 +1114,12 @@ namespace Keysharp.Scripting
             return name;
         }
 
-        internal string IsVariableDeclared(string name, bool caseSense = true)
+		internal string IsVariableDeclared(string name, bool caseSense = true)
         {
 			string match;
 			if (currentFunc.Scope == eScope.Static)
 			{
-				match = IsVarDeclaredInClass(currentClass, name);
+				match = IsVarDeclaredInClass(currentClass, name, caseSense);
 				if (match != null) return match;
 			}
 			if (currentFunc.Scope == eScope.Local || currentFunc.Scope == eScope.Static)
@@ -1110,7 +1135,7 @@ namespace Keysharp.Scripting
 			else if (currentFunc.Scope == eScope.Global)
 			{
 				// If the variable is supposed to be local then return it
-				match = IsLocalVar(name);
+				match = IsLocalVar(name, caseSense);
 				if (match != null)
 					return match;
 
@@ -1122,6 +1147,38 @@ namespace Keysharp.Scripting
 				return builtin;
 
             return null;
+		}
+
+		internal string IsVariableDeclaredNoBuiltin(string name, bool caseSense = true)
+		{
+			string match;
+			if (currentFunc.Scope == eScope.Static)
+			{
+				match = IsVarDeclaredInClass(currentClass, name, caseSense);
+				if (match != null) return match;
+			}
+			if (currentFunc.Scope == eScope.Local || currentFunc.Scope == eScope.Static)
+			{
+				// If the variable is supposed to be global then don't add a local declaration
+				match = IsGlobalVar(name, caseSense);
+				if (match != null) return match;
+
+				// Otherwise if a local declaration is present then return it
+				match = IsVarDeclaredLocally(name, caseSense);
+				if (match != null) return match;
+			}
+			else if (currentFunc.Scope == eScope.Global)
+			{
+				// If the variable is supposed to be local then return it
+				match = IsLocalVar(name, caseSense);
+				if (match != null)
+					return match;
+
+				match = IsVarDeclaredGlobally(name, caseSense);
+				if (match != null) return match;
+			}
+
+			return null;
 		}
 
         // Either adds a new local, static, or global variable declaration (depending on scope),
@@ -1193,86 +1250,6 @@ namespace Keysharp.Scripting
 			}
 
             return name;
-        }
-
-        // // Adds `public static object myclass = Myclass.__Static;` as a global variable (the class static instance declaration)
-        internal string MaybeAddClassStaticVariable(string className, bool caseSense = false)
-        {
-			if (isPrepass)
-				return caseSense ? className : className.ToLowerInvariant();
-
-            string name = IsVarDeclaredGlobally(className, caseSense);
-            if (name != null) return name;
-
-            var nonescapedClassName = className.TrimStart('@');
-
-            string alias = Keywords.TypeNameAliases.SingleOrDefault(kv => kv.Value.Equals(nonescapedClassName, StringComparison.OrdinalIgnoreCase)).Key;
-            if (alias != null)
-                nonescapedClassName = alias;
-
-			// Only add built-in classes, because user-defined classes are handled in the constructor
-			if (!Parser.BuiltinTopLevelTypes.ContainsKey(nonescapedClassName))
-                return null;
-            string casedName = Parser.BuiltinTopLevelTypes.SingleOrDefault(kv => kv.Key.Equals(nonescapedClassName, StringComparison.OrdinalIgnoreCase)).Key;
-
-            // Add `internal static object myclass = Myclass.__Static;` global field
-            var fieldDeclaration = SyntaxFactory.FieldDeclaration(
-                SyntaxFactory.VariableDeclaration(
-                    Parser.PredefinedKeywords.ObjectType,
-                    SyntaxFactory.SingletonSeparatedList(
-                        SyntaxFactory.VariableDeclarator(className)
-                            .WithInitializer(
-                                SyntaxFactory.EqualsValueClause(
-									PredefinedKeywords.EqualsToken,
-									SyntaxFactory.ElementAccessExpression(
-                                        SyntaxFactory.MemberAccessExpression(
-                                            SyntaxKind.SimpleMemberAccessExpression,
-											VarsNameSyntax,
-                                            SyntaxFactory.IdentifierName("Statics")
-                                        ),
-                                        SyntaxFactory.BracketedArgumentList(
-                                            SyntaxFactory.SingletonSeparatedList(
-                                                SyntaxFactory.Argument(
-                                                    SyntaxFactory.TypeOfExpression(
-                                                        SyntaxFactory.IdentifierName(casedName)
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                    )
-                )
-            )
-            .AddModifiers(
-                Parser.PredefinedKeywords.PublicToken,
-                Parser.PredefinedKeywords.StaticToken
-            );
-
-            GlobalClass.Body.Add(fieldDeclaration);
-
-            return className.ToLower();
-        }
-
-        // Adds a global FuncObj variable if one is not already present,
-        // eg `public static object msgbox = FuncObj(MsgBox);`
-        internal string MaybeAddGlobalFuncObjVariable(string functionName, bool caseSense = true)
-        {
-			if (isPrepass)
-				return caseSense ? functionName : functionName.ToLowerInvariant();
-
-            functionName = functionName.TrimStart('@');
-            string name = IsVarDeclaredGlobally(ToValidIdentifier(functionName), caseSense);
-            if (name != null) return name;
-
-            // Only add built-in functions, because user-defined functions are handled in the constructor
-            name = IsBuiltInMethod(functionName, caseSense);
-            if (name == null) return caseSense ? functionName : functionName.ToLowerInvariant();
-
-            functionName = name;
-
-            return AddGlobalFuncObjVariable(functionName, caseSense);
         }
 
         internal string AddGlobalFuncObjVariable(string functionName, bool caseSense = false)

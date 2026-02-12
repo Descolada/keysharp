@@ -63,7 +63,7 @@ namespace Keysharp.Scripting
 						changed |= ResolveExportImport(
 							module,
 							import,
-							name => ResolveScriptExport(targetModule, name),
+							name => ResolveScriptImportByName(targetModule, name),
 							EnumerateScriptExports(targetModule),
 							GetDefaultExportKind(targetModule)
 						);
@@ -124,8 +124,43 @@ namespace Keysharp.Scripting
 			return ExportKind.None;
 		}
 
+		private static bool HasExplicitExports(Parser.Module targetModule)
+		{
+			if (targetModule.DefaultExport != Parser.Module.DefaultExportKind.None)
+				return true;
+			if (targetModule.ExportedFuncs.Count > 0 || targetModule.ExportedTypes.Count > 0 || targetModule.ExportedVars.Count > 0)
+				return true;
+
+			foreach (var import in targetModule.Imports)
+			{
+				if (import.IsExported)
+					return true;
+			}
+
+			return false;
+		}
+
 		private static IEnumerable<(string Name, ExportKind Kind)> EnumerateScriptExports(Parser.Module targetModule)
 		{
+			// No explicit exports means module contents are implicitly exportable.
+			if (!HasExplicitExports(targetModule))
+			{
+				foreach (var name in targetModule.UserFuncs)
+					yield return (name, ExportKind.Function);
+
+				foreach (var typeName in targetModule.UserTypes.Keys)
+				{
+					if (typeName.Contains('.', StringComparison.Ordinal))
+						continue;
+					yield return (typeName, ExportKind.Type);
+				}
+
+				foreach (var name in targetModule.GlobalVars)
+					yield return (name, ExportKind.Variable);
+
+				yield break;
+			}
+
 			foreach (var name in targetModule.ExportedFuncs)
 				yield return (name, ExportKind.Function);
 			foreach (var name in targetModule.ExportedTypes)
@@ -561,9 +596,9 @@ namespace Keysharp.Scripting
 
 		private void AddNamedImport(Parser.Module module, Parser.Module targetModule, string importName, string alias, bool exportMember)
 		{
-			var targetInfo = ResolveScriptExport(targetModule, importName);
+			var targetInfo = ResolveScriptImportByName(targetModule, importName);
 			if (targetInfo == ExportKind.None)
-				throw new ParseException($"Import '{importName}' is not exported by module '{targetModule.Name}'.");
+				throw new ParseException($"Import '{importName}' cannot be resolved in module '{targetModule.Name}'.");
 
 			var aliasName = parser.NormalizeIdentifier(alias, eNameCase.Lower);
 			EnsureImportNameAvailable(module, aliasName, alias);
@@ -637,18 +672,8 @@ namespace Keysharp.Scripting
 
 			internal void AddScript(Parser.Module targetModule, bool exportMember)
 			{
-				foreach (var name in targetModule.ExportedFuncs)
-					AddEntry(CreateScriptEntry(targetModule, name, ExportKind.Function, exportMember));
-
-				foreach (var name in targetModule.ExportedTypes)
-				{
-					if (name.Contains('.', StringComparison.Ordinal))
-						continue;
-					AddEntry(CreateScriptEntry(targetModule, name, ExportKind.Type, exportMember));
-				}
-
-				foreach (var name in targetModule.ExportedVars)
-					AddEntry(CreateScriptEntry(targetModule, name, ExportKind.Variable, exportMember));
+				foreach (var entry in EnumerateScriptExports(targetModule))
+					AddEntry(CreateScriptEntry(targetModule, entry.Name, entry.Kind, exportMember));
 			}
 
 			internal void AddExternal(Type externalType, bool exportMember)
@@ -735,6 +760,39 @@ namespace Keysharp.Scripting
 			if (targetModule.ExportedTypes.Contains(typeName))
 				return ExportKind.Type;
 			if (targetModule.ExportedVars.Contains(info.BaseLower))
+				return ExportKind.Variable;
+
+			if (!HasExplicitExports(targetModule))
+				return ResolveScriptDeclaration(targetModule, importName);
+
+			return ExportKind.None;
+		}
+
+		private ExportKind ResolveScriptImportByName(Parser.Module targetModule, string importName)
+		{
+			// Named imports can access module members even when they are not explicitly exported.
+			var kind = ResolveScriptExport(targetModule, importName);
+			return kind != ExportKind.None ? kind : ResolveScriptDeclaration(targetModule, importName);
+		}
+
+		private ExportKind ResolveScriptDeclaration(Parser.Module targetModule, string importName)
+		{
+			var info = parser.GetIdentifierInfo(importName);
+			if (targetModule.UserFuncs.Contains(info.Trimmed))
+				return ExportKind.Function;
+
+			var typeName = parser.NormalizeIdentifier(info.Trimmed, eNameCase.Title);
+			foreach (var knownType in targetModule.UserTypes.Keys)
+			{
+				if (!knownType.Contains('.', StringComparison.Ordinal)
+					&& knownType.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+					return ExportKind.Type;
+			}
+
+			var memberName = parser.NormalizeIdentifier(info.Trimmed, eNameCase.Lower);
+			if (targetModule.GlobalVars.Contains(memberName)
+				|| targetModule.GlobalVars.Contains(info.BaseLower)
+				|| (targetModule.ModuleClass != null && HasMemberName(targetModule.ModuleClass, memberName)))
 				return ExportKind.Variable;
 
 			return ExportKind.None;

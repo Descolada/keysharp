@@ -1504,11 +1504,6 @@ namespace Keysharp.Scripting
             else
                 throw new Error("Invalid member dot access expression member");
 
-            if (baseExpression is IdentifierNameSyntax identifierName)
-            {
-                parser.MaybeAddGlobalFuncObjVariable(identifierName.Identifier.Text);
-            }
-
             var propGetter = useOrNull
                 ? (InvocationExpressionSyntax)InternalMethods.GetPropertyValueOrNull
                 : (InvocationExpressionSyntax)InternalMethods.GetPropertyValue;

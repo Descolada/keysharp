@@ -73,6 +73,8 @@ namespace Keysharp.Scripting
 			public Dictionary<string, string> AllTypes = new(StringComparer.OrdinalIgnoreCase);
 			public Dictionary<string, string> UserTypes = new(StringComparer.OrdinalIgnoreCase);
 			public HashSet<string> UserFuncs = new(StringComparer.OrdinalIgnoreCase);
+			public SymbolTable Symbols = new();
+			public HashSet<string> ReferencedIdentifiers = new(StringComparer.OrdinalIgnoreCase);
 
 			public uint LoopDepth = 0;
 			public uint FunctionDepth = 0;

@@ -139,13 +139,12 @@ deleteStatement
     ;
 
 importStatement
-    : Export WS* Import WS* importClause exportImportList?
-    | Import WS* importClause
+    : Import WS* importClause
+    | (Export WS*)? Import WS* importModule (WS* importList)?
     ;
 
 importClause
-    : importModule
-    | importWildcardFrom
+    : importWildcardFrom
     | importNamedFrom
     ;
 
@@ -158,7 +157,11 @@ importWildcardFrom
     ;
 
 importNamedFrom
-    : '{' s* importSpecifierList? s* '}' s* From WS* moduleName
+    : importList s* From WS* moduleName
+    ;
+
+importList
+    : '{' s* importSpecifierList? s* '}'
     ;
 
 importSpecifierList
@@ -167,19 +170,6 @@ importSpecifierList
 
 importSpecifier
     : identifierName (s* As s* identifierName)?
-    ;
-
-exportImportList
-    : '{' s* exportImportSpecifierList? s* '}'
-    ;
-
-exportImportSpecifierList
-    : exportImportSpecifier (WS* ',' exportImportSpecifier)* (WS* ',')?
-    ;
-
-exportImportSpecifier
-    : Multiply
-    | identifierName
     ;
 
 moduleName

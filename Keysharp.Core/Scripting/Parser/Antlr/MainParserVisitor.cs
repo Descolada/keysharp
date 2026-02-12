@@ -181,6 +181,12 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitImportNamedFrom([NotNull] MainParser.ImportNamedFromContext context);
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="MainParser.importList"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitImportList([NotNull] MainParser.ImportListContext context);
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.importSpecifierList"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
@@ -192,24 +198,6 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitImportSpecifier([NotNull] MainParser.ImportSpecifierContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportImportList"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitExportImportList([NotNull] MainParser.ExportImportListContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifierList"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitExportImportSpecifierList([NotNull] MainParser.ExportImportSpecifierListContext context);
-	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.exportImportSpecifier"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitExportImportSpecifier([NotNull] MainParser.ExportImportSpecifierContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.moduleName"/>.
 	/// </summary>

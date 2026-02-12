@@ -965,18 +965,6 @@ namespace Keysharp.Scripting
 				if (!IsStatementStart())
 					return false;
 
-				bool allowExportList = false;
-				for (int scan = codeTokens.Count - 1; scan >= 0; scan--)
-				{
-					var t = codeTokens[scan];
-					if (t.Channel != Lexer.DefaultTokenChannel)
-						continue;
-					if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
-						continue;
-					allowExportList = t.Type == MainLexer.Export;
-					break;
-				}
-
 				int scanIndex = startIndex;
 				scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
 				if (scanIndex >= tokenCount)
@@ -1033,21 +1021,16 @@ namespace Keysharp.Scripting
 						if (string.IsNullOrWhiteSpace(moduleName))
 							return false;
 
-						bool sawAlias = false;
 						int j = NextNonWhitespace(scanIndex, allowEol: false);
 						if (j < tokenCount && tokens[j].Type == MainLexer.As)
 						{
 							j = NextNonWhitespace(j, allowEol: false);
 							if (j >= tokenCount || tokens[j].Type != MainLexer.Identifier)
 								return false;
-							sawAlias = true;
 							j = NextNonWhitespace(j, allowEol: false);
 						}
 
-						if (allowExportList && !sawAlias && j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
-							return false;
-
-						if (allowExportList && j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
+						if (j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
 						{
 							int depth = 1;
 							while (++j < tokenCount)

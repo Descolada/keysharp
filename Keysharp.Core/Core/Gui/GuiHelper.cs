@@ -19,8 +19,6 @@ namespace Keysharp.Core
 			set => Script.TheScript.Threads.CurrentThread.dialogOwner = value;
 		}
 
-		public static Gui Gui(object obj0 = null, object obj1 = null, object obj2 = null) => new ([obj0, obj1, obj2]);
-
 		public static object GuiCtrlFromHwnd(object obj)
 		{
 			if (Control.FromHandle(new nint(obj.Al())) is Control c)
@@ -66,10 +64,6 @@ namespace Keysharp.Core
 
 			return DefaultObject;
 		}
-
-		public static Menu Menu() => new ();
-
-		public static MenuBar MenuBar() => new ();
 
 		public static object MenuFromHandle(object obj)
 		{

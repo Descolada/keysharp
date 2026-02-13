@@ -650,6 +650,8 @@
 	/// </summary>
 	public class MenuBar : Menu
 	{
+		public MenuBar(params object[] args) : base(args) { }
+
 		/// <summary>
 		/// The <see cref="MenuStrip"/> for the menubar.
 		/// </summary>

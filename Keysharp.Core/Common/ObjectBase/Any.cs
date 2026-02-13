@@ -70,18 +70,22 @@ namespace Keysharp.Core.Common.ObjectBase
 		public Any(params object[] args)
 		{
 			InitializePrivates();
+			var script = Script.TheScript;
+			if (script == null) return;
+
 			// Skip Map and OwnPropsMap because SetPropertyValue will cause recursive stack overflow
 			// (if the property doesn't exist then a new Map is created which calls this function again)
-			if (Script.TheScript.Vars.Prototypes == null || SkipConstructorLogic
+			if (script.Vars.Prototypes == null || SkipConstructorLogic
 				// Hack way to check that Prototypes/Statics are initialized
-				|| Script.TheScript.Vars.Statics.Count < 10)
+				|| script.Vars.Statics == null
+				|| script.Vars.Statics.Count < 10)
 			{
 				__New(args);
 				return;
 			}
 
 			type = GetType();
-			Script.TheScript.Vars.Statics.TryGetValue(type, out Any value);
+			script.Vars.Statics.TryGetValue(type, out Any value);
 			if (value == null)
 			{
 				__New(args);

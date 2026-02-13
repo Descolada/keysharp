@@ -20,6 +20,11 @@ namespace Keysharp.Core
 		{
 			var exitThread = true;
 			var script = Script.TheScript;
+			if (script == null)
+			{
+				err.ExcType = excType;
+				return excType != Keyword_Return;
+			}
 
 			if (script.SuppressErrorOccurred != 0)
 				return false;

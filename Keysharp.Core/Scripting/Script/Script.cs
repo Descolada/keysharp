@@ -757,7 +757,7 @@ namespace Keysharp.Scripting
 				requirement = ">=" + requirement.TrimEnd('+').Trim();
 			bool hasOp = HasOperator(requirement);
 
-			var target = reqAhk ? "v2.1" : A_AhkVersion;
+			var target = reqAhk ? "2.1" : A_AhkVersion;
 			var cmp = Strings.VerCompare(target, requirement);
 			var ok = hasOp ? cmp == 1L : cmp >= 0L;
 

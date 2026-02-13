@@ -1571,9 +1571,32 @@ namespace Keysharp.Core
 		/// </returns>
 		public static long VerCompare(object versionA, object versionB)
 		{
-			var v1 = versionA.As().Trim();
+			static string TrimVersionPrefix(string version)
+			{
+				if (!string.IsNullOrEmpty(version) && (version[0] == 'v' || version[0] == 'V'))
+					return version.Substring(1).TrimStart();
+
+				return version;
+			}
+
+			// Version.Version requires at least 2 components and at most 4, and all must be numeric. 
+			static string NormalizeSystemVersion(string version)
+			{
+				if (string.IsNullOrEmpty(version))
+					return version;
+
+				foreach (var c in version)
+				{
+					if (!char.IsDigit(c) && c != '.')
+						return version;
+				}
+
+				return version.Contains('.') ? version : version + ".0";
+			}
+
+			var v1 = TrimVersionPrefix(versionA.As().Trim());
 			var v2 = versionB.As().Trim();
-			Exception ex;
+			Exception ex = null;
 
 			//SemVer cannot parse a C# style version string with 4 numbers.
 			//So we have to first try SemVer, then if it fails, try C# style.
@@ -1582,7 +1605,7 @@ namespace Keysharp.Core
 
 			if (v2.StartsWith("<="))
 			{
-				v2 = v2.Substring(2);
+				v2 = TrimVersionPrefix(v2.Substring(2));
 
 				try
 				{
@@ -1597,19 +1620,17 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2) <= 0 ? 1L : 0L;
 				}
 				catch (Exception)
 				{
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
 			else if (v2.StartsWith('<'))
 			{
-				v2 = v2.Substring(1);
+				v2 = TrimVersionPrefix(v2.Substring(1));
 
 				try
 				{
@@ -1624,19 +1645,18 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2) < 0 ? 1L : 0L;
 				}
-				catch (Exception)
+				catch (Exception e)
 				{
+					ex = e;
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
 			else if (v2.StartsWith(">="))
 			{
-				v2 = v2.Substring(2);
+				v2 = TrimVersionPrefix(v2.Substring(2));
 
 				try
 				{
@@ -1651,19 +1671,18 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2) >= 0 ? 1L : 0L;
 				}
-				catch (Exception)
+				catch (Exception e)
 				{
+					ex = e;
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
 			else if (v2.StartsWith('>'))
 			{
-				v2 = v2.Substring(1);
+				v2 = TrimVersionPrefix(v2.Substring(1));
 
 				try
 				{
@@ -1678,19 +1697,18 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2) > 0 ? 1L : 0L;
 				}
-				catch (Exception)
+				catch (Exception e)
 				{
+					ex = e;
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
 			else if (v2.StartsWith('='))
 			{
-				v2 = v2.Substring(1);
+				v2 = TrimVersionPrefix(v2.Substring(1));
 
 				try
 				{
@@ -1705,18 +1723,19 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2) == 0 ? 1L : 0L;
 				}
-				catch (Exception)
+				catch (Exception e)
 				{
+					ex = e;	
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
 			else
 			{
+				v2 = TrimVersionPrefix(v2);
+
 				try
 				{
 					var semver1 = Semver.SemVersion.Parse(v1, Semver.SemVersionStyles.Any);
@@ -1730,16 +1749,20 @@ namespace Keysharp.Core
 
 				try
 				{
-					var csV1 = new Version(v1);
-					var csV2 = new Version(v2);
+					var csV1 = new Version(NormalizeSystemVersion(v1));
+					var csV2 = new Version(NormalizeSystemVersion(v2));
 					return csV1.CompareTo(csV2);
 				}
-				catch (Exception)
+				catch (Exception e)
 				{
+					ex = e;
 				}
-
-				return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex.Message}", DefaultErrorLong);
 			}
+
+			if (TheScript == null)
+				throw ex;
+
+			return (long)Errors.ErrorOccurred($"Error comparing version {versionA} to {versionB}: {ex?.Message ?? "Unspecified error"}", DefaultErrorLong);
 		}
 
 		/// <summary>

@@ -138,6 +138,8 @@ using String = Keysharp.Core.String
 			"Antlr4.Runtime.Standard.dll",
 			"PCRE.NET.dll",
 			"BitFaster.Caching.dll",
+			"Semver.dll",
+			"Microsoft.Extensions.Primitives.dll", // Required by Semver.dll
 #if !WINDOWS
 			"Eto.dll",
 #endif

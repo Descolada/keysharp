@@ -378,16 +378,16 @@ namespace Keysharp.Scripting
             {
                 // Instance __Init method
                 var instanceInitMethod = SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.VoidKeyword)),
+                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
                     instanceInitName
                 )
                 .WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken))
                 .WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SingletonSeparatedList(Parser.PredefinedKeywords.ThisParam)))
                 .WithBody(
                     SyntaxFactory.Block(
-                        new[] // Add the call to Invoke((object)super, "__Init") as the first statement
+                        new StatementSyntax[] // Add the call to Invoke((object)super, "__Init") as the first statement
                         {
-                    SyntaxFactory.ExpressionStatement(
+                    (StatementSyntax)SyntaxFactory.ExpressionStatement(
                         ((InvocationExpressionSyntax)InternalMethods.InvokeOrNull)
                         .WithArgumentList(
 							CreateArgumentList(
@@ -410,6 +410,7 @@ namespace Keysharp.Scripting
                                 )
                             )
                         )
+                        .Append(PredefinedKeywords.DefaultReturnStatement)
                     )
                 );
 
@@ -419,19 +420,17 @@ namespace Keysharp.Scripting
             // Check if static __Init method already exists
             if (!parser.currentClass.ContainsMethod("__Init", true, true))
             {
-                List<ExpressionStatementSyntax> staticBody = new();
                 // Static __Init method
                 var staticInitMethod = SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.VoidKeyword)),
+                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
                     Keywords.ClassStaticPrefix + "__Init"
                 )
                 .WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken))
                 .WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SingletonSeparatedList(Parser.PredefinedKeywords.ThisParam)))
                 .WithBody(
                     SyntaxFactory.Block(
-						staticBody.Concat(
 					        parser.currentClass.deferredStaticInitializations.Select(deferred =>
-                                SyntaxFactory.ExpressionStatement(
+                                (StatementSyntax)SyntaxFactory.ExpressionStatement(
                                     ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
                                     .WithArgumentList(
 								        CreateArgumentList(
@@ -442,6 +441,8 @@ namespace Keysharp.Scripting
                                     )
                                 )
                             )
+                        .Append(
+                            PredefinedKeywords.DefaultReturnStatement
                         )
                     )
                 );

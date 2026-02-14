@@ -126,6 +126,7 @@ namespace Keysharp.Scripting
 			int bracketDepth = 0;
 			int derefDepth = 0;
 			bool skipWhitespaces = false;
+			int pendingImportCodeTokenIndex = -1;
 			int tokenCount = tokens.Count;
 
 			while (index < tokenCount && tokens[index].Type == MainLexer.WS)
@@ -138,6 +139,8 @@ namespace Keysharp.Scripting
 				{ 
 					if (token.Type == MainLexer.WS || token.Type == MainLexer.EOL)
 					{
+						if (token.Type == MainLexer.EOL && pendingImportCodeTokenIndex >= 0)
+							FinalizePendingImportCandidate(token);
 						index++;
 						continue;
 					} else
@@ -540,6 +543,8 @@ namespace Keysharp.Scripting
 							skipWhitespaces = true;
 							break;
 						case MainLexer.EOL:
+							if (pendingImportCodeTokenIndex >= 0)
+								FinalizePendingImportCandidate(token);
 							PopWhitespaces(codeTokens.Count);
 							skipWhitespaces = true;
 							break;
@@ -548,7 +553,7 @@ namespace Keysharp.Scripting
                             PopWhitespaces(codeTokens.Count);
 							skipWhitespaces = true;
 
-							if (IsFollowedByWhitespace(index) && prevCount != codeTokens.Count)
+							if (IsNextTokenWhitespace(index) && prevCount != codeTokens.Count)
                             { // Any skipped and popped
 								var dottoken = new CommonToken(MainLexer.ConcatDot)
 								{
@@ -679,19 +684,9 @@ namespace Keysharp.Scripting
 							braceDepth++;
 							break;
 						case MainLexer.Import:
-							if (!TryParseImportStatement(index, out var importModuleName))
-							{
-								var identToken = new CommonToken(token)
-								{
-									Type = MainLexer.Identifier,
-									Text = token.Text
-								};
-								codeTokens.Add(identToken);
-								goto SkipAdd;
-							}
-							if (compiliedTokens)
-								TryQueueImportModule(importModuleName);
 							codeTokens.Add(token);
+							if (pendingImportCodeTokenIndex < 0)
+								pendingImportCodeTokenIndex = codeTokens.Count - 1;
 							goto SkipAdd;
 						case MainLexer.HotIf:
 						case MainLexer.InputLevel:
@@ -722,6 +717,12 @@ namespace Keysharp.Scripting
                 index++;
             }
 
+			if (pendingImportCodeTokenIndex >= 0)
+			{
+				var finalToken = tokens.Count > 0 ? tokens[^1] : null;
+				FinalizePendingImportCandidate(finalToken);
+			}
+
             int PopWhitespaces(int i, bool linebreaks = true)
             {
 				while (--i >= 0)
@@ -740,42 +741,6 @@ namespace Keysharp.Scripting
                         break;
                 }
                 return i;
-            }
-
-			int NextNonWhitespace(int i, bool allowEol)
-			{
-				while (++i < tokens.Count)
-				{
-					if (tokens[i].Channel == MainLexer.ERROR)
-						return i;
-					if (tokens[i].Channel == MainLexer.DIRECTIVE)
-						continue;
-					if (tokens[i].Channel != Lexer.DefaultTokenChannel)
-						continue;
-					if (tokens[i].Type == MainLexer.WS)
-						continue;
-					if (allowEol && tokens[i].Type == MainLexer.EOL)
-						continue;
-					return i;
-				}
-				return i;
-			}
-
-            bool IsStatementStart()
-            {
-                for (int i = codeTokens.Count - 1; i >= 0; i--)
-                {
-                    var t = codeTokens[i];
-					if (t.Channel != Lexer.DefaultTokenChannel)
-						continue;
-					if (t.Type == MainLexer.WS)
-						continue;
-					if (t.Type == MainLexer.EOL)
-						return true;
-					return t.Type == MainLexer.CloseBrace
-						|| t.Type == MainLexer.Export;
-				}
-                return true; // start of file
             }
 
             bool IsVerbalOperator(int type)
@@ -802,116 +767,102 @@ namespace Keysharp.Scripting
 				return ++i < tokens.Count ? tokens[i].Type == MainLexer.OpenParen : false;
 			}
 
-			bool IsFollowedByWhitespace(int i)
+			bool IsNextTokenWhitespace(int i)
 			{
 				return ++i < tokens.Count && (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL);
 			}
 
-			bool TryParseImportStatement(int startIndex, out string moduleName)
+			void FinalizePendingImportCandidate(IToken lineEndToken)
+			{
+				try
+				{
+					if (pendingImportCodeTokenIndex < 0 || pendingImportCodeTokenIndex >= codeTokens.Count)
+						return;
+
+					var pendingImportToken = codeTokens[pendingImportCodeTokenIndex];
+
+					if (pendingImportToken.Type != MainLexer.Import)
+						return;
+
+					if (TryProbeImportStatementFromCodeTokens(pendingImportCodeTokenIndex, lineEndToken, out var moduleName)
+						&& !string.IsNullOrWhiteSpace(moduleName))
+					{
+						if (compiliedTokens)
+							TryQueueImportModule(moduleName);
+					}
+					else
+					{
+						codeTokens[pendingImportCodeTokenIndex] = new CommonToken(pendingImportToken)
+						{
+							Type = MainLexer.Identifier,
+							Text = pendingImportToken.Text
+						};
+					}
+				}
+				finally
+				{
+					pendingImportCodeTokenIndex = -1;
+				}
+			}
+
+			bool TryProbeImportStatementFromCodeTokens(int startCodeTokenIndex, IToken lineEndToken, out string moduleName)
 			{
 				moduleName = null;
-				if (braceDepth > 0 || parenDepth > 0 || bracketDepth > 0 || derefDepth > 0)
-					return false;
-				if (!IsStatementStart())
+				var probeTokens = codeTokens[startCodeTokenIndex..^0];
+
+				if (probeTokens.Count == 0)
 					return false;
 
-				int scanIndex = startIndex;
-				scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
-				if (scanIndex >= tokenCount)
-					return false;
+				probeTokens.Add(lineEndToken);
 
-				switch (tokens[scanIndex].Type)
+				var probeTokenSource = new ListTokenSource(probeTokens);
+				var probeTokenStream = new CommonTokenStream(probeTokenSource);
+				var probeParser = new MainParser(probeTokenStream);
+				probeParser.RemoveErrorListeners();
+				probeParser.ErrorHandler = new BailErrorStrategy();
+
+				try
 				{
-					case MainLexer.OpenBrace:
-						int localDepth = 1;
-						while (++scanIndex < tokenCount)
-						{
-							var t = tokens[scanIndex];
-							if (t.Channel == MainLexer.DIRECTIVE || t.Channel == MainLexer.ERROR)
-								break;
-							if (t.Channel != Lexer.DefaultTokenChannel)
-								continue;
-							if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
-								continue;
-							if (t.Type == MainLexer.OpenBrace)
-								localDepth++;
-							else if (t.Type == MainLexer.CloseBrace)
-							{
-								localDepth--;
-								if (localDepth == 0)
-									break;
-							}
-						}
-						if (localDepth != 0 || scanIndex >= tokenCount)
-							return false;
-						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
-						if (scanIndex >= tokenCount || tokens[scanIndex].Type != MainLexer.From)
-							return false;
-						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
-						if (scanIndex < tokenCount && (tokens[scanIndex].Type == MainLexer.Identifier || tokens[scanIndex].Type == MainLexer.StringLiteral))
-						{
-							moduleName = ExtractModuleName(tokens[scanIndex]);
-							return !string.IsNullOrWhiteSpace(moduleName);
-						}
+					var sourceElement = probeParser.sourceElement();
+					var importStatement = sourceElement?.importStatement();
+					if (importStatement == null)
 						return false;
-					case MainLexer.Multiply:
-						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
-						if (scanIndex >= tokenCount || tokens[scanIndex].Type != MainLexer.From)
-							return false;
-						scanIndex = NextNonWhitespace(scanIndex, allowEol: false);
-						if (scanIndex < tokenCount && (tokens[scanIndex].Type == MainLexer.Identifier || tokens[scanIndex].Type == MainLexer.StringLiteral))
-						{
-							moduleName = ExtractModuleName(tokens[scanIndex]);
-							return !string.IsNullOrWhiteSpace(moduleName);
-						}
-						return false;
-					case MainLexer.Identifier:
-					case MainLexer.StringLiteral:
-						moduleName = ExtractModuleName(tokens[scanIndex]);
-						if (string.IsNullOrWhiteSpace(moduleName))
-							return false;
 
-						int j = NextNonWhitespace(scanIndex, allowEol: false);
-						if (j < tokenCount && tokens[j].Type == MainLexer.As)
-						{
-							j = NextNonWhitespace(j, allowEol: false);
-							if (j >= tokenCount || tokens[j].Type != MainLexer.Identifier)
-								return false;
-							j = NextNonWhitespace(j, allowEol: false);
-						}
-
-						if (j < tokenCount && tokens[j].Type == MainLexer.OpenBrace)
-						{
-							int depth = 1;
-							while (++j < tokenCount)
-							{
-								var t = tokens[j];
-								if (t.Channel == MainLexer.DIRECTIVE || t.Channel == MainLexer.ERROR)
-									break;
-								if (t.Channel != Lexer.DefaultTokenChannel)
-									continue;
-								if (t.Type == MainLexer.WS || t.Type == MainLexer.EOL)
-									continue;
-								if (t.Type == MainLexer.OpenBrace)
-									depth++;
-								else if (t.Type == MainLexer.CloseBrace)
-								{
-									depth--;
-									if (depth == 0)
-										break;
-								}
-							}
-							if (depth != 0 || j >= tokenCount)
-								return false;
-							j = NextNonWhitespace(j, allowEol: false);
-						}
-
-						if (j >= tokenCount)
-							return true;
-						return tokens[j].Type == MainLexer.EOL || tokens[j].Type == MainLexer.Eof;
-					default:
-						return false;
+					moduleName = ExtractImportModuleName(importStatement);
+					return !string.IsNullOrWhiteSpace(moduleName);
 				}
+				catch
+				{
+					return false;
+				}
+			}
+
+			static string ExtractImportModuleName(MainParser.ImportStatementContext importStatement)
+			{
+				if (importStatement == null)
+					return null;
+
+				MainParser.ModuleNameContext moduleContext = null;
+				var clause = importStatement.importClause();
+
+				if (clause?.importNamedFrom() != null)
+					moduleContext = clause.importNamedFrom().moduleName();
+				else if (clause?.importWildcardFrom() != null)
+					moduleContext = clause.importWildcardFrom().moduleName();
+				else if (importStatement.importModule() != null)
+					moduleContext = importStatement.importModule().moduleName();
+
+				if (moduleContext == null)
+					return null;
+
+				if (moduleContext.identifierName() != null)
+					return moduleContext.identifierName().GetText();
+
+				var text = moduleContext.StringLiteral()?.GetText() ?? string.Empty;
+				if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
+					text = text.Substring(1, text.Length - 2);
+
+				return text;
 			}
 
 			void TryQueueImportModule(string moduleName)
@@ -921,17 +872,6 @@ namespace Keysharp.Scripting
 				if (moduleName[0] == '*')
 					return; // TODO: embedded resource imports
 				pendingImports.Enqueue(moduleName);
-			}
-
-			string ExtractModuleName(IToken token)
-			{
-				if (token == null)
-					return string.Empty;
-				var text = token.Text ?? string.Empty;
-				text = text.Trim();
-				if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
-					text = text.Substring(1, text.Length - 2);
-				return text;
 			}
 
 			/*

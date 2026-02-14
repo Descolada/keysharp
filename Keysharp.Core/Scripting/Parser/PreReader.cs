@@ -125,7 +125,7 @@ namespace Keysharp.Scripting
 			int parenDepth = 0;
 			int bracketDepth = 0;
 			int derefDepth = 0;
-			//int maybeIsFunctionCallStatement = -2;
+			bool skipWhitespaces = false;
 			int tokenCount = tokens.Count;
 
 			while (index < tokenCount && tokens[index].Type == MainLexer.WS)
@@ -133,6 +133,16 @@ namespace Keysharp.Scripting
             while (index < tokenCount)
             {
                 var token = tokens[index];
+
+				if (skipWhitespaces && token.Channel == Lexer.DefaultTokenChannel)
+				{ 
+					if (token.Type == MainLexer.WS || token.Type == MainLexer.EOL)
+					{
+						index++;
+						continue;
+					} else
+						skipWhitespaces = false;
+				}
 
                 if (token.Channel == MainLexer.ERROR)
                 {
@@ -177,7 +187,6 @@ namespace Keysharp.Scripting
                     var includeOnce = false;
 
 					index = directiveTokenIndex;
-                    SkipWhitespaces(index);
 
 					switch (directiveStr)
 					{
@@ -472,11 +481,11 @@ namespace Keysharp.Scripting
                     {
 						case MainLexer.OpenBracket:
 							bracketDepth++;
-                            SkipWhitespaces(index);
+							skipWhitespaces = true;
 							break;
                         case MainLexer.DerefStart:
 							derefDepth++;
-                            SkipWhitespaces(index);
+							skipWhitespaces = true;
 							break;
                         case MainLexer.CloseBracket:
 							if (bracketDepth > 0)
@@ -489,12 +498,12 @@ namespace Keysharp.Scripting
                             PopWhitespaces(codeTokens.Count);
 							break;
                         case MainLexer.OpenParen:
-                            SkipWhitespaces(index);
+							skipWhitespaces = true;
 							parenDepth++;
 							break;
                         case MainLexer.Comma:
-                            SkipWhitespaces(index);
-                            if (derefDepth > 0 || braceDepth > 0 || parenDepth > 0)
+							skipWhitespaces = true;
+							if (derefDepth > 0 || braceDepth > 0 || parenDepth > 0)
                                 PopWhitespaces(codeTokens.Count);
                             else
                             {
@@ -524,33 +533,22 @@ namespace Keysharp.Scripting
 							PopWhitespaces(codeTokens.Count);
 							break;
                         case MainLexer.Not:
-                        case MainLexer.BitNot:
+						case MainLexer.VerbalNot:
+						case MainLexer.BitNot:
 					    case MainLexer.Plus: // Can't pop whitespaces because of function call statement
 						case MainLexer.Minus:
-							SkipWhitespaces(index);
-                            break;
+							skipWhitespaces = true;
+							break;
 						case MainLexer.EOL:
-                            /*
-							if (maybeIsFunctionCallStatement > -1)
-							{
-								codeTokens.Insert(maybeIsFunctionCallStatement, new CommonToken(MainLexer.FunctionCallStatementMarker)
-								{
-									Line = token.Line,
-									Column = token.Column,
-									Text = "FunctionCallStatementMarker"
-								});
-							}
-                            */
 							PopWhitespaces(codeTokens.Count);
-							SkipWhitespaces(index);
-                            //if (enclosableDepth == 0)
-							//    maybeIsFunctionCallStatement = -2;
+							skipWhitespaces = true;
 							break;
 						case MainLexer.Dot:
-                            int previndex = index, prevCount = codeTokens.Count;
-                            var popped = PopWhitespaces(codeTokens.Count);
+                            int prevCount = codeTokens.Count;
+                            PopWhitespaces(codeTokens.Count);
+							skipWhitespaces = true;
 
-							if ((SkipWhitespaces(index) - 1) != previndex && prevCount != codeTokens.Count)
+							if (IsFollowedByWhitespace(index) && prevCount != codeTokens.Count)
                             { // Any skipped and popped
 								var dottoken = new CommonToken(MainLexer.ConcatDot)
 								{
@@ -603,8 +601,8 @@ namespace Keysharp.Scripting
                         case MainLexer.QuestionMarkDot:
                         case MainLexer.Arrow:
 							PopWhitespaces(codeTokens.Count, IsVerbalOperator(token.Type) ? (!(IsPrecededByEol() && IsFollowedByOpenParen(index))) : true);
-                            SkipWhitespaces(index);
-                            break;
+							skipWhitespaces = true;
+							break;
                         case MainLexer.Loop:
 							if (tokens[index + 1].Type == MainLexer.WS)
 							{
@@ -623,7 +621,6 @@ namespace Keysharp.Scripting
 							codeTokens.Add(token);
                             if (tokens[index + 1].Type == MainLexer.Comma)
                                 index++;
-							AddWhitespaces(index, token.Type == MainLexer.Not || token.Type == MainLexer.VerbalNot);
                             goto SkipAdd;
 						case MainLexer.Try:
                         case MainLexer.If:
@@ -641,13 +638,9 @@ namespace Keysharp.Scripting
                         case MainLexer.Throw:
                         case MainLexer.Async:
                         case MainLexer.Static:
-                        case MainLexer.VerbalNot:
                             codeTokens.Add(token);
-                            AddWhitespaces(index, token.Type == MainLexer.Not || token.Type == MainLexer.VerbalNot);
                             goto SkipAdd;
 						case MainLexer.CloseBrace:
-							//if (enclosableDepth > 0)
-							//	enclosableDepth--;
 							if (braceDepth > 0)
 								braceDepth--;
 							i = PopWhitespaces(codeTokens.Count, false);
@@ -699,7 +692,6 @@ namespace Keysharp.Scripting
 							if (compiliedTokens)
 								TryQueueImportModule(importModuleName);
 							codeTokens.Add(token);
-							AddWhitespaces(index, false);
 							goto SkipAdd;
 						case MainLexer.HotIf:
 						case MainLexer.InputLevel:
@@ -720,120 +712,6 @@ namespace Keysharp.Scripting
 							break;
                         case MainLexer.WS:
                             break;
-                            /*
-						case MainLexer.Identifier:
-							// Here do some partial parsing to figure out whether this can be a function call
-							// statement. 
-							// 1. Can't be inside parenthesis, brackets, or object notation
-							if (enclosableDepth > 0 || maybeIsFunctionCallStatement > -2)
-							{
-								break;
-							}
-							maybeIsFunctionCallStatement = codeTokens.Count;
-							// Inspect previous tokens to figure out whether the context is suitable.
-							i = codeTokens.Count;
-							while (--i >= 0)
-							{
-								var t = codeTokens[i];
-								switch (t.Type)
-								{
-									case MainLexer.WS: // Just skip these
-										continue;
-									case MainLexer.EOL: // Valid contexts
-									case MainLexer.HotkeyTrigger:
-									case MainLexer.HotstringTrigger:
-									case MainLexer.Else:
-									case MainLexer.Try:
-										i = 0;
-										break;
-									case MainLexer.Colon: // Figure out whether this is after a label name (invalid), or switch-case/default (valid)
-										if (codeTokens[--i].Type != MainLexer.Identifier && codeTokens[i].Type != MainLexer.DecimalLiteral) // Can't be a label, so leave maybeIsFunctionCallStatement as true
-											break;
-
-										// Try to determine whether this is a switch-case
-										while (--i > 0)
-										{
-											var j = codeTokens[i];
-											if (j.Type == MainLexer.WS)
-												continue;
-											else if (j.Type == MainLexer.EOL) // This was a label
-											{
-												maybeIsFunctionCallStatement = -1;
-												break;
-											}
-											else
-												break;
-										}
-										if (maybeIsFunctionCallStatement == -1)
-											i = 0;
-										break;
-									default: // Invalid context for function call statement
-										maybeIsFunctionCallStatement = -1;
-										i = 0;
-										break;
-								}
-							}
-							if (maybeIsFunctionCallStatement == -1)
-								break;
-
-							i = index;
-							int depth = 0;
-
-							int nextToken;
-							while (++i < tokenCount && maybeIsFunctionCallStatement != -1)
-							{
-								nextToken = tokens[i].Type;
-								switch (nextToken)
-								{
-									case MainLexer.OpenBrace:
-										maybeIsFunctionCallStatement = -1;
-										break;
-									case MainLexer.OpenParen:
-										if (enclosableDepth == 0)
-											maybeIsFunctionCallStatement = -1;
-										depth++;
-										break;
-									case MainLexer.OpenBracket:
-									case MainLexer.DerefStart:
-										depth++;
-										break;
-									case MainLexer.CloseParen:
-									case MainLexer.CloseBracket:
-									case MainLexer.CloseBrace:
-									case MainLexer.DerefEnd:
-										depth--;
-										if (depth == 0)
-											continue;
-										break;
-								}
-								if (depth != 0)
-									continue;
-
-								switch (nextToken)
-								{
-									case MainLexer.Identifier:
-									case MainLexer.Dot:
-										continue;
-									case MainLexer.WS:
-									case MainLexer.EOL:
-									case MainLexer.Eof:
-										i = tokenCount;
-										break;
-									case MainLexer.Comma:
-										if (i == (index + 1))
-										{
-											IToken t = tokens[i];
-											throw new InvalidOperationException($"Syntax error at line {t.Line}:{t.Column} - Function calls require a space or \"(\".  Use comma only between parameters.");
-										}
-										maybeIsFunctionCallStatement = -1;
-										break;
-									default:
-										maybeIsFunctionCallStatement = -1;
-										break;
-								}
-							}
-							break;
-                            */
 						default:
                             break;
                     }
@@ -863,39 +741,6 @@ namespace Keysharp.Scripting
                 }
                 return i;
             }
-
-            int SkipWhitespaces(int i, bool linebreaks = true)
-            {
-                while (++i < tokens.Count)
-                {
-                    if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
-                        break;
-                    if ((tokens[i].Channel != Lexer.DefaultTokenChannel) || tokens[i].Type == MainLexer.WS || (linebreaks && tokens[i].Type == MainLexer.EOL))
-                        index++;
-                    else
-                        break;
-                }
-                return i;
-            }
-
-            int AddWhitespaces(int i, bool condition)
-            {
-				while (++i < tokens.Count)
-				{
-					if (tokens[i].Channel == MainLexer.DIRECTIVE || tokens[i].Channel == MainLexer.ERROR)
-						break;
-					if ((tokens[i].Channel != Lexer.DefaultTokenChannel) || (tokens[i].Type == MainLexer.EOL && condition))
-						index++;
-					else if (tokens[i].Type == MainLexer.WS)
-					{
-						codeTokens.Add(tokens[i]);
-						index++;
-					}
-					else
-						break;
-				}
-                return i;
-			}
 
 			int NextNonWhitespace(int i, bool allowEol)
 			{
@@ -955,6 +800,11 @@ namespace Keysharp.Scripting
 			bool IsFollowedByOpenParen(int i)
 			{
 				return ++i < tokens.Count ? tokens[i].Type == MainLexer.OpenParen : false;
+			}
+
+			bool IsFollowedByWhitespace(int i)
+			{
+				return ++i < tokens.Count && (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL);
 			}
 
 			bool TryParseImportStatement(int startIndex, out string moduleName)

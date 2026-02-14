@@ -121,6 +121,8 @@ namespace Keysharp.Scripting
 		{
 			if (TryResolveExternalMember(externalType, name, out var member))
 				return GetExternalExportKind(member.Kind);
+			if (IsAhkModuleType(externalType) && TryResolveAhkNamedImport(name, out var kind, out _, out _))
+				return kind;
 			return ExportKind.None;
 		}
 
@@ -422,16 +424,86 @@ namespace Keysharp.Scripting
 
 		private void AddExternalNamedImport(Parser.Module module, Type targetType, string importName, string alias, bool exportMember)
 		{
-			if (!TryResolveExternalMember(targetType, importName, out var member))
-				throw new ParseException($"Unknown import '{importName}' from module '{targetType.Name}'.");
-
 			var aliasName = parser.NormalizeIdentifier(alias, eNameCase.Lower);
 			EnsureImportNameAvailable(module, aliasName, alias);
 
-			var kind = GetExternalExportKind(member.Kind);
-			var targetAccess = BuildExternalMemberAccess(targetType, member);
-			var includeSetter = kind == ExportKind.Variable && member.CanSet;
+			ExportKind kind;
+			ExpressionSyntax targetAccess;
+			bool includeSetter;
+
+			if (TryResolveExternalMember(targetType, importName, out var member))
+			{
+				kind = GetExternalExportKind(member.Kind);
+				targetAccess = BuildExternalMemberAccess(targetType, member);
+				includeSetter = kind == ExportKind.Variable && member.CanSet;
+			}
+			else if (IsAhkModuleType(targetType) && TryResolveAhkNamedImport(importName, out kind, out targetAccess, out includeSetter))
+			{
+			}
+			else
+			{
+				throw new ParseException($"Unknown import '{importName}' from module '{targetType.Name}'.");
+			}
+
 			AddImportMemberCore(module, importName, aliasName, alias, kind, targetAccess, includeSetter, exportMember);
+		}
+
+		private static bool IsAhkModuleType(Type type) =>
+			type != null && typeof(Keysharp.Core.Common.ObjectBase.Ahk).IsAssignableFrom(type);
+
+		private bool TryResolveAhkNamedImport(string importName, out ExportKind kind, out ExpressionSyntax targetAccess, out bool includeSetter)
+		{
+			var rd = Script.TheScript.ReflectionsData;
+
+			if (rd.flatPublicStaticMethods.TryGetValue(importName, out var mi))
+			{
+				var methodAccess = SyntaxFactory.MemberAccessExpression(
+					SyntaxKind.SimpleMemberAccessExpression,
+					CreateQualifiedName((mi.DeclaringType?.FullName ?? mi.DeclaringType?.Name).Replace('+', '.')),
+					SyntaxFactory.IdentifierName(mi.Name)
+				);
+				var delegateCast = SyntaxFactory.CastExpression(
+					CreateQualifiedName("System.Delegate"),
+					methodAccess
+				);
+				targetAccess = SyntaxFactory.InvocationExpression(
+					CreateMemberAccess("Keysharp.Core.Functions", "Func")
+				).WithArgumentList(
+					CreateArgumentList(delegateCast)
+				);
+				kind = ExportKind.Function;
+				includeSetter = false;
+				return true;
+			}
+
+			if (rd.flatPublicStaticProperties.TryGetValue(importName, out var prop))
+			{
+				targetAccess = SyntaxFactory.MemberAccessExpression(
+					SyntaxKind.SimpleMemberAccessExpression,
+					CreateQualifiedName((prop.DeclaringType?.FullName ?? prop.DeclaringType?.Name).Replace('+', '.')),
+					SyntaxFactory.IdentifierName(prop.Name)
+				);
+				kind = ExportKind.Variable;
+				includeSetter = prop.CanWrite;
+				return true;
+			}
+
+			if (rd.stringToTypes.TryGetValue(importName, out var type))
+			{
+				targetAccess = GenerateItemAccess(
+					VarsNameSyntax,
+					SyntaxFactory.IdentifierName("Statics"),
+					SyntaxFactory.TypeOfExpression(CreateQualifiedName((type.FullName ?? type.Name).Replace('+', '.')))
+				);
+				kind = ExportKind.Type;
+				includeSetter = false;
+				return true;
+			}
+
+			kind = ExportKind.None;
+			targetAccess = null;
+			includeSetter = false;
+			return false;
 		}
 
 		private enum ExternalMemberKind

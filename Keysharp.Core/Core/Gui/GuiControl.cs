@@ -100,10 +100,6 @@ namespace Keysharp.Core
 				}
 			}
 
-			public Control(params object[] args) : base(args) { }
-
-
-
 			public object UseTab(object value = null, object exactMatch = null)
 			{
 				if (_control is KeysharpTabControl tc)

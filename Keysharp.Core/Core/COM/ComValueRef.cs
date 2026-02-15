@@ -4,7 +4,6 @@ namespace Keysharp.Core
 	public unsafe class ComValueRef : ComValue, IMetaObject
 	{
 		public ComValueRef(params object[] args) : base(args) { }
-		internal ComValueRef(object varType, object value, object flags = null) : base(varType, value, flags) { }
 
 		public object __Value
 		{

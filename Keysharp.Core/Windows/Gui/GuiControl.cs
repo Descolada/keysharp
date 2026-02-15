@@ -299,9 +299,9 @@ namespace Keysharp.Core
 				}
 			}
 
-			public override object __New(params object[] args)
+			public Control(params object[] args) : base(args)
 			{
-				if (args.Length == 0) return DefaultErrorObject;
+				if (args == null || args.Length == 0) return;
 
 				var g = args[0] as Gui;
 				var control = args[1] as System.Windows.Forms.Control;
@@ -317,7 +317,7 @@ namespace Keysharp.Core
 				};
 
 				if (wrap)//Just a holder for the controls in the main window.
-					return DefaultObject;
+					return;
 
 				_control.Click += _control_Click;
 				_control.DoubleClick += _control_DoubleClick;
@@ -389,7 +389,6 @@ namespace Keysharp.Core
 				_control.KeyDown += _control_KeyDown;
 				_control.MouseDown += _control_MouseDown;
 				dummyHandle = _control.Handle;//Force creation of the handle.
-				return DefaultObject;
 			}
 
 			public object Add(params object[] obj)

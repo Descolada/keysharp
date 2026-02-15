@@ -117,9 +117,18 @@ namespace Keysharp.Core
 		}
 		internal long Flags { get; set; }
 
-		public ComValue(params object[] args) : base(args) { }
+		public ComValue(params object[] args) : base(args) 
+		{
+			if (args.Length == 0 || args[0] == null) return;
+			var value = args[1];
+			vt = (VarEnum)args[0].Al();
+			Ptr = value;
+			var flags = args.Length > 2 ? args[2] : null;
+			Flags = flags != null ? flags.Al() : 0L;
 
-		internal ComValue(object varType, object value, object flags = null) : base(varType, value, flags) { }
+			if (this.vt == VarEnum.VT_BSTR && value is not long)
+				Flags |= F_OWNVALUE;
+		}
 
 		public static object Call(object @this, object varType, object value, object flags = null)
 		{
@@ -132,20 +141,6 @@ namespace Keysharp.Core
 			if ((vt & VarEnum.VT_BYREF) != 0)
 				return new ComValueRef(varType, value, flags);
 			return vt == VarEnum.VT_DISPATCH ? new ComObject(varType, value, flags) : new ComValue(varType, value, flags);
-		}
-
-		public override object __New(params object[] args)
-		{
-			if (args.Length == 0 || args[0] == null) return DefaultObject;
-			var value = args[1];
-			vt = (VarEnum)args[0].Al();
-			Ptr = value;
-			var flags = args.Length > 2 ? args[2] : null;
-			Flags = flags != null ? flags.Al() : 0L;
-
-			if (this.vt == VarEnum.VT_BSTR && value is not long)
-				Flags |= F_OWNVALUE;
-			return DefaultObject;
 		}
 
 		object IMetaObject.Get(string name, object[] args) => RawGetProperty(name, args);

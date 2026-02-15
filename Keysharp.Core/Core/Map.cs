@@ -82,8 +82,6 @@ namespace Keysharp.Core
 			/// </summary>
 			/// <param name="args">See <see cref="Map.__New(object[])"/>.</param>
 			public HashMap(params object[] args) : base(args) { }
-
-			public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
 		}
 	}
 
@@ -199,7 +197,6 @@ namespace Keysharp.Core
 		/// See <see cref="__New(object[])"/>.
 		/// </summary>
 		public Map(params object[] args) : base(args) { }
-		public Map(bool skipLogic) : base(skipLogic: skipLogic) => _ = __New();
 
 		/// <summary>
 		/// Gets the enumerator object which returns a key,value tuple for each element
@@ -211,7 +208,7 @@ namespace Keysharp.Core
 		/// <returns><see cref="KeysharpEnumerator"/></returns>
 		public IFuncObj __Enum(object count) => new MapKeyValueIterator(EnumerableMap, count.Ai()).fo;
 
-		public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(@this, args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Map"/> class.

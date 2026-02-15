@@ -7,13 +7,13 @@
 
 		public static VarRef Empty = new VarRef(() => null, x => x = null);
 
-		public VarRef(object x) : base(skipLogic: true)
+		public VarRef(object x) : base()
 		{
 			Get = () => x;
 			Set = (value) => x = value;
 		}
 
-		public VarRef(Func<object> getter, Action<object> setter) : base(skipLogic: true)
+		public VarRef(Func<object> getter, Action<object> setter) : base()
 		{
 			Get = getter;
 			Set = setter;

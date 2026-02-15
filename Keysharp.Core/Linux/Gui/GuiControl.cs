@@ -318,10 +318,10 @@ namespace Keysharp.Core
 				}
 			}
 
-			public override object __New(params object[] args)
+			public Control(params object[] args) : base(args)
 			{
-				if (args.Length == 0)
-					return DefaultErrorObject;
+				if (args == null || args.Length == 0)
+					return;
 
 				var g = args[0] as Gui;
 				var control = args[1] as Forms.Control;
@@ -337,7 +337,7 @@ namespace Keysharp.Core
 				};
 
 				if (wrap)//Just a holder for the controls in the main window.
-					return DefaultObject;
+					return;
 
 				if (_control is Forms.Button btn)
 					btn.Click += _control_Click;
@@ -421,8 +421,6 @@ namespace Keysharp.Core
 				_control.GotFocus += _control_GotFocus;
 				_control.LostFocus += _control_LostFocus;
 				_control.KeyDown += _control_KeyDown;
-
-				return DefaultObject;
 			}
 
 			public object Add(params object[] obj)

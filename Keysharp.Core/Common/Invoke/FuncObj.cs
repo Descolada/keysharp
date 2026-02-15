@@ -213,18 +213,12 @@
         {
         }
 
-        internal FuncObj(MethodPropertyHolder m, object o = null)
+        internal FuncObj(MethodPropertyHolder m, object o = null) : base()
 		{
 			mph = m;
 			mi = m?.mi;
 			moduleType = ResolveModuleType(mi?.DeclaringType);
 			Inst = o;
-
-			if (Script.TheScript.Vars.Prototypes.Count > 1)
-			{
-				Script.TheScript.Vars.Prototypes.TryGetValue(GetType(), out Any value);
-				SetBaseInternal(value);
-			}
 
 			if (mph != null)
 			{

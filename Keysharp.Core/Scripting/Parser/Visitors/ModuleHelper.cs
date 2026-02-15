@@ -356,13 +356,9 @@ namespace Keysharp.Scripting
 			ExpressionSyntax targetAccess;
 			if (targetModule.DefaultExport == Parser.Module.DefaultExportKind.None)
 			{
-				targetAccess = GenerateItemAccess(
-					VarsNameSyntax,
-					SyntaxFactory.IdentifierName("Statics"),
-					SyntaxFactory.TypeOfExpression(
-						CreateQualifiedName($"{Keywords.MainClassName}.{targetModule.ModuleClassName}")
-					)
-				);
+				targetAccess = SyntaxFactory.ObjectCreationExpression(
+					CreateQualifiedName($"{Keywords.MainClassName}.{targetModule.ModuleClassName}")
+				).WithArgumentList(SyntaxFactory.ArgumentList());
 			}
 			else
 			{
@@ -388,6 +384,18 @@ namespace Keysharp.Scripting
 				return;
 			}
 
+			if (targetModule.DefaultExport == Parser.Module.DefaultExportKind.None)
+			{
+				var field = CreateImportField(aliasName, targetAccess, isReadOnly: true);
+				if (exportMember)
+				{
+					MarkExported(module, alias, ExportKind.Variable);
+					field = Parser.WithExportAttribute(field);
+				}
+				module.ModuleClass.Body.Add(field);
+				return;
+			}
+
 			var importProp = CreateImportProperty(aliasName, targetAccess, includeSetter: false);
 			if (exportMember)
 			{
@@ -405,13 +413,9 @@ namespace Keysharp.Scripting
 			var aliasName = parser.NormalizeIdentifier(alias, eNameCase.Lower);
 			EnsureImportNameAvailable(module, aliasName, alias);
 
-			var moduleStatic = GenerateItemAccess(
-				VarsNameSyntax,
-				SyntaxFactory.IdentifierName("Statics"),
-				SyntaxFactory.TypeOfExpression(
-					CreateQualifiedName(targetModuleTypeName)
-				)
-			);
+			var moduleStatic = SyntaxFactory.ObjectCreationExpression(
+				CreateQualifiedName(targetModuleTypeName)
+			).WithArgumentList(SyntaxFactory.ArgumentList());
 
 			var field = CreateImportField(aliasName, moduleStatic, isReadOnly: true);
 			if (exportMember)

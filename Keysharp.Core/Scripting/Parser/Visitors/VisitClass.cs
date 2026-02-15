@@ -356,7 +356,7 @@ namespace Keysharp.Scripting
                     SyntaxFactory.ConstructorInitializer(
                         SyntaxKind.BaseConstructorInitializer,
 						CreateArgumentList(
-                            SyntaxFactory.IdentifierName("args")
+                            PredefinedKeywords.NullLiteral
                         )
                     )
                 )

@@ -53,6 +53,13 @@ namespace Keysharp.Core.Common.ObjectBase
 		{
 			_hasFinalizer = true;
 			HasFinalizer = false; // Otherwise if the constructor throws then the destructor is called
+			type = GetType();
+		}
+
+		internal void InitializeBase(Type t)
+		{
+			if (TheScript?.Vars.Prototypes.TryGetValue(t, out var proto) ?? false)
+				SetBaseInternal(proto);
 		}
 
 		internal Any _base;
@@ -63,44 +70,18 @@ namespace Keysharp.Core.Common.ObjectBase
 			set => Errors.ErrorOccurred($"The base can't be changed for the type {GetType()}");
 		}
 
-		// In some cases we wish to skip the automatic calls to __Init and __New (eg when creating OwnProps),
-		// so in those cases we can initialize with `skipLogic: true`
-		protected bool SkipConstructorLogic { get; }
-
+		// Constructs the object, sets the base, and does any extra construction logic (eg fills an array)
+		// If args is null then native initialization logic is skipped, and it's assumed that __Init and __New will be called manually elsewhere (eg from a static factory method)
 		public Any(params object[] args)
 		{
 			InitializePrivates();
-			var script = Script.TheScript;
-			if (script == null) return;
-
-			// Skip Map and OwnPropsMap because SetPropertyValue will cause recursive stack overflow
-			// (if the property doesn't exist then a new Map is created which calls this function again)
-			if (script.Vars.Prototypes == null || SkipConstructorLogic
-				// Hack way to check that Prototypes/Statics are initialized
-				|| script.Vars.Statics == null
-				|| script.Vars.Statics.Count < 10)
+			InitializeBase(GetType());
+			// User-code uses null args to indicate that they will call __Init and __New manually, so only call them if args is not null
+			if (args != null)
 			{
-				__New(args);
-				return;
+				_ = __Init();
+				_ = __New(args);
 			}
-
-			type = GetType();
-			script.Vars.Statics.TryGetValue(type, out Any value);
-			if (value == null)
-			{
-				__New(args);
-				return;
-			}
-			var proto = (Any)value.op["Prototype"].Value;
-			SetBaseInternal(proto);
-			Script.InvokeMeta(this, "__Init");
-			Script.InvokeMeta(this, "__New", args);
-		}
-
-		public Any(bool skipLogic)
-		{
-			SkipConstructorLogic = skipLogic;
-			InitializePrivates();
 		}
 
 		// This finalizer is only called if __Delete exists in the prototype chain or the object is IDisposable

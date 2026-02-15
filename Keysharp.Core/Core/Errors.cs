@@ -316,18 +316,9 @@ namespace Keysharp.Core
 		/// Initializes a new instance of the <see cref="Error"/> class.
 		/// </summary>
 		/// <param name="args">The parameters to pass to the base.</param>
-		public Error(params object[] args)
-			: base(args)
-		{
-			var (msg, what, extra) = args.L().S3();
-			_message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
-			_what = what;
-			_extra = extra;
-			Exception = new KeysharpException(this);
-		}
+		public Error(params object[] args) : base(args) { }
 
-		internal Error(Exception ex)
-			: base(System.Array.Empty<object>())
+		internal Error(Exception ex) : base(null)
 		{
 			Exception = ex;
 
@@ -351,6 +342,16 @@ namespace Keysharp.Core
 			_what = ex?.Source ?? "";
 			_stack = ex?.StackTrace;
 			_stackInitialized = true;
+		}
+
+		public override object __New(params object[] args)
+		{
+			var (msg, what, extra) = args.L().S3();
+			_message = args.Length == 0 || args[0] == null ? GetType().Name : msg;
+			_what = what;
+			_extra = extra;
+			Exception = new KeysharpException(this);
+			return DefaultObject;
 		}
 
 		/// <summary>
@@ -735,9 +736,11 @@ namespace Keysharp.Core
 		/// Initializes a new instance of the <see cref="OSError"/> class.
 		/// </summary>
 		/// <param name="args">The parameters to pass to the base.</param>
-		public OSError(params object[] args)
-			: base(args)
+		public OSError(params object[] args) : base(args) { }
+
+		public override object __New(params object[] args)
 		{
+			base.__New(args);
 #if WINDOWS
 			var e = args.Length > 0 ? args[0] as Exception : null;
 			Win32Exception w32ex = null;
@@ -748,7 +751,7 @@ namespace Keysharp.Core
 				{
 					Number = e.HResult;
 					Message = $"(0x{e.HResult.ToString("X2")}): {e.Message}";
-					return;
+					return DefaultObject;
 				}
 
 				w32ex = e.InnerException as Win32Exception;
@@ -759,6 +762,7 @@ namespace Keysharp.Core
 #else
 			Number = (long)A_LastError;
 #endif
+			return DefaultObject;
 		}
 	}
 

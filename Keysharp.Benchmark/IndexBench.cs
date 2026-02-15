@@ -127,7 +127,7 @@ namespace Keysharp.Benchmark
 			Size = 1000000;
 			nativearray = new object[Size];
 			nativedoublearray = new double[Size];
-			keysharparray = new Array
+			keysharparray = new Array()
 			{
 				Capacity = Size
 			};

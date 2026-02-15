@@ -178,7 +178,7 @@
 			return iter.fo;
 		}
 
-		public new static object Call(object @this, params object[] args) => FastCtor.Call(@this.GetType(), args);
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(@this, args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Array"/> class.
@@ -197,7 +197,7 @@
 		{
 			if (args is null || args.Length == 0)
 			{
-				array = new List<object>(capacity);
+				array ??= new List<object>(capacity);
 			}
 			else if (args.Length == 1)
 			{
@@ -223,7 +223,6 @@
 				array = new List<object>(args); // single copy
 				if (array.Count < capacity) array.Capacity = capacity;
 			}
-
 			return DefaultObject;
 		}
 
@@ -932,6 +931,7 @@
 			arr = a ?? new List<object>();
 			var p = c <= 1 ? Script.TheScript.ArrayIndexValueIteratorData.p1 : Script.TheScript.ArrayIndexValueIteratorData.p2;
 			fo = (FuncObj)p.Clone();
+			GC.SuppressFinalize(fo);
 			fo.Inst = this;
 		}
 

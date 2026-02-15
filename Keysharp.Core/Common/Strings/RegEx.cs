@@ -11,16 +11,13 @@ namespace Keysharp.Core.Common.Strings
 		public object Success => match.Success;
 		public object pos => Pos(); //Lower-cased because of the naming conflict with the method
 
-		public RegExMatchInfo(params object[] args) : base(args) { }
-
-		public static implicit operator long(RegExMatchInfo r) => r.Pos();
-
-		public override object __New(params object[] args)
+		public RegExMatchInfo(params object[] args) : base(args) 
 		{
 			match = args[0] as PcreMatch;
 			holder = args[1] as RegexHolder;
-			return DefaultObject;
 		}
+
+		public static implicit operator long(RegExMatchInfo r) => r.Pos();
 
 		public object __Get(object name, object args) => name is string s && s.ParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 

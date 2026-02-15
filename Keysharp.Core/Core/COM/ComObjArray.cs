@@ -151,7 +151,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="baseType">The element VARTYPE (e.g. VT_VARIANT).</param>
 		/// <param name="counts">Sizes for each dimension (1 to 8 values).</param>
-		public ComObjArray(VarEnum baseType, params int[] counts)
+		public ComObjArray(VarEnum baseType, params int[] counts) : base()
 		{
 			if (counts == null || counts.Length == 0 || counts.Length > 8)
 				throw new ArgumentException("Must supply 1–8 dimension sizes", nameof(counts));
@@ -186,7 +186,7 @@ namespace Keysharp.Core
 			this.Ptr = _psa.ToInt64();
 		}
 
-		public ComObjArray(VarEnum baseType, nint psa, bool takeOwnership)
+		public ComObjArray(VarEnum baseType, nint psa, bool takeOwnership) : base()
 		{
 			_baseType = baseType;
 			_dimensions = OleAuto.SafeArrayGetDim(psa);

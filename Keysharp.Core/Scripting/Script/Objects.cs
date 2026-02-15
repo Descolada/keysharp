@@ -17,10 +17,8 @@ namespace Keysharp.Scripting
 			if (store.Prototypes.IsInitialized(t))
 				return;
 
-			var proto = new Prototype(t);
-			proto.InitializePrivates();
-			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(actual);
-			staticInst.type = typeof(Class); staticInst.InitializePrivates();
+			Prototype proto = new Prototype(t);
+			Class staticInst = new Class();
 			var isModuleType = typeof(Module).IsAssignableFrom(t);
 
 			store.Statics.AddLazy(t, () =>

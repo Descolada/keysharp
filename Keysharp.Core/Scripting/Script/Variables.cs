@@ -8,8 +8,8 @@ namespace Keysharp.Scripting
 {
 	public class Variables
 	{
-        public LazyDictionary<Type, Any> Prototypes = new();
-		public LazyDictionary<Type, Any> Statics = new();
+        public LazyDictionary<Type, Prototype> Prototypes = new();
+		public LazyDictionary<Type, Class> Statics = new();
 		private readonly Dictionary<string, Type> classTypesByName = new(StringComparer.OrdinalIgnoreCase);
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;

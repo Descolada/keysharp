@@ -395,7 +395,7 @@
 
 		public Gui(params object[] args) : base(args) { }
 
-		internal Gui(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null) : base(skipLogic:true)//The last parameter is hidden and is only for internal use for when we wrap the main window in a Gui object.
+		internal Gui(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null) : base(null)//The last parameter is hidden and is only for internal use for when we wrap the main window in a Gui object.
 		{
 			var script = Script.TheScript;
 

@@ -685,8 +685,6 @@ namespace Keysharp.Core.Common.Invoke
 		// Semantics: always call a public ctor like:  new T(object[] args)
 		public static object Call(Type type, params object[] args)
 		{
-			args ??= System.Array.Empty<object>();
-
 #if CONCURRENT
 			var activator = Cache.GetOrAdd(type, BuildFactory);
 #else

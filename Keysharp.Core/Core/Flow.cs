@@ -671,7 +671,7 @@ namespace Keysharp.Core
 				}
 
 				if (script.Vars.Statics.IsInitialized(t) // Do not cause initalization if not already present
-					&& script.Vars.Statics.TryGetValue(t, out Any kso2) 
+					&& script.Vars.Statics.TryGetValue(t, out Class kso2) 
 					&& kso2.HasOwnPropInternal("__Delete"))
 					CallDeleteSilent(kso2);
 			}

@@ -4,7 +4,6 @@ namespace Keysharp.Core.Common.ObjectBase
 {
 	public class Module : Any, IMetaObject
 	{
-		public Module() : base(System.Array.Empty<object>()) { }
 		public Module(params object[] args) : base(args) { }
 
 		object IMetaObject.Get(string name, object[] args)
@@ -84,7 +83,6 @@ namespace Keysharp.Core.Common.ObjectBase
 
 	public class Ahk : Module, IMetaObject
 	{
-		public Ahk() : base(System.Array.Empty<object>()) { }
 		public Ahk(params object[] args) : base(args) { }
 
 		object IMetaObject.Get(string name, object[] args)

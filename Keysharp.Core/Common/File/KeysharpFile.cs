@@ -61,13 +61,13 @@ namespace Keysharp.Core.Common.File
 		}
 		public KeysharpFile(params object[] args) : base(args) { }
 
-		public KeysharpFile(StreamWriter sw)
+		public KeysharpFile(StreamWriter sw) : base(null)
 		{
 			tw = sw;
 			enc = sw.Encoding;
 		}
 
-		public KeysharpFile(StreamReader sr)
+		public KeysharpFile(StreamReader sr) : base(null)
 		{
 			tr = sr;
 			enc = sr.CurrentEncoding;

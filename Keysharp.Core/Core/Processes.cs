@@ -728,12 +728,9 @@ namespace Keysharp.Core
 	public class ProcessInfo : KeysharpObject
 	{
 		private Process _process;
-		public ProcessInfo(params object[] args) : base(args) { }
-
-		public override object __New(params object[] args)
+		public ProcessInfo(params object[] args) : base(args) 
 		{
 			_process = args[0] as Process;
-			return DefaultObject;
 		}
 
 		public long HasExited => _process.HasExited ? 1L : 0L;

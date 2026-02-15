@@ -77,20 +77,17 @@
 		/// </summary>
 		internal ContextMenuStrip MenuItem { get; set; }
 
-		public Menu(params object[] args) : base(args) { }
-
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Menu"/> class.
 		/// </summary>
 		/// <param name="strip">Optional existing <see cref="ContextMenuStrip"/>. Default: false.</param>
-		public override object __New(params object[] args)
+		public Menu(params object[] args) : base(args) 
 		{
 			MenuItem = (args.Length > 0 ? (ContextMenuStrip)args[0] : null) ?? new ContextMenuStrip();
 			//GetMenu().ImageScalingSize = new System.Drawing.Size(28, 28);//Don't set scaling, it makes the checked icons look funny.
 			var newCount = Interlocked.Increment(ref Script.TheScript.GuiData.menuCount);
 			GetMenu().Name = $"Menu_{newCount}";
 			dummyHandle = Handle;//Must access the handle once to force creation.
-			return DefaultObject;
 		}
 
 		/// <summary>

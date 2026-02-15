@@ -19,8 +19,9 @@ class testclass
 testclassobj := testclass()
 
 testclassobj := ""
+timeout := A_TickCount + 2000
 
-while (gval != 999)
+while (gval != 999 && A_TickCount < timeout)
 {
 	Sleep(100)
 	Collect()

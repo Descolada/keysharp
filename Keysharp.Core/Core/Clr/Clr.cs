@@ -4,7 +4,7 @@
 	{
 		public class Clr : KeysharpObject
 		{
-			public object staticLoad(object asmOrPath)
+			public static object Load(object @this, object asmOrPath)
 			{
 				var s = asmOrPath.As();
 				var asm = s.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
@@ -20,7 +20,7 @@
 			}
 
 			// Still keep these for direct access if someone prefers:
-			public object staticType(object fullTypeName)
+			public static object Type(object @this, object fullTypeName)
 			{
 				var name = fullTypeName.As();
 				var t = TypeResolver.Resolve(name);
@@ -29,7 +29,7 @@
 				return new ManagedType(t);
 			}
 
-			public object staticGetNamespaceName(object @namespace)
+			public static object GetNamespaceName(object @this, object @namespace)
 			{
 				var ns = @namespace as ManagedNamespace;
 				if (ns == null)
@@ -37,7 +37,7 @@
 				return ns._ns;
 			}
 
-			public object staticGetTypeName(object type)
+			public static object GetTypeName(object @this, object type)
 			{
 				var mt = type as ManagedType;
 				if (mt == null)
@@ -106,7 +106,7 @@
 
 					if (args.Length == 0)
 					{
-						var ci = t.GetConstructor(Type.EmptyTypes);
+						var ci = t.GetConstructor(System.Type.EmptyTypes);
 						if (ci != null) return new Clr.ManagedInstance(t, Activator.CreateInstance(t));
 						if (t.IsValueType) return new Clr.ManagedInstance(t, Activator.CreateInstance(t));
 						return new Clr.ManagedType(t);
@@ -175,7 +175,7 @@
 					if (args.Length == 0)
 					{
 						// Prefer real parameterless constructor
-						var ci = t.GetConstructor(Type.EmptyTypes);
+						var ci = t.GetConstructor(System.Type.EmptyTypes);
 						if (ci != null)
 							return new ManagedInstance(t, Activator.CreateInstance(t));
 

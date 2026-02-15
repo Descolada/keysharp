@@ -11,7 +11,6 @@ namespace Keysharp.Core.Common.ObjectBase
 	public class KeysharpObject : Any
 	{
 		public KeysharpObject(params object[] args) : base(args) { }
-		public KeysharpObject(bool skipLogic) : base(skipLogic) { }
 
 		/// <summary>
 		/// Creates a new <see cref="KeysharpObject"/> object.
@@ -27,11 +26,13 @@ namespace Keysharp.Core.Common.ObjectBase
 		/// <returns>A new <see cref="KeysharpObject"/> object.</returns>
 		public static object Call(object @this, params object[] args)
 		{
-			var t = @this.GetType();
-			if (t != typeof(KeysharpObject)) 
-				return FastCtor.Call(t, args);
+			if (@this is not Class cls)
+				return Errors.TypeErrorOccurred(@this, typeof(Class));
 
-			var kso = new KeysharpObject();
+			var kso = cls.Call(@this, args) as KeysharpObject;
+			if (kso.type != typeof(KeysharpObject))
+				return kso;
+
 			var count = (args.Length / 2) * 2;
 
 			for (var i = 0; i < count; i += 2)

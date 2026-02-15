@@ -7,15 +7,13 @@
 		public object Mark => match.Groups.Count > 0 ? match.Groups[ ^ 1].Name : "";
 		public object Success => match.Success;
 
-		public RegExMatchInfoCs(params object[] args) : base(args) { }
+		public RegExMatchInfoCs(params object[] args) : base(args) 
+		{
+			match = args[0] as Match;
+		}
 
 		public static implicit operator long(RegExMatchInfoCs r) => r.Pos();
 
-		public new object __New(params object[] args)
-		{
-			match = args[0] as Match;
-			return DefaultObject;
-		}
 
 		public object __Get(object name, object args) => name is string s && s.ParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 

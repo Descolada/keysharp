@@ -4,7 +4,6 @@ namespace Keysharp.Core
 	public unsafe class ComObject : ComValue, IDisposable//ComValue
 	{
 		public ComObject(params object[] args) : base(args) { }
-		internal ComObject(object varType, object value, object flags = null) : base(varType, value, flags) { }
 
 		public static object Call(object @this, object clsid, object iid = null)//progId, string iid)
 		{

@@ -151,7 +151,8 @@ namespace Keysharp.Scripting
 			if (parser.declaredTopLevelClasses.Count > 0)
 				parser.GlobalClass.Body.InsertRange(0, parser.declaredTopLevelClasses);
 
-			parser.GlobalClass.Body.Add(parser.autoExecFunc.Method);
+            parser.GlobalClass.Body.Add(parser.autoExecFunc.Method);
+			EnsureModuleClassConstructors(parser.currentModule.ModuleClass);
 
 			if (!parser.isFinalModulePass)
 				return parser.compilationUnit;
@@ -306,6 +307,33 @@ namespace Keysharp.Scripting
 
 				FieldDeclarationSyntax CreateClassStaticVarField(ParserSymbolInfo symbol)
 				{
+					if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(symbol.DeclaredName, out var type)
+						&& typeof(Keysharp.Core.Common.ObjectBase.Module).IsAssignableFrom(type))
+					{
+						var typeName = (type.FullName ?? type.Name).Replace('+', '.');
+						return SyntaxFactory.FieldDeclaration(
+							SyntaxFactory.VariableDeclaration(
+								Parser.PredefinedKeywords.ObjectType,
+								SyntaxFactory.SingletonSeparatedList(
+									SyntaxFactory.VariableDeclarator(symbol.CSharpName)
+										.WithInitializer(
+											SyntaxFactory.EqualsValueClause(
+												PredefinedKeywords.EqualsToken,
+												SyntaxFactory.ObjectCreationExpression(
+													CreateQualifiedName(typeName)
+												).WithArgumentList(SyntaxFactory.ArgumentList())
+											)
+										)
+								)
+							)
+						)
+						.AddModifiers(
+							Parser.PredefinedKeywords.PublicToken,
+							Parser.PredefinedKeywords.StaticToken,
+							SyntaxFactory.Token(SyntaxKind.ReadOnlyKeyword)
+						);
+					}
+
 					return SyntaxFactory.FieldDeclaration(
 						SyntaxFactory.VariableDeclaration(
 							Parser.PredefinedKeywords.ObjectType,
@@ -373,6 +401,39 @@ namespace Keysharp.Scripting
 				}
 			}
         }
+
+		private void EnsureModuleClassConstructors(Parser.Class moduleClass)
+		{
+			if (moduleClass == null)
+				return;
+
+			var hasArgsCtor = false;
+
+			foreach (var member in moduleClass.Body)
+			{
+				if (member is not ConstructorDeclarationSyntax ctor || ctor.Identifier.Text != moduleClass.Name)
+					continue;
+
+				if (ctor.ParameterList?.Parameters.Count == 1)
+				{
+					var p = ctor.ParameterList.Parameters[0];
+					if (!hasArgsCtor
+						&& p.Modifiers.Any(SyntaxKind.ParamsKeyword)
+						&& p.Type is ArrayTypeSyntax arrayType
+						&& arrayType.ElementType is PredefinedTypeSyntax elemType
+						&& elemType.Keyword.IsKind(SyntaxKind.ObjectKeyword))
+					{
+						hasArgsCtor = true;
+					}
+				}
+
+				if (hasArgsCtor)
+					break;
+			}
+
+			if (!hasArgsCtor)
+				moduleClass.Body.Add(CreateConstructor(moduleClass.Name));
+		}
 
 		internal static BlockSyntax CreateMainMethod(
 			string mainScriptVarName,            // e.g. "MainScript"

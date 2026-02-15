@@ -282,5 +282,7 @@
 
 			return map;
 		}
+
+		public OwnPropsDesc Clone() => (OwnPropsDesc)MemberwiseClone();
 	}
 }

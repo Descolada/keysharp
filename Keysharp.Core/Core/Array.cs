@@ -178,7 +178,7 @@
 			return iter.fo;
 		}
 
-		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(@this, args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Array"/> class.

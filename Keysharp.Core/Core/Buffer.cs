@@ -76,7 +76,7 @@
 		/// <param name="args">The data to initially store in the buffer</param>
 		public Buffer(params object[] args) : base(args) { }
 
-		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(@this, args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		/// <summary>
 		/// Creates a new <see cref="Buffer"/> object.

@@ -58,10 +58,9 @@ namespace Keysharp.Core.Common.ObjectBase
 			return staticInst;
         }
 
-        public new object Call(object @this, params object[] args)
+        internal new object Call(params object[] args)
         {
-            var staticInst = @this as Any;
-			var proto = (staticInst.op["Prototype"].Value ?? Script.GetPropertyValueOrNull(staticInst, "Prototype")) as Any;
+			var proto = (this.op["Prototype"].Value ?? Script.GetPropertyValueOrNull(this, "Prototype")) as Any;
 			
 			var kso = FastCtor.Call(proto.type, null) as Any;
 			kso.type = proto.type;

@@ -29,7 +29,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			if (@this is not Class cls)
 				return Errors.TypeErrorOccurred(@this, typeof(Class));
 
-			var kso = cls.Call(@this, args) as KeysharpObject;
+			var kso = cls.Call(args) as KeysharpObject;
 			if (kso.type != typeof(KeysharpObject))
 				return kso;
 

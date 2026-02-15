@@ -208,7 +208,7 @@ namespace Keysharp.Core
 		/// <returns><see cref="KeysharpEnumerator"/></returns>
 		public IFuncObj __Enum(object count) => new MapKeyValueIterator(EnumerableMap, count.Ai()).fo;
 
-		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(@this, args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="Map"/> class.

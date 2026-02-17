@@ -506,7 +506,7 @@ namespace Keysharp.Scripting
 							break;
                         case MainLexer.Comma:
 							skipWhitespaces = true;
-							if (derefDepth > 0 || braceDepth > 0 || parenDepth > 0)
+							if (derefDepth > 0 || bracketDepth > 0 || parenDepth > 0)
                                 PopWhitespaces(codeTokens.Count);
                             else
                             {

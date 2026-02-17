@@ -706,9 +706,9 @@ if (mkey1 == "one" && mval1 == 1 &&
 	a["one"] == 1 &&
 	a["two"] == 2 &&
 	a["three"] == 3)
-	FileAppend, "pass", "*"
+	FileAppend "pass", "*"
 else
-	FileAppend, "fail", "*"
+	FileAppend "fail", "*"
 
 ; Test correct sorting order
 m := Map(1.0, "double", 1, "integer", "1", "string", {}, "object")

@@ -5,9 +5,9 @@ a["test"] := 3
 a.test := 2
 
 if (a["test"] == 3)
-	FileAppend, "pass", "*"
+	FileAppend "pass", "*"
 else
-	FileAppend, "fail", "*"
+	FileAppend "fail", "*"
 
 ; HashMap should be unsorted, usually in insertion order (although this is an implementation detail)
 m := HashMap(1.0, "double", 1, "integer", "1", "string", {}, "object")

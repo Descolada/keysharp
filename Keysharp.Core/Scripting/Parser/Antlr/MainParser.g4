@@ -109,8 +109,8 @@ statement
     | deleteStatement
     | blockStatement
     | functionDeclaration
-    | {this.isFunctionCallStatement()}? functionStatement
-    | {!this.next(OpenBrace) && !this.nextIsStatementKeyword()}? expressionStatement
+    | {this.isFunctionCallStatementCached()}? functionStatement
+    | {!this.next(OpenBrace) && !this.nextIsStatementKeyword() && !this.isFunctionCallStatementCached()}? expressionStatement
     ;
 
 blockStatement
@@ -220,7 +220,7 @@ expressionStatement
 // dangling `else` and one without. That would require duplicating all flow rules though, so
 // currently it's not done.
 ifStatement
-    : If s* singleExpression WS* flowBlock elseProduction
+    : If s* singleExpression WS* flowBlock ({this.second(Else)}? elseProduction)?
     ;
 
 flowBlock
@@ -230,19 +230,17 @@ flowBlock
 
 untilProduction
     : EOL Until s* singleExpression 
-    | {!this.second(Until)}?
     ;
 
 elseProduction
-    : EOL Else s* statement 
-    | {!this.second(Else)}? // This can be used to reduce the ambiguity in SLL mode, but has a negative effect on performance
+    : EOL Else s* statement
     ;
 
 iterationStatement
-    : Loop type = (Files | Read | Reg | Parse) WS* singleExpression (WS* ',' singleExpression?)* WS* flowBlock untilProduction elseProduction  # SpecializedLoopStatement
-    | {this.isValidLoopExpression()}? Loop WS* (singleExpression WS*)? flowBlock untilProduction elseProduction      # LoopStatement
-    | While WS* singleExpression WS* flowBlock untilProduction elseProduction       # WhileStatement
-    | For WS* forInParameters WS* flowBlock untilProduction elseProduction          # ForInStatement
+    : Loop type = (Files | Read | Reg | Parse) WS* singleExpression (WS* ',' singleExpression?)* WS* flowBlock ({this.second(Until)}? untilProduction)? ({this.second(Else)}? elseProduction)?  # SpecializedLoopStatement
+    | {this.isValidLoopExpression()}? Loop WS* (singleExpression WS*)? flowBlock ({this.second(Until)}? untilProduction)? ({this.second(Else)}? elseProduction)?      # LoopStatement
+    | While WS* singleExpression WS* flowBlock ({this.second(Until)}? untilProduction)? ({this.second(Else)}? elseProduction)?       # WhileStatement
+    | For WS* forInParameters WS* flowBlock ({this.second(Until)}? untilProduction)? ({this.second(Else)}? elseProduction)?          # ForInStatement
     ;
 
 forInParameters
@@ -292,7 +290,7 @@ throwStatement
     ;
 
 tryStatement
-    : Try s* statement catchProduction* elseProduction finallyProduction
+    : Try s* statement catchProduction* ({this.second(Else)}? elseProduction)? ({this.second(Finally)}? finallyProduction)?
     ;
 
 catchProduction
@@ -312,7 +310,6 @@ catchClasses
 
 finallyProduction
     : EOL Finally s* statement 
-    | {!this.second(Finally)}?
     ;
 
 functionDeclaration
@@ -466,7 +463,7 @@ primaryExpression
     ;
 
 accessSuffix
-    : modifier = ('.' | '?.') memberIdentifier memberIndexArguments?
+    : modifier = ('.' | '?.') memberIdentifier // memberIdentifier memberIndexArguments is handled in the visitor instead
     | (modifier = '?.')? (memberIndexArguments | '(' arguments? ')')
     | modifier = '?'
     ;

@@ -73,7 +73,7 @@ tharr.Clear()
 If tot == 10000
 	FileAppend "pass", "*"
 else
-	FileAppend, "fail", "*"
+	FileAppend "fail", "*"
 
 CoordMode "Mouse", "Screen"
 

@@ -817,7 +817,7 @@ namespace Keysharp.Scripting
 					finallyStatements.Add(elseCondition);
 				}
 
-				if (context.finallyProduction().Finally() != null)
+				if (context.finallyProduction()?.Finally() != null)
 				{
 					finallyStatements.AddRange(((BlockSyntax)VisitFinallyProduction(context.finallyProduction())).Statements);
 				}

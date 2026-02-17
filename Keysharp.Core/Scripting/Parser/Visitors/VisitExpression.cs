@@ -141,6 +141,12 @@ namespace Keysharp.Scripting
 				var prefix = baseExpression;
 				for (var i = 0; i < optionalIndex; i++)
 				{
+					if (TryConsumePropertyIndexSuffix(prefix, suffixes, ref i, optionalIndex, useOrNull: false, out var combinedPrefix))
+					{
+						prefix = combinedPrefix;
+						continue;
+					}
+
 					var allowNullResult = i == optionalIndex - 1;
 					prefix = ApplyAccessSuffix(prefix, suffixes[i], useOrNull: allowNullResult);
 				}
@@ -172,10 +178,45 @@ namespace Keysharp.Scripting
 			var current = baseExpression;
 			for (var i = 0; i < suffixes.Count; i++)
 			{
+				if (TryConsumePropertyIndexSuffix(current, suffixes, ref i, suffixes.Count, useOrNull && i + 1 == suffixes.Count - 1, out var combinedCurrent))
+				{
+					current = combinedCurrent;
+					continue;
+				}
+
 				var isFinal = i == suffixes.Count - 1;
 				current = ApplyAccessSuffix(current, suffixes[i], useOrNull && isFinal);
 			}
 			return current;
+		}
+
+		private bool TryConsumePropertyIndexSuffix(
+			ExpressionSyntax current,
+			IReadOnlyList<AccessSuffixContext> suffixes,
+			ref int index,
+			int limitExclusive,
+			bool useOrNull,
+			out ExpressionSyntax combined)
+		{
+			combined = null;
+
+			if (index + 1 >= limitExclusive)
+				return false;
+
+			var memberSuffix = suffixes[index];
+			if (memberSuffix.memberIdentifier() == null)
+				return false;
+
+			var indexSuffix = suffixes[index + 1];
+			if (indexSuffix.memberIdentifier() != null
+				|| indexSuffix.memberIndexArguments() == null
+				|| indexSuffix.arguments() != null
+				|| (indexSuffix.modifier != null && indexSuffix.modifier.Type == MainLexer.QuestionMarkDot))
+				return false;
+
+			combined = GenerateMemberDotAccess(current, memberSuffix.memberIdentifier(), indexSuffix.memberIndexArguments(), useOrNull);
+			index++; // consume the [..] suffix too
+			return true;
 		}
 
 		private ExpressionSyntax ApplyAccessSuffix(ExpressionSyntax baseExpression, AccessSuffixContext suffix, bool useOrNull)

@@ -34,6 +34,8 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
 {
     private readonly Stack<string> _tagNames = new Stack<string>();
     private uint _derefDepth = 0;
+    private int _functionCallStatementCacheIndex = int.MinValue;
+    private bool _functionCallStatementCacheValue = false;
 	internal string LastSyntaxErrorMessage { get; private set; }
 	internal int LastSyntaxErrorLine { get; private set; }
 	internal int LastSyntaxErrorColumn { get; private set; }
@@ -178,6 +180,18 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
             if (token == Eof) return true;
         } while (token != EOL);
         return InputStream.LA(++i) != OpenBrace;
+    }
+
+    protected bool isFunctionCallStatementCached()
+    {
+        int index = ((ITokenStream)this.InputStream).Index;
+        if (_functionCallStatementCacheIndex == index)
+            return _functionCallStatementCacheValue;
+
+        bool result = isFunctionCallStatement();
+        _functionCallStatementCacheIndex = index;
+        _functionCallStatementCacheValue = result;
+        return result;
     }
 
     protected bool isFunctionCallStatement()

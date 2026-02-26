@@ -537,6 +537,16 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
         return t == tokenType;
     }
 
+    // Postfix access-suffix '?' is only valid when followed by one of ) ] } ,
+    // (ignoring intervening whitespace/newlines).
+    protected bool isPostfixQuestionSuffixAllowed()
+    {
+        return nextNonWsIs(MainParser.CloseParen)
+            || nextNonWsIs(MainParser.CloseBracket)
+            || nextNonWsIs(MainParser.CloseBrace)
+            || nextNonWsIs(MainParser.Comma);
+    }
+
     protected bool nextIsFunctionCallToken()
     {
         var t = ((ITokenStream)this.InputStream).LT(1)?.Type;
@@ -549,7 +559,17 @@ public abstract class MainParserBase : Antlr4.Runtime.Parser
     protected bool nextIsStatementKeyword()
     {
         var t = ((ITokenStream)this.InputStream).LT(1)?.Type;
-        if (t == MainLexer.Throw || t == MainLexer.If || t == MainLexer.Loop || t == MainLexer.For || t == MainLexer.Switch || t == MainLexer.While || t == MainLexer.Until || t == MainLexer.Try || t == MainLexer.Await || t == MainLexer.Delete)
+        if (t == MainLexer.Throw 
+            || t == MainLexer.If 
+            || t == MainLexer.Loop 
+            || t == MainLexer.For 
+            || t == MainLexer.Switch 
+            || t == MainLexer.While 
+            || t == MainLexer.Until 
+            || t == MainLexer.Try 
+            || t == MainLexer.Await 
+            || t == MainLexer.Delete
+            || t == MainLexer.Return)
         {
             return true;
         }

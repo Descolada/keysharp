@@ -21,23 +21,23 @@ preprocessor_directive
     | Else directive_new_line_or_sharp { this.OnPreprocessorDirectiveElse(); }                                               # preprocessorConditional
     | EndIf directive_new_line_or_sharp { this.OnPreprocessorDirectiveEndif(); }                                             # preprocessorConditional
     | Line (Digits StringLiteral? | Default | DirectiveHidden) directive_new_line_or_sharp { this.OnPreprocessorDirectiveLine(); } # preprocessorLine
-    | Error Text directive_new_line_or_sharp { this.OnPreprocessorDirectiveError(); }                                        # preprocessorDiagnostic
-    | Warning Text directive_new_line_or_sharp { this.OnPreprocessorDirectiveWarning(); }                                    # preprocessorDiagnostic
-    | Region Text? directive_new_line_or_sharp { this.OnPreprocessorDirectiveRegion(); }                                     # preprocessorRegion
-    | EndRegion Text? directive_new_line_or_sharp { this.OnPreprocessorDirectiveEndregion(); }                               # preprocessorRegion
-    | Pragma Text directive_new_line_or_sharp { this.OnPreprocessorDirectivePragma(); }                                      # preprocessorPragma
-    | Nullable Text directive_new_line_or_sharp { this.OnPreprocessorDirectiveNullable(); }                                  # preprocessorNullable
+    | Error StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveError(); }                                        # preprocessorDiagnostic
+    | Warning StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveWarning(); }                                    # preprocessorDiagnostic
+    | Region StringLiteral? directive_new_line_or_sharp { this.OnPreprocessorDirectiveRegion(); }                                     # preprocessorRegion
+    | EndRegion StringLiteral? directive_new_line_or_sharp { this.OnPreprocessorDirectiveEndregion(); }                               # preprocessorRegion
+    | Pragma StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectivePragma(); }                                      # preprocessorPragma
+    | Nullable StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveNullable(); }                                  # preprocessorNullable
     // The following directives are handled in PreReader.cs, because it's easier that way
-    | ( Module
-      | Include
+    | ( Include
       | IncludeAgain
       | DllLoad
       | Requires
       | Assembly
-      | HookMutexName ) Text directive_new_line_or_sharp                                                                          # preprocessorTextualDirective
+      | HookMutexName ) StringLiteral directive_new_line_or_sharp                                                                          # preprocessorTextualDirective
     | Persistent (True | False | Digits)? directive_new_line_or_sharp                                                        # preprocessorPersistent
-    | ( Warn
-      | SingleInstance ) Text? directive_new_line_or_sharp                                                                   # preprocessorOptionalTextualDirective
+    | ( Module
+      | Warn
+      | SingleInstance ) StringLiteral? directive_new_line_or_sharp                                                                   # preprocessorOptionalTextualDirective
     | NoDynamicVars directive_new_line_or_sharp                                                                              # preprocessorNoDynamicVars
     | ErrorStdOut directive_new_line_or_sharp                                                                                # preprocessorErrorStdOut
     | WinActivateForce directive_new_line_or_sharp                                                                           # preprocessorWinActivateForce

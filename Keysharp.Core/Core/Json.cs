@@ -36,12 +36,6 @@
 
 		private const char ObjectOpen = '{';
 
-		private const char Space = ' ';
-
-		private const char StringBoundary = '"';
-
-		private const char StringBoundaryAlt = '\'';
-
 		private const string True = "true";
 
 		/// <summary>
@@ -105,12 +99,12 @@
 
 					switch (token)
 					{
-						case StringBoundary:
-							value = Scan(node, ref i, StringBoundary);
+						case DoubleQuote:
+							value = Scan(node, ref i, DoubleQuote);
 							break;
 
-						case StringBoundaryAlt:
-							value = Scan(node, ref i, StringBoundaryAlt);
+						case SingleQuote:
+							value = Scan(node, ref i, SingleQuote);
 							break;
 
 						case ObjectOpen:
@@ -148,10 +142,10 @@
 				{
 					next = false;
 
-					if (token == StringBoundary)
-						key = Scan(node, ref i, StringBoundary);
-					else if (token == StringBoundaryAlt)
-						key = Scan(node, ref i, StringBoundaryAlt);
+					if (token == DoubleQuote)
+						key = Scan(node, ref i, DoubleQuote);
+					else if (token == SingleQuote)
+						key = Scan(node, ref i, SingleQuote);
 					else
 					{
 						var keyip = new StringBuilder();
@@ -212,9 +206,9 @@
 				foreach (var key in pairs.Keys)
 				{
 					_ = json.Append(Space);
-					_ = json.Append(StringBoundary);
+					_ = json.Append(DoubleQuote);
 					_ = json.Append(key);
-					_ = json.Append(StringBoundary);
+					_ = json.Append(DoubleQuote);
 					_ = json.Append(Space);
 					_ = json.Append(MemberAssign);
 					_ = json.Append(Space);
@@ -246,14 +240,14 @@
 				_ = json.Append(node.ToString());
 			else
 			{
-				_ = json.Append(StringBoundary);
+				_ = json.Append(DoubleQuote);
 
 				if (node is string s)
 					_ = json.Append(s);
 				else
 					_ = json.Append(node.ToString());
 
-				_ = json.Append(StringBoundary);
+				_ = json.Append(DoubleQuote);
 			}
 
 			return json.ToString();
@@ -330,12 +324,12 @@
 
 				switch (token)
 				{
-					case StringBoundary:
-						value = Scan(node, ref i, StringBoundary);
+					case DoubleQuote:
+						value = Scan(node, ref i, DoubleQuote);
 						break;
 
-					case StringBoundaryAlt:
-						value = Scan(node, ref i, StringBoundaryAlt);
+					case SingleQuote:
+						value = Scan(node, ref i, SingleQuote);
 						break;
 
 					case ObjectOpen:
@@ -381,12 +375,12 @@
 			{
 				var token = node[i];
 
-				if ((token == StringBoundary || token == StringBoundaryAlt) && node[i - 1] != Escape)
+				if ((token == DoubleQuote || token == SingleQuote) && node[i - 1] != Escape)
 					inStr = !inStr;
 
 				if ((anchor == ArrayClose && token == ArrayOpen) || (anchor == ObjectClose && token == ObjectOpen))
 					skip++;
-				else if ((anchor == StringBoundary || anchor == StringBoundaryAlt) && token == anchor)
+				else if ((anchor == DoubleQuote || anchor == SingleQuote) && token == anchor)
 					break;
 				else if (!inStr && token == anchor)
 					if (--skip == 0)

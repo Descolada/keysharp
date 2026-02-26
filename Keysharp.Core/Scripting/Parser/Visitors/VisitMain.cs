@@ -1574,49 +1574,6 @@ namespace Keysharp.Scripting
             else if (context.StringLiteral() != null)
             {
                 var str = context.StringLiteral().GetText();
-                str = str.Substring(1, str.Length - 2); // Remove quotes
-                if (str.Contains('\n') || str.Contains('\r'))
-                {
-                    List<string> processedSections = new();
-                    int currentLine = context.Start.Line;
-
-                    using (var reader = new StringReader(str))
-                    {
-                        StringBuilder sectionBuilder = new();
-                        bool inContinuation = false; // Track whether we're inside a continuation section
-
-                        while (reader.Peek() != -1)
-                        {
-                            var line = reader.ReadLine() ?? "";
-
-                            // Check for the start of a continuation section
-                            var trimmedLine = line.Trim();
-                            if (trimmedLine.StartsWith("("))
-                            {
-                                sectionBuilder.AppendLine(trimmedLine);
-                                inContinuation = true;
-                            }
-                            // Check for the end of a continuation section
-                            else if (inContinuation && trimmedLine == ")")
-                            {
-                                sectionBuilder.Append(trimmedLine);
-                                inContinuation = false;
-
-                                var newstr = sectionBuilder.ToString();
-
-                                processedSections.Add(MultilineString(sectionBuilder.ToString(), currentLine, "TODO"));
-                                sectionBuilder.Clear();
-
-                                continue; // Skip this line
-                            }
-                            else if (inContinuation)
-                                sectionBuilder.AppendLine(line);
-                        }
-                    }
-
-                    // Combine all processed sections
-                    str = string.Join("", processedSections);
-                }
                 
                 str = EscapedString(str, false);
 
@@ -1905,7 +1862,7 @@ namespace Keysharp.Scripting
                 parameter = parser.AddOptionalParamValue(parameter, defaultValue, allowOptionalAttribute);
             }
             // Handle optional parameter
-            else if (context.QuestionMark() != null)
+            else if (context.Maybe() != null)
             {
                 // If QuestionMark is present, mark the parameter as optional with null default value
                 parameter = parser.AddOptionalParamValue(parameter, PredefinedKeywords.NullLiteral, allowOptionalAttribute);
@@ -2521,7 +2478,7 @@ namespace Keysharp.Scripting
 
         private static bool IsRequiredFormalParameter(FormalParameterArgContext context)
         {
-            return context.singleExpression() == null && context.QuestionMark() == null;
+            return context.singleExpression() == null && context.Maybe() == null;
         }
 
         public void HandleScopeFunctions(ParserRuleContext context)

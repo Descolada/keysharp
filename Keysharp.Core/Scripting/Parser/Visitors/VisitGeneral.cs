@@ -18,6 +18,7 @@ using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static Keysharp.Scripting.Parser;
 using static MainParser;
+using Antlr4.Runtime.Tree;
 
 namespace Keysharp.Scripting
 {
@@ -115,7 +116,7 @@ namespace Keysharp.Scripting
                 );
             } else if (context.EndChars() != null)
             {
-                var endchars = EscapedString(context.HotstringOptions().GetText().Trim(), false);
+                var endchars = EscapedString(context.StringLiteral().GetText().Trim(), false);
                 parser.DHHR.Insert(0,
                     SyntaxFactory.ExpressionStatement(
                         invocation
@@ -136,7 +137,7 @@ namespace Keysharp.Scripting
                             CreateMemberAccess("Keysharp.Core.Keyboard", "HotstringOptions")
                         )
                         .WithArgumentList(
-							CreateArgumentList(CreateStringLiteral(context.HotstringOptions().GetText().Trim()))
+							CreateArgumentList(CreateStringLiteral(context.StringLiteral().GetText().Trim(SpacesQuotes)))
                         )
                     )
                 );
@@ -286,16 +287,11 @@ namespace Keysharp.Scripting
                 .Select(triggerContext => EscapedString(triggerContext.GetText()[..^2], true))
                 .ToList();
 
-            // Check if it's an expansion or a statement
-            bool hasExpansion = context.hotstringExpansion() != null;
-            string expansionText = hasExpansion ? context.hotstringExpansion().GetText() : "";
-            if (hasExpansion)
-            {
-                if (context.hotstringExpansion().HotstringSingleLineExpansion() != null)
-                    expansionText = EscapedString(expansionText, true);
-                else
-                    expansionText = EscapedString(MultilineString(expansionText.Trim(), context.hotstringExpansion().Start.Line, "TODO"), true);
-            }
+            var expansion = context.StringLiteral();
+
+			// Check if it's an expansion or a statement
+			bool hasExpansion = expansion != null;
+            string expansionText = hasExpansion ? EscapedString(expansion.GetText(), true) : "";
 
             // Generate the function if there's a statement
             string functionName = null;

@@ -57,15 +57,35 @@ namespace Keysharp.Scripting
 			return sb.ToString();
 		}
 
+		internal static string ParseContinuationSection(string code, int lineNumber, string name)
+			=> ParseContinuationSectionCore(code, lineNumber, name, escapeForMultilineString: false, lexerNormalize: true);
+
 		internal static string MultilineString(string code, int lineNumber, string name)
+			=> ParseContinuationSectionCore(code, lineNumber, name, escapeForMultilineString: true, lexerNormalize: false);
+
+		private static string ParseContinuationSectionCore(string code, int lineNumber, string name, bool escapeForMultilineString, bool lexerNormalize)
 		{
 			var reader = new StringReader(code);
-			var line = reader.ReadLine().Trim(Spaces);
+			string line = null;
+			var originalLineBreakCount = 0;
 
-			if (line.Length < 1 || line[0] != ParenOpen)
-				throw new ParseException($"Multiline string length of {line.Length} is not < 1 or the first character of {line[0]} is not '('.", lineNumber, code, name);
+			while ((line = reader.ReadLine()) != null)
+			{
+				originalLineBreakCount++;
+				var trimmed = line.AsSpan().Trim();
 
-			var join = DefaultNewLine;
+				if (trimmed.IsEmpty)
+					continue;
+
+				line = trimmed.ToString();
+				break;
+			}
+
+			if (line == null || line.Length < 1 || line[0] != ParenOpen)
+				throw new ParseException("Multiline string must start with '(' after optional leading blank lines.", lineNumber, code, name);
+
+			var join = lexerNormalize ? " " : DefaultNewLine;
+			var hasExplicitJoin = false;
 			bool? ltrim = null;
 			bool rtrim = true, stripComments = false, percentResolve = true, literalEscape = false;
 
@@ -88,6 +108,7 @@ namespace Keysharp.Scripting
 
 					if (option.StartsWith(Keyword_Join, StringComparison.OrdinalIgnoreCase))
 					{
+						hasExplicitJoin = true;
 						join = EscapedString(option.Slice(4), false);
 					}
 					else
@@ -121,11 +142,17 @@ namespace Keysharp.Scripting
 								literalEscape = true;
 								break;
 
+							case var b5 when option.StartsWith(";"):
+								goto ParsedOptions;
+
 							default:
 								const string joinOpt = "join";
 
 								if (option.Length > joinOpt.Length && option.Slice(0, joinOpt.Length).Equals(joinOpt, StringComparison.OrdinalIgnoreCase))
+								{
+									hasExplicitJoin = true;
 									join = option.Slice(joinOpt.Length).ToString().Replace("`s", " ");
+								}
 								else
 									throw new ParseException(ExMultiStr, lineNumber, code, name);
 
@@ -134,6 +161,7 @@ namespace Keysharp.Scripting
 					}
 				}
 			}
+		ParsedOptions:
 
 			var sb = new StringBuilder(code.Length);
 			var resolve = Resolve.ToString();
@@ -148,6 +176,7 @@ namespace Keysharp.Scripting
 
 			while ((line = reader.ReadLine()) != null)
 			{
+				originalLineBreakCount++;
 				var check = line.Trim();
 
 				if (check.Length > 0 && check[0] == ParenClose)
@@ -203,8 +232,11 @@ namespace Keysharp.Scripting
 				if (literalEscape)
 					line = line.Replace(escape, escapeEscaped);
 
-				line = line.Replace("\"", Escape + "\"");//Can't use interpolated string here because the AStyle formatter misinterprets it.
-				line = line.Replace(cast, castEscaped);
+				if (escapeForMultilineString)
+				{
+					line = line.Replace("\"", Escape + "\"");//Can't use interpolated string here because the AStyle formatter misinterprets it.
+					line = line.Replace(cast, castEscaped);
+				}
 				_ = sb.Append(line);
 				_ = sb.Append(join);
 			}
@@ -213,7 +245,97 @@ namespace Keysharp.Scripting
 				return DefaultObject;
 
 			_ = sb.Remove(sb.Length - join.Length, join.Length);
+
+			if (lexerNormalize)
+			{
+				// ContinuationSection tokens always include a leading line break before '('.
+				// originalLineBreakCount tracks ReadLine calls (+1 baseline), so convert it to
+				// the actual line-break count to preserve downstream diagnostics.
+				sb = NormalizeContinuationForLexer(sb, collapseOutsideQuotes: !hasExplicitJoin, Math.Max(0, originalLineBreakCount - 1));
+			}
+
 			return sb.ToString();
+		}
+
+		private static StringBuilder NormalizeContinuationForLexer(StringBuilder text, bool collapseOutsideQuotes, int minimumLineBreakCount)
+		{
+			text ??= new StringBuilder();
+			var sb = new StringBuilder(text.Length + 16);
+			bool inSingle = false;
+			bool inDouble = false;
+			bool escaped = false;
+			int lineBreakCount = 0;
+
+			for (int i = 0; i < text.Length; i++)
+			{
+				var ch = text[i];
+
+				if (ch == '`')
+				{
+					sb.Append(ch);
+					escaped = !escaped;
+					continue;
+				}
+
+				if ((ch == '"' && !inSingle) || (ch == '\'' && !inDouble))
+				{
+					if (!escaped)
+					{
+						if (ch == '"')
+							inDouble = !inDouble;
+						else
+							inSingle = !inSingle;
+					}
+
+					sb.Append(ch);
+					escaped = false;
+					continue;
+				}
+
+				if (ch == '\r' || ch == '\n' || ch == '\u2028' || ch == '\u2029')
+				{
+					var isCrLf = ch == '\r' && i + 1 < text.Length && text[i + 1] == '\n';
+
+					if (inSingle || inDouble)
+					{
+						sb.Append("`n");
+					}
+					else if (collapseOutsideQuotes)
+					{
+						if (sb.Length == 0 || sb[sb.Length - 1] != ' ')
+							sb.Append(' ');
+					}
+					else
+					{
+						if (isCrLf)
+						{
+							sb.Append('\r');
+							sb.Append('\n');
+							i++;
+						}
+						else
+						{
+							sb.Append(ch);
+						}
+
+						lineBreakCount++;
+					}
+
+					if (isCrLf && (inSingle || inDouble || collapseOutsideQuotes))
+						i++;
+
+					escaped = false;
+					continue;
+				}
+
+				sb.Append(ch);
+				escaped = false;
+			}
+
+			if (minimumLineBreakCount > lineBreakCount)
+				sb.Append('\n', minimumLineBreakCount - lineBreakCount);
+
+			return sb;
 		}
 
 		private int FindNextBalanced(string s, char ch1, char ch2)

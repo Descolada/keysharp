@@ -227,7 +227,7 @@ namespace Keysharp.Scripting
 			if (suffix.memberIndexArguments() != null)
 				return GenerateMemberIndexAccess(baseExpression, suffix.memberIndexArguments(), useOrNull);
 
-			if (suffix.modifier != null && suffix.modifier.Type == MainLexer.QuestionMark)
+			if (suffix.modifier != null && suffix.modifier.Type == MainLexer.Maybe)
 				return baseExpression;
 
 			ArgumentListSyntax argumentList = suffix.arguments() != null

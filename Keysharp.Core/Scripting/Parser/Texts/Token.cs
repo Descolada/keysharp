@@ -159,7 +159,7 @@ namespace Keysharp.Scripting
 						break;
 
 					case 1:
-						if (sym == StringBound)
+						if (sym == DoubleQuote)
 						{
 							str = !str;
 						}
@@ -392,9 +392,9 @@ namespace Keysharp.Scripting
 		{
 			var escape = false;
 			var sym = code[i];
-			var verbatim = sym == StringBoundVerbatim;
+			var verbatim = sym == SingleQuote;
 			var str = new StringBuilder(code.Length);
-			_ = str.Append(StringBound);
+			_ = str.Append(DoubleQuote);
 			i++;
 
 			if (i == code.Length)
@@ -406,15 +406,15 @@ namespace Keysharp.Scripting
 
 				if (verbatim)
 				{
-					var isbound = sym == StringBoundVerbatim;
+					var isbound = sym == SingleQuote;
 
 					if (!escape && isbound)
 					{
-						_ = str.Append(StringBound);
+						_ = str.Append(DoubleQuote);
 						break;
 					}
 
-					if (prependVerbatimEscape && sym == StringBound)
+					if (prependVerbatimEscape && sym == DoubleQuote)
 						_ = str.Append(Escape);
 
 					_ = str.Append(sym);
@@ -424,7 +424,7 @@ namespace Keysharp.Scripting
 				}
 				else
 				{
-					var isbound = sym == StringBound;
+					var isbound = sym == DoubleQuote;
 					_ = str.Append(sym);
 
 					if (!escape && isbound)

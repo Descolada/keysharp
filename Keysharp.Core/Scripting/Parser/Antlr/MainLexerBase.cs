@@ -1,6 +1,6 @@
 using Antlr4.Runtime;
 using static MainParser;
-using System.Text.RegularExpressions;
+using System.Text;
 
 /// <summary>
 /// All lexer methods that used in grammar
@@ -15,6 +15,9 @@ public abstract class MainLexerBase : Lexer
     private bool _isBOS = true;
     private int _currentDepth = 0;
     private bool _hotstringIsLiteral = true;
+    private char _stringQuote = '\0';
+    private StringBuilder _stringBuilder;
+    private CommonToken _stringToken;
 
     internal MainLexerBase(ICharStream input) : base(input)
     {
@@ -43,6 +46,13 @@ public abstract class MainLexerBase : Lexer
         // Get the next token.
         IToken next = base.NextToken();
 
+        if ((next.Type == TokenConstants.EOF && this.CurrentMode == MainLexer.STRING_MODE)
+            || (next.Channel == MainLexer.ERROR && this.CurrentMode == MainLexer.STRING_MODE))
+        {
+            EndStringMode();
+            throw new Keysharp.Core.ParseException("Unterminated string literal", next);
+        }
+
         // Record last visible token
         if (next.Channel == DefaultTokenChannel)
             _lastVisibleToken = next;
@@ -57,6 +67,24 @@ public abstract class MainLexerBase : Lexer
         _lastToken = next;
 
         return next;
+    }
+
+    public override IToken Emit()
+    {
+        var token = base.Emit();
+        var type = token.Type;
+
+        if (type == MainLexer.HotstringNewline)
+        {
+            if (_lastToken.Type == MainLexer.StringLiteral)
+                ApplyHotstringOptions(_lastToken.Text);
+            (token as CommonToken).Type = MainLexer.EOL;
+        }
+
+        if (type == MainLexer.StringLiteral)
+            _stringToken = token as CommonToken;
+
+        return token;
     }
 
     protected int _processHotstringOptions(string input) {
@@ -80,15 +108,17 @@ public abstract class MainLexerBase : Lexer
         return intermediate == -1 ? _hotstringIsLiteral : intermediate == 0;
     }
 
-    protected bool ProcessHotstringOptions()
-    {
-        if (base.Text.StartsWith("NoMouse", StringComparison.OrdinalIgnoreCase) || base.Text.StartsWith("EndChars", StringComparison.OrdinalIgnoreCase))
-            return false;
-        int intermediate = _processHotstringOptions(base.Text);
-        if (intermediate != -1)
-            _hotstringIsLiteral = intermediate == 0;
-        return true;
-    }
+	protected void ApplyHotstringOptions(string text)
+	{
+        if (_lastVisibleToken == null)
+            return;
+
+        if (_lastVisibleToken.Type == MainLexer.EndChars || _lastVisibleToken.Type == MainLexer.NoMouse)
+            return;
+		int intermediate = _processHotstringOptions(text);
+		if (intermediate != -1)
+			_hotstringIsLiteral = intermediate == 0;
+	}
 
     protected void ProcessOpenBrace()
     {
@@ -178,7 +208,38 @@ public abstract class MainLexerBase : Lexer
         MainLexer.Arrow,
     };
 
-    protected void ProcessOpenBracket()
+	// Keep in sync with identifier rule in MainParser.g4
+	public static bool IsIdentifierToken(int tokenType) => tokenType switch
+	{
+		MainLexer.Identifier => true,
+		MainLexer.Default => true,
+		MainLexer.This => true,
+		MainLexer.Class => true,
+		MainLexer.Enum => true,
+		MainLexer.Extends => true,
+		MainLexer.Super => true,
+		MainLexer.Base => true,
+		MainLexer.From => true,
+		MainLexer.Get => true,
+		MainLexer.Set => true,
+		MainLexer.As => true,
+		MainLexer.Do => true,
+		MainLexer.NullLiteral => true,
+		MainLexer.Parse => true,
+		MainLexer.Reg => true,
+		MainLexer.Read => true,
+		MainLexer.Files => true,
+		MainLexer.Throw => true,
+		MainLexer.Yield => true,
+		MainLexer.Async => true,
+		MainLexer.Await => true,
+		MainLexer.Import => true,
+		MainLexer.Export => true,
+		MainLexer.Delete => true,
+		_ => false
+	};
+
+	protected void ProcessOpenBracket()
     {
         _currentDepth++;
     }
@@ -201,8 +262,61 @@ public abstract class MainLexerBase : Lexer
         ProcessOpenBrace();
     }
 
-    protected void ProcessStringLiteral()
+    protected void BeginStringMode(char quote = '\0')
     {
+        _stringQuote = quote;
+        _stringBuilder = new StringBuilder();
+    }
+
+    protected bool IsCurrentStringQuote()
+    {
+        return _input.LA(-1) == _stringQuote;
+    }
+
+    protected void AppendInitialStringChunk()
+    {
+		// Start rule already stops before a whitespace-preceded ';' comment.
+		// Just append everything after the opening quote; continuation-mode
+		// trivia/comment handlers trim trailing whitespace if continuation follows.
+		_stringBuilder.Append(this.Text);
+
+		if (_stringToken == null)
+            this.Type = MainLexer.StringLiteral;
+        else
+			this.Skip();
+	}
+
+    protected void ProcessStringTrivia()
+    {
+        TrimTrailingHorizontalWhitespace(_stringBuilder);
+    }
+
+    protected void MaybeEndStringMode()
+    {
+        char c = (char)_input.LA(-1);
+        if (c == _stringQuote)
+            EndStringMode();
+        else if (c != '"' && c != '\'')
+        {
+            if (_stringQuote != '\0')
+            {
+				var token = Emit() as CommonToken;
+				throw new ParseException($"Unterminated string literal (start: {_stringToken.Line}:{_stringToken.Column}, expected end: {token.Line}:{token.Column})", token);
+            }
+			Rewind();
+			EndStringMode();
+		}
+        else
+            _stringBuilder.Append(this.Text);
+    }
+
+    protected void EndStringMode()
+    {
+        _stringToken?.Text = _stringBuilder.ToString();
+        _stringQuote = '\0';
+        _stringBuilder = null;
+        _stringToken = null;
+        PopMode();
     }
 
     private uint _derefDepth = 0;
@@ -216,6 +330,88 @@ public abstract class MainLexerBase : Lexer
             _currentDepth--;
             this.Type = DerefEnd;
         }
+    }
+
+    protected void ProcessContinuationSection()
+    {
+        var originalSegment = this.Text;
+        string singleLine;
+
+        // We are processing a string literal, so accumulate the string
+        if (_stringBuilder != null)
+        {
+			singleLine = Keysharp.Scripting.Parser.MultilineString(originalSegment, 0, this.SourceName);
+			if (NeedsSpaceBeforeContinuationSection())
+				_stringBuilder.Append(' ');
+			_stringBuilder.Append(singleLine);
+			if (_stringToken == null)
+				this.Type = MainLexer.StringLiteral;
+            else
+			    this.Skip();
+			return;
+		}
+        
+        singleLine = Keysharp.Scripting.Parser.ParseContinuationSection(originalSegment, 0, this.SourceName);
+        if (NeedsSpaceBeforeContinuationSection())
+            singleLine = " " + singleLine;
+
+        if (!RewriteMatchedInputSegment(singleLine))
+            throw new ParseException("Continuation section rewrite requires RewritableInputStream.", this.TokenStartLine, this.Text, this.SourceName);
+
+        Rewind();
+        this.Type = WS;
+        this.Channel = Hidden;
+    }
+
+    protected void Rewind()
+    {
+		_input.Seek(this.TokenStartCharIndex);
+		this.Line = this.TokenStartLine;
+		this.Column = this.TokenStartColumn;
+	}
+
+    private bool NeedsSpaceBeforeContinuationSection()
+    {
+        char last;
+        if (_stringBuilder != null)
+        {
+            if (_stringQuote == '\'' || _stringQuote == '"' || _stringBuilder.Length == 0)
+                return false;
+            last = _stringBuilder[^1]; 
+            return char.IsLetterOrDigit(last) || last == '_';
+		}
+        if (_lastVisibleToken == null || string.IsNullOrEmpty(_lastVisibleToken.Text))
+            return false;
+
+        last = _lastVisibleToken.Text[_lastVisibleToken.Text.Length - 1];
+        return char.IsLetterOrDigit(last) || last == '_';
+    }
+
+    private bool RewriteMatchedInputSegment(string replacement)
+    {
+        if (_input is not IRewritableCharStream rewritableInput)
+            return false;
+
+        rewritableInput.ReplaceRange(this.TokenStartCharIndex, _input.Index, replacement ?? string.Empty);
+        return true;
+    }
+
+    private static void TrimTrailingHorizontalWhitespace(StringBuilder builder)
+    {
+        if (builder == null || builder.Length == 0)
+            return;
+
+        int i = builder.Length - 1;
+
+        while (i >= 0 && IsHorizontalWhitespace(builder[i]))
+            i--;
+
+        builder.Length = i + 1;
+    }
+
+    private static bool IsHorizontalWhitespace(char ch)
+    {
+        return ch == ' ' || ch == '\t' || ch == '\u000B' || ch == '\u000C' || ch == '\u00A0';
     }
 
     protected bool IsBOS()
@@ -266,20 +462,21 @@ public abstract class MainLexerBase : Lexer
         int start = this.TokenStartCharIndex;
         if (start == 0)
             return true;
-        Antlr4.Runtime.Misc.Interval interval = new(start - 1, start - 1);
-        string prevCharText = _input.GetText(interval);
-        if (string.IsNullOrEmpty(prevCharText)) {
-            return false;
-        }
-        char prevChar = prevCharText[0];
-        return char.IsWhiteSpace(prevChar) || prevChar == '\n' || prevChar == '\r' || 
-            prevChar == '\u2028' || prevChar == '\u2029';
+        // AntlrInputStream.LA calls ValueAt which just returns the char from the char[]
+        int prevChar = _input.LA(-2);
+        if (prevChar <= 0)
+            return true;
+        return char.IsWhiteSpace((char)prevChar);
     }
 
     public override void Reset()
     {
         _lastToken = null;
+        _lastVisibleToken = null;
         _currentDepth = 0;
+        _stringQuote = '\0';
+        _stringBuilder = null;
+        _stringToken = null;
         base.Reset();
     }
 }
@@ -296,6 +493,6 @@ public class MainLexerErrorListener : IAntlrErrorListener<int>
         RecognitionException e)
     {
         string sourceName = recognizer.InputStream.SourceName;
-        Console.Error.WriteLine($"Error at line {line}, column {charPositionInLine}, source {sourceName}: {msg}");
+        throw new ParseException($"Lexing error at line {line}, column {charPositionInLine}, source {sourceName}: {msg}");
     }
 }

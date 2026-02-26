@@ -829,6 +829,11 @@ namespace Keysharp.Core
 			int idx = ctxText.IndexOfAny(new char[] { '\r', '\n' });
 			Extra = extra ?? (idx == -1 ? ctxText : ctxText.Substring(0, idx));
 		}
+
+		public ParseException(string message, IToken token) : this(message, token.Line, token.Text, token.TokenSource.SourceName)
+		{
+			Column = token.Column;
+		}
 	}
 
 	/// <summary>

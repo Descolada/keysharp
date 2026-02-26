@@ -67,9 +67,9 @@ sourceElement
 positionalDirective
     : HotIf singleExpression?                      # HotIfDirective
     | Hotstring 
-        ( HotstringOptions 
+        ( StringLiteral 
         | NoMouse 
-        | EndChars HotstringOptions )              # HotstringDirective
+        | EndChars StringLiteral )                 # HotstringDirective
     | InputLevel numericLiteral?                   # InputLevelDirective
     | UseHook (numericLiteral | boolean)?          # UseHookDirective
     | SuspendExempt (numericLiteral | boolean)?    # SuspendExemptDirective
@@ -80,12 +80,7 @@ remap
     ;
 
 hotstring
-    : HotstringTrigger (EOL HotstringTrigger)* WS* (hotstringExpansion | EOL? functionDeclaration | EOL? statement)
-    ;
-
-hotstringExpansion
-    : HotstringSingleLineExpansion
-    | HotstringMultiLineExpansion
+    : HotstringTrigger (EOL HotstringTrigger)* WS* (StringLiteral | EOL? functionDeclaration | EOL? statement)
     ;
 
 hotkey
@@ -110,7 +105,7 @@ statement
     | blockStatement
     | functionDeclaration
     | {this.isFunctionCallStatementCached()}? functionStatement
-    | {!this.next(OpenBrace) && !this.nextIsStatementKeyword() && !this.isFunctionCallStatementCached()}? expressionStatement
+    | {!this.isFunctionCallStatementCached()}? expressionStatement
     ;
 
 blockStatement
@@ -233,7 +228,7 @@ untilProduction
     ;
 
 elseProduction
-    : EOL Else s* statement
+    : EOL Else statement
     ;
 
 iterationStatement
@@ -290,7 +285,7 @@ throwStatement
     ;
 
 tryStatement
-    : Try s* statement catchProduction* ({this.second(Else)}? elseProduction)? ({this.second(Finally)}? finallyProduction)?
+    : Try statement catchProduction* ({this.second(Else)}? elseProduction)? ({this.second(Finally)}? finallyProduction)?
     ;
 
 catchProduction
@@ -309,7 +304,7 @@ catchClasses
     ;
 
 finallyProduction
-    : EOL Finally s* statement 
+    : EOL Finally statement 
     ;
 
 functionDeclaration
@@ -317,7 +312,7 @@ functionDeclaration
     ;
 
 classDeclaration
-    : Class WS* identifier (WS+ Extends WS+ classExtensionName)? s* classTail
+    : Class identifier (WS+ Extends WS+ classExtensionName)? s* classTail
     ;
 
 classExtensionName
@@ -346,11 +341,11 @@ classPropertyName
     ;
 
 propertyGetterDefinition
-    : Get functionBody
+    : Get s* functionBody
     ;
 
 propertySetterDefinition
-    : Set functionBody
+    : Set s* functionBody
     ;
 
 fieldDefinition
@@ -362,7 +357,7 @@ formalParameterList
     ;
 
 formalParameterArg
-    : BitAnd? identifier (':=' singleExpression | QuestionMark)? // expression instead of singleExpression because it's always enclosed in parenthesis and thus function expressions can be unambiguously parsed
+    : BitAnd? identifier (':=' singleExpression | Maybe)?
     ;
 
 lastFormalParameterArg
@@ -412,7 +407,7 @@ arguments
     ;
 
 argument
-    : singleExpression (Multiply | QuestionMark)?
+    : singleExpression Multiply?
     ;
 
 expressionSequence
@@ -446,7 +441,7 @@ singleExpression
     | <assoc = right> ternCond = singleExpression '?' ternTrue = singleExpression (WS | EOL)* ':' (WS | EOL)* ternFalse = singleExpression # TernaryExpression
     | <assoc = right> left = primaryExpression op = assignmentOperator right = singleExpression          # AssignmentExpression
     | {!this.isStatementStart()}? fatArrowExpressionHead '=>' singleExpression  # FatArrowExpression // Not sure why, but this needs to be lower than coalesce expression
-    | {this.isFuncExprAllowed()}? functionExpressionHead (WS | EOL)* block      # FunctionExpression
+    | {this.isFuncExprAllowed()}? functionExpressionHead block      # FunctionExpression
     | primaryExpression                                                         # SingleExpressionDummy
     ;
 
@@ -465,7 +460,7 @@ primaryExpression
 accessSuffix
     : modifier = ('.' | '?.') memberIdentifier // memberIdentifier memberIndexArguments is handled in the visitor instead
     | (modifier = '?.')? (memberIndexArguments | '(' arguments? ')')
-    | modifier = '?'
+    | modifier = Maybe
     ;
 
 memberIdentifier
@@ -488,7 +483,7 @@ assignable
     ;
 
 objectLiteral
-    : '{' s* (propertyAssignment (WS* ',' propertyAssignment?)* s*)? '}'
+    : ObjectLiteralStart s* (propertyAssignment (WS* ',' propertyAssignment?)* s*)? ObjectLiteralEnd
     ;
 
 functionHead
@@ -510,7 +505,7 @@ fatArrowExpressionHead
 
 functionBody
     : '=>' singleExpression
-    | (WS | EOL)* block
+    | block
     ;
 
 assignmentOperator
@@ -573,11 +568,12 @@ identifierName
     | reservedWord
     ;
 
+// Keep in sync with IsIdentifierToken in MainLexerBase.cs
 identifier
     : (Identifier
     | Default
     | This
-//    | Class // AHK v2.1 actually allows assignment like `class := 1`, but it seems unwise
+    | Class // "class" must be an identifier for syntax like Class() and Class.property to work
     | Enum
     | Extends
     | Super
@@ -586,7 +582,6 @@ identifier
     | Get
     | Set
     | As
-    | Class
     | Do
     | NullLiteral
     | Parse

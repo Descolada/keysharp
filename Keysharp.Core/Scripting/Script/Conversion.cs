@@ -123,9 +123,9 @@ namespace Keysharp.Scripting
 						else
 							_ = buffer.Append(DefaultMulticast);
 
-						_ = buffer.Append(StringBound);
+						_ = buffer.Append(DoubleQuote);
 						_ = buffer.Append(ForceString(k));
-						_ = buffer.Append(StringBound);
+						_ = buffer.Append(DoubleQuote);
 						_ = buffer.Append(AssignPre);
 
 						if (v == null)
@@ -137,12 +137,12 @@ namespace Keysharp.Scripting
 						var obj = v is System.Array || v is Map || v is FuncObj;// Delegate;
 
 						if (!obj)
-							_ = buffer.Append(StringBound);
+							_ = buffer.Append(DoubleQuote);
 
 						_ = buffer.Append(ForceString(v));
 
 						if (!obj)
-							_ = buffer.Append(StringBound);
+							_ = buffer.Append(DoubleQuote);
 					}
 
 					_ = buffer.Append(BlockClose);

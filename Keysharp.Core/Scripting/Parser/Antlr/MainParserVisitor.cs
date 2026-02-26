@@ -97,12 +97,6 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitHotstring([NotNull] MainParser.HotstringContext context);
 	/// <summary>
-	/// Visit a parse tree produced by <see cref="MainParser.hotstringExpansion"/>.
-	/// </summary>
-	/// <param name="context">The parse tree.</param>
-	/// <return>The visitor result.</return>
-	Result VisitHotstringExpansion([NotNull] MainParser.HotstringExpansionContext context);
-	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.hotkey"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>

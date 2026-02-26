@@ -50,12 +50,15 @@ options {
 tokens {
     DerefStart,
     DerefEnd,
-    ConcatDot
+    ObjectLiteralStart,
+    ObjectLiteralEnd,
+    ConcatDot,
+    Maybe
 }
 
 SingleLineBlockComment  : '/*' NonEOLCharacter*? '*/' -> skip;
 MultiLineComment  : '/*' .*? ('*/' | EOF) -> type(EOL);
-SingleLineComment : ';' NonEOLCharacter* EOLCharacter {this.IsCommentPossible()}? -> type(EOL);
+SingleLineComment : SingleLineCommentAtom -> skip;
 
 // First try consuming a hotstring 
 
@@ -218,33 +221,30 @@ Local  : 'local';
 /// Identifier Names and Identifiers
 Identifier: IdentifierStart IdentifierPart*;
 
-/// String Literals
-MultilineStringLiteral:
-    ('"' (WhiteSpace ';' NonEOLCharacter* | ~["\r\n\u2028\u2029]*) ContinuationSection+ '"' 
-    | '\'' (WhiteSpace ';' NonEOLCharacter* | ~['\r\n\u2028\u2029]*)  ContinuationSection+ '\'') {this.ProcessStringLiteral();} -> type(StringLiteral)
-;
-StringLiteral:
-    ('"' DoubleStringCharacter* '"' | '\'' SingleStringCharacter* '\'') {this.ProcessStringLiteral();}
-;
+ContinuationSection: SingleContinuationSection {this.ProcessContinuationSection();};
+
+StringLiteral
+    : ('"' | '\'') {this.BeginStringMode((char)_input.LA(-1));} -> pushMode(STRING_MODE);
 
 EOL: LineBreak {this.ProcessEOL();};
 WS: WhiteSpace {this.ProcessWS();};
 
 UnexpectedCharacter : . -> channel(ERROR);
 
-mode HOTSTRING_MODE;
-HotstringEOL: LineBreak -> type(EOL), popMode;
-HotstringOpenBrace: '{' {this.ProcessHotstringOpenBrace();} -> type(OpenBrace), popMode;
-HotstringWhitespaces: WhiteSpace+ (';' NonEOLCharacter*)? -> channel(HIDDEN);
-HotstringMultiLineExpansion: ContinuationSection -> popMode;
-HotstringSingleLineExpansion: (~[`\r\n\u2028\u2029{] | '`' EscapeSequence) RawString? -> popMode;
-HotstringUnexpectedCharacter: . -> channel(ERROR);
+mode STRING_MODE;
+StringLiteralPart
+    : (';'? StringLiteralCharacter+) {this.AppendInitialStringChunk();} (SingleLineCommentAtom {this.ProcessStringTrivia();})?;
+StringModeTerminator
+    : ('"' | '\'' | LineBreak) {this.MaybeEndStringMode();} -> skip;
+StringModeTrivia
+    : LineBreak Trivia {this.ProcessStringTrivia();} -> skip;
+StringModeContinuationSection
+    : SingleContinuationSection {this.ProcessContinuationSection();};
 
-mode DIRECTIVE_MODE;
-DirectiveEOL: LineBreak -> type(EOL), popMode;
-DirectiveWhitespaces: WhiteSpace+ -> channel(HIDDEN);
-DirectiveContent: (~[;`\r\n\u2028\u2029\t\u000B\u000C\u0020\u00A0] | '`' EscapeSequence) RawString?;
-DirectiveUnexpectedCharacter: . -> channel(ERROR);
+mode HOTSTRING_MODE;
+HotstringOpenBrace
+    : '{' {this.ProcessHotstringOpenBrace();} -> type(OpenBrace), popMode;
+HotstringExpansion: . {this.BeginStringMode(); this.Rewind();} -> skip, popMode, pushMode(STRING_MODE);
 
 mode PREPROCESSOR_DIRECTIVE_MODE;
 PreprocessorDirectiveWS: WhiteSpace              -> type(WS), channel(HIDDEN);
@@ -256,8 +256,8 @@ HotIf                  : 'hotif'                 -> mode(DEFAULT_MODE);
 InputLevel             : 'inputlevel'            -> mode(DEFAULT_MODE);
 SuspendExempt          : 'suspendexempt'         -> mode(DEFAULT_MODE);
 UseHook                : 'usehook'               -> mode(DEFAULT_MODE);
-Hotstring              : 'hotstring'             -> mode(HOTSTRING_OPTIONS);
-Module                 : 'module' WhiteSpace     -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
+Hotstring              : 'hotstring'             -> mode(DEFAULT_MODE), pushMode(HOTSTRING_OPTIONS);
+Module                 : 'module'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 // General directives
 Define                 : 'define'                -> channel(DIRECTIVE);
 Undef                  : 'undef'                 -> channel(DIRECTIVE);
@@ -266,29 +266,29 @@ ElIf                   : 'elif'                  -> channel(DIRECTIVE);
 DirectiveElse          : 'else'                  -> channel(DIRECTIVE), type(Else);
 EndIf                  : 'endif'                 -> channel(DIRECTIVE);
 Line                   : 'line'                  -> channel(DIRECTIVE);
-Error                  : 'error' WhiteSpace      -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Warning                : 'warning' WhiteSpace    -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Region                 : 'region' WhiteSpace?    -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-EndRegion              : 'endregion' WhiteSpace? -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Pragma                 : 'pragma' WhiteSpace     -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Nullable               : 'nullable' WhiteSpace   -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Include                : 'include' WhiteSpace    -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-IncludeAgain           : 'includeagain' WhiteSpace         -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-DllLoad                : 'dllload' WhiteSpace    -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Requires               : 'requires' WhiteSpace   -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-SingleInstance         : 'singleinstance' WhiteSpace?      -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-Persistent             : 'persistent' WhiteSpace?          -> channel(DIRECTIVE);
-Warn                   : 'warn' WhiteSpace?                -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
-HookMutexName          : 'hookmutexname' WhiteSpace        -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
+Error                  : 'error'                 -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Warning                : 'warning'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Region                 : 'region'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+EndRegion              : 'endregion'             -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Pragma                 : 'pragma'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Nullable               : 'nullable'              -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Include                : 'include'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+IncludeAgain           : 'includeagain'          -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+DllLoad                : 'dllload'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Requires               : 'requires'              -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+SingleInstance         : 'singleinstance'        -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Persistent             : 'persistent'            -> channel(DIRECTIVE);
+Warn                   : 'warn'                  -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+HookMutexName          : 'hookmutexname'         -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 NoDynamicVars          : 'nodynamicvars'         -> channel(DIRECTIVE);
 ErrorStdOut            : 'errorstdout'           -> channel(DIRECTIVE);
-ClipboardTimeout       : 'clipboardtimeout' WhiteSpace     -> channel(DIRECTIVE);
-HotIfTimeout           : 'hotiftimeout' WhiteSpace         -> channel(DIRECTIVE);
-MaxThreads             : 'maxthreads' WhiteSpace           -> channel(DIRECTIVE);
-MaxThreadsBuffer       : 'maxthreadsbuffer' WhiteSpace     -> channel(DIRECTIVE);
-MaxThreadsPerHotkey    : 'maxthreadsperhotkey' WhiteSpace  -> channel(DIRECTIVE);
-WinActivateForce       : 'winactivateforce'                -> channel(DIRECTIVE);
-NoTrayIcon             : 'notrayicon'                      -> channel(DIRECTIVE);
+ClipboardTimeout       : 'clipboardtimeout'      -> channel(DIRECTIVE);
+HotIfTimeout           : 'hotiftimeout'          -> channel(DIRECTIVE);
+MaxThreads             : 'maxthreads'            -> channel(DIRECTIVE);
+MaxThreadsBuffer       : 'maxthreadsbuffer'      -> channel(DIRECTIVE);
+MaxThreadsPerHotkey    : 'maxthreadsperhotkey'   -> channel(DIRECTIVE);
+WinActivateForce       : 'winactivateforce'      -> channel(DIRECTIVE);
+NoTrayIcon             : 'notrayicon'            -> channel(DIRECTIVE);
 Assembly               : 'assembly' ('title'
                                     | 'description'
                                     | 'configuration'
@@ -296,7 +296,7 @@ Assembly               : 'assembly' ('title'
                                     | 'product'
                                     | 'copyright'
                                     | 'trademark'
-                                    | 'version') WhiteSpace -> channel(DIRECTIVE), mode(DIRECTIVE_TEXT);
+                                    | 'version') -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 DirectiveDefault       : 'default'               -> channel(DIRECTIVE), type(Default);
 DirectiveHidden        : 'hidden'                -> channel(DIRECTIVE);
 DirectiveOpenParen     : '('                     -> channel(DIRECTIVE), type(OpenParen);
@@ -306,29 +306,25 @@ DirectiveEquals        : '=='                    -> channel(DIRECTIVE), type(Ide
 DirectiveNotEquals     : '!='                    -> channel(DIRECTIVE), type(NotEquals);
 DirectiveAnd           : '&&'                    -> channel(DIRECTIVE), type(And);
 DirectiveOr            : '||'                    -> channel(DIRECTIVE), type(Or);
-DirectiveString:
-    '"' ~(["\r\n\u2028\u2029])* '"' -> channel(DIRECTIVE), type(StringLiteral)
-;
 ConditionalSymbol: Identifier -> channel(DIRECTIVE);
-DirectiveSingleLineComment:
-    ' ;' NonEOLCharacter* -> skip
-;
+DirectiveSingleLineComment: SingleLineCommentAtom -> skip;
 DirectiveNewline: LineBreak WhiteSpace? -> channel(DIRECTIVE), mode(DEFAULT_MODE);
 UnexpectedDirectiveCharacter : . -> channel(ERROR);
 
 mode DIRECTIVE_TEXT;
-TextWhitespace : WhiteSpace                 -> type(WS), channel(HIDDEN);
-Text          : NonWSEOLCharacter NonEOLCharacter*  -> channel(DIRECTIVE);
-TextNewline   : LineBreak       -> channel(DIRECTIVE), type(DirectiveNewline), mode(DEFAULT_MODE);
-UnexpectedTextDirectiveCharacter : . -> channel(ERROR);
+DirectiveTextWhitespace : WhiteSpace -> skip;
+DirectiveQuotedStringLiteral
+    : ('"' | '\'') {this.BeginStringMode((char)_input.LA(-1));} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
+DirectiveUnquotedStringLiteral
+    : NonWSEOLCharacter {this.BeginStringMode(); this.AppendInitialStringChunk();} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
+UnexpectedTextDirectiveCharacter : . {this.Rewind();} -> skip, popMode;
 
 mode HOTSTRING_OPTIONS;
 HotstringWhitespace : WhiteSpace    -> type(WS), channel(HIDDEN);
-HotstringNewline    : LineBreak     -> type(EOL), mode(DEFAULT_MODE);
+HotstringNewline    : LineBreak     -> popMode;
 NoMouse : 'NoMouse'                 -> mode(DEFAULT_MODE);
 EndChars : 'EndChars';
-HotstringOptions : NonWSEOLCharacter RawString? {this.ProcessHotstringOptions()}? -> mode(DEFAULT_MODE);
-UnexpectedHotstringOptionsCharacter : . -> channel(ERROR);
+HotstringOptions: . {this.BeginStringMode(); this.Rewind();} -> skip, pushMode(STRING_MODE);
 
 // Fragment rules
 
@@ -340,12 +336,12 @@ fragment HotstringOptionCharacter
     | 'c1' 
     | 'si' | 'sp' | 'se' 
     | 'p' [0-9]+ 
-    | 'k' ' '* '-' ' '* [0-9]+
+    | 'k' ' '* ('-' ' '*)? [0-9]+
     ;
 fragment Options:
     HotstringOptionCharacter+;
 fragment Trigger:
-    (':'? NonColonStringCharacter | ';' {_input.Index == 0 || this._input.LA(-1) != ' '}?)+;
+    (':'? NonColonStringCharacter | ';' {!this.IsCommentPossible()}?)+;
 
 fragment WSCharacter: [\t\u000B\u000C\u0020\u00A0];
 
@@ -353,21 +349,38 @@ fragment NonWSCharacter: ~[\t\u000B\u000C\u0020\u00A0];
 
 fragment WhiteSpace: WSCharacter+;
 
-fragment DoubleStringCharacter: ~["`\r\n\u2028\u2029] | '`' EscapeSequence;
+fragment DQStringCharacter
+    : ~["`\t\n\r\u2028\u2029\f ] ';'
+    | ~[";`\r\n\u2028\u2029]
+    | '`' EscapeSequence ';'?
+    ;
 
-fragment SingleStringCharacter: ~['`\r\n\u2028\u2029] | '`' EscapeSequence;
+fragment SQStringCharacter
+    : ~['`\t\n\r\u2028\u2029\f ] ';'
+    | ~[';`\r\n\u2028\u2029]
+    | '`' EscapeSequence ';'?
+    ;
 
-fragment NonColonStringCharacter: ~[;:`\r\n] | '`' EscapeSequence;
+fragment NonColonStringCharacter: ~[;:`\r\n\u2028\u2029] | '`' EscapeSequence;
+
+fragment StringLiteralCharacter
+    : ~[`'"\t\n\r\u2028\u2029\f ] ';'         // Match semicolon only if not preceded by whitespace
+    | ~[;'"`\r\n\u2028\u2029]                 // Match any character except semicolon, newline, or carriage return
+    | '`' EscapeSequence ';'?       // Match escape sequences starting with backtick
+    | ('\'' | '"') {!this.IsCurrentStringQuote()}?
+    ;
 
 fragment RawStringCharacter
     : ~[`\t\n\r\u2028\u2029\f ] ';'         // Match semicolon only if not preceded by whitespace
     | ~[;`\r\n\u2028\u2029]                 // Match any character except semicolon, newline, or carriage return
-    | '`' EscapeSequence       // Match escape sequences starting with backtick
+    | '`' EscapeSequence ';'?       // Match escape sequences starting with backtick
     ;
 
 fragment AnyCharacter: .;
 
 fragment RawString: RawStringCharacter+;
+
+fragment SingleLineCommentAtom: ';' {this.IsCommentPossible()}? NonEOLCharacter*;
 
 fragment EscapeSequence:
     CharacterEscapeSequence
@@ -414,7 +427,13 @@ fragment IdentifierPart: IdentifierStart | [\p{Mn}] | [\p{Nd}] | [\p{Pc}] |  [\p
 
 fragment IdentifierStart: [\p{L}] | [$_] | '\\' UnicodeEscapeSequence;
 
-fragment ContinuationSection: LineBreak WhiteSpace? '(' .*? LineBreak WhiteSpace? ')' WhiteSpace?;
+fragment SingleContinuationSection: LineBreak WhiteSpace? ContinuationSectionBody;
+
+fragment ContinuationSectionBody: '(' WhiteSpace? (ContinuationSectionOption (WhiteSpace ContinuationSectionOption)*)? SingleLineCommentAtom? EOLCharacter .*? LineBreak WhiteSpace? ')' WhiteSpace?;
+
+fragment Trivia: (WhiteSpace | SingleLineCommentAtom | '/*' .*? '*/')+;
+
+fragment ContinuationSectionOption: 'join' ~[\r\n\u2028\u2029)]* | 'ltrim' '0'? | 'rtrim' '0'? | 'c' | 'com' | 'comment' | 'comments' | '`';
 
 fragment HotkeyModifierKey: [#!^+<>];
 

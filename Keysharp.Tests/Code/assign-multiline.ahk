@@ -175,6 +175,61 @@ if (Var = teststr)
 else
 	FileAppend "fail", "*"
 
+Var := "This is a string, ; Comment."
+(
+    followed by a comment.
+)"
+
+teststr := "This is a string,followed by a comment."
+
+if (Var = teststr)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+obj := {prop: "Hello world"}
+Var :=
+(
+ obj
+)
+/* Comment is ignored */
+(
+  .prop
+)
+
+teststr := "Hello world"
+
+if (Var = teststr)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+Var :=
+    ( ; Preceding whitespaces are allowed.
+"Hello"
+    )
+teststr := "Hello"
+
+if (Var = teststr)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+a := "Hello"
+b := "world"
+Var :=
+( ; These get implicitly concatenated
+a
+b
+)
+
+teststr := "Helloworld"
+
+if (Var = teststr)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 Var := "
 ( Join|
 Line 1

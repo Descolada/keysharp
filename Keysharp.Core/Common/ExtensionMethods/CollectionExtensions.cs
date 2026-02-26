@@ -730,5 +730,15 @@
 
 			return arr;
 		}
+
+		public static Stack<T> Clone<T>(this Stack<T> stack) 
+		{
+			if (stack == null || stack.Count == 0)
+				return new Stack<T>();
+
+			var frames = stack.ToArray();
+			System.Array.Reverse(frames);
+			return new Stack<T>(frames);
+		}
 	}
 }

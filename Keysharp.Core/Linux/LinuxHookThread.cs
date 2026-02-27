@@ -29,8 +29,8 @@ namespace Keysharp.Core.Linux
 		private static void DebugLog(string message) => Console.WriteLine(message);
 
 		// --- SharpHook ---
-		private SimpleGlobalHook? globalHook;
-		private Task? hookRunTask;
+		private SimpleGlobalHook globalHook;
+		private Task hookRunTask;
 
 		private readonly Lock hookStateLock = new();
 
@@ -551,7 +551,7 @@ namespace Keysharp.Core.Linux
 
 		// -------------------- event handlers --------------------
 
-		private void OnKeyPressed(object? sender, KeyboardHookEventArgs e)
+		private void OnKeyPressed(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
 
@@ -582,7 +582,7 @@ namespace Keysharp.Core.Linux
 				e.SuppressEvent = true;
 		}
 
-		private void OnKeyReleased(object? sender, KeyboardHookEventArgs e)
+		private void OnKeyReleased(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
 
@@ -643,7 +643,7 @@ namespace Keysharp.Core.Linux
 			return mods;
 		}
 
-		internal bool TryQueryModifierLRState(out uint mods, byte[]? keymapBuffer = null)
+		internal bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
 		{
 			mods = 0u;
 
@@ -839,7 +839,7 @@ namespace Keysharp.Core.Linux
 			return success;
 		}
 
-		private void OnMouseWheel(object? sender, MouseWheelHookEventArgs e)
+		private void OnMouseWheel(object sender, MouseWheelHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 
@@ -853,7 +853,7 @@ namespace Keysharp.Core.Linux
 				e.SuppressEvent = true;
 		}
 
-		private void OnMouseMoved(object? sender, MouseHookEventArgs e)
+		private void OnMouseMoved(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 
@@ -868,7 +868,7 @@ namespace Keysharp.Core.Linux
 			}
 		}
 
-		private void OnMousePressed(object? sender, MouseHookEventArgs e)
+		private void OnMousePressed(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 
@@ -882,7 +882,7 @@ namespace Keysharp.Core.Linux
 				e.SuppressEvent = true;
 		}
 
-		private void OnMouseReleased(object? sender, MouseHookEventArgs e)
+		private void OnMouseReleased(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 
@@ -913,7 +913,7 @@ namespace Keysharp.Core.Linux
 			return e.Data.Rotation < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT;
 		}
 
-		private static readonly FieldInfo? rawEventField = typeof(HookEventArgs).GetField("<RawEvent>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+		private static readonly FieldInfo rawEventField = typeof(HookEventArgs).GetField("<RawEvent>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
 
 		private static void SetRawEvent(HookEventArgs e, UioHookEvent raw)
 		{
@@ -1186,7 +1186,7 @@ namespace Keysharp.Core.Linux
 		}
 
 		// Temporarily release all grabs (keyboard + passive keys) during a send, then re-apply them.
-		internal GrabSnapshot BeginSendUngrab(HashSet<uint>? keycodes = null, HashSet<uint>? buttons = null)
+		internal GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
 		{
 			DebugLog($"[Hook] BeginSendUngrab grabs={activeGrabs.Count} hs={activeHotstringGrabs.Count}");
 			var snap = new GrabSnapshot { Active = IsX11Available };

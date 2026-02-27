@@ -72,18 +72,20 @@
 		/// <returns>The output of the Bash command if wait is true, else empty string.</returns>
 		internal static string Bash(this string cmd, bool wait = true)
 		{
-			var escapedArgs = cmd.Replace("\"", "\\\"");
+			var normalizedCmd = cmd.ReplaceLineEndings("\n");
 			var process = new Process()
 			{
 				StartInfo = new ProcessStartInfo
 				{
 					FileName = "/bin/bash",
-					Arguments = $"-c \"{escapedArgs}\"",
 					RedirectStandardOutput = true,
 					UseShellExecute = false,
 					CreateNoWindow = true,
 				}
 			};
+
+			process.StartInfo.ArgumentList.Add("-c");
+			process.StartInfo.ArgumentList.Add(normalizedCmd);
 			_ = process.Start();
 
 			if (wait)

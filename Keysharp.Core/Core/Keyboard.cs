@@ -29,36 +29,7 @@ namespace Keysharp.Core
 		{
 			var mode = value.As();
 			var toggle = ConvertBlockInput(mode);
-			var script = Script.TheScript;
-
-			switch (toggle)
-			{
-				case ToggleValueType.On:
-					_ = ScriptBlockInput(true);
-					break;
-
-				case ToggleValueType.Off:
-					_ = ScriptBlockInput(false);
-					break;
-
-				case ToggleValueType.Send:
-				case ToggleValueType.Mouse:
-				case ToggleValueType.SendAndMouse:
-				case ToggleValueType.Default:
-					script.KeyboardData.blockInputMode = toggle;
-					break;
-
-				case ToggleValueType.MouseMove:
-					script.KeyboardData.blockMouseMove = true;
-					HotkeyDefinition.InstallMouseHook();
-					break;
-
-				case ToggleValueType.MouseMoveOff:
-					script.KeyboardData.blockMouseMove = false; // But the mouse hook is left installed because it might be needed by other things. This approach is similar to that used by the Input command.
-					break;
-					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
-			}
-
+			_ = ScriptBlockInput(toggle);
 			return DefaultObject;
 		}
 
@@ -933,22 +904,81 @@ break_twice:;
 		/// <summary>
 		/// Internal helper to blocks keyboard and mouse input from reaching the script.
 		/// </summary>
-		/// <param name="enable">True to block, else false to unblock.</param>
+		/// <param name="block">True to block, else false to unblock.</param>
 		/// <returns>Always returns OK for caller convenience.</returns>
-		internal static ResultType ScriptBlockInput(bool enable)
+		internal static ResultType ScriptBlockInput(ToggleValueType toggle)
 		{
-			// Always turn input ON/OFF even if g_BlockInput says its already in the right state.  This is because
-			// BlockInput can be externally and undetectably disabled, e.g. if the user presses Ctrl-Alt-Del:
+			var script = Script.TheScript; 
 #if LINUX
-			var cmdstr = enable ? "--enable" : "--disable";
+			var kud = script.KeyboardUtilsData;
+			var cmdstr = toggle is ToggleValueType.Off 
+				or ToggleValueType.MouseMoveOff 
+				or ToggleValueType.Default ? "--enable" : "--disable";
+			List<int> list = null;
+			_ = kud.GetKeybdMouseDevices();
 
-			foreach (var id in Script.TheScript.KeyboardUtilsData.kbMouseList)
-				_ = $"xinput {cmdstr} {id}".Bash();
+			switch (toggle)
+			{
+				case ToggleValueType.On:
+				case ToggleValueType.Off:
+					script.KeyboardData.blockInput = toggle == ToggleValueType.On;
+					list = kud.kbMouseList;
+					break;
 
-#elif WINDOWS
-			_ = WindowsAPI.BlockInput(enable);
-#endif
-			Script.TheScript.KeyboardData.blockInput = enable;
+				case ToggleValueType.Send:
+				case ToggleValueType.Mouse:
+				case ToggleValueType.SendAndMouse:
+				case ToggleValueType.Default:
+					script.KeyboardData.blockInputMode = toggle;
+					break;
+
+				case ToggleValueType.MouseMove:
+					list = kud.mouseList;
+					script.KeyboardData.blockMouseMove = true;
+					break;
+
+				case ToggleValueType.MouseMoveOff:
+					list = kud.mouseList;
+					script.KeyboardData.blockMouseMove = false;
+					break;
+					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
+			}
+
+			if (list != null)
+				foreach (var id in list)
+					_ = $"xinput {cmdstr} {id}".Bash();
+#else
+			switch (toggle)
+			{
+				// Always turn input ON/OFF even if g_BlockInput says its already in the right state.  This is because
+				// BlockInput can be externally and undetectably disabled, e.g. if the user presses Ctrl-Alt-Del:
+				case ToggleValueType.On:
+				case ToggleValueType.Off:
+					var state = toggle == ToggleValueType.On;
+					_ = WindowsAPI.BlockInput(state);
+					script.KeyboardData.blockInput = state;
+					break;
+
+				case ToggleValueType.Send:
+				case ToggleValueType.Mouse:
+				case ToggleValueType.SendAndMouse:
+				case ToggleValueType.Default:
+					script.KeyboardData.blockInputMode = toggle;
+					break;
+
+				case ToggleValueType.MouseMove:
+					script.KeyboardData.blockMouseMove = true;
+					HotkeyDefinition.InstallMouseHook();
+					break;
+
+				case ToggleValueType.MouseMoveOff:
+					script.KeyboardData.blockMouseMove = false;
+					// But the mouse hook is left installed because it might be needed by other things. This approach is similar to that used by the Input command.
+					break;
+					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
+			}
+#endif 
+
 			return ResultType.Ok;//By design, it never returns FAIL.
 		}
 

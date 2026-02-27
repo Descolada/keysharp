@@ -692,6 +692,11 @@ namespace Keysharp.Core
 			HotkeyDefinition.AllDestruct();
 			StopMainTimer();
 
+			if (script.KeyboardData.blockInput)
+				_ = Keysharp.Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
+			else if (script.KeyboardData.blockMouseMove)
+				_ = Keysharp.Core.Keyboard.ScriptBlockInput(ToggleValueType.MouseMoveOff);
+
 			foreach (var kv in script.FlowData.timers)
 				kv.Value.Stop();
 

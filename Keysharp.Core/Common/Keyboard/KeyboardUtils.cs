@@ -7,6 +7,39 @@ namespace Keysharp.Core.Common.Keyboard
 		internal List<int> mouseList = [];
 		internal List<int> keyboardList = [];
 		internal List<int> kbMouseList = [];
+
+		internal List<int> GetKeybdMouseDevices()
+		{
+#if LINUX
+			var inputStr = """
+xinput --list --short | awk '!/XTEST/ && !/\[master/ {for(i=1;i<=NF;i++) if($i~/^id=/){sub(/^id=/,"",$i); print $i}}' |
+while read -r id; do
+  l=$(xinput --list --long "$id" 2>/dev/null) || continue
+  echo "$l" | grep -q 'XIKeyClass' && echo "keybd $id"
+  echo "$l" | grep -Eq 'Rel (X|Y)|Abs (X|Y)' && echo "mouse $id"
+done
+""".Bash();
+
+			mouseList.Clear();
+			keyboardList.Clear();
+			kbMouseList.Clear();
+
+			foreach (string entry in inputStr.Split(CrLf))
+			{
+				var split = entry.Split(' ');
+				if (split.Length != 2)
+					continue;
+				if (split[0] == "mouse")
+					mouseList.Add(int.Parse(split[1]));
+				else
+					keyboardList.Add(int.Parse(split[1]));
+			}
+
+			kbMouseList.AddRange(keyboardList);
+			kbMouseList.AddRange(mouseList);
+#endif
+			return kbMouseList;
+		}
 	}
 
 	internal class KeyboardUtils
@@ -37,59 +70,6 @@ namespace Keysharp.Core.Common.Keyboard
 		internal static string[] SEND_MODES = ["Event", "Input", "Play", "InputThenPlay"]; // Must match the SendModes enum.
 
 		internal static uint MakeLong(short lowPart, short highPart) => ((ushort)lowPart) | (uint)(highPart << 16);
-
-
-		internal KeyboardUtils()
-		{
-#if LINUX
-			var inputStr = "xinput".Bash();
-			var kud = Script.TheScript.KeyboardUtilsData;
-			var mouseList = kud.mouseList;
-			var keyboardList = kud.keyboardList;
-			var kbMouseList = kud.kbMouseList;
-
-			mouseList.Clear();
-			keyboardList.Clear();
-			kbMouseList.Clear();
-
-			foreach (Range r in inputStr.AsSpan().SplitAny(CrLf))
-			{
-				var split = inputStr.AsSpan(r).Trim();
-
-				//Ks.OutputDebugLine($"Examining split xinput string: {split}");
-				if (split.Length > 0 && !split.Contains("XTEST", StringComparison.OrdinalIgnoreCase))
-				{
-					var mouse = split.Contains("slave  pointer", StringComparison.OrdinalIgnoreCase);//The double spaces are intentional.
-					var kb = split.Contains("slave  keyboard", StringComparison.OrdinalIgnoreCase);
-
-					if (mouse || kb)//The two spaces are intentional.
-					{
-						foreach (Range r2 in split.SplitAny(SpaceTab))
-						{
-							var lineSplit = split[r2].Trim();
-							//Ks.OutputDebugLine($"Examining {(mouse ? "mouse" : "kb")} line split: {lineSplit}");
-
-							if (lineSplit.StartsWith("id=", StringComparison.OrdinalIgnoreCase))
-							{
-								if (int.TryParse(lineSplit.Slice(3), out var id))
-								{
-									if (mouse)
-										mouseList.Add(id);
-									else if (kb)
-										keyboardList.Add(id);
-
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			kbMouseList.AddRange(keyboardList);
-			kbMouseList.AddRange(mouseList);
-#endif
-		}
 
 		internal static void AdjustKeyState(byte[] keyState, uint modifiersLR)//Unsure if this should be in the base. Can it be cross platform?
 		// Caller has ensured that aKeyState is a 256-BYTE array of key states, in the same format used

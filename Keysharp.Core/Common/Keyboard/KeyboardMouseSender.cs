@@ -969,7 +969,7 @@ namespace Keysharp.Core.Common.Keyboard
 										&& sendMode == SendModes.Event;
 
 			if (doSelectiveBlockinput) // It seems best NOT to use g_BlockMouseMove for this, since often times the user would want keyboard input to be disabled too, until after the mouse event is done.
-				_ = Core.Keyboard.ScriptBlockInput(true); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
+				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.On); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
 
 			switch (actionType)
 			{
@@ -998,7 +998,7 @@ namespace Keysharp.Core.Common.Keyboard
 			}
 
 			if (doSelectiveBlockinput && !blockinputPrev)  // Turn it back off only if it was off before we started.
-				_ = Core.Keyboard.ScriptBlockInput(false);
+				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
 		}
 
 		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg)
@@ -1624,7 +1624,7 @@ namespace Keysharp.Core.Common.Keyboard
 										&& sendMode == SendModes.Event && targetWindow == 0;
 
 			if (doSelectiveBlockInput)
-				_ = Core.Keyboard.ScriptBlockInput(true); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
+				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.On); // Turn it on unconditionally even if it was on, since Ctrl-Alt-Del might have disabled it.
 
 			var vk = 0u;
 			var sc = 0u;
@@ -2251,7 +2251,7 @@ namespace Keysharp.Core.Common.Keyboard
 				DetachTargetWindowThread(pd.MainThreadID, keybdLayoutThread);
 
 			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
-				_ = Core.Keyboard.ScriptBlockInput(false);
+				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
 
 			//THIS IS PROBABLY NOT NEEDED, SINCE WE PROCESS HOTKEYS ON A DIFFERENT THREAD ANYWAY, SO THERE SHOULDN'T BE ANY NON-CRITICAL BUFFERING.//TODO
 			// The following MsgSleep(-1) solves unwanted buffering of hotkey activations while SendKeys is in progress

@@ -1,5 +1,4 @@
-﻿#if WINDOWS
-namespace Keysharp.Core.Common.Window
+﻿namespace Keysharp.Core.Common.Window
 {
 	internal class KeysharpActiveX : UserControl
 	{
@@ -68,11 +67,11 @@ namespace Keysharp.Core.Common.Window
 		{
 			if (!loadedDll) return;
 
-			// Create the host (container) – ignore its IUnknown; we’ll fetch the control next.
+			// Create the host (container) - ignore its IUnknown; we'll fetch the control next.
 			_ = AtlAxCreateControl(AxText, Handle, IntPtr.Zero, out var pUnkContainer);
 			if (pUnkContainer != 0) Marshal.Release(pUnkContainer); // not needed
 
-			// Get the hosted control’s IUnknown
+			// Get the hosted control's IUnknown
 			if (AtlAxGetControl(Handle, out var pCtrl) >= 0 && pCtrl != 0)
 			{
 				// Prefer IDispatch for late-binding:
@@ -122,4 +121,3 @@ namespace Keysharp.Core.Common.Window
 	}
 }
 
-#endif

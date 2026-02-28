@@ -104,7 +104,7 @@ public abstract class MainLexerBase : Lexer
 
     // Determine whether the X option is in effect or not
     protected bool IsHotstringLiteral() {
-        int intermediate = _processHotstringOptions(base.Text.Substring(1));
+        int intermediate = _processHotstringOptions(base.Text[1..]);
         return intermediate == -1 ? _hotstringIsLiteral : intermediate == 0;
     }
 
@@ -146,19 +146,22 @@ public abstract class MainLexerBase : Lexer
             this.Channel = Hidden;
     }
 
-    private HashSet<int> unaryOperators = new HashSet<int> {
-        MainLexer.BitNot,
+    private HashSet<int> unaryOperators =
+	[
+		MainLexer.BitNot,
         MainLexer.Not,
         MainLexer.PlusPlus,
         MainLexer.MinusMinus
-    };
+    ];
 
-    public static HashSet<int> flowKeywords = new HashSet<int> {
-        MainLexer.Try
-    };
+    public static HashSet<int> flowKeywords =
+	[
+		MainLexer.Try
+    ];
 
-    public static HashSet<int> lineContinuationOperators = new HashSet<int> {
-        MainLexer.OpenBracket,
+	public static HashSet<int> lineContinuationOperators =
+	[
+		MainLexer.OpenBracket,
         MainLexer.OpenBrace,
         MainLexer.OpenParen,
         MainLexer.DerefStart,
@@ -206,7 +209,7 @@ public abstract class MainLexerBase : Lexer
         MainLexer.PowerAssign,
         MainLexer.NullishCoalescingAssign,
         MainLexer.Arrow,
-    };
+    ];
 
 	// Keep in sync with identifier rule in MainParser.g4
 	public static bool IsIdentifierToken(int tokenType) => tokenType switch
@@ -383,7 +386,7 @@ public abstract class MainLexerBase : Lexer
         if (_lastVisibleToken == null || string.IsNullOrEmpty(_lastVisibleToken.Text))
             return false;
 
-        last = _lastVisibleToken.Text[_lastVisibleToken.Text.Length - 1];
+        last = _lastVisibleToken.Text[^1];
         return char.IsLetterOrDigit(last) || last == '_';
     }
 
@@ -483,7 +486,11 @@ public abstract class MainLexerBase : Lexer
 
 public class MainLexerErrorListener : IAntlrErrorListener<int>
 {
-    public void SyntaxError(
+	public MainLexerErrorListener()
+	{
+	}
+
+	public void SyntaxError(
         TextWriter output, 
         IRecognizer recognizer,
         int offendingSymbol, 

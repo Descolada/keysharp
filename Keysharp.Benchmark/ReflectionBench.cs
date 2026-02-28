@@ -51,10 +51,10 @@ namespace Keysharp.Benchmark
 			_del5 = DelegateFactory.CreateDelegate(_mi5);
 			_del10 = DelegateFactory.CreateDelegate(_mi10);
 
-			_args0 = new object[0];
-			_args1 = new object[] { 1 };
-			_args5 = new object[] { 1, 2, 3, 4, 5 };
-			_args10 = new object[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+			_args0 = [];
+			_args1 = [1];
+			_args5 = [1, 2, 3, 4, 5];
+			_args10 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 		}
 
 		private object _sink = default!; // prevent JIT from optimizing away the call
@@ -72,16 +72,16 @@ namespace Keysharp.Benchmark
 		public void Invoke10() => _sink = _mi10.Invoke(_instance, _args10) ?? throw new NullReferenceException();
 
 		[Benchmark(Description = "MethodInvoke 0 params")]
-		public void MethodInvoke0() => _sink = _miv0.Invoke(_instance, _args0.AsSpan()) ?? throw new NullReferenceException();
+		public void MethodInvoke0() => _sink = _miv0.Invoke(_instance, ((object?[])(object)_args0).AsSpan()) ?? throw new NullReferenceException();
 
 		[Benchmark(Description = "MethodInvoke 1 param")]
-		public void MethodInvoke1() => _sink = _miv1.Invoke(_instance, _args1.AsSpan()) ?? throw new NullReferenceException();
+		public void MethodInvoke1() => _sink = _miv1.Invoke(_instance, ((object?[])(object)_args1).AsSpan()) ?? throw new NullReferenceException();
 
 		[Benchmark(Description = "MethodInvoke 5 params")]
-		public void MethodInvoke5() => _sink = _miv5.Invoke(_instance, _args5.AsSpan()) ?? throw new NullReferenceException();
+		public void MethodInvoke5() => _sink = _miv5.Invoke(_instance, ((object?[])(object)_args5).AsSpan()) ?? throw new NullReferenceException();
 
 		[Benchmark(Description = "MethodInvoke 10 params")]
-		public void MethodInvoke10() => _sink = _miv10.Invoke(_instance, _args10.AsSpan()) ?? throw new NullReferenceException();
+		public void MethodInvoke10() => _sink = _miv10.Invoke(_instance, ((object?[])(object)_args10).AsSpan()) ?? throw new NullReferenceException();
 
 		[Benchmark(Description = "Delegate invoke 0 params")]
 		public void DelegateInvoke0() => _sink = _del0(_instance, _args0);

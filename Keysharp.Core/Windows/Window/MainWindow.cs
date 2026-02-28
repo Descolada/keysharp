@@ -1,5 +1,4 @@
-﻿#if WINDOWS
-namespace Keysharp.Scripting
+﻿namespace Keysharp.Scripting
 {
 	public partial class MainWindow : KeysharpForm
 	{
@@ -329,4 +328,3 @@ namespace Keysharp.Scripting
 		}
 	}
 }
-#endif

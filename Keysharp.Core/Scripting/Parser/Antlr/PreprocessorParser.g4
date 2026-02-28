@@ -20,7 +20,7 @@ preprocessor_directive
     | ElIf expr = preprocessor_expression directive_new_line_or_sharp { this.OnPreprocessorDirectiveElif(); }                # preprocessorConditional
     | Else directive_new_line_or_sharp { this.OnPreprocessorDirectiveElse(); }                                               # preprocessorConditional
     | EndIf directive_new_line_or_sharp { this.OnPreprocessorDirectiveEndif(); }                                             # preprocessorConditional
-    | Line (Digits StringLiteral? | Default | DirectiveHidden) directive_new_line_or_sharp { this.OnPreprocessorDirectiveLine(); } # preprocessorLine
+    | DirectiveLine (Digits StringLiteral? | Default | DirectiveHidden) directive_new_line_or_sharp { this.OnPreprocessorDirectiveLine(); } # preprocessorLine
     | Error StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveError(); }                                        # preprocessorDiagnostic
     | Warning StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveWarning(); }                                    # preprocessorDiagnostic
     | Region StringLiteral? directive_new_line_or_sharp { this.OnPreprocessorDirectiveRegion(); }                                     # preprocessorRegion

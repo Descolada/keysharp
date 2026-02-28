@@ -9,7 +9,7 @@ namespace Keysharp.Tests
 	{
 		private static bool btwtyped = false;
 
-		public static object label_9F201721(params object[] args)
+		public static object Label_9F201721(params object[] args)
 		{
 			btwtyped = true;
 			return string.Empty;
@@ -18,7 +18,7 @@ namespace Keysharp.Tests
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void AutoCorrect()
 		{
-			var val = "";
+			string val;
 			HotstringDefinition hs1, hs2;
 			var filename = string.Format("..{0}..{0}..{0}Keysharp.Tests{0}HotstringTests.txt", Path.DirectorySeparatorChar);
 			var hotstrings = File.ReadLines(filename);
@@ -30,7 +30,7 @@ namespace Keysharp.Tests
 			foreach (var hotstring in hotstrings)
 			{
 				var splits = hotstring.Split(delimiters, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-				var split0 = splits[0].Substring(splits[0].IndexOf('(') + 1).Trim('"');
+				var split0 = splits[0][(splits[0].IndexOf('(') + 1)..].Trim('"');
 				var split3 = splits[3].Trim('"');
 				hs1 = (HotstringDefinition)Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring(split0, null, splits[2].Trim('"'), split3, splits[4].Trim('"'), false);
 				//System.Diagnostics.Debug.WriteLine(split0);
@@ -52,7 +52,7 @@ namespace Keysharp.Tests
 				hs2 = hsm.MatchHotstring();
 				Assert.AreEqual(null, hs2);
 				//Need to ensure the other tests with ? and * work.
-				var opts = split0.Substring(1, split0.IndexOf(':', 1) - 1);
+				var opts = split0[1..split0.IndexOf(':', 1)];
 				var newOptsName = ":*B0OSZRK123P10:" + split3;//Change options except for ? and C.
 
 				//Still need to do the rest of the autocorrect file here.//TODO
@@ -254,12 +254,12 @@ namespace Keysharp.Tests
 			Assert.AreEqual(A_DefaultHotstringSendMode, newSendMode);
 			Assert.AreEqual("", oldVal);
 			//Send mode Input.
-			newSendMode = SendModes.Input.ToString();
+			newSendMode = SendModes.InputThenPlay.ToString();
 			origSendMode = A_DefaultHotstringSendMode;
 			Assert.AreEqual(origSendMode, SendModes.Play.ToString());
 			oldVal = Keyboard.Hotstring("SI");
 			Assert.AreNotEqual(origSendMode, A_DefaultHotstringSendMode);
-			Assert.AreEqual(A_DefaultHotstringSendMode, SendModes.InputThenPlay.ToString());//InputThenPlay gets used when Input is specified. See HotstringDefinition.ParseOptions().
+			Assert.AreEqual(A_DefaultHotstringSendMode, newSendMode);//InputThenPlay gets used when Input is specified. See HotstringDefinition.ParseOptions().
 			Assert.AreEqual("", oldVal);
 			//Try changing multiple options at once.
 			//First reset everything back to the default state.
@@ -329,7 +329,7 @@ namespace Keysharp.Tests
 			hsm.ClearHotstrings();
 			hsm.RestoreDefaults(true);
 			_ = Keyboard.Hotstring("Reset");
-			_ = Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring("::btw", Functions.Func(label_9F201721, null), ":btw", "btw", "", false);
+			_ = Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring("::btw", Functions.Func(Label_9F201721, null), ":btw", "btw", "", false);
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			Assert.IsTrue(A_KeybdHookInstalled == 1L);//Will fail if system has another hook, so exit your scripts before running this.
 			Assert.IsTrue(A_MouseHookInstalled == 1L);//Because there is a hotstring and mouse reset is true by default, the mouse hook gets installed.
@@ -383,7 +383,7 @@ namespace Keysharp.Tests
 			//
 			Assert.IsTrue(TestScript("hotkey-hotstring-parsing", false));
 
-			string EscapeHotkeyTrigger(ReadOnlySpan<char> s)
+			static string EscapeHotkeyTrigger(ReadOnlySpan<char> s)
 			{
 				var escaped = false;
 				var sb = new StringBuilder(s.Length);

@@ -30,7 +30,6 @@ namespace Keysharp.Scripting
 		}
 
 		private static readonly char[] libBrackets = ['<', '>'];
-		private static int hotifcount;
 
 		private readonly Dictionary<string, HashSet<string>> includesByModule = new(StringComparer.OrdinalIgnoreCase);
 		private readonly Queue<string> pendingImports = new();
@@ -64,7 +63,6 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		internal int NextHotIfCount => ++hotifcount;
 		internal List<(string, bool)> PreloadedDlls { get; } = [];
 		
 		internal eScriptInstance SingleInstance { get; private set; } = eScriptInstance.Prompt;
@@ -120,9 +118,8 @@ namespace Keysharp.Scripting
                 if (File.Exists(cmdinc))
                 {
 					var includeSet = GetIncludesForModule(state.ModuleName);
-                    if (!includeSet.Contains(cmdinc))
+					if (includeSet.Add(cmdinc))
                     {
-						includeSet.Add(cmdinc);
                         using var reader = new StreamReader(cmdinc);
                         ReadTokens(reader, cmdinc, result, state);
                     }
@@ -159,7 +156,7 @@ namespace Keysharp.Scripting
             {
 				name = name
             };
-            MainLexer preprocessorLexer = new MainLexer(inputStream);
+			MainLexer preprocessorLexer = new(inputStream);
 
             var codeTokens = GetTokensForModule(result, state.ModuleName);
 
@@ -167,7 +164,7 @@ namespace Keysharp.Scripting
             var directiveTokens = new List<IToken>();
             var directiveTokenSource = new ListTokenSource(directiveTokens);
             var directiveTokenStream = new CommonTokenStream(directiveTokenSource, MainLexer.DIRECTIVE);
-            PreprocessorParser preprocessorParser = new PreprocessorParser(directiveTokenStream);
+			PreprocessorParser preprocessorParser = new(directiveTokenStream);
 
             int index = 0;
             bool compiledTokens = true;
@@ -220,7 +217,6 @@ namespace Keysharp.Scripting
                     compiledTokens = directive.value;
 
                     String directiveStr = directiveTokens[0].Text.Trim().ToUpper();
-                    String conditionalSymbol = null;
                     var lineNumber = token.Line;
 
                     var includeOnce = false;
@@ -239,13 +235,11 @@ namespace Keysharp.Scripting
                             break;
                         case "DEFINE":
                             // add to the conditional symbols 
-							conditionalSymbol = directiveTokens[1].Text;
-                            preprocessorParser.ConditionalSymbols.Add(conditionalSymbol);
+                            preprocessorParser.ConditionalSymbols.Add(directiveTokens[1].Text);
                             compiledTokens = true;
                             break;
                         case "UNDEF":
-                            conditionalSymbol = directiveTokens[1].Text;
-                            preprocessorParser.ConditionalSymbols.Remove(conditionalSymbol);
+                            preprocessorParser.ConditionalSymbols.Remove(directiveTokens[1].Text);
                             compiledTokens = true;
                             break;
                         default:
@@ -279,7 +273,7 @@ namespace Keysharp.Scripting
 
                                 if (p1.Length > 3 && p1.StartsWith("*i ", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    p1 = p1.Substring(3);
+									p1 = p1[3..];
                                     silent = true;
                                 }
 
@@ -314,12 +308,12 @@ namespace Keysharp.Scripting
 
                                 if (p1.StartsWith("*i ", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    p1 = p1.Substring(3);
+									p1 = p1[3..];
                                     silent = true;
                                 }
                                 else if (p1.StartsWith("*i", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    p1 = p1.Substring(2);
+									p1 = p1[2..];
                                     silent = true;
                                 }
 
@@ -458,27 +452,14 @@ namespace Keysharp.Scripting
 							break;
                         }
 						case "SINGLEINSTANCE":
-                            switch ((directiveTokens.Count > 1 ? directiveTokens[1].Text : "FORCE").ToUpperInvariant())
-                            {
-                                case "FORCE":
-                                    SingleInstance = eScriptInstance.Force;
-                                    break;
-
-                                case "IGNORE":
-                                    SingleInstance = eScriptInstance.Ignore;
-                                    break;
-
-                                case "PROMPT":
-                                    SingleInstance = eScriptInstance.Prompt;
-                                    break;
-
-                                case "OFF":
-                                    SingleInstance = eScriptInstance.Off;
-                                    break;
-
-                                default:
-									throw new ParseException("Unrecognized directive option", directiveTokens[1]);
-                            }
+							SingleInstance = (directiveTokens.Count > 1 ? directiveTokens[1].Text : "FORCE").ToUpperInvariant() switch
+							{
+								"FORCE" => eScriptInstance.Force,
+								"IGNORE" => eScriptInstance.Ignore,
+								"PROMPT" => eScriptInstance.Prompt,
+								"OFF" => eScriptInstance.Off,
+								_ => throw new ParseException("Unrecognized directive option", directiveTokens[1]),
+							};
 							break;
                         case "NODYNAMICVARS":
                             parser.DynamicVars = false;
@@ -718,7 +699,7 @@ namespace Keysharp.Scripting
                         case MainLexer.QuestionMark:
                         case MainLexer.QuestionMarkDot:
                         case MainLexer.Arrow:
-							PopWhitespaces(codeTokens.Count, IsVerbalOperator(token.Type) ? (!(IsPrecededByEol() && IsFollowedByOpenParen(index))) : true);
+							PopWhitespaces(codeTokens.Count, !IsVerbalOperator(token.Type) || (!(IsPrecededByEol() && IsFollowedByOpenParen(index))));
 							state.SkipWhitespace = state.SkipLinebreak = true;
 							break;
                         case MainLexer.Loop:
@@ -974,7 +955,7 @@ namespace Keysharp.Scripting
 
 			bool IsFollowedByOpenParen(int i)
 			{
-				return ++i < tokens.Count ? tokens[i].Type == MainLexer.OpenParen : false;
+				return ++i < tokens.Count && tokens[i].Type == MainLexer.OpenParen;
 			}
 
 			bool IsStatementStart()
@@ -1071,7 +1052,7 @@ namespace Keysharp.Scripting
 
 				var text = moduleContext.StringLiteral()?.GetText() ?? string.Empty;
 				if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
-					text = text.Substring(1, text.Length - 2);
+					text = text[1..^1];
 
 				return text;
 			}
@@ -1100,7 +1081,7 @@ namespace Keysharp.Scripting
 		{
 			if (!result.TokensByModule.TryGetValue(moduleName, out var tokens))
 			{
-				tokens = new List<IToken>();
+				tokens = [];
 				result.TokensByModule[moduleName] = tokens;
 				result.ModuleOrder.Add(moduleName);
 			}
@@ -1137,7 +1118,7 @@ namespace Keysharp.Scripting
 		internal sealed class ModuleTokenResult
 		{
 			public Dictionary<string, List<IToken>> TokensByModule { get; } = new(StringComparer.OrdinalIgnoreCase);
-			public List<string> ModuleOrder { get; } = new();
+			public List<string> ModuleOrder { get; } = [];
 		}
 
 		private void ResolvePendingImports(ModuleTokenResult result)
@@ -1157,10 +1138,7 @@ namespace Keysharp.Scripting
 					continue;
 				}
 
-				var modulePath = ResolveImportPath(moduleName);
-				if (modulePath == null)
-					throw new ParseException($"Module '{moduleName}' not found.", 0, moduleName);
-
+				var modulePath = ResolveImportPath(moduleName) ?? throw new ParseException($"Module '{moduleName}' not found.", 0, moduleName);
 				loadedImportModules.Add(moduleName);
 				var moduleState = CreateTokenScanState(moduleName);
 				using (var reader = new StreamReader(modulePath))
@@ -1197,7 +1175,7 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		private bool IsExternalModule(string moduleName)
+		private static bool IsExternalModule(string moduleName)
 		{
 			if (string.IsNullOrWhiteSpace(moduleName))
 				return false;

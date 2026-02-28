@@ -265,7 +265,7 @@ DirectiveIf            : 'if'                    -> channel(DIRECTIVE), type(If)
 ElIf                   : 'elif'                  -> channel(DIRECTIVE);
 DirectiveElse          : 'else'                  -> channel(DIRECTIVE), type(Else);
 EndIf                  : 'endif'                 -> channel(DIRECTIVE);
-Line                   : 'line'                  -> channel(DIRECTIVE);
+DirectiveLine          : 'line'                  -> channel(DIRECTIVE);
 Error                  : 'error'                 -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 Warning                : 'warning'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 Region                 : 'region'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);

@@ -13,12 +13,12 @@ namespace Keysharp.Core.Common.Invoke
 		protected bool cdecl = false;
 		protected bool hresult = false;
 		private List<GCHandle> _gcHandles;
-		protected List<GCHandle> gcHandles => _gcHandles ??= new();
+		protected List<GCHandle> gcHandles => _gcHandles ??= [];
 		protected bool hasReturn = false;
 		protected Type returnType = typeof(int);
 		//int is the index in the argument list, and bool specifies if it's a VarRef (false) or Ptr (true)
 		protected Dictionary<int, (Type, bool)> outputVars;
-		internal Dictionary<int, (Type, bool)> OutputVars => outputVars ??= new();
+		internal Dictionary<int, (Type, bool)> OutputVars => outputVars ??= [];
 		internal bool CDecl => cdecl;
 		internal bool HRESULT => hresult;
 		internal bool HasReturn => hasReturn;
@@ -30,7 +30,7 @@ namespace Keysharp.Core.Common.Invoke
 		internal ulong floatingTypeMask = 0;
 
 		// Storage for pinned BSTR pointers, to be released at disposal
-		private readonly List<nint> _bstrs = new List<nint>();
+		private readonly List<nint> _bstrs = [];
 		private bool _isDisposed;
 
 		internal ArgumentHelper(object[] parameters)
@@ -97,7 +97,7 @@ namespace Keysharp.Core.Common.Invoke
 							&& ((span[3] | 0x20) == 'c')
 							&& ((span[4] | 0x20) == 'l'))
 					{
-						span = span.Slice(5).TrimStart();
+						span = span[5..].TrimStart();
 						cdecl = true;
 						len = span.Length;
 
@@ -133,7 +133,7 @@ namespace Keysharp.Core.Common.Invoke
 				if (last == '*' || (char)(last | 0x20) == 'p')
 				{
 					// Remove the suffix
-					span = span.Slice(0, --len);
+					span = span[..--len];
 
 					if (p is KeysharpObject kso 
 						&& !OutputVars.ContainsKey(paramIndex) //must not be a Ptr object

@@ -156,14 +156,14 @@ namespace Keysharp.Benchmark
 
 				public static object Classinc(object @this)
 				{
-					object _ks_temp1 = null;
-					object _ks_temp2 = null;
+					object _ks_temp1;
+					object _ks_temp2;
 					return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Scripting.Script.Add(Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
 				}
 
 				public static object Classinctestfuncscript(object @this)
 				{
-					object size = null;
+					object size;
 					size = 500000L;
 					Keysharp.Scripting.Script.SetPropertyValue(@this, "x", 0L);
 					{

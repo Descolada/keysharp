@@ -14,12 +14,11 @@ namespace Keysharp.Benchmark
 	[HideColumns("Error", "StdDev", "RatioSD", "Gen0", "Gen1", "Gen2")]
 	public class BaseTest
 	{
-		internal static Keysharp.Scripting.Script _ks_s;
+		internal static Keysharp.Scripting.Script _ks_s = null!;
 
 		public BaseTest()
 		{
-			if (_ks_s == null)
-				_ks_s = new (GetType().BaseType);
+			_ks_s ??= new (GetType().BaseType);
 		}
 	}
 

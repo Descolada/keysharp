@@ -194,7 +194,7 @@ namespace Keysharp.Core
 
 		internal void CallEvents()
 		{
-			var result = handlers?.InvokeEventHandlers(this);
+			_ = handlers?.InvokeEventHandlers(this);
 		}
 
 		internal void Clear()
@@ -212,7 +212,6 @@ namespace Keysharp.Core
 			// ---- BYREF: pass-through pointer to storage (no allocations here) ----
 			if ((vtype & VarEnum.VT_BYREF) != 0)
 			{
-				VarEnum baseVt = vtype & ~VarEnum.VT_BYREF;
 				v.ptrVal = NintPtr;
 				return v;
 			}
@@ -312,11 +311,8 @@ namespace Keysharp.Core
 
 		internal unsafe object RawInvokeMethod(string methodName, object[] inputParameters)
 		{
-			Type[] expectedTypes = null;
 			ParameterModifier[] modifiers = null;
-			INVOKEKIND invokeKind = INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET;
-			Dictionary<int, object> refs = new();
-			object result = null;
+			Dictionary<int, object> refs = [];
 
 			// Get DISPID
 			int hr = RawGetIDsOfNames(methodName, out int dispId);
@@ -337,10 +333,10 @@ namespace Keysharp.Core
 						inputParameters[i] = refval; // unwrap to the current value for packing
 					}
 				}
-				modifiers = new[] { pm };
+				modifiers = [pm];
 			}
 
-			hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC, inputParameters, out result, expectedTypes: null, modifiers: modifiers);
+			hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC, inputParameters, out object result, expectedTypes: null, modifiers: modifiers);
 			if (hr == unchecked((int)0x80020003) /*DISP_E_MEMBERNOTFOUND*/)
 				hr = RawInvoke(dispId, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET, inputParameters, out result, expectedTypes: null, modifiers: modifiers);
 
@@ -355,8 +351,8 @@ namespace Keysharp.Core
 					inputParameters[kvp.Key] = kvp.Value;
 
 				// If no cached type info, try to query it
-				modifiers = null; refs = new Dictionary<int, object>(); result = null;
-				TryGetTypeInfo(dispId, methodName, inputParameters?.Length ?? 0, out expectedTypes, out modifiers, out invokeKind, invokeKind);
+				refs = [];
+				TryGetTypeInfo(dispId, methodName, inputParameters?.Length ?? 0, out Type[] expectedTypes, out modifiers, out var invokeKind, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET);
 
 				// Handle byref parameters with KeysharpObject wrapper
 				if (modifiers != null && inputParameters != null)
@@ -390,13 +386,12 @@ namespace Keysharp.Core
 
 		internal unsafe object RawGetProperty(string propertyName, object[] args)
 		{
-			object result = null;
 			int hr = RawGetIDsOfNames(propertyName, out int dispId);
 			if (hr < 0)
 				return Errors.ErrorOccurred($"Property '{propertyName}' not found");
+			TryGetTypeInfo(dispId, propertyName, args.Length, out var expectedTypes, out _, out var invokeKind, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET);
 
-			TryGetTypeInfo(dispId, propertyName, args.Length, out var expectedTypes, out var modifiers, out var invokeKind, INVOKEKIND.INVOKE_FUNC | INVOKEKIND.INVOKE_PROPERTYGET);
-
+			object result;
 			if (expectedTypes != null && expectedTypes.Length > 0)
 				hr = RawInvoke(dispId, invokeKind, args, out result);
 			else
@@ -507,7 +502,7 @@ namespace Keysharp.Core
 			if (vtbl == null)
 				return -1;
 
-			nint ptr = new nint((long)Ptr);
+			nint ptr = new((long)Ptr);
 
 			Guid iidNull = Guid.Empty;
 			nint strPtrName = Marshal.StringToCoTaskMemUni(name);
@@ -533,8 +528,7 @@ namespace Keysharp.Core
 					if (hr == DISP_E_UNKNOWNNAME || hr == DISP_E_MEMBERNOTFOUND)
 					{
 						// QI for IDispatchEx and call GetDispID on that *interface pointer*
-						nint pEx;
-						var ex = TryGetDispatchExVtbl(out pEx);
+						var ex = TryGetDispatchExVtbl(out nint pEx);
 						if (ex != null)
 						{
 							try
@@ -789,14 +783,14 @@ namespace Keysharp.Core
 						if (((VarEnum)variant.vt & VarEnum.VT_BYREF) != 0 && allocatedByRef[i])
 							VariantHelper.CleanupByRefVariant(variant);
 
-						VariantHelper.VariantClear(variantPtr);
+						_ = VariantHelper.VariantClear(variantPtr);
 					}
 					Marshal.FreeHGlobal(pArgs);
 				}
 
 				if (wantsResult && pResult != 0)
 				{
-					VariantHelper.VariantClear(pResult);
+					_ = VariantHelper.VariantClear(pResult);
 					Marshal.FreeHGlobal(pResult);
 				}
 				Marshal.FreeHGlobal(pDispParams);
@@ -916,7 +910,7 @@ namespace Keysharp.Core
 			var vtbl = GetDispatchVtbl();
 			if (vtbl == null)
 				return false;
-			nint ptr = new nint((long)Ptr);
+			nint ptr = new((long)Ptr);
 			nint pTypeInfo = 0;
 			if (vtbl->GetTypeInfo(ptr, index, Com.LOCALE_USER_DEFAULT, &pTypeInfo) == 0 && pTypeInfo != 0)
 			{
@@ -1151,7 +1145,7 @@ namespace Keysharp.Core
 				expectedTypes[i] = VariantHelper.VarEnumToCLRType(vt);
 			}
 
-			modifiers = new[] { modifier };
+			modifiers = [modifier];
 		}
 
 	}

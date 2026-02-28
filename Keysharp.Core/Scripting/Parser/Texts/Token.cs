@@ -32,7 +32,7 @@ namespace Keysharp.Scripting
 			if (!(code.Length >= 2 && code.Length <= 4))
 				return false;
 
-			if (code[0] == Equal || code[code.Length - 1] != Equal)
+			if (code[0] == Equal || code[^1] != Equal)
 				return false;
 
 			if (code.Length == 3)
@@ -111,7 +111,7 @@ namespace Keysharp.Scripting
 
 			while (i < code.Length && IsIdentifier(code[i])) i++;
 
-			if (i == 0 || IsKeyword(code.Substring(0, i)))
+			if (i == 0 || IsKeyword(code[..i]))
 				return true;
 
 			while (i < code.Length && IsSpace(code[i])) i++;
@@ -288,7 +288,7 @@ namespace Keysharp.Scripting
 							return true;
 						else
 						{
-							var sub = StripCommentSingle(code.Substring(i));
+							var sub = StripCommentSingle(code[i..]);
 							return sub.Length == 0 || IsSpace(sub);
 						}
 
@@ -434,7 +434,7 @@ namespace Keysharp.Scripting
 						throw new ParseException(ExUntermStr, codeLine);
 				}
 
-				escape = sym == Escape ? !escape : false;
+				escape = sym == Escape && !escape;
 			}
 
 			return str.ToString();

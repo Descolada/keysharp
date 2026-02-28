@@ -90,7 +90,7 @@
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a long.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public static object staticCall(object @this, object value)
+		public new static object staticCall(object @this, object value)
 		{
 			if (value.ParseLong(out long l))
 				return l;
@@ -108,7 +108,7 @@
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a double.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public static object staticCall(object @this, object value)
+		public new static object staticCall(object @this, object value)
 		{
 			if (value.ParseDouble() is double d)
 				return d;

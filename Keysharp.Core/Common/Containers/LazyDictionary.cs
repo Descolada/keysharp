@@ -1,16 +1,12 @@
 ﻿namespace Keysharp.Core.Common.Containers
 {
 	[PublicHiddenFromUser]
-	public class LazyDictionary<TKey, TValue>
+	public class LazyDictionary<TKey, TValue>(IEqualityComparer<TKey> comparer)
 	{
 		// internal map: TValue or Func<TValue>
-		private readonly Dictionary<TKey, object> _inner;
+		private readonly Dictionary<TKey, object> _inner = new(comparer ?? EqualityComparer<TKey>.Default);
 
 		public LazyDictionary() : this(null) { }
-		public LazyDictionary(IEqualityComparer<TKey> comparer)
-		{
-			_inner = new Dictionary<TKey, object>(comparer ?? EqualityComparer<TKey>.Default);
-		}
 
 		public IEnumerable<TValue> Values
 		{
@@ -18,7 +14,7 @@
 			{
 				foreach (var boxed in _inner.Values)
 				{
-					if (boxed is Lazy<TValue> lv)
+					if (boxed is Lazy<TValue>)
 					{
 						continue;
 					}
@@ -38,7 +34,7 @@
 		{
 			foreach (var boxed in _inner.Values)
 			{
-				if (boxed is Lazy<TValue> lv)
+				if (boxed is Lazy<TValue>)
 				{
 					continue;
 				}
@@ -65,8 +61,8 @@
 		/// </summary>
 		public void AddLazy(TKey key, Func<TValue> factory)
 		{
-			if (key == null) throw new ArgumentNullException(nameof(key));
-			if (factory == null) throw new ArgumentNullException(nameof(factory));
+			ArgumentNullException.ThrowIfNull(key);
+			ArgumentNullException.ThrowIfNull(factory);
 			_inner.Add(key, new Lazy<TValue>(factory));
 		}
 
@@ -116,13 +112,13 @@
 			return false;
 		}
 
-		public TValue GetValueOrDefault(TKey key) => TryGetValue(key, out TValue value) ? value : default(TValue);
+		public TValue GetValueOrDefault(TKey key) => TryGetValue(key, out TValue value) ? value : default;
 
 		/// <summary>Optional: indicates if we already initialized this key.</summary>
 		public bool IsInitialized(TKey key)
 		{
 			if (!_inner.TryGetValue(key, out var boxed)) return false;
-			return !(boxed is Lazy<TValue>);
+			return boxed is not Lazy<TValue>;
 		}
 
 		public int Count => _inner.Count;

@@ -146,8 +146,7 @@ namespace Keysharp.Core.COM
 						ti.GetRefTypeOfImplType(j, out int href);
 						ti.GetRefTypeInfo(href, out var eventTi);
 
-						nint pAttr2;
-						eventTi.GetTypeAttr(out pAttr2);
+						eventTi.GetTypeAttr(out nint pAttr2);
 						var ta2 = Marshal.PtrToStructure<ct.TYPEATTR>(pAttr2);
 						try
 						{
@@ -234,13 +233,12 @@ namespace Keysharp.Core.COM
 		{
 			ct.ITypeInfo? ti = null;
 			ct.ITypeLib? tl = null;
-			int index;
 
 			try
 			{
 				if (anyTi != null)
 				{
-					anyTi.GetContainingTypeLib(out tl, out index);
+					anyTi.GetContainingTypeLib(out tl, out int index);
 					if (tl != null)
 					{
 						tl.GetTypeInfoOfGuid(ref iid, out ti);
@@ -295,7 +293,7 @@ namespace Keysharp.Core.COM
 			{
 				// 1) Decode rgvarg manually so we can see VT_BYREF and preserve backing pointers
 				int n = pDispParams.cArgs;
-				var args = n > 0 ? new object[n] : System.Array.Empty<object>();
+				var args = n > 0 ? new object[n] : [];
 				var byrefCells = new List<(int argIndex, VARIANT v, VarRef)>(); // for write-back
 
 				int sizeVARIANT = Marshal.SizeOf<VARIANT>();
@@ -337,7 +335,7 @@ namespace Keysharp.Core.COM
 				// 3) Dispatch to the script, the event handler marshals to the main thread
 				var evt = new DispatcherEventArgs(dispIdMember, name, args);
 				OnEvent(this, evt);
-				object result = evt.Result;
+				object? result = evt.Result;
 
 				if (evt.IsHandled)
 				{

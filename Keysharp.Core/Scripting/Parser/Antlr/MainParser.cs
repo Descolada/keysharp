@@ -65,7 +65,7 @@ public partial class MainParser : MainParserBase {
 		StringModeTerminator=140, StringModeTrivia=141, StringModeContinuationSection=142, 
 		HotstringExpansion=143, Digits=144, HotIf=145, InputLevel=146, SuspendExempt=147, 
 		UseHook=148, Hotstring=149, Module=150, Define=151, Undef=152, ElIf=153, 
-		EndIf=154, Line=155, Error=156, Warning=157, Region=158, EndRegion=159, 
+		EndIf=154, DirectiveLine=155, Error=156, Warning=157, Region=158, EndRegion=159, 
 		Pragma=160, Nullable=161, Include=162, IncludeAgain=163, DllLoad=164, 
 		Requires=165, SingleInstance=166, Persistent=167, Warn=168, HookMutexName=169, 
 		NoDynamicVars=170, ErrorStdOut=171, ClipboardTimeout=172, HotIfTimeout=173, 
@@ -187,14 +187,14 @@ public partial class MainParser : MainParserBase {
 		"StringLiteralPart", "StringModeTerminator", "StringModeTrivia", "StringModeContinuationSection", 
 		"HotstringExpansion", "Digits", "HotIf", "InputLevel", "SuspendExempt", 
 		"UseHook", "Hotstring", "Module", "Define", "Undef", "ElIf", "EndIf", 
-		"Line", "Error", "Warning", "Region", "EndRegion", "Pragma", "Nullable", 
-		"Include", "IncludeAgain", "DllLoad", "Requires", "SingleInstance", "Persistent", 
-		"Warn", "HookMutexName", "NoDynamicVars", "ErrorStdOut", "ClipboardTimeout", 
-		"HotIfTimeout", "MaxThreads", "MaxThreadsBuffer", "MaxThreadsPerHotkey", 
-		"WinActivateForce", "NoTrayIcon", "Assembly", "DirectiveHidden", "ConditionalSymbol", 
-		"DirectiveSingleLineComment", "DirectiveNewline", "UnexpectedDirectiveCharacter", 
-		"DirectiveTextWhitespace", "UnexpectedTextDirectiveCharacter", "HotstringNewline", 
-		"NoMouse", "EndChars", "HotstringOptions"
+		"DirectiveLine", "Error", "Warning", "Region", "EndRegion", "Pragma", 
+		"Nullable", "Include", "IncludeAgain", "DllLoad", "Requires", "SingleInstance", 
+		"Persistent", "Warn", "HookMutexName", "NoDynamicVars", "ErrorStdOut", 
+		"ClipboardTimeout", "HotIfTimeout", "MaxThreads", "MaxThreadsBuffer", 
+		"MaxThreadsPerHotkey", "WinActivateForce", "NoTrayIcon", "Assembly", "DirectiveHidden", 
+		"ConditionalSymbol", "DirectiveSingleLineComment", "DirectiveNewline", 
+		"UnexpectedDirectiveCharacter", "DirectiveTextWhitespace", "UnexpectedTextDirectiveCharacter", 
+		"HotstringNewline", "NoMouse", "EndChars", "HotstringOptions"
 	};
 	public static readonly IVocabulary DefaultVocabulary = new Vocabulary(_LiteralNames, _SymbolicNames);
 

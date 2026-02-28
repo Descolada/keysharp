@@ -2,10 +2,8 @@
 
 namespace Keysharp.Core.Common.ObjectBase
 {
-    public class Class : KeysharpObject
+    public class Class(params object[] args) : KeysharpObject(args)
     {
-        public Class(params object[] args) : base(args) { }
-
 		public static object staticCall(object @this, params object[] args)
         {
             if (args.Length == 0) 
@@ -31,12 +29,11 @@ namespace Keysharp.Core.Common.ObjectBase
 			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(actualType);
 			staticInst.type = typeof(Class); staticInst.InitializePrivates();
 
-			var userProto = Script.GetPropertyValueOrNull(baseClass, "Prototype") as Any;
-            if (userProto == null) 
-                return Errors.ErrorOccurred("The base class must have a prototype");
+			if (Script.GetPropertyValueOrNull(baseClass, "Prototype") is not Any userProto)
+				return Errors.ErrorOccurred("The base class must have a prototype");
 
-            
-            staticInst.SetBaseInternal(baseClass);
+
+			staticInst.SetBaseInternal(baseClass);
             staticInst.type = baseClass.type;
 
             var proto = new Prototype(actualType);
@@ -58,7 +55,7 @@ namespace Keysharp.Core.Common.ObjectBase
 			return staticInst;
         }
 
-        internal new object Call(params object[] args)
+        internal object Call(params object[] args)
         {
 			var proto = (this.op["Prototype"].Value ?? Script.GetPropertyValueOrNull(this, "Prototype")) as Any;
 			

@@ -1,4 +1,3 @@
-#if WINDOWS
 using Label = System.Windows.Forms.Label;
 using Timer = System.Windows.Forms.Timer;
 
@@ -210,4 +209,3 @@ namespace Keysharp.Core
 		}
 	}
 }
-#endif

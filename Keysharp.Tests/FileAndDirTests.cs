@@ -700,8 +700,10 @@ namespace Keysharp.Tests
 
 			using (var f = (KeysharpFile)Files.FileOpen(filename, "rw"))//Read/write buffers and arrays.
 			{
-				var arr = new Array();
-				arr.Capacity = 4;
+				var arr = new Array
+				{
+					Capacity = 4
+				};
 
 				for (var i = 0L; i < (long)arr.Capacity; i++)
 					arr.Push(i);
@@ -820,21 +822,13 @@ namespace Keysharp.Tests
 			//linux seems to be ok with these combinations and doesn't throw.
 			TestException(() =>
 			{
-				using (var f = (KeysharpFile)Files.FileOpen(filename, "r -r"))//Test read share.
-				{
-					using (var f2 = (KeysharpFile)Files.FileOpen(filename, "r"))
-					{
-					}
-				}
+				using var f = (KeysharpFile)Files.FileOpen(filename, "r -r");//Test read share.
+				using var f2 = (KeysharpFile)Files.FileOpen(filename, "r");
 			});
 			TestException(() =>
 			{
-				using (var f = (KeysharpFile)Files.FileOpen(filename, "rw -w"))//Test write share.
-				{
-					using (var f2 = (KeysharpFile)Files.FileOpen(filename, "rw"))
-					{
-					}
-				}
+				using KeysharpFile f = (KeysharpFile)Files.FileOpen(filename, "rw -w");//Test write share.
+				using var f2 = (KeysharpFile)Files.FileOpen(filename, "rw");
 			});
 #endif
 
@@ -842,9 +836,7 @@ namespace Keysharp.Tests
 			{
 				var handle = f.Handle;
 
-				using (var f2 = (KeysharpFile)Files.FileOpen(handle, "r h"))
-				{
-				}
+				using var f2 = (KeysharpFile)Files.FileOpen(handle, "r h");
 			}
 
 			if (File.Exists(filename))
@@ -852,9 +844,7 @@ namespace Keysharp.Tests
 
 			TestException(() =>
 			{
-				using (var f = (KeysharpFile)Files.FileOpen(filename, "r"))//Test opening a non existent file in read mode which should crash.
-				{
-				}
+				using var f = (KeysharpFile)Files.FileOpen(filename, "r");//Test opening a non existent file in read mode which should crash.
 			});
 			//Accessors.A_FileEncoding = "ascii";
 			Assert.IsTrue(TestScript("file-fileopen", true));
@@ -871,7 +861,7 @@ namespace Keysharp.Tests
 			text = Files.FileRead(dir, "m4 utf-8");
 			Assert.AreEqual("this", text);
 			var buf1 = Files.FileRead(dir, "m4 raw");
-			var buf2 = new Keysharp.Core.Buffer(new byte[] { (byte)'t', (byte)'h', (byte)'i', (byte)'s' });
+			var buf2 = new Keysharp.Core.Buffer("this"u8.ToArray());
 			Assert.IsTrue((bool)Script.ValueEquality(buf1, buf2));
 			Assert.IsTrue(TestScript("file-fileread", true));
 		}

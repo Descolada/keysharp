@@ -64,26 +64,35 @@
 		<PackageReference Include="Scintilla5.NET" Version="6.1.1" />
 		<None Remove="$(USERPROFILE)\.nuget\packages\scintilla5.net\6.1.1\runtimes\win-x64\native\Lexilla.dll" />
 		<None Remove="$(USERPROFILE)\.nuget\packages\scintilla5.net\6.1.1\runtimes\win-x64\native\Scintilla.dll" />
+
+		<Compile Update="Keyview.Designer.cs">
+			<DependentUpon>Keyview.resx</DependentUpon>
+		</Compile>
+		<EmbeddedResource Update="Keyview.resx">
+			<DependentUpon>Keyview.Designer.cs</DependentUpon>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+<!--
+		<PackageReference Include="Eto.Forms" Version="2.10.2" />
+-->
+		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 <!--
-		<PackageReference Include="Eto.Forms" Version="2.10.2" />
 		<PackageReference Include="Eto.Platform.Gtk" Version="2.10.2" />
 -->
-		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
 		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
+
+		<Compile Remove="Keyview.Designer.cs" />
+		<Compile Remove="HotKeyManager.cs" />
+		<Compile Remove="SearchManager.cs" />
+		<EmbeddedResource Remove="Keyview.resx" />
 	</ItemGroup> 
 
 	<ItemGroup>
 		<ProjectReference Include="..\Keysharp.Core\Keysharp.Core.csproj" />
 	</ItemGroup>
-
-	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
-		<Compile Remove="Keyview.Designer.cs" />
-		<Compile Remove="HotKeyManager.cs" />
-		<Compile Remove="SearchManager.cs" />
-		<EmbeddedResource Remove="Keyview.resx" />
-	</ItemGroup>
-
 </Project>

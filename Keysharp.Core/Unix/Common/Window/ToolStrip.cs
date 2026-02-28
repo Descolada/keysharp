@@ -1,5 +1,5 @@
-#if LINUX
-namespace Keysharp.Core.Linux
+#if !WINDOWS
+namespace Keysharp.Core.Unix
 {
 	public class ToolStripItem
 	{

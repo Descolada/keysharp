@@ -1,6 +1,4 @@
-﻿#if !WINDOWS
-using Gtk;
-
+#if !WINDOWS
 namespace Eto.Forms
 #else
 namespace System.Windows.Forms
@@ -929,3 +927,4 @@ namespace System.Windows.Forms
 #endif
 	}
 }
+

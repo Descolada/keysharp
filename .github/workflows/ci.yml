@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      target_platform:
+        description: "Platform to run"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+      configuration:
+        description: "Build configuration"
+        required: true
+        type: choice
+        default: Debug
+        options:
+          - Debug
+          - Release
+      project:
+        description: "Project scope"
+        required: true
+        type: choice
+        default: core
+        options:
+          - core
+          - all
+          - keysharp
+          - keyview
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  BUILD_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Debug' }}
+  BUILD_PROJECT: ${{ github.event_name == 'workflow_dispatch' && inputs.project || 'core' }}
+  ETO_REF: dd599c5922ec7c4c9cc28d11c3cbc0db2a6f6067
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target_platform == 'all' || inputs.target_platform == matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+
+    steps:
+      - name: Checkout keysharp
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/packages.lock.json
+
+      - name: Cache Eto (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        id: eto-cache
+        uses: actions/cache@v4
+        with:
+          path: ../Eto
+          key: eto-${{ runner.os }}-${{ env.ETO_REF }}
+          restore-keys: |
+            eto-${{ runner.os }}-
+
+      - name: Checkout Eto (non-Windows, cache miss)
+        if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          if (Test-Path "../Eto") {
+            Remove-Item -Path "../Eto" -Recurse -Force
+          }
+          git clone --branch Keysharp https://github.com/Descolada/Eto.git ../Eto
+          git -C ../Eto checkout "$env:ETO_REF"
+
+      - name: Show run config
+        shell: pwsh
+        run: |
+          Write-Host "Platform: ${{ matrix.platform }}"
+          Write-Host "Configuration: $env:BUILD_CONFIGURATION"
+          Write-Host "Project scope: $env:BUILD_PROJECT"
+
+      - name: Build Keysharp.Core
+        if: ${{ env.BUILD_PROJECT == 'core' || env.BUILD_PROJECT == 'all' }}
+        shell: pwsh
+        run: |
+          dotnet build Keysharp.Core/Keysharp.Core.csproj -c $env:BUILD_CONFIGURATION --nologo
+
+      - name: Build Keysharp (secondary)
+        if: ${{ env.BUILD_PROJECT == 'all' || env.BUILD_PROJECT == 'keysharp' }}
+        shell: pwsh
+        run: |
+          dotnet build Keysharp/Keysharp.csproj -c $env:BUILD_CONFIGURATION --nologo
+
+      - name: Build Keyview (secondary)
+        if: ${{ env.BUILD_PROJECT == 'all' || env.BUILD_PROJECT == 'keyview' }}
+        shell: pwsh
+        run: |
+          dotnet build Keyview/Keyview.csproj -c $env:BUILD_CONFIGURATION --nologo

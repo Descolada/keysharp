@@ -83,7 +83,7 @@
 		/// <param name="strip">Optional existing <see cref="ContextMenuStrip"/>. Default: false.</param>
 		public Menu(params object[] args) : base(args) 
 		{
-			MenuItem = (args.Length > 0 ? (ContextMenuStrip)args[0] : null) ?? new ContextMenuStrip();
+			MenuItem = (args?.Length > 0 ? (ContextMenuStrip)args[0] : null) ?? new ContextMenuStrip();
 			//GetMenu().ImageScalingSize = new System.Drawing.Size(28, 28);//Don't set scaling, it makes the checked icons look funny.
 			var newCount = Interlocked.Increment(ref Script.TheScript.GuiData.menuCount);
 			GetMenu().Name = $"Menu_{newCount}";

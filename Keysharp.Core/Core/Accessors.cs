@@ -750,9 +750,13 @@
 			{
 #if LINUX
 				return Xlib.geteuid() == 0;
+#elif OSX
+				return string.Equals(Environment.UserName, "root", StringComparison.Ordinal);
 #elif WINDOWS
 				using var id = WindowsIdentity.GetCurrent();
 				return new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
+#else
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
 			}
 		}

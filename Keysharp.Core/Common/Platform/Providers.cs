@@ -18,8 +18,10 @@
 			return new Windows.Drive(drive);
 #elif LINUX
 			return new Linux.Drive(drive);
+#elif OSX
+			throw new PlatformNotSupportedException("Drive operations are not implemented on macOS yet.");
 #else
-			return null;
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
 		}
 	}
@@ -30,9 +32,11 @@
 #if WINDOWS
 			new PlatformManager()
 #elif LINUX
-			new Linux.PlatformManager()
+			new Unix.PlatformManager()
+#elif OSX
+			new Unix.PlatformManager()
 #else
-			null
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
 		;
 	}
@@ -48,8 +52,12 @@
 		{
 #if WINDOWS
 			return new Core.Windows.StatusBar(hwnd);
+#elif LINUX
+			return new Core.Unix.StatusBar(hwnd);
+#elif OSX
+			return new Core.Unix.StatusBar(hwnd);
 #else
-			return new Core.Linux.StatusBar(hwnd);
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
 		}
 	}

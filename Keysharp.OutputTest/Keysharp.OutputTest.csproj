@@ -9,6 +9,10 @@
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
   
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -32,6 +36,7 @@
     <OutputPath>../bin/Debug/</OutputPath>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">DEBUG;TRACE;LEGACY;WINDOWS</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">DEBUG;TRACE;LEGACY;LINUX</DefineConstants>
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">DEBUG;TRACE;LEGACY;OSX</DefineConstants>
     <NoWarn>1701;1702;8981;0164;8974</NoWarn>
   </PropertyGroup>
 
@@ -39,6 +44,7 @@
     <OutputPath>../bin/Release/</OutputPath>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">TRACE;LEGACY;WINDOWS</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">TRACE;LEGACY;LINUX</DefineConstants>
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">TRACE;LEGACY;OSX</DefineConstants>
     <NoWarn>1701;1702;8981;0164;8974</NoWarn>
   </PropertyGroup>
 

@@ -55,7 +55,7 @@ global using global::System.Threading.Tasks;
 	global using DockStyle = System.Windows.Forms.DockStyle;
 	global using ColumnHeader = System.Windows.Forms.ColumnHeader;
 	global using TextBoxBase = Eto.Forms.TextBox;
-	global using Keys = Keysharp.Core.Linux.Keys;
+	global using Keys = System.Windows.Forms.Keys;
 #endif
 
 // Alias String to avoid conflicts with Keysharp.Core.String
@@ -103,10 +103,18 @@ global using global::BitFaster.Caching.Scheduler;
 	global using global::Keysharp.Core.Windows;
 #endif
 
+#if !WINDOWS
+	global using global::Keysharp.Core.Unix;
+#endif
+
 #if LINUX
 	global using global::Keysharp.Core.Linux;
 	global using global::Keysharp.Core.Linux.Proxies;
 	global using global::Keysharp.Core.Linux.X11;
+#endif
+
+#if OSX
+	global using global::Keysharp.Core.MacOS;
 #endif
 
 //Static
@@ -120,6 +128,6 @@ global using static global::Keysharp.Core.Common.Platform.PlatformManagerBase;
 	global using static global::Keysharp.Core.Windows.PlatformManager;
 #endif
 
-#if LINUX
-	global using static global::Keysharp.Core.Linux.PlatformManager;
+#if !WINDOWS
+	global using static global::Keysharp.Core.Unix.PlatformManager;
 #endif

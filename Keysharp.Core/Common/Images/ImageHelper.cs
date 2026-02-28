@@ -1,4 +1,4 @@
-﻿#if LINUX
+#if LINUX
 using Eto.GtkSharp;
 #endif
 
@@ -27,8 +27,11 @@ namespace Keysharp.Core.Common.Images
 			}
 
 			return bmp;
-#else
+#elif LINUX
 			return new Bitmap(c.ToGdk().Image.SaveToBuffer("png"));
+#else
+			// TODO: replace with native cursor rasterization for macOS.
+			return new Bitmap(16, 16, PixelFormat.Format32bppRgb);
 #endif
 		}
 

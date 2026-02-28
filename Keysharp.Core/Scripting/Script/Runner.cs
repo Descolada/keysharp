@@ -231,10 +231,23 @@ namespace Keysharp.Scripting
 
 		internal static string GetLatestDotNetVersion()
 		{
-#if LINUX
+#if OSX
+			var rid = RuntimeInformation.RuntimeIdentifier.Contains("osx-arm64", StringComparison.OrdinalIgnoreCase) ? "osx-arm64" : "osx-x64";
+			var hostRoots = new[]
+			{
+				$"/usr/local/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/",
+				$"/usr/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/"
+			};
+			var hostRoot = hostRoots.FirstOrDefault(Directory.Exists);
+			var dir = hostRoot != null
+				? Directory.GetDirectories(hostRoot).Select(Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault()
+				: "";
+#elif LINUX
 			var dir = Directory.GetDirectories(@"/lib/dotnet/sdk/").Select(System.IO.Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x)).FirstOrDefault();
 #elif WINDOWS
 			var dir = Directory.GetDirectories(@"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\").Select(Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault();
+#else
+			var dir = "";
 #endif
 			return dir;
 		}

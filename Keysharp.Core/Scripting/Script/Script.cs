@@ -22,7 +22,7 @@ namespace Keysharp.Scripting
 	public partial class Script
 	{
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
-#if LINUX
+#if !WINDOWS
 		private static Encoding enc1252 = Encoding.Default;
 #endif
 		public const char dotNetMajorVersion = '9';
@@ -201,7 +201,9 @@ namespace Keysharp.Scripting
 		internal ToolTipData ToolTipData => toolTipData ?? (toolTipData = new ());
 		internal WindowProvider WindowProvider => windowProvider ?? (windowProvider = new ());
 
-#if LINUX
+#if OSX
+		internal string ldLibraryPath = Environment.GetEnvironmentVariable("DYLD_LIBRARY_PATH") ?? "";
+#elif LINUX
 		internal string ldLibraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "";
 #endif
 
@@ -229,7 +231,7 @@ namespace Keysharp.Scripting
 			WindowX.SetProcessDPIAware();
 			CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 			CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
-#if LINUX
+#if !WINDOWS
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);//For some reason, linux needs this for rich text to work.
 			enc1252 = Encoding.GetEncoding(1252);
 			if (Application.Instance == null)
@@ -252,6 +254,7 @@ namespace Keysharp.Scripting
 				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
 			};
 
+#if LINUX
 			try
 			{
 				var settings = Gtk.Settings.Default;
@@ -265,6 +268,7 @@ namespace Keysharp.Scripting
 			{
 				System.Diagnostics.Debug.WriteLine("Failed to enable GTK menu images: " + ex);
 			}
+#endif
 #endif
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 
@@ -335,7 +339,7 @@ namespace Keysharp.Scripting
 			tickTimer?.Dispose();
 #if WINDOWS
 			Application.RemoveMessageFilter(msgFilter);
-#elif LINUX
+#elif !WINDOWS
 			msgFilter?.Detach();
 #endif
 		}
@@ -895,8 +899,10 @@ namespace Keysharp.Scripting
 			HookThread = new WindowsHookThread();
 #elif LINUX
 			HookThread = new LinuxHookThread();
+#elif OSX
+			HookThread = new MacOS.MacHookThread();
 #else
-			return false;
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
 			return true;
 		}

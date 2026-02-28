@@ -10,6 +10,12 @@
 		<DefineConstants>$(DefineConstants);LINUX;DPI</DefineConstants>
 		<LangVersion>14.0</LangVersion>
 	</PropertyGroup>
+
+	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+		<TargetFramework>net10.0</TargetFramework>
+		<DefineConstants>$(DefineConstants);OSX;DPI</DefineConstants>
+		<LangVersion>14.0</LangVersion>
+	</PropertyGroup>
 	
 	<PropertyGroup>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
@@ -30,6 +36,7 @@
 		<OutputPath>../bin/Debug/</OutputPath>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);DEBUG;LEGACY;WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);DEBUG;LEGACY;LINUX</DefineConstants>
+		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(DefineConstants);DEBUG;LEGACY;OSX</DefineConstants>
 		<NoWarn>$(NoWarn);1701;1702;8981;0164;8974</NoWarn>
 	</PropertyGroup>
 
@@ -37,21 +44,30 @@
 		<OutputPath>../bin/Release/</OutputPath>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);LEGACY;WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);LEGACY;LINUX</DefineConstants>
+		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(DefineConstants);LEGACY;OSX</DefineConstants>
 		<NoWarn>$(NoWarn);1701;1702;8981;0164;8974</NoWarn>
 	</PropertyGroup>
 
-	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+	<ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
 <!--
 		<PackageReference Include="Eto.Forms" Version="2.10.2" />
-		<PackageReference Include="Eto.Platform.Gtk" Version="2.10.2" />
 -->
 		<!-- This custom branch fixes a bug with image functions not working if a tray menu is created in Linux,
 		as well as allows implementing the MsgBox timeout feature. Available here: https://github.com/Descolada/Eto/tree/MessgeBoxShowAsync  -->
 		<ProjectReference Include="..\..\Eto\src\Eto\Eto.csproj" />
-		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
-
 		<PackageReference Include="SharpHook" Version="7.1.1" />
+	</ItemGroup>
+
+	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
 		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
+		<Compile Remove="Unix\MacOS\**\*.cs" />
+	</ItemGroup>
+
+	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+		<ProjectReference Include="..\..\Eto\src\Eto.Mac\Eto.Mac64.csproj" />
+		<Compile Remove="Unix\Linux\**\*.cs" />
+		<Compile Include="Unix\Linux\PlatformManager.cs" />
 	</ItemGroup>
 
 	<ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
@@ -91,6 +107,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Linux\Devices\" />
+		<Folder Include="Unix\Linux\Devices\" />
 	</ItemGroup>
 </Project>

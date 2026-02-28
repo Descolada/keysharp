@@ -1,8 +1,10 @@
 using static Keysharp.Core.Misc;
-#if LINUX
+#if !WINDOWS
 using System.Linq;
 using Eto.Forms;
+#if LINUX
 using Keysharp.Core.Linux;
+#endif
 #endif
 
 namespace Keysharp.Core

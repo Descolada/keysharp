@@ -27,8 +27,12 @@ public abstract class PreprocessorParserBase : Antlr4.Runtime.Parser
 				"KEYSHARP"
 #if WINDOWS
 				, "WINDOWS"
+#elif OSX
+				, "OSX"
 #elif LINUX
 				, "LINUX"
+#else
+#error Unsupported platform symbol. Define exactly one of WINDOWS, LINUX, or OSX.
 #endif
 #if DEBUG
                 , "DEBUG"

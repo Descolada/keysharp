@@ -273,6 +273,21 @@ namespace Keysharp.Main
 								appBinaryFilePath: $"{namenoext}.dll",
 								windowsGraphicalUserInterface: false,
 								assemblyToCopyResorcesFrom: outputDllPath);
+#elif OSX
+							finalPath = path;
+							var rid = RuntimeInformation.RuntimeIdentifier.Contains("osx-arm64", StringComparison.OrdinalIgnoreCase) ? "osx-arm64" : "osx-x64";
+							var appHostCandidates = new[]
+							{
+								$"/usr/local/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/{ver}/runtimes/{rid}/native/apphost",
+								$"/usr/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/{ver}/runtimes/{rid}/native/apphost"
+							};
+							var appHostPath = appHostCandidates.FirstOrDefault(File.Exists) ?? appHostCandidates[0];
+							HostWriter.CreateAppHost(
+								appHostSourceFilePath: appHostPath,
+								appHostDestinationFilePath: finalPath,
+								appBinaryFilePath: $"{namenoext}.dll",
+								windowsGraphicalUserInterface: false,
+								assemblyToCopyResorcesFrom: outputDllPath);
 #elif WINDOWS
 							finalPath = $"{path}.exe";
 							HostWriter.CreateAppHost(
@@ -372,7 +387,18 @@ namespace Keysharp.Main
 
 		internal static string GetLatestDotNetVersion()
 		{
-#if LINUX
+#if OSX
+			var rid = RuntimeInformation.RuntimeIdentifier.Contains("osx-arm64", StringComparison.OrdinalIgnoreCase) ? "osx-arm64" : "osx-x64";
+			var hostRoots = new[]
+			{
+				$"/usr/local/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/",
+				$"/usr/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/"
+			};
+			var hostRoot = hostRoots.FirstOrDefault(Directory.Exists);
+			var dir = hostRoot != null
+				? Directory.GetDirectories(hostRoot).Select(Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault()
+				: "";
+#elif LINUX
 			var dir = Directory.GetDirectories(@"/lib/dotnet/sdk/").Select(System.IO.Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x)).FirstOrDefault();
 #elif WINDOWS
 			var dir = Directory.GetDirectories(@"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\").Select(Path.GetFileName).Where(x => x.StartsWith(Script.dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault();

@@ -325,7 +325,7 @@
 		private nint _currentPage;
 		private int _currentOffset = 0;
 
-#if LINUX || OSX
+#if !WINDOWS
 		[DllImport("libc", SetLastError = true)]
 		private static extern nint mmap(nint addr, nint length, int prot, int flags, int fd, nint offset);
 		[DllImport("libc", SetLastError = true)]
@@ -335,7 +335,13 @@
 		private const int PROT_WRITE = 2;
 		private const int PROT_EXEC = 4;
 		private const int MAP_PRIVATE = 2;
+#if LINUX
 		private const int MAP_ANONYMOUS = 0x20;
+#elif OSX
+		private const int MAP_ANONYMOUS = 0x1000; // MAP_ANON / MAP_ANONYMOUS on macOS
+#else
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
+#endif
 #endif
 
 		public ExecutableMemoryPoolManager()
@@ -469,7 +475,7 @@
 				foreach (var page in _pages)
 					WindowsAPI.VirtualFree(page, 0, (uint)VirtualAllocExTypes.MEM_RELEASE);
 
-#elif LINUX || OSX
+#elif !WINDOWS
 
 				foreach (var page in _pages)
 					munmap(page, (nint)PageSize);
@@ -486,7 +492,7 @@
 #if WINDOWS
 			var ptr = WindowsAPI.VirtualAlloc(0, (nint)PageSize, (uint)VirtualAllocExTypes.MEM_COMMIT, (uint)AccessProtectionFlags.PAGE_EXECUTE_READWRITE);
 			return ptr == 0 ? throw new InvalidOperationException($"VirtualAlloc failed: {Marshal.GetLastWin32Error()}") : ptr;
-#elif LINUX || OSX
+#elif !WINDOWS
 			var ptr = mmap(0, (nint)PageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
 			if (ptr == new nint(-1))

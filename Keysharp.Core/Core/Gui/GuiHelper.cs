@@ -1,4 +1,4 @@
-﻿#if LINUX
+#if LINUX
 using Eto.GtkSharp;
 using Keysharp.Core.Linux.Proxies;
 using Keysharp.Core.Linux.X11;
@@ -275,8 +275,14 @@ namespace Keysharp.Core
                     icon.Save(stream);
                     src = stream.ToArray();
                 }
-#else
+#elif LINUX
 				src = icon.ToGdk().PixelBytes.Data;
+#else
+				using (var stream = new MemoryStream())
+				{
+					icon.Save(stream);
+					src = stream.ToArray();
+				}
 #endif
 
                 int count = BitConverter.ToInt16(src, 4);

@@ -18,6 +18,9 @@
 
 		internal Point? Find(Bitmap findImage, long trans = -1)
 		{
+#if WINDOWS
+			BitmapData srcdata = null, fnddata = null;
+#endif
 			if (sourceImage == null || findImage == null)
 				throw new InvalidOperationException();
 
@@ -43,8 +46,8 @@
 #if WINDOWS
 					var srcColor = new FastColor();
 					var fndColor = new FastColor();
-					var srcdata = sourceImage.LockBits(new Rectangle(0, 0, sourceImage.Width, sourceImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-					var fnddata = findImage.LockBits(new Rectangle(0, 0, findImage.Width, findImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+					srcdata = sourceImage.LockBits(new Rectangle(0, 0, sourceImage.Width, sourceImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+					fnddata = findImage.LockBits(new Rectangle(0, 0, findImage.Width, findImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 					unsafe
 					{
 						var ptrFirstSrcPixel = (byte*)srcdata.Scan0;
@@ -153,8 +156,8 @@
 				finally
 				{
 #if WINDOWS
-					sourceImage.UnlockBits(srcdata);
-					findImage.UnlockBits(fnddata);
+					sourceImage?.UnlockBits(srcdata);
+					findImage?.UnlockBits(fnddata);
 #endif
 				}
 			}

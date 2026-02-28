@@ -49,20 +49,32 @@ env:
   ETO_REF: dd599c5922ec7c4c9cc28d11c3cbc0db2a6f6067
 
 jobs:
+  prepare:
+    name: Prepare Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        shell: pwsh
+        run: |
+          $target = '${{ github.event_name == 'workflow_dispatch' && inputs.target_platform || 'all' }}'
+          switch ($target) {
+            'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
+            'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
+            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
+            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
+          }
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
   build:
+    needs: prepare
     name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target_platform == 'all' || inputs.target_platform == matrix.platform }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-          - os: ubuntu-latest
-            platform: linux
-          - os: macos-latest
-            platform: macos
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout keysharp

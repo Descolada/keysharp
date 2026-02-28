@@ -94,7 +94,7 @@ jobs:
         id: eto-cache
         uses: actions/cache@v4
         with:
-          path: ../Eto
+          path: ${{ runner.workspace }}/Eto
           key: eto-${{ runner.os }}-${{ env.ETO_REF }}
           restore-keys: |
             eto-${{ runner.os }}-
@@ -103,20 +103,22 @@ jobs:
         if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
         shell: pwsh
         run: |
-          if (Test-Path "../Eto") {
-            Remove-Item -Path "../Eto" -Recurse -Force
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (Test-Path $etoDir) {
+            Remove-Item -Path $etoDir -Recurse -Force
           }
-          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git ../Eto
-          git -C ../Eto checkout "$env:ETO_REF"
-          git -C ../Eto submodule update --init --recursive
+          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git $etoDir
+          git -C $etoDir checkout "$env:ETO_REF"
+          git -C $etoDir submodule update --init --recursive
 
       - name: Ensure Eto submodules (non-Windows)
         if: ${{ matrix.platform != 'windows' }}
         shell: pwsh
         run: |
-          if (-not (Test-Path "../Eto/lib/monomac/src/MonoMac.csproj")) {
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (-not (Test-Path "$etoDir/lib/monomac/src/MonoMac.csproj")) {
             Write-Host "MonoMac submodule missing, initializing..."
-            git -C ../Eto submodule update --init --recursive
+            git -C $etoDir submodule update --init --recursive
           } else {
             Write-Host "MonoMac submodule present."
           }

@@ -246,16 +246,16 @@ namespace Eto.Forms
                 get {
 #if LINUX
                     control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
-#else
-                    var etoPref = control.GetPreferredSize();
-                    var prefSize = new Size(etoPref.Width.Ai(), etoPref.Height.Ai());
-#endif
                     if (prefSize.Width <= 1 && prefSize.Height <= 1)
                     {
-                        var prefSize2 = control.GetPreferredSize();
-                        return new Size(prefSize2.Width.Ai(), prefSize2.Height.Ai());
+                        var fallbackPref = control.GetPreferredSize();
+                        return new Size(fallbackPref.Width.Ai(), fallbackPref.Height.Ai());
                     }
-                    return new Size(prefSize.Width.Ai(), prefSize.Height.Ai());
+                    return new Size(prefSize.Width, prefSize.Height);
+#else
+                    var etoPref = control.GetPreferredSize();
+                    return new Size(etoPref.Width.Ai(), etoPref.Height.Ai());
+#endif
                 }
             }
             internal Size ClientSize

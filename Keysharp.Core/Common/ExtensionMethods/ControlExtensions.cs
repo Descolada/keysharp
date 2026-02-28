@@ -55,17 +55,17 @@ namespace System.Windows.Forms
 			Size prefSize;
 #if LINUX
 			control.ToNative().GetPreferredSize(out var minSize, out var nativePrefSize);
-#else
-			var etoPrefSize = control.GetPreferredSize();
-			var nativePrefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
-#endif
 			if (nativePrefSize.Width <= 1 && nativePrefSize.Height <= 1)
 			{
-				var etoPrefSize = control.GetPreferredSize();
-				prefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+				var fallbackPrefSize = control.GetPreferredSize();
+				prefSize = new Size(fallbackPrefSize.Width.Ai(), fallbackPrefSize.Height.Ai());
 			}
 			else
 				prefSize = new Size(nativePrefSize.Width, nativePrefSize.Height);
+#else
+			var etoPrefSize = control.GetPreferredSize();
+			prefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+#endif
 			if (control.Properties.TryGetValue("AssignedSize", out var obj))
 			{
 				var existingSize = (Size)obj;

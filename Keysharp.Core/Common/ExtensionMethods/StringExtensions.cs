@@ -62,7 +62,7 @@
 			return true;
 		}
 
-#if LINUX
+#if !WINDOWS
 		/// <summary>
 		/// Runs a string as a Bash command.<br/>
 		/// Gotten from: https://stackoverflow.com/questions/54325155/how-to-get-hard-disk-serial-number-compatible-with-linux-windows

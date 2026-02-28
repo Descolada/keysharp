@@ -900,7 +900,7 @@ namespace Keysharp.Scripting
 #elif LINUX
 			HookThread = new LinuxHookThread();
 #elif OSX
-			HookThread = new MacOS.MacHookThread();
+			HookThread = new MacHookThread();
 #else
 #error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif

@@ -278,11 +278,10 @@ namespace Keysharp.Core
 #elif LINUX
 				src = icon.ToGdk().PixelBytes.Data;
 #else
-				using (var stream = new MemoryStream())
-				{
-					icon.Save(stream);
-					src = stream.ToArray();
-				}
+				var bitmap = icon.ToBitmap();
+				if (bitmap != null)
+					return [(icon, bitmap)];
+				return default;
 #endif
 
                 int count = BitConverter.ToInt16(src, 4);

@@ -53,7 +53,12 @@ namespace System.Windows.Forms
 			if (control.Loaded && control.Size is Size size && size != new Size(1, 1))
 				return control.Size;
 			Size prefSize;
+#if LINUX
 			control.ToNative().GetPreferredSize(out var minSize, out var nativePrefSize);
+#else
+			var etoPrefSize = control.GetPreferredSize();
+			var nativePrefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+#endif
 			if (nativePrefSize.Width <= 1 && nativePrefSize.Height <= 1)
 			{
 				var etoPrefSize = control.GetPreferredSize();
@@ -89,7 +94,12 @@ namespace System.Windows.Forms
 			else if (newSize.Height >= 0)
 				control.Height = newSize.Height;
 #else
+#if LINUX
 			control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
+#else
+			var etoPrefSize = control.GetPreferredSize();
+			var prefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+#endif
 			var requestedSize = new Size(newSize.Width == int.MinValue ? -1 : newSize.Width, newSize.Height == int.MinValue ? -1 : newSize.Height);
 			var width = requestedSize.Width == -1 ? prefSize.Width : newSize.Width;
 			var height = requestedSize.Height == -1 ? prefSize.Height : newSize.Height;

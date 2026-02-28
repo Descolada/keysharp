@@ -421,7 +421,7 @@ namespace Keysharp.Core
 
 #endif
 
-#if LINUX
+#if !WINDOWS
 		/// <summary>
 		/// Get the number of buttons on the mouse.
 		/// This tries to find the device with the least number of buttons and assumes that is the mouse.
@@ -431,6 +431,7 @@ namespace Keysharp.Core
 		/// <returns>The number of mouse buttons detected</returns>
 		internal static long MouseButtonCount()
 		{
+#if LINUX
 			var count = long.MaxValue;
 			var inputStr = "xinput list --long".Bash();
 
@@ -463,7 +464,10 @@ namespace Keysharp.Core
 				}
 			}
 
-			return count;
+			return count == long.MaxValue ? 3L : count;
+#else
+			return 3L;
+#endif
 		}
 
 		/// <summary>
@@ -476,6 +480,7 @@ namespace Keysharp.Core
 		/// <returns>Whether any mouse was found to have any buttons swapped</returns>
 		internal static bool MouseButtonsSwapped()
 		{
+#if LINUX
 			var swapped = false;
 			var deviceNames = "xinput list --name-only".Bash().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 			//foreach (var name in deviceNames)
@@ -517,9 +522,20 @@ namespace Keysharp.Core
 			}
 
 			return swapped;
+#else
+			return false;
+#endif
 		}
 
-		internal static bool NetworkUp() => "ip link show".Bash().Contains("state up", StringComparison.OrdinalIgnoreCase);
+		internal static bool NetworkUp()
+		{
+#if LINUX
+			return "ip link show".Bash().Contains("state up", StringComparison.OrdinalIgnoreCase);
+#else
+			var output = "ifconfig".Bash();
+			return output.Contains("status: active", StringComparison.OrdinalIgnoreCase);
+#endif
+		}
 
 #endif
 		/// <summary>

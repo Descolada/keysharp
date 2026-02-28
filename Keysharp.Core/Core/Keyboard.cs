@@ -909,7 +909,7 @@ break_twice:;
 		internal static ResultType ScriptBlockInput(ToggleValueType toggle)
 		{
 			var script = Script.TheScript; 
-#if LINUX
+	#if LINUX
 			var kud = script.KeyboardUtilsData;
 			var cmdstr = toggle is ToggleValueType.Off 
 				or ToggleValueType.MouseMoveOff 
@@ -947,7 +947,7 @@ break_twice:;
 			if (list != null)
 				foreach (var id in list)
 					_ = $"xinput {cmdstr} {id}".Bash();
-#else
+	#elif WINDOWS
 			switch (toggle)
 			{
 				// Always turn input ON/OFF even if g_BlockInput says its already in the right state.  This is because
@@ -977,7 +977,31 @@ break_twice:;
 					break;
 					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
 			}
-#endif 
+	#else
+			switch (toggle)
+			{
+				case ToggleValueType.On:
+				case ToggleValueType.Off:
+					script.KeyboardData.blockInput = toggle == ToggleValueType.On;
+					break;
+
+				case ToggleValueType.Send:
+				case ToggleValueType.Mouse:
+				case ToggleValueType.SendAndMouse:
+				case ToggleValueType.Default:
+					script.KeyboardData.blockInputMode = toggle;
+					break;
+
+				case ToggleValueType.MouseMove:
+					script.KeyboardData.blockMouseMove = true;
+					HotkeyDefinition.InstallMouseHook();
+					break;
+
+				case ToggleValueType.MouseMoveOff:
+					script.KeyboardData.blockMouseMove = false;
+					break;
+			}
+	#endif 
 
 			return ResultType.Ok;//By design, it never returns FAIL.
 		}

@@ -477,7 +477,12 @@ namespace Keysharp.Core.Common.Images
 			handleCache[handle] = new ImageHandleEntry(kind, null, true);
 			return true;
 #else
+#if LINUX
 			handle = ((Gdk.Pixbuf)bmp.ControlObject).Handle;
+#else
+			// On macOS we don't expose a native pixbuf handle; use a stable managed pseudo-handle.
+			handle = (nint)RuntimeHelpers.GetHashCode(bmp);
+#endif
 
 			if (handle == 0)
 			{

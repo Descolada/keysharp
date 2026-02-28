@@ -244,7 +244,12 @@ namespace Eto.Forms
             internal Size PreferredSize
             {
                 get {
+#if LINUX
                     control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
+#else
+                    var etoPref = control.GetPreferredSize();
+                    var prefSize = new Size(etoPref.Width.Ai(), etoPref.Height.Ai());
+#endif
                     if (prefSize.Width <= 1 && prefSize.Height <= 1)
                     {
                         var prefSize2 = control.GetPreferredSize();

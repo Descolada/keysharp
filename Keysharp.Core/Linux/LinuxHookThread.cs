@@ -38,8 +38,6 @@ namespace Keysharp.Core.Linux
 		private volatile bool keyboardEnabled;
 		private volatile bool mouseEnabled;
 
-		// Custom modifier tracking (e.g. CapsLock & a)
-		private CustomPrefixState customPrefix;
 		private IndicatorSnapshot indicatorSnapshot = new(false, false, false);
 
 		private readonly struct IndicatorSnapshot

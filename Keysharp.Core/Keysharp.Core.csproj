@@ -55,7 +55,6 @@
 	</ItemGroup>
 
 	<ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
-		<Compile Remove="Common\Window\AboutBox.cs" />
 		<Compile Remove="Common\Window\AboutBox.Designer.cs" />
 		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
 		<Compile Remove="Windows\Gui\Dialogs\InputDialog.cs" />

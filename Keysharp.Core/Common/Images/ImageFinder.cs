@@ -36,7 +36,6 @@
 
 			if (sourceRect.Contains(needleRect))
 			{
-				BitmapData srcdata = null, fnddata = null;
 				var maxMovement = new Size(sourceImage.Size.Width - needleRect.Size.Width, sourceImage.Size.Height - needleRect.Size.Height);
 
 				try
@@ -44,8 +43,8 @@
 #if WINDOWS
 					var srcColor = new FastColor();
 					var fndColor = new FastColor();
-					srcdata = sourceImage.LockBits(new Rectangle(0, 0, sourceImage.Width, sourceImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-					fnddata = findImage.LockBits(new Rectangle(0, 0, findImage.Width, findImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+					var srcdata = sourceImage.LockBits(new Rectangle(0, 0, sourceImage.Width, sourceImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+					var fnddata = findImage.LockBits(new Rectangle(0, 0, findImage.Width, findImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 					unsafe
 					{
 						var ptrFirstSrcPixel = (byte*)srcdata.Scan0;

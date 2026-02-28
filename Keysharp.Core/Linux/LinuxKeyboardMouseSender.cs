@@ -97,7 +97,7 @@ namespace Keysharp.Core.Linux
 			internal readonly int DelayMs;
 
 			// Text
-			internal readonly string? Text;
+			internal readonly string Text;
 
 			// Mouse (x/y may be CoordUnspecified)
 			internal readonly int X;
@@ -105,7 +105,7 @@ namespace Keysharp.Core.Linux
 			internal readonly MouseButton Button;
 			internal readonly short WheelDelta;
 
-			private ArrayEvent(ArrayEventType type, uint vk, int delayMs, string? text,
+			private ArrayEvent(ArrayEventType type, uint vk, int delayMs, string text,
 							int x, int y, MouseButton button, short wheelDelta)
 			{
 				Type = type;
@@ -378,7 +378,7 @@ namespace Keysharp.Core.Linux
 			{
 				void SendAction()
 				{
-					List<LinuxHookThread.ReleasedKey>? released = null;
+					List<LinuxHookThread.ReleasedKey> released = null;
 					try
 					{
 						if (vksToRelease.Count != 0)
@@ -1134,7 +1134,7 @@ namespace Keysharp.Core.Linux
 		{
 			internal readonly IEventSimulator sim;
 
-			public SharpHookKeySimulationBackend(IEventSimulator? sim = null)
+			public SharpHookKeySimulationBackend(IEventSimulator sim = null)
 				=> this.sim = sim ?? new EventSimulator();
 
 			private static void RegisterSynthetic(KeyCode code, bool keyUp, DateTime ms, long extraInfo)

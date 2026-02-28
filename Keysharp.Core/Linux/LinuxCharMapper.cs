@@ -223,7 +223,7 @@ namespace Keysharp.Core.Linux
 			private static bool _ready;
 
 			// Optional layout preferences settable via ConfigureLayout(...)
-			private static string? _prefRules, _prefModel, _prefLayout, _prefVariant, _prefOptions;
+			private static string _prefRules, _prefModel, _prefLayout, _prefVariant, _prefOptions;
 
 			// libxkbcommon handles
 			private static IntPtr _ctx    = IntPtr.Zero;   // xkb_context*
@@ -321,7 +321,7 @@ namespace Keysharp.Core.Linux
 			/// <summary>
 			/// Optional: call early to set rules/model/layout/variant/options (no X11 needed).
 			/// </summary>
-			public static void ConfigureLayout(string? rules = null, string? model = null, string? layout = null, string? variant = null, string? options = null)
+			public static void ConfigureLayout(string rules = null, string model = null, string layout = null, string variant = null, string options = null)
 			{
 				lock (_initLock)
 				{
@@ -416,11 +416,11 @@ namespace Keysharp.Core.Linux
 
 			private static bool BuildKeymapFromNames()
 			{
-				string? rules   = _prefRules   ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_RULES");
-				string? model   = _prefModel   ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_MODEL");
-				string? layout  = _prefLayout  ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_LAYOUT");
-				string? variant = _prefVariant ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_VARIANT");
-				string? options = _prefOptions ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_OPTIONS");
+				string rules   = _prefRules   ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_RULES");
+				string model   = _prefModel   ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_MODEL");
+				string layout  = _prefLayout  ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_LAYOUT");
+				string variant = _prefVariant ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_VARIANT");
+				string options = _prefOptions ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_OPTIONS");
 
 				var names = new xkb_rule_names();
 				var pins = new List<IntPtr>();
@@ -536,7 +536,7 @@ namespace Keysharp.Core.Linux
 				return false;
 			}
 
-			private static unsafe string? xkb_keymap_key_get_name_safe(IntPtr keymap, uint key)
+			private static string xkb_keymap_key_get_name_safe(IntPtr keymap, uint key)
 			{
 				var ptr = xkb_keymap_key_get_name(keymap, key);
 				return ptr == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(ptr);

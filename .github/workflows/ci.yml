@@ -106,8 +106,20 @@ jobs:
           if (Test-Path "../Eto") {
             Remove-Item -Path "../Eto" -Recurse -Force
           }
-          git clone --branch Keysharp https://github.com/Descolada/Eto.git ../Eto
+          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git ../Eto
           git -C ../Eto checkout "$env:ETO_REF"
+          git -C ../Eto submodule update --init --recursive
+
+      - name: Ensure Eto submodules (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "../Eto/lib/monomac/src/MonoMac.csproj")) {
+            Write-Host "MonoMac submodule missing, initializing..."
+            git -C ../Eto submodule update --init --recursive
+          } else {
+            Write-Host "MonoMac submodule present."
+          }
 
       - name: Show run config
         shell: pwsh

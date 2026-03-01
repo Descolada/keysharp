@@ -670,7 +670,21 @@ namespace Keysharp.Scripting
 #else
 			lock (etoLoopLock)
 			{
-				var app = EnsureEtoApplication();
+				Application app;
+
+				try
+				{
+					app = EnsureEtoApplication();
+				}
+				catch (InvalidOperationException ex) when (OperatingSystem.IsMacOS() && IsTestHost && ex.Message.Contains("not valid in the current context", StringComparison.OrdinalIgnoreCase))
+				{
+					// Eto.Mac requires running inside an app bundle. VSTest runs as a plain process, so
+					// fallback to headless execution for testhost runs on macOS.
+					SuppressErrorOccurredDialog = true;
+					RunAutoExecSection(userInit);
+					return;
+				}
+
 				InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
 				mainWindow.Closed += (_, __) => app.Quit();
 				if (suppressTestHostUi)

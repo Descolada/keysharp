@@ -9,7 +9,7 @@ x := 10
 
 #if WINDOWS
 	if (x == 20)
-#elif LINUX
+#elif LINUX || OSX
 	if (x == 10)
 #endif
 	FileAppend "pass", "*"
@@ -18,13 +18,13 @@ else
 
 x := 10
 
-#if LINUX
+#if LINUX || OSX
 	x *= 2
 #endif
 
 #if WINDOWS
 	if (x == 10)
-#elif LINUX
+#elif LINUX || OSX
 	if (x == 20)
 #endif
 	FileAppend "pass", "*"
@@ -59,7 +59,7 @@ else
 
 x := 10
 
-#if (((WINDOWS || LINUX) && 0))
+#if (((WINDOWS || LINUX || OSX) && 0))
 	x *= 2
 #endif
 
@@ -70,7 +70,7 @@ else
 
 x := 10
 
-#if (((WINDOWS || LINUX) && 1))
+#if (((WINDOWS || LINUX || OSX) && 1))
 	x *= 2
 #endif
 
@@ -94,6 +94,8 @@ x := 10
 	if (x == 10)
 #elif LINUX
 	if (x == 20)
+#elif OSX
+	if (x == 10)
 #endif
 	FileAppend "pass", "*"
 else
@@ -114,6 +116,8 @@ x := 10
 	if (x == 1)
 #elif LINUX
 	if (x == 10)
+#elif OSX
+	if (x == 10)
 #endif
 	FileAppend "pass", "*"
 else
@@ -126,11 +130,15 @@ str := ""
 		str .= "windows"
 	#elif LINUX
 		str .= "linux"
+	#elif OSX
+		str .= "osx"
 	#else
 		str .= "unknown"
 	#endif
 #elif LINUX
 	str .= "linux"
+#elif OSX
+	str .= "osx"
 #else
 	str .= "unknown"
 #endif
@@ -139,6 +147,8 @@ str := ""
 	if (str == "windows")
 #elif LINUX
 	if (str == "linux")
+#elif OSX
+	if (str == "osx")
 #endif
 	FileAppend "pass", "*"
 else

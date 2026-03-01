@@ -582,35 +582,65 @@ namespace Keysharp.Core.Common.Strings
 
 		internal static string[] ToFiles(string path, bool files, bool dirs, bool recurse)
 		{
-			var filelist = Directory.GetFiles(Path.GetDirectoryName(path), Path.GetFileName(path),
-											  recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
+			if (string.IsNullOrEmpty(path))
+				return [];
 
-			if (dirs)
+			var fullPath = Path.GetFullPath(path);
+			var hasWildcard = fullPath.AsSpan().IndexOfAny("*?".AsSpan()) != -1;
+			var option = recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+			var results = new List<string>();
+
+			try
 			{
-				var dirlist = new HashSet<string>();
+				if (!hasWildcard)
+				{
+					if (System.IO.File.Exists(fullPath))
+					{
+						if (files)
+							results.Add(fullPath);
 
-				foreach (var file in filelist)
-					_ = dirlist.Add(Path.GetDirectoryName(file));
+						return results.ToArray();
+					}
+
+					if (System.IO.Directory.Exists(fullPath))
+					{
+						if (dirs)
+							results.Add(fullPath);
+
+						if (recurse)
+						{
+							if (files)
+								results.AddRange(System.IO.Directory.GetFiles(fullPath, "*", SearchOption.AllDirectories));
+
+							if (dirs)
+								results.AddRange(System.IO.Directory.GetDirectories(fullPath, "*", SearchOption.AllDirectories));
+						}
+
+						return results.ToArray();
+					}
+
+					// Treat as a literal path that currently does not exist.
+					return [];
+				}
+
+				var root = Path.GetDirectoryName(fullPath);
+				root = string.IsNullOrEmpty(root) ? "./" : root;
+				var pattern = Path.GetFileName(fullPath);
+
+				if (string.IsNullOrEmpty(pattern))
+					pattern = "*";
 
 				if (files)
-				{
-					int i;
-					var merge = new string[dirlist.Count + filelist.Length];
+					results.AddRange(System.IO.Directory.GetFiles(root, pattern, option));
 
-					for (i = 0; i < filelist.Length; i++)
-						merge[i] = filelist[i];
-
-					foreach (var dir in dirlist)
-						merge[i++] = dir;
-
-					return merge;
-				}
-				else return dirlist.ToArray();
+				if (dirs)
+					results.AddRange(System.IO.Directory.GetDirectories(root, pattern, option));
 			}
-			else if (files)
-				return filelist;
+			catch
+			{
+			}
 
-			return [];
+			return results.ToArray();
 		}
 
 		internal static string ToOSType(PlatformID id)

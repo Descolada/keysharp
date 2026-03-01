@@ -10,6 +10,9 @@ namespace Keysharp.Core
 	public static class Files
 	{
 		private static readonly SearchValues<char> wildcardsSv = SearchValues.Create("*?");
+#if OSX
+		private static readonly char[] dirSeparators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
+#endif
 
 		/// <summary>
 		/// Writes text to the end of a file, creating it first if necessary.
@@ -291,7 +294,7 @@ namespace Keysharp.Core
 
 			t = Path.GetFullPath(t);
 
-#if LINUX
+#if !WINDOWS
 			var type = shortcutType.As();
 
 			if (w != "" || a != "" || d != "" || icon != "")
@@ -597,10 +600,12 @@ namespace Keysharp.Core
 			try
 			{
 				link = Path.GetFullPath(linkFile.As());
-#if LINUX
-				var dest = $"readlink -f '{link}'".Bash();
+#if !WINDOWS
+				var linkInfo = new FileInfo(link);
+				var resolved = linkInfo.ResolveLinkTarget(true);
+				var dest = resolved?.FullName;
 
-				if (link == dest)//Was not just a simple symlink.
+				if (string.IsNullOrEmpty(dest) || link == dest)//Was not just a simple symlink.
 				{
 					var sc = new ShortcutCreator(link);
 					if (outTarget != null) Script.SetPropertyValue(outTarget, "__Value", sc.Get("Exec"));
@@ -1160,6 +1165,9 @@ namespace Keysharp.Core
 				var filename = Path.GetFileName(s);
 #if LINUX
 				$"gio trash {s}".Bash();
+#elif OSX
+				foreach (var target in Conversions.ToFiles(s, true, true, false))
+					MovePathToMacTrash(target);
 #elif WINDOWS
 
 				foreach (var file in dir.EnumerateFiles(filename))
@@ -1188,6 +1196,19 @@ namespace Keysharp.Core
 			{
 #if LINUX
 				"gio trash --empty".Bash();
+#elif OSX
+				var trash = GetMacTrashPath();
+
+				if (Directory.Exists(trash))
+				{
+					foreach (var entry in Directory.EnumerateFileSystemEntries(trash))
+					{
+						if (Directory.Exists(entry))
+							Directory.Delete(entry, true);
+						else if (File.Exists(entry))
+							File.Delete(entry);
+					}
+				}
 #elif WINDOWS
 				_ = WindowsAPI.SHEmptyRecycleBin(0, s != "" ? s : null, WindowsAPI.SHERB_NOCONFIRMATION | WindowsAPI.SHERB_NOPROGRESSUI | WindowsAPI.SHERB_NOSOUND);
 #endif
@@ -1198,6 +1219,40 @@ namespace Keysharp.Core
 				return Errors.OSErrorOccurred(ex, $"Error emptying recycle bin for drive {s}");
 			}
 		}
+
+#if OSX
+		private static string GetMacTrashPath() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".Trash");
+
+		private static void MovePathToMacTrash(string sourcePath)
+		{
+			var trash = GetMacTrashPath();
+			Directory.CreateDirectory(trash);
+			var name = sourcePath.TrimEnd(dirSeparators);
+			name = Path.GetFileName(name);
+
+			if (string.IsNullOrEmpty(name))
+				return;
+
+			var baseName = Path.GetFileNameWithoutExtension(name);
+			var ext = Path.GetExtension(name);
+			var index = 0;
+			string destination;
+
+			do
+			{
+				destination = index == 0
+					? Path.Combine(trash, name)
+					: Path.Combine(trash, $"{baseName} {index}{ext}");
+				index++;
+			}
+			while (File.Exists(destination) || Directory.Exists(destination));
+
+			if (File.Exists(sourcePath))
+				File.Move(sourcePath, destination);
+			else if (Directory.Exists(sourcePath))
+				Directory.Move(sourcePath, destination);
+		}
+#endif
 
 		/// <summary>
 		/// Changes the attributes of one or more files or folders. Wildcards are supported.

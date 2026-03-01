@@ -118,13 +118,16 @@ jobs:
         if: ${{ matrix.platform == 'linux' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgtk-3-0 libnotify4
+          sudo apt-get install -y xvfb dbus-x11 libgtk-3-0 libnotify4 at-spi2-core
 
       - name: Run curated Keysharp.Tests subset
         shell: pwsh
         run: |
           if ('${{ matrix.platform }}' -eq 'linux') {
-            xvfb-run -a dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m
+            $cfg = $env:BUILD_CONFIGURATION
+            $filter = $env:CURATED_TEST_FILTER
+            $cmd = "export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
+            dbus-run-session -- bash -lc $cmd
           } else {
-            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m
+            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --logger "console;verbosity=normal" --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
           }

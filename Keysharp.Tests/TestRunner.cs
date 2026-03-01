@@ -13,6 +13,12 @@ namespace Keysharp.Tests
 		[SetUp]
 		public void SetupBeforeEachTest()
 		{
+			Console.Error.WriteLine($"[TEST START] {TestContext.CurrentContext.Test.FullName}");
+			ResetScriptState();
+		}
+
+		private void ResetScriptState()
+		{
 			s = new Script();
 			hsm = s.HotstringManager;
 		}
@@ -33,7 +39,8 @@ namespace Keysharp.Tests
 
 		protected string RunScript(string source, string name, bool execute, bool exeout, int? exitCode = null)
 		{
-			SetupBeforeEachTest();
+			Console.Error.WriteLine($"[SCRIPT START] {name}");
+			ResetScriptState();
 			s.SetName(name);
 			_ = Ks.OutputDebugLine(Environment.CurrentDirectory);
 			var ch = new CompilerHelper();
@@ -108,6 +115,7 @@ namespace Keysharp.Tests
 					{
 						writer.Flush();
 						output = buffer.ToString();
+						Console.Error.WriteLine($"[SCRIPT END] {name}");
 
 						using (var console = Console.OpenStandardOutput())
 						{

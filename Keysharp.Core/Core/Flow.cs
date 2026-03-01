@@ -158,10 +158,17 @@ namespace Keysharp.Core
 			{
 				try
 				{
-					script.mainWindow.CheckedInvoke(() =>
+					if (script.mainWindow != null)
+					{
+						script.mainWindow.CheckedInvoke(() =>
+						{
+							_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
+						}, true);
+					}
+					else
 					{
 						_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
-					}, true);
+					}
 				}
 				catch (Exception ex) when (TryGetException(ex, out UserRequestedExitException userExit))
 				{
@@ -453,7 +460,7 @@ namespace Keysharp.Core
 						script.ExitIfNotPersistent();//Was somehow removed, such as in a window close handler, so attempt to exit.
 				}
 			};
-			script.mainWindow.CheckedInvoke(timer.Start, true);
+			Script.InvokeOnUIThread(timer.Start);
 
 			if (script.totalExistingThreads >= script.MaxThreadsTotal)
 				timer.Pause();
@@ -484,7 +491,7 @@ namespace Keysharp.Core
 #if WINDOWS
 					Application.DoEvents();
 #else
-					Application.Instance.RunIteration();
+					Application.Instance?.RunIteration();
 #endif
 				}
 				catch (UserRequestedExitException)
@@ -502,7 +509,7 @@ namespace Keysharp.Core
 #if WINDOWS
 					Application.DoEvents();
 #else
-					Application.Instance.RunIteration();
+					Application.Instance?.RunIteration();
 #endif
 				}
 				catch

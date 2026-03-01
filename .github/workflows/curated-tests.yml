@@ -118,7 +118,7 @@ jobs:
         if: ${{ matrix.platform == 'linux' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb dbus-x11 libgtk-3-0 libnotify4 at-spi2-core
+          sudo apt-get install -y xvfb dbus-x11 libgtk-3-0 libnotify4 at-spi2-core libappindicator3-1 || sudo apt-get install -y libayatana-appindicator3-1
 
       - name: Run curated Keysharp.Tests subset
         shell: pwsh

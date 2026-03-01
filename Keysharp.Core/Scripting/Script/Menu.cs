@@ -9,11 +9,30 @@
 
 		public void CreateTrayMenu()
 		{
-			var trayIcon = Tray = new NotifyIcon { ContextMenuStrip = new ContextMenuStrip(), Text = A_ScriptName.Substring(0, Math.Min(A_ScriptName.Length, 64)) };//System tray icon tooltips have a limit of 64 characters.
-			Script.TheScript.ProcessesData.mainContext = SynchronizationContext.Current;//This must happen after the icon is created.
-
 			if (NoTrayIcon)
 				return;
+
+			NotifyIcon trayIcon;
+
+			try
+			{
+				trayIcon = Tray = new NotifyIcon { ContextMenuStrip = new ContextMenuStrip(), Text = A_ScriptName.Substring(0, Math.Min(A_ScriptName.Length, 64)) };//System tray icon tooltips have a limit of 64 characters.
+			}
+			catch (DllNotFoundException ex)
+			{
+				// Some Linux CI images lack AppIndicator runtime dependencies. Fallback to no tray.
+				NoTrayIcon = true;
+				Script.WriteUncaughtErrorToStdErr("Tray initialization skipped: " + ex.Message);
+				return;
+			}
+			catch (TypeInitializationException ex)
+			{
+				NoTrayIcon = true;
+				Script.WriteUncaughtErrorToStdErr("Tray initialization skipped: " + ex.Message);
+				return;
+			}
+
+			Script.TheScript.ProcessesData.mainContext = SynchronizationContext.Current;//This must happen after the icon is created.
 
 			trayMenu = new (Tray.ContextMenuStrip);
 			trayMenu.AddStandard();

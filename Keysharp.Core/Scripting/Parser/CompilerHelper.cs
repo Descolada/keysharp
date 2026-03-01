@@ -493,7 +493,7 @@ using String = Keysharp.Core.String
 									new CSharpCompilationOptions(OutputKind.WindowsApplication)
 									.WithUsings(usings)
 									.WithOptimizationLevel(OptimizationLevel.Release)
-									.WithPlatform(Platform.X64)
+									.WithPlatform(OperatingSystem.IsWindows() ? Platform.X64 : Platform.AnyCpu)
 									.WithConcurrentBuild(true)
 								)
 								.AddReferences(references)

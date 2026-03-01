@@ -50,10 +50,18 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("BuiltInVars"), NonParallelizable]
-		public void PropsScriptProperties() => Assert.IsTrue(TestScript("props-script-properties", false));
+		public void PropsScriptProperties()
+		{
+			SkipIfUiInitializationBlocked("Requires main window handle under UI-capable host.");
+			Assert.IsTrue(TestScript("props-script-properties", false));
+		}
 
 		[Test, Category("BuiltInVars"), NonParallelizable]
-		public void PropsScriptSettings() => Assert.IsTrue(TestScript("props-script-settings", false));
+		public void PropsScriptSettings()
+		{
+			SkipIfUiInitializationBlocked("Depends on UI loop/window state under headless mac testhost fallback.");
+			Assert.IsTrue(TestScript("props-script-settings", false));
+		}
 
 		[Test, Category("BuiltInVars")]
 		public void PropsSpecialChars() => Assert.IsTrue(TestScript("props-special-chars", true));

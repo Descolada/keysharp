@@ -11,6 +11,7 @@ namespace Keysharp.Tests
         [Test, Category("Flow"), NonParallelizable]
         public void FlowExit()
         {
+			SkipIfUiInitializationBlocked("Uses SetTimer/Exit semantics that require an active UI loop.");
             Assert.IsTrue(HasPassed(RunScript(@"
 				FileAppend('pass', '*')
 				ExitApp(0)
@@ -236,7 +237,11 @@ namespace Keysharp.Tests
         public void FlowMultiStatement() => Assert.IsTrue(TestScript("flow-multi-statement", false));
 
         [Test, Category("Flow")]
-        public void FlowOnError() => Assert.IsTrue(TestScript("flow-onerror", false));
+        public void FlowOnError()
+		{
+			SkipIfUiInitializationBlocked("Error dispatch path differs when UI initialization is blocked.");
+			Assert.IsTrue(TestScript("flow-onerror", false));
+		}
 
         [Test, Category("Flow"), NonParallelizable]
         public void FlowRealThreads() => Assert.IsTrue(TestScript("flow-realthreads", false));

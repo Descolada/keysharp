@@ -23,6 +23,12 @@ namespace Keysharp.Tests
 			hsm = s.HotstringManager;
 		}
 
+		protected static void SkipIfUiInitializationBlocked(string reason)
+		{
+			if (Script.IsUiInitializationBlocked)
+				Assert.Ignore(reason);
+		}
+
 		protected bool HasPassed(string output)
 		{
 			if (string.IsNullOrEmpty(output))

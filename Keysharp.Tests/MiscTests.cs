@@ -190,7 +190,11 @@ namespace Keysharp.Tests
 		public void MiscReserved() => Assert.IsTrue(TestScript("misc-reserved", false));
 
 		[Test, Category("Misc"), NonParallelizable]
-		public void MiscTimer() => Assert.IsTrue(TestScript("misc-timer", false));
+		public void MiscTimer()
+		{
+			SkipIfUiInitializationBlocked("Requires active UI-loop timer delivery.");
+			Assert.IsTrue(TestScript("misc-timer", false));
+		}
 
 		[Test, Category("Misc"), NonParallelizable]
 		public void SimplePass() => Assert.IsTrue(TestScript("misc-pass", false));

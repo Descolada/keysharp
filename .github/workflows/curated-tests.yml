@@ -47,8 +47,8 @@ jobs:
           switch ('${{ inputs.target_platform }}') {
             'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
             'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
-            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
-            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
+            'macos'   { $matrix = '{"include":[{"os":"macos-13","platform":"macos"}]}' }
+            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-13","platform":"macos"}]}' }
           }
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
 
@@ -114,7 +114,17 @@ jobs:
           Write-Host "Configuration: $env:BUILD_CONFIGURATION"
           Write-Host "Filter: $env:CURATED_TEST_FILTER"
 
+      - name: Install Linux UI deps
+        if: ${{ matrix.platform == 'linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnotify4
+
       - name: Run curated Keysharp.Tests subset
         shell: pwsh
         run: |
-          dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER"
+          if ('${{ matrix.platform }}' -eq 'linux') {
+            xvfb-run -a dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m
+          } else {
+            dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m
+          }

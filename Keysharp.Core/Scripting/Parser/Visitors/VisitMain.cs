@@ -537,6 +537,9 @@ namespace Keysharp.Scripting
 				Call(SMA("Keysharp.Core.Dialogs", "MsgBox"), keysharpMsg, keysharpTitle, S("iconx"))
 			);
 			var ifShowKeysharpMsg = SyntaxFactory.IfStatement(showKeysharpMsgCond, msgBoxKeysharp);
+			var stderrKeysharp = SyntaxFactory.ExpressionStatement(
+				Call(SMA("Keysharp.Core.Debug", "WriteUncaughtErrorToStdErr"), keysharpMsg)
+			);
 
 			// ExitApp(1);
 			var exitApp1 = SyntaxFactory.ExpressionStatement(
@@ -546,7 +549,7 @@ namespace Keysharp.Scripting
 			var catchKserr =
 				SyntaxFactory.CatchClause()
 					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.KeysharpException"), kserrId))
-					.WithBlock(SyntaxFactory.Block(ifNotProcessed, ifShowKeysharpMsg, exitApp1));
+					.WithBlock(SyntaxFactory.Block(stderrKeysharp, ifNotProcessed, ifShowKeysharpMsg, exitApp1));
 
 			// ---- catch (System.Exception mainex) { ... } ----
 			var mainexId = SyntaxFactory.Identifier("mainex");
@@ -599,19 +602,23 @@ namespace Keysharp.Scripting
 			var ifIsKsErrorWithElse = ifIsKeysharpError.WithElse(elseIfShowGeneric);
 
 			var exitApp2 = SyntaxFactory.ExpressionStatement(Call(SMA("Keysharp.Core.Flow", "ExitApp"), N(1)));
-			var isUserRequestedExitPattern = SyntaxFactory.IsPatternExpression(
-				SyntaxFactory.IdentifierName("ex"),
-				SyntaxFactory.DeclarationPattern(
-					Q("Keysharp.Core.Flow.UserRequestedExitException"),
-					SyntaxFactory.DiscardDesignation()
+			var stderrGeneric = SyntaxFactory.ExpressionStatement(
+				Call(
+					SMA("Keysharp.Core.Debug", "WriteUncaughtErrorToStdErr"),
+					Plus(S("Uncaught exception:\r\n"), SyntaxFactory.IdentifierName("ex"))
 				)
+			);
+			var isUserRequestedExitPattern = SyntaxFactory.BinaryExpression(
+				SyntaxKind.IsExpression,
+				SyntaxFactory.IdentifierName("ex"),
+				Q("Keysharp.Core.Flow.UserRequestedExitException")
 			);
 			var ifNotUserRequestedExit = SyntaxFactory.IfStatement(
 				SyntaxFactory.PrefixUnaryExpression(
 					SyntaxKind.LogicalNotExpression,
 					SyntaxFactory.ParenthesizedExpression(isUserRequestedExitPattern)
 				),
-				SyntaxFactory.Block(ifIsKsErrorWithElse, exitApp2)
+				SyntaxFactory.Block(stderrGeneric, ifIsKsErrorWithElse, exitApp2)
 			);
 
 			var catchMainEx =

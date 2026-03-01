@@ -229,6 +229,17 @@ namespace Keysharp.Core
 		public static object OutputDebug(object obj0, object obj1 = null) => OutputDebugCommon(obj0.As(), obj1.Ab());
 
 		/// <summary>
+		/// Writes uncaught script errors to stderr in debug builds to improve test diagnostics.
+		/// </summary>
+		/// <param name="text">The text to write.</param>
+		[Conditional("DEBUG")]
+		public static void WriteUncaughtErrorToStdErr(string text)
+		{
+			if (!string.IsNullOrEmpty(text))
+				Console.Error.WriteLine(text);
+		}
+
+		/// <summary>
 		/// Internal helper to send a string to the debugger (if any) for display.
 		/// Used by OutputDebug and OutputDebugLine.
 		/// </summary>

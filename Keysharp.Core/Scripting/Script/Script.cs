@@ -24,8 +24,14 @@ namespace Keysharp.Scripting
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
 #if !WINDOWS
 		private static Encoding enc1252 = Encoding.Default;
+		private static readonly object etoLoopLock = new();
+		private static Thread etoLoopThread;
+		private static bool etoAppConfigured;
+		private static TaskCompletionSource<bool> etoLoopStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 #endif
-		public const char dotNetMajorVersion = '9';
+		public const string dotNetMajorVersion = "10";
+		public static readonly bool IsHeadless = AppDomain.CurrentDomain.FriendlyName == "testhost";
+		public static readonly bool IsGuiHeadless = IsHeadless && !OperatingSystem.IsWindows();
 		internal System.Timers.Timer tickTimer = new System.Timers.Timer(SLEEP_INTERVAL * 4);
 		internal MessageFilter msgFilter;
 		internal volatile bool loopShouldDoEvents = false;
@@ -39,7 +45,7 @@ namespace Keysharp.Scripting
 		public bool WinActivateForce = false;
 		//Some unit tests use try..catch in non-script code, which causes ErrorOccurred to display the error dialog.
 		//This allows to suppress it, but only inside ErrorOccurred (not in TryCatch etc).
-		public bool SuppressErrorOccurredDialog = AppDomain.CurrentDomain.FriendlyName == "testhost";
+		public bool SuppressErrorOccurredDialog = IsHeadless;
 		//This allows to suppress all error processing
 		public uint SuppressErrorOccurred = 0;
 		internal const double DefaultErrorDouble = double.NaN;
@@ -234,41 +240,6 @@ namespace Keysharp.Scripting
 #if !WINDOWS
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);//For some reason, linux needs this for rich text to work.
 			enc1252 = Encoding.GetEncoding(1252);
-			if (Application.Instance == null)
-			{
-				try
-				{
-					_ = new Application();
-					while (Application.Instance == null)
-						System.Threading.Thread.Sleep(1);
-				}
-				catch (Exception ex)
-				{
-					System.Diagnostics.Debug.WriteLine("Failed to initialize Eto Application: " + ex);
-				}
-			}
-
-			Application.Instance.UnhandledException += (s, e) =>
-			{
-				if (e.ExceptionObject is Flow.UserRequestedExitException) return; // silence during shutdown
-				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
-			};
-
-#if LINUX
-			try
-			{
-				var settings = Gtk.Settings.Default;
-				if (settings != null)
-				{
-					settings.SetProperty("gtk-menu-images", new GLib.Value(true));
-					settings.SetProperty("gtk-button-images", new GLib.Value(true));
-				}
-			}
-			catch (Exception ex)
-			{
-				System.Diagnostics.Debug.WriteLine("Failed to enable GTK menu images: " + ex);
-			}
-#endif
 #endif
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 
@@ -526,7 +497,122 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
+#if !WINDOWS
+		internal static void InvokeOnEtoThread(Action action)
+		{
+			if (Application.Instance == null)
+				throw new InvalidOperationException("Eto application is not initialized.");
+
+			if (Application.Instance.IsUIThread)
+				action();
+			else
+				Application.Instance.Invoke(action);
+		}
+
+		private static void ConfigureEtoApplication()
+		{
+			if (etoAppConfigured || Application.Instance == null)
+				return;
+
+			Application.Instance.UnhandledException += (s, e) =>
+			{
+				if (e.ExceptionObject is Flow.UserRequestedExitException) return;
+				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
+			};
+
+#if LINUX
+			try
+			{
+				var settings = Gtk.Settings.Default;
+				if (settings != null)
+				{
+					settings.SetProperty("gtk-menu-images", new GLib.Value(true));
+					settings.SetProperty("gtk-button-images", new GLib.Value(true));
+				}
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine("Failed to enable GTK menu images: " + ex);
+			}
+#endif
+			etoAppConfigured = true;
+		}
+
+		private static void EnsureEtoApplicationLoop()
+		{
+			var started = EnsureEtoApplicationLoopStarted();
+			started.GetAwaiter().GetResult();
+		}
+
+		private static Task EnsureEtoApplicationLoopStarted()
+		{
+			lock (etoLoopLock)
+			{
+				if (etoLoopThread != null && etoLoopThread.IsAlive)
+					return etoLoopStarted.Task;
+
+				etoLoopStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+				var started = etoLoopStarted;
+
+				etoLoopThread = new Thread(() =>
+				{
+					try
+					{
+						if (Application.Instance == null)
+							_ = new Application();
+
+						ConfigureEtoApplication();
+
+						var keepAliveForm = new Form
+						{
+							Title = "Keysharp.EtoKeepAlive",
+							ShowInTaskbar = false
+						};
+						keepAliveForm.Shown += (_, __) => keepAliveForm.Hide();
+
+						started.TrySetResult(true);
+						Application.Instance.Run(keepAliveForm);
+					}
+					catch (Exception ex)
+					{
+						started.TrySetException(new InvalidOperationException("Failed to initialize Eto application loop.", ex));
+					}
+					finally
+					{
+						etoAppConfigured = false;
+					}
+				})
+				{
+					IsBackground = true,
+					Name = "Keysharp.EtoLoop"
+				};
+
+				etoLoopThread.Start();
+				return started.Task;
+			}
+		}
+#endif
+
+		private void RunAutoExecSection(Func<object> userInit)
+		{
+			var ret = Threads.BeginThread();
+			var prevConfigData = ret.Item2.configData;
+			ret.Item2.configData = AccessorData.threadConfigDataPrototype;
+			bool autoExecResult = Flow.TryCatch(() =>
+			{
+				_ = userInit();
+				isReadyToExecute = true;
+			}, false, ret);
+			ret.Item2.configData = prevConfigData;
+			_ = Threads.EndThread(ret);
+
+			if (!autoExecResult && !persistent)
+				_ = Flow.ExitApp(1);
+
+			ExitIfNotPersistent();
+		}
+
+		private void InitializeMainWindow(string title, bool _persistent, bool showInTaskbar)
 		{
 			mainWindow = new MainWindow();
 
@@ -534,49 +620,49 @@ namespace Keysharp.Scripting
 				mainWindow.Text = title;
 
 			mainWindow.ClipboardUpdate += PrivateClipboardUpdate;
+
 			if (normalIcon != null)
 				mainWindow.Icon = normalIcon;
+
 			persistent = _persistent;
 			mainWindowGui = new Gui(null, null, null, mainWindow);
-			//Only do these on Windows, because it seems to have the opposite effect on linux:
-			//The main window is always shown on startup, but in a broken non-drawn state.
-			mainWindow.AllowShowDisplay = false; // Prevent show on script startup
-			mainWindow.ShowInTaskbar = true; // Without this the main window won't have a taskbar icon
-			
-			_ = mainWindow.BeginInvoke(() =>
-			{
-				var ret = Threads.BeginThread();
-				// Replace configData with the prototype, which will later be used to initialize all
-				// subsequent pseudo-threads. After the auto-execute thread has finished, restore the
-				// original configData object because the thread variables object may be reused later.
-				var prevConfigData = ret.Item2.configData;
-				ret.Item2.configData = AccessorData.threadConfigDataPrototype;
-				bool autoExecResult = Flow.TryCatch(() =>
-				{
-					_ = userInit();
-					//HotkeyDefinition.ManifestAllHotkeysHotstringsHooks() will be called inside of userInit() because it
-					//must be done:
-					//  After the window handle is created and the handle isn't valid until mainWindow.Load() is called.
-					//  Also right after all hotkeys and hotstrings are created.
-					isReadyToExecute = true;
-				}, false, ret);
-				ret.Item2.configData = prevConfigData;
-				_ = Threads.EndThread(ret);
 
-				if (!autoExecResult)
-				{
-					if (!persistent)//An exception was thrown so the generated ExitApp() call in _ks_UserMainCode() will not have been called, so call it here.
-					{
-						_ = Flow.ExitApp(1);
-					}
-				}
+			if (Tray == null)
+				CreateTrayMenu();
 
-				ExitIfNotPersistent();
-			});
+			mainWindow.AllowShowDisplay = false;
+			mainWindow.ShowInTaskbar = showInTaskbar;
+		}
+
+		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
+		{
 #if WINDOWS
+			InitializeMainWindow(title, _persistent, true);
+			_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 			Application.Run(mainWindow);
 #else
-			Application.Instance.Run(mainWindow);
+			if (!IsGuiHeadless)
+			{
+				InitializeMainWindow(title, _persistent, true);
+				_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
+				Application.Instance.Run(mainWindow);
+				return;
+			}
+
+			// If we are running test cases then they are all ran in the same process. Eto doesn't allow creating
+			// multiple UI loops, so we must create a reusable loop instead. 
+			EnsureEtoApplicationLoop();
+			var runDone = new ManualResetEventSlim(false);
+			InvokeOnEtoThread(() =>
+			{
+				InitializeMainWindow(title, _persistent, false);
+				mainWindow.Closed += (_, __) => runDone.Set();
+				mainWindow.Show();
+				mainWindow.Hide();
+				RunAutoExecSection(userInit);
+			});
+
+			runDone.Wait();
 #endif
 		}
 

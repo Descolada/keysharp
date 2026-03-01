@@ -492,13 +492,6 @@ namespace Keysharp.Scripting
 				)
 			);
 
-			// MainScript.CreateTrayMenu();
-			tryStatements.Add(
-				SyntaxFactory.ExpressionStatement(
-					Call(MA(mainScriptId, "CreateTrayMenu"))
-				)
-			);
-
 			// MainScript.RunMainWindow(A_ScriptName, AutoExecSection, false);
 			tryStatements.Add(
 				SyntaxFactory.ExpressionStatement(
@@ -558,7 +551,7 @@ namespace Keysharp.Scripting
 			// ---- catch (System.Exception mainex) { ... } ----
 			var mainexId = SyntaxFactory.Identifier("mainex");
 
-			// var ex = mainex.InnerException ?? mainex;
+			// var ex = Keysharp.Core.Flow.UnwrapException(mainex);
 			var exDecl = SyntaxFactory.LocalDeclarationStatement(
 				SyntaxFactory.VariableDeclaration(SyntaxFactory.IdentifierName("var"))
 					.WithVariables(
@@ -566,11 +559,7 @@ namespace Keysharp.Scripting
 							SyntaxFactory.VariableDeclarator(SyntaxFactory.Identifier("ex"))
 								.WithInitializer(
 									SyntaxFactory.EqualsValueClause(
-										SyntaxFactory.BinaryExpression(
-											SyntaxKind.CoalesceExpression,
-											MA(SyntaxFactory.IdentifierName(mainexId), "InnerException"),
-											SyntaxFactory.IdentifierName(mainexId)
-										)
+										Call(SMA("Keysharp.Core.Flow", "UnwrapException"), SyntaxFactory.IdentifierName(mainexId))
 									)
 								)
 						)
@@ -610,11 +599,25 @@ namespace Keysharp.Scripting
 			var ifIsKsErrorWithElse = ifIsKeysharpError.WithElse(elseIfShowGeneric);
 
 			var exitApp2 = SyntaxFactory.ExpressionStatement(Call(SMA("Keysharp.Core.Flow", "ExitApp"), N(1)));
+			var isUserRequestedExitPattern = SyntaxFactory.IsPatternExpression(
+				SyntaxFactory.IdentifierName("ex"),
+				SyntaxFactory.DeclarationPattern(
+					Q("Keysharp.Core.Flow.UserRequestedExitException"),
+					SyntaxFactory.DiscardDesignation()
+				)
+			);
+			var ifNotUserRequestedExit = SyntaxFactory.IfStatement(
+				SyntaxFactory.PrefixUnaryExpression(
+					SyntaxKind.LogicalNotExpression,
+					SyntaxFactory.ParenthesizedExpression(isUserRequestedExitPattern)
+				),
+				SyntaxFactory.Block(ifIsKsErrorWithElse, exitApp2)
+			);
 
 			var catchMainEx =
 				SyntaxFactory.CatchClause()
 					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("System.Exception"), mainexId))
-					.WithBlock(SyntaxFactory.Block(exDecl, ifIsKsErrorWithElse, exitApp2));
+					.WithBlock(SyntaxFactory.Block(exDecl, ifNotUserRequestedExit));
 
 			// try/catches
 			var tryStatement = SyntaxFactory.TryStatement(tryBlock, SyntaxFactory.List(new[] { catchUserRequestedExit, catchKserr, catchMainEx }), default);

@@ -70,7 +70,6 @@ namespace Keysharp.CompiledMain
 				if (Keysharp.Scripting.Script.HandleSingleInstance(Keysharp.Core.Accessors.A_ScriptName, Keysharp.Scripting.eScriptInstance.Prompt))
 					return 0;
 				Keysharp.Core.Env.HandleCommandLineParams(args);
-				MainScript.CreateTrayMenu();
 				MainScript.RunMainWindow(Keysharp.Core.Accessors.A_ScriptName, AutoExecSection, false);
 				MainScript.WaitThreads();
 			}

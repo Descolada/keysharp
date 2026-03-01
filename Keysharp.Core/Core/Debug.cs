@@ -238,15 +238,15 @@ namespace Keysharp.Core
 		{
 			if (text == null)
 				return DefaultObject;
-
-			var script = Script.TheScript;
 			System.Diagnostics.Debug.Write(text);//Will print only in debug mode to the debugger so we can see it in Visual Studio.
 
-			if (!script.IsMainWindowClosing)
+			var script = Script.TheScript;
+			var mainWindow = script?.mainWindow;
+			if (mainWindow != null && !script.IsMainWindowClosing)
 				if (clear)
-					script.mainWindow.SetText(text, MainWindow.MainFocusedTab.Debug, false);
+					mainWindow.SetText(text, MainWindow.MainFocusedTab.Debug, false);
 				else
-					script.mainWindow.AddText(text, MainWindow.MainFocusedTab.Debug, false);
+					mainWindow.AddText(text, MainWindow.MainFocusedTab.Debug, false);
 
 			return DefaultObject;
 		}

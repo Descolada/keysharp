@@ -11,10 +11,11 @@ namespace Keysharp.Tests
 		public void ImageSearch()
 		{
 			_ = CoordMode("Mouse", "Screen");
-			var screen = System.Windows.Forms.Screen.PrimaryScreen;
+			var screenWidth = A_ScreenWidth.Ai();
+			var screenHeight = A_ScreenHeight.Ai();
 			_ = ImageCapture(10, 10, 500, 500, "./imagesearch.bmp");
 			VarRef x = new(null), y = new(null);
-			_ = Core.Screen.ImageSearch(x, y, 0, 0, screen.Bounds.Width, screen.Bounds.Height, "./imagesearch.bmp"); //This implies this pattern won't be present before 1000,1000.
+			_ = Core.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "./imagesearch.bmp"); //This implies this pattern won't be present before 1000,1000.
 
 			if (x.__Value is long lx && lx == 10 && y.__Value is long ly && ly == 10)
 				Assert.IsTrue(true);
@@ -29,12 +30,14 @@ namespace Keysharp.Tests
 		{
 			int last = 0, white = 0xffffff, black = 0x000000;
 			_ = CoordMode("Mouse", "Screen");
+			var screenWidth = A_ScreenWidth.Ai();
+			var screenHeight = A_ScreenHeight.Ai();
 
 			//There isn't really a sure way to tell whether this is working.
 			//So a pseudo-test is to just get pixels until the value is not white or black.
-			for (var i = 0; i < System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height; i++)
+			for (var i = 0; i < screenHeight; i++)
 			{
-				for (var j = 0; j < System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width; j++)
+				for (var j = 0; j < screenWidth; j++)
 				{
 					var pix = Core.Screen.PixelGetColor(j, i);
 					Assert.IsTrue(int.TryParse(pix.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var ii));
@@ -57,12 +60,14 @@ namespace Keysharp.Tests
 		{
 			int last = 0, white = 0xffffff, black = 0x000000;
 			_ = CoordMode("Mouse", "Screen");
+			var screenWidth = A_ScreenWidth.Ai();
+			var screenHeight = A_ScreenHeight.Ai();
 
 			//There isn't really a sure way to tell whether this is working.
 			//So a pseudo-test is to just get pixels until the value is not white or black.
-			for (var i = 0; i < System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height; i++)
+			for (var i = 0; i < screenHeight; i++)
 			{
-				for (var j = 0; j < System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width; j++)
+				for (var j = 0; j < screenWidth; j++)
 				{
 					var pix = Core.Screen.PixelGetColor(j, i);
 					Assert.IsTrue(int.TryParse(pix.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var ii));

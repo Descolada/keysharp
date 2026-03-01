@@ -11,6 +11,43 @@ namespace Keysharp.Core
 	public static class Flow
 	{
 		internal const int intervalUnspecified = int.MinValue + 303;// Use some negative value unlikely to ever be passed explicitly:
+		private static bool TryGetException<TException>(Exception ex, out TException found) where TException : Exception
+		{
+			found = null;
+
+			if (ex == null)
+				return false;
+
+			if (ex is TException matched)
+			{
+				found = matched;
+				return true;
+			}
+
+			if (ex is AggregateException agg)
+			{
+				foreach (var inner in agg.InnerExceptions)
+				{
+					if (TryGetException(inner, out found))
+						return true;
+				}
+			}
+
+			return ex.InnerException != null && TryGetException(ex.InnerException, out found);
+		}
+
+		public static Exception UnwrapException(Exception ex)
+		{
+			if (ex == null)
+				return null;
+
+			var current = ex;
+
+			while (current.InnerException != null)
+				current = current.InnerException;
+
+			return current;
+		}
 
 		/// <summary>
 		/// Prevents the current thread from being interrupted by other threads, or enables it to be interrupted.
@@ -119,10 +156,17 @@ namespace Keysharp.Core
 
 			if (!script.hasExited)//This can be called multiple times, so ensure it only runs through once.
 			{
-				script.mainWindow.CheckedInvoke(() =>
+				try
 				{
-					_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
-				}, true);
+					script.mainWindow.CheckedInvoke(() =>
+					{
+						_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
+					}, true);
+				}
+				catch (Exception ex) when (TryGetException(ex, out UserRequestedExitException userExit))
+				{
+					throw userExit;
+				}
 				var start = DateTime.UtcNow;
 
 				while (!script.hasExited && (DateTime.UtcNow - start).TotalSeconds < 5)
@@ -807,7 +851,7 @@ namespace Keysharp.Core
 			{
 				var ex = mainex.InnerException ?? mainex;
 
-				if (ex is UserRequestedExitException)
+				if (TryGetException<UserRequestedExitException>(mainex, out _))
 				{
 					if (pop)
 						_ = t.EndThread(btv);

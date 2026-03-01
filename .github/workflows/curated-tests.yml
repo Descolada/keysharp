@@ -1,0 +1,120 @@
+name: Curated Tests (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_platform:
+        description: "Platform to run"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - linux
+          - macos
+      configuration:
+        description: "Build configuration"
+        required: true
+        type: choice
+        default: Debug
+        options:
+          - Debug
+          - Release
+
+concurrency:
+  group: curated-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  BUILD_CONFIGURATION: ${{ inputs.configuration }}
+  CURATED_TEST_FILTER: Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network
+  ETO_REF: dd599c5922ec7c4c9cc28d11c3cbc0db2a6f6067
+
+jobs:
+  prepare:
+    name: Prepare Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        shell: pwsh
+        run: |
+          switch ('${{ inputs.target_platform }}') {
+            'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
+            'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
+            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
+            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
+          }
+          "matrix=$matrix" >> $env:GITHUB_OUTPUT
+
+  test:
+    needs: prepare
+    name: Curated Tests (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout keysharp
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/packages.lock.json
+
+      - name: Cache Eto (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        id: eto-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.workspace }}/Eto
+          key: eto-${{ runner.os }}-${{ env.ETO_REF }}
+          restore-keys: |
+            eto-${{ runner.os }}-
+
+      - name: Checkout Eto (non-Windows, cache miss)
+        if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (Test-Path $etoDir) {
+            Remove-Item -Path $etoDir -Recurse -Force
+          }
+          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git $etoDir
+          git -C $etoDir checkout "$env:ETO_REF"
+          git -C $etoDir submodule update --init --recursive
+
+      - name: Ensure Eto submodules (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        shell: pwsh
+        run: |
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (-not (Test-Path "$etoDir/lib/monomac/src/MonoMac.csproj")) {
+            Write-Host "MonoMac submodule missing, initializing..."
+            git -C $etoDir submodule update --init --recursive
+          } else {
+            Write-Host "MonoMac submodule present."
+          }
+
+      - name: Show run config
+        shell: pwsh
+        run: |
+          Write-Host "Platform: ${{ matrix.platform }}"
+          Write-Host "Configuration: $env:BUILD_CONFIGURATION"
+          Write-Host "Filter: $env:CURATED_TEST_FILTER"
+
+      - name: Run curated Keysharp.Tests subset
+        shell: pwsh
+        run: |
+          dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --filter "$env:CURATED_TEST_FILTER"

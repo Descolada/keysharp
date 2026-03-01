@@ -43,6 +43,15 @@
 * Run `Keysharp.Install/package-linux.sh`
 * A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. These can then be installed to your system via the steps in "Installing on Linux" above. Note that the folder and tarball are portable so both source repositories can be safely deleted.
 * **Alternatively**, on arch-based systems keysharp is provided as an [AUR package](https://aur.archlinux.org/packages/keysharp-git)
+
+### Curated cross-platform tests ###
+* CI runs a curated subset of `Keysharp.Tests` (unless disabled in manual dispatch) to avoid long/full-suite runs and desktop-interactive tests.
+* The same subset can be run locally:
+```
+$filter = 'Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network'
+dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c Debug --filter $filter
+```
+* This curated set intentionally excludes categories that usually need a desktop session, user interaction, or platform-specific peripherals (for example `Gui`, `Process`, `Env` clipboard-heavy tests, `Screen`, `Sound`, `Monitor`, `Drive`, `External`).
 	
 ## Overview ##
 

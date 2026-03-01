@@ -30,7 +30,6 @@ namespace Keysharp.Tests
 		[Test, Category("Env"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
-#endif
 		public void ClipWait()
 		{
 			//Flow.ResetState();
@@ -107,6 +106,12 @@ namespace Keysharp.Tests
 			Accessors.A_Clipboard = "Asdf";
 			Assert.IsTrue(TestScript("env-clipwait", true));//For this to work, the bitmap from above must be on the clipboard.
 		}
+#else
+		public void ClipWait()
+		{
+			Assert.Ignore("ClipWait test currently requires Windows clipboard APIs.");
+		}
+#endif
 
 		[Test, Category("Env"), NonParallelizable]
 		public void EnvGet()

@@ -1578,9 +1578,9 @@ namespace Keysharp.Core
 		public static string FileFullPath(object filename) => Path.GetFullPath(filename.As());
 	}
 
-#if LINUX
+#if !WINDOWS
 	/// <summary>
-	/// Helper class to create a shortcut on linux.
+	/// Helper class to create and parse desktop-entry style shortcuts on non-Windows platforms.
 	/// </summary>
 	internal class ShortcutCreator
 	{

@@ -42,6 +42,16 @@ namespace Keysharp.Scripting
 		/// </summary>
 		public static bool IsHeadless => !HasAvailableDisplay() || (TheScript?.NoMainWindow == true && TheScript?.NoTrayIcon == true);
 
+		/// <summary>
+		/// True when this host must not attempt Eto UI initialization.
+		/// </summary>
+		internal static bool IsUiInitializationBlocked =>
+#if OSX
+			IsTestHost;
+#else
+			false;
+#endif
+
 		private static bool HasAvailableDisplay()
 		{
 
@@ -658,6 +668,15 @@ namespace Keysharp.Scripting
 
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
+			if (IsUiInitializationBlocked)
+			{
+				// Eto.Mac cannot initialize under dotnet testhost because it is not an app bundle.
+				// Run tests headlessly on macOS testhost.
+				SuppressErrorOccurredDialog = true;
+				RunAutoExecSection(userInit);
+				return;
+			}
+
 			if (IsHeadless)
 				SuppressErrorOccurredDialog = true;
 
@@ -670,20 +689,7 @@ namespace Keysharp.Scripting
 #else
 			lock (etoLoopLock)
 			{
-				Application app;
-
-				try
-				{
-					app = EnsureEtoApplication();
-				}
-				catch (InvalidOperationException ex) when (OperatingSystem.IsMacOS() && IsTestHost && ex.Message.Contains("not valid in the current context", StringComparison.OrdinalIgnoreCase))
-				{
-					// Eto.Mac requires running inside an app bundle. VSTest runs as a plain process, so
-					// fallback to headless execution for testhost runs on macOS.
-					SuppressErrorOccurredDialog = true;
-					RunAutoExecSection(userInit);
-					return;
-				}
+				Application app = EnsureEtoApplication();
 
 				InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
 				mainWindow.Closed += (_, __) => app.Quit();

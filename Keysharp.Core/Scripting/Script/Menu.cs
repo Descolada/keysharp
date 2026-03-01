@@ -9,7 +9,7 @@
 
 		public void CreateTrayMenu()
 		{
-			if (NoTrayIcon)
+			if (NoTrayIcon || IsUiInitializationBlocked || IsHeadless)
 				return;
 
 			NotifyIcon trayIcon;
@@ -26,6 +26,12 @@
 				return;
 			}
 			catch (TypeInitializationException ex)
+			{
+				NoTrayIcon = true;
+				Script.WriteUncaughtErrorToStdErr("Tray initialization skipped: " + ex.Message);
+				return;
+			}
+			catch (InvalidOperationException ex)
 			{
 				NoTrayIcon = true;
 				Script.WriteUncaughtErrorToStdErr("Tray initialization skipped: " + ex.Message);

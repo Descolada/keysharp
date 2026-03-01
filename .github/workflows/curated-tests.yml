@@ -131,3 +131,20 @@ jobs:
           } else {
             dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --logger "console;verbosity=normal" --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1
           }
+
+      - name: Dump test output diagnostics on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "bin/$env:BUILD_CONFIGURATION/net10.0"
+          if (Test-Path $out) {
+            Write-Host "Listing output folder: $out"
+            Get-ChildItem -Path $out | Select-Object Name, Length
+            $deps = Join-Path $out "Keysharp.Tests.deps.json"
+            if (Test-Path $deps) {
+              Write-Host "Keysharp.Core references from deps:"
+              Select-String -Path $deps -Pattern "Keysharp.Core" -SimpleMatch
+            }
+          } else {
+            Write-Host "Output folder missing: $out"
+          }

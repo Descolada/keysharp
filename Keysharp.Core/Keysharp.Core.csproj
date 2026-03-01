@@ -26,13 +26,14 @@
 		<FileVersion>0.0.0.14</FileVersion>
 		<SignAssembly>False</SignAssembly>
 		<DelaySign>False</DelaySign>
-		<PlatformTarget>x64</PlatformTarget>
+		<PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
+		<PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<WarningLevel>8</WarningLevel>
 	<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
 		<OutputPath>../bin/Debug/</OutputPath>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);DEBUG;LEGACY;WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);DEBUG;LEGACY;LINUX</DefineConstants>
@@ -40,7 +41,7 @@
 		<NoWarn>$(NoWarn);1701;1702;8981;0164;8974</NoWarn>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
 		<OutputPath>../bin/Release/</OutputPath>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);LEGACY;WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);LEGACY;LINUX</DefineConstants>

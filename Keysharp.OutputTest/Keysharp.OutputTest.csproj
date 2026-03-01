@@ -25,14 +25,15 @@
     <Description>A simple test program to paste generated code into for debugging</Description>
     <SignAssembly>False</SignAssembly>
     <DelaySign>False</DelaySign>
-    <PlatformTarget>x64</PlatformTarget>
+    <PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
+    <PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <WarningLevel>8</WarningLevel>
     <NoWin32Manifest>true</NoWin32Manifest>
 	<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
     <OutputPath>../bin/Debug/</OutputPath>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">DEBUG;TRACE;LEGACY;WINDOWS</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">DEBUG;TRACE;LEGACY;LINUX</DefineConstants>
@@ -40,7 +41,7 @@
     <NoWarn>1701;1702;8981;0164;8974</NoWarn>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <OutputPath>../bin/Release/</OutputPath>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">TRACE;LEGACY;WINDOWS</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">TRACE;LEGACY;LINUX</DefineConstants>

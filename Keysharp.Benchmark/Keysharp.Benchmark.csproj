@@ -3,13 +3,14 @@
     <OutputType>Exe</OutputType>
     <IsPublishable>false</IsPublishable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PlatformTarget>x64</PlatformTarget>
+    <PlatformTarget Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</PlatformTarget>
+    <PlatformTarget Condition="!$([MSBuild]::IsOSPlatform('Windows'))">AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
-    <Platforms>x64</Platforms>
+    <Platforms Condition="$([MSBuild]::IsOSPlatform('Windows'))">x64</Platforms>
     <NoWin32Manifest>true</NoWin32Manifest>
 	<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
@@ -31,7 +32,7 @@
 		<LangVersion>14.0</LangVersion>
 	</PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
     <DefineConstants>$(DefineConstants);DEBUG;TRACE;LEGACY</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);LINUX</DefineConstants>
@@ -40,7 +41,7 @@
     <WarningLevel>8</WarningLevel>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <DefineConstants>$(DefineConstants);TRACE;LEGACY</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);WINDOWS</DefineConstants>
 		<DefineConstants Condition="$([MSBuild]::IsOSPlatform('Linux'))">$(DefineConstants);LINUX</DefineConstants>

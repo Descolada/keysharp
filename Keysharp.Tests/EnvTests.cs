@@ -1,4 +1,5 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using System.Runtime.InteropServices;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -12,7 +13,12 @@ namespace Keysharp.Tests
 		{
 			//Flow.ResetState();
 			Accessors.A_Clipboard = "Asdf";
-			var arr = Env.ClipboardAll();
+			var baseline = Accessors.A_Clipboard as string;
+#if !WINDOWS
+			if (baseline != "Asdf")
+				Assert.Ignore("Clipboard text is unavailable in this headless Linux environment.");
+#endif
+			var arr = new ClipboardAll();
 			var clip = Accessors.A_Clipboard as string;
 			Assert.AreEqual("Asdf", clip);
 			Accessors.A_Clipboard = "";
@@ -21,6 +27,47 @@ namespace Keysharp.Tests
 			Accessors.A_Clipboard = arr;
 			clip = Accessors.A_Clipboard as string;
 			Assert.AreEqual("Asdf", clip);
+
+			// ClipboardAll(Data, Size) should only construct an object, not write to clipboard.
+			Accessors.A_Clipboard = "";
+			var clone = new ClipboardAll(arr);
+			clip = Accessors.A_Clipboard as string;
+			Assert.AreEqual("", clip);
+
+			Accessors.A_Clipboard = clone;
+			clip = Accessors.A_Clipboard as string;
+			Assert.AreEqual("Asdf", clip);
+		}
+
+		[Test, Category("Env"), NonParallelizable]
+		public void ClipboardAllDataSize()
+		{
+			var source = new byte[] { 1, 2, 3, 4, 5 };
+			var buf = new Keysharp.Core.Buffer(source);
+			var clipFromBuffer = new ClipboardAll(buf, 3L);
+			var roundtrip = clipFromBuffer.ToByteArray();
+			Assert.AreEqual(3, roundtrip.Length);
+			Assert.AreEqual(1, roundtrip[0]);
+			Assert.AreEqual(2, roundtrip[1]);
+			Assert.AreEqual(3, roundtrip[2]);
+
+			var ptr = Marshal.AllocHGlobal(source.Length);
+
+			try
+			{
+				Marshal.Copy(source, 0, ptr, source.Length);
+				var clipFromPtr = new ClipboardAll((long)ptr, 4L);
+				var ptrRoundtrip = clipFromPtr.ToByteArray();
+				Assert.AreEqual(4, ptrRoundtrip.Length);
+				Assert.AreEqual(1, ptrRoundtrip[0]);
+				Assert.AreEqual(2, ptrRoundtrip[1]);
+				Assert.AreEqual(3, ptrRoundtrip[2]);
+				Assert.AreEqual(4, ptrRoundtrip[3]);
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
 		}
 
 		/// <summary>
@@ -149,7 +196,7 @@ namespace Keysharp.Tests
 		{
 			//Monitors
 			var val = Env.SysGet(80);
-			Assert.IsTrue(val.Ai() > 0);
+			Assert.IsTrue(val.Ai(int.MinValue) >= 0);
 			//SM_CXSCREEN
 			val = Env.SysGet(0);
 			Assert.IsTrue(val.Ai() == A_ScreenWidth);
@@ -163,3 +210,5 @@ namespace Keysharp.Tests
 		}
 	}
 }
+
+

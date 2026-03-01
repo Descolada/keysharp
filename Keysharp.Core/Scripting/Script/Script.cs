@@ -30,8 +30,40 @@ namespace Keysharp.Scripting
 		private static TaskCompletionSource<bool> etoLoopStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 #endif
 		public const string dotNetMajorVersion = "10";
-		public static readonly bool IsHeadless = AppDomain.CurrentDomain.FriendlyName == "testhost";
-		public static readonly bool IsGuiHeadless = IsHeadless && !OperatingSystem.IsWindows();
+
+		/// <summary>
+		/// True when running under the NUnit/VSTest host process (<c>testhost</c>).
+		/// This indicates a test-host runtime, not necessarily a user-requested headless mode.
+		/// </summary>
+		public static readonly bool IsTestHost = AppDomain.CurrentDomain.FriendlyName == "testhost";
+
+		/// <summary>
+		/// True when running under <c>testhost</c> on non-Windows platforms.
+		/// </summary>
+		public static readonly bool IsNonWindowsTestHost = IsTestHost && !OperatingSystem.IsWindows();
+
+		/// <summary>
+		/// True when scripts should run without normal UI affordances.
+		/// This is true when no displays are available, or when both <see cref="NoMainWindow"/> and <see cref="NoTrayIcon"/> are enabled.
+		/// </summary>
+		public static bool IsHeadless => !HasAvailableDisplay() || (TheScript?.NoMainWindow == true && TheScript?.NoTrayIcon == true);
+
+		private static bool HasAvailableDisplay()
+		{
+
+			try
+			{
+#if WINDOWS
+				return System.Windows.Forms.Screen.AllScreens?.Length > 0;
+#else
+				return Eto.Forms.Screen.Screens?.Any() == true;
+#endif
+			}
+			catch
+			{
+				return false;
+			}
+		}
 		internal System.Timers.Timer tickTimer = new System.Timers.Timer(SLEEP_INTERVAL * 4);
 		internal MessageFilter msgFilter;
 		internal volatile bool loopShouldDoEvents = false;
@@ -40,12 +72,13 @@ namespace Keysharp.Scripting
 		public string[] ScriptArgs = [];
 		public string[] KeysharpArgs = [];
 		public uint MaxThreadsTotal = 12u;
+		public bool NoMainWindow = false;
 		public bool NoTrayIcon = false;
 		public bool ValidateThenExit;
 		public bool WinActivateForce = false;
 		//Some unit tests use try..catch in non-script code, which causes ErrorOccurred to display the error dialog.
 		//This allows to suppress it, but only inside ErrorOccurred (not in TryCatch etc).
-		public bool SuppressErrorOccurredDialog = IsHeadless;
+		public bool SuppressErrorOccurredDialog = IsTestHost;
 		//This allows to suppress all error processing
 		public uint SuppressErrorOccurred = 0;
 		internal const double DefaultErrorDouble = double.NaN;
@@ -636,14 +669,19 @@ namespace Keysharp.Scripting
 
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
+			var useSharedEtoTestHostLoop = IsTestHost && !OperatingSystem.IsWindows();
+
+			if (IsHeadless)
+				SuppressErrorOccurredDialog = true;
+
 #if WINDOWS
-			InitializeMainWindow(title, _persistent, true);
+			InitializeMainWindow(title, _persistent, !NoMainWindow);
 			_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 			Application.Run(mainWindow);
 #else
-			if (!IsGuiHeadless)
+			if (!useSharedEtoTestHostLoop)
 			{
-				InitializeMainWindow(title, _persistent, true);
+				InitializeMainWindow(title, _persistent, !NoMainWindow);
 				_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 				Application.Instance.Run(mainWindow);
 				return;
@@ -679,11 +717,103 @@ namespace Keysharp.Scripting
 #endif
 				).ToLowerInvariant();
 
-			if (path != "testhost.exe" && path != "testhost.dll" && !A_IsCompiled)
+			if (!IsTestHost && path != "testhost.exe" && path != "testhost.dll" && path != "testhost" && !A_IsCompiled)
 				_ = Dir.SetWorkingDir(A_ScriptDir);
         } 
 
 		public void SetReady() => isReadyToExecute = true;
+
+		public static void ProcessUnhandledException(Script script, Exception ex)
+		{
+			if (ex == null)
+				return;
+
+			var unwrapped = Flow.UnwrapException(ex);
+
+			if (unwrapped is Flow.UserRequestedExitException)
+				return;
+
+			if (unwrapped is KeysharpException kserr)
+			{
+				var msg = "Uncaught Keysharp exception:\r\n" + kserr;
+				WriteUncaughtErrorToStdErr(msg);
+
+				if (script == null || !script.SuppressErrorOccurredDialog)
+				{
+					var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
+					_ = Dialogs.MsgBox(msg, title, "iconx");
+				}
+
+				return;
+			}
+
+			var genericMsg = "Uncaught exception:\r\n" + "Message: " + unwrapped.Message + "\r\nStack: " + unwrapped.StackTrace;
+			WriteUncaughtErrorToStdErr("Uncaught exception:\r\n" + unwrapped);
+
+			if (script == null || !script.SuppressErrorOccurredDialog)
+			{
+				var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
+				_ = Dialogs.MsgBox(genericMsg, title, "iconx");
+			}
+		}
+
+		public static void TryProcessUnhandledException(Script script, Exception ex)
+		{
+			try
+			{
+				ProcessUnhandledException(script, ex);
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		public static void TryProcessKeysharpException(Script script, KeysharpException kserr)
+		{
+			if (kserr == null)
+				return;
+
+			if (!kserr.UserError.Processed)
+			{
+				try
+				{
+					_ = Errors.ErrorOccurred(kserr.UserError, kserr.UserError.ExcType);
+				}
+				catch (Exception)
+				{
+				}
+			}
+
+			if (!kserr.UserError.Handled)
+				TryProcessUnhandledException(script, kserr);
+		}
+
+		public static void SafeExit(int code)
+		{
+			Environment.ExitCode = code;
+
+			try
+			{
+				_ = Flow.ExitApp(code);
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		public void HandleUncaughtException(Exception ex) => ProcessUnhandledException(this, ex);
+
+		/// <summary>
+		/// Writes uncaught script errors to stderr in debug builds to improve test diagnostics.
+		/// </summary>
+		/// <param name="text">The text to write.</param>
+		[Conditional("DEBUG")]
+		[PublicHiddenFromUser]
+		internal static void WriteUncaughtErrorToStdErr(string text)
+		{
+			if (!string.IsNullOrEmpty(text))
+				Console.Error.WriteLine(text);
+		}
 
 		//public static void TestSomething()
 		//{

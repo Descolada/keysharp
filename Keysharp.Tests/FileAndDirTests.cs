@@ -538,7 +538,11 @@ namespace Keysharp.Tests
 			Assert.AreEqual(patharg, outDir.__Value.ToString());
 			Assert.AreEqual("TestDescription", outDescription.__Value.ToString());
 			Assert.AreEqual("", outArgs.__Value.ToString());
+#if WINDOWS
 			Assert.AreEqual("../../../Keysharp.ico", outIcon.__Value.ToString());
+#else
+			Assert.AreEqual(Path.GetFullPath("../../../Keysharp.ico"), outIcon.__Value.ToString());
+#endif
 #if WINDOWS
 			Assert.AreEqual("1", outIconNum.__Value.ToString());
 			Assert.AreEqual("1", outRunState.__Value.ToString());
@@ -830,6 +834,11 @@ namespace Keysharp.Tests
 				using KeysharpFile f = (KeysharpFile)Files.FileOpen(filename, "rw -w");//Test write share.
 				using var f2 = (KeysharpFile)Files.FileOpen(filename, "rw");
 			});
+			TestException(() =>
+			{
+				using var f = (KeysharpFile)Files.FileOpen(filename, 0);//Numeric flags with no share bits should lock.
+				using var f2 = (KeysharpFile)Files.FileOpen(filename, 0);
+			});
 #endif
 
 			using (var f = (KeysharpFile)Files.FileOpen(filename, "r -r"))//Test read share create from handle.
@@ -1099,8 +1108,7 @@ groupkey13=groupval13
 			Assert.AreEqual("C:", drive.__Value);
 			Assert.AreEqual("C:", dir.__Value);
 #else
-			var user = Accessors.A_UserName;
-			Assert.AreEqual($"/home/{user}/Dev/Keysharp/Keysharp.Tests/Code/DirCopy".ToLower(), dir.__Value.ToString().ToLower());
+			Assert.AreEqual(true, dir.__Value.ToString().Replace('\\', '/').ToLowerInvariant().EndsWith("/keysharp.tests/code/dircopy"));
 			Assert.AreEqual("/", drive.__Value);
 #endif
             var url = "https://domain.com";

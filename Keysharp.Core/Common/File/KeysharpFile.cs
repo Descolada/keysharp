@@ -107,7 +107,8 @@ namespace Keysharp.Core.Common.File
 
 				if (filename.StartsWith("h*", StringComparison.OrdinalIgnoreCase))
 				{
-					var handle = filename.Substring(2).ParseLong();
+					var handleString = filename.Substring(2);
+					var handle = handleString.ParseLong();
 
 					if (handle.HasValue)
 					{

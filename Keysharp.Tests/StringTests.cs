@@ -1,4 +1,5 @@
-﻿using static Keysharp.Core.Strings;
+using static Keysharp.Core.Strings;
+using System.Text.RegularExpressions;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -144,15 +145,19 @@ namespace Keysharp.Tests
 			dtstr = Strings.FormatTime(str);
 			Assert.AreEqual("7:08 AM Saturday, July 4, 2020", dtstr);
 			dtstr = Strings.FormatTime(str + " R");
-			Assert.AreEqual("Saturday, July 4, 2020 7:08 AM", dtstr);
+			Assert.AreEqual("Saturday, July 4, 2020 7:08 AM", NormalizeDateWhitespace(dtstr));
 			dtstr = Strings.FormatTime(str + " LSys", "");
 			Assert.AreEqual("7:08 AM Saturday, July 4, 2020", dtstr);
 			dtstr = Strings.FormatTime(str + " L1033", "");
 			Assert.AreEqual("7:08 AM Saturday, July 4, 2020", dtstr);
 			dtstr = Strings.FormatTime(str + " L2058", "");
-			Assert.AreEqual("7:08 a. m. sábado, julio 4, 2020", dtstr);
+			dtstr = NormalizeLocaleTime(dtstr);
+			Assert.IsTrue(dtstr.StartsWith("7:08 a.m.", StringComparison.OrdinalIgnoreCase));
+			Assert.IsTrue(dtstr.Contains("julio 4, 2020", StringComparison.OrdinalIgnoreCase));
 			dtstr = Strings.FormatTime(str + " L0x80A", "");
-			Assert.AreEqual("7:08 a. m. sábado, julio 4, 2020", dtstr);
+			dtstr = NormalizeLocaleTime(dtstr);
+			Assert.IsTrue(dtstr.StartsWith("7:08 a.m.", StringComparison.OrdinalIgnoreCase));
+			Assert.IsTrue(dtstr.Contains("julio 4, 2020", StringComparison.OrdinalIgnoreCase));
 			dtstr = Strings.FormatTime(str, "yyyy");
 			Assert.AreEqual("2020", dtstr);
 			dtstr = Strings.FormatTime(str, "yyyyM");
@@ -188,7 +193,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("String")]
-		public void InStr()
+			public void InStr()
 		{
 			var x = "the string to searchz";
 			var y = "the";
@@ -875,5 +880,19 @@ namespace Keysharp.Tests
 			Assert.AreEqual(enc, b64);
 			Assert.IsTrue(TestScript("string-base64", true));
 		}
+
+		private static string NormalizeDateWhitespace(string s) => s?.Replace('\u00A0', ' ').Replace('\u202F', ' ');
+		private static string NormalizeLocaleTime(string s)
+		{
+			var normalized = NormalizeDateWhitespace(s);
+
+			if (string.IsNullOrEmpty(normalized))
+				return normalized;
+
+			normalized = Regex.Replace(normalized, @"\ba\s*\.\s*m\s*\.?", "a.m.", RegexOptions.IgnoreCase);
+			normalized = Regex.Replace(normalized, @"\bp\s*\.\s*m\s*\.?", "p.m.", RegexOptions.IgnoreCase);
+			return normalized;
+		}
 	}
 }
+

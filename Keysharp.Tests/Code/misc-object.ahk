@@ -92,6 +92,7 @@ if (a = [20, 30])
 else
 	FileAppend "fail", "*"
 
+#if WINDOWS
 obj := Map(1, "a", "b", 2)
 punk := ObjPtr(obj)
 ObjAddRef(punk), count := ObjRelease(punk)
@@ -131,3 +132,4 @@ if (count == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+#endif

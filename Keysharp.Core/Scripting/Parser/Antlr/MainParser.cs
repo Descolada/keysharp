@@ -70,10 +70,10 @@ public partial class MainParser : MainParserBase {
 		Requires=165, SingleInstance=166, Persistent=167, Warn=168, HookMutexName=169, 
 		NoDynamicVars=170, ErrorStdOut=171, ClipboardTimeout=172, HotIfTimeout=173, 
 		MaxThreads=174, MaxThreadsBuffer=175, MaxThreadsPerHotkey=176, WinActivateForce=177, 
-		NoTrayIcon=178, Assembly=179, DirectiveHidden=180, ConditionalSymbol=181, 
-		DirectiveSingleLineComment=182, DirectiveNewline=183, UnexpectedDirectiveCharacter=184, 
-		DirectiveTextWhitespace=185, UnexpectedTextDirectiveCharacter=186, HotstringNewline=187, 
-		NoMouse=188, EndChars=189, HotstringOptions=190;
+		NoMainWindow=178, NoTrayIcon=179, Assembly=180, DirectiveHidden=181, ConditionalSymbol=182, 
+		DirectiveSingleLineComment=183, DirectiveNewline=184, UnexpectedDirectiveCharacter=185, 
+		DirectiveTextWhitespace=186, UnexpectedTextDirectiveCharacter=187, HotstringNewline=188, 
+		NoMouse=189, EndChars=190, HotstringOptions=191;
 	public const int
 		RULE_program = 0, RULE_sourceElements = 1, RULE_sourceElement = 2, RULE_positionalDirective = 3, 
 		RULE_remap = 4, RULE_hotstring = 5, RULE_hotkey = 6, RULE_statement = 7, 
@@ -156,8 +156,8 @@ public partial class MainParser : MainParserBase {
 		null, null, null, null, null, null, null, null, null, null, null, "'persistent'", 
 		null, null, "'nodynamicvars'", "'errorstdout'", "'clipboardtimeout'", 
 		"'hotiftimeout'", "'maxthreads'", "'maxthreadsbuffer'", "'maxthreadsperhotkey'", 
-		"'winactivateforce'", "'notrayicon'", null, "'hidden'", null, null, null, 
-		null, null, null, null, "'NoMouse'", "'EndChars'"
+		"'winactivateforce'", "'nomainwindow'", "'notrayicon'", null, "'hidden'", 
+		null, null, null, null, null, null, null, "'NoMouse'", "'EndChars'"
 	};
 	private static readonly string[] _SymbolicNames = {
 		null, "DerefStart", "DerefEnd", "ObjectLiteralStart", "ObjectLiteralEnd", 
@@ -191,10 +191,11 @@ public partial class MainParser : MainParserBase {
 		"Nullable", "Include", "IncludeAgain", "DllLoad", "Requires", "SingleInstance", 
 		"Persistent", "Warn", "HookMutexName", "NoDynamicVars", "ErrorStdOut", 
 		"ClipboardTimeout", "HotIfTimeout", "MaxThreads", "MaxThreadsBuffer", 
-		"MaxThreadsPerHotkey", "WinActivateForce", "NoTrayIcon", "Assembly", "DirectiveHidden", 
-		"ConditionalSymbol", "DirectiveSingleLineComment", "DirectiveNewline", 
-		"UnexpectedDirectiveCharacter", "DirectiveTextWhitespace", "UnexpectedTextDirectiveCharacter", 
-		"HotstringNewline", "NoMouse", "EndChars", "HotstringOptions"
+		"MaxThreadsPerHotkey", "WinActivateForce", "NoMainWindow", "NoTrayIcon", 
+		"Assembly", "DirectiveHidden", "ConditionalSymbol", "DirectiveSingleLineComment", 
+		"DirectiveNewline", "UnexpectedDirectiveCharacter", "DirectiveTextWhitespace", 
+		"UnexpectedTextDirectiveCharacter", "HotstringNewline", "NoMouse", "EndChars", 
+		"HotstringOptions"
 	};
 	public static readonly IVocabulary DefaultVocabulary = new Vocabulary(_LiteralNames, _SymbolicNames);
 
@@ -10879,7 +10880,7 @@ public partial class MainParser : MainParserBase {
 	}
 
 	private static int[] _serializedATN = {
-		4,1,190,1731,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+		4,1,191,1731,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
 		7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,14,
 		2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,20,7,20,2,21,7,21,
 		2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,26,2,27,7,27,2,28,7,28,
@@ -11070,7 +11071,7 @@ public partial class MainParser : MainParserBase {
 		0,228,224,1,0,0,0,228,225,1,0,0,0,228,226,1,0,0,0,228,227,1,0,0,0,229,
 		5,1,0,0,0,230,232,5,145,0,0,231,233,3,152,76,0,232,231,1,0,0,0,232,233,
 		1,0,0,0,233,256,1,0,0,0,234,239,5,149,0,0,235,240,5,135,0,0,236,240,5,
-		188,0,0,237,238,5,189,0,0,238,240,5,135,0,0,239,235,1,0,0,0,239,236,1,
+		189,0,0,237,238,5,190,0,0,238,240,5,135,0,0,239,235,1,0,0,0,239,236,1,
 		0,0,0,239,237,1,0,0,0,240,256,1,0,0,0,241,243,5,146,0,0,242,244,3,184,
 		92,0,243,242,1,0,0,0,243,244,1,0,0,0,244,256,1,0,0,0,245,248,5,148,0,0,
 		246,249,3,184,92,0,247,249,3,182,91,0,248,246,1,0,0,0,248,247,1,0,0,0,

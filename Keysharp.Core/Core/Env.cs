@@ -11,31 +11,11 @@ namespace Keysharp.Core
 	/// </summary>
 	public static class Env
 	{
-		/// <summary>
-		/// Creates an object containing everything on the clipboard (such as pictures and formatting).
-		/// Omit both parameters to retrieve the current contents of the clipboard.<br/>
-		/// Otherwise, specify one or both parameters to create an object containing the given binary clipboard data.
-		/// </summary>
-		/// <param name="data">A Buffer-like object or a pure integer which is the address of the binary data.<br/>
-		/// The data must be in a specific format, so typically originates from a previous call to ClipboardAll.
-		/// </param>
-		/// <param name="size">The number of bytes of data to use. This is optional when data is an object.</param>
-		/// <returns>A <see cref="ClipboardAll"/> object containing the clipboard data.</returns>
-		public static ClipboardAll ClipboardAll(object data = null, object size = null)
+		internal static byte[] CaptureClipboardAllBytes()
 		{
-			//Need to see if this should be put on the main thread like A_Clipboard.//TODO
 #if !WINDOWS
-			return new ClipboardAll();
+			return CaptureClipboardAllEto();
 #else
-			var d = data;
-			var s = size.Al(long.MinValue);
-
-			if (d is ClipboardAll a)
-			{
-				RestoreClipboardAll(a, s != long.MinValue ? s : (long)a.Size);
-				return a;
-			}
-
 			using (var ms = new MemoryStream())
 			{
 				var dibToOmit = 0;
@@ -103,12 +83,12 @@ namespace Keysharp.Core
 					if (ms.Position > 0)
 					{
 						bw.Write(0);
-						return new ClipboardAll(ms.ToArray());
+						return ms.ToArray();
 					}
 				}
 			}
 
-			return new ClipboardAll(System.Array.Empty<byte>());
+			return System.Array.Empty<byte>();
 #endif
 		}
 
@@ -252,12 +232,44 @@ namespace Keysharp.Core
 		{
 #if !WINDOWS
 			var sm = property is Keysharp.Core.Common.Platform.SystemMetric en ? en : (SystemMetric)property.Ai();
-			var screen = Eto.Forms.Screen.PrimaryScreen;
-			var bounds = screen?.Bounds ?? new Rectangle(0, 0, 0, 0);
-			var working = screen?.WorkingArea ?? bounds;
+			Eto.Forms.Screen screen = null;
+			Eto.Forms.Screen[] screens = [];
+
+			try
+			{
+				screen = Eto.Forms.Screen.PrimaryScreen;
+				screens = Eto.Forms.Screen.Screens?.ToArray() ?? [];
+			}
+			catch
+			{
+			}
+
+			RectangleF bounds;
+			RectangleF working;
+
+			try
+			{
+				bounds = screen?.Bounds ?? new RectangleF(0, 0, 0, 0);
+			}
+			catch
+			{
+				bounds = new RectangleF(0, 0, 0, 0);
+			}
+
+			try
+			{
+				working = screen?.WorkingArea ?? bounds;
+			}
+			catch
+			{
+				working = bounds;
+			}
 
 			switch (sm)
 			{
+				case SystemMetric.SM_CMONITORS:
+					return (long)screens.Length;
+
 				case SystemMetric.SM_CXSCREEN:
 					return (long)bounds.Width;
 
@@ -337,6 +349,59 @@ namespace Keysharp.Core
 #else
 		internal static int ClipFormatStringToInt(string fmt) => 0;
 #endif
+
+		internal static byte[] ExtractClipboardAllBytes(object data, long size = long.MinValue)
+		{
+			if (data == null)
+				return System.Array.Empty<byte>();
+
+			if (data is byte[] ba)
+				return CopyClipboardBytes(ba, size);
+
+			if (data is Array arr)
+				return CopyClipboardBytes(arr.ToByteArray().ToArray(), size);
+
+			var ptr = Reflections.GetPtrProperty(data);
+
+			if (ptr != 0)
+			{
+				var sourceLength = size;
+
+				if (sourceLength == long.MinValue && Script.GetPropertyValueOrNull(data, "Size") is object sz)
+					sourceLength = sz.Al(long.MinValue);
+
+				if (sourceLength > 0)
+					return CopyClipboardBytes((nint)ptr, sourceLength, size);
+			}
+
+			return System.Array.Empty<byte>();
+		}
+
+		private static byte[] CopyClipboardBytes(byte[] source, long requestedSize = long.MinValue)
+		{
+			if (source == null || source.Length == 0)
+				return System.Array.Empty<byte>();
+
+			var length = requestedSize == long.MinValue ? source.Length : (int)Math.Max(0, Math.Min(requestedSize, source.Length));
+			var result = new byte[length];
+			System.Array.Copy(source, result, length);
+			return result;
+		}
+
+		private static byte[] CopyClipboardBytes(nint sourcePtr, long sourceLength, long requestedSize = long.MinValue)
+		{
+			if (sourcePtr == 0 || sourceLength <= 0)
+				return System.Array.Empty<byte>();
+
+			var length = requestedSize == long.MinValue ? sourceLength : Math.Max(0, Math.Min(sourceLength, requestedSize));
+
+			if (length <= 0 || length > int.MaxValue)
+				return System.Array.Empty<byte>();
+
+			var result = new byte[length];
+			Marshal.Copy(sourcePtr, result, 0, (int)length);
+			return result;
+		}
 
 		/// <summary>
 		/// Internal helper to search the command line arguments for a specified string.
@@ -547,8 +612,8 @@ namespace Keysharp.Core
 		{
 			unsafe
 			{
-#if LINUX
-				clip.Restore();
+#if !WINDOWS
+				RestoreClipboardAllEto(clip, length);
 #elif WINDOWS
 				var wasOpened = false;
 
@@ -557,6 +622,7 @@ namespace Keysharp.Core
 					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))//Need to leave it open for it to work when using the Windows API.
 					{
 						wasOpened = true;
+						_ = WindowsAPI.EmptyClipboard();
 						var ptr = (nint)clip.Ptr;
 						length = Math.Min(Math.Max(0U, length), (long)clip.Size);
 
@@ -571,7 +637,7 @@ namespace Keysharp.Core
 							var size = Unsafe.Read<int>((void*)nint.Add(ptr, index));
 							index += 4;
 
-							if (index + size < length)
+							if (size > 0 && index + size <= length)
 							{
 								var hglobal = Marshal.AllocHGlobal(size);
 								System.Buffer.MemoryCopy((void*)nint.Add(ptr, index), hglobal.ToPointer(), size, size);
@@ -591,63 +657,155 @@ namespace Keysharp.Core
 #endif
 			}
 		}
-	}
+
 #if !WINDOWS
-	/// <summary>
-	/// Gotten from: https://stackoverflow.com/questions/6262454/c-sharp-backing-up-and-restoring-clipboard
-	/// </summary>
-	public class ClipboardAll : KeysharpObject
-	{
-		private Dictionary<string, object> backup = new Dictionary<string, object>();
-		private IDataObject dataObject = Clipboard.Instance;
-		private string[] formats;
+		private const int ClipboardAllEtoMagic = 0x42434B53; // "SKCB"
+		private const string ClipboardAllEtoImagePng = "__keysharp_image_png";
+		private const string ClipboardAllEtoUris = "__keysharp_uris";
 
-		public ClipboardAll(params object[] args) : base(args) { }
-
-		public override object __New(params object[] args)
+		private static byte[] CaptureClipboardAllEto()
 		{
-			Save();
-			return DefaultObject;
+			var clip = Clipboard.Instance;
+
+			if (clip == null)
+				return System.Array.Empty<byte>();
+
+			using var ms = new MemoryStream();
+			using var bw = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
+			bw.Write(ClipboardAllEtoMagic);
+			var seen = new HashSet<string>(StringComparer.Ordinal);
+
+			foreach (var type in clip.Types ?? System.Array.Empty<string>())
+			{
+				if (string.IsNullOrEmpty(type))
+					continue;
+
+				var payload = clip.GetData(type);
+
+				if (payload == null)
+				{
+					var str = clip.GetString(type);
+
+					if (str != null)
+						payload = Encoding.UTF8.GetBytes(str);
+				}
+
+				if (payload == null)
+					continue;
+
+				WriteEtoClipboardEntry(bw, type, payload);
+				_ = seen.Add(type);
+			}
+
+			if (clip.ContainsText && !seen.Contains(DataFormats.Text))
+			{
+				var text = clip.Text;
+
+				if (!string.IsNullOrEmpty(text))
+					WriteEtoClipboardEntry(bw, DataFormats.Text, Encoding.UTF8.GetBytes(text));
+			}
+
+			if (clip.ContainsHtml && !seen.Contains(DataFormats.Html))
+			{
+				var html = clip.Html;
+
+				if (!string.IsNullOrEmpty(html))
+					WriteEtoClipboardEntry(bw, DataFormats.Html, Encoding.UTF8.GetBytes(html));
+			}
+
+			if (clip.ContainsImage && clip.Image is Bitmap bmp)
+			{
+				var imageBytes = bmp.ToByteArray(ImageFormat.Png);
+
+				if (imageBytes != null && imageBytes.Length > 0)
+					WriteEtoClipboardEntry(bw, ClipboardAllEtoImagePng, imageBytes);
+			}
+
+			if (clip.ContainsUris && clip.Uris is Uri[] uris && uris.Length > 0)
+				WriteEtoClipboardEntry(bw, ClipboardAllEtoUris, Encoding.UTF8.GetBytes(string.Join("\n", uris.Select(u => u.OriginalString))));
+
+			bw.Write(0);
+			return ms.ToArray();
 		}
 
-		internal void Save()
+		private static void RestoreClipboardAllEto(ClipboardAll clip, long length)
 		{
-			backup = new Dictionary<string, object>();
-			dataObject = Clipboard.Instance;
-			formats = dataObject?.Types?.ToArray() ?? System.Array.Empty<string>();
+			var sourceBytes = ExtractClipboardAllBytes(clip, length > 0 ? length : (long)clip.Size);
+			var clipboard = Clipboard.Instance;
 
-			foreach (var format in formats)
+			if (clipboard == null)
+				return;
+
+			if (sourceBytes.Length == 0)
 			{
-				var value = dataObject.GetObject(format);
-				if (value != null)
-					backup[format] = value;
+				clipboard.Clear();
+				return;
+			}
+
+			using var ms = new MemoryStream(sourceBytes, writable: false);
+			using var br = new BinaryReader(ms, Encoding.UTF8, leaveOpen: true);
+
+			if (ms.Length < 4 || br.ReadInt32() != ClipboardAllEtoMagic)
+				return;
+
+			clipboard.Clear();
+
+			while (ms.Position < ms.Length)
+			{
+				var typeLen = br.ReadInt32();
+
+				if (typeLen == 0)
+					break;
+
+				if (typeLen < 0 || typeLen > ms.Length - ms.Position)
+					break;
+
+				var type = Encoding.UTF8.GetString(br.ReadBytes(typeLen));
+				var dataLen = br.ReadInt32();
+
+				if (dataLen < 0 || dataLen > ms.Length - ms.Position)
+					break;
+
+				var payload = br.ReadBytes(dataLen);
+
+				if (type == ClipboardAllEtoImagePng)
+				{
+					using var imgStream = new MemoryStream(payload, writable: false);
+					clipboard.Image = new Bitmap(imgStream);
+				}
+				else if (type == ClipboardAllEtoUris)
+				{
+					var parsedUris = Encoding.UTF8.GetString(payload)
+						.Split(['\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+						.Select(s => Uri.TryCreate(s, UriKind.Absolute, out var u) ? u : null)
+						.Where(u => u != null)
+						.ToArray();
+
+					if (parsedUris.Length > 0)
+						clipboard.Uris = parsedUris;
+				}
+				else
+				{
+					clipboard.SetData(payload, type);
+				}
 			}
 		}
 
-		internal void Restore()
+		private static void WriteEtoClipboardEntry(BinaryWriter bw, string type, byte[] payload)
 		{
-			dataObject = new DataObject();
-
-			foreach (var format in formats)
-			{
-				if (backup.TryGetValue(format, out var value) && value != null)
-					dataObject.SetObject(value, format);
-			}
-
-			foreach (var format in formats)
-			{
-				if (backup.TryGetValue(format, out var value) && value != null)
-					Clipboard.Instance.SetObject(value, format);
-			}
+			var typeBytes = Encoding.UTF8.GetBytes(type);
+			bw.Write(typeBytes.Length);
+			bw.Write(typeBytes);
+			bw.Write(payload.Length);
+			bw.Write(payload);
 		}
+#endif
 	}
-#elif WINDOWS
-
-    /// <summary>
-    /// A class that represents clipboard data.
-    /// This is just a thin derivation of <see cref="Buffer"/>.
-    /// </summary>
-    public class ClipboardAll : Buffer
+	/// <summary>
+	/// A class that represents clipboard data.
+	/// This is just a thin derivation of <see cref="Buffer"/>.
+	/// </summary>
+	public class ClipboardAll : Buffer
 	{
 		/// <summary>
 		/// Constructor that just passes the data to the base.
@@ -658,13 +816,27 @@ namespace Keysharp.Core
 		//{
 		//}
 
+		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+
+		public override object __New(params object[] args)
+		{
+			byte[] bytes;
+
+			if (args == null || args.Length == 0 || args[0] == null)
+			{
+				bytes = Env.CaptureClipboardAllBytes();
+			}
+			else
+			{
+				var size = args.Length > 1 ? args[1].Al(long.MinValue) : long.MinValue;
+				bytes = Env.ExtractClipboardAllBytes(args[0], size);
+			}
+
+			return base.__New([bytes]);
+		}
+
 		public ClipboardAll(params object[] args) : base(args) { }
 	}
-#else
-	public class ClipboardAll
-	{
-	}
-#endif
 
 	public partial class Ks
 	{
@@ -711,6 +883,7 @@ namespace Keysharp.Core
 					CreateNoWindow = true
 				}
 			};
+
 			var info = new ProcessInfo(scriptProcess);
 			scriptProcess.EnableRaisingEvents = true;
 			scriptProcess.Exited += (object sender, EventArgs e) => cb?.Call(info);

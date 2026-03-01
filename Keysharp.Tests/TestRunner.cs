@@ -5,7 +5,7 @@ namespace Keysharp.Tests
 {
 	public class TestRunner
 	{
-		protected string path = string.Format("..{0}..{0}..{0}Keysharp.Tests{0}Code{0}", Path.DirectorySeparatorChar);
+		protected string path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Keysharp.Tests", "Code")) + Path.DirectorySeparatorChar;
 		private const string ext = ".ahk";
 		protected Script s;
 		internal HotstringManager hsm;
@@ -42,7 +42,6 @@ namespace Keysharp.Tests
 			Console.Error.WriteLine($"[SCRIPT START] {name}");
 			ResetScriptState();
 			s.SetName(name);
-			_ = Ks.OutputDebugLine(Environment.CurrentDirectory);
 			var ch = new CompilerHelper();
 			var (arr, code) = ch.CompileCodeToByteArray([source], name);
 
@@ -52,10 +51,7 @@ namespace Keysharp.Tests
 				return string.Empty;
 			}
 
-			using (var sourceWriter = new StreamWriter("./" + name + ".cs"))
-			{
-				sourceWriter.WriteLine(code);
-			}
+			// Avoid writing generated script sources into the repo tree, which can pollute subsequent test builds.
 
 			if (exeout)
 			{

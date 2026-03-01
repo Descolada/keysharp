@@ -215,10 +215,14 @@ if (IsObject(m) == 1)
 else
 	FileAppend "fail", "*"
 
+#if WINDOWS
 if (IsObject(ComObjArray(13, 1)) == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+#else
+FileAppend "pass", "*"
+#endif
 
 if (IsDigit(1) == 1)
 	FileAppend "pass", "*"

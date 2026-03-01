@@ -42,6 +42,7 @@ preprocessor_directive
     | ErrorStdOut directive_new_line_or_sharp                                                                                # preprocessorErrorStdOut
     | WinActivateForce directive_new_line_or_sharp                                                                           # preprocessorWinActivateForce
     | NoTrayIcon directive_new_line_or_sharp                                                                                 # preprocessorNoTrayIcon
+    | NoMainWindow directive_new_line_or_sharp                                                                               # preprocessorNoMainWindow
     | ( HotIfTimeout
       | MaxThreads
       | MaxThreadsBuffer

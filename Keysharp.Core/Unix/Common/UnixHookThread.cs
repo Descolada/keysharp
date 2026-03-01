@@ -251,21 +251,8 @@ namespace Keysharp.Core.Unix
 
 		public override void SimulateKeyPress(uint key)
 		{
-			uint vk = 0;
-
-			// On non-Windows tests, callers may pass Eto.Forms.Keys values.
-			// Prefer parsing the platform key enum name first (e.g. "B", "Enter").
-			var formKeyName = ((Forms.Keys)key).ToString();
-			if (!string.IsNullOrEmpty(formKeyName) && !char.IsDigit(formKeyName[0]))
-			{
-				uint? mods = null;
-				vk = TextToVK(formKeyName.AsSpan(), ref mods, false, false, 0);
-			}
-
-			// Fallback: treat as WinForms virtual-key value.
-			if (vk == 0)
-				vk = (uint)((Keys)key & Keys.KeyCode);
-
+			// SimulateKeyPress expects a WinForms virtual-key value.
+			var vk = (uint)((Keys)key & Keys.KeyCode);
 			if (vk == 0)
 				return;
 

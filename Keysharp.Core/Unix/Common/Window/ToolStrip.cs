@@ -256,10 +256,19 @@ namespace Keysharp.Core.Unix
 
 	public class ToolStrip
 	{
+		private static long nextSyntheticHandle = 1;
+		private readonly nint syntheticHandle;
 		public ToolStripItemCollection Items { get; }
 		public string Name { get; set; } = "";
 		public DockStyle Dock { get; set; } = DockStyle.None;
-		public nint Handle => ContextMenu.Handle;
+		public nint Handle
+		{
+			get
+			{
+				var handle = ContextMenu.Handle;
+				return handle != 0 ? handle : syntheticHandle;
+			}
+		}
 
 		public Color BackColor
 		{
@@ -277,6 +286,7 @@ namespace Keysharp.Core.Unix
 
 		public ToolStrip()
 		{
+			syntheticHandle = new nint(Interlocked.Increment(ref nextSyntheticHandle));
 			Items = new ToolStripItemCollection(this);
 		}
 

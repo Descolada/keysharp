@@ -793,20 +793,6 @@ namespace Keysharp.Scripting
                             )
                         ));
                         break;
-                    case "NOTRAYICON":
-                        parser.generalDirectiveStatements.Add(SyntaxFactory.ExpressionStatement(
-                            SyntaxFactory.AssignmentExpression(
-                                SyntaxKind.SimpleAssignmentExpression,
-								SyntaxFactory.MemberAccessExpression(
-									SyntaxKind.SimpleMemberAccessExpression,
-									SyntaxFactory.IdentifierName("MainScript"),
-									SyntaxFactory.IdentifierName("NoTrayIcon")
-								),
-								PredefinedKeywords.EqualsToken,
-								SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)
-                            )
-                        ));
-                        break;
                     case "WINACTIVATEFORCE":
                         parser.generalDirectiveStatements.Add(SyntaxFactory.ExpressionStatement(
                             SyntaxFactory.AssignmentExpression(

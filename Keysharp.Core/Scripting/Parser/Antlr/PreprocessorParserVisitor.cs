@@ -130,6 +130,13 @@ public interface IPreprocessorParserVisitor<Result> : IParseTreeVisitor<Result> 
 	/// <return>The visitor result.</return>
 	Result VisitPreprocessorNoTrayIcon([NotNull] PreprocessorParser.PreprocessorNoTrayIconContext context);
 	/// <summary>
+	/// Visit a parse tree produced by the <c>preprocessorNoMainWindow</c>
+	/// labeled alternative in <see cref="PreprocessorParser.preprocessor_directive"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitPreprocessorNoMainWindow([NotNull] PreprocessorParser.PreprocessorNoMainWindowContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>preprocessorNumericDirective</c>
 	/// labeled alternative in <see cref="PreprocessorParser.preprocessor_directive"/>.
 	/// </summary>

@@ -366,6 +366,7 @@ namespace Keysharp.Scripting
             { "MaxThreads", null },
             { "MaxThreadsBuffer", null },
             { "MaxThreadsPerHotkey", null },
+            { "NoMainWindow", null },
             { "NoTrayIcon", null },
             { "WinActivateForce", null },
             { "AssemblyTitle", null },

@@ -334,10 +334,10 @@ namespace Keysharp.Tests
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			Assert.IsTrue(A_KeybdHookInstalled == 1L);//Will fail if system has another hook, so exit your scripts before running this.
 			Assert.IsTrue(A_MouseHookInstalled == 1L);//Because there is a hotstring and mouse reset is true by default, the mouse hook gets installed.
-			s.SimulateKeyPress((uint)Keys.B);
-			s.SimulateKeyPress((uint)Keys.T);
-			s.SimulateKeyPress((uint)Keys.W);
-			s.SimulateKeyPress((uint)Keys.Enter);
+			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("b"));
+			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("t"));
+			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("w"));
+			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("Enter"));
 			Thread.Sleep(2000);
 			Assert.AreEqual(btwtyped, true);
 		}

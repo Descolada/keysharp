@@ -288,6 +288,7 @@ MaxThreads             : 'maxthreads'            -> channel(DIRECTIVE);
 MaxThreadsBuffer       : 'maxthreadsbuffer'      -> channel(DIRECTIVE);
 MaxThreadsPerHotkey    : 'maxthreadsperhotkey'   -> channel(DIRECTIVE);
 WinActivateForce       : 'winactivateforce'      -> channel(DIRECTIVE);
+NoMainWindow           : 'nomainwindow'          -> channel(DIRECTIVE);
 NoTrayIcon             : 'notrayicon'            -> channel(DIRECTIVE);
 Assembly               : 'assembly' ('title'
                                     | 'description'

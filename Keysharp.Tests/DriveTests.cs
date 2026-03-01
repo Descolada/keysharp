@@ -32,7 +32,11 @@ namespace Keysharp.Tests
 		public void DriveGetFileSystem()
 		{
 			var sys = Core.Drive.DriveGetFileSystem(drive);
-			Assert.IsTrue(sys == "NTFS" || sys == "FAT32" || sys == "FAT" || sys == "CDFS" || sys == "UDF" || sys == "udev");//Assume it's at least one of the common file system types.
+#if WINDOWS
+			Assert.IsTrue(sys == "NTFS" || sys == "FAT32" || sys == "FAT" || sys == "CDFS" || sys == "UDF");//Assume it's at least one of the common file system types.
+#else
+			Assert.IsTrue(!string.IsNullOrWhiteSpace(sys));//Linux/WSL file system names vary widely (ext4/overlay/9p/...).
+#endif
 			Assert.IsTrue(TestScript("drive-getfilesystem", true));
 		}
 

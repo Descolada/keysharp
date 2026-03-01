@@ -115,7 +115,14 @@ namespace Keysharp.Scripting
 					);
 				}
 
-				var mainBodyBlock = CreateMainMethod(Keywords.MainScriptVariableName, Keywords.AutoExecSectionName, System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance), parser.mainFuncInitial);
+				var mainBodyBlock = CreateMainMethod(
+					Keywords.MainScriptVariableName,
+					Keywords.AutoExecSectionName,
+					System.Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance),
+					parser.mainFuncInitial,
+					parser.generalDirectives.TryGetValue("NoMainWindow", out var noMainWindowValue) && noMainWindowValue != null,
+					parser.generalDirectives.TryGetValue("NoTrayIcon", out var noTrayIconValue) && noTrayIconValue != null
+				);
 				parser.mainEntryFunc.Body = mainBodyBlock.Statements.ToList();
 
 				GenerateGeneralDirectiveStatements();
@@ -439,7 +446,9 @@ namespace Keysharp.Scripting
 			string mainScriptVarName,            // e.g. "MainScript"
 			string autoExecName,                 // e.g. "AutoExecSection"
 			string singleInstanceMemberName,      // e.g. Enum.GetName(typeof(eScriptInstance), parser.reader.SingleInstance)
-			List<StatementSyntax> tryStatements = null
+			List<StatementSyntax> tryStatements = null,
+			bool hasNoMainWindow = false,
+			bool hasNoTrayIcon = false
 		)
 		{
 			// ---- local helpers (closures) ----
@@ -465,10 +474,38 @@ namespace Keysharp.Scripting
 			var mainScriptId = SyntaxFactory.IdentifierName(mainScriptVarName);                       // MainScript
 			var autoExecId = SyntaxFactory.IdentifierName(autoExecName);                            // AutoExecSection
 			var aScriptName = SMA("Keysharp.Core.Accessors", "A_ScriptName");                         // Accessors.A_ScriptName
-			var suppressDialog = MA(mainScriptId, "SuppressErrorOccurredDialog");                       // MainScript.SuppressErrorOccurredDialog
 
 			// ---- try { ... } ----
 			tryStatements ??= new List<StatementSyntax>();
+
+			// Apply startup-affecting directives before RunMainWindow.
+			if (hasNoMainWindow)
+			{
+				tryStatements.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.AssignmentExpression(
+							SyntaxKind.SimpleAssignmentExpression,
+							MA(mainScriptId, "NoMainWindow"),
+							SyntaxFactory.Token(SyntaxKind.EqualsToken),
+							SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)
+						)
+					)
+				);
+			}
+
+			if (hasNoTrayIcon)
+			{
+				tryStatements.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.AssignmentExpression(
+							SyntaxKind.SimpleAssignmentExpression,
+							MA(mainScriptId, "NoTrayIcon"),
+							SyntaxFactory.Token(SyntaxKind.EqualsToken),
+							SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression)
+						)
+					)
+				);
+			}
 
 			// if (Script.HandleSingleInstance(A_ScriptName, eScriptInstance.<member>)) { return 0; }
 			var singleInstanceGate = SyntaxFactory.IfStatement(
@@ -504,55 +541,16 @@ namespace Keysharp.Scripting
 
 			var tryBlock = SyntaxFactory.Block(tryStatements);
 
-			// ---- catch (Keysharp.Core.Flow.UserRequestedExitException) { } ----
-			var catchUserRequestedExit =
-				SyntaxFactory.CatchClause()
-					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.Flow.UserRequestedExitException")))
-					.WithBlock(SyntaxFactory.Block());
-
-			// ---- catch (Keysharp.Core.KeysharpException kserr) { ... } ----
-			var kserrId = SyntaxFactory.Identifier("kserr");
-			var kserrUserError = MA(SyntaxFactory.IdentifierName(kserrId), "UserError");
-
-			// if (!kserr.Processed) Keysharp.Core.Errors.ErrorOccurred(kserr);
-			var processedExpr = MA(kserrUserError, "Processed");
-			var handledExpr = MA(kserrUserError, "Handled");
-
-			var errorOccurredCall = Call(
-				SMA("Keysharp.Core.Errors", "ErrorOccurred"),
-				kserrUserError,
-				MA(kserrUserError, "ExcType")
-			);
-			var errorOccurredStmt = SyntaxFactory.ExpressionStatement(errorOccurredCall);
-
-			var ifNotProcessed = SyntaxFactory.IfStatement(Not(processedExpr), errorOccurredStmt);
-
-			// if (!kserr.Handled && !MainScript.SuppressErrorOccurredDialog) MsgBox("Uncaught Keysharp exception:\r\n" + kserr, A_ScriptName + ": Unhandled exception", "iconx");
-			var showKeysharpMsgCond = AndAlso(Not(handledExpr), Not(suppressDialog));
-			var keysharpMsg =
-				Plus(S("Uncaught Keysharp exception:\r\n"), SyntaxFactory.IdentifierName(kserrId));
-			var keysharpTitle =
-				Plus(aScriptName, S(": Unhandled exception"));
-			var msgBoxKeysharp = SyntaxFactory.ExpressionStatement(
-				Call(SMA("Keysharp.Core.Dialogs", "MsgBox"), keysharpMsg, keysharpTitle, S("iconx"))
-			);
-			var ifShowKeysharpMsg = SyntaxFactory.IfStatement(showKeysharpMsgCond, msgBoxKeysharp);
-			var stderrKeysharp = SyntaxFactory.ExpressionStatement(
-				Call(SMA("Keysharp.Core.Debug", "WriteUncaughtErrorToStdErr"), keysharpMsg)
-			);
-
-			// ExitApp(1);
-			var exitApp1 = SyntaxFactory.ExpressionStatement(
-				Call(SMA("Keysharp.Core.Flow", "ExitApp"), N(1))
-			);
-
-			var catchKserr =
-				SyntaxFactory.CatchClause()
-					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("Keysharp.Core.KeysharpException"), kserrId))
-					.WithBlock(SyntaxFactory.Block(stderrKeysharp, ifNotProcessed, ifShowKeysharpMsg, exitApp1));
-
 			// ---- catch (System.Exception mainex) { ... } ----
 			var mainexId = SyntaxFactory.Identifier("mainex");
+			var kserrId = SyntaxFactory.Identifier("kserr");
+			var handleKeysharpException = SyntaxFactory.ExpressionStatement(
+				Call(
+					SMA("Keysharp.Scripting.Script", "TryProcessKeysharpException"),
+					mainScriptId,
+					SyntaxFactory.IdentifierName(kserrId)
+				)
+			);
 
 			// var ex = Keysharp.Core.Flow.UnwrapException(mainex);
 			var exDecl = SyntaxFactory.LocalDeclarationStatement(
@@ -569,7 +567,18 @@ namespace Keysharp.Scripting
 					)
 			);
 
-			// if (ex is Keysharp.Core.KeysharpException kserr) { ... } else if (!MainScript.SuppressErrorOccurredDialog) { MsgBox(...); }
+			// if (ex is Keysharp.Core.Flow.UserRequestedExitException) return System.Environment.ExitCode;
+			var isUserRequestedExitPattern = SyntaxFactory.BinaryExpression(
+				SyntaxKind.IsExpression,
+				SyntaxFactory.IdentifierName("ex"),
+				Q("Keysharp.Core.Flow.UserRequestedExitException")
+			);
+			var ifUserRequestedExit = SyntaxFactory.IfStatement(
+				isUserRequestedExitPattern,
+				SyntaxFactory.ReturnStatement(MA(MA(Q("System"), "Environment"), "ExitCode"))
+			);
+
+			// if (ex is Keysharp.Core.KeysharpException kserr) { ... } else { ... }
 			var isKsErrorPattern = SyntaxFactory.IsPatternExpression(
 				SyntaxFactory.IdentifierName("ex"),
 				SyntaxFactory.DeclarationPattern(
@@ -580,54 +589,33 @@ namespace Keysharp.Scripting
 
 			var ifIsKeysharpError = SyntaxFactory.IfStatement(
 				isKsErrorPattern,
-				SyntaxFactory.Block(ifNotProcessed, ifShowKeysharpMsg)
+				SyntaxFactory.Block(handleKeysharpException)
 			);
 
-			// else if (!MainScript.SuppressErrorOccurredDialog) { MsgBox("Uncaught exception:\r\n" + "Message: " + ex.Message + "\r\nStack: " + ex.StackTrace, A_ScriptName + ": Unhandled exception", "iconx"); }
-			var genericMsg =
-				Plus(S("Uncaught exception:\r\n"),
-					Plus(S("Message: "),
-						Plus(MA(SyntaxFactory.IdentifierName("ex"), "Message"),
-							Plus(S("\r\nStack: "),
-								MA(SyntaxFactory.IdentifierName("ex"), "StackTrace")))));
-
-			var msgBoxElse = SyntaxFactory.ExpressionStatement(
-				Call(SMA("Keysharp.Core.Dialogs", "MsgBox"), genericMsg, keysharpTitle, S("iconx"))
+			// else { Script.TryProcessUnhandledException(MainScript, ex); }
+			var handleUncaughtGeneric = SyntaxFactory.ExpressionStatement(
+				Call(
+					SMA("Keysharp.Scripting.Script", "TryProcessUnhandledException"),
+					mainScriptId,
+					SyntaxFactory.IdentifierName("ex")
+				)
 			);
-
 			var elseIfShowGeneric = SyntaxFactory.ElseClause(
-				SyntaxFactory.IfStatement(Not(suppressDialog), msgBoxElse)
+				SyntaxFactory.Block(handleUncaughtGeneric)
 			);
 
 			var ifIsKsErrorWithElse = ifIsKeysharpError.WithElse(elseIfShowGeneric);
-
-			var exitApp2 = SyntaxFactory.ExpressionStatement(Call(SMA("Keysharp.Core.Flow", "ExitApp"), N(1)));
-			var stderrGeneric = SyntaxFactory.ExpressionStatement(
-				Call(
-					SMA("Keysharp.Core.Debug", "WriteUncaughtErrorToStdErr"),
-					Plus(S("Uncaught exception:\r\n"), SyntaxFactory.IdentifierName("ex"))
-				)
-			);
-			var isUserRequestedExitPattern = SyntaxFactory.BinaryExpression(
-				SyntaxKind.IsExpression,
-				SyntaxFactory.IdentifierName("ex"),
-				Q("Keysharp.Core.Flow.UserRequestedExitException")
-			);
-			var ifNotUserRequestedExit = SyntaxFactory.IfStatement(
-				SyntaxFactory.PrefixUnaryExpression(
-					SyntaxKind.LogicalNotExpression,
-					SyntaxFactory.ParenthesizedExpression(isUserRequestedExitPattern)
-				),
-				SyntaxFactory.Block(stderrGeneric, ifIsKsErrorWithElse, exitApp2)
+			var safeExit = SyntaxFactory.ExpressionStatement(
+				Call(SMA("Keysharp.Scripting.Script", "SafeExit"), N(1))
 			);
 
 			var catchMainEx =
 				SyntaxFactory.CatchClause()
 					.WithDeclaration(SyntaxFactory.CatchDeclaration(Q("System.Exception"), mainexId))
-					.WithBlock(SyntaxFactory.Block(exDecl, ifNotUserRequestedExit));
+					.WithBlock(SyntaxFactory.Block(exDecl, ifUserRequestedExit, ifIsKsErrorWithElse, safeExit));
 
 			// try/catches
-			var tryStatement = SyntaxFactory.TryStatement(tryBlock, SyntaxFactory.List(new[] { catchUserRequestedExit, catchKserr, catchMainEx }), default);
+			var tryStatement = SyntaxFactory.TryStatement(tryBlock, SyntaxFactory.List(new[] { catchMainEx }), default);
 
 			// return System.Environment.ExitCode;
 			var returnExitCode = SyntaxFactory.ReturnStatement(MA(MA(Q("System"), "Environment"), "ExitCode"));

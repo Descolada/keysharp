@@ -10,6 +10,9 @@ namespace Keysharp.Tests
 #endif
 		public void FileSelect()
 		{
+			if (Script.IsHeadless)
+				Assert.Ignore("FileSelect requires an interactive desktop session.");
+
 			var fullpath = Path.GetFullPath(string.Concat(path, "DirCopy/file1.txt"));
 			var files = Dialogs.FileSelect();
 			//MsgBox(files);

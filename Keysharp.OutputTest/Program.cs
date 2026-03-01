@@ -71,32 +71,22 @@ namespace Keysharp.CompiledMain
 					return 0;
 				Keysharp.Core.Env.HandleCommandLineParams(args);
 				MainScript.RunMainWindow(Keysharp.Core.Accessors.A_ScriptName, AutoExecSection, false);
-				MainScript.WaitThreads();
-			}
-			catch (Keysharp.Core.Flow.UserRequestedExitException)
-			{
-			}
-			catch (Keysharp.Core.KeysharpException kserr)
-			{
-				if (!kserr.UserError.Processed)
-					Keysharp.Core.Errors.ErrorOccurred(kserr.UserError, kserr.UserError.ExcType);
-				if (!kserr.UserError.Handled && !MainScript.SuppressErrorOccurredDialog)
-					Keysharp.Core.Dialogs.MsgBox("Uncaught Keysharp exception:\r\n" + kserr, Keysharp.Core.Accessors.A_ScriptName + ": Unhandled exception", "iconx");
-				Keysharp.Core.Flow.ExitApp(1);
 			}
 			catch (System.Exception mainex)
 			{
-				var ex = mainex.InnerException ?? mainex;
+				var ex = Keysharp.Core.Flow.UnwrapException(mainex);
+				if (ex is Keysharp.Core.Flow.UserRequestedExitException)
+					return System.Environment.ExitCode;
 				if (ex is Keysharp.Core.KeysharpException kserr)
 				{
-					if (!kserr.UserError.Processed)
-						Keysharp.Core.Errors.ErrorOccurred(kserr.UserError, kserr.UserError.ExcType);
-					if (!kserr.UserError.Handled && !MainScript.SuppressErrorOccurredDialog)
-						Keysharp.Core.Dialogs.MsgBox("Uncaught Keysharp exception:\r\n" + kserr, Keysharp.Core.Accessors.A_ScriptName + ": Unhandled exception", "iconx");
+					Keysharp.Scripting.Script.TryProcessKeysharpException(MainScript, kserr);
 				}
-				else if (!MainScript.SuppressErrorOccurredDialog)
-					Keysharp.Core.Dialogs.MsgBox("Uncaught exception:\r\n" + "Message: " + ex.Message + "\r\nStack: " + ex.StackTrace, Keysharp.Core.Accessors.A_ScriptName + ": Unhandled exception", "iconx");
-				Keysharp.Core.Flow.ExitApp(1);
+				else
+				{
+					Keysharp.Scripting.Script.TryProcessUnhandledException(MainScript, ex);
+				}
+
+				Keysharp.Scripting.Script.SafeExit(1);
 			}
 
 			return System.Environment.ExitCode;

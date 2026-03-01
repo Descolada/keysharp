@@ -261,16 +261,18 @@
 			}
 			else
 			{
-				var input = p == "" ? DefaultObject : Path.GetFullPath(p);
-				if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input) ?? DefaultObject);
-				if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input)?.Trim('.') ?? DefaultObject);
-				if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input) ?? DefaultObject);
+				var input = p == "" ? DefaultObject : (p.StartsWith(@"\\") ? p : Path.GetFullPath(p));
 
 				if (p.StartsWith(@"\\"))
 				{
 					//There appear to be no built in methods to process UNC paths, so do it manually here.
 					var nextSlash = input.IndexOf('\\', 2);
 					var lastSlash = input.LastIndexOf('\\');
+					var hasFileComponent = input.Contains('.') && lastSlash > nextSlash && lastSlash >= 0 && lastSlash + 1 < input.Length;
+
+					if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", hasFileComponent ? input[(lastSlash + 1)..] : "");
+					if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", hasFileComponent ? Path.GetExtension(input).Trim('.') : "");
+					if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", hasFileComponent ? Path.GetFileNameWithoutExtension(input[(lastSlash + 1)..]) : "");
 
 					if (outDrive != null)
 					{
@@ -295,6 +297,9 @@
 				}
 				else
 				{
+					if (outFileName != null) Script.SetPropertyValue(outFileName, "__Value", Path.GetFileName(input) ?? DefaultObject);
+					if (outExtension != null) Script.SetPropertyValue(outExtension, "__Value", Path.GetExtension(input)?.Trim('.') ?? DefaultObject);
+					if (outNameNoExt != null) Script.SetPropertyValue(outNameNoExt, "__Value", Path.GetFileNameWithoutExtension(input) ?? DefaultObject);
 					if (outDir != null) Script.SetPropertyValue(outDir, "__Value", Path.GetDirectoryName(input)?.TrimEnd('\\') ?? DefaultObject);
 					if (outDrive != null) Script.SetPropertyValue(outDrive, "__Value", Path.GetPathRoot(input)?.TrimEnd('\\') ?? DefaultObject);
 				}

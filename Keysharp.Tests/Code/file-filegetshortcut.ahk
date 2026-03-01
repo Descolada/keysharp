@@ -8,7 +8,7 @@ if (DirExist("./FileGetShortcut"))
 if (FileExist("./testshortcut.lnk"))
 	FileDelete("./testshortcut.lnk")
 
-path := "../../../Keysharp.Tests/Code/"
+path := A_ScriptDir . "/"
 dir := path . "DirCopy"
 DirCopy(dir, "./FileGetShortcut/")
 fullpath := FileDirName("./FileGetShortcut/file1.txt")
@@ -96,7 +96,12 @@ if ("" == outArgs)
 else
 	FileAppend "fail", "*"
 
-if ("../../../Keysharp.ico" == outIcon)
+expectedIcon := "../../../Keysharp.ico"
+#if LINUX
+expectedIcon := FileFullPath(expectedIcon)
+#endif
+
+if (expectedIcon == outIcon)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

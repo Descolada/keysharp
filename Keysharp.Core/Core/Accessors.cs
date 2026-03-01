@@ -240,7 +240,7 @@
 					}
 					return DefaultObject;
 #else
-					return Clipboard.Instance.Text ?? DefaultObject;
+					return Clipboard.Instance?.Text ?? DefaultObject;
 #endif
 				};
 				var ret = "";
@@ -252,16 +252,20 @@
 				Script.TheScript.mainWindow.CheckedInvoke(() =>
 				{
 #if !WINDOWS
+					var clip = Clipboard.Instance;
+
+					if (clip == null)
+						return;
 
 					if (value == null || (value is string s && s?.Length == 0))
 					{
 						//Clipboard.Clear();//For some reason this doesn't work on linux. Bug reported here: https://github.com/DanielVanNoord/System.Windows.Forms/issues/17
-						Clipboard.Instance.Clear();
+						clip.Clear();
 					}
 					else if (value is ClipboardAll arr)
 						Env.RestoreClipboardAll(arr, 0L);
 					else
-						Clipboard.Instance.Text = value.ToString();
+						clip.Text = value.ToString();
 
 #else
 
@@ -768,15 +772,35 @@
 		{
 			get
 			{
-				var path = Path.GetFileName(
+				var processName = Path.GetFileName(
 #if WINDOWS
 					Application.ExecutablePath
 #else
 					Environment.ProcessPath ?? string.Empty
 #endif
 					).ToLowerInvariant();
-				return path != "keysharp.dll" && path != "keysharp.exe" && path != "testhost.exe"
-					   && path != "keysharp" && path != "testhost" && path != "testhost.dll";
+
+				if (processName is "keysharp.dll" or "keysharp.exe"
+					or "keysharp"
+					or "keyview.dll" or "keyview.exe"
+					or "keyview"
+					or "testhost.exe" or "testhost.dll"
+					or "testhost"
+					or "dotnet" or "dotnet.exe")
+					return false;
+
+				var scriptName = Script.TheScript?.scriptName;
+
+				if (string.IsNullOrEmpty(scriptName))
+					return true;
+
+				if (scriptName.EndsWith(".ahk", StringComparison.OrdinalIgnoreCase))
+					return false;
+
+				if (scriptName == "*")
+					return CompilerHelper.compiledasm == null;
+
+				return true;
 			}
 		}
 
@@ -1500,12 +1524,38 @@
 		/// <summary>
 		/// The height of the primary monitor in pixels.
 		/// </summary>
-		public static long A_ScreenHeight => Forms.Screen.PrimaryScreen.Bounds.Height.Al();
+		public static long A_ScreenHeight
+		{
+			get
+			{
+				try
+				{
+					return Forms.Screen.PrimaryScreen?.Bounds.Height.Al() ?? 0L;
+				}
+				catch
+				{
+					return 0L;
+				}
+			}
+		}
 
 		/// <summary>
 		/// The width of the primary monitor in pixels.
 		/// </summary>
-		public static long A_ScreenWidth => Forms.Screen.PrimaryScreen.Bounds.Width.Al();
+		public static long A_ScreenWidth
+		{
+			get
+			{
+				try
+				{
+					return Forms.Screen.PrimaryScreen?.Bounds.Width.Al() ?? 0L;
+				}
+				catch
+				{
+					return 0L;
+				}
+			}
+		}
 
 		/// <summary>
 		/// The directory the script is running in.

@@ -271,14 +271,22 @@ f.Close()
 
 b := false
 #if WINDOWS
+fShareRead := ""
 try
 {
-	FileOpen(path, "r -r")
+	fShareRead := FileOpen(path, "r -r")
 	FileOpen(path, "r")
 }
 catch
 {
 	b := true
+}
+try
+{
+	fShareRead.Close()
+}
+catch
+{
 }
 
 if (b == true)
@@ -287,15 +295,56 @@ else
 	FileAppend "fail", "*"
 
 b := false
+fShareWrite := ""
 
 try
 {
-	FileOpen(path, "rw -w")
+	fShareWrite := FileOpen(path, "rw -w")
 	FileOpen(path, "rw")
 }
 catch
 {
 	b := true
+}
+try
+{
+	fShareWrite.Close()
+}
+catch
+{
+}
+
+if (b == true)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+b := false
+fNumLock1 := ""
+fNumLock2 := ""
+
+try
+{
+	fNumLock1 := FileOpen(path, 0) ; Numeric flags without share bits should lock.
+	fNumLock2 := FileOpen(path, 0)
+}
+catch
+{
+	b := true
+}
+try
+{
+	fNumLock1.Close()
+}
+catch
+{
+}
+try
+{
+	fNumLock2.Close()
+}
+catch
+{
 }
 
 if (b == true)
@@ -310,7 +359,9 @@ try
 {
 	f := FileOpen(path, "r -r")
 	handle := f.Handle
-	FileOpen(handle, "r h")
+	f2 := FileOpen(handle, "r h")
+	f2.Close()
+	f.Close()
 }
 catch
 {
@@ -318,9 +369,9 @@ catch
 }
 
 if (b == true)
-	FileAppend "pass", "*"
-else
 	FileAppend "fail", "*"
+else
+	FileAppend "pass", "*"
 
 if (FileExist(path) != "")
 	FileDelete(path)

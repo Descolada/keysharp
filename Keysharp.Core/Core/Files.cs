@@ -991,22 +991,22 @@ namespace Keysharp.Core
 						}
 						else
 						{
+							// Numeric flags default to no sharing unless explicit share bits are present.
+							shareset = true;
+
 							if ((i & 0x100) == 0x100)
 							{
 								share |= FileShare.Read;
-								shareset = true;
 							}
 
 							if ((i & 0x200) == 0x200)
 							{
 								share |= FileShare.Write;
-								shareset = true;
 							}
 
 							if ((i & 0x400) == 0x400)
 							{
 								share |= FileShare.Delete;
-								shareset = true;
 							}
 						}
 					}

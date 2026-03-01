@@ -1182,6 +1182,10 @@ namespace Keysharp.Core.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool CloseClipboard();
 
+		[LibraryImport(user32, EntryPoint = "EmptyClipboard")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool EmptyClipboard();
+
 		internal static bool OpenClipboard(long ms)
 		{
 			bool open;

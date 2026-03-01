@@ -495,7 +495,8 @@ namespace Keysharp.Scripting
 								throw new ParseException($"Directive #{directiveStr} requires a parameter.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
 							parser.generalDirectives[directiveStr] = directiveTokens[1].Text.Trim();
                             break;
-                        case "WINACTIVATEFORCE":
+						case "WINACTIVATEFORCE":
+						case "NOMAINWINDOW":
                         case "NOTRAYICON":
 							parser.generalDirectives[directiveStr] = "1";
 							break;

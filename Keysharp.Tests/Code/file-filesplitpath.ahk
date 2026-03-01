@@ -1,4 +1,4 @@
-path := "../../../Keysharp.Tests/Code/DirCopy/file1.txt"
+path := A_ScriptDir . "/DirCopy/file1.txt"
 filename := 
 dir :=
 ext :=
@@ -59,7 +59,7 @@ else
 	else
 		FileAppend "fail", "*"
 #else
-	if (StrLower("/home/" . A_UserName . "/Dev/Keysharp/Keysharp.Tests/Code/DirCopy") == StrLower(dir))
+	if (StrLower(A_ScriptDir . "/DirCopy") == StrLower(StrReplace(dir, "\", "/")))
 		FileAppend "pass", "*"
 	else
 		FileAppend "fail", "*"

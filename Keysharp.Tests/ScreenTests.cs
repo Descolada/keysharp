@@ -10,6 +10,9 @@ namespace Keysharp.Tests
 		[Test, Category("Screen")]
 		public void ImageSearch()
 		{
+			if (Script.IsHeadless)
+				Assert.Ignore("ImageSearch requires a non-headless GUI session.");
+
 			_ = CoordMode("Mouse", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
@@ -28,6 +31,9 @@ namespace Keysharp.Tests
 		[Test, Category("Screen")]
 		public void PixelGetColor()
 		{
+			if (Script.IsHeadless)
+				Assert.Ignore("PixelGetColor requires a non-headless GUI session.");
+
 			int last = 0, white = 0xffffff, black = 0x000000;
 			_ = CoordMode("Mouse", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
@@ -58,6 +64,9 @@ namespace Keysharp.Tests
 		[Test, Category("Screen")]
 		public void PixelSearch()
 		{
+			if (Script.IsHeadless)
+				Assert.Ignore("PixelSearch requires a non-headless GUI session.");
+
 			int last = 0, white = 0xffffff, black = 0x000000;
 			_ = CoordMode("Mouse", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();

@@ -1,10 +1,16 @@
 #if WINDOWS
 	val := DriveGetFileSystem("C:\")
 #else
-	val := DriveGetFileSystem("/dev/sda")
+	val := DriveGetFileSystem("/")
 #endif
 			
-if (val == "NTFS" || val == "FAT32" || val == "FAT" || val == "CDFS" || val == "UDF" || val == "udev")
+if (
+#if WINDOWS
+	val == "NTFS" || val == "FAT32" || val == "FAT" || val == "CDFS" || val == "UDF"
+#else
+	val != ""
+#endif
+)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

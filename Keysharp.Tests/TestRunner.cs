@@ -80,6 +80,7 @@ namespace Keysharp.Tests
 						var program = CompilerHelper.compiledasm.GetType($"{Keywords.MainNamespaceName}.{Keywords.MainClassName}");
 						var main = program.GetMethod("Main");
 						var temp = new string[] { };
+						Environment.ExitCode = 0;
 						var result = StaTask.RunSync(() => main.Invoke(null, [temp]));
 
 						if (exitCode.HasValue)

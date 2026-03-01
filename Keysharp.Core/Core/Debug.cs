@@ -233,6 +233,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="text">The text to write.</param>
 		[Conditional("DEBUG")]
+		[PublicHiddenFromUser]
 		public static void WriteUncaughtErrorToStdErr(string text)
 		{
 			if (!string.IsNullOrEmpty(text))

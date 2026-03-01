@@ -25,7 +25,7 @@ namespace Keysharp.Core.Unix
 	internal partial class UnixKeyboardMouseSender : Common.Keyboard.KeyboardMouseSender
 	{
 		[Conditional("DEBUG")]
-		private static void DebugLog(string message) => Console.WriteLine(message);
+		private static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
 
 		internal IEventSimulator sim => backend.sim;
 		private readonly SharpHookKeySimulationBackend backend = new();

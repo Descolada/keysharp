@@ -25,7 +25,7 @@ namespace Keysharp.Core.Unix
 	{
 		private static readonly bool HookDisabled = ShouldDisableHook();
 		[Conditional("DEBUG")]
-		protected static void DebugLog(string message) => Console.WriteLine(message);
+		protected static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
 
 		// --- SharpHook ---
 		private SimpleGlobalHook globalHook;
@@ -250,7 +250,49 @@ namespace Keysharp.Core.Unix
 		}
 
 		public override void SimulateKeyPress(uint key)
-			=> kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, key, 0, 0, false, 0);
+		{
+			uint vk = 0;
+
+			// On non-Windows tests, callers may pass Eto.Forms.Keys values.
+			// Prefer parsing the platform key enum name first (e.g. "B", "Enter").
+			var formKeyName = ((Forms.Keys)key).ToString();
+			if (!string.IsNullOrEmpty(formKeyName) && !char.IsDigit(formKeyName[0]))
+			{
+				uint? mods = null;
+				vk = TextToVK(formKeyName.AsSpan(), ref mods, false, false, 0);
+			}
+
+			// Fallback: treat as WinForms virtual-key value.
+			if (vk == 0)
+				vk = (uint)((Keys)key & Keys.KeyCode);
+
+			if (vk == 0)
+				return;
+
+			var kc = VkToKeyCode(vk);
+			if (kc == KeyCode.VcUndefined)
+				return;
+
+			var sc = VkToXKeycode(vk);
+			if (sc == 0)
+				sc = MapVkToSc(vk);
+
+			var raw = new UioHookEvent
+			{
+				Type = EventType.KeyPressed,
+				Time = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+				Mask = EventMask.None,
+				Keyboard = new KeyboardEventData
+				{
+					KeyCode = kc,
+					RawCode = (ushort)sc,
+					RawKeyChar = KeyboardEventData.RawUndefinedChar
+				}
+			};
+
+			var e = new KeyboardHookEventArgs(raw);
+			OnKeyPressed(this, e);
+		}
 
 		// -------------------- enable/disable --------------------
 
@@ -1566,6 +1608,14 @@ namespace Keysharp.Core.Unix
 			else
 			{
 				charCount = 0;
+			}
+
+			// Simulated Enter may not always produce text via ToUnicode on Linux, but hotstring
+			// matching expects an end-character for Enter.
+			if (charCount == 0 && vk == VK_RETURN)
+			{
+				charCount = 1;
+				ch[0] = '\n';
 			}
 
 			// If Backspace is pressed after a dead key, ch[0] is the "dead" char and ch[1] is '\b'.

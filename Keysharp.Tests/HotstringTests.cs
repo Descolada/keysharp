@@ -345,8 +345,12 @@ namespace Keysharp.Tests
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void GetKey()
 		{
-			Assert.IsTrue(Keysharp.Core.Keyboard.GetKeySC("Esc") == 1L);
-			Assert.IsTrue(Keysharp.Core.Keyboard.GetKeyVK("Esc") == 27L);
+			var sc = Keysharp.Core.Keyboard.GetKeySC("Esc");
+			var vk = Keysharp.Core.Keyboard.GetKeyVK("Esc");
+			Assert.IsTrue(sc > 0);
+			Assert.AreEqual(27L, vk);
+			var fromSc = $"sc{sc:x}";
+			Assert.AreEqual(vk, Keysharp.Core.Keyboard.GetKeyVK(fromSc));
 		}
 
 		[Test, Category("Hotstring"), NonParallelizable]

@@ -432,6 +432,8 @@ MoveText.SetFont("s10 cBlue")
 MoveEdit := MyGui.Add("Edit", "w200 xp y+10", "")
 #if LINUX
 	MoveEdit.Text := "About Calculator"
+#elif OSX
+	MoveEdit.Text := "Calculator"
 #endif
 MoveButton := MyGui.Add("Button", , "Move GUI")
 MoveButton.OnEvent("Focus", "ChangeMoveBtnColor")
@@ -1507,7 +1509,7 @@ DeleteWhite2(*) {
 }
 
 FuchsiaDeleteTrayTip(*) {
-#if LINUX
+#if LINUX || OSX
 	TrayTip("Also tests ControlFindItem`nClick into another edit box to dismiss this.")
 #else
 	TrayTip("Also tests ControlFindItem")
@@ -3125,6 +3127,8 @@ wavTxt := MyGui.Add("Edit", "x+10 yp+2 w400")
 
 #if LINUX
 	wavTxt.Text := "/usr/share/sounds/linuxmint-login.wav"
+#elif OSX
+	wavTxt.Text := "/System/Library/Sounds/Ping.aiff"
 #else
 	wavTxt.Text := "C:\Windows\Media\Windows Shutdown.wav"
 #endif

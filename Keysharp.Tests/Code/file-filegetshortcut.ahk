@@ -97,7 +97,7 @@ else
 	FileAppend "fail", "*"
 
 expectedIcon := "../../../Keysharp.ico"
-#if LINUX
+#if LINUX || OSX
 expectedIcon := FileFullPath(expectedIcon)
 #endif
 

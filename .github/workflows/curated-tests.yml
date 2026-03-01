@@ -47,8 +47,8 @@ jobs:
           switch ('${{ inputs.target_platform }}') {
             'windows' { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"}]}' }
             'linux'   { $matrix = '{"include":[{"os":"ubuntu-latest","platform":"linux"}]}' }
-            'macos'   { $matrix = '{"include":[{"os":"macos-13","platform":"macos"}]}' }
-            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-13","platform":"macos"}]}' }
+            'macos'   { $matrix = '{"include":[{"os":"macos-latest","platform":"macos"}]}' }
+            default   { $matrix = '{"include":[{"os":"windows-latest","platform":"windows"},{"os":"ubuntu-latest","platform":"linux"},{"os":"macos-latest","platform":"macos"}]}' }
           }
           "matrix=$matrix" >> $env:GITHUB_OUTPUT
 

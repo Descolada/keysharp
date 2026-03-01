@@ -25,9 +25,8 @@ namespace Keysharp.Scripting
 #if !WINDOWS
 		private static Encoding enc1252 = Encoding.Default;
 		private static readonly object etoLoopLock = new();
-		private static Thread etoLoopThread;
+		private static Application etoApplication;
 		private static bool etoAppConfigured;
-		private static TaskCompletionSource<bool> etoLoopStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 #endif
 		public const string dotNetMajorVersion = "10";
 
@@ -36,11 +35,6 @@ namespace Keysharp.Scripting
 		/// This indicates a test-host runtime, not necessarily a user-requested headless mode.
 		/// </summary>
 		public static readonly bool IsTestHost = AppDomain.CurrentDomain.FriendlyName == "testhost";
-
-		/// <summary>
-		/// True when running under <c>testhost</c> on non-Windows platforms.
-		/// </summary>
-		public static readonly bool IsNonWindowsTestHost = IsTestHost && !OperatingSystem.IsWindows();
 
 		/// <summary>
 		/// True when scripts should run without normal UI affordances.
@@ -530,24 +524,53 @@ namespace Keysharp.Scripting
 			}
 		}
 
-#if !WINDOWS
-		internal static void InvokeOnEtoThread(Action action)
+		internal static void InvokeOnUIThread(Action action)
 		{
-			if (Application.Instance == null)
-				throw new InvalidOperationException("Eto application is not initialized.");
+			if (action == null)
+				return;
 
-			if (Application.Instance.IsUIThread)
+#if WINDOWS
+			var script = TheScript;
+
+			if (script?.Tray?.ContextMenuStrip != null)
+			{
+				script.Tray.ContextMenuStrip.CheckedInvoke(action, true);
+				return;
+			}
+
+			if (script?.mainWindow != null)
+			{
+				script.mainWindow.CheckedInvoke(action, false);
+				return;
+			}
+
+			action();
+#else
+			var app = etoApplication ?? Application.Instance;
+
+			if (app == null)
+			{
+				action();
+				return;
+			}
+
+			if (app.IsUIThread)
 				action();
 			else
-				Application.Instance.Invoke(action);
-		}
+				app.Invoke(action);
+ #endif
+ 		}
+
+#if !WINDOWS
 
 		private static void ConfigureEtoApplication()
 		{
-			if (etoAppConfigured || Application.Instance == null)
+			var app = etoApplication ?? Application.Instance;
+
+			if (etoAppConfigured || app == null)
 				return;
 
-			Application.Instance.UnhandledException += (s, e) =>
+			app.UnhandledException += (s, e) =>
 			{
 				if (e.ExceptionObject is Flow.UserRequestedExitException) return;
 				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
@@ -571,57 +594,23 @@ namespace Keysharp.Scripting
 			etoAppConfigured = true;
 		}
 
-		private static void EnsureEtoApplicationLoop()
-		{
-			var started = EnsureEtoApplicationLoopStarted();
-			started.GetAwaiter().GetResult();
-		}
-
-		private static Task EnsureEtoApplicationLoopStarted()
+		private static Application EnsureEtoApplication()
 		{
 			lock (etoLoopLock)
 			{
-				if (etoLoopThread != null && etoLoopThread.IsAlive)
-					return etoLoopStarted.Task;
+				if (etoApplication != null)
+					return etoApplication;
 
-				etoLoopStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-				var started = etoLoopStarted;
+				if (Application.Instance == null)
+					_ = new Application();
 
-				etoLoopThread = new Thread(() =>
-				{
-					try
-					{
-						if (Application.Instance == null)
-							_ = new Application();
+				etoApplication = Application.Instance;
 
-						ConfigureEtoApplication();
+				if (etoApplication == null)
+					throw new InvalidOperationException("Eto application is not initialized.");
 
-						var keepAliveForm = new Form
-						{
-							Title = "Keysharp.EtoKeepAlive",
-							ShowInTaskbar = false
-						};
-						keepAliveForm.Shown += (_, __) => keepAliveForm.Hide();
-
-						started.TrySetResult(true);
-						Application.Instance.Run(keepAliveForm);
-					}
-					catch (Exception ex)
-					{
-						started.TrySetException(new InvalidOperationException("Failed to initialize Eto application loop.", ex));
-					}
-					finally
-					{
-						etoAppConfigured = false;
-					}
-				})
-				{
-					IsBackground = true,
-					Name = "Keysharp.EtoLoop"
-				};
-
-				etoLoopThread.Start();
-				return started.Task;
+				ConfigureEtoApplication();
+				return etoApplication;
 			}
 		}
 #endif
@@ -669,38 +658,32 @@ namespace Keysharp.Scripting
 
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
-			var useSharedEtoTestHostLoop = IsTestHost && !OperatingSystem.IsWindows();
-
 			if (IsHeadless)
 				SuppressErrorOccurredDialog = true;
 
+			var suppressTestHostUi = IsTestHost;
+
 #if WINDOWS
-			InitializeMainWindow(title, _persistent, !NoMainWindow);
+			InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
 			_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 			Application.Run(mainWindow);
 #else
-			if (!useSharedEtoTestHostLoop)
+			lock (etoLoopLock)
 			{
-				InitializeMainWindow(title, _persistent, !NoMainWindow);
+				var app = EnsureEtoApplication();
+				InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
+				mainWindow.Closed += (_, __) => app.Quit();
+				if (suppressTestHostUi)
+				{
+					mainWindow.Show();
+					mainWindow.Hide();
+				}
+				else if (!NoMainWindow)
+					mainWindow.Show();
+
 				_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
-				Application.Instance.Run(mainWindow);
-				return;
+				app.Run();
 			}
-
-			// If we are running test cases then they are all ran in the same process. Eto doesn't allow creating
-			// multiple UI loops, so we must create a reusable loop instead. 
-			EnsureEtoApplicationLoop();
-			var runDone = new ManualResetEventSlim(false);
-			InvokeOnEtoThread(() =>
-			{
-				InitializeMainWindow(title, _persistent, false);
-				mainWindow.Closed += (_, __) => runDone.Set();
-				mainWindow.Show();
-				mainWindow.Hide();
-				RunAutoExecSection(userInit);
-			});
-
-			runDone.Wait();
 #endif
 		}
 
@@ -945,17 +928,26 @@ namespace Keysharp.Scripting
 				}, false);
 			}
 
-#if WINDOWS
 			if (Tray != null && Tray.ContextMenuStrip != null)
 			{
-				Tray.ContextMenuStrip.CheckedInvoke(() =>
-				{
-					Tray.Visible = false;
-					Tray.Dispose();
-					Tray = null;
-				}, true);
+				InvokeOnUIThread(DisposeTrayIcon);
 			}
-#endif
+		}
+
+		private void DisposeTrayIcon()
+		{
+			try
+			{
+				Tray.Visible = false;
+				Tray.Dispose();
+			}
+			catch
+			{
+			}
+			finally
+			{
+				Tray = null;
+			}
 		}
 
 		public override string ToString()

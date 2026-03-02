@@ -1,8 +1,5 @@
 #if OSX
 using System.Runtime.InteropServices;
-using AppKit;
-using Foundation;
-using ObjCRuntime;
 
 namespace Keysharp.Core.MacOS
 {
@@ -33,6 +30,11 @@ namespace Keysharp.Core.MacOS
 	internal static partial class MacNativeWindows
 	{
 		private const uint kCFStringEncodingUTF8 = 0x08000100;
+		private const int kCFNumberSInt32Type = 3;
+		private const int kCFNumberDoubleType = 13;
+		private const uint kCGWindowListOptionAll = 0u;
+		private const uint kCGWindowListOptionOnScreenOnly = 1u;
+		private const uint kCGWindowListExcludeDesktopElements = 16u;
 
 		[StructLayout(LayoutKind.Sequential)]
 		private struct CGRectNative
@@ -42,10 +44,6 @@ namespace Keysharp.Core.MacOS
 			internal double Width;
 			internal double Height;
 		}
-
-		private const uint kCGWindowListOptionAll = 0u;
-		private const uint kCGWindowListOptionOnScreenOnly = 1u;
-		private const uint kCGWindowListExcludeDesktopElements = 16u;
 
 		private static readonly nint kWindowNumber = CreateCFString("kCGWindowNumber");
 		private static readonly nint kOwnerPid = CreateCFString("kCGWindowOwnerPID");
@@ -67,51 +65,93 @@ namespace Keysharp.Core.MacOS
 		private static partial nint CFStringCreateWithCString(nint alloc, string cStr, uint encoding);
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial void CFRelease(nint cfTypeRef);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFArrayGetCount(nint theArray);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFArrayGetValueAtIndex(nint theArray, nint idx);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CFDictionaryGetValueIfPresent(nint theDict, nint key, out nint value);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFGetTypeID(nint cf);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetLength(nint theString);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetMaximumSizeForEncoding(nint length, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFStringGetCString(nint theString, byte[] buffer, nint bufferSize, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFNumberGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFNumberGetValue(nint number, int theType, out int value);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFNumberGetValue(nint number, int theType, out double value);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFBooleanGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFBooleanGetValue(nint boolean);
 
 		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false)
 		{
 			var list = new List<MacNativeWindowInfo>(256);
 			var opts = (onScreenOnly ? kCGWindowListOptionOnScreenOnly : kCGWindowListOptionAll) | kCGWindowListExcludeDesktopElements;
-			var cfArray = CGWindowListCopyWindowInfo(opts, 0);
+			var arrayRef = CGWindowListCopyWindowInfo(opts, 0);
 
-			if (cfArray == 0)
+			if (arrayRef == 0)
 				return list;
 
-			using var windows = Runtime.GetINativeObject<NSArray>(cfArray, true);
-			if (windows == null)
-				return list;
-
-			for (nuint i = 0; i < windows.Count; i++)
+			try
 			{
-				var dictObj = Runtime.GetNSObject(windows.ValueAt(i));
-				if (dictObj is not NSDictionary dict)
-					continue;
+				var count = CFArrayGetCount(arrayRef);
 
-				if (!TryGetDictionaryValue(dict, kWindowNumber, out var valueObj)
-					|| Runtime.GetNSObject(valueObj) is not NSNumber numberObj)
-					continue;
+				for (nint i = 0; i < count; i++)
+				{
+					var dictRef = CFArrayGetValueAtIndex(arrayRef, i);
 
-				var windowNumber = numberObj.UInt32Value;
-				var ownerPid = TryGetDictionaryValue(dict, kOwnerPid, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber ownerPidNum ? ownerPidNum.Int32Value : 0;
-				var ownerName = TryGetDictionaryValue(dict, kOwnerName, out valueObj) ? Runtime.GetNSObject(valueObj)?.ToString() ?? string.Empty : string.Empty;
-				var title = TryGetDictionaryValue(dict, kWindowName, out valueObj) ? Runtime.GetNSObject(valueObj)?.ToString() ?? string.Empty : string.Empty;
-				var layer = TryGetDictionaryValue(dict, kWindowLayer, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber layerNum ? layerNum.Int32Value : 0;
-				var alpha = TryGetDictionaryValue(dict, kWindowAlpha, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber alphaNum ? alphaNum.DoubleValue : 1.0;
-				var isOnscreen = TryGetDictionaryValue(dict, kWindowIsOnscreen, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber onscreenNum && onscreenNum.BoolValue;
+					if (!TryGetUInt32(dictRef, kWindowNumber, out var windowNumber))
+						continue;
 
-				var rect = Rectangle.Empty;
-				if (TryGetDictionaryValue(dict, kWindowBounds, out valueObj)
-					&& Runtime.GetNSObject(valueObj) is NSDictionary boundsDict
-					&& CGRectMakeWithDictionaryRepresentation(boundsDict.Handle, out var cgRect))
-					rect = new Rectangle((int)cgRect.X, (int)cgRect.Y, (int)cgRect.Width, (int)cgRect.Height);
+					_ = TryGetInt32(dictRef, kOwnerPid, out var ownerPid);
+					_ = TryGetString(dictRef, kOwnerName, out var ownerName);
+					_ = TryGetString(dictRef, kWindowName, out var title);
+					_ = TryGetInt32(dictRef, kWindowLayer, out var layer);
+					_ = TryGetDouble(dictRef, kWindowAlpha, out var alpha);
+					_ = TryGetBool(dictRef, kWindowIsOnscreen, out var isOnscreen);
 
-				// Layer 0 is regular app windows; keep others out for WinTitle matching parity.
-				if (layer != 0)
-					continue;
+					if (layer != 0)
+						continue;
 
-				list.Add(new MacNativeWindowInfo(windowNumber, ownerPid, ownerName, title, rect, isOnscreen, alpha));
+					var rect = Rectangle.Empty;
+					if (TryGetDictionaryValue(dictRef, kWindowBounds, out var boundsRef)
+						&& CGRectMakeWithDictionaryRepresentation(boundsRef, out var cgRect))
+						rect = new Rectangle((int)cgRect.X, (int)cgRect.Y, (int)cgRect.Width, (int)cgRect.Height);
+
+					list.Add(new MacNativeWindowInfo(windowNumber, ownerPid, ownerName, title, rect, isOnscreen, alpha == 0 ? 1.0 : alpha));
+				}
+			}
+			finally
+			{
+				CFRelease(arrayRef);
 			}
 
 			return list;
@@ -135,24 +175,10 @@ namespace Keysharp.Core.MacOS
 			return false;
 		}
 
-		private static bool TryGetDictionaryValue(NSDictionary dict, nint key, out nint value)
-			=> dict != null && key != 0 && CFDictionaryGetValueIfPresent(dict.Handle, key, out value) && value != 0;
-
-		private static nint CreateCFString(string value)
-		{
-			try
-			{
-				return CFStringCreateWithCString(0, value, kCFStringEncodingUTF8);
-			}
-			catch
-			{
-				return 0;
-			}
-		}
-
 		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)
 		{
 			var snapshot = Snapshot(onScreenOnly: true);
+
 			for (int i = 0; i < snapshot.Count; i++)
 			{
 				var w = snapshot[i];
@@ -185,20 +211,87 @@ namespace Keysharp.Core.MacOS
 
 		internal static bool ActivateAppByPid(int pid)
 		{
-			if (pid <= 0)
+			_ = pid;
+			// Activation fallback intentionally omitted when AppKit is unavailable.
+			return false;
+		}
+
+		private static bool TryGetDictionaryValue(nint dictRef, nint key, out nint value)
+			=> dictRef != 0 && key != 0 && CFDictionaryGetValueIfPresent(dictRef, key, out value) && value != 0;
+
+		private static bool TryGetInt32(nint dictRef, nint key, out int value)
+		{
+			value = 0;
+			if (!TryGetDictionaryValue(dictRef, key, out var numRef))
+				return false;
+			if (CFGetTypeID(numRef) != CFNumberGetTypeID())
+				return false;
+			return CFNumberGetValue(numRef, kCFNumberSInt32Type, out value);
+		}
+
+		private static bool TryGetUInt32(nint dictRef, nint key, out uint value)
+		{
+			value = 0;
+			if (!TryGetInt32(dictRef, key, out var temp))
+				return false;
+			value = unchecked((uint)temp);
+			return true;
+		}
+
+		private static bool TryGetDouble(nint dictRef, nint key, out double value)
+		{
+			value = 0.0;
+			if (!TryGetDictionaryValue(dictRef, key, out var numRef))
+				return false;
+			if (CFGetTypeID(numRef) != CFNumberGetTypeID())
+				return false;
+			return CFNumberGetValue(numRef, kCFNumberDoubleType, out value);
+		}
+
+		private static bool TryGetBool(nint dictRef, nint key, out bool value)
+		{
+			value = false;
+			if (!TryGetDictionaryValue(dictRef, key, out var boolRef))
+				return false;
+			if (CFGetTypeID(boolRef) != CFBooleanGetTypeID())
+				return false;
+			value = CFBooleanGetValue(boolRef);
+			return true;
+		}
+
+		private static bool TryGetString(nint dictRef, nint key, out string value)
+		{
+			value = string.Empty;
+			if (!TryGetDictionaryValue(dictRef, key, out var stringRef))
+				return false;
+			if (CFGetTypeID(stringRef) != CFStringGetTypeID())
 				return false;
 
-			var apps = NSWorkspace.SharedWorkspace.RunningApplications;
-			foreach (var app in apps)
-			{
-				if (app is NSRunningApplication running && running.ProcessIdentifier == pid)
-				{
-					_ = running.Activate(NSApplicationActivationOptions.ActivateAllWindows | NSApplicationActivationOptions.ActivateIgnoringOtherApps);
-					return true;
-				}
-			}
+			var len = CFStringGetLength(stringRef);
+			var maxSize = CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) + 1;
+			var buffer = new byte[(int)maxSize];
 
-			return false;
+			if (!CFStringGetCString(stringRef, buffer, maxSize, kCFStringEncodingUTF8))
+				return false;
+
+			var terminator = Array.IndexOf(buffer, (byte)0);
+			if (terminator < 0)
+				terminator = buffer.Length;
+
+			value = System.Text.Encoding.UTF8.GetString(buffer, 0, terminator);
+			return true;
+		}
+
+		private static nint CreateCFString(string value)
+		{
+			try
+			{
+				return CFStringCreateWithCString(0, value, kCFStringEncodingUTF8);
+			}
+			catch
+			{
+				return 0;
+			}
 		}
 	}
 }

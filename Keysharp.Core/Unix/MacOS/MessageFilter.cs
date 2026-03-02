@@ -1,7 +1,4 @@
 #if OSX
-using AppKit;
-using Foundation;
-
 namespace Keysharp.Core.Common.Window
 {
 	internal struct Message
@@ -17,7 +14,6 @@ namespace Keysharp.Core.Common.Window
 	{
 		private readonly Script script;
 		internal Message handledMsg;
-		private NSObject localEventMonitor;
 
 		internal MessageFilter(Script associatedScript)
 		{
@@ -26,113 +22,80 @@ namespace Keysharp.Core.Common.Window
 
 		internal void Attach()
 		{
-			if (localEventMonitor != null)
-				return;
-
-			try
-			{
-				localEventMonitor = NSEvent.AddLocalMonitorForEventsMatchingMask(NSEventMask.Any, eventArgs =>
-				{
-					var m = new Message
-					{
-						HWnd = WindowManager.GetForegroundWindowHandle(),
-						Msg = (int)eventArgs.Type,
-						WParam = 0,
-						LParam = 0,
-						Result = 0
-					};
-
-					_ = CallEventHandlers(ref m);
-
-					// Returning null consumes the event.
-					return m.Result != 0 ? null : eventArgs;
-				});
-			}
-			catch
-			{
-				localEventMonitor = null;
-			}
+			// No global event filter is currently attached on macOS.
+			// Message callbacks can still be invoked through explicit call sites.
 		}
 
 		internal void Detach()
 		{
-			if (localEventMonitor == null)
-				return;
-
-			try
-			{
-				NSEvent.RemoveMonitor(localEventMonitor);
-			}
-			catch
-			{
-			}
-			finally
-			{
-				localEventMonitor.Dispose();
-				localEventMonitor = null;
-			}
 		}
 
 		internal bool CallEventHandlers(ref Message m)
 		{
-			if (!script.GuiData.onMessageHandlers.TryGetValue(m.Msg, out var monitor))
-				return false;
-
-			var ptv = script.Threads.CurrentThread;
-
-			if (!script.Threads.AnyThreadsAvailable() || ptv.priority > 0)
-				return false;
-
-			if (monitor.instanceCount >= monitor.maxInstances)
-				return false;
-
-			monitor.instanceCount++;
-			object res = null;
-			object eventInfo = 0L;
-			long hwnd = m.HWnd;
-
-			if (MessagesEqual(handledMsg, m))
-				eventInfo = A_TickCount;
-
-			try
+			if (script.GuiData.onMessageHandlers.TryGetValue(m.Msg, out var monitor))
 			{
-				var handlers = monitor.funcs;
-				object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
-				if (handlers.Any())
+				var ptv = script.Threads.CurrentThread;
+
+				if (!script.Threads.AnyThreadsAvailable() || ptv.priority > 0)
+					return false;
+
+				if (monitor.instanceCount >= monitor.maxInstances)
+					return false;
+
+				monitor.instanceCount++;
+				object res = null;
+				object eventInfo = 0L;
+				long hwnd = m.HWnd;
+
+				if (MessagesEqual(handledMsg, m))
+					eventInfo = A_TickCount;
+
+				try
 				{
-					var currentScript = Script.TheScript;
+					var handlers = monitor.funcs;
+					object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
 
-					foreach (var handler in handlers)
+					if (handlers.Any())
 					{
-						if (handler == null)
-							continue;
+						var currentScript = Script.TheScript;
 
-						var (pushed, tv) = currentScript.Threads.BeginThread();
-						if (!pushed)
-							continue;
-
-						tv.eventInfo = eventInfo;
-						tv.hwndLastUsed = hwnd;
-						_ = Flow.TryCatch(() =>
+						foreach (var handler in handlers)
 						{
-							res = handler.Call(args);
-							_ = currentScript.Threads.EndThread((pushed, tv));
-						}, true, (pushed, tv));
+							if (handler != null)
+							{
+								var (pushed, tv) = currentScript.Threads.BeginThread();
 
-						if (Script.ForceLong(res) != 0L)
-							break;
+								if (pushed)
+								{
+									tv.eventInfo = eventInfo;
+									tv.hwndLastUsed = hwnd;
+									_ = Flow.TryCatch(() =>
+									{
+										res = handler.Call(args);
+										_ = currentScript.Threads.EndThread((pushed, tv));
+									}, true, (pushed, tv));
+
+									if (Script.ForceLong(res) != 0L)
+										break;
+								}
+							}
+						}
+
+						currentScript.ExitIfNotPersistent();
 					}
-
-					currentScript.ExitIfNotPersistent();
 				}
-			}
-			finally
-			{
-				monitor.instanceCount--;
+				finally
+				{
+					monitor.instanceCount--;
+				}
+
+				m.Result = (nint)Script.ForceLong(res);
+
+				if (m.Result != 0)
+					return true;
 			}
 
-			m.Result = (nint)Script.ForceLong(res);
-			return m.Result != 0;
+			return false;
 		}
 
 		private static bool MessagesEqual(Message left, Message right)

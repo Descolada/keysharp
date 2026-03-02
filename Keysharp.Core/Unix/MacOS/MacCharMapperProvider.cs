@@ -273,8 +273,8 @@ namespace Keysharp.Core.Unix
 			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
 			private static partial uint LMGetKbdType();
 
-			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-			private static partial int UCKeyTranslate(
+			[DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
+			private static extern int UCKeyTranslate(
 				nint keyLayoutPtr,
 				ushort virtualKeyCode,
 				ushort keyAction,

@@ -1,13 +1,12 @@
 #if OSX
 using System.Runtime.InteropServices;
-using Foundation;
-using ObjCRuntime;
 
 namespace Keysharp.Core.MacOS
 {
 	internal static partial class MacAccessibility
 	{
 		private const uint kCFStringEncodingUTF8 = 0x08000100;
+		private const int kCFNumberSInt32Type = 3;
 		private const int kAXErrorSuccess = 0;
 		private const int kAXValueCGPointType = 1;
 		private const int kAXValueCGSizeType = 2;
@@ -65,6 +64,8 @@ namespace Keysharp.Core.MacOS
 		private static readonly nint actionRaise = CreateCFString("AXRaise");
 		private static readonly nint actionClose = CreateCFString("AXClose");
 		private static readonly nint actionPress = CreateCFString("AXPress");
+		private static readonly nint cfBoolTrue = ResolveCFBooleanSymbol("kCFBooleanTrue");
+		private static readonly nint cfBoolFalse = ResolveCFBooleanSymbol("kCFBooleanFalse");
 
 		private static int loggedTrustFailure;
 		private static int loggedListenFailure;
@@ -145,6 +146,36 @@ namespace Keysharp.Core.MacOS
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFArrayGetValueAtIndex(nint theArray, nint idx);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFGetTypeID(nint cf);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFBooleanGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFBooleanGetValue(nint boolean);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetLength(nint theString);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetMaximumSizeForEncoding(nint length, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFStringGetCString(nint theString, byte[] buffer, nint bufferSize, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFNumberGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFNumberGetValue(nint number, int theType, out int value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial nint CGEventCreateMouseEvent(nint source, CGEventType mouseType, CGPointNative mouseCursorPosition, CGMouseButton mouseButton);
@@ -715,10 +746,22 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				value = Runtime.GetNSObject(obj)?.ToString() ?? string.Empty;
-				if (value.Length == 0)
+				if (CFGetTypeID(obj) != CFStringGetTypeID())
 					return false;
-				return true;
+
+				var len = CFStringGetLength(obj);
+				var maxSize = CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) + 1;
+				var buffer = new byte[(int)maxSize];
+
+				if (!CFStringGetCString(obj, buffer, maxSize, kCFStringEncodingUTF8))
+					return false;
+
+				var terminator = Array.IndexOf(buffer, (byte)0);
+				if (terminator < 0)
+					terminator = buffer.Length;
+
+				value = System.Text.Encoding.UTF8.GetString(buffer, 0, terminator);
+				return value.Length != 0;
 			}
 			finally
 			{
@@ -734,12 +777,21 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				var num = Runtime.GetINativeObject<NSNumber>(obj, false);
-				if (num == null)
-					return false;
+				var typeId = CFGetTypeID(obj);
 
-				value = num.BoolValue;
-				return true;
+				if (typeId == CFBooleanGetTypeID())
+				{
+					value = CFBooleanGetValue(obj);
+					return true;
+				}
+
+				if (typeId == CFNumberGetTypeID() && CFNumberGetValue(obj, kCFNumberSInt32Type, out var i))
+				{
+					value = i != 0;
+					return true;
+				}
+
+				return false;
 			}
 			finally
 			{
@@ -749,8 +801,8 @@ namespace Keysharp.Core.MacOS
 
 		private static bool TryWriteBool(nint element, nint attr, bool value)
 		{
-			using var num = NSNumber.FromBoolean(value);
-			return AXUIElementSetAttributeValue(element, attr, num.Handle) == kAXErrorSuccess;
+			var boolRef = value ? cfBoolTrue : cfBoolFalse;
+			return boolRef != 0 && AXUIElementSetAttributeValue(element, attr, boolRef) == kAXErrorSuccess;
 		}
 
 		private static nint CreateCFString(string value)
@@ -762,6 +814,24 @@ namespace Keysharp.Core.MacOS
 			catch
 			{
 				return 0;
+			}
+		}
+
+		private static nint ResolveCFBooleanSymbol(string symbolName)
+		{
+			if (!NativeLibrary.TryLoad("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", out var coreFoundation))
+				return 0;
+
+			try
+			{
+				if (!NativeLibrary.TryGetExport(coreFoundation, symbolName, out var symbol) || symbol == 0)
+					return 0;
+
+				return Marshal.ReadIntPtr(symbol);
+			}
+			finally
+			{
+				NativeLibrary.Free(coreFoundation);
 			}
 		}
 

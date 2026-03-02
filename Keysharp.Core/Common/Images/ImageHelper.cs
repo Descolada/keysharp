@@ -1,7 +1,7 @@
 #if LINUX
 using Eto.GtkSharp;
 #elif OSX
-using AppKit;
+using MonoMac.AppKit;
 #endif
 
 namespace Keysharp.Core.Common.Images
@@ -49,7 +49,7 @@ namespace Keysharp.Core.Common.Images
 					return new Bitmap(data);
 			}
 
-			throw new InvalidOperationException("Unable to convert cursor to bitmap on macOS: expected NSCursor/NSImage control object.");
+			throw new InvalidOperationException("Unable to convert cursor to bitmap on macOS: expected MonoMac NSCursor/NSImage control object.");
 #endif
 		}
 

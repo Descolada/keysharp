@@ -1,5 +1,5 @@
 #if OSX
-using AppKit;
+using System.Runtime.InteropServices;
 using SharpHook;
 using SharpHook.Data;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
@@ -17,6 +17,10 @@ namespace Keysharp.Core.MacOS
 		private const nuint AlternateKeyMask = 1u << 19;
 		private const nuint CommandKeyMask = 1u << 20;
 		private const nuint AlphaShiftKeyMask = 1u << 16;
+		private const int kCGEventSourceStateCombinedSessionState = 0;
+
+		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static extern ulong CGEventSourceFlagsState(int sourceState);
 
 		private readonly Lock mappingLock = new();
 		private readonly Dictionary<uint, uint> rawScToVk = new();
@@ -196,7 +200,7 @@ namespace Keysharp.Core.MacOS
 		{
 			try
 			{
-				flags = (nuint)NSEvent.CurrentModifierFlags;
+				flags = (nuint)CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState);
 				return true;
 			}
 			catch

@@ -67,6 +67,7 @@
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
 		<ProjectReference Include="..\..\Eto\src\Eto.Mac\Eto.Mac64.csproj" />
+		<ProjectReference Include="..\..\Eto\lib\monomac\src\MonoMac.csproj" />
 		<Compile Remove="Unix\Linux\**\*.cs" />
 		<Compile Include="Unix\Linux\PlatformManager.cs" />
 	</ItemGroup>

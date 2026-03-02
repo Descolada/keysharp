@@ -4,6 +4,7 @@ using SharpHook;
 using SharpHook.Data;
 using static Keysharp.Core.Common.Keyboard.KeyboardMouseSender;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
+using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 
 namespace Keysharp.Core.MacOS
 {

@@ -217,7 +217,10 @@ namespace Keysharp.Core.MacOS
 		}
 
 		private static bool TryGetDictionaryValue(nint dictRef, nint key, out nint value)
-			=> dictRef != 0 && key != 0 && CFDictionaryGetValueIfPresent(dictRef, key, out value) && value != 0;
+		{
+			value = 0;
+			return dictRef != 0 && key != 0 && CFDictionaryGetValueIfPresent(dictRef, key, out value) && value != 0;
+		}
 
 		private static bool TryGetInt32(nint dictRef, nint key, out int value)
 		{
@@ -274,7 +277,7 @@ namespace Keysharp.Core.MacOS
 			if (!CFStringGetCString(stringRef, buffer, maxSize, kCFStringEncodingUTF8))
 				return false;
 
-			var terminator = Array.IndexOf(buffer, (byte)0);
+			var terminator = System.Array.IndexOf(buffer, (byte)0);
 			if (terminator < 0)
 				terminator = buffer.Length;
 

@@ -756,7 +756,7 @@ namespace Keysharp.Core.MacOS
 				if (!CFStringGetCString(obj, buffer, maxSize, kCFStringEncodingUTF8))
 					return false;
 
-				var terminator = Array.IndexOf(buffer, (byte)0);
+				var terminator = System.Array.IndexOf(buffer, (byte)0);
 				if (terminator < 0)
 					terminator = buffer.Length;
 

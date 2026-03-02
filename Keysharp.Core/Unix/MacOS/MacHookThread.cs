@@ -11,6 +11,13 @@ namespace Keysharp.Core.MacOS
 	// X11-specific behavior remains disabled via PlatformManager.IsX11Available.
 	internal sealed class MacHookThread : Keysharp.Core.Unix.UnixHookThread
 	{
+		// NSEvent modifier bit masks. Using raw bits avoids relying on binding-specific enum names.
+		private const nuint ShiftKeyMask = 1u << 17;
+		private const nuint ControlKeyMask = 1u << 18;
+		private const nuint AlternateKeyMask = 1u << 19;
+		private const nuint CommandKeyMask = 1u << 20;
+		private const nuint AlphaShiftKeyMask = 1u << 16;
+
 		private readonly Lock mappingLock = new();
 		private readonly Dictionary<uint, uint> rawScToVk = new();
 		private readonly Dictionary<uint, uint> vkToRawSc = new();
@@ -73,13 +80,13 @@ namespace Keysharp.Core.MacOS
 
 				// macOS does not expose left/right in this API. Mirror to both sides so
 				// neutral and sided queries both have deterministic behavior.
-				if ((flags & NSEventModifierMask.ShiftKeyMask) != 0)
+				if ((flags & ShiftKeyMask) != 0)
 					mods |= MOD_LSHIFT | MOD_RSHIFT;
-				if ((flags & NSEventModifierMask.ControlKeyMask) != 0)
+				if ((flags & ControlKeyMask) != 0)
 					mods |= MOD_LCONTROL | MOD_RCONTROL;
-				if ((flags & NSEventModifierMask.AlternateKeyMask) != 0)
+				if ((flags & AlternateKeyMask) != 0)
 					mods |= MOD_LALT | MOD_RALT;
-				if ((flags & NSEventModifierMask.CommandKeyMask) != 0)
+				if ((flags & CommandKeyMask) != 0)
 					mods |= MOD_LWIN | MOD_RWIN;
 
 				return true;
@@ -173,7 +180,7 @@ namespace Keysharp.Core.MacOS
 
 			if (TryGetCurrentModifierFlags(out var flags))
 			{
-				capsOn = (flags & NSEventModifierMask.AlphaShiftKeyMask) != 0;
+				capsOn = (flags & AlphaShiftKeyMask) != 0;
 				numOn = hasSnapshot && snapNum;
 				scrollOn = hasSnapshot && snapScroll;
 				return true;
@@ -185,11 +192,11 @@ namespace Keysharp.Core.MacOS
 			return hasSnapshot;
 		}
 
-		private static bool TryGetCurrentModifierFlags(out NSEventModifierMask flags)
+		private static bool TryGetCurrentModifierFlags(out nuint flags)
 		{
 			try
 			{
-				flags = NSEvent.CurrentModifierFlags;
+				flags = (nuint)NSEvent.CurrentModifierFlags;
 				return true;
 			}
 			catch

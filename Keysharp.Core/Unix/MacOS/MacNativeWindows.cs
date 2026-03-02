@@ -1,6 +1,6 @@
 #if OSX
+using System.Runtime.InteropServices;
 using AppKit;
-using CoreGraphics;
 using Foundation;
 using ObjCRuntime;
 
@@ -30,27 +30,45 @@ namespace Keysharp.Core.MacOS
 		internal bool Visible => IsOnScreen && Alpha > 0.001 && Bounds.Width > 0 && Bounds.Height > 0;
 	}
 
-	internal static class MacNativeWindows
+	internal static partial class MacNativeWindows
 	{
+		private const uint kCFStringEncodingUTF8 = 0x08000100;
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct CGRectNative
+		{
+			internal double X;
+			internal double Y;
+			internal double Width;
+			internal double Height;
+		}
+
 		private const uint kCGWindowListOptionAll = 0u;
 		private const uint kCGWindowListOptionOnScreenOnly = 1u;
 		private const uint kCGWindowListExcludeDesktopElements = 16u;
 
-		private static readonly NSString kWindowNumber = new("kCGWindowNumber");
-		private static readonly NSString kOwnerPid = new("kCGWindowOwnerPID");
-		private static readonly NSString kOwnerName = new("kCGWindowOwnerName");
-		private static readonly NSString kWindowName = new("kCGWindowName");
-		private static readonly NSString kWindowBounds = new("kCGWindowBounds");
-		private static readonly NSString kWindowLayer = new("kCGWindowLayer");
-		private static readonly NSString kWindowAlpha = new("kCGWindowAlpha");
-		private static readonly NSString kWindowIsOnscreen = new("kCGWindowIsOnscreen");
+		private static readonly nint kWindowNumber = CreateCFString("kCGWindowNumber");
+		private static readonly nint kOwnerPid = CreateCFString("kCGWindowOwnerPID");
+		private static readonly nint kOwnerName = CreateCFString("kCGWindowOwnerName");
+		private static readonly nint kWindowName = CreateCFString("kCGWindowName");
+		private static readonly nint kWindowBounds = CreateCFString("kCGWindowBounds");
+		private static readonly nint kWindowLayer = CreateCFString("kCGWindowLayer");
+		private static readonly nint kWindowAlpha = CreateCFString("kCGWindowAlpha");
+		private static readonly nint kWindowIsOnscreen = CreateCFString("kCGWindowIsOnscreen");
 
 		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
 		private static partial nint CGWindowListCopyWindowInfo(uint option, uint relativeToWindow);
 
 		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
 		[return: MarshalAs(UnmanagedType.I1)]
-		private static partial bool CGRectMakeWithDictionaryRepresentation(nint dict, out CGRect rect);
+		private static partial bool CGRectMakeWithDictionaryRepresentation(nint dict, out CGRectNative rect);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", StringMarshalling = StringMarshalling.Utf8)]
+		private static partial nint CFStringCreateWithCString(nint alloc, string cStr, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFDictionaryGetValueIfPresent(nint theDict, nint key, out nint value);
 
 		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false)
 		{
@@ -71,19 +89,22 @@ namespace Keysharp.Core.MacOS
 				if (dictObj is not NSDictionary dict)
 					continue;
 
-				if (dict[kWindowNumber] is not NSNumber numberObj)
+				if (!TryGetDictionaryValue(dict, kWindowNumber, out var valueObj)
+					|| Runtime.GetNSObject(valueObj) is not NSNumber numberObj)
 					continue;
 
 				var windowNumber = numberObj.UInt32Value;
-				var ownerPid = (dict[kOwnerPid] as NSNumber)?.Int32Value ?? 0;
-				var ownerName = (dict[kOwnerName] as NSString)?.ToString() ?? string.Empty;
-				var title = (dict[kWindowName] as NSString)?.ToString() ?? string.Empty;
-				var layer = (dict[kWindowLayer] as NSNumber)?.Int32Value ?? 0;
-				var alpha = (dict[kWindowAlpha] as NSNumber)?.DoubleValue ?? 1.0;
-				var isOnscreen = (dict[kWindowIsOnscreen] as NSNumber)?.BoolValue ?? false;
+				var ownerPid = TryGetDictionaryValue(dict, kOwnerPid, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber ownerPidNum ? ownerPidNum.Int32Value : 0;
+				var ownerName = TryGetDictionaryValue(dict, kOwnerName, out valueObj) ? Runtime.GetNSObject(valueObj)?.ToString() ?? string.Empty : string.Empty;
+				var title = TryGetDictionaryValue(dict, kWindowName, out valueObj) ? Runtime.GetNSObject(valueObj)?.ToString() ?? string.Empty : string.Empty;
+				var layer = TryGetDictionaryValue(dict, kWindowLayer, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber layerNum ? layerNum.Int32Value : 0;
+				var alpha = TryGetDictionaryValue(dict, kWindowAlpha, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber alphaNum ? alphaNum.DoubleValue : 1.0;
+				var isOnscreen = TryGetDictionaryValue(dict, kWindowIsOnscreen, out valueObj) && Runtime.GetNSObject(valueObj) is NSNumber onscreenNum && onscreenNum.BoolValue;
 
 				var rect = Rectangle.Empty;
-				if (dict[kWindowBounds] is NSDictionary boundsDict && CGRectMakeWithDictionaryRepresentation(boundsDict.Handle, out var cgRect))
+				if (TryGetDictionaryValue(dict, kWindowBounds, out valueObj)
+					&& Runtime.GetNSObject(valueObj) is NSDictionary boundsDict
+					&& CGRectMakeWithDictionaryRepresentation(boundsDict.Handle, out var cgRect))
 					rect = new Rectangle((int)cgRect.X, (int)cgRect.Y, (int)cgRect.Width, (int)cgRect.Height);
 
 				// Layer 0 is regular app windows; keep others out for WinTitle matching parity.
@@ -112,6 +133,21 @@ namespace Keysharp.Core.MacOS
 
 			info = default;
 			return false;
+		}
+
+		private static bool TryGetDictionaryValue(NSDictionary dict, nint key, out nint value)
+			=> dict != null && key != 0 && CFDictionaryGetValueIfPresent(dict.Handle, key, out value) && value != 0;
+
+		private static nint CreateCFString(string value)
+		{
+			try
+			{
+				return CFStringCreateWithCString(0, value, kCFStringEncodingUTF8);
+			}
+			catch
+			{
+				return 0;
+			}
 		}
 
 		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)

@@ -1,11 +1,13 @@
 #if OSX
+using System.Runtime.InteropServices;
 using Foundation;
 using ObjCRuntime;
 
 namespace Keysharp.Core.MacOS
 {
-	internal static class MacAccessibility
+	internal static partial class MacAccessibility
 	{
+		private const uint kCFStringEncodingUTF8 = 0x08000100;
 		private const int kAXErrorSuccess = 0;
 		private const int kAXValueCGPointType = 1;
 		private const int kAXValueCGSizeType = 2;
@@ -52,21 +54,19 @@ namespace Keysharp.Core.MacOS
 			}
 		}
 
-		private static readonly NSString attrWindows = new("AXWindows");
-		private static readonly NSString attrPosition = new("AXPosition");
-		private static readonly NSString attrSize = new("AXSize");
-		private static readonly NSString attrTitle = new("AXTitle");
-		private static readonly NSString attrMinimized = new("AXMinimized");
-		private static readonly NSString attrZoomed = new("AXZoomed");
-		private static readonly NSString attrCloseButton = new("AXCloseButton");
-		private static readonly NSString trustedPromptOptionKey = new("AXTrustedCheckOptionPrompt");
+		private static readonly nint attrWindows = CreateCFString("AXWindows");
+		private static readonly nint attrPosition = CreateCFString("AXPosition");
+		private static readonly nint attrSize = CreateCFString("AXSize");
+		private static readonly nint attrTitle = CreateCFString("AXTitle");
+		private static readonly nint attrMinimized = CreateCFString("AXMinimized");
+		private static readonly nint attrZoomed = CreateCFString("AXZoomed");
+		private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
 
-		private static readonly NSString actionRaise = new("AXRaise");
-		private static readonly NSString actionClose = new("AXClose");
-		private static readonly NSString actionPress = new("AXPress");
+		private static readonly nint actionRaise = CreateCFString("AXRaise");
+		private static readonly nint actionClose = CreateCFString("AXClose");
+		private static readonly nint actionPress = CreateCFString("AXPress");
 
 		private static int loggedTrustFailure;
-		private static int promptedTrust;
 		private static int loggedListenFailure;
 		private static int loggedPostFailure;
 		private static int loggedScreenFailure;
@@ -134,6 +134,9 @@ namespace Keysharp.Core.MacOS
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial void CFRelease(nint cfTypeRef);
 
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", StringMarshalling = StringMarshalling.Utf8)]
+		private static partial nint CFStringCreateWithCString(nint alloc, string cStr, uint encoding);
+
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFRetain(nint cfTypeRef);
 
@@ -157,7 +160,7 @@ namespace Keysharp.Core.MacOS
 			if (!TryFindWindowElement(info, out var windowElement))
 				return MacNativeWindows.ActivateAppByPid(info.OwnerPid);
 
-			var ok = AXUIElementPerformAction(windowElement, actionRaise.Handle) == kAXErrorSuccess;
+			var ok = AXUIElementPerformAction(windowElement, actionRaise) == kAXErrorSuccess;
 			CFRelease(windowElement);
 			return ok || MacNativeWindows.ActivateAppByPid(info.OwnerPid);
 		}
@@ -172,14 +175,14 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				if (AXUIElementPerformAction(windowElement, actionClose.Handle) == kAXErrorSuccess)
+				if (AXUIElementPerformAction(windowElement, actionClose) == kAXErrorSuccess)
 					return true;
 
-				if (TryCopyAttributeValue(windowElement, attrCloseButton.Handle, out var closeButton))
+				if (TryCopyAttributeValue(windowElement, attrCloseButton, out var closeButton))
 				{
 					try
 					{
-						return AXUIElementPerformAction(closeButton, actionPress.Handle) == kAXErrorSuccess;
+						return AXUIElementPerformAction(closeButton, actionPress) == kAXErrorSuccess;
 					}
 					finally
 					{
@@ -206,13 +209,13 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				if (TryReadBool(windowElement, attrMinimized.Handle, out var minimized) && minimized)
+				if (TryReadBool(windowElement, attrMinimized, out var minimized) && minimized)
 				{
 					state = FormWindowState.Minimized;
 					return true;
 				}
 
-				if (TryReadBool(windowElement, attrZoomed.Handle, out var zoomed) && zoomed)
+				if (TryReadBool(windowElement, attrZoomed, out var zoomed) && zoomed)
 				{
 					state = FormWindowState.Maximized;
 					return true;
@@ -240,20 +243,20 @@ namespace Keysharp.Core.MacOS
 				switch (state)
 				{
 					case FormWindowState.Minimized:
-						return TryWriteBool(windowElement, attrMinimized.Handle, true);
+						return TryWriteBool(windowElement, attrMinimized, true);
 
 					case FormWindowState.Maximized:
 					{
-						var a = TryWriteBool(windowElement, attrMinimized.Handle, false);
-						var b = TryWriteBool(windowElement, attrZoomed.Handle, true);
+						var a = TryWriteBool(windowElement, attrMinimized, false);
+						var b = TryWriteBool(windowElement, attrZoomed, true);
 						return a || b;
 					}
 
 					default:
 					{
-						var a = TryWriteBool(windowElement, attrMinimized.Handle, false);
-						var b = TryWriteBool(windowElement, attrZoomed.Handle, false);
-						_ = AXUIElementPerformAction(windowElement, actionRaise.Handle);
+						var a = TryWriteBool(windowElement, attrMinimized, false);
+						var b = TryWriteBool(windowElement, attrZoomed, false);
+						_ = AXUIElementPerformAction(windowElement, actionRaise);
 						return a || b;
 					}
 				}
@@ -282,7 +285,7 @@ namespace Keysharp.Core.MacOS
 					var posValue = AXValueCreatePoint(kAXValueCGPointType, in point);
 					if (posValue != 0)
 					{
-						ok &= AXUIElementSetAttributeValue(windowElement, attrPosition.Handle, posValue) == kAXErrorSuccess;
+						ok &= AXUIElementSetAttributeValue(windowElement, attrPosition, posValue) == kAXErrorSuccess;
 						CFRelease(posValue);
 					}
 					else
@@ -297,7 +300,7 @@ namespace Keysharp.Core.MacOS
 					var sizeValue = AXValueCreateSize(kAXValueCGSizeType, in size);
 					if (sizeValue != 0)
 					{
-						ok &= AXUIElementSetAttributeValue(windowElement, attrSize.Handle, sizeValue) == kAXErrorSuccess;
+						ok &= AXUIElementSetAttributeValue(windowElement, attrSize, sizeValue) == kAXErrorSuccess;
 						CFRelease(sizeValue);
 					}
 					else
@@ -397,17 +400,7 @@ namespace Keysharp.Core.MacOS
 			if (AXIsProcessTrustedWithOptions(0))
 				return true;
 
-			if (prompt && Interlocked.Exchange(ref promptedTrust, 1) == 0)
-			{
-				try
-				{
-					using var dict = NSDictionary.FromObjectAndKey(NSNumber.FromBoolean(true), trustedPromptOptionKey);
-					_ = AXIsProcessTrustedWithOptions(dict.Handle);
-				}
-				catch
-				{
-				}
-			}
+			_ = prompt;
 
 			if (Interlocked.Exchange(ref loggedTrustFailure, 1) == 0)
 			{
@@ -569,7 +562,7 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				if (!TryCopyAttributeValue(appElement, attrWindows.Handle, out var windowsArray))
+				if (!TryCopyAttributeValue(appElement, attrWindows, out var windowsArray))
 					return false;
 
 				try
@@ -629,7 +622,7 @@ namespace Keysharp.Core.MacOS
 		{
 			double score = 0.0;
 
-			if (TryReadString(windowElement, attrTitle.Handle, out var title))
+			if (TryReadString(windowElement, attrTitle, out var title))
 			{
 				if (!title.IsNullOrEmpty())
 				{
@@ -660,10 +653,10 @@ namespace Keysharp.Core.MacOS
 		private static bool TryReadRect(nint windowElement, out Rectangle rect)
 		{
 			rect = Rectangle.Empty;
-			if (!TryReadPoint(windowElement, attrPosition.Handle, out var x, out var y))
+			if (!TryReadPoint(windowElement, attrPosition, out var x, out var y))
 				return false;
 
-			if (!TryReadSize(windowElement, attrSize.Handle, out var w, out var h))
+			if (!TryReadSize(windowElement, attrSize, out var w, out var h))
 				return false;
 
 			rect = new Rectangle((int)x, (int)y, (int)w, (int)h);
@@ -722,11 +715,9 @@ namespace Keysharp.Core.MacOS
 
 			try
 			{
-				var ns = Runtime.GetINativeObject<NSString>(obj, false);
-				if (ns == null)
+				value = Runtime.GetNSObject(obj)?.ToString() ?? string.Empty;
+				if (value.Length == 0)
 					return false;
-
-				value = ns.ToString();
 				return true;
 			}
 			finally
@@ -760,6 +751,18 @@ namespace Keysharp.Core.MacOS
 		{
 			using var num = NSNumber.FromBoolean(value);
 			return AXUIElementSetAttributeValue(element, attr, num.Handle) == kAXErrorSuccess;
+		}
+
+		private static nint CreateCFString(string value)
+		{
+			try
+			{
+				return CFStringCreateWithCString(0, value, kCFStringEncodingUTF8);
+			}
+			catch
+			{
+				return 0;
+			}
 		}
 
 		private static bool TryCopyAttributeValue(nint element, nint attr, out nint value)

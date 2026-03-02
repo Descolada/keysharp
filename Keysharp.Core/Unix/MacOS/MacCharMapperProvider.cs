@@ -6,7 +6,7 @@ namespace Keysharp.Core.Unix
 {
 	partial class UnixKeyboardMouseSender
 	{
-		private sealed class MacCharMapperProvider : IUnixCharMapperProvider
+		private sealed partial class MacCharMapperProvider : IUnixCharMapperProvider
 		{
 			private readonly Lock mapperLock = new();
 			private readonly Dictionary<int, (uint vk, bool needShift, bool needAltGr)> cache = new();

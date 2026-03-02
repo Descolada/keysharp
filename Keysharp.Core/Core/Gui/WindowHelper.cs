@@ -4,6 +4,9 @@ namespace Keysharp.Core
 {
 	internal static class WindowHelper
 	{
+		internal static void EnsureWindowAutomationPermission(string operation)
+			=> _ = Script.TheScript.Permissions.EnsureAccessibilityAutomation(operation: operation);
+
 		internal static (bool, nint) CtrlTonint(object ctrl)
 		{
 			if (ctrl == null)
@@ -42,6 +45,7 @@ namespace Keysharp.Core
 
 		internal static void DoDelayedAction(Action act)
 		{
+			EnsureWindowAutomationPermission("window operation");
 			act();
 			WindowItemBase.DoWinDelay();
 		}
@@ -101,6 +105,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("window style operation");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				var val = value;
@@ -157,6 +162,7 @@ namespace Keysharp.Core
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("window toggle operation");
 			var val = value.Ai();
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)

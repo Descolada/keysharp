@@ -5,6 +5,9 @@ namespace Keysharp.Core
 	/// </summary>
 	public static partial class Screen
 	{
+		internal static void EnsureScreenCapturePermission(string operation)
+			=> _ = Script.TheScript.Permissions.EnsureScreenCapture(operation: operation);
+
 		private static readonly Dictionary<string, Regex> optsItems = new (StringComparer.OrdinalIgnoreCase)
 		{
 			{ Keyword_Icon, IconRegex() },
@@ -65,6 +68,7 @@ namespace Keysharp.Core
 		/// <exception cref="ValueError ">A <see cref="ValueError "/> exception thrown if an invalid parameter was detected or the image could not be loaded.</exception>
 		public static object ImageSearch([ByRef] object outX, [ByRef] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
 		{
+			EnsureScreenCapturePermission("ImageSearch");
             outX ??= VarRef.Empty; outY ??= VarRef.Empty;
             var _x1 = x1.Ai();
 			var _y1 = y1.Ai();
@@ -170,6 +174,7 @@ namespace Keysharp.Core
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		public static string PixelGetColor(object x, object y, object unsed = null)
 		{
+			EnsureScreenCapturePermission("PixelGetColor");
 			int pixel;
 			var _x = x.Ai();
 			var _y = y.Ai();
@@ -212,6 +217,7 @@ namespace Keysharp.Core
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		public static long PixelSearch(object outX, object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
 		{
+			EnsureScreenCapturePermission("PixelSearch");
 			outX ??= VarRef.Empty; outY ??= VarRef.Empty;
 			var x1 = obj0.Ai();
 			var y1 = obj1.Ai();
@@ -300,6 +306,7 @@ namespace Keysharp.Core
 		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
 		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
 		{
+			Screen.EnsureScreenCapturePermission("ImageCapture");
 			var x = left.Ai();
 			var y = top.Ai();
 			var w = width.Ai();

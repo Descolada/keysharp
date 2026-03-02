@@ -1,5 +1,7 @@
 #if LINUX
 using Eto.GtkSharp;
+#elif OSX
+using AppKit;
 #endif
 
 namespace Keysharp.Core.Common.Images
@@ -30,8 +32,24 @@ namespace Keysharp.Core.Common.Images
 #elif LINUX
 			return new Bitmap(c.ToGdk().Image.SaveToBuffer("png"));
 #else
-			// TODO: replace with native cursor rasterization for macOS.
-			return new Bitmap(16, 16, PixelFormat.Format32bppRgb);
+			NSImage image = c?.ControlObject switch
+			{
+				NSCursor nsCursor => nsCursor.Image,
+				NSImage nsImage => nsImage,
+				_ => null
+			};
+
+			var tiff = image?.AsTiff();
+
+			if (tiff != null)
+			{
+				var data = tiff.ToArray();
+
+				if (data != null && data.Length > 0)
+					return new Bitmap(data);
+			}
+
+			throw new InvalidOperationException("Unable to convert cursor to bitmap on macOS: expected NSCursor/NSImage control object.");
 #endif
 		}
 
@@ -478,10 +496,9 @@ namespace Keysharp.Core.Common.Images
 			return true;
 #else
 #if LINUX
-			handle = ((Gdk.Pixbuf)bmp.ControlObject).Handle;
-#else
-			// On macOS we don't expose a native pixbuf handle; use a stable managed pseudo-handle.
-			handle = (nint)RuntimeHelpers.GetHashCode(bmp);
+			handle = (bmp.ControlObject as Gdk.Pixbuf)?.Handle ?? nint.Zero;
+#elif OSX
+			handle = (bmp.ControlObject as NSImage)?.Handle ?? nint.Zero;
 #endif
 
 			if (handle == 0)

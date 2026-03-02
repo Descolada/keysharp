@@ -170,6 +170,7 @@ namespace Keysharp.Scripting
 		private MapKeyValueIteratorData mapKeyValueIteratorData;
 		private OwnPropsIteratorData ownPropsIteratorData;
 		private PlatformProvider platformProvider;
+		private PermissionProvider permissionProvider;
 		private ProcessesData processesData;
 		private RegExData regExData;
 		private RegExIteratorData regExIteratorData;
@@ -234,6 +235,8 @@ namespace Keysharp.Scripting
 		internal MapKeyValueIteratorData MapKeyValueIteratorData => mapKeyValueIteratorData ?? (mapKeyValueIteratorData = new ());
 		internal OwnPropsIteratorData OwnPropsIteratorData => ownPropsIteratorData ?? (ownPropsIteratorData = new ());
 		internal PlatformProvider PlatformProvider => platformProvider ?? (platformProvider = new ());
+		internal PermissionProvider PermissionProvider => permissionProvider ?? (permissionProvider = new ());
+		internal IPermissionManager Permissions => PermissionProvider.Manager;
 		internal ProcessesData ProcessesData => processesData ?? (processesData = new ());
 		internal Reflections Reflections { get; private set; }
 		internal ReflectionsData ReflectionsData { get; } = new ();//Don't lazy initialize, it's always needed in every Script.TheScript.
@@ -326,6 +329,12 @@ namespace Keysharp.Scripting
 			pd.MainThreadID = CurrentThreadId();
 			pd.ManagedMainThreadID = Thread.CurrentThread.ManagedThreadId;//Figure out how to do this on linux.//TODO
 
+			// Request the required privacy permissions at startup so failures are explicit and early.
+			var pm = Permissions;
+			_ = pm.RequestAccessibilityAutomation(operation: "accessibility automation");
+			_ = pm.RequestInputMonitoring(operation: "keyboard/mouse monitoring");
+			_ = pm.RequestInputInjection(operation: "keyboard/mouse sending");
+
 #if WINDOWS
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
@@ -333,8 +342,8 @@ namespace Keysharp.Scripting
 			msgFilter = new MessageFilter(this);
 			msgFilter.Attach();
 #endif
-			if (hookMutexName != null && hookMutexName != "") HookThread.MutexName = hookMutexName;
-			_ = InitHook();//Why is this always being initialized even when there are no hooks? This is very inefficient.//TODO
+			HookThread = CreateHookThread();
+			if (hookMutexName != null && hookMutexName != "") Keysharp.Core.Common.Threading.HookThread.MutexName = hookMutexName;
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 			tickTimer.Elapsed += TickTimerCallback;
@@ -941,14 +950,15 @@ namespace Keysharp.Scripting
 
 			if (!IsMainWindowClosing)
 			{
-				mainWindow.CheckedInvoke(() =>
+				var window = mainWindow;
+				window?.CheckedInvoke(() =>
 				{
-					mainWindow.Close();
+					window.Close();
 					mainWindow = null;
 				}, false);
 			}
 
-			if (Tray != null && Tray.ContextMenuStrip != null)
+			if (Tray != null)
 			{
 				InvokeOnUIThread(DisposeTrayIcon);
 			}
@@ -1118,21 +1128,17 @@ namespace Keysharp.Scripting
 			thisHotkeyStartTime = DateTime.UtcNow; // Fixed for v1.0.35.10 to not happen for GUI
 		}
 
-		private bool InitHook()
+		private static HookThread CreateHookThread()
 		{
-			if (HookThread != null && HookThread.IsHookThreadRunning() && HookThread.IsReadThreadRunning())
-				return false;
-
 #if WINDOWS
-			HookThread = new WindowsHookThread();
+			return new WindowsHookThread();
 #elif LINUX
-			HookThread = new LinuxHookThread();
+			return new LinuxHookThread();
 #elif OSX
-			HookThread = new MacHookThread();
+			return new MacHookThread();
 #else
 #error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif
-			return true;
 		}
 
 		private void PrivateClipboardUpdate(params object[] o)

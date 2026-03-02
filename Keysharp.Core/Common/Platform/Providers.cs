@@ -41,6 +41,16 @@
 		;
 	}
 
+	internal class PermissionProvider
+	{
+		internal IPermissionManager Manager { get; } =
+#if OSX
+			new MacPermissionManager();
+#else
+			new DefaultPermissionManager();
+#endif
+	}
+
 	internal static class StatusBarProvider
 	{
 		/// <summary>

@@ -201,6 +201,8 @@ namespace Keysharp.Core.Unix
 		protected readonly HashSet<(uint xCode, uint mods)> activeGrabs = new();
 		protected readonly HashSet<(uint xCode, uint mods)> activeHotstringGrabs = new();
 		protected readonly HashSet<(uint button, uint mods)> activeButtonGrabs = new();
+		protected virtual bool UseSyntheticEventQueue => true;
+		protected virtual bool UsePlatformHotstringArming => false;
 		private bool sendInProgress;
 		private int sendDepth;
 		internal readonly struct SendScope : IDisposable
@@ -340,6 +342,7 @@ namespace Keysharp.Core.Unix
 				// Ensure the hook is running (only start/attach once).
 				if (globalHook == null || !globalHook.IsRunning)
 				{
+					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
 					StopGlobalHookCore(dispose: true); // clean restart if something half-exists
 
 					globalHook = new SimpleGlobalHook();
@@ -354,6 +357,18 @@ namespace Keysharp.Core.Unix
 
 					// Start hook thread
 					hookRunTask = globalHook.RunAsync();
+					_ = hookRunTask.ContinueWith(t =>
+					{
+						var ex = t.Exception?.GetBaseException();
+						var detail = ex != null ? ex.ToString() : "Unknown hook startup failure.";
+
+#if OSX
+						Ks.OutputDebugLine($"Global hook failed on macOS: {detail}");
+						Ks.OutputDebugLine("Check macOS permissions: Accessibility and Input Monitoring may be required.");
+#else
+						Ks.OutputDebugLine($"Global hook failed: {detail}");
+#endif
+					}, TaskContinuationOptions.OnlyOnFaulted);
 				}
 
 				// Respect Windows semantics: ResetHook only for non-temporary transitions
@@ -513,6 +528,7 @@ namespace Keysharp.Core.Unix
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
+			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 
@@ -545,6 +561,7 @@ namespace Keysharp.Core.Unix
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
+			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 
@@ -661,6 +678,11 @@ namespace Keysharp.Core.Unix
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			if (!e.IsEventSimulated)
+			{
+				var script = Script.TheScript;
+				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+			}
 
 			lastHookEventWasKeyboard = false;
 			var vk = MapWheelVk(e);
@@ -692,6 +714,11 @@ namespace Keysharp.Core.Unix
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			if (!e.IsEventSimulated)
+			{
+				var script = Script.TheScript;
+				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+			}
 
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
@@ -707,6 +734,11 @@ namespace Keysharp.Core.Unix
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			if (!e.IsEventSimulated)
+			{
+				var script = Script.TheScript;
+				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+			}
 
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
@@ -731,8 +763,8 @@ namespace Keysharp.Core.Unix
 		private static uint MapWheelVk(MouseWheelHookEventArgs e)
 		{
 			if (e.Data.Direction == MouseWheelScrollDirection.Vertical)
-				return e.Data.Rotation < 0 ? VK_WHEEL_UP : VK_WHEEL_DOWN;
-			return e.Data.Rotation < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT;
+				return e.Data.Rotation > 0 ? VK_WHEEL_UP : VK_WHEEL_DOWN;
+			return e.Data.Rotation > 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT;
 		}
 
 		private static readonly FieldInfo rawEventField = typeof(HookEventArgs).GetField("<RawEvent>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -744,6 +776,9 @@ namespace Keysharp.Core.Unix
 
 		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp, DateTime ms, long extraInfo)
 		{
+			if (!UseSyntheticEventQueue)
+				return;
+
 			if (keyCode == KeyCode.VcUndefined)
 				return;
 
@@ -849,13 +884,15 @@ namespace Keysharp.Core.Unix
 			return activeHotkeyDown && activeHotkeyVk == vk;
 		}
 
-		private bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
+		protected virtual bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
 		{
 			var mask = e.RawEvent.Mask;
 			var simulated = (mask & EventMask.SimulatedEvent) != 0;
 			extraInfo = 0;
 
-			if (!simulated && (ConsumeSyntheticEvent(keyCode, keyUp, e.EventTime, out extraInfo)
+			if (UseSyntheticEventQueue
+				&& !simulated
+				&& (ConsumeSyntheticEvent(keyCode, keyUp, e.EventTime, out extraInfo)
 				 //|| IsLogicallyDownPhysicallyUp(vk)
 				 ))
 			{
@@ -1076,6 +1113,10 @@ namespace Keysharp.Core.Unix
 				logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
 		}
 
+		protected virtual void RecordScVkMapping(uint sc, uint vk)
+		{
+		}
+
 		// Map a candidate end character to VK + required modifiers (layout-aware)
 		protected bool MapEndCharToVkAndNeeds(char endChar, out uint vk, out bool needShift, out bool needAltGr)
 		{
@@ -1224,7 +1265,7 @@ namespace Keysharp.Core.Unix
 			return false;
 		}
 
-		// Route hotstring collection through the Linux arming logic so end-keys can be grabbed/ungrabbed.
+		// Route hotstring collection through platform arming logic when available (Linux/X11).
 		internal override bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
 												KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar)
 		{
@@ -1259,18 +1300,16 @@ namespace Keysharp.Core.Unix
 				foreach (var cc in hmBuf) sb.Append(Escape(cc));
 				DebugLog($"[HS] typed '{chDesc}': len={hmBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 
-				RecomputeHotstringArming();
+				if (UsePlatformHotstringArming)
+					RecomputeHotstringArming();
 			}
 
 			return result;
 		}
 
-		// Hotstrings on Linux rely on XGrabKey to swallow end characters. As soon as a hotstring
-		// fires, release those grabs before the replacement is sent so the ending character can
-		// be replayed by the sender.
 		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
 		{
-			if (hs != null)
+			if (UsePlatformHotstringArming && hs != null)
 				DisarmHotstring();
 
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
@@ -1292,7 +1331,8 @@ namespace Keysharp.Core.Unix
 
 		internal override void PrepareToSendHotstringReplacement(char endChar)
 		{
-			DisarmHotstring();
+			if (UsePlatformHotstringArming)
+				DisarmHotstring();
 		}
 
 		internal override uint KeyToModifiersLR(uint vk, uint sc, ref bool? isNeutral)

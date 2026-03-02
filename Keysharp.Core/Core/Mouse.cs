@@ -42,12 +42,14 @@ namespace Keysharp.Core
 		/// </param>
 		public static object Click(object coords = null, object whichButton = null, object clickCount = null, object downOrUp = null, object relative = null)
 		{
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "Click");
 			int x = 0, y = 0;
 			var vk = 0u;
 			var eventType = KeyEventTypes.KeyDown;
 			var repeatCount = 0L;
 			var moveOffset = false;
-			var ht = Script.TheScript.HookThread;
+			var ht = script.HookThread;
 			var options = $"{coords.As()} {whichButton.As()} {clickCount.As()} {downOrUp.As()} {relative.As()}";
 			ht.ParseClickOptions(options, ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
 			//Keysharp.Scripting.Script.mainWindow.CheckedBeginInvoke(() =>
@@ -340,6 +342,8 @@ namespace Keysharp.Core
 		/// </param>
 		public static object MouseMove(object x, object y, object speed = null, object relative = null)
 		{
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "MouseMove");
 			var ix = x.Ai(KeyboardMouseSender.CoordUnspecified);
 			var iy = y.Ai(KeyboardMouseSender.CoordUnspecified);
 			var s = (int)speed.Al(ThreadAccessors.A_DefaultMouseSpeed);
@@ -404,8 +408,10 @@ namespace Keysharp.Core
 		private static void PerformMouse(Actions actionType, string button, int x1, int y1, int x2, int y2
 										 , int speed, string relative, long repeatCount, string downUp)
 		{
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "mouse operation");
 			uint vk;
-			var ht = Script.TheScript.HookThread;
+			var ht = script.HookThread;
 
 			if (actionType == Actions.ACT_MOUSEMOVE)
 				vk = 0;

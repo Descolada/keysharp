@@ -7,13 +7,18 @@ namespace Keysharp.Core.MacOS
 		{
 			get
 			{
-				if (Application.Instance?.Windows == null)
-					return new WindowItem(0);
+				var hwnd = MacNativeWindows.GetFrontWindowHandle();
+				if (hwnd != 0)
+					return new WindowItem(hwnd);
 
-				var active = Application.Instance.Windows.FirstOrDefault(w => w.Visible)
-					?? Application.Instance.Windows.FirstOrDefault();
+				if (Application.Instance?.Windows != null)
+				{
+					var visible = Application.Instance.Windows.FirstOrDefault(w => w.Visible);
+					if (visible != null)
+						return new WindowItem(visible);
+				}
 
-				return active != null ? new WindowItem(active) : new WindowItem(0);
+				return new WindowItem(0);
 			}
 		}
 
@@ -21,10 +26,30 @@ namespace Keysharp.Core.MacOS
 		{
 			get
 			{
-				if (Application.Instance?.Windows == null)
-					return [];
+				var windows = MacNativeWindows.Snapshot();
+				var list = new List<WindowItemBase>(windows.Count + 8);
+				var seen = new HashSet<nint>();
 
-				return Application.Instance.Windows.Select(window => (WindowItemBase)new WindowItem(window)).ToList();
+				for (int i = 0; i < windows.Count; i++)
+				{
+					var h = (nint)windows[i].WindowNumber;
+					list.Add(new WindowItem(h));
+					seen.Add(h);
+				}
+
+				// Keep app-owned Eto windows visible to window search if not exposed via CG snapshot.
+				if (Application.Instance?.Windows != null)
+				{
+					foreach (var w in Application.Instance.Windows)
+					{
+						if (w == null || w.Handle == 0 || !seen.Add(w.Handle))
+							continue;
+
+						list.Add(new WindowItem(w));
+					}
+				}
+
+				return list;
 			}
 		}
 
@@ -40,12 +65,29 @@ namespace Keysharp.Core.MacOS
 		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow)
 		{
 			apControl = 0;
+
+			var hwnd = aWindow != 0 ? aWindow : ActiveWindow?.Handle ?? 0;
+			if (hwnd == 0)
+				return 0;
+
+			if (MacNativeWindows.TryGetWindowInfo(hwnd, out var native))
+				return (uint)Math.Max(0, native.OwnerPid);
+
 			return 0;
 		}
 
 		public static nint GetForegroundWindowHandle() => ActiveWindow?.Handle ?? 0;
 
-		public static bool IsWindow(nint handle) => handle != 0 && Control.FromHandle(handle) != null;
+		public static bool IsWindow(nint handle)
+		{
+			if (handle == 0)
+				return false;
+
+			if (Control.FromHandle(handle) != null)
+				return true;
+
+			return MacNativeWindows.TryGetWindowInfo(handle, out _);
+		}
 
 		public static void MaximizeAll()
 		{
@@ -67,11 +109,15 @@ namespace Keysharp.Core.MacOS
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)
 		{
-			foreach (var window in AllWindows)
+			if (MacNativeWindows.TryGetWindowAtPoint(location, out var native))
 			{
-				var rect = window.Location;
-				if (location.X >= rect.X && location.X <= rect.Right && location.Y >= rect.Y && location.Y <= rect.Bottom)
-					return window;
+				var window = new WindowItem((nint)native.WindowNumber);
+				var pah = new PointAndHwnd(location);
+				window.ChildFindPoint(pah);
+				if (pah.hwndFound != 0)
+					return WindowManager.CreateWindow(pah.hwndFound);
+
+				return window;
 			}
 
 			return ActiveWindow;
@@ -79,6 +125,9 @@ namespace Keysharp.Core.MacOS
 
 		public static WindowItemBase WindowFromPoint(POINT location)
 		{
+			if (MacNativeWindows.TryGetWindowAtPoint(location, out var native))
+				return new WindowItem((nint)native.WindowNumber);
+
 			return ChildWindowFromPoint(location);
 		}
 	}

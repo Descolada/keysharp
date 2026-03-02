@@ -1,4 +1,7 @@
 #if OSX
+using AppKit;
+using Foundation;
+
 namespace Keysharp.Core.Common.Window
 {
 	internal struct Message
@@ -14,6 +17,7 @@ namespace Keysharp.Core.Common.Window
 	{
 		private readonly Script script;
 		internal Message handledMsg;
+		private NSObject localEventMonitor;
 
 		internal MessageFilter(Script associatedScript)
 		{
@@ -22,10 +26,51 @@ namespace Keysharp.Core.Common.Window
 
 		internal void Attach()
 		{
+			if (localEventMonitor != null)
+				return;
+
+			try
+			{
+				localEventMonitor = NSEvent.AddLocalMonitorForEventsMatchingMask(NSEventMask.Any, eventArgs =>
+				{
+					var m = new Message
+					{
+						HWnd = WindowManager.GetForegroundWindowHandle(),
+						Msg = (int)eventArgs.Type,
+						WParam = 0,
+						LParam = 0,
+						Result = 0
+					};
+
+					_ = CallEventHandlers(ref m);
+
+					// Returning null consumes the event.
+					return m.Result != 0 ? null : eventArgs;
+				});
+			}
+			catch
+			{
+				localEventMonitor = null;
+			}
 		}
 
 		internal void Detach()
 		{
+			if (localEventMonitor == null)
+				return;
+
+			try
+			{
+				NSEvent.RemoveMonitor(localEventMonitor);
+			}
+			catch
+			{
+			}
+			finally
+			{
+				localEventMonitor.Dispose();
+				localEventMonitor = null;
+			}
 		}
 
 		internal bool CallEventHandlers(ref Message m)

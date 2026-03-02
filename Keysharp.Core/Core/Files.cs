@@ -13,6 +13,13 @@ namespace Keysharp.Core
 #if OSX
 		private static readonly char[] dirSeparators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
 #endif
+		private static void EnsureFilePermission(string path, FilePermissionAccess access, string operation)
+		{
+			if (string.IsNullOrEmpty(path) || path.StartsWith("*", StringComparison.Ordinal))
+				return;
+
+			_ = Script.TheScript.Permissions.EnsureFileAccess(path, access, operation: operation);
+		}
 
 		/// <summary>
 		/// Writes text to the end of a file, creating it first if necessary.
@@ -45,6 +52,7 @@ namespace Keysharp.Core
 		public static object FileAppend(object text, object filename = null, object options = null)
 		{
 			var file = filename.As();
+			EnsureFilePermission(file, FilePermissionAccess.Append, "FileAppend");
 			ThreadAccessors.A_LastError = 0;
 
 			//if (text.ToString() != "pass")
@@ -210,6 +218,8 @@ namespace Keysharp.Core
 		/// <exception cref="Error">An <see cref="OSError"/> exception is thrown if any errors occur.</exception>
 		public static object FileCopy(object sourcePattern, object destPattern, object overwrite = null)
 		{
+			EnsureFilePermission(sourcePattern.As(), FilePermissionAccess.Read, "FileCopy source");
+			EnsureFilePermission(destPattern.As(), FilePermissionAccess.Write, "FileCopy destination");
 			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), false);
 			return DefaultObject;
 		}
@@ -288,6 +298,8 @@ namespace Keysharp.Core
 			var a = args.As();
 			var d = description.As();
 			var icon = iconFile.As();
+			EnsureFilePermission(t, FilePermissionAccess.Read, "FileCreateShortcut target");
+			EnsureFilePermission(l, FilePermissionAccess.Write, "FileCreateShortcut link");
 
 			if (t == "")
 				return Errors.ValueErrorOccurred("Shortcut target cannot be an empty string.");
@@ -393,6 +405,7 @@ namespace Keysharp.Core
 		public static object FileDelete(object filePattern)
 		{
 			var s = filePattern.As();
+			EnsureFilePermission(s, FilePermissionAccess.Write, "FileDelete");
 			var path = Path.GetDirectoryName(s);
 			var dir = new DirectoryInfo(path?.Length == 0 ? "./" : path);
 			var filename = Path.GetFileName(s);
@@ -877,6 +890,8 @@ namespace Keysharp.Core
 		/// </param>
 		public static object FileMove(object sourcePattern, object destPattern, object overwrite = null)
 		{
+			EnsureFilePermission(sourcePattern.As(), FilePermissionAccess.ReadWrite, "FileMove source");
+			EnsureFilePermission(destPattern.As(), FilePermissionAccess.ReadWrite, "FileMove destination");
 			FileCopyMove(sourcePattern.As(), destPattern.As(), overwrite.Ab(), true);
 			return DefaultObject;
 		}
@@ -1021,6 +1036,17 @@ namespace Keysharp.Core
 			if (!shareset)
 				share = FileShare.ReadWrite | FileShare.Delete;
 
+			if (file != "*" && file != "**" && !file.StartsWith("h*", StringComparison.Ordinal))
+			{
+				var requestedAccess = access switch
+				{
+					FileAccess.Read => FilePermissionAccess.Read,
+					FileAccess.Write => FilePermissionAccess.Write,
+					_ => FilePermissionAccess.ReadWrite
+				};
+				EnsureFilePermission(file, requestedAccess, "FileOpen");
+			}
+
 			try
 			{
 				return new KeysharpFile(file, mode, access, share, enc, eolconv);
@@ -1059,6 +1085,7 @@ namespace Keysharp.Core
 		{
 			object output = null;
 			var file = filename.As();
+			EnsureFilePermission(file, FilePermissionAccess.Read, "FileRead");
 			var opts = options.As();
 			var enc = ThreadAccessors.A_FileEncodingRaw;
 			ThreadAccessors.A_LastError = 0;
@@ -1156,6 +1183,7 @@ namespace Keysharp.Core
 		public static object FileRecycle(object filePattern)
 		{
 			var s = filePattern.As();
+			EnsureFilePermission(s, FilePermissionAccess.Write, "FileRecycle");
 			ThreadAccessors.A_LastError = 0;
 
 			try

@@ -2,6 +2,12 @@
 {
 	public static class ControlX
 	{
+		private static void EnsureControlAutomationPermission(string operation)
+			=> _ = Script.TheScript.Permissions.EnsureAccessibilityAutomation(operation: operation);
+
+		private static void EnsureControlInputInjectionPermission(string operation)
+			=> _ = Script.TheScript.Permissions.EnsureInputInjection(operation: operation);
+
 		public static long ControlAddItem(object @string,
 										  object control,
 										  object winTitle = null,
@@ -54,6 +60,8 @@
 										  object excludeTitle = null,
 										  object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlClick");
+			EnsureControlInputInjectionPermission("ControlClick");
 			Script.TheScript.ControlProvider.Manager.ControlClick(
 				ctrlOrPos,
 				title,
@@ -102,6 +110,7 @@
 										  object excludeTitle = null,
 										  object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlFocus");
 			Script.TheScript.ControlProvider.Manager.ControlFocus(
 				control,
 				winTitle,
@@ -275,6 +284,7 @@
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlHide");
 			Script.TheScript.ControlProvider.Manager.ControlHide(
 				control,
 				winTitle,
@@ -290,6 +300,7 @@
 				object excludeTitle = null,
 				object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlHideDropDown");
 			Script.TheScript.ControlProvider.Manager.ControlHideDropDown(
 				control,
 				winTitle,
@@ -309,6 +320,7 @@
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlMove");
 			Script.TheScript.ControlProvider.Manager.ControlMove(
 				x.Ai(int.MinValue),
 				y.Ai(int.MinValue),
@@ -329,6 +341,8 @@
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSend");
+			EnsureControlInputInjectionPermission("ControlSend");
 			Script.TheScript.ControlProvider.Manager.ControlSend(
 				keys.As(),
 				control,
@@ -346,6 +360,8 @@
 											 object excludeTitle = null,
 											 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSendText");
+			EnsureControlInputInjectionPermission("ControlSendText");
 			Script.TheScript.ControlProvider.Manager.ControlSendText(
 				keys.As(),
 				control,
@@ -363,6 +379,7 @@
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSetChecked");
 			Script.TheScript.ControlProvider.Manager.ControlSetChecked(
 				newSetting,
 				control,
@@ -380,6 +397,7 @@
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSetEnabled");
 			Script.TheScript.ControlProvider.Manager.ControlSetEnabled(
 				newSetting,
 				control,
@@ -397,6 +415,7 @@
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSetExStyle");
 			Script.TheScript.ControlProvider.Manager.ControlSetExStyle(
 				value,
 				control,
@@ -414,6 +433,7 @@
 											 object excludeTitle = null,
 											 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSetStyle");
 			Script.TheScript.ControlProvider.Manager.ControlSetStyle(
 				value,
 				control,
@@ -431,6 +451,7 @@
 											object excludeTitle = null,
 											object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlSetText");
 			Script.TheScript.ControlProvider.Manager.ControlSetText(
 				newText.As(),
 				control,
@@ -447,6 +468,7 @@
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlShow");
 			Script.TheScript.ControlProvider.Manager.ControlShow(
 				control,
 				winTitle,
@@ -462,6 +484,7 @@
 				object excludeTitle = null,
 				object excludeText = null)
 		{
+			EnsureControlAutomationPermission("ControlShowDropDown");
 			Script.TheScript.ControlProvider.Manager.ControlShowDropDown(
 				control,
 				winTitle,

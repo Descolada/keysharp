@@ -53,6 +53,9 @@ namespace Keysharp.Core.Unix
 		{
 		}
 
+		private static void EnsureInputSendPermission(string operation)
+			=> _ = Script.TheScript.Permissions.EnsureInputInjection(operation: operation);
+
 		internal override bool MouseButtonsSwapped
 		{
 			get
@@ -645,6 +648,7 @@ namespace Keysharp.Core.Unix
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
+			EnsureInputSendPermission("send mouse input");
 			if (sendMode != SendModes.Event)
 			{
 				PutMouseEventIntoArray(eventFlags, data, x, y);
@@ -797,6 +801,7 @@ namespace Keysharp.Core.Unix
 
 		internal override void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
 		{
+			EnsureInputSendPermission("move mouse");
 			if (x == CoordUnspecified || y == CoordUnspecified)
 				return;
 
@@ -906,6 +911,7 @@ namespace Keysharp.Core.Unix
 
 		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo)
 		{
+			EnsureInputSendPermission("send keyboard input");
 			var lht = Script.TheScript.HookThread as UnixHookThread;
 			if (lht == null)
 				return;
@@ -940,6 +946,7 @@ namespace Keysharp.Core.Unix
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
 		{
+			EnsureInputSendPermission("send keyboard text");
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 
@@ -1158,6 +1165,7 @@ namespace Keysharp.Core.Unix
 
 			public void KeyDown(uint vk, DateTime ms, long extraInfo)
 			{
+				EnsureInputSendPermission("send keyboard input");
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code == KeyCode.VcUndefined)
 					return;
@@ -1169,6 +1177,7 @@ namespace Keysharp.Core.Unix
 
 			public void KeyUp(uint vk, DateTime ms, long extraInfo)
 			{
+				EnsureInputSendPermission("send keyboard input");
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code == KeyCode.VcUndefined)
 					return;

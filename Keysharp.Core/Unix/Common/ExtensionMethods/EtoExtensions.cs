@@ -1,5 +1,8 @@
 #if !WINDOWS
 using System.Xml.Linq;
+#if OSX
+using AppKit;
+#endif
 
 namespace Eto.Forms 
 {
@@ -168,6 +171,23 @@ namespace Eto.Forms
                                 return xid;
                         }
                     }
+#elif OSX
+					if (widget is Form macForm)
+					{
+						var native = macForm.ToNative();
+
+						if (native is NSWindow nsWindow && nsWindow.Handle != nint.Zero)
+							return nsWindow.Handle;
+
+						if (native is NSView nsView)
+						{
+							if (nsView.Window?.Handle != nint.Zero)
+								return nsView.Window.Handle;
+
+							if (nsView.Handle != nint.Zero)
+								return nsView.Handle;
+						}
+					}
 #endif
 
                     return widget.NativeHandle;

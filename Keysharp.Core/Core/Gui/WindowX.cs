@@ -47,6 +47,7 @@ namespace Keysharp.Core
 
 		public static long GroupActivate(object groupName, object mode = null)
 		{
+			EnsureWindowAutomationPermission("GroupActivate");
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
 			var script = Script.TheScript;
@@ -112,6 +113,7 @@ namespace Keysharp.Core
 
 		public static object GroupClose(object groupName, object mode = null)
 		{
+			EnsureWindowAutomationPermission("GroupClose");
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
 			var mgr = Script.TheScript.WindowProvider.Manager;
@@ -159,6 +161,7 @@ namespace Keysharp.Core
 
 		public static object GroupDeactivate(object groupName, object mode = null)
 		{
+			EnsureWindowAutomationPermission("GroupDeactivate");
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
 			var script = Script.TheScript;
@@ -223,6 +226,7 @@ namespace Keysharp.Core
 										object excludeTitle = null,
 										object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("MenuSelect");
 			Script.TheScript.ControlProvider.Manager.MenuSelect(
 				winTitle,
 				winText,
@@ -472,6 +476,7 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinActivate");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 				win.Active = true;
 
@@ -483,6 +488,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinActivateBottom");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowItemBase win)
 				win.Active = true;
 
@@ -520,6 +526,7 @@ namespace Keysharp.Core
 									  object excludeTitle = null,
 									  object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinClose");
 			var seconds = secondsToWait.Ad(double.MinValue);
 			var script = Script.TheScript;
 			var (windows, crit) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
@@ -774,6 +781,7 @@ namespace Keysharp.Core
 									 object excludeTitle = null,
 									 object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinKill");
 			var seconds = secondsToWait.Ad(double.MinValue);
 			var script = Script.TheScript;
 			var (windows, crit) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
@@ -832,6 +840,7 @@ namespace Keysharp.Core
 									 object excludeTitle = null,
 									 object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinMove");
 			var _x = x.Ai(int.MinValue);
 			var _y = y.Ai(int.MinValue);
 			var w = width.Ai(int.MinValue);
@@ -943,6 +952,7 @@ namespace Keysharp.Core
 										  object excludeTitle = null,
 										  object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinSetRegion");
 			var opts = options.As();
 
 			if (!(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win))
@@ -1042,6 +1052,7 @@ namespace Keysharp.Core
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinSetTitle");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.Title = newTitle.As();
@@ -1057,6 +1068,7 @@ namespace Keysharp.Core
 											  object excludeTitle = null,
 											  object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinSetTransColor");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.TransparentColor = color;
@@ -1072,6 +1084,7 @@ namespace Keysharp.Core
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinSetTransparent");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
 				win.Transparency = n;
@@ -1086,6 +1099,7 @@ namespace Keysharp.Core
 									 object excludeTitle = null,
 									 object excludeText = null)
 		{
+			EnsureWindowAutomationPermission("WinShow");
 			var tv = Script.TheScript.Threads.CurrentThread.configData;
 			var prev = tv.detectHiddenWindows;
 			tv.detectHiddenWindows = true;

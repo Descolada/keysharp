@@ -624,7 +624,9 @@ break_twice:;
 		/// <param name="keys">The sequence of keys to send.</param>
 		public static object Send(object keys)
 		{
-			Script.TheScript.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode, 0);
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "Send");
+			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}
 
@@ -645,7 +647,9 @@ break_twice:;
 		/// </summary>
 		public static object SendEvent(object keys)
 		{
-			Script.TheScript.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Event, 0);
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "SendEvent");
+			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Event, 0);
 			return DefaultObject;
 		}
 
@@ -657,7 +661,9 @@ break_twice:;
 		/// </summary>
 		public static object SendInput(object keys)
 		{
-			Script.TheScript.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode == SendModes.InputThenPlay ? SendModes.InputThenPlay : SendModes.Input, 0);
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "SendInput");
+			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode == SendModes.InputThenPlay ? SendModes.InputThenPlay : SendModes.Input, 0);
 			return DefaultObject;
 		}
 
@@ -694,7 +700,9 @@ break_twice:;
 		/// </summary>
 		public static object SendPlay(object keys)
 		{
-			Script.TheScript.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Play, 0);
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "SendPlay");
+			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Play, 0);
 			return DefaultObject;
 		}
 
@@ -703,7 +711,9 @@ break_twice:;
 		/// </summary>
 		public static object SendText(object keys)
 		{
-			Script.TheScript.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.RawText, ThreadAccessors.A_SendMode, 0);
+			var script = Script.TheScript;
+			_ = script.Permissions.EnsureInputInjection(operation: "SendText");
+			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.RawText, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}
 
@@ -1091,6 +1101,12 @@ break_twice:;
 			var i = install.Ab(true);
 			var f = force.Ab();
 			var ht = Script.TheScript.HookThread;
+
+			if (i)
+			{
+				var op = whichHook == HookType.Keyboard ? "InstallKeybdHook" : "InstallMouseHook";
+				_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: op);
+			}
 
 			//When the second parameter is true, unconditionally remove the hook. If the first parameter is
 			//also true, the hook will be reinstalled fresh. Otherwise the hook will be left uninstalled,

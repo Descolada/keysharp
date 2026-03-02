@@ -14,6 +14,7 @@ namespace Keysharp.Core.Unix
 	// Linux-only X11 extension points for UnixHookThread.
 	internal sealed class LinuxHookThread : UnixHookThread
 	{
+		protected override bool UsePlatformHotstringArming => true;
 		private const uint Mod5Mask = 1 << 7; // Usually ISO_Level3_Shift (AltGr) on X11.
 		private static readonly uint[] ExtraGrabMasks = { ControlMask, ShiftMask, Mod1Mask, Mod4Mask, Mod5Mask };
 

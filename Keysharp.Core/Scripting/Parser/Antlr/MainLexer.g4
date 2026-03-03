@@ -365,10 +365,11 @@ fragment SQStringCharacter
 fragment NonColonStringCharacter: ~[;:`\r\n\u2028\u2029] | '`' EscapeSequence;
 
 fragment StringLiteralCharacter
-    : ~[;'"`\r\n\u2028\u2029]
-    | '`' EscapeSequence ';'? // Match escape sequences starting with backtick
+    : ~[`'"\t\n\r\u2028\u2029\f ] ';'   // Match semicolon only if not preceded by whitespace
+    | ~[;'"`\r\n\u2028\u2029]           // Match any character except semicolon, newline, or carriage return
+    | '`' EscapeSequence ';'?           // Match escape sequences starting with backtick
     | ('\'' | '"') {!this.IsCurrentStringQuote()}?
-    | ';' {!this.IsCommentPossible()}?
+    | ';' {!this.IsCommentPossible()}?  // Only needed for string start
     ;
 
 fragment RawStringCharacter

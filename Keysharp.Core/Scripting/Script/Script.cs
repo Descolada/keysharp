@@ -689,13 +689,13 @@ namespace Keysharp.Scripting
 			if (IsHeadless)
 				SuppressErrorOccurredDialog = true;
 
-			var suppressTestHostUi = IsTestHost;
-
 #if WINDOWS
-			InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
+			InitializeMainWindow(title, _persistent, !NoMainWindow); // Can't use !suppressTestHostUi here or OnMessage test fails
 			_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 			Application.Run(mainWindow);
 #else
+			var suppressTestHostUi = IsTestHost;
+
 			lock (etoLoopLock)
 			{
 				Application app = EnsureEtoApplication();

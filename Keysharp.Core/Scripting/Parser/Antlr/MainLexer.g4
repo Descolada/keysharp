@@ -233,7 +233,7 @@ UnexpectedCharacter : . -> channel(ERROR);
 
 mode STRING_MODE;
 StringLiteralPart
-    : (';'? StringLiteralCharacter+) {this.AppendInitialStringChunk();} (SingleLineCommentAtom {this.ProcessStringTrivia();})?;
+    : StringLiteralCharacter+ {this.AppendInitialStringChunk();} (SingleLineCommentAtom {this.ProcessStringTrivia();})?;
 StringModeTerminator
     : ('"' | '\'' | LineBreak) {this.MaybeEndStringMode();} -> skip;
 StringModeTrivia
@@ -365,10 +365,10 @@ fragment SQStringCharacter
 fragment NonColonStringCharacter: ~[;:`\r\n\u2028\u2029] | '`' EscapeSequence;
 
 fragment StringLiteralCharacter
-    : ~[`'"\t\n\r\u2028\u2029\f ] ';'         // Match semicolon only if not preceded by whitespace
-    | ~[;'"`\r\n\u2028\u2029]                 // Match any character except semicolon, newline, or carriage return
-    | '`' EscapeSequence ';'?       // Match escape sequences starting with backtick
+    : ~[;'"`\r\n\u2028\u2029]
+    | '`' EscapeSequence ';'? // Match escape sequences starting with backtick
     | ('\'' | '"') {!this.IsCurrentStringQuote()}?
+    | ';' {!this.IsCommentPossible()}?
     ;
 
 fragment RawStringCharacter

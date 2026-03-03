@@ -1767,6 +1767,8 @@ namespace Keysharp.Scripting
 
             var expression = (ExpressionSyntax)Visit(context.singleExpression());
 
+			expression = RemoveExcessParenthesis(expression);
+
             if (expression is LiteralExpressionSyntax)
             {
                 // Wrap the literal in Keysharp.Core.Error

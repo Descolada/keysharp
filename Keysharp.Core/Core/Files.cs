@@ -344,10 +344,14 @@ namespace Keysharp.Core
 					creator.Add("Type", "Application");
 
 				creator.Save(l);
-				$"chmod +x '{l}'".Bash();
+				if ($"chmod +x '{l}'".Bash() != 0)
+					return Errors.OSErrorOccurred("", $"Failed to set executable bit on shortcut {l}.");
 			}
 			else
-				$"ln -sf '{t}' '{l}'".Bash();
+			{
+				if ($"ln -sf '{t}' '{l}'".Bash() != 0)
+					return Errors.OSErrorOccurred("", $"Failed to create symlink {l}.");
+			}
 
 #elif WINDOWS
 			var sc = shortcutKey.As();
@@ -1192,7 +1196,8 @@ namespace Keysharp.Core
 				var dir = new DirectoryInfo(path);
 				var filename = Path.GetFileName(s);
 #if LINUX
-				$"gio trash {s}".Bash();
+				if ($"gio trash {s}".Bash() != 0)
+					return Errors.OSErrorOccurred("", $"gio trash failed for pattern {s}");
 #elif OSX
 				foreach (var target in Conversions.ToFiles(s, true, true, false))
 					MovePathToMacTrash(target);
@@ -1223,7 +1228,8 @@ namespace Keysharp.Core
 			try
 			{
 #if LINUX
-				"gio trash --empty".Bash();
+				if ("gio trash --empty".Bash() != 0)
+					return Errors.OSErrorOccurred("", "gio trash --empty failed.");
 #elif OSX
 				var trash = GetMacTrashPath();
 

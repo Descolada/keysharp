@@ -28,7 +28,7 @@ namespace Keysharp.Core
 			if (hwnd == 0)
 			{
 #if LINUX
-				_ = $"$EDITOR {A_ScriptFullPath}".Bash(false);
+				_ = $"$EDITOR {A_ScriptFullPath}".Bash(wait: false);
 #elif WINDOWS
 				var ed = "";
 

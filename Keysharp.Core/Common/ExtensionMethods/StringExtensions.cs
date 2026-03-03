@@ -69,35 +69,117 @@
 		/// </summary>
 		/// <param name="cmd">The Bash command to run</param>
 		/// <param name="wait">Whether to wait for the program to finish before returning. Default: true.</param>
-		/// <returns>The output of the Bash command if wait is true, else empty string.</returns>
-		internal static string Bash(this string cmd, bool wait = true)
+		/// <returns>The process exit code (0 on success).</returns>
+		internal static int Bash(this string cmd, bool wait = true) => Bash(cmd, out _, wait);
+
+		/// <summary>
+		/// Runs a string as a Bash command and captures output.
+		/// </summary>
+		/// <param name="cmd">The Bash command to run.</param>
+		/// <param name="output">Standard output from the command, if available.</param>
+		/// <param name="wait">Whether to wait for the program to finish before returning. Default: true.</param>
+		/// <returns>The process exit code (0 on success, -1 on launch/runtime failure).</returns>
+		internal static int Bash(this string cmd, out string output, bool wait = true)
 		{
-			var normalizedCmd = cmd.ReplaceLineEndings("\n");
-			var process = new Process()
+			output = DefaultObject;
+
+			try
 			{
-				StartInfo = new ProcessStartInfo
+				var normalizedCmd = cmd.ReplaceLineEndings("\n");
+				using var process = new Process()
 				{
-					FileName = "/bin/bash",
-					RedirectStandardOutput = true,
-					UseShellExecute = false,
-					CreateNoWindow = true,
-				}
-			};
+					StartInfo = new ProcessStartInfo
+					{
+						FileName = "/bin/bash",
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+						UseShellExecute = false,
+						CreateNoWindow = true,
+					}
+				};
 
-			process.StartInfo.ArgumentList.Add("-c");
-			process.StartInfo.ArgumentList.Add(normalizedCmd);
-			_ = process.Start();
+				process.StartInfo.ArgumentList.Add("-c");
+				process.StartInfo.ArgumentList.Add(normalizedCmd);
+				_ = process.Start();
 
-			if (wait)
-			{
-				string result = process.StandardOutput.ReadToEnd();
+				if (!wait)
+					return 0;
+
+				output = process.StandardOutput.ReadToEnd().Trim(CrLf);
+				var err = process.StandardError.ReadToEnd().Trim(CrLf);
 				process.WaitForExit();
-				return result.Trim(CrLf);
+
+				if (process.ExitCode != 0 && !err.IsNullOrEmpty())
+					Ks.OutputDebugLine($"Bash failed with exit code {process.ExitCode}: {err}");
+
+				return process.ExitCode;
 			}
-			else
-				return DefaultObject;
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"Bash launch failed: {ex.Message}");
+				return -1;
+			}
 		}
 
+#endif
+
+#if OSX
+		/// <summary>
+		/// Runs a string as an AppleScript command via osascript.
+		/// </summary>
+		/// <param name="script">The AppleScript to run.</param>
+		/// <param name="wait">Whether to wait for completion before returning. Default: true.</param>
+		/// <returns>The process exit code (0 on success).</returns>
+		internal static int AppleScript(this string script, bool wait = true) => AppleScript(script, out _, wait);
+
+		/// <summary>
+		/// Runs a string as an AppleScript command via osascript.
+		/// </summary>
+		/// <param name="script">The AppleScript to run.</param>
+		/// <param name="output">Standard output from osascript when wait is true, else empty.</param>
+		/// <param name="wait">Whether to wait for completion before returning. Default: true.</param>
+		/// <returns>The process exit code (0 on success, -1 on launch/runtime failure).</returns>
+		internal static int AppleScript(this string script, out string output, bool wait = true)
+		{
+			output = DefaultObject;
+
+			try
+			{
+				var normalizedScript = script.ReplaceLineEndings("\n");
+				using var process = new Process()
+				{
+					StartInfo = new ProcessStartInfo
+					{
+						FileName = "/usr/bin/osascript",
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+						UseShellExecute = false,
+						CreateNoWindow = true,
+					}
+				};
+
+				process.StartInfo.ArgumentList.Add("-e");
+				process.StartInfo.ArgumentList.Add(normalizedScript);
+				_ = process.Start();
+
+				if (!wait)
+					return 0;
+
+				output = process.StandardOutput.ReadToEnd().Trim(CrLf);
+				var err = process.StandardError.ReadToEnd().Trim(CrLf);
+				process.WaitForExit();
+
+				if (process.ExitCode != 0 && !err.IsNullOrEmpty())
+					Ks.OutputDebugLine($"AppleScript failed with exit code {process.ExitCode}: {err}");
+
+				return process.ExitCode;
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"AppleScript launch failed: {ex.Message}");
+				return -1;
+			}
+		}
 #endif
 
 		/// <summary>

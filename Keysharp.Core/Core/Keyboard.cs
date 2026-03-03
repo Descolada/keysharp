@@ -956,7 +956,8 @@ break_twice:;
 
 			if (list != null)
 				foreach (var id in list)
-					_ = $"xinput {cmdstr} {id}".Bash();
+					if ($"xinput {cmdstr} {id}".Bash() != 0)
+						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}.");
 	#elif WINDOWS
 			switch (toggle)
 			{

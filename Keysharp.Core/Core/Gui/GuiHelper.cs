@@ -142,6 +142,8 @@ namespace Keysharp.Core
 
 		internal static Bitmap GetScreen(int x, int y, int w, int h)
 		{
+			// Keep capture permission enforcement centralized for any direct screen grabs.
+			_ = Script.TheScript?.Permissions?.EnsureScreenCapture(operation: "screen capture");
 			Bitmap bmp;
 			try {
 #if WINDOWS

@@ -10,7 +10,8 @@ namespace Keysharp.Core
 		{
 			var devices = new Dictionary<int, string>();
 			var arg = sinks ? "sinks" : "sources";
-			var str = $"pactl list {arg} short".Bash();
+			if ($"pactl list {arg} short".Bash(out var str) != 0)
+				return devices;
 
 			foreach (var line in str.SplitLines())
 			{
@@ -38,7 +39,8 @@ namespace Keysharp.Core
 			var time = duration.Ai(150);
 #if LINUX
 			var seconds = time / 1000.0;
-			$"speaker-test -t sine -f {freq} -l 1 & sleep {seconds} && kill -9 $!".Bash();
+			if ($"speaker-test -t sine -f {freq} -l 1 & sleep {seconds} && kill -9 $!".Bash() != 0)
+				return Errors.ErrorOccurred("SoundBeep command failed.");
 #elif WINDOWS
 			Console.Beep(freq, time);
 #endif
@@ -172,7 +174,8 @@ namespace Keysharp.Core
 					sound.Play();
 
 #else
-				$"aplay --quiet {filename}".Bash(doWait);
+				if ($"aplay --quiet {filename}".Bash(doWait) != 0)
+					return Errors.ErrorOccurred($"Failed to play audio file {file}.");
 #endif
 				return DefaultObject;
 			}
@@ -289,7 +292,8 @@ namespace Keysharp.Core
 			{
 				case SoundCommands.SoundGetVolume:
 				{
-					var ret = $"pactl get-{sinkStr}-volume {devStr}".Bash();
+					if ($"pactl get-{sinkStr}-volume {devStr}".Bash(out var ret) != 0)
+						return Errors.OSErrorOccurred("", $"Failed to query volume for {devStr}.");
 					var lines = ret.SplitLines().ToList();
 
 					if (lines.Count > 1)
@@ -332,7 +336,8 @@ namespace Keysharp.Core
 
 				case SoundCommands.SoundGetMute:
 				{
-					var ret = $"pactl get-{sinkStr}-mute {devStr}".Bash();
+					if ($"pactl get-{sinkStr}-mute {devStr}".Bash(out var ret) != 0)
+						return Errors.OSErrorOccurred("", $"Failed to query mute state for {devStr}.");
 					return ret.EndsWith("yes", StringComparison.OrdinalIgnoreCase) ? 1L : 0L;
 				}
 
@@ -340,7 +345,9 @@ namespace Keysharp.Core
 				{
 					if (device == null)
 					{
-						return "pactl get-default-sink".Bash();
+						return "pactl get-default-sink".Bash(out var defSink) == 0
+							? defSink
+							: Errors.OSErrorOccurred("", "Failed to query default sink.");
 					}
 					else if (int.TryParse(devStr, out var deviceIndex))
 					{
@@ -361,14 +368,16 @@ namespace Keysharp.Core
 						settingScalar = Math.Clamp(currentVolume + settingScalar, 0.0, 65536.0);
 					}
 
-					_ = $"pactl set-{sinkStr}-volume {devStr} {(int)settingScalar}".Bash();
+					if ($"pactl set-{sinkStr}-volume {devStr} {(int)settingScalar}".Bash() != 0)
+						return Errors.OSErrorOccurred("", $"Failed to set volume for {devStr}.");
 				}
 				break;
 
 				case SoundCommands.SoundSetMute:
 				{
 					var act = Conversions.ConvertOnOffToggle(obj0);
-					_ = $"pactl set-{sinkStr}-mute {devStr} {(act == ToggleValueType.On ? "1" : act == ToggleValueType.Toggle ? "-1" : "0")}".Bash();
+					if ($"pactl set-{sinkStr}-mute {devStr} {(act == ToggleValueType.On ? "1" : act == ToggleValueType.Toggle ? "-1" : "0")}".Bash() != 0)
+						return Errors.OSErrorOccurred("", $"Failed to set mute state for {devStr}.");
 				}
 				break;
 

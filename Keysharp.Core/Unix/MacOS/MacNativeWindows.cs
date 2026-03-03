@@ -1,5 +1,6 @@
 #if OSX
 using System.Runtime.InteropServices;
+using MonoMac.AppKit;
 
 namespace Keysharp.Core.MacOS
 {
@@ -211,9 +212,29 @@ namespace Keysharp.Core.MacOS
 
 		internal static bool ActivateAppByPid(int pid)
 		{
-			_ = pid;
-			// Activation fallback intentionally omitted when AppKit is unavailable.
-			return false;
+			if (pid <= 0)
+				return false;
+
+			try
+			{
+				var app = NSRunningApplication.GetRunningApplication(pid);
+				if (app != null)
+					return app.Activate(NSApplicationActivationOptions.ActivateAllWindows | NSApplicationActivationOptions.ActivateIgnoringOtherApps);
+			}
+			catch
+			{
+			}
+
+			// Fallback for cases where NSRunningApplication activation is unavailable or denied.
+			try
+			{
+				var script = $"tell application \"System Events\" to set frontmost of first process whose unix id is {pid} to true";
+				return script.AppleScript(wait: true) == 0;
+			}
+			catch
+			{
+				return false;
+			}
 		}
 
 		private static bool TryGetDictionaryValue(nint dictRef, nint key, out nint value)

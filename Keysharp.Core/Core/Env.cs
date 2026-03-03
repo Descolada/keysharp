@@ -163,7 +163,8 @@ namespace Keysharp.Core
 		public static object EnvUpdate()
 		{
 #if LINUX
-			"source ~/.bashrc".Bash();
+			if ("source ~/.bashrc".Bash() != 0)
+				Ks.OutputDebugLine("EnvUpdate: failed to source ~/.bashrc");
 #elif WINDOWS
 
 			//SendMessage() freezes when running in a unit test. PostMessage seems to work. Use SendMessageTimeout().
@@ -302,7 +303,8 @@ namespace Keysharp.Core
 
 				case SystemMetric.SM_CLEANBOOT:
 				{
-					var boots = "last reboot".Bash().SplitLines().ToList();
+					_ = "last reboot".Bash(out var bootsOutput);
+					var boots = bootsOutput.SplitLines().ToList();
 
 					if (boots.Count > 0)
 					{
@@ -314,16 +316,18 @@ namespace Keysharp.Core
 				}
 
 				case SystemMetric.SM_MOUSEWHEELPRESENT:
-					return "xinput --list --long".Bash().Contains("button wheel", StringComparison.OrdinalIgnoreCase) ? 1L : 0L;
+					return "xinput --list --long".Bash(out var wheelOut) == 0
+						&& wheelOut.Contains("button wheel", StringComparison.OrdinalIgnoreCase) ? 1L : 0L;
 
 				case SystemMetric.SM_REMOTESESSION:
-					return "echo $SSH_TTY".Bash() != "" ? 1L : 0L;
+					return "echo $SSH_TTY".Bash(out var sshOut1) == 0 && sshOut1 != "" ? 1L : 0L;
 
 				case SystemMetric.SM_SHUTTINGDOWN:
-					return "systemctl is-system-running".Bash().Contains("stopping", StringComparison.OrdinalIgnoreCase) ? 1L : 0L;
+					return "systemctl is-system-running".Bash(out var systemStateOut) == 0
+						&& systemStateOut.Contains("stopping", StringComparison.OrdinalIgnoreCase) ? 1L : 0L;
 
 				case SystemMetric.SM_REMOTECONTROL:
-					return "echo $SSH_TTY".Bash() != "" ? 1L : 0L;
+					return "echo $SSH_TTY".Bash(out var sshOut2) == 0 && sshOut2 != "" ? 1L : 0L;
 
 				default:
 					throw new NotImplementedException($"SysGet({sm}) has no Linux/Eto equivalent.");
@@ -498,7 +502,8 @@ namespace Keysharp.Core
 		{
 #if LINUX
 			var count = long.MaxValue;
-			var inputStr = "xinput list --long".Bash();
+			if ("xinput list --long".Bash(out var inputStr) != 0)
+				return 3L;
 
 			foreach (Range r in inputStr.AsSpan().SplitAny(CrLf))
 			{
@@ -547,10 +552,14 @@ namespace Keysharp.Core
 		{
 #if LINUX
 			var swapped = false;
-			var deviceNames = "xinput list --name-only".Bash().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			if ("xinput list --name-only".Bash(out var deviceNamesOut) != 0
+				|| "xinput list --id-only".Bash(out var deviceIdsOut) != 0)
+				return false;
+
+			var deviceNames = deviceNamesOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 			//foreach (var name in deviceNames)
 			//  Ks.OutputDebugLine($"{name}");
-			var deviceIds = "xinput list --id-only".Bash().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			var deviceIds = deviceIdsOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
 			//foreach (var id in deviceIds)
 			//  Ks.OutputDebugLine($"{id}");
@@ -561,7 +570,8 @@ namespace Keysharp.Core
 				{
 					if (!deviceNames[i].Contains("xtest", StringComparison.OrdinalIgnoreCase))
 					{
-						var buttonStr = $"xinput get-button-map {deviceIds[i]}".Bash();
+						if ($"xinput get-button-map {deviceIds[i]}".Bash(out var buttonStr) != 0)
+							continue;
 						var buttonStrSplits = buttonStr.Split(SpaceTab, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
 						if (buttonStrSplits.All(sp => int.TryParse(sp, out var _)))
@@ -595,9 +605,10 @@ namespace Keysharp.Core
 		internal static bool NetworkUp()
 		{
 #if LINUX
-			return "ip link show".Bash().Contains("state up", StringComparison.OrdinalIgnoreCase);
+			return "ip link show".Bash(out var linkStateOut) == 0
+				&& linkStateOut.Contains("state up", StringComparison.OrdinalIgnoreCase);
 #else
-			var output = "ifconfig".Bash();
+			_ = "ifconfig".Bash(out var output);
 			return output.Contains("status: active", StringComparison.OrdinalIgnoreCase);
 #endif
 		}

@@ -1729,7 +1729,7 @@
 				var lii = LASTINPUTINFO.Default;
 				return WindowsAPI.GetLastInputInfo(ref lii) ? Environment.TickCount - lii.dwTime : 0L;
 #else
-				return "xprintidle".Bash().Al();
+				return "xprintidle".Bash(out var output) == 0 ? output.Al() : 0L;
 #endif
 			}
 		}

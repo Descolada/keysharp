@@ -29,7 +29,8 @@ namespace Keysharp.Core.Unix
 		static PlatformManager()
 		{
 #if LINUX
-			var session = "echo $DESKTOP_SESSION".Bash().ToLower();
+			_ = "echo $DESKTOP_SESSION".Bash(out var sessionOutput);
+			var session = sessionOutput.ToLower();
 
 			if (session.Contains("gnome", StringComparison.OrdinalIgnoreCase))
 				isGnome = true;
@@ -261,25 +262,39 @@ namespace Keysharp.Core.Unix
 					cmd = "lxde-logout";
 				}
 
-				_ = cmd.Bash();
+				if (!string.IsNullOrWhiteSpace(cmd) && cmd.Bash() != 0)
+					Ks.OutputDebugLine($"ExitProgram logoff command failed: {cmd}");
 			}
 			else if ((flags & 1) == 1)//Halt/shutdown.
 			{
 				if ((flags & 8) == 8)//Power down.
-					_ = "shutdown now".Bash();
+				{
+					if ("shutdown now".Bash() != 0)
+						Ks.OutputDebugLine("ExitProgram shutdown command failed: shutdown now");
+				}
 				else
-					_ = "halt".Bash();
+				{
+					if ("halt".Bash() != 0)
+						Ks.OutputDebugLine("ExitProgram halt command failed: halt");
+				}
 			}
 			else if ((flags & 2) == 2)//Reboot.
 			{
 				if (force)
-					_ = "reboot -f".Bash();
+				{
+					if ("reboot -f".Bash() != 0)
+						Ks.OutputDebugLine("ExitProgram reboot command failed: reboot -f");
+				}
 				else
-					_ = "reboot".Bash();
+				{
+					if ("reboot".Bash() != 0)
+						Ks.OutputDebugLine("ExitProgram reboot command failed: reboot");
+				}
 			}
 			else if ((flags & 8) == 8)//Shutdown.
 			{
-				_ = "shutdown now".Bash();
+				if ("shutdown now".Bash() != 0)
+					Ks.OutputDebugLine("ExitProgram shutdown command failed: shutdown now");
 			}
 
 			return true;

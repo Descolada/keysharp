@@ -11,7 +11,8 @@ namespace Keysharp.Core.Linux
 		{
 			get
 			{
-				var serial = $"udevadm info --query=property --name={drive.Name} | grep ID_SERIAL_SHORT".Bash();
+				if ($"udevadm info --query=property --name={drive.Name} | grep ID_SERIAL_SHORT".Bash(out var serial) != 0)
+					return 0L;
 
 				if (!string.IsNullOrEmpty(serial))
 				{
@@ -37,13 +38,29 @@ namespace Keysharp.Core.Linux
 		internal Drive(DriveInfo drv)
 			: base(drv) { }
 
-		internal override void Eject() => $"eject {drive.Name}".Bash();
+		internal override void Eject()
+		{
+			if ($"eject {drive.Name}".Bash() != 0)
+				Ks.OutputDebugLine($"Drive.Eject failed for {drive.Name}");
+		}
 
-		internal override void Lock() => $"eject -i 1 {drive.Name}".Bash();
+		internal override void Lock()
+		{
+			if ($"eject -i 1 {drive.Name}".Bash() != 0)
+				Ks.OutputDebugLine($"Drive.Lock failed for {drive.Name}");
+		}
 
-		internal override void Retract() => $"eject -t {drive.Name}".Bash();
+		internal override void Retract()
+		{
+			if ($"eject -t {drive.Name}".Bash() != 0)
+				Ks.OutputDebugLine($"Drive.Retract failed for {drive.Name}");
+		}
 
-		internal override void UnLock() => $"eject -i 0 {drive.Name}".Bash();
+		internal override void UnLock()
+		{
+			if ($"eject -i 0 {drive.Name}".Bash() != 0)
+				Ks.OutputDebugLine($"Drive.UnLock failed for {drive.Name}");
+		}
 	}
 }
 #endif

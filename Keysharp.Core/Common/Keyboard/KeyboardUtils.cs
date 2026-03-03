@@ -11,14 +11,17 @@ namespace Keysharp.Core.Common.Keyboard
 		internal List<int> GetKeybdMouseDevices()
 		{
 #if LINUX
-			var inputStr = """
+			var exitCode = """
 xinput --list --short | awk '!/XTEST/ && !/\[master/ {for(i=1;i<=NF;i++) if($i~/^id=/){sub(/^id=/,"",$i); print $i}}' |
 while read -r id; do
   l=$(xinput --list --long "$id" 2>/dev/null) || continue
   echo "$l" | grep -q 'XIKeyClass' && echo "keybd $id"
   echo "$l" | grep -Eq 'Rel (X|Y)|Abs (X|Y)' && echo "mouse $id"
 done
-""".Bash();
+""".Bash(out var inputStr);
+
+			if (exitCode != 0 || inputStr.IsNullOrEmpty())
+				return kbMouseList;
 
 			mouseList.Clear();
 			keyboardList.Clear();

@@ -1,5 +1,6 @@
 # Keysharp #
 * [Overview](#markdown-header-overview)
+* [Cross-Platform Capability Matrix](#cross-platform-capability-matrix)
 * [Differences](#markdown-header-differences)
 	+ [Behaviors](#markdown-header-behaviors-functionality)
 	+ [Syntax](#markdown-header-syntax)
@@ -44,14 +45,36 @@
 * A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. These can then be installed to your system via the steps in "Installing on Linux" above. Note that the folder and tarball are portable so both source repositories can be safely deleted.
 * **Alternatively**, on arch-based systems keysharp is provided as an [AUR package](https://aur.archlinux.org/packages/keysharp-git)
 
-### Curated cross-platform tests ###
-* CI runs a curated subset of `Keysharp.Tests` (unless disabled in manual dispatch) to avoid long/full-suite runs and desktop-interactive tests.
-* The same subset can be run locally:
-```
-$filter = 'Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network'
-dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c Debug --filter $filter
-```
-* This curated set intentionally excludes categories that usually need a desktop session, user interaction, or platform-specific peripherals (for example `Gui`, `Process`, `Env` clipboard-heavy tests, `Screen`, `Sound`, `Monitor`, `Drive`, `External`).
+## Cross-Platform Capability Matrix
+
+This is a concise view of which AutoHotkey 2.1 features Keysharp implements. For full details and current notes, see [docs/capabilities.md](docs/capabilities.md).
+
+<!-- CAPABILITIES_OVERVIEW:START -->
+Status legend:
+- Full: Implemented and generally usable
+- Partial: Implemented with known limitations or gaps
+- Planned: Not implemented yet, but intended
+- Unsupported: Not supported
+- Unknown: Not yet verified
+
+| Capability | Windows | Linux (X11) | Linux (Wayland) | macOS | Notes |
+|---|---|---|---|---|---|
+| Parser and runtime execution | Full | Full | Full | Full | Parser, preprocessing, and script execution runtime are implemented. |
+| Directives and preprocessing | Full | Full | Full | Full | OS-specific directives supported via compile constants. |
+| File and directory operations | Full | Full | Unknown | Unknown | macOS recycle/trash and privacy-scoped file access still evolving. |
+| Keyboard/Mouse send (synthetic input) | Full | Partial | Unknown | Unknown | Requires platform permissions on macOS. |
+| Global keyboard hooks | Full | Partial | Unknown | Unknown | Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned. |
+| Global mouse hooks | Full | Partial | Unknown | Unknown | Suppression/injection semantics differ by platform. |
+| Hotkeys/Hotstrings | Full | Partial | Unknown | Unknown | Depends on hook and key-state parity. |
+| Script-owned window management | Full | Partial | Unknown | Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
+| Foreign window management (non-Keysharp apps) | Full | Partial | Unknown | Unknown | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
+| Tray icon and menu | Full | Partial | Unknown | Unknown | Tray/menu behavior varies by desktop environment and platform APIs. |
+| Screen capture and pixel/image functions | Full | Partial | Unknown | Unknown | Pixel/image search and screen capture depend on platform-specific backends. |
+| Clipboard | Full | Partial | Unknown | Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
+| Sound APIs | Full | Partial | Unknown | Unknown | Audio device/endpoint support differs by platform. |
+| Registry APIs | Full | Unsupported | Unsupported | Unsupported | Windows Registry APIs are Windows-only. |
+| COM APIs | Full | Unsupported | Unsupported | Unsupported | COM is available on Windows only. |
+<!-- CAPABILITIES_OVERVIEW:END -->
 	
 ## Overview ##
 
@@ -105,22 +128,10 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * AHK says about the inc/dec ++/-- operators on empty variables: "Due to backward compatibility, the operators ++ and -- treat blank variables as zero, but only when they are alone on a line".
 	+ Keysharp breaks this and will instead create a variable, initialize it to zero, then increment it.
 	+ For example, a file with nothing but the line `x++` in it, will end with a variable named x which has the value of 1.
-* Function objects behave differently in a few ways.
+* Function objects behave mostly the same as in AHK.
 	+ The underlying function object class is named `FuncObj`. This was named so, instead of `Func`, because C# already contains a built in class named `Func`. `MsgBox is Func` is still supported though, as is `MsgBox is FuncObj`.
 	+ Function objects can be created by passing the name of the function as as a direct reference or as a string to `Func()`.
-	+ This can be done by passing the name of the desired function as a direct reference or as a string, and optionally an object and a parameter count like so:
-		+ `Func(functionName [, object, paramCount])`.
-		+ `Func("functionName" [, object, paramCount])`.
-	+ Each call to these functions returns a new unique function object. For a given function, it's best to create one object and reference that throughout the script.
-	+ For built-in functions which take a function object as a parameter, there are four ways to call them:
-```
-	Func1() {
-	}
-	SetTimer(Func1) ; Pass a direct reference to the function.
-	SetTimer("Func1") ; Pass the name of the function.
-	SetTimer(Func(Func1)) ; Pass a direct reference to the function as an argument to Func().
-	SetTimer(Func("Func1")) ; Pass the name of the function as an argument to Func().
-```
+	+ Most built-in functions
 * Error stack traces start from where the error was thrown, not where it was constructed. 
 * `StrPtr()` works slightly differently because C# strings are constant.
 	+ `StrPtr(variable)` returns a custom `StringBuffer` object which is entangled with the original string. When this object is used with DllCall, NumPut etc, then the `StringBuffer` is used as the pointer, and the entangled string is updated after the function call. 

@@ -219,7 +219,12 @@ namespace Keysharp.Core.MacOS
 			{
 				var app = NSRunningApplication.GetRunningApplication(pid);
 				if (app != null)
-					return app.Activate(NSApplicationActivationOptions.ActivateAllWindows | NSApplicationActivationOptions.ActivateIgnoringOtherApps);
+				{
+					// Some MonoMac/Xamarin.Mac bindings do not expose ActivateIgnoringOtherApps by name.
+					// Use the documented flag value (2) for compatibility across binding versions.
+					var ignoreOtherApps = (NSApplicationActivationOptions)2;
+					return app.Activate(NSApplicationActivationOptions.ActivateAllWindows | ignoreOtherApps);
+				}
 			}
 			catch
 			{

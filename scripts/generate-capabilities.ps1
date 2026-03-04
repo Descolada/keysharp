@@ -8,13 +8,18 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function StatusIcon([string]$status) {
-	switch ($status) {
-		"full" { return "Full" }
-		"partial" { return "Partial" }
-		"planned" { return "Planned" }
-		"unsupported" { return "Unsupported" }
-		default { return "Unknown" }
-	}
+    $green = [char]::ConvertFromUtf32(0x1F7E2)
+    $yellow = [char]::ConvertFromUtf32(0x1F7E1)
+    $orange = [char]::ConvertFromUtf32(0x1F7E0)
+    $red = [char]::ConvertFromUtf32(0x1F534)
+    $white = [char]::ConvertFromUtf32(0x26AA)
+    switch ($status) {
+        "full" { return "$green Full" }
+        "partial" { return "$yellow Partial" }
+        "planned" { return "$orange Planned" }
+        "unsupported" { return "$red Unsupported" }
+        default { return "$white Unknown" }
+    }
 }
 
 function EscapeMdCell([string]$value) {
@@ -73,7 +78,7 @@ $docsSection = [string]::Join("`n", $docsLines)
 $docsDir = Split-Path -Parent $DocsOut
 if ($docsDir -and -not (Test-Path $docsDir)) { New-Item -ItemType Directory -Path $docsDir | Out-Null }
 
-Set-Content -Path $DocsOut -Value $docsSection
+[System.IO.File]::WriteAllText($DocsOut, $docsSection, [System.Text.UTF8Encoding]::new($false))
 
 # Build concise overview matrix for README injection.
 $overviewFeatures = @(

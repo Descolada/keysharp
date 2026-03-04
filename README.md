@@ -59,21 +59,21 @@ Status legend:
 
 | Capability | Windows | Linux (X11) | Linux (Wayland) | macOS | Notes |
 |---|---|---|---|---|---|
-| Parser and runtime execution | Full | Full | Full | Full | Parser, preprocessing, and script execution runtime are implemented. |
-| Directives and preprocessing | Full | Full | Full | Full | OS-specific directives supported via compile constants. |
-| File and directory operations | Full | Full | Unknown | Unknown | macOS recycle/trash and privacy-scoped file access still evolving. |
-| Keyboard/Mouse send (synthetic input) | Full | Partial | Unknown | Unknown | Requires platform permissions on macOS. |
-| Global keyboard hooks | Full | Partial | Unknown | Unknown | Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned. |
-| Global mouse hooks | Full | Partial | Unknown | Unknown | Suppression/injection semantics differ by platform. |
-| Hotkeys/Hotstrings | Full | Partial | Unknown | Unknown | Depends on hook and key-state parity. |
-| Script-owned window management | Full | Partial | Unknown | Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
-| Foreign window management (non-Keysharp apps) | Full | Partial | Unknown | Unknown | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
-| Tray icon and menu | Full | Partial | Unknown | Unknown | Tray/menu behavior varies by desktop environment and platform APIs. |
-| Screen capture and pixel/image functions | Full | Partial | Unknown | Unknown | Pixel/image search and screen capture depend on platform-specific backends. |
-| Clipboard | Full | Partial | Unknown | Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
-| Sound APIs | Full | Partial | Unknown | Unknown | Audio device/endpoint support differs by platform. |
-| Registry APIs | Full | Unsupported | Unsupported | Unsupported | Windows Registry APIs are Windows-only. |
-| COM APIs | Full | Unsupported | Unsupported | Unsupported | COM is available on Windows only. |
+| Parser and runtime execution | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Parser, preprocessing, and script execution runtime are implemented. |
+| Directives and preprocessing | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | OS-specific directives supported via compile constants. |
+| File and directory operations | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | macOS recycle/trash and privacy-scoped file access still evolving. |
+| Keyboard/Mouse send (synthetic input) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Requires platform permissions on macOS. |
+| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned. |
+| Global mouse hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Suppression/injection semantics differ by platform. |
+| Hotkeys/Hotstrings | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Depends on hook and key-state parity. |
+| Script-owned window management | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
+| Foreign window management (non-Keysharp apps) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | On Linux, Control* functions are not supported for foreign apps; use the included AtSpi library for cross-process window/control interaction. macOS currently relies on Accessibility APIs with permission requirements. |
+| Tray icon and menu | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Tray/menu behavior varies by desktop environment and platform APIs. |
+| Screen capture and pixel/image functions | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Pixel/image search and screen capture depend on platform-specific backends. |
+| Clipboard | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
+| Sound APIs | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Audio device/endpoint support differs by platform. |
+| Registry APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Windows Registry APIs are Windows-only. |
+| COM APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | COM is available on Windows only. |
 <!-- CAPABILITIES_OVERVIEW:END -->
 	
 ## Overview ##

@@ -175,10 +175,10 @@ namespace Keysharp.Tests
 		[Test, Category("Misc"), NonParallelizable]
 		public void MiscObject()
 		{
-			var a = new Keysharp.Core.Array(10, 20, 30);
-			var fo = (IFuncObj)a.GetMethod("Clear");
-			_ = fo.Call(a);
-			Assert.AreEqual(0L, a.Length);
+			var a = new Keysharp.Core.Array(10L, 20L, 30L);
+			var fo = (IFuncObj)a.GetMethod("Push");
+			_ = fo.Call(a, 40L);
+			Assert.AreEqual(4L, a.Length);
 			Assert.IsTrue(new KeysharpObject().Base.Base.type == typeof(Any));
 			Assert.IsTrue(TestScript("misc-object", true));
 		}

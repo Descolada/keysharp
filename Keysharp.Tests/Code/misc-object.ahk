@@ -9,11 +9,6 @@ else
 if (HasMethod(a, "CoNtAiNs")) ; test case insensitive once.
 	FileAppend "pass", "*"
 else
-	FileAppend "fail", "*"	
-
-if (HasMethod(a, "Clear"))
-	FileAppend "pass", "*"
-else
 	FileAppend "fail", "*"
 	
 if (HasMethod(a, "RemoveAt"))
@@ -40,11 +35,6 @@ if (a.HasMethod("CoNtAiNs")) ; test case insensitive once.
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"	
-
-if (a.HasMethod("Clear"))
-	FileAppend "pass", "*"
-else
-	FileAppend "fail", "*"
 	
 if (a.HasMethod("RemoveAt"))
 	FileAppend "pass", "*"
@@ -61,19 +51,19 @@ if (a.HasMethod("Pop"))
 else
 	FileAppend "fail", "*"
 
-fo := a.GetMethod("Clear")
-fo(a)
+fo := a.GetMethod("Push")
+fo(a, 40)
 
-if (a.Length == 0)
+if (a.Length == 4)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 a := [10, 20, 30]
-fo := GetMethod(a, "Clear")
-fo(a)
+fo := GetMethod(a, "Push")
+fo(a, 40)
 
-if (a.Length == 0)
+if (a.Length == 4)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

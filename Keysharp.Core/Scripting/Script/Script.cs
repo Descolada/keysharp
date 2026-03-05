@@ -1189,7 +1189,7 @@ namespace Keysharp.Scripting
 		{
 			while (obj != null)
 			{
-				var t = obj.GetType();
+				var t = obj.type;
 				if (!string.Equals(t.Namespace, ProgramNamespace, StringComparison.OrdinalIgnoreCase))
 				{
 					// we found a built‑in prototype object

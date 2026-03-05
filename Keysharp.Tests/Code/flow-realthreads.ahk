@@ -28,7 +28,7 @@ Loop 100
 	tharr[A_Index].Wait()
 }
 
-tharr.Clear()
+tharr.Length := 0
 
 If tot == 5150
 	FileAppend "pass", "*"
@@ -68,7 +68,7 @@ Loop 100
 	tot += tharr[A_Index].Wait()
 }
 
-tharr.Clear()
+tharr.Length := 0
 
 If tot == 10000
 	FileAppend "pass", "*"

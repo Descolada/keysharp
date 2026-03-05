@@ -195,7 +195,7 @@ namespace Keysharp.Core
 				throw new Flow.UserRequestedExitException();
 			}
 
-			_ = A_Args.AddRange(args);
+			A_Args.array.AddRange(args);
 			return DefaultObject;
 		}
 

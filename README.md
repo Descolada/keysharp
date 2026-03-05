@@ -51,11 +51,11 @@ This is a concise view of which AutoHotkey 2.1 features Keysharp implements. For
 
 <!-- CAPABILITIES_OVERVIEW:START -->
 Status legend:
-- Full: Implemented and generally usable
-- Partial: Implemented with known limitations or gaps
-- Planned: Not implemented yet, but intended
-- Unsupported: Not supported
-- Unknown: Not yet verified
+- 🟢 Full: Implemented and generally usable
+- 🟡 Partial: Implemented with known limitations or gaps
+- 🟠 Planned: Not implemented yet, but intended
+- 🔴 Unsupported: Not supported
+- ⚪ Unknown: Not yet verified
 
 | Capability | Windows | Linux (X11) | Linux (Wayland) | macOS | Notes |
 |---|---|---|---|---|---|

@@ -13,7 +13,7 @@
 		public static object ObjGetCapacity(object obj)
 		{
 			if (obj is KeysharpObject kso)
-				return (long)kso.op.Capacity;
+				return (long)(kso.op?.Capacity ?? 0);
 
 			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
 		}
@@ -74,6 +74,11 @@
 			// find each object's "native" (built‐in) prototype type
 			var nativeObj = script.GetNativeType(obj.Base);
 			var nativeBase = script.GetNativeType(baseObj);
+			// For Prototype wrappers, use the underlying runtime type carried by Any.type.
+			if (nativeObj == typeof(Prototype))
+				nativeObj = obj.type;
+			if (nativeBase == typeof(Prototype))
+				nativeBase = baseObj.type;
 
 			if (nativeObj != nativeBase && !nativeBase.IsSubclassOf(nativeObj))
 				return Errors.ErrorOccurred(
@@ -153,8 +158,9 @@
 		{
 			if (obj0 is KeysharpObject kso)
 			{
-				kso.op.EnsureCapacity(obj1.Ai());
-				return (long)kso.op.Capacity;
+				var capacity = obj1.Ai();
+				capacity = kso.EnsureOwnProps().EnsureCapacity(capacity);
+				return (long)capacity;
 			}
 
 			return Errors.ErrorOccurred($"Object of type {obj0.GetType()} was not of type KeysharpObject.");

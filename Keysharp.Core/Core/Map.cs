@@ -266,13 +266,6 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// Returns whether the map contains the specified key.
-		/// </summary>
-		/// <param name="item">They key to search for.</param>
-		/// <returns>True if the map contains the key, else false.</returns>
-		public bool Contains(object item) => map.ContainsKey(item);
-
-		/// <summary>
 		/// The implementation for <see cref="ICollection.CopyTo"/> which copies the keys and values<br/>
 		/// of the the map to the passed in <see cref="System.Array"/> as interleaved key,value pairs,<br/>
 		/// starting at the passed in index.
@@ -352,7 +345,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="key">The key to search for.</param>
 		/// <returns>True if key is found, else false.</returns>
-		public bool Has(object key) => TryGetValue(key, out _);
+		public bool Has(object key) => map.ContainsKey(key);
 
 		/// <summary>
 		/// Returns the greatest integer key in the map.

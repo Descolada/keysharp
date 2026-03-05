@@ -318,6 +318,8 @@ DirectiveQuotedStringLiteral
     : ('"' | '\'') {this.BeginStringMode((char)_input.LA(-1));} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
 DirectiveUnquotedStringLiteral
     : NonWSEOLCharacter {this.BeginStringMode(); this.AppendInitialStringChunk();} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
+DirectiveTextContinuationSection 
+    : SingleContinuationSection {this.BeginStringMode(); this.ProcessContinuationSection();} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
 UnexpectedTextDirectiveCharacter : . {this.Rewind();} -> skip, popMode;
 
 mode HOTSTRING_OPTIONS;

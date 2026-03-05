@@ -3,11 +3,11 @@
 Generated from docs/capabilities.json via scripts/generate-capabilities.ps1.
 
 Status legend:
-- Full: Implemented and generally usable
-- Partial: Implemented with known limitations or gaps
-- Planned: Not implemented yet, but intended
-- Unsupported: Not supported
-- Unknown: Not yet verified
+- 🟢 Full: Implemented and generally usable
+- 🟡 Partial: Implemented with known limitations or gaps
+- 🟠 Planned: Not implemented yet, but intended
+- 🔴 Unsupported: Not supported
+- ⚪ Unknown: Not yet verified
 
 | Capability | Windows | Linux (X11) | Linux (Wayland) | macOS | Notes |
 |---|---|---|---|---|---|
@@ -40,7 +40,7 @@ Status legend:
 | #HotIfTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #HotIfTimeout directive sets the maximum time that may be spent evaluating a single #HotIf expression. |
 | #Hotstring | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Hotstring directive changes hotstring options or ending characters. |
 | #If | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Begins a conditional compilation block. |
-| #Import | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Imports exported names from another script file. |
+| #Import | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Imports exported names from another script file. |
 | #Include | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #IncludeAgain | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #InputLevel | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #InputLevel directive controls which artificial keyboard and mouse events are ignored by hotkeys and hotstrings. |
@@ -301,9 +301,7 @@ Status legend:
 | Array.__Enum() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates array elements. |
 | Array.__Item | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Indexer property for getting or setting array elements. |
 | Array.__New() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Constructs a new Array object. |
-| Array.AddRange() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. |
 | Array.Capacity | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets or sets the reserved element capacity. |
-| Array.Clear() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Clears all elements in an array. |
 | Array.Clone() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a shallow copy of an array. |
 | Array.Contains() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Array method. |
 | Array.Default | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default value returned for missing indexes. |
@@ -678,7 +676,6 @@ Status legend:
 | Map.CaseSense | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves or sets the map's case sensitivity setting. |
 | Map.Clear() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Clears all key/value pairs in a map. |
 | Map.Clone() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a shallow copy of all of the values and keys of the map. |
-| Map.Contains() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keysharp-specific Map method (alias-style key containment check). |
 | Map.Count | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Number of key/value pairs in the map. |
 | Map.Default | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Default value returned for missing keys. |
 | Map.Delete() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Deletes a key/value pair out of a map if the key exists, else throws an exception. |
@@ -734,25 +731,25 @@ Status legend:
 | NumPut() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The NumPut function stores one or more numbers in binary format at the specified address+offset. |
 | ObjAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjBindMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ObjBindMethod function creates a BoundFunc object which calls a method of a given object. |
-| Object() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
+| Object() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a new Object; optional key/value arguments initialize own properties. |
 | Object.__Ref() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns a reference object for object lifetime management. |
 | Object.OwnPropCount() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns number of own properties defined directly on the object. |
 | ObjFree() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Releases object references associated with a pointer/COM wrapper context. |
 | ObjFromPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates or retrieves an object wrapper from a raw pointer. |
 | ObjFromPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates/retrieves an object wrapper from a pointer and increments its reference count. |
 | ObjGetBase | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the value's base object. Differs in that it only returns the name of the base type as a string. |
-| ObjGetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
-| ObjGetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
-| ObjGetDataSize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
-| ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
-| ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
+| ObjGetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the current capacity of the object's internal own-property storage. |
+| ObjGetDataPtr() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns a pointer to the object's raw data area. |
+| ObjGetDataSize() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns the size (in bytes) of the object's raw data area. |
+| ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether the object defines the specified own property name. |
+| ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of own properties currently defined on the object. |
 | ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. |
 | ObjPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns the raw pointer address of an object. |
 | ObjPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Returns object pointer address and increments its reference count. |
 | ObjRelease() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjSetBase() | 🔴 Unsupported | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Getting or setting an object's base class is not supported in C#. |
-| ObjSetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
-| ObjSetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Object is the basic class from which other AutoHotkey object classes derive. |
+| ObjSetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Unlike AHK doesn't set the exact capacity, but ensures the internal own props objects can hold the requested number of props. |
+| ObjSetDataPtr() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Sets the pointer to the object's raw data area. |
 | OnClipboardChange() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wires up an event to be called when the clipboard contents are change. |
 | OnError() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OnError function registers a function to be called automatically whenever an unhandled error occurs. |
 | OnExit() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The OnExit function registers a function to be called automatically whenever the script exits. |

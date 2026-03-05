@@ -73,6 +73,7 @@
 		/// <summary>
 		/// Returns the length of the array.
 		/// </summary>
+		[PublicHiddenFromUser]
 		public int Count => array != null ? array.Count : 0;
 
 		/// <summary>
@@ -97,7 +98,9 @@
 
 				if (array != null)
 				{
-					if (i > array.Count)
+					if (i == 0)
+						array.Clear();
+					else if (i > array.Count)
 					{
 						if (array.Capacity < i)
 							array.Capacity = i;
@@ -252,24 +255,6 @@
 			return array.Count;
 		}
 
-		/// <summary>
-		/// Adds a range of elements to the end of the array.
-		/// </summary>
-		/// <param name="c">An <see cref="ICollection"/> of elements to add.</param>
-		public long AddRange(ICollection c)
-		{
-			array.AddRange(c.Cast<object>());
-			return array.Count;
-		}
-
-		/// <summary>
-		/// Clears all elements from the array.
-		/// </summary>
-		public object Clear()
-		{
-			array.Clear();
-			return DefaultObject;
-		}
 		void IList.Clear() => array.Clear();
 
 		/// <summary>

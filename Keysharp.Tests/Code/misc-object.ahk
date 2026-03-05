@@ -132,4 +132,15 @@ if (count == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+obj3 := Map(1, "a", "b", 2)
+punk3 := ObjPtrAddRef(obj3)
+got2 := ObjFromPtrAddRef(punk3)
+
+if (got2 is Map)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+ObjRelease(punk3)
 #endif

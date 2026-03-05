@@ -23,6 +23,7 @@ winposy := ""
 winposw := ""
 winposh := ""
 origBackColor := ""
+LVFolder := A_MyDocuments
 
 ; ┌────────────────┐
 ; │  Tab One Menu  │
@@ -56,6 +57,9 @@ MyMenuBar.Add("&Image Search", ImgSrchMenu)
 
 MyGui := Gui(, "KEYSHARP TESTS")
 MyGui.OnEvent("Close", "CloseApp")
+#if WINDOWS
+OnMessage(0x0233, "WM_DROPFILES_CZ")
+#endif
 
 CloseApp(*) {
 #if WINDOWS
@@ -138,14 +142,15 @@ LV.OnEvent("DoubleClick", "LV_DoubleClick")
 ; ┌─────────────────────────────────────────────────────────────────────────────┐
 ; │  Gather a list of file names from a folder and put them into the ListView:  │
 ; └─────────────────────────────────────────────────────────────────────────────┘
-Loop Files A_MyDocuments . A_DirSeparator . "*.*"
-	LV.Add(, A_LoopFileName, A_LoopFileSizeKB)
+PopulateMainListView()
 
 ; ┌─────────────────────────────────────────────┐
 ; │  Show an input box and retrieve the result  │
 ; └─────────────────────────────────────────────┘
 InputBtn := MyGui.Add("Button", "s8 xc+10 y+10", "Input Test")
 InputBtn.OnEvent("Click", "InputTest")
+DirSelectBtn := MyGui.Add("Button", "s8 x+5 yp", "DirSelect")
+DirSelectBtn.OnEvent("Click", "DirSelectForLV")
 
 ; GetContentBtn := MyGui.Add("Button", "xc+100 yp", "Get LV Content")
 
@@ -903,7 +908,7 @@ MenuHandler(Item, *) {
 
 MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
-gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w380 h875", "ControlZoo - Group One")
+gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460 h875", "ControlZoo - Group One")
 MyGui.UseGroup(gb1_CZ)
 CZ_Text1 := MyGui.Add("Text", , "Control Functions testing")
 CZ_Text1.SetFont("s10 CBlue")
@@ -913,7 +918,7 @@ CZ_Text2.SetFont("CTeal")
 CZ_Text2a := MyGui.Add("Text", "xc+10 y+5", "ListBox control testing")
 CZ_Text2a.SetFont("s8 CBlue")
 
-CZ_ListBox := MyGui.Add("ListBox", "xc+10 h300 w160", ["Red","Green","Blue","Black","White", "Maroon"
+CZ_ListBox := MyGui.Add("ListBox", "xc+10 h300 w160 Section", ["Red","Green","Blue","Black","White", "Maroon"
 	, "Purple", "Color de gos com fuig", "Weiß", "Amarillo", "красный"
 	, "朱红"])
 
@@ -923,69 +928,7 @@ CZ_Text3.SetFont("s8 CBlue")
 CZ_Edit1 := MyGui.Add("Edit", "xc+10 y+5 w160 h100")
 ;CZ_Edit1.SetCue("Multi-line edit control cue text")
 
-	; ┌─────────────────────────────────────────────┐
-	; │  ControlZoo - end of Group One, Column One  │
-	; └─────────────────────────────────────────────┘
-
-
-CZ_LbBtn1 := MyGui.Add("Button", "xc+180 w120 h25 yc+95", "Add Fuchsia")
-CZ_LbBtn1.OnEvent("Click", "AddFuchsia")
-CZ_LbBtn2 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "Delete Fuchsia")
-CZ_LbBtn2.OnEvent("Click", "DeleteFuchsia")
-CZ_LbBtn2.OnEvent("Focus", "FuchsiaDeleteTrayTip")
-CZ_LbBtn3 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "Purple (Index)")
-CZ_LbBtn3.OnEvent("Click", "ChooseIndex")
-CZ_LbBtn4 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "красный (String)")
-CZ_LbBtn4.OnEvent("Click", "ChooseString")
-CZ_LbBtn5 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "ControlGetChoice")
-CZ_LbBtn5.OnEvent("Click", "GetChoice")
-CZ_LbBtn19 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "ControlGetIndex")
-CZ_LbBtn19.OnEvent("Click", "GetIndex")
-CZ_LbBtn6 := MyGui.Add("Button", "xc+180 w120 h25 y+1", "ControlGetClassNN")
-CZ_LbBtn6.OnEvent("Click", "GetClassNN")
-
-CZ_LbBtn7 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlGetEnabled")
-CZ_LbBtn7.OnEvent("Click", "GetEnabled")
-CZ_LbBtn20 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlSetEnabled")
-CZ_LbBtn20.OnEvent("Click", "SetEnabled")
-CZ_LbBtn8 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Disabled!")
-CZ_LbBtn8.Enabled := False
-
-CZ_LbBtn9 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlGetHwnd")
-CZ_LbBtn9.OnEvent("Click", "GetHwnd")
-
-CZ_LbBtn10 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlGetText")
-CZ_LbBtn10.OnEvent("Click", "GetText")
-
-CZ_LbBtn11 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlHide")
-CZ_LbBtn11.OnEvent("Click", "HideButton")
-
-CZ_LbBtn12 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "ControlShow")
-CZ_LbBtn12.OnEvent("Click", "ShowButton")
-
-CZ_LbBtn13 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Visible?")
-CZ_LbBtn13.OnEvent("Click", "IsItHidden")
-
-CZ_LbBtn14 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Edit Column #")
-CZ_LbBtn14.OnEvent("Click", "GetCol")
-
-CZ_LbBtn15 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Edit Line #")
-CZ_LbBtn15.OnEvent("Click", "GetLine")
-
-CZ_LbBtn16 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Edit Line Text")
-CZ_LbBtn16.OnEvent("Click", "GetLineText")
-
-CZ_LbBtn17 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Selected text")
-CZ_LbBtn17.OnEvent("Click", "GetSelectedText")
-
-CZ_LbBtn18 := MyGui.Add("Button", "w120 xc+180 h25 y+1", "Edit Paste")
-CZ_LbBtn18.OnEvent("Click", "EditPaster")
-
-	; ┌──────────────────────────┐
-	; │  ListView Content Tests  │
-	; └──────────────────────────┘
-
-CZ_SeparatorText1 := MyGui.Add("Text", "xc+10 yp+8 w320", "ListView content tests")
+CZ_SeparatorText1 := MyGui.Add("Text", "xc+10 y+8 w320", "ListView content tests")
 CZ_SeparatorText1.SetFont("s8 CBlue")
 
 LV2 := MyGui.Add("ListView", "r5 w300 xc+10 y+5", ["Name","Size (KB)"])
@@ -1013,6 +956,73 @@ LV2_Btn6.OnEvent("Click", "LV_CountFocused")
 
 LV2_Btn7 := MyGui.Add("Button", "xc+216 yp w100 h25", "Count Columns")
 LV2_Btn7.OnEvent("Click", "LV_CountCol")
+
+
+	; ┌─────────────────────────────────────────────┐
+	; │  ControlZoo - end of Group One, Column One  │
+	; └─────────────────────────────────────────────┘
+
+
+CZ_LbBtn1 := MyGui.Add("Button", "xs+170 ys w120 h25 Section", "Add Fuchsia")
+CZ_LbBtn1.OnEvent("Click", "AddFuchsia")
+CZ_LbBtn2 := MyGui.Add("Button", "x+8 yp w120 h25", "Delete Fuchsia")
+CZ_LbBtn2.OnEvent("Click", "DeleteFuchsia")
+CZ_LbBtn2.OnEvent("Focus", "FuchsiaDeleteTrayTip")
+CZ_LbBtn3 := MyGui.Add("Button", "xs y+4 w120 h25", "Purple (Index)")
+CZ_LbBtn3.OnEvent("Click", "ChooseIndex")
+CZ_LbBtn4 := MyGui.Add("Button", "x+8 yp w120 h25", "красный (String)")
+CZ_LbBtn4.OnEvent("Click", "ChooseString")
+CZ_LbBtn5 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlGetChoice")
+CZ_LbBtn5.OnEvent("Click", "GetChoice")
+CZ_LbBtn19 := MyGui.Add("Button", "x+8 yp w120 h25", "ControlGetIndex")
+CZ_LbBtn19.OnEvent("Click", "GetIndex")
+CZ_LbBtn6 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlGetClassNN")
+CZ_LbBtn6.OnEvent("Click", "GetClassNN")
+
+CZ_LbBtn7 := MyGui.Add("Button", "x+8 yp w120 h25", "ControlGetEnabled")
+CZ_LbBtn7.OnEvent("Click", "GetEnabled")
+CZ_LbBtn20 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlSetEnabled")
+CZ_LbBtn20.OnEvent("Click", "SetEnabled")
+CZ_LbBtn8 := MyGui.Add("Button", "x+8 yp w120 h25", "Disabled!")
+CZ_LbBtn8.Enabled := False
+
+CZ_LbBtn9 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlGetHwnd")
+CZ_LbBtn9.OnEvent("Click", "GetHwnd")
+
+CZ_LbBtn10 := MyGui.Add("Button", "x+8 yp w120 h25", "ControlGetText")
+CZ_LbBtn10.OnEvent("Click", "GetText")
+
+CZ_LbBtn11 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlHide")
+CZ_LbBtn11.OnEvent("Click", "HideButton")
+
+CZ_LbBtn12 := MyGui.Add("Button", "x+8 yp w120 h25", "ControlShow")
+CZ_LbBtn12.OnEvent("Click", "ShowButton")
+
+CZ_LbBtn13 := MyGui.Add("Button", "xs y+4 w120 h25", "Visible?")
+CZ_LbBtn13.OnEvent("Click", "IsItHidden")
+
+CZ_LbBtn21 := MyGui.Add("Button", "x+8 yp w120 h25", "Get Focus")
+CZ_LbBtn21.OnEvent("Click", "GetFocusCtrl")
+
+#if WINDOWS
+CZ_LbBtn22 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlSetExStyle")
+CZ_LbBtn22.OnEvent("Click", "ToggleEditExStyle")
+#endif
+
+CZ_LbBtn14 := MyGui.Add("Button", "x+8 yp w120 h25", "Edit Column #")
+CZ_LbBtn14.OnEvent("Click", "GetCol")
+
+CZ_LbBtn15 := MyGui.Add("Button", "xs y+4 w120 h25", "Edit Line #")
+CZ_LbBtn15.OnEvent("Click", "GetLine")
+
+CZ_LbBtn16 := MyGui.Add("Button", "x+8 yp w120 h25", "Edit Line Text")
+CZ_LbBtn16.OnEvent("Click", "GetLineText")
+
+CZ_LbBtn17 := MyGui.Add("Button", "xs y+4 w120 h25", "Selected text")
+CZ_LbBtn17.OnEvent("Click", "GetSelectedText")
+
+CZ_LbBtn18 := MyGui.Add("Button", "x+8 yp w120 h25", "Edit Paste")
+CZ_LbBtn18.OnEvent("Click", "EditPaster")
 
 #if WINDOWS
 customText := MyGui.Add("Text", "xc+10", "Custom controls:")
@@ -1461,6 +1471,47 @@ WM_LBUTTONDOWN(wParam, lParam, msg, hwnd)
 	}
 }
 
+#if WINDOWS
+WM_DROPFILES_CZ(wParam, lParam, msg, hwnd)
+{
+	; Only handle drops targeted at the ControlZoo edit control.
+	if (hwnd != CZ_Edit1.Hwnd)
+		return
+
+	if !(ControlGetExStyle(CZ_Edit1.Hwnd) & 0x0010)
+	{
+		DllCall("DragFinish", "ptr", wParam)
+		return
+	}
+
+	fileCount := DllCall("shell32\DragQueryFileW", "ptr", wParam, "uint", 0xFFFFFFFF, "ptr", 0, "uint", 0, "uint")
+	paths := ""
+
+	Loop fileCount
+	{
+		index := A_Index - 1
+		chars := DllCall("shell32\DragQueryFileW", "ptr", wParam, "uint", index, "ptr", 0, "uint", 0, "uint") + 1
+		buf := Buffer(chars * 2, 0)
+		_ := DllCall("shell32\DragQueryFileW", "ptr", wParam, "uint", index, "ptr", buf, "uint", chars, "uint")
+		path := StrGet(buf, "UTF-16")
+
+		if (path != "")
+			paths .= (paths != "" ? "`r`n" : "") . path
+	}
+
+	DllCall("shell32\DragFinish", "ptr", wParam)
+
+	if (paths = "")
+		return
+
+	existing := ControlGetText(CZ_Edit1, MyGui)
+	if (existing != "")
+		paths := existing . "`r`n" . paths
+
+	ControlSetText(paths, CZ_Edit1, MyGui)
+}
+#endif
+
 ;ReloaderBtn := MyGui.Add("Button", "w200 h25 xc+10 y+5", "Reload").OnEvent("Click", "Reload")
 
 ;ReloadMe(*) {
@@ -1599,6 +1650,30 @@ IsItHidden(*) {
 	}
 	MsgBox(Result, "Visible or Not?")
 }
+
+GetFocusCtrl(*) {
+	Focused := ControlGetFocus(MyGui.Title)
+	MsgBox(Focused, "Focused Control")
+}
+
+#if WINDOWS
+ToggleEditExStyle(*) {
+	CurrentExStyle := ControlGetExStyle(CZ_Edit1.Hwnd)
+	Description := "0x0010 is WS_EX_ACCEPTFILES (accept dropped files)."
+
+	if (CurrentExStyle & 0x0010) {
+		ControlSetExStyle("-0x0010", CZ_Edit1)
+		DllCall("shell32\DragAcceptFiles", "ptr", CZ_Edit1.Hwnd, "int", 0)
+		NewExStyle := ControlGetExStyle(CZ_Edit1.Hwnd)
+		MsgBox("Removed 0x0010 from CZ_Edit1.`n" . Description . "`nBefore: 0x" . Format("{1:X}", CurrentExStyle) . "`nNow: 0x" . Format("{1:X}", NewExStyle), "ControlSetExStyle")
+	} else {
+		ControlSetExStyle("+0x0010", CZ_Edit1)
+		DllCall("shell32\DragAcceptFiles", "ptr", CZ_Edit1.Hwnd, "int", 1)
+		NewExStyle := ControlGetExStyle(CZ_Edit1.Hwnd)
+		MsgBox("Added 0x0010 to CZ_Edit1.`n" . Description . "`nBefore: 0x" . Format("{1:X}", CurrentExStyle) . "`nNow: 0x" . Format("{1:X}", NewExStyle), "ControlSetExStyle")
+	}
+}
+#endif
 
 GetCol(*) {
 	CurrentCol := EditGetCurrentCol(CZ_Edit1, MyGui)
@@ -1756,6 +1831,8 @@ BtnSendText := MyGui.Add("Button", "xp+85 yp w80", "SendText()")
 BtnSendInput := MyGui.Add("Button", "xp+85 yp w80", "SendInput()")
 BtnSendPlay := MyGui.Add("Button", "xp+85 yp w80", "SendPlay()")
 BtnSendEvent := MyGui.Add("Button", "xp+85 yp w80", "SendEvent()")
+BtnControlSend := MyGui.Add("Button", "xp+85 yp w95", "ControlSend()")
+BtnControlSendText := MyGui.Add("Button", "xp+100 yp w120", "ControlSendText()")
 
 ; Added 3/24/23, taken from line 871 roughly
 MyScLabel := MyGui.Add("Text", "xc+10 y+10 w300", "Get screenclip at 100, 100, 200, 200`nSave to 'MyScreenClip.png' on Desktop`& display for 2 seconds.")
@@ -1768,6 +1845,8 @@ BtnSendText.OnEvent("Click", "BtnSendTextFunc")
 BtnSendInput.OnEvent("Click", "BtnSendInputFunc")
 BtnSendPlay.OnEvent("Click", "BtnSendPlayFunc")
 BtnSendEvent.OnEvent("Click", "BtnSendEventFunc")
+BtnControlSend.OnEvent("Click", "BtnControlSendFunc")
+BtnControlSendText.OnEvent("Click", "BtnControlSendTextFunc")
 
 ; ┌────────────────────────────────────┐
 ; │  Send and Hotkey button functions  │
@@ -1969,6 +2048,22 @@ The 'Run' dialog will open.
 	SendEvent("#r")
 }
 
+BtnControlSendFunc(*) {
+	MsgBox("This will send text to the Send/Hotkey edit with ControlSend().", "ControlSend")
+	WinActivate(MyGui)
+	ControlFocus(MySendEdit)
+	ControlSend("{Ctrl}{End}{Enter}", MySendEdit, MyGui)
+	ControlSend("This line was sent with ControlSend().`n", MySendEdit, MyGui)
+}
+
+BtnControlSendTextFunc(*) {
+	MsgBox("This will send literal text to the Send/Hotkey edit with ControlSendText().", "ControlSendText")
+	WinActivate(MyGui)
+	ControlFocus(MySendEdit)
+	ControlSend("{Ctrl}{End}{Enter}", MySendEdit, MyGui)
+	ControlSendText("Literal braces from ControlSendText: {Blind}{Text}`n", MySendEdit, MyGui)
+}
+
 ; ┌─────────────────────────┐
 ; │  HOTKEY() TEST SECTION  │
 ; └─────────────────────────┘
@@ -2124,6 +2219,27 @@ LV_DoubleClick(LV, RowNumber)
 	RowText := LV.GetText(RowNumber, 1)  ; Get the text from the row's first field.
 	ColumnText := LV.GetText(RowNumber, 2)
 	ToolTip("You double-clicked row number " RowNumber ". File '" RowText "' has size " ColumnText "kb.")
+}
+
+PopulateMainListView()
+{
+	global LV, LVFolder
+	LV.Delete()
+
+	Loop Files LVFolder . A_DirSeparator . "*.*"
+		LV.Add(, A_LoopFileName, A_LoopFileSizeKB)
+}
+
+DirSelectForLV(*)
+{
+	global LVFolder
+	selected := DirSelect(LVFolder, 0, "Choose a folder for the ListView")
+
+	if (selected = "")
+		return
+
+	LVFolder := selected
+	PopulateMainListView()
 }
 
 ; ┌──────────────────────┐
@@ -3139,3 +3255,4 @@ DoWav(*)
 }
 
 MyGui.Show("Autosize")
+

@@ -175,5 +175,11 @@ namespace Keysharp.Tests
 
 			Assert.IsTrue(TestScript("collections-buffer", true));
 		}
+
+		[Test, Category("Collections")]
+		public void Object()
+		{
+			Assert.IsTrue(TestScript("collections-object", false));
+		}
 	}
 }

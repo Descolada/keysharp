@@ -1,2 +1,0 @@
-#NoTrayIcon
-#SingleInstance ignore

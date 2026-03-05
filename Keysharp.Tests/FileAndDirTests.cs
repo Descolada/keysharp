@@ -236,7 +236,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(data, data2);
 			_ = Files.FileAppend("abcd", "./fileappend2.txt", "utf-16-raw");
 			data2 = new Core.Array(File.ReadAllBytes("./fileappend2.txt"));
-			_ = data.AddRange(new UnicodeEncoding(false, false).GetBytes("abcd"));
+			data.Push(new UnicodeEncoding(false, false).GetBytes("abcd").Cast<object>().ToArray());
 			Assert.AreEqual(data, data2);
 
 			if (File.Exists("./fileappend.txt"))

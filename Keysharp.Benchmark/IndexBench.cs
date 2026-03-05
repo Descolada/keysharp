@@ -164,7 +164,7 @@ namespace Keysharp.Benchmark
 		[Benchmark]
 		public void KeysharpArrayDirectAdd()
 		{
-			keysharparray.Clear();
+			keysharparray.Length = 0L;
 
 			for (var i = 0; i < Size; i++)
 				((System.Collections.IList)keysharparray).Add(o);
@@ -176,7 +176,7 @@ namespace Keysharp.Benchmark
 		[Benchmark]
 		public void KeysharpArrayDirectAddWithPrealloc()
 		{
-			keysharparray.Clear();
+			keysharparray.Length = 0L;
 			keysharparray.Capacity = Size;
 
 			for (var i = 0; i < Size; i++)
@@ -189,7 +189,7 @@ namespace Keysharp.Benchmark
 		[Benchmark]
 		public void KeysharpArrayScriptAdd()
 		{
-			keysharparray.Clear();
+			keysharparray.Length = 0L;
 
 			for (var i = 0; i < Size; i++)
 				_ = Invoke(keysharparray, "Add", o);
@@ -201,7 +201,7 @@ namespace Keysharp.Benchmark
 		[Benchmark]
 		public void KeysharpArrayScriptAddWithPrealloc()
 		{
-			keysharparray.Clear();
+			keysharparray.Length = 0L;
 			keysharparray.Capacity = Size;
 
 			for (var i = 0; i < Size; i++)

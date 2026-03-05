@@ -403,7 +403,7 @@ if (arr3.c == "ghi")
 else
 	FileAppend "fail", "*"
 
-arr.Clear()
+arr.Length := 0
 len := arr.Length
 
 if (len == 0)
@@ -935,3 +935,12 @@ if (am.Length == 1 &&
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+arr := [1, 2, 3, 4]
+
+arr.Contains(3)
+arr.Contains(10)
+FileAppend "pass", "*"
+
+arr.Remove(3)
+FileAppend "pass", "*"

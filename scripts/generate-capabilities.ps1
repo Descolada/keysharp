@@ -57,11 +57,11 @@ $tableAll = BuildTableLines $allRows
 
 $legendLines = @(
 	"Status legend:",
-	"- `Full`: $($root.legend.full)",
-	"- `Partial`: $($root.legend.partial)",
-	"- `Planned`: $($root.legend.planned)",
-	"- `Unsupported`: $($root.legend.unsupported)",
-	"- `Unknown`: $($root.legend.unknown)"
+	("- " + (StatusIcon "full") + ": " + $root.legend.full),
+	("- " + (StatusIcon "partial") + ": " + $root.legend.partial),
+	("- " + (StatusIcon "planned") + ": " + $root.legend.planned),
+	("- " + (StatusIcon "unsupported") + ": " + $root.legend.unsupported),
+	("- " + (StatusIcon "unknown") + ": " + $root.legend.unknown)
 )
 
 $docsLines = New-Object System.Collections.Generic.List[string]

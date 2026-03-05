@@ -649,15 +649,15 @@ else
 
 m := Map()
 m.CaseSense := "locale"
-m["à"] := 123
-m["À"] := 456
+m["Ã "] := 123
+m["Ã€"] := 456
 
-if (m["à"] == 456)
+if (m["Ã "] == 456)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (m["À"] == 456)
+if (m["Ã€"] == 456)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -726,3 +726,19 @@ for k, v in m {
 	else
 		FileAppend "fail", "*"
 }
+
+m := Map("one", 1, 2, "two", -5, "neg")
+
+FileAppend "pass", "*"
+
+m.MaxIndex()
+FileAppend "pass", "*"
+
+m.MinIndex()
+FileAppend "pass", "*"
+
+m := Map("one", 1, "two", 2)
+
+m.MaxIndex()
+m.MinIndex()
+FileAppend "pass", "*"

@@ -1,0 +1,4 @@
+IncludedMethod()
+{
+	return 42
+}

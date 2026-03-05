@@ -53,10 +53,13 @@ namespace Keysharp.Core.MacOS
 			}
 		}
 
-		private static readonly nint attrWindows = CreateCFString("AXWindows");
-		private static readonly nint attrPosition = CreateCFString("AXPosition");
-		private static readonly nint attrSize = CreateCFString("AXSize");
-		private static readonly nint attrTitle = CreateCFString("AXTitle");
+			private static readonly nint attrWindows = CreateCFString("AXWindows");
+			private static readonly nint attrFocusedApplication = CreateCFString("AXFocusedApplication");
+			private static readonly nint attrFocusedWindow = CreateCFString("AXFocusedWindow");
+			private static readonly nint attrWindowNumber = CreateCFString("AXWindowNumber");
+			private static readonly nint attrPosition = CreateCFString("AXPosition");
+			private static readonly nint attrSize = CreateCFString("AXSize");
+			private static readonly nint attrTitle = CreateCFString("AXTitle");
 		private static readonly nint attrMinimized = CreateCFString("AXMinimized");
 		private static readonly nint attrZoomed = CreateCFString("AXZoomed");
 		private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
@@ -66,20 +69,29 @@ namespace Keysharp.Core.MacOS
 		private static readonly nint actionPress = CreateCFString("AXPress");
 		private static readonly nint cfBoolTrue = ResolveCFBooleanSymbol("kCFBooleanTrue");
 		private static readonly nint cfBoolFalse = ResolveCFBooleanSymbol("kCFBooleanFalse");
+		private static readonly nint axTrustedCheckOptionPrompt = ResolveAppServicesPointerSymbol("kAXTrustedCheckOptionPrompt");
 
 		private static int loggedTrustFailure;
 		private static int loggedListenFailure;
 		private static int loggedPostFailure;
 		private static int loggedScreenFailure;
+		private static int loggedFocusedWindowFailure;
+		private static int promptedTrust;
 		private static int promptedListen;
 		private static int promptedPost;
 		private static int promptedScreen;
 
-		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-		private static partial nint AXUIElementCreateApplication(int pid);
+			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+			private static partial nint AXUIElementCreateApplication(int pid);
 
-		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-		private static partial int AXUIElementCopyAttributeValue(nint element, nint attribute, out nint value);
+			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+			private static partial nint AXUIElementCreateSystemWide();
+
+			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+			private static partial int AXUIElementGetPid(nint element, out int pid);
+
+			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+			private static partial int AXUIElementCopyAttributeValue(nint element, nint attribute, out nint value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial int AXUIElementSetAttributeValue(nint element, nint attribute, nint value);
@@ -146,6 +158,9 @@ namespace Keysharp.Core.MacOS
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFArrayGetValueAtIndex(nint theArray, nint idx);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFDictionaryCreate(nint allocator, nint[] keys, nint[] values, nint numValues, nint keyCallBacks, nint valueCallBacks);
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFGetTypeID(nint cf);
@@ -229,8 +244,8 @@ namespace Keysharp.Core.MacOS
 			return false;
 		}
 
-		internal static bool TryGetWindowState(MacNativeWindowInfo info, out FormWindowState state)
-		{
+			internal static bool TryGetWindowState(MacNativeWindowInfo info, out FormWindowState state)
+			{
 			state = FormWindowState.Normal;
 			if (!EnsureAccessibilityAccess("query window state"))
 				return false;
@@ -431,7 +446,26 @@ namespace Keysharp.Core.MacOS
 			if (AXIsProcessTrustedWithOptions(0))
 				return true;
 
-			_ = prompt;
+			if (prompt && Interlocked.Exchange(ref promptedTrust, 1) == 0)
+			{
+				try
+				{
+					var options = CreateAccessibilityPromptOptions();
+					try
+					{
+						if (options != 0 && AXIsProcessTrustedWithOptions(options))
+							return true;
+					}
+					finally
+					{
+						if (options != 0)
+							CFRelease(options);
+					}
+				}
+				catch
+				{
+				}
+			}
 
 			if (Interlocked.Exchange(ref loggedTrustFailure, 1) == 0)
 			{
@@ -535,38 +569,198 @@ namespace Keysharp.Core.MacOS
 			return false;
 		}
 
-		private static bool CheckListenAccess()
-		{
-			try
+			private static bool CheckListenAccess()
 			{
-				return CGPreflightListenEventAccess();
+				try
+				{
+					return CGPreflightListenEventAccess();
 			}
 			catch (EntryPointNotFoundException)
 			{
 				// Older macOS: treat Accessibility trust as the closest equivalent.
 				return AXIsProcessTrustedWithOptions(0);
 			}
-			catch
-			{
-				return false;
+				catch
+				{
+					return false;
+				}
 			}
-		}
 
-		private static bool CheckPostAccess()
-		{
-			try
+			internal static bool TryGetFocusedWindowHandle(out nint handle)
 			{
-				return CGPreflightPostEventAccess();
+				handle = 0;
+				if (!EnsureAccessibilityAccess("query active window"))
+					return false;
+
+				var systemElement = AXUIElementCreateSystemWide();
+				if (systemElement == 0)
+					return false;
+
+				try
+				{
+					if (!TryCopyAttributeValue(systemElement, attrFocusedApplication, out var appElement))
+						return false;
+
+					try
+					{
+						if (!TryCopyAttributeValue(appElement, attrFocusedWindow, out var focusedWindow))
+							return false;
+
+						try
+						{
+							if (TryReadInt32(focusedWindow, attrWindowNumber, out var windowNumber) && windowNumber > 0)
+							{
+								handle = (nint)windowNumber;
+								return true;
+							}
+
+							_ = TryReadString(focusedWindow, attrTitle, out var focusedTitle);
+							Rectangle focusedRect = Rectangle.Empty;
+							var hasFocusedRect = TryReadRect(focusedWindow, out focusedRect);
+
+							var ownerPid = 0;
+							if (AXUIElementGetPid(focusedWindow, out ownerPid) != kAXErrorSuccess || ownerPid <= 0)
+								_ = AXUIElementGetPid(appElement, out ownerPid);
+
+							if (TryResolveFocusedWindowHandleFromSnapshot(ownerPid, focusedTitle, hasFocusedRect ? focusedRect : null, out handle))
+								return true;
+
+							if (!CheckScreenCaptureAccess() && Interlocked.Exchange(ref loggedFocusedWindowFailure, 1) == 0)
+							{
+								Ks.OutputDebugLine(
+									"Unable to resolve focused foreign window handle from macOS accessibility data. " +
+									"Screen Recording permission may be required for WinExist(\"A\") on foreign apps.");
+							}
+
+							return false;
+						}
+						finally
+						{
+							CFRelease(focusedWindow);
+						}
+					}
+					finally
+					{
+						CFRelease(appElement);
+					}
+				}
+				finally
+				{
+					CFRelease(systemElement);
+				}
+			}
+
+			private static bool TryResolveFocusedWindowHandleFromSnapshot(int ownerPid, string focusedTitle, Rectangle? focusedRect, out nint handle)
+			{
+				handle = 0;
+				var snapshot = MacNativeWindows.SnapshotBasic(onScreenOnly: true);
+				if (snapshot.Count == 0)
+					return false;
+
+				var bestHandle = 0u;
+				double bestScore = double.NegativeInfinity;
+				var title = focusedTitle ?? string.Empty;
+				var hasTitle = !title.IsNullOrEmpty();
+				Dictionary<uint, string> titleCache = hasTitle ? [] : null;
+
+				for (var i = 0; i < snapshot.Count; i++)
+				{
+					var w = snapshot[i];
+					if (!w.Visible)
+						continue;
+
+					if (ownerPid > 0 && w.OwnerPid != ownerPid)
+						continue;
+
+					double score = 0.0;
+
+					if (hasTitle)
+					{
+						_ = TryResolveWindowTitle(w.WindowNumber, titleCache, out var windowTitle);
+						if (string.Equals(windowTitle, title, StringComparison.Ordinal))
+							score += 1000.0;
+						else if (!windowTitle.IsNullOrEmpty() && windowTitle.Contains(title, StringComparison.Ordinal))
+							score += 500.0;
+					}
+
+					if (focusedRect is Rectangle rect)
+					{
+						var dx = w.Bounds.X - rect.X;
+						var dy = w.Bounds.Y - rect.Y;
+						var dw = w.Bounds.Width - rect.Width;
+						var dh = w.Bounds.Height - rect.Height;
+						var distance = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dw) + Math.Abs(dh);
+						score += Math.Max(0.0, 400.0 - distance);
+					}
+
+					if (score > bestScore)
+					{
+						bestScore = score;
+						bestHandle = w.WindowNumber;
+					}
+				}
+
+				if (bestHandle == 0)
+					return false;
+
+				handle = (nint)bestHandle;
+				return true;
+			}
+
+			private static bool TryResolveWindowTitle(uint windowNumber, Dictionary<uint, string> titleCache, out string title)
+			{
+				title = string.Empty;
+				if (titleCache == null)
+					return false;
+
+				if (titleCache.TryGetValue(windowNumber, out title))
+					return true;
+
+				if (!MacNativeWindows.TryGetWindowInfo((nint)windowNumber, out var fullInfo, includeTextMetadata: true))
+				{
+					titleCache[windowNumber] = string.Empty;
+					return false;
+				}
+
+				title = fullInfo.Title ?? string.Empty;
+				titleCache[windowNumber] = title;
+				return true;
+			}
+
+			private static bool CheckPostAccess()
+			{
+				try
+				{
+					return CGPreflightPostEventAccess();
 			}
 			catch (EntryPointNotFoundException)
 			{
 				return AXIsProcessTrustedWithOptions(0);
 			}
-			catch
-			{
-				return false;
+				catch
+				{
+					return false;
+				}
 			}
-		}
+
+			internal static bool TryGetWindowTitle(MacNativeWindowInfo info, out string title)
+			{
+				title = string.Empty;
+				if (!EnsureAccessibilityAccess("query window title"))
+					return false;
+
+				if (!TryFindWindowElement(info, out var windowElement))
+					return false;
+
+				try
+				{
+					return TryReadString(windowElement, attrTitle, out title);
+				}
+				finally
+				{
+					CFRelease(windowElement);
+				}
+			}
 
 		private static bool CheckScreenCaptureAccess()
 		{
@@ -769,8 +963,8 @@ namespace Keysharp.Core.MacOS
 			}
 		}
 
-		private static bool TryReadBool(nint element, nint attr, out bool value)
-		{
+			private static bool TryReadBool(nint element, nint attr, out bool value)
+			{
 			value = false;
 			if (!TryCopyAttributeValue(element, attr, out var obj))
 				return false;
@@ -796,8 +990,27 @@ namespace Keysharp.Core.MacOS
 			finally
 			{
 				CFRelease(obj);
+				}
 			}
-		}
+
+			private static bool TryReadInt32(nint element, nint attr, out int value)
+			{
+				value = 0;
+				if (!TryCopyAttributeValue(element, attr, out var obj))
+					return false;
+
+				try
+				{
+					if (CFGetTypeID(obj) != CFNumberGetTypeID())
+						return false;
+
+					return CFNumberGetValue(obj, kCFNumberSInt32Type, out value);
+				}
+				finally
+				{
+					CFRelease(obj);
+				}
+			}
 
 		private static bool TryWriteBool(nint element, nint attr, bool value)
 		{
@@ -832,6 +1045,39 @@ namespace Keysharp.Core.MacOS
 			finally
 			{
 				NativeLibrary.Free(coreFoundation);
+			}
+		}
+
+		private static nint ResolveAppServicesPointerSymbol(string symbolName)
+		{
+			if (!NativeLibrary.TryLoad("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", out var appServices))
+				return 0;
+
+			try
+			{
+				if (!NativeLibrary.TryGetExport(appServices, symbolName, out var symbol) || symbol == 0)
+					return 0;
+
+				return Marshal.ReadIntPtr(symbol);
+			}
+			finally
+			{
+				NativeLibrary.Free(appServices);
+			}
+		}
+
+		private static nint CreateAccessibilityPromptOptions()
+		{
+			if (axTrustedCheckOptionPrompt == 0 || cfBoolTrue == 0)
+				return 0;
+
+			try
+			{
+				return CFDictionaryCreate(0, [axTrustedCheckOptionPrompt], [cfBoolTrue], 1, 0, 0);
+			}
+			catch
+			{
+				return 0;
 			}
 		}
 

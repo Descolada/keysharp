@@ -398,6 +398,31 @@ using String = Keysharp.Core.String
 #endif
 			var ksCoreDir = Path.GetDirectoryName(A_KeysharpCorePath);
 
+#if OSX
+			// In macOS .app bundles, A_KeysharpCorePath may not resolve to the runtime folder.
+			// Probe common bundle/runtime paths for managed dependency files.
+			if (string.IsNullOrWhiteSpace(ksCoreDir) || !Directory.Exists(ksCoreDir))
+			{
+				var entryDir = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
+				var baseDir = AppContext.BaseDirectory;
+				var candidateDirs = new[]
+				{
+					baseDir,
+					entryDir,
+					currentDir,
+					baseDir != null ? Path.Combine(baseDir, "..", "Resources") : null,
+					baseDir != null ? Path.Combine(baseDir, "..", "..", "Resources") : null
+				}
+				.Where(d => !string.IsNullOrWhiteSpace(d))
+				.Select(d => Path.GetFullPath(d))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToArray();
+
+				ksCoreDir = candidateDirs.FirstOrDefault(dir =>
+					requiredManagedDependencies.All(dep => File.Exists(Path.Combine(dir, dep))));
+			}
+#endif
+
 			if (minimalexeout)
 			{
 				var currentDepsConfigPath = Path.Combine(ksCoreDir ?? "", $"{Assembly.GetEntryAssembly().GetName().Name}.deps.json");
@@ -465,7 +490,11 @@ using String = Keysharp.Core.String
 			// Do not load metadata from all dependencies, but just a select few. We need the metadata
 			// for only those dependencies which types an user script can have contact with. Loading
 			// metadata for unnecessary deps like Microsoft.CodeAnalysis leads to slowdowns because of huge file sizes.
-			if (ksCoreDir != null)
+			var hasManagedDepsInKsCoreDir =
+				!string.IsNullOrWhiteSpace(ksCoreDir) &&
+				requiredManagedDependencies.All(dep => File.Exists(Path.Combine(ksCoreDir, dep)));
+
+			if (hasManagedDepsInKsCoreDir)
 			{
 				//This will be the build output folder when running from within the debugger, and the install folder when running from an installation.
 				//Note that Keysharp.Core.dll and System.CodeDom.dll *must* remain in that location for a compiled executable to work.
@@ -476,7 +505,9 @@ using String = Keysharp.Core.String
 			{
 				var asm = Assembly.GetExecutingAssembly();
 
-				if (!asm.GetManifestResourceNames().Any(s => requiredManagedDependencies.Contains(s)))
+				if (!asm.GetManifestResourceNames().Any(s =>
+						requiredManagedDependencies.Any(dep =>
+							string.Equals(s, "Deps." + dep, StringComparison.OrdinalIgnoreCase))))
 					asm = Assembly.GetEntryAssembly();
 
 				var refs = requiredManagedDependencies.Select(logicalName =>
@@ -499,6 +530,8 @@ using String = Keysharp.Core.String
 								.AddReferences(references)
 								.AddSyntaxTrees(tree)
 								;
+			EmitResult compilationResult = null;
+#if WINDOWS
 			// Apparently there isn't a good way to read app.manifest contents from the running process,
 			// so instead we recreate it here.
 			// Any change in the manifest should be reflected here and in Keysharp app.manifest file.
@@ -529,7 +562,6 @@ using String = Keysharp.Core.String
 						</application>
 					</compatibility>
 				</assembly>";
-			EmitResult compilationResult = null;
 
 			using (var manifestStream = new MemoryStream())
 			{
@@ -541,6 +573,10 @@ using String = Keysharp.Core.String
 				using var res = compilation.CreateDefaultWin32Resources(true, false, manifestStream, msi);//The first argument must be true to embed version/assembly information.
 				compilationResult = compilation.Emit(ms, win32Resources: res, manifestResources: resourceDescriptions);
 			}
+#else
+			// Win32 manifest/icon resources are not applicable outside Windows.
+			compilationResult = compilation.Emit(ms, manifestResources: resourceDescriptions);
+#endif
 
 			return (compilationResult, ms, null);
 		}
@@ -635,12 +671,36 @@ using String = Keysharp.Core.String
 				if (stdout)
 					Console.WriteLine(s);
 				else
-#if WINDOWS
-					_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
-#else
-					_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxType.Error);
-#endif
+				{
+					if (!TryShowErrorMessageBox(s))
+						Console.Error.WriteLine(s);
+				}
 			}
+		}
+
+		private static bool TryShowErrorMessageBox(string s)
+		{
+#if WINDOWS
+			_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			return true;
+#else
+			if (Script.IsUiInitializationBlocked || Script.IsHeadless || Script.IsTestHost)
+				return false;
+
+			try
+			{
+				if (Application.Instance == null)
+					_ = new Application();
+
+				_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxType.Error);
+				return true;
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"Unable to show compiler error message box: {ex.Message}");
+				return false;
+			}
+#endif
 		}
 
 		internal string CodeToString(CodeExpression expr)

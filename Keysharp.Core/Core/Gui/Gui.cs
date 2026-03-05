@@ -407,7 +407,8 @@
 					ctrl.Tag = new Gui.Control(this, ctrl, ctrl.Name, true);//Supposed to be name like "label", "edit" etc, but just pass the name since this is only used with the main window.
 			}
 #if !WINDOWS
-			form.Content = new PixelLayout();
+			// Preserve prebuilt window content (e.g. main window tabs/menu container).
+			form.Content ??= new PixelLayout();
 #endif
 			LastContainer = form;
 			script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
@@ -1419,7 +1420,7 @@
 					};
 					StatusStrip = ss;
 					ss.AutoSize = false;
-					ss.ImageScalingSize = new Size((int)Math.Round(28 * dpiscale), (int)Math.Round(28 * dpiscale));
+					ss.ImageScalingSize = new Size(Convert.ToInt32(28 * dpiscale), Convert.ToInt32(28 * dpiscale));
 					ss.Dock = DockStyle.Bottom;//Docking must be used and must be on the bottom. Don't ever set form.AutoSize = true with this, they are incompatible.
 					ss.SizingGrip = false;
 					if (opts.bgcolor.HasValue)
@@ -1620,7 +1621,7 @@
 			else if (opts.width != int.MinValue)
 			{
 				if (opts.width != -1)
-					w = (int)Math.Round(dpiscale * opts.width);
+					w = Convert.ToInt32(dpiscale * opts.width);
 			}
 			else if (ctrl is KeysharpProgressBar kpb && ((kpb.AddStyle & 0x04) == 0x04))
 				w = fontpixels * 2;
@@ -1650,11 +1651,11 @@
 			}
 			else if (opts.width == int.MinValue && opts.wp == int.MinValue)
 			{
-				finalWidth = Math.Max((int)w, (int)Math.Round(scaledPref));
+				finalWidth = Math.Max((int)w, Convert.ToInt32(scaledPref));
 			}
 			else
 			{
-				finalWidth = holder.requestedSize.Width = (int)Math.Round(w);
+				finalWidth = holder.requestedSize.Width = Convert.ToInt32(w);
 			}
 
 			int r = 0;
@@ -1670,7 +1671,7 @@
 			{
 				if (rowsSpecified)
 				{
-					r = (int)Math.Round(opts.rows);
+					r = Convert.ToInt32(opts.rows);
 				}
 				else if (heightSpecified)
 				{
@@ -1678,7 +1679,7 @@
 					{
 						if (ctrl is KeysharpComboBox cmb && cmb.DropDownStyle != ComboBoxStyle.Simple)
 						{
-							var combinedHeight = (int)Math.Round(dpiscale * opts.height);
+							var combinedHeight = Convert.ToInt32(dpiscale * opts.height);
 							var baseHeight = cmb.PreferredSize.Height;
 							var minDropHeight = GetComboMinDropHeight(cmb);
 							var dropHeight = Math.Max(minDropHeight, combinedHeight - baseHeight);
@@ -1688,7 +1689,7 @@
 						}
 						else
 						{
-							finalHeight = holder.requestedSize.Height = (int)Math.Round(dpiscale * opts.height);
+							finalHeight = holder.requestedSize.Height = Convert.ToInt32(dpiscale * opts.height);
 						}
 					}
 				}
@@ -1761,7 +1762,7 @@
 					}
 					else if (ctrl is KeysharpTabControl tc2)
 					{
-						finalHeight = defheight + (int)Math.Round((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
+						finalHeight = defheight + Convert.ToInt32((tc2.Margin.Top + tc2.Margin.Bottom) *  (2.0 + ((int)(r + 1.5) - 1)));//Same here, but -1.
 					}
 
 #if WINDOWS
@@ -1777,7 +1778,7 @@
 						{
 							if (ctrl is KeysharpTrackBar trk && opts.thick == int.MinValue)//Separate check for TrackBar because the documentation specifies it in pixels. Skip this if thickness has been specified.
 							{
-								finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : (int)Math.Round(5 * fontpixels);
+								finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : Convert.ToInt32(5 * fontpixels);
 								goto heightdone;
 							}
 							else if (ctrl is KeysharpLabel lbl)
@@ -1924,7 +1925,7 @@
 				xoffset = lcLeft; yoffset = lcTop;
 			}
 
-			loc = new Point((int)Math.Round(xoffset), (int)Math.Round(yoffset));
+			loc = new Point(Convert.ToInt32(xoffset), Convert.ToInt32(yoffset));
 
 			//Note we check DockStyle here because if the previous control was docked to a side, then we can't really use its location as a reference to base this control's location off of.
 			if (ctrl is KeysharpStatusStrip ksss)//Need to figure out how to do this without resizing all tab controls on every add. Maybe at the end before show(), and also on every add after show()?//TODO
@@ -1940,7 +1941,7 @@
 				if (IsTextLike(ctrl) && IsTextLike(lastControl)
 					&& lastControl.GetLogicalParent() == ctrl.GetLogicalParent())
 				{
-					deadspace = (int)Math.Round(4 * dpiscale);
+					deadspace = Convert.ToInt32(4 * dpiscale);
 				}
 				loc = new Point(lcLeft, lcTop + lcHeight + form.Margin.Bottom + deadspace);
 			}
@@ -1975,7 +1976,7 @@
 				}
 
 				loc = new Point(opts.x != int.MinValue ? opts.x : prevParent.Margin.Left,
-										  opts.y != int.MinValue ? opts.y : (int)Math.Round(top));
+										  opts.y != int.MinValue ? opts.y : Convert.ToInt32(top));
 			}
 
 			if (isTabControl)
@@ -2104,9 +2105,9 @@
 			int GetComboItemHeight(KeysharpComboBox combo)
 			{
 #if WINDOWS
-				return combo.ItemHeight > 0 ? combo.ItemHeight : (int)Math.Round(fontpixels + 0.5);
+				return combo.ItemHeight > 0 ? combo.ItemHeight : Convert.ToInt32(fontpixels + 0.5);
 #else
-				return (int)Math.Round(fontpixels + 0.5);
+				return Convert.ToInt32(fontpixels + 0.5);
 #endif
 			}
 
@@ -2247,10 +2248,10 @@
 				formLoc.Y = y;
 
 			if (width != int.MinValue)
-				formSize.Width = (int)Math.Round(width * scale);
+				formSize.Width = Convert.ToInt32(width * scale);
 
 			if (height != int.MinValue)
-				formSize.Height = (int)Math.Round(height * scale);
+				formSize.Height = Convert.ToInt32(height * scale);
 
 			if (x != int.MinValue || y != int.MinValue)
 				form.SetLocation(formLoc);

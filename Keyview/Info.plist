@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Keyview</string>
+	<key>CFBundleDisplayName</key>
+	<string>Keyview</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.keysharp.keyview</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.0.14</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.0.14</string>
+	<key>CFBundleIconFile</key>
+	<string>Icon.icns</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15</string>
+	<key>NSRequiresAquaSystemAppearance</key>
+	<false/>
+</dict>
+</plist>

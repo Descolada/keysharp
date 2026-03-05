@@ -102,15 +102,8 @@
 
 				handle = ((nint)h.GetValue(tt)).ToInt64();
 
-#elif LINUX
-				var ttwndField = tt.GetType().GetField("tooltip_window", BindingFlags.Instance | BindingFlags.NonPublic);
-
-				var ttwnd = ttwndField.GetValue(tt);
-
-				var hprop = ttwnd.GetType().GetProperty("Handle", BindingFlags.Instance | BindingFlags.Public);
-
-				handle = ((nint)hprop.GetValue(ttwnd)).ToInt64();
-
+#else
+				handle = tt.Handle;
 #endif
 			}, false);
 			// CheckedBeginInvoke might run in a different thread with a different CoordMode

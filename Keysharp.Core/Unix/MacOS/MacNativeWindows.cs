@@ -35,6 +35,7 @@ namespace Keysharp.Core.MacOS
 		private const int kCFNumberDoubleType = 13;
 		private const uint kCGWindowListOptionAll = 0u;
 		private const uint kCGWindowListOptionOnScreenOnly = 1u;
+		private const uint kCGWindowListOptionIncludingWindow = 8u;
 		private const uint kCGWindowListExcludeDesktopElements = 16u;
 
 		[StructLayout(LayoutKind.Sequential)]
@@ -112,64 +113,27 @@ namespace Keysharp.Core.MacOS
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CFBooleanGetValue(nint boolean);
 
-		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false)
+		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: true);
+
+		internal static List<MacNativeWindowInfo> SnapshotBasic(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: false);
+
+		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info) => TryGetWindowInfo(handle, out info, includeTextMetadata: true);
+
+		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info, bool includeTextMetadata)
 		{
-			var list = new List<MacNativeWindowInfo>(256);
-			var opts = (onScreenOnly ? kCGWindowListOptionOnScreenOnly : kCGWindowListOptionAll) | kCGWindowListExcludeDesktopElements;
-			var arrayRef = CGWindowListCopyWindowInfo(opts, 0);
-
-			if (arrayRef == 0)
-				return list;
-
-			try
+			if (handle == 0)
 			{
-				var count = CFArrayGetCount(arrayRef);
-
-				for (nint i = 0; i < count; i++)
-				{
-					var dictRef = CFArrayGetValueAtIndex(arrayRef, i);
-
-					if (!TryGetUInt32(dictRef, kWindowNumber, out var windowNumber))
-						continue;
-
-					_ = TryGetInt32(dictRef, kOwnerPid, out var ownerPid);
-					_ = TryGetString(dictRef, kOwnerName, out var ownerName);
-					_ = TryGetString(dictRef, kWindowName, out var title);
-					_ = TryGetInt32(dictRef, kWindowLayer, out var layer);
-					_ = TryGetDouble(dictRef, kWindowAlpha, out var alpha);
-					_ = TryGetBool(dictRef, kWindowIsOnscreen, out var isOnscreen);
-
-					if (layer != 0)
-						continue;
-
-					var rect = Rectangle.Empty;
-					if (TryGetDictionaryValue(dictRef, kWindowBounds, out var boundsRef)
-						&& CGRectMakeWithDictionaryRepresentation(boundsRef, out var cgRect))
-						rect = new Rectangle((int)cgRect.X, (int)cgRect.Y, (int)cgRect.Width, (int)cgRect.Height);
-
-					list.Add(new MacNativeWindowInfo(windowNumber, ownerPid, ownerName, title, rect, isOnscreen, alpha == 0 ? 1.0 : alpha));
-				}
-			}
-			finally
-			{
-				CFRelease(arrayRef);
+				info = default;
+				return false;
 			}
 
-			return list;
-		}
-
-		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info)
-		{
 			var id = unchecked((uint)handle.ToInt64());
-			var snapshot = Snapshot();
+			var snapshot = SnapshotCore(onScreenOnly: false, includeTextMetadata, includeSingleWindow: true, relativeToWindow: id);
 
-			for (int i = 0; i < snapshot.Count; i++)
+			if (snapshot.Count > 0)
 			{
-				if (snapshot[i].WindowNumber == id)
-				{
-					info = snapshot[i];
-					return true;
-				}
+				info = snapshot[0];
+				return true;
 			}
 
 			info = default;
@@ -178,7 +142,7 @@ namespace Keysharp.Core.MacOS
 
 		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)
 		{
-			var snapshot = Snapshot(onScreenOnly: true);
+			var snapshot = SnapshotBasic(onScreenOnly: true);
 
 			for (int i = 0; i < snapshot.Count; i++)
 			{
@@ -200,7 +164,7 @@ namespace Keysharp.Core.MacOS
 
 		internal static nint GetFrontWindowHandle()
 		{
-			var snapshot = Snapshot(onScreenOnly: true);
+			var snapshot = SnapshotBasic(onScreenOnly: true);
 			for (int i = 0; i < snapshot.Count; i++)
 			{
 				if (snapshot[i].Visible)
@@ -239,6 +203,66 @@ namespace Keysharp.Core.MacOS
 			catch
 			{
 				return false;
+			}
+		}
+
+		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0)
+		{
+			var options = includeSingleWindow
+				? kCGWindowListOptionIncludingWindow | kCGWindowListExcludeDesktopElements
+				: (onScreenOnly ? kCGWindowListOptionOnScreenOnly : kCGWindowListOptionAll) | kCGWindowListExcludeDesktopElements;
+			var arrayRef = CGWindowListCopyWindowInfo(options, relativeToWindow);
+			if (arrayRef == 0)
+				return [];
+
+			try
+			{
+				var count = CFArrayGetCount(arrayRef);
+				var capacity = count > int.MaxValue ? int.MaxValue : (int)count;
+				var list = new List<MacNativeWindowInfo>(capacity);
+
+				for (nint i = 0; i < count; i++)
+				{
+					var dictRef = CFArrayGetValueAtIndex(arrayRef, i);
+					if (!TryGetUInt32(dictRef, kWindowNumber, out var windowNumber))
+						continue;
+
+					if (!TryGetInt32(dictRef, kWindowLayer, out var layer) || layer != 0)
+						continue;
+
+					_ = TryGetInt32(dictRef, kOwnerPid, out var ownerPid);
+					var ownerName = string.Empty;
+					var title = string.Empty;
+
+					if (includeTextMetadata)
+					{
+						_ = TryGetString(dictRef, kOwnerName, out ownerName);
+						_ = TryGetString(dictRef, kWindowName, out title);
+					}
+
+					var rect = Rectangle.Empty;
+					if (TryGetDictionaryValue(dictRef, kWindowBounds, out var boundsRef)
+						&& CGRectMakeWithDictionaryRepresentation(boundsRef, out var cgRect))
+					{
+						rect = new Rectangle(
+							Convert.ToInt32(cgRect.X),
+							Convert.ToInt32(cgRect.Y),
+							Convert.ToInt32(cgRect.Width),
+							Convert.ToInt32(cgRect.Height));
+					}
+
+					var hasAlpha = TryGetDouble(dictRef, kWindowAlpha, out var alpha);
+					var hasIsOnScreen = TryGetBool(dictRef, kWindowIsOnscreen, out var isOnscreen);
+					var effectiveAlpha = hasAlpha ? alpha : 1.0;
+					var effectiveOnScreen = hasIsOnScreen ? isOnscreen : onScreenOnly;
+					list.Add(new MacNativeWindowInfo(windowNumber, ownerPid, ownerName, title, rect, effectiveOnScreen, effectiveAlpha));
+				}
+
+				return list;
+			}
+			finally
+			{
+				CFRelease(arrayRef);
 			}
 		}
 

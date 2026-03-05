@@ -154,8 +154,8 @@ namespace Keysharp.Core
 
 		private void InputDialog_Load(object sender, EventArgs e)
 		{
-			var x = (int)Math.Round(Font.Size * 1.25f);//Not really sure if Size is the same as height, like the documentation says.//TODO
-			var y = (int)Math.Round(Font.Size * 0.75f);
+			var x = Convert.ToInt32(Font.Size * 1.25f);//Not really sure if Size is the same as height, like the documentation says.//TODO
+			var y = Convert.ToInt32(Font.Size * 0.75f);
 			Margin = new Padding(x, y, x, y);
 			InitializeComponent();
 			txtMessage.Text = Default;

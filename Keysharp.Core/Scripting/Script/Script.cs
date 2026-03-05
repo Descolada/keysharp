@@ -22,12 +22,13 @@ namespace Keysharp.Scripting
 	public partial class Script
 	{
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
-#if !WINDOWS
+	#if !WINDOWS
 		private static Encoding enc1252 = Encoding.Default;
 		private static readonly object etoLoopLock = new();
 		private static Application etoApplication;
 		private static bool etoAppConfigured;
-#endif
+		internal static Application SharedApplication => etoApplication ?? Eto.Forms.Application.Instance;
+	#endif
 		public const string dotNetMajorVersion = "10";
 
 		/// <summary>
@@ -60,12 +61,29 @@ namespace Keysharp.Scripting
 #if WINDOWS
 				return System.Windows.Forms.Screen.AllScreens?.Length > 0;
 #else
+				// Before Eto is initialized, Screen queries may throw on some hosts.
+				// Avoid incorrectly classifying normal desktop runs as headless.
+					if (Eto.Forms.Application.Instance == null)
+					return DefaultWithoutUILoop();
+
 				return Eto.Forms.Screen.Screens?.Any() == true;
 #endif
 			}
 			catch
 			{
+				return DefaultWithoutUILoop();
+			}
+
+			static bool DefaultWithoutUILoop()
+			{
+				#if WINDOWS
 				return false;
+#elif LINUX
+				return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
+					|| !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+#else
+				return !IsTestHost;
+#endif
 			}
 		}
 		internal System.Timers.Timer tickTimer = new System.Timers.Timer(SLEEP_INTERVAL * 4);
@@ -565,7 +583,7 @@ namespace Keysharp.Scripting
 
 			action();
 #else
-			var app = etoApplication ?? Application.Instance;
+			var app = etoApplication ?? Eto.Forms.Application.Instance;
 
 			if (app == null)
 			{
@@ -584,7 +602,7 @@ namespace Keysharp.Scripting
 
 		private static void ConfigureEtoApplication()
 		{
-			var app = etoApplication ?? Application.Instance;
+			var app = etoApplication ?? Eto.Forms.Application.Instance;
 
 			if (etoAppConfigured || app == null)
 				return;
@@ -594,6 +612,11 @@ namespace Keysharp.Scripting
 				if (e.ExceptionObject is Flow.UserRequestedExitException) return;
 				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
 			};
+
+#if OSX
+			if (app.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
+				macHandler.AllowClosingMainForm = true;
+#endif
 
 #if LINUX
 			try
@@ -620,10 +643,10 @@ namespace Keysharp.Scripting
 				if (etoApplication != null)
 					return etoApplication;
 
-				if (Application.Instance == null)
+				if (Eto.Forms.Application.Instance == null)
 					_ = new Application();
 
-				etoApplication = Application.Instance;
+				etoApplication = Eto.Forms.Application.Instance;
 
 				if (etoApplication == null)
 					throw new InvalidOperationException("Eto application is not initialized.");
@@ -701,7 +724,12 @@ namespace Keysharp.Scripting
 				Application app = EnsureEtoApplication();
 
 				InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
-				mainWindow.Closed += (_, __) => app.Quit();
+				mainWindow.Closed += (_, __) =>
+				{
+					// Keep Eto loop alive for non-exit closes (window can be re-opened from menu/tray).
+					if (hasExited)
+						app.Quit();
+				};
 				if (suppressTestHostUi)
 				{
 					mainWindow.Show();
@@ -948,6 +976,11 @@ namespace Keysharp.Scripting
 			HookThread?.Stop();
 			stringsData?.Free();
 
+			if (Tray != null)
+			{
+				InvokeOnUIThread(DisposeTrayIcon);
+			}
+
 			if (!IsMainWindowClosing)
 			{
 				var window = mainWindow;
@@ -956,11 +989,6 @@ namespace Keysharp.Scripting
 					window.Close();
 					mainWindow = null;
 				}, false);
-			}
-
-			if (Tray != null)
-			{
-				InvokeOnUIThread(DisposeTrayIcon);
 			}
 		}
 

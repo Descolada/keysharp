@@ -249,12 +249,12 @@ namespace Eto.Forms
                     if (prefSize.Width <= 1 && prefSize.Height <= 1)
                     {
                         var fallbackPref = control.GetPreferredSize();
-                        return new Size(fallbackPref.Width.Ai(), fallbackPref.Height.Ai());
+	                        return new Size(Convert.ToInt32(fallbackPref.Width), Convert.ToInt32(fallbackPref.Height));
                     }
                     return new Size(prefSize.Width, prefSize.Height);
 #else
                     var etoPref = control.GetPreferredSize();
-                    return new Size(etoPref.Width.Ai(), etoPref.Height.Ai());
+	                    return new Size(Convert.ToInt32(etoPref.Width), Convert.ToInt32(etoPref.Height));
 #endif
                 }
             }

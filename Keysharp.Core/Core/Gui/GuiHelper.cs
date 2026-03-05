@@ -318,9 +318,9 @@ namespace Keysharp.Core
 									var originalColor = bmp.GetPixel(x, y);
 									var alpha = originalColor.A / 255.0;
 #if WINDOWS
-									var newColor = Color.FromArgb((int)originalColor.A, (int)Math.Round(alpha * originalColor.R), (int)Math.Round(alpha * originalColor.G), (int)Math.Round(alpha * originalColor.B));
+									var newColor = Color.FromArgb((int)originalColor.A, Convert.ToInt32(alpha * originalColor.R), Convert.ToInt32(alpha * originalColor.G), Convert.ToInt32(alpha * originalColor.B));
 #else
-									var newColor = Color.FromArgb(originalColor.Ab, (int)Math.Round(alpha * originalColor.Rb), (int)Math.Round(alpha * originalColor.Gb), (int)Math.Round(alpha * originalColor.Bb));
+									var newColor = Color.FromArgb(originalColor.Ab, Convert.ToInt32(alpha * originalColor.Rb), Convert.ToInt32(alpha * originalColor.Gb), Convert.ToInt32(alpha * originalColor.Bb));
 #endif
 									bmp.SetPixel(x, y, newColor);
 								}

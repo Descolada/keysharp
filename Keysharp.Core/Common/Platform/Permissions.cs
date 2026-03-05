@@ -40,7 +40,7 @@ namespace Keysharp.Core.Common.Platform
 
 	internal class DefaultPermissionManager : IPermissionManager
 	{
-		protected static bool ResolvePrompt(bool? prompt) => prompt ?? !Script.IsTestHost;
+		protected static bool ResolvePrompt(bool? prompt) => Script.IsHeadless ? false : prompt ?? true;
 
 		public virtual PermissionResult RequestAccessibilityAutomation(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 		public virtual PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);

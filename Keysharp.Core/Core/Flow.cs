@@ -752,8 +752,8 @@ namespace Keysharp.Core
 				kv.Value.Stop();
 
 			Gui.DestroyAll();
-			script.Stop();
 			Environment.ExitCode = ec;
+			script.Stop();
 			script.mainWindow?.Close();
 
 			if (useThrow)

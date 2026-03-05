@@ -222,7 +222,7 @@ namespace Keysharp.Core.Unix
 				return new POINT();
 
 			var pt = control.PointToScreen(Point.Empty);
-			return new POINT(pt.X.Ai(), pt.Y.Ai());
+			return new POINT(Convert.ToInt32(pt.X), Convert.ToInt32(pt.Y));
 		}
 
 		internal override bool Close() => false;
@@ -253,5 +253,4 @@ namespace Keysharp.Core.Unix
 	}
 }
 #endif
-
 

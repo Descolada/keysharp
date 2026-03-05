@@ -796,6 +796,7 @@ namespace Keysharp.Core
 					Task<DialogResult> showTask;
 
 					try {
+						ActivateAppForMessageBox(ownerControl);
 						showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
 						while (!showTask.IsCompleted)
 						{
@@ -830,7 +831,10 @@ namespace Keysharp.Core
 #if WINDOWS
 						ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton, mbopts).ToString()
 #else
-						ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString()
+					{
+						ActivateAppForMessageBox(owner);
+						return ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
+					}
 #endif
 					);
 				}
@@ -841,7 +845,8 @@ namespace Keysharp.Core
 						ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString());
 #else
 					var tsk = Application.Instance.InvokeAsync(() => {
-						ret = MessageBox.Show(Application.Instance.MainForm, txt, caption, buttons, icon, defaultbutton).ToString();
+						ActivateAppForMessageBox(null);
+						ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
 					});
 #endif
 					while (!tsk.IsCompleted)
@@ -895,6 +900,31 @@ namespace Keysharp.Core
 		}
 
 		private static Eto.Forms.Window GetEtoDialogOwner() => Eto.Forms.Application.Instance?.MainForm;
+
+		private static void ActivateAppForMessageBox(Control owner)
+		{
+#if OSX
+			try
+			{
+				_ = MacOS.MacNativeWindows.ActivateAppByPid(Environment.ProcessId);
+			}
+			catch
+			{
+			}
+
+			try
+			{
+				if (owner is Eto.Forms.Window ownerWindow && ownerWindow.Visible)
+				{
+					ownerWindow.BringToFront();
+					ownerWindow.Focus();
+				}
+			}
+			catch
+			{
+			}
+#endif
+		}
 
 		private static string ToFileDialogPath(string path)
 		{

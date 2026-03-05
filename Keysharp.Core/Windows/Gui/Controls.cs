@@ -1154,8 +1154,8 @@ namespace Keysharp.Core
 					temph = Math.Max(temph, this.TabHeight() + rb.bottom.Bottom + (tp.Margin.Bottom + (Margin.Bottom * dpiscale)));
 			}
 
-			Width  = requestedSize.Width == int.MinValue ? (int)Math.Round(tempw) : requestedSize.Width;
-			Height = requestedSize.Height == int.MinValue ? (int)Math.Round(temph) : requestedSize.Height;
+			Width  = requestedSize.Width == int.MinValue ? Convert.ToInt32(tempw) : requestedSize.Width;
+			Height = requestedSize.Height == int.MinValue ? Convert.ToInt32(temph) : requestedSize.Height;
 		}
 
 		internal void SetColor(Color color)

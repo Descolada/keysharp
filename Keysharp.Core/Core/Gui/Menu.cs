@@ -147,10 +147,18 @@
 
 				if (mainWindow != null && A_AllowMainWindow.Ab())
 				{
-					mainWindow.AllowShowDisplay = true;
-					mainWindow.Show();
-					mainWindow.BringToFront();
-					mainWindow.WindowState = mainWindow.lastWindowState;
+					mainWindow.CheckedBeginInvoke(() =>
+					{
+						mainWindow.AllowShowDisplay = true;
+						mainWindow.WindowState = mainWindow.lastWindowState == FormWindowState.Minimized
+							? FormWindowState.Normal
+							: mainWindow.lastWindowState;
+						mainWindow.Show();
+						mainWindow.Visible = true;
+						mainWindow.BringToFront();
+						mainWindow.Focus();
+						_ = mainWindow.ShowInternalVars(false);
+					}, false, false);
 				}
 
 				return DefaultObject;

@@ -284,15 +284,16 @@ namespace Keysharp.Scripting
 				(int)(area.Y + (area.Height - Size.Height) / 2)
 			);
 
-			beenShown = false;
 			if (!AllowShowDisplay)
 			{
 				this.BeginInvoke(() => {
-					Visible = false;
-					WindowState = WindowState.Minimized;
+					beenShown = false;
+					// Hide directly instead of minimizing; minimizing creates a Dock/taskbar entry on macOS.
+					WindowState = WindowState.Normal;
+					this.Hide();
+					beenShown = true;
 				});
 			}
-			beenShown = true;
 
 			if (AllowShowDisplay && Visible)
 				_ = ShowInternalVars(false);
@@ -310,6 +311,13 @@ namespace Keysharp.Scripting
 
 		private void MainWindow_Closing(object sender, CancelEventArgs e)
 		{
+			if (string.IsNullOrEmpty(A_ExitReason as string))
+			{
+				e.Cancel = true;
+				this.Hide();
+				return;
+			}
+
 			IsClosing = true;
 
 			if (Flow.ExitAppInternal(Flow.ExitReasons.Close, null, false))
@@ -344,7 +352,7 @@ namespace Keysharp.Scripting
 
 		private void ShowIfNeeded()
 		{
-			if (beenShown && (!AllowShowDisplay || WindowState == WindowState.Minimized))
+			if (beenShown && (!Visible || !AllowShowDisplay || WindowState == WindowState.Minimized))
 			{
 				AllowShowDisplay = true;
 				Show();

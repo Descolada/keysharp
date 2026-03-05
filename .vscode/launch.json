@@ -1,32 +1,57 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": ".NET Launch (console)",
+            "name": "C#: Keysharp",
             "type": "coreclr",
-            "preLaunchTask": "build",
             "request": "launch",
-            "program":"${workspaceFolder}/bin/Debug/net9.0-windows/Keysharp.exe",
-            "args": [],
-            "cwd": "${workspaceFolder}/bin/Debug/net9.0-windows",
-            // For more information about the 'console' field, see https://github.com/OmniSharp/omnisharp-vscode/blob/master/debugger-launchjson.md#console-terminal-window
+            "preLaunchTask": "build Keysharp (AnyCPU)",
+            "program": "${workspaceFolder}/bin/Debug/net10.0/Keysharp.dll",
+            "args": ["${workspaceFolder}/Keysharp.Tests/Code/Gui/guitest.ks"],
+            "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "osx": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.app/Contents/MacOS/Keysharp",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.app/Contents/MacOS"
+            },
+            "windows": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0-windows/Keysharp.exe",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0-windows"
+            },
             "console": "internalConsole",
             "stopAtEntry": false,
             "internalConsoleOptions": "openOnSessionStart"
         },
         {
-            "name": "Debug ANTLR4 grammar",
-            "type": "antlr-debug",
+            "name": "C#: Keyview",
+            "type": "coreclr",
             "request": "launch",
-            "input": "Keysharp.Tests/Code/antlr-test.txt",
-            "grammar": "Keysharp.Core/Scripting/Parser/Antlr/MainParser.g4",
-            "startRule": "program",
-            "printParseTree": true,
-            "visualParseTree": true
+            "preLaunchTask": "build Keyview (AnyCPU)",
+            "program": "${workspaceFolder}/bin/Debug/net10.0/Keyview.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "osx": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS/Keyview",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS"
+            },
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "name": "C#: Keysharp.OutputTest",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build Keysharp.OutputTest app (macOS)",
+            "program": "${workspaceFolder}/bin/Debug/net10.0/Keysharp.OutputTest.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "osx": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS/Keysharp.OutputTest",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS"
+            },
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "internalConsoleOptions": "openOnSessionStart"
         }
-
     ]
 }

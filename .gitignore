@@ -35,3 +35,4 @@
 /Keysharp.Tests/Code/Gui/guitest.deps.json
 /Keysharp.Tests/Code/Gui/guitest.runtimeconfig.json
 /.vs
+.DS_Store

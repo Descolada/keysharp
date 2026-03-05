@@ -917,17 +917,25 @@ namespace Keyview
 			{
 				timer.Stop();
 				WriteLastRunText();
+				try
+				{
+					scriptProcess?.Kill();
+				}
+				catch
+				{
+				}
+				Application.Instance.Quit();
 			};
 
-				if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
-				{
-					LoadDataFromFile(initialFile);
-				}
-				else if (File.Exists(lastrun))
-				{
-					LoadDataFromFile(lastrun);
-				}
+			if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
+			{
+				LoadDataFromFile(initialFile);
 			}
+			else if (File.Exists(lastrun))
+			{
+				LoadDataFromFile(lastrun);
+			}
+		}
 
 		private void InitializeMenu()
 		{
@@ -1004,6 +1012,7 @@ namespace Keyview
 			var font = TryMonospaceFont(10);
 			inputArea.Font = font;
 			outputArea.Font = font;
+			inputArea.TextReplacements = TextReplacements.None;
 			outputArea.ReadOnly = true;
 			inputArea.Wrap = true;
 			outputArea.Wrap = true;
@@ -1714,7 +1723,7 @@ namespace Keyview
 			{
 				StartInfo = new ProcessStartInfo
 				{
-					FileName = "Keysharp",
+					FileName = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory, "Keysharp"),
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,

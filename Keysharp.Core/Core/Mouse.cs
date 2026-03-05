@@ -283,7 +283,7 @@ namespace Keysharp.Core
 					{
 						var origin = visualChild.PointToScreen(Point.Empty);
 						var size = visualChild.GetSize();
-						var rect = new Eto.Drawing.Rectangle(origin.X.Ai(), origin.Y.Ai(), size.Width, size.Height);
+							var rect = new Eto.Drawing.Rectangle(Convert.ToInt32(origin.X), Convert.ToInt32(origin.Y), size.Width, size.Height);
 						if (!rect.Contains(pos.X, pos.Y))
 							continue;
 
@@ -297,7 +297,7 @@ namespace Keysharp.Core
 
 					var selfOrigin = ctrl.PointToScreen(Point.Empty);
 					var selfSize = ctrl.GetSize();
-					var selfRect = new Eto.Drawing.Rectangle(selfOrigin.X.Ai(), selfOrigin.Y.Ai(), selfSize.Width, selfSize.Height);
+						var selfRect = new Eto.Drawing.Rectangle(Convert.ToInt32(selfOrigin.X), Convert.ToInt32(selfOrigin.Y), selfSize.Width, selfSize.Height);
 					if (selfRect.Contains(pos.X, pos.Y))
 						return ctrl;
 

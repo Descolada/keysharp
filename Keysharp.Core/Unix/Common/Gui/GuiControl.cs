@@ -1926,7 +1926,7 @@ namespace Keysharp.Core
 				if (_control.ParentWindow is Window win)
 				{
 					var client = win.PointFromScreen(new PointF(x, y));
-					return new Point((int)Math.Round(client.X), (int)Math.Round(client.Y));
+					return new Point(Convert.ToInt32(client.X), Convert.ToInt32(client.Y));
 				}
 
 				return new Point(x, y);
@@ -1970,7 +1970,7 @@ namespace Keysharp.Core
 				if (eventHandlerActive && e.Buttons == MouseButtons.Alternate)
 				{
 					var screenPt = _control.PointToScreen(e.Location);
-					var clientPt = ConvertToClientPoint((int)Math.Round(screenPt.X), (int)Math.Round(screenPt.Y));
+						var clientPt = ConvertToClientPoint(Convert.ToInt32(screenPt.X), Convert.ToInt32(screenPt.Y));
 					CallContextMenuChangeHandlers(false, clientPt.X, clientPt.Y);
 				}
 			}

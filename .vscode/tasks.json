@@ -4,17 +4,99 @@
         {
             "label": "build",
             "type": "shell",
-            "command": "msbuild",
+            "command": "dotnet",
             "args": [
+                "build",
                 "Keysharp.sln",
-                "/p:Configuration=Debug",
-                "/p:Platform='Any CPU'"
+                "-c",
+                "Debug",
+                "-p:Platform=AnyCPU"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
             "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build Keysharp (AnyCPU)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "Keysharp/Keysharp.csproj",
+                "-c",
+                "Debug",
+                "-p:Platform=AnyCPU"
+            ],
+            "group": "none",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build Keyview (AnyCPU)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "Keyview/Keyview.csproj",
+                "-c",
+                "Debug",
+                "-p:Platform=AnyCPU"
+            ],
+            "group": "none",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build Keyview app (macOS)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "Keyview/Keyview.csproj",
+                "-c",
+                "Debug",
+                "-p:Platform=AnyCPU"
+            ],
+            "group": "none",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "open Keyview app (macOS)",
+            "type": "shell",
+            "dependsOn": "build Keyview app (macOS)",
+            "command": "zsh",
+            "args": [
+                "-lc",
+                "APP1=\"${workspaceFolder}/bin/Debug/Keyview.app\"; APP2=\"${workspaceFolder}/bin/Debug/net10.0/Keyview.app\"; APP3=\"${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app\"; APP4=\"${workspaceFolder}/bin/Debug/net10.0/osx-x64/Keyview.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keyview.app not found. Build output path changed.\"; exit 1; fi"
+            ],
+            "group": "none",
+            "problemMatcher": []
+        },
+        {
+            "label": "build Keysharp.OutputTest app (macOS)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "Keysharp.OutputTest/Keysharp.OutputTest.csproj",
+                "-c",
+                "Debug",
+                "-p:Platform=AnyCPU"
+            ],
+            "group": "none",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "open Keysharp.OutputTest app (macOS)",
+            "type": "shell",
+            "dependsOn": "build Keysharp.OutputTest app (macOS)",
+            "command": "zsh",
+            "args": [
+                "-lc",
+                "APP1=\"${workspaceFolder}/bin/Debug/Keysharp.OutputTest.app\"; APP2=\"${workspaceFolder}/bin/Debug/net10.0/Keysharp.OutputTest.app\"; APP3=\"${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app\"; APP4=\"${workspaceFolder}/bin/Debug/net10.0/osx-x64/Keysharp.OutputTest.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keysharp.OutputTest.app not found. Build output path changed.\"; exit 1; fi"
+            ],
+            "group": "none",
+            "problemMatcher": []
         }
     ]
 }

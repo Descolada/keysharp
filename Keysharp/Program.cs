@@ -443,11 +443,38 @@ namespace Keysharp.Main
 			}
 			else
 			{
-				_ = MessageBox.Show(text, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				if (TryShowInfoMessageBox(text))
+					_ = MessageBox.Show(text, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				else
+					Console.WriteLine(text);
+
 				_ = Ks.OutputDebugLine(text);
 			}
 
 			return error ? 1 : 0;
+		}
+
+		private static bool TryShowInfoMessageBox(string text)
+		{
+#if WINDOWS
+			return true;
+#else
+			if (Script.IsHeadless || Script.IsTestHost)
+				return false;
+
+			try
+			{
+				if (Application.Instance == null)
+					_ = new Application();
+
+				return true;
+			}
+			catch (Exception ex)
+			{
+				_ = Ks.OutputDebugLine($"Unable to initialize UI for message box: {ex.Message}");
+				return false;
+			}
+#endif
 		}
 	}
 }

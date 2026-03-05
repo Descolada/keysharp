@@ -824,16 +824,16 @@ namespace Keysharp.Core
 				Point offset = Parent == null || Parent.GetControl() is Form ? Point.Empty : Parent.GetControl().GetLocationRelativeToForm();
 
 				if (_x != long.MinValue)
-					_control.Left = (int)Math.Round(_x * scale - offset.X);
+					_control.Left = Convert.ToInt32(_x * scale - offset.X);
 
 				if (_y != long.MinValue)
-					_control.Top = (int)Math.Round(_y * scale - offset.Y);
+					_control.Top = Convert.ToInt32(_y * scale - offset.Y);
 
 				if (w != long.MinValue)//Add extra if the control has scrollbars, even if they are not visible.
-					_control.Width = (int)Math.Round(w * scale) - (hasScrollBars ? SystemInformation.VerticalScrollBarWidth : 0);
+					_control.Width = Convert.ToInt32(w * scale) - (hasScrollBars ? SystemInformation.VerticalScrollBarWidth : 0);
 
 				if (h != long.MinValue)//Unsure if it's needed here too.
-					_control.Height = (int)Math.Round(h * scale) - (hasScrollBars ? SystemInformation.HorizontalScrollBarHeight : 0);
+					_control.Height = Convert.ToInt32(h * scale) - (hasScrollBars ? SystemInformation.HorizontalScrollBarHeight : 0);
 
 				return DefaultObject;
 			}

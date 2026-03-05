@@ -17,7 +17,11 @@ namespace Keyview
 			Application.Run(new Keyview(initialFile));
 #else
 			if (Application.Instance == null)
-				new Eto.Forms.Application(Eto.Platforms.Gtk);
+				new Eto.Forms.Application();
+#if OSX
+			if (Application.Instance.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
+				macHandler.AllowClosingMainForm = true;
+#endif
 			Application.Instance.Run(new Keyview(initialFile));
 #endif
 		}

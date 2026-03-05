@@ -3,7 +3,7 @@ namespace Keysharp.Core
 {
 	internal sealed class ToolTip : IDisposable
 	{
-		private sealed class TooltipWindow : Form
+		internal sealed class TooltipWindow : Form
 		{
 			private readonly Forms.Label label;
 			private readonly Panel panel;
@@ -51,7 +51,7 @@ namespace Keysharp.Core
 			}
 		}
 
-		private readonly TooltipWindow tooltip_window = new();
+		internal readonly TooltipWindow tooltip_window = new();
 		private string lastText = "";
 
 		public bool Active { get; set; }
@@ -61,6 +61,7 @@ namespace Keysharp.Core
 		public bool ShowAlways { get; set; }
 		public bool UseFading { get; set; }
 		public bool UseAnimation { get; set; }
+		public nint Handle => tooltip_window?.Handle ?? 0;
 
 		public void Show(string text, Form owner, int x, int y)
 		{

@@ -11,6 +11,8 @@ namespace Keysharp.Core.Unix
 			private readonly Lock mapperLock = new();
 			private readonly Dictionary<int, (uint vk, bool needShift, bool needAltGr)> cache = new();
 			private nint lastLayoutPtr;
+			private nint retainedLayoutDataRef;
+			private nint retainedLayoutPtr;
 
 			// Carbon HIToolbox constants used by UCKeyTranslate.
 			private const ushort kUCKeyActionDown = 0;
@@ -26,7 +28,7 @@ namespace Keysharp.Core.Unix
 				0x30,0x31,0x32
 			};
 
-			private static readonly nint tisUnicodeLayoutKey = ResolveTisUnicodeLayoutDataPropertyKey();
+			private static readonly nint tisUnicodeLayoutKey = CreateCfString("TISPropertyUnicodeKeyLayoutData");
 
 			public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
 			{
@@ -55,49 +57,64 @@ namespace Keysharp.Core.Unix
 						return vk != 0;
 					}
 
-					foreach (var keyCode in candidateKeyCodes)
+					// Prefer plain keys first (e.g. spacebar), then shifted, then AltGr combos.
+					static bool TryFindForModifiers(
+						nint ptr,
+						Rune targetRune,
+						uint modifiers,
+						out uint foundVk)
 					{
-						if (!TryTranslate(layoutPtr, keyCode, 0, out var baseRune))
-							continue;
+						foundVk = 0;
 
-						if (baseRune.Value == rune.Value && TryMapMacKeyCodeToVk(keyCode, out vk))
+						foreach (var keyCode in candidateKeyCodes)
 						{
-							needShift = false;
-							needAltGr = false;
-							cache[key] = (vk, false, false);
+							if (!TryTranslate(ptr, keyCode, modifiers, out var translatedRune))
+								continue;
+
+							if (translatedRune.Value != targetRune.Value)
+								continue;
+
+							if (!TryMapMacKeyCodeToVk(keyCode, out foundVk))
+								continue;
+
 							return true;
 						}
 
-						if (TryTranslate(layoutPtr, keyCode, shiftKeyState, out var shiftedRune)
-							&& shiftedRune.Value == rune.Value
-							&& TryMapMacKeyCodeToVk(keyCode, out vk))
-						{
-							needShift = true;
-							needAltGr = false;
-							cache[key] = (vk, true, false);
-							return true;
-						}
-
-						if (TryTranslate(layoutPtr, keyCode, optionKeyState, out var optionRune)
-							&& optionRune.Value == rune.Value
-							&& TryMapMacKeyCodeToVk(keyCode, out vk))
-						{
-							needShift = false;
-							needAltGr = true;
-							cache[key] = (vk, false, true);
-							return true;
-						}
-
-						if (TryTranslate(layoutPtr, keyCode, shiftKeyState | optionKeyState, out var shiftOptionRune)
-							&& shiftOptionRune.Value == rune.Value
-							&& TryMapMacKeyCodeToVk(keyCode, out vk))
-						{
-							needShift = true;
-							needAltGr = true;
-							cache[key] = (vk, true, true);
-							return true;
-						}
+						return false;
 					}
+
+					if (TryFindForModifiers(layoutPtr, rune, 0, out vk))
+					{
+						needShift = false;
+						needAltGr = false;
+						cache[key] = (vk, false, false);
+						return true;
+					}
+
+					if (TryFindForModifiers(layoutPtr, rune, shiftKeyState, out vk))
+					{
+						needShift = true;
+						needAltGr = false;
+						cache[key] = (vk, true, false);
+						return true;
+					}
+
+					if (TryFindForModifiers(layoutPtr, rune, optionKeyState, out vk))
+					{
+						needShift = false;
+						needAltGr = true;
+						cache[key] = (vk, false, true);
+						return true;
+					}
+
+					if (TryFindForModifiers(layoutPtr, rune, shiftKeyState | optionKeyState, out vk))
+					{
+						needShift = true;
+						needAltGr = true;
+						cache[key] = (vk, true, true);
+						return true;
+					}
+
 				}
 
 				needAltGr = false;
@@ -110,6 +127,7 @@ namespace Keysharp.Core.Unix
 				{
 					cache.Clear();
 					lastLayoutPtr = nint.Zero;
+					ReleaseRetainedLayoutData();
 				}
 			}
 
@@ -121,6 +139,7 @@ namespace Keysharp.Core.Unix
 				{
 					cache.Clear();
 					lastLayoutPtr = nint.Zero;
+					ReleaseRetainedLayoutData();
 				}
 			}
 
@@ -206,27 +225,57 @@ namespace Keysharp.Core.Unix
 				if (result != 0 || actualLength <= 0)
 					return false;
 
+				if (actualLength > chars.Length)
+					actualLength = chars.Length;
+
 				var translated = new string(chars, 0, actualLength);
 				return Rune.TryGetRuneAt(translated, 0, out rune);
 			}
 
-			private static nint GetCurrentKeyboardLayoutPtr()
+			private nint GetCurrentKeyboardLayoutPtr()
 			{
-				var source = TISCopyCurrentKeyboardLayoutInputSource();
+				if (retainedLayoutPtr != nint.Zero)
+					return retainedLayoutPtr;
+
+				// TIS/Carbon access is most reliable on the UI thread. Load once and cache.
+				Script.InvokeOnUIThread(LoadLayoutDataCore);
+				return retainedLayoutPtr;
+			}
+
+			private void LoadLayoutDataCore()
+			{
+				if (retainedLayoutPtr != nint.Zero)
+					return;
+
+				var source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
+
 				if (source == nint.Zero)
-					return nint.Zero;
+					source = TISCopyCurrentKeyboardLayoutInputSource();
+
+				if (source == nint.Zero)
+					return;
 
 				try
 				{
 					var keyRef = GetTisUnicodeLayoutDataPropertyKey();
 					if (keyRef == nint.Zero)
-						return nint.Zero;
+						return;
 
 					var dataRef = TISGetInputSourceProperty(source, keyRef);
 					if (dataRef == nint.Zero)
-						return nint.Zero;
+						return;
 
-					return CFDataGetBytePtr(dataRef);
+					// Guard against invalid native values before dereferencing CFData.
+					if (CFGetTypeID(dataRef) != CFDataGetTypeID())
+						return;
+
+					var ptr = CFDataGetBytePtr(dataRef);
+					if (ptr == nint.Zero)
+						return;
+
+					CFRetain(dataRef);
+					retainedLayoutDataRef = dataRef;
+					retainedLayoutPtr = ptr;
 				}
 				finally
 				{
@@ -234,38 +283,58 @@ namespace Keysharp.Core.Unix
 				}
 			}
 
+			private void ReleaseRetainedLayoutData()
+			{
+				if (retainedLayoutDataRef != nint.Zero)
+				{
+					CFRelease(retainedLayoutDataRef);
+					retainedLayoutDataRef = nint.Zero;
+				}
+
+				retainedLayoutPtr = nint.Zero;
+			}
+
 			private static nint GetTisUnicodeLayoutDataPropertyKey()
 			{
 				return tisUnicodeLayoutKey;
 			}
 
-			private static nint ResolveTisUnicodeLayoutDataPropertyKey()
+			private static nint CreateCfString(string value)
 			{
-				if (!NativeLibrary.TryLoad("/System/Library/Frameworks/Carbon.framework/Carbon", out var carbon))
-					return nint.Zero;
-
 				try
 				{
-					if (!NativeLibrary.TryGetExport(carbon, "kTISPropertyUnicodeKeyLayoutData", out var symbolAddress)
-						|| symbolAddress == nint.Zero)
-						return nint.Zero;
-
-					return Marshal.ReadIntPtr(symbolAddress);
+					return CFStringCreateWithCString(nint.Zero, value, kCFStringEncodingUTF8);
 				}
 				finally
 				{
-					NativeLibrary.Free(carbon);
 				}
 			}
 
+			private const uint kCFStringEncodingUTF8 = 0x08000100;
+
 			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
 			private static partial nint TISCopyCurrentKeyboardLayoutInputSource();
+
+			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
+			private static partial nint TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
 
 			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
 			private static partial nint TISGetInputSourceProperty(nint inputSource, nint propertyKey);
 
 			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 			private static partial void CFRelease(nint cfTypeRef);
+
+			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static partial nint CFRetain(nint cfTypeRef);
+
+			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static partial nint CFGetTypeID(nint cf);
+
+			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static partial nint CFDataGetTypeID();
+
+			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", StringMarshalling = StringMarshalling.Utf8)]
+			private static partial nint CFStringCreateWithCString(nint alloc, string cStr, uint encoding);
 
 			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 			private static partial nint CFDataGetBytePtr(nint theData);

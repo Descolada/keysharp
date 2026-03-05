@@ -235,10 +235,10 @@
 			if (e.Button == MouseButtons.Right)
 				CallContextMenuChangeHandlers(false, e.X, e.Y);
 #else
-			if (e.Buttons == MouseButtons.Alternate)
-				CallContextMenuChangeHandlers(false, e.Location.X.Ai(), e.Location.Y.Ai());
+				if (e.Buttons == MouseButtons.Alternate)
+					CallContextMenuChangeHandlers(false, Convert.ToInt32(e.Location.X), Convert.ToInt32(e.Location.Y));
 #endif
-		}
+			}
 
 		internal void Form_Resize(object sender, EventArgs e)
 		{

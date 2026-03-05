@@ -58,13 +58,13 @@ namespace System.Windows.Forms
 			if (nativePrefSize.Width <= 1 && nativePrefSize.Height <= 1)
 			{
 				var fallbackPrefSize = control.GetPreferredSize();
-				prefSize = new Size(fallbackPrefSize.Width.Ai(), fallbackPrefSize.Height.Ai());
+				prefSize = new Size(Convert.ToInt32(fallbackPrefSize.Width), Convert.ToInt32(fallbackPrefSize.Height));
 			}
 			else
 				prefSize = new Size(nativePrefSize.Width, nativePrefSize.Height);
 #else
 			var etoPrefSize = control.GetPreferredSize();
-			prefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+			prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
 #endif
 			if (control.Properties.TryGetValue("AssignedSize", out var obj))
 			{
@@ -98,7 +98,7 @@ namespace System.Windows.Forms
 			control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
 #else
 			var etoPrefSize = control.GetPreferredSize();
-			var prefSize = new Size(etoPrefSize.Width.Ai(), etoPrefSize.Height.Ai());
+			var prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
 #endif
 			var requestedSize = new Size(newSize.Width == int.MinValue ? -1 : newSize.Width, newSize.Height == int.MinValue ? -1 : newSize.Height);
 			var width = requestedSize.Width == -1 ? prefSize.Width : newSize.Width;
@@ -392,7 +392,7 @@ namespace System.Windows.Forms
 				{
 					var controlScreen = control.PointToScreen(Point.Empty);
 					var formScreen = form.PointToScreen(Point.Empty);
-					return new Point((controlScreen.X - formScreen.X).Ai(), (controlScreen.Y - formScreen.Y).Ai());
+					return new Point(Convert.ToInt32(controlScreen.X - formScreen.X), Convert.ToInt32(controlScreen.Y - formScreen.Y));
 				}
 				catch
 				{

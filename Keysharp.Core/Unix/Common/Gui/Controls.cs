@@ -1608,13 +1608,13 @@ namespace Keysharp.Core
 
 			if ((AddStyle & 0x04) == 0x04)
 			{
-				var filledHeight = (int)Math.Round(innerHeight * percent);
+				var filledHeight = Convert.ToInt32(innerHeight * percent);
 				var fillRect = new Rectangle(rect.Left + inset, rect.Bottom - inset - filledHeight, innerWidth, filledHeight);
 				DrawFill(e.Graphics, fillRect, fillColor, Style, true);
 			}
 			else
 			{
-				var filledWidth = (int)Math.Round(innerWidth * percent);
+				var filledWidth = Convert.ToInt32(innerWidth * percent);
 				var fillRect = new Rectangle(rect.Left + inset, rect.Top + inset, filledWidth, innerHeight);
 				DrawFill(e.Graphics, fillRect, fillColor, Style, false);
 			}
@@ -1927,8 +1927,8 @@ namespace Keysharp.Core
 			}
 
 			var newSize = new Size(
-				requestedSize.Width == int.MinValue ? (int)Math.Round(tempw) : requestedSize.Width,
-				requestedSize.Height == int.MinValue ? (int)Math.Round(temph) : requestedSize.Height);
+				requestedSize.Width == int.MinValue ? Convert.ToInt32(tempw) : requestedSize.Width,
+				requestedSize.Height == int.MinValue ? Convert.ToInt32(temph) : requestedSize.Height);
 			
 			this.SetSize(newSize);
 		}

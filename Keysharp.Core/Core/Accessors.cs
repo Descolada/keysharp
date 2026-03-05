@@ -1530,7 +1530,7 @@
 			{
 				try
 				{
-					return Forms.Screen.PrimaryScreen?.Bounds.Height.Al() ?? 0L;
+						return Forms.Screen.PrimaryScreen != null ? Convert.ToInt64(Forms.Screen.PrimaryScreen.Bounds.Height) : 0L;
 				}
 				catch
 				{
@@ -1548,7 +1548,7 @@
 			{
 				try
 				{
-					return Forms.Screen.PrimaryScreen?.Bounds.Width.Al() ?? 0L;
+						return Forms.Screen.PrimaryScreen != null ? Convert.ToInt64(Forms.Screen.PrimaryScreen.Bounds.Width) : 0L;
 				}
 				catch
 				{
@@ -2262,7 +2262,7 @@
 #if WINDOWS
 			SystemInformation.VirtualScreen.Height;
 #else
-			Forms.Screen.DisplayBounds.Height.Al();
+			Convert.ToInt64(Forms.Screen.DisplayBounds.Height);
 #endif
 
 		/// <summary>
@@ -2272,7 +2272,7 @@
 #if WINDOWS
 			SystemInformation.VirtualScreen.Width;
 #else
-			Forms.Screen.DisplayBounds.Width.Al();
+			Convert.ToInt64(Forms.Screen.DisplayBounds.Width);
 #endif
 
 		/// <summary>
@@ -2288,12 +2288,12 @@
 		/// <summary>
 		/// The height of the working area of the primary screen.
 		/// </summary>
-		public static long A_WorkAreaHeight => Forms.Screen.PrimaryScreen.WorkingArea.Height.Al();
+		public static long A_WorkAreaHeight => Convert.ToInt64(Forms.Screen.PrimaryScreen.WorkingArea.Height);
 
 		/// <summary>
 		/// The width of the working area of the primary screen.
 		/// </summary>
-		public static long A_WorkAreaWidth => Forms.Screen.PrimaryScreen.WorkingArea.Width.Al();
+		public static long A_WorkAreaWidth => Convert.ToInt64(Forms.Screen.PrimaryScreen.WorkingArea.Width);
 	}
 
 	/// <summary>

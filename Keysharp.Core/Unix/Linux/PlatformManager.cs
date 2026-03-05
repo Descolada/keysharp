@@ -311,15 +311,13 @@ namespace Keysharp.Core.Unix
 
 		public static bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk) => true;
 
-		public static bool GetCursorPos(out POINT lpPoint)
-		{
-			var pos = Forms.Mouse.Position;
-			lpPoint = new POINT(pos.X.Ai(), pos.Y.Ai());
-			return true;
+			public static bool GetCursorPos(out POINT lpPoint)
+			{
+				var pos = Forms.Mouse.Position;
+				lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
+				return true;
+			}
 		}
 	}
-}
 #endif
-
-
 

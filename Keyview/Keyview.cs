@@ -924,7 +924,9 @@ namespace Keyview
 				catch
 				{
 				}
+#if OSX
 				Application.Instance.Quit();
+#endif
 			};
 
 			if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
@@ -1723,7 +1725,7 @@ namespace Keyview
 			{
 				StartInfo = new ProcessStartInfo
 				{
-					FileName = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory, "Keysharp"),
+					FileName = Path.Combine(AppContext.BaseDirectory ?? Path.GetDirectoryName(Environment.ProcessPath), "Keysharp"),
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,

@@ -948,6 +948,12 @@ namespace Keysharp.Core.Unix
 		{
 			EnsureInputSendPermission("send keyboard text");
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
+
+#if LINUX
+			if (sendMode == SendModes.Input && TryQueueLinuxMappedTextKey(ch, modifiers, extraInfo))
+				return;
+#endif
+
 			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 
 			// In Input mode, record as text so it can be interspersed correctly.
@@ -986,6 +992,31 @@ namespace Keysharp.Core.Unix
 				});
 			});
 		}
+
+#if LINUX
+		private bool TryQueueLinuxMappedTextKey(char ch, uint modifiers, long extraInfo)
+		{
+			if (!System.Text.Rune.TryCreate(ch, out var rune)
+				|| !UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				|| vk == 0)
+				return false;
+
+			uint transientModifiers = 0;
+
+			if (needShift)
+				transientModifiers |= MOD_LSHIFT;
+
+			if (needAltGr)
+				transientModifiers |= MOD_RALT;
+
+			var targetModifiers = modifiers | transientModifiers;
+			SetModifierLRState(targetModifiers, eventModifiersLR, 0, false, true, extraInfo);
+			PutKeybdEventIntoArray(0, vk, 0, 0, extraInfo);
+			PutKeybdEventIntoArray(0, vk, 0, (uint)KEYEVENTF_KEYUP, extraInfo);
+			SetModifierLRState(modifiers, eventModifiersLR, 0, false, true, extraInfo);
+			return true;
+		}
+#endif
 
 		private static void WithSendScope(UnixHookThread lht, Action action)
 		{
@@ -1254,5 +1285,4 @@ namespace Keysharp.Core.Unix
 }
 
 #endif
-
 

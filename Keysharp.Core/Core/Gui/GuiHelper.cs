@@ -1,4 +1,4 @@
-#if LINUX
+﻿#if LINUX
 using Eto.GtkSharp;
 using Keysharp.Core.Linux.Proxies;
 using Keysharp.Core.Linux.X11;
@@ -37,11 +37,11 @@ namespace Keysharp.Core
 			if (allGuiHwnds.TryGetValue(hwnd, out var gui))
 				return gui;
 
-			foreach (Form f in Application.OpenForms.Cast<Form>())
+			foreach (Form f in Application.OpenForms.OfType<Form>())
 				if (f is KeysharpForm ksf)
 					if (ksf.Tag is WeakReference<Gui> wr && wr.TryGetTarget(out var g))
 						if (f.Handle == hwnd)
-							return g;
+						return g;
 
 			//Probably isn't needed because it won't have a different result than the OpenForms check above.
 			if (Control.FromHandle(new nint(hwnd)) is Control ctrl)

@@ -26,7 +26,7 @@ global gInputHookLastReason := ""
 global gWindowHelper := ""
 global gPixelHelper := ""
 global gWindowHelperOriginalPos := Map()
-global gPixelAssetPath := A_ScriptDir "\killbill.png"
+global gPixelAssetPath := A_ScriptDir "/Gui/killbill.png"
 global gStatus := Map()
 global gLogText := ""
 

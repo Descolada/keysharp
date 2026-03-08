@@ -214,6 +214,9 @@
 					{
 						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
 
+						if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni))
+							return uni;
+
 						if (Clipboard.TryGetData<string>(DataFormats.Text, out var text))
 							return text;
 
@@ -226,9 +229,6 @@
 						if (Clipboard.TryGetData<string>(DataFormats.SymbolicLink, out var sym))
 							return sym;
 						
-						if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni))
-							return uni;
-
 						if (Clipboard.TryGetData<string>(DataFormats.OemText, out var oem))
 							return oem;
 

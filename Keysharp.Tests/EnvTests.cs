@@ -40,6 +40,18 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Env"), NonParallelizable]
+#if WINDOWS
+		[Apartment(ApartmentState.STA)]
+#endif
+		public void ClipboardTextRoundTripPreservesWindowsNewlines()
+		{
+			var expected = "Clipboard probe text:\r\nAlpha beta gamma\r\nUnicode: Eesti, 日本語, emoji-free.";
+			Accessors.A_Clipboard = expected;
+			var actual = Accessors.A_Clipboard as string;
+			Assert.AreEqual(expected, actual);
+		}
+
+		[Test, Category("Env"), NonParallelizable]
 		public void ClipboardAllDataSize()
 		{
 			var source = new byte[] { 1, 2, 3, 4, 5 };

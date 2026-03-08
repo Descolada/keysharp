@@ -9,10 +9,12 @@ namespace Keysharp.Tests
 	public partial class HotstringTests : TestRunner
 	{
 		private static bool btwtyped = false;
+		private static readonly ManualResetEventSlim btwTypedEvent = new(false);
 
 		public static object Label_9F201721(params object[] args)
 		{
 			btwtyped = true;
+			btwTypedEvent.Set();
 			return string.Empty;
 		}
 
@@ -327,6 +329,7 @@ namespace Keysharp.Tests
 		{
 			//Can't seem to simulate uppercase here, so we can't test case sensitive hotstrings.
 			btwtyped = false;
+			btwTypedEvent.Reset();
 			hsm.ClearHotstrings();
 			hsm.RestoreDefaults(true);
 			_ = Keyboard.Hotstring("Reset");
@@ -338,7 +341,7 @@ namespace Keysharp.Tests
 			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("t"));
 			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("w"));
 			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("Enter"));
-			Thread.Sleep(2000);
+			Assert.IsTrue(btwTypedEvent.Wait(TimeSpan.FromSeconds(1)), "Timed out waiting for hotstring callback.");
 			Assert.AreEqual(btwtyped, true);
 		}
 

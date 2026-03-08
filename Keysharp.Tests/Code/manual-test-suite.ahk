@@ -659,7 +659,7 @@ EnsurePixelHelper(showWindow := true) {
 		gPixelHelper.SetFont("s10 cFFFFFF", "Segoe UI")
 		gPixelHelper.AddText("x16 y16 w220 h24 BackgroundTrans", "KS Pixel Target")
 		if FileExist(gPixelAssetPath)
-			gPixelHelper.AddPicture("x20 y60 w120 h120", gPixelAssetPath)
+			gPixelHelper.AddPicture("x20 y60", gPixelAssetPath)
 		gPixelHelper.AddText("x160 y48 w184 h160 BackgroundTrans", "Keep this helper fully visible.`n`nImageSearch looks for killbill.png.`n`nPixel tests sample the solid background.")
 	}
 
@@ -671,6 +671,7 @@ RunPixelGetColorTest() {
 	global gPixelHelper
 
 	try {
+		prevMode := CoordMode("Pixel", "Screen")
 		EnsurePixelHelper(true)
 		WinGetPos(&x, &y, &w, &h, "KS Pixel Target")
 		sampleX := x + 30
@@ -681,11 +682,14 @@ RunPixelGetColorTest() {
 	} catch as err {
 		SetStatus("pixel_color", "Pixel status: BLOCKED/ERROR")
 		AppendLog("PixelGetColor test failed: " err.Message)
+	} finally {
+		CoordMode("Pixel", prevMode)
 	}
 }
 
 RunPixelSearchTest() {
 	try {
+		prevMode := CoordMode("Pixel", "Screen")
 		EnsurePixelHelper(true)
 		WinGetPos(&x, &y, &w, &h, "KS Pixel Target")
 		sampleX := x + 30
@@ -701,8 +705,10 @@ RunPixelSearchTest() {
 			AppendLog("PixelSearch returned out-of-bounds coordinates for color " color ".")
 		}
 	} catch as err {
-		SetStatus("pixel_color", "Pixel status: BLOCKED/ERROR")
-		AppendLog("PixelSearch test failed: " err.Message)
+			SetStatus("pixel_color", "Pixel status: BLOCKED/ERROR")
+			AppendLog("PixelSearch test failed: " err.Message)
+	} finally {
+		CoordMode("Pixel", prevMode)
 	}
 }
 
@@ -716,13 +722,17 @@ RunImageSearchTest() {
 	}
 
 	try {
+		prevMode := CoordMode("Pixel", "Screen")
 		EnsurePixelHelper(true)
 		WinGetPos(&x, &y, &w, &h, "KS Pixel Target")
 		ImageSearch(&foundX, &foundY, x, y, x + w - 1, y + h - 1, gPixelAssetPath)
 
-		if (foundX >= x && foundX <= x + w && foundY >= y && foundY <= y + h) {
+		if (foundX != "" && foundY != "" && foundX >= x && foundX <= x + w && foundY >= y && foundY <= y + h) {
 			SetStatus("pixel_image", "Image status: PASS")
 			AppendLog("ImageSearch found the fixture at " foundX "," foundY ".")
+		} else if (foundX = "" || foundY = "") {
+			SetStatus("pixel_image", "Image status: FAIL")
+			AppendLog("ImageSearch did not find the fixture within the helper window.")
 		} else {
 			SetStatus("pixel_image", "Image status: FAIL")
 			AppendLog("ImageSearch returned out-of-bounds coordinates.")
@@ -730,6 +740,8 @@ RunImageSearchTest() {
 	} catch as err {
 		SetStatus("pixel_image", "Image status: BLOCKED/ERROR")
 		AppendLog("ImageSearch test failed: " err.Message)
+	} finally {
+		CoordMode("Pixel", prevMode)
 	}
 }
 

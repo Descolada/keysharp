@@ -39,13 +39,13 @@ namespace Keysharp.Core.Unix
 				provider?.ConfigureLayout(rules, model, layout, variant, options);
 			}
 
-#if LINUX
 			internal static nint GetCurrentKeymapHandle()
 			{
 				EnsureProvider();
 				return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
 			}
 
+#if LINUX
 			internal static bool TryMapXKeycodeToVk(uint keycode, out uint vk)
 			{
 				EnsureProvider();
@@ -90,10 +90,10 @@ namespace Keysharp.Core.Unix
 		private interface IUnixCharMapperProvider : IDisposable
 		{
 			bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr);
+			nint GetCurrentKeymapHandle();
 #if LINUX
 			bool TryMapXKeycodeToVk(uint keycode, out uint vk);
 			bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
-			nint GetCurrentKeymapHandle();
 #endif
 			void ConfigureLayout(string rules, string model, string layout, string variant, string options);
 		}
@@ -112,6 +112,8 @@ namespace Keysharp.Core.Unix
 			{
 			}
 
+			public nint GetCurrentKeymapHandle() => nint.Zero;
+
 #if LINUX
 			public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
 			{
@@ -124,8 +126,6 @@ namespace Keysharp.Core.Unix
 				keycode = 0;
 				return false;
 			}
-
-			public nint GetCurrentKeymapHandle() => nint.Zero;
 #endif
 
 			public void Dispose()

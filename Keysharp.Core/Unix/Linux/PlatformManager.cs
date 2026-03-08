@@ -54,7 +54,7 @@ namespace Keysharp.Core.Unix
 		// Return the current xkb_keymap pointer as a stand-in for HKL.
 		public static nint GetKeyboardLayout(uint idThread)
 		{
-			return UnixCharMapper.GetCurrentKeymapHandle();
+			return UnixKeyboardMouseSender.UnixCharMapper.GetCurrentKeymapHandle();
 		}
 
 		public static int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
@@ -320,4 +320,3 @@ namespace Keysharp.Core.Unix
 		}
 	}
 #endif
-

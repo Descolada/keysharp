@@ -43,6 +43,10 @@
                 "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS/Keyview",
                 "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS"
             },
+            "windows": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0-windows/Keyview.exe",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0-windows"
+            },
             "console": "internalConsole",
             "stopAtEntry": false,
             "internalConsoleOptions": "openOnSessionStart"
@@ -63,6 +67,10 @@
             "osx": {
                 "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS/Keysharp.OutputTest",
                 "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS"
+            },
+            "windows": {
+                "program": "${workspaceFolder}/bin/Debug/net10.0-windows/Keysharp.OutputTest.exe",
+                "cwd": "${workspaceFolder}/bin/Debug/net10.0-windows"
             },
             "console": "internalConsole",
             "stopAtEntry": false,

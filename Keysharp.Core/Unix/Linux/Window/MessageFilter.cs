@@ -46,20 +46,10 @@ namespace Keysharp.Core.Common.Window
 			filterAttached = false;
 		}
 
-		internal bool CallEventHandlers(ref Message m)
+		internal bool CallEventHandlers(ref Message m, bool buffered = false)
 		{
 			if (script.GuiData.onMessageHandlers.TryGetValue(m.Msg, out var monitor))
 			{
-				var ptv = script.Threads.CurrentThread;
-
-				if (!script.Threads.AnyThreadsAvailable() || ptv.priority > 0)
-					return false;
-
-				if (monitor.instanceCount >= monitor.maxInstances)
-					return false;
-
-				monitor.instanceCount++;
-				object res = null;
 				object eventInfo = 0L;
 				long hwnd = m.HWnd;
 
@@ -68,48 +58,26 @@ namespace Keysharp.Core.Common.Window
 					eventInfo = A_TickCount;
 				}
 
-				try
+				object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
+
+				if (buffered)
 				{
-					// The following is a modified version of InvokeEventHandlers, because
-					// we need to assign both hwndLastUsed and eventInfo some custom values.
-					var handlers = monitor.funcs;
-					object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
-					if (handlers.Any())
+					foreach (var registration in monitor.GetRegistrationsSnapshot())
 					{
-						var script = Script.TheScript;
-
-						foreach (var handler in handlers)
-						{
-							if (handler != null)
-							{
-								var (pushed, tv) = script.Threads.BeginThread();
-								if (pushed)//If we've exceeded the number of allowable threads, then just do nothing.
-								{
-									tv.eventInfo = eventInfo;
-									tv.hwndLastUsed = (long)hwnd;
-									_ = Flow.TryCatch(() =>
-									{
-										res = handler.Call(args);
-										_ = script.Threads.EndThread((pushed, tv));
-									}, true, (pushed, tv));//Pop on exception because EndThread() above won't be called.
-
-									if (Script.ForceLong(res) != 0L)
-										break;
-								}
-							}
-						}
-						script.ExitIfNotPersistent();
+						script.EventScheduler.Enqueue(new ScriptEvent(
+							ScriptEventKind.MessageCallback,
+							ScriptEventQueue.Normal,
+							0,
+							() => registration.TryExecuteBuffered(script, args, eventInfo, hwnd, out _)));
 					}
 				}
-				finally
+				else if (monitor.TryExecuteEmergency(script, args, eventInfo, hwnd, out var result))
 				{
-					monitor.instanceCount--;
+					m.Result = (nint)result;
+
+					if (m.Result != 0)
+						return true;
 				}
-
-				m.Result = (nint)Script.ForceLong(res);
-
-				if (m.Result != 0)
-					return true;
 			}
 
 			return false;
@@ -134,7 +102,8 @@ namespace Keysharp.Core.Common.Window
 				Result = 0,
 			};
 
-			_ = CallEventHandlers(ref msg);
+			handledMsg = msg;
+			_ = CallEventHandlers(ref msg, true);
 			return FilterReturn.Continue;
 		}
 	}

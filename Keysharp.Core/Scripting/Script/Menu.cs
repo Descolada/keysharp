@@ -38,8 +38,6 @@
 				return;
 			}
 
-			Script.TheScript.ProcessesData.mainContext = SynchronizationContext.Current;//This must happen after the icon is created.
-
 			trayMenu = new (Tray.ContextMenuStrip);
 			trayMenu.AddStandard();
 			trayIcon.Tag = trayMenu;
@@ -55,7 +53,7 @@
 
 		internal static void SuspendHotkeys()
 		{
-			Script.TheScript.mainWindow.CheckedInvoke(() =>
+			Script.InvokeOnUIThread(() =>
 			{
 				var script = Script.TheScript;
 				var suspended = script.flowData.suspended = !script.flowData.suspended;
@@ -64,7 +62,7 @@
 				script.suspendMenuItem.Checked = suspended;
 				script.mainWindow.SuspendHotkeysToolStripMenuItem.Checked = suspended;
 				script.Tray.Icon = suspended ? script.suspendedIcon : script.normalIcon;
-			}, false);
+			});
 		}
 
 		private static void TrayIcon_MouseClick(object sender, MouseEventArgs e)

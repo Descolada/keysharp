@@ -491,14 +491,6 @@ namespace Keysharp.Core.Unix
 								case ArrayEventType.KeyDown:
 									DebugLog($"[SendArray] KeyDown vk={ev.Vk}");
 									backend.KeyDown(ev.Vk, ms, extraInfo);
-									if (KeyboardUtils.IsModifierVk(ev.Vk) && IsX11Available)
-									{
-#if LINUX
-										XDisplay.Default.XSync(false);
-#endif
-										Flow.SleepWithoutInterruption(1);
-										DebugLog($"[SendArray] ModSync vk={ev.Vk}");
-									}
 									break;
 
 								case ArrayEventType.KeyUp:
@@ -948,13 +940,20 @@ namespace Keysharp.Core.Unix
 		{
 			EnsureInputSendPermission("send keyboard text");
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
+			uint vk = 0;
+			var needShift = false;
+			var needAltGr = false;
+			var hasMappedKeystroke = System.Text.Rune.TryCreate(ch, out var rune)
+				&& UnixCharMapper.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
+				&& vk != 0;
 
 #if LINUX
-			if (sendMode == SendModes.Input && TryQueueLinuxMappedTextKey(ch, modifiers, extraInfo))
+			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueueLinuxMappedTextKey(ch, modifiers, extraInfo))
 				return;
 #endif
 
-			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
+			if (hasMappedKeystroke)
+				SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 
 			// In Input mode, record as text so it can be interspersed correctly.
 			if (sendMode == SendModes.Input)
@@ -972,9 +971,7 @@ namespace Keysharp.Core.Unix
 				WithSendUngrab(lht, () =>
 				{
 					// Prefer keystroke mapping when possible.
-					if (System.Text.Rune.TryCreate(ch, out var rune) &&
-						UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr) &&
-						vk != 0)
+					if (hasMappedKeystroke)
 					{
 						var ms = DateTime.UtcNow;
 						if (needAltGr) backend.KeyDown(VK_ALTGR, ms, extraInfo);
@@ -1285,4 +1282,3 @@ namespace Keysharp.Core.Unix
 }
 
 #endif
-

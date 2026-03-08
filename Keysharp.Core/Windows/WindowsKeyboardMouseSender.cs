@@ -1037,16 +1037,15 @@ namespace Keysharp.Core.Windows
 		protected internal override void LongOperationUpdate()
 		{
 			var msg = new Msg();
-			var now = DateTime.UtcNow;
+			var nowTick = Environment.TickCount64;
 			var script = Script.TheScript;
 
-			if ((now - script.lastPeekTime).TotalMilliseconds > ThreadAccessors.A_PeekFrequency)
+			if (script.IsPreemptiveMessageCheckDue(nowTick))
 			{
 				if (PeekMessage(out msg, 0, 0, 0, PM_NOREMOVE))
 					_ = Flow.Sleep(-1);
 
-				now = DateTime.UtcNow;
-				script.lastPeekTime = now;
+				script.RecordMessageCheck(Environment.TickCount64);
 			}
 		}
 
@@ -1056,16 +1055,15 @@ namespace Keysharp.Core.Windows
 		protected internal override void LongOperationUpdateForSendKeys()
 		{
 			var msg = new Msg();
-			var now = DateTime.UtcNow;
+			var nowTick = Environment.TickCount64;
 			var script = Script.TheScript;
 
-			if ((now - script.lastPeekTime).TotalMilliseconds > ThreadAccessors.A_PeekFrequency)
+			if (script.IsPreemptiveMessageCheckDue(nowTick))
 			{
 				if (PeekMessage(out msg, 0, 0, 0, PM_NOREMOVE))
 					Flow.SleepWithoutInterruption(-1);
 
-				now = DateTime.UtcNow;
-				script.lastPeekTime = now;
+				script.RecordMessageCheck(Environment.TickCount64);
 			}
 		}
 

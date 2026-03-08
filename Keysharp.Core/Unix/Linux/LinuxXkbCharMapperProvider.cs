@@ -30,6 +30,8 @@ namespace Keysharp.Core.Unix
 			private bool hasModsForLevel;
 
 			private readonly Dictionary<uint, (uint vk, bool s, bool g)> cache = new(256);
+			private readonly Dictionary<uint, uint> keycodeToVkCache = new(256);
+			private readonly Dictionary<uint, List<uint>> vkToKeycodesCache = new(128);
 
 			private static readonly Dictionary<string, uint> xkbName2Vk = new(StringComparer.Ordinal)
 			{
@@ -51,6 +53,7 @@ namespace Keysharp.Core.Unix
 				["AB09"] = VK_OEM_PERIOD, ["AB10"] = VK_OEM_2,
 
 				["SPCE"] = VK_SPACE,
+				["LSGT"] = VK_OEM_8,
 			};
 
 			public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
@@ -59,9 +62,7 @@ namespace Keysharp.Core.Unix
 				needShift = false;
 				needAltGr = false;
 
-				EnsureInitialized();
-
-				if (!ready || keymap == IntPtr.Zero)
+				if (!TryGetReadyKeymap(out var currentKeymap))
 					return false;
 
 				uint keysym = KeysymFromRune(rune);
@@ -77,26 +78,23 @@ namespace Keysharp.Core.Unix
 
 				for (uint key = (uint)minKeycode; key <= (uint)maxKeycode; key++)
 				{
-					var name = xkb_keymap_key_get_name_safe(keymap, key);
-
-					if (string.IsNullOrEmpty(name))
-						continue;
-
-					if (!xkbName2Vk.TryGetValue(name, out var candidateVk))
+					if (!TryGetNamedVk(key, out var candidateVk))
 						continue;
 
 					const uint layout = 0;
-					int levels = xkb_keymap_num_levels_for_key(keymap, key, layout);
+					int levels = xkb_keymap_num_levels_for_key(currentKeymap, key, layout);
 
 					if (levels <= 0)
 						continue;
 
 					for (uint level = 0; level < (uint)levels; level++)
 					{
-						if (!LevelHasKeysym(keymap, key, layout, level, keysym))
+						if (!LevelHasKeysym(currentKeymap, key, layout, level, keysym))
 							continue;
 
-						(bool s, bool g) = ResolveModsForLevel(key, layout, level);
+						if (!TryResolveSupportedModsForLevel(key, layout, level, out var s, out var g))
+							continue;
+
 						cache[keysym] = (candidateVk, s, g);
 						vk = candidateVk;
 						needShift = s;
@@ -106,6 +104,43 @@ namespace Keysharp.Core.Unix
 				}
 
 				return false;
+			}
+
+			public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+			{
+				vk = 0;
+
+				if (keycode == 0 || !TryGetReadyKeymap(out _))
+					return false;
+
+				if (keycodeToVkCache.TryGetValue(keycode, out vk))
+					return vk != 0;
+
+				if (TryGetNamedVk(keycode, out vk))
+				{
+					keycodeToVkCache[keycode] = vk;
+					return true;
+				}
+
+				keycodeToVkCache[keycode] = 0;
+				return false;
+			}
+
+			public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
+			{
+				keycode = 0;
+
+				if (vk == 0 || !TryGetReadyKeymap(out _))
+					return false;
+
+				if (!vkToKeycodesCache.TryGetValue(vk, out var keycodes))
+					vkToKeycodesCache[vk] = keycodes = BuildKeycodesForVk(vk);
+
+				if (keycodes.Count == 0)
+					return false;
+
+				keycode = keycodes[Math.Min(returnSecondary ? 1 : 0, keycodes.Count - 1)];
+				return true;
 			}
 
 			public void ConfigureLayout(string rules, string model, string layout, string variant, string options)
@@ -123,8 +158,7 @@ namespace Keysharp.Core.Unix
 
 			public nint GetCurrentKeymapHandle()
 			{
-				EnsureInitialized();
-				return keymap;
+				return TryGetReadyKeymap(out var currentKeymap) ? currentKeymap : nint.Zero;
 			}
 
 			public void Dispose()
@@ -152,6 +186,13 @@ namespace Keysharp.Core.Unix
 						if (ctx == IntPtr.Zero)
 							return;
 
+						if (BuildKeymapFromDisplay())
+						{
+							FinalizeKeymapCommon();
+							ready = true;
+							return;
+						}
+
 						if (BuildKeymapFromNames())
 						{
 							FinalizeKeymapCommon();
@@ -166,6 +207,75 @@ namespace Keysharp.Core.Unix
 						ready = false;
 						ResetNativeHandles();
 					}
+				}
+			}
+
+			private bool TryGetReadyKeymap(out IntPtr currentKeymap)
+			{
+				EnsureInitialized();
+				currentKeymap = keymap;
+				return ready && currentKeymap != IntPtr.Zero;
+			}
+
+			private bool TryGetNamedVk(uint keycode, out uint vk)
+			{
+				vk = 0;
+
+				if (!TryGetReadyKeymap(out var currentKeymap))
+					return false;
+
+				var name = xkb_keymap_key_get_name_safe(currentKeymap, keycode);
+				return !string.IsNullOrEmpty(name) && xkbName2Vk.TryGetValue(name, out vk);
+			}
+
+			private List<uint> BuildKeycodesForVk(uint targetVk)
+			{
+				var keycodes = new List<uint>(2);
+
+				if (!TryGetReadyKeymap(out _))
+					return keycodes;
+
+				for (uint key = (uint)minKeycode; key <= (uint)maxKeycode; key++)
+				{
+					if (TryGetNamedVk(key, out var candidateVk) && candidateVk == targetVk)
+						keycodes.Add(key);
+				}
+
+				return keycodes;
+			}
+
+			private bool BuildKeymapFromDisplay()
+			{
+				var display = XDisplay.Default.Handle;
+
+				if (display == IntPtr.Zero)
+					return false;
+
+				try
+				{
+					var connection = XGetXCBConnection(display);
+
+					if (connection == IntPtr.Zero)
+						return false;
+
+					if (!xkb_x11_setup_xkb_extension(connection, 1, 0, 0, out _, out _, out _, out _))
+						return false;
+
+					var deviceId = xkb_x11_get_core_keyboard_device_id(connection);
+
+					if (deviceId < 0)
+						return false;
+
+					keymap = xkb_x11_keymap_new_from_device(ctx, connection, deviceId, 0);
+					return keymap != IntPtr.Zero;
+				}
+				catch (DllNotFoundException)
+				{
+					return false;
+				}
+				catch (EntryPointNotFoundException)
+				{
+					return false;
 				}
 			}
 
@@ -226,8 +336,11 @@ namespace Keysharp.Core.Unix
 				}
 			}
 
-			private (bool needShift, bool needAltGr) ResolveModsForLevel(uint key, uint layout, uint level)
+			private bool TryResolveSupportedModsForLevel(uint key, uint layout, uint level, out bool needShift, out bool needAltGr)
 			{
+				needShift = false;
+				needAltGr = false;
+
 				if (hasModsForLevel)
 				{
 					Span<ulong> buf = stackalloc ulong[4];
@@ -242,20 +355,40 @@ namespace Keysharp.Core.Unix
 					if (got > 0)
 					{
 						ulong mask = buf[0];
-						bool s = shiftIndex != uint.MaxValue && (mask & (1UL << (int)shiftIndex)) != 0;
-						bool g = mod5Index != uint.MaxValue && (mask & (1UL << (int)mod5Index)) != 0;
-						return (s, g);
+						ulong supportedMask = 0;
+
+						if (shiftIndex != uint.MaxValue)
+							supportedMask |= 1UL << (int)shiftIndex;
+
+						if (mod5Index != uint.MaxValue)
+							supportedMask |= 1UL << (int)mod5Index;
+
+						if ((mask & ~supportedMask) != 0)
+							return false;
+
+						needShift = shiftIndex != uint.MaxValue && (mask & (1UL << (int)shiftIndex)) != 0;
+						needAltGr = mod5Index != uint.MaxValue && (mask & (1UL << (int)mod5Index)) != 0;
+						return true;
 					}
 				}
 
-				return level switch
+				switch (level)
 				{
-					0 => (false, false),
-					1 => (true, false),
-					2 => (false, true),
-					3 => (true, true),
-					_ => (false, false)
-				};
+					case 0:
+						return true;
+					case 1:
+						needShift = true;
+						return true;
+					case 2:
+						needAltGr = true;
+						return true;
+					case 3:
+						needShift = true;
+						needAltGr = true;
+						return true;
+					default:
+						return false;
+				}
 			}
 
 			private static bool LevelHasKeysym(IntPtr map, uint key, uint layout, uint level, uint target)
@@ -315,6 +448,8 @@ namespace Keysharp.Core.Unix
 			{
 				ResetNativeHandles();
 				cache.Clear();
+				keycodeToVkCache.Clear();
+				vkToKeycodesCache.Clear();
 				ready = false;
 				initTried = false;
 				minKeycode = 0;
@@ -340,6 +475,8 @@ namespace Keysharp.Core.Unix
 			}
 
 			private const string LibXkbCommon = "libxkbcommon.so.0";
+			private const string LibXkbCommonX11 = "libxkbcommon-x11.so.0";
+			private const string LibX11Xcb = "libX11-xcb.so.1";
 
 			[StructLayout(LayoutKind.Sequential)]
 			private struct xkb_rule_names
@@ -363,6 +500,10 @@ namespace Keysharp.Core.Unix
 			[DllImport(LibXkbCommon, EntryPoint = "xkb_keymap_key_get_mods_for_level")]
 			private static extern int xkb_keymap_key_get_mods_for_level(IntPtr keymap, uint key, uint layout, uint level, IntPtr masksOut, UIntPtr masksOutSize);
 			[DllImport(LibXkbCommon)] private static extern IntPtr xkb_keymap_key_get_name(IntPtr keymap, uint key);
+			[DllImport(LibX11Xcb)] private static extern IntPtr XGetXCBConnection(IntPtr display);
+			[DllImport(LibXkbCommonX11)] private static extern bool xkb_x11_setup_xkb_extension(IntPtr connection, ushort majorXkbVersion, ushort minorXkbVersion, uint flags, out ushort majorXkbVersionOut, out ushort minorXkbVersionOut, out byte baseEventOut, out byte baseErrorOut);
+			[DllImport(LibXkbCommonX11)] private static extern int xkb_x11_get_core_keyboard_device_id(IntPtr connection);
+			[DllImport(LibXkbCommonX11)] private static extern IntPtr xkb_x11_keymap_new_from_device(IntPtr ctx, IntPtr connection, int deviceId, uint flags);
 		}
 	}
 }

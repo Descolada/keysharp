@@ -77,13 +77,14 @@
 		/// attempts to provide such functionality.
 		/// </summary>
 		/// <returns>True if empty, else false.</returns>
-		public static bool IsClipboardEmpty() => !dataFormats.Any(
+		public static bool IsClipboardEmpty()
+		{
 #if WINDOWS
-			Clipboard.ContainsData
+			return !dataFormats.Any(Clipboard.ContainsData);
 #else
-			Clipboard.Instance.Contains
+			return !dataFormats.Any(Clipboard.Instance.Contains);
 #endif
-		);
+		}
 
 		/// <summary>
 		/// Shows the debug tab in the main window.

@@ -15,6 +15,14 @@ namespace Keysharp.Core
 		internal static readonly Guid userprofile = new ("5E6C858F-0E22-4760-9AFE-EA3317B67173"); //User profile root (~/).
 		internal static readonly Guid userprofiles = new ("0762D272-C50A-4BB0-A382-697DCD729B80"); //User profiles (/home).
 
+		private static T RunInterruptibleDialog<T>(Func<T> func)
+		{
+			using var _ = Flow.BeginDialogInterruptibilityScope();
+			return func();
+		}
+
+		private static T RunInterruptibleUIDialog<T>(Func<T> func) => RunInterruptibleDialog(() => Script.InvokeOnUIThread(func));
+
 		/// <summary>
 		/// Displays a standard dialog that allows the user to select a folder.
 		/// </summary>
@@ -58,7 +66,7 @@ namespace Keysharp.Core
 			else if (folder.Length != 0)
 				select.SelectedPath = folder;
 
-			var selected = Script.TheScript.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner), true);
+			var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner));
 			return selected == DialogResult.OK ? select.SelectedPath : "";
 #else
 			var select = new Eto.Forms.SelectFolderDialog();
@@ -104,8 +112,7 @@ namespace Keysharp.Core
 						select.Directory = folderPath;
 				}
 
-				var selected = (Eto.Forms.DialogResult)Script.TheScript.mainWindow.CheckedInvoke(
-					() => select.ShowDialog(GetEtoDialogOwner()), true);
+				var selected = RunInterruptibleUIDialog(() => select.ShowDialog(GetEtoDialogOwner()));
 				return selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
 #endif
 		}
@@ -223,7 +230,7 @@ namespace Keysharp.Core
 					InitialDirectory = Path.GetDirectoryName(rootdir),
 					FileName = Path.GetFileName(rootdir),
 				};
-				var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner), true);
+					var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner));
 				files = selected == DialogResult.OK ? saveas.FileName : "";
 #else
 				var saveas = new Eto.Forms.SaveFileDialog
@@ -235,8 +242,7 @@ namespace Keysharp.Core
 				if (saveDir != null)
 					saveas.Directory = new Uri(saveDir);
 				ApplyEtoFilters(saveas.Filters, f);
-				var selected = (Eto.Forms.DialogResult)script.mainWindow.CheckedInvoke(
-					() => saveas.ShowDialog(GetEtoDialogOwner()), true);
+					var selected = RunInterruptibleUIDialog(() => saveas.ShowDialog(GetEtoDialogOwner()));
 				files = selected == Eto.Forms.DialogResult.Ok ? saveas.FileName : "";
 #endif
 			}
@@ -256,7 +262,7 @@ namespace Keysharp.Core
 						Description = t,
 						ShowNewFolderButton = true//Seems to be visible regardless of this property.
 					};
-					var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner), true);
+						var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner));
 					files = selected == DialogResult.OK ? select.SelectedPath : "";
 #else
 					var select = new Eto.Forms.SelectFolderDialog
@@ -266,8 +272,7 @@ namespace Keysharp.Core
 					var selectDir = ToFileDialogPath(rootdir + Path.DirectorySeparatorChar);
 					if (selectDir != null)
 						select.Directory = selectDir;
-					var selected = (Eto.Forms.DialogResult)script.mainWindow.CheckedInvoke(
-						() => select.ShowDialog(GetEtoDialogOwner()), true);
+						var selected = RunInterruptibleUIDialog(() => select.ShowDialog(GetEtoDialogOwner()));
 					files = selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
 #endif
 				}
@@ -287,7 +292,7 @@ namespace Keysharp.Core
 						InitialDirectory = Path.GetDirectoryName(rootdir),
 						FileName = Path.GetFileName(rootdir)
 					};
-					var selected = script.mainWindow.CheckedInvoke(() => GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner), true);
+						var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner));
 					files = selected == DialogResult.OK
 							? multi ? new Array(open.FileNames.Cast<object>()) : open.FileName
 							: multi ? new Array() : "";
@@ -302,8 +307,7 @@ namespace Keysharp.Core
 					if (openDir != null)
 						open.Directory = new Uri(openDir);
 					ApplyEtoFilters(open.Filters, f);
-					var selected = (Eto.Forms.DialogResult)script.mainWindow.CheckedInvoke(
-						() => open.ShowDialog(GetEtoDialogOwner()), true);
+						var selected = RunInterruptibleUIDialog(() => open.ShowDialog(GetEtoDialogOwner()));
 					var filenames = open.Filenames.Select(file => file?.ToString());
 					if (selected == Eto.Forms.DialogResult.Ok)
 						files = multi ? new Array(filenames.Cast<object>()) : filenames.FirstOrDefault() ?? "";
@@ -412,22 +416,25 @@ namespace Keysharp.Core
 				input.Left = x != int.MinValue ? x : (((wr.__Value.Ai() - wl.__Value.Ai()) / 2) - (input.Width / 2));
 				input.Top = y != int.MinValue ? y : (((wb.__Value.Ai() - wt.__Value.Ai()) / 2) - (input.Height / 2));
 			};
-			Script.TheScript.mainWindow.CheckedInvoke(() =>
-			{
-				if (GuiHelper.DialogOwner != null)
-					_ = input.ShowDialog(GuiHelper.DialogOwner);
-				else
-					input.Show();
-			}, true);
+				return RunInterruptibleDialog(() =>
+				{
+					Script.InvokeOnUIThread(() =>
+					{
+						if (GuiHelper.DialogOwner != null)
+							_ = input.ShowDialog(GuiHelper.DialogOwner);
+						else
+							input.Show();
+					});
 
-			while (input.Visible)
-				Flow.TryDoEvents();
+					while (input.Visible)
+						Flow.TryDoEvents();
 
-			return new DialogResultReturn()
-			{
-				Value = input.Message,
-				Result = input.Result
-			};
+					return new DialogResultReturn()
+					{
+						Value = input.Message,
+						Result = input.Result
+					};
+				});
 		}
 #else
 		public static DialogResultReturn InputBox(object prompt = null, object title = null, object options = null, object @default = null)
@@ -488,14 +495,17 @@ namespace Keysharp.Core
 				Items = { ok, cancel }
 			});
 
-			dlg.Content = layout;
-			var result = (Eto.Forms.DialogResult)dlg.ShowModal();
-			return new DialogResultReturn
-			{
-				Value = pw.Length > 0 ? passwordBox.Text : textBox.Text,
-				Result = result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"
-			};
-		}
+				dlg.Content = layout;
+				return RunInterruptibleDialog(() =>
+				{
+					var result = (Eto.Forms.DialogResult)dlg.ShowModal();
+					return new DialogResultReturn
+					{
+						Value = pw.Length > 0 ? passwordBox.Text : textBox.Text,
+						Result = result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"
+					};
+				});
+			}
 #endif
 
 		/// <summary>
@@ -774,92 +784,103 @@ namespace Keysharp.Core
 
 			if (timeout != 0)
 			{
-				
-				script.nMessageBoxes++;
-#if WINDOWS
-				var timeoutclosed = false;
-				var w = new Form() { Size = new Size(0, 0) };//Gotten from https://stackoverflow.com/a/26418199
-				//No need to show the form, it will work while hidden.
-				_ = Task.Delay(TimeSpan.FromSeconds(timeout))
-					.ContinueWith(t =>
+				return RunInterruptibleDialog(() =>
 				{
-					w.Invoke(() => w.Close());
-					timeoutclosed = true;
-				}, TaskScheduler.FromCurrentSynchronizationContext());
-				var ret = MessageBox.Show(w, txt, caption, buttons, icon, defaultbutton, mbopts);
-				script.nMessageBoxes--;
-				return timeoutclosed ? "Timeout" : ret.ToString();
-	#else
-					using var showCts = new CancellationTokenSource();
-					showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
-					var ownerControl = owner ?? Application.Instance?.MainForm;
-					Task<DialogResult> showTask;
+					script.nMessageBoxes++;
 
-					try {
+					try
+					{
+#if WINDOWS
+						var timeoutclosed = false;
+						var w = new Form() { Size = new Size(0, 0) };//Gotten from https://stackoverflow.com/a/26418199
+						//No need to show the form, it will work while hidden.
+						_ = Task.Delay(TimeSpan.FromSeconds(timeout))
+							.ContinueWith(t =>
+						{
+							w.Invoke(() => w.Close());
+							timeoutclosed = true;
+						}, TaskScheduler.FromCurrentSynchronizationContext());
+						var ret = MessageBox.Show(w, txt, caption, buttons, icon, defaultbutton, mbopts);
+						return timeoutclosed ? "Timeout" : ret.ToString();
+#else
+						using var showCts = new CancellationTokenSource();
+						showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
+						var ownerControl = owner ?? Application.Instance?.MainForm;
+
 						ActivateAppForMessageBox(ownerControl);
-						showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+						var showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+
 						while (!showTask.IsCompleted)
 						{
 							Flow.TryDoEvents();
 						}
 
 						if (showTask.IsCanceled)
-						{
 							return "Timeout";
-						}
 
 						var ret = showTask.Result;
 						return ret.ToString();
+#endif
 					}
 					finally
 					{
 						script.nMessageBoxes--;
 					}
-	#endif
-				}
+				});
+			}
 			else
 			{
-				script.nMessageBoxes++;
-				var ret = "";
-
-				//If owner is null, then the message boxes will not be modal between threads, meaning it's possible to show
-				//more than one message box simultaneously and switch between them. However, within a thread, a message box always
-				//blocks that thread.
-				if (owner != null)
+				return RunInterruptibleDialog(() =>
 				{
-					_ = owner.Invoke(() => 
-#if WINDOWS
-						ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton, mbopts).ToString()
-#else
-					{
-						ActivateAppForMessageBox(owner);
-						return ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
-					}
-#endif
-					);
-				}
-				else
-				{
-#if WINDOWS
-					var tsk = StaTask.Run(() =>
-						ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString());
-#else
-					var tsk = Application.Instance.InvokeAsync(() => {
-						ActivateAppForMessageBox(null);
-						ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
-					});
-#endif
-					while (!tsk.IsCompleted)
-					{
-						Flow.TryDoEvents();
-					}
+					script.nMessageBoxes++;
 
-					//tsk.Wait();
-				}
+					try
+					{
+						var ret = "";
 
-				//ret = Script.mainWindow.CheckedInvoke(() => MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString(), true);
-				script.nMessageBoxes--;
-				return ret;
+						//If owner is null, then the message boxes will not be modal between threads, meaning it's possible to show
+						//more than one message box simultaneously and switch between them. However, within a thread, a message box always
+						//blocks that thread.
+						if (owner != null)
+						{
+							_ = owner.Invoke(() => 
+#if WINDOWS
+								ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton, mbopts).ToString()
+#else
+							{
+								ActivateAppForMessageBox(owner);
+								return ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
+							}
+#endif
+							);
+						}
+						else
+						{
+#if WINDOWS
+							var tsk = StaTask.Run(() =>
+								ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString());
+#else
+							var tsk = Application.Instance.InvokeAsync(() => {
+								ActivateAppForMessageBox(null);
+								ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
+							});
+#endif
+							while (!tsk.IsCompleted)
+							{
+								Flow.TryDoEvents();
+							}
+
+							//tsk.Wait();
+						}
+
+						//ret = Script.mainWindow.CheckedInvoke(() => MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString(), true);
+						return ret;
+					}
+					finally
+					{
+						script.nMessageBoxes--;
+					}
+				});
 			}
 		}
 

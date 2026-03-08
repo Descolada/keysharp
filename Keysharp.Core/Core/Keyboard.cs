@@ -479,20 +479,14 @@ break_twice:;
 				if (script.HookThread is HookThread ht)
 				{
 					if (ht.HasEitherHook())
-					{
-						_ = ht.PostMessage(new KeysharpMsg()
-						{
-							message = (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY,
-							wParam = new nint(max)
-						});
-					}
+						ht.SetKeyHistory((int)max);
 					else
 						ht.keyHistory = max > 0 ? new KeyHistory((int)max) : null;
 				}
 			}
 			else if (script.mainWindow != null)
 			{
-				script.mainWindow.CheckedBeginInvoke(() => Script.TheScript.mainWindow.ShowHistory(), false, false);
+				Script.PostToUIThread(() => Script.TheScript.mainWindow.ShowHistory());
 			}
 
 			return DefaultObject;

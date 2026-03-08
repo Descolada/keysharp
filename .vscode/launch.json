@@ -7,8 +7,13 @@
             "request": "launch",
             "preLaunchTask": "build Keysharp (AnyCPU)",
             "program": "${workspaceFolder}/bin/Debug/net10.0/Keysharp.dll",
-            "args": ["${workspaceFolder}/Keysharp.Tests/Code/Gui/guitest.ks"],
+            "args": ["${workspaceFolder}/Keysharp.Tests/Code/manual-test-suite.ahk"],
             "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "env": {
+                "GDK_BACKEND": "x11",
+                // "WAYLAND_DISPLAY": "",
+                // "DISPLAY": ":0"
+            },
             "osx": {
                 "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.app/Contents/MacOS/Keysharp",
                 "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.app/Contents/MacOS"
@@ -29,6 +34,11 @@
             "program": "${workspaceFolder}/bin/Debug/net10.0/Keyview.dll",
             "args": [],
             "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "env": {
+                "GDK_BACKEND": "x11",
+                // "WAYLAND_DISPLAY": "",
+                // "DISPLAY": ":0"
+            },
             "osx": {
                 "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS/Keyview",
                 "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app/Contents/MacOS"
@@ -41,10 +51,15 @@
             "name": "C#: Keysharp.OutputTest",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build Keysharp.OutputTest app (macOS)",
+            "preLaunchTask": "build Keysharp.OutputTest (AnyCPU)",
             "program": "${workspaceFolder}/bin/Debug/net10.0/Keysharp.OutputTest.dll",
             "args": [],
             "cwd": "${workspaceFolder}/bin/Debug/net10.0",
+            "env": {
+                "GDK_BACKEND": "x11",
+                // "WAYLAND_DISPLAY": "",
+                // "DISPLAY": ":0"
+            },
             "osx": {
                 "program": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS/Keysharp.OutputTest",
                 "cwd": "${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app/Contents/MacOS"

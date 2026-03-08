@@ -73,7 +73,7 @@
             "problemMatcher": []
         },
         {
-            "label": "build Keysharp.OutputTest app (macOS)",
+            "label": "build Keysharp.OutputTest (AnyCPU)",
             "type": "shell",
             "command": "dotnet",
             "args": [
@@ -89,7 +89,7 @@
         {
             "label": "open Keysharp.OutputTest app (macOS)",
             "type": "shell",
-            "dependsOn": "build Keysharp.OutputTest app (macOS)",
+            "dependsOn": "build Keysharp.OutputTest (AnyCPU)",
             "command": "zsh",
             "args": [
                 "-lc",

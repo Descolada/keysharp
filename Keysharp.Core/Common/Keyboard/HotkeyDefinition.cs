@@ -1,4 +1,5 @@
-﻿using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
+﻿using Keysharp.Scripting;
+using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
 using static Keysharp.Core.Common.Keyboard.VirtualKeys;
 
 namespace Keysharp.Core.Common.Keyboard
@@ -315,7 +316,6 @@ namespace Keysharp.Core.Common.Keyboard
 			var kbd = script.KeyboardData;
 			var shk = hkd.shk;
 			var hkIsInactive = new bool[shk.Count];// No init needed.  Currently limited to around 16k (HOTKEY_ID_MAX).
-			HotkeyVariant vp;
 			int i, j;
 			var ht = script.HookThread;
 
@@ -333,10 +333,6 @@ namespace Keysharp.Core.Common.Keyboard
 					{
 						_ = hot.Unregister();
 
-						// In case the hotkey's thread is already running, it seems best to cancel any repeat-run
-						// that has already been scheduled.  Older comment: CT_SUSPEND, at least, relies on us to do this.
-						for (vp = hot.firstVariant; vp != null; vp = vp.nextVariant)
-							vp.runAgainAfterFinished = false; // Applies to all hotkey types, not just registered ones.
 					}
 
 					continue;
@@ -1457,15 +1453,6 @@ namespace Keysharp.Core.Common.Keyboard
 			return !hasEnabledSuffix;
 		}
 
-		internal static void ResetRunAgainAfterFinished()  // For all hotkeys and all variants of each.
-		{
-			var shk = Script.TheScript.HotkeyData.shk;
-
-			for (var i = 0; i < shk.Count; ++i)
-				for (var vp = shk[i].firstVariant; vp != null; vp = vp.nextVariant)
-					vp.runAgainAfterFinished = false;
-		}
-
 		/// <summary>
 		/// Returns OK or FAIL.  This function is static and aThisHotkey is passed in as a parameter
 		/// so that aThisHotkey can be NULL. NULL signals that aName should be checked as a valid
@@ -1924,8 +1911,6 @@ namespace Keysharp.Core.Common.Keyboard
 				// The following members are left at 0/NULL by the above:
 				// mNextVariant
 				// mExistingThreads
-				// mRunAgainAfterFinished
-				// mRunAgainTime
 				// mPriority (default priority is always 0)
 				callback = _callback,
 				originalCallback = Proc,
@@ -2081,20 +2066,35 @@ namespace Keysharp.Core.Common.Keyboard
 		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
 		{
 			var script = Script.TheScript;
+			script.EventScheduler.Enqueue(new ScriptEvent(
+				ScriptEventKind.Hotkey,
+				ScriptEventQueue.Interactive,
+				variant.priority,
+				() => TryExecuteBufferedHotkeyEvent(variant, critFoundHwnd, lParamVal)));
+		}
+
+		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
+		{
+			var script = Script.TheScript;
 			var hkd = script.HotkeyData;
+			var admissionResult = script.EventScheduler.CheckPseudoThreadAdmission(variant.priority, false);
+
+			if (admissionResult != ScriptEventExecutionResult.Executed)
+				return admissionResult;
 
 			if (script.HotkeyData.dialogIsDisplayed) // Another recursion layer is already displaying the warning dialog below.
-				return;
+				return ScriptEventExecutionResult.Dropped;
 
-			TimeSpan timeUntilNow;
+			long elapsedSincePrevTick;
 			bool displayWarning;
 			var ht = script.HookThread;
+			var nowTick = Environment.TickCount64;
 
-			if (hkd.timePrev == DateTime.MinValue)
-				hkd.timePrev = DateTime.UtcNow;
+			if (hkd.throttlePrevTick == long.MinValue)
+				hkd.throttlePrevTick = nowTick;
 
 			++hkd.throttledKeyCount;
-			hkd.timeNow = DateTime.UtcNow;
+			hkd.throttleNowTick = nowTick;
 			// Calculate the amount of time since the last reset of the sliding interval.
 			// Note: A tickcount in the past can be subtracted from one in the future to find
 			// the true difference between them, even if the system's uptime is greater than
@@ -2102,17 +2102,14 @@ namespace Keysharp.Core.Common.Keyboard
 			// due to the nature of DWORD subtraction.  The only time this calculation will be
 			// unreliable is when the true difference between the past and future
 			// tickcounts itself is greater than about 49 days:
-			timeUntilNow = hkd.timeNow - hkd.timePrev;
+			elapsedSincePrevTick = hkd.throttleNowTick - hkd.throttlePrevTick;
 
 			if (displayWarning = (hkd.throttledKeyCount > script.AccessorData.maxHotkeysPerInterval
-								  && timeUntilNow.TotalMilliseconds < script.AccessorData.hotkeyThrottleInterval))
+								  && elapsedSincePrevTick < script.AccessorData.hotkeyThrottleInterval))
 			{
 				// The moment any dialog is displayed, hotkey processing is halted since this
 				// app currently has only one thread.
-				var error_text = $"{hkd.throttledKeyCount} hotkeys have been received in the last {timeUntilNow.TotalMilliseconds}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";  // In case it's stuck in a loop.
-				// Turn off any RunAgain flags that may be on, which in essence is the same as de-buffering
-				// any pending hotkey keystrokes that haven't yet been fired:
-				ResetRunAgainAfterFinished();
+				var error_text = $"{hkd.throttledKeyCount} hotkeys have been received in the last {elapsedSincePrevTick}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";  // In case it's stuck in a loop.
 				// This is now needed since hotkeys can still fire while a messagebox is displayed.
 				// Seems safest to do this even if it isn't always necessary:
 				hkd.dialogIsDisplayed = true;
@@ -2126,13 +2123,13 @@ namespace Keysharp.Core.Common.Keyboard
 			}
 
 			// The display_warning var is needed due to the fact that there's an OR in this condition:
-			if (displayWarning || timeUntilNow.TotalMilliseconds > script.AccessorData.hotkeyThrottleInterval)
+			if (displayWarning || elapsedSincePrevTick > script.AccessorData.hotkeyThrottleInterval)
 			{
 				// Reset the sliding interval whenever it expires.  Doing it this way makes the
 				// sliding interval more sensitive than alternate methods might be.
 				// Also reset it if a warning was displayed, since in that case it didn't expire.
 				hkd.throttledKeyCount = 0;
-				hkd.timePrev = hkd.timeNow;
+				hkd.throttlePrevTick = hkd.throttleNowTick;
 			}
 
 			// At this point, even though the user chose to continue, it seems safest
@@ -2140,54 +2137,15 @@ namespace Keysharp.Core.Common.Keyboard
 			// other command that would have unpredictable results due to the displaying
 			// of the dialog itself.
 			if (displayWarning)
-				return;
+				return ScriptEventExecutionResult.Dropped;
 
-			VariadicFunction vf = (o) =>
-			{
-				if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
-					A_EventInfo = (long)Conversions.LowWord(lParamVal); // v1.0.43.03: Override the thread default of 0 with the number of notches by which the wheel was turned.
+			if (!variant.AnyThreadsAvailable())
+				return variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped;
 
-				A_SendLevel = variant.inputLevel;
-				var script = Script.TheScript;
-				var tv = script.Threads.CurrentThread;
-				tv.hwndLastUsed = new nint(critFoundHwnd);
-				tv.hotCriterion = variant.hotCriterion;
-				object ret = null;
-				var ok = Flow.TryCatch(() => ret = variant.callback.Call(o), false, (false, null));
+			var btv = script.EventScheduler.BeginPseudoThread(variant.priority, false, false);
 
-				if (!ok)
-					variant.runAgainAfterFinished = false;  // Ensure this is reset due to the error.
-
-				_ = Interlocked.Decrement(ref variant.existingThreads);
-
-				if (variant.runAgainAfterFinished)
-				{
-					// But MsgSleep() can change it back to true again, when called by the above call
-					// to ExecUntil(), to keep it auto-repeating:
-					variant.runAgainAfterFinished = false;  // i.e. this "run again" ticket has now been used up.
-
-					if ((DateTime.UtcNow - variant.runAgainTime).TotalMilliseconds <= 1000)
-					{
-						// v1.0.44.14: Post a message rather than directly running the above ExecUntil again.
-						// This fixes unreported bugs in previous versions where the thread isn't reinitialized before
-						// the launch of one of these buffered hotkeys, which caused settings such as SetKeyDelay
-						// not to start off at their defaults.  Also, there are quite a few other things that the main
-						// event loop does to prep for the launch of a hotkey.  Rather than copying them here or
-						// trying to put them into a shared function (which would be difficult due to their nature),
-						// it's much more maintainable to post a message, and in most cases, it shouldn't measurably
-						// affect response time (this feature is rarely used anyway).
-						//Some hotkeys will be using the hook and others will be using the built in Windows hotkey handler.
-						//Sending a message will work for both cases.
-						_ = PostHotkeyMessage(script.MainWindowHandle, id, 0);
-					}
-
-					//else it was posted too long ago, so don't do it.  This is because most users wouldn't
-					// want a buffered hotkey to stay pending for a long time after it was pressed, because
-					// that might lead to unexpected behavior.
-				}
-
-				return ret;
-			};
+			if (!btv.Item1)
+				return ScriptEventExecutionResult.GlobalBlocked;
 
 			try
 			{
@@ -2199,15 +2157,30 @@ namespace Keysharp.Core.Common.Keyboard
 				// if it was called from an ExecUntil() other than ours here:
 				ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
 				script.SetHotNamesAndTimes(Name);
-				//This is the thread count for this particular hotkey only and must come before the thread is actually launched.
-				//It will be decremented within the VariadicFunction above after the callback is called.
 				_ = Interlocked.Increment(ref variant.existingThreads);
-				script.Threads.LaunchInThread(variant.priority, false, false, vf, [Name], false);
+
+				_ = Flow.TryCatch(() =>
+				{
+					if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
+						A_EventInfo = (long)Conversions.LowWord(lParamVal);
+
+					A_SendLevel = variant.inputLevel;
+					var tv = script.Threads.CurrentThread;
+					tv.hwndLastUsed = new nint(critFoundHwnd);
+					tv.hotCriterion = variant.hotCriterion;
+					_ = Flow.TryCatch(() => _ = variant.callback.Call([Name]), false, (false, null));
+
+					_ = Interlocked.Decrement(ref variant.existingThreads);
+
+					_ = script.Threads.EndThread(btv);
+				}, true, btv);
 			}
 			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
 			}
+
+			return ScriptEventExecutionResult.Executed;
 		}
 
 		internal ResultType Register()
@@ -2426,7 +2399,6 @@ namespace Keysharp.Core.Common.Keyboard
 				return false; // Indicate that it's already disabled.
 
 			aVariant.enabled = false;
-			aVariant.runAgainAfterFinished = false; // ManifestAllHotkeysHotstringsHooks() won't do this unless the entire hotkey is disabled/unregistered.
 			return true;
 		}
 
@@ -2561,8 +2533,8 @@ namespace Keysharp.Core.Common.Keyboard
 		internal bool[] joystickHasHotkeys = new bool[JoystickData.MaxJoysticks];
 		internal List<HotkeyDefinition> shk = new (256);
 		internal uint throttledKeyCount;
-		internal DateTime timeNow;
-		internal DateTime timePrev = DateTime.MinValue;
+		internal long throttleNowTick;
+		internal long throttlePrevTick = long.MinValue;
 		internal HookType whichHookNeeded = HookType.None;
 	}
 
@@ -2609,8 +2581,6 @@ namespace Keysharp.Core.Common.Keyboard
 		internal uint noSuppress;
 		internal IFuncObj originalCallback;   // This is the callback set at load time.
 		internal int priority;
-		internal bool runAgainAfterFinished;
-		internal DateTime runAgainTime;
 		internal bool suspendExempt;
 
 		/// <summary>
@@ -2625,14 +2595,6 @@ namespace Keysharp.Core.Common.Keyboard
 		/// <param name="variant"></param>
 		/// <returns></returns>
 		internal bool AnyThreadsAvailable() => existingThreads < maxThreads;
-
-		internal void RunAgainAfterFinished()
-		{
-			if (maxThreadsBuffer)
-				runAgainAfterFinished = true;
-
-			runAgainTime = DateTime.UtcNow;
-		}
 	}
 
 	internal enum HotCriterionEnum

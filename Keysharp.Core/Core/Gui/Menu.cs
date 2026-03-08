@@ -147,7 +147,7 @@
 
 				if (mainWindow != null && A_AllowMainWindow.Ab())
 				{
-					mainWindow.CheckedBeginInvoke(() =>
+					Script.PostToUIThread(() =>
 					{
 						mainWindow.AllowShowDisplay = true;
 						mainWindow.WindowState = mainWindow.lastWindowState == FormWindowState.Minimized
@@ -158,7 +158,7 @@
 						mainWindow.BringToFront();
 						mainWindow.Focus();
 						_ = mainWindow.ShowInternalVars(false);
-					}, false, false);
+					});
 				}
 
 				return DefaultObject;

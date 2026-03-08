@@ -2,8 +2,6 @@ namespace Keysharp.Core
 {
 	internal class ProcessesData
 	{
-		internal SynchronizationContext mainContext;
-
 		//internal int CurrentThreadID = Process.GetCurrentProcess().Threads[0].Id; //WindowsAPI.GetCurrentThread();
 		internal uint CurrentThreadID = 0u;
 		internal uint MainThreadID;

@@ -30,69 +30,36 @@ namespace Keysharp.Core.Common.Window
 		{
 		}
 
-		internal bool CallEventHandlers(ref Message m)
+		internal bool CallEventHandlers(ref Message m, bool buffered = false)
 		{
 			if (script.GuiData.onMessageHandlers.TryGetValue(m.Msg, out var monitor))
 			{
-				var ptv = script.Threads.CurrentThread;
-
-				if (!script.Threads.AnyThreadsAvailable() || ptv.priority > 0)
-					return false;
-
-				if (monitor.instanceCount >= monitor.maxInstances)
-					return false;
-
-				monitor.instanceCount++;
-				object res = null;
 				object eventInfo = 0L;
 				long hwnd = m.HWnd;
 
 				if (MessagesEqual(handledMsg, m))
 					eventInfo = A_TickCount;
 
-				try
+				object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
+
+				if (buffered)
 				{
-					var handlers = monitor.funcs;
-					object[] args = [m.WParam.ToInt64(), m.LParam.ToInt64(), (long)m.Msg, m.HWnd.ToInt64()];
-
-					if (handlers.Any())
+					foreach (var registration in monitor.GetRegistrationsSnapshot())
 					{
-						var currentScript = Script.TheScript;
-
-						foreach (var handler in handlers)
-						{
-							if (handler != null)
-							{
-								var (pushed, tv) = currentScript.Threads.BeginThread();
-
-								if (pushed)
-								{
-									tv.eventInfo = eventInfo;
-									tv.hwndLastUsed = hwnd;
-									_ = Flow.TryCatch(() =>
-									{
-										res = handler.Call(args);
-										_ = currentScript.Threads.EndThread((pushed, tv));
-									}, true, (pushed, tv));
-
-									if (Script.ForceLong(res) != 0L)
-										break;
-								}
-							}
-						}
-
-						currentScript.ExitIfNotPersistent();
+						script.EventScheduler.Enqueue(new ScriptEvent(
+							ScriptEventKind.MessageCallback,
+							ScriptEventQueue.Normal,
+							0,
+							() => registration.TryExecuteBuffered(script, args, eventInfo, hwnd, out _)));
 					}
 				}
-				finally
+				else if (monitor.TryExecuteEmergency(script, args, eventInfo, hwnd, out var result))
 				{
-					monitor.instanceCount--;
+					m.Result = (nint)result;
+
+					if (m.Result != 0)
+						return true;
 				}
-
-				m.Result = (nint)Script.ForceLong(res);
-
-				if (m.Result != 0)
-					return true;
 			}
 
 			return false;

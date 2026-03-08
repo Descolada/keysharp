@@ -5,8 +5,29 @@ namespace Keysharp.Tests
 {
 	public class TestRunner
 	{
+		protected sealed class QueuedSynchronizationContext : SynchronizationContext
+		{
+			private readonly Queue<(SendOrPostCallback callback, object state)> posted = new();
+
+			internal int PendingCount => posted.Count;
+
+			public override void Post(SendOrPostCallback d, object state) => posted.Enqueue((d, state));
+
+			public override void Send(SendOrPostCallback d, object state) => d(state);
+
+			internal void DrainAll()
+			{
+				while (posted.Count != 0)
+				{
+					var (callback, state) = posted.Dequeue();
+					callback(state);
+				}
+			}
+		}
+
 		protected string path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Keysharp.Tests", "Code")) + Path.DirectorySeparatorChar;
 		private const string ext = ".ahk";
+		private static readonly PropertyInfo mainContextProperty = typeof(Script).GetProperty("MainContext", BindingFlags.Instance | BindingFlags.NonPublic);
 		protected Script s;
 		internal HotstringManager hsm;
 
@@ -27,6 +48,13 @@ namespace Keysharp.Tests
 		{
 			if (Script.IsUiInitializationBlocked)
 				Assert.Ignore(reason);
+		}
+
+		protected QueuedSynchronizationContext UseQueuedMainContext()
+		{
+			var context = new QueuedSynchronizationContext();
+			mainContextProperty?.SetValue(s, context);
+			return context;
 		}
 
 		protected bool HasPassed(string output)

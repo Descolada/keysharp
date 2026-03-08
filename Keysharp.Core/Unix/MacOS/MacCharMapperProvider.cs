@@ -131,8 +131,6 @@ namespace Keysharp.Core.Unix
 				}
 			}
 
-			public nint GetCurrentKeymapHandle() => GetCurrentKeyboardLayoutPtr();
-
 			public void Dispose()
 			{
 				lock (mapperLock)

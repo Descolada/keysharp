@@ -152,7 +152,7 @@
 			if (isClosing)
 			{
 				_ = script.GuiData.allGuiHwnds.TryRemove(handle, out _);
-				script.mainWindow?.CheckedBeginInvoke(new Action(() => GC.Collect()), true, true);
+				Script.PostToUIThread(GC.Collect);
 			}
 			script.ExitIfNotPersistent();//Also does BeginInvoke(), so it will come after the GC.Collect() above.
 		}

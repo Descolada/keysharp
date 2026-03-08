@@ -1148,12 +1148,13 @@ namespace Keysharp.Core
 		/// The ErrorDialogResult value corresponding to the option the user chose.
 		/// </returns>
 		[StackTraceHidden]
-		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
-		{
-			KeysharpException kex = ex as KeysharpException;
-			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
-			dlg.ShowDialog();
+			internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
+			{
+				KeysharpException kex = ex as KeysharpException;
+				string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+				using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+				using (Flow.BeginDialogInterruptibilityScope())
+					dlg.ShowDialog();
 
 			switch (dlg.Result)
 			{
@@ -1388,12 +1389,13 @@ namespace Keysharp.Core
 		/// The ErrorDialogResult value corresponding to the option the user chose.
 		/// </returns>
 		[StackTraceHidden]
-		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
-		{
-			KeysharpException kex = ex as KeysharpException;
-			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
-			dlg.ShowDialog();
+			internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
+			{
+				KeysharpException kex = ex as KeysharpException;
+				string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+				using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+				using (Flow.BeginDialogInterruptibilityScope())
+					dlg.ShowDialog();
 
 			switch (dlg.Result)
 			{

@@ -38,11 +38,6 @@ namespace Keysharp.Core.Common.Threading
 		internal const int WM_HOTKEY = 0x0312;
 		internal const int WM_QUIT = 0x0012;
 
-		internal readonly Channel<object> channel = Channel.CreateUnbounded<object>(new UnboundedChannelOptions
-		{
-			SingleReader = true
-		});
-
 		internal static string MutexName = "Keysharp";
 		internal Mutex keybdMutex = null, mouseMutex = null;
 		internal string KeybdMutexName = $"{MutexName} Keybd";
@@ -88,8 +83,6 @@ namespace Keysharp.Core.Common.Threading
 		// keeping in mind that there are at least 3 different window classes to check,
 		// depending on OS and the "AltTabSettings" registry value.
 		protected internal bool altTabMenuIsVisible = false;
-		protected internal Task<Task> channelReadThread;
-		protected internal uint channelThreadID = 0u;
 
 		// Whether to disguise the next up-event for lwin/rwin to suppress Start Menu.
 		// There is only one variable because even if multiple modifiers are pressed
@@ -101,7 +94,6 @@ namespace Keysharp.Core.Common.Threading
 		// we can ensure they are initialized by the keyboard init function every
 		// time it's called (currently it can be only called once):
 		protected internal bool disguiseNextMenu = false;
-		protected internal bool hookSynced = false;
 		protected internal List<uint> hotkeyUp = new (256);
 		protected internal nint kbdHook = 0;
 		protected internal KeyHistory keyHistory = new ();
@@ -111,7 +103,6 @@ namespace Keysharp.Core.Common.Threading
 		protected internal uint[] kvkm;
 		protected internal nint mouseHook = 0;
 		protected internal bool undisguisedMenuInEffect = false;
-		protected volatile bool running;
 
 		protected internal virtual nint CallNextHook(HookEventArgs e) => nint.Zero;
 		protected internal virtual bool IsMouseMenuVisible() => false;
@@ -1052,7 +1043,7 @@ namespace Keysharp.Core.Common.Threading
 							&& (((input.keySC[sc] | input.keyVK[vk]) & INPUT_KEY_NOTIFY) != 0
 								|| (input.notifyNonText && (input.keyVK[vk] & INPUT_KEY_IS_TEXT) == 0)))
 					{
-						_ = channel.Writer.TryWrite(new KeysharpMsg()
+						_ = PostMessage(new KeysharpMsg()
 						{
 							message = (uint)UserMessages.AHK_INPUT_KEYUP,
 							obj = input,
@@ -1159,7 +1150,7 @@ namespace Keysharp.Core.Common.Threading
 					// complicated by the possibility of an Input being terminated while OnKeyDown
 					// is being executed (and thereby breaking the list).
 					// This leaves room only for the bare essential parameters: aVK and aSC.
-					_ = channel.Writer.TryWrite(new KeysharpMsg()
+					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_KEYDOWN,
 						obj = input,
@@ -1173,7 +1164,7 @@ namespace Keysharp.Core.Common.Threading
 				// could be added, or the script could mark each dead key for OnKeyDown.
 				if (collectChars && input.scriptObject != null && input.scriptObject.OnChar != null)
 				{
-					_ = channel.Writer.TryWrite(new KeysharpMsg()
+					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_CHAR,
 						obj = input,
@@ -1408,18 +1399,6 @@ namespace Keysharp.Core.Common.Threading
 
 		internal virtual bool IsHookThreadRunning() => false;
 
-		internal bool IsReadThreadCompleted()
-		=> channelReadThread != null&&
-		channelReadThread.Result != null&&
-		channelReadThread.Result.IsCompleted&&
-		channelReadThread.IsCompleted;
-
-		internal bool IsReadThreadRunning()
-		=> running&&
-		channelReadThread != null&&
-		channelReadThread.Result != null&&
-		!channelReadThread.Result.IsCompleted;
-
 		/// <summary>
 		/// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
 		/// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
@@ -1575,6 +1554,8 @@ namespace Keysharp.Core.Common.Threading
 		internal abstract uint MapScToVk(uint sc);
 
 		internal abstract uint MapVkToSc(uint vk, bool returnSecondary = false);
+
+		internal virtual void RefreshPlatformKeyGrabs() { }
 
 		internal void ParseClickOptions(string options, ref int x, ref int y, ref uint vk, ref KeyEventTypes eventType, ref long repeatCount, ref bool moveOffset) =>
 		ParseClickOptions(options.AsSpan(), ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
@@ -3535,7 +3516,7 @@ namespace Keysharp.Core.Common.Threading
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
 				var inputLevel = InputLevelFromInfo((long)extraInfo);
-				_ = channel.Writer.TryWrite(new KeysharpMsg()
+				_ = PostMessage(new KeysharpMsg()
 				{
 					message = (uint)UserMessages.AHK_HOOK_HOTKEY,
 					wParam = new nint(hotkeyIDToPost),//Would be so much better to eventually pass around object references rather than array indexes.//TODO
@@ -3547,7 +3528,7 @@ namespace Keysharp.Core.Common.Threading
 				{
 					// This is a key-down hotkey being triggered by releasing a prefix key.
 					// There's also a corresponding key-up hotkey, so fire it too:
-					_ = channel.Writer.TryWrite(new KeysharpMsg()
+					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_HOOK_HOTKEY,
 						wParam = new nint(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK]),
@@ -3559,7 +3540,7 @@ namespace Keysharp.Core.Common.Threading
 
 			if (hs != null)
 			{
-				_ = channel.Writer.TryWrite(new KeysharpMsg()
+				_ = PostMessage(new KeysharpMsg()
 				{
 					message = (uint)UserMessages.AHK_HOTSTRING,
 					obj = new HotstringMsg()
@@ -3577,7 +3558,30 @@ namespace Keysharp.Core.Common.Threading
 		internal virtual HookAction CancelAltTabMenu(uint vk, bool keyUp) => HookAction.Continue;
 
 		internal bool PostMessage(KeysharpMsg msg)
-		=> IsReadThreadRunning()&& channel.Writer.TryWrite(msg);
+		{
+			if (msg == null)
+				return false;
+
+			if (msg.message == (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY)
+			{
+				SetKeyHistory((int)msg.wParam.ToInt64());
+				return true;
+			}
+
+			if (msg.message != WM_HOTKEY
+					&& msg.message != (uint)UserMessages.AHK_HOOK_HOTKEY
+					&& msg.message != (uint)UserMessages.AHK_HOTSTRING
+					&& msg.message != (uint)UserMessages.AHK_INPUT_END
+					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYDOWN
+					&& msg.message != (uint)UserMessages.AHK_INPUT_CHAR
+					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYUP)
+				return false;
+
+			Script.TheScript.EventScheduler.EnqueueCallback(() => ProcessHookMessage(msg));
+			return true;
+		}
+
+		internal void SetKeyHistory(int max) => keyHistory = max > 0 ? new KeyHistory(max) : null;
 
 		internal void SetModifierAsPrefix(uint vk, uint sc, bool alwaysSetAsPrefix = false)
 		// The caller has already ensured that vk and/or sc is a modifier such as VK_CONTROL.
@@ -3675,21 +3679,6 @@ namespace Keysharp.Core.Common.Threading
 
 		protected internal virtual void Stop()
 		{
-			if (running)
-			{
-				try
-				{
-					channel?.Writer?.Complete();
-				}
-				catch (ChannelClosedException) { }
-
-				if (channelReadThread != null && channelReadThread.Result != null && channelReadThread.Result.Status != TaskStatus.WaitingForActivation && !channelReadThread.Result.IsCompleted)
-					channelReadThread?.Result?.Wait();
-
-				channelReadThread?.Wait();
-				channelReadThread = null;
-				running = false;
-			}
 		}
 
 		//This is relied upon to be unsigned; e.g. many places omit a check for ID < 0.
@@ -4255,23 +4244,23 @@ namespace Keysharp.Core.Common.Threading
 		// Wait until the hook has reached a known idle state (i.e. finished any processing
 		// that it was in the middle of, though it could start something new immediately after).
 		{
-			//Make sure this is not called within the channel thread because it would deadlock if so.
-			if (channelThreadID != CurrentThreadId() && IsReadThreadRunning())
-			{
-				hookSynced = false;
+			var script = Script.TheScript;
 
-				if (channel.Writer.TryWrite(new KeysharpMsg()
+			if (!IsHookThreadRunning())
+				return;
+
+			if (Thread.CurrentThread.ManagedThreadId == script.ProcessesData.ManagedMainThreadID)
 			{
-				message = (uint)UserMessages.AHK_HOOK_SYNC
-				}))
-				{
-					while (!hookSynced)
-						Flow.SleepWithoutInterruption();
-				}
+				script.EventScheduler.PumpPendingEvents();
+				return;
 			}
-		}
 
-		protected internal uint ChannelThreadId() => channelThreadID;
+			using var synced = new ManualResetEventSlim(false);
+			script.EventScheduler.EnqueueCallback(synced.Set, useTryCatch: false);
+
+			while (!synced.Wait(10))
+				Flow.SleepWithoutInterruption();
+		}
 
 		protected internal abstract void DeregisterHooks();
 
@@ -4284,248 +4273,92 @@ namespace Keysharp.Core.Common.Threading
 			ksc = [];
 		}
 
-		protected internal virtual void Start()
+		protected internal virtual void Start() { }
+
+		private void ProcessHookMessage(KeysharpMsg msg)
 		{
-			//If it's running there is no reason to start it again.
-			if (IsReadThreadRunning())
-				return;
+			nint criterionFoundHwnd = 0;
+			var wParamVal = msg.wParam.ToInt64();
+			var lParamVal = msg.lParam.ToInt64();
+			var script = Script.TheScript;
 
-			running = true;
-			channelThreadID = 0;
-			//This is a consolidation of the main windows proc, message sleep and the thread which they keyboard hook is created on.
-			//Unsure how much of this is windows specific or can be cross platform. Will need to determine when we begin linux work.//TODO
-			//If Start() is called while this thread is already running, the foreach will exit, and thus the previous thread will exit.
-			channelReadThread = Task.Factory.StartNew(async () =>
+			switch (msg.message)
 			{
-				try
-				{
-					Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;//AHK Sets this to critical which seems extreme.
-					var reader = channel.Reader;
-					channelThreadID = CurrentThreadId();
+				case (uint)UserMessages.AHK_HOTSTRING:
+					if (msg.obj is not HotstringMsg hmsg)
+						return;
 
-					await foreach (var item in reader.ReadAllAsync())//This should be totally reworked to use object types/casting rather than packing all manner of obscure meaning into bits and bytes of wparam and lparam.
-						//while (true)
+					var hs = hmsg.hs;
+
+					if (hs.hotCriterion != null)
 					{
-						//if (!reader.TryRead(out var item))
-						//{
-						//  Flow.Sleep(10L);
-						//  continue;
-						//}
-						//var item = await reader.ReadAsync();
-						//var theasyncfunc = async () =>
-						nint criterion_found_hwnd = 0;
-						channelThreadID = CurrentThreadId();
+						criterionFoundHwnd = new nint(HotkeyDefinition.HotCriterionAllowsFiring(hs.hotCriterion, hs.Name));
 
-						if (item is KeysharpMsg msg)
-						{
-							if (msg.message == WM_QUIT)//Needed to be pulled out of the case statement because it uses fallthrough logic which isn't allowed in C#.
-								// After this message, fall through to the next case below so that the hooks will be removed before
-								// exiting this thread.
-								msg.wParam = 0; // Indicate to AHK_CHANGE_HOOK_STATE that both hooks should be deactivated.
+						if (criterionFoundHwnd == 0)
+							return;
 
-							var wParamVal = msg.wParam.ToInt64();
-							var lParamVal = msg.lParam.ToInt64();
-							// ********
-							// NO BREAK IN ABOVE, FALL INTO NEXT CASE:
-							// ********
-							var script = Script.TheScript;
-							var tv = script.Threads.CurrentThread;
-							tv.WaitForCriticalToFinish();//Must wait until the previous critical task finished before proceeding.
-
-							switch (msg.message)
-							{
-								case (uint)UserMessages.AHK_CHANGE_HOOK_STATE: // No blank line between this in the above to indicate fall-through.
-									// In this case, wParam contains the bitwise set of hooks that should be active.
-									//Legacy, do nothing. Changing the hook state is handled elsewhere.
-									break;
-
-								case (uint)UserMessages.AHK_HOOK_SYNC:
-									hookSynced = true;
-									break;
-
-								case (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY:
-								{
-									var max = (int)wParamVal;
-									keyHistory = max > 0 ? new KeyHistory(max) : null;
-									break;
-								}
-
-								//These were taken from MsgSleep().
-								case (uint)UserMessages.AHK_HOTSTRING:
-									if (msg.obj is HotstringMsg hmsg)
-									{
-										var hs = hmsg.hs;
-
-										if (hs.hotCriterion != null)
-										{
-											// For details, see comments in the hotkey section of this switch().
-											criterion_found_hwnd = new nint(HotkeyDefinition.HotCriterionAllowsFiring(hs.hotCriterion, hs.Name));
-
-											if (criterion_found_hwnd == 0L)
-												// Hotstring is no longer eligible to fire even though it was when the hook sent us
-												// the message.  Abort the firing even though the hook may have already started
-												// executing the hotstring by suppressing the final end-character or other actions.
-												// It seems preferable to abort midway through the execution than to continue sending
-												// keystrokes to the wrong window, or when the hotstring has become suspended.
-												continue;
-
-											if (hs.hotCriterion is IFuncObj fc && !(string.Compare(fc.Name, "HotIfWinNotActivePrivate", true) == 0 || string.Compare(fc.Name, "HotIfWinNotExistPrivate", true) == 0))
-												criterion_found_hwnd = 0;
-											else if (hs.HotIfRequiresEval())
-												criterion_found_hwnd = script.hotExprLFW;// For #if WinExist(WinTitle) and similar.
-										}
-										else // No criterion, so it's a global hotstring.  It can always fire, but it has no "last found window".
-											criterion_found_hwnd = 0;
-
-										// Do a simple replacement for the hotstring if that's all that's called for.
-										// Don't create a new quasi-thread or any of that other complexity done further
-										// below.  But also do the backspacing (if specified) for a non-autoreplace hotstring,
-										// even if it can't launch due to MaxThreads, MaxThreadsPerHotkey, or some other reason:
-										//Any key sending must be on the main thread else keys will come in out of order.
-										//Does only the backspacing if it's not an auto-replace hotstring.
-										script.mainWindow.CheckedInvoke(() => hs.DoReplace(hmsg.caseMode, hmsg.endChar), true);
-
-										if (string.IsNullOrEmpty(hs.replacement))
-										{
-											// Otherwise, continue on and let a new thread be created to handle this hotstring.
-											// Since this isn't an auto-replace hotstring, set this value to support
-											// the built-in variable A_EndChar:
-											_ = hs.PerformInNewThreadMadeByCaller(criterion_found_hwnd, hmsg.endChar.ToString());
-										}
-										else
-											continue;
-									}
-
-									break;
-
-								case WM_HOTKEY://Some hotkeys are handled directly by windows using WndProc(), others, such as those with left/right modifiers, are handled directly by us.
-								case (uint)UserMessages.AHK_HOOK_HOTKEY://Some hotkeys are handled directly by windows using WndProc(), others, such as those with left/right modifiers, are handled directly by us.
-								{
-									script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, msg.obj as HotkeyVariant, msg.message);
-									break;
-								}
-
-								//case (uint)UserMessages.AHK_HOTSTRING: // Added for v1.0.36.02 so that hotstrings work even while an InputBox or other non-standard msg pump is running.
-								//case (uint)UserMessages.AHK_CLIPBOARD_CHANGE: //Probably not needed because we handle OnClipboardChange() differently. Added for v1.0.44 so that clipboard notifications aren't lost while the script is displaying a MsgBox or other dialog.
-								case (uint)UserMessages.AHK_INPUT_END:
-
-									// If the following facts are ever confirmed, there would be no need to post the message in cases where
-									// the MsgSleep() won't be done:
-									// 1) The mere fact that any of the above messages has been received here in MainWindowProc means that a
-									//    message pump other than our own main one is running (i.e. it is the closest pump on the call stack).
-									//    This is because our main message pump would never have dispatched the types of messages above because
-									//    it is designed to fully handle then discard them.
-									// 2) All of these types of non-main message pumps would discard a message with a NULL hwnd.
-									//
-									// One source of confusion is that there are quite a few different types of message pumps that might
-									// be running:
-									// - InputBox/MsgBox, or other dialog
-									// - Popup menu (tray menu, popup menu from Menu command, or context menu of an Edit/MonthCal, including
-									//   our main window's edit control g_hWndEdit).
-									// - Probably others, such as ListView marquee-drag, that should be listed here as they are
-									//   remembered/discovered.
-									//
-									// Due to maintainability and the uncertainty over backward compatibility (see comments above), the
-									// following message is posted even when INTERRUPTIBLE==false.
-									// Post it with a NULL hwnd (update: also for backward compatibility) to avoid any chance that our
-									// message pump will dispatch it back to us.  We want these events to always be handled there,
-									// where almost all new quasi-threads get launched.  Update: Even if it were safe in terms of
-									// backward compatibility to change NULL to gHwnd, testing shows it causes problems when a hotkey
-									// is pressed while one of the script's menus is displayed (at least a menu bar).  For example:
-									// *LCtrl::Send {Blind}{Ctrl up}{Alt down}
-									// *LCtrl up::Send {Blind}{Alt up}
-									//PostMessage(NULL, iMsg, wParam, lParam);
-									//
-									//if (IsInterruptible())
-									//  MsgSleep(-1, RETURN_AFTER_MESSAGES_SPECIAL_FILTER);
-									//else let the other pump discard this hotkey event since in most cases it would do more harm than good
-									// (see comments above for why the message is posted even when it is 90% certain it will be discarded
-									// in all cases where MsgSleep isn't done).
-									//return 0;
-									if (tv.priority == 0 && script.Threads.AnyThreadsAvailable())
-									{
-										if (msg.obj is InputType it
-												&& it.InputRelease() is InputType inputHook
-												&& inputHook.scriptObject is InputObject so)
-										{
-											if (so.OnEnd is Any kso)
-											{
-												script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", so));
-											}
-										}
-										else
-											continue;
-									}
-									else
-										//continue;
-										continue;
-
-									break;
-
-								case (uint)UserMessages.AHK_INPUT_KEYDOWN:
-								case (uint)UserMessages.AHK_INPUT_CHAR:
-								case (uint)UserMessages.AHK_INPUT_KEYUP:
-								{
-									InputType input_hook;
-									var inputHookParam = msg.obj as InputType;
-
-									for (input_hook = script.input; input_hook != null && input_hook != inputHookParam; input_hook = input_hook.prev)
-									{
-									}
-
-									if (input_hook == null)
-										continue;
-
-									if ((msg.message == (uint)UserMessages.AHK_INPUT_KEYDOWN ? input_hook.scriptObject.OnKeyDown
-											: msg.message == (uint)UserMessages.AHK_INPUT_KEYUP ? input_hook.scriptObject.OnKeyUp
-											: input_hook.scriptObject.OnChar) is Any kso
-											&& script.Threads.AnyThreadsAvailable())
-									{
-										var args = msg.message == (uint)UserMessages.AHK_INPUT_CHAR ?//AHK_INPUT_CHAR passes the chars as a string, whereas the rest pass them individually.
-												   new object[] { input_hook.scriptObject, new string(wParamVal == 0 ? new char[] { (char)lParamVal } : new char[] { (char)lParamVal, (char)wParamVal }) }
-												   : [input_hook.scriptObject, lParamVal, wParamVal];
-											script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", args));
-									}
-									else
-										continue;
-								}
-								break;
-
-								default:
-									break;
-							}
-
-							//This is not going to work. It's always going to comapre against this queue thread's priority, not the priority of whichever hotkey/string is currently executing.
-							//None of this will work until we implement real threads.
-							//TODO
-							//if (priority < (long)Accessors.A_Priority)
-							//  continue;
-							//Original tries to do some type of thread init here.//TOOD
-							script.lastPeekTime = DateTime.UtcNow;
-						}
+						if (hs.hotCriterion is IFuncObj fc && !(string.Compare(fc.Name, "HotIfWinNotActivePrivate", true) == 0 || string.Compare(fc.Name, "HotIfWinNotExistPrivate", true) == 0))
+							criterionFoundHwnd = 0;
+						else if (hs.HotIfRequiresEval())
+							criterionFoundHwnd = script.hotExprLFW;
 					}
 
-					System.Diagnostics.Debug.WriteLine("Exiting reader channel.");
-				}
-				catch (Exception ex)
+					hs.DoReplace(hmsg.caseMode, hmsg.endChar);
+
+					if (string.IsNullOrEmpty(hs.replacement))
+						_ = hs.PerformInNewThreadMadeByCaller(criterionFoundHwnd, hmsg.endChar.ToString());
+
+					break;
+
+				case WM_HOTKEY:
+				case (uint)UserMessages.AHK_HOOK_HOTKEY:
+					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, msg.obj as HotkeyVariant, msg.message);
+					break;
+
+				case (uint)UserMessages.AHK_INPUT_END:
+					if (msg.obj is InputType it
+							&& it.InputRelease() is InputType releasedInput
+							&& releasedInput.scriptObject is InputObject so
+							&& so.OnEnd is Any endHandler)
+						script.Threads.LaunchThreadInMain(() => Script.Invoke(endHandler, "Call", so));
+
+					break;
+
+				case (uint)UserMessages.AHK_INPUT_KEYDOWN:
+				case (uint)UserMessages.AHK_INPUT_CHAR:
+				case (uint)UserMessages.AHK_INPUT_KEYUP:
 				{
-					_ = Ks.OutputDebugLine($"Windows hook thread exited unexpectedly: {ex}");
-				}
-				finally
-				{
-					running = false;
-					Thread.CurrentThread.Priority = ThreadPriority.Normal;
+					InputType inputHook = null;
+					var inputHookParam = msg.obj as InputType;
+
+					for (inputHook = script.input; inputHook != null && inputHook != inputHookParam; inputHook = inputHook.prev)
+					{
+					}
+
+					if (inputHook == null)
+						return;
+
+					var callback = msg.message == (uint)UserMessages.AHK_INPUT_KEYDOWN
+						? inputHook.scriptObject.OnKeyDown
+						: msg.message == (uint)UserMessages.AHK_INPUT_KEYUP
+							? inputHook.scriptObject.OnKeyUp
+							: inputHook.scriptObject.OnChar;
+
+					if (callback is Any kso)
+					{
+						var args = msg.message == (uint)UserMessages.AHK_INPUT_CHAR
+							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
+							: [inputHook.scriptObject, lParamVal, wParamVal];
+						script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", args));
+					}
+
+					break;
 				}
 			}
-			//Unsure if this will work or is needed here.
-			//,CancellationToken.None, TaskCreationOptions.None,
-			//SynchronizationContext.Current != null ? TaskScheduler.FromCurrentSynchronizationContext() : TaskScheduler.Current
-													 );
 
-			while (channelThreadID == 0)//Give it some time to startup before proceeding.
-				Thread.Sleep(10);
+				script.RecordMessageCheck(Environment.TickCount64);
+			}
 		}
-	}
 
 	// WM_USER (0x0400) is the lowest number that can be a user-defined message.  Anything above that is also valid.
 	// NOTE: Any msg about WM_USER will be kept buffered (unreplied-to) whenever the script is uninterruptible.

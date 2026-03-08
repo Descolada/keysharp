@@ -61,10 +61,10 @@
 					tv.threadId = Thread.CurrentThread.ManagedThreadId;
 					tv.priority = priority;
 
-					if (!skipUninterruptible)
-					{
-						if (!tv.isCritical)
-							tv.isCritical = isCritical;
+						if (!skipUninterruptible)
+						{
+							if (!tv.isCritical)
+								tv.isCritical = isCritical;
 
 						if (script.uninterruptibleTime != 0 || tv.isCritical) // v1.0.38.04.
 						{
@@ -86,7 +86,7 @@
 									// This also makes it more predictable, since AllowThreadToBeInterrupted is only changed
 									// when IsInterruptible() is called, which might not happen in between changes to the setting.
 									// For explanation of why two fields instead of one are used, see comments in IsInterruptible().
-									tv.threadStartTime = DateTime.UtcNow;
+									tv.threadStartTick = Environment.TickCount64;
 									tv.UninterruptibleDuration = script.uninterruptibleTime;
 								}
 							}

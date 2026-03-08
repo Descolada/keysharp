@@ -89,7 +89,7 @@ namespace Keysharp.Core
 			if (function is string path)
 			{
 				string name;
-				var z = path.LastIndexOf(Path.DirectorySeparatorChar);
+				var z = path.LastIndexOfAny(['\\', '/']);
 				var procAddressCache = TheScript.DllData.procAddressCache;
 
 				if (z == -1)

@@ -17,6 +17,7 @@ global gSoundInfoEdit := ""
 global gSoundVolumeEdit := ""
 global gClipboardMonitorEnabled := false
 global gClipboardChangeCount := 0
+global gClipboardClipWaitRunning := false
 global gHotkeyHitCount := 0
 global gHotstringHitCount := 0
 global gInputHookObj := ""
@@ -756,6 +757,16 @@ RunClipboardTextRoundTrip() {
 }
 
 RunClipboardClipWaitTest() {
+	global gClipboardClipWaitRunning
+
+	if gClipboardClipWaitRunning {
+		SetStatus("clipboard_main", "Clipboard status: waiting for the previous ClipWait run")
+		AppendLog("Delayed ClipWait ignored because a prior run is still active.")
+		return
+	}
+
+	gClipboardClipWaitRunning := true
+
 	try {
 		A_Clipboard := ""
 		SetTimer(PopulateClipboardTimer, -500)
@@ -771,6 +782,8 @@ RunClipboardClipWaitTest() {
 	} catch as err {
 		SetStatus("clipboard_main", "Clipboard status: BLOCKED/ERROR")
 		AppendLog("Delayed ClipWait test failed: " err.Message)
+	} finally {
+		gClipboardClipWaitRunning := false
 	}
 }
 

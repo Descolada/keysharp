@@ -39,11 +39,27 @@ namespace Keysharp.Core.Unix
 				provider?.ConfigureLayout(rules, model, layout, variant, options);
 			}
 
+#if LINUX
 			internal static nint GetCurrentKeymapHandle()
 			{
 				EnsureProvider();
 				return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
 			}
+
+			internal static bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+			{
+				EnsureProvider();
+				vk = 0;
+				return provider != null && provider.TryMapXKeycodeToVk(keycode, out vk);
+			}
+
+			internal static bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary = false)
+			{
+				EnsureProvider();
+				keycode = 0;
+				return provider != null && provider.TryMapVkToXKeycode(vk, out keycode, returnSecondary);
+			}
+#endif
 
 			private static void EnsureProvider()
 			{
@@ -74,8 +90,12 @@ namespace Keysharp.Core.Unix
 		private interface IUnixCharMapperProvider : IDisposable
 		{
 			bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr);
-			void ConfigureLayout(string rules, string model, string layout, string variant, string options);
+#if LINUX
+			bool TryMapXKeycodeToVk(uint keycode, out uint vk);
+			bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
 			nint GetCurrentKeymapHandle();
+#endif
+			void ConfigureLayout(string rules, string model, string layout, string variant, string options);
 		}
 
 		private sealed class NullCharMapperProvider : IUnixCharMapperProvider
@@ -92,7 +112,21 @@ namespace Keysharp.Core.Unix
 			{
 			}
 
+#if LINUX
+			public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+			{
+				vk = 0;
+				return false;
+			}
+
+			public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
+			{
+				keycode = 0;
+				return false;
+			}
+
 			public nint GetCurrentKeymapHandle() => nint.Zero;
+#endif
 
 			public void Dispose()
 			{

@@ -1061,34 +1061,7 @@ namespace Keysharp.Core.Common.Keyboard
 				if (!(variant != null || (variant = hk.CriterionAllowsFiring(ref criterion_found_hwnd, (ulong)(msg == (uint)UserMessages.AHK_HOOK_HOTKEY ? KeyIgnoreLevel((uint)Conversions.HighWord(lParamVal)) : 0L), ref dummy)) != null))
 					return;
 
-				if (!script.Threads.AnyThreadsAvailable())//First test global thread count.
-					return;
-
-				// If this is AHK_HOOK_HOTKEY, criterion was eligible at time message was posted,
-				// but not now.  Seems best to abort (see other comments).
-				// Due to the key-repeat feature and the fact that most scripts use a value of 1
-				// for their #MaxThreadsPerHotkey, this check will often help average performance
-				// by avoiding a lot of unnecessary overhead that would otherwise occur:
-				if (!variant.AnyThreadsAvailable())//Then test local thread count.
-				{
-					// The key is buffered in this case to boost the responsiveness of hotkeys
-					// that are being held down by the user to activate the keyboard's key-repeat
-					// feature.  This way, there will always be one extra event waiting in the queue,
-					// which will be fired almost the instant the previous iteration of the subroutine
-					// finishes (this above description applies only when MaxThreadsPerHotkey is 1,
-					// which it usually is).
-					variant.RunAgainAfterFinished(); // Wheel notch count (g->EventInfo below) should be okay because subsequent launches reuse the same thread attributes to do the repeats.
-					return;
-				}
-
-				var tv = script.Threads.CurrentThread;
-
-				// Now that above has ensured variant is non-NULL:
-				if (variant.priority >= tv.priority)//Finally, test priority.
-				{
-					// Above also works for RunAgainAfterFinished since that feature reuses the same thread attributes set above.
-					hk.PerformInNewThreadMadeByCallerAsync(variant, criterion_found_hwnd, lParamVal);
-				}
+				hk.PerformInNewThreadMadeByCallerAsync(variant, criterion_found_hwnd, lParamVal);
 			}
 		}
 
@@ -1313,7 +1286,6 @@ namespace Keysharp.Core.Common.Keyboard
 				return;
 
 			var script = Script.TheScript;
-			var origLastPeekTime = script.lastPeekTime;
 			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
 			var i = 0;
 			var sub = keys.AsSpan();
@@ -1355,7 +1327,7 @@ namespace Keysharp.Core.Common.Keyboard
 					modMask = MODLR_MASK; // Reset for the next modifier.
 				}
 
-				sub = keySpan.Slice(i);
+				sub = keySpan.Slice(Math.Min(i + 1, keySpan.Length));
 			}
 
 			if ((sendRaw == SendRawModes.NotRaw) && sub.StartsWith("{Text}", StringComparison.OrdinalIgnoreCase))
@@ -1563,7 +1535,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// being persistent if the user happens to physically hold Ctrl (for any purpose).
 			// For example, when Send "{Shift Down}" and *KEY::Send "a" are used in combination,
 			// the result should be "A" regardless of whether KEY = Shift.
-			modifiersLRPersistent &= modsCurrent & ~modsDownPhysicallyAndLogically;
+			modifiersLRPersistent &= modsCurrent;
 			uint persistentModifiersForThisSendKeys;
 			var modsReleasedForSelectiveBlind = 0u;
 
@@ -1734,11 +1706,11 @@ namespace Keysharp.Core.Common.Keyboard
 								}
 							}
 
-							var subspan = sub.Slice(keyIndex, keyTextLength);
+							var braceSpan = sub.Slice(keyIndex, keyTextLength);
 
-							if (subspan.StartsWith("Click", StringComparison.OrdinalIgnoreCase))
+							if (braceSpan.StartsWith("Click", StringComparison.OrdinalIgnoreCase))
 							{
-								HookThread.ParseClickOptions(subspan.Slice(5).TrimStart(SpaceTab), ref clickX, ref clickY, ref vk
+								HookThread.ParseClickOptions(braceSpan.Slice(5).TrimStart(SpaceTab), ref clickX, ref clickY, ref vk
 													 , ref eventType, ref repeatCount, ref moveOffset);
 
 								if (repeatCount < 1) // Allow {Click 100, 100, 0} to do a mouse-move vs. click (but modifiers like ^{Click..} aren't supported in this case.
@@ -1749,16 +1721,16 @@ namespace Keysharp.Core.Common.Keyboard
 
 								goto bracecaseend; // This {} item completely handled, so move on to next.
 							}
-							else if (subspan.StartsWith("Raw", StringComparison.OrdinalIgnoreCase)) // This is used by auto-replace hotstrings too.
+							else if (braceSpan.StartsWith("Raw", StringComparison.OrdinalIgnoreCase)) // This is used by auto-replace hotstrings too.
 							{
 								// As documented, there's no way to switch back to non-raw mode afterward since there's no
 								// correct way to support special (non-literal) strings such as {Raw Off} while in raw mode.
 								sendRaw = SendRawModes.Raw;
 								goto bracecaseend; // This {} item completely handled, so move on to next.
 							}
-							else if (subspan.StartsWith("Text", StringComparison.OrdinalIgnoreCase)) // Added in v1.1.27
+							else if (braceSpan.StartsWith("Text", StringComparison.OrdinalIgnoreCase)) // Added in v1.1.27
 							{
-								if (subspan.Slice(4).TrimStart(SpaceTab).Length == 0)//Pointing at the closing '}'.
+								if (braceSpan.Slice(4).TrimStart(SpaceTab).Length == 0)//Pointing at the closing '}'.
 									sendRaw = SendRawModes.RawText;
 
 								//else: ignore this {Text something} to reserve for future use.
@@ -1770,23 +1742,22 @@ namespace Keysharp.Core.Common.Keyboard
 							repeatCount = 1L;
 							keyNameLength = keyTextLength;
 							var splitct = 0;
-							var firstSplit = ReadOnlySpan<char>.Empty;
+							var keyTokenSpan = braceSpan;
 
-							foreach (System.Range r in subspan.SplitAny(SpaceTab))
+							foreach (System.Range r in braceSpan.SplitAny(SpaceTab))
 							{
-								var split = subspan[r].Trim();
+								var split = braceSpan[r].Trim();
 
 								if (split.Length > 0)
 								{
 									if (splitct == 0)
 									{
 										keyNameLength = split.Length;
-										firstSplit = split;
+										keyTokenSpan = split;
 									}
 									else
 									{
 										var nextWord = split;
-										subspan = firstSplit;
 
 										if (nextWord.StartsWith("Down", StringComparison.OrdinalIgnoreCase))
 										{
@@ -1811,7 +1782,7 @@ namespace Keysharp.Core.Common.Keyboard
 										{
 											eventType = KeyEventTypes.KeyUp;
 										}
-										else if (!subspan.StartsWith("ASC", StringComparison.OrdinalIgnoreCase))
+										else if (!keyTokenSpan.StartsWith("ASC", StringComparison.OrdinalIgnoreCase))
 										{
 											if (long.TryParse(nextWord, out var templ))
 											{
@@ -1832,12 +1803,10 @@ namespace Keysharp.Core.Common.Keyboard
 								}
 							}
 
-							_ = ht.TextToVKandSC(subspan, ref vk, ref sc, ref modsForNextKey, targetKeybdLayout);
+							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref modsForNextKey, targetKeybdLayout);
 
 							if (repeatCount < 1L)
 								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.
-
-							subspan = sub.Slice(1).TrimStart(SpaceTab);//Consider the entire string, minus the first {, below.
 
 							if (vk != 0 || sc != 0)
 							{
@@ -1884,6 +1853,26 @@ namespace Keysharp.Core.Common.Keyboard
 									// documented.
 								}
 
+#if !WINDOWS
+								// For explicit {char Down}/{char Up}, keep any mapped modifiers (for example Shift
+								// for '"' on some layouts) down across the pair rather than treating them as
+								// one-shot modifiers for a single keypress. Otherwise the base key remains down
+								// while its mapped modifier is released, which breaks auto-repeat/remap behavior.
+								var mappedModifiersForHold = keyAsModifiersLR == 0
+									&& targetWindow == 0
+									&& eventType != KeyEventTypes.KeyDownAndUp
+									? modsForNextKey.Value
+									: 0u;
+
+								if (mappedModifiersForHold != 0 && eventType == KeyEventTypes.KeyDown)
+								{
+									persistentModifiersForThisSendKeys |= mappedModifiersForHold;
+
+									if (keyDownType == KeyDownTypes.Remap)
+										modifiersLRRemapped |= mappedModifiersForHold;
+								}
+#endif
+
 								// Below: sModifiersLR_persistent stays in effect (pressed down) even if the key
 								// being sent includes that same modifier.  Surprisingly, this is how AutoIt2
 								// behaves also, which is good.  Example: Send, {AltDown}!f  ; this will cause
@@ -1891,6 +1880,14 @@ namespace Keysharp.Core.Common.Keyboard
 								// by Alt.
 								SendKey(vk, sc, modsForNextKey.Value, persistentModifiersForThisSendKeys
 										, repeatCount, eventType, keyAsModifiersLR, targetWindow);
+
+#if !WINDOWS
+								if (mappedModifiersForHold != 0 && eventType == KeyEventTypes.KeyUp)
+								{
+									persistentModifiersForThisSendKeys &= ~mappedModifiersForHold;
+									modifiersLRRemapped &= ~mappedModifiersForHold;
+								}
+#endif
 							}
 							else if (keyNameLength == 1) // No vk/sc means a char of length one is sent via special method.
 							{
@@ -1906,15 +1903,15 @@ namespace Keysharp.Core.Common.Keyboard
 										// Although MSDN says WM_CHAR uses UTF-16, it seems to really do automatic
 										// translation between ANSI and UTF-16; we rely on this for correct results:
 										for (var ii = 0L; ii < repeatCount; ++ii)
-											SendCharToTargetWindow(subspan[0], targetWindow);
+											SendCharToTargetWindow(keyTokenSpan[0], targetWindow);
 									}
 									else
-										SendKeySpecial(subspan[0], repeatCount, modsForNextKey.Value | persistentModifiersForThisSendKeys);
+										SendKeySpecial(keyTokenSpan[0], repeatCount, modsForNextKey.Value | persistentModifiersForThisSendKeys);
 								}
 							}
 							// See comment "else must never change sModifiersLR_persistent" above about why
 							// !aTargetWindow is used below:
-							else if ((vk = ht.TextToSpecial(subspan, ref eventType
+							else if ((vk = ht.TextToSpecial(keyTokenSpan, ref eventType
 															, ref persistentModifiersForThisSendKeys, targetWindow == 0)) != 0) // Assign.
 							{
 								if (targetWindow == 0)
@@ -1944,20 +1941,20 @@ namespace Keysharp.Core.Common.Keyboard
 										LongOperationUpdateForSendKeys();
 								}
 							}
-							else if (keyTextLength > 4 && subspan.StartsWith("ASC ", StringComparison.OrdinalIgnoreCase) && targetWindow == 0) // {ASC nnnnn}
+							else if (keyTextLength > 4 && keyTokenSpan.Equals("ASC".AsSpan(), StringComparison.OrdinalIgnoreCase) && targetWindow == 0) // {ASC nnnnn}
 							{
 								// Include the trailing space in "ASC " to increase uniqueness (selectivity).
 								// Also, sending the ASC sequence to window doesn't work, so don't even try:
 								//GetBytes() should really work with spans but for some reason it doesn't.//.NET 9
-								SendASC(Encoding.ASCII.GetBytes(subspan.Slice(3).TrimStart().ToString()));
+								SendASC(Encoding.ASCII.GetBytes(braceSpan.Slice(3).TrimStart().ToString()));
 								// Do this only once at the end of the sequence:
 								DoKeyDelay(); // It knows not to do the delay for SM_INPUT.
 							}
-							else if (keyTextLength > 2 && subspan.StartsWith("U+", StringComparison.OrdinalIgnoreCase))
+							else if (keyTextLength > 2 && keyTokenSpan.StartsWith("U+", StringComparison.OrdinalIgnoreCase))
 							{
 								// L24: Send a unicode value as shown by Character Map.
-								var hexstop = subspan.FirstIndexOf(ch => !ch.IsHex(), 2);
-								var hexsub = subspan.Slice(2, hexstop == -1 ? subspan.Length - 2 : hexstop - 2);
+								var hexstop = braceSpan.FirstIndexOf(ch => !ch.IsHex(), 2);
+								var hexsub = braceSpan.Slice(2, hexstop == -1 ? braceSpan.Length - 2 : hexstop - 2);
 
 								if (long.TryParse(hexsub, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var uCode))
 								{
@@ -2160,7 +2157,7 @@ namespace Keysharp.Core.Common.Keyboard
 				// user resumes typing.
 				// v1.0.42.04: Now that SendKey() is lazy about releasing Ctrl and/or Shift (but not Win/Alt),
 				// the section below also releases Ctrl/Shift if appropriate.  See SendKey() for more details.
-				modsToSet = persistentModifiersForThisSendKeys; // Set default.
+				modsToSet = persistentModifiersForThisSendKeys & modsCurrent; // Set default.
 
 				if (inBlindMode) // This section is not needed for the array-sending modes because they exploit uninterruptibility to perform a more reliable restoration.
 				{
@@ -2252,19 +2249,6 @@ namespace Keysharp.Core.Common.Keyboard
 
 			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
 				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
-
-			//THIS IS PROBABLY NOT NEEDED, SINCE WE PROCESS HOTKEYS ON A DIFFERENT THREAD ANYWAY, SO THERE SHOULDN'T BE ANY NON-CRITICAL BUFFERING.//TODO
-			// The following MsgSleep(-1) solves unwanted buffering of hotkey activations while SendKeys is in progress
-			// in a non-Critical thread.  Because SLEEP_WITHOUT_INTERRUPTION is used to perform key delays, any incoming
-			// hotkey messages would be left in the queue.  It is not until the next interruptible sleep that hotkey
-			// messages may be processed, and potentially discarded due to #MaxThreadsPerHotkey (even #MaxThreadsBuffer
-			// should only allow one buffered activation).  But if the hotkey thread just calls Send in a loop and then
-			// returns, it never performs an interruptible sleep, so the hotkey messages are processed one by one after
-			// each new hotkey thread returns, even though Critical was not used.  Also note SLEEP_WITHOUT_INTERRUPTION
-			// causes g_script.mLastScriptRest to be reset, so it's unlikely that a sleep would occur between Send calls.
-			// To solve this, call MsgSleep(-1) now (unless no delays were performed, or the thread is uninterruptible):
-			if (sendModeOrig == SendModes.Event && script.lastPeekTime != origLastPeekTime && script.Threads.IsInterruptible())
-				_ = Flow.Sleep(0); // MsgSleep(-1);//MsgSleep() is going to be extremely hard to implement, so just do regular sleep for now until we get real threads implemented.//TODO
 
 #if WINDOWS
 			// v1.0.43.03: Someone reported that when a non-autoreplace hotstring calls us to do its backspacing, the

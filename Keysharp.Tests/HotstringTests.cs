@@ -539,6 +539,21 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Hotstring"), NonParallelizable]
+		public void InputHookKeyOptEnterUsesPlatformScanCode()
+		{
+			const uint VkReturn = 0x0D;
+			var ih = Input.InputHook("V");
+			ih.KeyOpt("{Enter}", "E");
+			var sc = Keysharp.Scripting.Script.TheScript.HookThread.MapVkToSc(VkReturn, true);
+			Assert.AreNotEqual(0u, sc);
+
+			if (OperatingSystem.IsWindows())
+				sc ^= 0x100;
+
+			Assert.AreEqual(Keysharp.Core.Common.Threading.HookThread.END_KEY_ENABLED, ih.input.keySC[sc] & Keysharp.Core.Common.Threading.HookThread.END_KEY_ENABLED);
+		}
+
+		[Test, Category("Hotstring"), NonParallelizable]
 		public void ResetInputBuffer()
 		{
 			hsm.AddChars("asdf");

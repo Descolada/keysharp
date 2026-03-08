@@ -246,33 +246,10 @@ namespace Keysharp.Core.Windows
 				// more accurate than "Mem Usage") indicates that a new thread consumes 28 KB + its stack size.
 				if (!changeIsTemporary) // Caller has ensured that thread already exists when aChangeIsTemporary==true.
 				{
-					Start();
-
-					if (channelThreadID != 0)
+					if (thread != null && !thread.IsDisposed())
 					{
 					}
-					// The above priority level seems optimal because if some other process has high priority,
-					// the keyboard and mouse hooks will still take precedence, which avoids the mouse cursor
-					// and keystroke lag that would otherwise occur (confirmed through testing).  Due to their
-					// return-ASAP nature, the hooks are an ideal candidate for almost-realtime priority because
-					// they run only rarely and only for tiny bursts of time.
-					// Note that the above must also be done in such a way that it works on NT4, which doesn't support
-					// below-normal and above-normal process priorities, nor perhaps other aspects of priority.
-					// So what is the actual priority given to the hooks by the OS?  Assuming that the script's
-					// process is set to NORMAL_PRIORITY_CLASS (which is the default), the following applies:
-					// First of all, a definition: "base priority" is the actual/net priority of the thread.
-					// It determines how the OS will schedule a thread relative to all other threads on the system.
-					// So in a sense, if you look only at base priority, the thread's process's priority has no
-					// bearing on how the thread will get scheduled (except to the extent that it contributes
-					// to the calculation of the base priority itself).  Here are some common base priorities
-					// along with where the hook priority (15) fits in:
-					// 7 = NORMAL_PRIORITY_CLASS process + THREAD_PRIORITY_NORMAL thread.
-					// 9 = NORMAL_PRIORITY_CLASS process + THREAD_PRIORITY_HIGHEST thread.
-					// 13 = HIGH_PRIORITY_CLASS process + THREAD_PRIORITY_NORMAL thread.
-					// 15 = (ANY)_PRIORITY_CLASS process + THREAD_PRIORITY_TIME_CRITICAL thread. <-- Seems like the optimal compromise.
-					// 15 = HIGH_PRIORITY_CLASS process + THREAD_PRIORITY_HIGHEST thread.
-					// 24 = REALTIME_PRIORITY_CLASS process + THREAD_PRIORITY_NORMAL thread.
-					else // Failed to create thread.  Seems to rare to justify the display of an error.
+					else // Failed to create thread.  Seems too rare to justify the display of an error.
 					{
 						FreeHookMem(); // If everything's designed right, there should be no hooks now (even if there is, they can't be functional because their thread is nonexistent).
 						return;
@@ -372,16 +349,9 @@ namespace Keysharp.Core.Windows
 							//if (GetActiveHooks() == HookType.None) // The hooks have been deactivated.
 							//  break; // Don't call FreeHookMem() because caller doesn't want that when aChangeIsTemporary==true.
 						}
-						else // Wait for the thread to terminate.
+						else if (GetActiveHooks() == HookType.None)
 						{
-							//GetExitCodeThread(new nint(hookThreadID), out exit_code);
-							if (IsReadThreadCompleted()) // The hook thread is now gone.
-							{
-								channelReadThread = null;
-								channelThreadID = 0;
-								FreeHookMem();//There should be no hooks now (even if there is, they can't be functional because their thread is nonexistent).
-								//break;
-							}
+							FreeHookMem();//There should be no hooks now (even if there is, they can't be functional because their thread is nonexistent).
 						}
 					}
 				}
@@ -1229,7 +1199,7 @@ namespace Keysharp.Core.Windows
 
 		protected internal override void DeregisterHooks()
 		{
-			if (IsReadThreadRunning())
+			if (IsHookThreadRunning())
 			{
 				_ = ChangeHookState(HookType.None, false);
 				//var ksmsg = new KeysharpMsg()

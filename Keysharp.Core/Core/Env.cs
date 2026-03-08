@@ -95,7 +95,7 @@ namespace Keysharp.Core
 		/// <summary>
 		/// Waits until the clipboard contains data.
 		/// </summary>
-		/// <param name="tiemout">If omitted, the function will wait indefinitely. Otherwise, it will wait no longer than this many seconds.<br/>
+		/// <param name="timeout">If omitted, the function will wait indefinitely. Otherwise, it will wait no longer than this many seconds.<br/>
 		/// To wait for a fraction of a second, specify a floating-point number, for example, 0.25 to wait for a maximum of 250 milliseconds.
 		/// </param>
 		/// <param name="waitFor">If omitted, it defaults to 0 (wait only for text or files).<br/>
@@ -104,10 +104,9 @@ namespace Keysharp.Core
 		/// 1: The function waits for data of any kind to appear on the clipboard.
 		/// </param>
 		/// <returns>True if it did not time out, else false.</returns>
-		public static bool ClipWait(object tiemout = null, object waitFor = null)
+		public static bool ClipWait(object timeout = null, object waitFor = null)
 		{
-			//Need to see if this should be put on the main thread like A_Clipboard.//TODO
-			var to = tiemout.Ad(double.MinValue);
+			var to = timeout.Ad(double.MinValue);
 			var type = waitFor.Ab();
 			var checktime = to != double.MinValue;
 			var frequency = 100;
@@ -115,19 +114,43 @@ namespace Keysharp.Core
 
 			for (var i = 0L; !checktime || i < time; i += frequency)
 			{
-#if WINDOWS
-				if (!type ? Clipboard.ContainsText()
-						|| Clipboard.ContainsFileDropList()
-#else
-				if (!type ? Clipboard.Instance.ContainsText
-#endif
-						: !Ks.IsClipboardEmpty())
+				if (ClipboardMatchesWaitCondition(type))
 					return true;
 
 				Flow.Sleep(frequency);
 			}
 
 			return false;
+		}
+
+		private static bool ClipboardMatchesWaitCondition(bool waitForAny)
+		{
+			var script = Script.TheScript;
+
+			return Script.InvokeOnUIThread(() =>
+			{
+#if WINDOWS
+				return !waitForAny
+					? Clipboard.ContainsText() || Clipboard.ContainsFileDropList()
+					: !Ks.IsClipboardEmpty();
+#else
+				var clip = Clipboard.Instance;
+
+				if (clip == null)
+					return false;
+
+				if (!waitForAny)
+				{
+					// Match AHK's "text or files" behavior more closely on Eto/Gtk.
+					// HTML is text-convertible, and URIs are how file copies surface on non-Windows.
+					return clip.ContainsText
+						|| clip.ContainsHtml
+						|| clip.ContainsUris;
+				}
+
+				return !Ks.IsClipboardEmpty();
+#endif
+			});
 		}
 
 		/// <summary>

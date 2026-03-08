@@ -23,6 +23,8 @@ namespace Keysharp.Core.Common.Threading
 		internal long mouseDelay = 10L;
 		internal long mouseDelayPlay = -1L;
 		internal long peekFrequency = 5L;
+		internal bool allowTimers = true;
+		internal bool defaultIsCritical;
 #if WINDOWS
 		internal long regView = 64L;
 #endif
@@ -55,6 +57,8 @@ namespace Keysharp.Core.Common.Threading
 			mouseDelay = protoConfigData.mouseDelay;
 			mouseDelayPlay = protoConfigData.mouseDelayPlay;
 			peekFrequency = protoConfigData.peekFrequency;
+			allowTimers = protoConfigData.allowTimers;
+			defaultIsCritical = protoConfigData.defaultIsCritical;
 #if WINDOWS
 			regView = protoConfigData.regView;
 #endif
@@ -78,7 +82,7 @@ namespace Keysharp.Core.Common.Threading
 		internal bool isPaused = false;
 		internal bool allowThreadToBeInterrupted = true;
 		internal int UninterruptibleDuration = 17;
-		internal DateTime threadStartTime = DateTime.MinValue;
+		internal long threadStartTick;
 		internal Timer currentTimer;
 		internal string defaultGui;
 		internal Form dialogOwner;
@@ -104,24 +108,6 @@ namespace Keysharp.Core.Common.Threading
 
 		internal StringBuilder RegSb => regsb != null ? regsb : regsb = new StringBuilder(1024);
 
-		internal bool IsCriticalAndRunning()
-		{
-			var tempTask = task;
-			//return tempTask != null && !tempTask.IsCompleted && !allowThreadToBeInterrupted && isCritical;
-			return tempTask && !allowThreadToBeInterrupted && isCritical;
-		}
-
-		internal void WaitForCriticalToFinish()
-		{
-			//if (IsCriticalAndRunning())
-			while (IsCriticalAndRunning())
-			{
-				//var tempTask = task;
-				//tempTask?.Wait();
-				Thread.Sleep(50);
-			}
-		}
-
 		/// <summary>
 		/// The fields in this function must be kept in sync with the fields declared above.
 		/// </summary>
@@ -131,7 +117,7 @@ namespace Keysharp.Core.Common.Threading
 			isCritical = false;
 			allowThreadToBeInterrupted = true;
 			UninterruptibleDuration = 17;
-			threadStartTime = DateTime.MinValue;
+			threadStartTick = 0L;
 			currentTimer = null;
 			defaultGui = null;
 			dialogOwner = null;
@@ -153,7 +139,7 @@ namespace Keysharp.Core.Common.Threading
 			isPaused = false;
 			allowThreadToBeInterrupted = true;
 			UninterruptibleDuration = Script.TheScript.uninterruptibleTime;
-			threadStartTime = DateTime.MinValue;
+			threadStartTick = 0L;
 			currentTimer = null;
 			defaultGui = null;
 			dialogOwner = null;
@@ -169,6 +155,7 @@ namespace Keysharp.Core.Common.Threading
 			// Instead of cloning the instance, copy the data because
 			// allocating the memory for new instances is expensive
 			configData.CopyFromPrototypeConfigData();
+			isCritical = configData.defaultIsCritical;
 		}
 	}
 }

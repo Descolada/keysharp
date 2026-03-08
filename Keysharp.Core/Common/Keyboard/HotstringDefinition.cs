@@ -1,4 +1,6 @@
-﻿namespace Keysharp.Core.Common.Keyboard
+﻿using Keysharp.Scripting;
+
+namespace Keysharp.Core.Common.Keyboard
 {
 	[PublicHiddenFromUser]
 	public class HotstringDefinition
@@ -409,52 +411,54 @@
 		internal ResultType PerformInNewThreadMadeByCaller(nint hwndCritFound, string endChar)
 		{
 			var script = Script.TheScript;
+			script.EventScheduler.Enqueue(new ScriptEvent(
+				ScriptEventKind.Hotstring,
+				ScriptEventQueue.Interactive,
+				priority,
+				() => TryExecuteBufferedHotstringEvent(hwndCritFound, endChar)));
+			return ResultType.Ok;
+		}
 
-			if (!script.Threads.AnyThreadsAvailable())//First test global thread count.
-				return ResultType.Fail;
+		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(nint hwndCritFound, string endChar)
+		{
+			var script = Script.TheScript;
+			var admissionResult = script.EventScheduler.CheckPseudoThreadAdmission(priority, false);
 
-			if (!AnyThreadsAvailable())//Then test local thread count.
-				return ResultType.Fail;
+			if (admissionResult != ScriptEventExecutionResult.Executed)
+				return admissionResult;
 
-			var tv = script.Threads.CurrentThread;
+			if (!AnyThreadsAvailable())
+				return ScriptEventExecutionResult.Dropped;
 
-			if (priority < tv.priority)//Finally, test priority.
-				return ResultType.Fail;
+			var btv = script.EventScheduler.BeginPseudoThread(priority, false, false);
 
-			VariadicFunction vf = (o) =>
+			if (!btv.Item1)
+				return ScriptEventExecutionResult.GlobalBlocked;
+
+			try
 			{
-				object ret = null;
-				var ok = Flow.TryCatch(() =>
+				script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
+				A_EndChar = endCharRequired ? endChar : "";
+				script.SetHotNamesAndTimes(Name);
+				_ = Interlocked.Increment(ref existingThreads);
+
+				_ = Flow.TryCatch(() =>
 				{
-					ret = null;
 					var tv = script.Threads.CurrentThread;
 					tv.configData.sendLevel = inputLevel;
 					tv.hwndLastUsed = hwndCritFound;
 					tv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
-					ret = funcObj.Call(o);
-				}, false, (false, null));
-				_ = Interlocked.Decrement(ref existingThreads);
-				return ret;
-			};
-
-			try
-			{
-				//var tsk = await Threads.LaunchInThread(priority, false, false, vf, new object[] { Name });
-				// See Hotkey::Perform() for details about this.  For hot strings -- which also use the
-				// g_script.mThisHotkeyStartTime value to determine whether g_script.mThisHotkeyModifiersLR
-				// is still timely/accurate -- it seems best to set to "no modifiers":
-				script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
-				A_EndChar = endCharRequired ? endChar : ""; // v1.0.48.04: Explicitly set 0 when hs->mEndCharRequired==false because LOWORD is used for something else in that case.
-				script.SetHotNamesAndTimes(Name);
-				_ = Interlocked.Increment(ref existingThreads);//This is the thread count for this particular hotstring only.
-				script.Threads.LaunchInThread(priority, false, false, vf, [Name], false);
+					_ = funcObj.Call([Name]);
+					_ = Interlocked.Decrement(ref existingThreads);
+					_ = script.Threads.EndThread(btv);
+				}, true, btv);
 			}
 			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, "iconx");
 			}
 
-			return ResultType.Ok;
+			return ScriptEventExecutionResult.Executed;
 		}
 
 		[Flags]

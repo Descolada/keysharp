@@ -160,13 +160,25 @@
 		public object VisibleNonText
 		{
 			get => input.visibleNonText;
-			set => input.visibleNonText = value.Ab();
+			set
+			{
+				input.visibleNonText = value.Ab();
+
+				if (input.InProgress())
+					Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+			}
 		}
 
 		public object VisibleText
 		{
 			get => input.visibleText;
-			set => input.visibleText = value.Ab();
+			set
+			{
+				input.visibleText = value.Ab();
+
+				if (input.InProgress())
+					Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+			}
 		}
 
 		public InputObject(params object[] args) : base(args) { }
@@ -249,6 +261,9 @@
 			}
 
 			input.SetKeyFlags(keys, false, removeFlags, addFlags);
+
+			if (input.InProgress())
+				Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
 
 			return DefaultObject;
 		}

@@ -123,7 +123,7 @@
 					break;
 
 				case WindowsAPI.WM_HOTKEY://We will need to find a cross platform way to do this. At the moment, hotkeys appear to be a built in feature in Windows.//TODO
-					_ = Script.TheScript.HookThread.channel.Writer.TryWrite(new KeysharpMsg()
+					_ = Script.TheScript.HookThread.PostMessage(new KeysharpMsg()
 					{
 						hwnd = m.HWnd,//Unused, but probably still good to assign.
 						message = WindowsAPI.WM_HOTKEY,

@@ -300,6 +300,7 @@ namespace Keysharp.Core.Common.Input
 			// Ensure any pending use of aInput by the hook is finished.
 			ht.WaitHookIdle();
 			prev = null;
+			ht.RefreshPlatformKeyGrabs();
 
 			if (scriptObject != null)
 			{
@@ -342,6 +343,7 @@ namespace Keysharp.Core.Common.Input
 				++script.inputBeforeHotkeysCount;
 
 			HotkeyDefinition.InstallKeybdHook(); // Install the hook (if needed).
+			script.HookThread.RefreshPlatformKeyGrabs();
 		}
 
 		internal InputType InputUnlinkIfStopped(InputType input)
@@ -523,7 +525,9 @@ namespace Keysharp.Core.Common.Input
 
 							if (!vkByNumber && (sc = ht.MapVkToSc(vk, true)) != 0)
 							{
+#if WINDOWS
 								sc ^= 0x100; // Convert sc to the primary scan code, which is the one named by end_key.
+#endif
 								vk = 0; // Handle it only by SC.
 							}
 						}

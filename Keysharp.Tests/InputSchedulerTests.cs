@@ -1,0 +1,143 @@
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Keysharp.Core.Common.Invoke;
+using Keysharp.Core.Common.Keyboard;
+
+namespace Keysharp.Tests
+{
+	[TestFixture, NonParallelizable]
+	public class InputSchedulerTests : TestRunner
+	{
+		private static HotkeyDefinition CreateHotkey(string name = "F1")
+			=> new(1, new FuncObj((Func<object, object>)(_ => 0L)), 0, name, 0);
+
+		private static HotkeyVariant CreateHotkeyVariant(Action action, int maxThreads = 1, int existingThreads = 0, bool maxThreadsBuffer = false)
+		{
+			return new HotkeyVariant
+			{
+				callback = new FuncObj((Func<object, object>)(_ =>
+				{
+					action();
+					return 0L;
+				})),
+				maxThreads = maxThreads,
+				existingThreads = existingThreads,
+				maxThreadsBuffer = maxThreadsBuffer,
+				priority = 0
+			};
+		}
+
+		[Test, Category("Threading")]
+		public void HotkeyEventWaitsForGlobalCapacityThenRuns()
+		{
+			var context = UseQueuedMainContext();
+			s.MaxThreadsTotal = 1;
+			var occupied = s.Threads.BeginThread();
+
+			try
+			{
+				var calls = 0;
+				var hk = CreateHotkey();
+				var variant = CreateHotkeyVariant(() => calls++);
+
+				hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
+				context.DrainAll();
+
+				Assert.AreEqual(0, calls);
+
+				_ = s.Threads.EndThread(occupied);
+				context.DrainAll();
+
+				Assert.AreEqual(1, calls);
+			}
+			catch
+			{
+				_ = s.Threads.EndThread(occupied);
+				throw;
+			}
+		}
+
+		[Test, Category("Threading")]
+		public void LocallyBlockedHotstringDoesNotStallOtherNormalWork()
+		{
+			var context = UseQueuedMainContext();
+
+			var hotstringCalls = 0;
+			var normalCalls = 0;
+			var hs = new HotstringDefinition("::abc", "")
+			{
+				Name = "abc"
+			};
+			hs.funcObj = new FuncObj((Func<object, object>)(name =>
+			{
+				hotstringCalls++;
+				return 0L;
+			}));
+			hs.maxThreads = 1;
+			hs.existingThreads = 1;
+			hs.priority = 0;
+
+			_ = hs.PerformInNewThreadMadeByCaller(0, " ");
+			s.EventScheduler.EnqueueCallback(() => normalCalls++, ScriptEventQueue.Normal, false);
+
+			context.DrainAll();
+
+			Assert.AreEqual(0, hotstringCalls);
+			Assert.AreEqual(1, normalCalls);
+		}
+
+		[Test, Category("Threading")]
+		public void BufferedLocalBlockedHotkeyRetriesAfterVariantBecomesAvailable()
+		{
+			var context = UseQueuedMainContext();
+
+			var hotkeyCalls = 0;
+			var normalCalls = 0;
+			var hk = CreateHotkey();
+			var variant = CreateHotkeyVariant(() => hotkeyCalls++, existingThreads: 1, maxThreadsBuffer: true);
+
+			hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
+			s.EventScheduler.EnqueueCallback(() => normalCalls++, ScriptEventQueue.Normal, false);
+
+			context.DrainAll();
+
+			Assert.AreEqual(0, hotkeyCalls);
+			Assert.AreEqual(1, normalCalls);
+
+			variant.existingThreads = 0;
+			s.EventScheduler.SchedulePump();
+			context.DrainAll();
+
+			Assert.AreEqual(1, hotkeyCalls);
+		}
+
+		[Test, Category("Threading")]
+		public void HotkeyAndHotstringUseInteractiveQueueAheadOfNormalCallbacks()
+		{
+			var context = UseQueuedMainContext();
+			var order = new List<string>();
+
+			var hk = CreateHotkey();
+			var variant = CreateHotkeyVariant(() => order.Add("hotkey"));
+			var hs = new HotstringDefinition("::abc", "")
+			{
+				Name = "abc",
+				funcObj = new FuncObj((Func<object, object>)(_ =>
+				{
+					order.Add("hotstring");
+					return 0L;
+				})),
+				maxThreads = 1,
+				priority = 0
+			};
+
+			s.EventScheduler.EnqueueCallback(() => order.Add("normal-1"), ScriptEventQueue.Normal, false);
+			hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
+			_ = hs.PerformInNewThreadMadeByCaller(0, " ");
+			s.EventScheduler.EnqueueCallback(() => order.Add("normal-2"), ScriptEventQueue.Normal, false);
+
+			context.DrainAll();
+
+			Assert.That(order, Is.EqualTo(new[] { "hotkey", "hotstring", "normal-1", "normal-2" }));
+		}
+	}
+}

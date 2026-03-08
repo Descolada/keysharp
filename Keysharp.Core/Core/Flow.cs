@@ -11,6 +11,37 @@ namespace Keysharp.Core
 	public static class Flow
 	{
 		internal const int intervalUnspecified = int.MinValue + 303;// Use some negative value unlikely to ever be passed explicitly:
+		private sealed class DialogInterruptibilityScope : IDisposable
+		{
+			private readonly ThreadVariables threadVariables;
+			private readonly bool previousAllowThreadToBeInterrupted;
+			private bool disposed;
+
+			internal DialogInterruptibilityScope(ThreadVariables threadVariables)
+			{
+				this.threadVariables = threadVariables;
+				previousAllowThreadToBeInterrupted = threadVariables.allowThreadToBeInterrupted;
+			}
+
+			public void Dispose()
+			{
+				if (disposed)
+					return;
+
+				threadVariables.allowThreadToBeInterrupted = previousAllowThreadToBeInterrupted;
+				disposed = true;
+			}
+		}
+
+		private sealed class NoOpScope : IDisposable
+		{
+			internal static readonly NoOpScope Instance = new ();
+
+			public void Dispose()
+			{
+			}
+		}
+
 		private static bool TryGetException<TException>(Exception ex, out TException found) where TException : Exception
 		{
 			found = null;
@@ -34,6 +65,23 @@ namespace Keysharp.Core
 			}
 
 			return ex.InnerException != null && TryGetException(ex.InnerException, out found);
+		}
+
+		internal static IDisposable BeginDialogInterruptibilityScope()
+		{
+			var script = Script.TheScript;
+
+			if (script == null || Volatile.Read(ref script.totalExistingThreads) == 0)
+				return NoOpScope.Instance;
+
+			var tv = script.Threads.CurrentThread;
+
+			if (tv == null || tv.allowThreadToBeInterrupted)
+				return NoOpScope.Instance;
+
+			var scope = new DialogInterruptibilityScope(tv);
+			tv.allowThreadToBeInterrupted = true;
+			return scope;
 		}
 
 		public static Exception UnwrapException(Exception ex)
@@ -101,11 +149,12 @@ namespace Keysharp.Core
 			// doesn't start with a non-zero number, and zero itself.
 			tv.isCritical = onOffNumeric == null // i.e. omitted or blank is the same as "ON". See comments above.
 							|| on
-							|| freq > 0L; // Non-zero integer also turns it on. Relies on short-circuit boolean order.
+							|| freq != 0L; // Non-zero integer also turns it on. Relies on short-circuit boolean order.
 
 			if (tv.isCritical) // Critical has been turned on. (For simplicity even if it was already on, the following is done.)
 			{
 				tv.configData.peekFrequency = freq;
+				tv.configData.defaultIsCritical = true;
 				tv.allowThreadToBeInterrupted = false;
 				// Ensure uninterruptibility never times out.  IsInterruptible() relies on this to avoid the
 				// need to check g->ThreadIsCritical, which in turn allows global_maximize_interruptibility()
@@ -121,12 +170,14 @@ namespace Keysharp.Core
 				// Since Critical is being turned off, allow thread to be immediately interrupted regardless of
 				// any "Thread Interrupt" settings.
 				tv.configData.peekFrequency = 5;
+				tv.configData.defaultIsCritical = false;
 				tv.allowThreadToBeInterrupted = true;
 			}
 
 			// The thread's interruptibility has been explicitly set; so the script is now in charge of
 			// managing this thread's interruptibility.
 			script.FlowData.callingCritical = false;
+			script.RestartPreemptiveMessageTimer();
 			return ret;
 		}
 
@@ -159,16 +210,9 @@ namespace Keysharp.Core
 				try
 				{
 					if (script.mainWindow != null)
-					{
-						script.mainWindow.CheckedInvoke(() =>
-						{
-							_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
-						}, true);
-					}
+						Script.InvokeOnUIThread(() => _ = ExitAppInternal(ExitReasons.Exit, exitCode, true));
 					else
-					{
 						_ = ExitAppInternal(ExitReasons.Exit, exitCode, true);
-					}
 				}
 				catch (Exception ex) when (TryGetException(ex, out UserRequestedExitException userExit))
 				{
@@ -185,7 +229,8 @@ namespace Keysharp.Core
 
 		/// <summary>
 		/// Returns whether the passed in value is true and the script is running.
-		/// This is used in the generated code to evaluate loop variables.
+		/// This is used in generated loop conditions and is one of the main poll sites
+		/// for preemptive message checks in compiled code.
 		/// </summary>
 		/// <param name="obj">The value to examine.</param>
 		/// <returns>True if the value is true and the script is running, else false.</returns>
@@ -197,10 +242,10 @@ namespace Keysharp.Core
 			if (script.hasExited)
 				return false;
 
-			//Use Environment.TickCount because it's the fastest and we don't want to add extra time to each loop.
-			//Its precision is around 15ms which is the amount we're testing for, so it should be ok.
-			//https://stackoverflow.com/questions/243351/environment-tickcount-vs-datetime-now
-			if (script.loopShouldDoEvents)
+			// Compiled code cannot check the message queue before every line like AHK's interpreter.
+			// Instead, a periodic timer latches a pending preemptive check, and loop poll sites
+			// honor it only when the current thread's peek frequency says another check is due.
+			if (script.preemptiveMessageCheckPending && script.IsPreemptiveMessageCheckDue(Environment.TickCount64))
 				TryDoEvents(true, false);
 
 			return b;
@@ -244,15 +289,9 @@ namespace Keysharp.Core
 			var mt = maxThreads.Al(1);
 			var gd = Script.TheScript.GuiData;
 			var monitor = gd.onMessageHandlers.GetOrAdd(msg);
+			monitor.ModifyRegistration(Functions.GetFuncObj(callback, null, true), mt);
 
-			if (mt > 0)
-				monitor.maxInstances = Math.Clamp((int)mt, 1, Script.maxThreadsLimit);
-			else if (mt < 0)
-				monitor.maxInstances = (int)(-mt);
-
-			monitor.funcs.ModifyEventHandlers(Functions.GetFuncObj(callback, null, true), mt);
-
-			if (mt == 0 && monitor.funcs.Count == 0)
+			if (mt == 0 && monitor.IsEmpty)
 				_ = gd.onMessageHandlers.TryRemove(msg, out var _);
 
 			return DefaultObject;
@@ -289,7 +328,7 @@ namespace Keysharp.Core
 			if (script.scriptName == "*")
 				return DefaultObject;
 			//Just calling Application.Restart will not always trigger ExitAppInternal().
-			script.mainWindow.CheckedBeginInvoke(() =>
+			Script.PostToUIThread(() =>
 			{
 				A_ExitReason = ExitReasons.Reload;
 #if WINDOWS
@@ -298,7 +337,7 @@ namespace Keysharp.Core
 				Application.Instance.Restart();
 #endif
 				ExitAppInternal(ExitReasons.Reload);
-			}, true, true);
+			});
 			var start = DateTime.UtcNow;
 
 			while (!script.hasExited && (DateTime.UtcNow - start).TotalSeconds < 5)
@@ -390,6 +429,7 @@ namespace Keysharp.Core
 						if (timer.Interval == p)
 							timer.Interval = int.MaxValue;
 						timer.Interval = (int)p;
+						timer.ResetFallbackSchedule();
 					}
 
 					return DefaultObject;
@@ -407,64 +447,18 @@ namespace Keysharp.Core
 			else//They tried to stop a timer that didn't exist
 				return DefaultErrorObject;
 
+			timer.ScriptFunc = func;
+			timer.RunsOnce = once;
 			timer.Tick += (ss, ee) =>
 			{
-				var script = Script.TheScript;//Avoid a capture.
-				var v = script.Threads;
-
-				//If script has exited or we don't receive a TimerWithTag object, just exit
-				if (Ks.A_HasExited || (ss is not TimerWithTag t))
+				if (Ks.A_HasExited || ss is not TimerWithTag t)
 					return;
 
-				if (!t.Enabled)//A way of checking to make sure the timer is not already executing.
-					return;
-
-				//If there are not enough threads, then this will exit and retry. Even a single shot
-				//timer will keep trying until it gets through.
-				//Note that this means there is no real "queueing" of timer events. Rather,
-				//they just keep getting retried.
-				//The reason for this is that if a timer event calls Sleep() which calls DoEvents(),
-				//we can't also call those functions here or else the program will freeze/crash.
-				if ((!Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
-						|| !v.AnyThreadsAvailable() || !script.Threads.IsInterruptible())
-				{
-					t.PushToMessageQueue();
-					return;
-				}
-
-				var pri = t.Tag.Ai();
-				var tv = v.CurrentThread;
-
-				if (pri >= tv.priority)
-				{
-					t.Enabled = false;
-					var btv = v.PushThreadVariables(pri, true, false, false, true);
-					_ = TryCatch(() =>
-					{
-						btv.Item2.currentTimer = timer;
-						btv.Item2.eventInfo = func;
-						var ret = func.Call();
-						_ = v.EndThread(btv);
-					}, true, btv);//Pop on exception because EndThread() above won't be called.
-
-					if (once)
-					{
-						_ = script.FlowData.timers.TryRemove(func, out _);
-						t.Stop();
-						t.Dispose();
-						script.ExitIfNotPersistent();
-					}
-					else if (script.FlowData.timers.TryGetValue(func, out var existing))//They could have disabled it, in which case it wouldn't be in the dictionary.
-						existing.Enabled = true;
-					else
-						script.ExitIfNotPersistent();//Was somehow removed, such as in a window close handler, so attempt to exit.
-				}
+				t.PushToMessageQueue();
 			};
 			Script.InvokeOnUIThread(timer.Start);
 
-			if (script.totalExistingThreads >= script.MaxThreadsTotal)
-				timer.Pause();
-			else if (timer.Interval == 1)
+			if (timer.Interval == 1)
 				timer.PushToMessageQueue();
 
 			//script.mainWindow.CheckedBeginInvoke(timer.Start, true, true);
@@ -472,8 +466,36 @@ namespace Keysharp.Core
 		}
 
 		/// <summary>
-		/// Calls DoEvents() but catches and discards all errors, except if <paramref name="allowExit"/>
-		/// is true in which case UserRequestedExitException is allowed through.
+		/// Pumps the native UI loop once, then lets the script scheduler run queued work.
+		/// Native pumping must happen first so framework/OS events such as SendMessage handlers can reach Keysharp.
+		/// </summary>
+		private static void PumpUiAndScheduler()
+		{
+			var script = Script.TheScript;
+
+#if WINDOWS
+			Application.DoEvents();
+#else
+			Application.Instance?.RunIteration();
+#endif
+			script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
+			script.EventScheduler.PumpPendingEvents();
+		}
+
+		/// <summary>
+		/// Repeatedly pumps the native UI loop and script scheduler while <paramref name="keepWaiting"/> returns true.
+		/// </summary>
+		private static void WaitWithMessagePump(Func<bool> keepWaiting, bool allowExit = true)
+		{
+			while (keepWaiting())
+				TryDoEvents(allowExit);
+		}
+
+		/// <summary>
+		/// Performs one full script-visible message check:
+		/// native/UI pump first, then overdue timers, then queued script events.
+		/// This is used both by waits/sleeps and by preemptive loop checks.
+		/// All non-exit exceptions are swallowed.
 		/// </summary>
 		/// <param name="allowExit"/>If true then UserRequestedExitException is allowed through
 		/// so the program can exit, otherwise all exceptions are discarded.
@@ -481,18 +503,18 @@ namespace Keysharp.Core
 		{
 			var start = yieldTick ? Environment.TickCount : default;
 			var script = Script.TheScript;
-			script.loopShouldDoEvents = false;
-			script.tickTimer.Start();
+			// A pending preemptive check is being serviced now; waits and explicit sleeps
+			// also come through here, so the flag is simply cleared on entry.
+			script.preemptiveMessageCheckPending = false;
+			var recordedPeek = false;
 
 			if (allowExit)
 			{
 				try
 				{
-#if WINDOWS
-					Application.DoEvents();
-#else
-					Application.Instance?.RunIteration();
-#endif
+					PumpUiAndScheduler();
+					script.RecordMessageCheck(Environment.TickCount64);
+					recordedPeek = true;
 				}
 				catch (UserRequestedExitException)
 				{
@@ -506,16 +528,19 @@ namespace Keysharp.Core
 			{
 				try
 				{
-#if WINDOWS
-					Application.DoEvents();
-#else
-					Application.Instance?.RunIteration();
-#endif
+					PumpUiAndScheduler();
+					script.RecordMessageCheck(Environment.TickCount64);
+					recordedPeek = true;
 				}
 				catch
 				{
 				}
 			}
+
+			if (!recordedPeek)
+				script.RecordMessageCheck(Environment.TickCount64);
+
+			script.RestartPreemptiveMessageTimer();
 
 			if (yieldTick && start.Equals(Environment.TickCount))
 				//0 tells this thread to relinquish the remainder of its time slice to any thread of equal priority that is ready to run.
@@ -549,19 +574,12 @@ namespace Keysharp.Core
 			}
 			else if (d == -2)//Sleep indefinitely until all InputHooks are finished.
 			{
-				while (!script.hasExited && script.input != null && script.input.InProgress())
-				{
-					TryDoEvents(); //Does events once per tick
-				}
+				WaitWithMessagePump(() => !script.hasExited && script.input != null && script.input.InProgress());
 			}
 			else
 			{
-				var stop = DateTime.UtcNow.AddMilliseconds(d);//Using Application.DoEvents() is a pseudo-sleep that blocks until the timeout, but doesn't freeze the window.
-
-				while (DateTime.UtcNow < stop && !script.hasExited)
-				{
-					TryDoEvents(); //Does events once per tick
-				}
+				var stopTick = Environment.TickCount64 + d;//Using Application.DoEvents() is a pseudo-sleep that blocks until the timeout, but doesn't freeze the window.
+				WaitWithMessagePump(() => !script.hasExited && Environment.TickCount64 < stopTick);
 			}
 
 			return DefaultObject;
@@ -607,8 +625,7 @@ namespace Keysharp.Core
 				var prevAllowTimers = Ks.A_AllowTimers;
 				Ks.A_AllowTimers = false;
 
-				while (tv.isPaused)
-					Flow.TryDoEvents();
+				WaitWithMessagePump(() => tv.isPaused);
 
 				Ks.A_AllowTimers = prevAllowTimers;
 			}
@@ -639,7 +656,7 @@ namespace Keysharp.Core
 		///     Priority: The thread priority as an integer in the range -2147483648 and 2147483647.<br/>
 		///     Interrupt: The time in milliseconds that each newly launched thread is uninterruptible. Default: 17.
 		/// </param>
-		public static object Thread(object subFunction, object value1 = null)
+		public static object Thread(object subFunction, object value1 = null, object value2 = null)
 		{
 			var sf = subFunction.As();
 			var script = Script.TheScript;
@@ -942,5 +959,51 @@ namespace Keysharp.Core
 		internal bool suspended;
 
 		internal ConcurrentDictionary<IFuncObj, TimerWithTag> timers = new ();
+		internal long nextTimerFallbackDueTick = long.MaxValue;
+		internal bool timerFallbackDueTickDirty = true;
+
+		internal void MarkTimerFallbackDueTickDirty() => timerFallbackDueTickDirty = true;
+
+		internal void NoteTimerFallbackDueTick(long dueTick)
+		{
+			if (dueTick < nextTimerFallbackDueTick)
+				nextTimerFallbackDueTick = dueTick;
+		}
+
+		internal void QueueOverdueTimersIfNeeded(long nowTick)
+		{
+			if (timerFallbackDueTickDirty)
+				RefreshTimerFallbackDueTick();
+
+			if (nowTick < nextTimerFallbackDueTick)
+				return;
+
+			var nextDueTick = long.MaxValue;
+
+			foreach (var timer in timers.Values)
+			{
+				timer.QueueIfOverdue(nowTick);
+
+				if (timer.FallbackDueTick < nextDueTick)
+					nextDueTick = timer.FallbackDueTick;
+			}
+
+			nextTimerFallbackDueTick = nextDueTick;
+			timerFallbackDueTickDirty = false;
+		}
+
+		private void RefreshTimerFallbackDueTick()
+		{
+			var nextDueTick = long.MaxValue;
+
+			foreach (var timer in timers.Values)
+			{
+				if (timer.FallbackDueTick < nextDueTick)
+					nextDueTick = timer.FallbackDueTick;
+			}
+
+			nextTimerFallbackDueTick = nextDueTick;
+			timerFallbackDueTickDirty = false;
+		}
 	}
 }

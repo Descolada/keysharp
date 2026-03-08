@@ -138,10 +138,8 @@ namespace Keysharp.Core.Unix
 		// Hotstring arming state
 		protected bool hsArmed;   // any end-keys are armed right now?
 
-		// Each armed end-key we grab (base grab; variants for Caps/NumLock are stored in hsActiveGrabVariants)
+		// Each armed end-key we grab. Modifier variants can be reconstructed from this metadata when needed.
 		protected readonly HashSet<ArmedEnd> hsArmedEnds = new();
-
-		protected readonly HashSet<(uint keycode, uint mods)> hsActiveGrabVariants = new(); // to ungrab fast
 
 		protected struct ArmedEnd
 		{
@@ -197,10 +195,18 @@ namespace Keysharp.Core.Unix
 			public bool AllowExtra;  // wildcard (*) hotkey: allow extra modifiers
 		}
 
-		// Tracks plain hotkeys grabbed via XGrabKey as well as dynamic grabs for custom prefixes.
-		protected readonly HashSet<(uint xCode, uint mods)> activeGrabs = new();
-		protected readonly HashSet<(uint xCode, uint mods)> activeHotstringGrabs = new();
-		protected readonly HashSet<(uint button, uint mods)> activeButtonGrabs = new();
+		[Flags]
+		protected enum GrabKinds
+		{
+			None = 0,
+			Hotkey = 1,
+			Input = 2,
+			Hotstring = 4,
+		}
+
+		// Tracks installed passive key grabs by physical X11 keycode/modifier pair and why they exist.
+		protected readonly Dictionary<(uint xCode, uint mods), GrabKinds> activeKeyGrabs = new();
+		protected readonly Dictionary<(uint button, uint mods), GrabKinds> activeButtonGrabs = new();
 		protected virtual bool UseSyntheticEventQueue => true;
 		protected virtual bool UsePlatformHotstringArming => false;
 		private bool sendInProgress;
@@ -226,9 +232,29 @@ namespace Keysharp.Core.Unix
 		internal struct GrabSnapshot
 		{
 			public bool Active;
-			public HashSet<(uint xcode, uint mods)> Grabs;
-			public HashSet<(uint xcode, uint mods)> HotstringGrabs;
+			public HashSet<(uint xcode, uint mods)> KeyGrabs;
 			public HashSet<(uint button, uint mods)> ButtonGrabs;
+		}
+
+		protected static void AddGrabKind<TKey>(Dictionary<TKey, GrabKinds> target, TKey key, GrabKinds kind) where TKey : notnull
+		{
+			if (target.TryGetValue(key, out var existing))
+				target[key] = existing | kind;
+			else
+				target[key] = kind;
+		}
+
+		protected static void RemoveGrabKind<TKey>(Dictionary<TKey, GrabKinds> target, TKey key, GrabKinds kind) where TKey : notnull
+		{
+			if (!target.TryGetValue(key, out var existing))
+				return;
+
+			existing &= ~kind;
+
+			if (existing == GrabKinds.None)
+				target.Remove(key);
+			else
+				target[key] = existing;
 		}
 
 		internal UnixHookThread()
@@ -531,6 +557,7 @@ namespace Keysharp.Core.Unix
 			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
+			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			// Track logical state as seen by apps.
 			UpdateLogicalKeyFromHook(vk, keyUp: false, wasGrabbed);
@@ -564,6 +591,7 @@ namespace Keysharp.Core.Unix
 			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
+			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			UpdateLogicalKeyFromHook(vk, keyUp: true, wasGrabbed);
 
@@ -688,6 +716,7 @@ namespace Keysharp.Core.Unix
 			var vk = MapWheelVk(e);
 			var sc = (uint)e.Data.Rotation;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
+			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
 			if (result != 0)
@@ -724,6 +753,7 @@ namespace Keysharp.Core.Unix
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
+			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
 			if (result != 0)
@@ -744,6 +774,7 @@ namespace Keysharp.Core.Unix
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
+			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
 			if (result != 0)
@@ -908,8 +939,11 @@ namespace Keysharp.Core.Unix
 			return simulated;
 		}
 
-		private ulong ComputeExtraInfo(bool isSimulated)
+		private ulong ComputeExtraInfo(ulong extraInfo, bool isSimulated)
 		{
+			if (extraInfo != 0)
+				return extraInfo;
+
 			if (sendInProgress || isSimulated)
 				return (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
 
@@ -992,8 +1026,6 @@ namespace Keysharp.Core.Unix
 				DebugLog("Disarming hotstring");
 				DisarmHotstringPlatform();
 
-				hsActiveGrabVariants.Clear();
-				activeHotstringGrabs.Clear();
 				hsArmedEnds.Clear();
 				hsArmed = false;
 			}
@@ -1049,7 +1081,7 @@ namespace Keysharp.Core.Unix
 						endChar = lastTypedChar;
 				}
 
-				_ = channel.Writer.TryWrite(new KeysharpMsg
+				_ = PostMessage(new KeysharpMsg
 				{
 					message = (uint)UserMessages.AHK_HOTSTRING,
 					obj = new HotstringMsg { hs = ready, caseMode = caseMode, endChar = endChar }
@@ -1193,7 +1225,7 @@ namespace Keysharp.Core.Unix
 		private void PostHotkey(uint hotkeyId, uint sc /* typically 0 on Linux */, long eventLevel)
 		{
 			// Mirror Windows: pack SC (low word) + event input level (high word), variant omitted.
-			_ = channel.Writer.TryWrite(new KeysharpMsg
+			_ = PostMessage(new KeysharpMsg
 			{
 				message = (uint)UserMessages.AHK_HOOK_HOTKEY,
 				wParam = new nint(hotkeyId),
@@ -1774,5 +1806,3 @@ namespace Keysharp.Core.Unix
 	}
 }
 #endif
-
-

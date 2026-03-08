@@ -243,13 +243,11 @@
 					return Clipboard.Instance?.Text ?? DefaultObject;
 #endif
 				};
-				var ret = "";
-				Script.TheScript.mainWindow.CheckedInvoke(() => ret = act(), true);
-				return ret;
+				return Script.InvokeOnUIThread(act);
 			}
 			set
 			{
-				Script.TheScript.mainWindow.CheckedInvoke(() =>
+				Script.InvokeOnUIThread(() =>
 				{
 #if !WINDOWS
 					var clip = Clipboard.Instance;
@@ -282,7 +280,7 @@
 					}
 
 #endif
-				}, true);
+				});
 			}
 		}
 
@@ -2005,9 +2003,29 @@
 			}
 		}
 		/// <summary>
-		/// Whether timers are allowed to operate in the script. Default: true.
+		/// Whether timers are allowed to operate in the current thread. Default: true.
 		/// </summary>
-		public static object A_AllowTimers { get; set; } = true;
+		public static object A_AllowTimers
+		{
+			get
+			{
+				var script = Script.TheScript;
+				return script?.Threads?.CurrentThread?.configData.allowTimers ?? true;
+			}
+
+			set
+			{
+				var script = Script.TheScript;
+
+				if (script == null)
+					return;
+
+				var val = Options.OnOff(value);
+
+				if (val.HasValue)
+					script.Threads.CurrentThread.configData.allowTimers = val.Value;
+			}
+		}
 
 		/// <summary>
 		/// Iterates through all timers in existence and returns the number of them which are enabled.
@@ -2564,11 +2582,14 @@
 
 		/// <summary>
 		/// Thread peek frequency in milliseconds.
-		/// Unused because Keysharp is compiled and not interpreted.
 		internal static long A_PeekFrequency
 		{
 			get => Script.TheScript.Threads.CurrentThread.configData.peekFrequency;
-			set => Script.TheScript.Threads.CurrentThread.configData.peekFrequency = value;
+			set
+			{
+				Script.TheScript.Threads.CurrentThread.configData.peekFrequency = value;
+				Script.TheScript.RestartPreemptiveMessageTimer();
+			}
 		}
 
 #if WINDOWS

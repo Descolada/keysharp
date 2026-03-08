@@ -472,6 +472,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// THIRD PASS THROUGH THE HOTKEYS:
 			// v1.0.42: Reset sWhichHookNeeded because it's now possible that the hook was on before but no longer
 			// needed due to changing of a hotkey from hook to registered (for various reasons described above):
+			HotkeyVariant vp;
 			hkd.whichHookNeeded = 0;
 
 			for (i = 0; i < shk.Count; ++i)

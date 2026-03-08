@@ -246,6 +246,8 @@ namespace Keysharp.Core.Windows
 				// more accurate than "Mem Usage") indicates that a new thread consumes 28 KB + its stack size.
 				if (!changeIsTemporary) // Caller has ensured that thread already exists when aChangeIsTemporary==true.
 				{
+					Start();
+
 					if (thread != null && !thread.IsDisposed())
 					{
 					}
@@ -1223,6 +1225,14 @@ namespace Keysharp.Core.Windows
 			base.Stop();
 		}
 
+		protected internal override void Start()
+		{
+			if (thread != null && !thread.IsDisposed())
+				return;
+
+			thread = new StaThreadWithMessageQueue();
+		}
+
 		private bool ChangeHookState(HookType hooksToBeActive, bool changeIsTemporary)//This is going to be a problem if it's ever called to re-add a hook from another thread because only the main gui thread has a message loop.//TODO
 		{
 			var problem_activating_hooks = false;
@@ -1275,9 +1285,9 @@ namespace Keysharp.Core.Windows
 				return DefaultObject;
 			};
 
-			//Do this here on the first time through because it's only ever needed if a hook is added.
-			if (thread == null && hooksToBeActive > HookType.None)
-				thread = new (); //This is needed to ensure that the hooks are run on the main thread.
+			// Ensure the dedicated STA thread exists before marshaling hook changes onto it.
+			if (hooksToBeActive > HookType.None)
+				Start();
 
 			//Any modifications to the hooks must be done on the hook thread.
 			_ = Invoke(func);

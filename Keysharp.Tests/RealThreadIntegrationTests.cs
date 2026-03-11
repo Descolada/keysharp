@@ -119,7 +119,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void WorkerOwnedRegistrationsDispatchOnOwningWorkerAndAreDisposedOnExit()
+		public void WorkerOwnedRegistrations()
 		{
 			_ = s.EventScheduler;
 #if !WINDOWS
@@ -247,7 +247,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void SendPumpsMainSchedulerWhileWaitingOnWorker()
+		public void SendPumpsMainScheduler()
 		{
 			_ = s.EventScheduler;
 
@@ -283,7 +283,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void PostAndSendAfterWorkerExitRaiseScriptErrors()
+		public void PostSendAfterWorkerExit()
 		{
 			_ = s.EventScheduler;
 			var worker = StartWorker(() => { });

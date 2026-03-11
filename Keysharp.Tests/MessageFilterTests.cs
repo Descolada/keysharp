@@ -15,7 +15,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void BufferedOnMessageIsQueuedUntilSchedulerPumps()
+		public void OnMessageBuffered()
 		{
 			var context = UseQueuedMainContext();
 
@@ -42,7 +42,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void EmergencyOnMessageExecutesSynchronously()
+		public void OnMessageEmergency()
 		{
 			_ = UseQueuedMainContext();
 
@@ -64,7 +64,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void EmergencyOnMessageUsesEmergencyReserveWhenNormalThreadsAreFull()
+		public void OnMessageEmergencyReserve()
 		{
 			s.MaxThreadsTotal = 1;
 			Assert.IsTrue(s.Threads.TryBeginThread(out var occupied));
@@ -98,7 +98,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void EmergencyOnMessageStopsAtEmergencyReserveLimit()
+		public void OnMessageEmergencyLimit()
 		{
 			s.MaxThreadsTotal = 1;
 			Assert.IsTrue(s.Threads.TryBeginThread(out var occupied));
@@ -139,7 +139,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void BufferedOnMessageLocalBlockDoesNotPreventOtherRegistration()
+		public void OnMessageBufferedLocalBlock()
 		{
 			var context = UseQueuedMainContext();
 
@@ -178,7 +178,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void EmergencyOnMessageUsesPerRegistrationMaxThreads()
+		public void OnMessageEmergencyPerRegistrationLimit()
 		{
 			_ = UseQueuedMainContext();
 

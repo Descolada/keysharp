@@ -48,15 +48,15 @@ namespace Keysharp.Tests
 				var form = CreateMsgBoxHostForm();
 				form.Shown += Form_Shown;
 				RunMsgBoxHost(form);
-
-				var ret = Dialogs.MsgBox("ok, hand, def: 1, timeout: 0.2", MsgBoxTitle, "0 16 t0.2");
-				Assert.AreEqual("Timeout", ret);
 			}
 			finally
 			{
 				cts.Cancel();
 				task.Wait();
 			}
+
+			var ret = Dialogs.MsgBox("ok, hand, def: 1, timeout: 0.2", MsgBoxTitle, "0 16 t0.2");
+			Assert.AreEqual("Timeout", ret);
 		}
 
 		private void Form_Shown(object sender, EventArgs e)

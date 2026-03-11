@@ -21,8 +21,13 @@ namespace Keysharp.Scripting
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
 		private bool callingInternalVars = false;
-		private Gtk.Clipboard gtkClipboard;
 		private bool clipboardMonitoringEnabled;
+#if LINUX
+		private Gtk.Clipboard gtkClipboard;
+#elif OSX
+		private UITimer clipboardPollTimer;
+		private int clipboardChangeCount = -1;
+#endif
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
@@ -261,9 +266,40 @@ namespace Keysharp.Scripting
 
 		private void hotkeysAndTheirMethodsToolStripMenuItem_Click(object sender, EventArgs e) => ListHotkeys();
 
-			private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
+		private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
 
-			private void GtkClipboard_OwnerChange(object o, Gtk.OwnerChangeArgs args) => ClipboardUpdate?.Invoke(null);
+#if LINUX
+		private void GtkClipboard_OwnerChange(object o, Gtk.OwnerChangeArgs args) => ClipboardUpdate?.Invoke(null);
+#elif OSX
+		private void MacClipboardPollTimer_Elapsed(object sender, EventArgs e)
+		{
+			int currentChangeCount;
+
+			try
+			{
+				currentChangeCount = MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1;
+			}
+			catch
+			{
+				return;
+			}
+
+			if (currentChangeCount < 0)
+				return;
+
+			if (clipboardChangeCount < 0)
+			{
+				clipboardChangeCount = currentChangeCount;
+				return;
+			}
+
+			if (currentChangeCount == clipboardChangeCount)
+				return;
+
+			clipboardChangeCount = currentChangeCount;
+			ClipboardUpdate?.Invoke(null);
+		}
+#endif
 
 		private void MainWindow_Shown(object sender, EventArgs e)
 		{
@@ -424,6 +460,7 @@ namespace Keysharp.Scripting
 				if (clipboardMonitoringEnabled == enabled)
 					return;
 
+#if LINUX
 				gtkClipboard ??= Gtk.Clipboard.Get(Gdk.Atom.Intern("CLIPBOARD", false));
 
 				if (gtkClipboard == null)
@@ -433,7 +470,29 @@ namespace Keysharp.Scripting
 					gtkClipboard.OwnerChange += GtkClipboard_OwnerChange;
 				else
 					gtkClipboard.OwnerChange -= GtkClipboard_OwnerChange;
+#elif OSX
+				if (enabled)
+				{
+					try
+					{
+						clipboardChangeCount = MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1;
+					}
+					catch
+					{
+						clipboardChangeCount = -1;
+					}
 
+					clipboardPollTimer ??= new UITimer { Interval = 0.2 };
+					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
+					clipboardPollTimer.Elapsed += MacClipboardPollTimer_Elapsed;
+					clipboardPollTimer.Start();
+				}
+				else if (clipboardPollTimer != null)
+				{
+					clipboardPollTimer.Stop();
+					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
+				}
+#endif
 				clipboardMonitoringEnabled = enabled;
 			}
 	}

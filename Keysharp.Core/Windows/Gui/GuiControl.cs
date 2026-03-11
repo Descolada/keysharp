@@ -1607,7 +1607,7 @@ namespace Keysharp.Core
 				if (handlers == null)
 					handlers = new();
 
-				var h = handlers.GetOrAdd((int)code, static () => new());
+				var h = handlers.GetOrAdd((int)code, static _ => new());
 				h.ModifyEventHandlers(del, addremove);
 			}
 

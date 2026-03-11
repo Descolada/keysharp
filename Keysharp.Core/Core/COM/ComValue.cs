@@ -196,7 +196,7 @@ namespace Keysharp.Core
 
 		internal void CallEvents()
 		{
-			_ = handlers.Invoke(this);
+			_ = handlers.InvokeEventHandlers(this);
 		}
 
 		internal void Clear()

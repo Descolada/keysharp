@@ -31,8 +31,9 @@ namespace Keysharp.Scripting
 
 		public SynchronizationContext MainContext;
 
-        internal readonly uint NativeMainThreadID;
+		internal readonly uint NativeMainThreadID;
 		internal readonly int ManagedMainThreadID;
+		internal uint NativeMainThreadId => NativeMainThreadID;
 
 		internal bool IsOnMainThread
 		{

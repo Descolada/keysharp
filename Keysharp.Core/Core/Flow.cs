@@ -467,7 +467,7 @@ namespace Keysharp.Core
 
 				if (timer.Interval == 1)
 				{	
-					timer.PushToMessageQueue();
+					timer.PushToMessageQueue(allowEarly: true);
 					if (once)
 						timer.Stop();	
 				}

@@ -1,4 +1,7 @@
-fn := () => FileAppend("F", "*")
+fires := 0
+fn := () {
+    global fires++
+}
 
 BlockWithoutPumping(ms) {
     if (A_OSType = "WIN32_NT")
@@ -13,6 +16,16 @@ BlockWithoutPumping(ms) {
 
 SetTimer(fn, 80)
 BlockWithoutPumping(260)
-Sleep(40)
+
+deadline := A_TickCount + 600
+
+while (fires = 0 && A_TickCount < deadline)
+    Sleep(10)
+
 SetTimer(fn, 0)
-FileAppend("|done", "*")
+Sleep(160)
+
+if (fires = 1)
+    FileAppend("pass", "*")
+else
+    FileAppend("fail", "*")

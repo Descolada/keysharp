@@ -6,7 +6,7 @@ namespace Keysharp.Tests
 	public class SchedulerTests : TestRunner
 	{
 		[Test, Category("Threading")]
-		public void SchedulerInteractiveEventsStayAheadOfNormalWhenNested()
+		public void InteractiveNested()
 		{
 			var context = UseQueuedMainContext();
 			var scheduler = s.EventScheduler;
@@ -36,7 +36,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void SchedulerBlockedInteractivePreventsNormalExecutionUntilRetried()
+		public void BlockedInteractive()
 		{
 			var context = UseQueuedMainContext();
 			var scheduler = s.EventScheduler;
@@ -66,7 +66,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void SchedulerInteractiveEventRunsBeforePreviouslyBlockedNormalOnRetry()
+		public void BlockedNormalRetry()
 		{
 			var context = UseQueuedMainContext();
 			var scheduler = s.EventScheduler;

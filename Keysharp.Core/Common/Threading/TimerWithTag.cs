@@ -30,6 +30,9 @@
 			add => Elapsed += value;
 			remove => Elapsed -= value;
 		}
+#else
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+		internal bool IsDisposed { get; private set; }
 #endif
 		/// <summary>
 		/// Guard so we never queue more than one pending invoke.
@@ -70,13 +73,19 @@
 		/// <summary>
 		/// Pushes a Tick to the main thread message queue immediately.
 		/// </summary>
-		public void PushToMessageQueue(long nowTick = -1L)
+		public void PushToMessageQueue(long nowTick = -1L, bool allowEarly = false)
 		{
+			if (nowTick < 0L)
+				nowTick = Environment.TickCount64;
+
 			if (IsDisposed || schedulerQueued || !Enabled || ScriptFunc == null)
 				return;
 
-			if (nowTick < 0L)
-				nowTick = Environment.TickCount64;
+			// WinForms can deliver an immediate WM_TIMER after a long blocked period even though
+			// we already queued the overdue firing. Ignore signals that arrive before the next
+			// interval boundary so a blocked timer coalesces to one callback.
+			if (!allowEarly && lastSignalTick != 0L && nowTick - lastSignalTick < Math.Max(1, Interval))
+				return;
 
 			schedulerQueued = true;
 			lastSignalTick = nowTick;
@@ -99,11 +108,6 @@
 		internal void ClearSchedulerQueueState(long nowTick = -1L)
 		{
 			schedulerQueued = false;
-
-			if (nowTick < 0L)
-				nowTick = Environment.TickCount64;
-
-			lastSignalTick = nowTick;
 			UpdateFallbackDueTick();
 		}
 
@@ -171,6 +175,7 @@
 			if (IsDisposed)
 				return;
 
+			IsDisposed = true;
 			schedulerQueued = false;
 			fallbackDueTick = long.MaxValue;
 			ScriptFunc = null;

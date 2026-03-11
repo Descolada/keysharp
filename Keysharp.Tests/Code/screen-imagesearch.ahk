@@ -2,7 +2,7 @@ import { ImageCapture } from Ks
 
 x :=
 y := 0 
-CoordMode("Mouse", "Screen")
+CoordMode("Pixel", "Screen")
 ImageCapture(10, 10, 500, 500, "./imagesearch.bmp")
 
 l :=

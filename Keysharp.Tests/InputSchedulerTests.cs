@@ -27,7 +27,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void HotkeyEventWaitsForGlobalCapacityThenRuns()
+		public void HotkeyGlobalCapacity()
 		{
 			var context = UseQueuedMainContext();
 			s.MaxThreadsTotal = 1;
@@ -57,7 +57,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void LocallyBlockedHotstringDoesNotStallOtherNormalWork()
+		public void HotstringLocalBlock()
 		{
 			var context = UseQueuedMainContext();
 
@@ -86,7 +86,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void BufferedLocalBlockedHotkeyRetriesAfterVariantBecomesAvailable()
+		public void HotkeyBufferedRetry()
 		{
 			var context = UseQueuedMainContext();
 
@@ -111,7 +111,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void HotkeyAndHotstringUseInteractiveQueueAheadOfNormalCallbacks()
+		public void InteractiveInputQueue()
 		{
 			var context = UseQueuedMainContext();
 			var order = new List<string>();

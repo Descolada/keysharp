@@ -7,7 +7,7 @@ namespace Keysharp.Tests
 	public class ThreadSemanticsTests : TestRunner
 	{
 		[Test, Category("Threading")]
-		public void ThreadNoTimersIsThreadLocal()
+		public void ThreadNoTimersLocal()
 		{
 			Assert.AreEqual(true, Ks.A_AllowTimers);
 			Assert.IsTrue(s.AccessorData.threadConfigDataPrototype.allowTimers);
@@ -19,7 +19,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void ThreadNoTimersIsInheritedFromPrototype()
+		public void ThreadNoTimersPrototype()
 		{
 			s.AccessorData.threadConfigDataPrototype.allowTimers = false;
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
@@ -35,7 +35,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void ThreadInterruptUsesDurationAndIgnoresLineCount()
+		public void ThreadInterruptDuration()
 		{
 			_ = Flow.Thread("Interrupt", 42, 1);
 			Assert.AreEqual(42, s.uninterruptibleTime);
@@ -53,7 +53,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void CriticalDefaultIsInheritedFromPrototype()
+		public void CriticalPrototypeDefault()
 		{
 			s.AccessorData.threadConfigDataPrototype.defaultIsCritical = true;
 			s.AccessorData.threadConfigDataPrototype.peekFrequency = ThreadVariables.DefaultUninterruptiblePeekFrequency;
@@ -71,7 +71,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void LowerPriorityEventsAreDroppedInsteadOfBuffered()
+		public void PriorityDrop()
 		{
 			var context = UseQueuedMainContext();
 			var calls = 0;
@@ -90,7 +90,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void CriticalThreadBecomesInterruptibleWithinDialogScope()
+		public void CriticalDialogInterruptibility()
 		{
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
@@ -111,7 +111,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void DialogScopeDoesNotOverrideGlobalInterruptionBlock()
+		public void DialogScopeInterruptionBlock()
 		{
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
@@ -137,7 +137,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void PreemptiveChecksRespectPeekFrequency()
+		public void PeekFrequency()
 		{
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
@@ -163,7 +163,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void CriticalMinusOneDisablesPreemptiveChecks()
+		public void CriticalMinusOne()
 		{
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 

@@ -174,8 +174,9 @@
 		{
 			if (IsDisposed)
 				return;
-
+#if WINDOWS
 			IsDisposed = true;
+#endif
 			schedulerQueued = false;
 			fallbackDueTick = long.MaxValue;
 			ScriptFunc = null;

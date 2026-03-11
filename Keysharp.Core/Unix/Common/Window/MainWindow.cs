@@ -277,7 +277,7 @@ namespace Keysharp.Scripting
 
 			try
 			{
-				currentChangeCount = MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1;
+				currentChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
 			}
 			catch
 			{
@@ -475,7 +475,7 @@ namespace Keysharp.Scripting
 				{
 					try
 					{
-						clipboardChangeCount = MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1;
+						clipboardChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
 					}
 					catch
 					{

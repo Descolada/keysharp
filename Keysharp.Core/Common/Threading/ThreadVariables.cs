@@ -93,6 +93,7 @@ namespace Keysharp.Core.Common.Threading
 		private Random randomGenerator;
 		private StringBuilder regsb = null;
 		internal long priority;
+		internal int lastPeekTick;
 		internal int threadId;
 		internal int lastError = 0;
 
@@ -128,6 +129,7 @@ namespace Keysharp.Core.Common.Threading
 			randomGenerator = null;
 			_ = (regsb?.Clear());
 			priority = 0L;
+			lastPeekTick = 0;
 			threadId = 0;
 			lastError = 0;
 		}
@@ -150,12 +152,28 @@ namespace Keysharp.Core.Common.Threading
 			randomGenerator = null;
 			_ = (regsb?.Clear());
 			priority = (long)A_Priority;
+			lastPeekTick = Environment.TickCount;
 			threadId = 0;
 			lastError = 0;
 			// Instead of cloning the instance, copy the data because
 			// allocating the memory for new instances is expensive
 			configData.CopyFromPrototypeConfigData();
 			isCritical = configData.defaultIsCritical;
+		}
+
+		internal bool Run(Action action)
+			=> Flow.TryCatch(action);
+
+		internal bool RunAndEnd(Action action)
+		{
+			try
+			{
+				return Run(action);
+			}
+			finally
+			{
+				Script.TheScript.Threads.EndThread(this);
+			}
 		}
 	}
 }

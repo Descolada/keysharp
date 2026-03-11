@@ -18,6 +18,7 @@ global gSoundVolumeEdit := ""
 global gClipboardMonitorEnabled := false
 global gClipboardChangeCount := 0
 global gClipboardClipWaitRunning := false
+global gClipboardDelayedPayload := ""
 global gHotkeyHitCount := 0
 global gHotstringHitCount := 0
 global gInputHookObj := ""
@@ -749,11 +750,11 @@ RunClipboardTextRoundTrip() {
 	global gClipboardTextEdit
 
 	try {
+		SetTimer(PopulateClipboardTimer, 0)
 		expected := gClipboardTextEdit.Value
-		A_Clipboard := ""
-		Sleep(100)
 		A_Clipboard := expected
-		ClipWait(2)
+		if !WaitForClipboardValue(expected, 2000)
+			throw Error("Clipboard did not round-trip to the expected text within 2 seconds.")
 
 		if (A_Clipboard = expected) {
 			SetStatus("clipboard_main", "Clipboard status: PASS")
@@ -769,7 +770,7 @@ RunClipboardTextRoundTrip() {
 }
 
 RunClipboardClipWaitTest() {
-	global gClipboardClipWaitRunning
+	global gClipboardClipWaitRunning, gClipboardDelayedPayload
 
 	if gClipboardClipWaitRunning {
 		SetStatus("clipboard_main", "Clipboard status: waiting for the previous ClipWait run")
@@ -780,11 +781,13 @@ RunClipboardClipWaitTest() {
 	gClipboardClipWaitRunning := true
 
 	try {
-		A_Clipboard := ""
+		SetTimer(PopulateClipboardTimer, 0)
+		gClipboardDelayedPayload := "Delayed clipboard payload [" A_TickCount "]"
 		SetTimer(PopulateClipboardTimer, -500)
-		ClipWait(2)
+		if !WaitForClipboardValue(gClipboardDelayedPayload, 2000)
+			throw Error("Clipboard did not reach the delayed payload within 2 seconds.")
 
-		if (A_Clipboard = "Delayed clipboard payload") {
+		if (A_Clipboard = gClipboardDelayedPayload) {
 			SetStatus("clipboard_main", "Clipboard status: PASS (ClipWait)")
 			AppendLog("Delayed ClipWait test passed.")
 		} else {
@@ -795,12 +798,28 @@ RunClipboardClipWaitTest() {
 		SetStatus("clipboard_main", "Clipboard status: BLOCKED/ERROR")
 		AppendLog("Delayed ClipWait test failed: " err.Message)
 	} finally {
+		SetTimer(PopulateClipboardTimer, 0)
+		gClipboardDelayedPayload := ""
 		gClipboardClipWaitRunning := false
 	}
 }
 
 PopulateClipboardTimer() {
-	A_Clipboard := "Delayed clipboard payload"
+	global gClipboardDelayedPayload
+	A_Clipboard := gClipboardDelayedPayload
+}
+
+WaitForClipboardValue(expected, timeoutMs, pollMs := 50) {
+	deadline := A_TickCount + timeoutMs
+
+	while (A_TickCount < deadline) {
+		if (A_Clipboard = expected)
+			return true
+
+		Sleep(Min(pollMs, Max(1, deadline - A_TickCount)))
+	}
+
+	return A_Clipboard = expected
 }
 
 RunClipboardImageCopy() {

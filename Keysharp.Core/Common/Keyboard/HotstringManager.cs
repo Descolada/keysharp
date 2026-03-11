@@ -233,13 +233,13 @@ namespace Keysharp.Core.Common.Keyboard
 				for (u = 0, enabledCount = 0; u < shs.Count; ++u)
 					if (shs[u].suspendExempt)
 					{
-						shs[u].suspended &= ~HotstringDefinition.HS_SUSPENDED;
+						shs[u].SetSuspended(shs[u].suspended & ~HotstringDefinition.HS_SUSPENDED);
 
 						if (shs[u].suspended == 0) // Not turned off.
 							++enabledCount;
 					}
 					else
-						shs[u].suspended |= HotstringDefinition.HS_SUSPENDED;
+						shs[u].SetSuspended(shs[u].suspended | HotstringDefinition.HS_SUSPENDED);
 			}
 			else // Unsuspend all.
 			{
@@ -247,12 +247,12 @@ namespace Keysharp.Core.Common.Keyboard
 
 				// Recalculating enabledCount is probably best since we otherwise need to both remove HS_SUSPENDED
 				// and determine if the final suspension status has changed (i.e. no other bits were set).
-				for (enabledCount = 0, u = 0; u < shs.Count; ++u)
-				{
-					shs[u].suspended &= ~HotstringDefinition.HS_SUSPENDED;
+					for (enabledCount = 0, u = 0; u < shs.Count; ++u)
+					{
+						shs[u].SetSuspended(shs[u].suspended & ~HotstringDefinition.HS_SUSPENDED);
 
-					if (shs[u].suspended == 0) // Not turned off.
-						++enabledCount;
+						if (shs[u].suspended == 0) // Not turned off.
+							++enabledCount;
 				}
 
 				// v1.0.44.08: Added the following section.  Also, the HS buffer is reset, but only when hotstrings
@@ -262,6 +262,33 @@ namespace Keysharp.Core.Common.Keyboard
 				if (previous_count == 0 && enabledCount > 0)
 					hsBuf.Clear();
 			}
+		}
+
+		internal bool DisableOwnedHotstrings(ScriptEventScheduler scheduler)
+		{
+			if (scheduler == null || shs.Count == 0)
+				return false;
+
+			var changed = false;
+
+			foreach (var hotstring in shs.ToArray())
+			{
+				if (hotstring == null || !ReferenceEquals(hotstring.ownerScheduler, scheduler))
+					continue;
+
+					hotstring.ownerScheduler = null;
+
+					if ((hotstring.suspended & HotstringDefinition.HS_TURNED_OFF) == 0)
+					{
+						hotstring.SetSuspended(hotstring.suspended | HotstringDefinition.HS_TURNED_OFF);
+						changed = true;
+					}
+			}
+
+			if (changed)
+				enabledCount = (uint)shs.Count(hotstring => hotstring != null && hotstring.suspended == 0);
+
+			return changed;
 		}
 	}
 

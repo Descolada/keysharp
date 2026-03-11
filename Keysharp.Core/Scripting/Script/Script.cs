@@ -1,4 +1,6 @@
-﻿//#define SEPARATE_KB_THREAD
+﻿
+
+using Keysharp.Core;
 
 [assembly: InternalsVisibleTo("Keysharp.Tests")]
 [assembly: InternalsVisibleTo("Keysharp.Benchmark")]
@@ -22,30 +24,28 @@ namespace Keysharp.Scripting
 	public partial class Script
 	{
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
-	#if !WINDOWS
-		private sealed class EtoSynchronizationContext(Application application) : SynchronizationContext
+#if !WINDOWS
+			private static Encoding enc1252 = Encoding.Default;
+			private static bool etoAppConfigured;
+#endif
+
+		public SynchronizationContext MainContext;
+
+        internal readonly uint NativeMainThreadID;
+		internal readonly int ManagedMainThreadID;
+
+		internal bool IsOnMainThread
 		{
-			private readonly Application app = application;
-
-			public override SynchronizationContext CreateCopy() => this;
-
-			public override void Post(SendOrPostCallback d, object state) => app.AsyncInvoke(() => d(state));
-
-			public override void Send(SendOrPostCallback d, object state)
-			{
-				if (app.IsUIThread)
-					d(state);
-				else
-					app.Invoke(() => d(state));
-			}
+            get {
+#if !WINDOWS
+                var app = Application.Instance;
+                if (app != null)
+                    return app.IsUIThread;
+#endif
+			    return Environment.CurrentManagedThreadId == ManagedMainThreadID;
+            }
 		}
 
-		private static Encoding enc1252 = Encoding.Default;
-		private static readonly object etoLoopLock = new();
-		private static Application etoApplication;
-		private static bool etoAppConfigured;
-		internal static Application SharedApplication => etoApplication ?? Eto.Forms.Application.Instance;
-	#endif
 		public const string dotNetMajorVersion = "10";
 
 		/// <summary>
@@ -56,9 +56,12 @@ namespace Keysharp.Scripting
 
 		/// <summary>
 		/// True when scripts should run without normal UI affordances.
-		/// This is true when no displays are available, or when both <see cref="NoMainWindow"/> and <see cref="NoTrayIcon"/> are enabled.
+		/// This is true when headless mode is forced, when no displays are available, or when both
+		/// <see cref="NoMainWindow"/> and <see cref="NoTrayIcon"/> are enabled.
 		/// </summary>
-		public static bool IsHeadless => !HasAvailableDisplay() || (TheScript?.NoMainWindow == true && TheScript?.NoTrayIcon == true);
+		public static bool IsHeadless => IsHeadlessForced()
+			|| !HasAvailableDisplay()
+			|| (TheScript?.NoMainWindow == true && TheScript?.NoTrayIcon == true);
 
 		/// <summary>
 		/// True when this host must not attempt Eto UI initialization.
@@ -103,11 +106,13 @@ namespace Keysharp.Scripting
 #endif
 			}
 		}
-		internal System.Timers.Timer tickTimer = new System.Timers.Timer(ThreadVariables.DefaultPeekFrequency);
+
+		private static bool IsHeadlessForced()
+		{
+			var value = Environment.GetEnvironmentVariable("KEYSHARP_FORCE_HEADLESS");
+			return Options.OnOff(value) ?? false;
+		}
 		internal MessageFilter msgFilter;
-		// Latched by the periodic tick timer so compiled loops can occasionally perform
-		// an AHK-style preemptive message check without pumping on every iteration.
-		internal volatile bool preemptiveMessageCheckPending = false;
 		internal volatile bool hasExited = false;
 		public bool ForceKeybdHook;
 		public string[] ScriptArgs = [];
@@ -134,7 +139,7 @@ namespace Keysharp.Scripting
 		internal const int maxThreadsLimit = 0xFF;
 		internal const int SLEEP_INTERVAL = 10;
 		internal const int SLEEP_INTERVAL_HALF = SLEEP_INTERVAL / 2;
-		internal List<IFuncObj> ClipFunctions = [];
+		internal CallbackRegistrationHub<CallbackRegistration> ClipFunctions = new();
 		internal List<IFuncObj> hotCriterions = [];
 		internal nint hotExprLFW = 0;
 		internal List<IFuncObj> hotExprs = [];
@@ -142,15 +147,13 @@ namespace Keysharp.Scripting
 		internal int inputBeforeHotkeysCount;
 		internal DateTime inputTimeoutAt = DateTime.UtcNow;
 		internal bool inputTimerExists;
-		internal long lastPeekTick;
 		internal MainWindow mainWindow;
 		internal Gui mainWindowGui;
 		internal MenuType menuIsVisible = MenuType.None;
 		internal PlatformManagerBase mgr;
 		internal int nMessageBoxes;
-		internal List<IFuncObj> onErrorHandlers;
-		internal List<IFuncObj> onExitHandlers = [];
-		internal SynchronizationContext MainContext { get; private set; }
+		internal CallbackRegistrationHub<CallbackRegistration> onErrorHandlers = new();
+		internal CallbackRegistrationHub<CallbackRegistration> onExitHandlers = new();
 		private Icon _normalIcon = null;
 		public Icon normalIcon
 		{
@@ -317,6 +320,8 @@ namespace Keysharp.Scripting
 			CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 			CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 #if !WINDOWS
+			Eto.Platform.AllowReinitialize = true;
+
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);//For some reason, linux needs this for rich text to work.
 			enc1252 = Encoding.GetEncoding(1252);
 #endif
@@ -330,10 +335,14 @@ namespace Keysharp.Scripting
 #endif
 
 #if LINUX
-		// Keysharp's Linux automation path is still X11-based, so force Gtk onto X11/Xwayland
-		// when an X display is available before Eto initializes its platform backend.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
-			Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
+			// Keysharp uses X11 from multiple threads (GTK UI + hook/window code), so Xlib
+			// must be put into threaded mode before any display connection is opened.
+			_ = Keysharp.Core.Linux.X11.Xlib.XInitThreads();
+
+			// Keysharp's Linux automation path is still X11-based, so force Gtk onto X11/Xwayland
+			// when an X display is available before Eto initializes its platform backend.
+			if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
+				Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
 #endif
 		}
 
@@ -356,9 +365,14 @@ namespace Keysharp.Scripting
 
 		public Script(Type program = null, string hookMutexName = null)
 		{
+			Script.TheScript = this;//Everywhere in the script will reference this.
+
+			NativeMainThreadID = CurrentThreadId();
+			ManagedMainThreadID = Environment.CurrentManagedThreadId;
+
 			ProgramType = program ?? GetCallingType();
 			ProgramNamespace = ProgramType.Namespace;
-			Script.TheScript = this;//Everywhere in the script will reference this.
+			
 			timeLastInputPhysical = DateTime.UtcNow;
 			timeLastInputKeyboard = timeLastInputPhysical;
 			timeLastInputMouse = timeLastInputPhysical;
@@ -370,10 +384,9 @@ namespace Keysharp.Scripting
 
 			threads = new(() => new());
 
-			_ = Script.TheScript.Threads.PushThreadVariables(0, true, false, true);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
-			var pd = this.ProcessesData;
-			pd.MainThreadID = CurrentThreadId();
-			pd.ManagedMainThreadID = Thread.CurrentThread.ManagedThreadId;//Figure out how to do this on linux.//TODO
+			Script.TheScript.Threads.EnsureCurrentThreadVariables();
+
+			_ = EventScheduler;
 
 			// Request the required privacy permissions at startup so failures are explicit and early.
 			var pm = Permissions;
@@ -386,20 +399,20 @@ namespace Keysharp.Scripting
 			Application.AddMessageFilter(msgFilter);
 #else
 			msgFilter = new MessageFilter(this);
-			msgFilter.Attach();
+
+			if (!IsOnMainThread)
+				PostToUIThread(msgFilter.Attach);
+			else
+				msgFilter.Attach();
 #endif
 			HookThread = CreateHookThread();
 			if (hookMutexName != null && hookMutexName != "") Keysharp.Core.Common.Threading.HookThread.MutexName = hookMutexName;
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
-			tickTimer.Elapsed += TickTimerCallback;
-			tickTimer.AutoReset = false;
-			RestartPreemptiveMessageTimer();
 		}
 		
 		~Script()
 		{
-			tickTimer?.Dispose();
 #if WINDOWS
 			Application.RemoveMessageFilter(msgFilter);
 #elif !WINDOWS
@@ -419,50 +432,26 @@ namespace Keysharp.Scripting
 			return method.DeclaringType;
 		}
 
-		[DebuggerStepThrough]
-		void TickTimerCallback(object sender, EventArgs e)
-		{
-			// The actual check is deferred until a loop/body poll site decides the
-			// current thread's peek frequency allows another preemptive pump.
-			TheScript.preemptiveMessageCheckPending = true;
-		}
-
 		internal long GetPeekFrequency()
 		{
 			var tv = threads != null && threads.IsValueCreated ? threads.Value.CurrentThread : null;
 			return tv != null ? tv.configData.peekFrequency : ThreadVariables.DefaultPeekFrequency;
 		}
 
-		internal bool IsPreemptiveMessageCheckDue(long nowTick)
+		internal bool IsCurrentThreadPreemptiveCheckDue()
 		{
-			var freq = GetPeekFrequency();
-			return freq >= 0L && nowTick - lastPeekTick > freq;
-		}
-
-		internal void RecordMessageCheck(long nowTick) => lastPeekTick = nowTick;
-
-		internal void RestartPreemptiveMessageTimer()
-		{
-			var freq = GetPeekFrequency();
+			var tv = Threads.CurrentThread;
+			var freq = tv.configData.peekFrequency;
 
 			if (freq < 0L)
-			{
-				if (tickTimer.Enabled)
-					tickTimer.Stop();
+				return false;
 
-				return;
-			}
-
-			var interval = Math.Max(1L, freq);
-
-			if (tickTimer.Enabled)
-				tickTimer.Stop();
-
-			if (tickTimer.Interval != interval)
-				tickTimer.Interval = interval;
-
-			tickTimer.Start();
+			var nowTick = Environment.TickCount;
+			var threshold = freq > int.MaxValue ? int.MaxValue : (int)freq;
+			return unchecked((uint)(nowTick - tv.lastPeekTick)) > unchecked((uint)threshold);
 		}
+
+		internal void RecordMessageCheck() => Threads.CurrentThread.lastPeekTick = Environment.TickCount;
 
 		/// <summary>
 		/// Will be a generated call within Main which calls into this class to add DLLs.
@@ -628,18 +617,10 @@ namespace Keysharp.Scripting
 			}
 		}
 
-		private bool IsOnMainUIThread()
-		{
-#if WINDOWS
-			return Thread.CurrentThread.ManagedThreadId == ProcessesData.ManagedMainThreadID;
-#else
-			var app = etoApplication ?? Eto.Forms.Application.Instance;
-			return app?.IsUIThread ?? Thread.CurrentThread.ManagedThreadId == ProcessesData.ManagedMainThreadID;
-#endif
-		}
-
 		private void InitializeMainContext()
 		{
+			if (MainContext != null)
+				return;
 #if WINDOWS
 			var current = SynchronizationContext.Current;
 
@@ -648,31 +629,23 @@ namespace Keysharp.Scripting
 				current = new WindowsFormsSynchronizationContext();
 				SynchronizationContext.SetSynchronizationContext(current);
 			}
+			MainContext = current;
 #else
 			var app = EnsureEtoApplication();
-			var current = SynchronizationContext.Current;
 
-			if (current == null || current.GetType() == typeof(SynchronizationContext))
-			{
-				current = new EtoSynchronizationContext(app);
-				SynchronizationContext.SetSynchronizationContext(current);
-			}
+			app.AsyncInvoke(() => {
+				var current = SynchronizationContext.Current;
+
+				if (current == null || current.GetType() == typeof(SynchronizationContext))
+				{
+					current = new EtoSynchronizationContext(Application.Instance);
+					SynchronizationContext.SetSynchronizationContext(current);
+				}
+
+				MainContext = current;
+			});
 #endif
-
-			MainContext = current;
 		}
-
- #if WINDOWS
-		private static Control GetUIThreadInvoker()
-		{
-			var script = TheScript;
-
-			if (script?.mainWindow != null)
-				return script.mainWindow;
-
-			return script?.Tray?.ContextMenuStrip;
-		}
-#endif
 
 		internal static void InvokeOnUIThread(Action action)
 		{
@@ -681,49 +654,21 @@ namespace Keysharp.Scripting
 
 			var script = TheScript;
 
-			if (script == null)
-			{
-				action();
-				return;
-			}
-
-			if (script.IsOnMainUIThread())
+			if (script == null || script.IsOnMainThread)
 			{
 				action();
 				return;
 			}
 
 			if (script.MainContext != null)
-			{
 				script.MainContext.Send(_ => action(), null);
-				return;
-			}
-
-#if WINDOWS
-			var control = GetUIThreadInvoker();
-
-			if (control != null)
-			{
-				control.CheckedInvoke(action, true);
-				return;
-			}
-
-			action();
-#else
-			var app = etoApplication ?? Eto.Forms.Application.Instance;
-
-			if (app == null)
-			{
-				action();
-				return;
-			}
-
-			if (app.IsUIThread)
-				action();
+#if !WINDOWS
+			else if (Application.Instance != null)
+				Application.Instance.Invoke(action);
+#endif
 			else
-				app.Invoke(action);
- #endif
- 		}
+				action();
+		}
 
 		internal static T InvokeOnUIThread<T>(Func<T> action)
 		{
@@ -732,32 +677,22 @@ namespace Keysharp.Scripting
 
 			var script = TheScript;
 
-			if (script == null)
-				return action();
-
-			if (script.IsOnMainUIThread())
-				return action();
-
-			if (script.MainContext != null)
+			if (script == null || script.IsOnMainThread || script.MainContext == null)
 			{
-				T uiResult = default;
-				script.MainContext.Send(_ => uiResult = action(), null);
-				return uiResult;
+#if !WINDOWS
+				if (script != null && !script.IsOnMainThread && Application.Instance != null)
+				{
+					T appResult = default;
+					Application.Instance.Invoke(() => appResult = action());
+					return appResult;
+				}
+#endif
+				return action();
 			}
 
-#if WINDOWS
-			var control = GetUIThreadInvoker();
-			return control != null ? control.CheckedInvoke(action, true) : action();
-#else
-			var app = etoApplication ?? Eto.Forms.Application.Instance;
-
-			if (app == null || app.IsUIThread)
-				return action();
-
-			T result = default;
-			app.Invoke(() => result = action());
-			return result;
-#endif
+			T uiResult = default;
+			script.MainContext.Send(_ => uiResult = action(), null);
+			return uiResult;
 		}
 
 		internal static void PostToUIThread(Action action)
@@ -768,42 +703,25 @@ namespace Keysharp.Scripting
 			var script = TheScript;
 
 			if (script?.MainContext != null)
-			{
 				script.MainContext.Post(_ => action(), null);
-				return;
-			}
-
-#if WINDOWS
-			var control = GetUIThreadInvoker();
-
-			if (control != null)
-			{
-				control.CheckedBeginInvoke(action, true, true);
-				return;
-			}
-
-			action();
-#else
-			var app = etoApplication ?? Eto.Forms.Application.Instance;
-
-			if (app == null)
-			{
-				action();
-				return;
-			}
-
-			app.AsyncInvoke(action);
+#if !WINDOWS
+			else if (Application.Instance != null)
+				Application.Instance.AsyncInvoke(action);
 #endif
+			else
+				action();
 		}
 
 #if !WINDOWS
-
-		private static void ConfigureEtoApplication()
+		private static Application EnsureEtoApplication()
 		{
-			var app = etoApplication ?? Eto.Forms.Application.Instance;
+			var app = Application.Instance ?? new Application();
 
-			if (etoAppConfigured || app == null)
-				return;
+			if (app == null)
+				throw new Exception("Unable to start Eto Application");
+
+			if (etoAppConfigured)
+				return app;
 
 			app.UnhandledException += (s, e) =>
 			{
@@ -831,42 +749,27 @@ namespace Keysharp.Scripting
 				System.Diagnostics.Debug.WriteLine("Failed to enable GTK menu images: " + ex);
 			}
 #endif
+
 			etoAppConfigured = true;
+			return app;
 		}
 
-		private static Application EnsureEtoApplication()
-		{
-			lock (etoLoopLock)
-			{
-				if (etoApplication != null)
-					return etoApplication;
-
-				if (Eto.Forms.Application.Instance == null)
-					_ = new Application();
-
-				etoApplication = Eto.Forms.Application.Instance;
-
-				if (etoApplication == null)
-					throw new InvalidOperationException("Eto application is not initialized.");
-
-				ConfigureEtoApplication();
-				return etoApplication;
-			}
-		}
 #endif
 
 		private void RunAutoExecSection(Func<object> userInit)
 		{
-			var ret = Threads.BeginThread();
-			var prevConfigData = ret.Item2.configData;
-			ret.Item2.configData = AccessorData.threadConfigDataPrototype;
+			if (!Threads.TryBeginThread(out var tv))
+				return;
+
+			var prevConfigData = tv.configData;
+			tv.configData = AccessorData.threadConfigDataPrototype;
 			bool autoExecResult = Flow.TryCatch(() =>
 			{
 				_ = userInit();
 				isReadyToExecute = true;
-			}, false, ret);
-			ret.Item2.configData = prevConfigData;
-			_ = Threads.EndThread(ret);
+			});
+			tv.configData = prevConfigData;
+			Threads.EndThread(tv);
 
 			if (!autoExecResult && !persistent)
 				_ = Flow.ExitApp(1);
@@ -874,23 +777,20 @@ namespace Keysharp.Scripting
 			ExitIfNotPersistent();
 		}
 
-		private void InitializeMainWindow(string title, bool _persistent, bool showInTaskbar)
+		private void InitializeMainWindow(string title, bool _persistent, bool showInTaskbar, bool initializeUiChrome = true)
 		{
 			mainWindow = new MainWindow();
-			InitializeMainContext();
 
 			if (!string.IsNullOrEmpty(title))
 				mainWindow.Text = title;
 
-			mainWindow.ClipboardUpdate += PrivateClipboardUpdate;
-
-			if (normalIcon != null)
+			if (initializeUiChrome && normalIcon != null)
 				mainWindow.Icon = normalIcon;
 
 			persistent = _persistent;
 			mainWindowGui = new Gui(null, null, null, mainWindow);
 
-			if (Tray == null)
+			if (initializeUiChrome && Tray == null)
 				CreateTrayMenu();
 
 			mainWindow.AllowShowDisplay = false;
@@ -899,6 +799,8 @@ namespace Keysharp.Scripting
 
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
+			InitializeMainContext();
+
 			if (IsUiInitializationBlocked)
 			{
 				// Eto.Mac cannot initialize under dotnet testhost because it is not an app bundle.
@@ -918,30 +820,38 @@ namespace Keysharp.Scripting
 #else
 			var suppressTestHostUi = IsTestHost;
 
-			lock (etoLoopLock)
-			{
-				Application app = EnsureEtoApplication();
+			var app = EnsureEtoApplication();
+#if LINUX
+			Keysharp.Core.Linux.WindowManager.InstallTestLoopXErrorHandler();
+#endif
 
-				InitializeMainWindow(title, _persistent, !NoMainWindow && !suppressTestHostUi);
-				mainWindow.Closed += (_, __) =>
-				{
-					// Keep Eto loop alive for non-exit closes (window can be re-opened from menu/tray).
-					if (hasExited)
-						app.Quit();
-				};
-				if (suppressTestHostUi)
-				{
-					mainWindow.Show();
-					mainWindow.Hide();
-				}
-				else if (!NoMainWindow)
-					mainWindow.Show();
+			app.AsyncInvoke(() => InitializeUnixMainWindow(app, title, userInit, _persistent, suppressTestHostUi));
 
-				_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
-				app.Run();
-			}
+			app.Run();
 #endif
 		}
+
+#if !WINDOWS
+		private void InitializeUnixMainWindow(Eto.Forms.Application app, string title, Func<object> userInit, bool persistentState, bool suppressTestHostUi)
+		{
+			var showUiChrome = !suppressTestHostUi;
+			InitializeMainWindow(title, persistentState, !NoMainWindow && showUiChrome, showUiChrome);
+			mainWindow.Closed += (_, __) =>
+			{
+				if (hasExited)
+					app.Quit();
+			};
+			if (suppressTestHostUi)
+			{
+				mainWindow.Show();
+				mainWindow.Hide();
+			}
+			else if (!NoMainWindow)
+				mainWindow.Show();
+
+				app.AsyncInvoke(() => RunAutoExecSection(userInit));
+			}
+#endif
 
 		public void SetName(string s)
         {
@@ -1054,122 +964,6 @@ namespace Keysharp.Scripting
 				Console.Error.WriteLine(text);
 		}
 
-		//public static void TestSomething()
-		//{
-		//  char[] SpaceTab = " \t".ToCharArray();
-		//  SearchValues<char> SpaceTabSv = SearchValues.Create(SpaceTab);
-		//  //var splits = val.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-		//  var width = int.MinValue;
-		//  var height = int.MinValue;
-		//  var icon = "";
-		//  object iconnumber = 0;
-		//  var filename = "";// splits.Last();
-		//  var val = "*w100 *h200 *icon2 C:\a filename.jpg";
-
-		//  //for (var i = 0; i < splits.Length - 1; i++)
-		//  foreach (Range r in val.AsSpan().SplitAny(SpaceTabSv))
-		//  {
-		//      var opt = val.AsSpan(r).Trim();
-
-		//      if (Options.TryParse(opt, "*w", ref width)) { }
-		//      else if (Options.TryParse(opt, "*h", ref height)) { }
-		//      else if (Options.TryParseString(opt, "*icon", ref icon)) { iconnumber = ImageHelper.PrepareIconNumber(icon); }
-		//      else
-		//      {
-		//          filename = val.Substring(r.Start.Value);
-		//          break;
-		//      }
-		//  }
-		//}
-
-		/*
-		    internal static string GetVariableInfo()
-		    {
-		    var sb = new StringBuilder(2048);
-		    var stack = new StackTrace(false).GetFrames();
-
-		    for (var i = stack.Length - 1; i >= 0; i--)
-		    {
-		        if (stack[i] != null &&
-		                stack[i].GetMethod() != null &&
-		                stack[i].GetMethod().DeclaringType.Attributes.HasFlag(TypeAttributes.Public))//Public is the script, everything else should be hidden.
-		        {
-		            if (stack[i].GetMethod().DeclaringType.Namespace != null &&
-		                    stack[i].GetMethod().DeclaringType.Namespace.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase))
-		            {
-		                var meth = stack[i].GetMethod();
-		                _ = sb.AppendLine($"Class: {meth.ReflectedType.Name}");
-		                _ = sb.AppendLine();
-
-		                foreach (var v in meth.ReflectedType.GetProperties(BindingFlags.Public | BindingFlags.Static))
-		                {
-		                    var val = v.GetValue(null);
-		                    var varstr = $"\t{val?.GetType()} {v.Name}: ";
-
-		                    if (val is string s)
-		                        varstr += $"[{s.Length}] {s.Substring(0, Math.Min(s.Length, 60))}";
-		                    else if (val is Keysharp.Core.Array arr)
-		                    {
-		                        var ct = Math.Min(100, arr.Count);
-		                        var tempsb = new StringBuilder(ct * 100);
-
-		                        for (var a = 1; a <= ct; a++)
-		                        {
-		                            var tempstr = arr[a].ToString();
-		                            _ = tempsb.Append(tempstr.Substring(0, Math.Min(tempstr.Length, 60)));
-
-		                            if (a < ct)
-		                                _ = tempsb.Append(", ");
-		                        }
-
-		                        varstr += tempsb.ToString();
-		                    }
-		                    else if (val is Keysharp.Core.Map map)
-		                    {
-		                        var ct = Math.Min(100, map.Count);
-		                        var a = 0;
-		                        var tempsb = new StringBuilder(ct * 100);
-		                        _ = tempsb.Append('{');
-
-		                        foreach (var kv in map.map)
-		                        {
-		                            var tempstr = kv.Value.ToString();
-		                            _ = tempsb.Append($"{kv.Key} : {tempstr.Substring(0, Math.Min(tempstr.Length, 60))}");
-
-		                            if (++a < ct)
-		                                _ = tempsb.Append(", ");
-		                        }
-
-		                        _ = tempsb.Append('}');
-		                        varstr += tempsb.ToString();
-		                    }
-		                    else if (val == null)
-		                        varstr += "null";
-		                    else
-		                        varstr += val.ToString();
-
-		                    _ = sb.AppendLine(varstr);
-		                }
-
-		                _ = sb.AppendLine("");
-		                _ = sb.AppendLine($"Method: {meth.Name}");
-		                var mb = stack[i].GetMethod().GetMethodBody();
-
-		                foreach (var lvi in mb.LocalVariables)
-		                    _ = sb.AppendLine($"\t{lvi}");
-
-		                _ = sb.AppendLine("--------------------------------------------------");
-		                _ = sb.AppendLine();
-		            }
-		        }
-		    }
-
-		    return sb.ToString();
-		    }
-		*/
-
-		public void SimulateKeyPress(uint key) => HookThread.SimulateKeyPress(key);
-
 		public void Stop()
 		{
 			HookThread?.Stop();
@@ -1193,10 +987,17 @@ namespace Keysharp.Scripting
 
 		private void DisposeTrayIcon()
 		{
+			var tray = Tray;
+
+			if (tray == null)
+				return;
+
 			try
 			{
-				Tray.Visible = false;
-				Tray.Dispose();
+				tray.MouseClick -= TrayIcon_MouseClick;
+				tray.MouseDoubleClick -= TrayIcon_MouseDoubleClick;
+				tray.Tag = null;
+				tray.Dispose();
 			}
 			catch
 			{
@@ -1204,6 +1005,7 @@ namespace Keysharp.Scripting
 			finally
 			{
 				Tray = null;
+				trayMenu = null;
 			}
 		}
 
@@ -1338,9 +1140,9 @@ namespace Keysharp.Scripting
 			// beneficial in terms of increasing GUI & script responsiveness, so it is kept.
 			// The following might also improve performance slightly by avoiding extra Peek() calls, while also
 			// reducing premature thread interruptions.
-			lastPeekTick = Environment.TickCount64;
-			return ResultType.Ok;
-		}
+				RecordMessageCheck();
+				return ResultType.Ok;
+			}
 
 		internal void SetHotNamesAndTimes(string name)
 		{
@@ -1370,25 +1172,23 @@ namespace Keysharp.Scripting
 
 		private void PrivateClipboardUpdate(params object[] o)
 		{
-			var i = 0;
-			var b = false;//False means keep going, true means stop.
 #if WINDOWS
 			if (Clipboard.ContainsText() || Clipboard.ContainsFileDropList())
 #else
 			if (Clipboard.Instance.ContainsText)
 #endif
-				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(1));//Can't use foreach because the collection could be modified by the event.
+				_ = IfTest(ClipFunctions.InvokeEventHandlers(1));
 			else if (!Ks.IsClipboardEmpty())
-				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(2));
+				_ = IfTest(ClipFunctions.InvokeEventHandlers(2));
 			else
-				while (!b && i < ClipFunctions.Count) b = IfTest(ClipFunctions[i++].Call(0));
+				_ = IfTest(ClipFunctions.InvokeEventHandlers(0));
 		}
 
 		internal Type GetNativeType(Any obj)
 		{
-			while (obj != null)
-			{
-				var t = obj.type;
+				while (obj != null)
+				{
+					var t = obj.type;
 				if (!string.Equals(t.Namespace, ProgramNamespace, StringComparison.OrdinalIgnoreCase))
 				{
 					// we found a built‑in prototype object
@@ -1396,11 +1196,35 @@ namespace Keysharp.Scripting
 					return t;
 				}
 
-				// follow the “base” link:
-				obj = obj.Base;
-			}
-			// fallback?
-			return typeof(Any);
+					// follow the “base” link:
+					obj = obj.Base;
+				}
+				// fallback?
+				return typeof(Any);
+		}
+
+		internal void UpdateClipboardMonitoring()
+		{
+			var window = mainWindow;
+
+			if (window == null)
+				return;
+
+			var enabled = ClipFunctions.Count > 0;
+			PostToUIThread(() =>
+			{
+				if (window.IsClosing)
+					return;
+
+				window.ClipboardUpdate -= PrivateClipboardUpdate;
+
+				if (enabled)
+					window.ClipboardUpdate += PrivateClipboardUpdate;
+
+#if !WINDOWS
+				window.SetClipboardMonitoringEnabled(enabled);
+#endif
+			});
 		}
 	}
 }

@@ -5,6 +5,14 @@ namespace Keysharp.Tests
 {
 	public class TestRunner
 	{
+		static TestRunner()
+		{
+#if LINUX
+			if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
+				Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
+#endif
+		}
+
 		protected sealed class QueuedSynchronizationContext : SynchronizationContext
 		{
 			private readonly Queue<(SendOrPostCallback callback, object state)> posted = new();
@@ -27,19 +35,41 @@ namespace Keysharp.Tests
 
 		protected string path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Keysharp.Tests", "Code")) + Path.DirectorySeparatorChar;
 		private const string ext = ".ahk";
-		private static readonly PropertyInfo mainContextProperty = typeof(Script).GetProperty("MainContext", BindingFlags.Instance | BindingFlags.NonPublic);
 		protected Script s;
 		internal HotstringManager hsm;
 
 		[SetUp]
-		public void SetupBeforeEachTest()
+		public void SetupBeforeEachTest() => ResetScriptState();
+
+		[TearDown]
+		public void CleanupAfterEachTest()
 		{
-			Console.Error.WriteLine($"[TEST START] {TestContext.CurrentContext.Test.FullName}");
-			ResetScriptState();
+#if !WINDOWS
+			var app = Application.Instance;
+
+			if (app != null)
+			{
+				void CloseWindows()
+				{
+					foreach (var window in app.Windows.ToArray())
+						window.Close();
+
+					app.MainForm = null;
+				}
+
+				if (app.IsUIThread)
+					CloseWindows();
+				else
+					app.Invoke(CloseWindows);
+			}
+#endif
 		}
 
 		private void ResetScriptState()
 		{
+#if !WINDOWS
+			_ = Application.Instance ?? new Application();
+#endif
 			s = new Script();
 			hsm = s.HotstringManager;
 		}
@@ -53,7 +83,7 @@ namespace Keysharp.Tests
 		protected QueuedSynchronizationContext UseQueuedMainContext()
 		{
 			var context = new QueuedSynchronizationContext();
-			mainContextProperty?.SetValue(s, context);
+			s.MainContext = context;
 			return context;
 		}
 
@@ -73,7 +103,6 @@ namespace Keysharp.Tests
 
 		protected string RunScript(string source, string name, bool execute, bool exeout, int? exitCode = null)
 		{
-			Console.Error.WriteLine($"[SCRIPT START] {name}");
 			ResetScriptState();
 			s.SetName(name);
 			var ch = new CompilerHelper();
@@ -115,7 +144,18 @@ namespace Keysharp.Tests
 						var main = program.GetMethod("Main");
 						var temp = new string[] { };
 						Environment.ExitCode = 0;
+#if WINDOWS
 						var result = StaTask.RunSync(() => main.Invoke(null, [temp]));
+#else
+						object result = null;
+						try 
+						{
+							result = main.Invoke(null, [temp]);
+						} 
+						catch (Flow.UserRequestedExitException)
+						{
+						}
+#endif
 
 						if (exitCode.HasValue)
 						{
@@ -146,7 +186,6 @@ namespace Keysharp.Tests
 					{
 						writer.Flush();
 						output = buffer.ToString();
-						Console.Error.WriteLine($"[SCRIPT END] {name}");
 
 						using (var console = Console.OpenStandardOutput())
 						{

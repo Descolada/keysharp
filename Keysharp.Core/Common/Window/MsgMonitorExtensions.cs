@@ -1,58 +1,47 @@
+using static System.Collections.Generic.SystemCollectionsGenericExtensions;
+
 namespace Keysharp.Core.Common.Window
 {
 	internal static class MsgMonitorExtensions
 	{
-		private static long ExecuteRegistration(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, bool allowEmergencyOverflow)
+		private static ScriptEventExecutionResult ExecuteRegistration(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, bool allowEmergencyOverflow, out long result)
 		{
-			object res = null;
+			result = 0L;
+			var targetScheduler = registration.OwnerScheduler ?? script.EventScheduler;
 			registration.InstanceCount++;
 
 			try
 			{
-				var (pushed, tv) = allowEmergencyOverflow
-					? script.Threads.BeginSynchronousEmergencyThread()
-					: script.Threads.BeginThread();
-
-				if (!pushed)
-					return 0L;
-
-				tv.eventInfo = eventInfo;
-				tv.hwndLastUsed = hwnd;
-				_ = Flow.TryCatch(() =>
-				{
-					res = registration.Callback.Call(args);
-					_ = script.Threads.EndThread((pushed, tv));
-				}, true, (pushed, tv));
+				return targetScheduler.InvokePseudoThread(
+					0,
+					false,
+					false,
+					tv => Script.ForceLong(RunHandler(script, registration.Callback, args, tv, eventInfo, hwnd)),
+					out result,
+					allowEmergencyOverflow);
 			}
 			finally
 			{
 				registration.InstanceCount--;
 			}
-
-			return Script.ForceLong(res);
 		}
 
 		internal static ScriptEventExecutionResult TryExecuteBuffered(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, out long result)
 		{
 			result = 0L;
 
-			if (registration == null || !registration.IsActive)
+			if (!registration.IsActive)
 				return ScriptEventExecutionResult.Dropped;
-
-			var ptv = script.Threads.CurrentThread;
-
-			if (ptv.priority > 0)
-				return ScriptEventExecutionResult.Dropped;
-
-			if (!script.Threads.AnyThreadsAvailable() || !script.Threads.IsInterruptible())
-				return ScriptEventExecutionResult.GlobalBlocked;
 
 			if (registration.InstanceCount >= registration.MaxInstances)
 				return ScriptEventExecutionResult.LocalBlocked;
 
-			result = registration.ExecuteRegistration(script, args, eventInfo, hwnd, false);
-			script.ExitIfNotPersistent();
-			return ScriptEventExecutionResult.Executed;
+			var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, false, out result);
+
+			if (executionResult == ScriptEventExecutionResult.Executed)
+				script.ExitIfNotPersistent();
+
+			return executionResult;
 		}
 
 		internal static bool TryExecuteEmergency(this MsgMonitor monitor, Script script, object[] args, object eventInfo, long hwnd, out long result)
@@ -66,10 +55,14 @@ namespace Keysharp.Core.Common.Window
 
 			foreach (var registration in monitor.GetRegistrationsSnapshot())
 			{
-				if (registration == null || !registration.IsActive || registration.InstanceCount >= registration.MaxInstances)
+				if (!registration.IsActive || registration.InstanceCount >= registration.MaxInstances)
 					continue;
 
-				result = registration.ExecuteRegistration(script, args, eventInfo, hwnd, true);
+				var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, true, out result);
+
+				if (executionResult != ScriptEventExecutionResult.Executed)
+					continue;
+
 				executedAny = true;
 
 				if (result != 0L)

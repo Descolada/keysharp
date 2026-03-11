@@ -257,8 +257,8 @@
 
 					if (value == null || (value is string s && s?.Length == 0))
 					{
-						//Clipboard.Clear();//For some reason this doesn't work on linux. Bug reported here: https://github.com/DanielVanNoord/System.Windows.Forms/issues/17
 						clip.Clear();
+						clip.Text = "";
 					}
 					else if (value is ClipboardAll arr)
 						Env.RestoreClipboardAll(arr, 0L);
@@ -645,7 +645,7 @@
 				{
 					if (!val.Value && script.AccessorData.iconHidden)//Was true, switching to false, so show.
 					{
-						if (script.Tray != null)
+						if (script.EnsureTrayMenu())
 						{
 							script.Tray.Icon = script.AccessorData.prevTrayIcon;
 							script.AccessorData.prevTrayIcon = null;
@@ -675,13 +675,17 @@
 		/// </summary>
 		public static object A_IconTip
 		{
-			get => Script.TheScript.Tray != null ? Script.TheScript.Tray.Text : "";
+			get
+			{
+				var script = Script.TheScript;
+				return script.EnsureTrayMenu() ? script.Tray.Text : "";
+			}
 
 			set
 			{
 				var script = Script.TheScript;
 
-				if (script.Tray != null)
+				if (script.EnsureTrayMenu())
 					script.Tray.Text = value.ToString();
 			}
 		}
@@ -1523,16 +1527,16 @@
 		/// The height of the primary monitor in pixels.
 		/// </summary>
 		public static long A_ScreenHeight
-		{
-			get
 			{
-				try
+				get
 				{
-						return Forms.Screen.PrimaryScreen != null ? Convert.ToInt64(Forms.Screen.PrimaryScreen.Bounds.Height) : 0L;
-				}
-				catch
-				{
-					return 0L;
+					try
+					{
+						return Monitor.GetPrimaryScreenSize().Height;
+					}
+					catch
+					{
+						return 0L;
 				}
 			}
 		}
@@ -1541,16 +1545,16 @@
 		/// The width of the primary monitor in pixels.
 		/// </summary>
 		public static long A_ScreenWidth
-		{
-			get
 			{
-				try
+				get
 				{
-						return Forms.Screen.PrimaryScreen != null ? Convert.ToInt64(Forms.Screen.PrimaryScreen.Bounds.Width) : 0L;
-				}
-				catch
-				{
-					return 0L;
+					try
+					{
+						return Monitor.GetPrimaryScreenSize().Width;
+					}
+					catch
+					{
+						return 0L;
 				}
 			}
 		}
@@ -1821,7 +1825,15 @@
 		/// <summary>
 		/// The current tray menu object.
 		/// </summary>
-		public static Menu A_TrayMenu => Script.TheScript.trayMenu;
+		public static Menu A_TrayMenu
+		{
+			get
+			{
+				var script = Script.TheScript;
+				_ = script.EnsureTrayMenu();
+				return script.trayMenu;
+			}
+		}
 
 		/// <summary>
 		/// The logon name of the current user.
@@ -2035,11 +2047,11 @@
 			get
 			{
 				var timerData = new List<object>();
-				foreach (var kv in Script.TheScript.FlowData.timers)
+				foreach (var registration in Script.TheScript.FlowData.timers.GetSnapshot())
 				{
-					if (kv.Key is FuncObj func)
+					if (registration.Callback is FuncObj func)
 					{
-						timerData.AddRange(func, kv.Value.Enabled);
+						timerData.AddRange(func, registration.Timer.Enabled);
 					}
 				}
 
@@ -2276,21 +2288,21 @@
 		/// <summary>
 		/// The total height in pixels of the virtual screen.
 		/// </summary>
-		public static long A_TotalScreenHeight =>
+			public static long A_TotalScreenHeight =>
 #if WINDOWS
-			SystemInformation.VirtualScreen.Height;
+				SystemInformation.VirtualScreen.Height;
 #else
-			Convert.ToInt64(Forms.Screen.DisplayBounds.Height);
+				Monitor.GetVirtualScreenSize().Height;
 #endif
 
 		/// <summary>
 		/// The total width in pixels of the virtual screen.
 		/// </summary>
-		public static long A_TotalScreenWidth =>
+			public static long A_TotalScreenWidth =>
 #if WINDOWS
-			SystemInformation.VirtualScreen.Width;
+				SystemInformation.VirtualScreen.Width;
 #else
-			Convert.ToInt64(Forms.Screen.DisplayBounds.Width);
+				Monitor.GetVirtualScreenSize().Width;
 #endif
 
 		/// <summary>
@@ -2587,8 +2599,9 @@
 			get => Script.TheScript.Threads.CurrentThread.configData.peekFrequency;
 			set
 			{
-				Script.TheScript.Threads.CurrentThread.configData.peekFrequency = value;
-				Script.TheScript.RestartPreemptiveMessageTimer();
+				var script = Script.TheScript;
+				script.Threads.CurrentThread.configData.peekFrequency = value;
+				script.RecordMessageCheck();
 			}
 		}
 

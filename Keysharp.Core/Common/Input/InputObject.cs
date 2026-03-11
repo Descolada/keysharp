@@ -1,9 +1,16 @@
-﻿namespace Keysharp.Core.Common.Input
+﻿using Keysharp.Scripting;
+
+namespace Keysharp.Core.Common.Input
 {
 	public class InputObject : KeysharpObject
 	{
+		private const int CharCallbackIndex = 0;
+		private const int EndCallbackIndex = 1;
+		private const int KeyDownCallbackIndex = 2;
+		private const int KeyUpCallbackIndex = 3;
 		internal InputType input;
-		private IFuncObj onChar, onEnd, onKeyDown, onKeyUp;
+		private bool callbackPersistenceActive;
+		private readonly CallbackRegistration[] callbackSlots = [new(), new(), new(), new()];
 
 		public object BackspaceIsUndo
 		{
@@ -116,26 +123,26 @@
 
 		public object OnChar
 		{
-			get => onChar;
-			set => onChar = Functions.GetFuncObj(value, null, true);
+			get => GetCallback(CharCallbackIndex);
+			set => SetCallback(CharCallbackIndex, value);
 		}
 
 		public object OnEnd
 		{
-			get => onEnd;
-			set => onEnd = Functions.GetFuncObj(value, null, true);
+			get => GetCallback(EndCallbackIndex);
+			set => SetCallback(EndCallbackIndex, value);
 		}
 
 		public object OnKeyDown
 		{
-			get => onKeyDown;
-			set => onKeyDown = Functions.GetFuncObj(value, null, true);
+			get => GetCallback(KeyDownCallbackIndex);
+			set => SetCallback(KeyDownCallbackIndex, value);
 		}
 
 		public object OnKeyUp
 		{
-			get => onKeyUp;
-			set => onKeyUp = Functions.GetFuncObj(value, null, true);
+			get => GetCallback(KeyUpCallbackIndex);
+			set => SetCallback(KeyUpCallbackIndex, value);
 		}
 
 		public object Timeout
@@ -294,6 +301,47 @@
 				_ = Flow.Sleep(20);
 
 			return DefaultObject;
+		}
+
+		internal void ActivateCallbackPersistence() => SetCallbackPersistenceActive(true);
+
+		internal void DeactivateCallbackPersistence() => SetCallbackPersistenceActive(false);
+
+		internal CallbackRegistration GetCallbackSlot(UserMessages message)
+		{
+			var index = message switch
+			{
+				UserMessages.AHK_INPUT_CHAR => CharCallbackIndex,
+				UserMessages.AHK_INPUT_END => EndCallbackIndex,
+				UserMessages.AHK_INPUT_KEYDOWN => KeyDownCallbackIndex,
+				UserMessages.AHK_INPUT_KEYUP => KeyUpCallbackIndex,
+				_ => -1
+			};
+
+			return index >= 0 ? callbackSlots[index] : null;
+		}
+
+		private void SetCallbackPersistence(bool persistenceActive)
+		{
+			foreach (var callbackSlot in callbackSlots)
+				callbackSlot.SetActive(persistenceActive && callbackSlot.Callback != null);
+		}
+
+		private object GetCallback(int index) => callbackSlots[index].Callback;
+
+		private void SetCallback(int index, object value)
+		{
+			var callback = Functions.GetFuncObj(value, null, true);
+			callbackSlots[index].Set(callback, callback != null ? Script.TheScript?.EventScheduler : null, callbackPersistenceActive && callback != null);
+		}
+
+		private void SetCallbackPersistenceActive(bool active)
+		{
+			if (callbackPersistenceActive == active)
+				return;
+
+			callbackPersistenceActive = active;
+			SetCallbackPersistence(active);
 		}
 	}
 }

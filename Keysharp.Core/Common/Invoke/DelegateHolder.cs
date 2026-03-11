@@ -18,9 +18,11 @@
 		internal Any funcObj;
 		readonly bool _fast, _reference;
 		readonly int _arity;
+		readonly SchedulerRegistration _ownerState;
 		private int _slotId;
 		// Used to prevent slot reuse collisions
 		internal int _assignedGeneration;
+		internal ScriptEventScheduler OwnerScheduler => _ownerState.OwnerScheduler;
 
 		// Native function pointer to pass into unmanaged code.
 		public long Ptr { get; internal set; }
@@ -34,6 +36,8 @@
 			_fast = fast;
 			_reference = reference;
 			_arity = arity;
+			_ownerState = new(Script.TheScript?.EventScheduler, true);
+			_ownerState.OwnerScheduler?.RegisterOwnedDelegate(this);
 
 			int slotId = AritySlots.Rent(arity, this, out _assignedGeneration);
 			_slotId = slotId;
@@ -45,13 +49,18 @@
 		// the reference is held in AritySlotPointerCache until it's explicitly freed.
 		public void Dispose()
 		{
-			if (Ptr != 0) { 
+			if (Ptr != 0) {
+				var ownerScheduler = OwnerScheduler;
 				AritySlots.Return(_arity, _slotId);
+
+				ownerScheduler?.UnregisterOwnedDelegate(this);
+
+				_ownerState.Clear();
 				Ptr = 0;
 			}
 		}
 
-		// Delegate defintions for arities 0..32
+		// Delegate definitions for arities 0..32
 		[UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate long NativeCallbackArity0();
 		[UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate long NativeCallbackArity1(long p0);
 		[UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate long NativeCallbackArity2(long p0, long p1);
@@ -176,40 +185,55 @@
 				throw new Error("Stale callback pointer");
 			}
 
-			object val = null;
-			var state = (false, (ThreadVariables)null);
-			_ = Flow.TryCatch(() =>
+			var script = Script.TheScript;
+			var targetScheduler = dh.OwnerScheduler ?? script.EventScheduler;
+			var completedNormally = false;
+
+			long ExecuteCallback()
 			{
-				var script = Script.TheScript;
-
-				if (!dh._fast)
-					state = script.Threads.BeginThread();
-
-				if (dh._reference)
+				object val = null;
+				_ = Flow.TryCatch(() =>
 				{
-					var gh = GCHandle.Alloc(args, GCHandleType.Pinned);
-
-					try
+					if (dh._reference)
 					{
-						unsafe
+						var gh = GCHandle.Alloc(args, GCHandleType.Pinned);
+
+						try
 						{
-							long* ptr = (long*)gh.AddrOfPinnedObject().ToPointer();
-							val = Script.Invoke(dh.funcObj, "Call", (long)ptr);
+							unsafe
+							{
+								long* ptr = (long*)gh.AddrOfPinnedObject().ToPointer();
+								val = Script.Invoke(dh.funcObj, "Call", (long)ptr);
+							}
+						}
+						finally
+						{
+							gh.Free();
 						}
 					}
-					finally { gh.Free(); }
-				}
-				else
-				{
-					val = Script.Invoke(dh.funcObj, "Call", System.Array.ConvertAll(args, item => (object)item));
-				}
+					else
+						val = Script.Invoke(dh.funcObj, "Call", System.Array.ConvertAll(args, item => (object)item));
 
-				if (state.Item1)
-					_ = script.Threads.EndThread(state);
+					completedNormally = true;
+				});
+				return ConvertResult(val);
+			}
 
+			long result = 0L;
+
+			if (dh._fast)
+				result = targetScheduler.InvokeSynchronous(ExecuteCallback);
+			else if (targetScheduler.InvokePseudoThread(0, false, false, btv =>
+			{
+				_ = btv.RunAndEnd(() => result = ExecuteCallback());
+				return true;
+			}, out _) != ScriptEventExecutionResult.Executed)
+				return 0L;
+
+			if (completedNormally)
 				script.ExitIfNotPersistent();
-			}, !state.Item1, state);
-			return ConvertResult(val);
+
+			return result;
 		}
 
 		internal static long ConvertResult(object val) => val switch
@@ -220,6 +244,15 @@
 			string s => s.Length == 0 ? 0L : 0L,
 			_ => 0L
 		};
+
+		internal static void DisposeOwnedByScheduler(ScriptEventScheduler scheduler)
+		{
+			if (scheduler == null)
+				return;
+
+			foreach (var holder in scheduler.GetOwnedDelegatesSnapshot())
+				holder?.Dispose();
+		}
 	}
 
 	// Thread-safe way to reserve a slot for a given arity. Additionally keeps track of the generation

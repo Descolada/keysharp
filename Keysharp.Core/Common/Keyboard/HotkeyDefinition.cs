@@ -1011,6 +1011,8 @@ namespace Keysharp.Core.Common.Keyboard
 							{
 								if (callback != variant.callback) // ...and its callback is being changed.
 									variant.callback = callback;
+
+								variant.ownerScheduler = script.EventScheduler;
 							}
 							else // No existing variant matching current criteria, so create a new variant.
 							{
@@ -1924,6 +1926,8 @@ namespace Keysharp.Core.Common.Keyboard
 				enabled = true
 			};
 
+			vp.ownerScheduler = Script.TheScript.EventScheduler;
+
 			if (vp.inputLevel > 0)
 			{
 				keybdHookMandatory = true;// A non-zero InputLevel only works when using the hook
@@ -2067,21 +2071,14 @@ namespace Keysharp.Core.Common.Keyboard
 		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
 		{
 			var script = Script.TheScript;
-			script.EventScheduler.Enqueue(new ScriptEvent(
-				ScriptEventKind.Hotkey,
-				ScriptEventQueue.Interactive,
-				variant.priority,
-				() => TryExecuteBufferedHotkeyEvent(variant, critFoundHwnd, lParamVal)));
+			var targetScheduler = variant.ownerScheduler ?? script.EventScheduler;
+			targetScheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotkeyEvent(targetScheduler, variant, critFoundHwnd, lParamVal));
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
+		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, long critFoundHwnd, int lParamVal)
 		{
 			var script = Script.TheScript;
 			var hkd = script.HotkeyData;
-			var admissionResult = script.EventScheduler.CheckPseudoThreadAdmission(variant.priority, false);
-
-			if (admissionResult != ScriptEventExecutionResult.Executed)
-				return admissionResult;
 
 			if (script.HotkeyData.dialogIsDisplayed) // Another recursion layer is already displaying the warning dialog below.
 				return ScriptEventExecutionResult.Dropped;
@@ -2143,45 +2140,50 @@ namespace Keysharp.Core.Common.Keyboard
 			if (!variant.AnyThreadsAvailable())
 				return variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped;
 
-			var btv = script.EventScheduler.BeginPseudoThread(variant.priority, false, false);
-
-			if (!btv.Item1)
-				return ScriptEventExecutionResult.GlobalBlocked;
-
 			try
 			{
-				// This is stored as an attribute of the script (semi-globally) rather than passed
-				// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
-				// makes) because it's possible for SendKeys to be called asynchronously, namely
-				// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
-				// in which case we would want SendKeys() to take note of these modifiers even
-				// if it was called from an ExecUntil() other than ours here:
-				ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
-				script.SetHotNamesAndTimes(Name);
-				_ = Interlocked.Increment(ref variant.existingThreads);
-
-				_ = Flow.TryCatch(() =>
+				var executionResult = scheduler.InvokePseudoThread(variant.priority, false, false, btv =>
 				{
-					if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
-						A_EventInfo = (long)Conversions.LowWord(lParamVal);
+					// This is stored as an attribute of the script (semi-globally) rather than passed
+					// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
+					// makes) because it's possible for SendKeys to be called asynchronously, namely
+					// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
+					// in which case we would want SendKeys() to take note of these modifiers even
+					// if it was called from an ExecUntil() other than ours here:
+					ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
+					script.SetHotNamesAndTimes(Name);
+					_ = Interlocked.Increment(ref variant.existingThreads);
 
-					A_SendLevel = variant.inputLevel;
-					var tv = script.Threads.CurrentThread;
-					tv.hwndLastUsed = new nint(critFoundHwnd);
-					tv.hotCriterion = variant.hotCriterion;
-					_ = Flow.TryCatch(() => _ = variant.callback.Call([Name]), false, (false, null));
+					try
+					{
+						_ = btv.RunAndEnd(() =>
+						{
+							if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
+								A_EventInfo = (long)Conversions.LowWord(lParamVal);
 
-					_ = Interlocked.Decrement(ref variant.existingThreads);
+							A_SendLevel = variant.inputLevel;
+							var tv = script.Threads.CurrentThread;
+							tv.hwndLastUsed = new nint(critFoundHwnd);
+							tv.hotCriterion = variant.hotCriterion;
+							_ = variant.callback.Call([Name]);
+						});
+					}
+					finally
+					{
+						_ = Interlocked.Decrement(ref variant.existingThreads);
+					}
 
-					_ = script.Threads.EndThread(btv);
-				}, true, btv);
+					return true;
+				}, out _);
+
+				return executionResult;
 			}
 			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
 			}
 
-			return ScriptEventExecutionResult.Executed;
+			return ScriptEventExecutionResult.Dropped;
 		}
 
 		internal ResultType Register()
@@ -2400,6 +2402,7 @@ namespace Keysharp.Core.Common.Keyboard
 				return false; // Indicate that it's already disabled.
 
 			aVariant.enabled = false;
+			aVariant.callbackRegistration.SetActive(false);
 			return true;
 		}
 
@@ -2418,6 +2421,7 @@ namespace Keysharp.Core.Common.Keyboard
 				return false; // Indicate that it's already enabled.
 
 			aVariant.enabled = true;
+			aVariant.callbackRegistration.SetActive(aVariant.callback != null);
 			return true;
 		}
 
@@ -2428,6 +2432,37 @@ namespace Keysharp.Core.Common.Keyboard
 
 			parentEnabled = true;
 			return true;
+		}
+
+		internal static bool DisableOwnedVariants(ScriptEventScheduler scheduler)
+		{
+			if (scheduler == null)
+				return false;
+
+			var changed = false;
+			var script = Script.TheScript;
+
+			foreach (var hotkey in script.HotkeyData.shk.ToArray())
+			{
+				if (hotkey == null)
+					continue;
+
+				for (var variant = hotkey.firstVariant; variant != null; variant = variant.nextVariant)
+				{
+					if (!ReferenceEquals(variant.ownerScheduler, scheduler))
+						continue;
+
+					variant.callbackRegistration.Clear();
+
+					if (!variant.enabled)
+						continue;
+
+					variant.enabled = false;
+					changed = true;
+				}
+			}
+
+			return changed;
 		}
 
 		[Flags]
@@ -2570,7 +2605,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 	internal class HotkeyVariant
 	{
-		internal IFuncObj callback;
+		internal readonly CallbackRegistration callbackRegistration = new();
 		internal bool enabled;
 		internal int existingThreads;
 		internal IFuncObj hotCriterion;
@@ -2580,6 +2615,16 @@ namespace Keysharp.Core.Common.Keyboard
 		internal bool maxThreadsBuffer;
 		internal HotkeyVariant nextVariant;
 		internal uint noSuppress;
+		internal IFuncObj callback
+		{
+			get => callbackRegistration.Callback;
+			set => callbackRegistration.Set(value, callbackRegistration.OwnerScheduler, enabled && value != null);
+		}
+		internal ScriptEventScheduler ownerScheduler
+		{
+			get => callbackRegistration.OwnerScheduler;
+			set => callbackRegistration.Set(callback, value, enabled && callback != null);
+		}
 		internal IFuncObj originalCallback;   // This is the callback set at load time.
 		internal int priority;
 		internal bool suspendExempt;

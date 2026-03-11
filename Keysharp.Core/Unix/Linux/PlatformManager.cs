@@ -183,7 +183,7 @@ namespace Keysharp.Core.Unix
 
 		public static uint CurrentThreadId() =>
 #if OSX
-			(uint)Environment.CurrentManagedThreadId;
+			(uint)Environment.CurrentManagedThreadId; //TODO
 #else
 			(uint)Xlib.gettid();
 #endif

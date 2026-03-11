@@ -337,6 +337,7 @@ namespace Keysharp.Core.Common.Input
 			_ = InputUnlinkIfStopped(this);
 			prev = script.input;
 			Start();
+			scriptObject?.ActivateCallbackPersistence();
 			script.input = this; // Signal the hook to start the input.
 
 			if (beforeHotkeys)

@@ -280,7 +280,7 @@ namespace Eto.Forms
             }
 			internal bool IsHandleCreated => control.NativeHandle != 0;
 			internal bool Disposing => false;
-			internal bool InvokeRequired => CurrentThreadId() != TheScript.ProcessesData.MainThreadID;
+			internal bool InvokeRequired => TheScript.IsOnMainThread;
             internal bool Focused => control.HasFocus;
             private static Point GetPLoc(Control c) => c.Parent is PixelLayout ? PixelLayout.GetLocation(c) : c.Location; 
             internal int Left

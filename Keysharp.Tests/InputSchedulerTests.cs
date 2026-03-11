@@ -31,7 +31,7 @@ namespace Keysharp.Tests
 		{
 			var context = UseQueuedMainContext();
 			s.MaxThreadsTotal = 1;
-			var occupied = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var occupied));
 
 			try
 			{
@@ -44,14 +44,14 @@ namespace Keysharp.Tests
 
 				Assert.AreEqual(0, calls);
 
-				_ = s.Threads.EndThread(occupied);
+				s.Threads.EndThread(occupied);
 				context.DrainAll();
 
 				Assert.AreEqual(1, calls);
 			}
 			catch
 			{
-				_ = s.Threads.EndThread(occupied);
+				s.Threads.EndThread(occupied);
 				throw;
 			}
 		}

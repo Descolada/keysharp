@@ -177,7 +177,7 @@ namespace Keysharp.Core
 			// The thread's interruptibility has been explicitly set; so the script is now in charge of
 			// managing this thread's interruptibility.
 			script.FlowData.callingCritical = false;
-			script.RestartPreemptiveMessageTimer();
+			script.RecordMessageCheck();
 			return ret;
 		}
 
@@ -243,9 +243,9 @@ namespace Keysharp.Core
 				return false;
 
 			// Compiled code cannot check the message queue before every line like AHK's interpreter.
-			// Instead, a periodic timer latches a pending preemptive check, and loop poll sites
-			// honor it only when the current thread's peek frequency says another check is due.
-			if (script.preemptiveMessageCheckPending && script.IsPreemptiveMessageCheckDue(Environment.TickCount64))
+			// Instead, each execution context tracks its own last poll time and only performs
+			// a preemptive check when its current peek frequency says another one is due.
+			if (script.IsCurrentThreadPreemptiveCheckDue())
 				TryDoEvents(true, false);
 
 			return b;
@@ -265,7 +265,7 @@ namespace Keysharp.Core
 		/// </param>
 		public static object OnExit(object callback, object addRemove = null)
 		{
-			Script.TheScript.onExitHandlers.ModifyEventHandlers(Functions.GetFuncObj(callback, null, true), addRemove.Al(1L));
+			Script.TheScript.onExitHandlers.ModifyGlobalEventHandlers(Functions.GetFuncObj(callback, null, true), addRemove.Al(1L));
 			return DefaultObject;
 		}
 
@@ -374,9 +374,11 @@ namespace Keysharp.Core
 			var p = period.Al(long.MaxValue);
 			var pri = priority.Al();
 			var once = p < 0;
-			IFuncObj func = null;
-			TimerWithTag timer = null;
+			var func = default(IFuncObj);
 			var script = Script.TheScript;
+			var ownerScheduler = script.EventScheduler;
+			FlowData.TimerRegistration timerRegistration = null;
+			TimerWithTag timer = null;
 
 			if (once)
 				p = -p;
@@ -389,77 +391,87 @@ namespace Keysharp.Core
 			if (f == null)
 				timer = script.Threads.CurrentThread.currentTimer;//This means: use the timer which has already been created for this thread/timer event which we are currently inside of.
 			else
-				_ = script.FlowData.timers.TryGetValue(func, out timer);
+				timerRegistration = script.FlowData.GetTimerRegistration(func, ownerScheduler);
 
-			if (timer != null)
+			timer ??= timerRegistration?.Timer;
+
+			Script.InvokeOnUIThread(() =>
 			{
+				var createdTimer = false;
+
+				if (timer == null && func != null)
+				{
+					timerRegistration = script.FlowData.GetTimerRegistration(func, ownerScheduler);
+					timer = timerRegistration?.Timer;
+				}
+
+				if (timer == null)
+				{
+					if (p == 0)
+						return;
+
+						if (p == long.MaxValue)//Period omitted and timer didn't exist, so create one with a 250ms interval.
+							p = 250;
+
+						timerRegistration = new FlowData.TimerRegistration(func, ownerScheduler);
+						script.FlowData.AddTimerRegistration(timerRegistration);
+						timer = timerRegistration.Timer;
+						timer.Tag = (int)pri;
+						timer.Interval = (int)p;
+						createdTimer = true;
+					}
+
 				if (p == 0)
 				{
-					if (func == null)
-					{
-						var temptimer = script.FlowData.timers.Where((kv) => kv.Value == timer).FirstOrDefault();
-
-						if (temptimer.Key != null)
-							_ = script.FlowData.timers.TryRemove(temptimer.Key, out _);
-					}
-					else
-						_ = script.FlowData.timers.TryRemove(func, out _);
-
+					_ = script.FlowData.RemoveTimerRegistration(timer, out _);
 					timer.Stop();
 					timer.Dispose();
 					script.ExitIfNotPersistent();
-					return DefaultObject;
-				}
-				else
-				{
-					if (p == long.MaxValue)
-					{
-						if (pri != timer.Tag.Al())//Period omitted and timer existed, but priority was specified, so just update the priority.
-						{
-							timer.Tag = pri;
-						}
-						else//Period omitted, timer did exist, and priority was omitted so reset it at its current interval.
-						{
-							timer.Stop();
-							timer.Start();
-						}
-					}
-					else
-					{
-						if (timer.Interval == p)
-							timer.Interval = int.MaxValue;
-						timer.Interval = (int)p;
-						timer.ResetFallbackSchedule();
-					}
-
-					return DefaultObject;
-				}
-			}
-			else if (p != 0)
-			{
-				if (p == long.MaxValue)//Period omitted and timer didn't exist, so create one with a 250ms interval.
-					p = 250;
-
-				_ = script.FlowData.timers.TryAdd(func, timer = new());
-				timer.Tag = (int)pri;
-				timer.Interval = (int)p;
-			}
-			else//They tried to stop a timer that didn't exist
-				return DefaultErrorObject;
-
-			timer.ScriptFunc = func;
-			timer.RunsOnce = once;
-			timer.Tick += (ss, ee) =>
-			{
-				if (Ks.A_HasExited || ss is not TimerWithTag t)
 					return;
+				}
 
-				t.PushToMessageQueue();
-			};
-			Script.InvokeOnUIThread(timer.Start);
+				if (!createdTimer && p == long.MaxValue)
+				{
+					if (pri != timer.Tag.Al())//Period omitted and timer existed, but priority was specified, so just update the priority.
+						timer.Tag = pri;
+					else//Period omitted, timer did exist, and priority was omitted so reset it at its current interval.
+					{
+						timer.Stop();
+						timer.Start();
+					}
 
-			if (timer.Interval == 1)
-				timer.PushToMessageQueue();
+					return;
+				}
+
+				if (!createdTimer)
+				{
+					if (timer.Interval == p)
+						timer.Interval = int.MaxValue;
+
+					timer.Interval = (int)p;
+					timer.ResetFallbackSchedule();
+					return;
+				}
+
+				timer.ScriptFunc = func;
+				timer.RunsOnce = once;
+				timer.OwnerScheduler = func != null ? ownerScheduler : timer.OwnerScheduler;
+				timer.Tick += (ss, ee) =>
+				{
+					if (Ks.A_HasExited || ss is not TimerWithTag t)
+						return;
+
+					t.PushToMessageQueue();
+				};
+				timer.Start();
+
+				if (timer.Interval == 1)
+				{	
+					timer.PushToMessageQueue();
+					if (once)
+						timer.Stop();	
+				}
+			});
 
 			//script.mainWindow.CheckedBeginInvoke(timer.Start, true, true);
 			return DefaultObject;
@@ -472,14 +484,19 @@ namespace Keysharp.Core
 		private static void PumpUiAndScheduler()
 		{
 			var script = Script.TheScript;
+			var scheduler = script.EventScheduler;
 
+			if (script.IsOnMainThread)
+			{
 #if WINDOWS
-			Application.DoEvents();
+				Application.DoEvents();
 #else
-			Application.Instance?.RunIteration();
+				Application.Instance?.RunIteration();
 #endif
-			script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
-			script.EventScheduler.PumpPendingEvents();
+				script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
+			}
+
+			scheduler.PumpPendingEvents();
 		}
 
 		/// <summary>
@@ -503,44 +520,18 @@ namespace Keysharp.Core
 		{
 			var start = yieldTick ? Environment.TickCount : default;
 			var script = Script.TheScript;
-			// A pending preemptive check is being serviced now; waits and explicit sleeps
-			// also come through here, so the flag is simply cleared on entry.
-			script.preemptiveMessageCheckPending = false;
-			var recordedPeek = false;
 
-			if (allowExit)
+			try
 			{
-				try
-				{
-					PumpUiAndScheduler();
-					script.RecordMessageCheck(Environment.TickCount64);
-					recordedPeek = true;
-				}
-				catch (UserRequestedExitException)
-				{
-					throw;
-				}
-				catch
-				{
-				}
+				PumpUiAndScheduler();
 			}
-			else
+			catch (Exception ex) when (!allowExit || !TryGetException<UserRequestedExitException>(ex, out _))
 			{
-				try
-				{
-					PumpUiAndScheduler();
-					script.RecordMessageCheck(Environment.TickCount64);
-					recordedPeek = true;
-				}
-				catch
-				{
-				}
 			}
-
-			if (!recordedPeek)
-				script.RecordMessageCheck(Environment.TickCount64);
-
-			script.RestartPreemptiveMessageTimer();
+			finally
+			{
+				script.RecordMessageCheck();
+			}
 
 			if (yieldTick && start.Equals(Environment.TickCount))
 				//0 tells this thread to relinquish the remainder of its time slice to any thread of equal priority that is ready to run.
@@ -601,7 +592,7 @@ namespace Keysharp.Core
 			var fd = script.FlowData;
 			fd.suspended = state == ToggleValueType.Toggle ? !fd.suspended : (state == ToggleValueType.On);
 
-			if (!(bool)A_IconFrozen && !script.NoTrayIcon)
+			if (!(bool)A_IconFrozen && !script.NoTrayIcon && script.EnsureTrayMenu())
 				script.Tray.Icon = fd.suspended ? script.suspendedIcon : script.normalIcon;
 
 			return DefaultObject;
@@ -702,7 +693,6 @@ namespace Keysharp.Core
 			if (script.hasExited)//This can be called multiple times, so ensure it only runs through once.
 				return false;
 
-			script.tickTimer.Stop();
 			Dialogs.CloseMessageBoxes();
 			Dialogs.CloseToolTips();
 			var ec = exitCode.Ai();
@@ -756,6 +746,7 @@ namespace Keysharp.Core
 			}
 
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.
+			script.SignalAllEventSchedulers();
 			fd.allowInterruption = allowInterruption_prev;
 			HotkeyDefinition.AllDestruct();
 			StopMainTimer();
@@ -765,13 +756,17 @@ namespace Keysharp.Core
 			else if (script.KeyboardData.blockMouseMove)
 				_ = Keysharp.Core.Keyboard.ScriptBlockInput(ToggleValueType.MouseMoveOff);
 
-			foreach (var kv in script.FlowData.timers)
-				kv.Value.Stop();
+			foreach (var registration in script.FlowData.timers.GetSnapshot())
+				registration.Timer.Stop();
 
 			Gui.DestroyAll();
 			Environment.ExitCode = ec;
 			script.Stop();
 			script.mainWindow?.Close();
+
+#if !WINDOWS
+			Keysharp.Scripting.Script.InvokeOnUIThread(() => Eto.Forms.Application.Instance?.Quit());
+#endif
 
 			if (useThrow)
 				throw new UserRequestedExitException();
@@ -830,15 +825,30 @@ namespace Keysharp.Core
 		/// threads and error conditions and it would be very verbose and unmaintainable to repeat it everywhere.
 		/// </summary>
 		/// <param name="action">The action to perform in the try block.</param>
-		/// <param name="pop">True to pop the current thread by calling <see cref="Threads.EndThread(bool, bool)"/> when an exception is caught.<br/>
-		/// Pass true for this when the action internally calls <see cref="Threads.BeginThread(bool)"/> before executing code that<br/>
-		/// could potentially thrown an exception.
-		/// </param>
-		/// <param name="btv">The thread object that was created before calling this function.</param>
 		/// <returns>True if no errors occurred, else false if any catch blocks were reached.</returns>
-		internal static bool TryCatch(Action action, bool pop, (bool, ThreadVariables) btv)
+		internal static bool TryCatch(Action action)
 		{
-			var t = Script.TheScript.Threads;
+			static void ShowHandledErrorDialog(Exception ex, bool keysharpDialog)
+			{
+				static void ShowDialog(Exception innerEx, bool useKeysharpDialog)
+				{
+					if (useKeysharpDialog)
+						_ = ErrorDialog.Show((KeysharpException)innerEx, false);
+					else
+						_ = ErrorDialog.Show(innerEx);
+				}
+
+				var threads = Script.TheScript.Threads;
+
+				if (threads.TryBeginThread(out var tv))
+				{
+					_ = tv.RunAndEnd(() => ShowDialog(ex, keysharpDialog));
+					return;
+				}
+
+				threads.EnsureCurrentThreadVariables();
+				_ = threads.CurrentThread.Run(() => ShowDialog(ex, keysharpDialog));
+			}
 
 			try
 			{
@@ -854,20 +864,9 @@ namespace Keysharp.Core
 					_ = ErrorOccurred(userErr, userErr.ExcType);
 
 				if (userErr != null && !userErr.Handled && !TheScript.SuppressErrorOccurredDialog)
-				{
-					var (__pushed, __btv) = t.BeginThread();
-					_ = ErrorDialog.Show(kserr, false);
-					_ = t.EndThread((__pushed, __btv));
-				}
+					ShowHandledErrorDialog(kserr, true);
 				else if (userErr == null && !TheScript.SuppressErrorOccurredDialog)
-				{
-					var (__pushed, __btv) = t.BeginThread();
-					_ = ErrorDialog.Show(kserr, false);
-					_ = t.EndThread((__pushed, __btv));
-				}
-
-				if (pop)
-					_ = t.EndThread(btv);
+					ShowHandledErrorDialog(kserr, true);
 
 				return false;
 			}
@@ -876,12 +875,7 @@ namespace Keysharp.Core
 				var ex = mainex.InnerException ?? mainex;
 
 				if (TryGetException<UserRequestedExitException>(mainex, out _))
-				{
-					if (pop)
-						_ = t.EndThread(btv);
-
 					return true;
-				}
 				else if (ex is KeysharpException kserr)
 				{
 					var userErr = kserr.UserError;
@@ -889,32 +883,17 @@ namespace Keysharp.Core
 						_ = ErrorOccurred(userErr, userErr.ExcType);
 
 					if (userErr != null && !userErr.Handled && !TheScript.SuppressErrorOccurredDialog)
-					{
-						var (__pushed, __btv) = t.BeginThread();
-						_ = ErrorDialog.Show(kserr, false);
-						_ = t.EndThread((__pushed, __btv));
-					}
+						ShowHandledErrorDialog(kserr, true);
 					else if (userErr == null && !TheScript.SuppressErrorOccurredDialog)
-					{
-						var (__pushed, __btv) = t.BeginThread();
-						_ = ErrorDialog.Show(kserr, false);
-						_ = t.EndThread((__pushed, __btv));
-					}
+						ShowHandledErrorDialog(kserr, true);
 				}
 				else if (!TheScript.SuppressErrorOccurredDialog)
 				{
 					var dummy = new Error(mainex);
 					_ = ErrorOccurred(dummy, Keywords.Keyword_Exit);
 					if (!dummy.Handled)
-					{
-						var (__pushed, __btv) = t.BeginThread();
-						_ = ErrorDialog.Show(ex);
-						_ = t.EndThread((__pushed, __btv));
-					}
+						ShowHandledErrorDialog(ex, false);
 				}
-
-				if (pop)
-					_ = t.EndThread(btv);
 
 				return false;
 			}
@@ -943,6 +922,12 @@ namespace Keysharp.Core
 
 	internal class FlowData
 	{
+		internal sealed class TimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler)
+			: CallbackRegistration(callback, ownerScheduler, true)
+		{
+			internal TimerWithTag Timer { get; } = new();
+		}
+
 		/// <summary>
 		/// Whether a thread can be interrupted/preempted by subsequent thread.
 		/// </summary>
@@ -958,9 +943,48 @@ namespace Keysharp.Core
 		/// </summary>
 		internal bool suspended;
 
-		internal ConcurrentDictionary<IFuncObj, TimerWithTag> timers = new ();
+		internal CallbackRegistrationHub<TimerRegistration> timers = new();
+		internal readonly ConcurrentDictionary<TimerWithTag, TimerRegistration> timersByInstance = new();
 		internal long nextTimerFallbackDueTick = long.MaxValue;
 		internal bool timerFallbackDueTickDirty = true;
+
+		internal TimerRegistration GetTimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler)
+			=> timers.Find(callback, ownerScheduler);
+
+		internal TimerRegistration GetTimerRegistration(TimerWithTag timer)
+			=> timer != null && timersByInstance.TryGetValue(timer, out var registration) ? registration : null;
+
+		internal void AddTimerRegistration(TimerRegistration registration)
+		{
+			if (registration == null)
+				return;
+
+			timers.Add(registration);
+			timersByInstance[registration.Timer] = registration;
+		}
+
+		internal bool RemoveTimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler, out TimerRegistration registration)
+		{
+			registration = timers.Find(callback, ownerScheduler);
+
+			if (registration == null)
+				return false;
+
+			_ = timersByInstance.TryRemove(registration.Timer, out _);
+			return timers.Remove(callback, ownerScheduler);
+		}
+
+		internal bool RemoveTimerRegistration(TimerWithTag timer, out TimerRegistration registration)
+		{
+			registration = GetTimerRegistration(timer);
+
+			if (registration == null)
+				return false;
+
+			var match = registration;
+			_ = timersByInstance.TryRemove(timer, out _);
+			return timers.Remove(existing => ReferenceEquals(existing, match));
+		}
 
 		internal void MarkTimerFallbackDueTickDirty() => timerFallbackDueTickDirty = true;
 
@@ -980,8 +1004,9 @@ namespace Keysharp.Core
 
 			var nextDueTick = long.MaxValue;
 
-			foreach (var timer in timers.Values)
+			foreach (var registration in timers.GetSnapshot())
 			{
+				var timer = registration.Timer;
 				timer.QueueIfOverdue(nowTick);
 
 				if (timer.FallbackDueTick < nextDueTick)
@@ -996,8 +1021,10 @@ namespace Keysharp.Core
 		{
 			var nextDueTick = long.MaxValue;
 
-			foreach (var timer in timers.Values)
+			foreach (var registration in timers.GetSnapshot())
 			{
+				var timer = registration.Timer;
+
 				if (timer.FallbackDueTick < nextDueTick)
 					nextDueTick = timer.FallbackDueTick;
 			}

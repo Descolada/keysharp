@@ -45,31 +45,36 @@ namespace Keysharp.Core
 			var p = prompt.As();
 			var str = "";
 #if WINDOWS
-			var select = new FolderBrowserDialog
+			return RunInterruptibleUIDialog(() =>
 			{
-				ShowNewFolderButton = (opts & 1) == 1//The 1, 3 and 5 options seem to not apply to this class and the New Folder button will always be shown.
-			};
-			select.UseDescriptionForTitle = true;
-			select.Description = p != "" ? p : "Select Folder - " + A_ScriptName;
-			select.RootFolder = Environment.SpecialFolder.MyComputer;
+				var select = new FolderBrowserDialog
+				{
+					ShowNewFolderButton = (opts & 1) == 1//The 1, 3 and 5 options seem to not apply to this class and the New Folder button will always be shown.
+				};
+				select.UseDescriptionForTitle = true;
+				select.Description = p != "" ? p : "Select Folder - " + A_ScriptName;
+				select.RootFolder = Environment.SpecialFolder.MyComputer;
 
-			if (folder.StartsWith("::"))
-			{
-				var guidStr = folder.Trim([':', '{', '}']).ToLower();
-				var guid = new Guid(guidStr);
+				if (folder.StartsWith("::"))
+				{
+					var guidStr = folder.Trim([':', '{', '}']).ToLower();
+					var guid = new Guid(guidStr);
 
-				if (WindowsAPI.SHGetKnownFolderPath(new Guid(guidStr)) is string s)
-					select.SelectedPath = s;
-			}
-			else if (Options.TryParseString(folder, "*", ref str))
-				select.SelectedPath = str;
-			else if (folder.Length != 0)
-				select.SelectedPath = folder;
+					if (WindowsAPI.SHGetKnownFolderPath(new Guid(guidStr)) is string s)
+						select.SelectedPath = s;
+				}
+				else if (Options.TryParseString(folder, "*", ref str))
+					select.SelectedPath = str;
+				else if (folder.Length != 0)
+					select.SelectedPath = folder;
 
-			var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner));
-			return selected == DialogResult.OK ? select.SelectedPath : "";
+				var selected = GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner);
+				return selected == DialogResult.OK ? select.SelectedPath : "";
+			});
 #else
-			var select = new Eto.Forms.SelectFolderDialog();
+			return RunInterruptibleUIDialog(() =>
+			{
+				var select = new Eto.Forms.SelectFolderDialog();
 
 				if (folder.StartsWith("::"))
 				{
@@ -112,8 +117,9 @@ namespace Keysharp.Core
 						select.Directory = folderPath;
 				}
 
-				var selected = RunInterruptibleUIDialog(() => select.ShowDialog(GetEtoDialogOwner()));
+				var selected = select.ShowDialog(GetEtoDialogOwner());
 				return selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
+			});
 #endif
 		}
 
@@ -219,31 +225,37 @@ namespace Keysharp.Core
 					t = $"Select File - {A_ScriptName}";
 
 #if WINDOWS
-				var saveas = new SaveFileDialog
+				files = RunInterruptibleUIDialog(() =>
 				{
-					CheckPathExists = check,
-					CreatePrompt = create,
-					OverwritePrompt = overwite,
-					DereferenceLinks = shortcuts,
-					Filter = f,
-					Title = t,
-					InitialDirectory = Path.GetDirectoryName(rootdir),
-					FileName = Path.GetFileName(rootdir),
-				};
-					var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner));
-				files = selected == DialogResult.OK ? saveas.FileName : "";
+					var saveas = new SaveFileDialog
+					{
+						CheckPathExists = check,
+						CreatePrompt = create,
+						OverwritePrompt = overwite,
+						DereferenceLinks = shortcuts,
+						Filter = f,
+						Title = t,
+						InitialDirectory = Path.GetDirectoryName(rootdir),
+						FileName = Path.GetFileName(rootdir),
+					};
+					var selected = GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner);
+					return selected == DialogResult.OK ? saveas.FileName : "";
+				});
 #else
-				var saveas = new Eto.Forms.SaveFileDialog
+				files = RunInterruptibleUIDialog(() =>
 				{
-					Title = t,
-					FileName = Path.GetFileName(rootdir) ?? ""
-				};
-				var saveDir = ToFileDialogPath(Path.GetDirectoryName(rootdir));
-				if (saveDir != null)
-					saveas.Directory = new Uri(saveDir);
-				ApplyEtoFilters(saveas.Filters, f);
-					var selected = RunInterruptibleUIDialog(() => saveas.ShowDialog(GetEtoDialogOwner()));
-				files = selected == Eto.Forms.DialogResult.Ok ? saveas.FileName : "";
+					var saveas = new Eto.Forms.SaveFileDialog
+					{
+						Title = t,
+						FileName = Path.GetFileName(rootdir) ?? ""
+					};
+					var saveDir = ToFileDialogPath(Path.GetDirectoryName(rootdir));
+					if (saveDir != null)
+						saveas.Directory = new Uri(saveDir);
+					ApplyEtoFilters(saveas.Filters, f);
+					var selected = saveas.ShowDialog(GetEtoDialogOwner());
+					return selected == Eto.Forms.DialogResult.Ok ? saveas.FileName : "";
+				});
 #endif
 			}
 			else
@@ -254,26 +266,32 @@ namespace Keysharp.Core
 						t = $"Select Folder - {A_ScriptName}";
 
 #if WINDOWS
-					var select = new FolderBrowserDialog()
+					files = RunInterruptibleUIDialog<object>(() =>
 					{
-						RootFolder = Environment.SpecialFolder.MyComputer,
-						SelectedPath = rootdir + Path.DirectorySeparatorChar,
-						UseDescriptionForTitle = true,
-						Description = t,
-						ShowNewFolderButton = true//Seems to be visible regardless of this property.
-					};
-						var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner));
-					files = selected == DialogResult.OK ? select.SelectedPath : "";
+						var select = new FolderBrowserDialog()
+						{
+							RootFolder = Environment.SpecialFolder.MyComputer,
+							SelectedPath = rootdir + Path.DirectorySeparatorChar,
+							UseDescriptionForTitle = true,
+							Description = t,
+							ShowNewFolderButton = true//Seems to be visible regardless of this property.
+						};
+						var selected = GuiHelper.DialogOwner == null ? select.ShowDialog() : select.ShowDialog(GuiHelper.DialogOwner);
+						return selected == DialogResult.OK ? select.SelectedPath : "";
+					});
 #else
-					var select = new Eto.Forms.SelectFolderDialog
+					files = RunInterruptibleUIDialog<object>(() =>
 					{
-						Title = t
-					};
-					var selectDir = ToFileDialogPath(rootdir + Path.DirectorySeparatorChar);
-					if (selectDir != null)
-						select.Directory = selectDir;
-						var selected = RunInterruptibleUIDialog(() => select.ShowDialog(GetEtoDialogOwner()));
-					files = selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
+						var select = new Eto.Forms.SelectFolderDialog
+						{
+							Title = t
+						};
+						var selectDir = ToFileDialogPath(rootdir + Path.DirectorySeparatorChar);
+						if (selectDir != null)
+							select.Directory = selectDir;
+						var selected = select.ShowDialog(GetEtoDialogOwner());
+						return selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
+					});
 #endif
 				}
 				else
@@ -282,37 +300,42 @@ namespace Keysharp.Core
 						t = $"Select File - {A_ScriptName}";
 
 #if WINDOWS
-					var open = new OpenFileDialog
+					files = RunInterruptibleUIDialog<object>(() =>
 					{
-						Multiselect = multi,
-						CheckFileExists = check,
-						DereferenceLinks = shortcuts,
-						Filter = f,
-						Title = t,
-						InitialDirectory = Path.GetDirectoryName(rootdir),
-						FileName = Path.GetFileName(rootdir)
-					};
-						var selected = RunInterruptibleUIDialog(() => GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner));
-					files = selected == DialogResult.OK
-							? multi ? new Array(open.FileNames.Cast<object>()) : open.FileName
-							: multi ? new Array() : "";
+						var open = new OpenFileDialog
+						{
+							Multiselect = multi,
+							CheckFileExists = check,
+							DereferenceLinks = shortcuts,
+							Filter = f,
+							Title = t,
+							InitialDirectory = Path.GetDirectoryName(rootdir),
+							FileName = Path.GetFileName(rootdir)
+						};
+						var selected = GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner);
+						return selected == DialogResult.OK
+								? multi ? new Array(open.FileNames.Cast<object>()) : open.FileName
+								: multi ? new Array() : "";
+					});
 #else
-					var open = new Eto.Forms.OpenFileDialog
+					files = RunInterruptibleUIDialog<object>(() =>
 					{
-						MultiSelect = multi,
-						Title = t,
-						FileName = Path.GetFileName(rootdir) ?? ""
-					};
-					var openDir = ToFileDialogPath(Path.GetDirectoryName(rootdir));
-					if (openDir != null)
-						open.Directory = new Uri(openDir);
-					ApplyEtoFilters(open.Filters, f);
-						var selected = RunInterruptibleUIDialog(() => open.ShowDialog(GetEtoDialogOwner()));
-					var filenames = open.Filenames.Select(file => file?.ToString());
-					if (selected == Eto.Forms.DialogResult.Ok)
-						files = multi ? new Array(filenames.Cast<object>()) : filenames.FirstOrDefault() ?? "";
-					else
-						files = multi ? new Array() : "";
+						var open = new Eto.Forms.OpenFileDialog
+						{
+							MultiSelect = multi,
+							Title = t
+						};
+						var openDir = ToFileDialogPath(Path.GetDirectoryName(rootdir));
+						if (openDir != null)
+							open.Directory = new Uri(openDir);
+						ApplyEtoFilters(open.Filters, f);
+						var selected = open.ShowDialog(GetEtoDialogOwner());
+						var filenames = open.Filenames.Select(file => file?.ToString());
+						if (selected == Eto.Forms.DialogResult.Ok)
+							return multi ? new Array(filenames.Cast<object>()) : filenames.FirstOrDefault() ?? "";
+						else
+							return multi ? new Array() : "";
+					});
 #endif
 				}
 			}
@@ -452,59 +475,59 @@ namespace Keysharp.Core
 					_ = Options.TryParseString(opt, "Password", ref pw, StringComparison.OrdinalIgnoreCase, true);
 			}
 
-			var dlg = new Eto.Forms.Dialog<Eto.Forms.DialogResult>
+			return RunInterruptibleUIDialog(() =>
 			{
-				Title = t?.Length == 0 ? A_ScriptName : t,
-				Resizable = false,
-				Topmost = true
-			};
-			Eto.Forms.TextBox textBox = null;
-			Eto.Forms.PasswordBox passwordBox = null;
-			Eto.Forms.Control inputControl;
-			if (pw.Length > 0)
-			{
-				passwordBox = new Eto.Forms.PasswordBox { Text = def };
-				inputControl = passwordBox;
-			}
-			else
-			{
-				textBox = new Eto.Forms.TextBox { Text = def };
-				inputControl = textBox;
-			}
+				var dlg = new Eto.Forms.Dialog<Eto.Forms.DialogResult>
+				{
+					Title = t?.Length == 0 ? A_ScriptName : t,
+					Resizable = false,
+					Topmost = true
+				};
+				Eto.Forms.TextBox textBox = null;
+				Eto.Forms.PasswordBox passwordBox = null;
+				Eto.Forms.Control inputControl;
+				if (pw.Length > 0)
+				{
+					passwordBox = new Eto.Forms.PasswordBox { Text = def };
+					inputControl = passwordBox;
+				}
+				else
+				{
+					textBox = new Eto.Forms.TextBox { Text = def };
+					inputControl = textBox;
+				}
 
-			var layout = new Eto.Forms.DynamicLayout
-			{
-				Padding = new Eto.Drawing.Padding(10),
-				DefaultSpacing = new Eto.Drawing.Size(5, 5)
-			};
-			if (p.Length > 0)
-				layout.AddRow(new Eto.Forms.Label { Text = p, Wrap = WrapMode.Word });
-			layout.AddRow(inputControl);
+				var layout = new Eto.Forms.DynamicLayout
+				{
+					Padding = new Eto.Drawing.Padding(10),
+					DefaultSpacing = new Eto.Drawing.Size(5, 5)
+				};
+				if (p.Length > 0)
+					layout.AddRow(new Eto.Forms.Label { Text = p, Wrap = WrapMode.Word });
+				layout.AddRow(inputControl);
 
-			var ok = new Eto.Forms.Button { Text = "OK" };
-			ok.Click += (_, _) => dlg.Close(Eto.Forms.DialogResult.Ok);
-			var cancel = new Eto.Forms.Button { Text = "Cancel" };
-			cancel.Click += (_, _) => dlg.Close(Eto.Forms.DialogResult.Cancel);
-			dlg.DefaultButton = ok;
-			dlg.AbortButton = cancel;
+				var ok = new Eto.Forms.Button { Text = "OK" };
+				ok.Click += (_, _) => dlg.Close(Eto.Forms.DialogResult.Ok);
+				var cancel = new Eto.Forms.Button { Text = "Cancel" };
+				cancel.Click += (_, _) => dlg.Close(Eto.Forms.DialogResult.Cancel);
+				dlg.DefaultButton = ok;
+				dlg.AbortButton = cancel;
 
-			layout.AddRow(new Eto.Forms.StackLayout
-			{
-				Orientation = Orientation.Horizontal,
-				HorizontalContentAlignment = HorizontalAlignment.Right,
-				Items = { ok, cancel }
-			});
+				layout.AddRow(new Eto.Forms.StackLayout
+				{
+					Orientation = Orientation.Horizontal,
+					HorizontalContentAlignment = HorizontalAlignment.Right,
+					Items = { ok, cancel }
+				});
 
 				dlg.Content = layout;
-				return RunInterruptibleDialog(() =>
+				var result = (Eto.Forms.DialogResult)dlg.ShowModal();
+				return new DialogResultReturn
 				{
-					var result = (Eto.Forms.DialogResult)dlg.ShowModal();
-					return new DialogResultReturn
-					{
-						Value = pw.Length > 0 ? passwordBox.Text : textBox.Text,
-						Result = result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"
-					};
-				});
+					Value = pw.Length > 0 ? passwordBox.Text : textBox.Text,
+					Result = result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"
+				};
+			});
 			}
 #endif
 

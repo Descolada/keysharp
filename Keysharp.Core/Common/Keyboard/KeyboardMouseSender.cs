@@ -1390,7 +1390,6 @@ namespace Keysharp.Core.Common.Keyboard
 			var threadsAreAttached = false; // Set default.
 			uint keybdLayoutThread = 0;     //
 			WindowItemBase tempitem = null;
-			var pd = script.ProcessesData;
 
 			if (targetWindow != 0) // Caller has ensured this is NULL for SendInput and SendPlay modes.
 			{
@@ -1410,7 +1409,7 @@ namespace Keysharp.Core.Common.Keyboard
 						&& sendModeOrig != SendModes.Play // SM_PLAY is reported to be incapable of locking the computer.
 						&& !inBlindMode // The philosophy of blind-mode is that the script should have full control, so don't do any waiting during blind mode.
 						&& sendRaw != SendRawModes.RawText // {Text} mode does not trigger Win+L.
-						&& PlatformManager.CurrentThreadId() == pd.MainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
+						&& PlatformManager.CurrentThreadId() == script.NativeMainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
 				   )
 				{
 					var waitForWinKeyRelease = false;
@@ -2245,7 +2244,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// Might be better to do this after changing capslock state, since having the threads attached
 			// tends to help with updating the global state of keys (perhaps only under Win9x in this case):
 			if (threadsAreAttached)
-				DetachTargetWindowThread(pd.MainThreadID, keybdLayoutThread);
+				DetachTargetWindowThread(script.NativeMainThreadID, keybdLayoutThread);
 
 			if (doSelectiveBlockInput && !blockinputPrev) // Turn it back off only if it was off before we started.
 				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
@@ -2262,7 +2261,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// This fix does not apply to the SendPlay or SendEvent modes, the former due to the fact that it sleeps
 			// a lot while the playback is running, and the latter due to key-delay and because testing has never shown
 			// a need for it.
-			if (sendModeOrig == SendModes.Input && WindowsAPI.GetWindowThreadProcessId(WindowsAPI.GetForegroundWindow(), out _) == pd.MainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
+			if (sendModeOrig == SendModes.Input && WindowsAPI.GetWindowThreadProcessId(WindowsAPI.GetForegroundWindow(), out _) == script.NativeMainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
 				Flow.SleepWithoutInterruption(-1);
 #endif
 
@@ -3119,7 +3118,7 @@ namespace Keysharp.Core.Common.Keyboard
 					if (script.HookThread.HasKbdHook())
 						Flow.SleepWithoutInterruption(0); // Don't use ternary operator to combine this with next due to "else if".
 #if WINDOWS
-					else if (WindowsAPI.GetWindowThreadProcessId(targetWindow, out var _) == script.ProcessesData.MainThreadID)
+					else if (WindowsAPI.GetWindowThreadProcessId(targetWindow, out var _) == script.NativeMainThreadID)
 						Flow.SleepWithoutInterruption(-1);
 #endif
 				}

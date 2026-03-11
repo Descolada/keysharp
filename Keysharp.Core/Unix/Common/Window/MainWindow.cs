@@ -21,9 +21,8 @@ namespace Keysharp.Scripting
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
 		private bool callingInternalVars = false;
-
-		//private static Gdk.Atom clipAtom = Gdk.Atom.Intern("CLIPBOARD", false);
-		//private Gtk.Clipboard gtkClipBoard = Gtk.Clipboard.Get(clipAtom);
+		private Gtk.Clipboard gtkClipboard;
+		private bool clipboardMonitoringEnabled;
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
@@ -146,9 +145,7 @@ namespace Keysharp.Scripting
 
 		public void AddText(string s, MainFocusedTab tab, bool focus)
 		{
-			//Use CheckedBeginInvoke() because CheckedInvoke() seems to crash if this is called right as the window is closing.
-			//Such as with a hotkey that prints on mouse click, which will cause a print when the X is clicked to close.
-			this.CheckedBeginInvoke(() =>
+			_ = QueueUiUpdate(() =>
 			{
 				GetText(tab).Append($"{s.ReplaceLineEndings(Environment.NewLine)}");//This should scroll to the bottom, if not, try this:
 				if (focus)
@@ -158,14 +155,14 @@ namespace Keysharp.Scripting
 					if (sel != null)
 						tcMain.SelectedTab = sel;
 				}
-			}, false, false);
+			});
 		}
 
 		public void ClearText(MainFocusedTab tab) => SetText(string.Empty, tab, false);
 
 		public void SetText(string s, MainFocusedTab tab, bool focus)
 		{
-			_ = this.BeginInvoke(() => //These need to be BeginInvoke(), otherwise they can freeze if called within a COM event.
+			_ = QueueUiUpdate(() => //These need to be BeginInvoke(), otherwise they can freeze if called within a COM event.
 			{
 				GetText(tab).Text = s.ReplaceLineEndings(Environment.NewLine);
 
@@ -181,17 +178,17 @@ namespace Keysharp.Scripting
 
 		internal object ListHotkeys()
 		{
-			_ = this.BeginInvoke(() =>
+			_ = QueueUiUpdate(() =>
 			{
 				ShowIfNeeded();
-				SetTextInternal(HotkeyDefinition.GetHotkeyDescriptions(), MainFocusedTab.Hotkeys, txtHotkeys, true);
+				SetTextInternal(HotkeyDefinition.GetHotkeyDescriptions(), MainFocusedTab.Hotkeys, true);
 			});
 			return DefaultObject;
 		}
 
 		internal object ShowDebug()
 		{
-			_ = this.BeginInvoke(() =>
+			_ = QueueUiUpdate(() =>
 			{
 				ShowIfNeeded();
 				tcMain.SelectedTab = tpDebug;
@@ -201,10 +198,10 @@ namespace Keysharp.Scripting
 
 		internal object ShowHistory()
 		{
-			_ = this.BeginInvoke(() =>
+			_ = QueueUiUpdate(() =>
 			{
 				ShowIfNeeded();
-				SetTextInternal(Core.Debug.ListKeyHistory(), MainFocusedTab.History, txtHistory, true);
+				SetTextInternal(Core.Debug.ListKeyHistory(), MainFocusedTab.History, true);
 			});
 			return DefaultObject;
 		}
@@ -212,18 +209,21 @@ namespace Keysharp.Scripting
 		internal object ShowInternalVars(bool showTab)
 		{
 			callingInternalVars = true;//Gets called twice if called before first showing.
-			_ = this.BeginInvoke(() =>
+
+			if (!QueueUiUpdate(() =>
 			{
 				try
 				{
 					ShowIfNeeded();
-					SetTextInternal(Core.Debug.GetVars(), MainFocusedTab.Vars, txtVars, showTab);
+					SetTextInternal(Core.Debug.GetVars(), MainFocusedTab.Vars, showTab);
 				}
 				finally
 				{
 					callingInternalVars = false;
 				}
-			});
+			}))
+				callingInternalVars = false;
+
 			return DefaultObject;
 		}
 
@@ -261,12 +261,9 @@ namespace Keysharp.Scripting
 
 		private void hotkeysAndTheirMethodsToolStripMenuItem_Click(object sender, EventArgs e) => ListHotkeys();
 
-		private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
+			private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
 
-		//private void gtkClipBoard_OwnerChange(object o, Gtk.OwnerChangeArgs args)
-		//{
-		//  ClipboardUpdate?.Invoke(null);
-		//}
+			private void GtkClipboard_OwnerChange(object o, Gtk.OwnerChangeArgs args) => ClipboardUpdate?.Invoke(null);
 
 		private void MainWindow_Shown(object sender, EventArgs e)
 		{
@@ -284,16 +281,16 @@ namespace Keysharp.Scripting
 				(int)(area.Y + (area.Height - Size.Height) / 2)
 			);
 
-			if (!AllowShowDisplay)
-			{
-				this.BeginInvoke(() => {
-					beenShown = false;
-					// Hide directly instead of minimizing; minimizing creates a Dock/taskbar entry on macOS.
-					WindowState = WindowState.Normal;
-					this.Hide();
-					beenShown = true;
-				});
-			}
+				if (!AllowShowDisplay)
+				{
+					_ = QueueUiUpdate(() => {
+						beenShown = false;
+						// Hide directly instead of minimizing; minimizing creates a Dock/taskbar entry on macOS.
+						WindowState = WindowState.Normal;
+						this.Hide();
+						beenShown = true;
+					});
+				}
 
 			if (AllowShowDisplay && Visible)
 				_ = ShowInternalVars(false);
@@ -309,8 +306,8 @@ namespace Keysharp.Scripting
 				lastWindowState = WindowState;
 		}
 
-		private void MainWindow_Closing(object sender, CancelEventArgs e)
-		{
+			private void MainWindow_Closing(object sender, CancelEventArgs e)
+			{
 			if (string.IsNullOrEmpty(A_ExitReason as string))
 			{
 				e.Cancel = true;
@@ -318,9 +315,10 @@ namespace Keysharp.Scripting
 				return;
 			}
 
-			IsClosing = true;
+				IsClosing = true;
+				SetClipboardMonitoringEnabled(false);
 
-			if (Flow.ExitAppInternal(Flow.ExitReasons.Close, null, false))
+				if (Flow.ExitAppInternal(Flow.ExitReasons.Close, null, false))
 			{
 				IsClosing = false;
 				e.Cancel = true;
@@ -342,16 +340,14 @@ namespace Keysharp.Scripting
 
 		public void SetTextInternal(string s, MainFocusedTab tab, TextArea txt, bool focus)
 		{
-			_ = this.BeginInvoke(() =>
-			{
-				GetText(tab).Text = s.ReplaceLineEndings(Environment.NewLine);
-				if (focus)
-					tcMain.SelectedTab = GetTab(tab);
-			});
+			SetTextInternal(s, tab, focus);
 		}
 
 		private void ShowIfNeeded()
 		{
+			if (ShouldSkipUiUpdate())
+				return;
+
 			if (beenShown && (!Visible || !AllowShowDisplay || WindowState == WindowState.Minimized))
 			{
 				AllowShowDisplay = true;
@@ -364,6 +360,31 @@ namespace Keysharp.Scripting
 		}
 
 		private void suspendHotkeysToolStripMenuItem_Click(object sender, EventArgs e) => Script.SuspendHotkeys();
+
+		private bool QueueUiUpdate(Action action)
+		{
+			if (ShouldSkipUiUpdate())
+				return false;
+
+			_ = this.BeginInvoke(() =>
+			{
+				if (ShouldSkipUiUpdate())
+					return;
+
+				action();
+			});
+			return true;
+		}
+
+		private bool ShouldSkipUiUpdate() => IsClosing || IsDisposed || Script.TheScript?.hasExited == true;
+
+		private void SetTextInternal(string s, MainFocusedTab tab, bool focus)
+		{
+			GetText(tab).Text = s.ReplaceLineEndings(Environment.NewLine);
+
+			if (focus)
+				tcMain.SelectedTab = GetTab(tab);
+		}
 
 		private void TpVars_HandleCreated(object sender, EventArgs e)
 		{
@@ -396,7 +417,25 @@ namespace Keysharp.Scripting
 			History
 		}
 
-		public event VariadicAction ClipboardUpdate;
+			public event VariadicAction ClipboardUpdate;
+
+			internal void SetClipboardMonitoringEnabled(bool enabled)
+			{
+				if (clipboardMonitoringEnabled == enabled)
+					return;
+
+				gtkClipboard ??= Gtk.Clipboard.Get(Gdk.Atom.Intern("CLIPBOARD", false));
+
+				if (gtkClipboard == null)
+					return;
+
+				if (enabled)
+					gtkClipboard.OwnerChange += GtkClipboard_OwnerChange;
+				else
+					gtkClipboard.OwnerChange -= GtkClipboard_OwnerChange;
+
+				clipboardMonitoringEnabled = enabled;
+			}
 	}
 
 	/// <summary>

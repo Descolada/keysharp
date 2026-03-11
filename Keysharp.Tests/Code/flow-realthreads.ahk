@@ -89,6 +89,25 @@ if A_CoordModeMouse = "Screen"
 else
 	FileAppend "fail", "*"
 
+workerReady := false
+workerStop := false
+workerCallback := 0
+workerThread := RealThread(WorkerCallbackOwner)
+
+while !workerReady
+	Sleep 10
+
+CoordMode "Mouse", "Client"
+ret1 := DllCall(workerCallback)
+ret2 := DllCall(workerCallback)
+workerStop := true
+workerThread.Wait()
+
+if ret1 = 101 && ret2 = 202 && A_CoordModeMouse = "Client"
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 RealThreadEntry() {
 	CoordMode "Mouse", "Screen"
 	cb1 := CallbackCreate(SetCoordModeMouseWindow)
@@ -114,4 +133,38 @@ SetCoordModeMouseClient() {
 	}
 
 	CoordMode "Mouse", "Client"
+}
+
+WorkerCallbackOwner() {
+	global workerReady, workerStop, workerCallback
+
+	CoordMode "Mouse", "Screen"
+	workerCallback := CallbackCreate(CheckWorkerCoordModeAffinity, "Fast")
+	workerReady := true
+
+	while !workerStop
+		Sleep 10
+
+	CallbackFree(workerCallback)
+}
+
+CheckWorkerCoordModeAffinity() {
+	static callCount := 0
+	callCount++
+
+	if callCount = 1 {
+		if A_CoordModeMouse != "Screen"
+			return -1
+
+		CoordMode "Mouse", "Window"
+		return 101
+	}
+	else if callCount = 2 {
+		if A_CoordModeMouse != "Window"
+			return -2
+
+		return 202
+	}
+
+	return -3
 }

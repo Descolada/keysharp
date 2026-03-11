@@ -19,10 +19,10 @@ namespace Keysharp.Core.Common.Keyboard
 		, detectWhenInsideWord, doReset, suspendExempt, constructedOK;
 
 		internal uint existingThreads, maxThreads;
-		internal IFuncObj funcObj;
 		internal IFuncObj hotCriterion;
 		internal long inputLevel;
 		internal long priority, keyDelay;
+		private readonly CallbackRegistration callbackRegistration = new();
 		internal SendModes sendMode;
 		internal SendRawModes sendRaw;
 		internal string str, replacement;
@@ -57,11 +57,37 @@ namespace Keysharp.Core.Common.Keyboard
 		public string Sequence { get; }
 
 		public bool SuspendExempt => suspendExempt;
+		internal IFuncObj funcObj
+		{
+			get => callbackRegistration.Callback;
+			set => callbackRegistration.Set(value, callbackRegistration.OwnerScheduler, suspended == 0 && value != null);
+		}
+		internal ScriptEventScheduler ownerScheduler
+		{
+			get => callbackRegistration.OwnerScheduler;
+			set => callbackRegistration.Set(funcObj, value, suspended == 0 && funcObj != null);
+		}
+
+		internal void SetSuspended(int newSuspended)
+		{
+			if (suspended == newSuspended)
+				return;
+
+			var wasEnabled = suspended == 0;
+			suspended = newSuspended;
+			var isEnabled = suspended == 0;
+
+			if (wasEnabled == isEnabled)
+				return;
+
+			callbackRegistration.SetActive(isEnabled && funcObj != null);
+		}
 
 		public HotstringDefinition(string sequence, string _replacement)
 		{
 			Sequence = sequence;
 			replacement = _replacement;
+			ownerScheduler = Script.TheScript?.EventScheduler;
 			//EndChars = defEndChars;
 		}
 
@@ -74,6 +100,7 @@ namespace Keysharp.Core.Common.Keyboard
 			funcObj = _funcObj;
 			hotCriterion = script.Threads.CurrentThread.hotCriterion;
 			suspended = _suspend;
+			ownerScheduler = script.EventScheduler;
 			maxThreads = A_MaxThreadsPerHotkey.Aui();  // The value of g_MaxThreadsPerHotkey can vary during load-time.
 			priority = hm.hsPriority;
 			keyDelay = hm.hsKeyDelay;
@@ -411,54 +438,54 @@ namespace Keysharp.Core.Common.Keyboard
 		internal ResultType PerformInNewThreadMadeByCaller(nint hwndCritFound, string endChar)
 		{
 			var script = Script.TheScript;
-			script.EventScheduler.Enqueue(new ScriptEvent(
-				ScriptEventKind.Hotstring,
-				ScriptEventQueue.Interactive,
-				priority,
-				() => TryExecuteBufferedHotstringEvent(hwndCritFound, endChar)));
+			var targetScheduler = ownerScheduler ?? script.EventScheduler;
+				targetScheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotstringEvent(targetScheduler, hwndCritFound, endChar));
 			return ResultType.Ok;
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(nint hwndCritFound, string endChar)
+		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(ScriptEventScheduler scheduler, nint hwndCritFound, string endChar)
 		{
 			var script = Script.TheScript;
-			var admissionResult = script.EventScheduler.CheckPseudoThreadAdmission(priority, false);
-
-			if (admissionResult != ScriptEventExecutionResult.Executed)
-				return admissionResult;
 
 			if (!AnyThreadsAvailable())
 				return ScriptEventExecutionResult.Dropped;
 
-			var btv = script.EventScheduler.BeginPseudoThread(priority, false, false);
-
-			if (!btv.Item1)
-				return ScriptEventExecutionResult.GlobalBlocked;
-
 			try
 			{
-				script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
-				A_EndChar = endCharRequired ? endChar : "";
-				script.SetHotNamesAndTimes(Name);
-				_ = Interlocked.Increment(ref existingThreads);
-
-				_ = Flow.TryCatch(() =>
+				var executionResult = scheduler.InvokePseudoThread(priority, false, false, btv =>
 				{
-					var tv = script.Threads.CurrentThread;
-					tv.configData.sendLevel = inputLevel;
-					tv.hwndLastUsed = hwndCritFound;
-					tv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
-					_ = funcObj.Call([Name]);
-					_ = Interlocked.Decrement(ref existingThreads);
-					_ = script.Threads.EndThread(btv);
-				}, true, btv);
+					script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
+					A_EndChar = endCharRequired ? endChar : "";
+					script.SetHotNamesAndTimes(Name);
+					_ = Interlocked.Increment(ref existingThreads);
+
+					try
+					{
+						_ = btv.RunAndEnd(() => Flow.TryCatch(() =>
+						{
+							var tv = script.Threads.CurrentThread;
+							tv.configData.sendLevel = inputLevel;
+							tv.hwndLastUsed = hwndCritFound;
+							tv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
+							_ = funcObj.Call([Name]);
+						}));
+					}
+					finally
+					{
+						_ = Interlocked.Decrement(ref existingThreads);
+					}
+
+					return true;
+				}, out _);
+
+				return executionResult;
 			}
 			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, "iconx");
 			}
 
-			return ScriptEventExecutionResult.Executed;
+			return ScriptEventExecutionResult.Dropped;
 		}
 
 		[Flags]

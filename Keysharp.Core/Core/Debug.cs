@@ -153,12 +153,12 @@ namespace Keysharp.Core
 			var enabledTimers = 0;
 			var ht = script.HookThread;
 
-			foreach (var timer in script.FlowData.timers)
+			foreach (var registration in script.FlowData.timers.GetSnapshot())
 			{
-				if (timer.Value.Enabled)
+				if (registration.Timer.Enabled)
 				{
 					enabledTimers++;
-					_ = sb.Append($"{timer.Key.Name} ");
+					_ = sb.Append($"{registration.Callback?.Name} ");
 				}
 			}
 

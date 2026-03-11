@@ -159,7 +159,7 @@ namespace Keysharp.Core.Linux
 						return false;
 
 					nint prop = 0;
-					var result = Xlib.XGetWindowProperty(xwindow.XDisplay.Handle,
+					var result = WindowManager.TryGetWindowProperty(xwindow.XDisplay.Handle,
 						windowId,
 						wmClassAtom,
 						0,
@@ -170,11 +170,11 @@ namespace Keysharp.Core.Linux
 						out _,
 						out var nitems,
 						out _,
-						ref prop);
+						out prop);
 
 					try
 					{
-						if (result != 0 || prop == 0 || nitems.ToInt64() == 0)
+						if (!result || prop == 0 || nitems.ToInt64() == 0)
 							return false;
 
 						var bytes = new byte[nitems.ToInt64()];
@@ -376,7 +376,7 @@ namespace Keysharp.Core.Linux
 						return false;
 
 					nint prop = 0;
-					var result = Xlib.XGetWindowProperty(xwindow.XDisplay.Handle,
+					var result = WindowManager.TryGetWindowProperty(xwindow.XDisplay.Handle,
 						item.Handle.ToInt64(),
 						wmStateAtom,
 						0,
@@ -387,12 +387,12 @@ namespace Keysharp.Core.Linux
 						out _,
 						out var nitems,
 						out _,
-						ref prop);
+						out prop);
 
 					if (prop != 0)
 						_ = Xlib.XFree(prop);
 
-					return result == 0 && nitems.ToInt64() > 0;
+					return result && nitems.ToInt64() > 0;
 				}
 
 				if (HasWmState(tempParent))
@@ -995,7 +995,7 @@ namespace Keysharp.Core.Linux
 		{
 			nint prop = 0;
 
-			if (Xlib.XGetWindowProperty(xwindow.XDisplay.Handle,
+			if (WindowManager.TryGetWindowProperty(xwindow.XDisplay.Handle,
 										xwindow.ID,
 										state,
 										0,
@@ -1006,7 +1006,7 @@ namespace Keysharp.Core.Linux
 										out var actualFormat,
 										out var nitems,
 										out var bytesAfter,
-										ref prop) == 0)
+										out prop))
 			{
 				var itemCount = nitems.ToInt64();
 
@@ -1096,7 +1096,7 @@ namespace Keysharp.Core.Linux
 		{
 			var prop = nint.Zero;
 			var rect = Rectangle.Empty;
-			_ = Xlib.XGetWindowProperty(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay._NET_FRAME_EXTENTS, 0, new nint(40), false, (nint)XAtom.XA_CARDINAL, out var actualAtom, out var actualFormat, out var nitems, out var bytesAfter, ref prop);
+			_ = WindowManager.TryGetWindowProperty(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay._NET_FRAME_EXTENTS, 0, new nint(40), false, (nint)XAtom.XA_CARDINAL, out var actualAtom, out var actualFormat, out var nitems, out var bytesAfter, out prop);
 
 			if (prop != 0)
 			{

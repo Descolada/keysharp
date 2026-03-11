@@ -1,3 +1,5 @@
+using NUnit.Framework;
+
 // In SDK-style projects such as this one, several assembly attributes that were historically
 // defined in this file are now automatically added during build and populated with
 // values defined in project properties. For details of which attributes are included
@@ -16,3 +18,8 @@
 
 // Set a fixed culture to prevent problems caused by differing user cultures
 [assembly: SetCulture("en-US")]
+
+// The suite shares process-global runtime state such as Script.TheScript, compiler output,
+// console redirection, and the hosted Eto UI loop. Running tests concurrently in one process
+// is not safe.
+[assembly: LevelOfParallelism(1)]

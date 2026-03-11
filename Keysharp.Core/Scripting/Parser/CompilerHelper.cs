@@ -604,58 +604,49 @@ using String = Keysharp.Core.String
 
 		public (CompilationUnitSyntax[], CompilerErrorCollection) CreateCompilationUnitFromFile(params string[] fileNames)
         {
-            var units = new CompilationUnitSyntax[fileNames.Length];
+			var units = new CompilationUnitSyntax[fileNames.Length];
             var errors = new CompilerErrorCollection();
             var enc = Encoding.Default;
-            var x = Env.FindCommandLineArg("cp");
+			var x = Env.FindCommandLineArg("cp");
 			var script = Script.TheScript;
-			bool needsThread = script.totalExistingThreads == 0;
-			bool pushed = true;
-			ThreadVariables btv = null;
-			if (needsThread)
-				(pushed, btv) = script.Threads.BeginThread();//Some internal parsing uses Accessors, so a thread must be present.
+			// Internal parsing can touch accessors, so a current thread context must exist,
+			// but parsing itself should not consume a pseudo-thread slot.
+			script.Threads.EnsureCurrentThreadVariables();
+			parser = new Parser(this);
 
-            if (pushed)
+            if (x != null)
             {
-                parser = new Parser(this);
+                x = x.Trim(DashSlash);
 
-                if (x != null)
+                if (x.Length > 2 && int.TryParse(x.AsSpan().Slice(2), out var codepage))
+                    enc = Encoding.GetEncoding(codepage);
+            }
+
+            for (var i = 0; i < fileNames.Length; i++)//This has likely never been tested with more than one file at a time. Need to figure that out.//TODO
+            {
+                try
                 {
-                    x = x.Trim(DashSlash);
-
-                    if (x.Length > 2 && int.TryParse(x.AsSpan().Slice(2), out var codepage))
-                        enc = Encoding.GetEncoding(codepage);
+                    if (File.Exists(fileNames[i]))
+                    {
+                        script.scriptName = fileNames[i];
+                        units[i] = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileNames[i], enc), Path.GetFullPath(fileNames[i]));
+                    }
+                    else
+                    {
+                        script.scriptName = "*";
+                        units[i] = parser.Parse<CompilationUnitSyntax>(new StringReader(fileNames[i]), "*");//In memory.
+                    }
                 }
-
-                for (var i = 0; i < fileNames.Length; i++)//This has likely never been tested with more than one file at a time. Need to figure that out.//TODO
+                catch (ParseException e)
                 {
-                    try
-                    {
-                        if (File.Exists(fileNames[i]))
-                        {
-                            script.scriptName = fileNames[i];
-                            units[i] = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileNames[i], enc), Path.GetFullPath(fileNames[i]));
-                        }
-                        else
-                        {
-                            script.scriptName = "*";
-                            units[i] = parser.Parse<CompilationUnitSyntax>(new StringReader(fileNames[i]), "*");//In memory.
-                        }
-                    }
-                    catch (ParseException e)
-                    {
-                        _ = errors.Add(new CompilerError(e.File, e.Line.Ai(), e.Column, "0", e.Message));
-                    }
-                    catch (Exception e)
-                    {
-                        _ = errors.Add(new CompilerError { ErrorText = e.Message + "\n\nStack trace:\n" + e.StackTrace.ToString() });
-                    }
-                    finally { }
+                    _ = errors.Add(new CompilerError(e.File, e.Line.Ai(), e.Column, "0", e.Message));
                 }
-
-				if (needsThread)
-					_ = script.Threads.EndThread((pushed, btv));
-			}
+                catch (Exception e)
+                {
+                    _ = errors.Add(new CompilerError { ErrorText = e.Message + "\n\nStack trace:\n" + e.StackTrace.ToString() });
+                }
+                finally { }
+            }
 
             return (units, errors);
         }

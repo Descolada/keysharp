@@ -1,14 +1,15 @@
-﻿using Keysharp.Core.Common.Invoke;
-
-namespace Keysharp.Core.Common.Threading
+﻿namespace Keysharp.Core.Common.Threading
 {
 	internal class TimerWithTag : UITimer
 	{
 #if !WINDOWS
 		public bool Enabled 
 		{
-			get => Started;
+			get => !IsDisposed && Started;
 			set {
+				if (IsDisposed)
+					return;
+
 				if (value)
 					Start();
 				else
@@ -17,8 +18,12 @@ namespace Keysharp.Core.Common.Threading
 		}
 		public new int Interval
 		{
-			get => (int)(base.Interval * 1000);
-			set => base.Interval = (float)value / 1000;
+			get => IsDisposed ? 0 : (int)(base.Interval * 1000);
+			set
+			{
+				if (!IsDisposed)
+					base.Interval = (float)value / 1000;
+			}
 		}
 		public event EventHandler<EventArgs> Tick
 		{
@@ -32,6 +37,7 @@ namespace Keysharp.Core.Common.Threading
 		private bool schedulerQueued;
 		private long lastSignalTick;
 		private long fallbackDueTick = long.MaxValue;
+		private readonly SchedulerRegistration ownerState = new();
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public new object Tag { get; set; }
@@ -41,6 +47,13 @@ namespace Keysharp.Core.Common.Threading
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		internal bool RunsOnce { get; set; }
+
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+		internal ScriptEventScheduler OwnerScheduler
+		{
+			get => ownerState.OwnerScheduler;
+			set => ownerState.Set(value, value != null);
+		}
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		internal long FallbackDueTick => fallbackDueTick;
@@ -59,7 +72,7 @@ namespace Keysharp.Core.Common.Threading
 		/// </summary>
 		public void PushToMessageQueue(long nowTick = -1L)
 		{
-			if (schedulerQueued || !Enabled || ScriptFunc == null)
+			if (IsDisposed || schedulerQueued || !Enabled || ScriptFunc == null)
 				return;
 
 			if (nowTick < 0L)
@@ -69,12 +82,12 @@ namespace Keysharp.Core.Common.Threading
 			lastSignalTick = nowTick;
 			fallbackDueTick = long.MaxValue;
 			Script.TheScript.FlowData.MarkTimerFallbackDueTickDirty();
-			Script.TheScript.EventScheduler.EnqueueTimer(this, ScriptFunc, RunsOnce);
+			(OwnerScheduler ?? Script.TheScript.UIEventScheduler).EnqueueTimer(this, ScriptFunc, RunsOnce);
 		}
 
 		internal void QueueIfOverdue(long nowTick)
 		{
-			if (schedulerQueued || !Enabled || ScriptFunc == null)
+			if (IsDisposed || schedulerQueued || !Enabled || ScriptFunc == null)
 				return;
 
 			if (nowTick < fallbackDueTick)
@@ -108,8 +121,18 @@ namespace Keysharp.Core.Common.Threading
 		/// </summary>
 		public new void Start()
 		{
+			if (IsDisposed)
+				return;
+
 			lastSignalTick = Environment.TickCount64;
-			base.Start();
+			try
+			{
+				base.Start();
+			}
+			catch (ObjectDisposedException)
+			{
+				return;
+			}
 			UpdateFallbackDueTick();
 		}
 
@@ -118,19 +141,42 @@ namespace Keysharp.Core.Common.Threading
 		/// </summary>
 		public new void Stop()
 		{
-			base.Stop();
+			if (!IsDisposed)
+			{
+				try
+				{
+					base.Stop();
+				}
+				catch (ObjectDisposedException)
+				{
+				}
+			}
+
 			schedulerQueued = false;
 			fallbackDueTick = long.MaxValue;
-			Script.TheScript.FlowData.MarkTimerFallbackDueTickDirty();
+			Script.TheScript?.FlowData.MarkTimerFallbackDueTickDirty();
 		}
 
 		private void UpdateFallbackDueTick()
 		{
-			fallbackDueTick = Enabled && ScriptFunc != null && !schedulerQueued
+			fallbackDueTick = !IsDisposed && Enabled && ScriptFunc != null && !schedulerQueued
 				? lastSignalTick + Math.Max(1, Interval)
 				: long.MaxValue;
 
-			Script.TheScript.FlowData.NoteTimerFallbackDueTick(fallbackDueTick);
+			Script.TheScript?.FlowData.NoteTimerFallbackDueTick(fallbackDueTick);
+		}
+
+		protected override void Dispose(bool disposing)
+		{
+			if (IsDisposed)
+				return;
+
+			schedulerQueued = false;
+			fallbackDueTick = long.MaxValue;
+			ScriptFunc = null;
+			OwnerScheduler = null;
+			Script.TheScript?.FlowData.MarkTimerFallbackDueTickDirty();
+			base.Dispose(disposing);
 		}
 
 #if WINDOWS

@@ -3,9 +3,6 @@ namespace Keysharp.Core
 	internal class ProcessesData
 	{
 		//internal int CurrentThreadID = Process.GetCurrentProcess().Threads[0].Id; //WindowsAPI.GetCurrentThread();
-		internal uint CurrentThreadID = 0u;
-		internal uint MainThreadID;
-		internal int ManagedMainThreadID;
 		internal string runDomain;
 		internal SecureString runPassword;
 		internal string runUser;

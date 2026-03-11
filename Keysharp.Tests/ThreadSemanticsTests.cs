@@ -22,15 +22,15 @@ namespace Keysharp.Tests
 		public void ThreadNoTimersIsInheritedFromPrototype()
 		{
 			s.AccessorData.threadConfigDataPrototype.allowTimers = false;
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
-				Assert.IsFalse(btv.Item2.configData.allowTimers);
+				Assert.IsFalse(btv.configData.allowTimers);
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
@@ -40,15 +40,15 @@ namespace Keysharp.Tests
 			_ = Flow.Thread("Interrupt", 42, 1);
 			Assert.AreEqual(42, s.uninterruptibleTime);
 
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
-				Assert.AreEqual(42, btv.Item2.UninterruptibleDuration);
+				Assert.AreEqual(42, btv.UninterruptibleDuration);
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
@@ -57,16 +57,16 @@ namespace Keysharp.Tests
 		{
 			s.AccessorData.threadConfigDataPrototype.defaultIsCritical = true;
 			s.AccessorData.threadConfigDataPrototype.peekFrequency = ThreadVariables.DefaultUninterruptiblePeekFrequency;
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
-				Assert.IsTrue(btv.Item2.isCritical);
-				Assert.IsFalse(btv.Item2.allowThreadToBeInterrupted);
+				Assert.IsTrue(btv.isCritical);
+				Assert.IsFalse(btv.allowThreadToBeInterrupted);
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
@@ -92,7 +92,7 @@ namespace Keysharp.Tests
 		[Test, Category("Threading")]
 		public void CriticalThreadBecomesInterruptibleWithinDialogScope()
 		{
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
@@ -106,14 +106,14 @@ namespace Keysharp.Tests
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
 		[Test, Category("Threading")]
 		public void DialogScopeDoesNotOverrideGlobalInterruptionBlock()
 		{
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
@@ -132,54 +132,53 @@ namespace Keysharp.Tests
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
 		[Test, Category("Threading")]
 		public void PreemptiveChecksRespectPeekFrequency()
 		{
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
 				_ = Flow.Critical(50);
-				s.RecordMessageCheck(Environment.TickCount64);
-				s.preemptiveMessageCheckPending = true;
+				s.RecordMessageCheck();
+
+				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
+				Assert.IsTrue(Flow.IsTrueAndRunning(true));
+				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
+
+				s.Threads.CurrentThread.lastPeekTick = unchecked(Environment.TickCount - 60);
+				Assert.IsTrue(s.IsCurrentThreadPreemptiveCheckDue());
 
 				Assert.IsTrue(Flow.IsTrueAndRunning(true));
-				Assert.IsTrue(s.preemptiveMessageCheckPending);
-
-				s.RecordMessageCheck(Environment.TickCount64 - 60);
-				s.preemptiveMessageCheckPending = true;
-
-				Assert.IsTrue(Flow.IsTrueAndRunning(true));
-				Assert.IsFalse(s.preemptiveMessageCheckPending);
+				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 
 		[Test, Category("Threading")]
 		public void CriticalMinusOneDisablesPreemptiveChecks()
 		{
-			var btv = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
 
 			try
 			{
 				_ = Flow.Critical(-1);
-				s.RecordMessageCheck(0);
-				s.preemptiveMessageCheckPending = true;
+				s.Threads.CurrentThread.lastPeekTick = 0;
 
 				Assert.IsTrue(Flow.IsTrueAndRunning(true));
-				Assert.IsTrue(s.preemptiveMessageCheckPending);
+				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
 				Assert.AreEqual(-1, s.GetPeekFrequency());
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(btv);
+				s.Threads.EndThread(btv);
 			}
 		}
 	}

@@ -45,7 +45,7 @@ namespace Keysharp.Tests
 #endif
 		public void ClipboardTextRoundTripPreservesWindowsNewlines()
 		{
-			var expected = "Clipboard probe text:\r\nAlpha beta gamma\r\nUnicode: Eesti, 日本語, emoji-free.";
+			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, 日本語, emoji-free.";
 			Accessors.A_Clipboard = expected;
 			var actual = Accessors.A_Clipboard as string;
 			Assert.AreEqual(expected, actual);

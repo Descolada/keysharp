@@ -30,7 +30,8 @@ namespace Keysharp.Core.Windows
 			}
 		}
 
-		internal WindowManager() => Script.TheScript.ProcessesData.CurrentThreadID = WindowsAPI.GetCurrentThreadId();
+		internal WindowManager() {
+		}
 
 		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);
 

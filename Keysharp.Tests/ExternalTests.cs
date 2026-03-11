@@ -5,10 +5,10 @@ namespace Keysharp.Tests
 {
 	public partial class ExternalTests : TestRunner
 	{
-#if WINDOWS
 		[Test, Category("External")]
 		public void CallbackCreate() => Assert.IsTrue(TestScript("external-callbackcreate", false));
 
+#if WINDOWS
 		[Test, Category("External")]
 		public void DllCall_()
 		{

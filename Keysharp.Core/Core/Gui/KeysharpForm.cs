@@ -1,15 +1,18 @@
-﻿namespace Keysharp.Core
+﻿using Keysharp.Scripting;
+using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+
+namespace Keysharp.Core
 {
 	public class KeysharpForm : Form
 	{
 		public bool AllowShowDisplay = true;
-		internal List<IFuncObj> closedHandlers;
-		internal List<IFuncObj> contextMenuChangedHandlers;
-		internal List<IFuncObj> dropFilesHandlers;
-		internal List<IFuncObj> escapeHandlers;
+		internal CallbackHub closedHandlers;
+		internal CallbackHub contextMenuChangedHandlers;
+		internal CallbackHub dropFilesHandlers;
+		internal CallbackHub escapeHandlers;
 		internal object eventObj;
 		internal bool showWithoutActivation;
-		internal List<IFuncObj> sizeHandlers;
+		internal CallbackHub sizeHandlers;
 		private readonly int addStyle, addExStyle, removeStyle, removeExStyle;
 		internal bool beenShown = false;
 		internal bool beenConstructed = false;
@@ -122,8 +125,21 @@
 				MouseDown += Form_MouseDown;
 			}
 
-			Shown += (o, e) => beenShown = true;
+			Shown += (o, e) =>
+			{
+				beenShown = true;
+#if !WINDOWS
+				_ = this.Handle;
+#endif
+			};
 		}
+
+		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
+			=> (closedHandlers?.RemoveOwned(scheduler) == true)
+				| (contextMenuChangedHandlers?.RemoveOwned(scheduler) == true)
+				| (dropFilesHandlers?.RemoveOwned(scheduler) == true)
+				| (escapeHandlers?.RemoveOwned(scheduler) == true)
+				| (sizeHandlers?.RemoveOwned(scheduler) == true);
 
         internal void CallContextMenuChangeHandlers(bool wasRightClick, int x, int y)
 		{
@@ -277,35 +293,35 @@
 			if (e == "close")
 			{
 				if (closedHandlers == null)
-					closedHandlers = [];
+					closedHandlers = new();
 
 				closedHandlers.ModifyEventHandlers(del, i);
 			}
 			else if (e == "contextmenu")
 			{
 				if (contextMenuChangedHandlers == null)
-					contextMenuChangedHandlers = [];
+					contextMenuChangedHandlers = new();
 
 				contextMenuChangedHandlers.ModifyEventHandlers(del, i);
 			}
 			else if (e == "dropfiles")
 			{
 				if (dropFilesHandlers == null)
-					dropFilesHandlers = [];
+					dropFilesHandlers = new();
 
 				dropFilesHandlers.ModifyEventHandlers(del, i);
 			}
 			else if (e == "escape")
 			{
 				if (escapeHandlers == null)
-					escapeHandlers = [];
+					escapeHandlers = new();
 
 				escapeHandlers.ModifyEventHandlers(del, i);
 			}
 			else if (e == "size")
 			{
 				if (sizeHandlers == null)
-					sizeHandlers = [];
+					sizeHandlers = new();
 
 				sizeHandlers.ModifyEventHandlers(del, i);
 			}
@@ -336,6 +352,9 @@
 		internal void UpdateStatusStripLayout()
 		{
 #if !WINDOWS
+			if (IsDisposed || Content == null)
+				return;
+
 			KeysharpStatusStrip statusStrip = null;
 
 			foreach (var ctrl in Content.Controls)

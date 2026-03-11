@@ -1,20 +1,16 @@
 namespace Keysharp.Core.Common.Window
 {
-	internal sealed class MsgMonitorRegistration(IFuncObj callback, int maxInstances)
+	internal sealed class MsgMonitorRegistration(IFuncObj callback, int maxInstances, ScriptEventScheduler ownerScheduler)
+		: CallbackRegistration(callback, ownerScheduler, true)
 	{
-		internal IFuncObj Callback { get; } = callback;
-		internal bool IsActive { get; private set; } = true;
 		internal int InstanceCount;
 		internal int MaxInstances { get; } = maxInstances;
-		internal string Name => Callback.Name;
-
-		internal void Deactivate() => IsActive = false;
 	}
 
 	internal class MsgMonitor
 	{
-		private readonly object gate = new();
-		private readonly List<MsgMonitorRegistration> registrations = [];
+		private readonly Lock gate = new();
+		private readonly CallbackRegistrationHub<MsgMonitorRegistration> registrations = new();
 		internal bool isPrefiltered = false;
 
 		internal bool IsEmpty
@@ -23,7 +19,7 @@ namespace Keysharp.Core.Common.Window
 			{
 				lock (gate)
 				{
-					return registrations.Count == 0;
+					return registrations.IsEmpty;
 				}
 			}
 		}
@@ -31,37 +27,25 @@ namespace Keysharp.Core.Common.Window
 		internal MsgMonitorRegistration[] GetRegistrationsSnapshot()
 		{
 			lock (gate)
-			{
-				return [.. registrations.Where(static r => r.IsActive)];
-			}
+				return registrations.GetSnapshot();
 		}
 
 		internal void ModifyRegistration(IFuncObj funcObj, long addRemove)
 		{
 			lock (gate)
-			{
-				if (addRemove == 0)
-				{
-					for (var i = registrations.Count - 1; i >= 0; i--)
-					{
-						if (registrations[i].Name == funcObj.Name)
-						{
-							registrations[i].Deactivate();
-							registrations.RemoveAt(i);
-						}
-					}
+				registrations.ModifyEventHandlers(funcObj, addRemove, static (callback, value) => new MsgMonitorRegistration(
+					callback,
+					Math.Clamp((int)Math.Abs(value), 1, Script.maxThreadsLimit),
+					Script.TheScript.EventScheduler));
+		}
 
-					return;
-				}
+		internal bool RemoveOwned(ScriptEventScheduler scheduler)
+		{
+			if (scheduler == null)
+				return false;
 
-				var maxInstances = Math.Clamp((int)Math.Abs(addRemove), 1, Script.maxThreadsLimit);
-				var registration = new MsgMonitorRegistration(funcObj, maxInstances);
-
-				if (addRemove > 0)
-					registrations.Add(registration);
-				else
-					registrations.Insert(0, registration);
-			}
+			lock (gate)
+				return registrations.RemoveOwned(scheduler);
 		}
 	}
 }

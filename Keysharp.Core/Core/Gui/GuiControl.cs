@@ -1,3 +1,6 @@
+using Keysharp.Scripting;
+using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+
 namespace Keysharp.Core
 {
     internal class GuiTag
@@ -12,29 +15,66 @@ namespace Keysharp.Core
 		{
 			private string typename;
 			private WeakReference<Gui> gui;
-			private readonly List<IFuncObj> clickHandlers = [];
-			private readonly List<IFuncObj> doubleClickHandlers = [];
+			private readonly CallbackHub clickHandlers = new();
+			private readonly CallbackHub doubleClickHandlers = new();
 			internal bool DpiScaling => ((Gui)Gui).dpiscaling;
 			private Forms.Control _control;
 
-			//Normal event handlers can't be used becaused they need to return a value.
-			//The returned values are then inspected to determine if subsequent handlers should be called or not.
-			private List<IFuncObj> changeHandlers;
-			private List<IFuncObj> columnClickHandlers;
-			private Dictionary<int, List<IFuncObj>> commandHandlers;
-			private List<IFuncObj> contextMenuChangedHandlers;
+			// Normal event handlers can't be used because they need to return a value.
+			// The returned values are then inspected to determine whether subsequent handlers should be called.
+			private CallbackHub changeHandlers;
+			private CallbackHub columnClickHandlers;
+			private ConcurrentDictionary<int, CallbackHub> commandHandlers;
+			private CallbackHub contextMenuChangedHandlers;
 			private nint dummyHandle;
-			private List<IFuncObj> focusedItemChangedHandlers;
-			private List<IFuncObj> focusHandlers;
-			private List<IFuncObj> itemCheckHandlers;
-			private List<IFuncObj> itemEditHandlers;
-			private List<IFuncObj> itemExpandHandlers;
-			private List<IFuncObj> lostFocusHandlers;
-			private Dictionary<int, List<IFuncObj>> notifyHandlers;
+			private CallbackHub focusedItemChangedHandlers;
+			private CallbackHub focusHandlers;
+			private CallbackHub itemCheckHandlers;
+			private CallbackHub itemEditHandlers;
+			private CallbackHub itemExpandHandlers;
+			private CallbackHub lostFocusHandlers;
+			private ConcurrentDictionary<int, CallbackHub> notifyHandlers;
 			private long parenthandle;
-			private List<IFuncObj> selectedItemChangedHandlers;
+			private CallbackHub selectedItemChangedHandlers;
 			internal Size requestedSize = new (int.MinValue, int.MinValue);
 			internal bool eventHandlerActive = true;
+
+			internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
+			{
+				var removedAny = clickHandlers.RemoveOwned(scheduler);
+				removedAny |= doubleClickHandlers.RemoveOwned(scheduler);
+				removedAny |= changeHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= columnClickHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= CallbackRegistrationHub<CallbackRegistration>.RemoveOwned(commandHandlers, scheduler);
+				removedAny |= contextMenuChangedHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= focusedItemChangedHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= focusHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= itemCheckHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= itemEditHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= itemExpandHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= lostFocusHandlers?.RemoveOwned(scheduler) == true;
+				removedAny |= CallbackRegistrationHub<CallbackRegistration>.RemoveOwned(notifyHandlers, scheduler);
+				removedAny |= selectedItemChangedHandlers?.RemoveOwned(scheduler) == true;
+
+#if WINDOWS
+				if (_control is StatusStrip ss)
+				{
+					foreach (var item in ss.Items)
+					{
+						if (item is KeysharpToolStripStatusLabel tssl)
+							removedAny |= tssl.doubleClickHandlers.RemoveOwned(scheduler);
+					}
+				}
+#elif !WINDOWS
+				if (_control is KeysharpStatusStrip ss)
+				{
+					foreach (var item in ss.Items)
+						removedAny |= item?.doubleClickHandlers.RemoveOwned(scheduler) == true;
+				}
+#endif
+
+				return removedAny;
+			}
 
 			public bool AltSubmit { get; internal set; } = false;
 			public Forms.Control Ctrl => _control;

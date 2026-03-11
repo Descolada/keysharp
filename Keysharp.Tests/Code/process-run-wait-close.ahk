@@ -29,7 +29,7 @@
 		FileAppend "fail", "*"
 #else
 	pid := 0
-	Run("xed", "", "max", &pid)
+	Run("/usr/bin/sleep", "", "max", &pid, "60")
 	ProcessWait(pid)
 	exists := ProcessExist(pid)
 
@@ -41,18 +41,15 @@
 	}
 
 	Sleep(1000)
-	exists := ProcessExist("xed")
+	exists := ProcessExist(pid)
 
 	if (exists == 0)
 		FileAppend "pass", "*"
 	else
 		FileAppend "fail", "*"
 
-	pid := RunWait("xed", "", "max")
-	Sleep(1000)
-	exists := ProcessExist("xed")
-
-	if (exists == 0)
+	pid := RunWait("/usr/bin/true", "", "max")
+	if (pid == 0)
 		FileAppend "pass", "*"
 	else
 		FileAppend "fail", "*"

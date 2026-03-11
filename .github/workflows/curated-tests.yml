@@ -126,7 +126,7 @@ jobs:
           if ('${{ matrix.platform }}' -eq 'linux') {
             $cfg = $env:BUILD_CONFIGURATION
             $filter = $env:CURATED_TEST_FILTER
-            $cmd = "export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
+            $cmd = "export GDK_BACKEND=x11; export NO_AT_BRIDGE=1; export GTK_A11Y=none; export GSETTINGS_BACKEND=memory; xvfb-run -a -s `"-screen 0 1920x1080x24 -ac +extension RANDR`" dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $cfg --nologo --logger `"console;verbosity=normal`" --filter `"$filter`" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1"
             dbus-run-session -- bash -lc $cmd
           } else {
             dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c $env:BUILD_CONFIGURATION --nologo --logger "console;verbosity=normal" --filter "$env:CURATED_TEST_FILTER" --blame-crash --blame-hang --blame-hang-timeout 5m -- NUnit.NumberOfTestWorkers=1

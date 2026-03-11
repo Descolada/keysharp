@@ -33,11 +33,11 @@ namespace Keysharp.Core
 			{
 				err.ExcType = excType;
 
-				if (script.onErrorHandlers != null)
+				if (!script.onErrorHandlers.IsEmpty)
 				{
-					foreach (var handler in script.onErrorHandlers)
+					foreach (var registration in script.onErrorHandlers.GetSnapshot())
 					{
-						var result = handler.Call(err, err.ExcType);
+						var result = registration.Callback.Call(err, err.ExcType);
 						var lresult = Script.ForceLong(result);
 
 						if (lresult != 0L)
@@ -108,10 +108,7 @@ namespace Keysharp.Core
 			var del = Functions.GetFuncObj(e, null, true);
 			var script = Script.TheScript;
 
-			if (script.onErrorHandlers == null)
-				script.onErrorHandlers = [];
-
-			script.onErrorHandlers.ModifyEventHandlers(del, i);
+			script.onErrorHandlers.ModifyGlobalEventHandlers(del, i);
 			return DefaultObject;
 		}
 

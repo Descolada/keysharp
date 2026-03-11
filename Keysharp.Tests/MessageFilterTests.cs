@@ -67,7 +67,7 @@ namespace Keysharp.Tests
 		public void EmergencyOnMessageUsesEmergencyReserveWhenNormalThreadsAreFull()
 		{
 			s.MaxThreadsTotal = 1;
-			var occupied = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var occupied));
 
 			try
 			{
@@ -93,7 +93,7 @@ namespace Keysharp.Tests
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(occupied);
+				s.Threads.EndThread(occupied);
 			}
 		}
 
@@ -101,7 +101,7 @@ namespace Keysharp.Tests
 		public void EmergencyOnMessageStopsAtEmergencyReserveLimit()
 		{
 			s.MaxThreadsTotal = 1;
-			var occupied = s.Threads.BeginThread();
+			Assert.IsTrue(s.Threads.TryBeginThread(out var occupied));
 
 			try
 			{
@@ -134,7 +134,7 @@ namespace Keysharp.Tests
 			}
 			finally
 			{
-				_ = s.Threads.EndThread(occupied);
+				s.Threads.EndThread(occupied);
 			}
 		}
 

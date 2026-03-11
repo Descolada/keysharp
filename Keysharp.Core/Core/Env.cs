@@ -14,7 +14,7 @@ namespace Keysharp.Core
 		internal static byte[] CaptureClipboardAllBytes()
 		{
 #if !WINDOWS
-			return CaptureClipboardAllEto();
+			return Script.InvokeOnUIThread(CaptureClipboardAllEto);
 #else
 			using (var ms = new MemoryStream())
 			{
@@ -109,18 +109,27 @@ namespace Keysharp.Core
 			var to = timeout.Ad(double.MinValue);
 			var type = waitFor.Ab();
 			var checktime = to != double.MinValue;
-			var frequency = 100;
-			var time = checktime ? (long)(Math.Abs(to) * 1000) : long.MaxValue;
+			long frequency = 100;
+			var timeoutMs = checktime ? (long)(Math.Abs(to) * 1000) : long.MaxValue;
+			var deadline = checktime ? Environment.TickCount64 + timeoutMs : long.MaxValue;
 
-			for (var i = 0L; !checktime || i < time; i += frequency)
+			while (true)
 			{
 				if (ClipboardMatchesWaitCondition(type))
 					return true;
 
-				Flow.Sleep(frequency);
-			}
+				if (checktime)
+				{
+					var remaining = deadline - Environment.TickCount64;
 
-			return false;
+					if (remaining <= 0)
+						return false;
+
+					_ = Flow.Sleep(Math.Min(frequency, remaining));
+				}
+				else
+					_ = Flow.Sleep(frequency);
+			}
 		}
 
 		private static bool ClipboardMatchesWaitCondition(bool waitForAny)
@@ -236,14 +245,17 @@ namespace Keysharp.Core
 		///  0: Do not call the callback.
 		/// </param>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if callback is not of type <see cref="FuncObj"/>.</exception>
-		public static object OnClipboardChange(object callback, object addRemove = null)
-		{
-			if (callback is IFuncObj fo)
+			public static object OnClipboardChange(object callback, object addRemove = null)
 			{
-				Script.TheScript.ClipFunctions.ModifyEventHandlers(fo, addRemove.Al(1));
-				return DefaultObject;
-			}
-			else
+				if (callback is IFuncObj fo)
+				{
+					var script = Script.TheScript;
+					if (script.ClipFunctions.ModifyEventHandlers(fo, addRemove.Al(1)))
+						script.UpdateClipboardMonitoring();
+
+					return DefaultObject;
+				}
+				else
 				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorObject);
 		}
 
@@ -256,61 +268,31 @@ namespace Keysharp.Core
 		{
 #if !WINDOWS
 			var sm = property is Keysharp.Core.Common.Platform.SystemMetric en ? en : (SystemMetric)property.Ai();
-			Eto.Forms.Screen screen = null;
-			Eto.Forms.Screen[] screens = [];
-
-			try
-			{
-				screen = Eto.Forms.Screen.PrimaryScreen;
-				screens = Eto.Forms.Screen.Screens?.ToArray() ?? [];
-			}
-			catch
-			{
-			}
-
-			RectangleF bounds;
-			RectangleF working;
-
-			try
-			{
-				bounds = screen?.Bounds ?? new RectangleF(0, 0, 0, 0);
-			}
-			catch
-			{
-				bounds = new RectangleF(0, 0, 0, 0);
-			}
-
-			try
-			{
-				working = screen?.WorkingArea ?? bounds;
-			}
-			catch
-			{
-				working = bounds;
-			}
+			var (screenWidth, screenHeight) = Monitor.GetPrimaryScreenSize();
+			var (workWidth, workHeight) = Monitor.GetPrimaryWorkAreaSize();
 
 			switch (sm)
 			{
 				case SystemMetric.SM_CMONITORS:
-					return (long)screens.Length;
+					return Monitor.MonitorGetCount();
 
 				case SystemMetric.SM_CXSCREEN:
-					return (long)bounds.Width;
+					return screenWidth;
 
 				case SystemMetric.SM_CYSCREEN:
-					return (long)bounds.Height;
+					return screenHeight;
 
 				case SystemMetric.SM_CXFULLSCREEN:
-					return (long)working.Width;
+					return workWidth;
 
 				case SystemMetric.SM_CYFULLSCREEN:
-					return (long)working.Height;
+					return workHeight;
 
 				case SystemMetric.SM_CXMAXIMIZED:
-					return (long)working.Width;
+					return workWidth;
 
 				case SystemMetric.SM_CYMAXIMIZED:
-					return (long)working.Height;
+					return workHeight;
 
 				case SystemMetric.SM_MOUSEPRESENT:
 					return 1L;
@@ -696,6 +678,18 @@ namespace Keysharp.Core
 		private const int ClipboardAllEtoMagic = 0x42434B53; // "SKCB"
 		private const string ClipboardAllEtoImagePng = "__keysharp_image_png";
 		private const string ClipboardAllEtoUris = "__keysharp_uris";
+		private static readonly string[] EtoClipboardTextTypes =
+		[
+			DataFormats.Text,
+			"TEXT",
+			"STRING",
+			"text/plain",
+			"text/plain;charset=utf-8",
+			"COMPOUND_TEXT"
+		];
+
+		private static bool IsEtoTextType(string type) =>
+			!string.IsNullOrEmpty(type) && EtoClipboardTextTypes.Contains(type, StringComparer.OrdinalIgnoreCase);
 
 		private static byte[] CaptureClipboardAllEto()
 		{
@@ -711,7 +705,7 @@ namespace Keysharp.Core
 
 			foreach (var type in clip.Types ?? System.Array.Empty<string>())
 			{
-				if (string.IsNullOrEmpty(type))
+				if (string.IsNullOrEmpty(type) || IsEtoTextType(type))
 					continue;
 
 				var payload = clip.GetData(type);
@@ -731,20 +725,18 @@ namespace Keysharp.Core
 				_ = seen.Add(type);
 			}
 
-			if (clip.ContainsText && !seen.Contains(DataFormats.Text))
-			{
-				var text = clip.Text;
+			var text = clip.Text;
 
-				if (!string.IsNullOrEmpty(text))
-					WriteEtoClipboardEntry(bw, DataFormats.Text, Encoding.UTF8.GetBytes(text));
+			if (!string.IsNullOrEmpty(text) && !seen.Contains(DataFormats.Text))
+			{
+				WriteEtoClipboardEntry(bw, DataFormats.Text, Encoding.UTF8.GetBytes(text));
 			}
 
-			if (clip.ContainsHtml && !seen.Contains(DataFormats.Html))
-			{
-				var html = clip.Html;
+			var html = clip.Html;
 
-				if (!string.IsNullOrEmpty(html))
-					WriteEtoClipboardEntry(bw, DataFormats.Html, Encoding.UTF8.GetBytes(html));
+			if (!string.IsNullOrEmpty(html) && !seen.Contains(DataFormats.Html))
+			{
+				WriteEtoClipboardEntry(bw, DataFormats.Html, Encoding.UTF8.GetBytes(html));
 			}
 
 			if (clip.ContainsImage && clip.Image is Bitmap bmp)
@@ -802,7 +794,11 @@ namespace Keysharp.Core
 
 				var payload = br.ReadBytes(dataLen);
 
-				if (type == ClipboardAllEtoImagePng)
+				if (IsEtoTextType(type))
+				{
+					clipboard.Text = Encoding.UTF8.GetString(payload);
+				}
+				else if (type == ClipboardAllEtoImagePng)
 				{
 					using var imgStream = new MemoryStream(payload, writable: false);
 					clipboard.Image = new Bitmap(imgStream);
@@ -817,6 +813,10 @@ namespace Keysharp.Core
 
 					if (parsedUris.Length > 0)
 						clipboard.Uris = parsedUris;
+				}
+				else if (string.Equals(type, DataFormats.Html, StringComparison.OrdinalIgnoreCase))
+				{
+					clipboard.Html = Encoding.UTF8.GetString(payload);
 				}
 				else
 				{

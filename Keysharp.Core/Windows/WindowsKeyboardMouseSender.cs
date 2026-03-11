@@ -280,7 +280,7 @@ namespace Keysharp.Core.Windows
 
 				if ((childUnderCursor = WindowsAPI.WindowFromPoint(point)) != 0
 						&& (parentUnderCursor = WindowsAPI.GetNonChildParent(childUnderCursor)) != 0 // WM_NCHITTEST below probably requires parent vs. child.
-						&& GetWindowThreadProcessId(parentUnderCursor, out _) == Script.TheScript.ProcessesData.MainThreadID) // It's one of our thread's windows.
+						&& GetWindowThreadProcessId(parentUnderCursor, out _) == Script.TheScript.NativeMainThreadID) // It's one of our thread's windows.
 				{
 					var hitTest = SendMessage(parentUnderCursor, WM_NCHITTEST, 0, MakeLong((short)point.X, (short)point.Y));
 
@@ -902,14 +902,14 @@ namespace Keysharp.Core.Windows
 
 		internal override void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowItemBase tempitem, nint targetWindow)
 		{
-			var pd = TheScript.ProcessesData;
+			var tid = TheScript.NativeMainThreadId;
 			tempitem = WindowManager.CreateWindow(targetWindow);
 			uint targetThread;
 
 			if ((targetThread = GetWindowThreadProcessId(targetWindow, out _)) != 0 // Assign.
-					&& targetThread != pd.MainThreadID && !tempitem.IsHung)
+					&& targetThread != tid && !tempitem.IsHung)
 			{
-				threadsAreAttached = AttachThreadInput(pd.MainThreadID, targetThread, true);
+				threadsAreAttached = AttachThreadInput(tid, targetThread, true);
 				keybdLayoutThread = targetThread; // Testing shows that ControlSend benefits from the adapt-to-layout technique too.
 			}
 
@@ -1017,7 +1017,7 @@ namespace Keysharp.Core.Windows
 			// to both directions (ON and OFF) since it seems likely to be needed for them all.
 			bool ourThreadIsForeground;
 
-			if (ourThreadIsForeground = GetWindowThreadProcessId(GetForegroundWindow(), out var _) == script.ProcessesData.MainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
+			if (ourThreadIsForeground = GetWindowThreadProcessId(GetForegroundWindow(), out var _) == script.NativeMainThreadID) // GetWindowThreadProcessId() tolerates a NULL hwnd.
 				Flow.SleepWithoutInterruption(-1);
 
 			if (vk == VK_CAPITAL && toggleValue == ToggleValueType.Off && script.HookThread.IsKeyToggledOn(vk))
@@ -1037,15 +1037,14 @@ namespace Keysharp.Core.Windows
 		protected internal override void LongOperationUpdate()
 		{
 			var msg = new Msg();
-			var nowTick = Environment.TickCount64;
 			var script = Script.TheScript;
 
-			if (script.IsPreemptiveMessageCheckDue(nowTick))
+			if (script.IsCurrentThreadPreemptiveCheckDue())
 			{
 				if (PeekMessage(out msg, 0, 0, 0, PM_NOREMOVE))
 					_ = Flow.Sleep(-1);
 
-				script.RecordMessageCheck(Environment.TickCount64);
+				script.RecordMessageCheck();
 			}
 		}
 
@@ -1055,15 +1054,14 @@ namespace Keysharp.Core.Windows
 		protected internal override void LongOperationUpdateForSendKeys()
 		{
 			var msg = new Msg();
-			var nowTick = Environment.TickCount64;
 			var script = Script.TheScript;
 
-			if (script.IsPreemptiveMessageCheckDue(nowTick))
+			if (script.IsCurrentThreadPreemptiveCheckDue())
 			{
 				if (PeekMessage(out msg, 0, 0, 0, PM_NOREMOVE))
 					Flow.SleepWithoutInterruption(-1);
 
-				script.RecordMessageCheck(Environment.TickCount64);
+				script.RecordMessageCheck();
 			}
 		}
 

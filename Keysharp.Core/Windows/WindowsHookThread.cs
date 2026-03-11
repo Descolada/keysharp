@@ -784,7 +784,7 @@ namespace Keysharp.Core.Windows
 				return true;
 
 			var menuHwnd = FindWindow("#32768", null);
-			return menuHwnd != 0 && GetWindowThreadProcessId(menuHwnd, out _) == script.ProcessesData.MainThreadID;
+			return menuHwnd != 0 && GetWindowThreadProcessId(menuHwnd, out _) == script.NativeMainThreadID;
 		}
 
 		protected internal override void UpdateForegroundWindowData(KeyHistoryItem item, KeyHistory history)

@@ -7,6 +7,23 @@
 		internal NotifyIcon Tray;
 		internal Keysharp.Core.Menu trayMenu;
 
+		internal bool EnsureTrayMenu()
+		{
+			if (Tray != null && trayMenu != null)
+				return true;
+
+			if (NoTrayIcon || IsUiInitializationBlocked || IsHeadless)
+				return false;
+
+			Script.InvokeOnUIThread(() =>
+			{
+				if (Tray == null || trayMenu == null)
+					CreateTrayMenu();
+			});
+
+			return Tray != null && trayMenu != null;
+		}
+
 		public void CreateTrayMenu()
 		{
 			if (NoTrayIcon || IsUiInitializationBlocked || IsHeadless)
@@ -51,19 +68,20 @@
 			}
 		}
 
-		internal static void SuspendHotkeys()
-		{
-			Script.InvokeOnUIThread(() =>
+			internal static void SuspendHotkeys()
 			{
-				var script = Script.TheScript;
-				var suspended = script.flowData.suspended = !script.flowData.suspended;
-				script.HotstringManager.SuspendAll(suspended);//Must do this prior to ManifestAllHotkeysHotstringsHooks() to avoid incorrect removal of hook.
-				_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks(); //Update the state of all hotkeys based on the complex interdependencies hotkeys have with each another.
-				script.suspendMenuItem.Checked = suspended;
-				script.mainWindow.SuspendHotkeysToolStripMenuItem.Checked = suspended;
-				script.Tray.Icon = suspended ? script.suspendedIcon : script.normalIcon;
-			});
-		}
+				Script.InvokeOnUIThread(() =>
+				{
+					var script = Script.TheScript;
+					var suspended = script.flowData.suspended = !script.flowData.suspended;
+					script.HotstringManager.SuspendAll(suspended);//Must do this prior to ManifestAllHotkeysHotstringsHooks() to avoid incorrect removal of hook.
+					_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks(); //Update the state of all hotkeys based on the complex interdependencies hotkeys have with each another.
+
+					script.suspendMenuItem?.Checked = suspended;
+					script.mainWindow?.SuspendHotkeysToolStripMenuItem.Checked = suspended;
+					script.Tray?.Icon = suspended ? script.suspendedIcon : script.normalIcon;
+				});
+			}
 
 		private static void TrayIcon_MouseClick(object sender, MouseEventArgs e)
 		{

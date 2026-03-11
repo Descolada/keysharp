@@ -1,26 +1,10 @@
-﻿using Keysharp.Scripting;
-
-namespace System.Collections.Generic
+﻿namespace System.Collections.Generic
 {
 	/// <summary>
 	/// Extension methods for various generic collection classes.
 	/// </summary>
 	internal static class SystemCollectionsGenericExtensions
 	{
-		//internal static IEnumerable<T> Flatten<T>(this IEnumerable<T> enumerable)
-		//{
-		//  foreach (var element in enumerable)
-		//  {
-		//      if (element is IEnumerable<T> candidate)
-		//      {
-		//          foreach (var nested in Flatten<T>(candidate))
-		//              yield return nested;
-		//      }
-		//      else
-		//          yield return element;
-		//  }
-		//}
-
 		/// <summary>
 		/// Adds a range of items to a <see cref="HashSet{T}"/>.
 		/// </summary>
@@ -202,41 +186,55 @@ namespace System.Collections.Generic
 		/// <param name="handlers">The list of event handlers to call.</param>
 		/// <param name="obj">The parameters to pass to each event handler.</param>
 		/// <returns>The result of the last event handler that was called.</returns>
-		internal static object InvokeEventHandlers(this IEnumerable<IFuncObj> handlers, params object[] obj)
+		internal static object InvokeEventHandlers<TRegistration>(this IEnumerable<TRegistration> handlers, params object[] obj)
+			where TRegistration : CallbackRegistration
 		{
 			object result = null;
+			var snapshot = handlers as TRegistration[] ?? handlers?.ToArray();
 
-			if (handlers.Any())
+			if (snapshot?.Length <= 0)
+				return result;
+
+			var inst = obj.Length > 0 ? obj[0].GetControl() : null;
+			var script = Script.TheScript;
+			var oldEventInfo = A_EventInfo;
+
+			foreach (var entry in snapshot)
 			{
-				var inst = obj.Length > 0 ? obj[0].GetControl() : null;
-				var script = Script.TheScript;
-				var oldEventInfo = A_EventInfo;
+				if (entry == null || !entry.IsActive)
+					continue;
 
-				foreach (var handler in handlers)
-				{
-					if (handler != null)
-					{
-						var (pushed, tv) = script.Threads.BeginThread();
-						if (pushed)//If we've exceeded the number of allowable threads, then just do nothing.
-						{
-							tv.eventInfo = oldEventInfo;
-							_ = Flow.TryCatch(() =>
-							{			
-								if (inst is Control ctrl && ctrl.FindForm() is Form form)
-									script.HwndLastUsed = form.Handle;
+				var handler = entry.Callback;
 
-								result = handler.Call(obj);
-								_ = script.Threads.EndThread((pushed, tv));
-							}, true, (pushed, tv));//Pop on exception because EndThread() above won't be called.
+				if (handler == null)
+					continue;
 
-							if (Script.ForceLong(result) != 0L)
-								break;
-						}
-					}
-				}
-				script.ExitIfNotPersistent();
+				var targetScheduler = entry.OwnerScheduler ?? script.EventScheduler;
+				var executionResult = targetScheduler.InvokePseudoThread(0, false, false, tv => RunHandler(script, handler, obj, tv, oldEventInfo, inst: inst), out result);
+
+				if (executionResult != ScriptEventExecutionResult.Executed)
+					continue;
+
+				if (Script.ForceLong(result) != 0L)
+					break;
 			}
 
+			script.ExitIfNotPersistent();
+			return result;
+		}
+
+		internal static object RunHandler(Script script, IFuncObj handler, object[] obj, ThreadVariables tv, object eventInfo = null, long hwnd = 0L, Control inst = null)
+		{
+			object result = null;
+			tv.eventInfo = eventInfo;
+			tv.hwndLastUsed = hwnd;
+			_ = tv.RunAndEnd(() =>
+			{
+				if (hwnd == 0L && inst is Control ctrl && ctrl.FindForm() is Form form)
+					script.HwndLastUsed = form.Handle;
+
+				result = handler.Call(obj);
+			});
 			return result;
 		}
 
@@ -259,26 +257,6 @@ namespace System.Collections.Generic
 				_ = merged.TryAdd(kv.Key, kv.Value);
 
 			return merged;
-		}
-
-		/// <summary>
-		/// Add, insert or remove an event handler from a list of event handlers.
-		/// </summary>
-		/// <param name="handlers">The list of event handlers to modify.</param>
-		/// <param name="fo">The event handler to add, insert or remove from the list.</param>
-		/// <param name="i">An integer specifying which action to take:<br/>
-		///     1: Add fo to the list.<br/>
-		///    -1: Remove fo from the list.<br/>
-		///     0: Remove any event handler whose name matches fo.Name.
-		/// </param>
-		internal static void ModifyEventHandlers(this List<IFuncObj> handlers, IFuncObj fo, long i)
-		{
-			if (i > 0)
-				handlers.Add(fo);
-			else if (i < 0)
-				handlers.Insert(0, fo);
-			else
-				_ = handlers.RemoveAll(d => d.Name == fo.Name);
 		}
 
 		/// <summary>

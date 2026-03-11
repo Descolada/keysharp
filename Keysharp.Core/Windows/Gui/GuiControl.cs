@@ -1,4 +1,5 @@
 ﻿#if WINDOWS
+using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
 namespace Keysharp.Core
 {
 	public partial class Gui : KeysharpObject, I__Enum, IEnumerable<(object, object)>
@@ -897,7 +898,7 @@ namespace Keysharp.Core
 					if (e == "change")
 					{
 						if (changeHandlers == null)
-							changeHandlers = [];
+							changeHandlers = new();
 
 						changeHandlers.ModifyEventHandlers(del, i);
 					}
@@ -925,14 +926,14 @@ namespace Keysharp.Core
 					else if (e == "focus")
 					{
 						if (focusHandlers == null)
-							focusHandlers = [];
+							focusHandlers = new();
 
 						focusHandlers.ModifyEventHandlers(del, i);
 					}
 					else if (e == "losefocus")
 					{
 						if (lostFocusHandlers == null)
-							lostFocusHandlers = [];
+							lostFocusHandlers = new();
 
 						lostFocusHandlers.ModifyEventHandlers(del, i);
 					}
@@ -941,7 +942,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpListView lv)
 						{
 							if (columnClickHandlers == null)
-								columnClickHandlers = [];
+								columnClickHandlers = new();
 
 							columnClickHandlers.ModifyEventHandlers(del, i);
 						}
@@ -951,7 +952,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpTreeView || _control is KeysharpListView)
 						{
 							if (itemCheckHandlers == null)
-								itemCheckHandlers = [];
+								itemCheckHandlers = new();
 
 							itemCheckHandlers.ModifyEventHandlers(del, i);
 						}
@@ -961,7 +962,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpTreeView || _control is KeysharpListView)
 						{
 							if (itemEditHandlers == null)
-								itemEditHandlers = [];
+								itemEditHandlers = new();
 
 							itemEditHandlers.ModifyEventHandlers(del, i);
 						}
@@ -971,7 +972,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpTreeView)
 						{
 							if (itemExpandHandlers == null)
-								itemExpandHandlers = [];
+								itemExpandHandlers = new();
 
 							itemExpandHandlers.ModifyEventHandlers(del, i);
 						}
@@ -981,7 +982,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpListView)
 						{
 							if (focusedItemChangedHandlers == null)
-								focusedItemChangedHandlers = [];
+								focusedItemChangedHandlers = new();
 
 							focusedItemChangedHandlers.ModifyEventHandlers(del, i);
 						}
@@ -991,7 +992,7 @@ namespace Keysharp.Core
 						if (_control is KeysharpTreeView || _control is KeysharpListView)
 						{
 							if (selectedItemChangedHandlers == null)
-								selectedItemChangedHandlers = [];
+								selectedItemChangedHandlers = new();
 
 							selectedItemChangedHandlers.ModifyEventHandlers(del, i);
 						}
@@ -999,7 +1000,7 @@ namespace Keysharp.Core
 					else if (e == "contextmenu")
 					{
 						if (contextMenuChangedHandlers == null)
-							contextMenuChangedHandlers = [];
+							contextMenuChangedHandlers = new();
 
 						if (!(_control is KeysharpTextBox) && !(_control is KeysharpMonthCalendar))
 							contextMenuChangedHandlers.ModifyEventHandlers(del, i);
@@ -1596,7 +1597,7 @@ namespace Keysharp.Core
 					CallContextMenuChangeHandlers(false, e.X, e.Y);
 			}
 
-			internal void HandleOnCommandNotify(long code, object callback, long addremove, ref Dictionary<int, List<IFuncObj>> handlers)
+			internal void HandleOnCommandNotify(long code, object callback, long addremove, ref ConcurrentDictionary<int, CallbackHub> handlers)
 			{
 				if (gui == null || !gui.TryGetTarget(out var g))
 					return;
@@ -1604,9 +1605,9 @@ namespace Keysharp.Core
 				var del = Functions.GetFuncObj(callback, g.form.eventObj, true);
 
 				if (handlers == null)
-					handlers = [];
+					handlers = new();
 
-				var h = handlers.GetOrAdd((int)code);
+				var h = handlers.GetOrAdd((int)code, static () => new());
 				h.ModifyEventHandlers(del, addremove);
 			}
 

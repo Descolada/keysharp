@@ -43,18 +43,14 @@ namespace Keysharp.Tests
 			var order = new List<string>();
 			var interactiveBlocked = true;
 
-			scheduler.Enqueue(new ScriptEvent(
-				ScriptEventKind.Callback,
-				ScriptEventQueue.Interactive,
-				0,
-				() =>
-				{
-					if (interactiveBlocked)
-						return ScriptEventExecutionResult.GlobalBlocked;
+			scheduler.Enqueue(ScriptEventQueue.Interactive, () =>
+			{
+				if (interactiveBlocked)
+					return ScriptEventExecutionResult.GlobalBlocked;
 
-					order.Add("H1");
-					return ScriptEventExecutionResult.Executed;
-				}));
+				order.Add("H1");
+				return ScriptEventExecutionResult.Executed;
+			});
 			scheduler.EnqueueCallback(() => order.Add("N1"), ScriptEventQueue.Normal, false);
 
 			context.DrainAll();
@@ -70,25 +66,21 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Threading")]
-		public void SchedulerInteractiveRunsBeforePreviouslyBlockedNormalOnRetry()
+		public void SchedulerInteractiveEventRunsBeforePreviouslyBlockedNormalOnRetry()
 		{
 			var context = UseQueuedMainContext();
 			var scheduler = s.EventScheduler;
 			var order = new List<string>();
 			var normalBlocked = true;
 
-			scheduler.Enqueue(new ScriptEvent(
-				ScriptEventKind.Callback,
-				ScriptEventQueue.Normal,
-				0,
-				() =>
-				{
-					if (normalBlocked)
-						return ScriptEventExecutionResult.GlobalBlocked;
+			scheduler.Enqueue(ScriptEventQueue.Normal, () =>
+			{
+				if (normalBlocked)
+					return ScriptEventExecutionResult.GlobalBlocked;
 
-					order.Add("N1");
-					return ScriptEventExecutionResult.Executed;
-				}));
+				order.Add("N1");
+				return ScriptEventExecutionResult.Executed;
+			});
 
 			context.DrainAll();
 

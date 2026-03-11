@@ -8,14 +8,14 @@ namespace Keysharp.Core.Common.Strings
 				return false;
 
 			return mode.ToString().ToLower() switch
-		{
-				Keyword_On or "1" or "true" => true,
-				Keyword_Off or "0" or "false" => false,
-				_ => null,
-		};
-	}
+			{
+					Keyword_On or "1" or "true" => true,
+					Keyword_Off or "0" or "false" => false,
+					_ => null,
+			};
+		}
 
-	internal static bool IsOption(string options, string search)
+		internal static bool IsOption(string options, string search)
 		{
 			return string.IsNullOrEmpty(options) || string.IsNullOrEmpty(search)
 				   ? false

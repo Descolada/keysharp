@@ -1,22 +1,29 @@
 using Keysharp.Core.Common.Invoke;
+using Keysharp.Core.Common.Keyboard;
 using Keysharp.Core.Common.Threading;
+using Keysharp.Core.Common.Window;
+using System.Runtime.ExceptionServices;
 
 namespace Keysharp.Scripting
 {
 	public partial class Script
 	{
-		private ScriptEventScheduler eventScheduler;
-		internal ScriptEventScheduler EventScheduler => eventScheduler ??= new(this);
-	}
+		private ThreadLocal<ScriptEventScheduler> eventSchedulers;
+		internal ScriptEventScheduler uiEventScheduler;
+		internal ScriptEventScheduler EventScheduler => (eventSchedulers ??= new(() => new(this, Thread.CurrentThread.ManagedThreadId, IsOnMainThread), true)).Value;
 
-	internal enum ScriptEventKind
-	{
-		Timer,
-		ThreadLaunch,
-		Callback,
-		MessageCallback,
-		Hotkey,
-		Hotstring
+		internal ScriptEventScheduler UIEventScheduler
+			=> uiEventScheduler ?? throw new InvalidOperationException("UI event scheduler has not been bound yet.");
+
+		internal ScriptEventScheduler CurrentSchedulerIfCreated
+			=> eventSchedulers != null && eventSchedulers.IsValueCreated ? eventSchedulers.Value : null;
+
+		internal void SignalAllEventSchedulers()
+		{
+			if (eventSchedulers != null)
+				foreach (var scheduler in eventSchedulers.Values.ToArray())
+					scheduler?.SignalWorkerPump();
+		}
 	}
 
 	internal enum ScriptEventQueue
@@ -33,97 +40,200 @@ namespace Keysharp.Scripting
 		Dropped
 	}
 
-	internal sealed class ScriptEvent(ScriptEventKind kind, ScriptEventQueue queueType, long priority, Func<ScriptEventExecutionResult> tryExecute)
+	internal sealed class ScriptEventSynchronizationContext(ScriptEventScheduler scheduler) : SynchronizationContext
 	{
-		internal ScriptEventKind Kind { get; } = kind;
-		internal long Priority { get; } = priority;
-		internal ScriptEventQueue QueueType { get; } = queueType;
-		internal Func<ScriptEventExecutionResult> TryExecute { get; } = tryExecute;
+		private readonly ScriptEventScheduler scheduler = scheduler;
+
+		public override SynchronizationContext CreateCopy()
+			=> new ScriptEventSynchronizationContext(scheduler);
+
+		public override void Post(SendOrPostCallback d, object state)
+		{
+			if (d != null)
+				scheduler.EnqueueCallback(() => d(state));
+		}
+
+		public override void Send(SendOrPostCallback d, object state)
+		{
+			if (d == null)
+				return;
+
+			if (scheduler.OwnsCurrentThread)
+				d(state);
+			else
+				_ = scheduler.InvokeSynchronous(() =>
+				{
+					d(state);
+					return true;
+				});
+		}
 	}
 
-	internal sealed class ScriptEventScheduler(Script owner)
+	internal sealed class ScriptEventScheduler
 	{
 		private readonly object gate = new();
-		// Interactive events are drained before normal ones so user-facing input actions
-		// such as hotkeys and hotstrings remain responsive.
-		private readonly Queue<ScriptEvent> interactiveQueue = new();
-		private readonly Queue<ScriptEvent> normalQueue = new();
+		private readonly Lock ownedDelegateGate = new();
+		private readonly HashSet<DelegateHolder> ownedDelegates = [];
+		private readonly Queue<Func<ScriptEventExecutionResult>> interactiveQueue = new();
+		private readonly Queue<Func<ScriptEventExecutionResult>> normalQueue = new();
+		private AutoResetEvent workerPumpSignal = new(false);
+		private int workerDisposed;
+		private int persistentRegistrationCount;
 		private bool pumpScheduled;
 		private bool pumping;
-		private readonly Script script = owner;
+		private readonly bool isUiScheduler;
+		private readonly int ownerManagedThreadId;
+		private readonly Script script;
 
-		internal void Enqueue(ScriptEvent scriptEvent)
+		internal ScriptEventScheduler(Script owner, int ownerManagedThreadId, bool isUiScheduler)
 		{
-			if (scriptEvent == null)
+			script = owner;
+			this.ownerManagedThreadId = ownerManagedThreadId;
+			this.isUiScheduler = isUiScheduler;
+			if (isUiScheduler)
+				owner.uiEventScheduler = this;
+		}
+
+		internal bool OwnsCurrentThread => Thread.CurrentThread.ManagedThreadId == ownerManagedThreadId;
+		internal int OwnerManagedThreadId => ownerManagedThreadId;
+		internal bool IsDisposed => Volatile.Read(ref workerDisposed) != 0;
+
+		internal void AdjustPersistenceRoot(int delta)
+		{
+			if (delta == 0 || isUiScheduler || delta > 0 && IsDisposed)
 				return;
+
+			if (delta > 0)
+				_ = Interlocked.Add(ref persistentRegistrationCount, delta);
+			else
+			{
+				var remaining = Interlocked.Add(ref persistentRegistrationCount, delta);
+
+				if (remaining < 0)
+					_ = Interlocked.Exchange(ref persistentRegistrationCount, 0);
+			}
+
+			SignalWorkerPump();
+		}
+
+		internal void RegisterOwnedDelegate(DelegateHolder holder)
+		{
+			if (holder == null)
+				return;
+
+			lock (ownedDelegateGate)
+				_ = ownedDelegates.Add(holder);
+		}
+
+		internal void UnregisterOwnedDelegate(DelegateHolder holder)
+		{
+			if (holder == null)
+				return;
+
+			lock (ownedDelegateGate)
+				_ = ownedDelegates.Remove(holder);
+		}
+
+		internal DelegateHolder[] GetOwnedDelegatesSnapshot()
+		{
+			lock (ownedDelegateGate)
+				return ownedDelegates.Count != 0 ? [.. ownedDelegates] : [];
+		}
+
+		internal bool Enqueue(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> tryExecute)
+		{
+			if (tryExecute == null)
+				return false;
 
 			lock (gate)
 			{
-				GetQueue(scriptEvent.QueueType).Enqueue(scriptEvent);
+				if (IsDisposed)
+					return false;
+
+				GetQueue(queueType).Enqueue(tryExecute);
 			}
 
 			SchedulePump();
+			return true;
 		}
 
-		internal void EnqueueTimer(TimerWithTag timer, IFuncObj func, bool once)
+		internal bool EnqueueTimer(TimerWithTag timer, IFuncObj func, bool once)
 		{
-			if (timer == null || func == null)
-				return;
-
-			Enqueue(new ScriptEvent(
-				ScriptEventKind.Timer,
-				ScriptEventQueue.Normal,
-				timer.Tag.Ai(),
-				() => TryExecuteTimerEvent(timer, func, once)));
+			return timer != null
+					&& func != null
+					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteTimerEvent(timer, func, once));
 		}
 
-		internal void EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
+		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
 		{
-			if (action == null)
-				return;
-
-			Enqueue(new ScriptEvent(
-				ScriptEventKind.ThreadLaunch,
-				ScriptEventQueue.Normal,
-				priority,
-				() => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, action, useTryCatch)));
+			return action != null
+					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, action, useTryCatch));
 		}
 
-		internal void EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal, bool useTryCatch = true)
+		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal, bool useTryCatch = true)
 		{
-			if (action == null)
-				return;
+			return action != null
+					&& Enqueue(queueType, () =>
+				{
+					if (script.hasExited)
+						return ScriptEventExecutionResult.Dropped;
 
-			Enqueue(new ScriptEvent(
-				ScriptEventKind.Callback,
-				queueType,
-				0,
-				() => TryExecuteCallback(action, useTryCatch)));
+					if (useTryCatch)
+						_ = Flow.TryCatch(action);
+					else
+						action();
+
+					return ScriptEventExecutionResult.Executed;
+				});
 		}
 
-		internal ScriptEventExecutionResult CheckPseudoThreadAdmission(long priority, bool skipUninterruptible)
+		internal T InvokeSynchronous<T>(Func<T> func)
 		{
-			if (script.hasExited)
-				return ScriptEventExecutionResult.Dropped;
+			if (func == null)
+				return default;
 
-			var threads = script.Threads;
+			if (IsDisposed)
+				throw new ObjectDisposedException(nameof(ScriptEventScheduler));
 
-			if (!threads.AnyThreadsAvailable())
-				return ScriptEventExecutionResult.GlobalBlocked;
+			if (OwnsCurrentThread)
+				return func();
 
-			if (!skipUninterruptible && !threads.IsInterruptible())
-				return ScriptEventExecutionResult.GlobalBlocked;
+			if (isUiScheduler)
+				return Script.InvokeOnUIThread(func);
 
-			if (priority < threads.CurrentThread.priority)
-				return ScriptEventExecutionResult.Dropped;
+			using var completed = new ManualResetEventSlim(false);
+			ExceptionDispatchInfo captured = null;
+			T result = default;
 
-			return ScriptEventExecutionResult.Executed;
+			if (!EnqueueCallback(() =>
+			{
+				try
+				{
+					result = func();
+				}
+				catch (Exception ex)
+				{
+					captured = ExceptionDispatchInfo.Capture(ex);
+				}
+				finally
+				{
+					completed.Set();
+				}
+			}, ScriptEventQueue.Interactive, useTryCatch: false))
+				throw new ObjectDisposedException(nameof(ScriptEventScheduler));
+
+			WaitForSynchronousCompletion(completed);
+			captured?.Throw();
+			return result;
 		}
-
-		internal (bool, ThreadVariables) BeginPseudoThread(long priority, bool skipUninterruptible, bool isCritical)
-			=> script.Threads.PushThreadVariables(priority, skipUninterruptible, isCritical, false, true);
 
 		internal void PumpPendingEvents()
+		{
+			if (OwnsCurrentThread && !IsDisposed)
+				PumpQueuedEvents();
+		}
+
+		private void PumpQueuedEvents()
 		{
 			bool blocked = false;
 			bool stalledOnLocalBlock = false;
@@ -131,130 +241,254 @@ namespace Keysharp.Scripting
 			var consecutiveNormalLocalBlocks = 0;
 			var preferNormalOnce = false;
 
-			lock (gate)
-			{
-				if (pumping)
-					return;
-
-				pumping = true;
-				pumpScheduled = false;
-			}
+			if (!TryBeginPump())
+				return;
 
 			try
 			{
 				while (true)
 				{
-					ScriptEvent next;
-
-					lock (gate)
+					switch (TryProcessNextQueuedEvent(ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce))
 					{
-						next = PeekNextUnsafe(preferNormalOnce);
-						preferNormalOnce = false;
-
-						if (next == null)
-							return;
-					}
-
-					var result = next.TryExecute();
-
-					if (result == ScriptEventExecutionResult.GlobalBlocked)
-					{
+					case ScriptEventExecutionResult.Executed:
+						continue;
+					case ScriptEventExecutionResult.GlobalBlocked:
 						blocked = true;
 						return;
+					case ScriptEventExecutionResult.LocalBlocked:
+						stalledOnLocalBlock = true;
+						return;
+					case ScriptEventExecutionResult.Dropped:
+						return;
 					}
-
-					if (result == ScriptEventExecutionResult.LocalBlocked)
-					{
-						var highPriorityCount = 0;
-						var normalCount = 0;
-
-						lock (gate)
-						{
-							DequeueUnsafe(next);
-							GetQueue(next.QueueType).Enqueue(next);
-							highPriorityCount = interactiveQueue.Count;
-							normalCount = normalQueue.Count;
-						}
-
-						if (next.QueueType == ScriptEventQueue.Interactive)
-						{
-							consecutiveInteractiveLocalBlocks++;
-							consecutiveNormalLocalBlocks = 0;
-
-							// If every currently queued interactive event is only locally blocked, allow normal
-							// queued work to proceed rather than stalling the entire pump behind one hotkey/hotstring.
-							if (normalCount != 0 && consecutiveInteractiveLocalBlocks >= highPriorityCount)
-							{
-								consecutiveInteractiveLocalBlocks = 0;
-								preferNormalOnce = true;
-								continue;
-							}
-
-							if (consecutiveInteractiveLocalBlocks >= highPriorityCount)
-							{
-								stalledOnLocalBlock = true;
-								return;
-							}
-						}
-						else
-						{
-							consecutiveNormalLocalBlocks++;
-							consecutiveInteractiveLocalBlocks = 0;
-
-							if (consecutiveNormalLocalBlocks >= normalCount)
-							{
-								stalledOnLocalBlock = true;
-								return;
-							}
-						}
-
-						continue;
-					}
-
-					lock (gate)
-					{
-						DequeueUnsafe(next);
-					}
-
-					consecutiveInteractiveLocalBlocks = 0;
-					consecutiveNormalLocalBlocks = 0;
 				}
 			}
 			finally
 			{
-				lock (gate)
+				EndPump(blocked, stalledOnLocalBlock);
+			}
+		}
+
+		internal void RunWorkerEventLoop()
+		{
+			while (!script.hasExited && !IsDisposed)
+			{
+				if (!HasQueuedEvents())
 				{
-					pumping = false;
+					if (script.Threads.ActivePseudoThreadCount == 0 && Volatile.Read(ref persistentRegistrationCount) == 0)
+						return;
+
+					_ = WaitForWorkerPumpSignal();
+					continue;
 				}
 
-				if (!blocked && !stalledOnLocalBlock)
-					SchedulePump();
+				PumpPendingEvents();
+
+				if (script.Threads.ActivePseudoThreadCount > 0)
+					return;
 			}
+		}
+
+		internal void DisposeWorker()
+		{
+			if (isUiScheduler || Interlocked.Exchange(ref workerDisposed, 1) != 0)
+				return;
+
+			ClearQueues();
+			DisposeOwnedTimers();
+			DisposeOwnedClipboardHandlers();
+			var hotkeysChanged = HotkeyDefinition.DisableOwnedVariants(this);
+			var hotstringsChanged = script.HotstringManager.DisableOwnedHotstrings(this);
+			DisposeOwnedMessageHandlers();
+			DisposeOwnedGuiHandlers();
+			DisposeOwnedMenuHandlers();
+			DelegateHolder.DisposeOwnedByScheduler(this);
+			_ = Interlocked.Exchange(ref persistentRegistrationCount, 0);
+
+			if (hotkeysChanged || hotstringsChanged)
+				_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
+
+			SignalWorkerPump();
+
+			var signal = Interlocked.Exchange(ref workerPumpSignal, null);
+			signal?.Dispose();
 		}
 
 		internal void SchedulePump()
 		{
-			bool shouldSchedule = false;
+			if (IsDisposed)
+				return;
 
 			lock (gate)
 			{
-				shouldSchedule = TryMarkPumpScheduledUnsafe();
+				if (!TryMarkPumpScheduledUnsafe())
+					return;
 			}
 
-			if (shouldSchedule)
+			if (isUiScheduler)
 				Script.PostToUIThread(PumpPendingEvents);
+			else
+				SignalWorkerPump();
 		}
 
-		private void DequeueUnsafe(ScriptEvent scriptEvent)
-		{
-			var queue = GetQueue(scriptEvent.QueueType);
-
-			if (queue.Count != 0 && ReferenceEquals(queue.Peek(), scriptEvent))
-				_ = queue.Dequeue();
-		}
-
-		private Queue<ScriptEvent> GetQueue(ScriptEventQueue queueType)
+		private Queue<Func<ScriptEventExecutionResult>> GetQueue(ScriptEventQueue queueType)
 			=> queueType == ScriptEventQueue.Interactive ? interactiveQueue : normalQueue;
+
+		private bool TryBeginPump()
+		{
+			lock (gate)
+			{
+				if (pumping)
+					return false;
+
+				pumping = true;
+				pumpScheduled = false;
+				return true;
+			}
+		}
+
+		private void EndPump(bool blocked, bool stalledOnLocalBlock)
+		{
+			lock (gate)
+				pumping = false;
+
+			if (!blocked && !stalledOnLocalBlock)
+				SchedulePump();
+		}
+
+		private ScriptEventExecutionResult TryProcessNextQueuedEvent(ref int consecutiveInteractiveLocalBlocks, ref int consecutiveNormalLocalBlocks, ref bool preferNormalOnce)
+		{
+			if (!TryGetNextQueuedEvent(preferNormalOnce, out var queueType, out var next))
+				return ScriptEventExecutionResult.Dropped;
+
+			preferNormalOnce = false;
+			var result = next();
+
+			if (result == ScriptEventExecutionResult.GlobalBlocked)
+				return result;
+
+			if (result == ScriptEventExecutionResult.LocalBlocked)
+				return HandleLocalBlock(queueType, next, ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce)
+					? ScriptEventExecutionResult.LocalBlocked
+					: ScriptEventExecutionResult.Executed;
+
+			RemoveHead(queueType, next);
+			consecutiveInteractiveLocalBlocks = 0;
+			consecutiveNormalLocalBlocks = 0;
+			return ScriptEventExecutionResult.Executed;
+		}
+
+		private bool TryGetNextQueuedEvent(bool preferNormal, out ScriptEventQueue queueType, out Func<ScriptEventExecutionResult> next)
+		{
+			lock (gate)
+			{
+				if (preferNormal && normalQueue.Count != 0)
+				{
+					queueType = ScriptEventQueue.Normal;
+					next = normalQueue.Peek();
+					return true;
+				}
+
+				if (interactiveQueue.Count != 0)
+				{
+					queueType = ScriptEventQueue.Interactive;
+					next = interactiveQueue.Peek();
+					return true;
+				}
+
+				if (normalQueue.Count != 0)
+				{
+					queueType = ScriptEventQueue.Normal;
+					next = normalQueue.Peek();
+					return true;
+				}
+
+				queueType = ScriptEventQueue.Normal;
+				next = null;
+				return false;
+			}
+		}
+
+		private void RemoveHead(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> work)
+		{
+			lock (gate)
+			{
+				var queue = GetQueue(queueType);
+
+				if (queue.Count != 0 && ReferenceEquals(queue.Peek(), work))
+					_ = queue.Dequeue();
+			}
+		}
+
+		private bool HandleLocalBlock(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> work, ref int consecutiveInteractiveLocalBlocks, ref int consecutiveNormalLocalBlocks, ref bool preferNormalOnce)
+		{
+			int interactiveCount;
+			int normalCount;
+
+			lock (gate)
+			{
+				var queue = GetQueue(queueType);
+
+				if (queue.Count != 0 && ReferenceEquals(queue.Peek(), work))
+				{
+					_ = queue.Dequeue();
+					queue.Enqueue(work);
+				}
+
+				interactiveCount = interactiveQueue.Count;
+				normalCount = normalQueue.Count;
+			}
+
+			if (queueType == ScriptEventQueue.Interactive)
+			{
+				consecutiveInteractiveLocalBlocks++;
+				consecutiveNormalLocalBlocks = 0;
+
+				// If every currently queued interactive event is only locally blocked, allow normal
+				// queued work to proceed rather than stalling the entire pump behind one hotkey/hotstring.
+				if (normalCount != 0 && consecutiveInteractiveLocalBlocks >= interactiveCount)
+				{
+					consecutiveInteractiveLocalBlocks = 0;
+					preferNormalOnce = true;
+					return false;
+				}
+
+				return consecutiveInteractiveLocalBlocks >= interactiveCount;
+			}
+
+			consecutiveNormalLocalBlocks++;
+			consecutiveInteractiveLocalBlocks = 0;
+			return consecutiveNormalLocalBlocks >= normalCount;
+		}
+
+		private bool HasQueuedEvents()
+		{
+			lock (gate)
+				return HasQueuedEventsUnsafe();
+		}
+
+		internal void SignalWorkerPump()
+		{
+			try
+			{
+				_ = Volatile.Read(ref workerPumpSignal)?.Set();
+			}
+			catch (ObjectDisposedException)
+			{
+			}
+		}
+
+		private bool WaitForWorkerPumpSignal()
+		{
+			try
+			{
+				return Volatile.Read(ref workerPumpSignal)?.WaitOne(Timeout.Infinite) == true;
+			}
+			catch (ObjectDisposedException)
+			{
+				return false;
+			}
+		}
 
 		private bool HasQueuedEventsUnsafe() => interactiveQueue.Count != 0 || normalQueue.Count != 0;
 
@@ -267,15 +501,6 @@ namespace Keysharp.Scripting
 			return true;
 		}
 
-		private ScriptEvent PeekNextUnsafe(bool preferNormal = false)
-			=> preferNormal && normalQueue.Count != 0
-				? normalQueue.Peek()
-				: interactiveQueue.Count != 0
-				? interactiveQueue.Peek()
-				: normalQueue.Count != 0
-					? normalQueue.Peek()
-					: null;
-
 		private ScriptEventExecutionResult TryExecuteTimerEvent(TimerWithTag timer, IFuncObj func, bool once)
 		{
 			if (script.hasExited)
@@ -284,7 +509,9 @@ namespace Keysharp.Scripting
 				return ScriptEventExecutionResult.Dropped;
 			}
 
-			if (!script.FlowData.timers.TryGetValue(func, out var existingTimer) || !ReferenceEquals(existingTimer, timer))
+			var timerRegistration = script.FlowData.GetTimerRegistration(timer);
+
+			if (timerRegistration == null || !ReferenceEquals(timerRegistration.Callback, func))
 			{
 				timer.ClearSchedulerQueueState();
 				return ScriptEventExecutionResult.Dropped;
@@ -297,22 +524,20 @@ namespace Keysharp.Scripting
 					|| !threads.IsInterruptible())
 				return ScriptEventExecutionResult.GlobalBlocked;
 
-			var startResult = TryBeginPseudoThread(timer.Tag.Ai(), true, false, out var btv);
+			var startResult = InvokePseudoThread(timer.Tag.Ai(), true, false, btv =>
+			{
+				btv.currentTimer = timer;
+				btv.eventInfo = func;
+				_ = btv.RunAndEnd(() => _ = func.Call());
+				return true;
+			}, out _);
 
 			if (startResult != ScriptEventExecutionResult.Executed)
 				return startResult;
 
-			_ = Flow.TryCatch(() =>
-			{
-				btv.Item2.currentTimer = timer;
-				btv.Item2.eventInfo = func;
-				_ = func.Call();
-				_ = threads.EndThread(btv);
-			}, true, btv);
-
 			if (once)
 			{
-				_ = script.FlowData.timers.TryRemove(func, out _);
+				_ = script.FlowData.RemoveTimerRegistration(timer, out _);
 				timer.Stop();
 				timer.Dispose();
 				script.ExitIfNotPersistent();
@@ -321,62 +546,179 @@ namespace Keysharp.Scripting
 			{
 				timer.ClearSchedulerQueueState();
 
-				if (!script.FlowData.timers.ContainsKey(func))
+				if (script.FlowData.GetTimerRegistration(timer) == null)
 					script.ExitIfNotPersistent();
 			}
 
 			return ScriptEventExecutionResult.Executed;
 		}
 
-		private ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
+		internal ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
 		{
-			var startResult = TryBeginPseudoThread(priority, skipUninterruptible, isCritical, out var btv);
-
-			if (startResult != ScriptEventExecutionResult.Executed)
-				return startResult;
-
-			var threads = script.Threads;
-
-			if (useTryCatch)
+			return InvokePseudoThread(priority, skipUninterruptible, isCritical, btv =>
 			{
-				_ = Flow.TryCatch(() =>
+				if (useTryCatch)
 				{
-					action();
-					_ = threads.EndThread(btv);
-				}, true, btv);
-			}
-			else
+					_ = btv.RunAndEnd(action);
+				}
+				else
+				{
+					try
+					{
+						action();
+					}
+					finally
+					{
+						script.Threads.EndThread(btv);
+					}
+				}
+
+				return true;
+			}, out _);
+		}
+
+		internal ScriptEventExecutionResult InvokePseudoThread<T>(long priority, bool skipUninterruptible, bool isCritical, Func<ThreadVariables, T> action, out T result, bool allowEmergencyOverflow = false)
+		{
+			result = default;
+
+			if (action == null || IsDisposed)
+				return ScriptEventExecutionResult.Dropped;
+
+			(ScriptEventExecutionResult status, T result) Execute()
 			{
-				action();
-				_ = threads.EndThread(btv);
+				var status = StartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var btv);
+				return status != ScriptEventExecutionResult.Executed
+					? (status, default)
+					: (ScriptEventExecutionResult.Executed, action(btv));
 			}
 
-			return ScriptEventExecutionResult.Executed;
+			var execution = OwnsCurrentThread ? Execute() : InvokeSynchronous(Execute);
+			result = execution.result;
+			return execution.status;
 		}
 
-		private ScriptEventExecutionResult TryBeginPseudoThread(long priority, bool skipUninterruptible, bool isCritical, out (bool, ThreadVariables) btv)
+		private void WaitForSynchronousCompletion(ManualResetEventSlim completed)
 		{
-			btv = default;
-			var admissionResult = CheckPseudoThreadAdmission(priority, skipUninterruptible);
+			var waitingScheduler = script.CurrentSchedulerIfCreated;
 
-			if (admissionResult != ScriptEventExecutionResult.Executed)
-				return admissionResult;
+			while (!completed.Wait(20))
+			{
+				if (script.hasExited)
+					throw new Flow.UserRequestedExitException();
 
-			btv = BeginPseudoThread(priority, skipUninterruptible, isCritical);
-			return btv.Item1 ? ScriptEventExecutionResult.Executed : ScriptEventExecutionResult.GlobalBlocked;
+				if (IsDisposed)
+					throw new ObjectDisposedException(nameof(ScriptEventScheduler));
+
+				PumpDuringSynchronousWait(waitingScheduler);
+			}
 		}
 
-		private ScriptEventExecutionResult TryExecuteCallback(Action action, bool useTryCatch)
+		private void PumpDuringSynchronousWait(ScriptEventScheduler waitingScheduler)
 		{
+			if (script.IsOnMainThread)
+			{
+#if WINDOWS
+				Application.DoEvents();
+#else
+				Application.Instance?.RunIteration();
+#endif
+				script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
+			}
+
+			waitingScheduler?.PumpPendingEvents();
+		}
+
+		private ScriptEventExecutionResult StartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
+		{
+			threadVariables = null;
+
 			if (script.hasExited)
 				return ScriptEventExecutionResult.Dropped;
 
-			if (useTryCatch)
-				_ = Flow.TryCatch(action, false, (false, null));
-			else
-				action();
+			var threads = script.Threads;
 
-			return ScriptEventExecutionResult.Executed;
+			if (!allowEmergencyOverflow && !threads.AnyThreadsAvailable())
+				return ScriptEventExecutionResult.GlobalBlocked;
+
+			if (!skipUninterruptible && !threads.IsInterruptible())
+				return ScriptEventExecutionResult.GlobalBlocked;
+
+			if (priority < threads.CurrentThread.priority)
+				return ScriptEventExecutionResult.Dropped;
+
+			return threads.TryPushThreadVariables(priority, skipUninterruptible, isCritical, true, allowEmergencyOverflow, out threadVariables)
+				? ScriptEventExecutionResult.Executed
+				: ScriptEventExecutionResult.GlobalBlocked;
+		}
+
+		private void ClearQueues()
+		{
+			lock (gate)
+			{
+				interactiveQueue.Clear();
+				normalQueue.Clear();
+				pumpScheduled = false;
+			}
+		}
+
+		private void DisposeOwnedTimers()
+		{
+			foreach (var registration in script.FlowData.timers.GetSnapshot())
+			{
+				var timer = registration.Timer;
+
+				if (!ReferenceEquals(timer?.OwnerScheduler, this))
+					continue;
+
+				if (script.FlowData.RemoveTimerRegistration(timer, out _))
+				{
+					timer.Stop();
+					timer.Dispose();
+				}
+			}
+		}
+
+		private void DisposeOwnedClipboardHandlers()
+		{
+			if (script.ClipFunctions.RemoveOwned(this))
+				script.UpdateClipboardMonitoring();
+		}
+
+		private void DisposeOwnedMessageHandlers()
+		{
+			foreach (var kv in script.GuiData.onMessageHandlers.ToArray())
+			{
+				if (kv.Value == null || !kv.Value.RemoveOwned(this))
+					continue;
+
+				if (kv.Value.IsEmpty)
+					_ = script.GuiData.onMessageHandlers.TryRemove(kv.Key, out _);
+			}
+		}
+
+		private void DisposeOwnedGuiHandlers()
+		{
+			foreach (var gui in new HashSet<Gui>(script.GuiData.allGuiHwnds.Values))
+			{
+				_ = gui?.form?.RemoveOwnedHandlers(this);
+
+				foreach (var control in gui?.controls?.Values.OfType<Gui.Control>() ?? [])
+					_ = control?.RemoveOwnedHandlers(this);
+			}
+		}
+
+		private void DisposeOwnedMenuHandlers()
+		{
+			foreach (var kv in script.GuiData.allMenus.ToArray())
+			{
+				if (!kv.Value.TryGetTarget(out var menu))
+				{
+					_ = script.GuiData.allMenus.TryRemove(kv.Key, out _);
+					continue;
+				}
+
+				_ = menu.RemoveOwnedHandlers(this);
+			}
 		}
 	}
 }

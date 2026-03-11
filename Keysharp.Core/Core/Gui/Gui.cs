@@ -4,6 +4,7 @@
 	{
 		internal int windowCount = 0;
 		internal ConcurrentDictionary<long, Gui> allGuiHwnds = new ();
+		internal ConcurrentDictionary<int, WeakReference<Menu>> allMenus = new ();
 		internal ConcurrentDictionary<long, MsgMonitor> onMessageHandlers = new ();
 
 		/// <summary>
@@ -397,24 +398,27 @@
 
 		internal Gui(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null) : base(null)//The last parameter is hidden and is only for internal use for when we wrap the main window in a Gui object.
 		{
-			var script = Script.TheScript;
-
-			if (obj3 is KeysharpForm kf)
+			Script.InvokeOnUIThread(() =>
 			{
-				form = kf;
+				var script = Script.TheScript;
 
-				foreach (var ctrl in form.GetAllControlsRecursive<Forms.Control>())//In order for searches that use allGuiHwnds, we must make all of the child controls point here.
-					ctrl.Tag = new Gui.Control(this, ctrl, ctrl.Name, true);//Supposed to be name like "label", "edit" etc, but just pass the name since this is only used with the main window.
-			}
+				if (obj3 is KeysharpForm kf)
+				{
+					form = kf;
+
+					foreach (var ctrl in form.GetAllControlsRecursive<Forms.Control>())//In order for searches that use allGuiHwnds, we must make all of the child controls point here.
+						ctrl.Tag = new Gui.Control(this, ctrl, ctrl.Name, true);//Supposed to be name like "label", "edit" etc, but just pass the name since this is only used with the main window.
+				}
 #if !WINDOWS
-			// Preserve prebuilt window content (e.g. main window tabs/menu container).
-			form.Content ??= new PixelLayout();
+				// Preserve prebuilt window content (e.g. main window tabs/menu container).
+				form.Content ??= new PixelLayout();
 #endif
-			LastContainer = form;
-			script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
+				LastContainer = form;
+				script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
 
-			if (lastfound)
-				script.HwndLastUsed = Hwnd;
+				if (lastfound)
+					script.HwndLastUsed = Hwnd;
+			});
 		}
 
 		~Gui()
@@ -428,40 +432,43 @@
 		{
 			if (form == null)//Don't allow derived classes to init twice.
 			{
-				var options = obj.Length > 0 ? obj[0].As() : null;
-				var caption = obj.Length > 1 ? obj[1].As() : null;
-				var eventObj = obj.Length > 2 ? obj[2] : null;
-				var script = Script.TheScript;
-				var newCount = Interlocked.Increment(ref script.GuiData.windowCount);
-				//Get numeric creation params first.
-				int addStyle = 0, addExStyle = 0, removeStyle = 0, removeExStyle = 0;
-				Opt(options, ref addStyle, ref addExStyle, ref removeStyle, ref removeExStyle);
-				form = new KeysharpForm(addStyle, addExStyle, removeStyle, removeExStyle)
+				Script.InvokeOnUIThread(() =>
 				{
-					eventObj = eventObj,
-					FormBorderStyle = FormBorderStyle.FixedSingle,//Default to a non-resizeable window, with the maximize box disabled.
-					Icon = TheScript.normalIcon,
-					Name = $"Keysharp window {newCount}",
-					MaximizeBox = false,
-					SizeGripStyle = SizeGripStyle.Hide,
-					Tag = new WeakReference<Gui>(this, false),
-					Text = caption != "" ? caption : A_ScriptName
-				};
-				//Note that we don't do any Suspend/Resume layout calls when creating controls on the form as would normally
-				//be done in designer-generated code. It appears to cause layout problems.
-				_ = Opt(options);
-				var formHandle = form.Handle;//Force the creation.
-				var handleStr = $"{formHandle}";
+					var options = obj.Length > 0 ? obj[0].As() : null;
+					var caption = obj.Length > 1 ? obj[1].As() : null;
+					var eventObj = obj.Length > 2 ? obj[2] : null;
+					var script = Script.TheScript;
+					var newCount = Interlocked.Increment(ref script.GuiData.windowCount);
+					//Get numeric creation params first.
+					int addStyle = 0, addExStyle = 0, removeStyle = 0, removeExStyle = 0;
+					Opt(options, ref addStyle, ref addExStyle, ref removeStyle, ref removeExStyle);
+					form = new KeysharpForm(addStyle, addExStyle, removeStyle, removeExStyle)
+					{
+						eventObj = eventObj,
+						FormBorderStyle = FormBorderStyle.FixedSingle,//Default to a non-resizeable window, with the maximize box disabled.
+						Icon = TheScript.normalIcon,
+						Name = $"Keysharp window {newCount}",
+						MaximizeBox = false,
+						SizeGripStyle = SizeGripStyle.Hide,
+						Tag = new WeakReference<Gui>(this, false),
+						Text = caption != "" ? caption : A_ScriptName
+					};
+					//Note that we don't do any Suspend/Resume layout calls when creating controls on the form as would normally
+					//be done in designer-generated code. It appears to cause layout problems.
+					_ = Opt(options);
+					var formHandle = form.Handle;//Force the creation.
+					var handleStr = $"{formHandle}";
 #if !WINDOWS
-				// Ensure the Eto content container exists before we size it later.
-				form.Content ??= new PixelLayout();
+					// Ensure the Eto content container exists before we size it later.
+					form.Content ??= new PixelLayout();
 #endif
-				LastContainer = form;
+					LastContainer = form;
 
-				script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
+					script.GuiData.allGuiHwnds[form.Handle.ToInt64()] = this;//Calling handle forces the creation of the window.
 
-				if (lastfound)
-					script.HwndLastUsed = Hwnd;
+					if (lastfound)
+						script.HwndLastUsed = Hwnd;
+				});
 			}
 
 			return DefaultObject;

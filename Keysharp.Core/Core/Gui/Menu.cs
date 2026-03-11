@@ -1,4 +1,7 @@
-﻿namespace Keysharp.Core
+﻿using Keysharp.Scripting;
+using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+
+namespace Keysharp.Core
 {
 	/// <summary>
 	/// Provides an interface to create and modify a menu or menu bar, add and modify menu items, and retrieve information about the menu or menu bar.
@@ -17,12 +20,13 @@
 		/// to ensure the underlying handle is created. Unused otherwise.
 		/// </summary>
 		protected long dummyHandle;
+		private readonly int menuId;
 
 		/// <summary>
 		/// Click handlers for all menu items within this menu.
 		/// Each item can have more than one click handler.
 		/// </summary>
-		private readonly Dictionary<ToolStripItem, List<IFuncObj>> clickHandlers = [];
+		private readonly ConcurrentDictionary<ToolStripItem, CallbackHub> clickHandlers = new();
 
 		/// <summary>
 		/// How many times the tray icon must be clicked to select its default menu item.
@@ -85,10 +89,14 @@
 		{
 			MenuItem = (args?.Length > 0 ? (ContextMenuStrip)args[0] : null) ?? new ContextMenuStrip();
 			//GetMenu().ImageScalingSize = new System.Drawing.Size(28, 28);//Don't set scaling, it makes the checked icons look funny.
-			var newCount = Interlocked.Increment(ref Script.TheScript.GuiData.menuCount);
-			GetMenu().Name = $"Menu_{newCount}";
+			menuId = Interlocked.Increment(ref Script.TheScript.GuiData.menuCount);
+			Script.TheScript.GuiData.allMenus[menuId] = new(this);
+			GetMenu().Name = $"Menu_{menuId}";
 			dummyHandle = Handle;//Must access the handle once to force creation.
 		}
+
+		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)
+			=> CallbackRegistrationHub<CallbackRegistration>.RemoveOwned(clickHandlers, scheduler);
 
 		/// <summary>
 		/// Adds or modifies a menu item.<br/>
@@ -228,6 +236,9 @@
 			if (s?.Length == 0)
 			{
 				GetMenu().Items.Clear();
+				foreach (var hub in clickHandlers.Values)
+					hub.Clear();
+
 				clickHandlers.Clear();
 			}
 			else if (GetMenuItem(s) is ToolStripItem item)
@@ -241,7 +252,7 @@
 					GetMenu().Items.Remove(item);
 
 				GetMenu().Refresh();
-				_ = clickHandlers.Remove(item);
+				_ = clickHandlers.TryRemove(item, out _);
 			}
 
 			return DefaultObject;
@@ -561,7 +572,7 @@
 #endif
 				}
 				else
-					clickHandlers.GetOrAdd(item).ModifyEventHandlers(Functions.GetFuncObj(funcorsub, null, true), 1);
+					clickHandlers.GetOrAdd(item, static _ => new()).ModifyEventHandlers(Functions.GetFuncObj(funcorsub, null, true), 1);
 
 				foreach (Range r in options.AsSpan().SplitAny(Spaces))
 				{

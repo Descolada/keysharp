@@ -17,89 +17,101 @@
 		internal ThreadVariables CurrentThread;
 
 		internal ThreadVariables UnderlyingThread => tvm.threadVars.TryPeekSecond();
+		internal int ActivePseudoThreadCount => Math.Max(0, tvm.threadVars.Index - 1);
 
 		public Threads()
 		{
-			_ = PushThreadVariables(0, true, false, true);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
+			EnsureCurrentThreadVariables();
 		}
 
-		public (bool, ThreadVariables) BeginThread(bool onlyIfEmpty = false)
+		internal void EnsureCurrentThreadVariables()
 		{
-			var skip = Script.TheScript.FlowData.allowInterruption == false;//This will be false when exiting the program.
-			return PushThreadVariables(0, skip, false, onlyIfEmpty, true);
+			if (tvm.threadVars.Index != 0)
+			{
+				CurrentThread = tvm.threadVars.TryPeek();
+				return;
+			}
+
+			CurrentThread = tvm.PushThreadVariables(0, true, false);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
 		}
 
-		public (bool, ThreadVariables) BeginSynchronousEmergencyThread(bool onlyIfEmpty = false)
+		public bool TryBeginThread(out ThreadVariables tv)
 		{
 			var skip = Script.TheScript.FlowData.allowInterruption == false;
-			return PushThreadVariables(0, skip, false, onlyIfEmpty, true, true);
+			return TryPushThreadVariables(0, skip, false, true, false, out tv);
 		}
 
-		public object EndThread((bool, ThreadVariables) btv, bool checkThread = false)
+		public bool TryBeginEmergencyThread(out ThreadVariables tv)
+		{
+			var skip = Script.TheScript.FlowData.allowInterruption == false;
+			return TryPushThreadVariables(0, skip, false, true, true, out tv);
+		}
+
+		internal bool TryReserveThreadCount(bool allowEmergencyOverflow = false)
 		{
 			var script = Script.TheScript;
-			var pushed = btv.Item1;
 
-			if (pushed)
-				btv.Item2.task = false;
+			while (true)
+			{
+				var existingCount = Volatile.Read(ref script.totalExistingThreads);
 
-			PopThreadVariables(pushed, checkThread);
+				if (existingCount >= script.MaxThreadsTotal)
+				{
+					if (!allowEmergencyOverflow)
+						return false;
+
+					if (existingCount >= script.MaxThreadsTotal + Script.maxEmergencyThreads)
+						return false;
+				}
+
+				if (Interlocked.CompareExchange(ref script.totalExistingThreads, existingCount + 1, existingCount) == existingCount)
+					return true;
+			}
+		}
+
+		public void EndThread(ThreadVariables tv, bool checkThread = false)
+		{
+			if (tv == null)
+				return;
+
+			var script = Script.TheScript;
+
+			tv.task = false;
+
+			PopThreadVariables(tv, checkThread);
 			_ = Interlocked.Decrement(ref script.totalExistingThreads);
 
 			script.EventScheduler.SchedulePump();
-
-			return null;
 		}
 
-		public (bool, ThreadVariables) PushThreadVariables(long priority, bool skipUninterruptible,
-				bool isCritical = false, bool onlyIfEmpty = false, bool inc = false, bool allowEmergencyOverflow = false)
+		internal bool TryPushThreadVariables(long priority, bool skipUninterruptible,
+				bool isCritical, bool inc, bool allowEmergencyOverflow, out ThreadVariables tv)
 		{
 			var script = Script.TheScript;
-			var max = script.MaxThreadsTotal;
-
-			// Fast path: mimic what tvm would have done
-			if (onlyIfEmpty && tvm.threadVars.Index != 0)
-			{
-				return (false, tvm.threadVars.TryPeek());
-			}
+			tv = null;
 
 			if (inc)
 			{
-				while (true)
-				{
-					var existingCount = Volatile.Read(ref script.totalExistingThreads);
-
-					if (existingCount >= max)
-					{
-						if (!allowEmergencyOverflow)
-							return (false, tvm.threadVars.TryPeek());
-
-						if (existingCount >= max + Script.maxEmergencyThreads)
-							return (false, tvm.threadVars.TryPeek());
-					}
-
-					if (Interlocked.CompareExchange(ref script.totalExistingThreads, existingCount + 1, existingCount) == existingCount)
-						break;
-				}
+				if (!TryReserveThreadCount(allowEmergencyOverflow))
+					return false;
 			}
 
-			var (success, tv) = tvm.PushThreadVariables(priority, skipUninterruptible, isCritical, onlyIfEmpty);
+			tv = tvm.PushThreadVariables(priority, skipUninterruptible, isCritical);
 
-			if (!success)
+			if (tv == null)
 			{
 				// Roll back counter (if we incremented it) and undo pause
 				if (inc)
 					_ = Interlocked.Decrement(ref script.totalExistingThreads);
 
-				return (success, tv);
+				return false;
 			}
 
 			CurrentThread = tv;
-			script.RestartPreemptiveMessageTimer();
 
 			//We successfully pushed—and if inc == true, we’ve already counted it
 			tv.task = true;
-			return (true, tv);
+			return true;
 		}
 
 		internal bool AnyThreadsAvailable()
@@ -139,8 +151,6 @@
 
 					if (!tv.isCritical)
 						tv.configData.peekFrequency = ThreadVariables.DefaultPeekFrequency;
-
-					script.RestartPreemptiveMessageTimer();
 				}
 
 			return tv.allowThreadToBeInterrupted;
@@ -151,7 +161,7 @@
 		{
 			try
 			{
-				Script.TheScript.EventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act, true);
+				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act, true);
 			}
 			catch (Exception ex)
 			{
@@ -190,11 +200,10 @@
 			}
 		}
 
-		internal void PopThreadVariables(bool pushed, bool checkThread = false)
+		internal void PopThreadVariables(ThreadVariables tv, bool checkThread = false)
 		{
-			tvm.PopThreadVariables(pushed, checkThread);
+			tvm.PopThreadVariables(tv, checkThread);
 			CurrentThread = GetThreadVariables();
-			Script.TheScript.RestartPreemptiveMessageTimer();
 		}
 	}
 }

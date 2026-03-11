@@ -3577,7 +3577,7 @@ namespace Keysharp.Core.Common.Threading
 					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYUP)
 				return false;
 
-			Script.TheScript.EventScheduler.EnqueueCallback(() => ProcessHookMessage(msg));
+				Script.TheScript.UIEventScheduler.EnqueueCallback(() => ProcessHookMessage(msg));
 			return true;
 		}
 
@@ -4249,14 +4249,14 @@ namespace Keysharp.Core.Common.Threading
 			if (!IsHookThreadRunning())
 				return;
 
-			if (Thread.CurrentThread.ManagedThreadId == script.ProcessesData.ManagedMainThreadID)
+			if (Thread.CurrentThread.ManagedThreadId == script.ManagedMainThreadID)
 			{
-				script.EventScheduler.PumpPendingEvents();
+				script.UIEventScheduler.PumpPendingEvents();
 				return;
 			}
 
 			using var synced = new ManualResetEventSlim(false);
-			script.EventScheduler.EnqueueCallback(synced.Set, useTryCatch: false);
+			script.UIEventScheduler.EnqueueCallback(synced.Set, useTryCatch: false);
 
 			while (!synced.Wait(10))
 				Flow.SleepWithoutInterruption();
@@ -4318,9 +4318,15 @@ namespace Keysharp.Core.Common.Threading
 				case (uint)UserMessages.AHK_INPUT_END:
 					if (msg.obj is InputType it
 							&& it.InputRelease() is InputType releasedInput
-							&& releasedInput.scriptObject is InputObject so
-							&& so.OnEnd is Any endHandler)
-						script.Threads.LaunchThreadInMain(() => Script.Invoke(endHandler, "Call", so));
+							&& releasedInput.scriptObject is InputObject so)
+					{
+						var endRegistration = so.GetCallbackSlot(UserMessages.AHK_INPUT_END);
+
+						if (endRegistration?.Callback != null)
+							QueueInputCallback(script, endRegistration.OwnerScheduler, endRegistration.Callback, [so]);
+
+						so.DeactivateCallbackPersistence();
+					}
 
 					break;
 
@@ -4338,27 +4344,31 @@ namespace Keysharp.Core.Common.Threading
 					if (inputHook == null)
 						return;
 
-					var callback = msg.message == (uint)UserMessages.AHK_INPUT_KEYDOWN
-						? inputHook.scriptObject.OnKeyDown
-						: msg.message == (uint)UserMessages.AHK_INPUT_KEYUP
-							? inputHook.scriptObject.OnKeyUp
-							: inputHook.scriptObject.OnChar;
+					var callbackRegistration = inputHook.scriptObject.GetCallbackSlot((UserMessages)msg.message);
 
-					if (callback is Any kso)
+					if (callbackRegistration?.Callback != null)
 					{
 						var args = msg.message == (uint)UserMessages.AHK_INPUT_CHAR
 							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
 							: [inputHook.scriptObject, lParamVal, wParamVal];
-						script.Threads.LaunchThreadInMain(() => Script.Invoke(kso, "Call", args));
+						QueueInputCallback(script, callbackRegistration.OwnerScheduler, callbackRegistration.Callback, args);
 					}
 
 					break;
 				}
 			}
-
-				script.RecordMessageCheck(Environment.TickCount64);
-			}
+			script.RecordMessageCheck();
 		}
+
+		private static void QueueInputCallback(Script script, ScriptEventScheduler scheduler, IFuncObj callback, object[] args)
+		{
+			if (callback == null)
+				return;
+
+			var targetScheduler = scheduler != null && !scheduler.IsDisposed ? scheduler : script.EventScheduler;
+			targetScheduler.EnqueueThreadLaunch(0, false, false, () => Script.Invoke(callback, "Call", args), true);
+		}
+	}
 
 	// WM_USER (0x0400) is the lowest number that can be a user-defined message.  Anything above that is also valid.
 	// NOTE: Any msg about WM_USER will be kept buffered (unreplied-to) whenever the script is uninterruptible.

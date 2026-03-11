@@ -423,7 +423,7 @@ namespace Keysharp.Core.Windows
 
 			var targetWindow = win.Handle;
 			var script = Script.TheScript;
-			var mainid = script.ProcessesData.MainThreadID;
+			var mainid = script.NativeMainThreadID;
 			var targetThread = WindowsAPI.GetWindowThreadProcessId(targetWindow, out var procid);
 
 			if (targetThread != mainid && win.IsHung)//Calls to IsWindowHung should probably be avoided if the window belongs to our thread.

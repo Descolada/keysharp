@@ -13,12 +13,12 @@ namespace Keysharp.Tests
 			if (Script.IsHeadless)
 				Assert.Ignore("ImageSearch requires a non-headless GUI session.");
 
-			_ = CoordMode("Mouse", "Screen");
+			_ = CoordMode("Pixel", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
 			_ = ImageCapture(10, 10, 500, 500, "./imagesearch.bmp");
 			VarRef x = new(null), y = new(null);
-			_ = Core.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "./imagesearch.bmp"); //This implies this pattern won't be present before 1000,1000.
+			_ = Core.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "./imagesearch.bmp");
 
 			if (x.__Value is long lx && lx == 10 && y.__Value is long ly && ly == 10)
 				Assert.IsTrue(true);
@@ -35,12 +35,10 @@ namespace Keysharp.Tests
 				Assert.Ignore("PixelGetColor requires a non-headless GUI session.");
 
 			int last = 0, white = 0xffffff, black = 0x000000;
-			_ = CoordMode("Mouse", "Screen");
+			_ = CoordMode("Pixel", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
 
-			//There isn't really a sure way to tell whether this is working.
-			//So a pseudo-test is to just get pixels until the value is not white or black.
 			for (var i = 0; i < screenHeight; i++)
 			{
 				for (var j = 0; j < screenWidth; j++)
@@ -68,12 +66,10 @@ namespace Keysharp.Tests
 				Assert.Ignore("PixelSearch requires a non-headless GUI session.");
 
 			int last = 0, white = 0xffffff, black = 0x000000;
-			_ = CoordMode("Mouse", "Screen");
+			_ = CoordMode("Pixel", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
 
-			//There isn't really a sure way to tell whether this is working.
-			//So a pseudo-test is to just get pixels until the value is not white or black.
 			for (var i = 0; i < screenHeight; i++)
 			{
 				for (var j = 0; j < screenWidth; j++)

@@ -7,9 +7,89 @@ namespace Keysharp.Core.Linux
 	internal class WindowManager : WindowManagerBase, IWindowManager
 	{
 		internal static Lock xLibLock = new (); //The X11 Winforms implementation uses this, so attempt to do the same here.
+		private static bool testLoopErrorHandlerInstalled;
+		private static readonly XErrorHandler testLoopErrorHandler = HandleTestLoopXError;
 
 		// ToDo: There may be more than only one xDisplay
 		private static XDisplay Display => XDisplay.Default;
+
+		private static int HandleTestLoopXError(nint displayHandle, ref XErrorEvent errorEvent)
+		{
+			_ = displayHandle;
+
+			if (errorEvent.error_code == 3)
+			{
+				Ks.OutputDebugLine($"Suppressed X11 BadWindow during test UI loop: request={errorEvent.request_code} resource=0x{errorEvent.resourceid.ToInt64():x}");
+				return 0;
+			}
+
+			Ks.OutputDebugLine($"Suppressed X11 error during test UI loop: code={errorEvent.error_code} request={errorEvent.request_code} resource=0x{errorEvent.resourceid.ToInt64():x}");
+			return 0;
+		}
+
+		internal static void InstallTestLoopXErrorHandler()
+		{
+			lock (xLibLock)
+			{
+				if (testLoopErrorHandlerInstalled)
+					return;
+
+				_ = Xlib.XSetErrorHandler(testLoopErrorHandler);
+				testLoopErrorHandlerInstalled = true;
+			}
+		}
+
+		internal static bool TryGetWindowProperty(nint displayHandle, long window, nint atom, nint longOffset, nint longLength,
+			bool delete, nint reqType, out nint actualType, out int actualFormat, out nint nitems, out nint bytesAfter, out nint prop)
+		{
+			actualType = 0;
+			actualFormat = 0;
+			nitems = 0;
+			bytesAfter = 0;
+			prop = 0;
+
+			if (!PlatformManager.IsX11Available || displayHandle == 0 || window == 0 || atom == 0)
+				return false;
+
+			bool success = true;
+
+			lock (xLibLock)
+			{
+				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				{
+					success = false;
+					return 0;
+				});
+
+				try
+				{
+					var result = Xlib.XGetWindowProperty(displayHandle, window, atom, longOffset, longLength, delete, reqType,
+						out actualType, out actualFormat, out nitems, out bytesAfter, ref prop);
+					_ = Xlib.XSync(displayHandle, false);
+
+					if (!success || result != 0)
+					{
+						if (prop != 0)
+						{
+							_ = Xlib.XFree(prop);
+							prop = 0;
+						}
+
+						actualType = 0;
+						actualFormat = 0;
+						nitems = 0;
+						bytesAfter = 0;
+						return false;
+					}
+
+					return true;
+				}
+				finally
+				{
+					_ = Xlib.XSetErrorHandler(oldHandler);
+				}
+			}
+		}
 
 		public static WindowItemBase ActiveWindow 
 		{
@@ -17,7 +97,7 @@ namespace Keysharp.Core.Linux
 				var activeId = 0L;
 				nint prop = 0;
 
-				if (Xlib.XGetWindowProperty(Display.Handle,
+				if (TryGetWindowProperty(Display.Handle,
 						Display.Root.ID,
 						Display._NET_ACTIVE_WINDOW,
 						0,
@@ -28,7 +108,7 @@ namespace Keysharp.Core.Linux
 						out _,
 						out var nitems,
 						out _,
-						ref prop) == 0)
+						out prop))
 				{
 					if (nitems.ToInt64() > 0 && prop != 0)
 						activeId = Marshal.ReadInt64(prop);
@@ -87,7 +167,6 @@ namespace Keysharp.Core.Linux
 
 		internal WindowManager()
 		{
-			Script.TheScript.ProcessesData.CurrentThreadID = (uint)Xlib.gettid();
 		}
 
 		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);

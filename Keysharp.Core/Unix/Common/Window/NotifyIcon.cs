@@ -5,6 +5,7 @@ namespace Keysharp.Core.Unix
 	{
 		private const int DoubleClickThresholdMs = 400;
 		private readonly TrayIndicator indicator = new TrayIndicator();
+		private bool disposed;
 		private long lastClickTicks;
 		private ContextMenuStrip contextMenuStrip;
 		private string text = "";
@@ -15,6 +16,9 @@ namespace Keysharp.Core.Unix
 			get => contextMenuStrip;
 			set
 			{
+				if (disposed)
+					return;
+
 				contextMenuStrip = value;
 				indicator.Menu = contextMenuStrip?.EtoMenu;
 			}
@@ -26,7 +30,9 @@ namespace Keysharp.Core.Unix
 			set
 			{
 				text = value ?? "";
-				indicator.Title = text;
+
+				if (!disposed)
+					indicator.Title = text;
 			}
 		}
 
@@ -36,6 +42,10 @@ namespace Keysharp.Core.Unix
 			set
 			{
 				icon = value;
+
+				if (disposed)
+					return;
+
 				if (value is Icon etoIcon)
 					indicator.Icon = etoIcon;
 				else if (value is Image etoImage)
@@ -48,6 +58,9 @@ namespace Keysharp.Core.Unix
 			get => indicator.Visible;
 			set
 			{
+				if (disposed)
+					return;
+
 				if (value)
 					indicator.Show();
 				else
@@ -67,13 +80,25 @@ namespace Keysharp.Core.Unix
 
 		public void Dispose()
 		{
+			if (disposed)
+				return;
+
 			indicator.Activated -= Indicator_Activated;
-			indicator.Hide();
+			indicator.Menu = null;
+			indicator.Image = null;
+			Tag = null;
+			contextMenuStrip = null;
+			icon = null;
+			text = "";
+			disposed = true;
 			indicator.Dispose();
 		}
 
 		public void ShowBalloonTip(int timeout, string title, string text, object icon)
 		{
+			if (disposed)
+				return;
+
 			var notification = new Notification
 			{
 				Title = title ?? "",

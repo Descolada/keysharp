@@ -29,6 +29,9 @@ namespace Keysharp.Core.Linux.X11
 		internal static extern void XCloseDisplay(nint display);
 
 		[DllImport(libX11Name)]
+		internal static extern int XInitThreads();
+
+		[DllImport(libX11Name)]
 		internal static extern nint XDefaultRootWindow(nint display);
 
 		[DllImport(libX11Name)]

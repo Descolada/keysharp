@@ -11,6 +11,12 @@ namespace Keysharp.Tests
 		private static bool btwtyped = false;
 		private static readonly ManualResetEventSlim btwTypedEvent = new(false);
 
+		private void SimulateKeyPress(uint key)
+		{
+			s.HookThread.SimulateKeyPress(key);
+			s.UIEventScheduler.PumpPendingEvents();
+		}
+
 		public static object Label_9F201721(params object[] args)
 		{
 			btwtyped = true;
@@ -337,10 +343,10 @@ namespace Keysharp.Tests
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			Assert.IsTrue(A_KeybdHookInstalled == 1L);//Will fail if system has another hook, so exit your scripts before running this.
 			Assert.IsTrue(A_MouseHookInstalled == 1L);//Because there is a hotstring and mouse reset is true by default, the mouse hook gets installed.
-			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("b"));
-			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("t"));
-			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("w"));
-			s.SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("Enter"));
+			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("b"));
+			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("t"));
+			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("w"));
+			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("Enter"));
 			Assert.IsTrue(btwTypedEvent.Wait(TimeSpan.FromSeconds(1)), "Timed out waiting for hotstring callback.");
 			Assert.AreEqual(btwtyped, true);
 		}

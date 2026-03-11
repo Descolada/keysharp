@@ -22,7 +22,7 @@ namespace Keysharp.Core.MacOS
 			{
 				get
 				{
-					var app = Script.SharedApplication;
+					var app = Application.Instance;
 					var windows = MacNativeWindows.Snapshot();
 					var list = new List<WindowItemBase>(windows.Count + 8);
 					var seen = new HashSet<nint>();
@@ -52,7 +52,6 @@ namespace Keysharp.Core.MacOS
 
 		internal WindowManager()
 		{
-			Script.TheScript.ProcessesData.CurrentThreadID = (uint)Environment.CurrentManagedThreadId;
 		}
 
 		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);

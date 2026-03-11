@@ -375,15 +375,18 @@ break_twice:;
 			if (existing != null)
 			{
 				wasAlreadyEnabled = existing.suspended == 0;
+				var mutatingAction = ifunc != null || !string.IsNullOrEmpty(action);
+				var originalSuspended = existing.suspended;
 
 				// Update the replacement string or function, if specified.
-				if (ifunc != null || !string.IsNullOrEmpty(action))
+				if (mutatingAction)
 				{
 					string newReplacement = null; // Set default: not auto-replace.
 
 					if (ifunc == null && replacement is string rep) // Caller specified a replacement string ('E' option was handled above).
 						newReplacement = rep;
 
+					// Temporarily disable hook access without changing worker persistence mid-mutation.
 					existing.suspended |= HotstringDefinition.HS_TEMPORARILY_DISABLED;
 					ht.WaitHookIdle();
 					// At this point it is certain the hook thread is not in the middle of reading this
@@ -397,16 +400,32 @@ break_twice:;
 				// This is done after the above to avoid *partial* updates in the event of a failure.
 				existing.ParseOptions(hotstringOptions);
 
+				var newSuspended = existing.suspended;
+
 				switch (toggle)
 				{
-					case ToggleValueType.Toggle: existing.suspended ^= HotstringDefinition.HS_TURNED_OFF; break;
+					case ToggleValueType.Toggle:
+						newSuspended ^= HotstringDefinition.HS_TURNED_OFF;
+						break;
 
-					case ToggleValueType.On: existing.suspended &= ~HotstringDefinition.HS_TURNED_OFF; break;
+					case ToggleValueType.On:
+						newSuspended &= ~HotstringDefinition.HS_TURNED_OFF;
+						break;
 
-					case ToggleValueType.Off: existing.suspended |= HotstringDefinition.HS_TURNED_OFF; break;
+					case ToggleValueType.Off:
+						newSuspended |= HotstringDefinition.HS_TURNED_OFF;
+						break;
 				}
 
-				existing.suspended &= ~HotstringDefinition.HS_TEMPORARILY_DISABLED; // Re-enable if it was disabled above.
+				newSuspended &= ~HotstringDefinition.HS_TEMPORARILY_DISABLED;
+
+				if (mutatingAction)
+				{
+					existing.suspended = newSuspended;
+					existing.ownerScheduler = script.EventScheduler;
+				}
+				else
+					existing.SetSuspended(newSuspended);
 			}
 			else // No matching hotstring yet.
 			{

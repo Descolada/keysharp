@@ -9,7 +9,7 @@
                 "build",
                 "Keysharp.sln",
                 "-c",
-                "Debug",
+                "${config:keysharp.buildConfiguration}",
                 "-p:Platform=AnyCPU"
             ],
             "group": {
@@ -26,7 +26,7 @@
                 "build",
                 "Keysharp/Keysharp.csproj",
                 "-c",
-                "Debug",
+                "${config:keysharp.buildConfiguration}",
                 "-p:Platform=AnyCPU"
             ],
             "group": "none",
@@ -40,7 +40,7 @@
                 "build",
                 "Keyview/Keyview.csproj",
                 "-c",
-                "Debug",
+                "${config:keysharp.buildConfiguration}",
                 "-p:Platform=AnyCPU"
             ],
             "group": "none",
@@ -54,7 +54,7 @@
                 "build",
                 "Keyview/Keyview.csproj",
                 "-c",
-                "Debug",
+                "${config:keysharp.buildConfiguration}",
                 "-p:Platform=AnyCPU"
             ],
             "group": "none",
@@ -67,7 +67,7 @@
             "command": "zsh",
             "args": [
                 "-lc",
-                "APP1=\"${workspaceFolder}/bin/Debug/Keyview.app\"; APP2=\"${workspaceFolder}/bin/Debug/net10.0/Keyview.app\"; APP3=\"${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keyview.app\"; APP4=\"${workspaceFolder}/bin/Debug/net10.0/osx-x64/Keyview.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keyview.app not found. Build output path changed.\"; exit 1; fi"
+                "APP1=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/Keyview.app\"; APP2=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/Keyview.app\"; APP3=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/osx-arm64/Keyview.app\"; APP4=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/osx-x64/Keyview.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keyview.app not found. Build output path changed.\"; exit 1; fi"
             ],
             "group": "none",
             "problemMatcher": []
@@ -80,7 +80,7 @@
                 "build",
                 "Keysharp.OutputTest/Keysharp.OutputTest.csproj",
                 "-c",
-                "Debug",
+                "${config:keysharp.buildConfiguration}",
                 "-p:Platform=AnyCPU"
             ],
             "group": "none",
@@ -93,7 +93,7 @@
             "command": "zsh",
             "args": [
                 "-lc",
-                "APP1=\"${workspaceFolder}/bin/Debug/Keysharp.OutputTest.app\"; APP2=\"${workspaceFolder}/bin/Debug/net10.0/Keysharp.OutputTest.app\"; APP3=\"${workspaceFolder}/bin/Debug/net10.0/osx-arm64/Keysharp.OutputTest.app\"; APP4=\"${workspaceFolder}/bin/Debug/net10.0/osx-x64/Keysharp.OutputTest.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keysharp.OutputTest.app not found. Build output path changed.\"; exit 1; fi"
+                "APP1=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/Keysharp.OutputTest.app\"; APP2=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/Keysharp.OutputTest.app\"; APP3=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/osx-arm64/Keysharp.OutputTest.app\"; APP4=\"${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/osx-x64/Keysharp.OutputTest.app\"; if [ -d \"$APP1\" ]; then open \"$APP1\"; elif [ -d \"$APP2\" ]; then open \"$APP2\"; elif [ -d \"$APP3\" ]; then open \"$APP3\"; elif [ -d \"$APP4\" ]; then open \"$APP4\"; else echo \"Keysharp.OutputTest.app not found. Build output path changed.\"; exit 1; fi"
             ],
             "group": "none",
             "problemMatcher": []

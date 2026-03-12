@@ -42,7 +42,9 @@
 * Install the .NET 10 SDK (not just the runtime) as described in "Installing on Linux"
 * In the same parent folder as keysharp, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/Descolada/Eto.git` from within `foo`.
 * Run `Keysharp.Install/package-linux.sh`
-* A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. These can then be installed to your system via the steps in "Installing on Linux" above. Note that the folder and tarball are portable so both source repositories can be safely deleted.
+* A build folder and a tarball of said build folder will be placed in `dist/keysharp-linux-x64` and `dist/keysharp-linux-x64.tar.gz` respectively. If `dpkg-deb` is installed, a Debian package such as `dist/keysharp_<version>_amd64.deb` will also be created.
+* The build folder and tarball can be installed via the steps in "Installing on Linux" above. The `.deb` can be installed with `sudo apt install ./dist/keysharp_<version>_amd64.deb`.
+* The folder and tarball are portable so both source repositories can be safely deleted.
 * **Alternatively**, on arch-based systems keysharp is provided as an [AUR package](https://aur.archlinux.org/packages/keysharp-git)
 
 ## Cross-Platform Capability Matrix

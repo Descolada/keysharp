@@ -1868,7 +1868,7 @@ namespace Keyview
 			}
 			finally
 			{
-				script?.Stop();
+				script?.Dispose();
 				enableRunButton?.Invoke();
 			}
 		}

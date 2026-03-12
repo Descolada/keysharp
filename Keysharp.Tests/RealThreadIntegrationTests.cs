@@ -90,7 +90,7 @@ namespace Keysharp.Tests
 				{
 					try
 					{
-						_ = options == null ? Keyboard.Hotkey(hotkey.Name, workerCallback) : Keyboard.Hotkey(hotkey.Name, workerCallback, options);
+						_ = options == null ? Core.Keyboard.Hotkey(hotkey.Name, workerCallback) : Core.Keyboard.Hotkey(hotkey.Name, workerCallback, options);
 					}
 					catch (Exception ex)
 					{

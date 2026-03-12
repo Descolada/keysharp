@@ -1,5 +1,5 @@
 {
-    "keysharp.buildConfiguration": "Release",
+    "keysharp.buildConfiguration": "Debug",
     "dotnet.testWindow.disableBuildOnRun": true,
     "dotnet.unitTests.runSettingsPath": ""
 }

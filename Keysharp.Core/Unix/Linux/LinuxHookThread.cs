@@ -17,6 +17,23 @@ namespace Keysharp.Core.Unix
 		protected override bool UsePlatformHotstringArming => true;
 		private const uint Mod5Mask = 1 << 7; // Usually ISO_Level3_Shift (AltGr) on X11.
 		private static readonly uint[] ExtraGrabMasks = { ControlMask, ShiftMask, Mod1Mask, Mod4Mask, Mod5Mask };
+		private readonly LinuxX11InputState inputState;
+
+		internal LinuxHookThread()
+		{
+			inputState = new LinuxX11InputState(physicalKeyState, logicalKeyState);
+		}
+
+		protected override bool ShouldConsumePlatformHotstringKeyDown(uint vk) => inputState.ShouldSuppressPendingHotstringKeyDown(vk);
+
+		protected override bool ShouldConsumePlatformHotstringKeyUp(uint vk) => inputState.TrySuppressPendingHotstringKeyUp(vk);
+
+		protected override void TrackPlatformHotstringTrigger(uint triggerVk) => inputState.TrackPendingHotstringTrigger(triggerVk);
+
+		protected override void AddPlatformHotstringArmEnds(HotstringManager hm, ReadOnlySpan<char> hsBuf, HashSet<char> ends)
+		{
+			inputState.AddPredictedHotstringCompletionEnds(hm, hsBuf, ends, IsHotstringWordChar);
+		}
 
 		protected override void RebuildPlatformHotkeyGrabs()
 		{
@@ -96,8 +113,7 @@ namespace Keysharp.Core.Unix
 
 		protected override void InitSnapshotFromPlatform()
 		{
-			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
+			inputState.Reset();
 			kbdMsSender.modifiersLRPhysical = 0;
 			kbdMsSender.modifiersLRLogical = 0;
 			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
@@ -117,11 +133,7 @@ namespace Keysharp.Core.Unix
 					continue;
 
 				var vk = VkFromKeysym((ulong)ks);
-				if (vk == 0 || vk >= physicalKeyState.Length)
-					continue;
-
-				physicalKeyState[vk] = StateDown;
-				logicalKeyState[vk] = StateDown;
+				inputState.RecordInitialPhysicalKeyDown(vk);
 			}
 
 			if (!TryQueryModifierLRStatePlatform(out var modsInit, km))
@@ -133,8 +145,8 @@ namespace Keysharp.Core.Unix
 
 			void SetLogical(uint modMask, uint vk)
 			{
-				if ((modsInit & modMask) != 0 && vk < logicalKeyState.Length)
-					logicalKeyState[vk] = StateDown;
+				if ((modsInit & modMask) != 0)
+					inputState.RecordInitialLogicalKeyDown(vk);
 			}
 
 			SetLogical(MOD_LSHIFT, VK_LSHIFT);
@@ -586,13 +598,7 @@ namespace Keysharp.Core.Unix
 			{
 				var rk = released[i];
 
-				if (rk.Vk == 0 || rk.Vk >= physicalKeyState.Length)
-					continue;
-
-				if ((physicalKeyState[rk.Vk] & StateDown) == 0)
-					continue;
-
-				if (IsHotkeySuffixDown(rk.Vk))
+				if (!inputState.ShouldRestoreReleasedKey(rk.Vk, IsHotkeySuffixDown(rk.Vk)))
 					continue;
 
 				ForceKeyEventX11(rk.Vk, isPress: true);
@@ -1175,8 +1181,7 @@ namespace Keysharp.Core.Unix
 			if (kbdMsSender is UnixKeyboardMouseSender sender)
 				sender.SimulateKeyEvent(vk, isPress: false, KeyIgnoreAllExceptModifier);
 
-			if (vk < logicalKeyState.Length)
-				logicalKeyState[vk] = 0;
+			inputState.ApplySyntheticKeyEvent(vk, isPress: false);
 		}
 
 		private void ForceKeyEventX11(uint vk, bool isPress)
@@ -1187,8 +1192,7 @@ namespace Keysharp.Core.Unix
 			if (kbdMsSender is UnixKeyboardMouseSender sender)
 				sender.SimulateKeyEvent(vk, isPress, KeyIgnoreAllExceptModifier);
 
-			if (vk < logicalKeyState.Length)
-				logicalKeyState[vk] = (byte)(isPress ? StateDown : 0);
+			inputState.ApplySyntheticKeyEvent(vk, isPress);
 		}
 	}
 }

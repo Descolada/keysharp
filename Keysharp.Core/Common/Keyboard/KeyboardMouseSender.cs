@@ -1892,11 +1892,16 @@ namespace Keysharp.Core.Common.Keyboard
 								}
 #endif
 							}
-							else if (keyNameLength == 1) // No vk/sc means a char of length one is sent via special method.
-							{
-								// v1.0.40: SendKeySpecial sends only keybd_event keystrokes, not ControlSend style
-								// keystrokes.
-								// v1.0.43.07: Added check of event_type!=KEYUP, which causes something like Send {� up} to
+								else if (keyNameLength == 1) // No vk/sc means a char of length one is sent via special method.
+								{
+									if (targetWindow == 0
+										&& repeatCount > 0
+										&& TrySendPlatformSpecialCharKeyEvent(keyTokenSpan[0], eventType, modsForNextKey.Value | persistentModifiersForThisSendKeys))
+										goto bracecaseend;
+
+									// v1.0.40: SendKeySpecial sends only keybd_event keystrokes, not ControlSend style
+									// keystrokes.
+									// v1.0.43.07: Added check of event_type!=KEYUP, which causes something like Send {� up} to
 								// do nothing if the curr. keyboard layout lacks such a key.  This is relied upon by remappings
 								// such as F1::� (i.e. a destination key that doesn't have a VK, at least in English).
 								if (eventType != KeyEventTypes.KeyUp) // In this mode, mods_for_next_key and event_type are ignored due to being unsupported.
@@ -2034,6 +2039,12 @@ namespace Keysharp.Core.Common.Keyboard
 				{
 					if (sendRaw == SendRawModes.RawText)
 					{
+						if (targetWindow == 0 && TrySendPlatformRawText(sub, ref keyIndex, modsForNextKey.Value | persistentModifiersForThisSendKeys))
+						{
+							modsForNextKey = 0;
+							continue;
+						}
+
 						// \b needs to produce VK_BACK for auto-replace hotstrings to work (this is more useful anyway).
 						// \r and \n need to produce VK_RETURN for decent compatibility.  SendKeySpecial('\n') works for
 						// some controls (such as Scintilla) but has no effect in other common applications.
@@ -2288,6 +2299,8 @@ namespace Keysharp.Core.Common.Keyboard
 
 		protected internal abstract void LongOperationUpdateForSendKeys();
 
+		protected internal virtual bool TrySendPlatformRawText(ReadOnlySpan<char> text, ref int keyIndex, uint modifiersLR) => false;
+
 		//protected internal abstract void Send(string keys);
 
 		//protected internal abstract void Send(Keys key);
@@ -2473,6 +2486,8 @@ namespace Keysharp.Core.Common.Keyboard
 		internal abstract void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo);
 
 		internal abstract void SendUnicodeChar(char ch, uint modifiers);
+
+		protected internal virtual bool TrySendPlatformSpecialCharKeyEvent(char ch, KeyEventTypes eventType, uint modifiersLR) => false;
 
 		/// <summary>
 		/// Caller must be aware that keystrokes are sent directly (i.e. never to a target window via ControlSend mode).

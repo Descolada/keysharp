@@ -263,6 +263,8 @@ namespace Keysharp.Core.Linux.X11
 		[DllImport(libX11Name)] internal static extern int XUngrabKey(nint display, uint keycode, uint modifiers, nint grab_window);
 		[DllImport(libX11Name)] internal static extern uint XKeysymToKeycode(nint display, nint keysym);
 		[DllImport(libX11Name)] internal static extern uint XKeycodeToKeysym(nint display, int keycode, int index);
+		[DllImport(libX11Name)] internal static extern nint XGetKeyboardMapping(nint display, byte first_keycode, int keycode_count, out int keysyms_per_keycode_return);
+		[DllImport(libX11Name)] internal static extern int XChangeKeyboardMapping(nint display, int first_keycode, int keysyms_per_keycode, [In] UIntPtr[] keysyms, int keycode_count);
 		[DllImport(libX11Name)] internal static extern int XQueryKeymap(nint display, byte[] keys_return);
 		[DllImport(libX11Name)] internal static extern bool XQueryPointer(nint display, nint w, out nint root_return, out nint child_return, 
 			out int root_x_return, out int root_y_return, out int win_x_return, out int win_y_return, out uint mask_return);

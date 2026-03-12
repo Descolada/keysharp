@@ -19,6 +19,7 @@ namespace Keysharp.Core.Common.Threading
 		internal const uint END_KEY_ENABLED = END_KEY_WITH_SHIFT | END_KEY_WITHOUT_SHIFT;
 		internal const uint END_KEY_WITH_SHIFT = 0x01;
 		internal const uint END_KEY_WITHOUT_SHIFT = 0x02;
+		internal const uint HOOK_EVENT_INJECTED = 0x10;
 		internal const uint INPUT_KEY_DOWN_SUPPRESSED = 0x80;
 		internal const uint INPUT_KEY_IGNORE_TEXT = 0x10;
 		internal const uint INPUT_KEY_IS_TEXT = 0x40;
@@ -1686,7 +1687,7 @@ namespace Keysharp.Core.Common.Threading
 
 			// Even if the below is set to false, the event might be reclassified as artificial later (though it
 			// won't be logged as such).  See comments in KeybdEventIsPhysical() for details.
-			var isArtificial = e.IsEventSimulated;
+				var isArtificial = e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0;
 
 			if (!isKeyboardEvent)
 			{
@@ -3583,7 +3584,7 @@ namespace Keysharp.Core.Common.Threading
 				PostQualifiedHotstringMessage(hs, caseConformMode, endChar);
 		}
 
-		internal virtual void PrepareToSendHotstringReplacement(char endChar) { }
+		internal virtual void PrepareToSendHotstringReplacement(char endChar, uint triggerVk) { }
 
 		internal virtual HookAction CancelAltTabMenu(uint vk, bool keyUp) => HookAction.Continue;
 
@@ -3711,6 +3712,9 @@ namespace Keysharp.Core.Common.Threading
 		{
 			try
 			{
+				if (kbdMsSender is IDisposable disposable)
+					disposable.Dispose();
+
 				Unhook();
 			}
 			catch
@@ -4338,7 +4342,7 @@ namespace Keysharp.Core.Common.Threading
 
 					criterionFoundHwnd = new nint(HotkeyDefinition.NormalizeCriterionFoundHwnd(hs.hotCriterion, criterionFoundHwnd.ToInt64()));
 
-					hs.DoReplace(hmsg.caseMode, hmsg.endChar);
+					hs.DoReplace(hmsg.caseMode, hmsg.endChar, hmsg.triggerVk);
 
 					if (string.IsNullOrEmpty(hs.replacement))
 						_ = hs.PerformInNewThreadMadeByCaller(criterionFoundHwnd, hmsg.endChar.ToString());

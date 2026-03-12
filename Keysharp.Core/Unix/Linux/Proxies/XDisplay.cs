@@ -407,6 +407,30 @@ namespace Keysharp.Core.Linux.Proxies
 
 		internal uint XKeycodeToKeysym(int keycode, int index) => Xlib.XKeycodeToKeysym(Handle, keycode, index);
 		internal uint XKeysymToKeycode(IntPtr keysym) => Xlib.XKeysymToKeycode(Handle, keysym);
+		internal UIntPtr[] XGetKeyboardMapping(byte firstKeycode, int keycodeCount, out int keysymsPerKeycode)
+		{
+			var ptr = Xlib.XGetKeyboardMapping(Handle, firstKeycode, keycodeCount, out keysymsPerKeycode);
+
+			if (ptr == IntPtr.Zero || keycodeCount <= 0 || keysymsPerKeycode <= 0)
+				return [];
+
+			try
+			{
+				var values = new UIntPtr[keycodeCount * keysymsPerKeycode];
+
+				for (var i = 0; i < values.Length; i++)
+					values[i] = (UIntPtr)(nuint)System.Runtime.InteropServices.Marshal.ReadIntPtr(ptr, i * IntPtr.Size);
+
+				return values;
+			}
+			finally
+			{
+				_ = Xlib.XFree(ptr);
+			}
+		}
+
+		internal int XChangeKeyboardMapping(int firstKeycode, int keysymsPerKeycode, UIntPtr[] keysyms, int keycodeCount)
+			=> Xlib.XChangeKeyboardMapping(Handle, firstKeycode, keysymsPerKeycode, keysyms, keycodeCount);
 		internal int XQueryKeymap(byte[] keys_return) => Xlib.XQueryKeymap(Handle, keys_return);
 		internal int XGrabKey(uint keycode, uint modifiers, nint grab_window, bool owner_events, int pointer_mode, int keyboard_mode)
 			=> Xlib.XGrabKey(Handle, keycode, modifiers, grab_window, owner_events, pointer_mode, keyboard_mode);

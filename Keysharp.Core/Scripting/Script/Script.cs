@@ -21,7 +21,7 @@ namespace Keysharp.Scripting
 	/// To remedy this problem, all data is instance data, and there is only one static member that all
 	/// instance data is accessed through. This ensures a clean start every time we create a Script object.
 	/// </summary>
-	public partial class Script
+	public partial class Script : IDisposable
 	{
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
 #if !WINDOWS
@@ -140,9 +140,8 @@ namespace Keysharp.Scripting
 		internal const int maxThreadsLimit = 0xFF;
 		internal const int SLEEP_INTERVAL = 10;
 		internal const int SLEEP_INTERVAL_HALF = SLEEP_INTERVAL / 2;
-		internal CallbackRegistrationHub<CallbackRegistration> ClipFunctions = new();
+		internal CallbackRegistry<CallbackRegistration> ClipFunctions = new();
 		internal List<IFuncObj> hotCriterions = [];
-		internal nint hotExprLFW = 0;
 		internal List<IFuncObj> hotExprs = [];
 		internal InputType input;
 		internal int inputBeforeHotkeysCount;
@@ -153,8 +152,8 @@ namespace Keysharp.Scripting
 		internal MenuType menuIsVisible = MenuType.None;
 		internal PlatformManagerBase mgr;
 		internal int nMessageBoxes;
-		internal CallbackRegistrationHub<CallbackRegistration> onErrorHandlers = new();
-		internal CallbackRegistrationHub<CallbackRegistration> onExitHandlers = new();
+		internal CallbackRegistry<CallbackRegistration> onErrorHandlers = new();
+		internal CallbackRegistry<CallbackRegistration> onExitHandlers = new();
 		private Icon _normalIcon = null;
 		public Icon normalIcon
 		{
@@ -221,6 +220,7 @@ namespace Keysharp.Scripting
 		private StringsData stringsData;
 		private ToolTipData toolTipData;
 		private WindowProvider windowProvider;
+		private int disposeStarted;
 
 		public static Keysharp.Scripting.Script TheScript { get; private set; }
 		public Type ProgramType;
@@ -414,11 +414,7 @@ namespace Keysharp.Scripting
 		
 		~Script()
 		{
-#if WINDOWS
-			Application.RemoveMessageFilter(msgFilter);
-#elif !WINDOWS
-			msgFilter?.Detach();
-#endif
+			Dispose(false);
 		}
 
 		[MethodImpl(MethodImplOptions.NoInlining)]  // prevent inlining from collapsing frames
@@ -965,10 +961,28 @@ namespace Keysharp.Scripting
 				Console.Error.WriteLine(text);
 		}
 
-		public void Stop()
+		public void Dispose()
 		{
+			Dispose(true);
+			GC.SuppressFinalize(this);
+		}
+
+		protected virtual void Dispose(bool disposing)
+		{
+			if (Interlocked.Exchange(ref disposeStarted, 1) != 0)
+				return;
+
 			HookThread?.Stop();
 			stringsData?.Free();
+
+			if (!disposing)
+				return;
+
+#if WINDOWS
+			Application.RemoveMessageFilter(msgFilter);
+#elif !WINDOWS
+			msgFilter?.Detach();
+#endif
 
 			if (Tray != null)
 			{

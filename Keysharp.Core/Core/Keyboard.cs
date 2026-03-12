@@ -222,7 +222,7 @@ namespace Keysharp.Core
 							{
 								if (v.hotCriterion == tv.hotCriterion)
 								{
-									fo = v.originalCallback;
+									fo = v.FindBinding(script.EventScheduler)?.OriginalCallback;
 									goto break_twice;
 								}
 							}

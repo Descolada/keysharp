@@ -3020,9 +3020,9 @@ namespace Keysharp.Core.Common.Threading
 					// SendMessageTimeout(), which is undesirable because the whole point of
 					// making this hook thread separate from the main thread is to have it be
 					// maximally responsive (especially to prevent mouse cursor lag).
-					// v1.0.42: The hotkey variant is not passed via the message below because
-					// upon receipt of the message, the variant is recalculated in case conditions
-					// have changed between msg-post and arrival.  See comments in the message loop for details.
+					// Keysharp 0.0.15: Hook-delivered hotkeys are qualified here before posting. Callback/global criteria
+					// dispatch the chosen variant directly, while built-in window criteria can still fall
+					// back to receipt-time re-evaluation on the script thread.
 					// v1.0.42.01: the message is now posted at the latest possible moment to avoid
 					// situations in which the message arrives and is processed by the main thread
 					// before we finish processing the hotkey's final keystroke here.  This avoids
@@ -3047,18 +3047,6 @@ namespace Keysharp.Core.Common.Threading
 					//    ToolTip `nProblem 2`n
 					//return
 					hotkeyIdToPost = hotkeyIdToFire; // Set this only when it is certain that this ID should be sent to the main thread via msg.
-
-					if (firingIsCertain.hotCriterion != null)
-					{
-						// To avoid evaluating the expression twice, indicate to the main thread that the appropriate variant
-						// has already been determined, by packing the variant's index into the high word of the param:
-						hotkeyIdToPost |= (uint)(firingIsCertain.index << 16);
-					}
-
-					// Otherwise CriterionFiringIsCertain() might have returned a global variant (not necessarily the one
-					// that will actually fire), so if we ever decide to do the above for other criterion types rather than
-					// just re-evaluating the criterion later, must make sure not to send the mIndex of a global variant.
-					//if (firing_is_certain.mHotCriterion) // i.e. a specific variant has already been determined.
 					break;
 			}
 
@@ -3511,46 +3499,88 @@ namespace Keysharp.Core.Common.Threading
 			return resultToReturn.ToInt64();
 		}
 
+		protected bool TryBuildHookHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, HotkeyVariant initialVariant, out HookHotkeyMsg hotkeyMsg)
+		{
+			hotkeyMsg = null;
+			var script = Script.TheScript;
+			var hkId = hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK;
+			var shk = script.HotkeyData.shk;
+
+			if (hkId >= shk.Count)
+				return false;
+
+			var hotkey = shk[(int)hkId];
+			var variant = initialVariant;
+			var criterionFoundHwnd = 0L;
+
+			if (variant == null)
+			{
+				char? dummy = null;
+				variant = hotkey.CriterionAllowsFiring(ref criterionFoundHwnd, extraInfo, ref dummy);
+
+				if (variant == null)
+					return false;
+			}
+
+			criterionFoundHwnd = HotkeyDefinition.NormalizeCriterionFoundHwnd(variant.hotCriterion, criterionFoundHwnd);
+
+			hotkeyMsg = new HookHotkeyMsg
+			{
+				extraInfo = extraInfo,
+				variant = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? null : variant,
+				criterionFoundHwnd = criterionFoundHwnd
+			};
+			return true;
+		}
+
+		private void PostQualifiedHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, nint lParam, HotkeyVariant variant = null)
+		{
+			if (TryBuildHookHotkeyMessage(hotkeyIDToPost, extraInfo, variant, out var hotkeyMsg))
+			{
+				_ = PostMessage(new KeysharpMsg()
+				{
+					message = (uint)UserMessages.AHK_HOOK_HOTKEY,
+					wParam = new nint(hotkeyIDToPost),//Would be so much better to eventually pass around object references rather than array indexes.//TODO
+					lParam = lParam,
+					obj = hotkeyMsg
+				});
+			}
+		}
+
+		private void PostQualifiedHotstringMessage(HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
+		{
+			_ = PostMessage(new KeysharpMsg()
+			{
+				message = (uint)UserMessages.AHK_HOTSTRING,
+				obj = new HotstringMsg()
+				{
+					criterionFoundHwnd = 0,
+					hs = hs,
+					caseMode = caseConformMode,
+					endChar = endChar,
+					recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(hs.hotCriterion)
+				}
+			});
+		}
+
 		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
 		{
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
 				var inputLevel = InputLevelFromInfo((long)extraInfo);
-				_ = PostMessage(new KeysharpMsg()
-				{
-					message = (uint)UserMessages.AHK_HOOK_HOTKEY,
-					wParam = new nint(hotkeyIDToPost),//Would be so much better to eventually pass around object references rather than array indexes.//TODO
-					lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel)),
-					obj = variant
-				});
+				var lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel));
+				PostQualifiedHotkeyMessage(hotkeyIDToPost, extraInfo, lParam, variant);
 
 				if (keyUp && hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK] != HotkeyDefinition.HOTKEY_ID_INVALID)
 				{
 					// This is a key-down hotkey being triggered by releasing a prefix key.
 					// There's also a corresponding key-up hotkey, so fire it too:
-					_ = PostMessage(new KeysharpMsg()
-					{
-						message = (uint)UserMessages.AHK_HOOK_HOTKEY,
-						wParam = new nint(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK]),
-						lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel))
-						//Do not pass the variant.
-					});
+					PostQualifiedHotkeyMessage(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK], extraInfo, lParam);
 				}
 			}
 
 			if (hs != null)
-			{
-				_ = PostMessage(new KeysharpMsg()
-				{
-					message = (uint)UserMessages.AHK_HOTSTRING,
-					obj = new HotstringMsg()
-					{
-						hs = hs,
-						caseMode = caseConformMode,
-						endChar = endChar
-					}
-				});
-			}
+				PostQualifiedHotstringMessage(hs, caseConformMode, endChar);
 		}
 
 		internal virtual void PrepareToSendHotstringReplacement(char endChar) { }
@@ -3577,7 +3607,7 @@ namespace Keysharp.Core.Common.Threading
 					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYUP)
 				return false;
 
-				Script.TheScript.UIEventScheduler.EnqueueCallback(() => ProcessHookMessage(msg));
+			Script.PostToUIThread(() => ProcessHookMessage(msg));
 			return true;
 		}
 
@@ -3679,6 +3709,13 @@ namespace Keysharp.Core.Common.Threading
 
 		protected internal virtual void Stop()
 		{
+			try
+			{
+				Unhook();
+			}
+			catch
+			{
+			}
 		}
 
 		//This is relied upon to be unsigned; e.g. many places omit a check for ID < 0.
@@ -4256,7 +4293,7 @@ namespace Keysharp.Core.Common.Threading
 			}
 
 			using var synced = new ManualResetEventSlim(false);
-			script.UIEventScheduler.EnqueueCallback(synced.Set, useTryCatch: false);
+			Script.PostToUIThread(synced.Set);
 
 			while (!synced.Wait(10))
 				Flow.SleepWithoutInterruption();
@@ -4289,19 +4326,17 @@ namespace Keysharp.Core.Common.Threading
 						return;
 
 					var hs = hmsg.hs;
+					criterionFoundHwnd = hmsg.criterionFoundHwnd;
 
-					if (hs.hotCriterion != null)
+					if (hmsg.recheckCriterionOnReceipt && hs.hotCriterion != null)
 					{
 						criterionFoundHwnd = new nint(HotkeyDefinition.HotCriterionAllowsFiring(hs.hotCriterion, hs.Name));
 
 						if (criterionFoundHwnd == 0)
 							return;
-
-						if (hs.hotCriterion is IFuncObj fc && !(string.Compare(fc.Name, "HotIfWinNotActivePrivate", true) == 0 || string.Compare(fc.Name, "HotIfWinNotExistPrivate", true) == 0))
-							criterionFoundHwnd = 0;
-						else if (hs.HotIfRequiresEval())
-							criterionFoundHwnd = script.hotExprLFW;
 					}
+
+					criterionFoundHwnd = new nint(HotkeyDefinition.NormalizeCriterionFoundHwnd(hs.hotCriterion, criterionFoundHwnd.ToInt64()));
 
 					hs.DoReplace(hmsg.caseMode, hmsg.endChar);
 
@@ -4310,9 +4345,29 @@ namespace Keysharp.Core.Common.Threading
 
 					break;
 
-				case WM_HOTKEY:
 				case (uint)UserMessages.AHK_HOOK_HOTKEY:
-					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, msg.obj as HotkeyVariant, msg.message);
+					if (msg.obj is HookHotkeyMsg hhmsg)
+					{
+						if (hhmsg.variant != null)
+						{
+							var hkId = (uint)wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
+
+							if (hkId < script.HotkeyData.shk.Count)
+							{
+								script.HotkeyData.shk[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, (int)lParamVal);
+								break;
+							}
+						}
+
+						script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message, hhmsg.extraInfo);
+						break;
+					}
+
+					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message);
+					break;
+
+				case WM_HOTKEY:
+					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message);
 					break;
 
 				case (uint)UserMessages.AHK_INPUT_END:

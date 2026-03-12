@@ -1001,7 +1001,7 @@ namespace Keysharp.Core.Common.Keyboard
 				_ = Core.Keyboard.ScriptBlockInput(ToggleValueType.Off);
 		}
 
-		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg)
+		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg, ulong? hookExtraInfo = null)
 		{
 			var hkId = wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
 			var script = Script.TheScript;
@@ -1057,10 +1057,14 @@ namespace Keysharp.Core.Common.Keyboard
 				//
 				char? dummy = null;
 				var criterion_found_hwnd = 0L;
+				var extraInfo = msg == (uint)UserMessages.AHK_HOOK_HOTKEY
+					? hookExtraInfo ?? (ulong)KeyIgnoreLevel((uint)Conversions.HighWord(lParamVal))
+					: 0UL;
 
-				if (!(variant != null || (variant = hk.CriterionAllowsFiring(ref criterion_found_hwnd, (ulong)(msg == (uint)UserMessages.AHK_HOOK_HOTKEY ? KeyIgnoreLevel((uint)Conversions.HighWord(lParamVal)) : 0L), ref dummy)) != null))
+				if (!(variant != null || (variant = hk.CriterionAllowsFiring(ref criterion_found_hwnd, extraInfo, ref dummy)) != null))
 					return;
 
+				criterion_found_hwnd = HotkeyDefinition.NormalizeCriterionFoundHwnd(variant.hotCriterion, criterion_found_hwnd);
 				hk.PerformInNewThreadMadeByCallerAsync(variant, criterion_found_hwnd, lParamVal);
 			}
 		}

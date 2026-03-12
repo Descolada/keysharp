@@ -421,8 +421,6 @@ namespace Keysharp.Core.Common.Keyboard
 			tv.sendLevel = oldSendLevel;
 		}
 
-		internal bool HotIfRequiresEval() => hotCriterion is IFuncObj;
-
 		internal void ParseOptions(ReadOnlySpan<char> aOptions)
 		{
 			var unused_X_option = false;
@@ -461,7 +459,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 					try
 					{
-						_ = btv.RunAndEnd(() => Flow.TryCatch(() =>
+						_ = btv.Run(() => Flow.TryCatch(() =>
 						{
 							var tv = script.Threads.CurrentThread;
 							tv.configData.sendLevel = inputLevel;
@@ -473,6 +471,7 @@ namespace Keysharp.Core.Common.Keyboard
 					finally
 					{
 						_ = Interlocked.Decrement(ref existingThreads);
+						script.Threads.EndThread(btv);
 					}
 
 					return true;

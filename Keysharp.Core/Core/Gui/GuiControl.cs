@@ -1,5 +1,5 @@
 using Keysharp.Scripting;
-using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+using CallbackHub = Keysharp.Scripting.CallbackRegistry<Keysharp.Scripting.CallbackRegistration>;
 
 namespace Keysharp.Core
 {
@@ -45,7 +45,7 @@ namespace Keysharp.Core
 				removedAny |= doubleClickHandlers.RemoveOwned(scheduler);
 				removedAny |= changeHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= columnClickHandlers?.RemoveOwned(scheduler) == true;
-				removedAny |= CallbackRegistrationHub<CallbackRegistration>.RemoveOwned(commandHandlers, scheduler);
+				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(commandHandlers, scheduler);
 				removedAny |= contextMenuChangedHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= focusedItemChangedHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= focusHandlers?.RemoveOwned(scheduler) == true;
@@ -53,7 +53,7 @@ namespace Keysharp.Core
 				removedAny |= itemEditHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= itemExpandHandlers?.RemoveOwned(scheduler) == true;
 				removedAny |= lostFocusHandlers?.RemoveOwned(scheduler) == true;
-				removedAny |= CallbackRegistrationHub<CallbackRegistration>.RemoveOwned(notifyHandlers, scheduler);
+				removedAny |= CallbackRegistry<CallbackRegistration>.RemoveOwned(notifyHandlers, scheduler);
 				removedAny |= selectedItemChangedHandlers?.RemoveOwned(scheduler) == true;
 
 #if WINDOWS

@@ -10,7 +10,7 @@ namespace Keysharp.Core.Common.Window
 	internal class MsgMonitor
 	{
 		private readonly Lock gate = new();
-		private readonly CallbackRegistrationHub<MsgMonitorRegistration> registrations = new();
+		private readonly CallbackRegistry<MsgMonitorRegistration> registrations = new();
 		internal bool isPrefiltered = false;
 
 		internal bool IsEmpty

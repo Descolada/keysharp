@@ -18,11 +18,22 @@ namespace Keysharp.Scripting
 		internal ScriptEventScheduler CurrentSchedulerIfCreated
 			=> eventSchedulers != null && eventSchedulers.IsValueCreated ? eventSchedulers.Value : null;
 
-		internal void SignalAllEventSchedulers()
+		internal void ScheduleAllEventSchedulers()
+			=> ScheduleEventSchedulers(static _ => true);
+
+		internal void ScheduleBlockedEventSchedulers()
+			=> ScheduleEventSchedulers(static scheduler => scheduler.HasBlockedQueuedWork);
+
+		private void ScheduleEventSchedulers(Predicate<ScriptEventScheduler> shouldSchedule)
 		{
-			if (eventSchedulers != null)
-				foreach (var scheduler in eventSchedulers.Values.ToArray())
-					scheduler?.SignalWorkerPump();
+			if (eventSchedulers == null)
+				return;
+
+			foreach (var scheduler in eventSchedulers.Values.ToArray())
+			{
+				if (scheduler != null && (shouldSchedule == null || shouldSchedule(scheduler)))
+					scheduler.SchedulePump();
+			}
 		}
 	}
 
@@ -79,6 +90,7 @@ namespace Keysharp.Scripting
 		private AutoResetEvent workerPumpSignal = new(false);
 		private int workerDisposed;
 		private int persistentRegistrationCount;
+		private bool blockedQueuedWork;
 		private bool pumpScheduled;
 		private bool pumping;
 		private readonly bool isUiScheduler;
@@ -97,6 +109,14 @@ namespace Keysharp.Scripting
 		internal bool OwnsCurrentThread => Thread.CurrentThread.ManagedThreadId == ownerManagedThreadId;
 		internal int OwnerManagedThreadId => ownerManagedThreadId;
 		internal bool IsDisposed => Volatile.Read(ref workerDisposed) != 0;
+		internal bool HasBlockedQueuedWork
+		{
+			get
+			{
+				lock (gate)
+					return HasBlockedQueuedWorkUnsafe();
+			}
+		}
 
 		internal void AdjustPersistenceRoot(int delta)
 		{
@@ -273,6 +293,14 @@ namespace Keysharp.Scripting
 		{
 			while (!script.hasExited && !IsDisposed)
 			{
+				if (HasBlockedQueuedWork)
+				{
+					// Blocked work can become runnable either when another scheduler finishes a pseudo-thread
+					// or when interruptibility naturally times out, so wait briefly rather than spinning.
+					_ = WaitForWorkerPumpSignal((int)ThreadVariables.DefaultUninterruptiblePeekFrequency);
+					continue;
+				}
+
 				if (!HasQueuedEvents())
 				{
 					if (script.Threads.ActivePseudoThreadCount == 0 && Volatile.Read(ref persistentRegistrationCount) == 0)
@@ -342,6 +370,7 @@ namespace Keysharp.Scripting
 					return false;
 
 				pumping = true;
+				blockedQueuedWork = false;
 				pumpScheduled = false;
 				return true;
 			}
@@ -350,7 +379,10 @@ namespace Keysharp.Scripting
 		private void EndPump(bool blocked, bool stalledOnLocalBlock)
 		{
 			lock (gate)
+			{
 				pumping = false;
+				blockedQueuedWork = blocked || stalledOnLocalBlock;
+			}
 
 			if (!blocked && !stalledOnLocalBlock)
 				SchedulePump();
@@ -479,10 +511,13 @@ namespace Keysharp.Scripting
 		}
 
 		private bool WaitForWorkerPumpSignal()
+			=> WaitForWorkerPumpSignal(Timeout.Infinite);
+
+		private bool WaitForWorkerPumpSignal(int timeout)
 		{
 			try
 			{
-				return Volatile.Read(ref workerPumpSignal)?.WaitOne(Timeout.Infinite) == true;
+				return Volatile.Read(ref workerPumpSignal)?.WaitOne(timeout) == true;
 			}
 			catch (ObjectDisposedException)
 			{
@@ -491,6 +526,7 @@ namespace Keysharp.Scripting
 		}
 
 		private bool HasQueuedEventsUnsafe() => interactiveQueue.Count != 0 || normalQueue.Count != 0;
+		private bool HasBlockedQueuedWorkUnsafe() => blockedQueuedWork && HasQueuedEventsUnsafe();
 
 		private bool TryMarkPumpScheduledUnsafe()
 		{
@@ -657,6 +693,7 @@ namespace Keysharp.Scripting
 			{
 				interactiveQueue.Clear();
 				normalQueue.Clear();
+				blockedQueuedWork = false;
 				pumpScheduled = false;
 			}
 		}

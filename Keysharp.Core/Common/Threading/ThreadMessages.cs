@@ -1,12 +1,21 @@
-﻿namespace Keysharp.Core.Common.Threading
+namespace Keysharp.Core.Common.Threading
 {
 	internal class HotstringMsg
 	{
 		internal CaseConformModes caseMode = CaseConformModes.None;
+		internal nint criterionFoundHwnd = 0;
 		internal char endChar = (char)0;
+		internal bool recheckCriterionOnReceipt;
 
 		//Might want to add skipchars here.//TODO
 		internal HotstringDefinition hs = null;
+	}
+
+	internal sealed class HookHotkeyMsg
+	{
+		internal long criterionFoundHwnd;
+		internal ulong extraInfo;
+		internal HotkeyVariant variant;
 	}
 
 	internal class KeysharpMsg

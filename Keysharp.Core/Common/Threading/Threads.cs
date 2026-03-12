@@ -82,6 +82,7 @@
 			_ = Interlocked.Decrement(ref script.totalExistingThreads);
 
 			script.EventScheduler.SchedulePump();
+			script.ScheduleBlockedEventSchedulers();
 		}
 
 		internal bool TryPushThreadVariables(long priority, bool skipUninterruptible,

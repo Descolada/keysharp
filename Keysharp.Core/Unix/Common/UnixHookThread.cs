@@ -1224,13 +1224,18 @@ namespace Keysharp.Core.Unix
 
 		private void PostHotkey(uint hotkeyId, uint sc /* typically 0 on Linux */, long eventLevel)
 		{
-			// Mirror Windows: pack SC (low word) + event input level (high word), variant omitted.
+			var extraInfo = (ulong)KeyboardMouseSender.KeyIgnoreLevel(eventLevel);
+			var lParam = new nint(KeyboardUtils.MakeLong((short)sc, (short)eventLevel));
+
+			if (!TryBuildHookHotkeyMessage(hotkeyId, extraInfo, null, out var hotkeyMsg))
+				return;
+
 			_ = PostMessage(new KeysharpMsg
 			{
 				message = (uint)UserMessages.AHK_HOOK_HOTKEY,
 				wParam = new nint(hotkeyId),
-				lParam = new nint(KeyboardUtils.MakeLong((short)sc, (short)eventLevel)),
-				obj = null // <— Do NOT pass variant; UI thread recomputes it.
+				lParam = lParam,
+				obj = hotkeyMsg
 			});
 		}
 

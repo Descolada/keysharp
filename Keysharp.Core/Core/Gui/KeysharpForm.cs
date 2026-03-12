@@ -1,5 +1,5 @@
 ﻿using Keysharp.Scripting;
-using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+using CallbackHub = Keysharp.Scripting.CallbackRegistry<Keysharp.Scripting.CallbackRegistration>;
 
 namespace Keysharp.Core
 {

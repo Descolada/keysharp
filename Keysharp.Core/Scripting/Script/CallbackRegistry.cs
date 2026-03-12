@@ -4,7 +4,7 @@ using Keysharp.Core.Common.Invoke;
 
 namespace Keysharp.Scripting
 {
-	internal sealed class CallbackRegistrationHub<TRegistration> where TRegistration : CallbackRegistration
+	internal sealed class CallbackRegistry<TRegistration> where TRegistration : CallbackRegistration
 	{
 		private readonly Lock gate = new();
 		private readonly List<TRegistration> ordered = [];
@@ -180,7 +180,7 @@ namespace Keysharp.Scripting
 		internal object InvokeEventHandlers(params object[] args)
 			=> GetSnapshot().InvokeEventHandlers(args);
 
-		internal static bool RemoveOwned<TKey>(ConcurrentDictionary<TKey, CallbackRegistrationHub<TRegistration>> hubs, ScriptEventScheduler scheduler)
+		internal static bool RemoveOwned<TKey>(ConcurrentDictionary<TKey, CallbackRegistry<TRegistration>> hubs, ScriptEventScheduler scheduler)
 		{
 			if (hubs == null || scheduler == null)
 				return false;

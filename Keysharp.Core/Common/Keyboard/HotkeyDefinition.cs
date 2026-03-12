@@ -25,6 +25,7 @@ namespace Keysharp.Core.Common.Keyboard
 		internal const uint NO_SUPPRESS_PREFIX = 0x01;
 		internal const uint NO_SUPPRESS_STATES = NO_SUPPRESS_NEXT_UP_EVENT;
 		internal const uint NO_SUPPRESS_SUFFIX_VARIES = AT_LEAST_ONE_VARIANT_HAS_TILDE | AT_LEAST_ONE_VARIANT_LACKS_TILDE;
+		[ThreadStatic] private static long hotExprLastFoundHwnd;
 		internal static string COMPOSITE_DELIMITER = " & ";
 		internal bool allowExtraModifiers = false;
 		internal bool constructedOK;
@@ -472,7 +473,6 @@ namespace Keysharp.Core.Common.Keyboard
 			// THIRD PASS THROUGH THE HOTKEYS:
 			// v1.0.42: Reset sWhichHookNeeded because it's now possible that the hook was on before but no longer
 			// needed due to changing of a hotkey from hook to registered (for various reasons described above):
-			HotkeyVariant vp;
 			hkd.whichHookNeeded = 0;
 
 			for (i = 0; i < shk.Count; ++i)
@@ -506,9 +506,12 @@ namespace Keysharp.Core.Common.Keyboard
 						// situations in which the hook should let the hotkey's keystroke pass through
 						// to the active window (i.e. the hook is needed to dynamically disable the hotkey).
 						// mHookAction isn't checked here since those hotkeys shouldn't reach this stage (since they're always hook hotkeys).
+						HotkeyVariant vp;
+
 						for (hot.type = HotkeyTypeEnum.KeyboardHook, vp = hot.firstVariant; vp != null; vp = vp.nextVariant)
 						{
-							if (vp.hotCriterion == null && vp.enabled // It's a global variant (no criteria) and it's enabled...
+							if (vp.hotCriterion == null
+									&& vp.HasEnabledBindings() // It's a global variant (no criteria) and it's enabled...
 									&& (!A_IsSuspended || vp.suspendExempt))
 								// ... and this variant isn't suspended (we already know IsCompletelyDisabled()==false from an earlier check).
 							{
@@ -643,14 +646,18 @@ namespace Keysharp.Core.Common.Keyboard
 				}
 				else
 				{
+					var existingVariant = hk.FindVariant();
+
 					// Detect duplicate hotkey variants to help spot bugs in scripts.
-					if (hk.FindVariant() != null) // See if there's already a variant matching the current criteria (suffix_has_tilde does not make variants distinct form each other because it would require firing two hotkey IDs in response to pressing one hotkey, which currently isn't in the design).
+					if (existingVariant != null && existingVariant.FindBinding(script.EventScheduler) != null) // Same exact variant on the same scheduler is still a duplicate.
 					{
 						_ = Errors.ErrorOccurred($"Duplicate hotkey: {_name}");
 						return default;
 					}
 
-					if (hk.AddVariant(_callback, _noSuppress) == null)
+					if (existingVariant != null)
+						existingVariant.SetBinding(script.EventScheduler, _callback, null);
+					else if (hk.AddVariant(_callback, _noSuppress) == null)
 						return null;// ScriptError(ERR_OUTOFMEM, buf);
 
 					if (hookIsMandatory || script.ForceKeybdHook)
@@ -775,7 +782,7 @@ namespace Keysharp.Core.Common.Keyboard
 				// (once in the hook to determine whether the hotkey keystroke should be passed through to the active window,
 				// and again upon receipt of the message for reasons explained there).
 				for (vp = hk.firstVariant; vp != null; vp = vp.nextVariant)
-					if (vp.hotCriterion == null && vp.enabled && (!A_IsSuspended || vp.suspendExempt)
+					if (vp.hotCriterion == null && vp.HasEnabledBindings() && (!A_IsSuspended || vp.suspendExempt)
 							&& KeyboardMouseSender.HotInputLevelAllowsFiring(vp.inputLevel, extraInfo, ref singleChar))
 					{
 						// Fix for v1.0.47.02: The following section (above "return") was moved into this block
@@ -912,11 +919,12 @@ namespace Keysharp.Core.Common.Keyboard
 
 			uint noSuppress = 0;
 			bool hook_is_mandatory = false;
+			var script = Script.TheScript;
 			var hk = FindHotkeyByTrueNature(hotkeyName, ref noSuppress, ref hook_is_mandatory); // NULL if not found.
 			var variant = hk?.FindVariant();
+			var binding = variant?.FindBinding(script.EventScheduler);
 			var updateAllHotkeys = false;  // This method avoids multiple calls to ManifestAllHotkeysHotstringsHooks() (which is high-overhead).
 			var variantWasJustCreated = false;
-			var script = Script.TheScript;
 
 			switch (hookAction)
 			{
@@ -926,7 +934,7 @@ namespace Keysharp.Core.Common.Keyboard
 					if (hk == null)
 						return (ResultType)Errors.ValueErrorOccurred("Nonexistent hotkey.", hotkeyName, ResultType.Fail);
 
-					if (!(variant != null || hk.hookAction != 0)) // hookAction (alt-tab) hotkeys don't need a variant that matches the current criteria.
+					if (!(binding != null || hk.hookAction != 0)) // hookAction (alt-tab) hotkeys don't need a variant that matches the current criteria.
 						// To avoid ambiguity and also allow the script to use error handling to detect whether a variant
 						// already exists, it seems best to strictly require a matching variant rather than falling back
 						// onto some "default variant" such as the global variant (if any).
@@ -935,14 +943,14 @@ namespace Keysharp.Core.Common.Keyboard
 					if (hookAction == HOTKEY_ID_TOGGLE)
 						hookAction = hk.hookAction != 0
 									 ? hk.parentEnabled ? HOTKEY_ID_OFF : HOTKEY_ID_ON // Enable/disable parent hotkey (due to alt-tab being a global hotkey).
-									 : variant.enabled ? HOTKEY_ID_OFF : HOTKEY_ID_ON; // Enable/disable individual variant.
+									 : binding.IsActive ? HOTKEY_ID_OFF : HOTKEY_ID_ON; // Enable/disable individual variant.
 
 					if (hookAction == HOTKEY_ID_ON)
 					{
-						if (hk.hookAction != 0 ? hk.EnableParent() : hk.Enable(variant))
+						if (hk.hookAction != 0 ? hk.EnableParent() : hk.Enable(binding))
 							updateAllHotkeys = true; // Do it this way so that any previous "true" value isn't lost.
 					}
-					else if (hk.hookAction != 0 ? hk.DisableParent() : hk.Disable(variant))
+					else if (hk.hookAction != 0 ? hk.DisableParent() : hk.Disable(binding))
 						updateAllHotkeys = true; // Do it this way so that any previous "true" value isn't lost.
 
 					break;
@@ -964,6 +972,7 @@ namespace Keysharp.Core.Common.Keyboard
 							return ResultType.Fail; // AddHotkey() already displayed the error.
 
 						variant = hk.lastVariant; // Update for use with the options-parsing section further below.
+						binding = variant?.FindBinding(script.EventScheduler);
 						updateAllHotkeys = true;
 						variantWasJustCreated = true;
 					}
@@ -1009,14 +1018,13 @@ namespace Keysharp.Core.Common.Keyboard
 							// If there's a matching variant, update its callback. Otherwise, create a new variant.
 							if (variant != null) // There's an existing variant...
 							{
-								if (callback != variant.callback) // ...and its callback is being changed.
-									variant.callback = callback;
-
-								variant.ownerScheduler = script.EventScheduler;
+								var previousOriginalCallback = binding?.OriginalCallback;
+								binding = variant.SetBinding(script.EventScheduler, callback, previousOriginalCallback);
 							}
 							else // No existing variant matching current criteria, so create a new variant.
 							{
 								variant = hk.AddVariant(callback, noSuppress);
+								binding = variant?.FindBinding(script.EventScheduler);
 								variantWasJustCreated = true;
 								updateAllHotkeys = true;
 
@@ -1028,7 +1036,7 @@ namespace Keysharp.Core.Common.Keyboard
 							}
 						}
 						else// NULL callback, so either it just became an alt-tab hotkey above, or it's "Hotkey Name,, Options".
-							if (variant == null) // Below relies on this check.
+							if (binding == null) // Below relies on this check.
 								break; // Let the error-catch below report it as an error.
 
 						// v1.1.15: Allow the ~tilde prefix to be added/removed from an existing hotkey variant.
@@ -1060,7 +1068,7 @@ namespace Keysharp.Core.Common.Keyboard
 			// The following check catches:
 			// Hotkey, Name,, Options  ; Where name exists as a hotkey, but the right variant doesn't yet exist.
 			// If it catches anything else, that could be a bug, so this error message will help spot it.
-			if (!(variant != null || hk.hookAction != 0)) // mHookAction (alt-tab) hotkeys don't need a variant that matches the current criteria.
+			if (!(binding != null || hk.hookAction != 0)) // mHookAction (alt-tab) hotkeys don't need a variant that matches the current criteria.
 				return (ResultType)Errors.ValueErrorOccurred("Nonexistent hotkey variant (IfWin).", hotkeyName, ResultType.Fail);
 
 			// Below relies on the fact that either variant or hk.mHookAction (or both) is now non-zero.
@@ -1083,14 +1091,14 @@ namespace Keysharp.Core.Common.Keyboard
 							{
 								++i; // Omit the 'N' from further consideration in case it ever becomes a valid option letter.
 
-								if (hk.hookAction != 0 ? hk.EnableParent() : hk.Enable(variant)) // Under these conditions, earlier logic has ensured variant is non-NULL.
+								if (hk.hookAction != 0 ? hk.EnableParent() : hk.Enable(binding)) // Under these conditions, earlier logic has ensured variant is non-NULL.
 									updateAllHotkeys = true; // Do it this way so that any previous "true" value isn't lost.
 							}
 							else if (options.AsSpan(i).StartsWith("Off", StringComparison.OrdinalIgnoreCase))
 							{
 								i += 2; // Omit the letters of the word from further consideration in case "f" ever becomes a valid option letter.
 
-								if (hk.hookAction != 0 ? hk.DisableParent() : hk.Disable(variant)) // Under these conditions, earlier logic has ensured variant is non-NULL.
+								if (hk.hookAction != 0 ? hk.DisableParent() : hk.Disable(binding)) // Under these conditions, earlier logic has ensured variant is non-NULL.
 									updateAllHotkeys = true; // Do it this way so that any previous "true" value isn't lost.
 
 								if (variantWasJustCreated) // This variant (and possibly its parent hotkey) was just created above.
@@ -1318,11 +1326,27 @@ namespace Keysharp.Core.Common.Keyboard
 			if (criterion == null)
 				return 1L;
 
+			var criterionType = GetHotCriterionType(criterion);
 			object val = null;
-			var task = Task.Run(() => val = criterion.Call(hotkeyName));//Unsure if this will cause problems with GUI threading.
+			var foundHwnd = 0L;
+			var task = Task.Run(() =>
+			{
+				hotExprLastFoundHwnd = 0L;
+				val = criterion.Call(hotkeyName);
+				foundHwnd = hotExprLastFoundHwnd;
+				hotExprLastFoundHwnd = 0L;
+			});
 
 			if (task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
 			{
+				if (criterionType == HotCriterionEnum.IfCallback)
+				{
+					if (val is long callbackHwndOrBool)
+						return callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
+
+					return Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
+				}
+
 				if (val is long l)
 					return l;
 				else
@@ -1331,6 +1355,23 @@ namespace Keysharp.Core.Common.Keyboard
 			else
 				return 0L;
 		}
+
+		internal static HotCriterionEnum GetHotCriterionType(IFuncObj criterion)
+			=> criterion?.Name switch
+			{
+				"HotIfWinActivePrivate" => HotCriterionEnum.IfActive,
+				"HotIfWinNotActivePrivate" => HotCriterionEnum.IfNotActive,
+				"HotIfWinExistPrivate" => HotCriterionEnum.IfExist,
+				"HotIfWinNotExistPrivate" => HotCriterionEnum.IfNotExist,
+				null => HotCriterionEnum.NoCriterion,
+				_ => HotCriterionEnum.IfCallback
+			};
+
+		internal static bool HotCriterionRequiresReceiptReevaluation(IFuncObj criterion)
+			=> GetHotCriterionType(criterion) is HotCriterionEnum.IfActive or HotCriterionEnum.IfNotActive or HotCriterionEnum.IfExist or HotCriterionEnum.IfNotExist;
+
+		internal static long NormalizeCriterionFoundHwnd(IFuncObj criterion, long foundHwnd)
+			=> GetHotCriterionType(criterion) is HotCriterionEnum.NoCriterion or HotCriterionEnum.IfNotActive or HotCriterionEnum.IfNotExist ? 0L : foundHwnd;
 
 		internal static uint HotkeyRequiresModLR(uint hotkeyID, uint modLR) => hotkeyID < Script.TheScript.HotkeyData.shk.Count ? Script.TheScript.HotkeyData.shk[(int)hotkeyID].modifiersConsolidatedLR& modLR : 0u;
 
@@ -1431,7 +1472,7 @@ namespace Keysharp.Core.Common.Keyboard
 				{
 					// v1.0.42: Fixed to take into account whether the hotkey is suspended (previously it only checked
 					// whether the hotkey was enabled (above), which isn't enough):
-					if (vp.enabled // This particular variant within its parent hotkey is enabled.
+					if (vp.HasEnabledBindings() // This particular variant within its parent hotkey is enabled.
 							&& (!A_IsSuspended || vp.suspendExempt) // This variant isn't suspended...
 							&& (vp.hotCriterion == null || (HotCriterionAllowsFiring(vp.hotCriterion, hk.Name) != 0L))) // ... and its criteria allow it to fire.
 					{
@@ -1873,18 +1914,14 @@ namespace Keysharp.Core.Common.Keyboard
 				var hk = shk[i];
 
 				// Fix for v1.0.34: If hotkey isn't enabled, or hotkeys are suspended and this one isn't
-				// exempt, don't fire it.  These checks are necessary only for joystick hotkeys because
+				// exempt, don't fire it. These checks are necessary only for joystick hotkeys because
 				// normal hotkeys are completely deactivated when turned off or suspended, but the joystick
-				// is still polled even when some joystick hotkeys are disabled.  UPDATE: In v1.0.42, Suspend
-				// is checked upon receipt of the message, not here upon sending.
+				// is still polled even when some joystick hotkeys are disabled.
 				if (hk.type == HotkeyTypeEnum.Joystick && hk.vk == joystickID
 						&& (buttonsNewlyDown & (0x01 << (int)(hk.sc - (uint)JoyControls.Button1))) != 0) // This hotkey's button is among those newly pressed.
 				{
-					// Criteria are checked, and variant determined, upon arrival of message rather than when sending
-					// ("suspend" is also checked then).  This is because joystick button presses are never hidden
-					// from the active window (the concept really doesn't apply), so not checking here avoids the
-					// performance loss of a second check (the loss can be significant in the case of
-					// "SetTitleMatchMode Slow").
+					// Joystick hotkeys are not hook-qualified, so they still resolve their eligible variant
+					// on receipt of the posted message rather than here at poll time.
 					//
 					// Post it to the thread because the message pump itself (not the WindowProc) will handle it.
 					// UPDATE: Posting to NULL would have a risk of discarding the message if a MsgBox pump or
@@ -1915,18 +1952,15 @@ namespace Keysharp.Core.Common.Keyboard
 				// mNextVariant
 				// mExistingThreads
 				// mPriority (default priority is always 0)
-				callback = _callback,
-				originalCallback = Proc,
 				maxThreads = A_MaxThreadsPerHotkey.Aui(),    // The values of these can vary during load-time.
 				maxThreadsBuffer = A_MaxThreadsBuffer.Ab(),
 				inputLevel = (long)A_InputLevel,
 				hotCriterion = Script.TheScript.Threads.CurrentThread.hotCriterion, // If this hotkey is an alt-tab one (mHookAction), this is stored but ignored until/unless the Hotkey command converts it into a non-alt-tab hotkey.
 				suspendExempt = A_SuspendExempt.Ab(),
 				noSuppress = _noSuppress,
-				enabled = true
 			};
 
-			vp.ownerScheduler = Script.TheScript.EventScheduler;
+			vp.SetBinding(Script.TheScript.EventScheduler, _callback, Proc);
 
 			if (vp.inputLevel > 0)
 			{
@@ -2001,7 +2035,7 @@ namespace Keysharp.Core.Common.Keyboard
 				// from the behavior in previous versions).  Another reason to check g_IsSuspended unconditionally
 				// is for maintainability and code size reduction.  Finally, it's unlikely to significantly
 				// impact performance since the vast majority of hotkeys have either one or just a few variants.
-				if (vp.enabled // This particular variant within its parent hotkey is enabled.
+				if (vp.HasEnabledBindings() // This particular variant within its parent hotkey is enabled.
 						&& (!A_IsSuspended || vp.suspendExempt) // This variant isn't suspended...
 						&& KeyboardMouseSender.HotInputLevelAllowsFiring(vp.inputLevel, extraInfo, ref singleChar) // ... its #InputLevel allows it to fire...
 						&& (vp.hotCriterion == null || ((foundHwnd = HotCriterionAllowsFiring(vp.hotCriterion, Name)) != 0L))) // ... and its criteria allow it to fire.
@@ -2041,7 +2075,7 @@ namespace Keysharp.Core.Common.Keyboard
 				return !parentEnabled;
 
 			for (var vp = firstVariant; vp != null; vp = vp.nextVariant)
-				if (vp.enabled)
+				if (vp.HasEnabledBindings())
 					return false;
 
 			return true;
@@ -2070,18 +2104,34 @@ namespace Keysharp.Core.Common.Keyboard
 		/// <param name="lParamVal"></param>
 		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
 		{
-			var script = Script.TheScript;
-			var targetScheduler = variant.ownerScheduler ?? script.EventScheduler;
-			targetScheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotkeyEvent(targetScheduler, variant, critFoundHwnd, lParamVal));
+			foreach (var binding in variant.GetActiveBindings())
+			{
+				var callback = binding.Callback;
+				var scheduler = binding.OwnerScheduler;
+
+				if (!binding.TryReservePending(scheduler, callback, variant.maxThreads, variant.maxThreadsBuffer))
+					continue;
+
+				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal)))
+					binding.ReleasePending();
+			}
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, long critFoundHwnd, int lParamVal)
+		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal)
 		{
 			var script = Script.TheScript;
 			var hkd = script.HotkeyData;
 
+			ScriptEventExecutionResult Complete(ScriptEventExecutionResult result)
+			{
+				if (result == ScriptEventExecutionResult.Dropped)
+					binding.ReleasePending();
+
+				return result;
+			}
+
 			if (script.HotkeyData.dialogIsDisplayed) // Another recursion layer is already displaying the warning dialog below.
-				return ScriptEventExecutionResult.Dropped;
+				return Complete(ScriptEventExecutionResult.Dropped);
 
 			long elapsedSincePrevTick;
 			bool displayWarning;
@@ -2135,10 +2185,10 @@ namespace Keysharp.Core.Common.Keyboard
 			// other command that would have unpredictable results due to the displaying
 			// of the dialog itself.
 			if (displayWarning)
-				return ScriptEventExecutionResult.Dropped;
+				return Complete(ScriptEventExecutionResult.Dropped);
 
-			if (!variant.AnyThreadsAvailable())
-				return variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped;
+			if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
+				return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
 
 			try
 			{
@@ -2152,11 +2202,12 @@ namespace Keysharp.Core.Common.Keyboard
 					// if it was called from an ExecUntil() other than ours here:
 					ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
 					script.SetHotNamesAndTimes(Name);
-					_ = Interlocked.Increment(ref variant.existingThreads);
+					binding.ReleasePending();
+					_ = Interlocked.Increment(ref binding.ExistingThreads);
 
 					try
 					{
-						_ = btv.RunAndEnd(() =>
+						_ = btv.Run(() =>
 						{
 							if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
 								A_EventInfo = (long)Conversions.LowWord(lParamVal);
@@ -2165,25 +2216,26 @@ namespace Keysharp.Core.Common.Keyboard
 							var tv = script.Threads.CurrentThread;
 							tv.hwndLastUsed = new nint(critFoundHwnd);
 							tv.hotCriterion = variant.hotCriterion;
-							_ = variant.callback.Call([Name]);
+							_ = callback.Call([Name]);
 						});
 					}
 					finally
 					{
-						_ = Interlocked.Decrement(ref variant.existingThreads);
+						_ = Interlocked.Decrement(ref binding.ExistingThreads);
+						script.Threads.EndThread(btv);
 					}
 
 					return true;
 				}, out _);
 
-				return executionResult;
+				return Complete(executionResult);
 			}
 			catch (KeysharpException ex)
 			{
 				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
 			}
 
-			return ScriptEventExecutionResult.Dropped;
+			return Complete(ScriptEventExecutionResult.Dropped);
 		}
 
 		internal ResultType Register()
@@ -2238,23 +2290,23 @@ namespace Keysharp.Core.Common.Keyboard
 			int existingThreads;
 
 			for (existingThreads = 0, vp = firstVariant; vp != null; vp = vp.nextVariant)
-				existingThreads += vp.existingThreads;
+				existingThreads += vp.GetExistingThreadCount();
 
 			var existingThreadsStr = existingThreads != 0 ? existingThreads.ToString() : "";
 
 			string htype = type switch
-		{
+			{
 				HotkeyTypeEnum.Normal => "reg",
 				HotkeyTypeEnum.KeyboardHook => "k-hook",
 				HotkeyTypeEnum.MouseHook => "m-hook",
 				HotkeyTypeEnum.BothHook => "2-hooks",
 				HotkeyTypeEnum.Joystick => "joypoll",
 				_ => "",
-		};
+			};
 
-		string enabledStr;
+			string enabledStr;
 
-		if (IsCompletelyDisabled()) // Takes into account alt-tab vs. non-alt-tab, etc.
+			if (IsCompletelyDisabled()) // Takes into account alt-tab vs. non-alt-tab, etc.
 				enabledStr = "OFF";
 			else if (hookAction != 0 && parentEnabled) // It's completely "on" in this case.
 				enabledStr = "";
@@ -2262,7 +2314,7 @@ namespace Keysharp.Core.Common.Keyboard
 			{
 				// Set default: Empty string means "ON" because it reduces clutter in the displayed list.
 				for (enabledStr = "", vp = firstVariant; vp != null; vp = vp.nextVariant)
-					if (!vp.enabled)
+					if (!vp.HasEnabledBindings())
 					{
 						enabledStr = "PART";
 						break;
@@ -2367,13 +2419,13 @@ namespace Keysharp.Core.Common.Keyboard
 			return null;
 		}
 
-		private static bool HotIfWinActivePrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Active;
+		private static long HotIfWinActivePrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Active ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
 
-		private static bool HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Exists;
+		private static long HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Exists ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
 
-		private static bool HotIfWinNotActivePrivate(object title, object text, object hotkey) => !HotIfWinActivePrivate(title, text, hotkey);
+		private static long HotIfWinNotActivePrivate(object title, object text, object hotkey) => HotIfWinActivePrivate(title, text, hotkey) == 0L ? 1L : 0L;
 
-		private static bool HotIfWinNotExistPrivate(object title, object text, object hotkey) => !HotIfWinExistPrivate(title, text, hotkey);
+		private static long HotIfWinNotExistPrivate(object title, object text, object hotkey) => HotIfWinExistPrivate(title, text, hotkey) == 0L ? 1L : 0L;
 
 		internal static object SetupHotIfWin(string funcname, object obj0 = null, object obj1 = null)
 		{
@@ -2396,13 +2448,12 @@ namespace Keysharp.Core.Common.Keyboard
 			return null;
 		}
 
-		private bool Disable(HotkeyVariant aVariant) // Returns true if the variant needed to be disabled, in which case caller should generally call ManifestAllHotkeysHotstringsHooks().
+		private bool Disable(HotkeyBinding binding) // Returns true if the variant needed to be disabled, in which case caller should generally call ManifestAllHotkeysHotstringsHooks().
 		{
-			if (!aVariant.enabled) // Added for v1.0.23 to greatly improve performance when hotkey is already in the right state.
+			if (binding == null || !binding.IsActive) // Added for v1.0.23 to greatly improve performance when hotkey is already in the right state.
 				return false; // Indicate that it's already disabled.
 
-			aVariant.enabled = false;
-			aVariant.callbackRegistration.SetActive(false);
+			binding.SetActive(false);
 			return true;
 		}
 
@@ -2415,13 +2466,12 @@ namespace Keysharp.Core.Common.Keyboard
 			return true;
 		}
 
-		private bool Enable(HotkeyVariant aVariant) // Returns true if the variant needed to be disabled, in which case caller should generally call ManifestAllHotkeysHotstringsHooks().
+		private bool Enable(HotkeyBinding binding) // Returns true if the variant needed to be disabled, in which case caller should generally call ManifestAllHotkeysHotstringsHooks().
 		{
-			if (aVariant.enabled) // Added for v1.0.23 to greatly improve performance when hotkey is already in the right state.
+			if (binding == null || binding.IsActive) // Added for v1.0.23 to greatly improve performance when hotkey is already in the right state.
 				return false; // Indicate that it's already enabled.
 
-			aVariant.enabled = true;
-			aVariant.callbackRegistration.SetActive(aVariant.callback != null);
+			binding.SetActive(binding.Callback != null);
 			return true;
 		}
 
@@ -2449,16 +2499,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 				for (var variant = hotkey.firstVariant; variant != null; variant = variant.nextVariant)
 				{
-					if (!ReferenceEquals(variant.ownerScheduler, scheduler))
-						continue;
-
-					variant.callbackRegistration.Clear();
-
-					if (!variant.enabled)
-						continue;
-
-					variant.enabled = false;
-					changed = true;
+					changed |= variant.RemoveBinding(scheduler);
 				}
 			}
 
@@ -2605,9 +2646,8 @@ namespace Keysharp.Core.Common.Keyboard
 
 	internal class HotkeyVariant
 	{
-		internal readonly CallbackRegistration callbackRegistration = new();
-		internal bool enabled;
-		internal int existingThreads;
+		// Exact-match variants can have one callback registration per scheduler.
+		internal readonly List<HotkeyBinding> bindings = [];
 		internal IFuncObj hotCriterion;
 		internal int index;
 		internal long inputLevel;
@@ -2615,17 +2655,6 @@ namespace Keysharp.Core.Common.Keyboard
 		internal bool maxThreadsBuffer;
 		internal HotkeyVariant nextVariant;
 		internal uint noSuppress;
-		internal IFuncObj callback
-		{
-			get => callbackRegistration.Callback;
-			set => callbackRegistration.Set(value, callbackRegistration.OwnerScheduler, enabled && value != null);
-		}
-		internal ScriptEventScheduler ownerScheduler
-		{
-			get => callbackRegistration.OwnerScheduler;
-			set => callbackRegistration.Set(callback, value, enabled && callback != null);
-		}
-		internal IFuncObj originalCallback;   // This is the callback set at load time.
 		internal int priority;
 		internal bool suspendExempt;
 
@@ -2640,7 +2669,127 @@ namespace Keysharp.Core.Common.Keyboard
 		/// </summary>
 		/// <param name="variant"></param>
 		/// <returns></returns>
-		internal bool AnyThreadsAvailable() => existingThreads < maxThreads;
+		internal bool HasEnabledBindings()
+		{
+			lock (bindings)
+				return bindings.Any(static binding => binding.IsDispatchable);
+		}
+
+		internal HotkeyBinding FindBinding(ScriptEventScheduler scheduler)
+		{
+			if (scheduler == null)
+				return null;
+
+			lock (bindings)
+				return bindings.Find(binding => ReferenceEquals(binding.OwnerScheduler, scheduler));
+		}
+
+		internal HotkeyBinding SetBinding(ScriptEventScheduler scheduler, IFuncObj callback, IFuncObj originalCallback)
+		{
+			originalCallback ??= callback;
+
+			lock (bindings)
+			{
+				var binding = FindBinding(scheduler);
+
+				if (binding == null)
+				{
+					binding = new HotkeyBinding(callback, scheduler, callback != null, originalCallback);
+					bindings.Add(binding);
+				}
+				else
+				{
+					binding.OriginalCallback = originalCallback ?? binding.OriginalCallback;
+					binding.Set(callback, scheduler, binding.IsActive && callback != null);
+				}
+
+				return binding;
+			}
+		}
+
+		internal bool RemoveBinding(ScriptEventScheduler scheduler)
+		{
+			lock (bindings)
+			{
+				for (var i = 0; i < bindings.Count; ++i)
+				{
+					if (!ReferenceEquals(bindings[i].OwnerScheduler, scheduler))
+						continue;
+
+					bindings[i].Detach();
+					bindings.RemoveAt(i);
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		internal int BindingCount { get { lock (bindings) return bindings.Count; } }
+
+		internal int GetExistingThreadCount()
+		{
+			lock (bindings)
+			{
+				var total = 0;
+
+				foreach (var binding in bindings)
+					total += Volatile.Read(ref binding.ExistingThreads);
+
+				return total;
+			}
+		}
+
+		internal HotkeyBinding[] GetActiveBindings() { lock (bindings) return [.. bindings.Where(static binding => binding.IsDispatchable)]; }
+	}
+
+	internal sealed class HotkeyBinding : CallbackRegistration
+	{
+		internal HotkeyBinding(IFuncObj callback, ScriptEventScheduler ownerScheduler, bool active, IFuncObj originalCallback)
+			: base(callback, ownerScheduler, active)
+		{
+			OriginalCallback = originalCallback;
+		}
+
+		internal int ExistingThreads;
+		internal int PendingEvents;
+		internal IFuncObj OriginalCallback { get; set; }
+
+		internal bool IsDispatchable => IsActive && Callback != null && OwnerScheduler != null;
+
+		internal void Detach() { OriginalCallback = null; Set(null, null, false); }
+
+		internal void ReleasePending()
+		{
+			while (true)
+			{
+				var pending = Volatile.Read(ref PendingEvents);
+
+				if (pending <= 0 || Interlocked.CompareExchange(ref PendingEvents, pending - 1, pending) == pending)
+					return;
+			}
+		}
+
+		internal bool TryReservePending(ScriptEventScheduler scheduler, IFuncObj callback, long maxThreads, bool allowBuffering)
+		{
+			if (!IsActive || scheduler == null || callback == null)
+				return false;
+
+			while (true)
+			{
+				if (!IsActive || !ReferenceEquals(OwnerScheduler, scheduler) || !ReferenceEquals(Callback, callback))
+					return false;
+
+				var pendingEvents = Volatile.Read(ref PendingEvents);
+				var existingThreads = Volatile.Read(ref ExistingThreads);
+
+				if (!allowBuffering && (long)existingThreads + pendingEvents >= maxThreads)
+					return false;
+
+				if (Interlocked.CompareExchange(ref PendingEvents, pendingEvents + 1, pendingEvents) == pendingEvents)
+					return true;
+			}
+		}
 	}
 
 	internal enum HotCriterionEnum

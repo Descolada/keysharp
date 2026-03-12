@@ -1221,7 +1221,6 @@ namespace Keysharp.Core.Windows
 
 		protected internal override void Stop()
 		{
-			thread?.Dispose();
 			base.Stop();
 		}
 

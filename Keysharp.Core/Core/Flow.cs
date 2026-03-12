@@ -746,7 +746,7 @@ namespace Keysharp.Core
 			}
 
 			script.hasExited = true;//At this point, we are clear to exit, so do not allow any more calls to this function.
-			script.SignalAllEventSchedulers();
+			script.ScheduleAllEventSchedulers();
 			fd.allowInterruption = allowInterruption_prev;
 			HotkeyDefinition.AllDestruct();
 			StopMainTimer();
@@ -761,8 +761,7 @@ namespace Keysharp.Core
 
 			Gui.DestroyAll();
 			Environment.ExitCode = ec;
-			script.Stop();
-			script.mainWindow?.Close();
+			script.Dispose();
 
 #if !WINDOWS
 			Keysharp.Scripting.Script.InvokeOnUIThread(() => Eto.Forms.Application.Instance?.Quit());
@@ -943,7 +942,7 @@ namespace Keysharp.Core
 		/// </summary>
 		internal bool suspended;
 
-		internal CallbackRegistrationHub<TimerRegistration> timers = new();
+		internal CallbackRegistry<TimerRegistration> timers = new();
 		internal readonly ConcurrentDictionary<TimerWithTag, TimerRegistration> timersByInstance = new();
 		internal long nextTimerFallbackDueTick = long.MaxValue;
 		internal bool timerFallbackDueTickDirty = true;

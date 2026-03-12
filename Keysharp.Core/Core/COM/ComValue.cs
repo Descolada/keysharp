@@ -7,7 +7,7 @@ namespace Keysharp.Core
 	{
 		internal static readonly long F_OWNVALUE = 1;
 		internal static readonly int MaxVtableLen = 16;
-		internal readonly CallbackRegistrationHub<CallbackRegistration> handlers = new();
+		internal readonly CallbackRegistry<CallbackRegistration> handlers = new();
 		internal object item;
 
 		private nint NintPtr => Ptr switch { long lp => (nint)lp, nint ip => ip, _ => 0 };

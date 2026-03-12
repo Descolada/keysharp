@@ -1,7 +1,7 @@
 #if !WINDOWS
 using System.Diagnostics;
 using WinForms = System.Windows.Forms;
-using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+using CallbackRegistry = Keysharp.Scripting.CallbackRegistry<Keysharp.Scripting.CallbackRegistration>;
 
 namespace Keysharp.Core
 {
@@ -1966,7 +1966,7 @@ namespace Keysharp.Core
 
 	public class KeysharpToolStripStatusLabel
 	{
-		internal readonly CallbackHub doubleClickHandlers = new();
+		internal readonly CallbackRegistry doubleClickHandlers = new();
 
 		public bool AutoSize { get; set; }
 		public bool Spring { get; set; }

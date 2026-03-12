@@ -1,5 +1,5 @@
 ﻿#if WINDOWS
-using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+using CallbackHub = Keysharp.Scripting.CallbackRegistry<Keysharp.Scripting.CallbackRegistration>;
 namespace Keysharp.Core
 {
 	public partial class Gui : KeysharpObject, I__Enum, IEnumerable<(object, object)>

@@ -1,5 +1,5 @@
 ﻿#if WINDOWS
-using CallbackHub = Keysharp.Scripting.CallbackRegistrationHub<Keysharp.Scripting.CallbackRegistration>;
+using CallbackHub = Keysharp.Scripting.CallbackRegistry<Keysharp.Scripting.CallbackRegistration>;
 using Label = System.Windows.Forms.Label;
 
 namespace Keysharp.Core

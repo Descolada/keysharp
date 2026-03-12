@@ -12,18 +12,19 @@ namespace Keysharp.Tests
 
 		private static HotkeyVariant CreateHotkeyVariant(Action action, int maxThreads = 1, int existingThreads = 0, bool maxThreadsBuffer = false)
 		{
-			return new HotkeyVariant
+			var variant = new HotkeyVariant
 			{
-				callback = new FuncObj((Func<object, object>)(_ =>
-				{
-					action();
-					return 0L;
-				})),
 				maxThreads = maxThreads,
-				existingThreads = existingThreads,
 				maxThreadsBuffer = maxThreadsBuffer,
 				priority = 0
 			};
+			var binding = variant.SetBinding(Script.TheScript.EventScheduler, new FuncObj((Func<object, object>)(_ =>
+			{
+				action();
+				return 0L;
+			})), null);
+			binding.ExistingThreads = existingThreads;
+			return variant;
 		}
 
 		[Test, Category("Threading")]
@@ -103,11 +104,33 @@ namespace Keysharp.Tests
 			Assert.AreEqual(0, hotkeyCalls);
 			Assert.AreEqual(1, normalCalls);
 
-			variant.existingThreads = 0;
+			variant.FindBinding(Script.TheScript.EventScheduler).ExistingThreads = 0;
 			s.EventScheduler.SchedulePump();
 			context.DrainAll();
 
 			Assert.AreEqual(1, hotkeyCalls);
+		}
+
+		[Test, Category("Threading")]
+		public void HotkeyUnbufferedDrop()
+		{
+			var context = UseQueuedMainContext();
+
+			var hotkeyCalls = 0;
+			var hk = CreateHotkey();
+			var variant = CreateHotkeyVariant(() => hotkeyCalls++, existingThreads: 1, maxThreadsBuffer: false);
+
+			hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
+			hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
+
+			context.DrainAll();
+			Assert.AreEqual(0, hotkeyCalls);
+
+			variant.FindBinding(Script.TheScript.EventScheduler).ExistingThreads = 0;
+			s.EventScheduler.SchedulePump();
+			context.DrainAll();
+
+			Assert.AreEqual(0, hotkeyCalls, "Unbuffered hotkey events should be dropped before entering the scheduler queue.");
 		}
 
 		[Test, Category("Threading")]

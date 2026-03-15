@@ -1542,8 +1542,7 @@
 
 			SetContentAlignment(ctrl, opts);
 
-			controls[ctrl.Handle.ToInt64()] = holder;
-			var prevParent = LastContainer;
+				var prevParent = LastContainer;
 
 			if (opts.altsubmit.HasValue)
 				holder.AltSubmit = opts.altsubmit.Value;
@@ -1636,8 +1635,14 @@
 				w = lcWidth;
 			else if (ctrl is KeysharpComboBox || ctrl is HotkeyBox || ctrl is KeysharpListBox || ctrl is KeysharpNumericUpDown || ctrl is KeysharpProgressBar || ctrl is KeysharpTextBox || ctrl is KeysharpPasswordBox)
 				w = fontpixels * 15;
-			else if (ctrl is KeysharpTrackBar trk)
-				w = trk.Orientation == Orientation.Horizontal ? fontpixels * 15 : fontpixels * 2;//Documentation didn't mention a default for vertical trackbars, so just make it the same a vertical progress bar.
+				else if (ctrl is KeysharpTrackBar trk)
+				{
+#if WINDOWS
+					w = trk.Orientation == Orientation.Horizontal ? fontpixels * 15 : fontpixels * 2;//Documentation didn't mention a default for vertical trackbars, so just make it the same a vertical progress bar.
+#else
+					w = trk.Orientation == Orientation.Horizontal ? fontpixels * 16 : fontpixels * 3;
+#endif
+				}
 			else if (ctrl is KeysharpGroupBox)
 				w = fontpixels * 18;
 			else if (ctrl is TabPage || ctrl is KeysharpTabControl)
@@ -1783,11 +1788,15 @@
 					{
 						if (!rowsSpecified) //Neither r or h were specified.
 						{
-							if (ctrl is KeysharpTrackBar trk && opts.thick == int.MinValue)//Separate check for TrackBar because the documentation specifies it in pixels. Skip this if thickness has been specified.
-							{
-								finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : Convert.ToInt32(5 * fontpixels);
-								goto heightdone;
-							}
+								if (ctrl is KeysharpTrackBar trk && opts.thick == int.MinValue)//Separate check for TrackBar because the documentation specifies it in pixels. Skip this if thickness has been specified.
+								{
+#if WINDOWS
+									finalHeight = trk.Orientation == Orientation.Horizontal ? 30 : Convert.ToInt32(5 * fontpixels);
+#else
+									finalHeight = trk.Orientation == Orientation.Horizontal ? Convert.ToInt32(2.75 * fontpixels) : Convert.ToInt32(5.5 * fontpixels);
+#endif
+									goto heightdone;
+								}
 							else if (ctrl is KeysharpLabel lbl)
 							{
 								bool hasW = !widthAuto && (opts.width != int.MinValue || opts.wp != int.MinValue);
@@ -1973,7 +1982,11 @@
 				var top = (double)prevParent.Margin.Top;
 
 				if (prevParent is Form f && f.MainMenuStrip != null)
+				{
+#if WINDOWS
 					top += f.MainMenuStrip.GetSize().Height;
+#endif
+				}
 
 				if (loc.Y == int.MinValue && LastContainer is KeysharpGroupBox gblast)
 				{
@@ -1989,8 +2002,10 @@
 			if (isTabControl)
 			{
 				var ktc = (KeysharpTabControl)ctrl;
-				if (ktc.TabPages.Count >= 0)
+				if (ktc.TabPages.Count > 0)
 					holder.UseTab(1);//Will set this object's CurrentTab value, as well as the LastContainer values.
+				else
+					LastContainer = ktc.Parent;
 
 				if (opts.bgtrans)
 					ktc.SetColor(Color.Transparent);
@@ -2048,6 +2063,7 @@
 			}
 
 			ctrl.SetLocation(loc);
+			controls[ctrl.Handle.ToInt64()] = holder;
 
 #if WINDOWS
 

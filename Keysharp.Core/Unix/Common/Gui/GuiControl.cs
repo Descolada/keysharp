@@ -405,7 +405,7 @@ namespace Keysharp.Core
 				{
 					dtp.ValueChanged += Dtp_ValueChanged;
 				}
-				else if (_control is TextControl txt)
+				else if (_control is TextControl txt && _control is not KeysharpRadioButton)
 				{
 					txt.TextChanged += Txt_TextChanged;
 				}
@@ -493,6 +493,7 @@ namespace Keysharp.Core
 						else
 							node = nodes.Add(name);
 
+						tv.ReloadData();
 						tv.DelayedExpandParent(node);
 						var id = node.Handle.ToInt64();
 						node.Name = id.ToString();

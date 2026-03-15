@@ -746,7 +746,7 @@ RunImageSearchTest() {
 		prevMode := CoordMode("Pixel", "Screen")
 		EnsurePixelHelper(true)
 		WinGetPos(&x, &y, &w, &h, "KS Pixel Target")
-		ImageSearch(&foundX, &foundY, x, y, x + w - 1, y + h - 1, gPixelAssetPath)
+		ImageSearch(&foundX, &foundY, x, y, x + w - 1, y + h - 1, gPixelAssetPath, "*1")
 
 		if (foundX != "" && foundY != "" && foundX >= x && foundX <= x + w && foundY >= y && foundY <= y + h) {
 			SetStatus("pixel_image", "Image status: PASS")

@@ -75,8 +75,8 @@ namespace System.Windows.Forms
 					allowAutoSizeWidth = ((Size)requestedSize).Width == -1;
 					allowAutoSizeHeight = ((Size)requestedSize).Height == -1;
 				}
-				var newWidth = allowAutoSizeWidth ? existingSize.Width : Math.Max(existingSize.Width, prefSize.Width);
-				var newHeight = allowAutoSizeHeight ? existingSize.Height : Math.Max(existingSize.Height, prefSize.Height);
+				var newWidth = allowAutoSizeWidth ? Math.Max(existingSize.Width, prefSize.Width) : existingSize.Width;
+				var newHeight = allowAutoSizeHeight ? Math.Max(existingSize.Height, prefSize.Height) : existingSize.Height;
 				if (newWidth != existingSize.Width || newHeight != existingSize.Height)
 					control.Properties["AssignedSize"] = new Size(newWidth, newHeight);
 			}
@@ -94,13 +94,23 @@ namespace System.Windows.Forms
 			else if (newSize.Height >= 0)
 				control.Height = newSize.Height;
 #else
-#if LINUX
-			control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
-#else
-			var etoPrefSize = control.GetPreferredSize();
-			var prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
-#endif
 			var requestedSize = new Size(newSize.Width == int.MinValue ? -1 : newSize.Width, newSize.Height == int.MinValue ? -1 : newSize.Height);
+			var needsPreferredSize = requestedSize.Width == -1 || requestedSize.Height == -1;
+			var prefSize = Size.Empty;
+
+			if (needsPreferredSize)
+			{
+#if LINUX
+				control.ToNative().GetPreferredSize(out var minSize, out var nativePrefSize);
+				prefSize = nativePrefSize.Width > 0 || nativePrefSize.Height > 0
+					? new Size(nativePrefSize.Width, nativePrefSize.Height)
+					: new Size(1, 1);
+#else
+				var etoPrefSize = control.GetPreferredSize();
+				prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
+#endif
+			}
+
 			var width = requestedSize.Width == -1 ? prefSize.Width : newSize.Width;
 			var height = requestedSize.Height == -1 ? prefSize.Height : newSize.Height;
 			var assignSize = new Size(width, height);

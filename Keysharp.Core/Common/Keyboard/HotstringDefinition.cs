@@ -291,7 +291,7 @@ namespace Keysharp.Core.Common.Keyboard
 				   && (_caseSensitive ? _hotstring.SequenceEqual(str.AsSpan()) : str.AsSpan().Equals(_hotstring, StringComparison.OrdinalIgnoreCase));// :C:BTW:: and :C:btw:: can co-exist, but not ::BTW:: and ::btw::.
 		}
 
-		internal void DoReplace(CaseConformModes caseMode, char endChar)
+		internal void DoReplace(CaseConformModes caseMode, char endChar, uint triggerVk = 0)
 		{
 			var sb = new StringBuilder();//This might be able to be done more efficiently, but use sb unless performance issues show up.
 			var startOfReplacement = 0;
@@ -311,16 +311,14 @@ namespace Keysharp.Core.Common.Keyboard
 						backspaceCount--;
 					}
 
-#if WINDOWS
 				// Subtract 1 from backspaces because the final key pressed by the user to make a
 				// match was already suppressed by the hook (it wasn't sent through to the active
 				// window).  So what we do is backspace over all the other keys prior to that one,
 				// put in the replacement text (if applicable), then send the EndChar through
 				// (if applicable) to complete the sequence.
 
-				if (!endCharRequired)
-					--backspaceCount;
-#endif
+					if (!endCharRequired)
+						--backspaceCount;
 
 				for (var i = 0; i < backspaceCount; ++i)
 				{
@@ -410,7 +408,7 @@ namespace Keysharp.Core.Common.Keyboard
 			if (!(doBackspace || omitEndChar) && sendMode != SendModes.Event) // The final character of the abbreviation (or its EndChar) was not suppressed by the hook.
 				Thread.Sleep(0);
 
-			ht.PrepareToSendHotstringReplacement(endChar);
+			ht.PrepareToSendHotstringReplacement(endChar, triggerVk);
 
 			kbdMouseSender.SendKeys(sendBuf, sendRaw, sendMode, 0); // Send the backspaces and/or replacement.
 			// Restore original values.

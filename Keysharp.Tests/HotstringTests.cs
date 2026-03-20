@@ -10,11 +10,16 @@ namespace Keysharp.Tests
 	{
 		private static bool btwtyped = false;
 		private static readonly ManualResetEventSlim btwTypedEvent = new(false);
+		private QueuedSynchronizationContext mainContext;
 
 		private void SimulateKeyPress(uint key)
 		{
 			s.HookThread.SimulateKeyPress(key);
+			mainContext?.DrainAll();
+			s.EventScheduler.PumpPendingEvents();
+			mainContext?.DrainAll();
 			s.UIEventScheduler.PumpPendingEvents();
+			mainContext?.DrainAll();
 		}
 
 		public static object Label_9F201721(params object[] args)
@@ -590,9 +595,59 @@ namespace Keysharp.Tests
 			_ = Keyboard.Hotstring("MouseReset", true);
 		}
 
+		[Test, Category("Hotstring"), NonParallelizable]
+		public void MatchingRespectsImmediateAndEndCharTriggers()
+		{
+			ResetHotstringMatchState();
+			var immediate = AddHotstringForMatchTest("*:", "kssuite");
+			Assert.AreEqual(immediate, MatchHotstring("kssuite"));
+
+			ResetHotstringMatchState();
+			var endChar = AddHotstringForMatchTest("", "ksend");
+			Assert.IsNull(MatchHotstring("ksend"));
+			_ = Keyboard.Hotstring("Reset");
+			Assert.AreEqual(endChar, MatchHotstring("ksend "));
+		}
+
+		[Test, Category("Hotstring"), NonParallelizable]
+		public void MatchingRecognizesDefaultEndingCharacters()
+		{
+			ResetHotstringMatchState();
+			var periodEndChar = AddHotstringForMatchTest("", "ksdot");
+			Assert.AreEqual(periodEndChar, MatchHotstring("ksdot."));
+
+			ResetHotstringMatchState();
+			var tabEndChar = AddHotstringForMatchTest("", "kstab");
+			Assert.AreEqual(tabEndChar, MatchHotstring("kstab\t"));
+		}
+
+		[Test, Category("Hotstring"), NonParallelizable]
+		public void MatchingRespectsInsideWordOption()
+		{
+			ResetHotstringMatchState();
+			AddHotstringForMatchTest("", "ksword");
+			Assert.IsNull(MatchHotstring("prefixksword "));
+
+			ResetHotstringMatchState();
+			var insideWord = AddHotstringForMatchTest("?:", "ksword");
+			Assert.AreEqual(insideWord, MatchHotstring("prefixksword "));
+		}
+
+		[Test, Category("Hotstring"), NonParallelizable]
+		public void MatchingRespectsCaseSensitiveOption()
+		{
+			ResetHotstringMatchState();
+			var caseSensitive = AddHotstringForMatchTest("C:", "AbC");
+			Assert.AreEqual(caseSensitive, MatchHotstring("AbC "));
+
+			_ = Keyboard.Hotstring("Reset");
+			Assert.IsNull(MatchHotstring("abc "));
+		}
+
 		[SetUp, Category("Hotstring")]
 		public void Setup()
 		{
+			mainContext = UseQueuedMainContext();
 			_ = Keyboard.Hotstring("*0");
 			_ = Keyboard.Hotstring("C0");
 			_ = Keyboard.Hotstring("?0");
@@ -608,6 +663,27 @@ namespace Keysharp.Tests
 			_ = Keyboard.Hotstring("EndChars", "-()[]{}:;'\"/\\,.?!\r\n \t");
 			hsm.RestoreDefaults(true);
 			hsm.ClearHotstrings();
+		}
+
+		private void ResetHotstringMatchState()
+		{
+			_ = Keyboard.Hotstring("Reset");
+			hsm.ClearHotstrings();
+			hsm.RestoreDefaults(true);
+		}
+
+		private HotstringDefinition AddHotstringForMatchTest(string optionPrefix, string trigger)
+		{
+			var normalizedPrefix = string.IsNullOrEmpty(optionPrefix) ? ":" : optionPrefix;
+			var name = $":{normalizedPrefix}{trigger}";
+			var options = $"{normalizedPrefix}{trigger}";
+			return (HotstringDefinition)Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring(name, null, options, trigger, trigger.ToUpperInvariant(), false);
+		}
+
+		private HotstringDefinition MatchHotstring(string typed)
+		{
+			hsm.AddChars(typed);
+			return hsm.MatchHotstring();
 		}
 	}
 }

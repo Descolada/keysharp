@@ -49,7 +49,7 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${DEB_ARCH}
-Maintainer: Keysharp
+Maintainer: Descolada
 Depends: ${DEB_DEPENDS}
 Description: ${DEB_DESCRIPTION}
 EOF

@@ -259,7 +259,11 @@ namespace Keysharp.Core.Unix
 
 		internal UnixHookThread()
 		{
+#if LINUX
+			kbdMsSender = new LinuxKeyboardMouseSender();
+#else
 			kbdMsSender = new UnixKeyboardMouseSender();
+#endif
 		}
 
 		internal SendScope EnterSendScope() => new(this);
@@ -559,6 +563,12 @@ namespace Keysharp.Core.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
+			if (!isInjected && ShouldConsumePlatformHotstringKeyDown(vk))
+			{
+				e.SuppressEvent = true;
+				return;
+			}
+
 			// Track logical state as seen by apps.
 			UpdateLogicalKeyFromHook(vk, keyUp: false, wasGrabbed);
 
@@ -567,7 +577,7 @@ namespace Keysharp.Core.Unix
 
 			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected} extraInfo={extraInfo} time={DateTime.Now.ToString("hh.mm.ss.ffffff")}");
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, (uint)(isInjected ? 0x10 : 0));
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, false);
@@ -593,11 +603,17 @@ namespace Keysharp.Core.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
+			if (!isInjected && ShouldConsumePlatformHotstringKeyUp(vk))
+			{
+				e.SuppressEvent = true;
+				return;
+			}
+
 			UpdateLogicalKeyFromHook(vk, keyUp: true, wasGrabbed);
 
 			DebugLog($"[Hook] KeyUp vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected}");
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, (uint)(isInjected ? 0x10 : 0));
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 
 			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
 				ReplayGrabbedKey(keyCode, vk, sc, true);
@@ -662,6 +678,18 @@ namespace Keysharp.Core.Unix
 			return false;
 		}
 
+		protected virtual bool ShouldConsumePlatformHotstringKeyDown(uint vk) => false;
+
+		protected virtual bool ShouldConsumePlatformHotstringKeyUp(uint vk) => false;
+
+		protected virtual void TrackPlatformHotstringTrigger(uint triggerVk)
+		{
+		}
+
+		protected virtual void AddPlatformHotstringArmEnds(HotstringManager hm, ReadOnlySpan<char> hsBuf, HashSet<char> ends)
+		{
+		}
+
 		private static uint VkToModMask(uint vk) => vk switch
 		{
 			VK_LSHIFT => MOD_LSHIFT,
@@ -718,7 +746,7 @@ namespace Keysharp.Core.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)
 				e.SuppressEvent = true;
 		}
@@ -755,7 +783,7 @@ namespace Keysharp.Core.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)
 				e.SuppressEvent = true;
 		}
@@ -776,7 +804,7 @@ namespace Keysharp.Core.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
-			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, 0);
+			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)
 				e.SuppressEvent = true;
 		}
@@ -1081,10 +1109,22 @@ namespace Keysharp.Core.Unix
 						endChar = lastTypedChar;
 				}
 
+				var triggerVk = lastHookEventWasKeyboard ? lastKeyboardEventVk : 0;
+
+				if (triggerVk != 0)
+					TrackPlatformHotstringTrigger(triggerVk);
+
 				_ = PostMessage(new KeysharpMsg
 				{
 					message = (uint)UserMessages.AHK_HOTSTRING,
-					obj = new HotstringMsg { hs = ready, caseMode = caseMode, endChar = endChar }
+					obj = new HotstringMsg
+					{
+						hs = ready,
+						caseMode = caseMode,
+						endChar = endChar,
+						triggerVk = triggerVk,
+						recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(ready.hotCriterion)
+					}
 				});
 				LogHotstringBuffer($"hotstring fired '{ready.Name}' end='{(endChar == '\0' ? "\\0" : endChar.ToString())}'");
 				ClearHotstringBuffer("fired");
@@ -1093,8 +1133,10 @@ namespace Keysharp.Core.Unix
 				return;
 			}
 
-			// 2) Predict: append each possible end-char; if MatchHotstring() would succeed, arm that end-char.
+			// 2) Predict: append each possible completion char.
+			// Shared Unix logic arms end-chars; platforms can add extra completion keys if needed.
 			var ends = new HashSet<char>();
+			var hsBufSpan = (ReadOnlySpan<char>)System.Runtime.InteropServices.CollectionsMarshal.AsSpan(hm.hsBuf);
 
 			// Prefer manager’s configured defaults; fall back to a sensible superset if needed.
 			var def = hm.defEndChars ?? string.Empty;
@@ -1103,9 +1145,11 @@ namespace Keysharp.Core.Unix
 				hm.hsBuf.Add(c);
 				var m = hm.MatchHotstring();
 				hm.hsBuf.RemoveAt(hm.hsBuf.Count - 1);
-				if (m != null)
-					ends.Add(c);
-			}
+					if (m != null)
+						ends.Add(c);
+				}
+
+			AddPlatformHotstringArmEnds(hm, hsBufSpan, ends);
 
 			// If manager had no defaults or nothing matched, you can optionally include extra common terminators:
 			// foreach (var c in " \t\r\n.,;:!?-") { ... }  // (uncomment if you want a bit more aggressive prediction)
@@ -1338,7 +1382,12 @@ namespace Keysharp.Core.Unix
 				DebugLog($"[HS] typed '{chDesc}': len={hmBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 
 				if (UsePlatformHotstringArming)
-					RecomputeHotstringArming();
+				{
+					if (hsOut != null)
+						DisarmHotstring();
+					else
+						RecomputeHotstringArming();
+				}
 			}
 
 			return result;
@@ -1349,11 +1398,15 @@ namespace Keysharp.Core.Unix
 			if (UsePlatformHotstringArming && hs != null)
 				DisarmHotstring();
 
+			var vk = keyHistoryCurr.vk;
+			if (vk == 0 && lastHookEventWasKeyboard)
+				vk = lastKeyboardEventVk;
+
+			if (!keyUp && hs != null && vk != 0)
+				TrackPlatformHotstringTrigger(vk);
+
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
-				var vk = keyHistoryCurr.vk;
-				if (vk == 0 && lastHookEventWasKeyboard)
-					vk = lastKeyboardEventVk;
 				if (vk != 0)
 				{
 					if (!keyUp && ShouldSuppressSuffixRelease(variant, vk, hotkeyIDToPost))
@@ -1366,8 +1419,10 @@ namespace Keysharp.Core.Unix
 			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar);
 		}
 
-		internal override void PrepareToSendHotstringReplacement(char endChar)
+		internal override void PrepareToSendHotstringReplacement(char endChar, uint triggerVk)
 		{
+			TrackPlatformHotstringTrigger(triggerVk);
+
 			if (UsePlatformHotstringArming)
 				DisarmHotstring();
 		}

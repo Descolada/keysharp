@@ -20,20 +20,21 @@ using SharpHook.Testing;
 namespace Keysharp.Core.Unix
 {
 	/// <summary>
-	/// Concrete implementation of KeyboardMouseSender for the linux platform.
+	/// Shared non-Windows keyboard/mouse sender implementation.
 	/// </summary>
 	internal partial class UnixKeyboardMouseSender : Common.Keyboard.KeyboardMouseSender
 	{
 		[Conditional("DEBUG")]
-		private static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
+		protected static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
 
 		internal IEventSimulator sim => backend.sim;
-		private readonly SharpHookKeySimulationBackend backend = new();
+		protected IEventSimulator Sim => backend.sim;
+		protected readonly SharpHookKeySimulationBackend backend = new();
 
 		// Prefer Right-Alt as AltGr on Linux (prevents menu activation better than neutral Alt).
 		private const uint VK_ALTGR = VK_RMENU;
 
-		private sealed class InputArrayState
+		protected sealed class InputArrayState
 		{
 			internal readonly List<ArrayEvent> Events;
 			internal int Count;
@@ -53,7 +54,7 @@ namespace Keysharp.Core.Unix
 		{
 		}
 
-		private static void EnsureInputSendPermission(string operation)
+		protected static void EnsureInputSendPermission(string operation)
 			=> _ = Script.TheScript.Permissions.EnsureInputInjection(operation: operation);
 
 		internal override bool MouseButtonsSwapped
@@ -82,7 +83,7 @@ namespace Keysharp.Core.Unix
 
 		#region Input array recording
 
-		private enum ArrayEventType : byte
+		protected enum ArrayEventType : byte
 		{
 			KeyDown,
 			KeyUp,
@@ -97,7 +98,7 @@ namespace Keysharp.Core.Unix
 			MouseWheelH
 		}
 
-		private readonly struct ArrayEvent
+		protected readonly struct ArrayEvent
 		{
 			internal readonly ArrayEventType Type;
 
@@ -154,7 +155,7 @@ namespace Keysharp.Core.Unix
 				=> new(ArrayEventType.MouseWheelH, 0, 0, null, 0, 0, MouseButton.NoButton, delta);
 		}
 
-		private void AddArrayEvent(in ArrayEvent ev)
+		protected void AddArrayEvent(in ArrayEvent ev)
 		{
 			lock (inputGate)
 			{
@@ -335,255 +336,196 @@ namespace Keysharp.Core.Unix
 				return;
 
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
-			var ms = DateTime.UtcNow;
-			var ungrabKeycodes = new HashSet<uint>();
-			var ungrabButtons = new HashSet<uint>();
-			var vksToRelease = CollectVksWeWillPress(st.Events);
-			var logicalMods = GetModifierLRState();
-			var modsToPreRelease = CollectModifierUpsForArray(st.Events, logicalMods, lht);
-
-			void AddKeycodeForUngrab(uint vk)
-			{
-				var xk = lht.VkToXKeycode(vk);
-				if (xk != 0) ungrabKeycodes.Add(xk);
-			}
-
-			foreach (var vk in vksToRelease)
-				AddKeycodeForUngrab(vk);
-			foreach (var vk in modsToPreRelease)
-				AddKeycodeForUngrab(vk);
-
-			foreach (var ev in st.Events)
-			{
-				switch (ev.Type)
-				{
-					case ArrayEventType.KeyDown:
-					case ArrayEventType.KeyUp:
-						AddKeycodeForUngrab(ev.Vk);
-						break;
-					case ArrayEventType.Text:
-						AddKeycodeForUngrab(VK_TAB);
-						AddKeycodeForUngrab(VK_BACK);
-						AddKeycodeForUngrab(VK_RETURN);
-						break;
-					case ArrayEventType.MousePress:
-					case ArrayEventType.MouseRelease:
-					{
-						var xbtn = lht.MouseButtonToXButton(ev.Button);
-						if (xbtn != 0) ungrabButtons.Add(xbtn);
-						break;
-					}
-				}
-			}
-
-			var needUngrab = ungrabKeycodes.Count != 0 || ungrabButtons.Count != 0;
-			DebugLog($"[SendArray] Events={st.Events.Count} needUngrab={needUngrab} ungrabKeys={ungrabKeycodes.Count} ungrabButtons={ungrabButtons.Count} vksToRelease={vksToRelease.Count} modsToPreRelease={modsToPreRelease.Count}");
-
 #if DPI
 			double scale = Accessors.A_ScaledScreenDPI;
 #else
 			double scale = 1.0;
 #endif
 
-			WithSendScope(lht, () =>
-			{
-				void SendAction()
-				{
-					List<UnixHookThread.ReleasedKey> released = null;
-					try
-					{
-						if (vksToRelease.Count != 0)
-							released = lht.ForceReleaseKeysForSend(vksToRelease);
+#if !WINDOWS
+			if (TrySendPlatformEventArray(lht, st, extraInfo, scale))
+				return;
+#endif
 
-						// Send up-strokes for modifiers which aren't pressed down, because some key grabs otherwise
-						// block the modifiers from being sent. Otherwise this doesn't generate X11 events anyway.
-						if (modsToPreRelease.Count != 0)
-						{
-							foreach (var vk in modsToPreRelease)
-								backend.KeyUp(vk, ms, extraInfo);
-						}
-
-						// Text replay helper (no delays in array replay; delays are explicit DelayMs events).
-						var textBatch = new StringBuilder();
-
-						void FlushText()
-						{
-							if (textBatch.Length == 0) return;
-
-							EmitTextInjectedWithControls(textBatch.ToString(), extraInfo);
-							textBatch.Clear();
-							ms = DateTime.Now;
-						}
-
-						void EmitTextInjectedWithControls(string s, long extraInfo)
-						{
-							if (string.IsNullOrEmpty(s))
-								return;
-
-							var chunk = new StringBuilder();
-							bool lastWasCR = false;
-							var ms = DateTime.Now;
-
-							void FlushChunk()
-							{
-								if (chunk.Length == 0) return;
-								sim.SimulateTextEntry(chunk.ToString());
-								chunk.Clear();
-								ms = DateTime.Now;
-							}
-
-							foreach (var ch in s)
-							{
-								switch (ch)
-								{
-									case '\r':
-										FlushChunk();
-										backend.KeyStroke(VK_RETURN, ms, extraInfo);
-										lastWasCR = true;
-										break;
-
-									case '\n':
-										if (lastWasCR) { lastWasCR = false; break; }
-										FlushChunk();
-										backend.KeyStroke(VK_RETURN, ms, extraInfo);
-										break;
-
-									case '\t':
-										FlushChunk();
-										backend.KeyStroke(VK_TAB, ms, extraInfo);
-										lastWasCR = false;
-										break;
-
-									case '\b':
-										FlushChunk();
-										backend.KeyStroke(VK_BACK, ms, extraInfo);
-										lastWasCR = false;
-										break;
-
-									default:
-										chunk.Append(ch);
-										lastWasCR = false;
-										break;
-								}
-							}
-
-							FlushChunk();
-						}
-
-						foreach (var ev in st.Events)
-						{
-							if (ev.Type == ArrayEventType.Text)
-							{
-								textBatch.Append(ev.Text);
-								continue;
-							}
-
-							FlushText();
-
-							switch (ev.Type)
-							{
-								case ArrayEventType.DelayMs:
-									if (ev.DelayMs > 0)
-										Flow.SleepWithoutInterruption(ev.DelayMs);
-									ms = DateTime.Now;
-									break;
-
-								case ArrayEventType.KeyDown:
-									DebugLog($"[SendArray] KeyDown vk={ev.Vk}");
-									backend.KeyDown(ev.Vk, ms, extraInfo);
-									break;
-
-								case ArrayEventType.KeyUp:
-									DebugLog($"[SendArray] KeyUp vk={ev.Vk}");
-									backend.KeyUp(ev.Vk, ms, extraInfo);
-									break;
-
-								case ArrayEventType.MouseMoveRel:
-									sim.SimulateMouseMovementRelative((short)(ev.X * scale), (short)(ev.Y * scale));
-									break;
-
-								case ArrayEventType.MouseMoveAbs:
-								{
-									int mx = ev.X, my = ev.Y;
-									EnsureCoords(ref mx, ref my);
-									sim.SimulateMouseMovement((short)(mx * scale), (short)(my * scale));
-									break;
-								}
-
-								case ArrayEventType.MousePress:
-								{
-									int mx = ev.X, my = ev.Y;
-									if (mx == CoordUnspecified && my == CoordUnspecified)
-									{
-										sim.SimulateMousePress(ev.Button);
-									}
-									else
-									{
-										EnsureCoords(ref mx, ref my);
-										sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
-									}
-									break;
-								}
-
-								case ArrayEventType.MouseRelease:
-								{
-									int mx = ev.X, my = ev.Y;
-									if (mx == CoordUnspecified && my == CoordUnspecified)
-									{
-										sim.SimulateMouseRelease(ev.Button);
-									}
-									else
-									{
-										EnsureCoords(ref mx, ref my);
-										sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
-									}
-									break;
-								}
-
-								case ArrayEventType.MouseWheelV:
-									sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
-									break;
-
-								case ArrayEventType.MouseWheelH:
-									sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
-									break;
-							}
-						}
-
-						FlushText();
-					}
-					finally
-					{
-						if (released != null)
-							lht.RestoreNonModifierKeysAfterSend(released);
-					}
-				}
-
-				if (needUngrab)
-				{
-					DebugLog($"[SendArray] BeginSendUngrab keys={ungrabKeycodes.Count} buttons={ungrabButtons.Count}");
-					var snap = lht.BeginSendUngrab(ungrabKeycodes, ungrabButtons);
-					try { SendAction(); }
-					finally { lht.EndSendUngrab(snap); }
-				}
-				else
-					SendAction();
-			});
-
-			void EnsureCoords(ref int cx, ref int cy)
-			{
-				if (cx != CoordUnspecified && cy != CoordUnspecified)
-					return;
-
-				if (!GetCursorPos(out POINT pos))
-					pos = new POINT(0, 0);
-
-				if (cx == CoordUnspecified) cx = pos.X;
-				if (cy == CoordUnspecified) cy = pos.Y;
-			}
+			WithSendScope(lht, () => WithSendUngrab(lht, () => ReplayEventArrayEvents(st.Events, extraInfo, scale)));
 		}
 
-		private static HashSet<uint> CollectVksWeWillPress(List<ArrayEvent> events)
+		protected void ReplayEventArrayEvents(List<ArrayEvent> events, long extraInfo, double scale)
+		{
+			var ms = DateTime.UtcNow;
+			var textBatch = new StringBuilder();
+
+			void FlushText()
+			{
+				if (textBatch.Length == 0)
+					return;
+
+				EmitTextInjectedWithControls(textBatch.ToString(), extraInfo);
+				textBatch.Clear();
+				ms = DateTime.Now;
+			}
+
+			foreach (var ev in events)
+			{
+				if (ev.Type == ArrayEventType.Text)
+				{
+					textBatch.Append(ev.Text);
+					continue;
+				}
+
+				FlushText();
+
+				switch (ev.Type)
+				{
+					case ArrayEventType.DelayMs:
+						if (ev.DelayMs > 0)
+							Flow.SleepWithoutInterruption(ev.DelayMs);
+						ms = DateTime.Now;
+						break;
+
+					case ArrayEventType.KeyDown:
+						DebugLog($"[SendArray] KeyDown vk={ev.Vk}");
+						backend.KeyDown(ev.Vk, ms, extraInfo);
+						break;
+
+					case ArrayEventType.KeyUp:
+						DebugLog($"[SendArray] KeyUp vk={ev.Vk}");
+						backend.KeyUp(ev.Vk, ms, extraInfo);
+						break;
+
+					case ArrayEventType.MouseMoveRel:
+						sim.SimulateMouseMovementRelative((short)(ev.X * scale), (short)(ev.Y * scale));
+						break;
+
+					case ArrayEventType.MouseMoveAbs:
+					{
+						int mx = ev.X, my = ev.Y;
+						EnsureCoords(ref mx, ref my);
+						sim.SimulateMouseMovement((short)(mx * scale), (short)(my * scale));
+						break;
+					}
+
+					case ArrayEventType.MousePress:
+					{
+						int mx = ev.X, my = ev.Y;
+						if (mx == CoordUnspecified && my == CoordUnspecified)
+						{
+							sim.SimulateMousePress(ev.Button);
+						}
+						else
+						{
+							EnsureCoords(ref mx, ref my);
+							sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
+						}
+						break;
+					}
+
+					case ArrayEventType.MouseRelease:
+					{
+						int mx = ev.X, my = ev.Y;
+						if (mx == CoordUnspecified && my == CoordUnspecified)
+						{
+							sim.SimulateMouseRelease(ev.Button);
+						}
+						else
+						{
+							EnsureCoords(ref mx, ref my);
+							sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+						}
+						break;
+					}
+
+					case ArrayEventType.MouseWheelV:
+						sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
+						break;
+
+					case ArrayEventType.MouseWheelH:
+						sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
+						break;
+				}
+			}
+
+			FlushText();
+		}
+
+		protected void EmitTextInjectedWithControls(string text, long extraInfo)
+		{
+			if (string.IsNullOrEmpty(text))
+				return;
+
+			var chunk = new StringBuilder();
+			bool lastWasCR = false;
+			var ms = DateTime.Now;
+
+			void FlushChunk()
+			{
+				if (chunk.Length == 0)
+					return;
+
+				sim.SimulateTextEntry(chunk.ToString());
+				chunk.Clear();
+				ms = DateTime.Now;
+			}
+
+			foreach (var ch in text)
+			{
+				switch (ch)
+				{
+					case '\r':
+						FlushChunk();
+						backend.KeyStroke(VK_RETURN, ms, extraInfo);
+						lastWasCR = true;
+						break;
+
+					case '\n':
+						if (lastWasCR)
+						{
+							lastWasCR = false;
+							break;
+						}
+
+						FlushChunk();
+						backend.KeyStroke(VK_RETURN, ms, extraInfo);
+						break;
+
+					case '\t':
+						FlushChunk();
+						backend.KeyStroke(VK_TAB, ms, extraInfo);
+						lastWasCR = false;
+						break;
+
+					case '\b':
+						FlushChunk();
+						backend.KeyStroke(VK_BACK, ms, extraInfo);
+						lastWasCR = false;
+						break;
+
+					default:
+						chunk.Append(ch);
+						lastWasCR = false;
+						break;
+				}
+			}
+
+			FlushChunk();
+		}
+
+		protected static void EnsureCoords(ref int x, ref int y)
+		{
+			if (x != CoordUnspecified && y != CoordUnspecified)
+				return;
+
+			if (!GetCursorPos(out POINT pos))
+				pos = new POINT(0, 0);
+
+			if (x == CoordUnspecified)
+				x = pos.X;
+
+			if (y == CoordUnspecified)
+				y = pos.Y;
+		}
+
+		protected static HashSet<uint> CollectVksWeWillPress(List<ArrayEvent> events)
 		{
 			var set = new HashSet<uint>();
 
@@ -612,7 +554,7 @@ namespace Keysharp.Core.Unix
 			return set;
 		}
 
-		private static HashSet<uint> CollectModifierUpsForArray(List<ArrayEvent> events, uint logicalMods, UnixHookThread lht)
+		protected static HashSet<uint> CollectModifierUpsForArray(List<ArrayEvent> events, uint logicalMods, UnixHookThread lht)
 		{
 			var set = new HashSet<uint>();
 
@@ -908,32 +850,12 @@ namespace Keysharp.Core.Unix
 			if (lht == null)
 				return;
 
-			WithSendScope(lht, () =>
-			{
-				lock (lht.hkLock)
-				{
-					var xcode = lht.TemporarilyUngrabKey(vk);
-					List<UnixHookThread.ReleasedKey> released = null;
-					try 
-					{
-						// Event mode: immediate send via backend (backend registers synthetic right before simulating).
-						if ((eventType == KeyEventTypes.KeyDown) || (eventType == KeyEventTypes.KeyDownAndUp))
-						{
-							released = lht.ForceReleaseKeysForSend(new HashSet<uint>() {vk});
-							backend.KeyDown(vk, DateTime.UtcNow, extraInfo);
-						}
-						if ((eventType == KeyEventTypes.KeyUp) || (eventType == KeyEventTypes.KeyDownAndUp))
-						{
-							backend.KeyUp(vk, DateTime.UtcNow, extraInfo);
-						}
-						if (released != null) lht.RestoreNonModifierKeysAfterSend(released);
-					} 
-					finally
-					{
-						lht.RegrabKey(xcode);
-					}
-				}
-			});
+#if !WINDOWS
+			if (TrySendPlatformKeybdEvent(lht, eventType, vk, extraInfo))
+				return;
+#endif
+
+			WithSendScope(lht, () => WithSendUngrab(lht, () => SendKeyEventDirect(eventType, vk, extraInfo)));
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -947,8 +869,8 @@ namespace Keysharp.Core.Unix
 				&& UnixCharMapper.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
 				&& vk != 0;
 
-#if LINUX
-			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueueLinuxMappedTextKey(ch, modifiers, extraInfo))
+#if !WINDOWS
+			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueuePlatformMappedTextKey(ch, modifiers, extraInfo))
 				return;
 #endif
 
@@ -966,56 +888,52 @@ namespace Keysharp.Core.Unix
 			if (lht == null)
 				return;
 
+#if !WINDOWS
+			if (TrySendPlatformUnicodeChar(lht, ch, extraInfo, hasMappedKeystroke, vk, needShift, needAltGr))
+				return;
+#endif
+
 			WithSendScope(lht, () =>
 			{
 				WithSendUngrab(lht, () =>
 				{
 					// Prefer keystroke mapping when possible.
 					if (hasMappedKeystroke)
-					{
-						var ms = DateTime.UtcNow;
-						if (needAltGr) backend.KeyDown(VK_ALTGR, ms, extraInfo);
-						if (needShift) backend.KeyDown(VK_SHIFT, ms, extraInfo);
-
-						backend.KeyStroke(vk, ms, extraInfo);
-
-						if (needShift) backend.KeyUp(VK_SHIFT, ms, extraInfo);
-						if (needAltGr) backend.KeyUp(VK_ALTGR, ms, extraInfo);
-					}
+						SendMappedUnicodeKeystroke(vk, needShift, needAltGr, extraInfo);
 					else
-					{
 						sim.SimulateTextEntry(ch.ToString());
-					}
 				});
 			});
 		}
 
-#if LINUX
-		private bool TryQueueLinuxMappedTextKey(char ch, uint modifiers, long extraInfo)
+		protected void SendMappedUnicodeKeystroke(uint vk, bool needShift, bool needAltGr, long extraInfo)
 		{
-			if (!System.Text.Rune.TryCreate(ch, out var rune)
-				|| !UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
-				|| vk == 0)
-				return false;
+			var ms = DateTime.UtcNow;
+			if (needAltGr)
+				backend.KeyDown(VK_ALTGR, ms, extraInfo);
+			if (needShift)
+				backend.KeyDown(VK_SHIFT, ms, extraInfo);
 
-			uint transientModifiers = 0;
+			backend.KeyStroke(vk, ms, extraInfo);
 
 			if (needShift)
-				transientModifiers |= MOD_LSHIFT;
-
+				backend.KeyUp(VK_SHIFT, ms, extraInfo);
 			if (needAltGr)
-				transientModifiers |= MOD_RALT;
-
-			var targetModifiers = modifiers | transientModifiers;
-			SetModifierLRState(targetModifiers, eventModifiersLR, 0, false, true, extraInfo);
-			PutKeybdEventIntoArray(0, vk, 0, 0, extraInfo);
-			PutKeybdEventIntoArray(0, vk, 0, (uint)KEYEVENTF_KEYUP, extraInfo);
-			SetModifierLRState(modifiers, eventModifiersLR, 0, false, true, extraInfo);
-			return true;
+				backend.KeyUp(VK_ALTGR, ms, extraInfo);
 		}
-#endif
 
-		private static void WithSendScope(UnixHookThread lht, Action action)
+		protected void SendKeyEventDirect(KeyEventTypes eventType, uint vk, long extraInfo)
+		{
+			var now = DateTime.UtcNow;
+
+			if (eventType == KeyEventTypes.KeyDown || eventType == KeyEventTypes.KeyDownAndUp)
+				backend.KeyDown(vk, now, extraInfo);
+
+			if (eventType == KeyEventTypes.KeyUp || eventType == KeyEventTypes.KeyDownAndUp)
+				backend.KeyUp(vk, now, extraInfo);
+		}
+
+		protected static void WithSendScope(UnixHookThread lht, Action action)
 		{
 			var sendScope = lht.EnterSendScope();
 			try
@@ -1028,7 +946,7 @@ namespace Keysharp.Core.Unix
 			}
 		}
 
-		private static void WithSendUngrab(UnixHookThread lht, Action action)
+		protected static void WithSendUngrab(UnixHookThread lht, Action action)
 		{
 			lock (lht.hkLock)
 			{
@@ -1055,6 +973,14 @@ namespace Keysharp.Core.Unix
 			else
 				backend.KeyUp(vk, ms, extraInfo);
 		}
+
+		protected virtual bool TrySendPlatformEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale) => false;
+
+		protected virtual bool TrySendPlatformKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo) => false;
+
+		protected virtual bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr) => false;
+
+		protected virtual bool TryQueuePlatformMappedTextKey(char ch, uint modifiers, long extraInfo) => false;
 
 		#endregion
 

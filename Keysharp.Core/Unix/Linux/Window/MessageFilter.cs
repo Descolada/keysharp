@@ -31,8 +31,18 @@ namespace Keysharp.Core.Common.Window
 
 			gtkFilter = GtkFilter;
 			var root = Gdk.Screen.Default?.RootWindow;
-			root?.AddFilter(gtkFilter);
-			filterAttached = true;
+			if (root != null)
+			{
+				try
+				{
+					root?.AddFilter(gtkFilter);
+					filterAttached = true;
+				} 
+				catch
+				{
+					OutputDebugLine("Failed to attach GTK message filter");
+				}
+			}
 		}
 
 		internal void Detach()

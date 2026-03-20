@@ -90,7 +90,7 @@ namespace Keysharp.Tests
 				{
 					try
 					{
-						_ = options == null ? Keyboard.Hotkey(hotkey.Name, workerCallback) : Keyboard.Hotkey(hotkey.Name, workerCallback, options);
+						_ = options == null ? Core.Keyboard.Hotkey(hotkey.Name, workerCallback) : Core.Keyboard.Hotkey(hotkey.Name, workerCallback, options);
 					}
 					catch (Exception ex)
 					{
@@ -473,7 +473,11 @@ namespace Keysharp.Tests
 
 				_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 
+#if WINDOWS
 				Assert.AreEqual(HotkeyTypeEnum.Normal, hk.type, "A hotkey with an enabled global variant should be allowed to stay on the non-hook WM_HOTKEY path.");
+#else
+				Assert.AreEqual(HotkeyTypeEnum.KeyboardHook, hk.type, "Unix platforms currently route active hotkeys through the hook path instead of a registered WM_HOTKEY-style path.");
+#endif
 			}
 			finally
 			{

@@ -755,8 +755,10 @@ namespace Keysharp.Scripting
                 catchClauses.Add((CatchClauseSyntax)VisitCatchProduction(catchProduction));
             }
 
-            // Ensure a catch clause for `Keysharp.Core.Error` exists
-            if (catchClauses.Count == 0)
+            var hasExplicitFinally = context.finallyProduction()?.Finally() != null;
+
+            // Bare `try {}` suppresses errors, but `try {} finally {}` must rethrow.
+            if (catchClauses.Count == 0 && !hasExplicitFinally)
             {
                 var defaultExceptionIdentifierName = InternalPrefix + "ex_" + parser.tryDepth.ToString() + "_0";
                 var defaultExceptionIdentifier = SyntaxFactory.IdentifierName(defaultExceptionIdentifierName);

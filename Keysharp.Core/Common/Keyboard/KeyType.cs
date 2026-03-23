@@ -44,7 +44,7 @@
 			usedAsPrefix = 0;
 			usedAsSuffix = false;
 			usedAsKeyUp = false;
-			noSuppress &= HotkeyDefinition.NO_SUPPRESS_STATES;
+			noSuppress = 0;
 			scTakesPrecedence = false;
 		}
 

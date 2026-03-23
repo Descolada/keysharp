@@ -21,9 +21,7 @@ namespace Keysharp.Core.Common.Keyboard
 		internal const uint HOTKEY_ID_ON = 0x01;
 		internal const uint HOTKEY_ID_TOGGLE = 0x03;
 		internal const uint HOTKEY_KEY_UP = 0x8000;
-		internal const uint NO_SUPPRESS_NEXT_UP_EVENT = 0x08;
 		internal const uint NO_SUPPRESS_PREFIX = 0x01;
-		internal const uint NO_SUPPRESS_STATES = NO_SUPPRESS_NEXT_UP_EVENT;
 		internal const uint NO_SUPPRESS_SUFFIX_VARIES = AT_LEAST_ONE_VARIANT_HAS_TILDE | AT_LEAST_ONE_VARIANT_LACKS_TILDE;
 		[ThreadStatic] private static long hotExprLastFoundHwnd;
 		internal static string COMPOSITE_DELIMITER = " & ";
@@ -1415,7 +1413,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 		/// <summary>
 		/// aVKorSC contains the virtual key or scan code of the specified prefix key (it's a scan code if aIsSC is true).
-		/// Returns true if this prefix key has no suffixes that can possibly.  Each such suffix is prevented from
+		/// Returns true if this prefix key has any suffixes that can possibly fire. Each such suffix is prevented from
 		/// firing by one or more of the following:
 		/// 1) Hotkey is completely disabled via IsCompletelyDisabled().
 		/// 2) Hotkey has criterion and those criterion do not allow the hotkey to fire.
@@ -1424,7 +1422,7 @@ namespace Keysharp.Core.Common.Keyboard
 		/// <param name="isSC"></param>
 		/// <param name="suppress">Caller is expected to set to a default value of false.</param>
 		/// <returns></returns>
-		internal static bool PrefixHasNoEnabledSuffixes(uint VKorSC, bool isSC, ref bool suppress)
+		internal static bool PrefixHasEnabledSuffixes(uint VKorSC, bool isSC, ref bool suppress)
 		{
 			var script = Script.TheScript;
 			var ht = script.HookThread;
@@ -1457,7 +1455,7 @@ namespace Keysharp.Core.Common.Keyboard
 					//else // This alt-tab hotkey is currently active.
 
 					if ((hk.noSuppress & NO_SUPPRESS_PREFIX) != 0 || suppress)
-						return false; // Since any stored mHotCriterion are ignored for alt-tab hotkeys, no further checking is needed.
+						return true; // Since any stored mHotCriterion are ignored for alt-tab hotkeys, no further checking is needed.
 
 					hasEnabledSuffix = true;
 					continue; // Still need to check other hotkeys for NO_SUPPRESS_PREFIX.
@@ -1466,8 +1464,8 @@ namespace Keysharp.Core.Common.Keyboard
 				if (hasEnabledSuffix && ((hk.noSuppress & NO_SUPPRESS_PREFIX) == 0))
 					continue; // No need to evaluate this hotkey's variants.
 
-				// Otherwise, find out if any of its variants is eligible to fire.  If so, immediately return
-				// false because even one eligible hotkey means this prefix is enabled.
+				// Otherwise, find out if any of its variants is eligible to fire. If so, immediately return
+				// true because even one eligible hotkey means this prefix is enabled.
 				for (var vp = hk.firstVariant; vp != null; vp = vp.nextVariant)
 				{
 					// v1.0.42: Fixed to take into account whether the hotkey is suspended (previously it only checked
@@ -1477,7 +1475,7 @@ namespace Keysharp.Core.Common.Keyboard
 							&& (vp.hotCriterion == null || (HotCriterionAllowsFiring(vp.hotCriterion, hk.Name) != 0L))) // ... and its criteria allow it to fire.
 					{
 						if ((vp.noSuppress & NO_SUPPRESS_PREFIX) != 0 || suppress)
-							return false; // At least one of this prefix's suffixes is eligible for firing.
+							return true; // At least one of this prefix's suffixes is eligible for firing.
 
 						hasEnabledSuffix = true;
 
@@ -1487,14 +1485,14 @@ namespace Keysharp.Core.Common.Keyboard
 						// Keep checking to ensure no other enabled variants have NO_SUPPRESS_PREFIX.
 					}
 
-					//return false; // At least one of this prefix's suffixes is eligible for firing.
+					//return true; // At least one of this prefix's suffixes is eligible for firing.
 				}
 			}
 
 			// Since above didn't return, either no hotkeys were found for this prefix that are capable of firing,
 			// or no variants were found with the NO_SUPPRESS_PREFIX flag.
 			suppress = hasEnabledSuffix;
-			return !hasEnabledSuffix;
+			return hasEnabledSuffix;
 		}
 
 		/// <summary>

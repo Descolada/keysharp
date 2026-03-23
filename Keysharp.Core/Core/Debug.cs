@@ -250,5 +250,8 @@ namespace Keysharp.Core
 
 			return DefaultObject;
 		}
+
+		[Conditional("DEBUG")]
+		internal static void Log(string message) => _ = Ks.OutputDebugLine(message);
 	}
 }

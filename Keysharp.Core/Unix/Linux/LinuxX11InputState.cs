@@ -14,7 +14,7 @@ namespace Keysharp.Core.Unix
 	{
 		private readonly byte[] physicalKeyState;
 		private readonly byte[] logicalKeyState;
-		private uint pendingHotstringTriggerVk;
+		private readonly Dictionary<uint, int> pendingHotstringTriggerCounts = new Dictionary<uint, int>();
 
 		internal LinuxX11InputState(byte[] physicalKeyState, byte[] logicalKeyState)
 		{
@@ -26,7 +26,7 @@ namespace Keysharp.Core.Unix
 		{
 			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
 			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
-			pendingHotstringTriggerVk = 0;
+			pendingHotstringTriggerCounts.Clear();
 		}
 
 		internal void RecordInitialPhysicalKeyDown(uint vk)
@@ -46,21 +46,47 @@ namespace Keysharp.Core.Unix
 			logicalKeyState[vk] = StateDown;
 		}
 
-		internal bool ShouldSuppressPendingHotstringKeyDown(uint vk) => vk != 0 && vk == pendingHotstringTriggerVk;
-
-		internal bool TrySuppressPendingHotstringKeyUp(uint vk)
+		internal bool ShouldSuppressPendingHotstringKeyDown(uint vk)
 		{
-			if (vk == 0 || vk != pendingHotstringTriggerVk)
+			if (vk == 0 || pendingHotstringTriggerCounts.Count == 0)
 				return false;
 
-			pendingHotstringTriggerVk = 0;
-			ApplySyntheticKeyEvent(vk, isPress: false, updatePhysical: true);
+			if (pendingHotstringTriggerCounts.TryGetValue(vk, out var count) && count > 0)
+				return true;
+
+			// A different non-modifier key has started a new physical key sequence.
+			// Pending suppression only makes sense for the currently-held trigger key.
+			if (!IsModifierVk(vk))
+				pendingHotstringTriggerCounts.Clear();
+
+			return false;
+		}
+		internal bool TrySuppressPendingHotstringKeyUp(uint vk, bool updatePhysical)
+		{
+			if (vk == 0
+				|| !pendingHotstringTriggerCounts.TryGetValue(vk, out var count)
+				|| count <= 0)
+				return false;
+
+			if (count == 1)
+				pendingHotstringTriggerCounts.Remove(vk);
+			else
+				pendingHotstringTriggerCounts[vk] = count - 1;
+
+			ApplySyntheticKeyEvent(vk, isPress: false, updatePhysical: updatePhysical);
 			return true;
 		}
 
 		internal void TrackPendingHotstringTrigger(uint triggerVk)
 		{
-			pendingHotstringTriggerVk = triggerVk;
+			if (triggerVk == 0)
+				return;
+
+			if (!IsModifierVk(triggerVk))
+				pendingHotstringTriggerCounts.Clear();
+
+			pendingHotstringTriggerCounts.TryGetValue(triggerVk, out var count);
+			pendingHotstringTriggerCounts[triggerVk] = count + 1;
 		}
 
 		internal bool ShouldRestoreReleasedKey(uint vk, bool hotkeySuffixDown)
@@ -69,7 +95,7 @@ namespace Keysharp.Core.Unix
 				&& vk < physicalKeyState.Length
 				&& (physicalKeyState[vk] & StateDown) != 0
 				&& !hotkeySuffixDown
-				&& vk != pendingHotstringTriggerVk;
+				&& !ShouldSuppressPendingHotstringKeyDown(vk);
 		}
 
 		internal void ApplySyntheticKeyEvent(uint vk, bool isPress, bool updatePhysical = false)
@@ -143,6 +169,12 @@ namespace Keysharp.Core.Unix
 			completionChar = hs.str[^1];
 			return true;
 		}
+
+		private static bool IsModifierVk(uint vk) => vk is
+			VirtualKeys.VK_SHIFT or VirtualKeys.VK_LSHIFT or VirtualKeys.VK_RSHIFT or
+			VirtualKeys.VK_CONTROL or VirtualKeys.VK_LCONTROL or VirtualKeys.VK_RCONTROL or
+			VirtualKeys.VK_MENU or VirtualKeys.VK_LMENU or VirtualKeys.VK_RMENU or
+			VirtualKeys.VK_LWIN or VirtualKeys.VK_RWIN;
 	}
 }
 #endif

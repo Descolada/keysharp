@@ -7,7 +7,7 @@ namespace Keysharp.Core.Linux.Proxies
 	internal class XDisplay : IDisposable
 	{
 		[ThreadStatic]
-		private static nint _defaultDisp = 0;
+		private static nint _defaultDisp;
 		private int screenNumber;
 		internal nint WM_PROTOCOLS;
 		internal nint WM_DELETE_WINDOW;
@@ -82,6 +82,7 @@ namespace Keysharp.Core.Linux.Proxies
 		internal nint AsyncAtom;      // Support for async messages
 		internal nint HoverAtom;       // PostMessage atom
 
+		// Single shared instance: passive grabs (XGrabKey) and active-grab release (XUngrabKeyboard)
 		[ThreadStatic] // According to StackOverflow, each thread should have its own XDisplay instance.
 		private static XDisplay _default = null;
 		internal static XDisplay Default
@@ -441,6 +442,7 @@ namespace Keysharp.Core.Linux.Proxies
 		internal int XUngrabButton(uint button, uint modifiers, long? grab_window = default)
 			=> Xlib.XUngrabButton(Handle, button, modifiers, (nint)(grab_window ?? Root.ID));
 		internal int XUngrabKeyboard(ulong time) => Xlib.XUngrabKeyboard(Handle, time);
+		internal int XUngrabPointer(ulong time) => Xlib.XUngrabPointer(Handle, time);
 		internal int XSync(bool discard) => Xlib.XSync(Handle, discard);
 		internal int XFlush() => Xlib.XFlush(Handle);
 		internal bool XTestFakeKeyEvent(uint keycode, bool isPress, ulong delay) => Xlib.XTestFakeKeyEvent(Handle, keycode, isPress, delay);

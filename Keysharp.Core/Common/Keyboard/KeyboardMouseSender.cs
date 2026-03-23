@@ -2478,10 +2478,29 @@ namespace Keysharp.Core.Common.Keyboard
 				DoKeyDelay(); // Thread-safe because only called by main thread in this mode.  See notes above.
 		}
 
+		// Hook-level replay (re-emitting a grabbed physical key that should pass through) must
+		// be sent directly. If sendMode is Input/Play and no send array is active, events can be dropped.
+		internal void SendKeyEventForHookReplay(KeyEventTypes eventType, uint vk, uint sc = 0u, long extraInfo = KeyIgnore)
+		{
+			var previousMode = sendMode;
+			sendMode = SendModes.Event;
+
+			try
+			{
+				SendKeyEvent(eventType, vk, sc, 0, false, extraInfo);
+			}
+			finally
+			{
+				sendMode = previousMode;
+			}
+		}
+
 		internal virtual void SendKeyEventToTargetWindow(KeyEventTypes eventType, uint vk, uint sc = 0u, nint targetWindow = default, bool doKeyDelay = false, long extraInfo = KeyIgnoreAllExceptModifier)
 		{
 			throw new NotImplementedException();
 		}
+
+		internal virtual bool IsKeyGrabSuspendedForReplay(uint vk) => false;
 
 		internal abstract void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint eventFlags, long extraInfo);
 

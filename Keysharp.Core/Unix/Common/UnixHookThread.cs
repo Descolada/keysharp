@@ -2,10 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
 using SharpHook;
 using SharpHook.Data;
 using static Keysharp.Core.Common.Keyboard.KeyboardUtils;
@@ -24,8 +22,6 @@ namespace Keysharp.Core.Unix
 	internal class UnixHookThread : Keysharp.Core.Common.Threading.HookThread
 	{
 		private static readonly bool HookDisabled = ShouldDisableHook();
-		[Conditional("DEBUG")]
-		protected static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
 
 		// --- SharpHook ---
 		private SimpleGlobalHook globalHook;
@@ -76,25 +72,12 @@ namespace Keysharp.Core.Unix
 		internal KeyCode ActiveHotkeyKc => activeHotkeyKc;
 		internal bool SendInProgress => sendInProgress;
 		internal bool IsHotkeySuffixDown(uint vk) => activeHotkeyDown && activeHotkeyVk == vk;
-
-		internal readonly struct SyntheticToken
-		{
-			internal readonly DateTimeOffset EnqueueTime;   // TickCount64-based
-			internal readonly KeyCode KeyCode;
-			internal readonly bool KeyUp;
-			internal readonly long ExtraInfo;     // what you want hook to see
-			internal SyntheticToken(KeyCode keyCode, bool keyUp, DateTimeOffset ms, long extraInfo)
-			{
-				KeyCode = keyCode;
-				KeyUp = keyUp;
-				EnqueueTime = ms;
-				ExtraInfo = extraInfo;
-			}
-		}
-
-		private readonly List<SyntheticToken> pendingSynthetic = new();
-		internal const long SyntheticEventTimeoutMs = 200;
+		private readonly SyntheticEventQueue syntheticEventQueue = new();
+		protected virtual long SyntheticEventTimeoutMs => 200;
+		protected virtual long SyntheticKeyUpTimeoutMs => 200;
+		protected virtual long SyntheticEventFutureToleranceMs => 25;
 		private readonly Dictionary<uint, int> suppressedHotkeyReleases = new();
+		private readonly HashSet<uint> replayedGrabbedDown = new();
 		private char lastTypedChar;
 		private uint lastKeyboardEventVk;
 		private bool lastHookEventWasKeyboard;
@@ -207,7 +190,7 @@ namespace Keysharp.Core.Unix
 		// Tracks installed passive key grabs by physical X11 keycode/modifier pair and why they exist.
 		protected readonly Dictionary<(uint xCode, uint mods), GrabKinds> activeKeyGrabs = new();
 		protected readonly Dictionary<(uint button, uint mods), GrabKinds> activeButtonGrabs = new();
-		protected virtual bool UseSyntheticEventQueue => true;
+		protected virtual bool UseSyntheticEventQueue => false;
 		protected virtual bool UsePlatformHotstringArming => false;
 		private bool sendInProgress;
 		private int sendDepth;
@@ -272,6 +255,22 @@ namespace Keysharp.Core.Unix
 		{
 			// Ensure modifiers don't stay logically down after Send manipulates them.
 			_ = kbdMsSender?.GetModifierLRState(true);
+		}
+
+		private void ResetTrackedInputState(bool clearSyntheticQueue)
+		{
+			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
+			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
+
+			if (clearSyntheticQueue)
+				syntheticEventQueue.Clear();
+
+			lock (replayedGrabbedDown)
+				replayedGrabbedDown.Clear();
+
+			kbdMsSender.modifiersLRLogical = 0;
+			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
+			kbdMsSender.modifiersLRPhysical = 0;
 		}
 
 		// -------------------- lifecycle --------------------
@@ -442,11 +441,7 @@ namespace Keysharp.Core.Unix
 				hookRunTask = null;
 
 				// When permanently disposing, clear state like before.
-				System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-				System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
-				kbdMsSender.modifiersLRLogical = 0;
-				kbdMsSender.modifiersLRLogicalNonIgnored = 0;
-				kbdMsSender.modifiersLRPhysical = 0;
+				ResetTrackedInputState(clearSyntheticQueue: true);
 				ResetIndicatorSnapshot();
 			}
 			// If dispose==false: we intentionally keep the hook alive and keep current
@@ -513,11 +508,7 @@ namespace Keysharp.Core.Unix
 
 		protected virtual void InitSnapshotFromPlatform()
 		{
-			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
-			kbdMsSender.modifiersLRPhysical = 0;
-			kbdMsSender.modifiersLRLogical = 0;
-			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
+			ResetTrackedInputState(clearSyntheticQueue: true);
 		}
 
 		private void StopGlobalHook()
@@ -527,11 +518,7 @@ namespace Keysharp.Core.Unix
 			globalHook = null;
 			hookRunTask = null;
 
-			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
-			kbdMsSender.modifiersLRLogical = 0;
-			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
-			kbdMsSender.modifiersLRPhysical = 0;
+			ResetTrackedInputState(clearSyntheticQueue: true);
 			kbdHook = 0;
 			mouseHook = 0;
 			ResetIndicatorSnapshot();
@@ -559,28 +546,34 @@ namespace Keysharp.Core.Unix
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
 			RecordScVkMapping(sc, vk);
-			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
+			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: false, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
-			if (!isInjected && ShouldConsumePlatformHotstringKeyDown(vk))
+			if (ShouldConsumePlatformHotstringKeyDown(vk))
+			{
+				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
+				e.SuppressEvent = true;
+				return;
+			}
+
+			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
 			{
 				e.SuppressEvent = true;
 				return;
 			}
 
-			// Track logical state as seen by apps.
-			UpdateLogicalKeyFromHook(vk, keyUp: false, wasGrabbed);
-
 			if (!isInjected && grabbedByHotstring)
 				ForceReleaseEndKeyX11(vk);
 
-			DebugLog($"[Hook] KeyDown vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected} extraInfo={extraInfo} time={DateTime.Now.ToString("hh.mm.ss.ffffff")}");
-
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			NormalizeUnsuppressableModifierState(vk, sc, keyUp: false, isInjected, wasGrabbed, result, extraInfo);
+			var shouldReplayDown = result == 0 && wasGrabbed && !grabbedByHotstring && !isInjected;
 
-			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
+			if (shouldReplayDown)
 				ReplayGrabbedKey(keyCode, vk, sc, false);
+
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: false, isInjected, result, shouldReplayDown, wasGrabbed);
 
 			if (result != 0)
 				e.SuppressEvent = true;
@@ -599,24 +592,35 @@ namespace Keysharp.Core.Unix
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
 			RecordScVkMapping(sc, vk);
-			var wasGrabbed = WasKeyGrabbed(e, vk, out var grabbedByHotstring);
+			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: true, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
-			if (!isInjected && ShouldConsumePlatformHotstringKeyUp(vk))
+			if (ShouldConsumePlatformHotstringKeyUp(vk, isInjected))
+			{
+				UpdateObservedPhysicalKeyState(vk, keyUp: true, isInjected);
+				ClearLogicalKeyIfNeeded(vk, isInjected);
+				e.SuppressEvent = true;
+				return;
+			}
+
+			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
 			{
 				e.SuppressEvent = true;
 				return;
 			}
 
-			UpdateLogicalKeyFromHook(vk, keyUp: true, wasGrabbed);
-
-			DebugLog($"[Hook] KeyUp vk={vk} sc={sc} grabbed={wasGrabbed} hsGrab={grabbedByHotstring} simulated={isInjected}");
-
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			NormalizeUnsuppressableModifierState(vk, sc, keyUp: true, isInjected, wasGrabbed, result, extraInfo);
+			var shouldReplayUp = result == 0
+				&& !grabbedByHotstring
+				&& !isInjected
+				&& (wasGrabbed || kbdMsSender.IsKeyGrabSuspendedForReplay(vk));
 
-			if (result == 0 && !isInjected && wasGrabbed && !grabbedByHotstring)
+			if (shouldReplayUp)
 				ReplayGrabbedKey(keyCode, vk, sc, true);
+
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: true, isInjected, result, shouldReplayUp, wasGrabbed);
 
 			if (result != 0)
 				e.SuppressEvent = true;
@@ -680,7 +684,7 @@ namespace Keysharp.Core.Unix
 
 		protected virtual bool ShouldConsumePlatformHotstringKeyDown(uint vk) => false;
 
-		protected virtual bool ShouldConsumePlatformHotstringKeyUp(uint vk) => false;
+		protected virtual bool ShouldConsumePlatformHotstringKeyUp(uint vk, bool isInjected) => false;
 
 		protected virtual void TrackPlatformHotstringTrigger(uint triggerVk)
 		{
@@ -833,90 +837,48 @@ namespace Keysharp.Core.Unix
 			rawEventField?.SetValue(e, raw);
 		}
 
-		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp, DateTime ms, long extraInfo)
+		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp, DateTime ms, long extraInfo, uint vk = 0)
 		{
 			if (!UseSyntheticEventQueue)
 				return;
 
 			if (keyCode == KeyCode.VcUndefined)
 				return;
-
-			lock (pendingSynthetic)
-			{
-				pendingSynthetic.Add(new SyntheticToken(keyCode, keyUp, ms, extraInfo));
-				DebugLog($"[Hook] Registered synthetic [{keyCode}] {(keyUp ? "up" : "down")} at {ms.Ticks} with extraInfo={extraInfo}");
-			}
+			syntheticEventQueue.Register(keyCode, vk, keyUp, ms, extraInfo, KeepSyntheticDownTokensForRepeats);
 		}
 
-		private bool PeekSyntheticEvent(KeyCode keyCode, bool keyUp, DateTimeOffset ms)
+		protected bool ConsumeSyntheticEvent(KeyCode keyCode, uint vk, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
 		{
-			if (keyCode == KeyCode.VcUndefined)
-				return false;
+			var consumed = syntheticEventQueue.TryConsume(
+				keyCode,
+				vk,
+				keyUp,
+				ms,
+				SyntheticEventTimeoutMs,
+				SyntheticKeyUpTimeoutMs,
+				SyntheticEventFutureToleranceMs,
+				KeepSyntheticDownTokensForRepeats,
+				out extraInfo);
 
-			lock (pendingSynthetic)
-			{
-				int count = pendingSynthetic.Count;
-				for (int i = 0; i < count; i++)
-				{
-					var s = pendingSynthetic[i];
-					var diffMs = (ms - s.EnqueueTime).TotalMilliseconds;
-					if (diffMs > SyntheticEventTimeoutMs) // Enqueued >200ms in past, remove stale event
-					{
-						pendingSynthetic.RemoveAt(i);
-						i--; count--;
-					}
-					else if (diffMs < 0) // Enqueued in future compared to hook event
-					{
-						break;
-					}
-					else
-					{
-						if (s.KeyCode == keyCode && s.KeyUp == keyUp)
-							return true;
-					}
-				}
-			}
-
-			return false;
+			return consumed;
 		}
 
-		private bool ConsumeSyntheticEvent(KeyCode keyCode, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
+		protected bool ConsumeSyntheticEventByKey(KeyCode keyCode, uint vk, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
 		{
-			extraInfo = 0;
-			if (keyCode == KeyCode.VcUndefined)
-				return false;
+			var consumed = syntheticEventQueue.TryConsumeByKey(
+				keyCode,
+				vk,
+				keyUp,
+				KeepSyntheticDownTokensForRepeats,
+				out extraInfo);
 
-			lock (pendingSynthetic)
-			{
-				int count = pendingSynthetic.Count;
-				for (int i = 0; i < count; i++)
-				{
-					var s = pendingSynthetic[i];
-					var diffMs = (ms - s.EnqueueTime).TotalMilliseconds;
-					if (diffMs > SyntheticEventTimeoutMs) // Enqueued >200ms in past, remove stale event
-					{
-						pendingSynthetic.RemoveAt(i);
-						i--; count--;
-					}
-					else if (diffMs < 0) // Enqueued in future compared to hook event
-					{
-						break;
-					}
-					else
-					{
-						if (s.KeyCode == keyCode && s.KeyUp == keyUp) 
-						{
-							extraInfo = (ulong)s.ExtraInfo;
-							pendingSynthetic.RemoveAt(i);
-							DebugLog($"[Hook] Removed synthetic [{keyCode}] {(keyUp ? "up" : "down")} at {ms.Ticks} with extraInfo={s.ExtraInfo}");
-							return true;
-						}
-					}
-				}
-			}
-
-			return false;
+			return consumed;
 		}
+
+		protected bool TryGetHeldSyntheticDownOwnerExtra(KeyCode keyCode, uint vk, out ulong extraInfo)
+			=> syntheticEventQueue.TryGetHeldSyntheticDownOwnerExtra(keyCode, vk, out extraInfo);
+
+		protected virtual bool KeepSyntheticDownTokensForRepeats => false;
 
 		private void SuppressHotkeyRelease(uint vk)
 		{
@@ -926,7 +888,6 @@ namespace Keysharp.Core.Unix
 				suppressedHotkeyReleases.TryGetValue(vk, out var curr);
 				var next = curr + 1;
 				suppressedHotkeyReleases[vk] = next;
-				DebugLog($"[Hook] Suppress suffix release vk={vk} count={next}");
 			}
 		}
 
@@ -948,17 +909,22 @@ namespace Keysharp.Core.Unix
 			var mask = e.RawEvent.Mask;
 			var simulated = (mask & EventMask.SimulatedEvent) != 0;
 			extraInfo = 0;
+			var skipQueueMatch = ShouldSkipSyntheticQueueMatch(vk, keyUp);
 
 			if (UseSyntheticEventQueue
-				&& !simulated
-				&& (ConsumeSyntheticEvent(keyCode, keyUp, e.EventTime, out extraInfo)
-				 //|| IsLogicallyDownPhysicallyUp(vk)
-				 ))
+				&& !skipQueueMatch
+				&& ConsumeSyntheticEvent(keyCode, vk, keyUp, e.EventTime, out extraInfo))
 			{
 				var raw = e.RawEvent;
 				raw.Mask |= EventMask.SimulatedEvent;
 				SetRawEvent(e, raw);
 				simulated = true;
+			}
+			else if (UseSyntheticEventQueue
+				&& simulated
+				&& !skipQueueMatch
+				&& ConsumeSyntheticEventByKey(keyCode, vk, keyUp, e.EventTime, out extraInfo))
+			{
 			}
 
 			if (simulated && extraInfo == 0)
@@ -967,23 +933,28 @@ namespace Keysharp.Core.Unix
 			return simulated;
 		}
 
+		protected virtual bool ShouldSkipSyntheticQueueMatch(uint vk, bool keyUp) => false;
+
 		private ulong ComputeExtraInfo(ulong extraInfo, bool isSimulated)
 		{
 			if (extraInfo != 0)
 				return extraInfo;
 
-			if (sendInProgress || isSimulated)
+			// On Linux we rely on synthetic-token matching for injected classification.
+			// Tagging all hook events during sendInProgress as ignored can mask real physical input
+			// that overlaps an outgoing send (e.g. rapid remap loops like ^a::b).
+			if (isSimulated || (sendInProgress && !UseSyntheticEventQueue))
 				return (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
 
 			return 0;
 		}
 
-		private bool WasKeyGrabbed(HookEventArgs e, uint vk, out bool grabbedByHotstring)
+		private bool WasKeyGrabbed(HookEventArgs e, uint vk, bool keyUp, out bool grabbedByHotstring)
 		{
-			return WasKeyGrabbedPlatform(e, vk, out grabbedByHotstring);
+			return WasKeyGrabbedPlatform(e, vk, keyUp, out grabbedByHotstring);
 		}
 
-		protected virtual bool WasKeyGrabbedPlatform(HookEventArgs e, uint vk, out bool grabbedByHotstring)
+		protected virtual bool WasKeyGrabbedPlatform(HookEventArgs e, uint vk, bool keyUp, out bool grabbedByHotstring)
 		{
 			grabbedByHotstring = false;
 			return false;
@@ -997,12 +968,55 @@ namespace Keysharp.Core.Unix
 		{
 		}
 
-		private void ReplayGrabbedKey(KeyCode kc, uint vk, uint sc, bool keyUp)
+			private void ReplayGrabbedKey(KeyCode kc, uint vk, uint sc, bool keyUp)
+			{
+				if (vk == 0) return;
+
+				if (keyUp)
+				{
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
+
+					lock (replayedGrabbedDown)
+						replayedGrabbedDown.Remove(vk);
+
+					if (vk < logicalKeyState.Length)
+						logicalKeyState[vk] = 0;
+
+					return;
+				}
+
+				bool repeatedDown;
+
+				lock (replayedGrabbedDown)
+					repeatedDown = !replayedGrabbedDown.Add(vk);
+
+				if (repeatedDown)
+				{
+					// Grabbed repeat comes in as consecutive key-down notifications.
+					// Emit an up->down transition so the target app receives each repeat.
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
+				}
+				else if (IsX11Available)
+				{
+					// On X11 the physical key may already be logically down even when grabbed,
+					// so replay the initial press as up->down to force a visible keypress.
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
+				}
+				else
+				{
+					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
+				}
+
+				if (vk < logicalKeyState.Length)
+					logicalKeyState[vk] = StateDown;
+			}
+
+		private static bool IsScriptIgnoredExtraInfo(ulong extraInfo)
 		{
-			if (vk == 0) return;
-			kbdMsSender.SendKeyEvent(keyUp ? KeyEventTypes.KeyUp : KeyEventTypes.KeyDown, vk, sc, default, false, KeyboardMouseSender.KeyIgnore);
-			if (vk < logicalKeyState.Length)
-				logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+			var info = unchecked((long)extraInfo);
+			return info >= KeyIgnoreMin() && info <= KeyIgnoreMax;
 		}
 
 		// Temporarily release all grabs (keyboard + passive keys) during a send, then re-apply them.
@@ -1019,31 +1033,6 @@ namespace Keysharp.Core.Unix
 		{
 		}
 
-		/*
-		internal void WaitForPendingSyntheticDrain(int timeoutMs)
-		{
-			var sw = Stopwatch.StartNew();
-			while (sw.ElapsedMilliseconds < timeoutMs)
-			{
-				lock (pendingSynthetic)
-				{
-					bool any = false;
-					foreach (var kv in pendingSynthetic)
-					{
-						if (kv.Value.Down != 0 || kv.Value.Up != 0)
-						{
-							any = true;
-							break;
-						}
-					}
-					if (!any)
-						return;
-				}
-				Thread.Sleep(1);
-			}
-		}
-		*/
-
 		internal void DisarmHotstring()
 		{
 			if (!hsArmed)
@@ -1051,7 +1040,6 @@ namespace Keysharp.Core.Unix
 
 			lock (hkLock)
 			{
-				DebugLog("Disarming hotstring");
 				DisarmHotstringPlatform();
 
 				hsArmedEnds.Clear();
@@ -1091,7 +1079,6 @@ namespace Keysharp.Core.Unix
 				char? evtChar = ' ';
 				if (!KeyboardMouseSender.HotInputLevelAllowsFiring(ready.inputLevel, lastTypedExtraInfo, ref evtChar))
 				{
-					LogHotstringBuffer($"match gated by inputlevel={ready.inputLevel} lastExtra={lastTypedExtraInfo}");
 					DisarmHotstring();
 					return;
 				}
@@ -1126,8 +1113,7 @@ namespace Keysharp.Core.Unix
 						recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(ready.hotCriterion)
 					}
 				});
-				LogHotstringBuffer($"hotstring fired '{ready.Name}' end='{(endChar == '\0' ? "\\0" : endChar.ToString())}'");
-				ClearHotstringBuffer("fired");
+				ClearHotstringBuffer();
 
 				DisarmHotstring();
 				return;
@@ -1157,6 +1143,7 @@ namespace Keysharp.Core.Unix
 			// Arm (or disarm) accordingly
 			if (ends.Count > 0) ArmHotstringForEnds(ends);
 			else DisarmHotstring();
+
 		}
 
 		internal virtual void ForceReleaseEndKeyX11(uint vk)
@@ -1180,13 +1167,80 @@ namespace Keysharp.Core.Unix
 		{
 		}
 
-		private void UpdateLogicalKeyFromHook(uint vk, bool keyUp, bool wasGrabbed)
+		private static bool IsModifierKey(uint vk) => vk is
+			VK_SHIFT or VK_LSHIFT or VK_RSHIFT or
+			VK_CONTROL or VK_LCONTROL or VK_RCONTROL or
+			VK_MENU or VK_LMENU or VK_RMENU or
+			VK_LWIN or VK_RWIN;
+
+		private void NormalizeUnsuppressableModifierState(uint vk, uint sc, bool keyUp, bool isInjected, bool wasGrabbed, nint result, ulong extraInfo)
+		{
+			// On X11, non-grabbed events can't actually be blocked. If the core logic decides to
+			// suppress such a modifier event, ensure modifier logical tracking still follows reality.
+			if (!IsX11Available || result == 0 || wasGrabbed || isInjected || !IsModifierKey(vk))
+				return;
+
+			UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: false);
+		}
+
+		private void UpdateObservedPhysicalKeyState(uint vk, bool keyUp, bool isInjected)
+		{
+			if (isInjected || IsModifierKey(vk) || vk == 0 || vk >= physicalKeyState.Length)
+				return;
+
+			physicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+		}
+
+		private void ClearLogicalKeyIfNeeded(uint vk, bool isInjected)
+		{
+			if (isInjected || IsModifierKey(vk) || vk == 0 || vk >= logicalKeyState.Length)
+				return;
+
+			logicalKeyState[vk] = 0;
+		}
+
+		internal void SetLogicalStateFromSyntheticSend(uint vk, bool isDown)
 		{
 			if (vk == 0 || vk >= logicalKeyState.Length)
 				return;
 
-			if (!wasGrabbed)
-				logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+			logicalKeyState[vk] = (byte)(isDown ? StateDown : 0);
+		}
+
+		private void ApplyKeyStateAfterKeyboardDecision(uint vk, bool keyUp, bool isInjected, nint result, bool replayed, bool wasGrabbed)
+		{
+			if (vk == 0 || IsModifierKey(vk))
+				return;
+
+			if (keyUp)
+				OnPlatformKeyUpObserved(vk, isInjected);
+
+			if (keyUp && !isInjected)
+				OnPlatformPhysicalKeyUpObserved(vk);
+
+			UpdateObservedPhysicalKeyState(vk, keyUp, isInjected);
+
+			// Grabs only reach applications via explicit replay.
+			var deliveredToApp = replayed || (result == 0 && !wasGrabbed);
+
+			if (deliveredToApp)
+			{
+				if (vk < logicalKeyState.Length)
+					logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+				return;
+			}
+
+			// Force logical up on any consumed key-up to avoid stale down-state.
+			if (keyUp && vk < logicalKeyState.Length)
+				logicalKeyState[vk] = 0;
+		}
+
+		protected virtual void OnPlatformPhysicalKeyUpObserved(uint vk)
+		{
+		}
+
+		protected virtual void OnPlatformKeyUpObserved(uint vk, bool isInjected)
+		{
 		}
 
 		protected virtual void RecordScVkMapping(uint sc, uint vk)
@@ -1319,6 +1373,25 @@ namespace Keysharp.Core.Unix
 		{
 			if (HasKbdHook())
 			{
+				var modMask = vk switch
+				{
+					VK_LCONTROL => MOD_LCONTROL,
+					VK_RCONTROL => MOD_RCONTROL,
+					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
+					VK_LSHIFT => MOD_LSHIFT,
+					VK_RSHIFT => MOD_RSHIFT,
+					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
+					VK_LMENU => MOD_LALT,
+					VK_RMENU => MOD_RALT,
+					VK_MENU => MOD_LALT | MOD_RALT,
+					VK_LWIN => MOD_LWIN,
+					VK_RWIN => MOD_RWIN,
+					_ => 0u
+				};
+
+				if (modMask != 0)
+					return (kbdMsSender.modifiersLRLogical & modMask) != 0;
+
 				if (vk < logicalKeyState.Length)
 					return (logicalKeyState[vk] & StateDown) != 0;
 			}
@@ -1366,20 +1439,6 @@ namespace Keysharp.Core.Unix
 			{
 				var c = ch[0];
 				lastTypedChar = c;
-				var chDesc = c switch { '\n' => "\\n", '\r' => "\\r", '\t' => "\\t", _ when char.IsControl(c) => "\\u" + ((int)c).ToString("X4"), _ => c.ToString() };
-
-				var hmBuf = hm.hsBuf;
-				var sb = new StringBuilder(hmBuf.Count * 2);
-				static string Escape(char cc) => cc switch
-				{
-					'\n' => "\\n",
-					'\r' => "\\r",
-					'\t' => "\\t",
-					_ when char.IsControl(cc) => "\\u" + ((int)cc).ToString("X4"),
-					_ => cc.ToString()
-				};
-				foreach (var cc in hmBuf) sb.Append(Escape(cc));
-				DebugLog($"[HS] typed '{chDesc}': len={hmBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 
 				if (UsePlatformHotstringArming)
 				{
@@ -1421,8 +1480,6 @@ namespace Keysharp.Core.Unix
 
 		internal override void PrepareToSendHotstringReplacement(char endChar, uint triggerVk)
 		{
-			TrackPlatformHotstringTrigger(triggerVk);
-
 			if (UsePlatformHotstringArming)
 				DisarmHotstring();
 		}
@@ -1814,37 +1871,10 @@ namespace Keysharp.Core.Unix
 
 		internal virtual uint VkToXKeycode(uint vk) => 0;
 
-		private void ClearHotstringBuffer(string reason)
+		private void ClearHotstringBuffer()
 		{
 			var hm = Script.TheScript.HotstringManager;
-			if (hm.hsBuf.Count == 0)
-			{
-				LogHotstringBuffer(reason);
-				return;
-			}
-
 			hm.hsBuf.Clear();
-			LogHotstringBuffer(reason);
-		}
-
-		private void LogHotstringBuffer(string reason)
-		{
-			var hm = Script.TheScript.HotstringManager;
-			var sb = new StringBuilder(hm.hsBuf.Count * 2);
-
-			static string EscapeChar(char c) => c switch
-			{
-				'\n' => "\\n",
-				'\r' => "\\r",
-				'\t' => "\\t",
-				_ when char.IsControl(c) => "\\u" + ((int)c).ToString("X4"),
-				_ => c.ToString()
-			};
-
-			foreach (var ch in hm.hsBuf)
-				sb.Append(EscapeChar(ch));
-
-			DebugLog($"[HS] {reason}: len={hm.hsBuf.Count} buf=\"{sb}\" armed={hsArmed}");
 		}
 
 		internal virtual bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)

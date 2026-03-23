@@ -426,20 +426,16 @@ namespace Keysharp.Core.Common.Keyboard
 						 , ref omitEndChar, ref sendRaw, ref endCharRequired, ref detectWhenInsideWord, ref doReset, ref unused_X_option, ref suspendExempt);
 		}
 
-		/// <summary>
-		/// Returns OK or FAIL.  Caller has already ensured that the backspacing (if specified by mDoBackspace)
-		/// has been done.  Caller must have already created a new thread for us, and must close the thread when
-		/// we return.
-		/// </summary>
-		internal ResultType PerformInNewThreadMadeByCaller(nint hwndCritFound, string endChar)
+		internal ResultType PerformInNewThreadMadeByCaller(long criterionFoundHwnd, CaseConformModes caseMode, char endChar, uint triggerVk, bool recheckCriterionOnReceipt)
 		{
 			var script = Script.TheScript;
-			var targetScheduler = ownerScheduler ?? script.EventScheduler;
-				targetScheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotstringEvent(targetScheduler, hwndCritFound, endChar));
+			var targetScheduler = ownerScheduler ?? script.UIEventScheduler;
+			_ = targetScheduler.Enqueue(ScriptEventQueue.Interactive, () =>
+				TryExecuteBufferedHotstringEvent(targetScheduler, criterionFoundHwnd, recheckCriterionOnReceipt, caseMode, endChar, triggerVk));
 			return ResultType.Ok;
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(ScriptEventScheduler scheduler, nint hwndCritFound, string endChar)
+		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(ScriptEventScheduler scheduler, long criterionFoundHwnd, bool recheckCriterionOnReceipt, CaseConformModes caseMode, char endChar, uint triggerVk)
 		{
 			var script = Script.TheScript;
 
@@ -450,8 +446,20 @@ namespace Keysharp.Core.Common.Keyboard
 			{
 				var executionResult = scheduler.InvokePseudoThread(priority, false, false, btv =>
 				{
+					var hwndCritFound = criterionFoundHwnd;
+
+					if (recheckCriterionOnReceipt && hotCriterion != null)
+					{
+						hwndCritFound = HotkeyDefinition.HotCriterionAllowsFiring(hotCriterion, Name);
+
+						if (hwndCritFound == 0)
+							return false;
+					}
+
+					hwndCritFound = HotkeyDefinition.NormalizeCriterionFoundHwnd(hotCriterion, hwndCritFound);
+
 					script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
-					A_EndChar = endCharRequired ? endChar : "";
+					A_EndChar = endCharRequired ? endChar.ToString() : "";
 					script.SetHotNamesAndTimes(Name);
 					_ = Interlocked.Increment(ref existingThreads);
 
@@ -461,9 +469,12 @@ namespace Keysharp.Core.Common.Keyboard
 						{
 							var tv = script.Threads.CurrentThread;
 							tv.configData.sendLevel = inputLevel;
-							tv.hwndLastUsed = hwndCritFound;
+							tv.hwndLastUsed = new nint(hwndCritFound);
 							tv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
-							_ = funcObj.Call([Name]);
+							DoReplace(caseMode, endChar, triggerVk);
+
+							if (string.IsNullOrEmpty(replacement))
+								_ = funcObj.Call([Name]);
 						}));
 					}
 					finally

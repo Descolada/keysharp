@@ -77,7 +77,7 @@ namespace Keysharp.Tests
 			hs.existingThreads = 1;
 			hs.priority = 0;
 
-			_ = hs.PerformInNewThreadMadeByCaller(0, " ");
+			_ = hs.PerformInNewThreadMadeByCaller(0, CaseConformModes.None, ' ', 0, false);
 			s.EventScheduler.EnqueueCallback(() => normalCalls++, ScriptEventQueue.Normal, false);
 
 			context.DrainAll();
@@ -155,7 +155,7 @@ namespace Keysharp.Tests
 
 			s.EventScheduler.EnqueueCallback(() => order.Add("normal-1"), ScriptEventQueue.Normal, false);
 			hk.PerformInNewThreadMadeByCallerAsync(variant, 0, 0);
-			_ = hs.PerformInNewThreadMadeByCaller(0, " ");
+			_ = hs.PerformInNewThreadMadeByCaller(0, CaseConformModes.None, ' ', 0, false);
 			s.EventScheduler.EnqueueCallback(() => order.Add("normal-2"), ScriptEventQueue.Normal, false);
 
 			context.DrainAll();

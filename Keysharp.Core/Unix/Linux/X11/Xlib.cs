@@ -270,6 +270,7 @@ namespace Keysharp.Core.Linux.X11
 			out int root_x_return, out int root_y_return, out int win_x_return, out int win_y_return, out uint mask_return);
 		[DllImport(libX11Name)] internal static extern int XSync(nint display, bool discard);
 		[DllImport(libX11Name)] internal static extern int XUngrabKeyboard(nint display, ulong time);
+		[DllImport(libX11Name)] internal static extern int XUngrabPointer(nint display, ulong time);
 		[DllImport(libX11Name)] internal static extern int XkbGetIndicatorState(nint display, uint device_spec, out uint state_return);
 		[StructLayout(LayoutKind.Sequential)]
 		internal struct XKeyboardState { public int key_click_percent, bell_percent, bell_pitch, bell_duration, led_mask; /* rest omitted */ }

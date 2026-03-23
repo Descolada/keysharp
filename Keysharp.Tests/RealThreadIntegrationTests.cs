@@ -257,7 +257,7 @@ namespace Keysharp.Tests
 				registrations.Hotkey.PerformInNewThreadMadeByCallerAsync(registrations.HotkeyVariant, 0, 0);
 				Assert.IsTrue(probe.WaitFor("hotkey"));
 
-				_ = registrations.Hotstring.PerformInNewThreadMadeByCaller(0, " ");
+				_ = registrations.Hotstring.PerformInNewThreadMadeByCaller(0, CaseConformModes.None, ' ', 0, false);
 				Assert.IsTrue(probe.WaitFor("hotstring"));
 
 				var filter = new MessageFilter(s);

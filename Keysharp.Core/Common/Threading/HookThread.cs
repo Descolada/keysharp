@@ -3170,7 +3170,9 @@ namespace Keysharp.Core.Common.Threading
 					// the ALT key is physically down even though it is not logically down:
 					// RAlt::Send f  ; Actually triggers !f, which activates the FILE menu if the active window has one.
 					// RAlt::Send {PgDn}  ; Fails to work because ALT-PgDn usually does nothing.
+#if !LINUX
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyBlockThis);
+#endif
 				}
 			}
 
@@ -3593,23 +3595,129 @@ namespace Keysharp.Core.Common.Threading
 			if (msg == null)
 				return false;
 
-			if (msg.message == (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY)
+			var script = Script.TheScript;
+
+			switch (msg.message)
 			{
-				SetKeyHistory((int)msg.wParam.ToInt64());
-				return true;
+				case (uint)UserMessages.AHK_HOOK_SET_KEYHISTORY:
+					SetKeyHistory((int)msg.wParam.ToInt64());
+					return true;
+
+				case (uint)UserMessages.AHK_HOOK_HOTKEY:
+				{
+					var wParamVal = (int)msg.wParam.ToInt64();
+					var lParamVal = (int)msg.lParam.ToInt64();
+
+					if (msg.obj is HookHotkeyMsg hhmsg)
+					{
+						if (hhmsg.variant != null)
+						{
+							var hkId = (uint)wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
+
+							if (hkId < script.HotkeyData.shk.Count)
+							{
+								script.HotkeyData.shk[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, lParamVal);
+								return true;
+							}
+						}
+
+						// Criterion requires receipt-time recheck: resolve and enqueue directly without UI-thread hop.
+						kbdMsSender.ProcessHotkey(wParamVal, lParamVal, null, msg.message, hhmsg.extraInfo);
+						return true;
+					}
+
+					kbdMsSender.ProcessHotkey(wParamVal, lParamVal, null, msg.message);
+					return true;
+				}
+
+				case (uint)UserMessages.AHK_HOTSTRING:
+					if (msg.obj is not HotstringMsg hmsg)
+						return false;
+
+					_ = hmsg.hs.PerformInNewThreadMadeByCaller(
+						hmsg.criterionFoundHwnd,
+						hmsg.caseMode,
+						hmsg.endChar,
+						hmsg.triggerVk,
+						hmsg.recheckCriterionOnReceipt);
+					return true;
+
+				case WM_HOTKEY:
+					kbdMsSender.ProcessHotkey((int)msg.wParam.ToInt64(), (int)msg.lParam.ToInt64(), null, msg.message);
+					return true;
+
+				case (uint)UserMessages.AHK_INPUT_END:
+				{
+					if (msg.obj is not InputType endInput)
+						return false;
+
+					var endSlot = endInput.scriptObject?.GetCallbackSlot(UserMessages.AHK_INPUT_END);
+					var targetScheduler = endSlot?.OwnerScheduler;
+
+					if (targetScheduler == null || targetScheduler.IsDisposed)
+						targetScheduler = script.UIEventScheduler;
+
+					return targetScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					{
+						if (endInput.InputRelease() is InputType releasedInput
+							&& releasedInput.scriptObject is InputObject so)
+						{
+							var endCallback = so.GetCallbackSlot(UserMessages.AHK_INPUT_END)?.Callback;
+
+							if (endCallback != null)
+								_ = Script.Invoke(endCallback, "Call", [so]);
+
+							so.DeactivateCallbackPersistence();
+						}
+					}, true);
+				}
+
+				case (uint)UserMessages.AHK_INPUT_KEYDOWN:
+				case (uint)UserMessages.AHK_INPUT_CHAR:
+				case (uint)UserMessages.AHK_INPUT_KEYUP:
+				{
+					if (msg.obj is not InputType inputHookParam)
+						return false;
+
+					var callbackSlot = inputHookParam.scriptObject?.GetCallbackSlot((UserMessages)msg.message);
+					if (callbackSlot?.Callback == null)
+						return true;
+
+					var targetScheduler = callbackSlot?.OwnerScheduler;
+
+					if (targetScheduler == null || targetScheduler.IsDisposed)
+						targetScheduler = script.UIEventScheduler;
+
+					var message = msg.message;
+					var wParamVal = msg.wParam.ToInt64();
+					var lParamVal = msg.lParam.ToInt64();
+
+					return targetScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					{
+						InputType inputHook;
+
+						for (inputHook = script.input; inputHook != null && inputHook != inputHookParam; inputHook = inputHook.prev)
+						{
+						}
+
+						if (inputHook == null)
+							return;
+
+						var callback = inputHook.scriptObject.GetCallbackSlot((UserMessages)message)?.Callback;
+
+						if (callback == null)
+							return;
+
+						var args = message == (uint)UserMessages.AHK_INPUT_CHAR
+							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
+							: [inputHook.scriptObject, lParamVal, wParamVal];
+						_ = Script.Invoke(callback, "Call", args);
+					}, true);
+				}
+
+				default:
+					return false;
 			}
-
-			if (msg.message != WM_HOTKEY
-					&& msg.message != (uint)UserMessages.AHK_HOOK_HOTKEY
-					&& msg.message != (uint)UserMessages.AHK_HOTSTRING
-					&& msg.message != (uint)UserMessages.AHK_INPUT_END
-					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYDOWN
-					&& msg.message != (uint)UserMessages.AHK_INPUT_CHAR
-					&& msg.message != (uint)UserMessages.AHK_INPUT_KEYUP)
-				return false;
-
-			Script.PostToUIThread(() => ProcessHookMessage(msg));
-			return true;
 		}
 
 		internal void SetKeyHistory(int max) => keyHistory = max > 0 ? new KeyHistory(max) : null;
@@ -4316,117 +4424,6 @@ namespace Keysharp.Core.Common.Threading
 
 		protected internal virtual void Start() { }
 
-		private void ProcessHookMessage(KeysharpMsg msg)
-		{
-			nint criterionFoundHwnd = 0;
-			var wParamVal = msg.wParam.ToInt64();
-			var lParamVal = msg.lParam.ToInt64();
-			var script = Script.TheScript;
-
-			switch (msg.message)
-			{
-				case (uint)UserMessages.AHK_HOTSTRING:
-					if (msg.obj is not HotstringMsg hmsg)
-						return;
-
-					var hs = hmsg.hs;
-					criterionFoundHwnd = hmsg.criterionFoundHwnd;
-
-					if (hmsg.recheckCriterionOnReceipt && hs.hotCriterion != null)
-					{
-						criterionFoundHwnd = new nint(HotkeyDefinition.HotCriterionAllowsFiring(hs.hotCriterion, hs.Name));
-
-						if (criterionFoundHwnd == 0)
-							return;
-					}
-
-					criterionFoundHwnd = new nint(HotkeyDefinition.NormalizeCriterionFoundHwnd(hs.hotCriterion, criterionFoundHwnd.ToInt64()));
-
-					hs.DoReplace(hmsg.caseMode, hmsg.endChar, hmsg.triggerVk);
-
-					if (string.IsNullOrEmpty(hs.replacement))
-						_ = hs.PerformInNewThreadMadeByCaller(criterionFoundHwnd, hmsg.endChar.ToString());
-
-					break;
-
-				case (uint)UserMessages.AHK_HOOK_HOTKEY:
-					if (msg.obj is HookHotkeyMsg hhmsg)
-					{
-						if (hhmsg.variant != null)
-						{
-							var hkId = (uint)wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
-
-							if (hkId < script.HotkeyData.shk.Count)
-							{
-								script.HotkeyData.shk[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, (int)lParamVal);
-								break;
-							}
-						}
-
-						script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message, hhmsg.extraInfo);
-						break;
-					}
-
-					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message);
-					break;
-
-				case WM_HOTKEY:
-					script.HookThread.kbdMsSender.ProcessHotkey((int)wParamVal, (int)lParamVal, null, msg.message);
-					break;
-
-				case (uint)UserMessages.AHK_INPUT_END:
-					if (msg.obj is InputType it
-							&& it.InputRelease() is InputType releasedInput
-							&& releasedInput.scriptObject is InputObject so)
-					{
-						var endRegistration = so.GetCallbackSlot(UserMessages.AHK_INPUT_END);
-
-						if (endRegistration?.Callback != null)
-							QueueInputCallback(script, endRegistration.OwnerScheduler, endRegistration.Callback, [so]);
-
-						so.DeactivateCallbackPersistence();
-					}
-
-					break;
-
-				case (uint)UserMessages.AHK_INPUT_KEYDOWN:
-				case (uint)UserMessages.AHK_INPUT_CHAR:
-				case (uint)UserMessages.AHK_INPUT_KEYUP:
-				{
-					InputType inputHook = null;
-					var inputHookParam = msg.obj as InputType;
-
-					for (inputHook = script.input; inputHook != null && inputHook != inputHookParam; inputHook = inputHook.prev)
-					{
-					}
-
-					if (inputHook == null)
-						return;
-
-					var callbackRegistration = inputHook.scriptObject.GetCallbackSlot((UserMessages)msg.message);
-
-					if (callbackRegistration?.Callback != null)
-					{
-						var args = msg.message == (uint)UserMessages.AHK_INPUT_CHAR
-							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
-							: [inputHook.scriptObject, lParamVal, wParamVal];
-						QueueInputCallback(script, callbackRegistration.OwnerScheduler, callbackRegistration.Callback, args);
-					}
-
-					break;
-				}
-			}
-			script.RecordMessageCheck();
-		}
-
-		private static void QueueInputCallback(Script script, ScriptEventScheduler scheduler, IFuncObj callback, object[] args)
-		{
-			if (callback == null)
-				return;
-
-			var targetScheduler = scheduler != null && !scheduler.IsDisposed ? scheduler : script.EventScheduler;
-			targetScheduler.EnqueueThreadLaunch(0, false, false, () => Script.Invoke(callback, "Call", args), true);
-		}
 	}
 
 	// WM_USER (0x0400) is the lowest number that can be a user-defined message.  Anything above that is also valid.

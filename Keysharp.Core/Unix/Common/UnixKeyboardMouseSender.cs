@@ -24,9 +24,6 @@ namespace Keysharp.Core.Unix
 	/// </summary>
 	internal partial class UnixKeyboardMouseSender : Common.Keyboard.KeyboardMouseSender
 	{
-		[Conditional("DEBUG")]
-		protected static void DebugLog(string message) => _ = Ks.OutputDebugLine(message);
-
 		internal IEventSimulator sim => backend.sim;
 		protected IEventSimulator Sim => backend.sim;
 		protected readonly SharpHookKeySimulationBackend backend = new();
@@ -384,12 +381,10 @@ namespace Keysharp.Core.Unix
 						break;
 
 					case ArrayEventType.KeyDown:
-						DebugLog($"[SendArray] KeyDown vk={ev.Vk}");
 						backend.KeyDown(ev.Vk, ms, extraInfo);
 						break;
 
 					case ArrayEventType.KeyUp:
-						DebugLog($"[SendArray] KeyUp vk={ev.Vk}");
 						backend.KeyUp(ev.Vk, ms, extraInfo);
 						break;
 
@@ -571,7 +566,7 @@ namespace Keysharp.Core.Unix
 				if (modMask == 0)
 					continue;
 
-				if ((logicalMods & modMask) == 0)
+				if ((logicalMods & modMask) != 0)
 					set.Add(ev.Vk);
 			}
 
@@ -589,6 +584,19 @@ namespace Keysharp.Core.Unix
 				return;
 			}
 
+			var lht = Script.TheScript.HookThread as UnixHookThread;
+
+			if (lht != null)
+			{
+				WithSendScope(lht, () => WithSendUngrab(lht, () => ReplayImmediateMouseEvent(eventFlags, data, x, y)));
+				return;
+			}
+
+			ReplayImmediateMouseEvent(eventFlags, data, x, y);
+		}
+
+		protected void ReplayImmediateMouseEvent(uint eventFlags, uint data, int x, int y)
+		{
 			// Legacy Linux usage: high word encodes KeyEventTypes, low word encodes vk.
 			if ((eventFlags & 0xFFFF0000) != 0)
 			{
@@ -982,6 +990,8 @@ namespace Keysharp.Core.Unix
 
 		protected virtual bool TryQueuePlatformMappedTextKey(char ch, uint modifiers, long extraInfo) => false;
 
+		internal override bool IsKeyGrabSuspendedForReplay(uint vk) => false;
+
 		#endregion
 
 		internal override int PbEventCount() => 0;
@@ -1108,14 +1118,14 @@ namespace Keysharp.Core.Unix
 			public SharpHookKeySimulationBackend(IEventSimulator sim = null)
 				=> this.sim = sim ?? new EventSimulator();
 
-			private static void RegisterSynthetic(KeyCode code, bool keyUp, DateTime ms, long extraInfo)
-			{
-				if (code == KeyCode.VcUndefined)
-					return;
+				private static void RegisterSynthetic(KeyCode code, uint vk, bool keyUp, DateTime ms, long extraInfo)
+				{
+					if (code == KeyCode.VcUndefined)
+						return;
 
-				if (Script.TheScript.HookThread is UnixHookThread lht)
-					lht.RegisterSyntheticEvent(code, keyUp, ms, extraInfo);
-			}
+					if (Script.TheScript.HookThread is UnixHookThread lht)
+						lht.RegisterSyntheticEvent(code, keyUp, ms, extraInfo, vk);
+				}
 
 			public void KeyDown(uint vk, DateTime ms, long extraInfo)
 			{
@@ -1124,8 +1134,7 @@ namespace Keysharp.Core.Unix
 				if (code == KeyCode.VcUndefined)
 					return;
 
-				RegisterSynthetic(code, false, ms, extraInfo);
-				DebugLog($"[SendEmit] KeyDown vk={vk} code={code}");
+				RegisterSynthetic(code, vk, false, ms, extraInfo);
 				sim.SimulateKeyPress(code);
 			}
 
@@ -1136,8 +1145,7 @@ namespace Keysharp.Core.Unix
 				if (code == KeyCode.VcUndefined)
 					return;
 
-				RegisterSynthetic(code, true, ms, extraInfo);
-				DebugLog($"[SendEmit] KeyUp vk={vk} code={code}");
+				RegisterSynthetic(code, vk, true, ms, extraInfo);
 				sim.SimulateKeyRelease(code);
 			}
 
@@ -1183,7 +1191,6 @@ namespace Keysharp.Core.Unix
 
 				if (actions.Count > 0)
 				{
-					DebugLog("[SendEmit] Seq Commit");
 					foreach (var (type, vk) in actions)
 					{
 						if (type == ActionType.Down)

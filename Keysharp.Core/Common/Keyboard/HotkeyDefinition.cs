@@ -2203,6 +2203,20 @@ namespace Keysharp.Core.Common.Keyboard
 					ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
 					script.SetHotNamesAndTimes(Name);
 					binding.ReleasePending();
+					var finalCritFoundHwnd = critFoundHwnd;
+
+					// Final #HotIf validation at execution time to minimize drift between trigger receipt and callback.
+					// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
+					if (critFoundHwnd == 0 && variant.hotCriterion != null)
+					{
+						finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name);
+
+						if (finalCritFoundHwnd == 0L)
+							return false;
+
+						finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
+					}
+
 					_ = Interlocked.Increment(ref binding.ExistingThreads);
 
 					try
@@ -2214,7 +2228,7 @@ namespace Keysharp.Core.Common.Keyboard
 
 							A_SendLevel = variant.inputLevel;
 							var tv = script.Threads.CurrentThread;
-							tv.hwndLastUsed = new nint(critFoundHwnd);
+							tv.hwndLastUsed = new nint(finalCritFoundHwnd);
 							tv.hotCriterion = variant.hotCriterion;
 							_ = callback.Call([Name]);
 						});
@@ -2226,9 +2240,11 @@ namespace Keysharp.Core.Common.Keyboard
 					}
 
 					return true;
-				}, out _);
+				}, out bool callbackExecuted);
 
-				return Complete(executionResult);
+				return executionResult == ScriptEventExecutionResult.Executed && !callbackExecuted
+					? Complete(ScriptEventExecutionResult.Dropped)
+					: Complete(executionResult);
 			}
 			catch (KeysharpException ex)
 			{

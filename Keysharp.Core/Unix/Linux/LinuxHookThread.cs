@@ -15,20 +15,61 @@ namespace Keysharp.Core.Unix
 	internal sealed class LinuxHookThread : UnixHookThread
 	{
 		protected override bool UsePlatformHotstringArming => true;
+		protected override bool UseSyntheticEventQueue => true;
+		protected override bool KeepSyntheticDownTokensForRepeats => true;
 		private const uint Mod5Mask = 1 << 7; // Usually ISO_Level3_Shift (AltGr) on X11.
 		private static readonly uint[] ExtraGrabMasks = { ControlMask, ShiftMask, Mod1Mask, Mod4Mask, Mod5Mask };
 		private readonly LinuxX11InputState inputState;
+		private readonly Dictionary<uint, int> temporarilyUngrabbedKeycodes = [];
 
 		internal LinuxHookThread()
 		{
 			inputState = new LinuxX11InputState(physicalKeyState, logicalKeyState);
 		}
 
+		protected override long SyntheticEventTimeoutMs => 250;
+
+		protected override bool ShouldSkipSyntheticQueueMatch(uint vk, bool keyUp) => false;
+
 		protected override bool ShouldConsumePlatformHotstringKeyDown(uint vk) => inputState.ShouldSuppressPendingHotstringKeyDown(vk);
 
-		protected override bool ShouldConsumePlatformHotstringKeyUp(uint vk) => inputState.TrySuppressPendingHotstringKeyUp(vk);
+		protected override bool ShouldConsumePlatformHotstringKeyUp(uint vk, bool isInjected) => inputState.TrySuppressPendingHotstringKeyUp(vk, updatePhysical: !isInjected);
 
 		protected override void TrackPlatformHotstringTrigger(uint triggerVk) => inputState.TrackPendingHotstringTrigger(triggerVk);
+
+		protected override bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
+		{
+			var simulated = base.MarkSimulatedIfNeeded(e, vk, keyCode, keyUp, out extraInfo);
+
+			if (simulated
+				|| vk == 0
+				|| IsModifierVk(vk)
+				|| !TryGetHeldSyntheticDownOwnerExtra(keyCode, vk, out var ownerExtraInfo))
+				return simulated;
+
+			var raw = e.RawEvent;
+			raw.Mask |= EventMask.SimulatedEvent;
+			SetRawEvent(e, raw);
+			extraInfo = ownerExtraInfo != 0
+				? ownerExtraInfo
+				: (ulong)KeyIgnoreAllExceptModifier;
+			return true;
+		}
+
+		// Synthetic key-up grab restoration is handled synchronously by Fix B in
+		// TrySendPlatformEventArray (RestoreSuspendedGrabOnPhysicalKeyUp after the send).
+		// Calling it here from the SharpHook thread would use a different [ThreadStatic]
+		// XDisplay connection than the one that established the grabs, causing cross-client
+		// XGrabKey/XUngrabKey failures and BadAccess errors on subsequent cycles.
+
+		protected override void OnPlatformPhysicalKeyUpObserved(uint vk)
+		{
+			if (kbdMsSender is LinuxKeyboardMouseSender sender
+				&& sender.IsKeyGrabSuspended(vk))
+			{
+				sender.RestoreSuspendedGrabOnPhysicalKeyUp(this, vk);
+			}
+		}
 
 		protected override void AddPlatformHotstringArmEnds(HotstringManager hm, ReadOnlySpan<char> hsBuf, HashSet<char> ends)
 		{
@@ -40,12 +81,13 @@ namespace Keysharp.Core.Unix
 			var newKeyGrabs = new Dictionary<(uint keycode, uint mods), GrabKinds>();
 			var newButtonGrabs = new Dictionary<(uint button, uint mods), GrabKinds>();
 
-			if (!IsX11Available)
-			{
-				activeKeyGrabs.Clear();
-				activeButtonGrabs.Clear();
-				return;
-			}
+				if (!IsX11Available)
+				{
+					activeKeyGrabs.Clear();
+					activeButtonGrabs.Clear();
+					temporarilyUngrabbedKeycodes.Clear();
+					return;
+				}
 
 			foreach (var entry in linuxHotkeys)
 			{
@@ -79,7 +121,7 @@ namespace Keysharp.Core.Unix
 					}
 					else if (TryMapToXGrab(entry.Vk, modsForGrab, out var keycode, out var mods))
 					{
-						foreach (var pair in KeyGrabVariants(keycode, mods, entry.AllowExtra))
+						foreach (var pair in entry.AllowExtra ? KeyGrabVariantsWithExtra(keycode, mods) : KeyGrabVariants(keycode, mods))
 							AddGrabKind(newKeyGrabs, pair, GrabKinds.Hotkey);
 					}
 			}
@@ -237,8 +279,8 @@ namespace Keysharp.Core.Unix
 			return true;
 		}
 
-		protected override bool WasKeyGrabbedPlatform(HookEventArgs e, uint vk, out bool grabbedByHotstring)
-		{
+			protected override bool WasKeyGrabbedPlatform(HookEventArgs e, uint vk, bool keyUp, out bool grabbedByHotstring)
+			{
 			grabbedByHotstring = false;
 			if (!IsX11Available)
 				return false;
@@ -250,8 +292,11 @@ namespace Keysharp.Core.Unix
 				if (xcode == 0 && vk != 0 && TryMapToXGrab(vk, 0, out var kcFromVk, out _))
 					xcode = kcFromVk;
 
-				if (xcode == 0)
-					return false;
+					if (xcode == 0)
+						return false;
+
+					if (temporarilyUngrabbedKeycodes.ContainsKey(xcode))
+						return false;
 
 				uint mods = CurrentXGrabMask();
 				bool hotstringGrabbed = false;
@@ -282,8 +327,6 @@ namespace Keysharp.Core.Unix
 				grabbedByHotstring = hotstringGrabbed;
 				if (!grabbed)
 					return false;
-
-				DebugLog($"[Hook] WasKeyGrabbed kc={xcode} mods={mods:X} hotstring={grabbedByHotstring}");
 
 				var raw = e.RawEvent;
 				if ((raw.Mask & EventMask.SuppressEvent) == 0)
@@ -367,8 +410,8 @@ namespace Keysharp.Core.Unix
 			return true;
 		}
 
-		protected override void PlatformUngrabAll()
-		{
+			protected override void PlatformUngrabAll()
+			{
 			if (!IsX11Available)
 				return;
 
@@ -379,11 +422,41 @@ namespace Keysharp.Core.Unix
 				foreach (var ((button, mods), _) in activeButtonGrabs)
 					_ = XDisplay.Default.XUngrabButton(button, mods);
 
-				activeKeyGrabs.Clear();
-				activeButtonGrabs.Clear();
-				XDisplay.Default.XSync(false);
+					activeKeyGrabs.Clear();
+					activeButtonGrabs.Clear();
+					temporarilyUngrabbedKeycodes.Clear();
+					XDisplay.Default.XSync(false);
+				}
 			}
-		}
+
+			private void IncrementTemporarilyUngrabbedKeycode(uint xcode)
+			{
+				if (xcode == 0)
+					return;
+
+				temporarilyUngrabbedKeycodes.TryGetValue(xcode, out var count);
+				temporarilyUngrabbedKeycodes[xcode] = count + 1;
+			}
+
+		private bool DecrementTemporarilyUngrabbedKeycode(uint xcode)
+			{
+				if (xcode == 0)
+					return false;
+
+				if (!temporarilyUngrabbedKeycodes.TryGetValue(xcode, out var count))
+					return false;
+
+				count--;
+
+				if (count <= 0)
+				{
+					temporarilyUngrabbedKeycodes.Remove(xcode);
+					return true;
+				}
+
+				temporarilyUngrabbedKeycodes[xcode] = count;
+				return false;
+			}
 
 		internal override bool HasButtonGrab(uint button)
 		{
@@ -402,6 +475,12 @@ namespace Keysharp.Core.Unix
 			return false;
 		}
 
+		private static bool IsModifierVk(uint vk) => vk is
+			VK_SHIFT or VK_LSHIFT or VK_RSHIFT or
+			VK_CONTROL or VK_LCONTROL or VK_RCONTROL or
+			VK_MENU or VK_LMENU or VK_RMENU or
+			VK_LWIN or VK_RWIN;
+
 		internal override uint MouseButtonToXButton(MouseButton btn) => btn switch
 		{
 			MouseButton.Button1 => 1u,
@@ -412,8 +491,8 @@ namespace Keysharp.Core.Unix
 			_ => 0u
 		};
 
-		internal override GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
-		{
+			internal override GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
+			{
 			var snap = new GrabSnapshot { Active = IsX11Available };
 
 			if (!snap.Active)
@@ -437,8 +516,11 @@ namespace Keysharp.Core.Unix
 				return activeButtonGrabs.Keys.Where(bm => buttons.Contains(bm.button));
 			}
 
-			snap.KeyGrabs = new HashSet<(uint keycode, uint mods)>(KeyMatches());
-			snap.ButtonGrabs = new HashSet<(uint button, uint mods)>(ButtonMatches());
+				snap.KeyGrabs = new HashSet<(uint keycode, uint mods)>(KeyMatches());
+				snap.ButtonGrabs = new HashSet<(uint button, uint mods)>(ButtonMatches());
+
+				foreach (var keycode in snap.KeyGrabs.Select(item => item.Item1).Distinct())
+					IncrementTemporarilyUngrabbedKeycode(keycode);
 
 			try
 			{
@@ -448,6 +530,7 @@ namespace Keysharp.Core.Unix
 				foreach (var (button, mods) in snap.ButtonGrabs)
 					_ = XDisplay.Default.XUngrabButton(button, mods, (nint)XDisplay.Default.Root.ID);
 
+				_ = XDisplay.Default.XUngrabPointer(CurrentTime);
 				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
 				_ = XDisplay.Default.XSync(false);
 				_ = XDisplay.Default.XFlush();
@@ -460,19 +543,33 @@ namespace Keysharp.Core.Unix
 			return snap;
 		}
 
-		internal override void EndSendUngrab(GrabSnapshot snap)
-		{
+			internal override void EndSendUngrab(GrabSnapshot snap)
+			{
 			if (!snap.Active || !IsX11Available)
 				return;
 
-			if ((snap.KeyGrabs == null || snap.KeyGrabs.Count == 0)
-				&& (snap.ButtonGrabs == null || snap.ButtonGrabs.Count == 0))
-				return;
+				if ((snap.KeyGrabs == null || snap.KeyGrabs.Count == 0)
+					&& (snap.ButtonGrabs == null || snap.ButtonGrabs.Count == 0))
+					return;
 
-			try
-			{
-				foreach (var (xcode, mods) in snap.KeyGrabs)
-					_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+				var keycodesToRestore = new HashSet<uint>();
+
+				if (snap.KeyGrabs != null)
+				{
+					foreach (var keycode in snap.KeyGrabs.Select(item => item.Item1).Distinct())
+					{
+						if (DecrementTemporarilyUngrabbedKeycode(keycode))
+							keycodesToRestore.Add(keycode);
+					}
+				}
+
+				try
+				{
+					foreach (var (xcode, mods) in snap.KeyGrabs)
+					{
+						if (keycodesToRestore.Contains(xcode))
+							_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
+					}
 
 				foreach (var (button, mods) in snap.ButtonGrabs)
 				{
@@ -497,21 +594,34 @@ namespace Keysharp.Core.Unix
 			uint deactivated = 0;
 			var targetXcode = VkToXKeycode(vk);
 
-			if (targetXcode == 0)
-				return 0;
-
 			try
 			{
-				foreach (var ((xcode, mods), _) in activeKeyGrabs)
-				{
-					if (xcode == targetXcode)
+					foreach (var ((xcode, mods), _) in activeKeyGrabs)
 					{
-						_ = XDisplay.Default.XUngrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID);
-						deactivated = xcode;
+						if (targetXcode != 0 && xcode == targetXcode)
+						{
+							_ = XDisplay.Default.XUngrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID);
+							deactivated = xcode;
+						}
 					}
-				}
 
-				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
+					// Fallback for layouts/keysym mappings where VkToXKeycode doesn't resolve
+					// to the same keycode used by active grabs.
+					if (deactivated == 0)
+					{
+						foreach (var ((xcode, mods), _) in activeKeyGrabs)
+						{
+							if (MapScToVk(xcode) != vk)
+								continue;
+
+							_ = XDisplay.Default.XUngrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID);
+							deactivated = xcode;
+						}
+					}
+
+					if (deactivated != 0)
+						IncrementTemporarilyUngrabbedKeycode(deactivated);
+
 				_ = XDisplay.Default.XSync(false);
 				_ = XDisplay.Default.XFlush();
 			}
@@ -523,20 +633,22 @@ namespace Keysharp.Core.Unix
 			return deactivated;
 		}
 
-		internal override void RegrabKey(uint targetXcode)
-		{
-			if (targetXcode == 0)
-				return;
-
-			try
+			internal override void RegrabKey(uint targetXcode)
 			{
+				if (targetXcode == 0)
+					return;
+
+				if (!DecrementTemporarilyUngrabbedKeycode(targetXcode))
+					return;
+
+				try
+				{
 				foreach (var ((xcode, mods), _) in activeKeyGrabs)
 				{
 					if (xcode == targetXcode)
 						_ = XDisplay.Default.XGrabKey(xcode, mods, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync);
 				}
 
-				_ = XDisplay.Default.XUngrabKeyboard(CurrentTime);
 				_ = XDisplay.Default.XSync(false);
 				_ = XDisplay.Default.XFlush();
 			}
@@ -927,6 +1039,34 @@ namespace Keysharp.Core.Unix
 		{
 			foreach (var m in KeyGrabMaskVariants(modifiers, anyModifier))
 				yield return (keycode, m);
+		}
+
+		// allowExtra hotkeys (e.g. *^a) must keep required modifiers while allowing extras.
+		// AnyModifier would also match missing required modifiers and break pass-through.
+		private static IEnumerable<(uint keycode, uint mods)> KeyGrabVariantsWithExtra(uint keycode, uint requiredMods)
+		{
+			var seen = new HashSet<uint>();
+			int comboCount = 1 << ExtraGrabMasks.Length;
+			var requiredNoLocks = requiredMods & ~(LockMask | Mod2Mask);
+
+			for (int maskBits = 0; maskBits < comboCount; maskBits++)
+			{
+				uint mods = requiredNoLocks;
+
+				for (int i = 0; i < ExtraGrabMasks.Length; i++)
+				{
+					if ((maskBits & (1 << i)) != 0)
+						mods |= ExtraGrabMasks[i];
+				}
+
+				if (!seen.Add(mods))
+					continue;
+
+				yield return (keycode, mods);
+				yield return (keycode, mods | LockMask);
+				yield return (keycode, mods | Mod2Mask);
+				yield return (keycode, mods | LockMask | Mod2Mask);
+			}
 		}
 
 		private static IEnumerable<uint> ButtonGrabMaskVariants(uint modifiers, bool allowExtra)

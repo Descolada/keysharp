@@ -204,6 +204,7 @@ namespace Keysharp.Scripting
 			// meaning a circular reference. This shouldn't prevent garbage collection, but
 			// I haven't verified that.
 			var fop = Prototypes[typeof(FuncObj)];
+			FuncObj.PrototypeCall = fop;
 			foreach (var op in fop.op)
 			{
 				var opm = op.Value;

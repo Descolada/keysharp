@@ -357,11 +357,8 @@
 			{
 				var methName = (string)meth;
 
-				// Fast path: IFuncObj asked for "Call".
-				if (obj is IFuncObj direct && methName.Equals("Call", StringComparison.OrdinalIgnoreCase) && direct.IsValid)
-					return direct.Call(parameters);
-				else if (obj is Module module && module is IMetaObject mo)
-					return mo.Call(methName, parameters);
+				if (obj is Module module && module is IMetaObject imo)
+					return imo.Call(methName, parameters);
 
 				// Track real receiver (handles the (proto, this) "super" tuple)
 				bool isSuper = obj is ITuple superT && superT.Length > 1 && superT[0] is Any;
@@ -375,6 +372,9 @@
 						// Meta-call marker: Item1 == null → this is __Call
 						if (mitup.Item1 == null)
 							return fn.Call(actualThis, methName, new Keysharp.Core.Array(parameters));
+
+						if (fn == FuncObj.PrototypeCall && obj is IFuncObj direct && direct.IsValid)
+							return direct.Call(parameters);
 
 						// Regular callable
 						if (parameters == null)

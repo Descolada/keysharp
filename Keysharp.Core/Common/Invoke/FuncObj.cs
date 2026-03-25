@@ -155,6 +155,8 @@
 		internal MethodPropertyHolder mph;
 		private readonly Type moduleType;
 
+		internal static Prototype PrototypeCall = null;
+
 		[PublicHiddenFromUser]
 		public object Inst { get; set; }
 		internal Type DeclaringType => mi?.DeclaringType;

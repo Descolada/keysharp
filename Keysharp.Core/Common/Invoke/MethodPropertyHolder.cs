@@ -218,7 +218,15 @@ namespace Keysharp.Core.Common.Invoke
 
 			if (isFuncObj && mi.Name == "Call" && !mi.IsStatic)
 			{
-				_callFunc = (inst, obj) => ((IFuncObj)inst).Call(obj);
+				_callFunc = (inst, obj) =>
+				{
+					// When inst is null the FuncObj was obtained as an unbound prototype method
+					// (e.g. MsgBox.Call.Bind(MsgBox)). The caller has prepended the target as
+					// the first argument, so shift it into the instance role.
+					if (inst == null && obj?.Length > 0 && obj[0] is IFuncObj fo)
+						return fo.Call(obj[1..]);
+					return ((IFuncObj)inst).Call(obj);
+				};
 			}
 		}
 

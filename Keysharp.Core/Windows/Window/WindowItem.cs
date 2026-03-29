@@ -12,6 +12,17 @@ namespace Keysharp.Core.Windows
 	{
 		private int lastChildCount = 64;
 
+		private void ApplyWindowLongAndRefresh(int index, long value)
+		{
+			if (!IsSpecified)
+				return;
+
+			_ = WindowsAPI.SetWindowLongPtr(Handle, index, new nint(value));
+			_ = WindowsAPI.SetWindowPos(Handle, 0, 0, 0, 0, 0,
+				(uint)(WindowsAPI.SWP_NOMOVE | WindowsAPI.SWP_NOSIZE | WindowsAPI.SWP_NOZORDER | WindowsAPI.SWP_FRAMECHANGED | WindowsAPI.SWP_NOACTIVATE));
+			_ = WindowsAPI.InvalidateRect(Handle, 0, true);
+		}
+
 		internal override bool Active
 		{
 			get
@@ -141,11 +152,7 @@ namespace Keysharp.Core.Windows
 		{
 			get => IsSpecified ? WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE).ToInt64() : 0;
 
-			set
-			{
-				if (IsSpecified)
-					_ = WindowsAPI.SetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE, new nint(value));
-			}
+			set => ApplyWindowLongAndRefresh(WindowsAPI.GWL_EXSTYLE, value);
 		}
 
 		internal override bool IsHung => Handle == 0 ? false : WindowsAPI.IsHungAppWindow(Handle);
@@ -256,11 +263,7 @@ namespace Keysharp.Core.Windows
 		{
 			get => IsSpecified ? WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_STYLE).ToInt64() : 0;
 
-			set
-			{
-				if (IsSpecified)
-					_ = WindowsAPI.SetWindowLongPtr(Handle, WindowsAPI.GWL_STYLE, new nint(value));
-			}
+			set => ApplyWindowLongAndRefresh(WindowsAPI.GWL_STYLE, value);
 		}
 
 		internal override List<string> Text

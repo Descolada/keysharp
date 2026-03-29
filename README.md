@@ -318,6 +318,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `A_DefaultHotstringSendMode` returns the default hotstring sending mode.
 	+ `A_DefaultHotstringSendRaw` returns the default hotstring raw sending mode.
 	+ `A_DirSeparator` returns the directory separator character which is `\` on Windows and `/` elsewhere.
+	+ `A_GuiTheme` gets/sets the application-wide WinForms GUI theme. Accepted values: `Classic`, `System`, `Dark`. Windows only. Can be imported directly from the `Ks` module: `import { A_GuiTheme } from Ks`.
 	+ `A_HasExited` returns whether shutdown has been initiated.
 	+ `A_KeysharpCorePath` provides the full path to the Keysharp.Core.dll file.
 	+ `A_LoopRegValue` which makes it easy to get a registry value when using `Loop Reg`.

@@ -7,6 +7,7 @@
 		internal long maxHotkeysPerInterval = 2000L;
 		internal readonly string initialWorkingDir = Environment.CurrentDirectory;
 		internal bool allowMainWindow = true;
+		internal string guiTheme = "Classic";
 		internal bool? iconFrozen;
 		internal bool iconHidden;
 		internal long inputLevel;
@@ -2040,6 +2041,39 @@
 		}
 
 		/// <summary>
+		/// The application-wide WinForms GUI theme.
+		/// Possible values are Classic, System, and Dark.
+		/// </summary>
+		public static object A_GuiTheme
+		{
+			get
+			{
+#if WINDOWS
+				return Script.InvokeOnUIThread(() => Application.ColorMode.ToString());
+#else
+				return Script.TheScript.AccessorData.guiTheme;
+#endif
+			}
+			set
+			{
+				if (!TryParseGuiTheme(value?.ToString(), out var normalizedTheme
+#if WINDOWS
+					, out var colorMode
+#endif
+					))
+				{
+					_ = Errors.ValueErrorOccurred($"Invalid gui theme {value}");
+					return;
+				}
+
+				Script.TheScript.AccessorData.guiTheme = normalizedTheme;
+#if WINDOWS
+				Script.InvokeOnUIThread(() => Application.SetColorMode(colorMode));
+#endif
+			}
+		}
+
+		/// <summary>
 		/// Iterates through all timers in existence and returns the number of them which are enabled.
 		/// </summary>
 		public static Map A_Timers
@@ -2056,6 +2090,48 @@
 				}
 
 				return new Map(timerData.ToArray());
+			}
+		}
+
+		private static bool TryParseGuiTheme(string value, out string normalizedTheme
+#if WINDOWS
+			, out System.Windows.Forms.SystemColorMode colorMode
+#endif
+			)
+		{
+			normalizedTheme = null;
+#if WINDOWS
+			colorMode = System.Windows.Forms.SystemColorMode.Classic;
+#endif
+
+			if (string.IsNullOrWhiteSpace(value))
+				return false;
+
+			switch (value.Trim().ToLower())
+			{
+				case "classic":
+					normalizedTheme = "Classic";
+#if WINDOWS
+					colorMode = System.Windows.Forms.SystemColorMode.Classic;
+#endif
+					return true;
+
+				case "system":
+					normalizedTheme = "System";
+#if WINDOWS
+					colorMode = System.Windows.Forms.SystemColorMode.System;
+#endif
+					return true;
+
+				case "dark":
+					normalizedTheme = "Dark";
+#if WINDOWS
+					colorMode = System.Windows.Forms.SystemColorMode.Dark;
+#endif
+					return true;
+
+				default:
+					return false;
 			}
 		}
 

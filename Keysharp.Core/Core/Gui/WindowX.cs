@@ -583,7 +583,7 @@ namespace Keysharp.Core
 			if (outY != null) Script.SetPropertyValue(outY, "__Value", valY); 
 			if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", valWidth); 
 			if (outHeight != null) Script.SetPropertyValue(outHeight, "__Value", valHeight);
-			return null;
+			return DefaultObject;
 		}
 
 		public static object WinGetControls(object winTitle = null,
@@ -596,7 +596,7 @@ namespace Keysharp.Core
 												object winText = null,
 												object excludeTitle = null,
 												object excludeText = null) =>
-		WinGetControlsHelper(false, winTitle, winText, excludeTitle, excludeText);
+		WinGetControlsHelper(false, winTitle, winText, excludeTitle, excludeText) ?? DefaultObject;
 
 		public static long WinGetCount(object winTitle = null,
 									   object winText = null,

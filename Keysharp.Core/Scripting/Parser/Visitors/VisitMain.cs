@@ -697,11 +697,6 @@ namespace Keysharp.Scripting
 					// when the function declaration is inside a block for example
 					parser.GlobalClass.Body.Add(memberDeclarationSyntax);
 				}
-				else if (visited is ClassDeclarationSyntax classDeclarationSyntax)
-				{
-					// In case a class is declared inside a function (such as some unit tests)
-					parser.GlobalClass.Body.Add(classDeclarationSyntax);
-				}
 				else
 					statements.Add(EnsureStatementSyntax(visited));
 			}

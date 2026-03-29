@@ -24,7 +24,7 @@ namespace Keysharp.Scripting
         ))
         .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.ParamsKeyword)));
 
-        public override SyntaxNode VisitClassDeclaration([NotNull] ClassDeclarationContext context)
+		public override SyntaxNode VisitClassDeclaration([NotNull] ClassDeclarationContext context)
         {
 			if (parser.currentFunc != parser.autoExecFunc)
 				throw new ParseException("Classes cannot be declared inside functions", context);
@@ -32,7 +32,8 @@ namespace Keysharp.Scripting
 			string userDeclaredName = context.identifier().GetText();
             parser.PushClass(parser.NormalizeIdentifier(userDeclaredName, eNameCase.Title));
             parser.currentClass.UserDeclaredName = userDeclaredName;
-			var isTopLevelExported = parser.ClassStack.Count == 1
+			var isTopLevelClass = parser.ClassStack.Count == 1;
+			var isTopLevelExported = isTopLevelClass
 				&& parser.currentModule.ExportedTypes.Contains(parser.currentClass.Name);
 
             // Determine the base class (Extends clause)
@@ -87,7 +88,7 @@ namespace Keysharp.Scripting
                 )
             );
 
-			if (parser.ClassStack.Count == 1)
+			if (isTopLevelClass)
             {
                 fieldDeclaration = SyntaxFactory.PropertyDeclaration(
                     Parser.PredefinedKeywords.ObjectType,
@@ -102,13 +103,6 @@ namespace Keysharp.Scripting
 
 				parser.declaredTopLevelClasses.Add(fieldDeclaration);
                 parser.GlobalClass.cachedFieldNames.Add(fieldDeclarationName);
-            }
-
-            if (parser.ClassStack.Count == 1)
-            {
-                var discard = SyntaxFactory.ExpressionStatement(((InvocationExpressionSyntax)InternalMethods.MultiStatement)
-                    .WithArgumentList(CreateArgumentList(SyntaxFactory.IdentifierName(fieldDeclarationName))));
-				parser.autoExecFunc.Body.Add(discard);
             }
 
             // Add the constructor
@@ -135,6 +129,16 @@ namespace Keysharp.Scripting
             var newClass = parser.currentClass.Assemble();
 
             parser.PopClass();
+
+			if (isTopLevelClass)
+			{
+				parser.GlobalClass.Body.Add(newClass);
+				return SyntaxFactory.ExpressionStatement(
+					((InvocationExpressionSyntax)InternalMethods.MultiStatement)
+					.WithArgumentList(CreateArgumentList(SyntaxFactory.IdentifierName(fieldDeclarationName)))
+				);
+			}
+
             return newClass;
         }
 

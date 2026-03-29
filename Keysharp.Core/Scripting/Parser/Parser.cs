@@ -458,6 +458,9 @@ namespace Keysharp.Scripting
             public bool UserStatic = false;
 
             public bool HasDerefs = false;
+			public bool NeedsScopeDerefFrame = false;
+			public string DerefsName = null;
+			public bool RequiresDerefFrame => HasDerefs || NeedsScopeDerefFrame;
 
 			public Function(string normalizedNameLower, string userDeclaredName, string emittedMethodName, TypeSyntax returnType = null)
 			{
@@ -477,8 +480,9 @@ namespace Keysharp.Scripting
             {
                 var statements = Locals.Values.ToList();
 
-                if (HasDerefs && Name != Keywords.AutoExecSectionName)
+                if (RequiresDerefFrame && Name != Keywords.AutoExecSectionName)
                 {
+					var dereferenceType = SyntaxFactory.ParseTypeName("Keysharp.Scripting.Variables.Dereference");
                     var arguments = new List<ArgumentSyntax>();
 
                     arguments.Add(
@@ -537,6 +541,9 @@ namespace Keysharp.Scripting
                         arguments.Add(SyntaxFactory.Argument(arrayCreation));
                     }
 
+					if (Parent != null && Parent.Name != Keywords.AutoExecSectionName && Parent.RequiresDerefFrame)
+						arguments.Add(SyntaxFactory.Argument(SyntaxFactory.IdentifierName(Parent.DerefsName)));
+
                     foreach (string localName in Locals.Keys) {
 						if (Variables.IsSpecialName(localName)) continue;
                         arguments.Add(
@@ -558,16 +565,16 @@ namespace Keysharp.Scripting
                     // Create the object creation expression:
                     //   new Keysharp.Scripting.Script.Variables.Dereference()
                     ObjectCreationExpressionSyntax newExpr = SyntaxFactory.ObjectCreationExpression(
-                            SyntaxFactory.ParseTypeName("Keysharp.Scripting.Variables.Dereference"))
+                            dereferenceType)
                         .WithArgumentList(CreateArgumentList(arguments));
 
                     // Create the variable declarator for _ks_Derefs with its initializer.
                     VariableDeclaratorSyntax varDeclarator = SyntaxFactory.VariableDeclarator(
-                            SyntaxFactory.Identifier(InternalPrefix + "Derefs"))
+                            SyntaxFactory.Identifier(DerefsName))
                         .WithInitializer(SyntaxFactory.EqualsValueClause(PredefinedKeywords.EqualsToken, newExpr));
 
                     // Create the variable declaration: "Dereference _ks_Derefs = new Keysharp.Scripting.Variables.Dereference();"
-                    VariableDeclarationSyntax varDeclaration = SyntaxFactory.VariableDeclaration(SyntaxFactory.ParseTypeName("Keysharp.Scripting.Variables.Dereference"))
+                    VariableDeclarationSyntax varDeclaration = SyntaxFactory.VariableDeclaration(dereferenceType)
                         .WithVariables(SyntaxFactory.SingletonSeparatedList(varDeclarator));
 
                     statements.Add(SyntaxFactory.LocalDeclarationStatement(varDeclaration));

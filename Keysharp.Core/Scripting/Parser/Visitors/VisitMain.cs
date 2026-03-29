@@ -1324,7 +1324,7 @@ namespace Keysharp.Scripting
 						),
 						SyntaxFactory.IdentifierName("Vars")
                       )
-                    : SyntaxFactory.IdentifierName(InternalPrefix + "Derefs")
+                    : SyntaxFactory.IdentifierName(parser.currentFunc.DerefsName)
                 ,
                 SyntaxFactory.BracketedArgumentList(
                     SyntaxFactory.SingletonSeparatedList(
@@ -1980,6 +1980,7 @@ namespace Keysharp.Scripting
 			parser.currentFunc = new Function(semLower, userName, implName, returnType);
             parser.currentFunc.Parent = parent;
             parser.currentFunc.Class = parser.currentClass;
+			parser.currentFunc.DerefsName = parser.ToValidIdentifier($"{Keywords.InternalPrefix}Derefs_{implName}");
 			// Export is carried on the FuncObj field, not the implementation method.
 		}
 
@@ -2481,6 +2482,8 @@ namespace Keysharp.Scripting
             if (context == null) return;
             
 			var scopeFunctionDeclarations = parser.GetScopeFunctions(context, this);
+			if (scopeFunctionDeclarations.Count != 0 && parser.currentFunc.Name != Keywords.AutoExecSectionName)
+				parser.currentFunc.NeedsScopeDerefFrame = true;
 
 			foreach (var fi in scopeFunctionDeclarations)
 			{

@@ -408,14 +408,22 @@ namespace Keysharp.Scripting
 
 			public class Dereference
 			{
-            private readonly Dictionary<string, object> locals = new(StringComparer.OrdinalIgnoreCase);
+			private readonly Dictionary<string, object> locals = new(StringComparer.OrdinalIgnoreCase);
+			private readonly Dereference parent;
 			private eScope scope = eScope.Local;
 			private HashSet<string> globals;
 			private Dictionary<string, MethodPropertyHolder> statics = null;
 			private readonly Type moduleType;
-            public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, params object[] args)
+
+			public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, params object[] args)
+				: this(funcScope, funcName, parentType, funcGlobals, null, args)
+			{
+			}
+
+			public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, Dereference parentDereference, params object[] args)
 			{
 				scope = funcScope;
+				parent = parentDereference;
 				globals = funcGlobals == null ? null : new HashSet<string>(funcGlobals, StringComparer.OrdinalIgnoreCase);
 				statics = GatherTypeVariables(parentType, VariableType.Field | VariableType.SpecialName, funcName);
 				moduleType = Script.TheScript.Vars.ResolveModuleType(parentType);
@@ -429,17 +437,68 @@ namespace Keysharp.Scripting
 				}
 			}
 
-            public object this[object key]
+			private bool TryGetVariable(string name, out object value)
+			{
+				if (locals.TryGetValue(name, out var val))
+				{
+					value = GetPropertyValue(val, "__Value");
+					return true;
+				}
+
+				if (statics.TryGetValue(name, out var mph))
+				{
+					value = mph.CallFunc(null, null);
+					return true;
+				}
+
+				if ((scope == eScope.Global || (globals?.Contains(name) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, name))
+				{
+					value = Script.TheScript.Vars.GetVariable(moduleType, name);
+					return true;
+				}
+
+				if (parent != null && parent.TryGetVariable(name, out value))
+					return true;
+
+				value = null;
+				return false;
+			}
+
+			private bool TrySetExistingVariable(string name, object value)
+			{
+				if (locals.TryGetValue(name, out var val))
+				{
+					SetPropertyValue(val, "__Value", value);
+					return true;
+				}
+
+				if (statics.TryGetValue(name, out var mph))
+				{
+					SetMemberValue(mph, value);
+					return true;
+				}
+
+				if ((scope == eScope.Global || (globals?.Contains(name) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, name))
+				{
+					Script.TheScript.Vars.SetVariable(moduleType, name, value);
+					return true;
+				}
+
+				return parent != null && parent.TrySetExistingVariable(name, value);
+			}
+
+			public object this[object key]
 			{
 				get
 				{
 					if (key is KeysharpObject)
 						return GetPropertyValue(key, "__Value");
-					if (locals.TryGetValue(key.ToString(), out var val))
-						return GetPropertyValue(val, "__Value");
-					else if (statics.TryGetValue(key.ToString(), out var mph))
-						return mph.CallFunc(null, null);
-					return Script.TheScript.Vars.GetVariable(moduleType, key.ToString());
+
+					var name = key.ToString();
+					if (TryGetVariable(name, out var value))
+						return value;
+
+					return Script.TheScript.Vars.GetVariable(moduleType, name);
 				}
 				set
 				{
@@ -450,25 +509,12 @@ namespace Keysharp.Scripting
 					}
 
 					var s = key.ToString();
-					if (locals.TryGetValue(s, out var val))
-					{
-						SetPropertyValue(val, "__Value", value);
+					if (TrySetExistingVariable(s, value))
 						return;
-					}
-					else if (statics.TryGetValue(s, out var mph))
-					{
-						SetMemberValue(mph, value);
-						return;
-					}
-					if ((scope == eScope.Global || (globals?.Contains(s) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, s))
-					{
-						Script.TheScript.Vars.SetVariable(moduleType, s, value);
-						return;
-					}
 
 					locals[s] = new VarRef(null);
-                }
+				}
 			}
-        }
+		}
 		}
 }

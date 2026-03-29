@@ -96,3 +96,29 @@ if (a == 1)
     FileAppend "pass", "*"
 else
     FileAppend "fail", "*"
+
+StaticDynClosure() {
+    static name := "a"
+    static a := 1
+
+    closureRead()
+    closureWrite()
+
+    closureRead() {
+        if (%name% == 1)
+            FileAppend "pass", "*"
+        else
+            FileAppend "fail", "*"
+    }
+
+    closureWrite() {
+        %name% := 5
+    }
+
+    if (a == 5)
+        FileAppend "pass", "*"
+    else
+        FileAppend "fail", "*"
+}
+
+StaticDynClosure()

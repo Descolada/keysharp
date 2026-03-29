@@ -234,7 +234,7 @@ namespace Keysharp.Scripting
 				? (ArgumentListSyntax)VisitArguments(suffix.arguments())
 				: SyntaxFactory.ArgumentList();
 
-			var methodName = ExtractMethodName(baseExpression) ?? string.Empty;
+			var methodName = Parser.ExtractMethodName(baseExpression) ?? string.Empty;
 			if (methodName.Equals("IsSet", StringComparison.InvariantCultureIgnoreCase)
 				&& baseExpression is IdentifierNameSyntax)
 			{
@@ -323,6 +323,8 @@ namespace Keysharp.Scripting
 
         private ExpressionSyntax EnsureValidStatementExpression(ExpressionSyntax expression)
         {
+			expression = RewriteAccessInvocationToOrNull(expression);
+
             // Check if the expression is valid as a statement
             if (expression is InvocationExpressionSyntax ||
                 expression is AssignmentExpressionSyntax ||

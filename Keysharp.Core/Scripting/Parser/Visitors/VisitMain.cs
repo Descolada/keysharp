@@ -1927,10 +1927,10 @@ namespace Keysharp.Scripting
 				return SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(targetExpression));
 			}
 
-			string methodName = ExtractMethodName(targetExpression);
+			string methodName = Parser.ExtractMethodName(targetExpression);
 			argumentList ??= SyntaxFactory.ArgumentList();
 
-			return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName));
+			return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName, useOrNull: true));
 		}
 
         private void PushFunction(FunctionHeadContext funcHead)

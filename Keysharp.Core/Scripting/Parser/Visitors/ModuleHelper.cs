@@ -898,9 +898,11 @@ namespace Keysharp.Scripting
 			var info = parser.GetIdentifierInfo(raw);
 			var baseLower = info.BaseLower;
 
+			// GlobalVars entries come from prepass-collected assignment targets; imports should
+			// always supersede them (the assignment "A_GuiTheme := x" is intended to use the
+			// imported accessor, not declare a separate variable). Only flag real structural
+			// conflicts: a duplicate import, a same-named user function, or a same-named user type.
 			return HasMemberName(module.ModuleClass, aliasName)
-				|| module.GlobalVars.Contains(aliasName)
-				|| module.GlobalVars.Contains(baseLower)
 				|| module.UserFuncs.Contains(info.Trimmed)
 				|| module.UserFuncs.Contains(baseLower)
 				|| module.UserTypes.ContainsKey(parser.NormalizeIdentifier(info.Trimmed, eNameCase.Title))

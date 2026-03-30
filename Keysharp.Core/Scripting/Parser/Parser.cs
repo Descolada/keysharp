@@ -713,6 +713,7 @@ namespace Keysharp.Scripting
             reader = new PreReader(this);
 
 			fileName = name;
+			Modules.Clear();  // Reset module state so re-used Parser instances don't carry over class bodies from previous parses.
             var moduleTokens = reader.ReadScriptTokens(codeStream, name);
 			codeTokens.Clear();
 			moduleAutoExecBodies.Clear();

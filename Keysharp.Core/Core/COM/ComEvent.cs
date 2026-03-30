@@ -124,25 +124,28 @@ namespace Keysharp.Core.COM
 				var moduleType = ResolveModuleType(mph.mi?.DeclaringType);
 				TheScript.Threads.LaunchThreadInMain(() =>
 				{
-					e.IsHandled = true;
-					if (moduleType != null)
+					_ = Flow.TryCatch(() =>
 					{
-						var script = Script.TheScript;
-						var prev = script.CurrentModuleType;
-						script.CurrentModuleType = moduleType;
-						try
+						e.IsHandled = true;
+						if (moduleType != null)
+						{
+							var script = Script.TheScript;
+							var prev = script.CurrentModuleType;
+							script.CurrentModuleType = moduleType;
+							try
+							{
+								e.Result = mph.CallFunc(null, args);
+							}
+							finally
+							{
+								script.CurrentModuleType = prev;
+							}
+						}
+						else
 						{
 							e.Result = mph.CallFunc(null, args);
 						}
-						finally
-						{
-							script.CurrentModuleType = prev;
-						}
-					}
-					else
-					{
-						e.Result = mph.CallFunc(null, args);
-					}
+					});
 				});
 			}
 		}
@@ -163,8 +166,11 @@ namespace Keysharp.Core.COM
 
 			TheScript.Threads.LaunchThreadInMain(() =>
 			{
-				e.IsHandled = true;
-				e.Result = Script.Invoke(sinkObj, e.Name, allArgs);
+				_ = Flow.TryCatch(() =>
+				{
+					e.IsHandled = true;
+					e.Result = Script.Invoke(sinkObj, e.Name, allArgs);
+				});
 			});
 		}
 

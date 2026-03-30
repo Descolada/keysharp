@@ -170,7 +170,7 @@ namespace Keysharp.Core
 		/// </summary>
 		/// <param name="value">The object to examine.</param>
 		/// <returns>1 if value is not null, else 0.</returns>
-		public static long IsSet(object value) => value != null ? 1L : 0L;
+		public static long IsSet(object value = null) => value != null ? 1L : 0L;
 
 		/// <summary>
 		/// Returns 1 if the specified VarRef target has been assigned a value, meaning it is not null, else 0.

@@ -373,6 +373,7 @@
 						if (mitup.Item1 == null)
 							return fn.Call(actualThis, methName, new Keysharp.Core.Array(parameters));
 
+						// Fast path: if it's an unmodified Call method then call the actual function directly
 						if (fn == FuncObj.PrototypeCall && obj is IFuncObj direct && direct.IsValid)
 							return direct.Call(parameters);
 

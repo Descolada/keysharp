@@ -155,7 +155,7 @@
 		internal MethodPropertyHolder mph;
 		private readonly Type moduleType;
 
-		internal static Prototype PrototypeCall = null;
+		internal static FuncObj PrototypeCall = null;
 
 		[PublicHiddenFromUser]
 		public object Inst { get; set; }

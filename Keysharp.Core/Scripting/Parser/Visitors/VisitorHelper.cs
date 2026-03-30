@@ -12,7 +12,7 @@ using static MainParser;
 
 namespace Keysharp.Scripting
 {
-    internal partial class Parser
+	internal partial class Parser
 	{
 		private readonly Dictionary<string, IdentifierInfo> identifierInfoCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1371,11 +1371,9 @@ namespace Keysharp.Scripting
 
 		/*
         Converts an ExpressionSyntax to a function InvocationExpressionSyntax. 
-        1. Built-in functions get called with the fully qualified name, eg MsgBox -> Keysharp.Core.Dialogs.MsgBox
-        EXCEPT if the argument list contains variadic arguments, in which case Invoke is used.
-        2. User-declared classes are converted to Invoke(targetExpression, "Call", arguments)
-        3. Property access such as `obj.propName()` is converted to Invoke(obj, propName, args)
-        4. Anything else is converted to Invoke(targetExpression, "Call", arguments)
+        1. User-declared classes are converted to Invoke(targetExpression, "Call", arguments)
+        2. Property access such as `obj.propName()` is converted to Invoke(obj, propName, args)
+        3. Anything else is converted to Invoke(targetExpression, "Call", arguments)
         */
 		public ExpressionSyntax GenerateFunctionInvocation(
             ExpressionSyntax targetExpression,
@@ -1388,32 +1386,11 @@ namespace Keysharp.Scripting
 				? (InvocationExpressionSyntax)InternalMethods.InvokeOrNull
 				: (InvocationExpressionSyntax)InternalMethods.Invoke;
 
-            // 1. Built-in functions: Directly invoke the built-in method
-            // except in the case of a variadic function call
-            if (!string.IsNullOrEmpty(methodName)
-				&& TheScript.ReflectionsData.flatPublicStaticMethods.TryGetValue(methodName, out var mi)
-				&& !UserFuncs.Contains(methodName)
-                && IsVarDeclaredLocally(methodName) == null
-                )
-            {
-                if (argumentList.Arguments.Count > 0 && argumentList.Arguments.First().Expression is CollectionExpressionSyntax)
-                {
-                    targetExpression = ((InvocationExpressionSyntax)InternalMethods.Func)
-                    .WithArgumentList(
-						CreateArgumentList(targetExpression)
-                    );
-                } else
-                    // Fully qualified method invocation
-                    return SyntaxFactory.InvocationExpression(
-						CreateMemberAccess(mi.DeclaringType.ToString(), mi.Name),
-                        argumentList
-                    );
-            }
-
-            // 2. Handle UserTypes
+			// 1. Handle UserTypes
             if (targetExpression is IdentifierNameSyntax identifierName)
             {
-				if (ResolveUserTypeName(identifierName.Identifier.Text, UserTypeLookupMode.TopLevelOnly) != null)
+				var identifierSemanticName = GetIdentifierInfo(identifierName.Identifier.Text, true).BaseLower;
+				if (ResolveUserTypeName(identifierSemanticName, UserTypeLookupMode.TopLevelOnly) != null)
 				{
 					// Convert to Invoke(targetExpression, "Call", arguments)
 					return invokeMethod
@@ -1427,7 +1404,7 @@ namespace Keysharp.Scripting
 				}
             }
 
-            // 3. Handle GetPropertyValue invocation
+            // 2. Handle GetPropertyValue invocation
             if (targetInvocation != null &&
                 (CheckInvocationExpressionName(targetInvocation, "GetPropertyValue")
 					|| CheckInvocationExpressionName(targetInvocation, "GetPropertyValueOrNull")
@@ -1453,7 +1430,7 @@ namespace Keysharp.Scripting
                 }
             }
 
-            // 4. Default behavior: Treat as callable object and invoke .Call
+            // 3. Default behavior: Treat as callable object and invoke .Call
             return invokeMethod
             .WithArgumentList(
                 CreateArgumentList(

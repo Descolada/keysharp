@@ -63,10 +63,17 @@ namespace Keysharp.Tests
 					app.Invoke(CloseWindows);
 			}
 #endif
+			s?.Dispose();
+			s = null;
+			hsm = null;
 		}
 
 		private void ResetScriptState()
 		{
+			s?.Dispose();
+			s = null;
+			hsm = null;
+
 #if !WINDOWS
 			_ = Application.Instance ?? new Application();
 #endif

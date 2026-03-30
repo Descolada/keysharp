@@ -444,46 +444,47 @@ namespace Keysharp.Core.Common.Keyboard
 
 			try
 			{
-				var executionResult = scheduler.InvokePseudoThread(priority, false, false, btv =>
+				var executionResult = scheduler.TryInvokePseudoThread(priority, false, false, btv =>
 				{
-					var hwndCritFound = criterionFoundHwnd;
-
-					if (recheckCriterionOnReceipt && hotCriterion != null)
+					var callbackExecuted = false;
+					_ = Flow.TryCatch(() =>
 					{
-						hwndCritFound = HotkeyDefinition.HotCriterionAllowsFiring(hotCriterion, Name);
+						var hwndCritFound = criterionFoundHwnd;
 
-						if (hwndCritFound == 0)
-							return false;
-					}
-
-					hwndCritFound = HotkeyDefinition.NormalizeCriterionFoundHwnd(hotCriterion, hwndCritFound);
-
-					script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
-					A_EndChar = endCharRequired ? endChar.ToString() : "";
-					script.SetHotNamesAndTimes(Name);
-					_ = Interlocked.Increment(ref existingThreads);
-
-					try
-					{
-						_ = btv.Run(() => Flow.TryCatch(() =>
+						if (recheckCriterionOnReceipt && hotCriterion != null)
 						{
-							var tv = script.Threads.CurrentThread;
-							tv.configData.sendLevel = inputLevel;
-							tv.hwndLastUsed = new nint(hwndCritFound);
-							tv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
+							hwndCritFound = HotkeyDefinition.HotCriterionAllowsFiring(hotCriterion, Name);
+
+							if (hwndCritFound == 0)
+								return;
+						}
+
+						hwndCritFound = HotkeyDefinition.NormalizeCriterionFoundHwnd(hotCriterion, hwndCritFound);
+
+						script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
+						A_EndChar = endCharRequired ? endChar.ToString() : "";
+						script.SetHotNamesAndTimes(Name);
+						_ = Interlocked.Increment(ref existingThreads);
+
+						try
+						{
+							btv.configData.sendLevel = inputLevel;
+							btv.hwndLastUsed = new nint(hwndCritFound);
+							btv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
 							DoReplace(caseMode, endChar, triggerVk);
 
 							if (string.IsNullOrEmpty(replacement))
 								_ = funcObj.Call([Name]);
-						}));
-					}
-					finally
-					{
-						_ = Interlocked.Decrement(ref existingThreads);
-						script.Threads.EndThread(btv);
-					}
 
-					return true;
+							callbackExecuted = true;
+						}
+						finally
+						{
+							_ = Interlocked.Decrement(ref existingThreads);
+						}
+					});
+
+					return callbackExecuted;
 				}, out _);
 
 				return executionResult;

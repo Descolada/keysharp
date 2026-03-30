@@ -166,7 +166,10 @@ namespace Keysharp.Tests
 		private static void ShutdownWorker(Script script, Ks.RealThread worker)
 		{
 			if (script != null)
+			{
 				script.hasExited = true;
+				script.ScheduleAllEventSchedulers();
+			}
 
 			if (worker == null)
 				return;
@@ -505,16 +508,21 @@ namespace Keysharp.Tests
 			{
 				workerRan.Set();
 				return 0L;
-			})), _ =>
+			})), worker =>
 			{
+				var releaser = Task.Run(() =>
+				{
+					_ = mainStarted.Wait(1000);
+					Thread.Sleep(100);
+					releaseMain.Set();
+				});
+
 				hk.PerformInNewThreadMadeByCallerAsync(hk.firstVariant, 0, 0);
 
 				Assert.IsTrue(WaitWithUiPump(() => mainStarted.IsSet, 1000), "Main-thread hotkey callback never started.");
-				Thread.Sleep(100);
-				releaseMain.Set();
-
 				Assert.IsTrue(WaitWithUiPump(() => workerRan.IsSet, 1000),
 					"Worker-bound hotkey callback did not run after the main-thread callback completed.");
+				releaser.Wait();
 			});
 		}
 
@@ -525,6 +533,7 @@ namespace Keysharp.Tests
 
 			var mainStarted = new ManualResetEventSlim(false);
 			var releaseMain = new ManualResetEventSlim(false);
+			var workerProgressed = new ManualResetEventSlim(false);
 			var workerCalls = 0;
 			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ =>
 			{
@@ -536,11 +545,20 @@ namespace Keysharp.Tests
 
 			WithMatchingWorkerHotkey(hk, new FuncObj((Func<object, object>)(_ =>
 			{
-				_ = Interlocked.Increment(ref workerCalls);
+				if (Interlocked.Increment(ref workerCalls) >= 2)
+					workerProgressed.Set();
+
 				Thread.Sleep(50);
 				return 0L;
-			})), _ =>
+			})), worker =>
 			{
+				var releaser = Task.Run(() =>
+				{
+					_ = mainStarted.Wait(1000);
+					_ = workerProgressed.Wait(1000);
+					releaseMain.Set();
+				});
+
 				hk.firstVariant.maxThreads = 2;
 				hk.PerformInNewThreadMadeByCallerAsync(hk.firstVariant, 0, 0);
 				Assert.IsTrue(WaitWithUiPump(() => mainStarted.IsSet, 1000), "Main-thread hotkey callback never started.");
@@ -548,10 +566,9 @@ namespace Keysharp.Tests
 				for (var i = 0; i < 3; i++)
 					hk.PerformInNewThreadMadeByCallerAsync(hk.firstVariant, 0, 0);
 
-				Assert.IsTrue(WaitWithUiPump(() => Volatile.Read(ref workerCalls) >= 2, 1000),
+				Assert.IsTrue(WaitWithUiPump(() => workerProgressed.IsSet, 1000),
 					"Worker-bound hotkey callback did not make forward progress while the main binding was still blocked.");
-
-				releaseMain.Set();
+				releaser.Wait();
 			}, "T2");
 		}
 

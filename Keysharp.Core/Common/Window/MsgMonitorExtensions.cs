@@ -12,11 +12,16 @@ namespace Keysharp.Core.Common.Window
 
 			try
 			{
-				return targetScheduler.InvokePseudoThread(
+				return targetScheduler.TryInvokePseudoThread(
 					0,
 					false,
 					false,
-					tv => Script.ForceLong(RunHandler(script, registration.Callback, args, tv, eventInfo, hwnd)),
+					tv =>
+					{
+						long localResult = 0L;
+						_ = Flow.TryCatch(() => localResult = Script.ForceLong(ExecuteHandler(script, registration.Callback, args, tv, eventInfo, hwnd)));
+						return localResult;
+					},
 					out result,
 					allowEmergencyOverflow);
 			}

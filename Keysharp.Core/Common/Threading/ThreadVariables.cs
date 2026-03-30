@@ -161,19 +161,5 @@ namespace Keysharp.Core.Common.Threading
 			isCritical = configData.defaultIsCritical;
 		}
 
-		internal bool Run(Action action)
-			=> Flow.TryCatch(action);
-
-		internal bool RunAndEnd(Action action)
-		{
-			try
-			{
-				return Run(action);
-			}
-			finally
-			{
-				Script.TheScript.Threads.EndThread(this);
-			}
-		}
 	}
 }

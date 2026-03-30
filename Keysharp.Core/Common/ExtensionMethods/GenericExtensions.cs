@@ -210,7 +210,12 @@
 					continue;
 
 				var targetScheduler = entry.OwnerScheduler ?? script.EventScheduler;
-				var executionResult = targetScheduler.InvokePseudoThread(0, false, false, tv => RunHandler(script, handler, obj, tv, oldEventInfo, inst: inst), out result);
+				var executionResult = targetScheduler.TryInvokePseudoThread(0, false, false, tv =>
+				{
+					object localResult = null;
+					_ = Flow.TryCatch(() => localResult = ExecuteHandler(script, handler, obj, tv, oldEventInfo, inst: inst));
+					return localResult;
+				}, out result);
 
 				if (executionResult != ScriptEventExecutionResult.Executed)
 					continue;
@@ -223,19 +228,15 @@
 			return result;
 		}
 
-		internal static object RunHandler(Script script, IFuncObj handler, object[] obj, ThreadVariables tv, object eventInfo = null, long hwnd = 0L, Control inst = null)
+		internal static object ExecuteHandler(Script script, IFuncObj handler, object[] obj, ThreadVariables tv, object eventInfo = null, long hwnd = 0L, Control inst = null)
 		{
-			object result = null;
 			tv.eventInfo = eventInfo;
 			tv.hwndLastUsed = hwnd;
-			_ = tv.RunAndEnd(() =>
-			{
-				if (hwnd == 0L && inst is Control ctrl && ctrl.FindForm() is Form form)
-					script.HwndLastUsed = form.Handle;
 
-				result = handler.Call(obj);
-			});
-			return result;
+			if (hwnd == 0L && inst is Control ctrl && ctrl.FindForm() is Form form)
+				script.HwndLastUsed = form.Handle;
+
+			return handler.Call(obj);
 		}
 
 		/// <summary>

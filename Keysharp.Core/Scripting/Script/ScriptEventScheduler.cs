@@ -184,28 +184,38 @@ namespace Keysharp.Scripting
 					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteTimerEvent(timer, func, once));
 		}
 
+		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
+			=> action != null
+				&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action()));
+
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
-		{
-			return action != null
-					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, action, useTryCatch));
-		}
+			=> useTryCatch
+				? EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, () => _ = Flow.TryCatch(action))
+				: EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, action);
 
-		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal, bool useTryCatch = true)
-		{
-			return action != null
+		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal)
+			=> action != null
+				&& Enqueue(queueType, () =>
+			{
+				if (script.hasExited)
+					return ScriptEventExecutionResult.Dropped;
+
+				action();
+				return ScriptEventExecutionResult.Executed;
+			});
+
+		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType, bool useTryCatch)
+			=> useTryCatch
+				? action != null
 					&& Enqueue(queueType, () =>
-				{
-					if (script.hasExited)
-						return ScriptEventExecutionResult.Dropped;
+					{
+						if (script.hasExited)
+							return ScriptEventExecutionResult.Dropped;
 
-					if (useTryCatch)
 						_ = Flow.TryCatch(action);
-					else
-						action();
-
-					return ScriptEventExecutionResult.Executed;
-				});
-		}
+						return ScriptEventExecutionResult.Executed;
+					})
+				: EnqueueCallback(action, queueType);
 
 		internal T InvokeSynchronous<T>(Func<T> func)
 		{
@@ -239,7 +249,7 @@ namespace Keysharp.Scripting
 				{
 					completed.Set();
 				}
-			}, ScriptEventQueue.Interactive, useTryCatch: false))
+			}, ScriptEventQueue.Interactive))
 				throw new ObjectDisposedException(nameof(ScriptEventScheduler));
 
 			WaitForSynchronousCompletion(completed);
@@ -560,13 +570,12 @@ namespace Keysharp.Scripting
 					|| !threads.IsInterruptible())
 				return ScriptEventExecutionResult.GlobalBlocked;
 
-			var startResult = InvokePseudoThread(timer.Tag.Ai(), true, false, btv =>
+			var startResult = TryExecuteThreadLaunch(timer.Tag.Ai(), true, false, btv =>
 			{
 				btv.currentTimer = timer;
 				btv.eventInfo = func;
-				_ = btv.RunAndEnd(() => _ = func.Call());
-				return true;
-			}, out _);
+				_ = Flow.TryCatch(() => _ = func.Call());
+			});
 
 			if (startResult != ScriptEventExecutionResult.Executed)
 				return startResult;
@@ -589,48 +598,89 @@ namespace Keysharp.Scripting
 			return ScriptEventExecutionResult.Executed;
 		}
 
-		internal ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
+		// Pseudo-thread execution has three separate concerns:
+		// 1. Admission: TryStartPseudoThread decides whether a pseudo-thread may start.
+		// 2. Affinity: TryExecuteThreadLaunch/TryInvokePseudoThread either execute immediately on the
+		//    owning scheduler thread or marshal through InvokeSynchronous to get there.
+		// 3. Execution policy: the scheduler core is raw. Semantic callers that want handled behavior
+		//    wrap their callback with Flow.TryCatch before calling into the scheduler. The scheduler
+		//    runners always end the pseudo-thread in one place.
+		internal ScriptEventExecutionResult TryExecuteThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action<ThreadVariables> action, bool allowEmergencyOverflow = false)
 		{
-			return InvokePseudoThread(priority, skipUninterruptible, isCritical, btv =>
-			{
-				if (useTryCatch)
-				{
-					_ = btv.RunAndEnd(action);
-				}
-				else
-				{
-					try
-					{
-						action();
-					}
-					finally
-					{
-						script.Threads.EndThread(btv);
-					}
-				}
+			if (action == null || IsDisposed)
+				return ScriptEventExecutionResult.Dropped;
 
-				return true;
-			}, out _);
+			if (OwnsCurrentThread)
+			{
+				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+				return status != ScriptEventExecutionResult.Executed
+					? status
+					: RunPseudoThreadAction(threadVariables, action);
+			}
+
+			return InvokeSynchronous(() =>
+			{
+				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+				return status != ScriptEventExecutionResult.Executed
+					? status
+					: RunPseudoThreadAction(threadVariables, action);
+			});
 		}
 
-		internal ScriptEventExecutionResult InvokePseudoThread<T>(long priority, bool skipUninterruptible, bool isCritical, Func<ThreadVariables, T> action, out T result, bool allowEmergencyOverflow = false)
+		internal ScriptEventExecutionResult TryInvokePseudoThread<T>(long priority, bool skipUninterruptible, bool isCritical, Func<ThreadVariables, T> action, out T result, bool allowEmergencyOverflow = false)
 		{
 			result = default;
 
 			if (action == null || IsDisposed)
 				return ScriptEventExecutionResult.Dropped;
 
-			(ScriptEventExecutionResult status, T result) Execute()
+			(ScriptEventExecutionResult status, T result) execution;
+
+			if (OwnsCurrentThread)
 			{
-				var status = StartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var btv);
-				return status != ScriptEventExecutionResult.Executed
+				var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+				execution = status != ScriptEventExecutionResult.Executed
 					? (status, default)
-					: (ScriptEventExecutionResult.Executed, action(btv));
+					: EvaluatePseudoThreadFunc(threadVariables, () => action(threadVariables));
+			}
+			else
+			{
+				execution = InvokeSynchronous(() =>
+				{
+					var status = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+					return status != ScriptEventExecutionResult.Executed
+						? (status, default(T))
+						: EvaluatePseudoThreadFunc(threadVariables, () => action(threadVariables));
+				});
 			}
 
-			var execution = OwnsCurrentThread ? Execute() : InvokeSynchronous(Execute);
 			result = execution.result;
 			return execution.status;
+		}
+
+		private ScriptEventExecutionResult RunPseudoThreadAction(ThreadVariables threadVariables, Action<ThreadVariables> action)
+		{
+			try
+			{
+				action(threadVariables);
+				return ScriptEventExecutionResult.Executed;
+			}
+			finally
+			{
+				script.Threads.EndThread(threadVariables);
+			}
+		}
+
+		private (ScriptEventExecutionResult status, T result) EvaluatePseudoThreadFunc<T>(ThreadVariables threadVariables, Func<T> func)
+		{
+			try
+			{
+				return (ScriptEventExecutionResult.Executed, func());
+			}
+			finally
+			{
+				script.Threads.EndThread(threadVariables);
+			}
 		}
 
 		private void WaitForSynchronousCompletion(ManualResetEventSlim completed)
@@ -664,7 +714,7 @@ namespace Keysharp.Scripting
 			waitingScheduler?.PumpPendingEvents();
 		}
 
-		private ScriptEventExecutionResult StartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
+		private ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
 		{
 			threadVariables = null;
 

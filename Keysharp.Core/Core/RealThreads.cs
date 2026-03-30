@@ -46,7 +46,7 @@
 					scheduler = script.EventScheduler;
 					_ = schedulerSource.TrySetResult(scheduler);
 					SynchronizationContext.SetSynchronizationContext(new ScriptEventSynchronizationContext(scheduler));
-					var launchResult = scheduler.TryExecuteThreadLaunch(0, false, false, () => result = body(), false);
+					var launchResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ => result = body());
 
 					if (launchResult != ScriptEventExecutionResult.Executed)
 						_ = Errors.ErrorOccurred($"Unable to start RealThread worker body ({launchResult}).");
@@ -154,7 +154,7 @@
 				if (scheduler == null)
 					return ReportThreadNotAlive();
 
-				if (!scheduler.EnqueueThreadLaunch(0, false, false, () => _ = fo.Call(args), true))
+				if (!scheduler.EnqueueThreadLaunch(0, false, false, () => _ = Flow.TryCatch(() => _ = fo.Call(args))))
 					return ReportThreadNotAlive();
 
 				return DefaultObject;
@@ -176,7 +176,7 @@
 					return scheduler.InvokeSynchronous(() =>
 					{
 						object result = DefaultObject;
-						var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, () => result = fo.Call(args), false);
+						var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ => result = fo.Call(args));
 						return executionResult == ScriptEventExecutionResult.Executed
 							? result
 							: Errors.ErrorOccurred("Unable to execute callback on RealThread.");

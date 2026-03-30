@@ -223,11 +223,7 @@
 
 			if (dh._fast)
 				result = targetScheduler.InvokeSynchronous(ExecuteCallback);
-			else if (targetScheduler.InvokePseudoThread(0, false, false, btv =>
-			{
-				_ = btv.RunAndEnd(() => result = ExecuteCallback());
-				return true;
-			}, out _) != ScriptEventExecutionResult.Executed)
+			else if (targetScheduler.TryInvokePseudoThread(0, false, false, _tv => ExecuteCallback(), out result) != ScriptEventExecutionResult.Executed)
 				return 0L;
 
 			if (completedNormally)

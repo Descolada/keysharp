@@ -3531,7 +3531,7 @@ namespace Keysharp.Core.Common.Threading
 					if (targetScheduler == null || targetScheduler.IsDisposed)
 						targetScheduler = script.UIEventScheduler;
 
-					return targetScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Flow.TryCatch(() =>
 					{
 						if (endInput.InputRelease() is InputType releasedInput
 							&& releasedInput.scriptObject is InputObject so)
@@ -3543,7 +3543,7 @@ namespace Keysharp.Core.Common.Threading
 
 							so.DeactivateCallbackPersistence();
 						}
-					}, true);
+					}));
 				}
 
 				case (uint)UserMessages.AHK_INPUT_KEYDOWN:
@@ -3566,7 +3566,7 @@ namespace Keysharp.Core.Common.Threading
 					var wParamVal = msg.wParam.ToInt64();
 					var lParamVal = msg.lParam.ToInt64();
 
-					return targetScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Flow.TryCatch(() =>
 					{
 						InputType inputHook;
 
@@ -3586,7 +3586,7 @@ namespace Keysharp.Core.Common.Threading
 							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
 							: [inputHook.scriptObject, lParamVal, wParamVal];
 						_ = Script.Invoke(callback, "Call", args);
-					}, true);
+					}));
 				}
 
 				default:

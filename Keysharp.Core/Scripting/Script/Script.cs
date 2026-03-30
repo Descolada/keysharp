@@ -755,18 +755,28 @@ namespace Keysharp.Scripting
 
 		private void RunAutoExecSection(Func<object> userInit)
 		{
-			if (!Threads.TryBeginThread(out var tv))
-				return;
-
-			var prevConfigData = tv.configData;
-			tv.configData = AccessorData.threadConfigDataPrototype;
-			bool autoExecResult = Flow.TryCatch(() =>
+			var autoExecResult = false;
+			var executionResult = EventScheduler.TryExecuteThreadLaunch(0, false, false, tv =>
 			{
-				_ = userInit();
-				isReadyToExecute = true;
+				var prevConfigData = tv.configData;
+				tv.configData = AccessorData.threadConfigDataPrototype;
+
+				try
+				{
+					autoExecResult = Flow.TryCatch(() =>
+					{
+						_ = userInit();
+						isReadyToExecute = true;
+					});
+				}
+				finally
+				{
+					tv.configData = prevConfigData;
+				}
 			});
-			tv.configData = prevConfigData;
-			Threads.EndThread(tv);
+
+			if (executionResult != ScriptEventExecutionResult.Executed)
+				return;
 
 			if (!autoExecResult && !persistent)
 				_ = Flow.ExitApp(1);

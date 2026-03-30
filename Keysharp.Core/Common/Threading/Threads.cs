@@ -162,35 +162,7 @@
 		{
 			try
 			{
-				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act, true);
-			}
-			catch (Exception ex)
-			{
-				if (ex.InnerException != null)
-					throw ex.InnerException;
-				else
-					throw;//Do not pass ex because it will reset the stack information.
-			}
-		}
-
-		internal void LaunchInThread(long priority, bool skipUninterruptible,
-									 bool isCritical, object func, object[] o, bool tryCatch)
-		{
-			try
-			{
-				void Execute()
-				{
-					object ret = null;
-
-					if (func is VariadicFunction vf)
-						ret = vf(o);
-					else if (func is IFuncObj ifo)
-						ret = ifo.Call(o);
-					else
-						ret = "";
-				}
-
-				Script.TheScript.EventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, Execute, tryCatch);
+				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act);
 			}
 			catch (Exception ex)
 			{

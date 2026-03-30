@@ -837,16 +837,15 @@ namespace Keysharp.Core
 						_ = ErrorDialog.Show(innerEx);
 				}
 
-				var threads = Script.TheScript.Threads;
-
-				if (threads.TryBeginThread(out var tv))
+				var script = Script.TheScript;
+				var scheduler = script.CurrentSchedulerIfCreated ?? script.EventScheduler;
+				var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ =>
 				{
-					_ = tv.RunAndEnd(() => ShowDialog(ex, keysharpDialog));
-					return;
-				}
+					ShowDialog(ex, keysharpDialog);
+				});
 
-				threads.EnsureCurrentThreadVariables();
-				_ = threads.CurrentThread.Run(() => ShowDialog(ex, keysharpDialog));
+				if (executionResult != ScriptEventExecutionResult.Executed)
+					ShowDialog(ex, keysharpDialog);
 			}
 
 			try

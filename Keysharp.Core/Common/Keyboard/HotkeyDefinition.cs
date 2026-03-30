@@ -2190,54 +2190,53 @@ namespace Keysharp.Core.Common.Keyboard
 
 			try
 			{
-				var executionResult = scheduler.InvokePseudoThread(variant.priority, false, false, btv =>
+				var executionResult = scheduler.TryInvokePseudoThread(variant.priority, false, false, btv =>
 				{
-					// This is stored as an attribute of the script (semi-globally) rather than passed
-					// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
-					// makes) because it's possible for SendKeys to be called asynchronously, namely
-					// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
-					// in which case we would want SendKeys() to take note of these modifiers even
-					// if it was called from an ExecUntil() other than ours here:
-					ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
-					script.SetHotNamesAndTimes(Name);
-					binding.ReleasePending();
-					var finalCritFoundHwnd = critFoundHwnd;
-
-					// Final #HotIf validation at execution time to minimize drift between trigger receipt and callback.
-					// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
-					if (critFoundHwnd == 0 && variant.hotCriterion != null)
+					var callbackExecuted = false;
+					_ = Flow.TryCatch(() =>
 					{
-						finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name);
+						// This is stored as an attribute of the script (semi-globally) rather than passed
+						// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
+						// makes) because it's possible for SendKeys to be called asynchronously, namely
+						// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
+						// in which case we would want SendKeys() to take note of these modifiers even
+						// if it was called from an ExecUntil() other than ours here:
+						ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
+						script.SetHotNamesAndTimes(Name);
+						binding.ReleasePending();
+						var finalCritFoundHwnd = critFoundHwnd;
 
-						if (finalCritFoundHwnd == 0L)
-							return false;
+						// Final #HotIf validation at execution time to minimize drift between trigger receipt and callback.
+						// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
+						if (critFoundHwnd == 0 && variant.hotCriterion != null)
+						{
+							finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name);
 
-						finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
-					}
+							if (finalCritFoundHwnd == 0L)
+								return;
 
-					_ = Interlocked.Increment(ref binding.ExistingThreads);
+							finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
+						}
 
-					try
-					{
-						_ = btv.Run(() =>
+						_ = Interlocked.Increment(ref binding.ExistingThreads);
+
+						try
 						{
 							if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
 								A_EventInfo = (long)Conversions.LowWord(lParamVal);
 
 							A_SendLevel = variant.inputLevel;
-							var tv = script.Threads.CurrentThread;
-							tv.hwndLastUsed = new nint(finalCritFoundHwnd);
-							tv.hotCriterion = variant.hotCriterion;
+							btv.hwndLastUsed = new nint(finalCritFoundHwnd);
+							btv.hotCriterion = variant.hotCriterion;
 							_ = callback.Call([Name]);
-						});
-					}
-					finally
-					{
-						_ = Interlocked.Decrement(ref binding.ExistingThreads);
-						script.Threads.EndThread(btv);
-					}
-
-					return true;
+							callbackExecuted = true;
+						}
+						finally
+						{
+							_ = Interlocked.Decrement(ref binding.ExistingThreads);
+						}
+					});
+					return callbackExecuted;
 				}, out bool callbackExecuted);
 
 				return executionResult == ScriptEventExecutionResult.Executed && !callbackExecuted

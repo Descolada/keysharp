@@ -19,7 +19,11 @@ namespace Keysharp.Core
 		private bool closingFromDestroy;
 		private nint originalWndProcPtr;
 		internal bool BeenShown => beenShown;
+#if WINDOWS
 		internal bool HasExternalWndProcOverride => originalWndProcPtr != 0 && WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_WNDPROC) != originalWndProcPtr;
+#else
+		internal bool HasExternalWndProcOverride => false;
+#endif
 
 #if WINDOWS
 		protected override CreateParams CreateParams

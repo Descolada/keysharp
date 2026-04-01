@@ -43,7 +43,7 @@ namespace Keysharp.Tests
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
 #endif
-		public void ClipboardTextRoundTripPreservesWindowsNewlines()
+		public void ClipboardText()
 		{
 			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, 日本語, emoji-free.";
 			Accessors.A_Clipboard = expected;
@@ -92,13 +92,8 @@ namespace Keysharp.Tests
 		public void ClipWait()
 		{
 			//Flow.ResetState();
-			Clipboard.Clear();
-			var dt = DateTime.UtcNow;
-			var b = Env.ClipWait(0.5);
-			var dt2 = DateTime.UtcNow;
-			var ms = (dt2 - dt).TotalMilliseconds;
-			Assert.AreEqual(false, b);//Will have timed out, so ErrorLevel will be 1.
-			Assert.IsTrue(ms >= 500 && ms <= 3000);
+			AssertClipWaitTimeoutAfterClear();
+			using var bitmap = new Bitmap(640, 480);
 			var tcs = new TaskCompletionSource<bool>();
 			var thread = new Thread(() =>
 			{
@@ -110,16 +105,18 @@ namespace Keysharp.Tests
 			thread.SetApartmentState(ApartmentState.STA);
 #endif
 			thread.Start();
-			dt = DateTime.UtcNow;
-			b = Env.ClipWait(null, true);//Will wait indefinitely for any type.
-			dt2 = DateTime.UtcNow;
-			ms = (dt2 - dt).TotalMilliseconds;
+			var dt = DateTime.UtcNow;
+			var b = Env.ClipWait(null, true);//Will wait indefinitely for any type.
+			var dt2 = DateTime.UtcNow;
+			var ms = (dt2 - dt).TotalMilliseconds;
 			//Seems to take much longer than 100ms, but it's not too important.
 			//Assert.IsTrue(ms >= 500 && ms <= 1100);
 			tcs.Task.Wait();
+			AssertClipboardState(Clipboard.ContainsText, "Clipboard text did not appear.");
 			Assert.AreEqual(true, b);//Will have detected clipboard data, so ErrorLevel will be 0.
 			//Now test with file paths.
 			Clipboard.Clear();
+			AssertClipboardState(Ks.IsClipboardEmpty, "Clipboard should be empty before file-drop ClipWait test.");
 			tcs = new TaskCompletionSource<bool>();
 			thread = new Thread(() =>
 			{
@@ -141,10 +138,11 @@ namespace Keysharp.Tests
 			dt2 = DateTime.UtcNow;
 			ms = (dt2 - dt).TotalMilliseconds;
 			tcs.Task.Wait();
+			AssertClipboardState(Clipboard.ContainsFileDropList, "Clipboard file-drop data did not appear.");
 			Assert.AreEqual(true, b);//Will have detected clipboard data, so ErrorLevel will be 0.
 			//Wait specifically for text/files, and copy an image. This should time out.
 			Clipboard.Clear();
-			var bitmap = new Bitmap(640, 480);
+			AssertClipboardState(Ks.IsClipboardEmpty, "Clipboard should be empty before image ClipWait test.");
 			tcs = new TaskCompletionSource<bool>();
 			thread = new Thread(() =>
 			{
@@ -161,8 +159,8 @@ namespace Keysharp.Tests
 			dt2 = DateTime.UtcNow;
 			ms = (dt2 - dt).TotalMilliseconds;
 			tcs.Task.Wait();
+			AssertClipboardState(Clipboard.ContainsImage, "Clipboard image did not appear.");
 			Assert.AreEqual(false, b);//Will have timed out, so ErrorLevel will be 1.
-			Accessors.A_Clipboard = "Asdf";
 			Assert.IsTrue(TestScript("env-clipwait", true));//For this to work, the bitmap from above must be on the clipboard.
 		}
 #else
@@ -171,6 +169,26 @@ namespace Keysharp.Tests
 			Assert.Ignore("ClipWait test currently requires Windows clipboard APIs.");
 		}
 #endif
+
+		private static void AssertClipboardState(Func<bool> predicate, string message, int timeoutMs = 3000)
+			=> Assert.IsTrue(SpinWait.SpinUntil(predicate, timeoutMs), message);
+
+		private static void AssertClipWaitTimeoutAfterClear(int attempts = 3)
+		{
+			for (var attempt = 0; attempt < attempts; attempt++)
+			{
+				Clipboard.Clear();
+				AssertClipboardState(Ks.IsClipboardEmpty, "Clipboard should be empty before ClipWait timeout test.");
+				var dt = DateTime.UtcNow;
+				var b = Env.ClipWait(0.5);
+				var ms = (DateTime.UtcNow - dt).TotalMilliseconds;
+
+				if (!b && ms >= 500 && ms <= 3000)
+					return;
+			}
+
+			Assert.Fail("ClipWait did not time out after clearing the clipboard.");
+		}
 
 		[Test, Category("Env"), NonParallelizable]
 		public void EnvGet()

@@ -18,10 +18,194 @@ namespace Keysharp.Core
 		private static T RunInterruptibleDialog<T>(Func<T> func)
 		{
 			using var _ = Flow.BeginDialogInterruptibilityScope();
-			return func();
+			var result = func();
+
+			if (Script.TheScript?.hasExited == true)
+				throw new Flow.UserRequestedExitException();
+
+			return result;
 		}
 
 		private static T RunInterruptibleUIDialog<T>(Func<T> func) => RunInterruptibleDialog(() => Script.InvokeOnUIThread(func));
+
+#if WINDOWS
+		private sealed class WindowsMsgBoxRequest
+		{
+			internal string Caption;
+			internal nint DialogHwnd;
+			internal int DialogDepth;
+			internal nuint RequestId;
+			internal bool TimedOut;
+			internal uint TimeoutMs;
+		}
+
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nuint, WindowsMsgBoxRequest> pendingWindowsMsgBoxes = new();
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, WindowsMsgBoxRequest> activeWindowsMsgBoxes = new();
+		private static readonly WindowsAPI.TimerProc msgBoxTimeoutProc = MsgBoxTimeout;
+		private static int nextMsgBoxRequestId;
+		private static int nextMsgBoxTimerId;
+
+		internal static nint HandleDialogNotification(uint dialogMessage, nint requestToken)
+		{
+			if (dialogMessage != (uint)UserMessages.AHK_DIALOG)
+				return 0;
+
+			var request = requestToken != 0 && pendingWindowsMsgBoxes.TryRemove(unchecked((nuint)requestToken), out var pendingRequest)
+				? pendingRequest
+				: null;
+			var dialogHwnd = FindOurDialog(request);
+
+			if (dialogHwnd == 0)
+				return 0;
+
+			if (request != null)
+			{
+				request.DialogHwnd = dialogHwnd;
+
+				if (request.TimeoutMs != 0)
+				{
+					activeWindowsMsgBoxes[dialogHwnd] = request;
+					_ = WindowsAPI.SetTimer(dialogHwnd, unchecked((nuint)System.Threading.Interlocked.Increment(ref nextMsgBoxTimerId)), request.TimeoutMs, msgBoxTimeoutProc);
+				}
+			}
+
+			_ = WindowItem.SetForegroundWindowEx(WindowManager.CreateWindow(dialogHwnd));
+
+			return dialogHwnd;
+		}
+
+		private static nint FindOurDialog(WindowsMsgBoxRequest request)
+		{
+			var currentProcessId = WindowsAPI.GetCurrentProcessId();
+			var dialogs = new List<nint>();
+
+			_ = WindowsAPI.EnumWindows((nint hwnd, int _) =>
+			{
+				if (hwnd != 0
+					&& WindowsAPI.GetWindowThreadProcessId(hwnd, out var processId) != 0
+					&& processId == currentProcessId
+					&& WindowsAPI.GetClassName(hwnd) == "#32770"
+					&& Control.FromHandle(hwnd) is not KeysharpForm)
+					dialogs.Add(hwnd);
+
+				return true;
+			}, 0);
+
+			if (dialogs.Count == 0)
+				return 0;
+
+			if (request != null)
+			{
+				if (!string.IsNullOrEmpty(request.Caption))
+				{
+					var matchingDialogs = dialogs.Where(hwnd => string.Equals(WindowsAPI.GetWindowText(hwnd), request.Caption, StringComparison.Ordinal)).ToList();
+
+					if (matchingDialogs.Count == 1)
+						return matchingDialogs[0];
+
+					if (matchingDialogs.Count > 1)
+					{
+						var index = matchingDialogs.Count - request.DialogDepth;
+
+						if (index >= 0 && index < matchingDialogs.Count)
+							return matchingDialogs[index];
+					}
+				}
+
+				var dialogIndex = dialogs.Count - request.DialogDepth;
+
+				if (dialogIndex >= 0 && dialogIndex < dialogs.Count)
+					return dialogs[dialogIndex];
+			}
+
+			return dialogs[0];
+		}
+
+		private static void MsgBoxTimeout(nint hWnd, uint uMsg, nuint idEvent, uint dwTime)
+		{
+			if (WindowsAPI.IsWindow(hWnd))
+				_ = WindowsAPI.EndDialog(hWnd, 0);
+
+			_ = WindowsAPI.KillTimer(hWnd, idEvent);
+
+			if (activeWindowsMsgBoxes.TryGetValue(hWnd, out var request))
+				request.TimedOut = true;
+		}
+
+		private static string ShowWindowsMsgBox(IWin32Window ownerWindow, string txt, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultbutton, MessageBoxOptions mbopts, uint timeoutMs)
+		{
+			var request = timeoutMs != 0
+				? new WindowsMsgBoxRequest()
+				{
+					Caption = caption,
+					DialogDepth = Script.TheScript.nMessageBoxes,
+					RequestId = unchecked((nuint)System.Threading.Interlocked.Increment(ref nextMsgBoxRequestId)),
+					TimeoutMs = timeoutMs
+				}
+				: null;
+			try
+			{
+				if (request != null)
+					pendingWindowsMsgBoxes[request.RequestId] = request;
+
+				var requestToken = request != null ? (nint)request.RequestId : 0;
+				_ = WindowsAPI.PostMessage(Script.TheScript.MainWindowHandle, (uint)WindowsAPI.WM_COMMNOTIFY, (nint)(uint)UserMessages.AHK_DIALOG, requestToken);
+
+				var ret = MessageBox.Show(ownerWindow, txt, caption, buttons, icon, defaultbutton, mbopts);
+				return request?.TimedOut == true ? "Timeout" : ret.ToString();
+			}
+			finally
+			{
+				if (request != null)
+					_ = pendingWindowsMsgBoxes.TryRemove(request.RequestId, out _);
+
+				if (request != null && request.DialogHwnd != 0)
+					_ = activeWindowsMsgBoxes.TryRemove(request.DialogHwnd, out _);
+			}
+		}
+#else
+		private static string ShowEtoMsgBox(Control owner, string txt, string caption, MessageBoxButtons buttons, MessageBoxType icon, MessageBoxDefaultButton defaultbutton, double timeout)
+		{
+			if (timeout != 0)
+			{
+				using var showCts = new CancellationTokenSource();
+				showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
+				var ownerControl = owner ?? Application.Instance?.MainForm;
+
+				ActivateAppForMessageBox(ownerControl);
+				var showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+
+				while (!showTask.IsCompleted)
+					Flow.TryDoEvents();
+
+				if (showTask.IsCanceled)
+					return "Timeout";
+
+				return showTask.Result.ToString();
+			}
+
+			if (owner != null)
+			{
+				return owner.Invoke(() =>
+				{
+					ActivateAppForMessageBox(owner);
+					return MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
+				});
+			}
+
+			var result = "";
+			var task = Application.Instance.InvokeAsync(() =>
+			{
+				ActivateAppForMessageBox(null);
+				result = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
+			});
+
+			while (!task.IsCompleted)
+				Flow.TryDoEvents();
+
+			return result;
+		}
+#endif
 
 		/// <summary>
 		/// Displays a standard dialog that allows the user to select a folder.
@@ -395,25 +579,19 @@ namespace Keysharp.Core
 		///     Result (String): One of the following words indicating how the input box was closed: OK, Cancel, or Timeout.
 		/// </returns>
 #if WINDOWS
-		public static DialogResultReturn InputBox(object prompt = null, object title = null, object options = null, object @default = null)
+		public static KeysharpObject InputBox(object prompt = null, object title = null, object options = null, object @default = null)
 		{
 			var p = prompt.As();
 			var t = title.As();
 			var opts = options.As();
 			var def = @default.As();
-			var input = new InputDialog
-			{
-				Default = def,
-				Prompt = p,
-				Title = t?.Length == 0 ? A_ScriptName : t
-			};
-			VarRef wl = new(null), wt = new(null), wr = new(null), wb = new(null);
-			var workarea = Monitor.MonitorGetWorkArea(null, wl, wt, wr, wb);
 			var w = int.MinValue;
 			var h = int.MinValue;
 			var x = int.MinValue;
 			var y = int.MinValue;
 			var pw = "";
+			var passwordSpecified = false;
+			var timeoutSeconds = 0;
 
 			foreach (Range r in opts.AsSpan().SplitAny(Spaces))
 			{
@@ -426,53 +604,52 @@ namespace Keysharp.Core
 					else if (Options.TryParse(opt, "h", ref temp)) { h = temp; }
 					else if (Options.TryParse(opt, "x", ref temp)) { x = temp; }
 					else if (Options.TryParse(opt, "y", ref temp)) { y = temp; }
-					else if (Options.TryParse(opt, "t", ref temp)) { input.Timeout = temp; }
-					else if (Options.TryParseString(opt, "Password", ref pw, StringComparison.OrdinalIgnoreCase, true)) { input.PasswordChar = pw; }
+					else if (Options.TryParse(opt, "t", ref temp)) { timeoutSeconds = temp; }
+					else if (Options.TryParseString(opt, "Password", ref pw, StringComparison.OrdinalIgnoreCase, true)) { passwordSpecified = true; }
 				}
 			}
 
-			input.Load += (oo, ee) =>
+			return RunInterruptibleUIDialog(() =>
 			{
-				var width = w != int.MinValue ? w : input.ClientSize.Width;
-				var height = h != int.MinValue ? h : input.ClientSize.Height;
-				input.ClientSize = new Size(width, height);
-				input.Left = x != int.MinValue ? x : (((wr.__Value.Ai() - wl.__Value.Ai()) / 2) - (input.Width / 2));
-				input.Top = y != int.MinValue ? y : (((wb.__Value.Ai() - wt.__Value.Ai()) / 2) - (input.Height / 2));
-			};
-				return RunInterruptibleDialog(() =>
+				var input = new InputDialog(w, h, x, y)
 				{
-					Script.InvokeOnUIThread(() =>
-					{
-						if (GuiHelper.DialogOwner != null)
-							_ = input.ShowDialog(GuiHelper.DialogOwner);
-						else
-							input.Show();
-					});
+					Default = def,
+					Prompt = p,
+					Title = t?.Length == 0 ? A_ScriptName : t
+				};
 
-					while (input.Visible)
-						Flow.TryDoEvents();
+				if (passwordSpecified)
+					input.PasswordChar = pw;
+				input.Timeout = timeoutSeconds;
 
-					return new DialogResultReturn()
-					{
-						Value = input.Message,
-						Result = input.Result
-					};
-				});
+				input.PrepareForShow();
+
+				if (GuiHelper.DialogOwner != null)
+					_ = input.ShowDialog(GuiHelper.DialogOwner);
+				else
+					_ = input.ShowDialog();
+
+				var obj = new KeysharpObject();
+				obj.DefinePropInternal("Value", new OwnPropsDesc(obj, input.Message));
+				obj.DefinePropInternal("Result", new OwnPropsDesc(obj, input.Result));
+				return obj;
+			});
 		}
 #else
-		public static DialogResultReturn InputBox(object prompt = null, object title = null, object options = null, object @default = null)
+		public static KeysharpObject InputBox(object prompt = null, object title = null, object options = null, object @default = null)
 		{
 			var p = prompt.As();
 			var t = title.As();
 			var opts = options.As();
 			var def = @default.As();
 			var pw = "";
+			var passwordSpecified = false;
 
 			foreach (Range r in opts.AsSpan().SplitAny(Spaces))
 			{
 				var opt = opts.AsSpan(r).Trim();
 				if (opt.Length > 0)
-					_ = Options.TryParseString(opt, "Password", ref pw, StringComparison.OrdinalIgnoreCase, true);
+					passwordSpecified |= Options.TryParseString(opt, "Password", ref pw, StringComparison.OrdinalIgnoreCase, true);
 			}
 
 			return RunInterruptibleUIDialog(() =>
@@ -486,7 +663,7 @@ namespace Keysharp.Core
 				Eto.Forms.TextBox textBox = null;
 				Eto.Forms.PasswordBox passwordBox = null;
 				Eto.Forms.Control inputControl;
-				if (pw.Length > 0)
+				if (passwordSpecified)
 				{
 					passwordBox = new Eto.Forms.PasswordBox { Text = def };
 					inputControl = passwordBox;
@@ -522,11 +699,10 @@ namespace Keysharp.Core
 
 				dlg.Content = layout;
 				var result = (Eto.Forms.DialogResult)dlg.ShowModal();
-				return new DialogResultReturn
-				{
-					Value = pw.Length > 0 ? passwordBox.Text : textBox.Text,
-					Result = result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"
-				};
+				var obj = new KeysharpObject();
+				obj.DefinePropInternal("Value", new OwnPropsDesc(obj, passwordSpecified ? passwordBox.Text : textBox.Text));
+				obj.DefinePropInternal("Result", new OwnPropsDesc(obj, result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"));
+				return obj;
 			});
 			}
 #endif
@@ -668,10 +844,10 @@ namespace Keysharp.Core
 
 						if (Options.TryParse(opt, "Owner", ref hwnd)) { owner = Control.FromHandle(new nint(hwnd)); }
 						else if (Options.TryParse(opt, "T", ref timeout)) { }
-						else if (int.TryParse(opt, out var itemp))
+						else if (opt.ToString().ParseLong(out var lopt))
 						{
 							hadNumeric = true;
-							iopt |= itemp;
+							iopt |= unchecked((int)lopt);
 						}
 						else
 						{
@@ -805,106 +981,37 @@ namespace Keysharp.Core
 			}
 #endif
 
-			if (timeout != 0)
+#if WINDOWS
+			return RunInterruptibleUIDialog(() =>
 			{
-				return RunInterruptibleDialog(() =>
+				script.nMessageBoxes++;
+
+				try
 				{
-					script.nMessageBoxes++;
-
-					try
-					{
-#if WINDOWS
-						var timeoutclosed = false;
-						var w = new Form() { Size = new Size(0, 0) };//Gotten from https://stackoverflow.com/a/26418199
-						//No need to show the form, it will work while hidden.
-						_ = Task.Delay(TimeSpan.FromSeconds(timeout))
-							.ContinueWith(t =>
-						{
-							w.Invoke(() => w.Close());
-							timeoutclosed = true;
-						}, TaskScheduler.FromCurrentSynchronizationContext());
-						var ret = MessageBox.Show(w, txt, caption, buttons, icon, defaultbutton, mbopts);
-						return timeoutclosed ? "Timeout" : ret.ToString();
+					var ownerWindow = (IWin32Window)(owner?.FindForm() ?? owner);
+					var timeoutMs = timeout != 0 ? (uint)Math.Clamp((long)Math.Round(timeout * 1000.0), 1L, int.MaxValue) : 0;
+					return ShowWindowsMsgBox(ownerWindow, txt, caption, buttons, icon, defaultbutton, mbopts, timeoutMs);
+				}
+				finally
+				{
+					script.nMessageBoxes--;
+				}
+			});
 #else
-						using var showCts = new CancellationTokenSource();
-						showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
-						var ownerControl = owner ?? Application.Instance?.MainForm;
-
-						ActivateAppForMessageBox(ownerControl);
-						var showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
-
-						while (!showTask.IsCompleted)
-						{
-							Flow.TryDoEvents();
-						}
-
-						if (showTask.IsCanceled)
-							return "Timeout";
-
-						var ret = showTask.Result;
-						return ret.ToString();
-#endif
-					}
-					finally
-					{
-						script.nMessageBoxes--;
-					}
-				});
-			}
-			else
+			return RunInterruptibleDialog(() =>
 			{
-				return RunInterruptibleDialog(() =>
+				script.nMessageBoxes++;
+
+				try
 				{
-					script.nMessageBoxes++;
-
-					try
-					{
-						var ret = "";
-
-						//If owner is null, then the message boxes will not be modal between threads, meaning it's possible to show
-						//more than one message box simultaneously and switch between them. However, within a thread, a message box always
-						//blocks that thread.
-						if (owner != null)
-						{
-							_ = owner.Invoke(() => 
-#if WINDOWS
-								ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton, mbopts).ToString()
-#else
-							{
-								ActivateAppForMessageBox(owner);
-								return ret = MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
-							}
+					return ShowEtoMsgBox(owner, txt, caption, buttons, icon, defaultbutton, timeout);
+				}
+				finally
+				{
+					script.nMessageBoxes--;
+				}
+			});
 #endif
-							);
-						}
-						else
-						{
-#if WINDOWS
-							var tsk = StaTask.Run(() =>
-								ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString());
-#else
-							var tsk = Application.Instance.InvokeAsync(() => {
-								ActivateAppForMessageBox(null);
-								ret = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
-							});
-#endif
-							while (!tsk.IsCompleted)
-							{
-								Flow.TryDoEvents();
-							}
-
-							//tsk.Wait();
-						}
-
-						//ret = Script.mainWindow.CheckedInvoke(() => MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton, mbopts).ToString(), true);
-						return ret;
-					}
-					finally
-					{
-						script.nMessageBoxes--;
-					}
-				});
-			}
 		}
 
 #if !WINDOWS
@@ -1021,20 +1128,6 @@ namespace Keysharp.Core
 #endif
 		}
 
-		/// <summary>
-		/// For returning from <see cref="InputBox(object, object, object, object)"/>
-		/// </summary>
-		public class DialogResultReturn
-		{
-			/// <summary>
-			/// The result of the input box selection: OK, Cancel or Timeout.
-			/// </summary>
-			public string Result { get; set; }
-
-			/// <summary>
-			/// The text entered by the user in the input box.
-			/// </summary>
-			public string Value { get; set; }
-		}
 	}
 }
+

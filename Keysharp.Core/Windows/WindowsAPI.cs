@@ -457,6 +457,8 @@ namespace Keysharp.Core.Windows
 
 		internal const int GWL_STYLE = -16;
 
+		internal const int GWL_WNDPROC = -4;
+
 		internal const int HWND_BOTTOM = 1;
 
 		internal const int HWND_BROADCAST = 0xffff;
@@ -541,9 +543,13 @@ namespace Keysharp.Core.Windows
 
 		internal const int SWP_NOACTIVATE = 0x10;
 
+		internal const int SWP_FRAMECHANGED = 0x0020;
+
 		internal const int SWP_NOMOVE = 2;
 
 		internal const int SWP_NOSIZE = 1;
+
+		internal const int SWP_NOZORDER = 0x0004;
 
 		internal const int SYNCHRONIZE = 0x00100000;
 
@@ -600,6 +606,15 @@ namespace Keysharp.Core.Windows
 		internal const int WM_NCACTIVATE = 0x0086;
 		internal const int WM_GETDLGCODE = 0x0087;
 		internal const int WM_ENDSESSION = 0x0016;
+		internal const int WM_ERASEBKGND = 0x0014;
+		internal const int WM_CTLCOLOREDIT = 0x0133;
+		internal const int WM_CTLCOLORLISTBOX = 0x0134;
+		internal const int WM_CTLCOLORBTN = 0x0135;
+		internal const int WM_CTLCOLORDLG = 0x0136;
+		internal const int WM_CTLCOLORSTATIC = 0x0138;
+		internal const uint WM_THEMECHANGED = 0x031A;
+		internal const int WM_COMMNOTIFY = 0x0044; // Used like AHK's WM_COMMNOTIFY to deliver pre-dialog notifications to OnMessage handlers.
+		internal const int WM_INITDIALOG = 0x0110; // Sent by DialogBoxParam after controls are created; we simulate it for #32770 windows created via CreateWindowEx.
 		internal const int WM_DESTROY = 0x0002;
 		internal const int WM_COPYDATA = 0x004A;
 		internal const int WM_PAINT = 0x000F;
@@ -1470,6 +1485,9 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(user32, EntryPoint = "GetFocus")]
 		internal static partial nint GetFocus();
 
+		[LibraryImport(user32, EntryPoint = "GetDC")]
+		internal static partial nint GetDC(nint hwnd);
+
 		[LibraryImport(user32, EntryPoint = "GetParent")]
 		internal static partial nint GetParent(nint hWnd);
 
@@ -1592,6 +1610,26 @@ namespace Keysharp.Core.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool GetClientRect(nint hWnd, out RECT lpRect);
 
+		[LibraryImport(user32, EntryPoint = "FillRect")]
+		internal static partial int FillRect(nint hDC, ref RECT lprc, nint hbr);
+
+		internal const uint CLR_INVALID = 0xFFFFFFFF;
+
+		[LibraryImport(gdi32, EntryPoint = "GetTextColor")]
+		internal static partial uint GetTextColor(nint hdc);
+
+		[LibraryImport(gdi32, EntryPoint = "GetBkColor")]
+		internal static partial uint GetBkColor(nint hdc);
+
+		internal const uint RDW_INVALIDATE = 0x0001;
+		internal const uint RDW_ERASE = 0x0004;
+		internal const uint RDW_ALLCHILDREN = 0x0080;
+		internal const uint RDW_UPDATENOW = 0x0100;
+
+		[LibraryImport(user32, EntryPoint = "RedrawWindow")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool RedrawWindow(nint hWnd, nint lprcUpdate, nint hrgnUpdate, uint flags);
+
 		[LibraryImport(user32, EntryPoint = "MapWindowPoints")]
 		internal static partial int MapWindowPoints(nint hWndFrom, nint hWndTo, ref RECT rect, uint cPoints);
 
@@ -1602,6 +1640,9 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(user32, EntryPoint = "ScreenToClient")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool ScreenToClient(nint hWnd, ref POINT lpPoint);
+
+		[LibraryImport(user32, EntryPoint = "ReleaseDC")]
+		internal static partial int ReleaseDC(nint hWnd, nint hDC);
 
 		[LibraryImport(user32, EntryPoint = "GetWindowTextW", StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial int GetWindowText(nint hWnd, [Out] char[] lpString, int nMaxCount);
@@ -1875,6 +1916,9 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(kernel32, EntryPoint = "GetShortPathNameW", StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial int GetShortPathName(string longPath, [Out] char[] shortPath, int bufSize);
 
+		[LibraryImport(kernel32, EntryPoint = "GetCurrentProcessId")]
+		internal static partial uint GetCurrentProcessId();
+
 		[LibraryImport(user32, EntryPoint = "SetActiveWindow")]
 		internal static partial int SetActiveWindow(nint handle);
 
@@ -1972,6 +2016,17 @@ namespace Keysharp.Core.Windows
 		[LibraryImport(user32, EntryPoint = "RegisterHotKey")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk);
+
+		[LibraryImport(user32, EntryPoint = "SetTimer")]
+		internal static partial nuint SetTimer(nint hWnd, nuint nIDEvent, uint uElapse, TimerProc lpTimerFunc);
+
+		[LibraryImport(user32, EntryPoint = "KillTimer")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool KillTimer(nint hWnd, nuint uIDEvent);
+
+		[LibraryImport(user32, EntryPoint = "EndDialog")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool EndDialog(nint hDlg, nint nResult);
 
 		[LibraryImport(user32, EntryPoint = "UnregisterHotKey")]
 		[return: MarshalAs(UnmanagedType.Bool)]
@@ -2167,6 +2222,7 @@ namespace Keysharp.Core.Windows
 		internal static extern uint PrivateExtractIcons(string lpszFile, int nIconIndex, int cxIcon, int cyIcon, [Out] nint[] phicon, [Out] uint[] piconid, uint nIcons, uint flags);
 
 		internal delegate bool _EnumWindowsProc(nint hwnd, int lParam);//Add an underscore to this name because some sample programs use EnumWindowsProc as a function name.
+		internal delegate void TimerProc(nint hWnd, uint uMsg, nuint idEvent, uint dwTime);
 
 		internal delegate nint LowLevelKeyboardProc(int nCode, nint wParam, ref KBDLLHOOKSTRUCT lParam);
 

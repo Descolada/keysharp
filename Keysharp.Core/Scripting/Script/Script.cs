@@ -265,11 +265,21 @@ namespace Keysharp.Scripting
 		{
 			get
 			{
+#if WINDOWS
+				if (mainWindow == null)
+					InitializeMainWindow(string.Empty, persistent, false, initializeUiChrome: false);
+#else
 				if (mainWindow == null)
 					return 0;
+#endif
 
 				if (mainWindowHandle == 0)
-					_ = mainWindow.Invoke(() => mainWindowHandle = mainWindow.Handle);
+				{
+					if (mainWindow.InvokeRequired)
+						_ = mainWindow.Invoke(() => mainWindowHandle = mainWindow.Handle);
+					else
+						mainWindowHandle = mainWindow.Handle;
+				}
 
 				return mainWindowHandle;
 			}

@@ -42,21 +42,62 @@ namespace Keysharp.Tests
 #endif
 
 			var (cts, task) = StartMsgBoxAutoAccept();
-
+			KeysharpForm form = null;
 			try
 			{
-				var form = CreateMsgBoxHostForm();
+				form = CreateMsgBoxHostForm();
 				form.Shown += Form_Shown;
 				RunMsgBoxHost(form);
 			}
 			finally
 			{
+				form?.Close();
 				cts.Cancel();
 				task.Wait();
 			}
 
-			var ret = Dialogs.MsgBox("ok, hand, def: 1, timeout: 0.2", MsgBoxTitle, "0 16 t0.2");
-			Assert.AreEqual("Timeout", ret);
+			var timeoutForm = CreateMsgBoxHostForm();
+			timeoutForm.Shown += TimeoutForm_Shown;
+			RunMsgBoxHost(timeoutForm);
+		}
+
+		[Test, Category("Gui")]
+#if WINDOWS
+		[Apartment(ApartmentState.STA)]
+#endif
+		public void Theme()
+		{
+#if WINDOWS
+			var originalTheme = Ks.A_GuiTheme.ToString();
+
+			try
+			{
+				Ks.A_GuiTheme = "Dark";
+				Assert.AreEqual("Dark", Ks.A_GuiTheme);
+
+				Ks.A_GuiTheme = "System";
+				Assert.AreEqual("System", Ks.A_GuiTheme);
+
+				Ks.A_GuiTheme = "Classic";
+				Assert.AreEqual("Classic", Ks.A_GuiTheme);
+			}
+			finally
+			{
+				Ks.A_GuiTheme = originalTheme;
+			}
+#else
+			var originalTheme = Ks.A_GuiTheme.ToString();
+
+			try
+			{
+				Ks.A_GuiTheme = "Dark";
+				Assert.AreEqual("Dark", Ks.A_GuiTheme);
+			}
+			finally
+			{
+				Ks.A_GuiTheme = originalTheme;
+			}
+#endif
 		}
 
 		private void Form_Shown(object sender, EventArgs e)
@@ -86,7 +127,16 @@ namespace Keysharp.Tests
 			Assert.AreEqual(ret, "Retry");
 			ret = Dialogs.MsgBox("retry-cancel, asterisk/info, def: 1", MsgBoxTitle, 5 | 64);
 			Assert.AreEqual(ret, "Retry");
+			ret = Dialogs.MsgBox("cancel-try-continue, exclamation, def: 1", MsgBoxTitle, "0x36");
+			Assert.AreEqual(ret, "Cancel");
 #endif
+			(sender as Form)?.Close();
+		}
+
+		private static void TimeoutForm_Shown(object sender, EventArgs e)
+		{
+			var ret = Dialogs.MsgBox("ok, hand, def: 1, timeout: 0.2", MsgBoxTitle, "0 16 t0.2");
+			Assert.AreEqual("Timeout", ret);
 			(sender as Form)?.Close();
 		}
 

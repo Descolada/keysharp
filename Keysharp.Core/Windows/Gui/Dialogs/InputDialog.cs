@@ -1,32 +1,35 @@
-using Label = System.Windows.Forms.Label;
 using Timer = System.Windows.Forms.Timer;
 
 namespace Keysharp.Core
 {
-	internal class InputDialog : Form
+	internal class InputDialog : KeysharpForm
 	{
-		private const int CP_NOCLOSE_BUTTON = 0x200;
-		private readonly Button btnCancel;
-		private readonly Button btnOK;
-		private readonly Label prompt;
+		private const int Unspecified = int.MinValue;
+		private readonly KeysharpButton btnCancel;
+		private readonly KeysharpButton btnOK;
+		private readonly FlowLayoutPanel buttonLayout;
+		private readonly TableLayoutPanel contentLayout;
+		private readonly KeysharpLabel prompt;
+		private readonly int requestedClientHeight;
+		private readonly int requestedClientWidth;
+		private readonly int requestedLeft;
+		private readonly int requestedTop;
 		private Timer timer;
 		private readonly TextBox txtMessage;
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public string Default { get; set; }
+		private bool layoutPrepared;
 
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public string Message
-		{
-			get => txtMessage.Text;
-			set => txtMessage.Text = value;
-			//set => txtMessage.Invoke(() => txtMessage.Text = value);
-		}
+		private int ButtonGap => ScalePixels(8);
+		private int ButtonTopMargin => ScalePixels(8);
+		private int DialogPadding => ScalePixels(12);
+		private int DialogBottomPadding => ScalePixels(6);
+		private int WorkAreaMargin => ScalePixels(32);
 
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string Default { get; set; }
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string Message { get => txtMessage.Text; set => txtMessage.Text = value; }
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public string PasswordChar
 		{
 			get => txtMessage.PasswordChar.ToString();
-
 			set
 			{
 				if (string.IsNullOrEmpty(value))
@@ -35,165 +38,227 @@ namespace Keysharp.Core
 					txtMessage.PasswordChar = value[0];
 			}
 		}
-
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public string Prompt
-		{
-			get => prompt.Text;
-			set => prompt.Text = value;
-			//set => prompt.Invoke(() => prompt.Text = value);
-		}
-
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public string Result { get; private set; } = "";
-
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public int Timeout { get; set; }
-
-		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-		public string Title
-		{
-			get => Text;
-			set => Text = value;
-			//set => this.Invoke(() => Text = value);
-		}
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string Prompt { get => prompt.Text; set => prompt.Text = value; }
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string Result { get; private set; } = "";
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public int Timeout { get; set; }
+		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)] public string Title { get => Text; set => Text = value; }
 
 		protected override CreateParams CreateParams
 		{
 			get
 			{
-				var myCp = base.CreateParams;
-				myCp.ClassStyle |= CP_NOCLOSE_BUTTON;
-				return myCp;
+				var cp = base.CreateParams;
+				// Use the Win32 dialog class so GetClassName() returns "#32770",
+				// matching AHK-style scripts that look for native dialog windows.
+				cp.ClassName = "#32770";
+				return cp;
 			}
 		}
 
-		public InputDialog()
+		public InputDialog(int clientWidth = Unspecified, int clientHeight = Unspecified, int left = Unspecified, int top = Unspecified)
 		{
-			prompt = new Label();
-			btnOK = new Button();
-			btnCancel = new Button();
-			txtMessage = new TextBox();
+			requestedClientWidth = clientWidth;
+			requestedClientHeight = clientHeight;
+			requestedLeft = left;
+			requestedTop = top;
+			prompt = new KeysharpLabel { Name = "Prompt", AutoSize = true, BackColor = Color.Transparent, Dock = DockStyle.Top, Margin = Padding.Empty };
+			btnOK = new KeysharpButton { DialogResult = DialogResult.OK, Name = "OK", TabIndex = 1, Text = "OK", AutoSize = true, Margin = new Padding(0, 0, ButtonGap, 0) };
+			btnCancel = new KeysharpButton { DialogResult = DialogResult.Cancel, Name = "Cancel", TabIndex = 2, Text = "Cancel", AutoSize = true, Margin = Padding.Empty };
+			buttonLayout = new FlowLayoutPanel
+			{
+				Anchor = AnchorStyles.None,
+				AutoSize = true,
+				AutoSizeMode = AutoSizeMode.GrowAndShrink,
+				FlowDirection = FlowDirection.LeftToRight,
+				Margin = new Padding(0, ButtonTopMargin, 0, 0),
+				Padding = Padding.Empty,
+				WrapContents = false
+			};
+			contentLayout = new TableLayoutPanel
+			{
+				AutoSize = true,
+				AutoSizeMode = AutoSizeMode.GrowAndShrink,
+				ColumnCount = 1,
+				Dock = DockStyle.Top,
+				GrowStyle = TableLayoutPanelGrowStyle.FixedSize,
+				Margin = Padding.Empty,
+				Padding = new Padding(DialogPadding, DialogPadding, DialogPadding, DialogBottomPadding),
+				RowCount = 3
+			};
+			txtMessage = new TextBox { Name = "Message", TabIndex = 0, Dock = DockStyle.Top, Margin = new Padding(0, DialogPadding, 0, 0) };
+			FormClosing += (_, _) =>
+			{
+				if (Result.Length == 0)
+					Result = "Cancel";
+			};
+			btnOK.Click += (_, _) => CloseWith("OK");
+			btnCancel.Click += (_, _) => CloseWith("Cancel");
 			Load += InputDialog_Load;
+			Resize += (_, _) =>
+			{
+				if (!layoutPrepared)
+					return;
+
+				ApplyLayoutWidth(ClientSize.Width);
+				contentLayout.PerformLayout();
+				UpdateMinimumSize(GetTargetWorkingArea());
+			};
 			Shown += InputDialog_Shown;
-			Resize += InputDialog_Resize;
 			txtMessage.KeyDown += TxtMessage_KeyDown;
 		}
 
-		private void btnCancel_Click(object sender, EventArgs e)
+		private void CloseWith(string result)
 		{
-			Result = "Cancel";
-			Hide();
-		}
-
-		private void btnOK_Click(object sender, EventArgs e)
-		{
-			Result = "OK";
+			Result = result;
 			Hide();
 		}
 
 		private void InitializeComponent()
 		{
 			SuspendLayout();
-			Controls.Add(prompt);//Must be added to sizes are properly computed.
-			Controls.Add(txtMessage);
-			Controls.Add(btnOK);
-			Controls.Add(btnCancel);
-			//
-			// label1
-			//
-			prompt.Location = new Point(Margin.Left, Margin.Top);
-			prompt.Name = "Prompt";
-			prompt.MaximumSize = new Size(150, int.MaxValue);
-			prompt.AutoSize = true;
-			prompt.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-			//
-			// txtMessage
-			//
-			txtMessage.Location = new Point(Margin.Left, prompt.Bottom + Margin.Bottom);
-			txtMessage.Name = "Message";
-			txtMessage.TabIndex = 0;
-			txtMessage.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-			//
-			// btnOK
-			//
-			btnOK.DialogResult = DialogResult.OK;
-			btnOK.Location = new Point(Margin.Left, txtMessage.Bottom + Margin.Bottom);
-			btnOK.Name = "OK";
-			btnOK.TabIndex = 1;
-			btnOK.Text = "OK";
-			btnOK.Click += btnOK_Click;
-			btnOK.AutoSize = true;
-			btnOK.UseVisualStyleBackColor = true;
-			btnOK.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-			//
-			// btnCancel
-			//
-			btnCancel.DialogResult = DialogResult.Cancel;
-			btnCancel.Location = new Point(btnOK.Right + Margin.Right, btnOK.Top);
-			btnCancel.Name = "Cancel";
-			btnCancel.TabIndex = 2;
-			btnCancel.Text = "Cancel";
-			btnCancel.Click += btnCancel_Click;
-			btnCancel.AutoSize = true;
-			btnCancel.UseVisualStyleBackColor = true;
-			btnCancel.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-			//
-			// InputDialog
-			//
+			contentLayout.RowStyles.Add(new RowStyle());
+			contentLayout.RowStyles.Add(new RowStyle());
+			contentLayout.RowStyles.Add(new RowStyle());
+			contentLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+			contentLayout.Controls.Add(prompt, 0, 0);
+			contentLayout.Controls.Add(txtMessage, 0, 1);
+			contentLayout.Controls.Add(buttonLayout, 0, 2);
+			buttonLayout.Controls.Add(btnOK);
+			buttonLayout.Controls.Add(btnCancel);
+			Controls.Add(contentLayout);
 			ShowIcon = true;
 			MaximizeBox = false;
 			MinimizeBox = false;
-			//Can't set controlbox to false, else icon will not show.
-			FormBorderStyle = FormBorderStyle.FixedDialog;//Disallow resizing.
-			SizeGripStyle = SizeGripStyle.Hide;
+			AutoScaleMode = AutoScaleMode.Dpi;
+			FormBorderStyle = FormBorderStyle.Sizable;
+			SizeGripStyle = SizeGripStyle.Show;
+			StartPosition = FormStartPosition.Manual;
+			AcceptButton = btnOK;
+			CancelButton = btnCancel;
+			ActiveControl = txtMessage;
 			Name = "KeysharpInputBox";
 			ResumeLayout(false);
 			PerformLayout();
 		}
 
-		private void InputDialog_Load(object sender, EventArgs e)
+		internal void PrepareForShow()
 		{
-			var x = Convert.ToInt32(Font.Size * 1.25f);//Not really sure if Size is the same as height, like the documentation says.//TODO
-			var y = Convert.ToInt32(Font.Size * 0.75f);
-			Margin = new Padding(x, y, x, y);
+			if (layoutPrepared)
+				return;
+
+			layoutPrepared = true;
 			InitializeComponent();
 			txtMessage.Text = Default;
-			txtMessage.Width = btnCancel.Right - Margin.Left;
-			ClientSize = new Size(btnCancel.Right + Margin.Right, btnOK.Bottom + Margin.Bottom);
+			var workingArea = GetTargetWorkingArea();
+			var minimumWidth = GetMinimumClientWidth();
+			var width = requestedClientWidth != Unspecified
+				? requestedClientWidth
+				: GetDefaultClientWidth(minimumWidth, workingArea);
+			var preferredSize = GetPreferredClientSize(width, workingArea);
+			var height = requestedClientHeight != Unspecified ? requestedClientHeight : preferredSize.Height;
+			ClientSize = new Size(width, height);
+			UpdateMinimumSize(workingArea);
+
+			Left = requestedLeft != Unspecified ? requestedLeft : workingArea.Left + ((workingArea.Width - Width) / 2);
+			Top = requestedTop != Unspecified ? requestedTop : workingArea.Top + ((workingArea.Height - Height) / 2);
 		}
 
-		private void InputDialog_Resize(object sender, EventArgs e)
+		private Size GetPreferredClientSize(int clientWidth, Rectangle workingArea)
 		{
-			prompt.MaximumSize = new Size(ClientSize.Width - (Margin.Left + Margin.Right), int.MaxValue);
-			txtMessage.Location = new Point(Margin.Left, prompt.Bottom + Margin.Bottom);
-			txtMessage.Width = ClientSize.Width - (Margin.Left + Margin.Right);
-			btnOK.Location = new Point(Margin.Left, txtMessage.Bottom + Margin.Bottom);
-			btnCancel.Location = new Point(btnOK.Right + Margin.Right, btnOK.Top);
+			ApplyLayoutWidth(clientWidth);
+			contentLayout.PerformLayout();
+			var preferredSize = contentLayout.GetPreferredSize(new Size(clientWidth, 0));
+			var maxHeight = Math.Max(1, workingArea.Height - WorkAreaMargin);
+			return new Size(clientWidth, Math.Min(preferredSize.Height, maxHeight));
+		}
+
+		private void UpdateMinimumSize(Rectangle workingArea)
+		{
+			var minimumClientWidth = requestedClientWidth != Unspecified ? Math.Min(requestedClientWidth, GetMinimumClientWidth()) : GetMinimumClientWidth();
+			var minimumClientHeight = GetPreferredClientSize(ClientSize.Width, workingArea).Height;
+			if (requestedClientHeight != Unspecified)
+				minimumClientHeight = Math.Min(requestedClientHeight, minimumClientHeight);
+			MinimumSize = SizeFromClientSize(new Size(minimumClientWidth, minimumClientHeight));
+		}
+
+		private int GetDefaultClientWidth(int minimumWidth, Rectangle workingArea)
+		{
+			var noWrapPromptWidth = prompt.GetPreferredSize(Size.Empty).Width;
+			var naturalWidth = contentLayout.Padding.Horizontal + Math.Max(buttonLayout.GetPreferredSize(Size.Empty).Width, noWrapPromptWidth);
+			var maxWidth = Math.Max(minimumWidth, workingArea.Width - WorkAreaMargin);
+			return Math.Clamp(naturalWidth, minimumWidth, maxWidth);
+		}
+
+		private int GetMinimumClientWidth() => contentLayout.Padding.Horizontal + buttonLayout.GetPreferredSize(Size.Empty).Width;
+
+		private void ApplyLayoutWidth(int clientWidth)
+		{
+			var contentWidth = Math.Max(1, clientWidth - contentLayout.Padding.Horizontal);
+			contentLayout.MaximumSize = new Size(clientWidth, 0);
+			contentLayout.Width = clientWidth;
+			prompt.MaximumSize = new Size(contentWidth, 0);
+			txtMessage.Width = contentWidth;
+		}
+
+		private Rectangle GetTargetWorkingArea()
+		{
+			var primaryArea = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, Width, Height);
+			var referencePoint = new Point(
+				requestedLeft != Unspecified ? requestedLeft : primaryArea.Left + (primaryArea.Width / 2),
+				requestedTop != Unspecified ? requestedTop : primaryArea.Top + (primaryArea.Height / 2));
+			return System.Windows.Forms.Screen.FromPoint(referencePoint).WorkingArea;
+		}
+
+		private int ScalePixels(int logicalPixels) => (int)Math.Round(logicalPixels * (DeviceDpi / 96.0));
+
+		private void InputDialog_Load(object sender, EventArgs e)
+		{
+			PrepareForShow();
+			EnsureHandlesCreated(this);
+			_ = WindowsAPI.SendMessage(Handle, (uint)WindowsAPI.WM_INITDIALOG, txtMessage.Handle, 0);
+			ApplyDialogCtlColorTheme();
+		}
+
+		private void ApplyDialogCtlColorTheme()
+		{
+			ApplyCtlColorTheme(this, (uint)WindowsAPI.WM_CTLCOLORDLG, false);
+			ApplyCtlColorTheme(prompt, (uint)WindowsAPI.WM_CTLCOLORSTATIC, false);
+			ApplyCtlColorTheme(txtMessage, (uint)WindowsAPI.WM_CTLCOLOREDIT, false);
+			ApplyCtlColorTheme(btnOK, (uint)WindowsAPI.WM_CTLCOLORBTN, false);
+			ApplyCtlColorTheme(btnCancel, (uint)WindowsAPI.WM_CTLCOLORBTN, false);
+			QueueCtlColorThemeRefresh();
+		}
+
+		private static void EnsureHandlesCreated(Control parent)
+		{
+			foreach (Control child in parent.Controls)
+			{
+				_ = child.Handle;
+				if (child.Controls.Count > 0)
+					EnsureHandlesCreated(child);
+			}
 		}
 
 		private void InputDialog_Shown(object sender, EventArgs e)
 		{
 			var script = Script.TheScript;
-			
 			if (script.Tray?.Icon != null)
 				Icon = script.Tray.Icon;
-
+			Activate();
+			BringToFront();
+			txtMessage.Focus();
+			txtMessage.SelectAll();
 			if (Timeout > 0)
 			{
-				timer = new Timer
+				timer = new Timer { Interval = Timeout * 1000 };
+				timer.Tick += (_, _) =>
 				{
-					Interval = Timeout * 1000
+					timer.Enabled = false;
+					Result = "Timeout";
+					Hide();
 				};
-				timer.Tick += Timer_Tick;
 				timer.Enabled = true;
 			}
-		}
-
-		private void Timer_Tick(object sender, EventArgs e)
-		{
-			timer.Enabled = false;
-			btnCancel.PerformClick();
 		}
 
 		private void TxtMessage_KeyDown(object sender, KeyEventArgs e)

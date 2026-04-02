@@ -1792,6 +1792,7 @@ namespace Keyview
 			{
 				lastCompileTime = DateTime.UtcNow;
 				script = new Script();
+				script.SuppressErrorOccurredDialog = true;
 				CompilerHelper.compiledasm = null;
 				disableRunButton?.Invoke();
 				setStart?.Invoke();

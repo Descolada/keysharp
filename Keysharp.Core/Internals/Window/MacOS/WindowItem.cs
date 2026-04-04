@@ -2,7 +2,7 @@ using Keysharp.Builtins;
 #if OSX
 namespace Keysharp.Internals.Window.MacOS
 {
-	internal class WindowItem : Common.Window.WindowItemBase
+	internal class WindowItem : WindowItemBase
 	{
 		private readonly Control control;
 		private readonly bool isNativeHandle;

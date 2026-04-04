@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 
-namespace Keysharp.Internals.Input.Linux
+namespace Keysharp.Internals.Input.Unix
 {
 	partial class UnixKeyboardMouseSender
 	{

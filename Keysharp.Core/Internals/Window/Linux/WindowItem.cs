@@ -8,7 +8,7 @@ namespace Keysharp.Internals.Window.Linux
 	/// because our custom implementation of Winforms does a lot of extra work under the hood before and after it makes
 	/// raw API calls.
 	/// </summary>
-	internal class WindowItem : Common.Window.WindowItemBase//Do we want to prefix each of these derived classes with Windws/Linux?//TODO
+	internal class WindowItem : WindowItemBase//Do we want to prefix each of these derived classes with Windws/Linux?//TODO
 	{
 		private readonly XWindow xwindow = null;
 		private readonly Linux.WindowManager manager = (Linux.WindowManager)Script.TheScript.WindowProvider.Manager;

@@ -3,7 +3,7 @@ using Keysharp.Builtins;
 using System.Runtime.InteropServices;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 
-namespace Keysharp.Internals.Input.MacOS
+namespace Keysharp.Internals.Input.Unix
 {
 	partial class UnixKeyboardMouseSender
 	{

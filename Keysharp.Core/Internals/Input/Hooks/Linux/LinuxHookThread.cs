@@ -912,7 +912,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			_ => false
 		};
 
-		private static bool HasSuppressedInputKeys(Common.Input.InputType input)
+		private static bool HasSuppressedInputKeys(InputType input)
 		{
 			for (int i = 0; i < input.keyVK.Length; i++)
 			{
@@ -929,7 +929,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			return false;
 		}
 
-		private void AddSpecificSuppressedInputGrabs(Dictionary<(uint keycode, uint mods), GrabKinds> target, Common.Input.InputType input)
+		private void AddSpecificSuppressedInputGrabs(Dictionary<(uint keycode, uint mods), GrabKinds> target, InputType input)
 		{
 			for (uint vk = 0; vk < input.keyVK.Length; vk++)
 			{

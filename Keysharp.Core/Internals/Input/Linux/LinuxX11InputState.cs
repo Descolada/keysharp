@@ -2,7 +2,6 @@ using Keysharp.Builtins;
 #if LINUX
 using System;
 using System.Collections.Generic;
-using Keysharp.Runtime.Keyboard;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 
 namespace Keysharp.Internals.Input.Linux

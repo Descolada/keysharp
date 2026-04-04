@@ -1089,13 +1089,15 @@ namespace Keysharp.Internals.Input.Unix
 			public void Down(uint vk, DateTime ms, long extraInfo)
 			{
 				self.backend.KeyDown(vk, ms, extraInfo);
-				if (keyDuration >= 0) Keysharp.Internals.Flow.SleepWithoutInterruption(keyDuration);
+				if (keyDuration >= 0)
+					Keysharp.Internals.Flow.SleepWithoutInterruption((int)keyDuration);
 			}
 
 			public void Up(uint vk, DateTime ms, long extraInfo)
 			{
 				self.backend.KeyUp(vk, ms, extraInfo);
-				if (keyDelay >= 0) Keysharp.Internals.Flow.SleepWithoutInterruption(keyDelay);
+				if (keyDelay >= 0)
+					Keysharp.Internals.Flow.SleepWithoutInterruption((int)keyDelay);
 			}
 
 			public void Stroke(uint vk, DateTime ms, long extraInfo)

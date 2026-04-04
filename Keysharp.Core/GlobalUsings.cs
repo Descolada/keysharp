@@ -131,7 +131,6 @@ global using global::BitFaster.Caching.Scheduler;
 #endif
 
 #if OSX
-	global using global::Keysharp.Internals.Input.MacOS;
 	global using global::Keysharp.Internals.Input.Hooks.MacOS;
 	global using global::Keysharp.Internals.Window.MacOS;
 	global using MessageFilter = Keysharp.Internals.Window.MacOS.MessageFilter;

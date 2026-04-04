@@ -35,7 +35,7 @@ namespace Keysharp.Internals.Window.Unix
 			{
 				Text = "https://github.com/mfeemster/keysharp/tree/master"
 			};
-			linkLabel.Click += (_, __) => linkLabel_LinkClicked(linkLabel, new System.Windows.Forms.LinkLabelLinkClickedEventArgs());
+			linkLabel.Click += linkLabel_LinkClicked;
 
 			textBoxDescription = new TextArea
 			{
@@ -83,6 +83,11 @@ namespace Keysharp.Internals.Window.Unix
 			WindowStyle = WindowStyle.Utility;
 			Shown += (_, __) => CenterOnPrimaryScreen();
 		}
+
+		private void okButton_Click(object sender, EventArgs e) => Close();
+
+		private void linkLabel_LinkClicked(object sender, EventArgs e)
+			=> _ = Process.Start(new ProcessStartInfo(linkLabel.Text) { UseShellExecute = true });
 
 		private void CenterOnPrimaryScreen()
 		{

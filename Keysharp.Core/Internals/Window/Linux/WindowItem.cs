@@ -344,7 +344,7 @@ namespace Keysharp.Internals.Window.Linux
 
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 					{
-						if (ctrl is Window window)
+						if (ctrl is Eto.Forms.Window window)
 							window.Location = new Point(x, y);
 						else if (ctrl.Parent is PixelLayout pixel)
 							PixelLayout.SetLocation(ctrl, new Point(x, y));

@@ -27,6 +27,9 @@ namespace Keysharp.Runtime
 	public partial class Script : IDisposable
 	{
 		internal static bool dpimodeset;//This should be done once per process, so it can be static.
+#if WINDOWS
+		private static int screenSystemEventsInitialized;
+#endif
 #if !WINDOWS
 			private static Encoding enc1252 = Encoding.Default;
 			private static bool etoAppConfigured;
@@ -395,6 +398,7 @@ namespace Keysharp.Runtime
 #if WINDOWS
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
+			InitializeScreenSystemEventsOnNeutralContext();
 #else
 			msgFilter = new MessageFilter(this);
 
@@ -408,6 +412,33 @@ namespace Keysharp.Runtime
 			//Init the data objects that the API classes will use.
 			SetInitialFloatFormat();//This must be done intially and not just when A_FormatFloat is referenced for the first time.
 		}
+
+#if WINDOWS
+		private static void InitializeScreenSystemEventsOnNeutralContext()
+		{
+			if (Interlocked.Exchange(ref screenSystemEventsInitialized, 1) != 0)
+				return;
+
+			var oldContext = System.ComponentModel.AsyncOperationManager.SynchronizationContext;
+
+			try
+			{
+				// Screen.WorkingArea lazily subscribes to SystemEvents.UserPreferenceChanged and SystemEvents
+				// captures the current SynchronizationContext for future callbacks. Use a neutral context once
+				// per process so that callback is not bound to a per-script WinForms UI thread which may be
+				// torn down between tests/scripts, causing Application.SetColorMode() to block forever.
+				System.ComponentModel.AsyncOperationManager.SynchronizationContext = new SynchronizationContext();
+				_ = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
+			}
+			catch
+			{
+			}
+			finally
+			{
+				System.ComponentModel.AsyncOperationManager.SynchronizationContext = oldContext;
+			}
+		}
+#endif
 
 		~Script()
 		{
@@ -616,6 +647,7 @@ namespace Keysharp.Runtime
 			if (MainContext != null)
 				return;
 #if WINDOWS
+			InitializeScreenSystemEventsOnNeutralContext();
 			var current = SynchronizationContext.Current;
 
 			if (current == null || current.GetType() == typeof(SynchronizationContext))
@@ -1006,6 +1038,10 @@ namespace Keysharp.Runtime
 					mainWindow = null;
 				}, false);
 			}
+
+#if WINDOWS
+			Dialogs.DisposeWindowsMsgBoxThread();
+#endif
 		}
 
 		private void DisposeTrayIcon()

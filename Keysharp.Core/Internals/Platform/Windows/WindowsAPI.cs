@@ -1545,6 +1545,13 @@ namespace Keysharp.Internals.Platform.Windows
 		[LibraryImport(user32, EntryPoint = "GetMessageW")]
 		internal static partial int GetMessage(out Msg lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
+		[LibraryImport(user32, EntryPoint = "TranslateMessage")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool TranslateMessage(in Msg lpMsg);
+
+		[LibraryImport(user32, EntryPoint = "DispatchMessageW")]
+		internal static partial nint DispatchMessage(in Msg lpMsg);
+
 		[LibraryImport(user32, EntryPoint = "GetMessageExtraInfo")]
 		internal static partial nint GetMessageExtraInfo();
 

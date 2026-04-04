@@ -34,16 +34,45 @@ namespace Keysharp.Builtins
 			internal string Caption;
 			internal nint DialogHwnd;
 			internal int DialogDepth;
+			internal ManualResetEventSlim DialogClosed;
+			internal System.Runtime.ExceptionServices.ExceptionDispatchInfo Error;
+			internal ManualResetEventSlim NotificationHandled;
 			internal nuint RequestId;
+			internal string Result = "";
 			internal bool TimedOut;
 			internal uint TimeoutMs;
+		}
+
+		private sealed class StaticWin32Window(nint handle) : IWin32Window
+		{
+			public nint Handle { get; } = handle;
 		}
 
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nuint, WindowsMsgBoxRequest> pendingWindowsMsgBoxes = new();
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, WindowsMsgBoxRequest> activeWindowsMsgBoxes = new();
 		private static readonly WindowsAPI.TimerProc msgBoxTimeoutProc = MsgBoxTimeout;
+		private static readonly object windowsMsgBoxStaGate = new();
+		private static StaThreadWithMessageQueue windowsMsgBoxSta;
 		private static int nextMsgBoxRequestId;
 		private static int nextMsgBoxTimerId;
+
+		static Dialogs()
+		{
+			AppDomain.CurrentDomain.ProcessExit += (_, _) => DisposeWindowsMsgBoxThread();
+		}
+
+		internal static void DisposeWindowsMsgBoxThread()
+		{
+			StaThreadWithMessageQueue sta;
+
+			lock (windowsMsgBoxStaGate)
+			{
+				sta = windowsMsgBoxSta;
+				windowsMsgBoxSta = null;
+			}
+
+			sta?.Dispose();
+		}
 
 		internal static nint HandleDialogNotification(uint dialogMessage, nint requestToken)
 		{
@@ -132,34 +161,88 @@ namespace Keysharp.Builtins
 				request.TimedOut = true;
 		}
 
+		private static StaThreadWithMessageQueue GetWindowsMsgBoxThread()
+		{
+			lock (windowsMsgBoxStaGate)
+			{
+				if (windowsMsgBoxSta == null || windowsMsgBoxSta.IsDisposed())
+					windowsMsgBoxSta = new StaThreadWithMessageQueue();
+
+				return windowsMsgBoxSta;
+			}
+		}
+
 		private static string ShowWindowsMsgBox(IWin32Window ownerWindow, string txt, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultbutton, MessageBoxOptions mbopts, uint timeoutMs)
 		{
-			var request = timeoutMs != 0
-				? new WindowsMsgBoxRequest()
-				{
-					Caption = caption,
-					DialogDepth = Script.TheScript.nMessageBoxes,
-					RequestId = unchecked((nuint)System.Threading.Interlocked.Increment(ref nextMsgBoxRequestId)),
-					TimeoutMs = timeoutMs
-				}
+			using var notificationHandled = new ManualResetEventSlim(false);
+			using var dialogClosed = new ManualResetEventSlim(false);
+			var sta = GetWindowsMsgBoxThread();
+
+			var request = new WindowsMsgBoxRequest()
+			{
+				Caption = caption,
+				DialogClosed = dialogClosed,
+				DialogDepth = Script.TheScript.nMessageBoxes,
+				NotificationHandled = notificationHandled,
+				RequestId = unchecked((nuint)System.Threading.Interlocked.Increment(ref nextMsgBoxRequestId)),
+				TimeoutMs = timeoutMs
+			};
+
+			var staOwnerWindow = ownerWindow?.Handle is nint ownerHandle && ownerHandle != 0
+				? new StaticWin32Window(ownerHandle)
 				: null;
+			pendingWindowsMsgBoxes[request.RequestId] = request;
+
 			try
 			{
-				if (request != null)
-					pendingWindowsMsgBoxes[request.RequestId] = request;
+				sta.Post(_ =>
+				{
+					try
+					{
+						sta.Post(_ =>
+						{
+							try
+							{
+								_ = HandleDialogNotification((uint)UserMessages.AHK_DIALOG, (nint)request.RequestId);
+							}
+							catch (Exception ex)
+							{
+								_ = Interlocked.CompareExchange(ref request.Error, System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex), null);
+							}
+							finally
+							{
+								request.NotificationHandled.Set();
+							}
+						}, null);
 
-				var requestToken = request != null ? (nint)request.RequestId : 0;
-				_ = WindowsAPI.PostMessage(Script.TheScript.MainWindowHandle, (uint)WindowsAPI.WM_COMMNOTIFY, (nint)(uint)UserMessages.AHK_DIALOG, requestToken);
+						var ret = MessageBox.Show(staOwnerWindow, txt, caption, buttons, icon, defaultbutton, mbopts);
+						request.Result = request.TimedOut ? "Timeout" : ret.ToString();
+					}
+					catch (Exception ex)
+					{
+						_ = Interlocked.CompareExchange(ref request.Error, System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex), null);
+					}
+					finally
+					{
+						request.NotificationHandled.Set();
+						request.DialogClosed.Set();
+					}
+				}, null);
 
-				var ret = MessageBox.Show(ownerWindow, txt, caption, buttons, icon, defaultbutton, mbopts);
-				return request?.TimedOut == true ? "Timeout" : ret.ToString();
+				while (!request.NotificationHandled.IsSet && !request.DialogClosed.IsSet)
+					Keysharp.Internals.Flow.SleepWithoutInterruption();
+
+				while (!request.DialogClosed.IsSet)
+					Keysharp.Internals.Flow.Sleep(10);
+
+				request.Error?.Throw();
+				return request.Result;
 			}
 			finally
 			{
-				if (request != null)
-					_ = pendingWindowsMsgBoxes.TryRemove(request.RequestId, out _);
+				_ = pendingWindowsMsgBoxes.TryRemove(request.RequestId, out _);
 
-				if (request != null && request.DialogHwnd != 0)
+				if (request.DialogHwnd != 0)
 					_ = activeWindowsMsgBoxes.TryRemove(request.DialogHwnd, out _);
 			}
 		}

@@ -736,7 +736,15 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			return true;//Visible.
 		}
 
-		internal override object Invoke(Func<object> f) => thread?.Invoke(() => f());
+		internal override object Invoke(Func<object> f)
+		{
+			if (thread == null)
+				return null;
+
+			object result = null;
+			thread.Send(_ => result = f(), null);
+			return result;
+		}
 
 		internal override bool IsHookThreadRunning() => thread != null && !thread.IsDisposed();
 

@@ -10,35 +10,54 @@ namespace Keysharp.Internals.Threading
 	/// </summary>
 	internal class StaThreadWithMessageQueue : IDisposable
 	{
-		private SynchronizationContext ctx;
-
-		private readonly ManualResetEventSlim mre;
-
 		private readonly Thread thread;
+		private SynchronizationContext ctx;
 
 		public StaThreadWithMessageQueue()
 		{
-			using (mre = new (false))
+			using var initialized = new ManualResetEventSlim(false);
+			System.Runtime.ExceptionServices.ExceptionDispatchInfo initializationError = null;
+			thread = new Thread(() =>
 			{
-				thread = new Thread(() =>
+				try
 				{
 					Application.Idle += Initialize;
 					Application.Run();
-				})
+				}
+				catch (Exception ex)
 				{
-					IsBackground = true
-				};
-				thread.SetApartmentState(ApartmentState.STA);
-				thread.Start();
-				mre.Wait();
+					initializationError = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+					initialized.Set();
+				}
+			})
+			{
+				IsBackground = true
+			};
+			thread.SetApartmentState(ApartmentState.STA);
+			thread.Start();
+			initialized.Wait();
+			initializationError?.Throw();
+
+			void Initialize(object sender, EventArgs e)
+			{
+				Application.Idle -= Initialize;
+				ctx = SynchronizationContext.Current;
+				initialized.Set();
 			}
 		}
 
-		public void BeginInvoke(Delegate dlg, params object[] args)
+		public void Post(SendOrPostCallback d, object state)
 		{
 			if (ctx == null) throw new ObjectDisposedException("StaThreadWithMessageQueue");
 
-			ctx.Post((_) => dlg.DynamicInvoke(args), null);
+			ctx.Post(d, state);
+		}
+
+		public void Send(SendOrPostCallback d, object state)
+		{
+			if (ctx == null) throw new ObjectDisposedException("StaThreadWithMessageQueue");
+
+			ctx.Send(d, state);
 		}
 
 		public void Dispose()
@@ -48,25 +67,12 @@ namespace Keysharp.Internals.Threading
 				ctx.Send((_) => Application.ExitThread(), null);
 				ctx = null;
 			}
-		}
 
-		public object Invoke(Delegate dlg, params object[] args)
-		{
-			if (ctx == null) throw new ObjectDisposedException("StaThreadWithMessageQueue");
-
-			object result = null;
-			ctx.Send((_) => result = dlg.DynamicInvoke(args), null);
-			return result;
+			if (!ReferenceEquals(Thread.CurrentThread, thread))
+				thread.Join();
 		}
 
 		public bool IsDisposed() => ctx == null;
-
-		protected virtual void Initialize(object sender, EventArgs e)
-		{
-			Application.Idle -= Initialize;
-			ctx = SynchronizationContext.Current;
-			mre.Set();
-		}
 	}
 }
 #endif

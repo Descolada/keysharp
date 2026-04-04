@@ -46,6 +46,7 @@ namespace Keysharp.Internals.Invoke
 		internal readonly ParameterInfo[] parameters;
 		internal readonly PropertyInfo pi;
 		internal readonly FieldInfo fi;
+		internal readonly Type moduleType;
 		internal readonly Action<object, object> SetProp;
 		protected readonly ConcurrentStackArrayPool<object> paramsPool;
 		internal readonly bool anyOptional;
@@ -169,6 +170,7 @@ namespace Keysharp.Internals.Invoke
 		public MethodPropertyHolder(MethodInfo m)
         {
             mi = m;
+			moduleType = ResolveModuleType(mi.DeclaringType);
 
             IsStatic = mi.IsStatic;
 			IsStaticFunc = mi.Attributes.HasFlag(MethodAttributes.Static);
@@ -234,6 +236,7 @@ namespace Keysharp.Internals.Invoke
 		public MethodPropertyHolder(PropertyInfo p)
 		{
             pi = p;
+			moduleType = ResolveModuleType(pi.DeclaringType);
 			isGuiType = Gui.IsGuiType(pi.DeclaringType);
 			parameters = pi.GetIndexParameters();
 			ParamLength = parameters.Length;
@@ -334,6 +337,7 @@ namespace Keysharp.Internals.Invoke
 		public MethodPropertyHolder(FieldInfo f)
 		{
 			fi = f;
+			moduleType = ResolveModuleType(fi.DeclaringType);
 			IsStatic = fi.IsStatic;
 			isGuiType = Gui.IsGuiType(fi.DeclaringType);
 			parameters = System.Array.Empty<ParameterInfo>();
@@ -358,6 +362,17 @@ namespace Keysharp.Internals.Invoke
 		{
 			_name = name;
 			variadicParamIndex = 1;
+		}
+
+		private static Type ResolveModuleType(Type type)
+		{
+			for (var t = type; t != null; t = t.DeclaringType)
+			{
+				if (typeof(Keysharp.Runtime.Module).IsAssignableFrom(t))
+					return t;
+			}
+
+			return null;
 		}
 
 		internal static void ClearCache()

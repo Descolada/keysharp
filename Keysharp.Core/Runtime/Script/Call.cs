@@ -400,7 +400,7 @@ namespace Keysharp.Runtime
 
 					case MethodPropertyHolder mph:
 					{
-						var moduleType = ResolveModuleType(mph.mi?.DeclaringType);
+						var moduleType = mph.moduleType;
 						if (moduleType != null)
 						{
 							var script = Script.TheScript;
@@ -428,17 +428,6 @@ namespace Keysharp.Runtime
 			}
 
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
-		}
-
-		private static Type ResolveModuleType(Type type)
-		{
-			for (var t = type; t != null; t = t.DeclaringType)
-			{
-				if (typeof(Keysharp.Runtime.Module).IsAssignableFrom(t))
-					return t;
-			}
-
-			return null;
 		}
 
 		public static bool IsCallable(object item)
@@ -709,4 +698,3 @@ namespace Keysharp.Runtime
 		}
 	}
 }
-

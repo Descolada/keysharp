@@ -102,45 +102,60 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Calls the target function along with any bound arguments.
 		/// <returns>The return value of the bound function.</returns>
-		public override object Call(params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args).ToArray()) : base.Call(CreateArgs(args).ToArray());
+		public override object Call(params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args)) : base.Call(CreateArgs(args));
+
 		[PublicHiddenFromUser]
-		public override object CallInst(object inst, params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args.Prepend(inst)).ToArray()) : base.Call(CreateArgs(args.Prepend(inst)).ToArray());
+		public override object CallInst(object inst, params object[] args) => mi == null ? Script.Invoke(Inst, Name, CreateArgs(args, inst, true)) : base.Call(CreateArgs(args, inst, true));
 
-
-		private List<object> CreateArgs(params object[] args)
+		private object[] CreateArgs(object[] args, object firstArg = null, bool hasFirstArg = false)
 		{
-			int i = 0, argsused = 0;
-			var argsList = new List<object>(mph.parameters?.Length ?? 4);
+			args ??= [];
+			var inputCount = args.Length + (hasFirstArg ? 1 : 0);
+			var usedInputCount = 0;
 
-			for (; i < boundargs.Length; i++)
+			for (var i = 0; i < boundargs.Length && usedInputCount < inputCount; i++)
 			{
-				if (boundargs[i] != null)
-				{
-					argsList.Add(boundargs[i]);
-				}
-				else if (argsused < args.Length)
-				{
-					argsList.Add(args[argsused]);
-					argsused++;
-				}
-				else
-					argsList.Add(null);
+				if (boundargs[i] == null)
+					usedInputCount++;
 			}
 
-			for (; argsused < args.Length; argsused++)
-				argsList.Add(args[argsused]);
+			var resultLength = boundargs.Length + (inputCount - usedInputCount);
+			var paramLength = mph.parameters?.Length ?? 0;
 
-			while (argsList.Count < (mph.parameters?.Length ?? 0))
+			while (resultLength < paramLength)
 			{
-				var param = mph.parameters[argsList.Count];
+				var param = mph.parameters[resultLength];
 
 				if (param.Attributes.HasFlag(ParameterAttributes.HasDefault))
-					argsList.Add(param.DefaultValue);
+					resultLength++;
 				else
 					break;
 			}
 
-			return argsList;
+			var result = new object[resultLength];
+			usedInputCount = 0;
+			var outIndex = 0;
+
+			for (; outIndex < boundargs.Length; outIndex++)
+			{
+				if (boundargs[outIndex] != null)
+					result[outIndex] = boundargs[outIndex];
+				else if (usedInputCount < inputCount)
+					result[outIndex] = GetInputArg(usedInputCount++);
+			}
+
+			while (usedInputCount < inputCount)
+				result[outIndex++] = GetInputArg(usedInputCount++);
+
+			while (outIndex < resultLength)
+				result[outIndex] = mph.parameters[outIndex++].DefaultValue;
+
+			return result;
+
+			object GetInputArg(int index)
+				=> hasFirstArg
+					? index == 0 ? firstArg : args[index - 1]
+					: args[index];
 		}
 	}
 
@@ -215,11 +230,11 @@ namespace Keysharp.Builtins
         {
         }
 
-        internal FuncObj(MethodPropertyHolder m, object o = null) : base()
+		internal FuncObj(MethodPropertyHolder m, object o = null) : base()
 		{
 			mph = m;
 			mi = m?.mi;
-			moduleType = ResolveModuleType(mi?.DeclaringType);
+			moduleType = mph?.moduleType;
 			Inst = o;
 
 			if (mph != null)
@@ -282,17 +297,6 @@ namespace Keysharp.Builtins
 
 			return mph.CallFunc(Inst, args.Prepend(inst));
 		}
-		private static Type ResolveModuleType(Type type)
-		{
-			for (var t = type; t != null; t = t.DeclaringType)
-			{
-				if (typeof(Keysharp.Runtime.Module).IsAssignableFrom(t))
-					return t;
-			}
-
-			return null;
-		}
-
 		public override bool Equals(object obj)
 		{
 			if (obj is BoundFunc)

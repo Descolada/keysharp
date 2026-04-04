@@ -1,5 +1,5 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Keyboard = Keysharp.Core.Keyboard;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Keyboard = Keysharp.Builtins.Keyboard;
 
 namespace Keysharp.Tests
 {
@@ -46,7 +46,7 @@ namespace Keysharp.Tests
 				var splits = hotstring.Split(delimiters, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 				var split0 = splits[0][(splits[0].IndexOf('(') + 1)..].Trim('"');
 				var split3 = splits[3].Trim('"');
-				hs1 = (HotstringDefinition)Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring(split0, null, splits[2].Trim('"'), split3, splits[4].Trim('"'), false);
+				hs1 = (HotstringDefinition)Keysharp.Runtime.Keyboard.HotstringManager.AddHotstring(split0, null, splits[2].Trim('"'), split3, splits[4].Trim('"'), false);
 				//System.Diagnostics.Debug.WriteLine(split0);
 
 				if (!split0.Contains('*'))
@@ -344,14 +344,14 @@ namespace Keysharp.Tests
 			hsm.ClearHotstrings();
 			hsm.RestoreDefaults(true);
 			_ = Keyboard.Hotstring("Reset");
-			_ = Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring("::btw", Functions.Func(Label_9F201721, null), ":btw", "btw", "", false);
+			_ = Keysharp.Runtime.Keyboard.HotstringManager.AddHotstring("::btw", Functions.Func(Label_9F201721, null), ":btw", "btw", "", false);
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			Assert.IsTrue(A_KeybdHookInstalled == 1L);//Will fail if system has another hook, so exit your scripts before running this.
 			Assert.IsTrue(A_MouseHookInstalled == 1L);//Because there is a hotstring and mouse reset is true by default, the mouse hook gets installed.
-			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("b"));
-			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("t"));
-			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("w"));
-			SimulateKeyPress((uint)Keysharp.Core.Keyboard.GetKeyVK("Enter"));
+			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("b"));
+			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("t"));
+			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("w"));
+			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("Enter"));
 			Assert.IsTrue(btwTypedEvent.Wait(TimeSpan.FromSeconds(1)), "Timed out waiting for hotstring callback.");
 			Assert.AreEqual(btwtyped, true);
 		}
@@ -359,12 +359,12 @@ namespace Keysharp.Tests
 		[Test, Category("Hotstring"), NonParallelizable]
 		public void GetKey()
 		{
-			var sc = Keysharp.Core.Keyboard.GetKeySC("Esc");
-			var vk = Keysharp.Core.Keyboard.GetKeyVK("Esc");
+			var sc = Keysharp.Builtins.Keyboard.GetKeySC("Esc");
+			var vk = Keysharp.Builtins.Keyboard.GetKeyVK("Esc");
 			Assert.IsTrue(sc > 0);
 			Assert.AreEqual(27L, vk);
 			var fromSc = $"sc{sc:x}";
-			Assert.AreEqual(vk, Keysharp.Core.Keyboard.GetKeyVK(fromSc));
+			Assert.AreEqual(vk, Keysharp.Builtins.Keyboard.GetKeyVK(fromSc));
 		}
 
 		[Test, Category("Hotstring"), NonParallelizable]
@@ -558,13 +558,13 @@ namespace Keysharp.Tests
 			const uint VkReturn = 0x0D;
 			var ih = Input.InputHook("V");
 			ih.KeyOpt("{Enter}", "E");
-			var sc = Keysharp.Scripting.Script.TheScript.HookThread.MapVkToSc(VkReturn, true);
+			var sc = Keysharp.Runtime.Script.TheScript.HookThread.MapVkToSc(VkReturn, true);
 			Assert.AreNotEqual(0u, sc);
 
 			if (OperatingSystem.IsWindows())
 				sc ^= 0x100;
 
-			Assert.AreEqual(Keysharp.Core.Common.Threading.HookThread.END_KEY_ENABLED, ih.input.keySC[sc] & Keysharp.Core.Common.Threading.HookThread.END_KEY_ENABLED);
+			Assert.AreEqual(Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED, ih.input.keySC[sc] & Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED);
 		}
 
 		[Test, Category("Hotstring"), NonParallelizable]
@@ -677,7 +677,7 @@ namespace Keysharp.Tests
 			var normalizedPrefix = string.IsNullOrEmpty(optionPrefix) ? ":" : optionPrefix;
 			var name = $":{normalizedPrefix}{trigger}";
 			var options = $"{normalizedPrefix}{trigger}";
-			return (HotstringDefinition)Keysharp.Core.Common.Keyboard.HotstringManager.AddHotstring(name, null, options, trigger, trigger.ToUpperInvariant(), false);
+			return (HotstringDefinition)Keysharp.Runtime.Keyboard.HotstringManager.AddHotstring(name, null, options, trigger, trigger.ToUpperInvariant(), false);
 		}
 
 		private HotstringDefinition MatchHotstring(string typed)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -12,8 +12,9 @@ using System.Windows.Forms;
 using Eto.Forms;
 using MessageBoxIcon = Eto.Forms.MessageBoxType;
 #endif
-using Keysharp.Core;
-using Keysharp.Scripting;
+using Keysharp.Builtins;
+using Keysharp.Parsing;
+using Keysharp.Runtime;
 using Microsoft.CodeAnalysis;
 using Microsoft.NET.HostModel.AppHost;
 using Microsoft.Win32;
@@ -23,7 +24,7 @@ namespace Keysharp.Main
 	/// <summary>
 	/// The main program which interprets command line arguments, reads and compiles the code, loads
 	/// the resulting assembly and invokes the entry-point method.
-	/// Similar but simplified logic is present in Keysharp.Scripting.Runner, so changes here should
+	/// Similar but simplified logic is present in Keysharp.Runtime.Runner, so changes here should
 	/// likely be done there as well.
 	/// </summary>
 	public static class Program
@@ -300,14 +301,14 @@ namespace Keysharp.Main
 
 							if (string.Compare(exeDir, scriptdir, true) != 0)
 							{
-								var deps = minimalexeout ? ["Keysharp.Core.dll"]
+								var deps = minimalexeout ? ["Keysharp.Builtins.dll"]
 										   : CompilerHelper.requiredManagedDependencies
 										   .Concat(CompilerHelper.requiredNativeDependencies.Select(s => $"runtimes{Path.DirectorySeparatorChar}{RuntimeInformation.RuntimeIdentifier}{Path.DirectorySeparatorChar}native{Path.DirectorySeparatorChar}{s}"));
 
-								//Need to copy Keysharp.Core and other dependencies from the install path to
+								//Need to copy Keysharp.Builtins and other dependencies from the install path to
 								//the folder the script resides in. Without them, the compiled exe cannot be run in a standalone manner.
 								//MessageBox.Show($"scriptdir = {scriptdir}");
-								//MessageBox.Show($"About to copy from {ksCorePath} to {Path.Combine(scriptdir, "Keysharp.Core.dll")}");
+								//MessageBox.Show($"About to copy from {ksCorePath} to {Path.Combine(scriptdir, "Keysharp.Builtins.dll")}");
 								foreach (var dep in deps)
 								{
 									var depPath = Path.Combine(exeDir, dep);
@@ -379,7 +380,7 @@ namespace Keysharp.Main
 			writeCodeTask?.Wait();
 
 #if DEBUG
-			Core.Debug.OutputDebug("Running compiled code.");
+			Builtins.Debug.OutputDebug("Running compiled code.");
 #endif
 
 			return Environment.ExitCode;

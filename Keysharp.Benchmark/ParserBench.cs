@@ -1,17 +1,17 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using Keysharp.Scripting;
-using static Keysharp.Scripting.Script;
+using Keysharp.Runtime;
+using static Keysharp.Runtime.Script;
 
 namespace Keysharp.Benchmark
 {
 	public class ParserBench : BaseTest
 	{
-		private new Keysharp.Scripting.Script _ks_s = default!;
+		private new Keysharp.Runtime.Script _ks_s = default!;
 
 		[Params(1000)]
 		public int Size { get; set; }

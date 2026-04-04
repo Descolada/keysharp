@@ -1,4 +1,4 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -249,7 +249,7 @@ namespace Keysharp.Tests
 		public void Integer()
 		{
 			foreach (var n in new[] { -1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual((double)(long)(n), Core.Integer.staticCall(null, n));
+				Assert.AreEqual((double)(long)(n), Builtins.Integer.staticCall(null, n));
 			Assert.IsTrue(TestScript("math-integer", true));
 		}
 
@@ -257,7 +257,7 @@ namespace Keysharp.Tests
 		public void Float()
 		{
 			foreach (var n in new object[] { -1, 1, -2.1, 0, -0, 0.5, 1.000001 })
-				Assert.AreEqual(n, Core.Float.staticCall(null, n));
+				Assert.AreEqual(n, Builtins.Float.staticCall(null, n));
 			Assert.IsTrue(TestScript("math-float", true));
 		}
 
@@ -348,9 +348,9 @@ namespace Keysharp.Tests
 			Assert.AreEqual(0.675, Maths.Max([-1.0, 0.675]));
 			Assert.AreEqual(1, Maths.Max([-1.0, -0.5, 0, 0.5, 1, 0.675]));
 			Assert.AreEqual(2, Maths.Max([-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0"]));
-			Assert.AreEqual(0.675, Maths.Max(new Keysharp.Core.Array([-1.0, 0.675])));
-			Assert.AreEqual(1, Maths.Max(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
-			Assert.AreEqual(2, Maths.Max(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
+			Assert.AreEqual(0.675, Maths.Max(new Keysharp.Builtins.Array([-1.0, 0.675])));
+			Assert.AreEqual(1, Maths.Max(new Keysharp.Builtins.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
+			Assert.AreEqual(2, Maths.Max(new Keysharp.Builtins.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
 			Assert.AreEqual(1, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675));
 			Assert.AreEqual(2, Maths.Max(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0));
 			Assert.AreEqual(typeof(long), Maths.Max(-1.0, 1L).GetType());
@@ -371,7 +371,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Max(new Keysharp.Core.Array([-1.0, "asdf"])));
+				Assert.AreEqual(string.Empty, Maths.Max(new Keysharp.Builtins.Array([-1.0, "asdf"])));
 			}
 			catch (Exception)
 			{
@@ -399,9 +399,9 @@ namespace Keysharp.Tests
 			Assert.AreEqual(-1.0, Maths.Min([-1.0, 0.675]));
 			Assert.AreEqual(-1.0, Maths.Min([-1.0, -0.5, 0, 0.5, 1, 0.675]));
 			Assert.AreEqual(-1.0, Maths.Min([-1.0, -0.5, 0, 0.5, 1, "0.675", "2.0"]));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, 0.675])));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
-			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Core.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
+			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Builtins.Array([-1.0, 0.675])));
+			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Builtins.Array([-1.0, -0.5, 0, 0.5, 1, 0.675])));
+			Assert.AreEqual(-1.0, Maths.Min(new Keysharp.Builtins.Array([-1.0, -0.5, 0, 0.5, 1, "0.675", 2.0])));
 			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675));
 			Assert.AreEqual(-1.0, Maths.Min(-1.0, -0.5, 0, "0.5", 1, 0.675, 2.0));
 			Assert.AreEqual(typeof(double), Maths.Min(-1.0, 1L).GetType());
@@ -422,7 +422,7 @@ namespace Keysharp.Tests
 
 			try
 			{
-				Assert.AreEqual(string.Empty, Maths.Min(new Keysharp.Core.Array([-1.0, "asdf"])));
+				Assert.AreEqual(string.Empty, Maths.Min(new Keysharp.Builtins.Array([-1.0, "asdf"])));
 			}
 			catch (Exception)
 			{
@@ -455,7 +455,7 @@ namespace Keysharp.Tests
 			Assert.IsTrue(caught);
 		}
 
-		private object PrimitiveNumber(object value) => Keysharp.Core.Number.staticCall(null, value);
+		private object PrimitiveNumber(object value) => Keysharp.Builtins.Number.staticCall(null, value);
 
 		[Test, Category("Math")]
 		public void Number()

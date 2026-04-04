@@ -1,4 +1,4 @@
-using static Keysharp.Core.Strings;
+using static Keysharp.Builtins.Strings;
 using System.Text.RegularExpressions;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
@@ -9,7 +9,7 @@ namespace Keysharp.Tests
 		//[Test]
 		//public void TestHotstringCaps()
 		//{
-		//  var kbh = new Keysharp.Core.Windows.KeyboardHook();
+		//  var kbh = new Keysharp.Internals.Platform.Windows.KeyboardHook();
 		//  var str = kbh.ApplyCase("werent", "weren't");
 		//  Assert.AreEqual(str, "weren't");
 		//  str = kbh.ApplyCase("Werent", "weren't");
@@ -490,16 +490,16 @@ namespace Keysharp.Tests
 			Assert.IsTrue(s.EndsWith(" STRING", StringComparison.CurrentCulture));
 			Assert.IsFalse(s.EndsWith(" string", StringComparison.CurrentCulture));
 			Assert.IsTrue(s.EndsWith(" string", StringComparison.CurrentCultureIgnoreCase));
-			Assert.IsTrue(Keysharp.Core.String.EndsWith(s, " STRING", true) == 1L);
-			Assert.IsFalse(Keysharp.Core.String.EndsWith(s, " string", true) == 1L);
-			Assert.IsTrue(Keysharp.Core.String.EndsWith(s, " string", false) == 1L);
+			Assert.IsTrue(Keysharp.Builtins.String.EndsWith(s, " STRING", true) == 1L);
+			Assert.IsFalse(Keysharp.Builtins.String.EndsWith(s, " string", true) == 1L);
+			Assert.IsTrue(Keysharp.Builtins.String.EndsWith(s, " string", false) == 1L);
 			//
 			Assert.IsTrue(s.StartsWith("This ", StringComparison.CurrentCulture));
 			Assert.IsFalse(s.StartsWith("this ", StringComparison.CurrentCulture));
 			Assert.IsTrue(s.StartsWith("tHiS ", StringComparison.CurrentCultureIgnoreCase));
-			Assert.IsTrue(Keysharp.Core.String.StartsWith(s, "This ", true) == 1L);
-			Assert.IsFalse(Keysharp.Core.String.StartsWith(s, "this ", true) == 1L);
-			Assert.IsTrue(Keysharp.Core.String.StartsWith(s, "tHiS ", false) == 1L);
+			Assert.IsTrue(Keysharp.Builtins.String.StartsWith(s, "This ", true) == 1L);
+			Assert.IsFalse(Keysharp.Builtins.String.StartsWith(s, "this ", true) == 1L);
+			Assert.IsTrue(Keysharp.Builtins.String.StartsWith(s, "tHiS ", false) == 1L);
 			//
 			Assert.IsTrue(TestScript("string-startsendswith", true));
 		}
@@ -558,13 +558,13 @@ namespace Keysharp.Tests
 		public void String()
 		{
 			object x = 123;
-			var y = Core.String.staticCall(null, x);
+			var y = Builtins.String.staticCall(null, x);
 			Assert.AreEqual(y, "123");
 			x = "123";
-			y = Core.String.staticCall(null, x);
+			y = Builtins.String.staticCall(null, x);
 			Assert.AreEqual(y, "123");
 			x = 1.234;
-			y = Core.String.staticCall(null, x);
+			y = Builtins.String.staticCall(null, x);
 			Assert.AreEqual(y, "1.234");
 			Assert.IsTrue(TestScript("string-string", true));
 		}
@@ -611,7 +611,7 @@ namespace Keysharp.Tests
 		[Test, Category("String")]
 		public void StrPutStrGet()
 		{
-			var buf1 = new Keysharp.Core.Buffer(32);
+			var buf1 = new Keysharp.Builtins.Buffer(32);
 			var s = "tester";
 			//Unicode test.
 			var testlen = StrPut(s);
@@ -675,7 +675,7 @@ namespace Keysharp.Tests
 		{
 			var x = "a,b,c,d";
 			var y = Strings.StrSplit(x, ",");
-			var exp = new Keysharp.Core.Array(["a", "b", "c", "d"]);
+			var exp = new Keysharp.Builtins.Array(["a", "b", "c", "d"]);
 			Assert.AreEqual(exp, y);
 			x = "abcd";
 			y = Strings.StrSplit(x);
@@ -686,31 +686,31 @@ namespace Keysharp.Tests
 			x = "	a, b-c _d	";
 			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }, "\t ");
 			Assert.AreEqual(exp, y);
-			y = Strings.StrSplit(x, new Core.Array([",", "-", "_"]), "\t ");
+			y = Strings.StrSplit(x, new Builtins.Array([",", "-", "_"]), "\t ");
 			Assert.AreEqual(exp, y);
 			x = "abcd";
 			y = Strings.StrSplit(x, null, null, 1);
-			exp = new Keysharp.Core.Array(["abcd"]);
+			exp = new Keysharp.Builtins.Array(["abcd"]);
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 2);
-			exp = new Keysharp.Core.Array(["a", "bcd"]);
+			exp = new Keysharp.Builtins.Array(["a", "bcd"]);
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 3);
-			exp = new Keysharp.Core.Array(["a", "b", "cd"]);
+			exp = new Keysharp.Builtins.Array(["a", "b", "cd"]);
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 4);
-			exp = new Keysharp.Core.Array(["a", "b", "c", "d"]);
+			exp = new Keysharp.Builtins.Array(["a", "b", "c", "d"]);
 			Assert.AreEqual(exp, y);
 			y = Strings.StrSplit(x, null, null, 5);
-			exp = new Keysharp.Core.Array(["a", "b", "c", "d"]);
+			exp = new Keysharp.Builtins.Array(["a", "b", "c", "d"]);
 			Assert.AreEqual(exp, y);
 			x = "a,b,c,d";
 			y = Strings.StrSplit(x, ",", null, 3);
-			exp = new Keysharp.Core.Array(["a", "b", "c,d"]);
+			exp = new Keysharp.Builtins.Array(["a", "b", "c,d"]);
 			Assert.AreEqual(exp, y);
 			x = "	a, b-c _d	";
 			y = Strings.StrSplit(x, new string[] { ",", "-", "_" }, "\t ", 3);
-			exp = new Keysharp.Core.Array(["a", "b", "c _d"]);
+			exp = new Keysharp.Builtins.Array(["a", "b", "c _d"]);
 			Assert.AreEqual(exp, y);
 			Assert.IsTrue(TestScript("string-strsplit", true));
 		}
@@ -872,7 +872,7 @@ namespace Keysharp.Tests
 		{
 			var str1 = "Hello, world!";
 			var b64 = "SGVsbG8sIHdvcmxkIQ==";
-			var conv = (Keysharp.Core.Buffer)Ks.Base64Decode(b64);
+			var conv = (Keysharp.Builtins.Buffer)Ks.Base64Decode(b64);
 			var barr = conv.ToByteArray();
 			var str2 = Encoding.UTF8.GetString(barr);
 			Assert.AreEqual(str1, str2);

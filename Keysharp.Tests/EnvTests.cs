@@ -11,7 +11,7 @@ namespace Keysharp.Tests
 #endif
 		public void ClipboardAll()
 		{
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Accessors.A_Clipboard = "Asdf";
 			var baseline = Accessors.A_Clipboard as string;
 #if !WINDOWS
@@ -45,7 +45,7 @@ namespace Keysharp.Tests
 #endif
 		public void ClipboardText()
 		{
-			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, 日本語, emoji-free.";
+			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, æ—¥æœ¬èªž, emoji-free.";
 			Accessors.A_Clipboard = expected;
 			var actual = Accessors.A_Clipboard as string;
 			Assert.AreEqual(expected, actual);
@@ -55,7 +55,7 @@ namespace Keysharp.Tests
 		public void ClipboardAllDataSize()
 		{
 			var source = new byte[] { 1, 2, 3, 4, 5 };
-			var buf = new Keysharp.Core.Buffer(source);
+			var buf = new Keysharp.Builtins.Buffer(source);
 			var clipFromBuffer = new ClipboardAll(buf, 3L);
 			var roundtrip = clipFromBuffer.ToByteArray();
 			Assert.AreEqual(3, roundtrip.Length);
@@ -91,7 +91,7 @@ namespace Keysharp.Tests
 		[Apartment(ApartmentState.STA)]
 		public void ClipWait()
 		{
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			AssertClipWaitTimeoutAfterClear();
 			using var bitmap = new Bitmap(640, 480);
 			var tcs = new TaskCompletionSource<bool>();

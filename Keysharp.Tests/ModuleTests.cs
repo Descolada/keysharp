@@ -1,4 +1,4 @@
-﻿using static Keysharp.Core.External;
+using static Keysharp.Builtins.External;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests

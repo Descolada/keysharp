@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using BenchmarkDotNet.Order;
 
 namespace Keysharp.Benchmark
@@ -14,7 +14,7 @@ namespace Keysharp.Benchmark
 	[HideColumns("Error", "StdDev", "RatioSD", "Gen0", "Gen1", "Gen2")]
 	public class BaseTest
 	{
-		internal static Keysharp.Scripting.Script _ks_s = null!;
+		internal static Keysharp.Runtime.Script _ks_s = null!;
 
 		public BaseTest()
 		{

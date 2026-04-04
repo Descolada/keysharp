@@ -1,4 +1,4 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -10,41 +10,41 @@ namespace Keysharp.Tests
 		[Test, Category("Types")]
 		public void TestTypes()
 		{
-			Assert.IsTrue(typeof(Keysharp.Core.KeysharpException).IsAssignableTo(typeof(System.Exception)));
-			Assert.IsTrue(typeof(Keysharp.Core.ParseException).IsAssignableTo(typeof(System.Exception)));
-			Assert.IsTrue(typeof(Keysharp.Core.Error).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.Any)));
-			Assert.IsTrue(typeof(Keysharp.Core.IndexError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.KeyError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.MemberError).IsAssignableTo(typeof(Keysharp.Core.UnsetError)));
-			Assert.IsTrue(typeof(Keysharp.Core.UnsetItemError).IsAssignableTo(typeof(Keysharp.Core.UnsetError)));
-			Assert.IsTrue(typeof(Keysharp.Core.MemoryError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.MethodError).IsAssignableTo(typeof(Keysharp.Core.MemberError)));
-			Assert.IsTrue(typeof(Keysharp.Core.PropertyError).IsAssignableTo(typeof(Keysharp.Core.MemberError)));
-			Assert.IsTrue(typeof(Keysharp.Core.OSError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.TargetError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.TimeoutError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.TypeError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.ValueError).IsAssignableTo(typeof(Keysharp.Core.Error)));
-			Assert.IsTrue(typeof(Keysharp.Core.ZeroDivisionError).IsAssignableTo(typeof(Keysharp.Core.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.KeysharpException).IsAssignableTo(typeof(System.Exception)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.ParseException).IsAssignableTo(typeof(System.Exception)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.Error).IsAssignableTo(typeof(Keysharp.Builtins.Any)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.IndexError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.KeyError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.MemberError).IsAssignableTo(typeof(Keysharp.Builtins.UnsetError)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.UnsetItemError).IsAssignableTo(typeof(Keysharp.Builtins.UnsetError)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.MemoryError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.MethodError).IsAssignableTo(typeof(Keysharp.Builtins.MemberError)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.PropertyError).IsAssignableTo(typeof(Keysharp.Builtins.MemberError)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.OSError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.TargetError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.TimeoutError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.TypeError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.ValueError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.ZeroDivisionError).IsAssignableTo(typeof(Keysharp.Builtins.Error)));
 #if LINUX
-			Assert.IsTrue(typeof(Keysharp.Core.ClipboardAll).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.KeysharpObject)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.ClipboardAll).IsAssignableTo(typeof(Keysharp.Builtins.KeysharpObject)));
 #elif WINDOWS
-			Assert.IsTrue(typeof(Keysharp.Core.ClipboardAll).IsAssignableTo(typeof(Keysharp.Core.Buffer)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.ClipboardAll).IsAssignableTo(typeof(Keysharp.Builtins.Buffer)));
 #endif
-			Assert.IsTrue(typeof(Keysharp.Core.Buffer).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.KeysharpObject)));
-			Assert.IsTrue(typeof(Keysharp.Core.Array).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.KeysharpObject)));
-			Assert.IsTrue(typeof(Keysharp.Core.Map).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.KeysharpObject)));
-			Assert.IsTrue(typeof(Keysharp.Core.Common.File.KeysharpFile).IsAssignableTo(typeof(Keysharp.Core.Common.ObjectBase.KeysharpObject)));
-			Assert.IsTrue(Keysharp.Core.Types.Type(0L) == "Integer");
-			Assert.IsTrue(Keysharp.Core.Types.Type(1.2) == "Float");
-			Assert.IsTrue(Keysharp.Core.Types.Type(new KeysharpObject()) == "Object");
-			Assert.IsTrue(Keysharp.Core.Types.Type(null) == "unset");
+			Assert.IsTrue(typeof(Keysharp.Builtins.Buffer).IsAssignableTo(typeof(Keysharp.Builtins.KeysharpObject)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.Array).IsAssignableTo(typeof(Keysharp.Builtins.KeysharpObject)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.Map).IsAssignableTo(typeof(Keysharp.Builtins.KeysharpObject)));
+			Assert.IsTrue(typeof(Keysharp.Builtins.KeysharpFile).IsAssignableTo(typeof(Keysharp.Builtins.KeysharpObject)));
+			Assert.IsTrue(Keysharp.Builtins.Types.Type(0L) == "Integer");
+			Assert.IsTrue(Keysharp.Builtins.Types.Type(1.2) == "Float");
+			Assert.IsTrue(Keysharp.Builtins.Types.Type(new KeysharpObject()) == "Object");
+			Assert.IsTrue(Keysharp.Builtins.Types.Type(null) == "unset");
 			//Assure every public static function returns something other than void.
 			var loadedAssemblies = GetLoadedAssemblies();
-			var types = loadedAssemblies.Values.Where(asm => asm.FullName.StartsWith("Keysharp.Core,"))
+			var types = loadedAssemblies.Values.Where(asm => asm.FullName.StartsWith("Keysharp.Builtins,"))
 						.SelectMany(t => GetNestedTypes(t.GetExportedTypes()))
-						.Where(t => t.GetCustomAttribute<PublicHiddenFromUser>() == null && t.Namespace != null && t.Namespace.StartsWith("Keysharp.Core")
-							   && t.Namespace != "Keysharp.Core.Properties"
+						.Where(t => t.GetCustomAttribute<PublicHiddenFromUser>() == null && t.Namespace != null && t.Namespace.StartsWith("Keysharp.Builtins")
+							   && t.Namespace != "Keysharp.Builtins.Properties"
 							   && t.IsClass && (t.IsPublic || t.IsNestedPublic));
 
 			foreach (var method in types

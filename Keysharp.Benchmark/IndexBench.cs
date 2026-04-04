@@ -1,5 +1,5 @@
-﻿using static Keysharp.Scripting.Script;
-using Array = Keysharp.Core.Array;
+using static Keysharp.Runtime.Script;
+using Array = Keysharp.Builtins.Array;
 
 namespace Keysharp.Benchmark
 {
@@ -16,8 +16,8 @@ namespace Keysharp.Benchmark
 
 		public IndexBench()
 		{
-			dynamickeysharparray = new Keysharp.Core.Array();
-			keysharparray = new Keysharp.Core.Array();
+			dynamickeysharparray = new Keysharp.Builtins.Array();
+			keysharparray = new Keysharp.Builtins.Array();
 		}
 
 		[Benchmark]
@@ -42,9 +42,9 @@ namespace Keysharp.Benchmark
 			object val = null!;
 			object vr = new VarRef(() => val, value => val = value);
 
-			for (; Flow.IsTrueAndRunning(e2.Call(vr));)
+			for (; Keysharp.Runtime.Flow.IsTrueAndRunning(e2.Call(vr));)
 			{
-				_ = Keysharp.Core.Loops.Inc();
+				_ = Keysharp.Runtime.Loops.Inc();
 				total += (double)val!;
 				e3:
 				;
@@ -149,7 +149,7 @@ namespace Keysharp.Benchmark
 
 	public class ListAddBench : BaseTest
 	{
-		private Keysharp.Core.Array keysharparray;
+		private Keysharp.Builtins.Array keysharparray;
 		private List<object> nativelist = [];
 		private readonly object o = 123L;
 
@@ -158,7 +158,7 @@ namespace Keysharp.Benchmark
 
 		public ListAddBench()
 		{
-			keysharparray = new Keysharp.Core.Array();
+			keysharparray = new Keysharp.Builtins.Array();
 		}
 
 		[Benchmark]

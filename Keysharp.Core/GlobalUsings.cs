@@ -1,4 +1,4 @@
-﻿//System usings.
+//System usings.
 global using global::Microsoft.VisualBasic.FileIO;//See if this is cross platform or not. //TODO
 global using global::System;
 global using global::System.Buffers;
@@ -49,43 +49,46 @@ global using global::System.Threading.Tasks;
 	global using global::Eto.Forms;
 	global using Forms = Eto.Forms;
 	global using Range = System.Range;
-	global using Keyboard = Keysharp.Core.Keyboard;
+	global using Keyboard = Keysharp.Builtins.Keyboard;
 	global using FormWindowState = Eto.Forms.WindowState;
-	global using StatusStrip = Keysharp.Core.KeysharpStatusStrip;
+	global using StatusStrip = Keysharp.Builtins.KeysharpStatusStrip;
 	global using DockStyle = System.Windows.Forms.DockStyle;
 	global using ColumnHeader = System.Windows.Forms.ColumnHeader;
 	global using TextBoxBase = Eto.Forms.TextBox;
 	global using Keys = System.Windows.Forms.Keys;
 #endif
 
-// Alias String to avoid conflicts with Keysharp.Core.String
+// Alias String to avoid conflicts with Keysharp.Builtins.String
 global using String = System.String;
-global using POINT = Keysharp.Core.Common.Window.POINT;
+global using POINT = Keysharp.Internals.Window.POINT;
 #if WINDOWS
 	global using UITimer = System.Windows.Forms.Timer;
 #endif
-global using Module = Keysharp.Core.Common.ObjectBase.Module;
+global using Module = Keysharp.Runtime.Module;
 
 //Our usings.
-global using global::Keysharp.Core;
-global using global::Keysharp.Core.Common.Containers;
-global using global::Keysharp.Core.Common.Cryptography;
-global using global::Keysharp.Core.Common.ExtensionMethods;
-global using global::Keysharp.Core.Common.File;
-global using global::Keysharp.Core.Common.Images;
-global using global::Keysharp.Core.Common.Input;
-global using global::Keysharp.Core.Common.Invoke;
-global using global::Keysharp.Core.Common.Joystick;
-global using global::Keysharp.Core.Common.Keyboard;
-global using global::Keysharp.Core.Common.Mouse;
-global using global::Keysharp.Core.Common.Mapper;
-global using global::Keysharp.Core.Common.ObjectBase;
-global using global::Keysharp.Core.Common.Patterns;
-global using global::Keysharp.Core.Common.Platform;
-global using global::Keysharp.Core.Common.Strings;
-global using global::Keysharp.Core.Common.Threading;
-global using global::Keysharp.Core.Common.Window;
-global using global::Keysharp.Scripting;
+global using global::Keysharp.Internals.Containers;
+global using global::Keysharp.Internals.Cryptography;
+global using global::Keysharp.Internals.ExtensionMethods;
+
+global using global::Keysharp.Internals.Input.Hooks;
+global using global::Keysharp.Internals.Images;
+global using global::Keysharp.Internals.Input;
+global using global::Keysharp.Internals.Input.Joystick;
+global using global::Keysharp.Internals.Input.Keyboard;
+global using global::Keysharp.Internals.Input.Mouse;
+global using global::Keysharp.Internals.Mapper;
+global using global::Keysharp.Internals.Patterns;
+global using global::Keysharp.Internals.Platform;
+global using global::Keysharp.Internals.Scripting;
+global using global::Keysharp.Internals.Strings;
+global using global::Keysharp.Internals.Threading;
+global using global::Keysharp.Internals.Window;
+global using global::Keysharp.Internals.Invoke;
+global using global::Keysharp.Builtins.COM;
+global using global::Keysharp.Parsing;
+global using global::Keysharp.Parsing.Antlr;
+global using global::Keysharp.Runtime;
 global using global::Semver.Comparers;
 global using global::Semver.Utility;
 global using global::PCRE;
@@ -99,35 +102,51 @@ global using global::BitFaster.Caching.Scheduler;
 	global using global::System.Management;
 	global using global::System.Media;
 	global using global::System.Runtime.InteropServices.ComTypes;
-	global using global::Keysharp.Core.COM;
-	global using global::Keysharp.Core.Windows;
+	global using global::Keysharp.Internals.Input.Windows;
+	global using global::Keysharp.Internals.Platform.Windows;
+	global using global::Keysharp.Internals.Input.Hooks.Windows;
+	global using global::Keysharp.Internals.Window.Windows;
+	global using AboutBox = Keysharp.Internals.Window.Windows.AboutBox;
+	global using KeysharpActiveX = Keysharp.Internals.Window.Windows.KeysharpActiveX;
+	global using MainWindow = Keysharp.Internals.UI.Windows.MainWindow;
+	global using MessageFilter = Keysharp.Internals.Window.Windows.MessageFilter;
 #endif
 
 #if !WINDOWS
-	global using global::Keysharp.Core.Unix;
+	global using global::Keysharp.Internals.Input.Unix;
+	global using global::Keysharp.Internals.Platform.Unix;
+	global using global::Keysharp.Internals.Input.Hooks.Unix;
+	global using global::Keysharp.Internals.Window.Unix;
+	global using AboutBox = Keysharp.Internals.Window.Unix.AboutBox;
+	global using MainWindow = Keysharp.Internals.UI.Unix.MainWindow;
 #endif
 
 #if LINUX
-	global using global::Keysharp.Core.Linux;
-	global using global::Keysharp.Core.Linux.Proxies;
-	global using global::Keysharp.Core.Linux.X11;
+	global using global::Keysharp.Internals.Input.Linux;
+	global using global::Keysharp.Internals.Input.Hooks.Linux;
+	global using global::Keysharp.Internals.Window.Linux;
+	global using global::Keysharp.Internals.Window.Linux.Proxies;
+	global using global::Keysharp.Internals.Window.Linux.X11;
+	global using MessageFilter = Keysharp.Internals.Window.Linux.MessageFilter;
 #endif
 
 #if OSX
-	global using global::Keysharp.Core.MacOS;
+	global using global::Keysharp.Internals.Input.MacOS;
+	global using global::Keysharp.Internals.Input.Hooks.MacOS;
+	global using global::Keysharp.Internals.Window.MacOS;
+	global using MessageFilter = Keysharp.Internals.Window.MacOS.MessageFilter;
 #endif
 
 //Static
-global using static global::Keysharp.Core.Accessors;
-global using static global::Keysharp.Core.Ks;
-global using static global::Keysharp.Scripting.Keywords;
-global using static global::Keysharp.Scripting.Script;
-global using static global::Keysharp.Core.Common.Platform.PlatformManagerBase;
+global using static global::Keysharp.Builtins.Accessors;
+global using static global::Keysharp.Parsing.Keywords;
+global using static global::Keysharp.Runtime.Script;
+global using static global::Keysharp.Internals.Platform.PlatformManagerBase;
 
 #if WINDOWS
-	global using static global::Keysharp.Core.Windows.PlatformManager;
+	global using static global::Keysharp.Internals.Platform.Windows.PlatformManager;
 #endif
 
 #if !WINDOWS
-	global using static global::Keysharp.Core.Unix.PlatformManager;
+	global using static global::Keysharp.Internals.Platform.Unix.PlatformManager;
 #endif

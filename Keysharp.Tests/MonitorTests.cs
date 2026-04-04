@@ -1,4 +1,4 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -15,7 +15,7 @@ namespace Keysharp.Tests
 		{
 			SkipIfGuiHeadless();
 			VarRef l = new(null), t = new(null), r = new(null), b = new(null);
-			var monget = Core.Monitor.MonitorGet(null, l, t, r, b);
+			var monget = Builtins.Monitor.MonitorGet(null, l, t, r, b);
 			Assert.IsTrue(l.__Value.Ai() >= 0);
 			Assert.IsTrue(r.__Value.Ai() >= 0);
 			Assert.IsTrue(t.__Value.Ai() >= 0);
@@ -28,7 +28,7 @@ namespace Keysharp.Tests
 		public void MonitorGetCount()
 		{
 			SkipIfGuiHeadless();
-			var ct = Core.Monitor.MonitorGetCount();
+			var ct = Builtins.Monitor.MonitorGetCount();
 			Assert.IsTrue(ct > 0);
 			Assert.IsTrue(TestScript("monitor-monitorgetcount", true));
 		}
@@ -38,10 +38,10 @@ namespace Keysharp.Tests
 		{
 			SkipIfGuiHeadless();
 			var names = "";
-			var ct = Core.Monitor.MonitorGetCount();
+			var ct = Builtins.Monitor.MonitorGetCount();
 
 			for (var i = 1; i <= ct; i++)
-				names += Core.Monitor.MonitorGetName(i) + Environment.NewLine;
+				names += Builtins.Monitor.MonitorGetName(i) + Environment.NewLine;
 
 			Assert.IsTrue(names != "");
 			Assert.IsTrue(TestScript("monitor-monitorgetname", true));
@@ -51,7 +51,7 @@ namespace Keysharp.Tests
 		public void MonitorGetPrimary()
 		{
 			SkipIfGuiHeadless();
-			var ct = Core.Monitor.MonitorGetPrimary();
+			var ct = Builtins.Monitor.MonitorGetPrimary();
 			Assert.IsTrue(ct > 0);
 			Assert.IsTrue(TestScript("monitor-monitorgetprimary", true));
 		}
@@ -61,7 +61,7 @@ namespace Keysharp.Tests
 		{
 			SkipIfGuiHeadless();
 			VarRef l = new(null), t = new(null), r = new(null), b = new(null);
-			var monget = Core.Monitor.MonitorGetWorkArea(null, l, t, r, b);
+			var monget = Builtins.Monitor.MonitorGetWorkArea(null, l, t, r, b);
 			Assert.IsTrue(l.__Value.Ai() >= 0);
 			Assert.IsTrue(r.__Value.Ai() >= 0);
 			Assert.IsTrue(t.__Value.Ai() >= 0);

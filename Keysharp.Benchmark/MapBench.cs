@@ -1,4 +1,4 @@
-﻿using static Keysharp.Scripting.Script;
+using static Keysharp.Runtime.Script;
 
 namespace Keysharp.Benchmark
 {
@@ -27,8 +27,8 @@ namespace Keysharp.Benchmark
 
 		public MapReadBenchmark()
 		{
-			map = new Keysharp.Core.Map();
-			mapScript = new Keysharp.Core.Map();
+			map = new Keysharp.Builtins.Map();
+			mapScript = new Keysharp.Builtins.Map();
 		}
 
 		[Benchmark]
@@ -77,8 +77,8 @@ namespace Keysharp.Benchmark
 
 		public MapWriteBenchmark()
 		{
-			map = new Keysharp.Core.Map();
-			mapScript = new Keysharp.Core.Map();
+			map = new Keysharp.Builtins.Map();
+			mapScript = new Keysharp.Builtins.Map();
 		}
 
 		[Benchmark]

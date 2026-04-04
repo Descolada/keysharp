@@ -1,63 +1,55 @@
-﻿using static Keysharp.Core.Accessors;
-//using static Keysharp.Core.COM.Com;
-using static Keysharp.Core.Common.Keyboard.HotkeyDefinition;
-using static Keysharp.Core.Common.Keyboard.HotstringDefinition;
-using static Keysharp.Core.Common.Keyboard.HotstringManager;
-using static Keysharp.Core.ControlX;
-using static Keysharp.Core.Debug;
-using static Keysharp.Core.Dialogs;
-using static Keysharp.Core.Dir;
-using static Keysharp.Core.Dll;
-using static Keysharp.Core.Drive;
-using static Keysharp.Core.EditX;
-using static Keysharp.Core.Env;
-using static Keysharp.Core.Errors;
-using static Keysharp.Core.External;
-using static Keysharp.Core.Files;
-using static Keysharp.Core.Flow;
-using static Keysharp.Core.Functions;
-using static Keysharp.Core.GuiHelper;
-using static Keysharp.Core.ImageLists;
-using static Keysharp.Core.Images;
-using static Keysharp.Core.Ini;
-using static Keysharp.Core.Input;
-using static Keysharp.Core.Keyboard;
-using static Keysharp.Core.Loops;
-using static Keysharp.Core.Maths;
-using static Keysharp.Core.Menu;
-using static Keysharp.Core.Misc;
-using static Keysharp.Core.Monitor;
-using static Keysharp.Core.Mouse;
-using static Keysharp.Core.Network;
-using static Keysharp.Core.Processes;
-using static Keysharp.Core.RegEx;
-//using static Keysharp.Core.Registrys;
-using static Keysharp.Core.Screen;
-using static Keysharp.Core.Sound;
-using static Keysharp.Core.Strings;
-using static Keysharp.Core.ToolTips;
-using static Keysharp.Core.Types;
-using static Keysharp.Core.WindowX;
-//using static Keysharp.Core.Windows.WindowsAPI;
-using static Keysharp.Scripting.Script.Operator;
-using static Keysharp.Scripting.Script;
+using static Keysharp.Builtins.Accessors;
+//using static Keysharp.Builtins.COM.Com;
+using static Keysharp.Builtins.ControlX;
+using static Keysharp.Builtins.Debug;
+using static Keysharp.Builtins.Dialogs;
+using static Keysharp.Builtins.Dir;
+using static Keysharp.Builtins.Dll;
+using static Keysharp.Builtins.Drive;
+using static Keysharp.Builtins.EditX;
+using static Keysharp.Builtins.Env;
+using static Keysharp.Builtins.Errors;
+using static Keysharp.Builtins.External;
+using static Keysharp.Builtins.Files;
+using static Keysharp.Builtins.Flow;
+using static Keysharp.Builtins.Functions;
+using static Keysharp.Builtins.GuiHelper;
+using static Keysharp.Builtins.ImageLists;
+using static Keysharp.Builtins.Images;
+using static Keysharp.Builtins.Ini;
+using static Keysharp.Builtins.Input;
+using static Keysharp.Builtins.Keyboard;
+using static Keysharp.Builtins.Maths;
+using static Keysharp.Builtins.Menu;
+using static Keysharp.Builtins.Misc;
+using static Keysharp.Builtins.Monitor;
+using static Keysharp.Builtins.Mouse;
+using static Keysharp.Builtins.Network;
+using static Keysharp.Builtins.Processes;
+using static Keysharp.Builtins.RegEx;
+using static Keysharp.Builtins.Registrys;
+using static Keysharp.Builtins.Screen;
+using static Keysharp.Builtins.Sound;
+using static Keysharp.Builtins.Strings;
+using static Keysharp.Builtins.ToolTips;
+using static Keysharp.Builtins.Types;
+using static Keysharp.Builtins.WindowX;
+using static Keysharp.Runtime.Keyboard.HotkeyDefinition;
+using static Keysharp.Runtime.Keyboard.HotstringManager;
+using static Keysharp.Runtime.Script.Operator;
+using static Keysharp.Runtime.Script;
 
-[assembly: Keysharp.Scripting.AssemblyBuildVersionAttribute("0.0.0.13")]
+[assembly: Keysharp.Runtime.AssemblyBuildVersionAttribute("2.1-alpha.18")]
 namespace Keysharp.CompiledMain
 {
 	using System;
 	using System.Runtime.InteropServices;
-	using Keysharp.Core;
-	using Keysharp.Core.Common;
-	using Keysharp.Core.Common.File;
-	using Keysharp.Core.Common.Invoke;
-	using Keysharp.Core.Common.ObjectBase;
-	using Keysharp.Core.Common.Strings;
-	using Keysharp.Core.Common.Threading;
-	using Keysharp.Scripting;
-	using Array = Keysharp.Core.Array;
-	using Buffer = Keysharp.Core.Buffer;
-	using String = Keysharp.Core.String;
+	using Keysharp.Builtins;
+	using Keysharp.Builtins.COM;
+	using Keysharp.Runtime;
+	using Array = Keysharp.Builtins.Array;
+	using Buffer = Keysharp.Builtins.Buffer;
+	using String = Keysharp.Builtins.String;
 
 	public class Program
 	{
@@ -67,46 +59,49 @@ namespace Keysharp.CompiledMain
 			try
 			{
 				MainScript.SetName("*");
-				if (Keysharp.Scripting.Script.HandleSingleInstance(Keysharp.Core.Accessors.A_ScriptName, Keysharp.Scripting.eScriptInstance.Prompt))
+				if (Keysharp.Runtime.Script.HandleSingleInstance(Keysharp.Builtins.Accessors.A_ScriptName, Keysharp.Runtime.eScriptInstance.Prompt))
 					return 0;
-				Keysharp.Core.Env.HandleCommandLineParams(args);
-				MainScript.RunMainWindow(Keysharp.Core.Accessors.A_ScriptName, AutoExecSection, false);
+				Keysharp.Builtins.Env.HandleCommandLineParams(args);
+				MainScript.RunMainWindow(Keysharp.Builtins.Accessors.A_ScriptName, AutoExecSection, false);
 			}
 			catch (System.Exception mainex)
 			{
-				var ex = Keysharp.Core.Flow.UnwrapException(mainex);
-				if (ex is Keysharp.Core.Flow.UserRequestedExitException)
+				var ex = Keysharp.Runtime.Flow.UnwrapException(mainex);
+				if (ex is Keysharp.Builtins.Flow.UserRequestedExitException)
 					return System.Environment.ExitCode;
-				if (ex is Keysharp.Core.KeysharpException kserr)
+				if (ex is Keysharp.Builtins.KeysharpException kserr)
 				{
-					Keysharp.Scripting.Script.TryProcessKeysharpException(MainScript, kserr);
+					Keysharp.Runtime.Script.TryProcessKeysharpException(MainScript, kserr);
 				}
 				else
 				{
-					Keysharp.Scripting.Script.TryProcessUnhandledException(MainScript, ex);
+					Keysharp.Runtime.Script.TryProcessUnhandledException(MainScript, ex);
 				}
 
-				Keysharp.Scripting.Script.SafeExit(1);
+				Keysharp.Runtime.Script.SafeExit(1);
 			}
 
 			return System.Environment.ExitCode;
 		}
 
-		private static Keysharp.Scripting.Script MainScript = new Keysharp.Scripting.Script(typeof(Program));
-		private static Keysharp.Core.Common.Keyboard.HotstringManager MainHotstringManager = MainScript.HotstringManager;
+		private static Keysharp.Runtime.Script MainScript = new Keysharp.Runtime.Script(typeof(Program));
 		public class __Main : Module
 		{
-			public static object msgbox = Keysharp.Core.Functions.Func((System.Delegate)Keysharp.Core.Dialogs.MsgBox);
+			public static object msgbox = Keysharp.Builtins.Functions.Func((System.Delegate)Keysharp.Builtins.Dialogs.MsgBox);
 			public static object AutoExecSection()
 			{
-				Keysharp.Core.Dialogs.MsgBox("Hello from Keysharp!");
+				Keysharp.Runtime.Script.InvokeOrNull(msgbox, "Call", "Hello from Keysharp!");
 				return "";
+			}
+
+			public __Main(params object[] args) : base(null)
+			{
 			}
 		}
 
 		public static object AutoExecSection()
 		{
-			Keysharp.Core.Common.Keyboard.HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
+			Keysharp.Runtime.Keyboard.HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			MainScript.CurrentModuleType = typeof(Program.__Main);
 			__Main.AutoExecSection();
 			MainScript.CurrentModuleType = null;

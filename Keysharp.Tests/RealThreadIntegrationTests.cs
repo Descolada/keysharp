@@ -3,10 +3,9 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Keysharp.Core.Common.Invoke;
-using Keysharp.Core.Common.Keyboard;
-using Keysharp.Core.Common.Threading;
-using Keysharp.Core.Common.Window;
+using Keysharp.Internals.Invoke;
+using Keysharp.Internals.Threading;
+using Keysharp.Internals.Window;
 
 namespace Keysharp.Tests
 {
@@ -90,7 +89,7 @@ namespace Keysharp.Tests
 				{
 					try
 					{
-						_ = options == null ? Core.Keyboard.Hotkey(hotkey.Name, workerCallback) : Core.Keyboard.Hotkey(hotkey.Name, workerCallback, options);
+						_ = options == null ? Builtins.Keyboard.Hotkey(hotkey.Name, workerCallback) : Builtins.Keyboard.Hotkey(hotkey.Name, workerCallback, options);
 					}
 					catch (Exception ex)
 					{
@@ -206,7 +205,7 @@ namespace Keysharp.Tests
 						registrations.WorkerHasSchedulerContext = SynchronizationContext.Current is ScriptEventSynchronizationContext;
 
 						registrations.TimerFunc = new FuncObj((Func<object>)(() => probe.Record("timer")));
-						_ = Flow.SetTimer(registrations.TimerFunc, 250L);
+						_ = Keysharp.Builtins.Flow.SetTimer(registrations.TimerFunc, 250L);
 						registrations.Timer = s.FlowData.GetTimerRegistration(registrations.TimerFunc, s.EventScheduler)?.Timer;
 
 						registrations.Hotkey = new HotkeyDefinition(1, new FuncObj((Func<object, object>)(_ => probe.Record("hotkey"))), 0, "F24", 0);
@@ -224,7 +223,7 @@ namespace Keysharp.Tests
 						s.HotstringManager.shs.Add(registrations.Hotstring);
 
 						registrations.MessageId = 0x8017;
-						_ = Flow.OnMessage(registrations.MessageId, new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
+						_ = Keysharp.Builtins.Flow.OnMessage(registrations.MessageId, new FuncObj((Func<object, object, object, object, object>)((wParam, lParam, msg, hwnd) =>
 						{
 							_ = probe.Record("message");
 							return 1L;

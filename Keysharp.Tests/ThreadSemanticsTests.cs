@@ -1,5 +1,5 @@
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Keysharp.Core.Common.Threading;
+using Keysharp.Internals.Threading;
 
 namespace Keysharp.Tests
 {
@@ -12,7 +12,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(true, Ks.A_AllowTimers);
 			Assert.IsTrue(s.AccessorData.threadConfigDataPrototype.allowTimers);
 
-			_ = Flow.Thread("NoTimers", true);
+			_ = Keysharp.Builtins.Flow.Thread("NoTimers", true);
 
 			Assert.AreEqual(false, Ks.A_AllowTimers);
 			Assert.IsTrue(s.AccessorData.threadConfigDataPrototype.allowTimers);
@@ -37,7 +37,7 @@ namespace Keysharp.Tests
 		[Test, Category("Threading")]
 		public void ThreadInterruptDuration()
 		{
-			_ = Flow.Thread("Interrupt", 42, 1);
+			_ = Keysharp.Builtins.Flow.Thread("Interrupt", 42, 1);
 			Assert.AreEqual(42, s.uninterruptibleTime);
 
 			Assert.IsTrue(s.Threads.TryBeginThread(out var btv));
@@ -96,10 +96,10 @@ namespace Keysharp.Tests
 
 			try
 			{
-				_ = Flow.Critical();
+				_ = Keysharp.Builtins.Flow.Critical();
 				Assert.IsFalse(s.Threads.IsInterruptible());
 
-				using (Flow.BeginDialogInterruptibilityScope())
+				using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 					Assert.IsTrue(s.Threads.IsInterruptible());
 
 				Assert.IsFalse(s.Threads.IsInterruptible());
@@ -117,12 +117,12 @@ namespace Keysharp.Tests
 
 			try
 			{
-				_ = Flow.Critical();
+				_ = Keysharp.Builtins.Flow.Critical();
 				s.FlowData.allowInterruption = false;
 
 				try
 				{
-					using (Flow.BeginDialogInterruptibilityScope())
+					using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 						Assert.IsFalse(s.Threads.IsInterruptible());
 				}
 				finally
@@ -143,17 +143,17 @@ namespace Keysharp.Tests
 
 			try
 			{
-				_ = Flow.Critical(50);
+				_ = Keysharp.Builtins.Flow.Critical(50);
 				s.RecordMessageCheck();
 
 				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
-				Assert.IsTrue(Flow.IsTrueAndRunning(true));
+				Assert.IsTrue(Keysharp.Runtime.Flow.IsTrueAndRunning(true));
 				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
 
 				s.Threads.CurrentThread.lastPeekTick = unchecked(Environment.TickCount - 60);
 				Assert.IsTrue(s.IsCurrentThreadPreemptiveCheckDue());
 
-				Assert.IsTrue(Flow.IsTrueAndRunning(true));
+				Assert.IsTrue(Keysharp.Runtime.Flow.IsTrueAndRunning(true));
 				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
 			}
 			finally
@@ -169,10 +169,10 @@ namespace Keysharp.Tests
 
 			try
 			{
-				_ = Flow.Critical(-1);
+				_ = Keysharp.Builtins.Flow.Critical(-1);
 				s.Threads.CurrentThread.lastPeekTick = 0;
 
-				Assert.IsTrue(Flow.IsTrueAndRunning(true));
+				Assert.IsTrue(Keysharp.Runtime.Flow.IsTrueAndRunning(true));
 				Assert.IsFalse(s.IsCurrentThreadPreemptiveCheckDue());
 				Assert.AreEqual(-1, s.GetPeekFrequency());
 			}

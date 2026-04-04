@@ -1,4 +1,4 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -67,12 +67,15 @@ namespace Keysharp.Tests
 		[Test, Category("Function"), NonParallelizable]
 		public void FuncParamCount() => Assert.IsTrue(TestScript("func-param-count", false));
 
+		[Test, Category("Function"), NonParallelizable]
+		public void HotkeyLocalFunc() => Assert.IsTrue(TestScript("func-hotkey-local", false));
+
 		public object TestFunc(object a) => a;
 		[Test, Category("Function"), NonParallelizable]
 		public void FuncComparison()
 		{
-			var f1 = Keysharp.Core.Functions.Func(TestFunc);
-			var f2 = Keysharp.Core.Functions.Func(TestFunc, f1);
+			var f1 = Keysharp.Builtins.Functions.Func(TestFunc);
+			var f2 = Keysharp.Builtins.Functions.Func(TestFunc, f1);
 			Assert.AreEqual(f1, f1);
 			Assert.AreNotEqual(f1, f2);
 

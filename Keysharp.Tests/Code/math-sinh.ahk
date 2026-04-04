@@ -38,7 +38,7 @@ if (Eq(2.3012989023072947, Sinh(0.5 * PI)))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 #if WINDOWS
 	if (Eq(11.548739357257746, Sinh(1 * PI)))
 #else

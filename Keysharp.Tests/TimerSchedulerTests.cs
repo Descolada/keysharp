@@ -1,4 +1,4 @@
-using Assert = NUnit.Framework.Legacy.ClassicAssert;
+﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -17,5 +17,8 @@ namespace Keysharp.Tests
 
 		[Test, Category("Threading")]
 		public void LongTimerCoalescing() => Assert.IsTrue(TestScript("timer-long-callback-coalesces", false));
+
+		[Test, Category("Threading")]
+		public void TimerDuringCallbackSleep() => Assert.IsTrue(TestScript("timer-during-callback-sleep", false));
 	}
 }

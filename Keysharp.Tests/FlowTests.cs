@@ -1,4 +1,4 @@
-﻿using static Keysharp.Core.Loops;
+using static Keysharp.Runtime.Loops;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -17,36 +17,36 @@ namespace Keysharp.Tests
 				ExitApp(0)
 				FileAppend('fail', '*')
 			", "1", true, false, 0)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				FileAppend('pass', '*')
 				ExitApp(2)
 				FileAppend('fail', '*')
 			", "2", true, false, 2)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				FileAppend('pass', '*')
 				Exit(0)
 				FileAppend('fail', '*')
 			", "3", true, false, 0)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				FileAppend('pass', '*')
 				Exit(2)
 				FileAppend('fail', '*')
 			", "4", true, false, 2)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				SetTimer((*) => FileAppend('pass', '*'), -1)
 				Exit(1)
 			", "5", true, false, 1)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				SetTimer((*) => (FileAppend('pass', '*'), Exit(3)), -1)
 				Exit(2)
 				FileAppend('fail', '*')
 			", "6", true, false, 3)));
-			//Flow.ResetState();
+			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				SetTimer((*) => (FileAppend('pass', '*'), ExitApp(0)), -1)
 				SomeLabel:
@@ -124,7 +124,7 @@ namespace Keysharp.Tests
 			//
 			_ = Registrys.RegWrite("stringone\nstringtwo\nstringthree", "REG_MULTI_SZ", @"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub1", "");
 			val = Registrys.RegRead(@"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub1", "");
-			Assert.AreEqual(new Keysharp.Core.Array("stringone", "stringtwo", "stringthree"), val);
+			Assert.AreEqual(new Keysharp.Builtins.Array("stringone", "stringtwo", "stringthree"), val);
 			//
 			_ = Registrys.RegWrite(1, "REG_DWORD", @"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub1\ks_sub1_sub1", "dword1");
 			val = Registrys.RegRead(@"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub1\ks_sub1_sub1", "dword1");
@@ -136,7 +136,7 @@ namespace Keysharp.Tests
 			//
 			_ = Registrys.RegWrite("AABBCCDD", "REG_BINARY", @"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub2", "bin1");
 			val = Registrys.RegRead(@"HKEY_CURRENT_USER\SOFTWARE\KeysharpTest\ks_sub2", "bin1");
-			Assert.AreEqual(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD }, ((Core.Buffer)val).ToByteArray());
+			Assert.AreEqual(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD }, ((Builtins.Buffer)val).ToByteArray());
 			//
 			var i = 0;
 			_ = Push(LoopType.Registry);
@@ -168,21 +168,21 @@ namespace Keysharp.Tests
 				}
 				else if (i == 3)
 				{
-					Assert.AreEqual(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD }, ((Core.Buffer)val).ToByteArray());
+					Assert.AreEqual(new byte[] { 0xAA, 0xBB, 0xCC, 0xDD }, ((Builtins.Buffer)val).ToByteArray());
 					Assert.AreEqual("REG_BINARY", Accessors.A_LoopRegType);
 					Assert.AreEqual("bin1", Accessors.A_LoopRegName);
 					Assert.AreEqual("HKEY_CURRENT_USER\\SOFTWARE\\KeysharpTest\\ks_sub2", Accessors.A_LoopRegKey);
 				}
 				else if (i == 4)
 				{
-					Assert.AreEqual(new Keysharp.Core.Array("stringone", "stringtwo", "stringthree"), val);
+					Assert.AreEqual(new Keysharp.Builtins.Array("stringone", "stringtwo", "stringthree"), val);
 					Assert.AreEqual("KEY", Accessors.A_LoopRegType);
 					Assert.AreEqual("ks_sub1", Accessors.A_LoopRegName);
 					Assert.AreEqual("HKEY_CURRENT_USER\\SOFTWARE\\KeysharpTest\\ks_sub1", Accessors.A_LoopRegKey);
 				}
 				else if (i == 5)
 				{
-					Assert.AreEqual(new Keysharp.Core.Array("stringone", "stringtwo", "stringthree"), val);
+					Assert.AreEqual(new Keysharp.Builtins.Array("stringone", "stringtwo", "stringthree"), val);
 					Assert.AreEqual("REG_MULTI_SZ", Accessors.A_LoopRegType);
 					Assert.AreEqual("", Accessors.A_LoopRegName);
 					Assert.AreEqual("HKEY_CURRENT_USER\\SOFTWARE\\KeysharpTest\\ks_sub1", Accessors.A_LoopRegKey);

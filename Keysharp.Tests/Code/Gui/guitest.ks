@@ -63,7 +63,7 @@ OnMessage(0x0233, "WM_DROPFILES_CZ")
 
 CloseApp(*) {
 #if WINDOWS
- 	global shell := ""
+	global shell := ""
 #endif
 	ExitApp
 }
@@ -122,7 +122,7 @@ bgBtn2.OnEvent("Click", "RestoreBG")
 ; │  GroupBox test  │
 ; └─────────────────┘
 
-gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325 h815", "Tab One - Group One") ; 
+gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325 h815", "Tab One - Group One") ;
 MyGui.UseGroup(gb1_TabOne)
 
 ; ┌──────────────────────────────────┐
@@ -202,7 +202,7 @@ sysMenuMinimizeBtn.OnEvent("Click", "MinimizeBySystemMenu")
 
 MyGui.UseGroup()
 Tab.UseTab("First")
-gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325 h815", "Tab One - Group Two") ; 
+gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325 h815", "Tab One - Group Two") ;
 MyGui.UseGroup(gb2_TabOne)
 ; ┌───────────────────────────────┐
 ; │  Tab One, Group Two controls  │
@@ -279,8 +279,8 @@ Tab.UseTab("Second")
 ; ┌─────────────────────────────┐
 ; │  Add group boxes - 8/23/22  │
 ; └─────────────────────────────┘
-gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h850", "Tab Two - Group One") ; 
-MyGui.UseGroup(gb1_TabTwo) 
+gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h850", "Tab Two - Group One") ;
+MyGui.UseGroup(gb1_TabTwo)
 
 ; ┌────────┐
 ; │  Edit  │
@@ -541,7 +541,7 @@ MyLbBtn2.OnEvent("Click", "AddWhite")
 
 DeleteWhite(*) {
 
-	Try 
+	Try
 	{
 		WhiteIndex := ControlFindItem("White", MyListBox)
 	}
@@ -550,7 +550,7 @@ DeleteWhite(*) {
 		MsgBox("An error was thrown!`nSpecifically: " e.Message, "ERROR!")
 		Return
 	}
-	
+
 	ControlDeleteItem(WhiteIndex, MyListBox)
 }
 
@@ -590,7 +590,7 @@ AddYellow(*) {
 
 DeleteYellow(*) {
 
-	Try 
+	Try
 	{
 		YellowIndex := ControlFindItem("Yellow", MyCB)
 	}
@@ -599,7 +599,7 @@ DeleteYellow(*) {
 		MsgBox("An error was thrown!`nSpecifically: " e.Message, "ERROR!")
 		Return
 	}
-	
+
 	ControlDeleteItem(YellowIndex, MyCb)
 }
 
@@ -768,7 +768,7 @@ ShowBtn2.OnEvent("Click", "CopyPicFromFile")
 
 CopyPicFromFile(*) {
 	SelectedFile := FileSelect("3", A_AppData . A_DirSeparator . "Pictures")
-	
+
 	if (SelectedFile != "")
 	{
 		CopyImageToClipboard(SelectedFile)
@@ -801,7 +801,7 @@ SendToApp(*) {
 	Send("Another line.`n")
 	Send("{Raw}``100`%`n")
 	Send("{Blind}{Text}You should see '{Blind}{Text}' after the ellipses ... {Blind}{Text}`n")
-	; Line above produces [You should see '' after the ellipses ...] 
+	; Line above produces [You should see '' after the ellipses ...]
 	Send("{Blind}You should see nothing after the ellipses ... {Blind}")
 	Send("`n")
 	Send("{Text}You should see the Blind mode syntax in single quotes after the ellipses ... '{Blind}'")
@@ -886,7 +886,7 @@ MyMenu.Add("Item 3", "MenuHandler")  ; Add another menu item beneath the submenu
 
 MenuHandler(Item, *) {
 	MsgBox("You selected " Item, "ITEM SELECTED")
-	
+
 	if (Item == "S&cript Icon")
 		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
 	else if (Item == "S&uspend Icon")
@@ -1179,7 +1179,7 @@ MaximizeAll(*)
 MoveButton(*)
 {
 	local x, y, w, h
-	
+
 	ControlGetPos(&x, &y, &w, &h, MoveAllButton.Hwnd, MyGui)
 	x++
 	y++
@@ -1211,7 +1211,7 @@ CloseCandy(*) {
 CandyProgress(*)
 {
 	global
-	
+
 	if (!candygui.Visible)
 	{
 		candygui.Show("w485 h145")
@@ -1226,17 +1226,17 @@ candyvalue := 0
 CandyTimer(*)
 {
 	global
-	
+
 	if (candyvalue >= 33) and (candyvalue <= 66) { ; These color changes don't seem to work.
 		CandyProgress.Opt("cPurple")
 	}
 	else if (candyvalue >= 66) {
 		CandyProgress.Opt("cAqua")
-	}       
+	}
 	else {
 		CandyProgress.Opt("cBlack")
 	}
-	
+
 	CandyProgress.Value := candyvalue
 	CandyText.Text := candyvalue . "%"
 	candyvalue := candyvalue + 1
@@ -1251,7 +1251,7 @@ TestTypes(*)
 {
 	global
 	local s := "All of these should be true`n"
-	
+
 #if WINDOWS
 	s .= "Odie is Gui.ActiveX: " . (activeXOdie is Gui.ActiveX) . "`n"
 #endif
@@ -1261,7 +1261,7 @@ TestTypes(*)
 	s .= "Edit control testing is Gui.Edit: " . (CZ_Edit1 is Gui.Edit) . "`n"
 	s .= "GroupBox 1 Tab 1 is Gui.GroupBox: " . (gb1_TabOne is Gui.GroupBox) . "`n"
 	s .= "Define hotkey test is Gui.Hotkey: " . (MyHotkey is Gui.Hotkey) . "`n"
-	s .= "Link test is Gui.Link: " . (MyLink is Gui.Link) . "`n" ; Link 
+	s .= "Link test is Gui.Link: " . (MyLink is Gui.Link) . "`n" ; Link
 	; List-derived controls.
 	s .= "ComboBox control tests is Gui.ComboBox and Gui.List: " . (gb2_CZ_CB is Gui.ComboBox and gb2_CZ_CB is Gui.List) . "`n"
 	s .= "Drop-down list with 4 rows is Gui.DDL and Gui.List: " . (MyDDL is Gui.DDL and MyDDL is Gui.List) . "`n"
@@ -1278,7 +1278,7 @@ TestTypes(*)
 	s .= "Press Win-Z is Gui.Text: " . (Menu_Label is Gui.Text) . "`n"
 	s .= "TreeView test is Gui.TreeView: " . (TV is Gui.TreeView) . "`n"
 	s .= "UpDown test is Gui.UpDown: " . (nud is Gui.UpDown) . "`n"
-	
+
 	MsgBox(s)
 }
 
@@ -1346,7 +1346,7 @@ EnumCtrls(*) {
         {
             continue
         }
-		
+
 	theMsg .= "Control #" A_Index " is " theNN "`n"
 	}
 	Gui2Edit.Value := theMsg
@@ -1531,7 +1531,7 @@ AddWhite2(*) {
 }
 
 DeleteFuchsia(*) {
-	Try 
+	Try
 	{
 		FuchsiaIndex := ControlFindItem("Fuchsia", CZ_ListBox)
 	}
@@ -1540,13 +1540,13 @@ DeleteFuchsia(*) {
 		MsgBox("An error was thrown!`nSpecifically: " e.Message, "ERROR!")
 		Return
 	}
-	
+
 	;MsgBox(FuchsiaIndex)
 	ControlDeleteItem(FuchsiaIndex, CZ_ListBox)
 }
 
 DeleteWhite2(*) {
-	Try 
+	Try
 	{
 		WhiteIndex := ControlFindItem("White", gb2_CZ_CB)
 	}
@@ -1555,7 +1555,7 @@ DeleteWhite2(*) {
 		MsgBox("An error was thrown!`nSpecifically: " e.Message, "ERROR!")
 		Return
 	}
-	
+
 	ControlDeleteItem(WhiteIndex, gb2_CZ_CB)
 }
 
@@ -1852,13 +1852,13 @@ BtnControlSendText.OnEvent("Click", "BtnControlSendTextFunc")
 ; │  Send and Hotkey button functions  │
 ; └────────────────────────────────────┘
 
-BtnSendFunc(*) {   
+BtnSendFunc(*) {
 	TheSendMsg := "
 (
 From the AHK docs:
 
 "Sends simulated keystrokes and mouse clicks to the active window."
-		
+
 When you dismiss this button,
 Keysharp will send 'Sincerely, John Smith'
 (no quotes) to the Edit, then add a newline.
@@ -1879,21 +1879,21 @@ BtnSendTextFunc(*) {
 From the AHK docs:
 
 SendText: Similar to Send, except that all characters
-in Keys are interpreted and sent literally. 
+in Keys are interpreted and sent literally.
 See Text mode for details.
 
 The Text mode can be either enabled with {Text}, SendText or ControlSendText,
 which is similar to the Raw mode, except that no attempt is made to translate
 characters (other than ``r, ``n, ``t and ``b) to keycodes;
-instead, the fallback method is used for all of the remaining characters. 
+instead, the fallback method is used for all of the remaining characters.
 
 For SendEvent, SendInput and ControlSend, this improves reliability
 because the characters are much less dependent on correct modifier state.
 
 This mode can be combined with the Blind mode to avoid releasing any modifier keys:
-		
-		Send "{Blind}{Text}your text". 
-		
+
+		Send "{Blind}{Text}your text".
+
 However, some applications require that the modifier keys be released.
 
 ``n, ``r and ``r``n are all translated to a single Enter, unlike the default behavior and Raw mode,
@@ -1904,7 +1904,7 @@ Like the Blind mode, the Text mode ignores SetStoreCapsLockMode (that is, the st
 and does not wait for Win to be released. This is because the Text mode
 typically does not depend on the state of CapsLock and cannot trigger the system Win+L hotkey.
 However, this only applies when Keys begins with {Text} or {Blind}{Text}.
-		
+
 		When you dismiss this button,
 		Keysharp will open Notepad, wait a bit and
 		then send some text. You should see this:
@@ -1917,8 +1917,8 @@ Then, you should see:
 
 You should see the Blind mode syntax after the ellipses ... '{Blind}'
 )"
-	
-	
+
+
 MsgBox(TheSendTextMsg, "SendText")
 
 TheSendText := "I want to send some {Blind}{Text} with SendText followed by a newline.`r`n"
@@ -1940,22 +1940,22 @@ BtnSendInputFunc(*) {
 (
 From the AHK docs:
 
-SendInput is generally the preferred method to send keystrokes and mouse clicks because of its superior speed and reliability. 
-Under most conditions, SendInput is nearly instantaneous, even when sending long strings. Since SendInput is so fast, 
-it is also more reliable because there is less opportunity for some other window to pop up unexpectedly and intercept the keystrokes. 
+SendInput is generally the preferred method to send keystrokes and mouse clicks because of its superior speed and reliability.
+Under most conditions, SendInput is nearly instantaneous, even when sending long strings. Since SendInput is so fast,
+it is also more reliable because there is less opportunity for some other window to pop up unexpectedly and intercept the keystrokes.
 Reliability is further improved by the fact that anything the user types during a SendInput is postponed until afterward.
 
 Unlike the other sending modes, the operating system limits SendInput to about 5000 characters
-(this may vary depending on the operating system's version and performance settings). 
+(this may vary depending on the operating system's version and performance settings).
 Characters and events beyond this limit are not sent.
 
-	Note: SendInput ignores SetKeyDelay because the operating system does not support a delay in this mode. 
+	Note: SendInput ignores SetKeyDelay because the operating system does not support a delay in this mode.
 	However, when SendInput reverts to SendEvent under the conditions described below, it uses SetKeyDelay -1, 0
-	(unless SendEvent's KeyDelay is -1,-1, in which case -1,-1 is used). 
+	(unless SendEvent's KeyDelay is -1,-1, in which case -1,-1 is used).
 	When SendInput reverts to SendPlay, it uses SendPlay's KeyDelay.
 
 If a script other than the one executing SendInput has a low-level keyboard hook installed, SendInput automatically reverts
-to SendEvent (or SendPlay if SendMode "InputThenPlay" is in effect). 
+to SendEvent (or SendPlay if SendMode "InputThenPlay" is in effect).
 This is done because the presence of an external hook disables all of SendInput's advantages,
 making it inferior to both SendPlay and SendEvent. However, since SendInput is unable to detect
 a low-level hook in programs other than AutoHotkey v1.0.43+,
@@ -1966,7 +1966,7 @@ or CoordMode "Mouse", "Client" is in effect, every click will be relative to the
 that was active at the start of the send. Therefore, if SendInput intentionally activates another window
 (by means such as alt-tab), the coordinates of subsequent clicks within the same function
 will be wrong if they were intended to be relative to the new window rather than the old one.
-		
+
 		When you dismiss this button,
 		Keysharp will send some text to the Edit. You should see this:
 
@@ -2037,9 +2037,9 @@ From the AHK docs:
 
 "SendEvent: SendEvent sends keystrokes using the Windows keybd_event function.
 (search MSDN for details)
-The rate at which keystrokes are sent is determined by SetKeyDelay. 
+The rate at which keystrokes are sent is determined by SetKeyDelay.
 SendMode can be used to make Send synonymous with SendEvent or SendPlay."
-		
+
 When you dismiss this button,
 Keysharp will send Win-R.
 The 'Run' dialog will open.
@@ -2106,7 +2106,7 @@ RealFn(a, b, c:="c") {
 	global boundText
 	MsgBox(boundText . "`n" . a . ", " . b, "A bound function test")
 }
-	
+
 DoTricks(*) {
 	global boundText
 	RealFn := Func("RealFn")
@@ -2133,12 +2133,12 @@ StupidTrickTwo(*) {
 }
 
 StupidTrickThree(*) {
-	Try 
+	Try
 	{
 			Hotkey("RCtrl & RShift", "Off")
 			MsgBox("Hotkey RCtrl & RShift -> AltTab is Off", "Hotkey Off", "T2")
 	}
-	Catch 
+	Catch
 	{
 		MsgBox("Set the Hotkey first!")
 	}
@@ -2156,7 +2156,7 @@ FuncObjTest(*) {
 }
 
 ToggleHotkey(*) {
-	Try 
+	Try
 	{
 		Hotkey("RCtrl & RShift", "Toggle")
 	}
@@ -2173,7 +2173,7 @@ GrabFromIni(*) {
 }
 
 ToggleFromIni(*) {
-	Try 
+	Try
 	{
 		Hotkey("RCtrl & LShift", "Toggle")
 	}
@@ -2199,12 +2199,12 @@ getSelected(*) { ; https://www.autohotkey.com/boards/viewtopic.php?style=17&t=60
 				val := window.hwnd
 			Catch
 				Return
-		
+
 			If val = hwnd
 				For item in window.document.SelectedItems
 					selection .= item.Path '`n'
 		}
-		
+
 	Return Trim(selection, '`n')
 }
 
@@ -2356,7 +2356,7 @@ MyTreeView_Edit(TV, Item) {
 ; └────────────────┘
 
 ; Copy this function into your script to use it.
-HideTrayTip(*) {  
+HideTrayTip(*) {
 	TrayTip()  ; Attempt to hide it the normal way.
 	if SubStr(A_OSVersion,1,3) = "10." {
 		A_IconHidden := True
@@ -2407,7 +2407,7 @@ SendRtfToRichEdit(*)
 (
 {\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang3081\deflangfe3081{\fonttbl{\f0\fswiss\fprq2\fcharset0 Calibri;}}
 {\colortbl ;\red0\green0\blue255;\red5\green99\blue193;}
-{\*\generator Riched20 10.0.19041}{\*\mmathPr\mnaryLim0\mdispDef1\mwrapIndent1440 }\viewkind4\uc1 
+{\*\generator Riched20 10.0.19041}{\*\mmathPr\mnaryLim0\mdispDef1\mwrapIndent1440 }\viewkind4\uc1
 \pard\widctlpar\sa160\sl252\slmult1\qc {\f0\fs22\lang2057{\field{\*\fldinst{HYPERLINK "https://github.com/dotnet/winforms/issues/146" }}{\fldrslt{\ul\cf1\cf2\ul Example}}}}\f0\fs22\lang2057  Document\par
 \par
 
@@ -2492,12 +2492,12 @@ LoadPic(*) {
 	global
 	local x, y, w, h
 	Tab.UseTab("Second")
-	
+
 	if (MyFirstPic = "")
 		MyFirstPic := MyGui.Add("Picture", "xc+400 yc+650 w100 h-1 border", Monkey)
 	else
 		MyFirstPic.Value := Monkey
-#if WINDOWS	
+#if WINDOWS
 	if (MySecondPic = "")
 		MySecondPic := MyGui.Add("Picture", "xc+520 yc+650 w100 h-1 border", Icon2)
 	else
@@ -2510,7 +2510,7 @@ LoadPic(*) {
 #endif
 	Sleep(2000)
 	MyFirstPic.Value := ""
-#if WINDOWS	
+#if WINDOWS
 	MySecondPic.Value := ""
 	MyThirdPic.Value := ""
 #endif
@@ -2664,8 +2664,8 @@ ShowEditHwnd(*) {
 UpdateOSD(*)
 {
 	mx :=
-	my := 
-	msx := 
+	my :=
+	msx :=
 	msy := 0
 	prevMode := A_CoordModeMouse
 	MouseGetPos(&mx, &my)
@@ -2726,11 +2726,11 @@ Reset_Style(*) {
 	WinSetStyle("+0xC00000", "A")
 }
 
-Set_Edit_Style(*) 
+Set_Edit_Style(*)
 {
 	;MsgBox(HwndMyEdit, "This is the ID")
 #if WINDOWS
- 	ControlSetStyle("+0x8", HwndMyEdit)
+	ControlSetStyle("+0x8", HwndMyEdit)
 #else
 	MyEdit2.Opt("+Uppercase")
 	HwndMyEdit := MyEdit2.Hwnd
@@ -2746,7 +2746,7 @@ Reset_Edit_Style(*)
 
 	ControlSetStyle("-0x8", HwndMyEdit)
 	ControlFocus(HwndMyEdit)
-	
+
 	Str := ControlGetStyle(HwndMyEdit)
 	MsgBox(Format("0x{1:x}", Str), "Style of Edit1 After Reset")
 #else
@@ -2786,7 +2786,7 @@ MoveGuiBack(*) {
 ImgSrch(*) {
 CoordMode("Pixel", )  ; Interprets the coordinates below as relative to the screen rather than the active window.
 
-	try 
+	try
 	{
 	resultX :=
 	resultY := 0
@@ -2825,7 +2825,7 @@ F1 up::
 		; Now set the mouse to the slower speed specified in the next-to-last parameter (the range is 1-20, 10 is default):
 		DllCall("SystemParametersInfo", "UInt", SPI_SETMOUSESPEED, "UInt", 0, "Ptr", 3, "UInt", 0)
 		KeyWait("F1") ; This prevents keyboard auto-repeat from doing the DllCall repeatedly.
-        
+
 	case "F1 up":
 		DllCall("SystemParametersInfo", "UInt", SPI_SETMOUSESPEED, "UInt", 0, "Ptr", OrigMouseSpeed, "UInt", 0)  ; Restore the original speed.
 	}
@@ -2917,7 +2917,7 @@ DllPerformanceCounter(*)
 	CounterAfter := 0
 	start := A_NowMs
 	startTick := A_TickCount
-	
+
 	DllCall("QueryPerformanceFrequency", "Int64*", &freq)
 	DllCall("QueryPerformanceCounter", "Int64*", &CounterBefore)
 	Sleep(1000)
@@ -3046,7 +3046,7 @@ class mycomhandler
 		OutputDebug("`tReceived NewDocument event.")
 		ShowDebug()
 	}
-	
+
 	DocumentChange(comobj)
 	{
 		OutputDebug("`tReceived DocumentChange event.")
@@ -3077,10 +3077,10 @@ shell := unset
 ComExecNotepadShell(*)
 {
 	global shell
-	
+
 	if (shell is unset)
 		shell := ComObject("WScript.Shell")
-		
+
 	exec := shell.Exec("Notepad.exe")
 }
 
@@ -3090,7 +3090,7 @@ ComRunNotepadShell(*)
 
 	if (shell is unset)
 		shell := ComObject("WScript.Shell")
-		
+
 	exec := shell.Run("Notepad.exe")
 }
 
@@ -3211,7 +3211,7 @@ sldAdjMasterVolume.OnEvent("Change", "AdjustMasterVolumeSliderPos")
 AdjustMasterVolumeSliderPos(*)
 {
 	val := sldAdjMasterVolume.Value
-	
+
 	if (val >= 0)
 		val := "+" . val
 

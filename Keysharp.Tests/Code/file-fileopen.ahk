@@ -58,7 +58,7 @@ else
 	FileAppend "fail", "*"
 
 f.Close()
-		
+
 if (FileExist(path) != "")
 	FileDelete(path)
 
@@ -126,7 +126,7 @@ if (f.Length == 16) ; BOM plus 2 bytes per char.
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 f.Close()
 
 f := FileOpen(path, "rw", "Unicode") ; Ensure reading an existing file with a BOM works.
@@ -147,7 +147,7 @@ f.Close()
 
 if (FileExist(path) != "")
 	FileDelete(path)
-			
+
 A_FileEncoding := "utf-8-raw"
 f := FileOpen(path, "rw") ; Test position.
 w := "testing"
@@ -159,21 +159,21 @@ if (len == pos)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 eof := f.AtEOF
 
 if (eof == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 len := f.Length
 
 if (len == 7)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 enc := f.Encoding
 
 if (enc == "utf-8")
@@ -194,7 +194,7 @@ if (eof == 0) ; With append mode, you're never really at the "end" of the file.
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 len := f.Length
 
 if (pos == 14)
@@ -211,7 +211,7 @@ f.Close()
 
 if (FileExist(path) != "")
 	FileDelete(path)
-			
+
 f := FileOpen(path, "w") ; Test write only.
 w := "testing"
 count := f.Write(w)
@@ -236,7 +236,7 @@ if (len == 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-			
+
 f.Close()
 
 if (FileExist(path) != "")
@@ -266,7 +266,7 @@ if (len == 7)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-			
+
 f.Close()
 
 b := false

@@ -1,6 +1,6 @@
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Keysharp.Core.Common.Invoke;
-using Keysharp.Core.Common.Window;
+using Keysharp.Internals.Invoke;
+using Keysharp.Internals.Window;
 
 namespace Keysharp.Tests
 {

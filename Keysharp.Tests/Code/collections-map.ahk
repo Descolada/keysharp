@@ -26,7 +26,7 @@ if (val = 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 b := false
 
 try
@@ -105,7 +105,7 @@ if (str == '{"one": 1, "three": 3, "two": 2}')
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map(123, 456, "two", 2, "three", 3 )
 val := m[123]
 
@@ -113,7 +113,7 @@ if (val = 456)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map(123.111, 456, "two", 2, "three", 3)
 val := m[123.111]
 
@@ -137,7 +137,7 @@ if (val = 0xF00D)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-		
+
 str1 := "one"
 str2 := "two"
 str3 := "three"
@@ -206,12 +206,12 @@ if (m2["one"] == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (m2["two"] == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (m2["three"] == 3)
 	FileAppend "pass", "*"
 else
@@ -221,7 +221,7 @@ if (m2.a == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (m2.b == 456)
 	FileAppend "pass", "*"
 else
@@ -240,7 +240,7 @@ else
 	FileAppend "fail", "*"
 
 m["one"] := 1
-	
+
 len := m2.Count
 
 if (len == 3)
@@ -306,7 +306,7 @@ if (val == 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map("one", 1, "two", 2, "three", 3)
 val := m.Count
 
@@ -335,7 +335,7 @@ if (val == 3)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m.Delete(m2)
 
 val := m.Count
@@ -388,12 +388,12 @@ if (m.Has(m1))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (!m.Has(m2))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map()
 m.CaseSense := "off"
 m.Set("one", 1, "two", 2, "three", 3)
@@ -404,7 +404,7 @@ if (val == true)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map()
 m.CaseSense := "on"
 m.Set("one", 1, "two", 2, "three", 3)
@@ -439,35 +439,35 @@ if (val >= 1000) ; Capacity will internally be made to be at least as big as we 
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := { one : 1, two : 2, three : 3 }
 
 if (m.one == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m.one := 123
 
 if (m.one == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map("one", 1, "two", 2, "three", 3)
 
 if (m["one"] == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m["one"] := 123
 
 if (m["one"] == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := { one : [1, 1, 1], two : [2, 2, 2], three : [3, 3, 3] }
 val := m.one[1]
 
@@ -482,7 +482,7 @@ if (m.one[1] == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := Map("one", [1, 1, 1], "two", [2, 2, 2], "three", [3, 3, 3])
 val := m["one"][1]
 
@@ -490,7 +490,7 @@ if (val == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m["one"][1] := 123
 
 if (m["one"][1] == 123)
@@ -542,7 +542,7 @@ if (val == 123)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 m := {
 	one : 1
 }
@@ -605,7 +605,7 @@ if (val == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 b := false
 val := m["TEST"]
 

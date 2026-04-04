@@ -1,4 +1,4 @@
-﻿using Keysharp.Core.Common.Threading;
+using Keysharp.Internals.Threading;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -103,6 +103,7 @@ namespace Keysharp.Tests
 
 			foreach (var remove in new[] { pass, " ", "\n" })
 					output = output.Replace(remove, string.Empty);
+
 			return output.Length == 0;
 		}
 
@@ -118,6 +119,7 @@ namespace Keysharp.Tests
 			if (arr == null)
 			{
 				_ = Ks.OutputDebugLine(code);
+				Console.WriteLine(code);
 				return string.Empty;
 			}
 
@@ -155,11 +157,11 @@ namespace Keysharp.Tests
 						var result = StaTask.RunSync(() => main.Invoke(null, [temp]));
 #else
 						object result = null;
-						try 
+						try
 						{
 							result = main.Invoke(null, [temp]);
-						} 
-						catch (Flow.UserRequestedExitException)
+						}
+						catch (Keysharp.Builtins.Flow.UserRequestedExitException)
 						{
 						}
 #endif

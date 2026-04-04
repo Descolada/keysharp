@@ -1,8 +1,8 @@
 path := A_ScriptDir . "/DirCopy/file1.txt"
-filename := 
+filename :=
 dir :=
 ext :=
-drive := 
+drive :=
 namenoext :=
 url := ""
 
@@ -25,12 +25,12 @@ if (filename == "file1.txt")
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (ext == "txt")
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if (namenoext == "file1")
 	FileAppend "pass", "*"
 else
@@ -84,7 +84,7 @@ if ("https://domain.com" == dir)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
-	
+
 if ("" == ext)
 	FileAppend "pass", "*"
 else

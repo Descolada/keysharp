@@ -1,0 +1,13 @@
+* text=auto
+
+*.bmp binary
+*.cur binary
+*.dll binary
+*.exe binary
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.snk binary
+*.zip binary

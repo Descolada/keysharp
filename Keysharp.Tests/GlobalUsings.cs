@@ -1,4 +1,4 @@
-﻿//System usings.
+//System usings.
 global using global::System;
 global using global::System.CodeDom.Compiler;
 global using global::System.Collections;
@@ -22,18 +22,23 @@ global using global::System.Threading.Tasks;
 
 //Our usings.
 global using global::NUnit.Framework;
-global using global::Keysharp.Core;
-global using global::Keysharp.Core.Common.Keyboard;
-global using global::Keysharp.Core.Common.ObjectBase;
-global using global::Keysharp.Core.Common.Strings;
+global using global::Keysharp.Builtins;
+global using global::Keysharp.Internals.Input.Keyboard;
+global using global::Keysharp.Parsing;
+global using global::Keysharp.Runtime;
+
+global using global::Keysharp.Internals.Input.Hooks;
+global using global::Keysharp.Internals.Strings;
+global using global::Keysharp.Internals.Threading;
 
 #if WINDOWS
-	global using global::Keysharp.Core.Windows;
+	global using global::Keysharp.Internals.Input.Windows;
+	global using global::Keysharp.Internals.Platform.Windows;
+	global using global::Keysharp.Internals.Input.Hooks.Windows;
+	global using global::Keysharp.Internals.Window.Windows;
+	global using MessageFilter = Keysharp.Internals.Window.Windows.MessageFilter;
 #endif
-
-global using global::Keysharp.Scripting;
-
 //Static
-global using static global::Keysharp.Core.Accessors;
-global using static global::Keysharp.Core.Ks;
-global using static global::Keysharp.Scripting.Keywords;
+global using static global::Keysharp.Builtins.Accessors;
+global using static global::Keysharp.Builtins.Ks;
+global using static global::Keysharp.Parsing.Keywords;

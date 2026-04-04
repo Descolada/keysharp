@@ -1,5 +1,5 @@
-﻿using Keysharp.Core.Common.Invoke;
-using static Keysharp.Core.Types;
+using Keysharp.Internals.Invoke;
+using static Keysharp.Builtins.Types;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -10,8 +10,8 @@ namespace Keysharp.Tests
 		public void MiscIs()
 		{
 			var x = 1;
-			var o = new Keysharp.Core.Array(10, 20, 30);
-			var map = new Keysharp.Core.Map("one", 1, "two", 2, "three", 3);
+			var o = new Keysharp.Builtins.Array(10, 20, 30);
+			var map = new Keysharp.Builtins.Map("one", 1, "two", 2, "three", 3);
 			Assert.IsTrue(IsInteger(x) == 1);
 			x = -1;
 			Assert.IsTrue(IsInteger(x) == 1);
@@ -175,7 +175,7 @@ namespace Keysharp.Tests
 		[Test, Category("Misc"), NonParallelizable]
 		public void MiscObject()
 		{
-			var a = new Keysharp.Core.Array(10L, 20L, 30L);
+			var a = new Keysharp.Builtins.Array(10L, 20L, 30L);
 			var fo = (IFuncObj)a.GetMethod("Push");
 			_ = fo.Call(a, 40L);
 			Assert.AreEqual(4L, a.Length);

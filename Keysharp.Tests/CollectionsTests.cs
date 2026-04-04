@@ -1,5 +1,5 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Buffer = Keysharp.Core.Buffer;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Buffer = Keysharp.Builtins.Buffer;
 
 namespace Keysharp.Tests
 {
@@ -8,7 +8,7 @@ namespace Keysharp.Tests
 		[Test, Category("Collections"), NonParallelizable]
 		public void Array()
 		{
-			var arr = new Keysharp.Core.Array(
+			var arr = new Keysharp.Builtins.Array(
 				[
 					10L,
 					20L,

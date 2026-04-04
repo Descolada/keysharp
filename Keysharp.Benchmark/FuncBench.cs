@@ -1,7 +1,7 @@
-﻿using static Keysharp.Core.Flow;
-using static Keysharp.Core.Loops;
-using static Keysharp.Scripting.Script;
-using static Keysharp.Scripting.Script.Operator;
+using static Keysharp.Runtime.Flow;
+using static Keysharp.Runtime.Loops;
+using static Keysharp.Runtime.Script;
+using static Keysharp.Runtime.Script.Operator;
 
 namespace Keysharp.Benchmark
 {
@@ -35,7 +35,7 @@ namespace Keysharp.Benchmark
 		public void KeysharpFuncLoopIncrement()
 		{
 			x = 0L;
-			_ = Push(Keysharp.Core.LoopType.Normal);
+			_ = Push(Keysharp.Runtime.LoopType.Normal);
 
 			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
 					IsTrueAndRunning(e0.MoveNext());
@@ -57,7 +57,7 @@ namespace Keysharp.Benchmark
 		public void KeysharpLoopIncrement()
 		{
 			x = 0L;
-			_ = Push(Keysharp.Core.LoopType.Normal);
+			_ = Push(Keysharp.Runtime.LoopType.Normal);
 
 			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
 					IsTrueAndRunning(e0.MoveNext());
@@ -81,7 +81,7 @@ namespace Keysharp.Benchmark
 		public void KeysharpNativeLongLoopIncrement()
 		{
 			var total = 0L;
-			_ = Push(Keysharp.Core.LoopType.Normal);
+			_ = Push(Keysharp.Runtime.LoopType.Normal);
 
 			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
 					IsTrueAndRunning(e0.MoveNext());
@@ -103,7 +103,7 @@ namespace Keysharp.Benchmark
 		public void KeysharpNativeObjectLoopIncrement()
 		{
 			x = 0L;
-			_ = Push(Keysharp.Core.LoopType.Normal);
+			_ = Push(Keysharp.Runtime.LoopType.Normal);
 
 			for (System.Collections.IEnumerator e0 = Loop(Size).GetEnumerator();
 					IsTrueAndRunning(e0.MoveNext());
@@ -158,29 +158,29 @@ namespace Keysharp.Benchmark
 				{
 					object _ks_temp1;
 					object _ks_temp2;
-					return Keysharp.Scripting.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Scripting.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Scripting.Script.Add(Keysharp.Scripting.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
+					return Keysharp.Runtime.Script.MultiStatement(_ks_temp1 = @this, _ks_temp2 = "x", Keysharp.Runtime.Script.SetPropertyValue(_ks_temp1, _ks_temp2, Keysharp.Runtime.Script.Add(Keysharp.Runtime.Script.GetPropertyValue(_ks_temp1, _ks_temp2), 1L)));
 				}
 
 				public static object Classinctestfuncscript(object @this)
 				{
 					object size;
 					size = 500000L;
-					Keysharp.Scripting.Script.SetPropertyValue(@this, "x", 0L);
+					Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
 					{
-						Keysharp.Core.Loops.Push(Keysharp.Core.LoopType.Normal);
-						System.Collections.IEnumerator _ks_e1 = Keysharp.Core.Loops.Loop(size).GetEnumerator();
+						Keysharp.Runtime.Loops.Push(Keysharp.Runtime.LoopType.Normal);
+						System.Collections.IEnumerator _ks_e1 = Keysharp.Runtime.Loops.Loop(size).GetEnumerator();
 						try
 						{
 							for (; IsTrueAndRunning(_ks_e1.MoveNext());)
 							{
-								Keysharp.Scripting.Script.Invoke(@this, "ClassInc");
+								Keysharp.Runtime.Script.Invoke(@this, "ClassInc");
 							_ks_e1_next:
 								;
 							}
 						}
 						finally
 						{
-							Keysharp.Core.Loops.Pop();
+							Keysharp.Runtime.Loops.Pop();
 						}
 
 					_ks_e1_end:
@@ -192,8 +192,8 @@ namespace Keysharp.Benchmark
 
 				public static void __Init(object @this)
 				{
-					Keysharp.Scripting.Script.InvokeOrNull((object)(_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
-					Keysharp.Scripting.Script.SetPropertyValue(@this, "x", 0L);
+					Keysharp.Runtime.Script.InvokeOrNull((object)(_ks_s.Vars.Prototypes[typeof(KeysharpObject)], @this), "__Init");
+					Keysharp.Runtime.Script.SetPropertyValue(@this, "x", 0L);
 				}
 
 				public static void static__Init(object @this)

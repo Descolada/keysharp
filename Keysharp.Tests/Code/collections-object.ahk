@@ -47,3 +47,41 @@ if (obj.c = 3)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+try {
+	ObjSetBase({ d: 4 }, [])
+	FileAppend "fail", "*"
+} catch as err {
+	FileAppend "pass", "*"
+}
+
+try {
+	ObjSetBase(Any.Prototype, Object.Prototype)
+	FileAppend "fail", "*"
+} catch as err {
+	FileAppend "pass", "*"
+}
+
+o1 := {}
+o2 := {}
+ObjSetBase(o1, o2)
+
+try {
+	ObjSetBase(o2, o1)
+	FileAppend "fail", "*"
+} catch as err {
+	FileAppend "pass", "*"
+}
+
+if (ObjGetBase("x") == String.Prototype)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+o3 := {}
+try {
+	o3.Base := 1
+	FileAppend "fail", "*"
+} catch as err {
+	FileAppend "pass", "*"
+}

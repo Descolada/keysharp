@@ -1,7 +1,7 @@
-﻿using Array = Keysharp.Core.Array;
-using Buffer = Keysharp.Core.Buffer;
+using Array = Keysharp.Builtins.Array;
+using Buffer = Keysharp.Builtins.Buffer;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
-using Keysharp.Core.Common.File;
+using Keysharp.Builtins;
 
 namespace Keysharp.Tests
 {
@@ -229,13 +229,13 @@ namespace Keysharp.Tests
 			var text = File.ReadAllText("./fileappend.txt");
 			Assert.AreEqual("test file texttest file text", text);
 			//
-			var data = new Core.Array(new byte[] { 1, 2, 3, 4 });
+			var data = new Builtins.Array(new byte[] { 1, 2, 3, 4 });
 			_ = Files.FileAppend(data, "./fileappend2.txt", "utf-8-raw");
 			Assert.IsTrue(File.Exists("./fileappend2.txt"));
-			var data2 = new Core.Array(File.ReadAllBytes("./fileappend2.txt"));
+			var data2 = new Builtins.Array(File.ReadAllBytes("./fileappend2.txt"));
 			Assert.AreEqual(data, data2);
 			_ = Files.FileAppend("abcd", "./fileappend2.txt", "utf-16-raw");
-			data2 = new Core.Array(File.ReadAllBytes("./fileappend2.txt"));
+			data2 = new Builtins.Array(File.ReadAllBytes("./fileappend2.txt"));
 			data.Push(new UnicodeEncoding(false, false).GetBytes("abcd").Cast<object>().ToArray());
 			Assert.AreEqual(data, data2);
 
@@ -488,12 +488,12 @@ namespace Keysharp.Tests
             VarRef outRunState = new(null);
 #if LINUX
 			//Test creating a basic symlink first on linux.
-			Keysharp.Core.Files.FileCreateShortcut
+			Keysharp.Builtins.Files.FileCreateShortcut
 			(
 				"./FileGetShortcut/file1.txt",
 				"./testshortcut.lnk"
 			);
-			Keysharp.Core.Files.FileGetShortcut("./testshortcut.lnk",
+			Keysharp.Builtins.Files.FileGetShortcut("./testshortcut.lnk",
 												outTarget,
 												outDir,
 												outArgs,
@@ -777,7 +777,7 @@ namespace Keysharp.Tests
 				var count = f.Write(w);
 				var pos = f.Pos;
 				var eof = f.AtEOF;
-				Assert.AreEqual(eof, 0L);//With append mode, you're never really at the "end" of the Keysharp.Core.File.
+				Assert.AreEqual(eof, 0L);//With append mode, you're never really at the "end" of the Keysharp.Builtins.File.
 				var len = f.Length;
 				Assert.AreEqual(pos, 14L);
 				Assert.AreEqual(len, 14L);
@@ -797,7 +797,7 @@ namespace Keysharp.Tests
 				var pos = f.Pos;
 				var eof = f.AtEOF;
 				var len = f.Length;
-				Assert.AreEqual(eof, 1L);//Overwrite should cause it to be an empty Keysharp.Core.File.
+				Assert.AreEqual(eof, 1L);//Overwrite should cause it to be an empty Keysharp.Builtins.File.
 				Assert.AreEqual(pos, 0L);
 				Assert.AreEqual(len, 0L);
 			}
@@ -870,7 +870,7 @@ namespace Keysharp.Tests
 			text = Files.FileRead(dir, "m4 utf-8");
 			Assert.AreEqual("this", text);
 			var buf1 = Files.FileRead(dir, "m4 raw");
-			var buf2 = new Keysharp.Core.Buffer("this"u8.ToArray());
+			var buf2 = new Keysharp.Builtins.Buffer("this"u8.ToArray());
 			Assert.IsTrue((bool)Script.ValueEquality(buf1, buf2));
 			Assert.IsTrue(TestScript("file-fileread", true));
 		}
@@ -1104,7 +1104,7 @@ groupkey13=groupval13
 #if WINDOWS
 			Assert.AreEqual(true, dir.__Value.ToString().EndsWith("Keysharp.Tests\\Code\\DirCopy"));
 			Assert.AreEqual(true, drive.__Value.ToString().Equals("C:") || drive.__Value.ToString().Equals("D:"));
-			Keysharp.Core.Dir.SplitPath("C:\\Windows", filename, dir, ext, namenoext, drive);
+			Keysharp.Builtins.Dir.SplitPath("C:\\Windows", filename, dir, ext, namenoext, drive);
 			Assert.AreEqual("C:", drive.__Value);
 			Assert.AreEqual("C:", dir.__Value);
 #else

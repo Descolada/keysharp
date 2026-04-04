@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
 		<TargetFramework>net10.0-windows</TargetFramework>
 		<UseWindowsForms>true</UseWindowsForms>
@@ -16,7 +16,7 @@
 		<DefineConstants>$(DefineConstants);OSX;DPI</DefineConstants>
 		<LangVersion>14.0</LangVersion>
 	</PropertyGroup>
-	
+
 	<PropertyGroup>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
@@ -62,28 +62,38 @@
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
 		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
-		<Compile Remove="Unix\MacOS\**\*.cs" />
+		<Compile Remove="Internals\Input\MacOS\**\*.cs" />
+		<Compile Remove="Internals\Input\Hooks\MacOS\**\*.cs" />
+		<Compile Remove="Internals\Window\MacOS\**\*.cs" />
 	</ItemGroup>
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
 		<ProjectReference Include="..\..\Eto\src\Eto.Mac\Eto.Mac64.csproj" />
 		<ProjectReference Include="..\..\Eto\lib\monomac\src\MonoMac.csproj" />
-		<Compile Remove="Unix\Linux\**\*.cs" />
-		<Compile Include="Unix\Linux\PlatformManager.cs" />
+		<Compile Remove="Internals\Input\Linux\**\*.cs" />
+		<Compile Remove="Internals\Mapper\Linux\**\*.cs" />
+		<Compile Remove="Internals\Input\Hooks\Linux\**\*.cs" />
+		<Compile Remove="Internals\Window\Linux\**\*.cs" />
 	</ItemGroup>
 
 	<ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
-		<Compile Remove="Common\Window\AboutBox.Designer.cs" />
-		<Compile Remove="Common\Window\KeysharpActiveX.cs" />
-		<Compile Remove="Windows\Gui\Dialogs\InputDialog.cs" />
-		<Compile Remove="Windows\Window\MainWindow.cs" />
-		<Compile Remove="Windows\Window\MainWindow.Designer.cs" />
-		<EmbeddedResource Remove="Common\Window\AboutBox.resx" />
-		<EmbeddedResource Remove="Common\Window\KeysharpActiveX.resx" />
-		<EmbeddedResource Remove="Windows\Gui\Dialogs\InputDialog.resx" />
-		<EmbeddedResource Remove="Windows\Window\MainWindow.resx" />
+		<Compile Remove="Builtins\Gui\Windows\Dialogs\InputDialog.cs" />
+		<Compile Remove="Internals\Input\Windows\**\*.cs" />
+		<Compile Remove="Internals\Mapper\Windows\**\*.cs" />
+		<Compile Remove="Internals\Platform\Windows\**\*.cs" />
+		<Compile Remove="Internals\Input\Hooks\Windows\**\*.cs" />
+		<Compile Remove="Internals\Window\Windows\**\*.cs" />
+		<Compile Remove="Internals\Window\Windows\AboutBox.Designer.cs" />
+		<Compile Remove="Internals\Window\Windows\AboutBox.cs" />
+		<Compile Remove="Internals\Window\Windows\KeysharpActiveX.cs" />
+		<Compile Remove="Internals\UI\Windows\MainWindow.cs" />
+		<Compile Remove="Internals\UI\Windows\MainWindow.Designer.cs" />
+		<EmbeddedResource Remove="Builtins\Gui\Windows\Dialogs\InputDialog.resx" />
+		<EmbeddedResource Remove="Internals\Window\Windows\AboutBox.resx" />
+		<EmbeddedResource Remove="Internals\Window\Windows\KeysharpActiveX.resx" />
+		<EmbeddedResource Remove="Internals\UI\Windows\MainWindow.resx" />
 	</ItemGroup>
-	
+
 	<ItemGroup>
 		<PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
 		<PackageReference Include="BitFaster.Caching" Version="2.5.4" />
@@ -92,9 +102,9 @@
 		<PackageReference Include="Semver" Version="3.0.0" />
 		<PackageReference Include="System.Management" Version="10.0.3" />
 	</ItemGroup>
-	
+
 	<ItemGroup>
-		<Compile Update="Properties\Resources.Designer.cs">
+		<Compile Update="Internals\Properties\Resources.Designer.cs">
 			<DesignTime>True</DesignTime>
 			<AutoGen>True</AutoGen>
 			<DependentUpon>Resources.resx</DependentUpon>
@@ -102,13 +112,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<EmbeddedResource Update="Properties\Resources.resx">
+		<EmbeddedResource Update="Internals\Properties\Resources.resx">
 			<Generator>PublicResXFileCodeGenerator</Generator>
 			<LastGenOutput>Resources.Designer.cs</LastGenOutput>
+			<CustomToolNamespace>Keysharp.Internals.Properties</CustomToolNamespace>
 		</EmbeddedResource>
 	</ItemGroup>
 
 	<ItemGroup>
-		<Folder Include="Unix\Linux\Devices\" />
+		<Folder Include="Internals\Input\Linux\Devices\" />
 	</ItemGroup>
 </Project>

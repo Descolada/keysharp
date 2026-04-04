@@ -59,7 +59,8 @@ namespace Keysharp.Tests
 			internal int WorkerThreadId;
 			internal bool WorkerHasSchedulerContext;
 			internal IFuncObj TimerFunc;
-			internal TimerWithTag Timer;
+			internal ScriptEventScheduler TimerScheduler;
+			internal ScriptTimerState Timer;
 		}
 
 		private static Ks.RealThread StartWorker(Action body)
@@ -146,7 +147,6 @@ namespace Keysharp.Tests
 #else
 					Eto.Forms.Application.Instance?.RunIteration();
 #endif
-					script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
 					script.EventScheduler.PumpPendingEvents();
 				}
 				catch
@@ -206,7 +206,8 @@ namespace Keysharp.Tests
 
 						registrations.TimerFunc = new FuncObj((Func<object>)(() => probe.Record("timer")));
 						_ = Keysharp.Builtins.Flow.SetTimer(registrations.TimerFunc, 250L);
-						registrations.Timer = s.FlowData.GetTimerRegistration(registrations.TimerFunc, s.EventScheduler)?.Timer;
+						registrations.TimerScheduler = s.EventScheduler;
+						registrations.Timer = s.FlowData.timers.Find(registrations.TimerFunc, registrations.TimerScheduler);
 
 						registrations.Hotkey = new HotkeyDefinition(1, new FuncObj((Func<object, object>)(_ => probe.Record("hotkey"))), 0, "F24", 0);
 						s.HotkeyData.shk.Add(registrations.Hotkey);
@@ -253,7 +254,7 @@ namespace Keysharp.Tests
 				Assert.AreEqual(registrations.WorkerThreadId, worker.Id);
 				Assert.IsTrue(registrations.WorkerHasSchedulerContext);
 
-				registrations.Timer.PushToMessageQueue();
+				Assert.IsTrue(registrations.Timer.OwnerScheduler.EnqueueTimer(registrations.Timer));
 				Assert.IsTrue(probe.WaitFor("timer"));
 
 				registrations.Hotkey.PerformInNewThreadMadeByCallerAsync(registrations.HotkeyVariant, 0, 0);
@@ -291,7 +292,7 @@ namespace Keysharp.Tests
 			}
 
 			AssertEventually(() => !worker.IsAlive, "Worker should be fully stopped after shutdown.");
-			AssertEventually(() => s.FlowData.GetTimerRegistration(registrations.Timer) == null, "Worker-owned timer was not removed.");
+			AssertEventually(() => s.FlowData.timers.Find(registrations.TimerFunc, registrations.TimerScheduler) == null, "Worker-owned timer was not removed.");
 			AssertEventually(() => registrations.HotkeyBinding.OwnerScheduler == null, "Worker-owned hotkey scheduler affinity was not cleared.");
 			AssertEventually(() => !registrations.HotkeyBinding.IsActive, "Worker-owned hotkey binding was not disabled.");
 			AssertEventually(() => registrations.Hotstring.ownerScheduler == null, "Worker-owned hotstring scheduler affinity was not cleared.");

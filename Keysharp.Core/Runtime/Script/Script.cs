@@ -981,6 +981,7 @@ namespace Keysharp.Runtime
 
 			HookThread?.Stop();
 			stringsData?.Free();
+			flowData?.Dispose();
 
 			if (!disposing)
 				return;
@@ -1250,4 +1251,3 @@ namespace Keysharp.Runtime
 		}
 	}
 }
-

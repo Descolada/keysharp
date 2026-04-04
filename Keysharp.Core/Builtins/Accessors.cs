@@ -2081,11 +2081,11 @@ namespace Keysharp.Builtins
 			get
 			{
 				var timerData = new List<object>();
-				foreach (var registration in Script.TheScript.FlowData.timers.GetSnapshot())
+				foreach (var timer in Script.TheScript.FlowData.timers.GetSnapshot())
 				{
-					if (registration.Callback is FuncObj func)
+					if (timer.Callback is FuncObj func)
 					{
-						timerData.AddRange(func, registration.Timer.Enabled);
+						timerData.AddRange(func, timer.Enabled);
 					}
 				}
 

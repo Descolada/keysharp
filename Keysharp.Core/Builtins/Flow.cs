@@ -268,103 +268,54 @@ namespace Keysharp.Builtins
 			var func = default(IFuncObj);
 			var script = Script.TheScript;
 			var ownerScheduler = script.EventScheduler;
-			FlowData.TimerRegistration timerRegistration = null;
-			TimerWithTag timer = null;
+			ScriptTimerState timer = null;
 
 			if (once)
 				p = -p;
 
-			func = Functions.GetFuncObj(f, null);
-
-			if (f != null && func == null)
-				return (long)Errors.TypeErrorOccurred(f, typeof(FuncObj));
-
 			if (f == null)
 				timer = script.Threads.CurrentThread.currentTimer;//This means: use the timer which has already been created for this thread/timer event which we are currently inside of.
 			else
-				timerRegistration = script.FlowData.GetTimerRegistration(func, ownerScheduler);
-
-			timer ??= timerRegistration?.Timer;
-
-			Script.InvokeOnUIThread(() =>
 			{
-				var createdTimer = false;
+				func = Functions.GetFuncObj(f, null);
 
-				if (timer == null && func != null)
-				{
-					timerRegistration = script.FlowData.GetTimerRegistration(func, ownerScheduler);
-					timer = timerRegistration?.Timer;
-				}
+				if (func == null)
+					return (long)Errors.TypeErrorOccurred(f, typeof(FuncObj));
 
-				if (timer == null)
-				{
-					if (p == 0)
-						return;
+				timer = script.FlowData.timers.Find(func, ownerScheduler);
+			}
 
-						if (p == long.MaxValue)//Period omitted and timer didn't exist, so create one with a 250ms interval.
-							p = 250;
+			if (p == 0)
+			{
+				script.FlowData.timers.DisableOrDelete(timer);
+				script.ExitIfNotPersistent();
+				return DefaultObject;
+			}
 
-						timerRegistration = new FlowData.TimerRegistration(func, ownerScheduler);
-						script.FlowData.AddTimerRegistration(timerRegistration);
-						timer = timerRegistration.Timer;
-						timer.Tag = (int)pri;
-						timer.Interval = (int)p;
-						createdTimer = true;
-					}
+			if (timer == null)
+			{
+				if (func == null)
+					return DefaultObject;
 
-				if (p == 0)
-				{
-					_ = script.FlowData.RemoveTimerRegistration(timer, out _);
-					timer.Stop();
-					timer.Dispose();
-					script.ExitIfNotPersistent();
-					return;
-				}
+				if (p == long.MaxValue)//Period omitted and timer didn't exist, so create one with a 250ms interval.
+					p = 250;
 
-				if (!createdTimer && p == long.MaxValue)
-				{
-					if (pri != timer.Tag.Al())//Period omitted and timer existed, but priority was specified, so just update the priority.
-						timer.Tag = pri;
-					else//Period omitted, timer did exist, and priority was omitted so reset it at its current interval.
-					{
-						timer.Stop();
-						timer.Start();
-					}
+				_ = script.FlowData.timers.Upsert(func, ownerScheduler, p, once, pri);
+				return DefaultObject;
+			}
 
-					return;
-				}
+			if (p == long.MaxValue)
+			{
+				if (priority != null)//Period omitted and timer existed, but priority was specified, so just update the priority.
+					script.FlowData.timers.UpdatePriority(timer, pri);
+				else//Period omitted, timer did exist, and priority was omitted so reset it at its current interval.
+					script.FlowData.timers.ResetTimer(timer);
 
-				if (!createdTimer)
-				{
-					if (timer.Interval == p)
-						timer.Interval = int.MaxValue;
+				return DefaultObject;
+			}
 
-					timer.Interval = (int)p;
-					timer.ResetFallbackSchedule();
-					return;
-				}
+			_ = script.FlowData.timers.Upsert(timer.Callback, timer.OwnerScheduler, p, once, priority != null ? pri : timer.Priority);
 
-				timer.ScriptFunc = func;
-				timer.RunsOnce = once;
-				timer.OwnerScheduler = func != null ? ownerScheduler : timer.OwnerScheduler;
-				timer.Tick += (ss, ee) =>
-				{
-					if (Ks.A_HasExited || ss is not TimerWithTag t)
-						return;
-
-					t.PushToMessageQueue();
-				};
-				timer.Start();
-
-				if (timer.Interval == 1)
-				{
-					timer.PushToMessageQueue(allowEarly: true);
-					if (once)
-						timer.Stop();
-				}
-			});
-
-			//script.mainWindow.CheckedBeginInvoke(timer.Start, true, true);
 			return DefaultObject;
 		}
 
@@ -503,12 +454,11 @@ namespace Keysharp.Builtins
 		}
 	}
 
-	internal class FlowData
+	internal class FlowData : IDisposable
 	{
-		internal sealed class TimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler)
-			: CallbackRegistration(callback, ownerScheduler, true)
+		internal FlowData()
 		{
-			internal TimerWithTag Timer { get; } = new();
+			timers = new(timer => timer?.OwnerScheduler?.EnqueueTimer(timer) == true);
 		}
 
 		/// <summary>
@@ -526,94 +476,18 @@ namespace Keysharp.Builtins
 		/// </summary>
 		internal bool suspended;
 
-		internal CallbackRegistry<TimerRegistration> timers = new();
-		internal readonly ConcurrentDictionary<TimerWithTag, TimerRegistration> timersByInstance = new();
-		internal long nextTimerFallbackDueTick = long.MaxValue;
-		internal bool timerFallbackDueTickDirty = true;
+		internal ScriptTimerManager timers;
 
-		internal TimerRegistration GetTimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler)
-			=> timers.Find(callback, ownerScheduler);
-
-		internal TimerRegistration GetTimerRegistration(TimerWithTag timer)
-			=> timer != null && timersByInstance.TryGetValue(timer, out var registration) ? registration : null;
-
-		internal void AddTimerRegistration(TimerRegistration registration)
+		public void Dispose()
 		{
-			if (registration == null)
-				return;
-
-			timers.Add(registration);
-			timersByInstance[registration.Timer] = registration;
-		}
-
-		internal bool RemoveTimerRegistration(IFuncObj callback, ScriptEventScheduler ownerScheduler, out TimerRegistration registration)
-		{
-			registration = timers.Find(callback, ownerScheduler);
-
-			if (registration == null)
-				return false;
-
-			_ = timersByInstance.TryRemove(registration.Timer, out _);
-			return timers.Remove(callback, ownerScheduler);
-		}
-
-		internal bool RemoveTimerRegistration(TimerWithTag timer, out TimerRegistration registration)
-		{
-			registration = GetTimerRegistration(timer);
-
-			if (registration == null)
-				return false;
-
-			var match = registration;
-			_ = timersByInstance.TryRemove(timer, out _);
-			return timers.Remove(existing => ReferenceEquals(existing, match));
-		}
-
-		internal void MarkTimerFallbackDueTickDirty() => timerFallbackDueTickDirty = true;
-
-		internal void NoteTimerFallbackDueTick(long dueTick)
-		{
-			if (dueTick < nextTimerFallbackDueTick)
-				nextTimerFallbackDueTick = dueTick;
-		}
-
-		internal void QueueOverdueTimersIfNeeded(long nowTick)
-		{
-			if (timerFallbackDueTickDirty)
-				RefreshTimerFallbackDueTick();
-
-			if (nowTick < nextTimerFallbackDueTick)
-				return;
-
-			var nextDueTick = long.MaxValue;
-
-			foreach (var registration in timers.GetSnapshot())
+			if (mainTimer != null)
 			{
-				var timer = registration.Timer;
-				timer.QueueIfOverdue(nowTick);
-
-				if (timer.FallbackDueTick < nextDueTick)
-					nextDueTick = timer.FallbackDueTick;
+				mainTimer.Stop();
+				mainTimer.Dispose();
+				mainTimer = null;
 			}
 
-			nextTimerFallbackDueTick = nextDueTick;
-			timerFallbackDueTickDirty = false;
-		}
-
-		private void RefreshTimerFallbackDueTick()
-		{
-			var nextDueTick = long.MaxValue;
-
-			foreach (var registration in timers.GetSnapshot())
-			{
-				var timer = registration.Timer;
-
-				if (timer.FallbackDueTick < nextDueTick)
-					nextDueTick = timer.FallbackDueTick;
-			}
-
-			nextTimerFallbackDueTick = nextDueTick;
-			timerFallbackDueTickDirty = false;
+			timers?.Dispose();
 		}
 	}
 }

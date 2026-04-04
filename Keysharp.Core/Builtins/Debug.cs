@@ -155,12 +155,12 @@ namespace Keysharp.Builtins
 			var enabledTimers = 0;
 			var ht = script.HookThread;
 
-			foreach (var registration in script.FlowData.timers.GetSnapshot())
+			foreach (var timer in script.FlowData.timers.GetSnapshot())
 			{
-				if (registration.Timer.Enabled)
+				if (timer.Enabled)
 				{
 					enabledTimers++;
-					_ = sb.Append($"{registration.Callback?.Name} ");
+					_ = sb.Append($"{timer.Callback?.Name} ");
 				}
 			}
 

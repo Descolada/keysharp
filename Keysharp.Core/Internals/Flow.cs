@@ -138,8 +138,7 @@ namespace Keysharp.Internals
 			else if (script.KeyboardData.blockMouseMove)
 				_ = Keysharp.Builtins.Keyboard.ScriptBlockInput(ToggleValueType.MouseMoveOff);
 
-			foreach (var registration in script.FlowData.timers.GetSnapshot())
-				registration.Timer.Stop();
+			script.FlowData.timers.Clear();
 
 			Gui.DestroyAll();
 			Environment.ExitCode = ec;
@@ -342,7 +341,6 @@ namespace Keysharp.Internals
 #else
 				Application.Instance?.RunIteration();
 #endif
-				script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
 			}
 
 			scheduler.PumpPendingEvents();

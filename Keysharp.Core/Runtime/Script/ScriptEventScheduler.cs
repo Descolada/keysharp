@@ -178,11 +178,11 @@ namespace Keysharp.Runtime
 			return true;
 		}
 
-		internal bool EnqueueTimer(TimerWithTag timer, IFuncObj func, bool once)
+		internal bool EnqueueTimer(ScriptTimerState timer)
 		{
 			return timer != null
-					&& func != null
-					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteTimerEvent(timer, func, once));
+					&& timer.Callback != null
+					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteTimerEvent(timer));
 		}
 
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
@@ -365,7 +365,12 @@ namespace Keysharp.Runtime
 			}
 
 			if (isUiScheduler)
-				Script.PostToUIThread(PumpPendingEvents);
+			{
+				if (OwnsCurrentThread)
+					Script.PostToUIThread(PumpPendingEvents);
+				else
+					_ = ThreadPool.UnsafeQueueUserWorkItem(static state => Script.InvokeOnUIThread(((ScriptEventScheduler)state).PumpPendingEvents), this, false);
+			}
 			else
 				SignalWorkerPump();
 		}
@@ -549,19 +554,21 @@ namespace Keysharp.Runtime
 			return true;
 		}
 
-		private ScriptEventExecutionResult TryExecuteTimerEvent(TimerWithTag timer, IFuncObj func, bool once)
+		private ScriptEventExecutionResult TryExecuteTimerEvent(ScriptTimerState timer)
 		{
+			var timers = script.FlowData.timers;
+
 			if (script.hasExited)
 			{
-				timer.ClearSchedulerQueueState();
+				timers.ReleaseQueuedTimer(timer);
 				return ScriptEventExecutionResult.Dropped;
 			}
 
-			var timerRegistration = script.FlowData.GetTimerRegistration(timer);
+			var timerRegistration = timers.Find(timer.Callback, timer.OwnerScheduler);
 
-			if (timerRegistration == null || !ReferenceEquals(timerRegistration.Callback, func))
+			if (!ReferenceEquals(timerRegistration, timer) || timer.Callback == null || !timer.Enabled)
 			{
-				timer.ClearSchedulerQueueState();
+				timers.ReleaseQueuedTimer(timer);
 				return ScriptEventExecutionResult.Dropped;
 			}
 
@@ -570,32 +577,32 @@ namespace Keysharp.Runtime
 			if ((!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
 					|| !threads.AnyThreadsAvailable()
 					|| !threads.IsInterruptible())
-				return ScriptEventExecutionResult.GlobalBlocked;
+			{
+				timers.ReleaseQueuedTimer(timer);
+				return ScriptEventExecutionResult.Dropped;
+			}
 
-			var startResult = TryExecuteThreadLaunch(timer.Tag.Ai(), true, false, btv =>
+			timers.MarkCallbackStarted(timer);
+
+			var startResult = TryExecuteThreadLaunch(timer.Priority, true, false, btv =>
 			{
 				btv.currentTimer = timer;
-				btv.eventInfo = func;
-				_ = Keysharp.Internals.Flow.TryCatch(() => _ = func.Call());
+				btv.eventInfo = timer.Callback;
+				_ = Keysharp.Internals.Flow.TryCatch(() => _ = timer.Callback.Call());
 			});
 
+			timers.MarkCallbackFinished(timer);
+
 			if (startResult != ScriptEventExecutionResult.Executed)
-				return startResult;
-
-			if (once)
 			{
-				_ = script.FlowData.RemoveTimerRegistration(timer, out _);
-				timer.Stop();
-				timer.Dispose();
-				script.ExitIfNotPersistent();
-			}
-			else
-			{
-				timer.ClearSchedulerQueueState();
-
-				if (script.FlowData.GetTimerRegistration(timer) == null)
+				if (timer.Callback == null)
 					script.ExitIfNotPersistent();
+
+				return ScriptEventExecutionResult.Dropped;
 			}
+
+			if (timer.Callback == null)
+				script.ExitIfNotPersistent();
 
 			return ScriptEventExecutionResult.Executed;
 		}
@@ -710,7 +717,6 @@ namespace Keysharp.Runtime
 #else
 				Application.Instance?.RunIteration();
 #endif
-				script.FlowData.QueueOverdueTimersIfNeeded(Environment.TickCount64);
 			}
 
 			waitingScheduler?.PumpPendingEvents();
@@ -752,19 +758,8 @@ namespace Keysharp.Runtime
 
 		private void DisposeOwnedTimers()
 		{
-			foreach (var registration in script.FlowData.timers.GetSnapshot())
-			{
-				var timer = registration.Timer;
-
-				if (!ReferenceEquals(timer?.OwnerScheduler, this))
-					continue;
-
-				if (script.FlowData.RemoveTimerRegistration(timer, out _))
-				{
-					timer.Stop();
-					timer.Dispose();
-				}
-			}
+			if (script.FlowData.timers.RemoveOwned(this))
+				script.ExitIfNotPersistent();
 		}
 
 		private void DisposeOwnedClipboardHandlers()

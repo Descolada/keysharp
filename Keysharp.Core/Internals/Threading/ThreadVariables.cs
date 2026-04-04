@@ -1,6 +1,4 @@
 using Keysharp.Builtins;
-using Timer = Keysharp.Internals.Threading.TimerWithTag;
-
 namespace Keysharp.Internals.Threading
 {
 	public class ThreadConfigData
@@ -84,7 +82,7 @@ namespace Keysharp.Internals.Threading
 		internal bool allowThreadToBeInterrupted = true;
 		internal int UninterruptibleDuration = 17;
 		internal long threadStartTick;
-		internal Timer currentTimer;
+		internal ScriptTimerState currentTimer;
 		internal string defaultGui;
 		internal Form dialogOwner;
 		internal object eventInfo;

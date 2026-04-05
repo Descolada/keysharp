@@ -15,6 +15,7 @@ namespace Keysharp.Internals.Window.Windows
 		{
 			if (script.GuiData.onMessageHandlers.TryGetValue(m.Msg, out var monitor))
 			{
+				buffered = buffered && m.Msg > 0x0311;
 				object eventInfo = 0L;
 				long hwnd = m.HWnd;
 				hwnd = WindowsAPI.GetNonChildParent((nint)hwnd);

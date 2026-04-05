@@ -103,7 +103,10 @@ namespace Keysharp.Builtins
 											   (colorValue & 0xFF),
 											   (colorValue >> 8) & 0xFF,
 											   (colorValue >> 16) & 0xFF);
-					control.BackColor = requestedColor;
+
+					if (control.BackColor.ToArgb() != requestedColor.ToArgb())
+						control.BackColor = requestedColor;
+
 					m.Result = new nint(colorValue);
 					return true;
 

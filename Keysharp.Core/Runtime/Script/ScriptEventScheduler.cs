@@ -419,15 +419,15 @@ namespace Keysharp.Runtime
 			var result = next();
 
 			if (result == ScriptEventExecutionResult.GlobalBlocked)
+			{
+				RestoreBlockedWork(queueType, next);
 				return result;
+			}
 
 			if (result == ScriptEventExecutionResult.LocalBlocked)
 				return HandleLocalBlock(queueType, next, ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce)
 					? ScriptEventExecutionResult.LocalBlocked
 					: ScriptEventExecutionResult.Executed;
-
-			if (result == ScriptEventExecutionResult.GlobalBlocked)
-				RestoreBlockedWork(queueType, next);
 
 			consecutiveInteractiveLocalBlocks = 0;
 			consecutiveNormalLocalBlocks = 0;

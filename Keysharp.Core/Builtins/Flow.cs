@@ -29,8 +29,8 @@ namespace Keysharp.Builtins
 			var script = Script.TheScript;
 			script.FlowData.callingCritical = true;
 			var tv = script.Threads.CurrentThread;
-			var on = onOffNumeric == null;
-			long freq = !on ? onOffNumeric.Al() : 0L;
+			var on = onOffNumeric.IsNullOrEmpty();
+			var freq = on ? ThreadVariables.DefaultUninterruptiblePeekFrequency : onOffNumeric.Al();
 
 			if (!on)
 			{
@@ -61,8 +61,7 @@ namespace Keysharp.Builtins
 			//     - Integer other than 0.
 			// Everything else is considered to be "Off", including "Off", any non-blank string that
 			// doesn't start with a non-zero number, and zero itself.
-			tv.isCritical = onOffNumeric == null // i.e. omitted or blank is the same as "ON". See comments above.
-							|| on
+			tv.isCritical = on // i.e. omitted or blank is the same as "On". See comments above.
 							|| freq != 0L; // Non-zero integer also turns it on. Relies on short-circuit boolean order.
 
 			if (tv.isCritical) // Critical has been turned on. (For simplicity even if it was already on, the following is done.)

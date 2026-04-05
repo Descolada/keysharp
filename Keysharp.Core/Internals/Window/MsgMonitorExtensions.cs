@@ -5,7 +5,7 @@ namespace Keysharp.Internals.Window
 {
 	internal static class MsgMonitorExtensions
 	{
-		private static ScriptEventExecutionResult ExecuteRegistration(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, bool allowEmergencyOverflow, out long result)
+		private static ScriptEventExecutionResult ExecuteRegistration(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, bool skipUninterruptible, bool allowEmergencyOverflow, out long result)
 		{
 			result = 0L;
 			var targetScheduler = registration.OwnerScheduler ?? script.EventScheduler;
@@ -15,7 +15,7 @@ namespace Keysharp.Internals.Window
 			{
 				return targetScheduler.TryInvokePseudoThread(
 					0,
-					false,
+					skipUninterruptible,
 					false,
 					tv =>
 					{
@@ -42,7 +42,7 @@ namespace Keysharp.Internals.Window
 			if (registration.InstanceCount >= registration.MaxInstances)
 				return ScriptEventExecutionResult.LocalBlocked;
 
-			var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, false, out result);
+			var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, false, false, out result);
 
 			if (executionResult == ScriptEventExecutionResult.Executed)
 				script.ExitIfNotPersistent();
@@ -64,7 +64,7 @@ namespace Keysharp.Internals.Window
 				if (!registration.IsActive || registration.InstanceCount >= registration.MaxInstances)
 					continue;
 
-				var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, true, out result);
+				var executionResult = registration.ExecuteRegistration(script, args, eventInfo, hwnd, true, true, out result);
 
 				if (executionResult != ScriptEventExecutionResult.Executed)
 					continue;

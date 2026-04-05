@@ -828,65 +828,64 @@ namespace Keysharp.Builtins
 			{
 				const int inset = 1;
 
-				using (var offscreenImage = new Bitmap(Width, Height))
+				var rect = new Rectangle(0, 0, Width, Height);
+				var scaleFactor = ((double)Value - Minimum) / ((double)Maximum - Minimum);
+#if WINDOWS
+				var vert = (AddStyle & 0x04) == 0x04;
+#endif
+
+				if (ProgressBarRenderer.IsSupported)
 				{
-					using (var offscreen = Graphics.FromImage(offscreenImage))
-					{
-						var rect = new Rectangle(0, 0, Width, Height);
-						var scaleFactor = ((double)Value - Minimum) / ((double)Maximum - Minimum);
-#if WINDOWS
-						var vert = (AddStyle & 0x04) == 0x04;
-#endif
-
-						if (ProgressBarRenderer.IsSupported)
-						{
 #if WINDOWS
 
-							if ((AddStyle & 0x04) == 0x04)
-								ProgressBarRenderer.DrawVerticalBar(offscreen, rect);
-							else
+					if (vert)
+						ProgressBarRenderer.DrawVerticalBar(e.Graphics, rect);
+					else
 #endif
-								ProgressBarRenderer.DrawHorizontalBar(offscreen, rect);
-						}
+						ProgressBarRenderer.DrawHorizontalBar(e.Graphics, rect);
+				}
 
-						var bx = 0;
-						var by = 0;
-						var bw = 0;
-						var bh = 0;
-						var fy = inset;
+				var bx = 0;
+				var by = 0;
+				var bw = 0;
+				var bh = 0;
+				var fy = inset;
 #if WINDOWS
 
-						if (vert)
-						{
-							rect.Width -= inset * 2;
-							rect.Height = (int)((rect.Height - inset) * scaleFactor);
-							fy = Height - rect.Height - inset;
-							bx = inset;
-							by = inset;
-							bw = rect.Width;
-							bh = fy;
-						}
-						else
+				if (vert)
+				{
+					rect.Width -= inset * 2;
+					rect.Height = (int)((rect.Height - inset) * scaleFactor);
+					fy = Height - rect.Height - inset;
+					bx = inset;
+					by = inset;
+					bw = rect.Width;
+					bh = fy;
+				}
+				else
 #endif
-						{
-							rect.Width = (int)((rect.Width - inset) * scaleFactor);
-							rect.Height -= inset * 2;
-							bx = rect.Width + inset;
-							by = inset;
-							bw = Width - rect.Width - inset * 2;
-							bh = rect.Height;
-						}
+				{
+					rect.Width = (int)((rect.Width - inset) * scaleFactor);
+					rect.Height -= inset * 2;
+					bx = rect.Width + inset;
+					by = inset;
+					bw = Width - rect.Width - inset * 2;
+					bh = rect.Height;
+				}
 
-						if (rect.Width < 0) rect.Width = 0;
+				if (rect.Width < 0)
+					rect.Width = 0;
 
-						if (rect.Height < 0) rect.Height = 0;
+				if (rect.Height < 0)
+					rect.Height = 0;
 
-						var brush = new SolidBrush(ForeColor);
-						offscreen.FillRectangle(brush, inset, fy, rect.Width, rect.Height);
-						var bkgBrush = new SolidBrush(BackColor);
-						offscreen.FillRectangle(bkgBrush, bx, by, bw, bh);
-						e.Graphics.DrawImage(offscreenImage, 0, 0);
-					}
+				using var brush = new SolidBrush(ForeColor);
+				e.Graphics.FillRectangle(brush, inset, fy, rect.Width, rect.Height);
+
+				if (bw > 0 && bh > 0)
+				{
+					using var bkgBrush = new SolidBrush(BackColor);
+					e.Graphics.FillRectangle(bkgBrush, bx, by, bw, bh);
 				}
 			}
 			else

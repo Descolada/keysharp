@@ -76,27 +76,22 @@ namespace Keysharp.Internals.Threading
 
 					if (script.uninterruptibleTime != 0 || tv.isCritical) // v1.0.38.04.
 					{
-						//tv.allowThreadToBeInterrupted = false;//This is really only for the line count feature, which is not supported.//TODO
-						tv.allowThreadToBeInterrupted = !tv.isCritical;
+						tv.allowThreadToBeInterrupted = false;
 
-						if (!tv.isCritical)
+						if (tv.isCritical || script.uninterruptibleTime < 0)
 						{
-							if (script.uninterruptibleTime < 0) // A setting of -1 (or any negative) means the thread's uninterruptibility never times out.
-							{
-								tv.UninterruptibleDuration = -1; // "Lock in" the above because for backward compatibility, above is not supposed to affect threads after they're created. Override the default value contained in g_default.
-								//g.ThreadStartTime doesn't need to be set when g.UninterruptibleDuration < 0.
-							}
-							else // It's now known to be >0 (due to various checks above).
-							{
-								// For backward compatibility, "lock in" the time this thread will become interruptible
-								// because that's how previous versions behaved (i.e. 'Thread "Interrupt", NewTimeout'
-								// doesn't affect the current thread, only the thread creation behavior in the future).
-								// This also makes it more predictable, since AllowThreadToBeInterrupted is only changed
-								// when IsInterruptible() is called, which might not happen in between changes to the setting.
-								// For explanation of why two fields instead of one are used, see comments in IsInterruptible().
-								tv.threadStartTick = Environment.TickCount64;
-								tv.UninterruptibleDuration = script.uninterruptibleTime;
-							}
+							tv.UninterruptibleDuration = -1;
+						}
+						else
+						{
+							// For backward compatibility, "lock in" the time this thread will become interruptible
+							// because that's how previous versions behaved (i.e. 'Thread "Interrupt", NewTimeout'
+							// doesn't affect the current thread, only the thread creation behavior in the future).
+							// This also makes it more predictable, since AllowThreadToBeInterrupted is only changed
+							// when IsInterruptible() is called, which might not happen in between changes to the setting.
+							// For explanation of why two fields instead of one are used, see comments in IsInterruptible().
+							tv.threadStartTick = Environment.TickCount64;
+							tv.UninterruptibleDuration = script.uninterruptibleTime;
 						}
 					}
 				}

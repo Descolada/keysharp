@@ -572,6 +572,11 @@ namespace Keysharp.Runtime
 				return ScriptEventExecutionResult.Dropped;
 			}
 
+#if WINDOWS
+			if (Dialogs.HasPendingWindowsMsgBoxShow())
+				return ScriptEventExecutionResult.LocalBlocked;
+#endif
+
 			var threads = script.Threads;
 
 			if ((!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)

@@ -34,45 +34,20 @@ namespace Keysharp.Builtins
 			internal string Caption;
 			internal nint DialogHwnd;
 			internal int DialogDepth;
-			internal ManualResetEventSlim DialogClosed;
-			internal System.Runtime.ExceptionServices.ExceptionDispatchInfo Error;
-			internal ManualResetEventSlim NotificationHandled;
+			internal int PendingShowState;
 			internal nuint RequestId;
-			internal string Result = "";
 			internal bool TimedOut;
 			internal uint TimeoutMs;
-		}
-
-		private sealed class StaticWin32Window(nint handle) : IWin32Window
-		{
-			public nint Handle { get; } = handle;
 		}
 
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nuint, WindowsMsgBoxRequest> pendingWindowsMsgBoxes = new();
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, WindowsMsgBoxRequest> activeWindowsMsgBoxes = new();
 		private static readonly WindowsAPI.TimerProc msgBoxTimeoutProc = MsgBoxTimeout;
-		private static readonly object windowsMsgBoxStaGate = new();
-		private static StaThreadWithMessageQueue windowsMsgBoxSta;
+		private static int pendingWindowsMsgBoxShows;
 		private static int nextMsgBoxRequestId;
 		private static int nextMsgBoxTimerId;
 
-		static Dialogs()
-		{
-			AppDomain.CurrentDomain.ProcessExit += (_, _) => DisposeWindowsMsgBoxThread();
-		}
-
-		internal static void DisposeWindowsMsgBoxThread()
-		{
-			StaThreadWithMessageQueue sta;
-
-			lock (windowsMsgBoxStaGate)
-			{
-				sta = windowsMsgBoxSta;
-				windowsMsgBoxSta = null;
-			}
-
-			sta?.Dispose();
-		}
+		internal static bool HasPendingWindowsMsgBoxShow() => Volatile.Read(ref pendingWindowsMsgBoxShows) > 0;
 
 		internal static nint HandleDialogNotification(uint dialogMessage, nint requestToken)
 		{
@@ -85,7 +60,10 @@ namespace Keysharp.Builtins
 			var dialogHwnd = FindOurDialog(request);
 
 			if (dialogHwnd == 0)
+			{
+				CompletePendingWindowsMsgBoxShow(request);
 				return 0;
+			}
 
 			if (request != null)
 			{
@@ -99,6 +77,7 @@ namespace Keysharp.Builtins
 			}
 
 			_ = WindowItem.SetForegroundWindowEx(WindowManager.CreateWindow(dialogHwnd));
+			CompletePendingWindowsMsgBoxShow(request);
 
 			return dialogHwnd;
 		}
@@ -152,8 +131,10 @@ namespace Keysharp.Builtins
 
 		private static void MsgBoxTimeout(nint hWnd, uint uMsg, nuint idEvent, uint dwTime)
 		{
-			if (WindowsAPI.IsWindow(hWnd))
-				_ = WindowsAPI.EndDialog(hWnd, 0);
+			if (!WindowsAPI.IsWindow(hWnd))
+				return;
+
+			_ = WindowsAPI.EndDialog(hWnd, 0);
 
 			_ = WindowsAPI.KillTimer(hWnd, idEvent);
 
@@ -161,85 +142,41 @@ namespace Keysharp.Builtins
 				request.TimedOut = true;
 		}
 
-		private static StaThreadWithMessageQueue GetWindowsMsgBoxThread()
+		private static void CompletePendingWindowsMsgBoxShow(WindowsMsgBoxRequest request)
 		{
-			lock (windowsMsgBoxStaGate)
-			{
-				if (windowsMsgBoxSta == null || windowsMsgBoxSta.IsDisposed())
-					windowsMsgBoxSta = new StaThreadWithMessageQueue();
+			if (request == null || Interlocked.Exchange(ref request.PendingShowState, 0) == 0)
+				return;
 
-				return windowsMsgBoxSta;
-			}
+			if (Interlocked.Decrement(ref pendingWindowsMsgBoxShows) < 0)
+				_ = Interlocked.Exchange(ref pendingWindowsMsgBoxShows, 0);
+
+			Script.TheScript?.ScheduleBlockedEventSchedulers();
 		}
 
 		private static string ShowWindowsMsgBox(IWin32Window ownerWindow, string txt, string caption, MessageBoxButtons buttons, MessageBoxIcon icon, MessageBoxDefaultButton defaultbutton, MessageBoxOptions mbopts, uint timeoutMs)
 		{
-			using var notificationHandled = new ManualResetEventSlim(false);
-			using var dialogClosed = new ManualResetEventSlim(false);
-			var sta = GetWindowsMsgBoxThread();
-
 			var request = new WindowsMsgBoxRequest()
 			{
 				Caption = caption,
-				DialogClosed = dialogClosed,
 				DialogDepth = Script.TheScript.nMessageBoxes,
-				NotificationHandled = notificationHandled,
+				PendingShowState = 1,
 				RequestId = unchecked((nuint)System.Threading.Interlocked.Increment(ref nextMsgBoxRequestId)),
 				TimeoutMs = timeoutMs
 			};
 
-			var staOwnerWindow = ownerWindow?.Handle is nint ownerHandle && ownerHandle != 0
-				? new StaticWin32Window(ownerHandle)
-				: null;
-			pendingWindowsMsgBoxes[request.RequestId] = request;
-
 			try
 			{
-				sta.Post(_ =>
-				{
-					try
-					{
-						sta.Post(_ =>
-						{
-							try
-							{
-								_ = HandleDialogNotification((uint)UserMessages.AHK_DIALOG, (nint)request.RequestId);
-							}
-							catch (Exception ex)
-							{
-								_ = Interlocked.CompareExchange(ref request.Error, System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex), null);
-							}
-							finally
-							{
-								request.NotificationHandled.Set();
-							}
-						}, null);
+				pendingWindowsMsgBoxes[request.RequestId] = request;
+				_ = Interlocked.Increment(ref pendingWindowsMsgBoxShows);
 
-						var ret = MessageBox.Show(staOwnerWindow, txt, caption, buttons, icon, defaultbutton, mbopts);
-						request.Result = request.TimedOut ? "Timeout" : ret.ToString();
-					}
-					catch (Exception ex)
-					{
-						_ = Interlocked.CompareExchange(ref request.Error, System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex), null);
-					}
-					finally
-					{
-						request.NotificationHandled.Set();
-						request.DialogClosed.Set();
-					}
-				}, null);
+				_ = WindowsAPI.PostMessage(Script.TheScript.MainWindowHandle, (uint)WindowsAPI.WM_COMMNOTIFY, (nint)(uint)UserMessages.AHK_DIALOG, (nint)request.RequestId);
 
-				while (!request.NotificationHandled.IsSet && !request.DialogClosed.IsSet)
-					Keysharp.Internals.Flow.SleepWithoutInterruption();
-
-				while (!request.DialogClosed.IsSet)
-					Keysharp.Internals.Flow.Sleep(10);
-
-				request.Error?.Throw();
-				return request.Result;
+				var ret = MessageBox.Show(ownerWindow, txt, caption, buttons, icon, defaultbutton, mbopts);
+				return request.TimedOut || (timeoutMs != 0 && ret == DialogResult.None) ? "Timeout" : ret.ToString();
 			}
 			finally
 			{
+				CompletePendingWindowsMsgBoxShow(request);
 				_ = pendingWindowsMsgBoxes.TryRemove(request.RequestId, out _);
 
 				if (request.DialogHwnd != 0)

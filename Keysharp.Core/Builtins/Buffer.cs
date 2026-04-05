@@ -47,7 +47,7 @@ namespace Keysharp.Builtins
 
 				if (val > size)
 				{
-					var newptr = Marshal.AllocHGlobal((int)val);
+					var newptr = Marshal.AllocHGlobal((nint)val);
 
 					if (_ptr != null)
 					{

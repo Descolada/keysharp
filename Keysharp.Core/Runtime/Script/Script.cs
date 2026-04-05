@@ -1039,9 +1039,6 @@ namespace Keysharp.Runtime
 				}, false);
 			}
 
-#if WINDOWS
-			Dialogs.DisposeWindowsMsgBoxThread();
-#endif
 		}
 
 		private void DisposeTrayIcon()

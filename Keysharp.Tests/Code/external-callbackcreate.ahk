@@ -46,6 +46,24 @@ else
 
 CallbackFree(callback)
 
+criticalCallbackRan := 0
+Critical
+callback := CallbackCreate(CriticalCallback)
+DllCall(callback)
+CallbackFree(callback)
+Critical false
+
+if (criticalCallbackRan == 1)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+CriticalCallback()
+{
+	global criticalCallbackRan
+	criticalCallbackRan := 1
+}
+
 #if WINDOWS
 EnumAddress := CallbackCreate("EnumWindowsProc")
 DetectHiddenWindows(True)

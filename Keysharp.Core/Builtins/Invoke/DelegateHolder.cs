@@ -223,8 +223,16 @@ namespace Keysharp.Builtins
 
 			if (dh._fast)
 				result = targetScheduler.InvokeSynchronous(ExecuteCallback);
-			else if (targetScheduler.TryInvokePseudoThread(0, false, false, _tv => ExecuteCallback(), out result) != ScriptEventExecutionResult.Executed)
+			else
+			{
+				// Match AutoHotkey's callback behavior: incoming native callbacks are treated like
+				// emergency interruptions, so they must not be blocked by the current thread's
+				// critical/uninterruptible state or a higher current priority.
+				var launchPriority = script.Threads.CurrentThread.priority;
+
+				if (targetScheduler.TryInvokePseudoThread(launchPriority, true, false, _tv => ExecuteCallback(), out result) != ScriptEventExecutionResult.Executed)
 				return 0L;
+			}
 
 			if (completedNormally)
 				script.ExitIfNotPersistent();

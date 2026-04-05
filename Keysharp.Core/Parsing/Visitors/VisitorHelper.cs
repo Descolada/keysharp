@@ -342,9 +342,24 @@ namespace Keysharp.Parsing
 				return null;
 			}
 
-			public override object VisitHotkey([NotNull] HotkeyContext context) => null;
+			public override object VisitHotkey([NotNull] HotkeyContext context)
+			{
+				// Named hotkey functions (e.g. `^+o:: NamedFunc(hk) { ... }`) have a
+				// functionDeclaration child. We must visit it so the function is registered
+				// in functionInfos → UserFuncs → module-level static field.
+				if (context.functionDeclaration() != null)
+					VisitFunctionDeclaration(context.functionDeclaration());
 
-			public override object VisitHotstring([NotNull] HotstringContext context) => null;
+				return null;
+			}
+
+			public override object VisitHotstring([NotNull] HotstringContext context)
+			{
+				if (context.functionDeclaration() != null)
+					VisitFunctionDeclaration(context.functionDeclaration());
+
+				return null;
+			}
 
 			public override object VisitFatArrowExpression([NotNull] FatArrowExpressionContext context)
 			{

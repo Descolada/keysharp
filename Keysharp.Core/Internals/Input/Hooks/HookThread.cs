@@ -542,7 +542,7 @@ namespace Keysharp.Internals.Input.Hooks
 							// The hotkey's ModifierVK is itself a modifier.
 							SetModifierAsPrefix(hk.modifierVK, 0, true);
 						else
-							kvk[hk.modifierVK].usedAsPrefix = KeyType.PREFIX_ACTUAL;
+							kvk[hk.modifierVK].usedAsPrefix |= KeyType.PREFIX_ACTUAL;
 
 						// Record the use of ~ on this prefix even if it's a standard modifier which wouldn't normally be
 						// suppressed, since this also affects whether the key's own hotkeys fire on press vs. release.
@@ -556,7 +556,7 @@ namespace Keysharp.Internals.Input.Hooks
 							SetModifierAsPrefix(0, hk.modifierSC, true);
 						else
 						{
-							ksc[hk.modifierSC].usedAsPrefix = KeyType.PREFIX_ACTUAL;
+							ksc[hk.modifierSC].usedAsPrefix |= KeyType.PREFIX_ACTUAL;
 
 							// For some scan codes this was already set above.  But to support explicit scan code prefixes,
 							// such as "SC118 & SC122::MsgBox", make sure it's set for every prefix that uses an explicit
@@ -1772,19 +1772,24 @@ namespace Keysharp.Internals.Input.Hooks
 				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 			}
 
-			if (!keyUp) // Set defaults for this down event.
-			{
-				// This should be done even for key-repeat, otherwise it can cause a key to become
-				// stuck down if the repeat isn't also suppressed:
-				thisKey.hotkeyDownWasSuppressed = false;
-				// Don't do the following because key-repeat should not prevent a previously-selected
-				// key-up hotkey from executing (although it can still be overridden by selecting a
-				// different key-up hotkey below).  If this was done, a key-down hotkey which puts a
-				// modifier into effect would not allow the corresponding key-up to execute unless the
-				// key is released prior to key-repeat, or the key-up hotkey explicitly allows it
-				// (which would defeat the purpose of hotkey_to_fire_upon_release).
-				//thisKey.hotkeyToFireUponRelease = HotkeyDefinition.HOTKEY_ID_INVALID;
-			}
+			// Set this early since it needs to be reset prior to any of the returns below.
+			var downWasSuppressed = (byte)(thisKey.downWasSuppressed & InputLevelMaskFromInfo((long)extraInfo));
+			// This should be done even for key-repeat, otherwise it can cause a key to become
+			// stuck down if the repeat isn't also suppressed. It is done for key-up because:
+			//  1) If it isn't reset, attempts to send one or more key-up events without a
+			//     key-down might all be suppressed if the InputLevel mask matches. It seems
+			//     better to suppress just the first one.
+			//  2) Some odd devices send key-down and key-up independently, in which case it
+			//     might be more useful to suppress only the first matching key-up.
+			//  3) That's how it was for many cases prior to v2.0.20 (NO_SUPPRESS_NEXT_UP_EVENT).
+			thisKey.downWasSuppressed ^= downWasSuppressed;
+			// Don't do the following because key-repeat should not prevent a previously-selected
+			// key-up hotkey from executing (although it can still be overridden by selecting a
+			// different key-up hotkey below).  If this was done, a key-down hotkey which puts a
+			// modifier into effect would not allow the corresponding key-up to execute unless the
+			// key is released prior to key-repeat, or the key-up hotkey explicitly allows it
+			// (which would defeat the purpose of hotkey_to_fire_upon_release).
+			//thisKey.hotkeyToFireUponRelease = HotkeyDefinition.HOTKEY_ID_INVALID;
 
 			if (!isKeyboardEvent)
 			{
@@ -1953,10 +1958,13 @@ namespace Keysharp.Internals.Input.Hooks
 				// key even if it never acts as a prefix for other keys, which in turn has the benefit of firing
 				// on key-up, but only if the no other key was pressed while the user was holding it down.
 				bool suppressThisPrefix = (thisKey.noSuppress & HotkeyDefinition.AT_LEAST_ONE_COMBO_HAS_TILDE) == 0; // Set default.
-				bool hasEnabledSuffixes = thisKey.usedAsPrefix == KeyType.PREFIX_ACTUAL
+				// v2.0.23: Check for PREFIX_FORCED independently of hasEnabledSuffixes, which should be false
+				// for neutral modifiers so that e.g. Alt & Esc:: won't affect how LAlt:: behaves (suffixes don't
+				// need to be checked for Alt because Alt:: always fires on release).
+				bool hasEnabledSuffixes = (thisKey.usedAsPrefix & KeyType.PREFIX_ACTUAL) != 0
 					&& HotkeyDefinition.PrefixHasEnabledSuffixes(scTakesPrecedence ? sc : vk, scTakesPrecedence, ref suppressThisPrefix);
 
-				if (hasEnabledSuffixes)
+				if (hasEnabledSuffixes || (thisKey.usedAsPrefix & KeyType.PREFIX_FORCED) != 0)
 				{
 					// This check is necessary in cases such as the following, in which the "A" key continues
 					// to repeat because pressing a mouse button (unlike pressing a keyboard key) does not
@@ -1981,9 +1989,6 @@ namespace Keysharp.Internals.Input.Hooks
 						// this key (though the second key will begin to repeat if it too is held down).
 						// In other words, the fear that this would be wrongly initialized and thus cause
 						// this prefix's suffix-action to fire upon key-release seems unfounded.
-						// It seems easier (and may perform better than alternative ways) to init this
-						// here rather than say, upon the release of the prefix key:
-						thisKey.wasJustUsed = 0; // Init to indicate it hasn't yet been used in its role as a prefix.
 					}
 				}
 
@@ -2113,7 +2118,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 				if (hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID)
 				{
-					if (!hasEnabledSuffixes && thisKey.usedAsPrefix == KeyType.PREFIX_ACTUAL)
+					if (!hasEnabledSuffixes && (thisKey.usedAsPrefix & KeyType.PREFIX_ACTUAL) != 0)
 					{
 						keyHistoryCurr.eventType = '#'; // '#' to indicate this prefix key is disabled due to #HotIf WinActive/Exist criterion.
 					}
@@ -2125,7 +2130,7 @@ namespace Keysharp.Internals.Input.Hooks
 						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
 					// Mark this key as having been suppressed, so key-up will also be suppressed.
-					thisKey.hotkeyDownWasSuppressed = true;
+					thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 				}
 
@@ -2169,7 +2174,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// In light of the above, it seems best to keep this documented here as a known limitation for now.
 				if (!thisKey.usedAsKeyUp)
 				{
-					return thisKey.hotkeyDownWasSuppressed ?
+					return downWasSuppressed != 0 ?
 						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
 						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 				}
@@ -2207,8 +2212,14 @@ namespace Keysharp.Internals.Input.Hooks
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_SHIFT);
 				}
 
+				var wasJustUsed = thisKey.wasJustUsed;
+				// Reset this on key-up, since next time it is pressed might not be as a prefix,
+				// such as with combinations like a & b, b & a, a up, b up, where pressing "a & b"
+				// would consult b.wasJustUsed on key-up.
+				thisKey.wasJustUsed = 0;
+
 				if (thisToggleKeyCanBeToggled // Always false if our caller is the mouse hook.
-					&& !thisKey.hotkeyDownWasSuppressed)
+					&& downWasSuppressed == 0)
 				{
 					// It's done this way because CapsLock, for example, is a key users often
 					// press quickly while typing.  I suspect many users are like me in that
@@ -2222,7 +2233,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// Toggle the key by replacing this key-up event with a new sequence
 					// of our own.  This entire-replacement is done so that the system
 					// will see all three events in the right order:
-					if (thisKey.wasJustUsed == KeyType.AS_PREFIX_FOR_HOTKEY) // If this is true, it's probably impossible for hotkey_id_with_flags to be valid by means of this_key.hotkey_to_fire_upon_release.
+					if (wasJustUsed == KeyType.AS_PREFIX_FOR_HOTKEY) // If this is true, it's probably impossible for hotkey_id_with_flags to be valid by means of this_key.hotkey_to_fire_upon_release.
 					{
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyPhysIgnore); // Mark it as physical for any other hook instances.
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk, sc);
@@ -2237,12 +2248,12 @@ namespace Keysharp.Internals.Input.Hooks
 				// If the key isn't used as a suffix, we're done, so also return in that case.
 				// Don't do "DisguiseWinAlt" because we want the key's native key-up function to
 				// take effect if the event isn't being suppressed.
-				if ((thisKey.wasJustUsed > 0 // AS_PREFIX or AS_PREFIX_FOR_HOTKEY.  v1.1.34.02: Excludes AS_PASSTHROUGH_PREFIX, which would indicate the prefix key's suffix hotkey should always fire.
+				if ((wasJustUsed > 0 // AS_PREFIX or AS_PREFIX_FOR_HOTKEY.  v1.1.34.02: Excludes AS_PASSTHROUGH_PREFIX, which would indicate the prefix key's suffix hotkey should always fire.
 						|| !thisKey.usedAsSuffix)
 					&& hotkeyIdWithFlags == HotkeyDefinition.HOTKEY_ID_INVALID) // v1.0.44.04: Must check this because this prefix might be being used in its role as a suffix instead.  At this point id is only set if modifiers are held down.
 					// For simplicity and to ensure consistency with the used_as_suffix == true case,
 					// don't reevaluate the conditions which were already evaluated on key-down.
-					return thisKey.hotkeyDownWasSuppressed
+					return downWasSuppressed != 0
 						? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
 						: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
@@ -2464,7 +2475,7 @@ namespace Keysharp.Internals.Input.Hooks
 					keyHistoryCurr.eventType = 'h'; // h = hook hotkey (not one registered with RegisterHotkey)
 
 					if (!keyUp)
-						thisKey.hotkeyDownWasSuppressed = true;
+						thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 
 					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 				} // end of alt-tab section.
@@ -2548,9 +2559,9 @@ namespace Keysharp.Internals.Input.Hooks
 					if (keyUp)
 					{
 						// The hotkey found above should fire if it's a prefix key and wasn't fired on key-down,
-						// unless it was used in a combination or this up event wasn't preceded by a down event.
+						// unless this up event wasn't preceded by a down event. If the prefix key was combined
+						// with another key, the hook already returned before getting to this point.
 						bool fireDownHotkey = thisKey.usedAsPrefix != 0
-							&& thisKey.wasJustUsed == 0
 							&& !downPerformedAction
 							&& wasDownBeforeUp;
 						if (hotkeyIdTemp < shk.Count && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
@@ -2591,7 +2602,7 @@ namespace Keysharp.Internals.Input.Hooks
 					if (keyUp)
 						// This takes into account both prefix keys and key-up hotkeys: suppress if and only if
 						// key-down was suppressed.
-						return thisKey.hotkeyDownWasSuppressed
+						return downWasSuppressed != 0
 							? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
 							: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
@@ -2623,7 +2634,8 @@ namespace Keysharp.Internals.Input.Hooks
 							, ref fireWithNoSuppress, ref ch) == null)// fire_with_no_suppress is the value we really need to get back from it.
 						fireWithNoSuppress = true; // Although it's not "firing" in this case; just for use below.
 
-					thisKey.hotkeyDownWasSuppressed = !fireWithNoSuppress; // Fixed for v1.1.33.01: If this isn't set, the key-up won't be suppressed even after the key-down is.
+					if (!fireWithNoSuppress)
+						thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 					return fireWithNoSuppress ?
 						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
 						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
@@ -2654,7 +2666,7 @@ namespace Keysharp.Internals.Input.Hooks
 				//     In that case, the documentation indicates the key-down will be suppressed.
 				//     Prior to v1.1.08, neither event was suppressed.
 				if (keyUp)
-					return thisKey.hotkeyDownWasSuppressed ?
+					return downWasSuppressed != 0 ?
 						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
 						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
@@ -2674,7 +2686,7 @@ namespace Keysharp.Internals.Input.Hooks
 					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
 
 				// Both this down event and the corresponding up event should be suppressed.
-				thisKey.hotkeyDownWasSuppressed = true;
+				thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
 			}
 
@@ -2978,7 +2990,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (keyUp)
 			{
-				if (fireWithNoSuppress || !thisKey.hotkeyDownWasSuppressed)
+				if (fireWithNoSuppress || downWasSuppressed == 0)
 				{
 					// Although it seems more sensible to suppress the key-up if the key-down was suppressed,
 					// it probably does no harm to let the key-up pass through, and in this case, it's exactly
@@ -3053,7 +3065,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			// Otherwise:
 			if (!keyUp)
-				thisKey.hotkeyDownWasSuppressed = true;
+				thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 
 			return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
 		}
@@ -3618,45 +3630,42 @@ namespace Keysharp.Internals.Input.Hooks
 						switch (vk)
 						{
 							case VK_MENU:
-								kvk[VK_MENU].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_LMENU].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_RMENU].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[LAlt].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[RAlt].usedAsPrefix = KeyType.PREFIX_FORCED;
+								kvk[VK_MENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_LMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_RMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[LAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[RAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_SHIFT:
-								kvk[VK_SHIFT].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_LSHIFT].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_RSHIFT].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[LShift].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[RShift].usedAsPrefix = KeyType.PREFIX_FORCED;
+								kvk[VK_SHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_LSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_RSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[LShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[RShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_CONTROL:
-								kvk[VK_CONTROL].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_LCONTROL].usedAsPrefix = KeyType.PREFIX_FORCED;
-								kvk[VK_RCONTROL].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[LControl].usedAsPrefix = KeyType.PREFIX_FORCED;
-								ksc[RControl].usedAsPrefix = KeyType.PREFIX_FORCED;
+								kvk[VK_CONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_LCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								kvk[VK_RCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[LControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[RControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 						}
 
 						break;
-
-					default:  // vk is a left/right modifier key such as VK_LCONTROL or VK_LWIN:
-						if (alwaysSetAsPrefix)
-							kvk[vk].usedAsPrefix = KeyType.PREFIX_ACTUAL;
-
-						break;
 				}
+
+				if (alwaysSetAsPrefix)
+					kvk[vk].usedAsPrefix |= KeyType.PREFIX_ACTUAL;
 
 				return;
 			}
 
 			// Since above didn't return, using scan code instead of virtual key:
 			if (alwaysSetAsPrefix)
-				ksc[sc].usedAsPrefix = KeyType.PREFIX_ACTUAL;
+				ksc[sc].usedAsPrefix |= KeyType.PREFIX_ACTUAL;
 		}
 
 		internal string SCtoKeyName(uint sc, bool useFallback)

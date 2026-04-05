@@ -195,6 +195,17 @@ namespace Keysharp.Internals.Input.Keyboard
 			return SendLevelMax + 1;
 		}
 
+		internal static byte InputLevelMaskFromInfo(long aExtraInfo)
+		{
+			// Level 0 is ignored and therefore doesn't need a dedicated bit.
+			// Levels 1 through 7 get unique bits so suppressed key-up can depend on SendLevel.
+			// Levels 8 and above share the same bit as physical/non-Keysharp input.
+			if (aExtraInfo >= KeyIgnoreLevel(7) && aExtraInfo <= KeyIgnoreLevel(1))
+				return (byte)(1 << (int)(KeyIgnoreLevel(0) - aExtraInfo));
+
+			return 1;
+		}
+
 		/// <summary>
 		/// KEY_PHYS_IGNORE events must be mostly ignored because currently there is no way for a given
 		/// hook instance to detect if it sent the event or some other instance.  Therefore, to treat

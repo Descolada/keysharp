@@ -12,7 +12,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal bool downPerformedAction;
 		internal uint firstHotkey;
 		internal ToggleStates forceToggle = null;  // Pointer to a global variable for toggleable keys only.  NULL for others.
-		internal bool hotkeyDownWasSuppressed = false;// the last key-down resulted in an action (modifiers matched those of a valid hotkey)
+		internal byte downWasSuppressed = 0;// Bitmask of SendLevel buckets whose down-event was suppressed (thus their matching up-event should be too).
 		internal uint hotkeyToFireUponRelease; // A up-event hotkey queued by a prior down-event.
 		internal bool isDown;// this key is currently down.
 		internal bool itPutAltDown;// this key resulted in ALT being pushed down (due to alt-tab).
@@ -20,7 +20,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal uint noSuppress;
 		internal bool scTakesPrecedence;// used only by the scan code array: this scan code should take precedence over vk.
 		internal bool usedAsKeyUp;
-		internal byte usedAsPrefix; // Whether a given virtual key or scan code is even used by a hotkey.
+		internal byte usedAsPrefix; // Bitwise PREFIX_* flags describing whether a given virtual key or scan code is used as a prefix.
 		internal bool usedAsSuffix;// The first hotkey using this key as a suffix.
 
 		// Whether this suffix also has an enabled key-up hotkey.
@@ -55,6 +55,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			itPutAltDown = false;
 			itPutShiftDown = false;
 			downPerformedAction = false;
+			downWasSuppressed = 0;
 			wasJustUsed = 0;
 			hotkeyToFireUponRelease = HotkeyDefinition.HOTKEY_ID_INVALID;
 			// ABOVE line was added in v1.0.48.03 to fix various ways in which the hook didn't receive the key-down

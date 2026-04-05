@@ -165,12 +165,9 @@ namespace Keysharp.Internals.Threading
 			{
 				Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, act);
 			}
-			catch (Exception ex)
+			catch (Exception ex) when (ex.InnerException is not null)
 			{
-				if (ex.InnerException != null)
-					throw ex.InnerException;
-				else
-					throw;//Do not pass ex because it will reset the stack information.
+				ExceptionDispatchInfo.Throw(ex.InnerException);
 			}
 		}
 

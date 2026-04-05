@@ -181,11 +181,9 @@ namespace Keysharp.Runtime
 					}
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke)
-					throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			if (throwIfMissing)
@@ -287,10 +285,9 @@ namespace Keysharp.Runtime
 					}
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke) throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			return null;
@@ -335,15 +332,13 @@ namespace Keysharp.Runtime
 					// Found a member but it's not callable.
 					return null;
 				}
-
-				// Not found ? per docs, internal lifecycle invocation should be a no-op (no __Call).
-				return null;
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke) throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
+			// Not found ? per docs, internal lifecycle invocation should be a no-op (no __Call).
+			return null;
 		}
 
 		// . strict base, strict result
@@ -420,11 +415,9 @@ namespace Keysharp.Runtime
 					}
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke)
-					throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			throw new MemberError($"Attempting to invoke method or property {meth} failed.");
@@ -599,10 +592,9 @@ namespace Keysharp.Runtime
 					}
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke) throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			return Errors.ErrorOccurred($"Attempting to set property {namestr} on object {item} to value {value} failed.");
@@ -632,12 +624,9 @@ namespace Keysharp.Runtime
 					return;
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke)
-					throw ke;
-				else
-					throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			_ = Errors.ErrorOccurred($"Attempting to set static property or field {namestr} to value {value} failed.");
@@ -662,12 +651,9 @@ namespace Keysharp.Runtime
 					return Functions.Func(d);
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke)
-					throw ke;
-				else
-					throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			return Errors.ErrorOccurred($"Attempting to get static property or field {namestr} failed.");

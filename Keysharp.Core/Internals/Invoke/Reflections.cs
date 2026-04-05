@@ -111,56 +111,49 @@ namespace Keysharp.Internals.Invoke
 		internal static FieldInfo FindAndCacheField(Type t, string name, BindingFlags propType =
 					BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
 		{
-			try
+			var script = Script.TheScript;
+			var rd = script.ReflectionsData;
+			do
 			{
-				var script = Script.TheScript;
-				var rd = script.ReflectionsData;
-				do
+				if (rd.staticFields.TryGetValue(t, out var dkt))
 				{
-					if (rd.staticFields.TryGetValue(t, out var dkt))
+				}
+				else//Field on this type has not been used yet, so get all properties and cache.
+				{
+					lock (rd.locker)
 					{
-					}
-					else//Field on this type has not been used yet, so get all properties and cache.
-					{
-						lock (rd.locker)
-						{
-							var fields = t.GetFields(propType);
+						var fields = t.GetFields(propType);
 
-							if (fields.Length > 0)
+						if (fields.Length > 0)
+						{
+							foreach (var field in fields)
 							{
-								foreach (var field in fields)
-								{
-									var nameToUse = Script.GetUserDeclaredName(field) ?? field.Name;
-									rd.staticFields.GetOrAdd(field.ReflectedType,
-										() => new Dictionary<string, FieldInfo>(fields.Length, StringComparer.OrdinalIgnoreCase))
-									[nameToUse] = field;
-								}
-							}
-							else//Make a dummy entry because this type has no fields. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
-							{
-								rd.staticFields[t] = dkt = new Dictionary<string, FieldInfo>(StringComparer.OrdinalIgnoreCase);
-								t = t.BaseType;
-								continue;
+								var nameToUse = Script.GetUserDeclaredName(field) ?? field.Name;
+								rd.staticFields.GetOrAdd(field.ReflectedType,
+									() => new Dictionary<string, FieldInfo>(fields.Length, StringComparer.OrdinalIgnoreCase))
+								[nameToUse] = field;
 							}
 						}
+						else//Make a dummy entry because this type has no fields. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
+						{
+							rd.staticFields[t] = dkt = new Dictionary<string, FieldInfo>(StringComparer.OrdinalIgnoreCase);
+							t = t.BaseType;
+							continue;
+						}
 					}
+				}
 
-					if (dkt == null && !rd.staticFields.TryGetValue(t, out dkt))
-					{
-						t = t.BaseType;
-						continue;
-					}
-
-					if (dkt.TryGetValue(name, out var fi))//Since the Dictionary was created above with StringComparer.OrdinalIgnoreCase, this will be a case insensitive match.
-						return fi;
-
+				if (dkt == null && !rd.staticFields.TryGetValue(t, out dkt))
+				{
 					t = t.BaseType;
-				} while (t.Assembly == typeof(Any).Assembly || t.Namespace.StartsWith(script.ProgramNamespace, StringComparison.OrdinalIgnoreCase));
-			}
-			catch (Exception)
-			{
-				throw;
-			}
+					continue;
+				}
+
+				if (dkt.TryGetValue(name, out var fi))//Since the Dictionary was created above with StringComparer.OrdinalIgnoreCase, this will be a case insensitive match.
+					return fi;
+
+				t = t.BaseType;
+			} while (t.Assembly == typeof(Any).Assembly || t.Namespace.StartsWith(script.ProgramNamespace, StringComparison.OrdinalIgnoreCase));
 
 			return null;
 		}
@@ -317,106 +310,99 @@ namespace Keysharp.Internals.Invoke
 		internal static MethodPropertyHolder FindAndCacheProperty(Type t, string name, int paramCount, BindingFlags propType =
 					BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly, bool isSystem = false)
 		{
-			try
-			{
-				var script = Script.TheScript;
-				var rd = script.ReflectionsData;
+			var script = Script.TheScript;
+			var rd = script.ReflectionsData;
 
-				do
+			do
+			{
+				if (rd.typeToStringProperties.TryGetValue(t, out var dkt))
 				{
-					if (rd.typeToStringProperties.TryGetValue(t, out var dkt))
+				}
+				else//Property on this type has not been used yet, so get all properties and cache.
+				{
+					lock (rd.locker)
 					{
-					}
-					else//Property on this type has not been used yet, so get all properties and cache.
-					{
-						lock (rd.locker)
-						{
-							var props = t.GetProperties(propType);
+						var props = t.GetProperties(propType);
 #if CONCURRENT
 
-							if (props.Length > 0)
+						if (props.Length > 0)
+						{
+							foreach (var prop in props)
 							{
-								foreach (var prop in props)
-								{
-									var mph = MethodPropertyHolder.GetOrAdd(prop);
-									var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
+								var mph = MethodPropertyHolder.GetOrAdd(prop);
+								var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
 
-									// type -> name -> overloads
-									var byName = rd.typeToStringProperties.GetOrAdd(prop.ReflectedType,
-													_ => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase));
+								// type -> name -> overloads
+								var byName = rd.typeToStringProperties.GetOrAdd(prop.ReflectedType,
+												_ => new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase));
 
-									var overloads = byName.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
-									overloads[mph.ParamLength] = mph;
+								var overloads = byName.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<int, MethodPropertyHolder>());
+								overloads[mph.ParamLength] = mph;
 
-									// name -> type -> overloads
-									rd.stringToTypeProperties
-										.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
-										[prop.ReflectedType] = overloads;
-								}
+								// name -> type -> overloads
+								rd.stringToTypeProperties
+									.GetOrAdd(nameToUse, _ => new ConcurrentDictionary<Type, ConcurrentDictionary<int, MethodPropertyHolder>>())
+									[prop.ReflectedType] = overloads;
 							}
-							else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
-							{
-								typeToStringProperties[t] = dkt = new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase);
-								t = t.BaseType;
-								continue;
-							}
+						}
+						else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
+						{
+							typeToStringProperties[t] = dkt = new ConcurrentDictionary<string, ConcurrentDictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase);
+							t = t.BaseType;
+							continue;
+						}
 
 #else
 
-							if (props.Length > 0)
+						if (props.Length > 0)
+						{
+							foreach (var prop in props)
 							{
-								foreach (var prop in props)
-								{
-									var mph = MethodPropertyHolder.GetOrAdd(prop);
-									var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
+								var mph = MethodPropertyHolder.GetOrAdd(prop);
+								var nameToUse = Script.GetUserDeclaredName(prop) ?? prop.Name;
 
-									// type -> name -> overloads
-									var byName = rd.typeToStringProperties
-										.GetOrAdd(prop.ReflectedType, () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(props.Length, StringComparer.OrdinalIgnoreCase));
+								// type -> name -> overloads
+								var byName = rd.typeToStringProperties
+									.GetOrAdd(prop.ReflectedType, () => new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(props.Length, StringComparer.OrdinalIgnoreCase));
 
-									var overloads = byName.GetOrAdd(nameToUse, () => new Dictionary<int, MethodPropertyHolder>());
-									overloads[mph.ParamLength] = mph;
+								var overloads = byName.GetOrAdd(nameToUse, () => new Dictionary<int, MethodPropertyHolder>());
+								overloads[mph.ParamLength] = mph;
 
-									// name -> type -> overloads (lazy reverse index)
-									rd.stringToTypeProperties.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
-															 .GetOrAdd(prop.ReflectedType, () => overloads);
-								}
+								// name -> type -> overloads (lazy reverse index)
+								rd.stringToTypeProperties.GetOrAdd(nameToUse, () => new Dictionary<Type, Dictionary<int, MethodPropertyHolder>>())
+															.GetOrAdd(prop.ReflectedType, () => overloads);
 							}
-							else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
-							{
-								rd.typeToStringProperties[t] = dkt = new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase);
-								t = t.BaseType;
-								continue;
-							}
+						}
+						else//Make a dummy entry because this type has no properties. This saves us additional searching later on when we encounter a type derived from this one. It will make the first Dictionary lookup above return true.
+						{
+							rd.typeToStringProperties[t] = dkt = new Dictionary<string, Dictionary<int, MethodPropertyHolder>>(StringComparer.OrdinalIgnoreCase);
+							t = t.BaseType;
+							continue;
+						}
 
 #endif
-						}
 					}
+				}
 
-					if (dkt == null && !rd.typeToStringProperties.TryGetValue(t, out dkt))
-					{
-						t = t.BaseType;
-						continue;
-					}
-
-					if (dkt.TryGetValue(name, out var propDkt))//Since the Dictionary was created above with StringComparer.OrdinalIgnoreCase, this will be a case insensitive match.
-					{
-						if (paramCount < 0 || propDkt.Count == 1)
-							return propDkt.First().Value;
-						else if (propDkt.TryGetValue(paramCount, out var mph))
-							return mph;
-					}
-
+				if (dkt == null && !rd.typeToStringProperties.TryGetValue(t, out dkt))
+				{
 					t = t.BaseType;
-				} while (t.Assembly == typeof(Any).Assembly
+					continue;
+				}
 
-						 || t.Namespace.StartsWith(script.ProgramNamespace, StringComparison.OrdinalIgnoreCase)
-						 || isSystem);
-			}
-			catch (Exception)
-			{
-				throw;
-			}
+				if (dkt.TryGetValue(name, out var propDkt))//Since the Dictionary was created above with StringComparer.OrdinalIgnoreCase, this will be a case insensitive match.
+				{
+					if (paramCount < 0 || propDkt.Count == 1)
+						return propDkt.First().Value;
+					else if (propDkt.TryGetValue(paramCount, out var mph))
+						return mph;
+				}
+
+				t = t.BaseType;
+			} while (t.Assembly == typeof(Any).Assembly
+
+						|| t.Namespace.StartsWith(script.ProgramNamespace, StringComparison.OrdinalIgnoreCase)
+						|| isSystem);
 
 			return null;
 		}
@@ -439,26 +425,19 @@ namespace Keysharp.Internals.Invoke
 		{
 			name = name.ToLower();
 
-			try
+			while (t != typeof(KeysharpObject))
 			{
-				while (t != typeof(KeysharpObject))
+				if (userOnly && t.Assembly == typeof(Any).Assembly)
+					break;
+
+				if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
 				{
-					if (userOnly && t.Assembly == typeof(Any).Assembly)
-						break;
-
-					if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
-					{
-						if (name != "__Class" && name != "__Static")
-							if (dkt.TryGetValue(name, out var prop))
-								return true;
-					}
-
-					t = t.BaseType;
+					if (name != "__Class" && name != "__Static")
+						if (dkt.TryGetValue(name, out var prop))
+							return true;
 				}
-			}
-			catch (Exception)
-			{
-				throw;
+
+				t = t.BaseType;
 			}
 
 			return false;
@@ -468,31 +447,24 @@ namespace Keysharp.Internals.Invoke
 		{
 			var props = new List<MethodPropertyHolder>();
 
-			try
+			while (t != typeof(KeysharpObject))
 			{
-				while (t != typeof(KeysharpObject))
+				if (userOnly && t.Assembly == typeof(Any).Assembly)
+					break;
+
+				if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
 				{
-					if (userOnly && t.Assembly == typeof(Any).Assembly)
-						break;
+					foreach (var kv in dkt)
+						if (kv.Value.Count > 0 && kv.Key != "__Class" && kv.Key != "__Static")
+						{
+							var mph = kv.Value.First().Value;
 
-					if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
-					{
-						foreach (var kv in dkt)
-							if (kv.Value.Count > 0 && kv.Key != "__Class" && kv.Key != "__Static")
-							{
-								var mph = kv.Value.First().Value;
-
-								if (mph.ParamLength == 0)//Do not add Index[] properties.
-									props.Add(mph);
-							}
-					}
-
-					t = t.BaseType;
+							if (mph.ParamLength == 0)//Do not add Index[] properties.
+								props.Add(mph);
+						}
 				}
-			}
-			catch (Exception)
-			{
-				throw;
+
+				t = t.BaseType;
 			}
 
 			return props;
@@ -502,30 +474,23 @@ namespace Keysharp.Internals.Invoke
 		{
 			var ct = 0L;
 
-			try
+			while (t != typeof(KeysharpObject))
 			{
-				while (t != typeof(KeysharpObject))
+				if (userOnly && t.Assembly == typeof(Any).Assembly)
+					break;
+
+				if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
 				{
-					if (userOnly && t.Assembly == typeof(Any).Assembly)
-						break;
+					ct += dkt.Count;
 
-					if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
-					{
-						ct += dkt.Count;
+					if (dkt.ContainsKey("__Static"))
+						--ct;
 
-						if (dkt.ContainsKey("__Static"))
-							--ct;
-
-						if (dkt.ContainsKey("__Class"))
-							--ct;
-					}
-
-					t = t.BaseType;
+					if (dkt.ContainsKey("__Class"))
+						--ct;
 				}
-			}
-			catch (Exception)
-			{
-				throw;
+
+				t = t.BaseType;
 			}
 
 			return ct;

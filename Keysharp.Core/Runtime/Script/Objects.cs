@@ -418,12 +418,9 @@ namespace Keysharp.Runtime
 						return Errors.ValueErrorOccurred($"{il1} arguments were passed to a set indexer which only accepts {mph2.ParamLength}.");
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke)
-					throw ke;
-				else
-					throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			return Errors.ErrorOccurred($"Attempting to set index {key} of object {item} to value {value} failed.");
@@ -543,10 +540,9 @@ namespace Keysharp.Runtime
 					}
 				}
 			}
-			catch (Exception e)
+			catch (Exception e) when (e.InnerException is KeysharpException ke)
 			{
-				if (e.InnerException is KeysharpException ke) throw ke;
-				throw;
+				ExceptionDispatchInfo.Throw(ke);
 			}
 
 			return null;

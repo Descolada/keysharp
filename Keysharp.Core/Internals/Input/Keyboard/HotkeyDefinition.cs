@@ -315,12 +315,12 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hkd = script.HotkeyData;
 			var kbd = script.KeyboardData;
 			var shk = hkd.shk;
-			var hkIsInactive = new bool[shk.Count];// No init needed.  Currently limited to around 16k (HOTKEY_ID_MAX).
+			var hkIsInactive = new bool[shk.Length];// No init needed.  Currently limited to around 16k (HOTKEY_ID_MAX).
 			int i, j;
 			var ht = script.HookThread;
 
 			// FIRST PASS THROUGH THE HOTKEYS:
-			for (i = 0; i < shk.Count; ++i)
+			for (i = 0; i < shk.Length; ++i)
 			{
 				var hot = shk[i];
 
@@ -374,7 +374,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// SECOND PASS THROUGH THE HOTKEYS:
 			// Check for hotkeys that can affect other hotkeys, such as wildcard or key-up hotkeys.
 			// This is separate to the other passes for reasons described at the top of the function.
-			for (i = 0; i < shk.Count; ++i)
+			for (i = 0; i < shk.Length; ++i)
 			{
 				if (hkIsInactive[i])
 					continue;
@@ -388,7 +388,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					// "#5" (reg) and "#5 up" (hook), the hook would suppress the down event because it
 					// is unaware that down-hotkey exists (it's suppressed to prevent the key from being
 					// stuck in a logically down state).
-					for (j = 0; j < shk.Count; ++j)
+					for (j = 0; j < shk.Length; ++j)
 					{
 						// No need to check the following because they are already hook hotkeys:
 						// mModifierVK/SC
@@ -422,7 +422,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				//    so might as well handle eclipsed hotkeys with it too.
 				if (hot.allowExtraModifiers && hot.vk != 0 && hot.modifiersLR == 0 && !(hot.modifierSC != 0 || hot.modifierVK != 0))
 				{
-					for (j = 0; j < shk.Count; ++j)
+					for (j = 0; j < shk.Length; ++j)
 					{
 						// If it's not of type HK_NORMAL, there's no need to change its type regardless
 						// of the values of its other members.  Also, if the wildcard hotkey (hot) has
@@ -450,7 +450,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// On Linux we always rely on the hooks (XGrabKey lacks callbacks), so force hook handling
 			// for all active hotkeys rather than attempting RegisterHotkey-style optimization.
 			hkd.whichHookNeeded = 0;
-			for (i = 0; i < shk.Count; ++i)
+			for (i = 0; i < shk.Length; ++i)
 			{
 				if (hkIsInactive[i])
 					continue;
@@ -474,7 +474,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// needed due to changing of a hotkey from hook to registered (for various reasons described above):
 			hkd.whichHookNeeded = 0;
 
-			for (i = 0; i < shk.Count; ++i)
+			for (i = 0; i < shk.Length; ++i)
 			{
 				if (hkIsInactive[i])
 					continue; // v1.0.40: Treat disabled hotkeys as though they're not even present.
@@ -595,7 +595,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			//Regardless of the type of hook needed, including none, we always need to start the reader queue.
 			//The presence of any hotkey/string should start the reader channel thread because even hotkeys
 			//which are received in MainWindow.WndProc() need to be forwarded to it.
-			if (shk.Count != 0 || script.HotstringManager.shs.Count != 0)
+			if (shk.Length != 0 || script.HotstringManager.shs.Count != 0)
 			{
 				ht.Start();
 			}
@@ -672,12 +672,12 @@ namespace Keysharp.Internals.Input.Keyboard
 			}
 			else
 			{
-				var shk = script.HotkeyData.shk;
-				hk = new HotkeyDefinition((uint)shk.Count, _callback, _hookAction, _name, _noSuppress);
+				var hkd = script.HotkeyData;
+				hk = new HotkeyDefinition((uint)hkd.shk.Length, _callback, _hookAction, _name, _noSuppress);
 
 				if (hk.constructedOK)
 				{
-					shk.Add(hk);
+					hkd.shk = [..hkd.shk, hk]; // whole-array replace; volatile write publishes atomically
 					script.HookThread.hotkeyUp.Add(0);
 					return hk;
 				}
@@ -708,12 +708,10 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			var script = Script.TheScript;
 			script.HookThread.Unhook();
-			var shk = script.HotkeyData.shk;
-
-			foreach (var hk in shk)
+			foreach (var hk in script.HotkeyData.shk)
 				_ = hk.Unregister(); //Hotkeys will unregister as they go out of scope, but force them to do it now.
 
-			shk.Clear();
+			script.HotkeyData.shk = [];
 		}
 
 		internal static uint ConvertAltTab(string aBuf, bool aAllowOnOff)
@@ -764,7 +762,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			// The following check is for maintainability, since caller should have already checked and
 			// handled HOTKEY_ID_ALT_TAB and similar.  Less-than-zero check not necessary because it's unsigned.
-			if (hotkeyId >= shk.Count)
+			if (hotkeyId >= shk.Length)
 				return null; // Special alt-tab hotkey quasi-ID used by the hook.
 
 			var hk = shk[(int)hotkeyId]; // For convenience and performance.
@@ -889,7 +887,9 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal static ref uint CustomComboLast(ref uint first)
 		{
-			for (; first != HOTKEY_ID_INVALID; first = ref Script.TheScript.HotkeyData.shk[(int)first].nextHotkey)
+			var shk = Script.TheScript.HotkeyData.shk; // capture once; main-thread-only call site
+
+			for (; first != HOTKEY_ID_INVALID; first = ref shk[(int)first].nextHotkey)
 			{
 			}
 
@@ -1208,7 +1208,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// Both suffix_has_tilde and a hypothetical prefix_has_tilde are ignored during dupe-checking below.
 			// See comments inside the loop for details.
 
-			for (var i = 0; i < shk.Count; ++i)
+			for (var i = 0; i < shk.Length; ++i)
 			{
 				_ = TextToModifiers(shk[i].Name, null, propExisting);
 
@@ -1269,10 +1269,11 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal static uint FindPairedHotkey(uint firstID, uint modsLR, bool keyUp)
 		{
 			var modifiers = ConvertModifiersLR(modsLR); // Neutral modifiers.
+			var shk = Script.TheScript.HotkeyData.shk; // one volatile read; safe on hook thread
 
 			for (var candidateId = firstID; candidateId != HOTKEY_ID_INVALID;)
 			{
-				var hk2 = Script.TheScript.HotkeyData.shk[(int)candidateId];
+				var hk2 = shk[(int)candidateId];
 				candidateId = hk2.nextHotkey;
 
 				if ((hk2.allowExtraModifiers || ((~hk2.modifiersConsolidatedLR & modsLR) == 0))
@@ -1300,7 +1301,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			_ = sb.Append("Type\tOff?\tLevel\tRunning\tName\r\n-------------------------------------------------------------------\r\n");
 
 			//Start at the oldest and continue up through the newest.
-			for (var i = 0; i < shk.Count; ++i)
+			for (var i = 0; i < shk.Length; ++i)
 				_ = sb.Append(shk[i].ToText(true));
 
 			return sb.ToString();
@@ -1372,7 +1373,11 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal static long NormalizeCriterionFoundHwnd(IFuncObj criterion, long foundHwnd)
 			=> GetHotCriterionType(criterion) is HotCriterionEnum.NoCriterion or HotCriterionEnum.IfNotActive or HotCriterionEnum.IfNotExist ? 0L : foundHwnd;
 
-		internal static uint HotkeyRequiresModLR(uint hotkeyID, uint modLR) => hotkeyID < Script.TheScript.HotkeyData.shk.Count ? Script.TheScript.HotkeyData.shk[(int)hotkeyID].modifiersConsolidatedLR& modLR : 0u;
+		internal static uint HotkeyRequiresModLR(uint hotkeyID, uint modLR)
+		{
+			var shk = Script.TheScript.HotkeyData.shk; // one volatile read; safe on hook thread
+			return hotkeyID < shk.Length ? shk[(int)hotkeyID].modifiersConsolidatedLR & modLR : 0u;
+		}
 
 		internal static void InstallKeybdHook()
 		{
@@ -1437,7 +1442,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var asModifier = ht.KeyToModifiersLR(isSC ? 0u : VKorSC, isSC ? VKorSC : 0u, ref b);
 			bool hasEnabledSuffix = false;
 
-			for (var i = 0; i < shk.Count; ++i)
+			for (var i = 0; i < shk.Length; ++i)
 			{
 				var hk = shk[i];
 
@@ -1908,7 +1913,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var script = Script.TheScript;
 			var shk = script.HotkeyData.shk;
 
-			for (var i = 0; i < shk.Count; ++i)
+			for (var i = 0; i < shk.Length; ++i)
 			{
 				var hk = shk[i];
 
@@ -2506,7 +2511,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var changed = false;
 			var script = Script.TheScript;
 
-			foreach (var hotkey in script.HotkeyData.shk.ToArray())
+			foreach (var hotkey in script.HotkeyData.shk)
 			{
 				if (hotkey == null)
 					continue;
@@ -2622,7 +2627,9 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal bool dialogIsDisplayed;
 		internal uint joyHotkeyCount;
 		internal bool[] joystickHasHotkeys = new bool[JoystickData.MaxJoysticks];
-		internal List<HotkeyDefinition> shk = new (256);
+		// Written only on the main thread via whole-array replacement; volatile so the hook thread
+		// always reads the latest reference without needing a lock.
+		internal volatile HotkeyDefinition[] shk = [];
 		internal uint throttledKeyCount;
 		internal long throttleNowTick;
 		internal long throttlePrevTick = long.MinValue;

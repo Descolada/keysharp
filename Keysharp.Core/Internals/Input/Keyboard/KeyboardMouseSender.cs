@@ -1019,7 +1019,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var script = Script.TheScript;
 			var shk = script.HotkeyData.shk;
 
-			if (hkId < shk.Count)//Ensure hotkey ID is valid.
+			if (hkId < shk.Length)//Ensure hotkey ID is valid.
 			{
 				var hk = shk[hkId];
 				// Check if criterion allows firing.

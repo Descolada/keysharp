@@ -214,7 +214,7 @@ namespace Keysharp.Builtins
 				{
 					var shk = script.HotkeyData.shk;
 
-					for (var i = 0; i < shk.Count; ++i)
+					for (var i = 0; i < shk.Length; ++i)
 					{
 						if (shk[i].Name == label)
 						{

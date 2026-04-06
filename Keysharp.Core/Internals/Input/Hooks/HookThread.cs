@@ -302,7 +302,7 @@ namespace Keysharp.Internals.Input.Hooks
 		/// the hooks.
 		/// Returns the set of hooks that are active after processing is complete.
 		/// </summary>
-		internal virtual void ChangeHookState(List<HotkeyDefinition> hks, HookType whichHook, HookType whichHookAlways)
+		internal virtual void ChangeHookState(HotkeyDefinition[] hks, HookType whichHook, HookType whichHookAlways)
 		{
 			// Determine the set of hooks that should be activated or deactivated.
 			var hooksToBeActive = whichHook | whichHookAlways; // Bitwise union.
@@ -350,9 +350,9 @@ namespace Keysharp.Internals.Input.Hooks
 
 				kvkm = new uint[KVKM_SIZE];
 				kscm = new uint[KSCM_SIZE];
-				hotkeyUp = new List<uint>(hks.Count);
+				hotkeyUp = new List<uint>(hks.Length);
 
-				for (var i = 0; i < hks.Count; i++)
+				for (var i = 0; i < hks.Length; i++)
 					hotkeyUp.Add(0);
 
 				// Below is also a one-time-only init:
@@ -412,9 +412,9 @@ namespace Keysharp.Internals.Input.Hooks
 
 			KeyType thisKey;
 			var shk = script.HotkeyData.shk;
-			var hkSorted = new List<HkSortedType>(shk.Count);
+			var hkSorted = new List<HkSortedType>(shk.Length);
 
-			for (var i = 0; i < hks.Count; ++i)
+			for (var i = 0; i < hks.Length; ++i)
 			{
 				var hk = hks[i];
 
@@ -667,7 +667,7 @@ namespace Keysharp.Internals.Input.Hooks
 						{
 							prevHkId = (int)(itsTableEntry & HotkeyDefinition.HOTKEY_ID_MASK);
 
-							if (thisHkId >= shk.Count || prevHkId >= shk.Count) // AltTab hotkey.
+							if (thisHkId >= shk.Length || prevHkId >= shk.Length) // AltTab hotkey.
 								continue; // Exclude AltTab hotkeys since hotkey_up[] and shk[] can't be used.
 
 							prevHkIsKeyUp = (itsTableEntry & HotkeyDefinition.HOTKEY_KEY_UP) != 0;
@@ -1926,7 +1926,7 @@ namespace Keysharp.Internals.Input.Hooks
 			uint modifiersLRnew;
 			var toggleVal = thisKey.ToggleVal(thisKeyIndex);
 			var thisToggleKeyCanBeToggled = toggleVal != null && toggleVal.Value == ToggleValueType.Neutral; // Relies on short-circuit boolean order.
-			var shk = script.HotkeyData.shk;
+			var shk = script.HotkeyData.shk; // volatile read; safe on hook thread
 
 			// Prior to considering whether to fire a hotkey, correct the hook's modifier state.
 			// Although this is rarely needed, there are times when the OS disables the hook, thus
@@ -2054,7 +2054,7 @@ namespace Keysharp.Internals.Input.Hooks
 								//  4) A key-up hotkey without ~ fires even if the prefix key was used to activate a custom combo.
 								bool upNoSuppress = false;
 								HotkeyVariant firingUp = null;
-								if (hotkeyIdWithFlags < shk.Count && hotkeyUp[(int)hotkeyIdWithFlags] != HotkeyDefinition.HOTKEY_ID_INVALID)
+								if (hotkeyIdWithFlags < shk.Length && hotkeyUp[(int)hotkeyIdWithFlags] != HotkeyDefinition.HOTKEY_ID_INVALID)
 								{
 									var hkuwf = hotkeyUp[(int)hotkeyIdWithFlags];
 									firingUp = HotkeyDefinition.CriterionFiringIsCertain(ref hkuwf, keyUp, extraInfo, ref upNoSuppress, ref ch);
@@ -2074,7 +2074,7 @@ namespace Keysharp.Internals.Input.Hooks
 								}
 								else
 								{
-									if (hotkeyIdWithFlags < shk.Count && IsNeutralModifierVK(shk[(int)hotkeyIdWithFlags].vk))
+									if (hotkeyIdWithFlags < shk.Length && IsNeutralModifierVK(shk[(int)hotkeyIdWithFlags].vk))
 										// Neutral modifiers always fire on release, but are not suppressed.
 										fireWithNoSuppress = true;
 									// This covers three cases:
@@ -2099,7 +2099,7 @@ namespace Keysharp.Internals.Input.Hooks
 							thisKey.hotkeyToFireUponRelease = hotkeyIdWithFlags;
 							hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID;
 						}
-						else if (hotkeyIdWithFlags < shk.Count)//Valid key-down hotkey.
+						else if (hotkeyIdWithFlags < shk.Length)//Valid key-down hotkey.
 						{
 							thisKey.hotkeyToFireUponRelease = hotkeyUp[(int)hotkeyIdWithFlags];//Might assign HotkeyDefinition.HOTKEY_ID_INVALID.
 							// Since this prefix key is being used in its capacity as a suffix instead,
@@ -2564,7 +2564,7 @@ namespace Keysharp.Internals.Input.Hooks
 						bool fireDownHotkey = thisKey.usedAsPrefix != 0
 							&& !downPerformedAction
 							&& wasDownBeforeUp;
-						if (hotkeyIdTemp < shk.Count && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
+						if (hotkeyIdTemp < shk.Length && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
 						{
 							if (!fireDownHotkey
 								|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
@@ -2585,7 +2585,7 @@ namespace Keysharp.Internals.Input.Hooks
 							hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID;
 					}
 					else // hotkey_id_with_flags contains the down-hotkey that is now eligible for firing. But check if there's an up-event to queue up for later.
-						if (hotkeyIdTemp < shk.Count)
+						if (hotkeyIdTemp < shk.Length)
 						{
 							// Fixed for v1.1.33.01: Any key-up hotkey already found by the custom combo section
 							// should take precedence over this hotkey.  This fixes "b & a up::" not suppressing
@@ -2649,7 +2649,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// v1.0.41: This must be done prior to the setting of sDisguiseNextMenu below.
 			hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
 
-			if (hotkeyIdTemp < shk.Count// i.e. don't call the below for Alt-tab hotkeys and similar.
+			if (hotkeyIdTemp < shk.Length// i.e. don't call the below for Alt-tab hotkeys and similar.
 					&& firingIsCertain == null // i.e. CriterionFiringIsCertain() wasn't already called earlier.
 					&& (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
 			{
@@ -3394,9 +3394,9 @@ namespace Keysharp.Internals.Input.Hooks
 			hotkeyMsg = null;
 			var script = Script.TheScript;
 			var hkId = hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK;
-			var shk = script.HotkeyData.shk;
+			var shk = script.HotkeyData.shk; // volatile read; safe on hook thread
 
-			if (hkId >= shk.Count)
+			if (hkId >= shk.Length)
 				return false;
 
 			var hotkey = shk[(int)hkId];
@@ -3501,9 +3501,11 @@ namespace Keysharp.Internals.Input.Hooks
 						{
 							var hkId = (uint)wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
 
-							if (hkId < script.HotkeyData.shk.Count)
+							var shkSnap = script.HotkeyData.shk; // volatile read; safe on hook thread
+
+							if (hkId < shkSnap.Length)
 							{
-								script.HotkeyData.shk[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, lParamVal);
+								shkSnap[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, lParamVal);
 								return true;
 							}
 						}

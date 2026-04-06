@@ -399,11 +399,11 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 					keybdMutex = null;
 				}
 
-				if (HasKbdHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) == 0) // The mouse hook has been newly added.
+				if (HasMouseHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) == 0) // The mouse hook has been newly added.
 				{
 					mouseMutex = new Mutex(false, MouseMutexName); // Create-or-open this mutex and have it be unowned.
 				}
-				else if (!HasKbdHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) != 0)  // The mouse hook has been newly removed.
+				else if (!HasMouseHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) != 0)  // The mouse hook has been newly removed.
 				{
 					mouseMutex?.Close();
 					mouseMutex = null;

@@ -1146,7 +1146,7 @@ namespace Keysharp.Runtime
 			if (Gui.AnyExistingVisibleWindows())
 				return true;
 
-			if (HotkeyData.shk.Count > 0)
+			if (HotkeyData.shk.Length > 0)
 				return true;
 
 			if (HotstringManager.shs.Count > 0)

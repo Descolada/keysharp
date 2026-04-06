@@ -210,7 +210,7 @@ namespace Keysharp.Tests
 						registrations.Timer = s.FlowData.timers.Find(registrations.TimerFunc, registrations.TimerScheduler);
 
 						registrations.Hotkey = new HotkeyDefinition(1, new FuncObj((Func<object, object>)(_ => probe.Record("hotkey"))), 0, "F24", 0);
-						s.HotkeyData.shk.Add(registrations.Hotkey);
+						s.HotkeyData.shk = [..s.HotkeyData.shk, registrations.Hotkey];
 						registrations.HotkeyVariant = registrations.Hotkey.firstVariant;
 						registrations.HotkeyBinding = registrations.HotkeyVariant.FindBinding(s.EventScheduler);
 
@@ -345,12 +345,12 @@ namespace Keysharp.Tests
 			EnsureUiScheduler();
 
 			var probe = new CallbackProbe();
-			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ => probe.Record("main"))), 0, "$a", 0);
-			s.HotkeyData.shk.Add(hk);
+			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ => probe.Record("main"))), 0, "$a", 0);
+			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 
 			WithMatchingWorkerHotkey(hk, new FuncObj((Func<object, object>)(_ => probe.Record("worker"))), worker =>
 			{
-				Assert.AreEqual(1, s.HotkeyData.shk.Count, "Exact match should reuse the same hotkey definition.");
+				Assert.AreEqual(1, s.HotkeyData.shk.Length, "Exact match should reuse the same hotkey definition.");
 				Assert.AreEqual(2, hk.firstVariant.BindingCount, "Exact match should attach one callback per scheduler.");
 
 				hk.PerformInNewThreadMadeByCallerAsync(hk.firstVariant, 0, 0);
@@ -379,12 +379,12 @@ namespace Keysharp.Tests
 					return 1L;
 				}));
 
-				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ =>
+				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ =>
 				{
 					callbackRan.Set();
 					return 0L;
 				})), 0, "$a", 0);
-				s.HotkeyData.shk.Add(hk);
+				s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 
 				Assert.IsTrue(s.HookThread.PostMessage(new KeysharpMsg
 				{
@@ -425,12 +425,12 @@ namespace Keysharp.Tests
 					return hookWinCriterionResult;
 				});
 
-				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ =>
+				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ =>
 				{
 					callbackRan.Set();
 					return 0L;
 				})), 0, "$c", 0);
-				s.HotkeyData.shk.Add(hk);
+				s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 
 				var buildMethod = s.HookThread.GetType().GetMethod("TryBuildHookHotkeyMessage", BindingFlags.Instance | BindingFlags.NonPublic);
 				Assert.IsNotNull(buildMethod, "Hook hotkey message builder should exist.");
@@ -468,8 +468,8 @@ namespace Keysharp.Tests
 
 			try
 			{
-				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ => 0L)), 0, "b", 0);
-				s.HotkeyData.shk.Add(hk);
+				var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ => 0L)), 0, "b", 0);
+				s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 				s.Threads.CurrentThread.hotCriterion = new FuncObj((Func<object, object>)(_ => 1L));
 				_ = hk.AddVariant(new FuncObj((Func<object, object>)(_ => 0L)), 0);
 				s.Threads.CurrentThread.hotCriterion = previousCriterion;
@@ -496,13 +496,13 @@ namespace Keysharp.Tests
 			var mainStarted = new ManualResetEventSlim(false);
 			var releaseMain = new ManualResetEventSlim(false);
 			var workerRan = new ManualResetEventSlim(false);
-			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ =>
+			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ =>
 			{
 				mainStarted.Set();
 				_ = releaseMain.Wait(2000);
 				return 0L;
 			})), 0, "$a", 0);
-			s.HotkeyData.shk.Add(hk);
+			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 
 			WithMatchingWorkerHotkey(hk, new FuncObj((Func<object, object>)(_ =>
 			{
@@ -535,13 +535,13 @@ namespace Keysharp.Tests
 			var releaseMain = new ManualResetEventSlim(false);
 			var workerProgressed = new ManualResetEventSlim(false);
 			var workerCalls = 0;
-			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ =>
+			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ =>
 			{
 				mainStarted.Set();
 				_ = releaseMain.Wait(2000);
 				return 0L;
 			})), 0, "$a", 0);
-			s.HotkeyData.shk.Add(hk);
+			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 
 			WithMatchingWorkerHotkey(hk, new FuncObj((Func<object, object>)(_ =>
 			{
@@ -592,8 +592,8 @@ namespace Keysharp.Tests
 		{
 			EnsureUiScheduler();
 
-			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Count, new FuncObj((Func<object, object>)(_ => 0L)), 0, "$a", 0);
-			s.HotkeyData.shk.Add(hk);
+			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ => 0L)), 0, "$a", 0);
+			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();
 			Assert.IsTrue(s.HookThread.HasKbdHook(), "Hook-backed hotkey should install the keyboard hook.");
 

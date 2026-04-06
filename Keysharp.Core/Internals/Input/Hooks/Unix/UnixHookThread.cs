@@ -450,7 +450,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 
 
-		internal override void ChangeHookState(List<HotkeyDefinition> hk, HookType whichHook, HookType whichHookAlways)
+		internal override void ChangeHookState(HotkeyDefinition[] hk, HookType whichHook, HookType whichHookAlways)
 		{
 			base.ChangeHookState(hk, whichHook, whichHookAlways);
 

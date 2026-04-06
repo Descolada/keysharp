@@ -1077,7 +1077,7 @@ namespace Keysharp.Builtins
 #if OSX
 			try
 			{
-				_ = MacOS.MacNativeWindows.ActivateAppByPid(Environment.ProcessId);
+				_ = Internals.Window.MacOS.MacNativeWindows.ActivateAppByPid(Environment.ProcessId);
 			}
 			catch
 			{

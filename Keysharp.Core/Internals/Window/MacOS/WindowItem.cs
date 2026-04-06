@@ -104,7 +104,7 @@ namespace Keysharp.Internals.Window.MacOS
 					return;
 				}
 
-				if (control is Window window)
+				if (control is Eto.Forms.Window window)
 					window.BringToFront();
 
 				control?.Focus();
@@ -152,7 +152,7 @@ namespace Keysharp.Internals.Window.MacOS
 					var sendToBack = control.GetType().GetMethod("SendToBack", Type.EmptyTypes);
 					sendToBack?.Invoke(control, null);
 				}
-				else if (control is Window window)
+				else if (control is Eto.Forms.Window window)
 				{
 					window.BringToFront();
 				}
@@ -282,7 +282,7 @@ namespace Keysharp.Internals.Window.MacOS
 				if (control == null)
 					return null;
 
-				if (control.ParentWindow is Window parentWindow)
+				if (control.ParentWindow is Eto.Forms.Window parentWindow)
 					return new WindowItem(parentWindow);
 
 				if (control.Parent != null)
@@ -444,7 +444,7 @@ namespace Keysharp.Internals.Window.MacOS
 					return native.Visible ? FormWindowState.Normal : FormWindowState.Minimized;
 				}
 
-				return control is Window window ? window.WindowState : FormWindowState.Normal;
+				return control is Eto.Forms.Window window ? window.WindowState : FormWindowState.Normal;
 			}
 				set
 				{
@@ -457,7 +457,7 @@ namespace Keysharp.Internals.Window.MacOS
 						return;
 					}
 
-				if (control is Window window)
+				if (control is Eto.Forms.Window window)
 					window.WindowState = value;
 			}
 		}
@@ -532,7 +532,7 @@ namespace Keysharp.Internals.Window.MacOS
 					return closed;
 				}
 
-			if (control is Window window)
+			if (control is Eto.Forms.Window window)
 			{
 				window.Close();
 				return true;
@@ -609,7 +609,7 @@ namespace Keysharp.Internals.Window.MacOS
 
 			control.Visible = true;
 
-			if (control is Window window)
+			if (control is Eto.Forms.Window window)
 				window.BringToFront();
 
 			return true;

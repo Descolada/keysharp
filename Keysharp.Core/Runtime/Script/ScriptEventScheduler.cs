@@ -30,7 +30,7 @@ namespace Keysharp.Runtime
 			if (eventSchedulers == null)
 				return;
 
-			foreach (var scheduler in eventSchedulers.Values.ToArray())
+			foreach (var scheduler in eventSchedulers.Values)
 			{
 				if (scheduler != null && (shouldSchedule == null || shouldSchedule(scheduler)))
 					scheduler.SchedulePump();
@@ -81,13 +81,19 @@ namespace Keysharp.Runtime
 		}
 	}
 
+	internal readonly struct ScriptQueueEntry(long priority, Func<ScriptEventExecutionResult> execute)
+	{
+		internal readonly long Priority = priority;
+		internal readonly Func<ScriptEventExecutionResult> Execute = execute;
+	}
+
 	internal sealed class ScriptEventScheduler
 	{
 		private readonly object gate = new();
 		private readonly Lock ownedDelegateGate = new();
 		private readonly HashSet<DelegateHolder> ownedDelegates = [];
-		private readonly LinkedList<Func<ScriptEventExecutionResult>> interactiveQueue = new();
-		private readonly LinkedList<Func<ScriptEventExecutionResult>> normalQueue = new();
+		private readonly LinkedList<ScriptQueueEntry> interactiveQueue = new();
+		private readonly LinkedList<ScriptQueueEntry> normalQueue = new();
 		private AutoResetEvent workerPumpSignal = new(false);
 		private int workerDisposed;
 		private int persistentRegistrationCount;
@@ -161,7 +167,7 @@ namespace Keysharp.Runtime
 				return ownedDelegates.Count != 0 ? [.. ownedDelegates] : [];
 		}
 
-		internal bool Enqueue(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> tryExecute)
+		internal bool Enqueue(ScriptEventQueue queueType, long priority, Func<ScriptEventExecutionResult> tryExecute)
 		{
 			if (tryExecute == null)
 				return false;
@@ -171,7 +177,30 @@ namespace Keysharp.Runtime
 				if (IsDisposed)
 					return false;
 
-				GetQueue(queueType).AddLast(tryExecute);
+				var entry = new ScriptQueueEntry(priority, tryExecute);
+				var queue = GetQueue(queueType);
+
+				// Interactive queue is always FIFO (used by InvokeSynchronous — ordering must be strict).
+				// Normal queue uses priority-sorted insertion: higher priority events go before lower ones,
+				// and same-priority events maintain FIFO order (new event goes after existing same-priority events).
+				if (queueType == ScriptEventQueue.Interactive || queue.Count == 0 || priority <= queue.Last.Value.Priority)
+				{
+					queue.AddLast(entry);
+				}
+				else
+				{
+					// Scan backwards to find the last node whose priority >= the new entry's priority,
+					// then insert after it so that same-priority entries stay in FIFO order.
+					var node = queue.Last.Previous;
+
+					while (node != null && node.Value.Priority < priority)
+						node = node.Previous;
+
+					if (node == null)
+						queue.AddFirst(entry);
+					else
+						queue.AddAfter(node, entry);
+				}
 			}
 
 			SchedulePump();
@@ -182,21 +211,21 @@ namespace Keysharp.Runtime
 		{
 			return timer != null
 					&& timer.Callback != null
-					&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteTimerEvent(timer));
+					&& Enqueue(ScriptEventQueue.Normal, timer.Priority, () => TryExecuteTimerEvent(timer));
 		}
 
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
 			=> action != null
-				&& Enqueue(ScriptEventQueue.Normal, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action()));
+				&& Enqueue(ScriptEventQueue.Normal, priority, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action()));
 
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action, bool useTryCatch)
 			=> useTryCatch
 				? EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, () => _ = Keysharp.Internals.Flow.TryCatch(action))
 				: EnqueueThreadLaunch(priority, skipUninterruptible, isCritical, action);
 
-		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal)
+		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType = ScriptEventQueue.Normal, long priority = 0)
 			=> action != null
-				&& Enqueue(queueType, () =>
+				&& Enqueue(queueType, priority, () =>
 			{
 				if (script.hasExited)
 					return ScriptEventExecutionResult.Dropped;
@@ -205,10 +234,10 @@ namespace Keysharp.Runtime
 				return ScriptEventExecutionResult.Executed;
 			});
 
-		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType, bool useTryCatch)
+		internal bool EnqueueCallback(Action action, ScriptEventQueue queueType, bool useTryCatch, long priority = 0)
 			=> useTryCatch
 				? action != null
-					&& Enqueue(queueType, () =>
+					&& Enqueue(queueType, priority, () =>
 					{
 						if (script.hasExited)
 							return ScriptEventExecutionResult.Dropped;
@@ -216,7 +245,7 @@ namespace Keysharp.Runtime
 						_ = Keysharp.Internals.Flow.TryCatch(action);
 						return ScriptEventExecutionResult.Executed;
 					})
-				: EnqueueCallback(action, queueType);
+				: EnqueueCallback(action, queueType, priority);
 
 		internal T InvokeSynchronous<T>(Func<T> func)
 		{
@@ -375,7 +404,7 @@ namespace Keysharp.Runtime
 				SignalWorkerPump();
 		}
 
-		private LinkedList<Func<ScriptEventExecutionResult>> GetQueue(ScriptEventQueue queueType)
+		private LinkedList<ScriptQueueEntry> GetQueue(ScriptEventQueue queueType)
 			=> queueType == ScriptEventQueue.Interactive ? interactiveQueue : normalQueue;
 
 		private bool TryBeginPump()
@@ -412,20 +441,20 @@ namespace Keysharp.Runtime
 
 		private ScriptEventExecutionResult TryProcessNextQueuedEvent(ref int consecutiveInteractiveLocalBlocks, ref int consecutiveNormalLocalBlocks, ref bool preferNormalOnce)
 		{
-			if (!TryGetNextQueuedEvent(preferNormalOnce, out var queueType, out var next))
+			if (!TryGetNextQueuedEvent(preferNormalOnce, out var queueType, out var entry))
 				return ScriptEventExecutionResult.Dropped;
 
 			preferNormalOnce = false;
-			var result = next();
+			var result = entry.Execute();
 
 			if (result == ScriptEventExecutionResult.GlobalBlocked)
 			{
-				RestoreBlockedWork(queueType, next);
+				RestoreBlockedWork(queueType, entry);
 				return result;
 			}
 
 			if (result == ScriptEventExecutionResult.LocalBlocked)
-				return HandleLocalBlock(queueType, next, ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce)
+				return HandleLocalBlock(queueType, entry, ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce)
 					? ScriptEventExecutionResult.LocalBlocked
 					: ScriptEventExecutionResult.Executed;
 
@@ -436,14 +465,14 @@ namespace Keysharp.Runtime
 				: result;
 		}
 
-		private bool TryGetNextQueuedEvent(bool preferNormal, out ScriptEventQueue queueType, out Func<ScriptEventExecutionResult> next)
+		private bool TryGetNextQueuedEvent(bool preferNormal, out ScriptEventQueue queueType, out ScriptQueueEntry entry)
 		{
 			lock (gate)
 			{
 				if (preferNormal && normalQueue.Count != 0)
 				{
 					queueType = ScriptEventQueue.Normal;
-					next = normalQueue.First.Value;
+					entry = normalQueue.First.Value;
 					normalQueue.RemoveFirst();
 					return true;
 				}
@@ -451,7 +480,7 @@ namespace Keysharp.Runtime
 				if (interactiveQueue.Count != 0)
 				{
 					queueType = ScriptEventQueue.Interactive;
-					next = interactiveQueue.First.Value;
+					entry = interactiveQueue.First.Value;
 					interactiveQueue.RemoveFirst();
 					return true;
 				}
@@ -459,31 +488,31 @@ namespace Keysharp.Runtime
 				if (normalQueue.Count != 0)
 				{
 					queueType = ScriptEventQueue.Normal;
-					next = normalQueue.First.Value;
+					entry = normalQueue.First.Value;
 					normalQueue.RemoveFirst();
 					return true;
 				}
 
 				queueType = ScriptEventQueue.Normal;
-				next = null;
+				entry = default;
 				return false;
 			}
 		}
 
-		private void RestoreBlockedWork(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> work)
+		private void RestoreBlockedWork(ScriptEventQueue queueType, ScriptQueueEntry entry)
 		{
 			lock (gate)
-				GetQueue(queueType).AddFirst(work);
+				GetQueue(queueType).AddFirst(entry);
 		}
 
-		private bool HandleLocalBlock(ScriptEventQueue queueType, Func<ScriptEventExecutionResult> work, ref int consecutiveInteractiveLocalBlocks, ref int consecutiveNormalLocalBlocks, ref bool preferNormalOnce)
+		private bool HandleLocalBlock(ScriptEventQueue queueType, ScriptQueueEntry entry, ref int consecutiveInteractiveLocalBlocks, ref int consecutiveNormalLocalBlocks, ref bool preferNormalOnce)
 		{
 			int interactiveCount;
 			int normalCount;
 
 			lock (gate)
 			{
-				GetQueue(queueType).AddLast(work);
+				GetQueue(queueType).AddLast(entry);
 				interactiveCount = interactiveQueue.Count;
 				normalCount = normalQueue.Count;
 			}

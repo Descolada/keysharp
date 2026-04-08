@@ -2116,7 +2116,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (!binding.TryReservePending(scheduler, callback, variant.maxThreads, variant.maxThreadsBuffer))
 					continue;
 
-				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal)))
+				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal)))
 					binding.ReleasePending();
 			}
 		}

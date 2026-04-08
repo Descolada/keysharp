@@ -431,7 +431,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			var script = Script.TheScript;
 			var targetScheduler = ownerScheduler ?? script.UIEventScheduler;
-			_ = targetScheduler.Enqueue(ScriptEventQueue.Interactive, () =>
+			_ = targetScheduler.Enqueue(ScriptEventQueue.Interactive, priority, () =>
 				TryExecuteBufferedHotstringEvent(targetScheduler, criterionFoundHwnd, recheckCriterionOnReceipt, caseMode, endChar, triggerVk));
 			return ResultType.Ok;
 		}

@@ -3522,7 +3522,7 @@ namespace Keysharp.Internals.Input.Hooks
 				case (uint)UserMessages.AHK_HOTSTRING:
 					if (msg.obj is not HotstringMsg hmsg)
 						return false;
-
+					
 					_ = hmsg.hs.PerformInNewThreadMadeByCaller(
 						hmsg.criterionFoundHwnd,
 						hmsg.caseMode,

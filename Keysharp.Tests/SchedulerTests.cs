@@ -43,7 +43,7 @@ namespace Keysharp.Tests
 			var order = new List<string>();
 			var interactiveBlocked = true;
 
-			scheduler.Enqueue(ScriptEventQueue.Interactive, () =>
+			scheduler.Enqueue(ScriptEventQueue.Interactive, 0, () =>
 			{
 				if (interactiveBlocked)
 					return ScriptEventExecutionResult.GlobalBlocked;
@@ -73,7 +73,7 @@ namespace Keysharp.Tests
 			var order = new List<string>();
 			var normalBlocked = true;
 
-			scheduler.Enqueue(ScriptEventQueue.Normal, () =>
+			scheduler.Enqueue(ScriptEventQueue.Normal, 0, () =>
 			{
 				if (normalBlocked)
 					return ScriptEventExecutionResult.GlobalBlocked;

@@ -661,7 +661,13 @@ namespace Keysharp.Parsing
         {
             var targetLabel = parser.LoopStack.Peek().Label;
             if (context.propertyName() != null)
-				targetLabel = parser.GetIdentifierInfo(context.propertyName().GetText()).Trimmed;
+            {
+                targetLabel = parser.GetIdentifierInfo(context.propertyName().GetText()).Trimmed;
+                if (int.TryParse(targetLabel, out int result) && result <= parser.loopDepth && result > 0)
+                {
+                    targetLabel = (parser.loopDepth + 1 - result).ToString();
+                }
+            }
             targetLabel = LoopEnumeratorBaseName + targetLabel + "_next";
 
             // Generate the goto statement

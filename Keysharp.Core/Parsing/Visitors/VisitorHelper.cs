@@ -433,9 +433,7 @@ namespace Keysharp.Parsing
 						string name = ((IdentifierNameSyntax)node).Identifier.Text;
 
 						if (currentFunc.Scope == eScope.Static)
-						{
 							currentFunc.Statics.Add(name);
-						}
 
 						if (currentFunc.Scope == eScope.Global)
 						{
@@ -820,79 +818,28 @@ namespace Keysharp.Parsing
         // See also: IsVarDeclaredLocally
 		internal string IsLocalVar(string name, bool caseSense = true)
         {
-			bool MatchesBodyLocal(Function func)
-			{
-				if (func.Body == null)
-					return false;
-				foreach (var declaration in func.Body.OfType<LocalDeclarationStatementSyntax>())
-				{
-					var match = caseSense
-						? declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text == name)
-						: declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-					if (match != null)
-						return true;
-				}
-				return false;
-			}
-
-            if (caseSense)
-            {
-                if (currentFunc.Locals.ContainsKey(name) || currentFunc.Statics.Contains(name))
-                    return name;
-            }
-            else
-            {
-                string match = currentFunc.Locals.Keys.FirstOrDefault(v => v.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                if (match != null)
-                    return match;
-                match = currentFunc.Statics.FirstOrDefault(v => v.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                if (match != null)
-                    return match;
-            }
-
-			if (MatchesBodyLocal(currentFunc))
-				return name;
-
-			if (currentFunc.Params != null)
-			{
-				var parameterMatch = currentFunc.Params.FirstOrDefault(param =>
-					caseSense ? param.Identifier.Text == name
-							  : param.Identifier.Text.Equals(name, StringComparison.OrdinalIgnoreCase));
-				if (parameterMatch != null)
-					return parameterMatch.Identifier.Text;
-			}
+			if (currentFunc.TryGetLocalName(name, out var localName, caseSense))
+				return localName;
+			if (currentFunc.TryGetStaticName(name, out var staticName, caseSense))
+				return staticName;
+			if (currentFunc.Params.TryGetName(name, out var parameterName, caseSense))
+				return parameterName;
 
 			if (!currentFunc.Static)
             {
-                // Skip the UserMainFunction function in the stack and check the rest
-                foreach (var (func, _) in FunctionStack.SkipLast(1))
+                var remaining = FunctionStack.Count;
+                foreach (var (func, _) in FunctionStack)
                 {
-					if (caseSense)
-                    {
-                        if (func.Locals.ContainsKey(name) || func.Statics.Contains(name))
-                            return name;
-                    }
-                    else
-                    {
-                        string match = func.Locals.Keys.FirstOrDefault(v => v.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                        if (match != null)
-                            return match;
-                        match = func.Statics.FirstOrDefault(v => v.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                        if (match != null)
-                            return match;
-                    }
+					remaining--;
+					if (remaining == 0)
+						break;
 
-					if (MatchesBodyLocal(func))
-						return name;
-
-					if (func.Params != null)
-					{
-						var parameterMatch = func.Params.FirstOrDefault(param =>
-							caseSense ? param.Identifier.Text == name
-									  : param.Identifier.Text.Equals(name, StringComparison.OrdinalIgnoreCase));
-						if (parameterMatch != null)
-							return parameterMatch.Identifier.Text;
-					}
+					if (func.TryGetLocalName(name, out localName, caseSense))
+						return localName;
+					if (func.TryGetStaticName(name, out staticName, caseSense))
+						return staticName;
+					if (func.Params.TryGetName(name, out var parentParameterName, caseSense))
+						return parentParameterName;
 
                     if (func.Static)
                         break;
@@ -906,56 +853,30 @@ namespace Keysharp.Parsing
         internal string IsVarRef(string name)
         {
             string match = null;
-            if (currentFunc.VarRefs.TryGetValue(name, out match))
+            if (currentFunc.TryGetVarRefName(name, out match))
                 return match;
 
-            foreach (var (func, _) in FunctionStack.SkipLast(1))
+            var remaining = FunctionStack.Count;
+            foreach (var (func, _) in FunctionStack)
             {
-                if (func.VarRefs.TryGetValue(name, out match))
+                remaining--;
+                if (remaining == 0)
+                    break;
+
+                if (func.TryGetVarRefName(name, out match))
                     return match;
             }
-            return null;
-        }
-
-        internal string IsStaticVar(string name)
-        {
-            if (currentFunc.Statics.TryGetValue(name, out var match))
-                return match;
             return null;
         }
 
         // Checks whether a local or static variable has been declared in the C# function body
         internal string IsVarDeclaredLocally(string name, bool caseSense = true)
         {
-            if (currentFunc.Body == null)
-                return null;
-
-            if (currentFunc.Params != null)
-            {
-                var parameterMatch = currentFunc.Params.FirstOrDefault(param =>
-                    caseSense ? param.Identifier.Text == name
-                              : param.Identifier.Text.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (parameterMatch != null)
-                    return parameterMatch.Identifier.Text;
-            }
-
             var localMatch = IsLocalVar(name, caseSense);
             if (localMatch != null) return localMatch;
 
-            var variableDeclarations = currentFunc.Body.OfType<LocalDeclarationStatementSyntax>();
-            if (variableDeclarations != null)
-            {
-                foreach (var declaration in variableDeclarations)
-                {
-                    VariableDeclaratorSyntax match;
-                    if (caseSense)
-                        match = declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text == name);
-                    else
-                        match = declaration.Declaration.Variables.FirstOrDefault(v => v.Identifier.Text.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                    if (match != null)
-                        return match.Identifier.Text;
-                }
-            }
+			if (currentFunc.TryGetBodyLocalName(name, out var bodyLocalName, caseSense))
+				return bodyLocalName;
 
             if (IsStaticDefinedInThisOrParent(name) is string staticName && staticName != null)
                 return staticName;
@@ -969,17 +890,22 @@ namespace Keysharp.Parsing
 			var localKey = name.ToLowerInvariant();
             string staticName = MakeStaticLocalFieldName(currentFunc, name);
 
-            if (currentFunc.Statics.Contains(staticName)) return staticName;
-            if (currentFunc.Locals.ContainsKey(localKey)) return null;
+            if (currentFunc.TryGetStaticName(staticName, out _)) return staticName;
+            if (currentFunc.TryGetLocalName(localKey, out _, false) || currentFunc.TryGetBodyLocalName(name, out _, false)) return null;
 
+            var remaining = FunctionStack.Count;
             foreach (var (f, _) in FunctionStack)
             {
+                remaining--;
+                if (remaining == 0)
+                    break;
+
                 if (f.Name == Keywords.AutoExecSectionName)
                     break;
 
                 staticName = MakeStaticLocalFieldName(f, name);
-                if (f.Statics.Contains(staticName)) return staticName;
-                if (f.Locals.ContainsKey(localKey)) return null;
+                if (f.TryGetStaticName(staticName, out _)) return staticName;
+                if (f.TryGetLocalName(localKey, out _, false) || f.TryGetBodyLocalName(name, out _, false)) return null;
             }
             return null;
         }
@@ -989,14 +915,13 @@ namespace Keysharp.Parsing
         {
             if (caseSense)
             {
-                if (currentFunc.Globals.Contains(name))
-                    return name;
+                if (currentFunc.TryGetGlobalName(name, out var globalName, true))
+                    return globalName;
             }
             else
             {
-                string match = currentFunc.Globals.FirstOrDefault(v => v.Equals(name, StringComparison.InvariantCultureIgnoreCase));
-                if (match != null)
-                    return match;
+                if (currentFunc.TryGetGlobalName(name, out var globalName, false))
+                    return globalName;
             }
             return null;
         }
@@ -1004,41 +929,14 @@ namespace Keysharp.Parsing
         // Checks for a field declaration in a specific class
         internal string IsVarDeclaredInClass(Class cls, string name, bool caseSense = true)
         {
-            var body = cls.Body;
-			var currentCount = body.Count;
-
-			if (cls.lastCheckedBodyCount < currentCount)
-            {
-				for (int i = cls.lastCheckedBodyCount; i < currentCount; i++)
-                {
-					if (body[i] is FieldDeclarationSyntax fds)
-					{
-						foreach (var varSyntax in fds.Declaration.Variables)
-						{
-							var identifier = varSyntax.Identifier.Text;
-							cls.cachedFieldNames.Add(identifier);
-						}
-					}
-					else if (body[i] is PropertyDeclarationSyntax pds)
-					{
-						cls.cachedFieldNames.Add(pds.Identifier.Text);
-					}
-				}
-                cls.lastCheckedBodyCount = currentCount;
-
-			}
-            if (caseSense)
-            {
-                if (cls.cachedFieldNames.Contains(name))
-                    return name;
-            }
-            else
-            {
-                var match = cls.cachedFieldNames.FirstOrDefault(s => s.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (match != null) return match;
-            }
-
-            return null;
+			return cls.Body.TryGetName(
+				name,
+				out var actualName,
+				caseSense,
+				predicate: static member => member is FieldDeclarationSyntax or PropertyDeclarationSyntax
+			)
+				? actualName
+				: null;
 		}
 
         internal string IsVarDeclaredGlobally(string name, bool caseSense = true)
@@ -1051,47 +949,27 @@ namespace Keysharp.Parsing
             var builtin = IsBuiltInMethod(name, caseSense);
             if (builtin != null) return builtin;
 
-            builtin = IsBuiltInProperty(name, caseSense, true);
+            builtin = IsBuiltInProperty(name, caseSense);
             if (builtin != null) return builtin;
 
-            if (Script.TheScript.ReflectionsData.stringToTypes.ContainsKey(name))
-                return caseSense ? ((Script.TheScript.ReflectionsData.stringToTypes.FirstOrDefault(item => item.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Key) == name ? name : null) : name.ToLower();
+            var lookup = Script.TheScript.ReflectionsData.stringToTypes.GetAlternateLookup<ReadOnlySpan<char>>();
+            if (lookup.TryGetValue(name, out var type))
+            {
+                if (!caseSense)
+                    return name.ToLower();
+                var canonicalKey = Script.GetUserDeclaredName(type) ?? type.Name;
+                return string.Equals(canonicalKey, name, StringComparison.Ordinal) ? name : null;
+            }
 
             return null;
         }
 
-        internal string IsBuiltInProperty(string name, bool caseSense = false, bool ignoreExtensionClass = false)
+        internal string IsBuiltInProperty(string name, bool caseSense = false)
         {
-            var script = Script.TheScript;
-			KeyValuePair<string, PropertyInfo> match;
-            if (caseSense && script.ReflectionsData.flatPublicStaticProperties.ContainsKey(name))
-                return name;
-            else
-                match = script.ReflectionsData.flatPublicStaticProperties.FirstOrDefault(v => v.Key.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(name, out var propInfo))
+                return caseSense ? name : propInfo.Name;
 
-            if (!ignoreExtensionClass
-                && match.Key == null
-                && currentClass != null
-                && script.ReflectionsData.stringToTypeProperties.ContainsKey(name))
-            {
-				var currentClassName = currentClass?.FullName;
-				if (currentClassName != null && UserTypes.TryGetValue(currentClassName, out var baseName))
-				{
-					while (UserTypes.TryGetValue(baseName, out var nextBase))
-					{
-						if (string.Equals(baseName, nextBase, StringComparison.OrdinalIgnoreCase))
-							break;
-						baseName = nextBase;
-					}
-
-					var simpleBaseName = GetSimpleTypeName(baseName);
-					if (script.ReflectionsData.stringToTypeProperties[name].Keys
-						.Any(item => item.Name.Equals(simpleBaseName, StringComparison.OrdinalIgnoreCase)))
-						return script.ReflectionsData.stringToTypeProperties
-							.FirstOrDefault(item => item.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Key;
-				}
-            }
-            return match.Key;
+            return null;
         }
 
 		internal string IsBuiltInMethod(string name, bool caseSense = false)
@@ -1129,7 +1007,7 @@ namespace Keysharp.Parsing
                     Parser.PredefinedKeywords.PublicToken,
                     Parser.PredefinedKeywords.StaticToken);
 
-            GlobalClass.Body.Add(fieldDeclaration);
+            GlobalClass.AddBodyField(fieldDeclaration);
 
             return name;
         }
@@ -1218,10 +1096,8 @@ namespace Keysharp.Parsing
             if (!caseSense)
                 name = name.ToLowerInvariant();
 
-            if (currentFunc.Scope == eScope.Static && !currentFunc.Statics.Contains(name))
-            {
+            if (currentFunc.Scope == eScope.Static && !currentFunc.TryGetStaticName(name, out _))
                 currentFunc.Statics.Add(name);
-            }
 
 			if (isPrepass)
 			{
@@ -1245,7 +1121,7 @@ namespace Keysharp.Parsing
             if (currentFunc.Scope == eScope.Local)
             {
                 var localDeclaration = SyntaxFactory.LocalDeclarationStatement(variableDeclaration);
-                currentFunc.Locals[name] = (StatementSyntax)localDeclaration;
+                currentFunc.AddLocalDeclaration(localDeclaration);
                 return name;
             }
 
@@ -1254,7 +1130,7 @@ namespace Keysharp.Parsing
             Parser.PredefinedKeywords.PublicToken,
             Parser.PredefinedKeywords.StaticToken);
 
-            if (currentFunc.Statics.Contains(name) || currentFunc.Scope == eScope.Static)
+            if (currentFunc.TryGetStaticName(name, out _) || currentFunc.Scope == eScope.Static)
             {
                 currentClass.Body.Add(fieldDeclaration);
             }
@@ -1264,7 +1140,7 @@ namespace Keysharp.Parsing
 				if (currentModule.ExportedVars.Contains(baseLower))
 					fieldDeclaration = WithExportAttribute(fieldDeclaration);
 
-                GlobalClass.Body.Add(fieldDeclaration);
+                GlobalClass.AddBodyField(fieldDeclaration);
 				if (!name.StartsWith(Keywords.InternalPrefix, StringComparison.Ordinal))
 					globalVars.Add(name);
 			}
@@ -1289,18 +1165,7 @@ namespace Keysharp.Parsing
 
             string identifier = ToValidIdentifier(functionName);
 
-			var globalBody = GlobalClass.Body;
-			for (int i = 0; i < globalBody.Count; i++)
-            {
-                var mds = globalBody[i];
-                if (mds is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == identifier)
-                {
-                    globalBody[i] = fds;
-                    return identifier;
-                }
-            }
-
-            globalBody.Add(funcObjVariable);
+			GlobalClass.AddBodyField(funcObjVariable);
             return identifier;
         }
 
@@ -1693,7 +1558,7 @@ namespace Keysharp.Parsing
 			if (ResolveUserTypeName(normalizedName, UserTypeLookupMode.TopLevelOnly) != null)
 				return normalizedName;
 
-            var builtin = IsBuiltInProperty(trimmedName, false, true);
+            var builtin = IsBuiltInProperty(trimmedName, false);
             if (builtin != null) return builtin;
 
             // Normalize before checking these, because method and type identifiers will all be lower-case
@@ -1907,22 +1772,6 @@ namespace Keysharp.Parsing
                 return block.RemoveNode(variableDeclaration, SyntaxRemoveOptions.KeepNoTrivia);
 
             return block;
-        }
-
-        public bool RemoveGlobalVariable(string variableName, bool local)
-        {
-            var fieldDeclaration = GlobalClass.Body
-                .OfType<FieldDeclarationSyntax>()
-                .FirstOrDefault(declaration =>
-                    declaration.Declaration.Variables.Any(v => v.Identifier.Text == variableName));
-
-            if (fieldDeclaration != null)
-            {
-                GlobalClass.Body.Remove(fieldDeclaration);
-                return true;
-            }
-
-            return false;
         }
 
         public static ExpressionSyntax ConstructVarRefFromIdentifier(string identifier)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Xml.Linq;
@@ -23,6 +24,7 @@ namespace Keysharp.Parsing
     internal partial class VisitMain : MainParserBaseVisitor<SyntaxNode>
     {
         internal Keysharp.Parsing.Parser parser;
+
         public VisitMain(Keysharp.Parsing.Parser _parser) : base()
         {
             parser = _parser;
@@ -112,7 +114,8 @@ namespace Keysharp.Parsing
 					parser.generalDirectives.TryGetValue("NoMainWindow", out var noMainWindowValue) && noMainWindowValue != null,
 					parser.generalDirectives.TryGetValue("NoTrayIcon", out var noTrayIconValue) && noTrayIconValue != null
 				);
-				parser.mainEntryFunc.Body = mainBodyBlock.Statements.ToList();
+				parser.mainEntryFunc.Body.Clear();
+				parser.mainEntryFunc.Body.AddRange(mainBodyBlock.Statements);
 
 				GenerateGeneralDirectiveStatements();
 
@@ -143,9 +146,6 @@ namespace Keysharp.Parsing
 			// Return "" by default
 			parser.autoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
 			parser.autoExecFunc.Method = parser.autoExecFunc.Assemble();
-
-			if (parser.declaredTopLevelClasses.Count > 0)
-				parser.GlobalClass.Body.InsertRange(0, parser.declaredTopLevelClasses);
 
             parser.GlobalClass.Body.Add(parser.autoExecFunc.Method);
 			EnsureModuleClassConstructors(parser.currentModule.ModuleClass);
@@ -272,8 +272,6 @@ namespace Keysharp.Parsing
 
 			void EmitPrepassSymbols()
 			{
-				var mainClassBody = parser.GlobalClass.Body;
-
 				foreach (var symbol in parser.currentModule.Symbols.All)
 				{
 					if (symbol.EmitKind == SymbolEmitKind.ClassStaticVar)
@@ -286,20 +284,7 @@ namespace Keysharp.Parsing
 						UpsertField(CreateFuncObjField(symbol));
 				}
 
-				void UpsertField(FieldDeclarationSyntax field)
-				{
-					var identifier = field.Declaration.Variables.First().Identifier.Text;
-					for (int i = 0; i < mainClassBody.Count; i++)
-					{
-						if (mainClassBody[i] is FieldDeclarationSyntax fds
-							&& fds.Declaration.Variables.First().Identifier.Text == identifier)
-						{
-							mainClassBody[i] = field;
-							return;
-						}
-					}
-					mainClassBody.Add(field);
-				}
+				void UpsertField(FieldDeclarationSyntax field) => parser.GlobalClass.UpsertBodyField(field);
 
 				FieldDeclarationSyntax CreateClassStaticVarField(ParserSymbolInfo symbol)
 				{
@@ -628,7 +613,7 @@ namespace Keysharp.Parsing
         private List<StatementSyntax> HandleSourceElements(SourceElementContext[] sourceElements)
         {
 			// Collect all visited statements
-			var statements = new List<StatementSyntax>();
+			var statements = new List<StatementSyntax>(sourceElements.Length);
 			StatementContext stmt;
 
             for (int i = 0; i < sourceElements.Length; i++)
@@ -673,10 +658,17 @@ namespace Keysharp.Parsing
 				}
 				if (visited is BlockSyntax block)
 				{
-					if (block.GetAnnotatedNodes("MergeStart").FirstOrDefault() != null)
-						statements = block.WithoutAnnotations("MergeStart").Statements.Concat(statements).ToList();
-					else if (block.GetAnnotatedNodes("MergeEnd").FirstOrDefault() != null)
+					if (block.GetAnnotations("MergeStart").Any())
+					{
+						var merged = new List<StatementSyntax>(block.Statements.Count + statements.Count);
+						merged.AddRange(block.WithoutAnnotations("MergeStart").Statements);
+						merged.AddRange(statements);
+						statements = merged;
+					}
+					else if (block.GetAnnotations("MergeEnd").Any())
+					{
 						statements.AddRange(block.WithoutAnnotations("MergeEnd").Statements);
+					}
 					else
 						statements.Add(EnsureStatementSyntax(visited));
 				}
@@ -694,9 +686,26 @@ namespace Keysharp.Parsing
 			return statements;
 		}
 
-        public override SyntaxNode VisitSourceElement([NotNull] SourceElementContext context)
+		public override SyntaxNode VisitSourceElement([NotNull] SourceElementContext context)
         {
-            return base.VisitSourceElement(context);
+			if (context.classDeclaration() != null)
+				return VisitClassDeclaration(context.classDeclaration());
+			if (context.positionalDirective() != null)
+				return Visit(context.positionalDirective());
+			if (context.remap() != null)
+				return Visit(context.remap());
+			if (context.hotstring() != null)
+				return VisitHotstring(context.hotstring());
+			if (context.hotkey() != null)
+				return VisitHotkey(context.hotkey());
+			if (context.importStatement() != null)
+				return VisitImportStatement(context.importStatement());
+			if (context.exportStatement() != null)
+				return VisitExportStatement(context.exportStatement());
+			if (context.statement() != null)
+				return VisitStatement(context.statement());
+
+			return null;
         }
 
 		public override SyntaxNode VisitImportStatement([NotNull] ImportStatementContext context)
@@ -1044,7 +1053,42 @@ namespace Keysharp.Parsing
                 return result;
             }
 
-			return Visit(context.GetChild(0));
+			if (context.variableStatement() != null)
+				return VisitVariableStatement(context.variableStatement());
+			if (context.ifStatement() != null)
+				return VisitIfStatement(context.ifStatement());
+			if (context.continueStatement() != null)
+				return VisitContinueStatement(context.continueStatement());
+			if (context.breakStatement() != null)
+				return VisitBreakStatement(context.breakStatement());
+			if (context.returnStatement() != null)
+				return VisitReturnStatement(context.returnStatement());
+			if (context.yieldStatement() != null)
+				return Visit(context.yieldStatement());
+			if (context.labelledStatement() != null)
+				return VisitLabelledStatement(context.labelledStatement());
+			if (context.gotoStatement() != null)
+				return VisitGotoStatement(context.gotoStatement());
+			if (context.switchStatement() != null)
+				return VisitSwitchStatement(context.switchStatement());
+			if (context.throwStatement() != null)
+				return VisitThrowStatement(context.throwStatement());
+			if (context.tryStatement() != null)
+				return VisitTryStatement(context.tryStatement());
+			if (context.awaitStatement() != null)
+				return Visit(context.awaitStatement());
+			if (context.deleteStatement() != null)
+				return Visit(context.deleteStatement());
+			if (context.blockStatement() != null)
+				return VisitBlockStatement(context.blockStatement());
+			if (context.functionDeclaration() != null)
+				return VisitFunctionDeclaration(context.functionDeclaration());
+			if (context.functionStatement() != null)
+				return VisitFunctionStatement(context.functionStatement());
+			if (context.expressionStatement() != null)
+				return VisitExpressionStatement(context.expressionStatement());
+
+			return null;
 		}
 
 		public override SyntaxNode VisitExportStatement([NotNull] ExportStatementContext context)
@@ -1182,6 +1226,11 @@ namespace Keysharp.Parsing
         // Special keywords do not get @ added here
         public override SyntaxNode VisitIdentifier([NotNull] IdentifierContext context)
         {
+			return VisitIdentifierCore(context);
+        }
+
+		private SyntaxNode VisitIdentifierCore(IdentifierContext context)
+		{
 			var info = parser.GetIdentifierInfo(context.GetText());
 			var text = info.Trimmed;
 
@@ -1208,12 +1257,12 @@ namespace Keysharp.Parsing
 				}
             }
 
-            return HandleIdentifierName(text);
+            return HandleIdentifierName(info);
         }
 
-        private SyntaxNode HandleIdentifierName(string text)
-        {
-			var info = parser.GetIdentifierInfo(text);
+		private SyntaxNode HandleIdentifierName(Parser.IdentifierInfo info)
+		{
+			var text = info.Trimmed;
             text = parser.NormalizeFunctionIdentifier(info.Trimmed);
 
 			var normalizedInfo = text.Equals(info.NormalizedLower, StringComparison.Ordinal) || text.Equals(info.Trimmed, StringComparison.Ordinal)
@@ -1231,7 +1280,6 @@ namespace Keysharp.Parsing
             var vr = parser.IsVarRef(text);
             if (vr != null)
             {
-                var debug = parser.currentFunc;
                 // If it's a VarRef, access the __Value member
                 return ((InvocationExpressionSyntax)InternalMethods.GetPropertyValue)
                 .WithArgumentList(
@@ -1266,13 +1314,13 @@ namespace Keysharp.Parsing
 
         public override SyntaxNode VisitKeyword([NotNull] KeywordContext context)
         {
-            return HandleIdentifierName(parser.GetIdentifierInfo(context.GetText()).BaseLower);
+            return HandleIdentifierName(parser.GetIdentifierInfo(context.GetText()));
         }
 
         public override SyntaxNode VisitIdentifierName([NotNull] IdentifierNameContext context)
         {
             if (context.identifier() != null)
-                return VisitIdentifier(context.identifier());
+                return VisitIdentifierCore(context.identifier());
             return SyntaxFactory.IdentifierName(parser.GetIdentifierInfo(context.GetText()).BaseLower);
         }
 
@@ -1429,9 +1477,9 @@ namespace Keysharp.Parsing
         public override SyntaxNode VisitArguments([NotNull] ArgumentsContext context)
         {
 
-            var arguments = new List<SyntaxNode>();
+            var arguments = new List<ArgumentSyntax>();
+            List<CollectionElementSyntax> collectionElements = null;
             bool lastIsComma = true;
-            bool containsSpread = false;
             int lastDefinedElement = 0;
             for (var i = 0; i < context.ChildCount; i++)
             {
@@ -1448,7 +1496,12 @@ namespace Keysharp.Parsing
                 if (isComma)
                 {
                     if (lastIsComma)
-                        arguments.Add(PredefinedKeywords.NullLiteral);
+                    {
+						if (collectionElements == null)
+							arguments.Add(SyntaxFactory.Argument(PredefinedKeywords.NullLiteral));
+						else
+							collectionElements.Add(SyntaxFactory.ExpressionElement(PredefinedKeywords.NullLiteral));
+					}
 
                     goto ShouldVisitNextChild;
                 }
@@ -1456,16 +1509,27 @@ namespace Keysharp.Parsing
                 if (arg != null)
                 {
                     if (arg is ExpressionSyntax)
-                        arguments.Add(arg);
+                    {
+						if (collectionElements == null)
+							arguments.Add(SyntaxFactory.Argument((ExpressionSyntax)arg));
+						else
+							collectionElements.Add(SyntaxFactory.ExpressionElement((ExpressionSyntax)arg));
+					}
                     else if (arg is SpreadElementSyntax)
                     {
-                        arguments.Add(arg);
-                        containsSpread = true;
+						if (collectionElements == null)
+						{
+							collectionElements = new List<CollectionElementSyntax>(arguments.Count + 1);
+							foreach (var argument in arguments)
+								collectionElements.Add(SyntaxFactory.ExpressionElement(argument.Expression));
+						}
+
+                        collectionElements.Add((SpreadElementSyntax)arg);
                     }
                     else
                         throw new Error("Unknown argument type");
 
-                    lastDefinedElement = arguments.Count;
+                    lastDefinedElement = collectionElements?.Count ?? arguments.Count;
                 }
                 else
                     throw new Error("Unknown function argument");
@@ -1474,35 +1538,27 @@ namespace Keysharp.Parsing
                 lastIsComma = isComma;
             }
 
-            if (arguments.Count > lastDefinedElement)
-                arguments.RemoveRange(lastDefinedElement, arguments.Count - lastDefinedElement);
-
-            if (!containsSpread)
+            if (collectionElements == null)
             {
-                // No spread elements present, wrap all elements in ArgumentSyntax and return as ArgumentListSyntax
-                return CreateArgumentList(arguments);
+                if (arguments.Count > lastDefinedElement)
+                    arguments.RemoveRange(lastDefinedElement, arguments.Count - lastDefinedElement);
+
+				if (arguments.Count == 1)
+					return SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(arguments[0]));
+
+                return SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(arguments));
             }
 
-            // If spread elements are present, convert all elements into CollectionElements
-            var collectionElements = new List<CollectionElementSyntax>();
-
-            foreach (var node in arguments)
-            {
-                if (node is ExpressionSyntax expr)
-                {
-                    collectionElements.Add(SyntaxFactory.ExpressionElement(expr));
-                }
-                else if (node is SpreadElementSyntax spread)
-                {
-                    collectionElements.Add(spread);
-                }
-            }
+            if (collectionElements.Count > lastDefinedElement)
+                collectionElements.RemoveRange(lastDefinedElement, collectionElements.Count - lastDefinedElement);
 
             // Create a CollectionExpressionSyntax
             var collectionExpression = SyntaxFactory.CollectionExpression(SyntaxFactory.SeparatedList(collectionElements));
 
             // Wrap in a single argument and return
-            return CreateArgumentList(collectionExpression);
+            return SyntaxFactory.ArgumentList(
+				SyntaxFactory.SingletonSeparatedList(
+					SyntaxFactory.Argument(collectionExpression)));
         }
 
         public override SyntaxNode VisitArgument([NotNull] ArgumentContext context)
@@ -1673,10 +1729,8 @@ namespace Keysharp.Parsing
 
         public override SyntaxNode VisitIfStatement([NotNull] IfStatementContext context)
         {
-            var arguments = new List<ExpressionSyntax>() {
-                (ExpressionSyntax)Visit(context.singleExpression())
-            };
-            var argumentList = CreateArgumentList(arguments);
+            var condition = (ExpressionSyntax)Visit(context.singleExpression());
+            var argumentList = CreateArgumentList(condition);
 
             BlockSyntax ifBlock = (BlockSyntax)Visit(context.flowBlock());
 			BlockSyntax elseProduction = null;
@@ -2123,18 +2177,14 @@ namespace Keysharp.Parsing
                     modifiers = SyntaxFactory.TokenList(updatedModifiers);
 
                     // Modify the top-level field declaration to not assign the closure
-					var mainClassBody = parser.GlobalClass.Body;
-					for (int i = 0; i < mainClassBody.Count; i++)
+					var globalClass = parser.GlobalClass;
+					if (globalClass.TryGetBodyField(variableName, out var fds))
 					{
-						if (mainClassBody[i] is FieldDeclarationSyntax fds && fds.Declaration.Variables.First().Identifier.Text == variableName)
-						{
-							var declarator = fds.Declaration.Variables.First();
-							mainClassBody[i] = fds.ReplaceNode(
-								declarator.Initializer.Value,
-								PredefinedKeywords.NullLiteral
-							);
-							break;
-						}
+						var declarator = fds.Declaration.Variables.First();
+						globalClass.UpsertBodyField(fds.ReplaceNode(
+							declarator.Initializer.Value,
+							PredefinedKeywords.NullLiteral
+						));
 					}
 				}
 
@@ -2194,7 +2244,7 @@ namespace Keysharp.Parsing
                     );
 
 					// Add the variable declaration to the beginning of the current function body
-					parentFunc.Locals[variableName] = nullVariableDeclaration;
+					parentFunc.AddLocalDeclaration(nullVariableDeclaration);
 
 					// Add the assignment statement to the `statements` list
 					parentFunc.Body.Add(SyntaxFactory.ExpressionStatement(
@@ -2441,7 +2491,7 @@ namespace Keysharp.Parsing
                     )
                 );
 
-                    parser.currentFunc.Body.Add(statement);
+                    parser.currentFunc.AddLocalDeclaration(statement);
                 }
                 else if (lastFormal.formalParameterArg() != null)
                 {
@@ -2481,7 +2531,7 @@ namespace Keysharp.Parsing
 					if (fi.Static)
 					{
 						var staticName = parser.MakeStaticLocalFieldName(parser.currentFunc, fi.Name);
-						if (!parser.currentFunc.Statics.Contains(staticName))
+						if (!parser.currentFunc.TryGetStaticName(staticName, out _))
 						{
 							// Declare the variable in the containing class
 							parser.currentFunc.Statics.Add(staticName);
@@ -2498,7 +2548,7 @@ namespace Keysharp.Parsing
 							CreateNullObjectVariable(variableName)
 						);
 						// Add the variable declaration to the beginning of the current function body
-						parser.currentFunc.Locals[variableName] = nullVariableDeclaration;
+						parser.currentFunc.AddLocalDeclaration(nullVariableDeclaration);
 					}
 				}
 				else

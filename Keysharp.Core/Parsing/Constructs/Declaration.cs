@@ -2,6 +2,7 @@ using Keysharp.Builtins;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Linq;
 
 namespace Keysharp.Parsing
 {
@@ -15,12 +16,9 @@ namespace Keysharp.Parsing
 			public string UserDeclaredName = null;
 			public string Base = "KeysharpObject";
 			public List<BaseTypeSyntax> BaseList = new();
-			public List<MemberDeclarationSyntax> Body = new List<MemberDeclarationSyntax>();
+			public NamedIndexedCollection<MemberDeclarationSyntax> Body = new(GetBodyMemberName);
 			public List<AttributeSyntax> Attributes = new();
 			public ClassDeclarationSyntax Declaration = null;
-
-			public int lastCheckedBodyCount = 0;
-			public HashSet<string> cachedFieldNames = new();
 
 			public bool isInitialization = false;
 			public readonly List<(ExpressionSyntax BaseExpr, ExpressionSyntax TargetExpr, ExpressionSyntax Initializer)> deferredInitializations = new();
@@ -73,6 +71,35 @@ namespace Keysharp.Parsing
 					.WithBaseList(BaseList.Count > 0 ? SyntaxFactory.BaseList(SyntaxFactory.SeparatedList(BaseList)) : default)
 					.AddMembers(Body.ToArray());
 			}
+
+			internal void AddBodyField(FieldDeclarationSyntax field) => Body.Add(field);
+
+			internal void UpsertBodyField(FieldDeclarationSyntax field)
+			{
+				var name = field.Declaration.Variables.FirstOrDefault()?.Identifier.Text;
+				Body.Upsert(name, field, caseSensitive: false,
+					predicate: static m => m is FieldDeclarationSyntax);
+			}
+
+			internal bool TryGetBodyField(string name, out FieldDeclarationSyntax field)
+			{
+				if (Body.TryGetValue(name, out var member, caseSensitive: false,
+					predicate: static m => m is FieldDeclarationSyntax))
+				{
+					field = (FieldDeclarationSyntax)member;
+					return true;
+				}
+				field = null;
+				return false;
+			}
+
+			private static string GetBodyMemberName(MemberDeclarationSyntax member) => member switch
+			{
+				FieldDeclarationSyntax field => field.Declaration.Variables.FirstOrDefault()?.Identifier.Text,
+				PropertyDeclarationSyntax prop => prop.Identifier.Text,
+				MethodDeclarationSyntax method => method.Identifier.Text,
+				_ => null
+			};
 
 			public bool ContainsMethod(string methodName, bool searchStatic = false, bool caseSensitive = false)
 			{

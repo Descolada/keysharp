@@ -52,7 +52,7 @@ namespace Keysharp.Parsing
 			public List<ImportEntry> Imports = new();
 			public bool ImportsEmitted = false;
 
-			public List<MemberDeclarationSyntax> DeclaredTopLevelClasses = new();
+			public int DeclaredTopLevelClassCount = 0;
 			public Function AutoExecFunc;
 			public Function CurrentFunc;
 			public List<StatementSyntax> DHHR = new();

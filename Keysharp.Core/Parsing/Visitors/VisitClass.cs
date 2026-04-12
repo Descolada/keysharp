@@ -52,9 +52,11 @@ namespace Keysharp.Parsing
 				var resolvedBase = parser.ResolveUserTypeName(baseClassName);
 				if (resolvedBase != null)
 					baseClassName = parser.GetUserTypeCSharpName(resolvedBase);
-                else if (extendsParts.Length == 1 && Script.TheScript.ReflectionsData.stringToTypes.ContainsKey(baseClassName))
+                else if (extendsParts.Length == 1)
                 {
-                    baseClassName = Script.TheScript.ReflectionsData.stringToTypes.First(pair => pair.Key.Equals(baseClassName, StringComparison.InvariantCultureIgnoreCase)).Key;
+                    var lookup = Script.TheScript.ReflectionsData.stringToTypes.GetAlternateLookup<ReadOnlySpan<char>>();
+                    if (lookup.TryGetValue(baseClassName, out var builtInType))
+                        baseClassName = Script.GetUserDeclaredName(builtInType) ?? builtInType.Name;
                 }
                 parser.currentClass.Base = baseClassName;
             }
@@ -102,8 +104,7 @@ namespace Keysharp.Parsing
 				if (isTopLevelExported && fieldDeclaration is PropertyDeclarationSyntax prop)
 					fieldDeclaration = Parser.WithExportAttribute(prop);
 
-				parser.declaredTopLevelClasses.Add(fieldDeclaration);
-                parser.GlobalClass.cachedFieldNames.Add(fieldDeclarationName);
+				parser.GlobalClass.Body.Insert(parser.currentModule.DeclaredTopLevelClassCount++, fieldDeclaration);
             }
 
             // Add the constructor

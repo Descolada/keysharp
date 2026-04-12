@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
+using System.Linq;
 
 namespace Keysharp.Parsing
 {
@@ -184,16 +185,9 @@ namespace Keysharp.Parsing
 		internal bool isMultiModuleParse;
 		internal bool isAssignmentTarget;
 		internal List<List<StatementSyntax>> moduleAutoExecBodies = new();
-		internal List<MemberDeclarationSyntax> allDeclaredTopLevelClasses = new();
 		internal List<string> moduleParseOrder = new();
 
         internal PreReader reader;
-
-		public List<MemberDeclarationSyntax> declaredTopLevelClasses
-		{
-			get => currentModule.DeclaredTopLevelClasses;
-			set => currentModule.DeclaredTopLevelClasses = value;
-		}
 
 		public Function autoExecFunc
 		{
@@ -435,13 +429,13 @@ namespace Keysharp.Parsing
             public string Name = null;
 			public string UserDeclaredName = null; // Original name as declared by the user (before any mangling)
 			public string ImplMethodName = null; // Name of the generated method that implements this function
-			public List<StatementSyntax> Body = new();
-            public List<ParameterSyntax> Params = new();
+			public NamedIndexedCollection<StatementSyntax> Body = new(GetBodyStatementName);
+            public NamedIndexedCollection<ParameterSyntax> Params = new(static param => param.Identifier.Text);
 			public List<AttributeSyntax> Attributes = new();
-			public Dictionary<string, StatementSyntax> Locals = new();
-            public HashSet<string> Globals = new HashSet<string>();
-            public HashSet<string> Statics = new HashSet<string>();
-            public HashSet<string> VarRefs = new HashSet<string>();
+			internal readonly Dictionary<string, LocalDeclarationStatementSyntax> Locals = new(StringComparer.OrdinalIgnoreCase);
+            internal readonly HashSet<string> Globals = new(StringComparer.OrdinalIgnoreCase);
+            internal readonly HashSet<string> Statics = new(StringComparer.OrdinalIgnoreCase);
+            internal readonly HashSet<string> VarRefs = new(StringComparer.OrdinalIgnoreCase);
             public eScope Scope = eScope.Local;
             public ParserRuleContext RootContext;
 
@@ -472,7 +466,7 @@ namespace Keysharp.Parsing
 
 			public BlockSyntax AssembleBody()
             {
-                var statements = Locals.Values.ToList();
+                var statements = new List<StatementSyntax>(Locals.Values);
 
                 if (RequiresDerefFrame && Name != Keywords.AutoExecSectionName)
                 {
@@ -538,7 +532,7 @@ namespace Keysharp.Parsing
 					if (Parent != null && Parent.Name != Keywords.AutoExecSectionName && Parent.RequiresDerefFrame)
 						arguments.Add(SyntaxFactory.Argument(SyntaxFactory.IdentifierName(Parent.DerefsName)));
 
-                    foreach (string localName in Locals.Keys) {
+                    foreach (var localName in Locals.Keys) {
 						if (Variables.IsSpecialName(localName)) continue;
                         arguments.Add(
                             SyntaxFactory.Argument(
@@ -578,7 +572,7 @@ namespace Keysharp.Parsing
 
                 if (!Void)
                 {
-                    bool hasReturn = statements.OfType<ReturnStatementSyntax>().Any();
+                    bool hasReturn = Body.Any(s => s is ReturnStatementSyntax);
 
                     if (!hasReturn)
                     {
@@ -590,7 +584,7 @@ namespace Keysharp.Parsing
             }
 
             public ParameterListSyntax AssembleParams() => SyntaxFactory.ParameterList(
-                SyntaxFactory.SeparatedList<ParameterSyntax>(Params));
+                SyntaxFactory.SeparatedList(Params));
 
 			public AttributeListSyntax AssembleAttributes() => SyntaxFactory.AttributeList(
 	            SyntaxFactory.SeparatedList<AttributeSyntax>(
@@ -634,6 +628,82 @@ namespace Keysharp.Parsing
                     .WithParameterList(AssembleParams())
                     .WithBody(body);
             }
+
+			internal void AddLocalDeclaration(LocalDeclarationStatementSyntax declaration)
+			{
+				var name = GetRequiredLocalDeclarationName(declaration);
+				Locals[name] = declaration;
+			}
+
+			internal bool TryGetLocalName(string name, out string actualName, bool caseSensitive = true)
+			{
+				if (!Locals.TryGetValue(name, out var decl))
+				{
+					actualName = null;
+					return false;
+				}
+
+				actualName = GetLocalDeclarationName(decl);
+				return !caseSensitive || string.Equals(actualName, name, StringComparison.Ordinal);
+			}
+
+			internal bool TryGetGlobalName(string name, out string actualName, bool caseSensitive = true)
+			{
+				if (!Globals.TryGetValue(name, out actualName))
+					return false;
+
+				return !caseSensitive || string.Equals(actualName, name, StringComparison.Ordinal);
+			}
+
+			internal bool TryGetStaticName(string name, out string actualName, bool caseSensitive = true)
+			{
+				if (!Statics.TryGetValue(name, out actualName))
+					return false;
+
+				return !caseSensitive || string.Equals(actualName, name, StringComparison.Ordinal);
+			}
+
+			internal bool TryGetVarRefName(string name, out string actualName, bool caseSensitive = true)
+			{
+				if (!VarRefs.TryGetValue(name, out actualName))
+					return false;
+
+				return !caseSensitive || string.Equals(actualName, name, StringComparison.Ordinal);
+			}
+
+			internal bool TryGetBodyLocalName(string name, out string actualName, bool caseSensitive = true) =>
+				Body.TryGetName(
+					name,
+					out actualName,
+					caseSensitive,
+					predicate: static statement => statement is LocalDeclarationStatementSyntax
+				);
+
+			private static string GetBodyStatementName(StatementSyntax statement)
+			{
+				switch (statement)
+				{
+					case LocalDeclarationStatementSyntax declaration:
+						return GetLocalDeclarationName(declaration);
+					case LocalFunctionStatementSyntax localFunction:
+						return localFunction.Identifier.Text;
+					default:
+						return null;
+				}
+			}
+
+			private static string GetLocalDeclarationName(LocalDeclarationStatementSyntax declaration) =>
+				declaration?.Declaration.Variables.FirstOrDefault()?.Identifier.Text;
+
+			private static string GetRequiredLocalDeclarationName(LocalDeclarationStatementSyntax declaration)
+			{
+				var name = GetLocalDeclarationName(declaration);
+
+				if (string.IsNullOrWhiteSpace(name))
+					throw new InvalidOperationException("Tracked local declarations must contain a variable name.");
+
+				return name;
+			}
         }
 
         public class Loop
@@ -693,7 +763,6 @@ namespace Keysharp.Parsing
             var moduleTokens = reader.ReadScriptTokens(codeStream, name);
 			codeTokens.Clear();
 			moduleAutoExecBodies.Clear();
-			allDeclaredTopLevelClasses.Clear();
 			moduleParseOrder = moduleTokens.ModuleOrder.ToList();
 			isMultiModuleParse = moduleParseOrder.Count > 1;
 
@@ -761,9 +830,7 @@ namespace Keysharp.Parsing
 				isFinalModulePass = i == moduleParseOrder.Count - 1;
 
 				if (parsedPrograms.TryGetValue(moduleName, out var programContext))
-				{
 					compilationUnit = visitor.Visit(programContext);
-				}
 			}
 
 			return (T)(object)compilationUnit;

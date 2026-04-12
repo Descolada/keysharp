@@ -1002,25 +1002,12 @@ namespace Keysharp.Parsing
 		}
 
 		private static bool HasMemberName(Parser.Class cls, string name)
-		{
-			foreach (var member in cls.Body)
-			{
-				if (member is FieldDeclarationSyntax field)
-				{
-					foreach (var variable in field.Declaration.Variables)
-					{
-						if (variable.Identifier.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-							return true;
-					}
-				}
-				else if (member is PropertyDeclarationSyntax prop)
-				{
-					if (prop.Identifier.Text.Equals(name, StringComparison.OrdinalIgnoreCase))
-						return true;
-				}
-			}
-			return false;
-		}
+			=> cls.Body.TryGetName(
+				name,
+				out _,
+				caseSensitive: false,
+				predicate: static member => member is FieldDeclarationSyntax or PropertyDeclarationSyntax
+			);
 
 		private void SetDefaultExport(string name, Parser.Module.DefaultExportKind kind, ParserRuleContext context)
 		{
@@ -1069,4 +1056,3 @@ namespace Keysharp.Parsing
 		}
 	}
 }
-

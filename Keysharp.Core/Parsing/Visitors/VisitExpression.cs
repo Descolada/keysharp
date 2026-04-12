@@ -92,7 +92,7 @@ namespace Keysharp.Parsing
 
         public override SyntaxNode VisitIdentifierExpression([NotNull] IdentifierExpressionContext context)
         {
-            return Visit(context.identifier());
+            return VisitIdentifierCore(context.identifier());
         }
 
         public override SyntaxNode VisitPropertyName([NotNull] PropertyNameContext context)
@@ -106,29 +106,38 @@ namespace Keysharp.Parsing
 			if (useOrNullAccess)
 				_coalesceOrNullAccess = false;
 
-			var suffixes = new List<AccessSuffixContext>();
+			var suffixCount = 0;
 			PrimaryExpressionContext baseContext = context;
-			while (baseContext is AccessExpressionContext accessContext)
+			while (baseContext is AccessExpressionContext accessCountContext)
 			{
-				suffixes.Add(accessContext.accessSuffix());
+				suffixCount++;
+				baseContext = accessCountContext.primaryExpression();
+			}
+
+			var suffixes = new AccessSuffixContext[suffixCount];
+			baseContext = context;
+			for (var i = suffixCount - 1; i >= 0; i--)
+			{
+				var accessContext = (AccessExpressionContext)baseContext;
+				suffixes[i] = accessContext.accessSuffix();
 				baseContext = accessContext.primaryExpression();
 			}
-			suffixes.Reverse();
 
 			var baseExpression = (ExpressionSyntax)Visit(baseContext);
-			return BuildAccessChain(baseExpression, suffixes, useOrNullAccess, suppressFirstOptional: false);
+			return BuildAccessChain(baseExpression, suffixes, 0, useOrNullAccess, suppressFirstOptional: false);
 		}
 
 		private ExpressionSyntax BuildAccessChain(
 			ExpressionSyntax baseExpression,
 			IReadOnlyList<AccessSuffixContext> suffixes,
+			int startIndex,
 			bool useOrNull,
 			bool suppressFirstOptional)
 		{
 			var optionalIndex = -1;
-			for (var i = 0; i < suffixes.Count; i++)
+			for (var i = startIndex; i < suffixes.Count; i++)
 			{
-				if (suppressFirstOptional && i == 0)
+				if (suppressFirstOptional && i == startIndex)
 					continue;
 				if (suffixes[i].modifier != null && suffixes[i].modifier.Type == MainLexer.QuestionMarkDot)
 				{
@@ -140,7 +149,7 @@ namespace Keysharp.Parsing
 			if (optionalIndex >= 0)
 			{
 				var prefix = baseExpression;
-				for (var i = 0; i < optionalIndex; i++)
+				for (var i = startIndex; i < optionalIndex; i++)
 				{
 					if (TryConsumePropertyIndexSuffix(prefix, suffixes, ref i, optionalIndex, useOrNull: false, out var combinedPrefix))
 					{
@@ -153,7 +162,7 @@ namespace Keysharp.Parsing
 				}
 
 				var tempVar = parser.PushTempVar();
-				var guardedExpr = BuildAccessChain(tempVar, suffixes.Skip(optionalIndex).ToList(), useOrNull, suppressFirstOptional: true);
+				var guardedExpr = BuildAccessChain(tempVar, suffixes, optionalIndex, useOrNull, suppressFirstOptional: true);
 				var assigned = SyntaxFactory.AssignmentExpression(
 					SyntaxKind.SimpleAssignmentExpression,
 					tempVar,
@@ -177,7 +186,7 @@ namespace Keysharp.Parsing
 			}
 
 			var current = baseExpression;
-			for (var i = 0; i < suffixes.Count; i++)
+			for (var i = startIndex; i < suffixes.Count; i++)
 			{
 				if (TryConsumePropertyIndexSuffix(current, suffixes, ref i, suffixes.Count, useOrNull && i + 1 == suffixes.Count - 1, out var combinedCurrent))
 				{
@@ -269,10 +278,10 @@ namespace Keysharp.Parsing
                 ? SyntaxFactory.ArgumentList()
                 : (ArgumentListSyntax)Visit(exprArgSeqContext);
 
-            // Prepend the targetExpression as the first argument
-            var fullArgumentList = argumentList.WithArguments(
-                argumentList.Arguments.Insert(0, SyntaxFactory.Argument(targetExpression))
-            );
+            var targetArgument = SyntaxFactory.Argument(targetExpression);
+            ArgumentListSyntax fullArgumentList = argumentList.Arguments.Count == 0
+				? SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(targetArgument))
+				: CreateArgumentList(targetExpression, argumentList.Arguments);
 
             // Generate the invocation: Keysharp.Runtime.Script.GetIndex(target, index)
             var indexInvocation = (useOrNull ? (InvocationExpressionSyntax)InternalMethods.GetIndexOrNull : (InvocationExpressionSyntax)InternalMethods.GetIndex)
@@ -291,35 +300,27 @@ namespace Keysharp.Parsing
                 {
                     throw new Exception("Invalid parse: function expression detected instead of function declaration (bug)");
                 }
-			}
+				var singleExpression = (ExpressionSyntax)Visit(exprContext);
+				singleExpression = EnsureValidStatementExpression(singleExpression);
+				return SyntaxFactory.ExpressionStatement(singleExpression);
+            }
 
-			var sequenceArgList = (ArgumentListSyntax)Visit(sequence);
-			ArgumentListSyntax argumentList = CreateArgumentList(sequenceArgList.Arguments.ToArray());
-
-            ExpressionSyntax singleExpression = null;
+			var argumentList = (ArgumentListSyntax)Visit(sequence);
             if (argumentList.Arguments.Count == 0)
                 throw new Error("Expression count can't be 0");
 
-            singleExpression = argumentList.Arguments[0].Expression;
-
             if (argumentList.Arguments.Count == 1)
-            {
-                // Validate and convert the expression if necessary
-                singleExpression = EnsureValidStatementExpression(singleExpression);
+                return SyntaxFactory.ExpressionStatement(
+                    EnsureValidStatementExpression(argumentList.Arguments[0].Expression));
 
-                return SyntaxFactory.ExpressionStatement(singleExpression);
-            }
-            else
+            var statements = new List<StatementSyntax>(argumentList.Arguments.Count);
+            foreach (var arg in argumentList.Arguments)
             {
-                 // Wrap each expression if needed and create a block
-                return SyntaxFactory.Block(argumentList.Arguments
-                    .Select(arg =>
-                    {
-                        var expression = EnsureValidStatementExpression(arg.Expression);
-                        return SyntaxFactory.ExpressionStatement(expression);
-                    })
-                    .ToList());
+                var expression = EnsureValidStatementExpression(arg.Expression);
+                statements.Add(SyntaxFactory.ExpressionStatement(expression));
             }
+
+            return SyntaxFactory.Block(statements);
         }
 
         private ExpressionSyntax EnsureValidStatementExpression(ExpressionSyntax expression)
@@ -357,7 +358,7 @@ namespace Keysharp.Parsing
 
         public override SyntaxNode VisitExpressionSequence(ExpressionSequenceContext context)
         {
-            var arguments = new List<ExpressionSyntax>();
+            var arguments = new List<ArgumentSyntax>();
 
             bool isComma;
             bool lastWasComma = true;
@@ -376,20 +377,23 @@ namespace Keysharp.Parsing
                 if (isComma)
                 {
                     if (lastWasComma)
-                        arguments.Add(PredefinedKeywords.NullLiteral);
+                        arguments.Add(SyntaxFactory.Argument(PredefinedKeywords.NullLiteral));
 
                     goto ShouldVisitNextChild;
                 }
                 SyntaxNode expr = Visit((SingleExpressionContext)child);
 				if (expr is MethodDeclarationSyntax)
 					return expr;
-				arguments.Add((ExpressionSyntax)expr);
+				arguments.Add(SyntaxFactory.Argument((ExpressionSyntax)expr));
 
                 ShouldVisitNextChild:
                 lastWasComma = isComma;
             }
 
-            return CreateArgumentList(arguments);
+			if (arguments.Count == 1)
+				return SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(arguments[0]));
+
+            return SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(arguments));
         }
 
         /*
@@ -855,12 +859,9 @@ namespace Keysharp.Parsing
             return HandleCoalesceExpression(left, right);
         }
 
-        public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
+		public SyntaxNode HandleUnaryExpressionVisit([NotNull] ParserRuleContext context, int type)
         {
-            var arguments = new List<ExpressionSyntax>() {
-                (ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1))
-            };
-            var argumentList = CreateArgumentList(arguments);
+            var argumentList = CreateArgumentList((ExpressionSyntax)Visit(context.GetChild(context.ChildCount - 1)));
             return SyntaxFactory.InvocationExpression(CreateQualifiedName($"Keysharp.Runtime.Script.{unaryOperators[type]}"), argumentList);
         }
 

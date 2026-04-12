@@ -1336,4 +1336,3 @@ namespace Keysharp.Parsing
 
 	}
 }
-

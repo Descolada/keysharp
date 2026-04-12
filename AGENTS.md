@@ -57,8 +57,9 @@ Build output lands in `bin/Debug/net10.0-windows/` (or the appropriate TFM subfo
 The test suite uses **NUnit 4** and is serialized (`LevelOfParallelism(1)`) because tests share `Script.TheScript` global state. Do not add `[Parallelizable]` attributes.
 
 ```bash
-# Run all tests (Windows)
-dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c Debug
+# Run the curated subset (safe, no user-input required — matches CI)
+dotnet test Keysharp.Tests/Keysharp.Tests.csproj -c Debug --nologo \
+  --filter "Category=Assign|Category=BuiltInVars|Category=Class|Category=Collections|Category=Directives|Category=Flow|Category=Function|Category=Hotstring|Category=Math|Category=Misc|Category=Module|Category=Operator|Category=String|Category=Types|Category=FileAndDir|Category=Network|FullyQualifiedName~SchedulerTests|FullyQualifiedName~MessageFilterTests"
 
 # Run a specific category
 dotnet test Keysharp.Tests/Keysharp.Tests.csproj --filter "Category=Math"
@@ -66,6 +67,10 @@ dotnet test Keysharp.Tests/Keysharp.Tests.csproj --filter "Category=Math"
 # Run a single test
 dotnet test Keysharp.Tests/Keysharp.Tests.csproj --filter "FullyQualifiedName~MathTests.Abs"
 ```
+
+> **Important**: The full `dotnet test` run (without `--filter`) includes tests that require interactive GUI or elevated permissions and will block waiting for user input. Always use the curated filter above (or a narrower category filter) when running tests locally. The same filter is used in CI (`.github/workflows/curated-tests.yml`).
+
+> **Important**: Do not run commands to build parts of the project and run tests at the same time.
 
 Test `.ahk` scripts live in `Keysharp.Tests/Code/`. Each test typically:
 1. Calls a C# built-in directly and checks the return value.

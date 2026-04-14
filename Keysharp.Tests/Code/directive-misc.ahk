@@ -1,5 +1,4 @@
-import * from Ks
-
+#import "Ks" { * }
 #CLIPBOARDTIMEOUT 2000
 #ERRORSTDOUT
 #USEHOOK true

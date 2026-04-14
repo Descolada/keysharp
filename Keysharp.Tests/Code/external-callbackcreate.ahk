@@ -1,5 +1,4 @@
-import { RealThread } from Ks
-
+#import "Ks" { RealThread }
 val := ""
 #if WINDOWS
 callback := CallbackCreate("TheFunc", "&")

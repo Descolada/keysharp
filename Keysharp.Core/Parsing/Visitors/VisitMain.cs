@@ -698,8 +698,6 @@ namespace Keysharp.Parsing
 				return VisitHotstring(context.hotstring());
 			if (context.hotkey() != null)
 				return VisitHotkey(context.hotkey());
-			if (context.importStatement() != null)
-				return VisitImportStatement(context.importStatement());
 			if (context.exportStatement() != null)
 				return VisitExportStatement(context.exportStatement());
 			if (context.statement() != null)
@@ -708,109 +706,11 @@ namespace Keysharp.Parsing
 			return null;
         }
 
-		public override SyntaxNode VisitImportStatement([NotNull] ImportStatementContext context)
-		{
-			if (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass)))
-				throw new ParseException("Import statements cannot be declared inside functions or classes", context);
-
-			var isExported = context.Export() != null;
-			var exportNames = new List<string>();
-			bool exportAll = false;
-
-			var clause = context.importClause();
-			if (clause != null)
-			{
-				if (clause.importNamedFrom() != null)
-				{
-					var import = clause.importNamedFrom();
-					var moduleName = GetModuleName(import.moduleName());
-					var isQuoted = IsQuotedModuleName(import.moduleName());
-					var entry = new Parser.Module.ImportEntry
-					{
-						Kind = Parser.Module.ImportKind.Named,
-						ModuleName = moduleName,
-						IsQuoted = isQuoted,
-						IsExported = isExported,
-						ExportAll = exportAll,
-						ExportNames = exportNames
-					};
-					PopulateImportSpecifiers(entry, import.importList());
-					parser.currentModule.Imports.Add(entry);
-				}
-				else if (clause.importWildcardFrom() != null)
-				{
-					var import = clause.importWildcardFrom();
-					var moduleName = GetModuleName(import.moduleName());
-					parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
-					{
-						Kind = Parser.Module.ImportKind.Wildcard,
-						ModuleName = moduleName,
-						IsQuoted = IsQuotedModuleName(import.moduleName()),
-						IsExported = isExported,
-						ExportAll = exportAll,
-						ExportNames = exportNames
-					});
-				}
-			}
-			else if (context.importModule() != null)
-			{
-				var import = context.importModule();
-				var moduleName = GetModuleName(import.moduleName());
-				var alias = import.identifierName()?.GetText();
-				var isQuoted = IsQuotedModuleName(import.moduleName());
-				var importList = context.importList();
-
-				// import Test { a as b } => named import list from Test (no "from" needed).
-				if (importList != null)
-				{
-					var entry = new Parser.Module.ImportEntry
-					{
-						Kind = Parser.Module.ImportKind.Named,
-						ModuleName = moduleName,
-						IsQuoted = isQuoted,
-						IsExported = isExported,
-						ExportAll = exportAll,
-						ExportNames = exportNames
-					};
-					PopulateImportSpecifiers(entry, importList);
-					parser.currentModule.Imports.Add(entry);
-				}
-				else
-				{
-					if (alias == null && !isQuoted)
-						alias = moduleName;
-					parser.currentModule.Imports.Add(new Parser.Module.ImportEntry
-					{
-						Kind = Parser.Module.ImportKind.ModuleAlias,
-						ModuleName = moduleName,
-						Alias = alias,
-						IsQuoted = isQuoted,
-						IsExported = isExported,
-						ExportAll = exportAll,
-						ExportNames = exportNames
-					});
-				}
-			}
-
-			return SyntaxFactory.Block().WithAdditionalAnnotations(new SyntaxAnnotation("MergeEnd"));
-		}
-
-		private static void PopulateImportSpecifiers(Parser.Module.ImportEntry entry, ImportListContext importList)
-		{
-			if (entry == null || importList?.importSpecifierList() == null)
-				return;
-
-			foreach (var spec in importList.importSpecifierList().importSpecifier())
-			{
-				var name = spec.identifierName(0).GetText();
-				var alias = spec.identifierName().Length > 1 ? spec.identifierName(1).GetText() : name;
-				entry.Specifiers.Add(new Parser.Module.ImportSpecifier { Name = name, Alias = alias });
-			}
-		}
-
 		internal void PrepassCollect(ProgramContext context)
 		{
-			parser.currentModule.Imports.Clear();
+			parser.currentModule.Imports = new List<Parser.Module.ImportEntry>();
+			foreach (var import in parser.currentModule.DirectiveImports)
+				parser.currentModule.Imports.Add(import.Clone());
 			parser.currentModule.ImportsEmitted = false;
 			parser.currentModule.ExportedVars.Clear();
 			parser.currentModule.ExportedFuncs.Clear();
@@ -835,10 +735,7 @@ namespace Keysharp.Parsing
 			parser.currentClass = parser.GlobalClass;
 
 			if (context.sourceElements() != null)
-			{
-				CollectImportsFromSource(context.sourceElements());
 				CollectExportsFromSource(context.sourceElements());
-			}
 
 			CollectReferencedIdentifiers(context);
 
@@ -963,38 +860,6 @@ namespace Keysharp.Parsing
 				parser.currentModule.ReferencedIdentifiers.Add(info.BaseLower);
 				return base.VisitObjectLiteralExpression(context);
 			}
-		}
-
-		private void CollectImportsFromSource(SourceElementsContext context)
-		{
-			foreach (var element in context.sourceElement())
-			{
-				var importStmt = element?.importStatement();
-				if (importStmt != null)
-					VisitImportStatement(importStmt);
-			}
-		}
-
-		private string GetModuleName(ModuleNameContext context)
-		{
-			if (context == null)
-				return string.Empty;
-
-			if (context.identifierName() != null)
-				return context.identifierName().GetText();
-
-			var text = context.StringLiteral()?.GetText() ?? string.Empty;
-			if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
-				return text.Substring(1, text.Length - 2);
-
-			return text;
-		}
-
-		private static bool IsQuotedModuleName(ModuleNameContext context)
-		{
-			if (context == null)
-				return false;
-			return context.StringLiteral() != null;
 		}
 
 		private List<Parser.Module> GetModuleExecutionOrder()

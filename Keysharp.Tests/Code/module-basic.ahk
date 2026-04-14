@@ -3,9 +3,9 @@
 ; Basic module isolation + alias + built-in shadowing via AHK module
 ; =========================
 
-import Other
-import Other as O
-import AHK
+#import Other
+#import Other as O
+#import AHK
 
 ; Our own global var + function in __Main
 MyVar := 1

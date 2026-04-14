@@ -1,5 +1,4 @@
-import { Join } from Ks
-
+#import "Ks" { Join }
 str := Join(",", "1", "2", "3")
 
 if (str == "1,2,3")

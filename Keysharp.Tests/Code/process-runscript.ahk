@@ -1,5 +1,4 @@
-import { RunScript } from Ks
-
+#import "Ks" { RunScript }
 #if WINDOWS
 	hostBinary := "Keysharp.exe"
 	headlessDirectives := ""

@@ -1,4 +1,4 @@
-﻿; =========================
+; =========================
 ; module-order.ahk
 ; Execution order + exports callable before module body executes
 ; =========================
@@ -6,8 +6,8 @@
 ; Export MainReady so other modules can access it via __Main module object.
 export MainReady := 1
 
-import Z
-import Late as LateMod
+#import Z
+#import Late as LateMod
 
 ; ---- Dependency execution: Z imports W and captures WState
 a := Z.ObservedW()
@@ -39,12 +39,12 @@ WState := "W executed"
 export GetWState() => WState
 
 #Module Z
-import W
+#import W
 Observed := W.GetWState()
 export ObservedW() => Observed
 
 #Module Late
-import __Main as Main
+#import __Main as Main
 export GetMainReady() => Main.MainReady
 export GetLateBodyRan() => (IsSet(LateBodyRan) ? LateBodyRan : "")
 LateBodyRan := 1

@@ -1,5 +1,4 @@
-import * from Ks
-
+#import "Ks" { * }
 #Hotstring NoMouse
 
 if (A_DefaultHotstringNoMouse)

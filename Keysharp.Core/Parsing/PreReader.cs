@@ -169,7 +169,6 @@ namespace Keysharp.Parsing
 
             int index = 0;
             bool compiledTokens = true;
-			int pendingImportCodeTokenIndex = -1;
 			int tokenCount = tokens.Count;
 
 			while (index < tokenCount && tokens[index].Type == MainLexer.WS)
@@ -185,8 +184,8 @@ namespace Keysharp.Parsing
 					throw new ParseException($"Unexpected token '{token.Text}'", token);
                 }
 
-                if (token.Type == MainLexer.Hashtag && (index + 1) < tokenCount && tokens[index + 1].Channel != Lexer.DefaultTokenChannel)
-                {
+				if (token.Type == MainLexer.Hashtag && (index + 1) < tokenCount && tokens[index + 1].Channel != Lexer.DefaultTokenChannel)
+				{
                     directiveTokens.Clear();
                     int directiveTokenIndex = index + 1;
                     // Collect all preprocessor directive tokens.
@@ -266,6 +265,20 @@ namespace Keysharp.Parsing
 								codeTokens = GetTokensForModule(result, state.ModuleName);
 							}
                             break;
+						case "IMPORT":
+							{
+								if (directive is not PreprocessorParser.PreprocessorImportDirectiveContext importDirectiveContext)
+									throw new ParseException("Malformed #Import directive.", token.Line, "#" + directiveTokens[0].Text, token.TokenSource.SourceName);
+
+								var parsedImport = ParseImportDirective(importDirectiveContext.importDirective(), token);
+								var currentModule = parser.GetOrCreateModule(state.ModuleName);
+
+								foreach (var importEntry in parsedImport.Entries)
+									currentModule.DirectiveImports.Add(importEntry);
+
+								TryQueueImportModule(parsedImport.ModuleName);
+							}
+							break;
                         case "DLLLOAD":
                             {
                                 var p1 = directiveTokens[1].Text;
@@ -513,9 +526,6 @@ namespace Keysharp.Parsing
 						goto OnlyIncrementIndex;
 					else if (token.Type == MainLexer.EOL && state.SkipLinebreak)
 					{
-						// If the line started with "import" then maybe parse it as an import statement, otherwise converts to an identifier
-						if (pendingImportCodeTokenIndex >= 0)
-							FinalizePendingImportCandidate(token);
 						goto OnlyIncrementIndex;
 					}
 					else
@@ -645,8 +655,6 @@ namespace Keysharp.Parsing
 							state.SkipWhitespace = state.SkipLinebreak = true;
 							break;
 						case MainLexer.EOL:
-							if (pendingImportCodeTokenIndex >= 0)
-								FinalizePendingImportCandidate(token);
 							PopWhitespaces(codeTokens.Count);
 							state.SkipWhitespace = state.SkipLinebreak = true;
 							break;
@@ -752,7 +760,6 @@ namespace Keysharp.Parsing
                             goto SkipAdd;
 						case MainLexer.Throw:
 						case MainLexer.Delete:
-						case MainLexer.Import:
 						case MainLexer.Export:
 						case MainLexer.Await:
 						case MainLexer.Yield:
@@ -760,8 +767,6 @@ namespace Keysharp.Parsing
 							{
 								if ((index + 1) < tokenCount && tokens[index + 1].Type == MainLexer.WS)
 									index++;
-								if (token.Type == MainLexer.Import && pendingImportCodeTokenIndex < 0)
-									pendingImportCodeTokenIndex = codeTokens.Count;
 							}
 							break;
 						case MainLexer.HotIf:
@@ -798,12 +803,6 @@ namespace Keysharp.Parsing
 
 			OnlyIncrementIndex:
 				index++;
-			}
-
-			if (pendingImportCodeTokenIndex >= 0)
-			{
-				var finalToken = tokens.Count > 0 ? tokens[^1] : null;
-				FinalizePendingImportCandidate(finalToken);
 			}
 
 			bool IsOpenBraceObjectLiteral()
@@ -970,95 +969,6 @@ namespace Keysharp.Parsing
 				return ++i < tokens.Count && (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL);
 			}
 
-			void FinalizePendingImportCandidate(IToken lineEndToken)
-			{
-				try
-				{
-					if (pendingImportCodeTokenIndex < 0 || pendingImportCodeTokenIndex >= codeTokens.Count)
-						return;
-
-					var pendingImportToken = codeTokens[pendingImportCodeTokenIndex];
-
-					if (pendingImportToken.Type != MainLexer.Import)
-						return;
-
-					if (TryProbeImportStatementFromCodeTokens(pendingImportCodeTokenIndex, lineEndToken, out var moduleName)
-						&& !string.IsNullOrWhiteSpace(moduleName))
-					{
-						if (compiledTokens)
-							TryQueueImportModule(moduleName);
-					}
-					else
-					{
-						(pendingImportToken as CommonToken)?.Type = MainLexer.Identifier;
-					}
-				}
-				finally
-				{
-					pendingImportCodeTokenIndex = -1;
-				}
-			}
-
-			bool TryProbeImportStatementFromCodeTokens(int startCodeTokenIndex, IToken lineEndToken, out string moduleName)
-			{
-				moduleName = null;
-				var probeTokens = codeTokens[startCodeTokenIndex..^0];
-
-				if (probeTokens.Count == 0)
-					return false;
-
-				probeTokens.Add(lineEndToken);
-
-				var probeTokenSource = new ListTokenSource(probeTokens);
-				var probeTokenStream = new CommonTokenStream(probeTokenSource);
-				var probeParser = new MainParser(probeTokenStream);
-				probeParser.RemoveErrorListeners();
-				probeParser.ErrorHandler = new BailErrorStrategy();
-
-				try
-				{
-					var sourceElement = probeParser.sourceElement();
-					var importStatement = sourceElement?.importStatement();
-					if (importStatement == null)
-						return false;
-
-					moduleName = ExtractImportModuleName(importStatement);
-					return !string.IsNullOrWhiteSpace(moduleName);
-				}
-				catch
-				{
-					return false;
-				}
-			}
-
-			static string ExtractImportModuleName(MainParser.ImportStatementContext importStatement)
-			{
-				if (importStatement == null)
-					return null;
-
-				MainParser.ModuleNameContext moduleContext = null;
-				var clause = importStatement.importClause();
-
-				if (clause?.importNamedFrom() != null)
-					moduleContext = clause.importNamedFrom().moduleName();
-				else if (clause?.importWildcardFrom() != null)
-					moduleContext = clause.importWildcardFrom().moduleName();
-				else if (importStatement.importModule() != null)
-					moduleContext = importStatement.importModule().moduleName();
-
-				if (moduleContext == null)
-					return null;
-
-				if (moduleContext.identifierName() != null)
-					return moduleContext.identifierName().GetText();
-
-				var text = moduleContext.StringLiteral()?.GetText() ?? string.Empty;
-				if (text.Length >= 2 && (text[0] == '"' || text[0] == '\''))
-					text = text[1..^1];
-
-				return text;
-			}
-
 			void TryQueueImportModule(string moduleName)
 			{
 				if (string.IsNullOrWhiteSpace(moduleName))
@@ -1116,6 +1026,110 @@ namespace Keysharp.Parsing
 					break;
 			}
 		}
+
+		private sealed class ParsedImportDirective
+		{
+			internal string ModuleName;
+			internal List<Parser.Module.ImportEntry> Entries { get; } = [];
+		}
+
+		private ParsedImportDirective ParseImportDirective(PreprocessorParser.ImportDirectiveContext context, IToken errorToken)
+		{
+			if (context?.importModule() == null)
+				throw new ParseException("Malformed #Import directive.", errorToken.Line, "#import", errorToken.TokenSource.SourceName);
+
+			var exportMember = context.Export() != null;
+			var importModule = context.importModule();
+			var moduleNameContext = importModule.importModuleName();
+			var moduleToken = moduleNameContext?.importDirectiveIdentifier()?.GetText()
+				?? moduleNameContext?.StringLiteral()?.GetText()
+				?? string.Empty;
+			var alias = importModule.importDirectiveIdentifier()?.GetText();
+			var wildcard = false;
+			var specifiers = new List<Parser.Module.ImportSpecifier>();
+
+			foreach (var specifierContext in context.importList()?.importSpecifierList()?.importSpecifier() ?? [])
+			{
+				if (specifierContext.Multiply() != null)
+				{
+					if (wildcard)
+						throw new ParseException("Wildcard import can only be specified once per #Import directive.", errorToken.Line, "#import", errorToken.TokenSource.SourceName);
+
+					wildcard = true;
+					continue;
+				}
+
+				var identifiers = specifierContext.importDirectiveIdentifier();
+				if (identifiers == null || identifiers.Length == 0)
+					throw new ParseException("Malformed #Import directive member.", errorToken.Line, "#import", errorToken.TokenSource.SourceName);
+
+				var name = identifiers[0].GetText();
+				var specifierAlias = identifiers.Length > 1 ? identifiers[1].GetText() : name;
+
+				specifiers.Add(new Parser.Module.ImportSpecifier
+				{
+					Name = name,
+					Alias = specifierAlias
+				});
+			}
+
+			var isQuoted = moduleNameContext?.StringLiteral() != null;
+			var moduleName = isQuoted ? UnquoteStringLiteral(moduleToken) : moduleToken;
+			var hasImportList = wildcard || specifiers.Count > 0;
+			var shouldImportDefaultExport = !string.IsNullOrWhiteSpace(alias) || !isQuoted;
+			var result = new ParsedImportDirective
+			{
+				ModuleName = moduleName
+			};
+
+			if (shouldImportDefaultExport || !hasImportList)
+			{
+				result.Entries.Add(new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.ModuleAlias,
+					ModuleName = moduleName,
+					Alias = shouldImportDefaultExport ? alias ?? moduleName : null,
+					IsQuoted = isQuoted,
+					IsExported = exportMember
+				});
+			}
+
+			if (wildcard)
+			{
+				result.Entries.Add(new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.Wildcard,
+					ModuleName = moduleName,
+					IsQuoted = isQuoted,
+					IsExported = exportMember
+				});
+			}
+
+			if (specifiers.Count > 0)
+			{
+				var entry = new Parser.Module.ImportEntry
+				{
+					Kind = Parser.Module.ImportKind.Named,
+					ModuleName = moduleName,
+					IsQuoted = isQuoted,
+					IsExported = exportMember
+				};
+
+				foreach (var specifier in specifiers)
+					entry.Specifiers.Add(specifier.Clone());
+
+				result.Entries.Add(entry);
+			}
+
+			return result;
+		}
+
+		private static bool IsQuotedString(string text) =>
+			!string.IsNullOrEmpty(text)
+			&& text.Length >= 2
+			&& ((text[0] == '"' && text[^1] == '"') || (text[0] == '\'' && text[^1] == '\''));
+
+		private static string UnquoteStringLiteral(string text) => IsQuotedString(text) ? text[1..^1] : text;
 
 		internal sealed class ModuleTokenResult
 		{

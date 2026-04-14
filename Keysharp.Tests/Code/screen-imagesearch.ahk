@@ -1,5 +1,4 @@
-import { ImageCapture } from Ks
-
+#import "Ks" { ImageCapture }
 x :=
 y := 0 
 CoordMode("Pixel", "Screen")

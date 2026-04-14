@@ -1,5 +1,4 @@
-import { RealThread, LockRun } from Ks
-
+#import "Ks" { RealThread, LockRun }
 lockit := ""
 tharr := []
 tharr.Length := 100

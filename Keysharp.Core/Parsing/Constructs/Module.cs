@@ -31,6 +31,12 @@ namespace Keysharp.Parsing
 			{
 				public string Name;
 				public string Alias;
+
+				public ImportSpecifier Clone() => new()
+				{
+					Name = Name,
+					Alias = Alias
+				};
 			}
 
 			public sealed class ImportEntry
@@ -43,12 +49,33 @@ namespace Keysharp.Parsing
 				public bool ExportAll;
 				public List<string> ExportNames = new();
 				public List<ImportSpecifier> Specifiers = new();
+
+				public ImportEntry Clone()
+				{
+					var clone = new ImportEntry
+					{
+						Kind = Kind,
+						ModuleName = ModuleName,
+						Alias = Alias,
+						IsQuoted = IsQuoted,
+						IsExported = IsExported,
+						ExportAll = ExportAll
+					};
+
+					clone.ExportNames.AddRange(ExportNames);
+
+					foreach (var specifier in Specifiers)
+						clone.Specifiers.Add(specifier.Clone());
+
+					return clone;
+				}
 			}
 
 			public string Name { get; }
 			public string ModuleClassName;
 			public Class ModuleClass;
 
+			public List<ImportEntry> DirectiveImports = new();
 			public List<ImportEntry> Imports = new();
 			public bool ImportsEmitted = false;
 

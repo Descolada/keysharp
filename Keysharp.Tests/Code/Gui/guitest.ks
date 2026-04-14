@@ -1,5 +1,4 @@
-import * from Ks
-
+#import "Ks" { * }
 If (FileExist(A_Desktop . "/MyScreenClip.png"))
 	FileDelete(A_Desktop . "/MyScreenClip.png")
 

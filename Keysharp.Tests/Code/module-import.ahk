@@ -1,16 +1,13 @@
-﻿; =========================
+; =========================
 ; module-import.ahk
 ; Import forms + precedence rules
 ; =========================
 
-import { Calculate as CalculateX } from X
-import * from Y
-
-import * from A
-import * from B
-
-import { Foo as FooFromA } from A
-
+#import "X" { Calculate as CalculateX }
+#import "Y" { * }
+#import "A" { * }
+#import "B" { * }
+#import "A" { Foo as FooFromA }
 ; ---- Local Calculate must take precedence over wildcard imports regardless of order
 Calculate() => 1
 
@@ -62,8 +59,8 @@ else
     FileAppend "fail", "*"
 
 ; ---- explicit imports with alternative syntax (as opposed to "import { a } from Test")
-import Test { Hello as ReturnHello }
-import Test { Hello }
+#import "Test" { Hello as ReturnHello }
+#import "Test" { Hello }
 
 v := ReturnHello()
 if (v == "Hello")
@@ -77,10 +74,34 @@ if (v == "Hello")
 else
     FileAppend "fail", "*"
 
+if true
+{
+    #import "Test" { Hello as BlockHello }
+}
+
+v := BlockHello()
+if (v == "Hello")
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+obj := {
+    #import "Test" { Hello as ObjectHello }
+}
+
+v := ObjectHello()
+if (v == "Hello")
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
 ; ---- non-exported members should still be importable, but must be explicitly imported (not via wildcard)
 
-import { hiddenFn as h1, hiddenVar as hv1 } from Mixed
-import Mixed { hiddenFn as h2, hiddenVar as hv2 }
+#import "Mixed" {
+    hiddenFn as h1,
+    hiddenVar as hv1,
+}
+#import "Mixed" { hiddenFn as h2, hiddenVar as hv2 }
 
 if (h1() == "hidden" && h2() == "hidden")
     FileAppend "pass", "*"
@@ -92,9 +113,8 @@ if (hv1 == 42 && hv2 == 42)
 else
     FileAppend "fail", "*"
 
-import { noExportFn as n1, noExportVar as nv1 } from NoExports
-import * from NoExports
-
+#import "NoExports" { noExportFn as n1, noExportVar as nv1 }
+#import "NoExports" { * }
 if (n1() == "noexp" && noExportFn() == "noexp")
     FileAppend "pass", "*"
 else

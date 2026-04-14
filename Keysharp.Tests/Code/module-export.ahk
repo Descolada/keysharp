@@ -3,13 +3,12 @@
 ; Default export, named exports, exported variable assignment, quoted import behavior
 ; =========================
 
-import D as DDefault
-import { Named as DNamed } from D
-
-import V as ModV
+#import D as DDefault
+#import "D" { Named as DNamed }
+#import V as ModV
 
 ; quoted module import should not add module name unless alias is given
-import "Q"
+#import "Q"
 
 ; ---- default export callable via alias
 a := DDefault()

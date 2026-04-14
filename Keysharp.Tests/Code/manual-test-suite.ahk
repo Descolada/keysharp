@@ -1,8 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-import * from Ks
-
+#import "Ks" { * }
 global gMain := ""
 global gTabs := ""
 global gLogEdit := ""

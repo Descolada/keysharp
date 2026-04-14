@@ -1,5 +1,4 @@
-import { Clr } from Ks
-
+#import "Ks" { Clr }
 ; ===== Setup =====
 System := Clr.Load("System")
 

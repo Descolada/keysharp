@@ -1,5 +1,4 @@
-import * from Ks
-
+#import "Ks" { * }
 ; #Include %A_ScriptDir%/header.ahk
 
 if (A_IsSuspended == 0) 

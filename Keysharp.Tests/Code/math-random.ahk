@@ -1,5 +1,4 @@
-import { RandomSeed } from Ks
-
+#import "Ks" { RandomSeed }
 if (Random() >= 0)
 	FileAppend "pass", "*"
 else

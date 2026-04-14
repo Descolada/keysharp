@@ -1,5 +1,4 @@
-import { Base64Decode, Base64Encode } from Ks
-
+#import "Ks" { Base64Decode, Base64Encode }
 b64 := "SGVsbG8sIHdvcmxkIQ==" ; "Hello, world!"
 conv := Base64Decode(b64)
 str2 := Base64Encode(conv)

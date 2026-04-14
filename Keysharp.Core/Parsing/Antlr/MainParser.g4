@@ -58,7 +58,6 @@ sourceElement
     | remap
     | hotstring
     | hotkey
-    | importStatement
     | exportStatement
     | statement
     ;
@@ -131,45 +130,6 @@ awaitStatement
 
 deleteStatement
     : Delete WS* singleExpression
-    ;
-
-importStatement
-    : Import WS* importClause
-    | (Export WS*)? Import WS* importModule (WS* importList)?
-    ;
-
-importClause
-    : importWildcardFrom
-    | importNamedFrom
-    ;
-
-importModule
-    : moduleName (WS* As WS* identifierName)?
-    ;
-
-importWildcardFrom
-    : Multiply WS* From WS* moduleName
-    ;
-
-importNamedFrom
-    : importList s* From WS* moduleName
-    ;
-
-importList
-    : '{' s* importSpecifierList? s* '}'
-    ;
-
-importSpecifierList
-    : importSpecifier (WS* ',' importSpecifier)* (WS* ',')?
-    ;
-
-importSpecifier
-    : identifierName (s* As s* identifierName)?
-    ;
-
-moduleName
-    : identifierName
-    | StringLiteral
     ;
 
 exportStatement

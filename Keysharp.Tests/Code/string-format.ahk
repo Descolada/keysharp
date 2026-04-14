@@ -1,5 +1,4 @@
-import { FormatCs } from Ks
-
+#import "Ks" { FormatCs }
 ; Test 1: Basic number formatting.
 s := Format("{1}", 123)
 if (s == "123")
@@ -84,7 +83,7 @@ if (s == "123       ")
 else
     FileAppend "fail", "*"
 
-; Test 13: Floating–point formatting with precision.
+; Test 13: Floatingï¿½point formatting with precision.
 s := Format("{1:.2f}", 1.2345)
 if (s == "1.23")
     FileAppend "pass", "*"

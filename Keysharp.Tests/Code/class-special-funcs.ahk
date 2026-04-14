@@ -1,6 +1,5 @@
-import __Main
-import { Collect } from KS
-
+#import __Main
+#import "KS" { Collect }
 gval := 0
 
 class testclass

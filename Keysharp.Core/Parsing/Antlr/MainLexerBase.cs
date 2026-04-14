@@ -22,6 +22,7 @@ public abstract class MainLexerBase : Lexer
     private char _stringQuote = '\0';
     private StringBuilder _stringBuilder;
     private CommonToken _stringToken;
+    private int _importDirectiveBraceDepth = 0;
 
     internal MainLexerBase(ICharStream input) : base(input)
     {
@@ -279,6 +280,27 @@ public abstract class MainLexerBase : Lexer
     {
         _allowStringModeTrivia = false;
         BeginStringModeCore(quote);
+    }
+
+    protected void BeginImportDirective()
+    {
+        _importDirectiveBraceDepth = 0;
+    }
+
+    protected void ProcessImportDirectiveOpenBrace()
+    {
+        _importDirectiveBraceDepth++;
+    }
+
+    protected void ProcessImportDirectiveCloseBrace()
+    {
+        if (_importDirectiveBraceDepth > 0)
+            _importDirectiveBraceDepth--;
+    }
+
+    protected bool ShouldTerminateImportDirective()
+    {
+        return _importDirectiveBraceDepth == 0;
     }
 
     protected bool AllowStringModeTrivia()

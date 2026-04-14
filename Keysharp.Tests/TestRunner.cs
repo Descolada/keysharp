@@ -254,7 +254,7 @@ namespace Keysharp.Tests
 					var trimmed = line.TrimStart(Keywords.Spaces);
 					if (trimmed.Length == 0
 						|| trimmed.StartsWith(';')
-						|| trimmed.StartsWith("import ", StringComparison.OrdinalIgnoreCase))
+						|| trimmed.StartsWith("#import ", StringComparison.OrdinalIgnoreCase))
 					{
 						_ = sb.AppendLine(line);
 						line = null;

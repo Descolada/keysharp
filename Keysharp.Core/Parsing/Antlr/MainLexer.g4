@@ -257,6 +257,7 @@ InputLevel             : 'inputlevel'            -> mode(DEFAULT_MODE);
 SuspendExempt          : 'suspendexempt'         -> mode(DEFAULT_MODE);
 UseHook                : 'usehook'               -> mode(DEFAULT_MODE);
 Hotstring              : 'hotstring'             -> mode(DEFAULT_MODE), pushMode(HOTSTRING_OPTIONS);
+DirectiveImport        : 'import' {this.BeginImportDirective();} -> channel(DIRECTIVE), type(Import), mode(IMPORT_DIRECTIVE_MODE);
 Module                 : 'module'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 // General directives
 Define                 : 'define'                -> channel(DIRECTIVE);
@@ -311,6 +312,23 @@ ConditionalSymbol: Identifier -> channel(DIRECTIVE);
 DirectiveSingleLineComment: SingleLineCommentAtom -> skip;
 DirectiveNewline: LineBreak WhiteSpace? -> channel(DIRECTIVE), mode(DEFAULT_MODE);
 UnexpectedDirectiveCharacter : . -> channel(ERROR);
+
+mode IMPORT_DIRECTIVE_MODE;
+ImportDirectiveWS : WhiteSpace -> type(WS), channel(HIDDEN);
+ImportDirectiveQuotedStringLiteral
+    : ('"' | '\'') {this.BeginDirectiveStringMode((char)_input.LA(-1));} -> channel(DIRECTIVE), type(StringLiteral), pushMode(STRING_MODE);
+ImportDirectiveExport : 'export' -> channel(DIRECTIVE), type(Export);
+ImportDirectiveAs : 'as' -> channel(DIRECTIVE), type(As);
+ImportDirectiveOpenBrace : '{' {this.ProcessImportDirectiveOpenBrace();} -> channel(DIRECTIVE), type(OpenBrace);
+ImportDirectiveCloseBrace : '}' {this.ProcessImportDirectiveCloseBrace();} -> channel(DIRECTIVE), type(CloseBrace);
+ImportDirectiveComma : ',' -> channel(DIRECTIVE), type(Comma);
+ImportDirectiveMultiply : '*' -> channel(DIRECTIVE), type(Multiply);
+ImportDirectiveIdentifier : IdentifierStart IdentifierPart* -> channel(DIRECTIVE), type(Identifier);
+ImportDirectiveSingleLineComment : SingleLineCommentAtom -> skip;
+ImportDirectiveNewline
+    : LineBreak WhiteSpace? {this.ShouldTerminateImportDirective()}? -> channel(DIRECTIVE), type(DirectiveNewline), mode(DEFAULT_MODE);
+ImportDirectiveLineContinuation : LineBreak WhiteSpace? -> channel(HIDDEN);
+UnexpectedImportDirectiveCharacter : . -> channel(ERROR);
 
 mode DIRECTIVE_TEXT;
 DirectiveTextWhitespace : WhiteSpace -> skip;

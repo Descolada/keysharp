@@ -27,6 +27,7 @@ preprocessor_directive
     | EndRegion StringLiteral? directive_new_line_or_sharp { this.OnPreprocessorDirectiveEndregion(); }                               # preprocessorRegion
     | Pragma StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectivePragma(); }                                      # preprocessorPragma
     | Nullable StringLiteral directive_new_line_or_sharp { this.OnPreprocessorDirectiveNullable(); }                                  # preprocessorNullable
+    | Import importDirective directive_new_line_or_sharp                                                                            # preprocessorImportDirective
     // The following directives are handled in PreReader.cs, because it's easier that way
     | ( Include
       | IncludeAgain
@@ -53,6 +54,36 @@ preprocessor_directive
 directive_new_line_or_sharp
     : DirectiveNewline
     | EOF
+    ;
+
+importDirective
+    : Export? importModule importList?
+    ;
+
+importModule
+    : importModuleName (As importDirectiveIdentifier)?
+    ;
+
+importList
+    : OpenBrace importSpecifierList? CloseBrace
+    ;
+
+importSpecifierList
+    : importSpecifier (Comma importSpecifier)* Comma?
+    ;
+
+importSpecifier
+    : Multiply
+    | importDirectiveIdentifier (As importDirectiveIdentifier)?
+    ;
+
+importModuleName
+    : importDirectiveIdentifier
+    | StringLiteral
+    ;
+
+importDirectiveIdentifier
+    : Identifier
     ;
 
 preprocessor_expression

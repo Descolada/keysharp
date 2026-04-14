@@ -1,5 +1,4 @@
-import { Cosh } from Ks
-
+#import "Ks" { Cosh }
 PI := 3.1415926535897931
 
 if (11.591953275521519 == Cosh(-1 * PI))

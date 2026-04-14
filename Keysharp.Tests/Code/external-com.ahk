@@ -1,5 +1,4 @@
-import { RunScript } from Ks
-
+#import "Ks" { RunScript }
 shell := ComObject("WScript.Shell")
 exec := shell.Exec("Notepad.exe")
 exec := shell.Run("Notepad.exe")

@@ -172,6 +172,7 @@ namespace Keysharp.Internals.Window.Unix
 		}
 
 		internal override List<string> Text => control?.Text is string s && !string.IsNullOrEmpty(s) ? new List<string> { s } : new List<string>();
+		internal override List<string> GetText(WindowSearchOptions options) => Text;
 
 		internal override string Title
 		{
@@ -254,4 +255,3 @@ namespace Keysharp.Internals.Window.Unix
 	}
 }
 #endif
-

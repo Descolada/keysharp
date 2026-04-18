@@ -19,25 +19,19 @@ namespace Keysharp.Builtins
 			}
 			else if (!(ctrl is string))
 			{
-				object hwnd = null;
+				var hwnd = Script.GetPropertyValueOrNull(ctrl, "Hwnd");
 
-				try
+				if (hwnd == null)
 				{
-					hwnd = Script.GetPropertyValue(ctrl, "Hwnd");
-				}
-				catch { }
-
-				nint ptr = 0;
-
-				if (hwnd is long ll)
-					ptr = new nint(ll);
-				else
-				{
-					_ = Errors.ValueErrorOccurred($"Invalid hWnd property type {hwnd.GetType().Name}");
+					_ = Errors.PropertyErrorOccurred($"Object did not have an Hwnd property.");
 					return (false, 0);
 				}
 
-				return (true, ptr);
+				if (hwnd is long ll)
+					return (true, new nint(ll));
+
+				_ = Errors.TypeErrorOccurred(hwnd, typeof(long));
+				return (false, 0);
 			}
 
 			return (false, 0);

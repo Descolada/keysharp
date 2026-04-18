@@ -1279,7 +1279,7 @@ namespace Keysharp.Internals.Platform.Windows
 		internal static bool IsWindowCloaked(nint hwnd)
 		{
 			var cloaked = 0;
-			return DwmGetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE.DWMWA_CLOAKED, ref cloaked, 4) >= 0 && cloaked >= 0;
+			return DwmGetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE.DWMWA_CLOAKED, ref cloaked, 4) >= 0 && cloaked != 0;
 		}
 
 		[LibraryImport(user32, EntryPoint = "GetLastActivePopup")]

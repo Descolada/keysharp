@@ -19,37 +19,42 @@ namespace Keysharp.Internals.Window.MacOS
 				}
 			}
 
-			public static IEnumerable<WindowItemBase> AllWindows
-			{
-				get
-				{
-					var app = Application.Instance;
-					var windows = MacNativeWindows.Snapshot();
-					var list = new List<WindowItemBase>(windows.Count + 8);
-					var seen = new HashSet<nint>();
+			public static IEnumerable<WindowItemBase> AllWindows => EnumerateWindows(ThreadAccessors.A_DetectHiddenWindows);
 
-					for (int i = 0; i < windows.Count; i++)
-					{
-						var h = (nint)windows[i].WindowNumber;
-						list.Add(new WindowItem(windows[i], includesTextMetadata: true));
-						seen.Add(h);
-					}
+			public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
+			{
+				var app = Application.Instance;
+				var windows = MacNativeWindows.Snapshot();
+				var list = new List<WindowItemBase>(windows.Count + 8);
+				var seen = new HashSet<nint>();
+
+				for (int i = 0; i < windows.Count; i++)
+				{
+					var h = (nint)windows[i].WindowNumber;
+					seen.Add(h);
+					var window = new WindowItem(windows[i], includesTextMetadata: true);
+
+					if (detectHiddenWindows || window.Visible)
+						list.Add(window);
+				}
 
 				// Keep app-owned Eto windows visible to window search if not exposed via CG snapshot.
-					if (app?.Windows != null)
+				if (app?.Windows != null)
+				{
+					foreach (var w in app.Windows)
 					{
-						foreach (var w in app.Windows)
-						{
 						if (w == null || w.Handle == 0 || !seen.Add(w.Handle))
 							continue;
 
-						list.Add(new WindowItem(w));
+						var window = new WindowItem(w);
+
+						if (detectHiddenWindows || window.Visible)
+							list.Add(window);
 					}
 				}
 
 				return list;
 			}
-		}
 
 		internal WindowManager()
 		{

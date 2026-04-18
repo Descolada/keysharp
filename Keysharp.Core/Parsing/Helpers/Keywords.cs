@@ -170,6 +170,7 @@ namespace Keysharp.Parsing
 		internal const string Keyword_ahk_exe = "ahk_exe";
 		internal const string Keyword_ahk_group = "ahk_group";
 		internal const string Keyword_ahk_id = "ahk_id";
+		internal const string Keyword_ahk_opt = "ahk_opt";
 		internal const string Keyword_ahk_pid = "ahk_pid";
 		internal const string Keyword_All = "all";
 		internal const string Keyword_Alnum = "alnum";

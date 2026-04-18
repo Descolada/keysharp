@@ -12,7 +12,9 @@ namespace Keysharp.Internals.Window
 		internal bool HasExcludes => !string.IsNullOrEmpty(ExcludeTitle) || !string.IsNullOrEmpty(ExcludeText);
 		internal bool HasID => ID != 0;
 		internal nint ID { get; set; }
-		internal bool IsEmpty => !HasID && PID == 0 && !HasExcludes && string.IsNullOrEmpty(Group) && string.IsNullOrEmpty(Title) && string.IsNullOrEmpty(Text) && string.IsNullOrEmpty(ClassName) && string.IsNullOrEmpty(Path);
+		internal bool HasNonGroupCriteria => Active || HasID || PID != 0L || HasExcludes || !string.IsNullOrEmpty(Title) || !string.IsNullOrEmpty(Text) || !string.IsNullOrEmpty(ClassName) || !string.IsNullOrEmpty(Path);
+		internal bool IsEmpty => !Active && !HasID && PID == 0 && !HasExcludes && string.IsNullOrEmpty(Group) && string.IsNullOrEmpty(Title) && string.IsNullOrEmpty(Text) && string.IsNullOrEmpty(ClassName) && string.IsNullOrEmpty(Path);
+		internal WindowSearchOptions Options { get; private set; }
 		internal string Path { get; set; }
 		internal long PID { get; set; }
 		internal string Text { get; set; }
@@ -31,122 +33,139 @@ namespace Keysharp.Internals.Window
 				criteria.IsPureID = true;
 				return criteria;
 			}
-
-			object hwnd = null;
-
-			if ((hwnd = Script.GetPropertyValueOrNull(obj, "Hwnd")) != null)
+			else if (obj is not string)
 			{
+				var hwnd = Script.GetPropertyValueOrNull(obj, "Hwnd");
+
+				if (hwnd == null)
+				{
+					_ = Errors.PropertyErrorOccurred($"Object did not have an Hwnd property.");
+					return criteria;
+				}
+
 				if (hwnd is long ll)
 				{
 					criteria.ID = new nint(ll);
 					criteria.IsPureID = true;
 					return criteria;
 				}
+
+				_ = Errors.TypeErrorOccurred(hwnd, typeof(long));
+				return criteria;
 			}
 
 			var mixed = obj.ToString();
 
 			if (!mixed.Contains(Keyword_ahk, StringComparison.OrdinalIgnoreCase))
+			{
+				if (string.Equals(mixed, "A", StringComparison.OrdinalIgnoreCase))
+					return new SearchCriteria { Active = true };
+
 				return new SearchCriteria { Title = mixed };
+			}
 
 			var i = 0;
-
-			var t = false;
-
-			int classCount = 0
-							 , groupCount = 0
-							 , exeCount = 0
-							 , idCount = 0
-							 , pidCount = 0
-							 ;
+			var foundFirstCriterion = false;
+			var invalidCriteria = false;
 
 			while (i < mixed.Length && (i = mixed.IndexOf(Keyword_ahk, i, StringComparison.OrdinalIgnoreCase)) != -1)
 			{
-				if (!t)
+				if (!IsCriterionBoundary(mixed, i))
 				{
-					var pre = i == 0 ? string.Empty : mixed.Substring(0, i).Trim(Spaces);
+					i += Keyword_ahk.Length;
+					continue;
+				}
 
-					if (pre.Length != 0)
+				var next = FindNextCriterionStart(mixed, i + Keyword_ahk.Length);
+				var segment = next == -1 ? mixed[i..] : mixed[i..(next - 1)];
+				var span = segment.AsSpan();
+				var recognized = false;
+
+				if (span.StartsWith(Keyword_ahk_class, StringComparison.OrdinalIgnoreCase))
+				{
+					criteria.ClassName = span[Keyword_ahk_class.Length..].TrimStart(SpaceTab).ToString();
+					recognized = true;
+				}
+				else if (span.StartsWith(Keyword_ahk_group, StringComparison.OrdinalIgnoreCase))
+				{
+					criteria.Group = span[Keyword_ahk_group.Length..].TrimStart(SpaceTab).ToString();
+					recognized = true;
+				}
+				else if (span.StartsWith(Keyword_ahk_exe, StringComparison.OrdinalIgnoreCase))
+				{
+					criteria.Path = span[Keyword_ahk_exe.Length..].TrimStart(SpaceTab).ToString();
+					recognized = true;
+				}
+				else if (span.StartsWith(Keyword_ahk_id, StringComparison.OrdinalIgnoreCase))
+				{
+					if (long.TryParse(span[Keyword_ahk_id.Length..].TrimStart(SpaceTab), out var id))
+					{
+						var hwnd = new nint(id);
+
+						if (criteria.HasID && criteria.ID != hwnd)
+							invalidCriteria = true;
+						else
+							criteria.ID = hwnd;
+					}
+
+					recognized = true;
+				}
+				else if (span.StartsWith(Keyword_ahk_pid, StringComparison.OrdinalIgnoreCase))
+				{
+					if (long.TryParse(span[Keyword_ahk_pid.Length..].TrimStart(SpaceTab), out var pid))
+						criteria.PID = pid;
+
+					recognized = true;
+				}
+				else if (span.StartsWith(Keyword_ahk_opt, StringComparison.OrdinalIgnoreCase))
+				{
+					var optSpan = span[Keyword_ahk_opt.Length..].TrimStart(SpaceTab);
+					criteria.Options ??= new WindowSearchOptions();
+
+					foreach (Range r in optSpan.SplitAny(SpaceTabSv))
+					{
+						var opt = optSpan[r];
+
+						if (opt.Length != 0 && !criteria.Options.ApplyToken(opt.ToString()))
+						{
+							invalidCriteria = true;
+							break;
+						}
+					}
+
+					recognized = true;
+				}
+
+				if (recognized && !foundFirstCriterion)
+				{
+					var pre = i == 0 ? string.Empty : mixed.Substring(0, i - 1);
+
+					if (pre.Trim(SpaceTab).Length != 0)
 						criteria.Title = pre;
-
-					t = true;
 				}
 
-				var span = mixed.AsSpan(i + Keyword_ahk.Length);
-
-				if (span.StartsWith("class", StringComparison.OrdinalIgnoreCase))
-				{
-					var oldVal = criteria.ClassName;
-					criteria.ClassName = span.Slice(5).TrimStart().ParseUntilSpace();
-
-					if (oldVal != criteria.ClassName)
-						classCount++;
-
-					i += 9 + criteria.ClassName.Length;//Might be off by a space, but still reduces the next comparison.
-				}
-				else if (span.StartsWith("group", StringComparison.OrdinalIgnoreCase))
-				{
-					var oldVal = criteria.Group;
-					criteria.Group = span.Slice(5).TrimStart().ParseUntilSpace();
-
-					if (oldVal != criteria.Group)
-						groupCount++;
-
-					i += 9 + criteria.Group.Length;
-				}
-				else if (span.StartsWith("exe", StringComparison.OrdinalIgnoreCase))
-				{
-					var oldVal = criteria.Path;
-					criteria.Path = span.Slice(3).TrimStart().ParseUntilSpace();
-
-					if (oldVal != criteria.Path)
-						exeCount++;
-
-					i += 7 + criteria.Path.Length;
-				}
-				else if (span.StartsWith("id", StringComparison.OrdinalIgnoreCase))
-				{
-					var oldId = criteria.ID;
-					var val = span.Slice(2).TrimStart().ParseUntilSpace();
-
-					if (long.TryParse(val, out var id))
-						criteria.ID = new nint(id);
-
-					if (criteria.ID != oldId)
-						idCount++;
-
-					i += 6 + val.Length;
-				}
-				else if (span.StartsWith("A", StringComparison.OrdinalIgnoreCase))
-				{
-					criteria.Active = true;
-					i += 5;
-				}
-				else if (span.StartsWith("pid", StringComparison.OrdinalIgnoreCase))
-				{
-					var oldVal = criteria.PID;
-					var val = span.Slice(3).TrimStart().ParseUntilSpace();
-
-					if (long.TryParse(val, out var id))
-						criteria.PID = new nint(id);
-
-					if (criteria.PID != oldVal)
-						pidCount++;
-
-					i += 7 + val.Length;
-				}
+				if (recognized)
+					foundFirstCriterion = true;
 				else
-					i++;
+					i += Keyword_ahk.Length;
+
+				if (recognized)
+					i = next == -1 ? mixed.Length : next;
 			}
 
-			//If they specified more than one of the same criteria, consider nothing.
-			return classCount > 1
-				   || groupCount > 1
-				   || exeCount > 1
-				   || idCount > 1
-				   || pidCount > 1
-				   ? new SearchCriteria()
-				   : criteria;
+			if (!foundFirstCriterion)
+				return new SearchCriteria { Title = mixed };
+
+			if (invalidCriteria)
+				return new SearchCriteria();
+
+			if (string.Equals(criteria.Title, "A", StringComparison.OrdinalIgnoreCase))
+			{
+				criteria.Active = true;
+				criteria.Title = null;
+			}
+
+			return criteria;
 		}
 
 		internal static SearchCriteria FromString(object title, object text, object excludeTitle, object excludeText)
@@ -157,5 +176,37 @@ namespace Keysharp.Internals.Window
 			criteria.ExcludeText = excludeText.As();
 			return criteria;
 		}
+
+		private static int FindNextCriterionStart(string value, int startIndex)
+		{
+			var index = startIndex;
+
+			while (index < value.Length && (index = value.IndexOf(Keyword_ahk, index, StringComparison.OrdinalIgnoreCase)) != -1)
+			{
+				if (IsCriterionBoundary(value, index) && IsKnownCriterion(value.AsSpan(index)))
+					return index;
+
+				index += Keyword_ahk.Length;
+			}
+
+			return -1;
+		}
+
+		private static bool IsCriterionBoundary(string value, int index)
+		{
+			if (index == 0)
+				return true;
+
+			return SpaceTab.Contains(value[index - 1]);
+		}
+
+		private static bool IsKnownCriterion(ReadOnlySpan<char> value)
+			=> value.StartsWith(Keyword_ahk_class, StringComparison.OrdinalIgnoreCase)
+			   || value.StartsWith(Keyword_ahk_exe, StringComparison.OrdinalIgnoreCase)
+			   || value.StartsWith(Keyword_ahk_group, StringComparison.OrdinalIgnoreCase)
+			   || value.StartsWith(Keyword_ahk_id, StringComparison.OrdinalIgnoreCase)
+			   || value.StartsWith(Keyword_ahk_opt, StringComparison.OrdinalIgnoreCase)
+			   || value.StartsWith(Keyword_ahk_pid, StringComparison.OrdinalIgnoreCase);
+
 	}
 }

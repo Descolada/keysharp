@@ -34,9 +34,7 @@ namespace Keysharp.Builtins
 
 			if (!string.IsNullOrEmpty(s))
 			{
-				var isClass = s.Length > 0 && char.IsDigit(s[ ^ 1]);
-
-				if (isClass)
+				if (char.IsDigit(s[^1]))
 					sc.ClassName = s;
 				else
 					sc.Text = s;
@@ -65,22 +63,29 @@ namespace Keysharp.Builtins
 				{
 					//Set DHW unconditionally to true, because otherwise matching will fail
 					//if the parent window was matched by pure hWnd and DHW was false
-					var savedDHW = ThreadAccessors.A_DetectHiddenWindows;
-					ThreadAccessors.A_DetectHiddenWindows = true;
+					var tv = Script.TheScript.Threads.CurrentThread.configData;
+					var savedDHW = tv.detectHiddenWindows;
+					tv.detectHiddenWindows = true;
 
-					if (string.IsNullOrEmpty(sc.Text))
+					try
 					{
-						sc.Title = sc.ClassName;
-						sc.ClassName = "";
-					}
-					else
-					{
-						sc.Title = sc.Text;
-						sc.Text = "";
-					}
+						if (string.IsNullOrEmpty(sc.Text))
+						{
+							sc.Title = sc.ClassName;
+							sc.ClassName = "";
+						}
+						else
+						{
+							sc.Title = sc.Text;
+							sc.Text = "";
+						}
 
-					childitem = parent.FirstChild(sc);
-					ThreadAccessors.A_DetectHiddenWindows = savedDHW;
+						childitem = parent.FirstChild(sc);
+					}
+					finally
+					{
+						tv.detectHiddenWindows = savedDHW;
+					}
 				}
 			}
 
@@ -113,12 +118,22 @@ namespace Keysharp.Builtins
 			return win;
 		}
 
+		internal static WindowItemBase SearchActiveWindow(SearchCriteria criteria, bool emptyMatchesActive = false)
+		{
+			var activeWindow = WindowManager.ActiveWindow;
+
+			if (activeWindow == null || !activeWindow.IsSpecified)
+				return null;
+
+			return (emptyMatchesActive && criteria.IsEmpty) || activeWindow.Equals(criteria) ? activeWindow : null;
+		}
+
 		internal static List<WindowItemBase> SearchWindows(object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
 				object excludeText = null)
 		{
-			var (windows, crit) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
+			var (windows, _) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 			return windows;
 		}
 

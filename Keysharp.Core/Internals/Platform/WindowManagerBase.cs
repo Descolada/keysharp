@@ -8,6 +8,7 @@ namespace Keysharp.Internals.Platform
 		internal static abstract WindowItemBase LastFound { get; set; }
 
 		internal static abstract WindowItemBase CreateWindow(nint id);
+		internal static abstract IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows);
 
 		internal static abstract IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows);
 
@@ -68,24 +69,26 @@ namespace Keysharp.Internals.Platform
 			if (criteria.IsEmpty)
 				return found;
 
+			var matchOptions = WindowSearchOptions.Merge(criteria.Options);
+			var detectHiddenWindows = ShouldDetectHiddenWindows(criteria);
+
+			if (criteria.Active)
+			{
+				var activeWindow = WindowManager.ActiveWindow;
+				return activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions) ? active : null;
+			}
+
 			if (criteria.ID != 0)
 			{
-				if (WindowManager.IsWindow(criteria.ID) && WindowManager.CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria))
+				if (WindowManager.IsWindow(criteria.ID) && WindowManager.CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria, matchOptions))
 					return temp;
+
 				return null;
 			}
 
-			if (criteria.Title.Equals("A", StringComparison.OrdinalIgnoreCase))
+			foreach (var window in WindowManager.EnumerateWindows(detectHiddenWindows))
 			{
-				var active = WindowManager.ActiveWindow;
-				if (active.Equals(criteria))
-					found = active;
-				return found;
-			}
-
-			foreach (var window in WindowManager.AllWindows)
-			{
-				if (window.Equals(criteria))
+				if (window.Equals(criteria, matchOptions))
 				{
 					found = window;
 
@@ -142,6 +145,18 @@ namespace Keysharp.Internals.Platform
 		public static List<WindowItemBase> FindWindowGroup(SearchCriteria criteria, bool forceAll = false, bool ignorePureID = false)
 		{
 			var found = new List<WindowItemBase>();
+			var matchOptions = WindowSearchOptions.Merge(criteria.Options);
+			var detectHiddenWindows = ShouldDetectHiddenWindows(criteria);
+
+			if (criteria.Active)
+			{
+				var activeWindow = WindowManager.ActiveWindow;
+
+				if (activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions))
+					found.Add(active);
+
+				return found;
+			}
 
 			if (!ignorePureID && criteria.IsPureID)
 			{
@@ -149,19 +164,16 @@ namespace Keysharp.Internals.Platform
 				{
 					var window = WindowManager.CreateWindow(criteria.ID);
 
-					if (window.Equals(criteria)) // Other criteria may be present such as ExcludeTitle etc
+					if (window.Equals(criteria, matchOptions)) // Other criteria may be present such as ExcludeTitle etc
 						found.Add(window);
 				}
 
 				return found;
 			}
 
-			//Ks.OutputDebugLine($"About to iterate AllWindows in FindWindowGroup()");
-
-			foreach (var window in WindowManager.AllWindows)
+			foreach (var window in WindowManager.EnumerateWindows(detectHiddenWindows))
 			{
-				//Ks.OutputDebugLine($"FindWindowGroup(): about to examine window: {window.Title}");
-				if (criteria.IsEmpty || window.Equals(criteria))
+				if (criteria.IsEmpty || window.Equals(criteria, matchOptions))
 				{
 					found.Add(window);
 
@@ -197,13 +209,47 @@ namespace Keysharp.Internals.Platform
 			else
 			{
 				criteria = SearchCriteria.FromString(winTitle, text, exclTitle, exclText);
-				foundWindows = WindowManager.FindWindowGroup(criteria, forceAll);
+				foundWindows = WindowManager.FindWindowGroup(criteria, forceAll, ignorePureID);
 
 				if (foundWindows != null && foundWindows.Count > 0 && foundWindows[0].IsSpecified)
 					LastFound = foundWindows[0];
 			}
 
 			return (foundWindows, criteria);
+		}
+
+		internal static bool ShouldDetectHiddenWindows(SearchCriteria criteria, WindowSearchOptions inheritedOptions = null)
+		{
+			var matchOptions = WindowSearchOptions.Merge(criteria.Options, inheritedOptions);
+			var detectHiddenWindows = matchOptions.DetectHiddenWindows ?? ThreadAccessors.A_DetectHiddenWindows;
+
+			if (detectHiddenWindows || criteria.HasNonGroupCriteria || string.IsNullOrEmpty(criteria.Group))
+				return detectHiddenWindows;
+
+			if (RequiresHiddenWindowEnumeration(criteria, matchOptions, new HashSet<string>(StringComparer.OrdinalIgnoreCase)))
+				return true;
+
+			return false;
+		}
+
+		private static bool RequiresHiddenWindowEnumeration(SearchCriteria criteria, WindowSearchOptions matchOptions, HashSet<string> visitedGroups)
+		{
+			if (matchOptions.DetectHiddenWindows ?? ThreadAccessors.A_DetectHiddenWindows)
+				return true;
+
+			if (string.IsNullOrEmpty(criteria.Group) || criteria.HasNonGroupCriteria || !visitedGroups.Add(criteria.Group))
+				return false;
+
+			if (!TheScript.WindowProvider.Manager.Groups.TryGetValue(criteria.Group, out var group))
+				return false;
+
+			foreach (var memberCrit in group.sc)
+			{
+				if (RequiresHiddenWindowEnumeration(memberCrit, WindowSearchOptions.Merge(memberCrit.Options, matchOptions), visitedGroups))
+					return true;
+			}
+
+			return false;
 		}
 	}
 }

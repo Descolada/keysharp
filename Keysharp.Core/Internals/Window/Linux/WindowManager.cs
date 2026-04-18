@@ -136,34 +136,33 @@ namespace Keysharp.Internals.Window.Linux
 		/// This is needed because otherwise none of the windows will be properly found.
 		/// </summary>
 		public static IEnumerable<WindowItemBase> AllWindows
+			=> EnumerateWindows(ThreadAccessors.A_DetectHiddenWindows);
+
+		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 		{
-			get
+			var attr = new XWindowAttributes();
+			var filter = (long id) =>
 			{
-				var attr = new XWindowAttributes();
-				var doHidden = ThreadAccessors.A_DetectHiddenWindows;
-				var filter = (long id) =>
-				{
-					if (Xlib.XGetWindowAttributes(Display.Handle, id, ref attr) != 0)
-						if (doHidden || attr.map_state == MapState.IsViewable)
-							return true;
+				if (Xlib.XGetWindowAttributes(Display.Handle, id, ref attr) != 0)
+					if (detectHiddenWindows || attr.map_state == MapState.IsViewable)
+						return true;
 
-					return false;
-				};
-				var topLevels = new List<WindowItemBase>();
-				var seen = new HashSet<long>();
-				foreach (var window in Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w)))
-				{
-					var topLevel = window.NonChildParentWindow ?? window;
-					if (topLevel == null || topLevel.Handle == 0)
-						continue;
+				return false;
+			};
+			var topLevels = new List<WindowItemBase>();
+			var seen = new HashSet<long>();
+			foreach (var window in Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w)))
+			{
+				var topLevel = window.NonChildParentWindow ?? window;
+				if (topLevel == null || topLevel.Handle == 0)
+					continue;
 
-					var key = topLevel.Handle.ToInt64();
-					if (seen.Add(key))
-						topLevels.Add(topLevel);
-				}
-
-				return topLevels;
+				var key = topLevel.Handle.ToInt64();
+				if (seen.Add(key))
+					topLevels.Add(topLevel);
 			}
+
+			return topLevels;
 		}
 
 		internal WindowManager()

@@ -187,12 +187,15 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				get
 				{
-					if (TryGetNativeInfo(out var native, includeTextMetadata: true))
-						return native.OwnerName.IsNullOrEmpty() ? "NSWindow" : native.OwnerName;
+					if (className != null)
+						return className;
 
-				return control?.GetType().Name ?? DefaultErrorString;
+					if (TryGetNativeInfo(out var native, includeTextMetadata: true))
+						return className = native.OwnerName.IsNullOrEmpty() ? "NSWindow" : native.OwnerName;
+
+					return className = control?.GetType().Name ?? DefaultErrorString;
+				}
 			}
-		}
 
 		internal override Rectangle ClientLocation => Location;
 
@@ -327,31 +330,37 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				get
 				{
+					if (title != null)
+						return title;
+
 					if (TryGetNativeInfo(out var native, includeTextMetadata: true))
 					{
 						if (!native.Title.IsNullOrEmpty())
-							return native.Title;
+							return title = native.Title;
 
 						if (MacAccessibility.TryGetWindowTitle(native, out var axTitle) && !axTitle.IsNullOrEmpty())
-							return axTitle;
+							return title = axTitle;
 
-						return string.Empty;
+						return title = string.Empty;
 					}
 
-					return control?.Text ?? string.Empty;
+					return title = control?.Text ?? string.Empty;
 				}
 				set
 				{
 					if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("Setting title of foreign macOS windows is not implemented yet.");
-					return;
-				}
+					{
+						Ks.OutputDebugLine("Setting title of foreign macOS windows is not implemented yet.");
+						return;
+					}
 
-				if (control != null)
-					control.Text = value;
+					if (control != null)
+					{
+						control.Text = value;
+						title = value;
+					}
+				}
 			}
-		}
 
 		internal override object Transparency
 		{

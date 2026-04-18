@@ -14,21 +14,23 @@ namespace Keysharp.Internals.Window.Windows
 		/// Return all top level windows. This does not recurse into child windows.
 		/// </summary>
 		public static IEnumerable<WindowItemBase> AllWindows
-		{
-			get
-			{
-				var windows = new List<WindowItemBase>(lastWindowCount);
-				var doHidden = ThreadAccessors.A_DetectHiddenWindows;
-				_ = WindowsAPI.EnumWindows(delegate (nint hwnd, int lParam)
-				{
-					if (doHidden || WindowsAPI.IsWindowVisible(hwnd))
-						windows.Add(CreateWindow(hwnd));
+			=> EnumerateWindows(ThreadAccessors.A_DetectHiddenWindows);
 
-					return true;
-				}, 0);
-				lastWindowCount = windows.Count;
-				return windows;
-			}
+		internal static bool IsDetectableTopLevelWindow(nint hwnd)
+			=> WindowsAPI.IsWindowVisible(hwnd) && !WindowsAPI.IsWindowCloaked(hwnd);
+
+		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
+		{
+			var windows = new List<WindowItemBase>(lastWindowCount);
+			_ = WindowsAPI.EnumWindows(delegate (nint hwnd, int lParam)
+			{
+				if (detectHiddenWindows || IsDetectableTopLevelWindow(hwnd))
+					windows.Add(CreateWindow(hwnd));
+
+				return true;
+			}, 0);
+			lastWindowCount = windows.Count;
+			return windows;
 		}
 
 		internal WindowManager() {
@@ -40,17 +42,15 @@ namespace Keysharp.Internals.Window.Windows
 		{
 			return windows.Where((w) =>
 			{
-				var style = w.Style;
 				var exstyle = w.ExStyle;
 				return w.Enabled &&
 					   (exstyle & WindowsAPI.WS_EX_TOPMOST) == 0 &&
 					   (exstyle & WindowsAPI.WS_EX_NOACTIVATE) == 0 &&
 					   (exstyle & (WindowsAPI.WS_EX_TOOLWINDOW | WindowsAPI.WS_EX_APPWINDOW)) != WindowsAPI.WS_EX_TOOLWINDOW &&
-					   WindowsAPI.IsWindowVisible(w.Handle) &&
+					   IsDetectableTopLevelWindow(w.Handle) &&
 					   WindowsAPI.GetLastActivePopup(w.Handle) != w.Handle &&
 					   WindowsAPI.GetWindow(w.Handle, WindowsAPI.GW_OWNER) == 0 &&
-					   WindowsAPI.GetShellWindow() != w.Handle &&
-					   !WindowsAPI.IsWindowCloaked(w.Handle);
+					   WindowsAPI.GetShellWindow() != w.Handle;
 			});
 		}
 
@@ -61,14 +61,24 @@ namespace Keysharp.Internals.Window.Windows
 			if (criteria.IsEmpty)
 				return found;
 
+			var matchOptions = WindowSearchOptions.Merge(criteria.Options);
+			var detectHiddenWindows = ShouldDetectHiddenWindows(criteria);
+
+			if (criteria.Active)
+			{
+				var activeWindow = ActiveWindow;
+				return activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions) ? active : null;
+			}
+
 			if (criteria.ID != 0)
 			{
-				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria))
+				if (IsWindow(criteria.ID) && CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria, matchOptions))
 					return temp;
+
 				return null;
 			}
 
-			var mm = ThreadAccessors.A_TitleMatchMode;
+			var mm = matchOptions.TitleMatchMode ?? ThreadAccessors.A_TitleMatchMode;
 
 			if (mm < 4) //If the matching mode is not RegEx then try to take an optimized path
 			{
@@ -83,16 +93,16 @@ namespace Keysharp.Internals.Window.Windows
 
 					found = WindowManager.CreateWindow(hwnd);
 
-					if (found.Detectable && found.Equals(criteria)) //Evaluate any other criteria as well before accepting the match
+					if (((matchOptions.DetectHiddenWindows ?? ThreadAccessors.A_DetectHiddenWindows) || found.Visible) && found.Equals(criteria, matchOptions)) //Evaluate any other criteria as well before accepting the match
 						return found;
 
 					found = null;
 				}
 			}
 
-			foreach (var window in AllWindows)
+			foreach (var window in EnumerateWindows(detectHiddenWindows))
 			{
-				if (window.Equals(criteria))
+				if (window.Equals(criteria, matchOptions))
 				{
 					found = window;
 
@@ -118,7 +128,7 @@ namespace Keysharp.Internals.Window.Windows
 				// Get thread of aWindow (which should be the foreground window).
 				thread_id = WindowsAPI.GetWindowThreadProcessId(aWindow, out var _);
 				// Get focus.  Benchmarks showed this additional step added only 6% to the time,
-				// and the total was only around 4�s per iteration anyway (on a Core i5-4460).
+				// and the total was only around 4µs per iteration anyway (on a Core i5-4460).
 				// It is necessary for UWP apps such as Microsoft Edge, and any others where
 				// the top-level window belongs to a different thread than the focused control.
 				var thread_info = GUITHREADINFO.Default;

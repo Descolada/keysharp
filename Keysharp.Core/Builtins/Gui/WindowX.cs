@@ -509,8 +509,8 @@ namespace Keysharp.Builtins
 									 object excludeText = null)
 		{
 			var criteria = SearchCriteria.FromString(winTitle, winText, excludeTitle, excludeText);
-			var window = WindowManager.ActiveWindow;
-			return (window != null && window.Equals(criteria)) ? window.Handle.ToInt64() : 0L;
+			var window = SearchActiveWindow(criteria, true);
+			return window != null ? window.Handle.ToInt64() : 0L;
 		}
 
 		/// <summary>
@@ -1103,8 +1103,14 @@ namespace Keysharp.Builtins
 			var tv = Script.TheScript.Threads.CurrentThread.configData;
 			var prev = tv.detectHiddenWindows;
 			tv.detectHiddenWindows = true;
-			SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.Show());
-			tv.detectHiddenWindows = prev;
+			try
+			{
+				SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.Show());
+			}
+			finally
+			{
+				tv.detectHiddenWindows = prev;
+			}
 			WindowItemBase.DoWinDelay();
 			return DefaultObject;
 		}
@@ -1126,7 +1132,7 @@ namespace Keysharp.Builtins
 				if (win != null || (seconds != 0 && (DateTime.UtcNow - start).TotalSeconds >= seconds))
 					break;
 
-				_ = Flow.Sleep(50);
+				_ = Flow.Sleep(10);
 			} while (win == null);
 
 			if (win != null)
@@ -1147,25 +1153,30 @@ namespace Keysharp.Builtins
 			var start = DateTime.UtcNow;
 			var criteria = SearchCriteria.FromString(winTitle, winText, excludeTitle, excludeText);
 			var hwnd = 0L;
-			var script = Script.TheScript;
 
 			while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
 			{
-				var windows = WindowManager.FindWindowGroup(criteria, true);//Pass true because we must inspect all matching windows to see if any of them are active.
+				WindowItemBase win = null;
 
-				foreach (var win in windows)
+				if (criteria.IsEmpty)
 				{
-					if (win.Active)
-					{
-						WindowManager.LastFound = win;
-						hwnd = win.Handle.ToInt64();
-						b = true;
-						break;
-					}
+					var lastFound = WindowManager.LastFound;
+
+					if (lastFound != null && lastFound.IsSpecified && lastFound.Active)
+						win = lastFound;
+				}
+				else
+					win = SearchActiveWindow(criteria);
+
+				if (win != null)
+				{
+					WindowManager.LastFound = win;
+					hwnd = win.Handle.ToInt64();
+					b = true;
 				}
 
 				if (!b)
-					_ = Flow.Sleep(100);
+					_ = Flow.Sleep(10);
 			}
 
 			WindowItemBase.DoWinDelay();
@@ -1178,34 +1189,27 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			var b = false;
 			var seconds = timeout.Ad();
 			var start = DateTime.UtcNow;
-			var script = Script.TheScript;
 			var criteria = SearchCriteria.FromString(winTitle, winText, excludeTitle, excludeText);
-			var windows = WindowManager.FindWindowGroup(criteria, false, true);
+			long result = 0L;
 
-			if (windows.Count == 0)
-				return 1L;
-
-			foreach (var win in windows)//In the case of WinWaitClose(), this loop won't execute and the function will return 1.
+			while (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds)
 			{
-				WindowManager.LastFound = win;
+				var windows = WindowManager.FindWindowGroup(criteria, false, true);
 
-				while (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds)
+				if (windows.Count == 0)
 				{
-					if (!win.Exists || (!ThreadAccessors.A_DetectHiddenWindows && !win.Visible))
-					{
-						b = true;
-						break;
-					}
-					else
-						_ = Flow.Sleep(100);
+					result = 1L;
+					break;
 				}
+
+				WindowManager.LastFound = windows[0];
+				_ = Flow.Sleep(10);
 			}
 
 			WindowItemBase.DoWinDelay();
-			return b ? 1L : 0L;
+			return result;
 		}
 
 		public static long WinWaitNotActive(object winTitle = null,
@@ -1217,22 +1221,38 @@ namespace Keysharp.Builtins
 			var b = false;
 			var seconds = timeout.Ad();
 			var start = DateTime.UtcNow;
+			var criteria = SearchCriteria.FromString(winTitle, winText, excludeTitle, excludeText);
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (criteria.IsEmpty)
 			{
-				//Ks.OutputDebugLine($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}");
-				//Keysharp.Builtins.File.FileAppend($"The window to wait for is: {win.Handle.ToInt64()}, {win.Title}\n", "out.txt");
-				WindowManager.LastFound = win;
+				if (WindowManager.LastFound is WindowItemBase win && win.IsSpecified)
+				{
+					while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
+					{
+						if (!win.Active)
+						{
+							b = true;
+							break;
+						}
 
+						_ = Flow.Sleep(10);
+					}
+				}
+			}
+			else
+			{
 				while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
 				{
-					if (!win.Active)
+					var win = SearchActiveWindow(criteria);
+
+					if (win == null)
 					{
 						b = true;
 						break;
 					}
 
-					_ = Flow.Sleep(100);
+					WindowManager.LastFound = win;
+					_ = Flow.Sleep(10);
 				}
 			}
 

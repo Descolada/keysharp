@@ -132,14 +132,14 @@ namespace Keysharp.Internals.Window.Linux
 			}
 		}
 
-		internal override string ClassName
-		{
-			get
-			{
-				if (!IsSpecified)
-					return DefaultErrorString;
+		internal override string ClassName => className ??= GetClassNameCore();
 
-				static string PickClassName(string resClass, string resName)
+		private string GetClassNameCore()
+		{
+			if (!IsSpecified)
+				return DefaultErrorString;
+
+			static string PickClassName(string resClass, string resName)
 				{
 					if (!string.IsNullOrEmpty(resClass))
 						return resClass;
@@ -203,39 +203,38 @@ namespace Keysharp.Internals.Window.Linux
 					}
 				}
 
-				if (Xlib.TryGetClassHint(xwindow.XDisplay.Handle, xwindow.ID, out var resName, out var resClass))
-				{
-					var className = PickClassName(resClass, resName);
-					if (!string.IsNullOrEmpty(className))
-						return className;
-				}
-
-				if (TryGetWmClass(xwindow.ID, out var wmClass, out var wmName))
-				{
-					var className = PickClassName(wmClass, wmName);
-					if (!string.IsNullOrEmpty(className))
-						return className;
-				}
-
-				if (Control.FromHandle(Handle) is Control ctrl)
-					return ctrl.GetType().Name;
-
-				var tempParent = ParentWindow;
-				var depth = 0;
-				while (tempParent != null && depth++ < 16 && tempParent.Handle.ToInt64() != xwindow.XDisplay.Root.ID)
-				{
-					if (TryGetWmClass(tempParent.Handle.ToInt64(), out wmClass, out wmName))
-					{
-						var className = PickClassName(wmClass, wmName);
-						if (!string.IsNullOrEmpty(className))
-							return className;
-					}
-
-					tempParent = tempParent.ParentWindow;
-				}
-
-				return DefaultObject;
+			if (Xlib.TryGetClassHint(xwindow.XDisplay.Handle, xwindow.ID, out var resName, out var resClass))
+			{
+				var cn = PickClassName(resClass, resName);
+				if (!string.IsNullOrEmpty(cn))
+					return cn;
 			}
+
+			if (TryGetWmClass(xwindow.ID, out var wmClass, out var wmName))
+			{
+				var cn = PickClassName(wmClass, wmName);
+				if (!string.IsNullOrEmpty(cn))
+					return cn;
+			}
+
+			if (Control.FromHandle(Handle) is Control ctrl)
+				return ctrl.GetType().Name;
+
+			var tempParent = ParentWindow;
+			var depth = 0;
+			while (tempParent != null && depth++ < 16 && tempParent.Handle.ToInt64() != xwindow.XDisplay.Root.ID)
+			{
+				if (TryGetWmClass(tempParent.Handle.ToInt64(), out wmClass, out wmName))
+				{
+					var cn = PickClassName(wmClass, wmName);
+					if (!string.IsNullOrEmpty(cn))
+						return cn;
+				}
+
+				tempParent = tempParent.ParentWindow;
+			}
+
+			return DefaultObject;
 		}
 
 		internal override Rectangle ClientLocation
@@ -526,61 +525,71 @@ namespace Keysharp.Internals.Window.Linux
 		{
 			get
 			{
-				if (!IsSpecified)
-					return [];
-
-				var prop = new XTextProperty();
-				var attr = new XWindowAttributes();
-				var tv = Script.TheScript.Threads.CurrentThread;
-				var doHidden = ThreadAccessors.A_DetectHiddenWindows;
-				var filter = (long id) =>
-				{
-					if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) != 0)
-						if (tv.configData.detectHiddenText || attr.map_state == MapState.IsViewable)
-							return true;
-
-					return false;
-				};
-				return xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(x =>
-				{
-					if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, x.ID, ref prop, XAtom.XA_WM_NAME) != 0)
-					{
-						var text = prop.GetText();
-						prop.Free();
-						return text;
-					}
-					else
-						return DefaultObject;
-				}).ToList();
+				var tv = Script.TheScript.Threads.CurrentThread.configData;
+				return GetText(tv.detectHiddenText);
 			}
+		}
+
+		internal override List<string> GetText(WindowSearchOptions options)
+			=> GetText(options?.DetectHiddenText ?? ThreadAccessors.A_DetectHiddenText);
+
+		private List<string> GetText(bool detectHiddenText)
+		{
+			if (!IsSpecified)
+				return [];
+
+			var prop = new XTextProperty();
+			var attr = new XWindowAttributes();
+			var filter = (long id) =>
+			{
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) != 0)
+					if (detectHiddenText || attr.map_state == MapState.IsViewable)
+						return true;
+
+				return false;
+			};
+			return xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(x =>
+			{
+				if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, x.ID, ref prop, XAtom.XA_WM_NAME) != 0)
+				{
+					var text = prop.GetText();
+					prop.Free();
+					return text;
+				}
+				else
+					return DefaultObject;
+			}).ToList();
 		}
 
 		internal override string Title
 		{
 			get
 			{
+				if (title != null)
+					return title;
+
 				if (!IsSpecified)
-					return DefaultObject;
+					return title = DefaultObject;
 
 				if (Control.FromHandle(Handle) is Control ctrl)
-					return ctrl.Text;
+					return title = ctrl.Text;
 
 				try
 				{
 					var wmName = Xlib.GetWMName(xwindow.XDisplay.Handle, xwindow.ID);
 					if (!string.IsNullOrEmpty(wmName))
-						return wmName;
+						return title = wmName;
 
 					var prop = new XTextProperty();
 					if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, xwindow.ID, ref prop, (XAtom)xwindow.XDisplay._NET_WM_NAME) != 0)
 					{
 						if (prop.value != 0 && prop.format == 8 && prop.nitems > 0)
 						{
-							var title = prop.encoding == xwindow.XDisplay.UTF8_STRING
+							var t = prop.encoding == xwindow.XDisplay.UTF8_STRING
 								? Marshal.PtrToStringUTF8(prop.value)
 								: Marshal.PtrToStringAuto(prop.value);
 							prop.Free();
-							return title;
+							return title = t;
 						}
 
 						prop.Free();
@@ -591,7 +600,7 @@ namespace Keysharp.Internals.Window.Linux
 					Ks.OutputDebugLine($"XGetWMName() failed: {ex.Message}");
 				}
 
-				return DefaultObject;
+				return title = DefaultObject;
 			}
 			set
 			{
@@ -620,7 +629,8 @@ namespace Keysharp.Internals.Window.Linux
 						}
 					}
 
-					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
+					_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+					title = value;
 				}
 			}
 		}

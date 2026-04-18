@@ -115,7 +115,7 @@ namespace Keysharp.Internals.Window.Windows
 			}
 		}
 
-		internal override string ClassName => IsSpecified ? WindowsAPI.GetClassName(Handle) : string.Empty;
+		internal override string ClassName => className ??= IsSpecified ? WindowsAPI.GetClassName(Handle) : string.Empty;
 
 		internal override Rectangle ClientLocation
 		{
@@ -271,33 +271,44 @@ namespace Keysharp.Internals.Window.Windows
 		{
 			get
 			{
-				if (!IsSpecified)
-					return [];
-
-				var items = new List<string>(64);
 				var tv = Script.TheScript.Threads.CurrentThread.configData;
-				_ = WindowsAPI.EnumChildWindows(Handle, (nint hwnd, int lParam) =>
-				{
-					if (tv.detectHiddenText || WindowsAPI.IsWindowVisible(hwnd))
-					{
-						var text = tv.titleMatchModeSpeed ? WindowsAPI.GetWindowText(hwnd) : WindowsAPI.GetWindowTextTimeout(hwnd, 5000);//AHK used 5000.
-						items.Add(text);
-					}
-
-					return true;
-				}, 0);
-				return items;
+				return GetText(tv.detectHiddenText, tv.titleMatchModeSpeed);
 			}
+		}
+
+		internal override List<string> GetText(WindowSearchOptions options)
+			=> GetText(options?.DetectHiddenText ?? ThreadAccessors.A_DetectHiddenText, options?.TitleMatchModeSpeed ?? ThreadAccessors.A_TitleMatchModeSpeed);
+
+		private List<string> GetText(bool detectHiddenText, bool fast)
+		{
+			if (!IsSpecified)
+				return [];
+
+			var items = new List<string>(64);
+			_ = WindowsAPI.EnumChildWindows(Handle, (nint hwnd, int lParam) =>
+			{
+				if (detectHiddenText || WindowsAPI.IsWindowVisible(hwnd))
+				{
+					var text = fast ? WindowsAPI.GetWindowText(hwnd) : WindowsAPI.GetWindowTextTimeout(hwnd, 5000);//AHK used 5000.
+					items.Add(text);
+				}
+
+				return true;
+			}, 0);
+			return items;
 		}
 
 		internal override string Title
 		{
-			get => IsSpecified ? WindowsAPI.GetWindowText(Handle) : string.Empty;
+			get => title ??= IsSpecified ? WindowsAPI.GetWindowText(Handle) : string.Empty;
 
 			set
 			{
 				if (IsSpecified)
+				{
 					_ = WindowsAPI.SetWindowText(Handle, value ?? string.Empty);
+					title = value;
+				}
 			}
 		}
 
@@ -381,7 +392,7 @@ namespace Keysharp.Internals.Window.Windows
 
 		internal override bool Visible
 		{
-			get => IsSpecified && WindowsAPI.IsWindowVisible(Handle);
+			get => IsSpecified && (ParentWindow.IsSpecified ? WindowsAPI.IsWindowVisible(Handle) : WindowManager.IsDetectableTopLevelWindow(Handle));
 			set => _ = value ? Show() : Hide();
 		}
 

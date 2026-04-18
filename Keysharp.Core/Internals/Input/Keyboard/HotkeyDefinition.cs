@@ -2438,7 +2438,11 @@ namespace Keysharp.Internals.Input.Keyboard
 			return null;
 		}
 
-		private static long HotIfWinActivePrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Active ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
+		private static long HotIfWinActivePrivate(object title, object text, object hotkey)
+		{
+			var criteria = SearchCriteria.FromString(title, text, null, null);
+			return WindowSearch.SearchActiveWindow(criteria, true) is WindowItemBase win ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
+		}
 
 		private static long HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Exists ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
 

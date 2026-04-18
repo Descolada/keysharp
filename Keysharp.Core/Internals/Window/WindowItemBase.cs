@@ -28,9 +28,14 @@ namespace Keysharp.Internals.Window
 	/// </summary>
 	internal abstract class WindowItemBase
 	{
-		//Cache these on first retrival, because apparently fetching them is a slow operation in all platforms
+		// These properties are cached on first access because fetching them is slow on all platforms.
+		// This is safe because WindowItemBase instances are short-lived: each window enumeration creates
+		// fresh instances, and WinWait re-enumerates on every iteration. Do NOT store WindowItemBase
+		// instances across separate Keysharp method calls; the cached values will be stale.
 		protected string processPath = null;
 		protected string processName = null;
+		protected string title = null;
+		protected string className = null;
 
 		internal abstract bool Active { get; set; }
 		internal abstract bool AlwaysOnTop { get; set; }
@@ -165,11 +170,11 @@ namespace Keysharp.Internals.Window
 		internal abstract Size Size { get; set; }
 		internal abstract long Style { get; set; }
 		internal abstract List<string> Text { get; }
+		internal virtual List<string> GetText(WindowSearchOptions options) => Text;
 		internal abstract string Title { get; set; }
 		internal abstract object Transparency { get; set; }
 		internal abstract object TransparentColor { get; set; }
 		internal abstract bool Visible { get; set; }
-		internal bool Detectable => ThreadAccessors.A_DetectHiddenWindows || Visible;
 		internal abstract FormWindowState WindowState { get; set; }
 
 		internal WindowItemBase(nint handle) => Handle = handle;
@@ -217,15 +222,20 @@ namespace Keysharp.Internals.Window
 
 		internal abstract bool Close();
 
-		internal bool Equals(SearchCriteria criteria)//Make internal to avoid dupes.
+		internal bool Equals(SearchCriteria criteria, WindowSearchOptions inheritedOptions = null)//Make internal to avoid dupes.
 		{
 			if (!IsSpecified)
 				return false;
 
-			if (criteria.Active)
-				return Active;
+			var options = WindowSearchOptions.Merge(criteria.Options, inheritedOptions);
 
 			if (criteria.IsEmpty)
+				return false;
+
+			if (criteria.Active && !Active)
+				return false;
+
+			if (criteria.HasNonGroupCriteria && !GetDetectHiddenWindows(options) && !ParentWindow.IsSpecified && !Visible)
 				return false;
 
 			if (criteria.ID != 0 && Handle != criteria.ID)
@@ -234,36 +244,30 @@ namespace Keysharp.Internals.Window
 			if (criteria.PID != 0L && PID != criteria.PID)
 				return false;
 
+			var windowTitle = Title;
+
 			if (!string.IsNullOrEmpty(criteria.Title))//Put title first because it's the most likely.
 			{
-				if (criteria.Title == "A")
-					return Active;
-
-				if (!TitleCompare(Title, criteria.Title))
-					return false;
-
-				if (!ThreadAccessors.A_DetectHiddenWindows && !Visible)
+				if (!TitleCompare(windowTitle, criteria.Title, options))
 					return false;
 			}
 
 			if (!string.IsNullOrEmpty(criteria.ClassName))
 			{
-				if (!TitleCompare(ClassName, criteria.ClassName, StringComparison.CurrentCultureIgnoreCase) && !TitleCompare(ClassNN, criteria.ClassName, StringComparison.CurrentCultureIgnoreCase))//Check both just to be safe because they can be slightly different.
+				if (!ExactOrRegExCompare(ClassName, criteria.ClassName, options, StringComparison.OrdinalIgnoreCase))
 					return false;
 			}
 
 			if (!string.IsNullOrEmpty(criteria.Path))
 			{
-				var comp = Environment.OSVersion.Platform == PlatformID.Win32NT ? StringComparison.OrdinalIgnoreCase : StringComparison.CurrentCulture;
-
-				if (!TitleCompare(Path, criteria.Path, comp))
+				if (!ProcessCompare(Path, ProcessName, criteria.Path, options))
 					return false;
 			}
 
 			if (!string.IsNullOrEmpty(criteria.Text))
 			{
-				foreach (var text in Text)
-					if (TitleCompare(text, criteria.Text))
+				foreach (var text in GetText(options))
+					if (TitleCompare(text, criteria.Text, options))
 						return true;
 
 				return false;
@@ -271,14 +275,14 @@ namespace Keysharp.Internals.Window
 
 			if (!string.IsNullOrEmpty(criteria.ExcludeTitle))
 			{
-				if (TitleCompare(Title, criteria.ExcludeTitle))
+				if (TitleCompare(windowTitle, criteria.ExcludeTitle, options))
 					return false;
 			}
 
 			if (!string.IsNullOrEmpty(criteria.ExcludeText))
 			{
-				foreach (var text in Text)
-					if (TitleCompare(text, criteria.ExcludeText))
+				foreach (var text in GetText(options))
+					if (TitleCompare(text, criteria.ExcludeText, options))
 						return false;
 			}
 
@@ -293,7 +297,7 @@ namespace Keysharp.Internals.Window
 
 						foreach (var crit in stack.sc)
 						{
-							if (Equals(crit))//If any criteria in the group matched something, then it's considered a valid match.
+							if (Equals(crit, options))//If any criteria in the group matched something, then it's considered a valid match.
 							{
 								anypassed = true;
 								break;
@@ -378,12 +382,33 @@ namespace Keysharp.Internals.Window
 				Keysharp.Internals.Flow.Sleep((int)delay);
 		}
 
-		private static bool TitleCompare(string a, string b, StringComparison comp = StringComparison.CurrentCulture)
+		private static bool ProcessCompare(string processPath, string processName, string criteriaPath, WindowSearchOptions options)
+		{
+			if ((options?.TitleMatchMode ?? ThreadAccessors.A_TitleMatchMode) == 4)
+				return Keysharp.Builtins.RegEx.RegExMatch(processPath, criteriaPath) is long ll && ll > 0L;
+
+			return criteriaPath.IndexOfAny(['\\', '/']) != -1
+				   ? string.Equals(processPath, criteriaPath, StringComparison.OrdinalIgnoreCase)
+				   : string.Equals(processName, criteriaPath, StringComparison.OrdinalIgnoreCase);
+		}
+
+		private static bool ExactOrRegExCompare(string a, string b, WindowSearchOptions options, StringComparison comp)
 		{
 			if (string.IsNullOrEmpty(a))
 				return false;
 
-			switch (ThreadAccessors.A_TitleMatchMode)
+			if ((options?.TitleMatchMode ?? ThreadAccessors.A_TitleMatchMode) == 4)
+				return Keysharp.Builtins.RegEx.RegExMatch(a, b) is long ll && ll > 0L;
+
+			return a.Equals(b, comp);
+		}
+
+		private static bool TitleCompare(string a, string b, WindowSearchOptions options, StringComparison comp = StringComparison.Ordinal)
+		{
+			if (string.IsNullOrEmpty(a))
+				return false;
+
+			switch (options?.TitleMatchMode ?? ThreadAccessors.A_TitleMatchMode)
 			{
 				case 1:
 					return a.StartsWith(b, comp);
@@ -402,6 +427,9 @@ namespace Keysharp.Internals.Window
 
 			return false;
 		}
+
+		private static bool GetDetectHiddenWindows(WindowSearchOptions options)
+			=> options?.DetectHiddenWindows ?? ThreadAccessors.A_DetectHiddenWindows;
 
 		private bool Wait(double seconds, Func<bool> func)
 		{

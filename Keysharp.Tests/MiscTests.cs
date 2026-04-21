@@ -198,5 +198,8 @@ namespace Keysharp.Tests
 
 		[Test, Category("Misc"), NonParallelizable]
 		public void SimplePass() => Assert.IsTrue(TestScript("misc-pass", false));
+
+		[Test, Category("Misc"), NonParallelizable]
+		public void PropRef() => Assert.IsTrue(TestScript("misc-prop-ref", false));
 	}
 }

@@ -73,13 +73,23 @@ namespace Keysharp.Builtins
 			try
 			{
 				var val = Script.GetPropertyValue(this, name);
-				return KeysharpObject.Call(null, ["value", val]);
+				return KeysharpObject.Call(TheScript.Vars.Statics[typeof(KeysharpObject)], ["value", val]);
 			}
 			catch
 			{
 			}
 
 			return Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
+		}
+
+		public object __Ref(object name, params object[] args)
+		{
+			var ctorArgs = new object[(args?.Length ?? 0) + 2];
+			ctorArgs[0] = this;
+			ctorArgs[1] = name;
+			if (args != null && args.Length > 0)
+				System.Array.Copy(args, 0, ctorArgs, 2, args.Length);
+			return PropRef.Call(TheScript.Vars.Statics[typeof(PropRef)], ctorArgs);
 		}
 
 		public long HasOwnProp(object obj)
@@ -176,4 +186,3 @@ namespace Keysharp.Builtins
 		}
 	}
 }
-

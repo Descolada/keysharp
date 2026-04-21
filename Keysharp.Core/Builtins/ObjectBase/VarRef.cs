@@ -1,13 +1,15 @@
 namespace Keysharp.Builtins
 {
-	public class VarRef : KeysharpObject
+	public class VarRef : Any
 	{
-		private readonly Func<object> Get;
-		private readonly Action<object> Set;
+		protected Func<object> Get;
+		protected Action<object> Set;
 
 		public static VarRef Empty = new VarRef(() => null, x => x = null);
 
-		public VarRef(object x) : base()
+		protected VarRef() : base(null) { }
+
+		public VarRef(object x) : base(null)
 		{
 			Get = () => x;
 			Set = (value) => x = value;
@@ -26,4 +28,3 @@ namespace Keysharp.Builtins
 		}
 	}
 }
-

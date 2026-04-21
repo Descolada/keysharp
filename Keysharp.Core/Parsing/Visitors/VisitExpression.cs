@@ -908,9 +908,18 @@ namespace Keysharp.Parsing
             if (assignmentOperator == ":=" || assignmentOperator == "??=")
             {
                 var assignmentKind = (assignmentOperator == ":=") ? SyntaxKind.SimpleAssignmentExpression : SyntaxKind.CoalesceAssignmentExpression;
-				if ((leftExpression is ObjectCreationExpressionSyntax objectExpression)
-                && objectExpression.Type is IdentifierNameSyntax objectName
-                && objectName.Identifier.Text == "VarRef")
+				bool isVarRefObjectCreation = leftExpression is ObjectCreationExpressionSyntax objectExpression
+					&& objectExpression.Type is IdentifierNameSyntax objectName
+					&& objectName.Identifier.Text == "VarRef";
+				// &obj.prop := val / &obj[i] := val lower `&...` to Script.Invoke(obj, "__Ref", ...).
+				// Treat that the same as the legacy VarRef object-creation path.
+				bool isRefInvocation = leftExpression is InvocationExpressionSyntax refInvocation
+					&& CheckInvocationExpressionName(refInvocation, "Invoke")
+					&& refInvocation.ArgumentList.Arguments.Count >= 2
+					&& refInvocation.ArgumentList.Arguments[1].Expression is LiteralExpressionSyntax refLit
+					&& refLit.Token.Text == "\"__Ref\"";
+				bool isExistingVarRef = IsMarkedExistingVarRef(leftExpression);
+				if (isVarRefObjectCreation || isRefInvocation || isExistingVarRef)
                 {
                     var varRefExpression = leftExpression;
                     leftExpression = parser.PushTempVar();

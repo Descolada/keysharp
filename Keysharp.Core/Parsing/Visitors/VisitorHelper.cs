@@ -1774,6 +1774,14 @@ namespace Keysharp.Parsing
             return block;
         }
 
+        private const string ExistingVarRefAnnotationKind = "ExistingVarRef";
+
+        private static ExpressionSyntax MarkExistingVarRef(ExpressionSyntax expression) =>
+            expression.WithAdditionalAnnotations(new SyntaxAnnotation(ExistingVarRefAnnotationKind));
+
+        internal static bool IsMarkedExistingVarRef(ExpressionSyntax expression) =>
+            expression != null && expression.GetAnnotations(ExistingVarRefAnnotationKind).Any();
+
         public static ExpressionSyntax ConstructVarRefFromIdentifier(string identifier)
         {
             var identifierName = SyntaxFactory.IdentifierName(identifier);
@@ -1824,6 +1832,11 @@ namespace Keysharp.Parsing
 			// Handle the different cases of singleExpression
 			if (targetExpression is IdentifierNameSyntax identifierName)
             {
+                var existingVarRef = IsVarRef(identifierName.Identifier.Text);
+
+                if (existingVarRef != null)
+                    return MarkExistingVarRef(SyntaxFactory.IdentifierName(existingVarRef));
+
                 // Case: Variable identifier
                 var addedName = MaybeAddVariableDeclaration(identifierName.Identifier.Text);
                 if (addedName != null && addedName != identifierName.Identifier.Text)
@@ -1907,65 +1920,75 @@ namespace Keysharp.Parsing
             }
             else if (targetExpression is InvocationExpressionSyntax invocationExpression)
             {
-                // Handle Keysharp.Runtime.Script.GetIndex(varname, index)
+                // A ByRef parameter/local is read as GetPropertyValue(varRef, "__Value").
+                // Taking a ref of that should return the existing VarRef object itself,
+                // not attempt to take a ref to its __Value property.
+                if (CheckInvocationExpressionName(invocationExpression, "GetPropertyValue", true))
+                {
+                    var gpArgs = invocationExpression.ArgumentList.Arguments;
+
+                    if (gpArgs.Count == 2 &&
+                        gpArgs[0].Expression is IdentifierNameSyntax existingVarRefIdentifier &&
+                        IsVarRef(existingVarRefIdentifier.Identifier.Text) != null &&
+                        gpArgs[1].Expression is LiteralExpressionSyntax gpName &&
+                        gpName.Token.Text == "\"__Value\"")
+                    {
+                        return MarkExistingVarRef(gpArgs[0].Expression);
+                    }
+                }
+
+                // Handle Keysharp.Runtime.Script.GetIndex(obj, args...)
+                // Lowered to: Script.Invoke(obj, "__Ref", "__Item", args...)
                 if (CheckInvocationExpressionName(invocationExpression, "GetIndex", true))
                 {
-                    return SyntaxFactory.ObjectCreationExpression(
-                        SyntaxFactory.IdentifierName("VarRef"),
-                        CreateArgumentList(
-                        // Getter lambda: () => Keysharp.Runtime.Script.GetIndex(varname, index)
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(),
-                                invocationExpression
-                            ),
-                        // Setter lambda: value => Keysharp.Runtime.Script.SetObject(value, varname, index)
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.Parameter(SyntaxFactory.Identifier($"{Keywords.InternalPrefix}value"))
-                                    )
-                                ),
-                                ((InvocationExpressionSyntax)InternalMethods.SetObject)
-                                .WithArgumentList(
-                                    CreateArgumentList(
-										invocationExpression.ArgumentList.Arguments,
-										SyntaxFactory.IdentifierName($"{Keywords.InternalPrefix}value")
-									)
-                                )
+                    var getIndexArgs = invocationExpression.ArgumentList.Arguments;
+                    var objExpr = getIndexArgs[0].Expression;
+                    var indexArgs = getIndexArgs.Skip(1).ToArray();
+                    return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                        .WithArgumentList(
+                            CreateArgumentList(
+                                objExpr,
+                                CreateStringLiteral("__Ref"),
+                                CreateStringLiteral("__Item"),
+                                (IEnumerable<ArgumentSyntax>)indexArgs
                             )
-                        ),
-                        null
-                    );
+                        );
                 }
-                // Handle Keysharp.Runtime.Script.GetPropertyValue(obj, field)
+                // Handle Keysharp.Runtime.Script.GetPropertyValue(obj, name[, args...])
+                // For a simple property:  &obj.prop       -> Script.Invoke(obj, "__Ref", name)
+                // For a parameterized property:
+                //   &obj.prop[i,j] -> Script.Invoke(obj, "__Ref", name, i, j)
+                // Default Object.__Ref/PropRef then applies the same runtime rules as
+                // ordinary property access, including the __Item fallback when the
+                // property itself does not accept parameters.
                 else if (CheckInvocationExpressionName(invocationExpression, "GetPropertyValue", true))
                 {
-                    return SyntaxFactory.ObjectCreationExpression(
-                        SyntaxFactory.IdentifierName("VarRef"),
-                        CreateArgumentList(
-                        // Getter lambda: () => Keysharp.Runtime.Script.GetPropertyValue(obj, field)
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(),
-								invocationExpression
-							),
-                        // Setter lambda: value => Keysharp.Runtime.Script.SetPropertyValue(obj, field, value)
-                            SyntaxFactory.ParenthesizedLambdaExpression(
-                                SyntaxFactory.ParameterList(
-                                    SyntaxFactory.SingletonSeparatedList(
-                                        SyntaxFactory.Parameter(SyntaxFactory.Identifier($"{Keywords.InternalPrefix}value"))
-                                    )
-                                ),
-                                ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
-                                .WithArgumentList(
-                                    CreateArgumentList(
-                                        invocationExpression.ArgumentList.Arguments,
-                                        SyntaxFactory.IdentifierName($"{Keywords.InternalPrefix}value")
-                                    )
+                    var gpArgs = invocationExpression.ArgumentList.Arguments;
+                    var objExpr = gpArgs[0].Expression;
+                    var nameExpr = gpArgs[1].Expression;
+                    var extraArgs = gpArgs.Skip(2).ToArray();
+
+                    if (extraArgs.Length == 0)
+                    {
+                        return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                            .WithArgumentList(
+                                CreateArgumentList(
+                                    objExpr,
+                                    CreateStringLiteral("__Ref"),
+                                    nameExpr
                                 )
+                            );
+                    }
+
+                    return ((InvocationExpressionSyntax)InternalMethods.Invoke)
+                        .WithArgumentList(
+                            CreateArgumentList(
+                                objExpr,
+                                CreateStringLiteral("__Ref"),
+                                nameExpr,
+                                (IEnumerable<ArgumentSyntax>)extraArgs
                             )
-                        ),
-                        null
-                    );
+                        );
                 }
                 else if (invocationExpression.ArgumentList.Arguments.Count == 3 &&
                          invocationExpression.ArgumentList.Arguments[1].Expression is LiteralExpressionSyntax argumentName &&

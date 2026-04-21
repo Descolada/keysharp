@@ -138,7 +138,7 @@ namespace Keysharp.Internals.Invoke
 					// Remove the suffix
 					span = span[..--len];
 
-					if (p is KeysharpObject kso
+					if (p is Any kso
 						&& !OutputVars.ContainsKey(paramIndex) //must not be a Ptr object
 						&& Script.GetPropertyValueOrNull(kso, "__Value") is object kptr)
 						p = kptr;
@@ -202,7 +202,7 @@ namespace Keysharp.Internals.Invoke
 					}
 
 					// Special case for strings passed by reference but not with "str*", since strings are always by reference
-					if (p is KeysharpObject kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
+					if (p is Any kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
 					{
 						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;
@@ -210,7 +210,7 @@ namespace Keysharp.Internals.Invoke
 
 					if (p is string s)
 					{
-						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
+						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is Any kso)
 						{
 							var sb = new StringBuffer(s);
 							gcHandles.Add(GCHandle.Alloc(sb, GCHandleType.Normal));
@@ -247,7 +247,7 @@ namespace Keysharp.Internals.Invoke
 						type = isReturn ? typeof(char[]) : typeof(nint);
 						goto TypeDetermined;
 					}
-					if (p is KeysharpObject kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
+					if (p is Any kso2 && Script.GetPropertyValueOrNull(kso2, "__Value") is object kptr)
 					{
 						OutputVars[paramIndex] = (typeof(nint), false);
 						p = kptr;
@@ -255,7 +255,7 @@ namespace Keysharp.Internals.Invoke
 
 					if (p is string s)
 					{
-						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is KeysharpObject kso)
+						if (OutputVars.ContainsKey(paramIndex) && parameters[paramIndex] is Any kso)
 						{
 							var sb = new StringBuffer(s, null, "ANSI");
 							gcHandles.Add(GCHandle.Alloc(sb, GCHandleType.Normal));

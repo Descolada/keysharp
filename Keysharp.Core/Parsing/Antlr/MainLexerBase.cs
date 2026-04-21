@@ -193,6 +193,7 @@ public abstract class MainLexerBase : Lexer
         MainLexer.IdentityEquals,
         MainLexer.IdentityNotEquals,
         MainLexer.RegExMatch,
+        MainLexer.NotRegExMatch,
         MainLexer.BitAnd,
         MainLexer.BitXOr,
         MainLexer.BitOr,

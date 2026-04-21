@@ -178,6 +178,7 @@ namespace Keysharp.Parsing
             {MainParser.VerbalOr, "BooleanOr"},
             {MainParser.Dot, "Concat"},
             {MainParser.RegExMatch, "RegEx"},
+            {MainParser.NotRegExMatch, "NotRegEx"},
             {MainParser.Power, "Power"},
             {MainParser.Is, "Is"}
         };

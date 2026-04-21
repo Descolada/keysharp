@@ -390,7 +390,7 @@ singleExpression
     | left = singleExpression op = '^' right = singleExpression                                # BitXOrExpression
     | left = singleExpression op = '|' right = singleExpression                                # BitOrExpression
     | left = singleExpression (ConcatDot | {this.wsConcatAllowed()}? WS+) right = singleExpression                        # ConcatenateExpression
-    | left = singleExpression op = '~=' right = singleExpression                               # RegExMatchExpression
+    | left = singleExpression op = ('~=' | '!~=' ) right = singleExpression                    # RegExMatchExpression
     | left = singleExpression op = ('<' | '>' | '<=' | '>=') right = singleExpression          # RelationalExpression
     | left = singleExpression op = ('=' | '!=' | '==' | '!==') right = singleExpression        # EqualityExpression
     | left = singleExpression ((WS | EOL)* op = (Instanceof | Is | In | Contains) (WS | EOL)*) right = primaryExpression  # ContainExpression

@@ -685,6 +685,7 @@ namespace Keysharp.Parsing
                         case MainLexer.IdentityEquals:
                         case MainLexer.IdentityNotEquals:
                         case MainLexer.RegExMatch:
+                        case MainLexer.NotRegExMatch:
                         case MainLexer.BitXOr:
                         case MainLexer.BitOr:
                         case MainLexer.And:

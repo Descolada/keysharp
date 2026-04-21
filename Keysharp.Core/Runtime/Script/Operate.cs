@@ -390,6 +390,8 @@ namespace Keysharp.Runtime
 			return Builtins.RegEx.RegExMatch(ForceString(left), ForceString(right));
 		}
 
+		public static object NotRegEx(object left, object right) => !ForceBool(RegEx(left, right));
+
 		public static object FloorDivide(object left, object right)
 		{
 			if (ParseNumericArgs(left, right, Keyword_BitwiseOr, out var firstIsDouble, out var secondIsDouble, out var firstd, out var firstl, out var secondd, out var secondl))

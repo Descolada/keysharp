@@ -117,6 +117,7 @@ NotEquals                  : '!=';
 IdentityEquals             : '==';
 IdentityNotEquals          : '!==';
 RegExMatch                 : '~=';
+NotRegExMatch              : '!~=';
 BitAnd                     : '&';
 BitXOr                     : '^';
 BitOr                      : '|';

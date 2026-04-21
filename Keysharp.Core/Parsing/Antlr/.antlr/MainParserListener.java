@@ -1,4 +1,4 @@
-// Generated from c:/Users/minip/source/repos/Keysharp_clone/Keysharp.Core/Scripting/Parser/Antlr/MainParser.g4 by ANTLR 4.13.1
+// Generated from Keysharp.Core/Parsing/Antlr/MainParser.g4 by ANTLR 4.13.2
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 
 /**
@@ -117,16 +117,6 @@ public interface MainParserListener extends ParseTreeListener {
 	 */
 	void exitHotstring(MainParser.HotstringContext ctx);
 	/**
-	 * Enter a parse tree produced by {@link MainParser#hotstringExpansion}.
-	 * @param ctx the parse tree
-	 */
-	void enterHotstringExpansion(MainParser.HotstringExpansionContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#hotstringExpansion}.
-	 * @param ctx the parse tree
-	 */
-	void exitHotstringExpansion(MainParser.HotstringExpansionContext ctx);
-	/**
 	 * Enter a parse tree produced by {@link MainParser#hotkey}.
 	 * @param ctx the parse tree
 	 */
@@ -206,96 +196,6 @@ public interface MainParserListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitDeleteStatement(MainParser.DeleteStatementContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importStatement}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportStatement(MainParser.ImportStatementContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importStatement}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportStatement(MainParser.ImportStatementContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importClause}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportClause(MainParser.ImportClauseContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importClause}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportClause(MainParser.ImportClauseContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importModule}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportModule(MainParser.ImportModuleContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importModule}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportModule(MainParser.ImportModuleContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importWildcardFrom}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportWildcardFrom(MainParser.ImportWildcardFromContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importWildcardFrom}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportWildcardFrom(MainParser.ImportWildcardFromContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importNamedFrom}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportNamedFrom(MainParser.ImportNamedFromContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importNamedFrom}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportNamedFrom(MainParser.ImportNamedFromContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importList}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportList(MainParser.ImportListContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importList}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportList(MainParser.ImportListContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importSpecifierList}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportSpecifierList(MainParser.ImportSpecifierListContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importSpecifierList}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportSpecifierList(MainParser.ImportSpecifierListContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#importSpecifier}.
-	 * @param ctx the parse tree
-	 */
-	void enterImportSpecifier(MainParser.ImportSpecifierContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#importSpecifier}.
-	 * @param ctx the parse tree
-	 */
-	void exitImportSpecifier(MainParser.ImportSpecifierContext ctx);
-	/**
-	 * Enter a parse tree produced by {@link MainParser#moduleName}.
-	 * @param ctx the parse tree
-	 */
-	void enterModuleName(MainParser.ModuleNameContext ctx);
-	/**
-	 * Exit a parse tree produced by {@link MainParser#moduleName}.
-	 * @param ctx the parse tree
-	 */
-	void exitModuleName(MainParser.ModuleNameContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link MainParser#exportStatement}.
 	 * @param ctx the parse tree

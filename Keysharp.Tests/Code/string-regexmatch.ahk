@@ -273,6 +273,16 @@ if (match == 1)
 else
 	FileAppend "fail", "*"
 
+if ("abc123" !~= "xyz")
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+if !("abc123" !~= "\d+")
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 RegExMatch("C:\Foo\Bar\Baz.txt", "\w+$", &match:="")
 
 if (match[0] == "txt")

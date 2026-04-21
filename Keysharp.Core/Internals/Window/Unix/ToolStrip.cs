@@ -318,6 +318,12 @@ namespace Keysharp.Internals.Window.Unix
 	public class ContextMenuStrip : ToolStripDropDownMenu
 	{
 		internal ContextMenu EtoMenu => ContextMenu;
+
+		public event EventHandler<EventArgs> Closed
+		{
+			add => ContextMenu.Closed += value;
+			remove => ContextMenu.Closed -= value;
+		}
 	}
 
 	public class ToolStripMenuItem : ToolStripItem

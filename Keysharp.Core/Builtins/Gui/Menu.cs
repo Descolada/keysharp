@@ -394,17 +394,52 @@ namespace Keysharp.Builtins
 		/// Otherwise, specify the X and Y coordinates at which to display the upper left corner of the menu.<br/>
 		/// The coordinates are relative to the active window's client area unless overridden by using <see cref="CoordMode"/> or <see cref="A_CoordModeMenu"/>.
 		/// </param>
-		public object Show(object x = null, object y = null)
+		/// <param name="wait">If true, wait until the menu is closed before returning. If false or omitted, return immediately.</param>
+		public object Show(object x = null, object y = null, object wait = null)
 		{
-			_ = GetCursorPos(out POINT def);
-			var _x = x.Ai();
-			var _y = y.Ai();
-			if (x != null || y != null) CoordToScreen(ref _x, ref _y, Builtins.CoordMode.Menu);
-			if (x == null) _x = def.X;
-			if (y == null) _y = def.Y;
-			var pt = new Point(_x, _y);
+			if (this is MenuBar)
+				return Errors.ValueErrorOccurred("MenuBar objects cannot be shown as popup menus.");
 
-			MenuItem.Show(pt);
+			var shouldWait = wait.Ab(false);
+
+			Script.InvokeOnUIThread(() =>
+			{
+				_ = GetCursorPos(out POINT def);
+				var _x = x.Ai();
+				var _y = y.Ai();
+				if (x != null || y != null) CoordToScreen(ref _x, ref _y, Builtins.CoordMode.Menu);
+				if (x == null) _x = def.X;
+				if (y == null) _y = def.Y;
+				var pt = new Point(_x, _y);
+
+				if (!shouldWait)
+				{
+					MenuItem.Show(pt);
+					return;
+				}
+
+				var closed = false;
+
+#if WINDOWS
+				ToolStripDropDownClosedEventHandler handler = (_, _) => closed = true;
+#else
+				EventHandler<EventArgs> handler = (_, _) => closed = true;
+#endif
+				try
+				{
+					MenuItem.Closed += handler;
+					MenuItem.Show(pt);
+#if WINDOWS
+					Keysharp.Internals.Flow.WaitWithMessagePump(() => !closed && !MenuItem.IsDisposed && MenuItem.Visible);
+#else
+					Keysharp.Internals.Flow.WaitWithMessagePump(() => !closed);
+#endif
+				}
+				finally
+				{
+					MenuItem.Closed -= handler;
+				}
+			});
 			return DefaultObject;
 		}
 

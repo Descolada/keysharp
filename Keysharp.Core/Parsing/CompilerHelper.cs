@@ -594,11 +594,11 @@ using String = Keysharp.Builtins.String
 			return (sb.ToString(), null);
 		}
 
-		public (CompilationUnitSyntax[], CompilerErrorCollection) CreateCompilationUnitFromFile(params string[] fileNames)
-        {
-			var units = new CompilationUnitSyntax[fileNames.Length];
-            var errors = new CompilerErrorCollection();
-            var enc = Encoding.Default;
+		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName)
+		{
+			CompilationUnitSyntax unit = null;
+			var errors = new CompilerErrorCollection();
+			var enc = Encoding.Default;
 			var x = Env.FindCommandLineArg("cp");
 			var script = Script.TheScript;
 			// Internal parsing can touch accessors, so a current thread context must exist,
@@ -606,42 +606,38 @@ using String = Keysharp.Builtins.String
 			script.Threads.EnsureCurrentThreadVariables();
 			parser = new Parser(this);
 
-            if (x != null)
-            {
-                x = x.Trim(DashSlash);
+			if (x != null)
+			{
+				x = x.Trim(DashSlash);
 
-                if (x.Length > 2 && int.TryParse(x.AsSpan().Slice(2), out var codepage))
-                    enc = Encoding.GetEncoding(codepage);
-            }
+				if (x.Length > 2 && int.TryParse(x.AsSpan().Slice(2), out var codepage))
+					enc = Encoding.GetEncoding(codepage);
+			}
 
-            for (var i = 0; i < fileNames.Length; i++)//This has likely never been tested with more than one file at a time. Need to figure that out.//TODO
-            {
-                try
-                {
-                    if (File.Exists(fileNames[i]))
-                    {
-                        script.scriptName = fileNames[i];
-                        units[i] = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileNames[i], enc), Path.GetFullPath(fileNames[i]));
-                    }
-                    else
-                    {
-                        script.scriptName = "*";
-                        units[i] = parser.Parse<CompilationUnitSyntax>(new StringReader(fileNames[i]), "*");//In memory.
-                    }
-                }
-                catch (ParseException e)
-                {
-                    _ = errors.Add(new CompilerError(e.File, e.Line.Ai(), e.Column, "0", e.Message));
-                }
-                catch (Exception e)
-                {
-                    _ = errors.Add(new CompilerError { ErrorText = e.Message + "\n\nStack trace:\n" + e.StackTrace.ToString() });
-                }
-                finally { }
-            }
+			try
+			{
+				if (File.Exists(fileName))
+				{
+					script.scriptName = fileName;
+					unit = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), Path.GetFullPath(fileName));
+				}
+				else
+				{
+					script.scriptName = "*";
+					unit = parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), "*");//In memory.
+				}
+			}
+			catch (ParseException e)
+			{
+				_ = errors.Add(new CompilerError(e.File, e.Line.Ai(), e.Column, "0", e.Message));
+			}
+			catch (Exception e)
+			{
+				_ = errors.Add(new CompilerError { ErrorText = e.Message + "\n\nStack trace:\n" + e.StackTrace.ToString() });
+			}
 
-            return (units, errors);
-        }
+			return (unit, errors);
+		}
 
 		public void PrintCompilerErrors(string s, bool stdout = false)
 		{
@@ -697,17 +693,14 @@ using String = Keysharp.Builtins.String
 
 		internal string CreateEscapedIdentifier(string variable) => provider.CreateEscapedIdentifier(variable);
 
-		public (byte[], string) CompileCodeToByteArray(string[] fileNames, string nameNoExt, string exeDir = null, bool minimalexeout = false)
+		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false)
 		{
-			if (fileNames.Length == 0)
-				throw new Error("At least one file name must be provided");
-
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
 
-			var (units, errs) = CreateCompilationUnitFromFile(fileNames);
+			var (unit, errs) = CreateCompilationUnitFromFile(fileName);
 
-			if (errs.HasErrors || units[0] == null)
+			if (errs.HasErrors || unit == null)
 			{
 				var (errors, warnings) = GetCompilerErrors(errs);
 
@@ -723,16 +716,16 @@ using String = Keysharp.Builtins.String
 				return (null, sb.ToString());
 			}
 
-			var code = PrettyPrinter.Print(units[0]);
+			var code = PrettyPrinter.Print(unit);
 #if DEBUG
-			var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
+			var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
 			if (code != normalized)
 			{
 				throw new Exception("Code formatting mismatch");
 			}
 #endif
 
-			var (results, ms, compileexc) = Compile(units[0], nameNoExt, exeDir, minimalexeout);
+			var (results, ms, compileexc) = Compile(unit, nameNoExt, exeDir, minimalexeout);
 
 			try
 			{

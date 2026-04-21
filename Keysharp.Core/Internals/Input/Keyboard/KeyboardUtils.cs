@@ -252,9 +252,11 @@ done
 		MouseMoveOff
 	}
 
+	// Windows scan code values; used directly by the Win32 hook path. On Unix these constants
+	// are not consumed — SharpHook's KeyCode enum drives input there (see SharpHookKeyMapper).
 	internal static class ScanCodes
 	{
-		internal const uint NumpadEnter = 0x11C;//These will likely need to be different on linux.//TODO
+		internal const uint NumpadEnter = 0x11C;
 		internal const uint Insert = 0x152;
 		internal const uint Delete = 0x153;
 		internal const uint Home = 0x147;
@@ -334,12 +336,14 @@ done
 	}
 
 	/// <summary>
+	/// Windows virtual-key values, used as Keysharp's canonical cross-platform key identifiers.
+	/// On Unix, SharpHookKeyMapper.VkToKeyCode maps these to SharpHook's KeyCode enum.
 	/// We cannot use the System.Windows.Forms.Keys enum because it does not contain various keys
 	/// such as mouse wheel.
 	/// </summary>
 	internal static class VirtualKeys
 	{
-		internal const uint VK_LBUTTON = 0x01;//These will likely need to be different on linux.//TODO
+		internal const uint VK_LBUTTON = 0x01;
 		internal const uint VK_RBUTTON = 0x02;
 		internal const uint VK_CANCEL = 0x03;
 		internal const uint VK_MBUTTON = 0x04;//NOT contiguous with L & RBUTTON

@@ -12,21 +12,14 @@ namespace Keysharp.Internals.Window.Unix
 		{
 		}
 
-		//May need to add wait functionality here the way AHK does in StatusBarUtil().
-		protected override string GetCaption(uint index)
-		{
-			throw new NotImplementedException();
-		}
+		// Cross-process status bar inspection requires AT-SPI on Linux/macOS, which is not
+		// currently wired up. These stubs report an empty bar so callers can detect absence
+		// gracefully instead of crashing with NotImplementedException.
+		protected override string GetCaption(uint index) => DefaultObject;
 
-		protected override uint GetOwningPid()
-		{
-			throw new NotImplementedException();
-		}
+		protected override uint GetOwningPid() => 0;
 
-		protected override int GetPanelCount()
-		{
-			throw new NotImplementedException();
-		}
+		protected override int GetPanelCount() => 0;
 	}
 }
 

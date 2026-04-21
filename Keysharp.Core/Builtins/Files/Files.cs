@@ -1,6 +1,9 @@
 using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
+#if WINDOWS
+using Microsoft.VisualBasic.FileIO;
+#endif
 
 namespace Keysharp.Builtins
 {

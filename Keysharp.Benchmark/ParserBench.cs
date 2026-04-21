@@ -20,7 +20,7 @@ namespace Keysharp.Benchmark
 		public void CreateTreeFromFile()
 		{
 			var ch = new CompilerHelper();
-			var (st, errs) = ch.CreateCompilationUnitFromFile("./Keysharp.ks");
+			var (unit, errs) = ch.CreateCompilationUnitFromFile("./Keysharp.ks");
 		}
 
 		[GlobalSetup]

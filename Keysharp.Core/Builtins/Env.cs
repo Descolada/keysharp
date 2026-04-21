@@ -900,7 +900,7 @@ namespace Keysharp.Builtins
 			string result = null;
 			byte[] compiledBytes = null;
 			var ch = new CompilerHelper();
-			(compiledBytes, result) = ch.CompileCodeToByteArray([script], name);
+			(compiledBytes, result) = ch.CompileCodeToByteArray(script, name);
 
 			if (compiledBytes == null)
 				return Errors.ErrorOccurred(result);
@@ -954,9 +954,9 @@ namespace Keysharp.Builtins
 		public static object ParseScript(object code)
 		{
 			var ch = new CompilerHelper();
-			var (units, errs) = ch.CreateCompilationUnitFromFile([code.As()]);
+			var (unit, errs) = ch.CreateCompilationUnitFromFile(code.As());
 
-			if (errs.HasErrors || units[0] == null)
+			if (errs.HasErrors || unit == null)
 			{
 				var (errors, warnings) = CompilerHelper.GetCompilerErrors(errs);
 

@@ -211,7 +211,9 @@ namespace Keysharp.Builtins
 				var act = () =>
 				{
 #if WINDOWS
-					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))//Will need a cross platform version of this.//TODO
+					// Windows-only: OpenClipboard/CloseClipboard is used to honor A_ClipboardTimeout under
+					// the Win32 single-owner lock. Linux/macOS clipboards have no equivalent locking model.
+					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
 					{
 						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
 

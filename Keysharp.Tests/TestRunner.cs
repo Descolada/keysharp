@@ -114,7 +114,7 @@ namespace Keysharp.Tests
 			ResetScriptState();
 			s.SetName(name);
 			var ch = new CompilerHelper();
-			var (arr, code) = ch.CompileCodeToByteArray([source], name);
+			var (arr, code) = ch.CompileCodeToByteArray(source, name);
 
 			if (arr == null)
 			{

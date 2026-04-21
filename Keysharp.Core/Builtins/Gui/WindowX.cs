@@ -371,52 +371,42 @@ namespace Keysharp.Builtins
 											  object excludeTitle = null,
 											  object excludeText = null)
 		{
-			WindowItemBase ctrl;
-			var part = partNumber.Ai(1);
+			var part = Math.Max(0, partNumber.Ai(1) - 1);
 			var text = winText.As();
 			var title = excludeTitle.As();
 			var exclude = excludeText.As();
 #if WINDOWS
+			// Standard Win32 common-control status bar (class "msctls_statusbar32", first instance).
+			WindowItemBase ctrl;
 
-			//These class names will be something else on Linux. Need a cross platform way to do this.//TODO
 			if ((ctrl = SearchControl("msctls_statusbar321", winTitle, text, title, exclude, false)) != null)
 			{
 				var sb = StatusBarProvider.CreateStatusBar(ctrl.Handle);
-				part = Math.Max(0, part - 1);
 
 				if (part < sb.Captions.Length)
-				{
 					return sb.Captions[part];
-				}
+
+				return DefaultObject;
 			}
-			else if ((ctrl = SearchControl("WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1", winTitle, text, title, exclude, true)) != null)
+
+			// Keysharp / WinForms StatusStrip fallback (same process).
+			if ((ctrl = SearchControl("WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1", winTitle, text, title, exclude, false)) != null
+				&& Control.FromHandle(ctrl.Handle) is StatusStrip ss)
 			{
-				if (Control.FromHandle(ctrl.Handle) is StatusStrip ss)
-				{
-					part = Math.Max(0, part - 1);
+				if (part < ss.Items.Count)
+					return ss.Items[part].Text;
 
-					if (part < ss.Items.Count)
-					{
-						return ss.Items[part].Text;
-					}
-				}
+				return DefaultObject;
 			}
 
-#elif LINUX
-
-			if ((ctrl = SearchControl("", winTitle, text, title, exclude, false)) != null)//Unsure of the exact control name on linux.//TODO
-			{
-				var sb = StatusBarProvider.CreateStatusBar(ctrl.Handle);
-				part = Math.Max(0, part - 1);
-
-				if (part < sb.Captions.Length)
-				{
-					return sb.Captions[part];
-				}
-			}
-
-#endif
+			_ = Errors.TargetErrorOccurred("Window does not contain a standard status bar.", winTitle, text, title, exclude);
 			return DefaultObject;
+#else
+			// Reading a status bar from another process on Linux/macOS would require AT-SPI
+			// (or similar accessibility) support, which Keysharp does not currently implement.
+			_ = Errors.TargetErrorOccurred("StatusBarGetText is not supported on this platform.", winTitle, text, title, exclude);
+			return DefaultObject;
+#endif
 		}
 
 		/// <summary>

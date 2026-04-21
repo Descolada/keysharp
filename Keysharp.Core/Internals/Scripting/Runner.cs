@@ -164,21 +164,25 @@ namespace Keysharp.Internals.Scripting
 					path = $".{Path.DirectorySeparatorChar}{namenoext}";
 				}
 
-				var (units, errs) = ch.CreateCompilationUnitFromFile(scriptName);
+				var (unit, errs) = ch.CreateCompilationUnitFromFile(scriptName);
 
-				if (errs.HasErrors || units[0] == null)
+				if (errs.HasErrors || unit == null)
 					return HandleCompilerErrors(errs, scriptName, path, "Compiling script to DOM");
-
-				var code = units[0].ToString();
 
 				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
 				if (codeout)
 				{
+					var code = PrettyPrinter.Print(unit);
+#if DEBUG
+					var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
+					if (code != normalized)
+						throw new Exception("Code formatting mismatch");
+#endif
 					Console.Write(code);
 					return 0;
 				}
 
-				var (results, ms, compileexc) = ch.Compile(units[0], namenoext, exeDir);
+				var (results, ms, compileexc) = ch.Compile(unit, namenoext, exeDir);
 
 				try
 				{

@@ -8,7 +8,7 @@ namespace Keysharp.Internals.Platform.Unix
 	/// <summary>
 	/// Concrete implementation of PlatformManager for the linux platfrom.
 	/// </summary>
-	internal class PlatformManager : PlatformManagerBase, IPlatformManager
+	internal partial class PlatformManager : PlatformManagerBase, IPlatformManager
 	{
 		private static readonly bool isGnome, isKde, isXfce, isMate, isCinnamon, isLxqt, isLxde;
 
@@ -182,12 +182,20 @@ namespace Keysharp.Internals.Platform.Unix
 
 		public static nint LoadLibrary(string path) => NativeLibrary.TryLoad(path, out var module) ? module : 0;
 
-		public static uint CurrentThreadId() =>
 #if OSX
-			(uint)Environment.CurrentManagedThreadId; //TODO
-#else
-			(uint)Xlib.gettid();
+		[LibraryImport("libSystem.dylib")]
+		private static partial int pthread_threadid_np(IntPtr thread, out ulong threadid);
 #endif
+
+		public static uint CurrentThreadId()
+		{
+#if OSX
+			_ = pthread_threadid_np(IntPtr.Zero, out var tid);
+			return (uint)tid;
+#else
+			return (uint)Xlib.gettid();
+#endif
+		}
 
 		public static bool DestroyIcon(nint icon) =>
 #if OSX

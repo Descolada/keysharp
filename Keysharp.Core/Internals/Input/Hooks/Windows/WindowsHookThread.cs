@@ -1243,7 +1243,10 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			thread = new StaThreadWithMessageQueue();
 		}
 
-		private bool ChangeHookState(HookType hooksToBeActive, bool changeIsTemporary)//This is going to be a problem if it's ever called to re-add a hook from another thread because only the main gui thread has a message loop.//TODO
+		// Callable from any thread: the hook-API calls below are marshaled onto the dedicated
+		// StaThreadWithMessageQueue hook thread via Invoke(func), which synchronously Sends onto
+		// that thread's message loop. The caller's thread does not need a message pump.
+		private bool ChangeHookState(HookType hooksToBeActive, bool changeIsTemporary)
 		{
 			var problem_activating_hooks = false;
 			Func<object> func = () =>

@@ -1798,7 +1798,7 @@ namespace Keyview
 				setStart?.Invoke();
 				setStatus?.Invoke("Creating DOM from script...");
 				refreshStatus?.Invoke();
-				var (units, domerrs) = compiler.CreateCompilationUnitFromFile(inputText);
+				var (unit, domerrs) = compiler.CreateCompilationUnitFromFile(inputText);
 
 				if (domerrs.HasErrors)
 				{
@@ -1815,17 +1815,17 @@ namespace Keyview
 
 				setStatus?.Invoke("Creating C# code from DOM...");
 				refreshStatus?.Invoke();
-				var code = PrettyPrinter.Print(units[0]);
+				var code = PrettyPrinter.Print(unit);
 
 #if DEBUG
-				var normalized = units[0].NormalizeWhitespace("\t", Environment.NewLine).ToString();
+				var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
 				if (code != normalized)
 					throw new Exception("Code formatting mismatch");
 #endif
 
 				setStatus?.Invoke("Compiling C# code...");
 				refreshStatus?.Invoke();
-				var (results, ms, compileexc) = compiler.Compile(units[0], "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)));
+				var (results, ms, compileexc) = compiler.Compile(unit, "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)));
 
 				if (results == null)
 				{

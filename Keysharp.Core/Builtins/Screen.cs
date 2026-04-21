@@ -23,7 +23,7 @@ namespace Keysharp.Builtins
 		/// Searches a region of the screen for an image.
 		/// </summary>
 		/// <param name="outX">
-		/// References to the output variables in which to store the X and Y coordinates of the upper-left pixel of where the<br/>
+		/// Optional references to the output variables in which to store the X and Y coordinates of the upper-left pixel of where the<br/>
 		/// image was found on the screen (if no match is found, the variables are made blank).<br/>
 		/// Coordinates are relative to the active window's client area unless CoordMode was used to change that.
 		/// </param>
@@ -66,11 +66,10 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		/// <exception cref="ValueError ">A <see cref="ValueError "/> exception thrown if an invalid parameter was detected or the image could not be loaded.</exception>
-		public static object ImageSearch([ByRef] object outX, [ByRef] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
+		public static object ImageSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
 		{
 			EnsureScreenCapturePermission("ImageSearch");
-            outX ??= VarRef.Empty; outY ??= VarRef.Empty;
-            var _x1 = x1.Ai();
+			var _x1 = x1.Ai();
 			var _y1 = y1.Ai();
 			var _x2 = x2.Ai();
 			var _y2 = y2.Ai();
@@ -150,16 +149,16 @@ namespace Keysharp.Builtins
 			{
 				int x = location.Value.X + _x1, y = location.Value.Y + _y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
-				Script.SetPropertyValue(outX, "__Value", (long)x);
-                Script.SetPropertyValue(outY, "__Value", (long)y);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
+				return 1L;
 			}
 			else
 			{
-                Script.SetPropertyValue(outX, "__Value", "");
-                Script.SetPropertyValue(outY, "__Value", "");
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", "");
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", "");
+				return 0L;
 			}
-
-			return DefaultObject;
 		}
 
 		/// <summary>
@@ -197,7 +196,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Searches a region of the screen for a pixel of the specified color.
 		/// </summary>
-		/// <param name="outX">References to the output variables in which to store the X and Y coordinates of the first pixel that<br/>
+		/// <param name="outX">Optional references to the output variables in which to store the X and Y coordinates of the first pixel that<br/>
 		/// matches colorID (if no match is found, the variables are made blank).<br/>
 		/// Coordinates are relative to the active window's client area unless CoordMode was used to change that.
 		/// </param>
@@ -215,10 +214,9 @@ namespace Keysharp.Builtins
 		/// </param>
 		/// <returns>This function returns 1 if the color was found in the specified region, or 0 if it was not found.</returns>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
-		public static long PixelSearch(object outX, object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
+		public static long PixelSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
 		{
 			EnsureScreenCapturePermission("PixelSearch");
-			outX ??= VarRef.Empty; outY ??= VarRef.Empty;
 			var x1 = obj0.Ai();
 			var y1 = obj1.Ai();
 			var x2 = obj2.Ai();
@@ -265,14 +263,14 @@ namespace Keysharp.Builtins
 			{
 				int x = location.Value.X + x1, y = location.Value.Y + y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
-				Script.SetPropertyValue(outX, "__Value", (long)x);
-                Script.SetPropertyValue(outY, "__Value", (long)y);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
 				return 1L;
 			}
 			else
 			{
-                Script.SetPropertyValue(outX, "__Value", 0L);
-                Script.SetPropertyValue(outY, "__Value", 0L);
+				if (outX != null) Script.SetPropertyValue(outX, "__Value", 0L);
+				if (outY != null) Script.SetPropertyValue(outY, "__Value", 0L);
 				return 0L;
 			}
 		}

@@ -59,7 +59,7 @@ Status legend:
 | #SuspendExempt | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #SuspendExempt directive exempts subsequent hotkeys and hotstrings from suspension. |
 | #Undef | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Undefines a conditional compilation symbol. |
 | #UseHook | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #UseHook directive forces the use of the hook to implement all or some keyboard hotkeys. |
-| #Warn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Warn directive enables or disables warnings for specific conditions which may indicate an error, such as a typo or missing "global" declaration. |
+| #Warn | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The #Warn directive is not supported yet; warning configuration such as VarUnset, Unreachable, and LocalSameAsGlobal is currently ignored. |
 | #Warning | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Emits a compile-time warning directive message. |
 | #WinActivateForce | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #WinActivateForce directive skips the gentle method of activating a window and goes straight to the forceful method. |
 | %...% / Dereference | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Performs dynamic dereferencing (double-deref) to resolve a variable name stored in another variable. |

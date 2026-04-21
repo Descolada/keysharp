@@ -533,12 +533,11 @@
                      "category":  "Environment/System",
                      "feature":  "#Warn",
                      "syntax":  "",
-                     "windows":  "full",
-                     "linux_x11":  "full",
-                     "linux_wayland":  "full",
-                     "macos":  "full",
-                     "notes":  "The #Warn directive enables or disables warnings for specific conditions which may indicate an error, such as a typo or missing \"global\" declaration.",
-                     "tested-by":  "Gui/guitest.ahk"
+                     "windows":  "unsupported",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The #Warn directive is not supported yet; warning configuration such as VarUnset, Unreachable, and LocalSameAsGlobal is currently ignored."
                  },
                  {
                      "category":  "Environment/System",

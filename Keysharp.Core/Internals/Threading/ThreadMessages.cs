@@ -7,9 +7,8 @@ namespace Keysharp.Internals.Threading
 		internal nint criterionFoundHwnd = 0;
 		internal char endChar = (char)0;
 		internal bool recheckCriterionOnReceipt;
+		internal int skipChars;
 		internal uint triggerVk;
-
-		//Might want to add skipchars here.//TODO
 		internal HotstringDefinition hs = null;
 	}
 

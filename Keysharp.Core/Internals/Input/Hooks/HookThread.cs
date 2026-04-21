@@ -822,7 +822,7 @@ namespace Keysharp.Internals.Input.Hooks
 		}
 
 		internal virtual bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
-											  KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar)
+											  KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar, ref int skipChars)
 		{
 			var suppressHotstringFinalChar = false; // Set default.
 			var hm = Script.TheScript.HotstringManager;
@@ -955,6 +955,8 @@ namespace Keysharp.Internals.Input.Hooks
 						// situation is quite rare so for now it's just mentioned here as a known limitation.
 						suppressHotstringFinalChar = true;
 					}
+
+					skipChars = hs.ComputeReplacementSkipChars(hsBufSpan, suppressHotstringFinalChar, ref caseConformMode);
 
 					// Post the message rather than sending it, because Send would need
 					// SendMessageTimeout(), which is undesirable because the whole point of
@@ -1209,7 +1211,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal bool CollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 								   , CollectInputState state, KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut
-								   , ref CaseConformModes caseConformMode, ref char endChar
+								   , ref CaseConformModes caseConformMode, ref char endChar, ref int skipChars
 								  )
 		// Caller is responsible for having initialized aHotstringWparamToPost to HOTSTRING_INDEX_INVALID.
 		// Returns true if the caller should treat the key as visible (non-suppressed).
@@ -1275,7 +1277,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 				if (charCount > 0
 						&& !CollectHotstring(extraInfo, ch, charCount, activeWindow, keyHistoryCurr,
-											 ref hsOut, ref caseConformMode, ref endChar))
+											 ref hsOut, ref caseConformMode, ref endChar, ref skipChars))
 				{
 					var ignored = new char[8];
 
@@ -3072,7 +3074,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal long SuppressThisKeyFunc(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo,
 										  KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant,
-										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0)
+										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0, int skipChars = 0)
 		// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
 		// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
 		// neutral one.
@@ -3130,7 +3132,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// than the main thread is not enough to prevent the main thread from getting a timeslice
 			// before the hook thread gets back another (at least on some systems, perhaps due to their
 			// system settings of the same ilk as "favor background processes").
-			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar);
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars);
 			return 1;
 		}
 
@@ -3147,6 +3149,7 @@ namespace Keysharp.Internals.Input.Hooks
 			HotstringDefinition hsOut = null;
 			var caseConformMode = CaseConformModes.None;
 			var endChar = (char)0;
+			var skipChars = 0;
 			var script = Script.TheScript;
 			var hm = script.HotstringManager;
 
@@ -3212,8 +3215,8 @@ namespace Keysharp.Internals.Input.Hooks
 				}
 
 				if ((hm.enabledCount > 0 && !isIgnored) || script.input != null)
-					if (!CollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar)) // Key should be invisible (suppressed).
-						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar);
+					if (!CollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar, ref skipChars)) // Key should be invisible (suppressed).
+						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars);
 
 				// Do this here since the above "return SuppressThisKey" will have already done it in that case.
 				UpdateKeybdState(rawSc, extraInfo, e.IsEventSimulated, vk, sc, keyUp, false);
@@ -3385,7 +3388,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// able to launch a script subroutine before the hook thread can finish updating its key state.
 			// Search on AHK_HOOK_HOTKEY in this file for more comments.
 			var resultToReturn = CallNextHook(e);
-			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar);
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars);
 			return resultToReturn.ToInt64();
 		}
 
@@ -3437,7 +3440,7 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 		}
 
-		private void PostQualifiedHotstringMessage(HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
+		private void PostQualifiedHotstringMessage(HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars)
 		{
 			_ = PostMessage(new KeysharpMsg()
 			{
@@ -3448,12 +3451,13 @@ namespace Keysharp.Internals.Input.Hooks
 					hs = hs,
 					caseMode = caseConformMode,
 					endChar = endChar,
+					skipChars = skipChars,
 					recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(hs.hotCriterion)
 				}
 			});
 		}
 
-		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
+		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0)
 		{
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
@@ -3470,7 +3474,7 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 
 			if (hs != null)
-				PostQualifiedHotstringMessage(hs, caseConformMode, endChar);
+				PostQualifiedHotstringMessage(hs, caseConformMode, endChar, skipChars);
 		}
 
 		internal virtual void PrepareToSendHotstringReplacement(char endChar, uint triggerVk) { }
@@ -3528,7 +3532,8 @@ namespace Keysharp.Internals.Input.Hooks
 						hmsg.caseMode,
 						hmsg.endChar,
 						hmsg.triggerVk,
-						hmsg.recheckCriterionOnReceipt);
+						hmsg.recheckCriterionOnReceipt,
+						hmsg.skipChars);
 					return true;
 
 				case WM_HOTKEY:

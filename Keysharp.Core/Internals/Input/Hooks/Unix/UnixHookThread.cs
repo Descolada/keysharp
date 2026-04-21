@@ -1098,6 +1098,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 
 				var triggerVk = lastHookEventWasKeyboard ? lastKeyboardEventVk : 0;
+				var finalCharSuppressed = ready.doBackspace || ready.omitEndChar && ready.endCharRequired;
+				var skipChars = ready.ComputeReplacementSkipChars(sspan, finalCharSuppressed, ref caseMode);
 
 				if (triggerVk != 0)
 					TrackPlatformHotstringTrigger(triggerVk);
@@ -1110,6 +1112,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						hs = ready,
 						caseMode = caseMode,
 						endChar = endChar,
+						skipChars = skipChars,
 						triggerVk = triggerVk,
 						recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(ready.hotCriterion)
 					}
@@ -1422,7 +1425,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		// Route hotstring collection through platform arming logic when available (Linux/X11).
 		internal override bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
-												KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar)
+												KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar, ref int skipChars)
 		{
 			if (charCount <= 0 || ch.Length == 0)
 				return true;
@@ -1433,7 +1436,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var hm = Script.TheScript.HotstringManager;
 			lastTypedExtraInfo = extraInfo;
 
-			var result = base.CollectHotstring(extraInfo, ch, charCount, activeWindow, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar);
+			var result = base.CollectHotstring(extraInfo, ch, charCount, activeWindow, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar, ref skipChars);
 
 			// Keep Linux-side logging and arming in sync with the buffer maintained by the base collector.
 			if (charCount > 0)
@@ -1453,7 +1456,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return result;
 		}
 
-		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar)
+		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0)
 		{
 			if (UsePlatformHotstringArming && hs != null)
 				DisarmHotstring();
@@ -1476,7 +1479,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 			}
 
-			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar);
+			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars);
 		}
 
 		internal override void PrepareToSendHotstringReplacement(char endChar, uint triggerVk)

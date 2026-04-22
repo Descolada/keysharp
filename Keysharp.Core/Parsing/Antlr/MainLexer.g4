@@ -407,7 +407,7 @@ fragment SingleLineCommentAtom: ';' {this.IsCommentPossible()}? NonEOLCharacter*
 
 fragment EscapeSequence:
     CharacterEscapeSequence
-    | '0' // no digit ahead! TODO
+    | '0'
     | HexEscapeSequence
     | UnicodeEscapeSequence
     | ExtendedUnicodeEscapeSequence

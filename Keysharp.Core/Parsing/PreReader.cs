@@ -70,8 +70,8 @@ namespace Keysharp.Parsing
 
 		internal PreReader(Parser p) => parser = p;
 
-        internal string[,] accessorReplaceTemplate = new[,]//These will need to be done differently on linux.//LINUXTODO
-{
+        internal string[,] accessorReplaceTemplate = new[,]
+		{
 				// The order of the first three must not be changed without altering the order in ReadTokens
                 { "%A_LineFile%", "" },
                 { "%A_ScriptDir%", "" },
@@ -276,7 +276,7 @@ namespace Keysharp.Parsing
 								foreach (var importEntry in parsedImport.Entries)
 									currentModule.DirectiveImports.Add(importEntry);
 
-								TryQueueImportModule(parsedImport.ModuleName);
+								TryQueueImportModule(parsedImport.ModuleName, token);
 							}
 							break;
                         case "DLLLOAD":
@@ -970,12 +970,12 @@ namespace Keysharp.Parsing
 				return ++i < tokens.Count && (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL);
 			}
 
-			void TryQueueImportModule(string moduleName)
+			void TryQueueImportModule(string moduleName, IToken directiveToken)
 			{
 				if (string.IsNullOrWhiteSpace(moduleName))
 					return;
 				if (moduleName[0] == '*')
-					return; // TODO: embedded resource imports
+					throw new ParseException($"Embedded-resource module names ('*{moduleName[1..]}') are not supported by #Import in Keysharp.", directiveToken.Line, "#import", directiveToken.TokenSource.SourceName);
 				pendingImports.Enqueue(moduleName);
 			}
 

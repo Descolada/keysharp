@@ -620,10 +620,6 @@ break_twice:;
 				if (waitIndefinitely || (int)(sleepDuration - (DateTime.UtcNow - startTime).TotalMilliseconds) > Script.SLEEP_INTERVAL_HALF)
 				{
 					_ = Flow.Sleep(Script.SLEEP_INTERVAL);
-					//MsgSleep() might not even be needed if we use real threads//TODO
-					//if (Keysharp.Runtime.Script.MsgSleep(Keysharp.Runtime.Script.INTERVAL_UNSPECIFIED)) // INTERVAL_UNSPECIFIED performs better.
-					//{
-					//}
 				}
 				else // Done waiting.
 					return false; // Since it timed out, we override the default with this.

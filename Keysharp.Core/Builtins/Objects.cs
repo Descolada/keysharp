@@ -102,7 +102,7 @@ namespace Keysharp.Builtins
 
 						if (desc.Value != null)
 							props[name] = desc;
-						else if (desc.Get is FuncObj getter && getter.MinParams <= 1)
+						else if (desc.Get is FuncObj && !desc.NoEnumGet)
 							props[name] = desc;
 					}
 				}

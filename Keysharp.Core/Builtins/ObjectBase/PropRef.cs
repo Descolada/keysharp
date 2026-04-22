@@ -31,9 +31,7 @@ namespace Keysharp.Builtins
 			var target = args[0];
 			var name = args[1];
 			var refArgs = args.Length > 2 ? args[2..] : [];
-			var usesIndexAccess = false;
-
-			ResolveReferenceTarget(ref target, ref name, ref refArgs, ref usesIndexAccess);
+			var usesIndexAccess = TryResolveIndexTarget(ref target, name, refArgs);
 
 			Target = target;
 			Name = name;
@@ -55,40 +53,35 @@ namespace Keysharp.Builtins
 
 		public static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
-		private static void ResolveReferenceTarget(ref object target, ref object name, ref object[] args, ref bool usesIndexAccess)
+		private static bool TryResolveIndexTarget(ref object target, object name, object[] args)
 		{
 			if (args == null || args.Length == 0)
-				return;
+				return false;
 
 			var nameStr = name.ToString();
 
 			if (nameStr.Equals("__Item", StringComparison.OrdinalIgnoreCase))
-			{
-				usesIndexAccess = true;
-				return;
-			}
+				return true;
 
 			if (target is not KeysharpObject kso)
-				return;
+				return false;
 
 			if (!Script.TryGetOwnPropsMap(kso, nameStr, out var opm))
-				return;
+				return false;
 
 			if (opm.Value != null)
 			{
 				target = opm.Value;
-				usesIndexAccess = true;
-				return;
+				return true;
 			}
 
-			if (opm.Get == null)
-				return;
-
-			if (opm.Get is FuncObj ifo && ifo.MaxParams <= 1 && !ifo.IsVariadic)
+			if (opm.Get is FuncObj ifo && opm.NoParamGet)
 			{
 				target = ifo.Call(target);
-				usesIndexAccess = true;
+				return true;
 			}
+
+			return false;
 		}
 	}
 }

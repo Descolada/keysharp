@@ -19,10 +19,7 @@ namespace Keysharp.Runtime
             if (ownProps != null && ownProps.TryGetValue(key, out opm))
 			{
 				if (type == OwnPropsMapType.None) return true;
-				if ((opm.Call != null && (type & OwnPropsMapType.Call) != 0) ||
-					(opm.Get != null && (type & OwnPropsMapType.Get) != 0) ||
-					(opm.Set != null && (type & OwnPropsMapType.Set) != 0) ||
-					(opm.Value != null && (type & OwnPropsMapType.Value) != 0))
+				if ((opm.Type & type) != 0)
 					return true;
 			}
 			if (key.Equals("base", StringComparison.OrdinalIgnoreCase))
@@ -43,10 +40,7 @@ namespace Keysharp.Runtime
 				{
 					if (type == OwnPropsMapType.None)
 						return true;
-					if ((opm.Call != null && (type & OwnPropsMapType.Call) != 0) ||
-						(opm.Get != null && (type & OwnPropsMapType.Get) != 0) ||
-						(opm.Set != null && (type & OwnPropsMapType.Set) != 0) ||
-						(opm.Value != null && (type & OwnPropsMapType.Value) != 0))
+					if ((opm.Type & type) != 0)
 						return true;
 				}
 			}
@@ -69,11 +63,7 @@ namespace Keysharp.Runtime
 				{
 					if (props.ContainsKey(name)) continue;
 
-					if (type == OwnPropsMapType.None ||
-						(desc.Call != null && (type & OwnPropsMapType.Call) != 0) ||
-						(desc.Get != null && (type & OwnPropsMapType.Get) != 0) ||
-						(desc.Set != null && (type & OwnPropsMapType.Set) != 0) ||
-						(desc.Value != null && (type & OwnPropsMapType.Value) != 0))
+					if (type == OwnPropsMapType.None || (desc.Type & type) != 0)
 					{
 						props[name] = desc;
 					}
@@ -241,7 +231,7 @@ namespace Keysharp.Runtime
 						{
 							// Allow function or callable object
 							if (opm.Get is FuncObj ifo)
-								return args.Length > 0 && ifo.MaxParams <= 1 && !ifo.IsVariadic ? GetIndexOrNull(ifo.Call(item), args) : ifo.CallInst(item, args);
+								return args.Length > 0 && opm.NoParamGet ? GetIndexOrNull(ifo.Call(item), args) : ifo.CallInst(item, args);
 							else
 								return Invoke(opm.Get, "Call", item, args);
 						}
@@ -483,7 +473,7 @@ namespace Keysharp.Runtime
 						{
 							if (own.Set is FuncObj f)
 							{
-								_ = args.Length > 1 && f.MaxParams <= 2 && !f.IsVariadic
+								_ = args.Length > 1 && own.NoParamSet
 									? SetObject(f.Call(item), args)
 									: f.CallInst(item, args);
 							}
@@ -524,7 +514,7 @@ namespace Keysharp.Runtime
 					{
 						if (opm.Set is FuncObj fset)
 						{
-							_ = args.Length > 1 && fset.MaxParams <= 2 && !fset.IsVariadic
+							_ = args.Length > 1 && opm.NoParamSet
 								? SetObject(fset.Call(item), args)
 								: fset.CallInst(item, args);
 						}

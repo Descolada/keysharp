@@ -1,5 +1,14 @@
 namespace Keysharp.Builtins
 {
+	[Flags]
+	internal enum OwnPropAccessFlags
+	{
+		None = 0,
+		NoParamGet = 1,
+		NoParamSet = 2,
+		NoEnumGet = 4,
+	}
+
 	internal static class OwnPropsEnumeration
 	{
 		internal static Enumerator CreateEnumerator(object obj, Dictionary<object, object> map, bool getVal)
@@ -38,24 +47,105 @@ namespace Keysharp.Builtins
 
 	public class OwnPropsDesc
 	{
-		public Any Parent { get; private set; }
-		public object Value;
-		public object Get;
-		public object Set;
-		public object Call;
+		private object _value;
+		private object _get;
+		private object _set;
+		private object _call;
 
-		internal OwnPropsMapType Type
+		public Any Parent { get; private set; }
+
+		public object Value
 		{
-			get
+			get => _value;
+			internal set
 			{
-				var desc = OwnPropsMapType.None;
-				if (Value != null) desc |= OwnPropsMapType.Value;
-				if (Get != null) desc |= OwnPropsMapType.Get;
-				if (Set != null) desc |= OwnPropsMapType.Set;
-				if (Call != null) desc |= OwnPropsMapType.Call;
-				return desc;
+				_value = value;
+				_get = null;
+				_set = null;
+				_call = null;
+				Type = value != null ? OwnPropsMapType.Value : OwnPropsMapType.None;
+				AccessFlags = OwnPropAccessFlags.None;
 			}
 		}
+
+		public object Get
+		{
+			get => _get;
+			internal set
+			{
+				_get = value;
+
+				if (value != null)
+				{
+					_value = null;
+					Type = (Type & ~OwnPropsMapType.Value) | OwnPropsMapType.Get;
+				}
+				else
+				{
+					Type &= ~OwnPropsMapType.Get;
+				}
+
+				AccessFlags &= ~(OwnPropAccessFlags.NoEnumGet | OwnPropAccessFlags.NoParamGet);
+
+				if (value is FuncObj func)
+				{
+					if (func.MinParams > 1)
+						AccessFlags |= OwnPropAccessFlags.NoEnumGet;
+
+					if (func.MaxParams == 1 && !func.IsVariadic)
+						AccessFlags |= OwnPropAccessFlags.NoParamGet;
+				}
+			}
+		}
+
+		public object Set
+		{
+			get => _set;
+			internal set
+			{
+				_set = value;
+
+				if (value != null)
+				{
+					_value = null;
+					Type = (Type & ~OwnPropsMapType.Value) | OwnPropsMapType.Set;
+				}
+				else
+				{
+					Type &= ~OwnPropsMapType.Set;
+				}
+
+				AccessFlags &= ~OwnPropAccessFlags.NoParamSet;
+
+				if (value is FuncObj func && func.MaxParams == 2 && !func.IsVariadic)
+					AccessFlags |= OwnPropAccessFlags.NoParamSet;
+			}
+		}
+
+		public object Call
+		{
+			get => _call;
+			internal set
+			{
+				_call = value;
+
+				if (value != null)
+				{
+					_value = null;
+					Type = (Type & ~OwnPropsMapType.Value) | OwnPropsMapType.Call;
+				}
+				else
+				{
+					Type &= ~OwnPropsMapType.Call;
+				}
+			}
+		}
+
+		internal OwnPropsMapType Type { get; private set; }
+		internal OwnPropAccessFlags AccessFlags { get; private set; }
+		internal bool NoParamGet => AccessFlags.HasFlag(OwnPropAccessFlags.NoParamGet);
+		internal bool NoParamSet => AccessFlags.HasFlag(OwnPropAccessFlags.NoParamSet);
+		internal bool NoEnumGet => AccessFlags.HasFlag(OwnPropAccessFlags.NoEnumGet);
 
 		public OwnPropsDesc()
 		{
@@ -71,7 +161,6 @@ namespace Keysharp.Builtins
 			Call = set_Call;
 		}
 
-
 		public OwnPropsDesc(Any kso, Map map)
 		{
 			Parent = kso;
@@ -80,7 +169,7 @@ namespace Keysharp.Builtins
 
 		public bool IsEmpty
 		{
-			get => Value == null && Get == null && Set == null && Call == null;
+			get => Type == OwnPropsMapType.None;
 		}
 
 		internal void Merge(Dictionary<string, OwnPropsDesc> map)
@@ -91,24 +180,18 @@ namespace Keysharp.Builtins
 				{
 					case "VALUE":
 						Value = desc.Value;
-						Get = null;
-						Set = null;
-						Call = null;
 						break;
 
 					case "GET":
 						Get = desc.Get;
-						Value = null;
 						break;
 
 					case "SET":
 						Set = desc.Set;
-						Value = null;
 						break;
 
 					case "CALL":
 						Call = desc.Call;
-						Value = null;
 						break;
 				}
 			}
@@ -118,28 +201,24 @@ namespace Keysharp.Builtins
 		{
 			foreach ((var name, var desc) in map)
 			{
+				var v = desc.Get ?? desc.Value;
+
 				switch (name.ToUpper())
 				{
 					case "VALUE":
-						Value = desc.Get ?? desc.Value;
-						Get = null;
-						Set = null;
-						Call = null;
+						Value = v;
 						break;
 
 					case "GET":
-						Get = desc.Get ?? desc.Value;
-						Value = null;
+						Get = v;
 						break;
 
 					case "SET":
-						Set = desc.Get ?? desc.Value;
-						Value = null;
+						Set = v;
 						break;
 
 					case "CALL":
-						Call = desc.Get ?? desc.Value;
-						Value = null;
+						Call = v;
 						break;
 				}
 			}
@@ -168,24 +247,18 @@ namespace Keysharp.Builtins
 				{
 					case "VALUE":
 						Value = value;
-						Get = null;
-						Set = null;
-						Call = null;
 						break;
 
 					case "GET":
 						Get = value;
-						Value = null;
 						break;
 
 					case "SET":
 						Set = value;
-						Value = null;
 						break;
 
 					case "CALL":
 						Call = value;
-						Value = null;
 						break;
 				}
 			}
@@ -214,4 +287,3 @@ namespace Keysharp.Builtins
 		public OwnPropsDesc Clone() => (OwnPropsDesc)MemberwiseClone();
 	}
 }
-

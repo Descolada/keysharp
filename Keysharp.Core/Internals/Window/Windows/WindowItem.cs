@@ -845,8 +845,7 @@ namespace Keysharp.Internals.Window.Windows
 		private static nint AttemptSetForeground(nint targetWindow, nint foreWindow)
 		{
 			_ = WindowsAPI.SetForegroundWindow(targetWindow);
-			//Need to be able to set interrupt disable here which prevents both timers and hotkeys from firing while this sleep is happening.//TODO
-			Keysharp.Internals.Flow.Sleep(10); //The MsgSleep() function in AHK is massive. Unsure how to duplicate here, so just use regular thread sleep.
+			Keysharp.Internals.Flow.SleepWithoutInterruption(10);
 			var newForeWindow = WindowsAPI.GetForegroundWindow();
 
 			if (newForeWindow == targetWindow)

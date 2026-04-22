@@ -147,7 +147,6 @@ namespace Keysharp.Builtins
 		public object AddStandard()
 		{
 			var menu = GetMenu();
-			var emptyfunc = (params object[] args) => "";
 			var script = Script.TheScript;
 			var openfunc = (params object[] args) =>
 			{
@@ -192,12 +191,31 @@ namespace Keysharp.Builtins
 			if (!A_AllowMainWindow.Ab())
 				script.openMenuItem.Visible = false;
 
-			//Need to fill in the event handlers for help and window spy when the proper functionality is implemented.//TODO
-			//_ = Add("&Help", new FuncObj(emptyfunc.Method, emptyfunc.Target));
+			var helpFunc = (params object[] args) =>
+			{
+				_ = Processes.Run("https://github.com/Descolada/keysharp/issues");
+				return DefaultObject;
+			};
+			_ = Add("&Help", new FuncObj(helpFunc.Method, helpFunc.Target));
+
 			if (menu.Items.Cast<ToolStripItem>().Any(tsi => tsi.Visible))
 				_ = menu.Items.Add(new ToolStripSeparator());
 
-			//_ = Add("&Window Spy", new FuncObj(emptyfunc.Method, emptyfunc.Target));
+			var windowSpyFunc = (params object[] args) =>
+			{
+				var dir = Path.GetDirectoryName(A_KeysharpPath);
+				var spy = Path.Combine(dir, "Scripts", "WindowSpy.ks");
+
+				if (!File.Exists(spy))
+				{
+					_ = Dialogs.MsgBox($"Window Spy script not found:\n{spy}", "Keysharp", "Icon!");
+					return DefaultObject;
+				}
+
+				Ks.RunScript(spy);
+				return DefaultObject;
+			};
+			_ = Add("&Window Spy", new FuncObj(windowSpyFunc.Method, windowSpyFunc.Target));
 			_ = Add("&Reload Script", new FuncObj(reloadfunc.Method, reloadfunc.Target));
 
 			if (!A_IsCompiled)

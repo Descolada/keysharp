@@ -499,6 +499,24 @@ namespace Keysharp.Builtins
 		}
 #endif
 
+#if !WINDOWS
+		private static bool IsUrlTarget(string target)
+		{
+			if (string.IsNullOrEmpty(target))
+				return false;
+
+			if (!Uri.TryCreate(target, UriKind.Absolute, out var uri))
+				return false;
+
+			var scheme = uri.Scheme;
+			return scheme == Uri.UriSchemeHttp
+				|| scheme == Uri.UriSchemeHttps
+				|| scheme == Uri.UriSchemeFtp
+				|| scheme == Uri.UriSchemeMailto
+				|| scheme == Uri.UriSchemeFile;
+		}
+#endif
+
 		private static bool RunAsSpecified()
 		{
 			var script = Script.TheScript;
@@ -572,7 +590,7 @@ namespace Keysharp.Builtins
 					return (long)Errors.ErrorOccurred("System verbs unsupported with RunAs.", DefaultErrorLong);
 
 				var parsedArgs = "";
-				var prc = new Process//Unsure what to do about this on linux.//TODO
+				var prc = new Process
 				{
 					StartInfo = new ProcessStartInfo
 					{
@@ -681,6 +699,16 @@ namespace Keysharp.Builtins
 				}
 
 				prc.StartInfo.Arguments = !string.IsNullOrEmpty(args) ? args : parsedArgs;
+
+#if !WINDOWS
+				if (!string.IsNullOrEmpty(shellVerb))
+					return (long)Errors.TargetErrorOccurred($"Run verbs ('*{shellVerb}') are not supported on this platform.", DefaultErrorLong);
+
+				// On Linux/macOS, UseShellExecute=true delegates to xdg-open/open, which does not
+				// forward arguments. Use it only when the target is an URL; otherwise run the
+				// executable directly so Arguments are passed verbatim.
+				prc.StartInfo.UseShellExecute = IsUrlTarget(prc.StartInfo.FileName);
+#endif
 
 				if (!string.IsNullOrEmpty(showMode))
 				{

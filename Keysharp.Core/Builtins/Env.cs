@@ -879,7 +879,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="obj0">The script source result (as any object with a valid string representation).</param>
 		/// <param name="obj1">Whether to run the process as async (provide non-unset non-zero value) or not.
-		/// <param name="obj2">An optional name for the dynamically generated program; defaults to "DynamicScript".</param>
+		/// <param name="obj2">An optional name for the dynamically generated program; defaults to "*".</param>
 		/// <param name="obj3">Optional executable path used to run the generated assembly; defaults to the currently running process.</param>
 		/// If provided a callback function then it's considered async and the function <c>Call</c> method will be
 		/// invoked when the process exits with the ProcessInfo as the only argument.</param>
@@ -896,7 +896,7 @@ namespace Keysharp.Builtins
 			if (obj1 != null)
 				cb = Functions.Func(obj1);
 
-			string name = obj2.As("DynamicScript");
+			string name = obj2?.As();
 			string result = null;
 			byte[] compiledBytes = null;
 			var ch = new CompilerHelper();

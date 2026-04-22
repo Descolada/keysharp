@@ -80,13 +80,17 @@ namespace Keysharp.Parsing
 				);
 				parser.mainClass.Body.Add(mainScriptVarDeclaration);
 
+				var pathArg = parser.startupScriptPath ?? (parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName));
+				var setNameArgs = new List<ExpressionSyntax> { CreateStringLiteral(pathArg) };
+
+				if (parser.startupScriptName != null && parser.startupScriptName != Path.GetFileName(pathArg))
+					setNameArgs.Add(CreateStringLiteral(parser.startupScriptName));
+
 				parser.mainFuncInitial.Add(
 					SyntaxFactory.ExpressionStatement(
 						SyntaxFactory.InvocationExpression(
 							CreateMemberAccess(MainScriptVariableName, "SetName"),
-							Parser.CreateArgumentList(
-								CreateStringLiteral(parser.fileName == "*" ? "*" : Path.GetFullPath(parser.fileName))
-							)
+							Parser.CreateArgumentList(setNameArgs.ToArray())
 						)
 					)
 				);

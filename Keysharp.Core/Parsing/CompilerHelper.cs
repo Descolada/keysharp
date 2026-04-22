@@ -594,7 +594,7 @@ using String = Keysharp.Builtins.String
 			return (sb.ToString(), null);
 		}
 
-		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName)
+		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null)
 		{
 			CompilationUnitSyntax unit = null;
 			var errors = new CompilerErrorCollection();
@@ -618,13 +618,20 @@ using String = Keysharp.Builtins.String
 			{
 				if (File.Exists(fileName))
 				{
-					script.scriptName = fileName;
-					unit = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), Path.GetFullPath(fileName));
+					var fullPath = Path.GetFullPath(fileName);
+					script.scriptPath = fullPath;
+					script.scriptName = Path.GetFileName(fullPath);
+					parser.startupScriptPath = fullPath;
+					parser.startupScriptName = null;
+					unit = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), fullPath);
 				}
 				else
 				{
-					script.scriptName = "*";
-					unit = parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), "*");//In memory.
+					script.scriptPath = "*";
+					script.scriptName = name ?? "*";
+					parser.startupScriptPath = "*";
+					parser.startupScriptName = name;
+					unit = parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), script.scriptName);
 				}
 			}
 			catch (ParseException e)
@@ -697,8 +704,9 @@ using String = Keysharp.Builtins.String
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
+			var assemblyName = nameNoExt ?? "*";
 
-			var (unit, errs) = CreateCompilationUnitFromFile(fileName);
+			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt);
 
 			if (errs.HasErrors || unit == null)
 			{
@@ -725,7 +733,7 @@ using String = Keysharp.Builtins.String
 			}
 #endif
 
-			var (results, ms, compileexc) = Compile(unit, nameNoExt, exeDir, minimalexeout);
+			var (results, ms, compileexc) = Compile(unit, assemblyName, exeDir, minimalexeout);
 
 			try
 			{
@@ -741,7 +749,7 @@ using String = Keysharp.Builtins.String
 				}
 				else
 				{
-					return (null, HandleCompilerErrors(results.Diagnostics, nameNoExt, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
+					return (null, HandleCompilerErrors(results.Diagnostics, assemblyName, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
 				}
 			}
 			finally
@@ -808,5 +816,3 @@ namespace Dyn
 		internal bool IsValidIdentifier(string variable) => provider.IsValidIdentifier(variable);
 	}
 }
-
-

@@ -794,16 +794,8 @@ namespace Keysharp.Builtins
 					or "dotnet" or "dotnet.exe")
 					return false;
 
-				var scriptName = Script.TheScript?.scriptName;
-
-				if (string.IsNullOrEmpty(scriptName))
-					return true;
-
-				if (scriptName.EndsWith(".ahk", StringComparison.OrdinalIgnoreCase))
+				if (CompilerHelper.compiledasm != null && string.IsNullOrEmpty(CompilerHelper.compiledasm.Location))
 					return false;
-
-				if (scriptName == "*")
-					return CompilerHelper.compiledasm == null;
 
 				return true;
 			}
@@ -1574,17 +1566,17 @@ namespace Keysharp.Builtins
 
 				if (A_IsCompiled)
 					return Path.GetDirectoryName(GetAssembly().Location);
-				else if (script.scriptName == "*")
+				else if (script.scriptPath == "*")
 					return A_WorkingDir as string;
 				else
-					return Path.GetDirectoryName(script.scriptName);
+					return Path.GetDirectoryName(script.scriptPath);
 			}
 		}
 
 		/// <summary>
 		/// The full path of the script location.
 		/// </summary>
-		public static string A_ScriptFullPath => A_IsCompiled ? A_AhkPath : Script.TheScript.scriptName;
+		public static string A_ScriptFullPath => A_IsCompiled ? A_AhkPath : Script.TheScript.scriptPath;
 
 		/// <summary>
 		/// The unique ID (HWND/handle) of the script's hidden main window.
@@ -1594,7 +1586,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The file name of the script.
 		/// </summary>
-		public static string A_ScriptName => Path.GetFileName(Script.TheScript.scriptName);
+		public static string A_ScriptName => Script.TheScript.scriptName;
 
 		/// <summary>
 		/// Current 2-digit second (00-59).

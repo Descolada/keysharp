@@ -215,7 +215,7 @@ namespace Keysharp.Builtins
 		public static object Reload()
 		{
 			var script = Script.TheScript;
-			if (script.scriptName == "*")
+			if (script.scriptPath == "*")
 				return DefaultObject;
 			//Just calling Application.Restart will not always trigger ExitAppInternal().
 			Script.PostToUIThread(() =>

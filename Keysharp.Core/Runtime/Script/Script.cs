@@ -179,6 +179,7 @@ namespace Keysharp.Runtime
 		internal bool persistent;
 		internal nint playbackHook = 0;
 		internal DateTime priorHotkeyStartTime = DateTime.UtcNow;
+		public string scriptPath = "";
 		public string scriptName = "";
 		internal string thisHotkeyName, priorHotkeyName;
 		internal DateTime thisHotkeyStartTime;
@@ -889,12 +890,22 @@ namespace Keysharp.Runtime
 			}
 #endif
 
-		public void SetName(string s)
+		public void SetName(string path, string name = null)
         {
-			scriptName = s;
+			scriptPath = path ?? Accessors.A_AhkPath;
+
+			if (name != null)
+				scriptName = name;
+			else
+			{
+				scriptName = Path.GetFileName(scriptPath);
+
+				if (string.IsNullOrEmpty(scriptName))
+					scriptName = scriptPath;
+			}
 
 			//If we're running via passing in a script and are not in a unit test, then set the working directory to that of the script file.
-			var path = Path.GetFileName(
+			var processName = Path.GetFileName(
 #if WINDOWS
 				Application.ExecutablePath
 #else
@@ -902,7 +913,7 @@ namespace Keysharp.Runtime
 #endif
 				).ToLowerInvariant();
 
-			if (!IsTestHost && path != "testhost.exe" && path != "testhost.dll" && path != "testhost" && !A_IsCompiled)
+			if (!IsTestHost && processName != "testhost.exe" && processName != "testhost.dll" && processName != "testhost" && !A_IsCompiled)
 				_ = Dir.SetWorkingDir(A_ScriptDir);
         }
 
@@ -1067,7 +1078,7 @@ namespace Keysharp.Runtime
 
 		public override string ToString()
 		{
-			return $"Script {scriptName} {instanceCount++}";
+			return $"Script {scriptPath} {instanceCount++}";
 		}
 
 		public static void VerifyVersion(string ver, bool reqAhk, int line, string code)
@@ -1204,7 +1215,7 @@ namespace Keysharp.Runtime
 		{
 			// Just prior to launching the hotkey, update these values to support built-in
 			// variables such as A_TimeSincePriorHotkey:
-			priorHotkeyName = thisHotkeyName;//None of this will work until we come up with a way to manage thread order.//TODO
+			priorHotkeyName = thisHotkeyName;
 			priorHotkeyStartTime = thisHotkeyStartTime;
 			// Unlike hotkeys -- which can have a name independent of their label by being created or updated
 			// with the HOTKEY command -- a hot string's unique name is always its label since that includes

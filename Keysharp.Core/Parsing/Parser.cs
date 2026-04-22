@@ -167,6 +167,8 @@ namespace Keysharp.Parsing
 
         private readonly CompilerHelper Ch;
         public string fileName;
+		internal string startupScriptPath;
+		internal string startupScriptName;
 
         private readonly char[] ops = [Equal, Not, Greater, Less];
 		public List<IToken> codeTokens = [];

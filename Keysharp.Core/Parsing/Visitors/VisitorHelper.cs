@@ -1959,9 +1959,8 @@ namespace Keysharp.Parsing
                 // For a simple property:  &obj.prop       -> Script.Invoke(obj, "__Ref", name)
                 // For a parameterized property:
                 //   &obj.prop[i,j] -> Script.Invoke(obj, "__Ref", name, i, j)
-                // Default Object.__Ref/PropRef then applies the same runtime rules as
-                // ordinary property access, including the __Item fallback when the
-                // property itself does not accept parameters.
+                // PropRef remains bound to the named property slot and args rather
+                // than rebinding to any resolved __Item target.
                 else if (CheckInvocationExpressionName(invocationExpression, "GetPropertyValue", true))
                 {
                     var gpArgs = invocationExpression.ArgumentList.Arguments;

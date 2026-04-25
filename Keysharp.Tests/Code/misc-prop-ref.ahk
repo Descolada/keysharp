@@ -34,22 +34,22 @@ check(rk.__Value == 1)
 rk.__Value := 99
 check(mp["one"] == 99)
 
-; --- 5. &obj.prop[i] follows GetPropertyValue fallback rules ---------
+; --- 5. &obj.prop[i] stays bound to the named property slot -----------
 nested := { g: [100, 200, 300] }
 rn := &nested.g[2]
 check(rn.__Value == 200)
 rn.__Value := 222
 check(nested.g[2] == 222)
 
-; For a property without property parameters, the ref binds to the current
-; property's __Item target at creation time.
+; For a property without property parameters, the ref still stays attached
+; to the property slot rather than the property's current __Item target.
 holder := { g: [1, 2, 3] }
 rOrig := &holder.g[1]
 origArr := holder.g
 holder.g := [9, 9, 9]              ; swap in a fresh array
-rOrig.__Value := 500               ; writes into the original array
-check(origArr[1] == 500)
-check(holder.g[1] == 9)            ; new array unchanged
+rOrig.__Value := 500               ; writes through the current property slot
+check(origArr[1] == 1)             ; original array unchanged
+check(holder.g[1] == 500)
 
 ; If the property itself accepts parameters, the ref binds to the property.
 class ParamProp {
@@ -69,15 +69,15 @@ check(rParam.__Value == 8)
 rParam.__Value := 88
 check(p.store[2] == 88)
 
-; Direct PropRef construction follows the same resolution rules.
+; Direct PropRef construction follows the same slot-binding rules.
 holder2 := { g: [4, 5, 6] }
 rDirect := PropRef(holder2, "g", 2)
 origArr2 := holder2.g
 holder2.g := [7, 8, 9]
-check(rDirect.__Value == 5)
+check(rDirect.__Value == 8)
 rDirect.__Value := 88
-check(origArr2[2] == 88)
-check(holder2.g[2] == 8)
+check(origArr2[2] == 5)
+check(holder2.g[2] == 88)
 
 ; --- 6. ByRef parameter receives PropRef ---------------------------
 bump(&p) => p += 1

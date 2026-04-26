@@ -850,7 +850,7 @@ namespace Keysharp.Builtins
 		//{
 		//}
 
-		public new static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+		public new static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 
 		public override object __New(params object[] args)
 		{

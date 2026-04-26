@@ -64,7 +64,7 @@ namespace Keysharp.Tests
 		}
 
 		private static Ks.RealThread StartWorker(Action body)
-			=> (Ks.RealThread)Ks.RealThread.Call(null, new FuncObj((Func<object>)(() =>
+			=> (Ks.RealThread)Ks.RealThread.staticCall(null, new FuncObj((Func<object>)(() =>
 			{
 				body();
 				return 0L;

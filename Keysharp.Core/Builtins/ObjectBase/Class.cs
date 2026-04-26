@@ -4,7 +4,7 @@ namespace Keysharp.Builtins
 {
     public class Class(params object[] args) : KeysharpObject(args)
     {
-		public static object staticCall(object @this, params object[] args)
+		public new static object staticCall(object @this, params object[] args)
         {
             if (args.Length == 0)
                 return new Class();
@@ -54,7 +54,7 @@ namespace Keysharp.Builtins
 			return staticInst;
         }
 
-        internal object Call(params object[] args)
+        public object Call(params object[] args)
         {
 			var proto = (this.op["Prototype"].Value ?? Script.GetPropertyValueOrNull(this, "Prototype")) as Any;
 
@@ -83,4 +83,3 @@ namespace Keysharp.Builtins
         }
 	}
 }
-

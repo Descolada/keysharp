@@ -193,7 +193,7 @@ namespace Keysharp.Builtins
 
 		public FuncObj(params object[] args) : base(args) { }
 
-		public static object Call(object @this, object funcName, object obj = null, object paramCount = null)
+		public static object staticCall(object @this, object funcName, object obj = null, object paramCount = null)
 			=> Functions.GetFuncObj(funcName, obj, paramCount, obj != null);
 
         private static MethodInfo GetMethodInfo(string s, object o, object paramCount)

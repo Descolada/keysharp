@@ -39,6 +39,6 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static object Call(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
+		public static object staticCall(object @this, params object[] args) => @this is Class cls ? cls.Call(args) : Errors.TypeErrorOccurred(@this, typeof(Class));
 	}
 }

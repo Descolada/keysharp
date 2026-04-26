@@ -41,7 +41,7 @@ namespace Keysharp.Runtime
 				// This is because calling methods on Primitive types will not pass a Primitive object as `this` and
 				// instead the actual primitive is passed (eg string), which will throw a type conversion error. Thus
 				// Primitives are exempt and follow the same naming logic as user-declared types.
-				var isBuiltin = script.ProgramType.Namespace != t.Namespace && !typeof(Primitive).IsAssignableFrom(t);
+				var isBuiltin = script.ProgramType.Namespace != t.Namespace;
 
 				if (isModuleType)
 				{
@@ -90,7 +90,7 @@ namespace Keysharp.Runtime
 
 					var methodName = method.Name;
 
-					bool isStatic = isBuiltin && method.IsStatic;
+					bool isStatic = false;
 					if (methodName.StartsWith(Keywords.ClassStaticPrefix))
 					{
 						isStatic = true;
@@ -169,7 +169,7 @@ namespace Keysharp.Runtime
 						propertyName = "__Item";
 
 					OwnPropsDesc propertyMap = null;
-					if ((prop.GetMethod?.IsStatic ?? false) || (prop.SetMethod?.IsStatic ?? false) || (propertyName.StartsWith(Keywords.ClassStaticPrefix)))
+					if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
 					{
 						if (userDeclaredName == null)
 						{

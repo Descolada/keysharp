@@ -4,7 +4,7 @@ namespace Keysharp.Builtins
 	{
 		public class Clr : KeysharpObject
 		{
-			public static object Load(object @this, object asmOrPath)
+			public static object staticLoad(object @this, object asmOrPath)
 			{
 				var s = asmOrPath.As();
 				var asm = s.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
@@ -20,7 +20,7 @@ namespace Keysharp.Builtins
 			}
 
 			// Still keep these for direct access if someone prefers:
-			public static object Type(object @this, object fullTypeName)
+			public static object staticType(object @this, object fullTypeName)
 			{
 				var name = fullTypeName.As();
 				var t = TypeResolver.Resolve(name);
@@ -29,7 +29,7 @@ namespace Keysharp.Builtins
 				return new ManagedType(t);
 			}
 
-			public static object GetNamespaceName(object @this, object @namespace)
+			public static object staticGetNamespaceName(object @this, object @namespace)
 			{
 				var ns = @namespace as ManagedNamespace;
 				if (ns == null)
@@ -37,7 +37,7 @@ namespace Keysharp.Builtins
 				return ns._ns;
 			}
 
-			public static object GetTypeName(object @this, object type)
+			public static object staticGetTypeName(object @this, object type)
 			{
 				var mt = type as ManagedType;
 				if (mt == null)

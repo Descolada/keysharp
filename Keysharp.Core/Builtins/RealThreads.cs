@@ -123,7 +123,7 @@ namespace Keysharp.Builtins
 			/// <param name="obj">The name of the function or a function object.</param>
 			/// <param name="args">The arguments to pass to the function.</param>
 			/// <returns>The <see cref="RealThread"/> object.</returns>
-			public static object Call(object @this, object obj, params object[] args)
+			public static object staticCall(object @this, object obj, params object[] args)
 			{
 				var funcObj = Functions.GetFuncObj(obj, null, true);
 				return StartRealThread(() => funcObj.Call(args));

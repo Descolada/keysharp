@@ -65,7 +65,7 @@ namespace Keysharp.Builtins.COM
 			this.Ptr = _psa.ToInt64();
 		}
 
-		public static object Call(object @this, object varType, object count1, params object[] args)
+		public static object staticCall(object @this, object varType, object count1, params object[] args)
 		{
 			var vt = (VarEnum)varType.Ai();
 			var dim1Size = count1.Ai();

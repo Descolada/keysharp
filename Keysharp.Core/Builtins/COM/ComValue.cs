@@ -133,7 +133,7 @@ namespace Keysharp.Builtins.COM
 				Flags |= F_OWNVALUE;
 		}
 
-		public static object Call(object @this, object varType, object value, object flags = null)
+		public static object staticCall(object @this, object varType, object value, object flags = null)
 		{
 			var vt = (VarEnum)varType.Al();
 			if ((vt & VarEnum.VT_ARRAY) != 0)

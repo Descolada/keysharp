@@ -24,7 +24,7 @@ namespace Keysharp.Builtins
 		///     An object[] of key,value pairs.
 		/// </param>
 		/// <returns>A new <see cref="KeysharpObject"/> object.</returns>
-		public static object Call(object @this, params object[] args)
+		public static object staticCall(object @this, params object[] args)
 		{
 			if (@this is not Class cls)
 				return Errors.TypeErrorOccurred(@this, typeof(Class));
@@ -73,7 +73,7 @@ namespace Keysharp.Builtins
 			try
 			{
 				var val = Script.GetPropertyValue(this, name);
-				return KeysharpObject.Call(TheScript.Vars.Statics[typeof(KeysharpObject)], ["value", val]);
+				return KeysharpObject.staticCall(TheScript.Vars.Statics[typeof(KeysharpObject)], ["value", val]);
 			}
 			catch
 			{
@@ -89,7 +89,7 @@ namespace Keysharp.Builtins
 			ctorArgs[1] = name;
 			if (args != null && args.Length > 0)
 				System.Array.Copy(args, 0, ctorArgs, 2, args.Length);
-			return PropRef.Call(TheScript.Vars.Statics[typeof(PropRef)], ctorArgs);
+			return PropRef.staticCall(TheScript.Vars.Statics[typeof(PropRef)], ctorArgs);
 		}
 
 		public long HasOwnProp(object obj)

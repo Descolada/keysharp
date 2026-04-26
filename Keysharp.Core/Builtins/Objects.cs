@@ -257,7 +257,7 @@ namespace Keysharp.Builtins
 				return 0;
 
 			var punk = Marshal.GetIUnknownForObject(obj);
-			return ComValue.Call(obj, 13L, (long)punk);
+			return ComValue.staticCall(obj, 13L, (long)punk);
 		}
 
 		/// <summary>

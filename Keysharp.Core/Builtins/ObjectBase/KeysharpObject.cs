@@ -123,14 +123,15 @@ namespace Keysharp.Builtins
 			return ct;
 		}
 
-		public object OwnProps(object getValues = null)
+		public static object OwnProps(object @this, object getValues = null)
 		{
+			var obj = @this as Any;
 			var vals = getValues.Ab(true);
 			var props = new Dictionary<object, object>();
 
-			if (op != null)
+			if (obj.op != null)
 			{
-				foreach (var kv in op)
+				foreach (var kv in obj.op)
 				{
 					if (kv.Key == "__Static") //This throws if the value is tried to access because "this" is passed
 						continue;
@@ -139,7 +140,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return OwnPropsEnumeration.CreateEnumerator(this, props, vals);
+			return OwnPropsEnumeration.CreateEnumerator(obj, props, vals);
 		}
 
 		public virtual void PrintProps(string name, Ks.StringBuffer sb, ref int tabLevel)

@@ -25,9 +25,9 @@ namespace Keysharp.Builtins
 		/// <param name="name">The OwnProp name to search for.</param>
 		/// <returns>Returns 1 if an object owns a property by the specified name, otherwise 0.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
-		public static long ObjHasOwnProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasOwnProp(name) : 0L;
+		public static long ObjHasOwnProp(object obj, object name) => KeysharpObject.HasOwnProp(obj, name);
 
-		public static long ObjHasProp(object obj, object name) => obj is KeysharpObject kso ? kso.HasProp(name) : 0L;
+		public static long ObjHasProp(object obj, object name) => (obj as Any)?.HasProp(name) ?? 0L;
 
 		/// <summary>
 		/// Returns the number of properties owned by an object.
@@ -35,13 +35,7 @@ namespace Keysharp.Builtins
 		/// <param name="obj">The object to get the OwnProps count for.</param>
 		/// <returns>The number of properties owned by an obj.</returns>
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
-		public static long ObjOwnPropCount(object obj)
-		{
-			if (obj is KeysharpObject kso)
-				return kso.OwnPropCount();
-
-			return (long)Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.", DefaultErrorLong);
-		}
+		public static long ObjOwnPropCount(object obj) => KeysharpObject.OwnPropCount(obj);
 
 		/// <summary>
 		/// Returns an OwnProps iterator for the given object.
@@ -51,10 +45,10 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
 		public static object ObjOwnProps(object obj)
 		{
-			if (obj is KeysharpObject kso)
-				return kso.OwnProps();
+			if (obj is Any kso)
+				return KeysharpObject.OwnProps(kso);
 
-			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type KeysharpObject.");
+			return Errors.ErrorOccurred($"Object of type {obj.GetType()} was not of type Any.");
 		}
 
 		/// <summary>
@@ -171,7 +165,7 @@ namespace Keysharp.Builtins
 		/// <returns>The value's base object</returns>
 		public static object ObjGetBase(object object0)
 		{
-			if (object0 is KeysharpObject obj)
+			if (object0 is Any obj)
 				return (object)obj._base ?? "";
 
 			if (Primitive.IsNative(object0))

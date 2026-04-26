@@ -57,22 +57,23 @@ namespace Keysharp.Builtins
 			return MemberwiseClone();
 		}
 
-		public object DefineProp(object obj0, object obj1) => Objects.ObjDefineProp(this, obj0, obj1);
+		public static object DefineProp(object @this, object obj0, object obj1) => Objects.ObjDefineProp(@this, obj0, obj1);
 
-		public object DeleteProp(object obj) => DeleteOwnPropInternal(obj.As());
+		public static object DeleteProp(object @this, object obj) => (@this as Any).DeleteOwnPropInternal(obj.As());
 
-		public object GetOwnPropDesc(object obj)
+		public static object GetOwnPropDesc(object @this, object obj1)
 		{
-			var name = obj.As();
+			var name = obj1.As();
+			var obj = @this as Any;
 
-			if (op != null && op.TryGetValue(name, out var dynProp))
+			if (obj.op != null && obj.op.TryGetValue(name, out var dynProp))
 			{
 				return dynProp.GetDesc();
 			}
 
 			try
 			{
-				var val = Script.GetPropertyValue(this, name);
+				var val = Script.GetPropertyValue(obj, name);
 				return KeysharpObject.staticCall(TheScript.Vars.Statics[typeof(KeysharpObject)], ["value", val]);
 			}
 			catch
@@ -82,38 +83,41 @@ namespace Keysharp.Builtins
 			return Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
 		}
 
-		public object __Ref(object name, params object[] args)
+		public static object __Ref(object @this, object name, params object[] args)
 		{
 			var ctorArgs = new object[(args?.Length ?? 0) + 2];
-			ctorArgs[0] = this;
+			ctorArgs[0] = @this;
 			ctorArgs[1] = name;
 			if (args != null && args.Length > 0)
 				System.Array.Copy(args, 0, ctorArgs, 2, args.Length);
 			return PropRef.staticCall(TheScript.Vars.Statics[typeof(PropRef)], ctorArgs);
 		}
 
-		public long HasOwnProp(object obj)
+		public static long HasOwnProp(object @this, object obj1)
 		{
-			var name = obj.As();
+			var obj = @this as Any;
+			var name = obj1.As();
 
-			if (op != null && op.ContainsKey(name))
+			if (obj.op != null && obj.op.ContainsKey(name))
 				return 1L;
 
-			return Reflections.FindOwnProp(GetType(), name.ToLower()) ? 1L : 0L;
+			return Reflections.FindOwnProp(obj.GetType(), name.ToLower()) ? 1L : 0L;
 		}
 
-		public long OwnPropCount()
+		public static long OwnPropCount(object @this)
 		{
+			var obj = @this as Any;
 			var ct = 0L;
-			var isMapOnly = GetType() == typeof(Map);
+			var type = obj.GetType();
+			var isMapOnly = type == typeof(Map);
 
-			if (op != null)
-				ct += op.Count;
+			if (obj.op != null)
+				ct += obj.op.Count;
 
 			if (!isMapOnly)
 			{
-				_ = Reflections.FindAndCacheProperty(GetType(), "", -1);
-				ct += Reflections.OwnPropCount(GetType());
+				_ = Reflections.FindAndCacheProperty(type, "", -1);
+				ct += Reflections.OwnPropCount(type);
 			}
 
 			return ct;

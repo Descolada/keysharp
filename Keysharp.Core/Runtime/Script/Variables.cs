@@ -185,12 +185,17 @@ namespace Keysharp.Runtime
 			var script = Script.TheScript;
 			var types = script.ReflectionsData.stringToTypes.Values
 				.Where(type => type.IsClass && !type.IsAbstract && anyType.IsAssignableFrom(type));
+			types = types.Concat(
+				Reflections.GetNestedTypes(types.ToArray())
+					.Where(type => type.IsClass && !type.IsAbstract && anyType.IsAssignableFrom(type))
+			);
 
 			if (script.ProgramType != null)
 			{
 				var nested = Reflections.GetNestedTypes(script.ProgramType.GetNestedTypes()).Where(type => type.IsClass && anyType.IsAssignableFrom(type));
 				types = types.Concat(nested);
 			}
+			types = types.Distinct();
 			CacheClassTypeNames(types);
 
 			/*
@@ -276,6 +281,9 @@ namespace Keysharp.Runtime
 		{
 			foreach (var type in types)
 			{
+				if (Struct.IsAutoPointerClass(type))
+					continue;
+
 				var name = Script.GetUserDeclaredName(type) ?? type.Name;
 				if (!string.IsNullOrEmpty(name))
 					classTypesByName[name] = type;

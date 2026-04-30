@@ -119,8 +119,7 @@ namespace Keysharp.Tests
 			if (arr == null)
 			{
 				_ = Ks.OutputDebugLine(code);
-				Console.WriteLine(code);
-				return string.Empty;
+				return code;
 			}
 
 			// Avoid writing generated script sources into the repo tree, which can pollute subsequent test builds.

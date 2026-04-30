@@ -272,7 +272,7 @@ functionDeclaration
     ;
 
 classDeclaration
-    : Class identifier (WS+ Extends WS+ classExtensionName)? s* classTail
+    : kind = (Class | Struct) WS* identifier (WS+ Extends WS+ classExtensionName)? s* classTail
     ;
 
 classExtensionName
@@ -286,7 +286,7 @@ classTail
 classElement
     : functionDeclaration                                         # ClassMethodDeclaration
     | (Static WS*)? propertyDefinition                            # ClassPropertyDeclaration
-    | (Static WS*)? fieldDefinition (WS* ',' fieldDefinition)*    # ClassFieldDeclaration
+    | (Static WS*)? (fieldDefinition (WS* ',' fieldDefinition)* | typedFieldDefinition (WS* ',' typedFieldDefinition)*) # ClassFieldDeclaration
     | classDeclaration                                            # NestedClassDeclaration
     ;
 
@@ -310,6 +310,14 @@ propertySetterDefinition
 
 fieldDefinition
     : (propertyName ('.' propertyName)*) ':=' singleExpression
+    ;
+
+typedFieldDefinition
+    : propertyName WS* ':' WS* structFieldType (WS* ':=' WS* singleExpression)?
+    ;
+
+structFieldType
+    : identifier ('.' identifier)*
     ;
 
 formalParameterList

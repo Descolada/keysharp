@@ -35,12 +35,10 @@ namespace Keysharp.Runtime
 				store.Prototypes[t] = proto;
 				store.Statics[t] = staticInst;
 
-				// Built-in types do not follow the same naming conventions as user-declared ones. The main difference
-				// is that all user-declared methods are static, and prefixed with "static" if they should be part of
-				// the static instance. Built-in methods follow normal C# static/instance logic, *except* Primitive.
-				// This is because calling methods on Primitive types will not pass a Primitive object as `this` and
-				// instead the actual primitive is passed (eg string), which will throw a type conversion error. Thus
-				// Primitives are exempt and follow the same naming logic as user-declared types.
+				// Built-in and user-declared classes now follow the same placement rule:
+				// only members prefixed with "static" are placed on the class static instance.
+				// Native built-ins can still implement prototype members as CLR static methods
+				// which accept an explicit `@this` argument when that is more convenient.
 				var isBuiltin = script.ProgramType.Namespace != t.Namespace;
 
 				if (isModuleType)
@@ -173,8 +171,7 @@ namespace Keysharp.Runtime
 					{
 						if (userDeclaredName == null)
 						{
-							if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
-								propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
+							propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
 
 							if (propertyName.StartsWith("get_") || propertyName.StartsWith("set_"))
 								propertyName = propertyName.Substring(4);
@@ -244,7 +241,8 @@ namespace Keysharp.Runtime
 
 				foreach (var nestedType in nestedTypes)
 				{
-					RuntimeHelpers.RunClassConstructor(nestedType.TypeHandle);
+					if (Struct.IsAutoPointerClass(nestedType))
+						continue;
 
 					staticInst.DefinePropInternal(GetUserDeclaredName(nestedType) ?? nestedType.Name,
 						new OwnPropsDesc(staticInst, null,

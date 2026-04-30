@@ -25,24 +25,27 @@ namespace Keysharp.Builtins
             }
             args = args[skip..^0];
 
-            var staticType = baseClass.GetType();
+			var baseProto = Script.GetPropertyValueOrNull(baseClass, "Prototype") as Any;
+			if (baseProto == null)
+				return Errors.ErrorOccurred("The base class must have a prototype");
+
+			var userType = Struct.IsStructType(baseProto.type)
+				? Struct.CreateDynamicStructType(name, baseProto.type)
+				: baseProto.type;
+			var staticType = baseClass.GetType();
 			Any staticInst = (Any)RuntimeHelpers.GetUninitializedObject(staticType);
 			staticInst.type = typeof(Class); staticInst.InitializePrivates();
 
-			if (Script.GetPropertyValueOrNull(baseClass, "Prototype") is not Any userProto)
-				return Errors.ErrorOccurred("The base class must have a prototype");
-
-
 			staticInst.SetBaseInternal(baseClass);
-            staticInst.type = baseClass.type;
+            staticInst.type = userType;
 
-            var proto = new Prototype(userProto.type);
-            proto.SetBaseInternal(userProto);
+            var proto = new Prototype(userType);
+            proto.SetBaseInternal(baseProto);
 
-            if (userProto.op != null)
+            if (baseProto.op != null && !Struct.IsStructType(userType))
             {
                 proto.EnsureOwnProps();
-                foreach (var (key, value) in userProto.op)
+                foreach (var (key, value) in baseProto.op)
                     proto.DefinePropInternal(key, new OwnPropsDesc(proto, value.Value, value.Get, value.Set, value.Call));
             }
 			proto.DefinePropInternal("__Class", new OwnPropsDesc(proto, name));
@@ -62,6 +65,9 @@ namespace Keysharp.Builtins
 			kso.type = proto.type;
 
 			kso.SetBaseInternal(proto);
+
+			if (kso is Struct st)
+				st.InitializeStructStorage();
 
 			Script.InvokeMeta(kso, "__Init");
 			Script.InvokeMeta(kso, "__New", args);

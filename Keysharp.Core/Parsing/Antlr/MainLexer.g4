@@ -203,6 +203,7 @@ Set        : 'set';
 
 /// Reserved Words
 Class   : 'class';
+Struct  : 'struct';
 Enum    : 'enum';
 Extends : 'extends';
 Super   : 'super';

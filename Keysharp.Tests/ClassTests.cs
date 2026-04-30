@@ -1,4 +1,4 @@
-﻿using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
@@ -32,10 +32,13 @@ namespace Keysharp.Tests
 			Assert.IsTrue(TestScript("class-special-funcs", false));
 		}
 
-        [Test, Category("Class")]
-        public void ClassPrototype() => Assert.IsTrue(TestScript("class-prototype", false));
+		[Test, Category("Class")]
+		public void ClassPrototype() => Assert.IsTrue(TestScript("class-prototype", false));
 
-        [Test, Category("Class")]
-        public void ClassNested() => Assert.IsTrue(TestScript("class-nested", false));
-    }
+		[Test, Category("Class")]
+		public void ClassNested() => Assert.IsTrue(TestScript("class-nested", false));
+
+		[Test, Category("Class")]
+		public void StructBasic() => Assert.IsTrue(TestScript("struct-basic", false));
+	}
 }

@@ -143,6 +143,7 @@ namespace Keysharp.Parsing
 		internal const string FlowReturn = "return";
 		internal const string FlowSet = "set";
 		internal const string FlowSwitch = "switch";
+		internal const string FlowStruct = "struct";
 		internal const string FlowThrow = "throw";
 		internal const string FlowTry = "try";
 		internal const string FlowUntil = "until";

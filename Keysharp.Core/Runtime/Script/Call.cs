@@ -222,6 +222,9 @@ namespace Keysharp.Runtime
 				{
 					if (TryGetOwnPropsMap(kso, namestr, out var opm))
 					{
+						if (opm.StructField != null && item is Struct getStruct)
+							return getStruct.GetFieldValue(opm.StructField);
+
 						if (opm.Value != null)
 						{
 							return args.Length > 0 ? GetIndexOrNull(opm.Value, args) : opm.Value;
@@ -468,6 +471,9 @@ namespace Keysharp.Runtime
 					// Direct ownprop first
 					if (kso.op != null && kso.op.TryGetValue(namestr, out var own))
 					{
+						if (own.StructField != null && item is Struct setStruct)
+							return setStruct.SetFieldValue(own.StructField, value);
+
 						// Setter function or callable object
 						if (own.Set != null)
 						{
@@ -512,6 +518,9 @@ namespace Keysharp.Runtime
 					if (TryGetOwnPropsMap(kso, namestr, out var opm, searchBase: true,
 						type: OwnPropsMapType.Set))
 					{
+						if (opm.StructField != null && item is Struct setStruct)
+							return setStruct.SetFieldValue(opm.StructField, value);
+
 						if (opm.Set is FuncObj fset)
 						{
 							_ = args.Length > 1 && opm.NoParamSet
@@ -538,6 +547,9 @@ namespace Keysharp.Runtime
 							_ = SetPropertyValue(val, "__Item", args);
 							return value;
 						}
+
+						if (opm2.Get != null)
+							return Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only.");
 					}
 					// __Set meta (function or callable object), only if no Set/Get/Value is found
 					else if (TryGetOwnPropsMap(kso, "__Set", out var protoSet) && (protoSet.Call ?? protoSet.Value) is object metaSet)

@@ -292,10 +292,35 @@ namespace Keysharp.Parsing
 
 				FieldDeclarationSyntax CreateClassStaticVarField(ParserSymbolInfo symbol)
 				{
-					if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(symbol.DeclaredName, out var type)
-						&& typeof(Keysharp.Runtime.Module).IsAssignableFrom(type))
+					if (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(symbol.DeclaredName, out var type))
 					{
 						var typeName = (type.FullName ?? type.Name).Replace('+', '.');
+
+						if (typeof(Keysharp.Runtime.Module).IsAssignableFrom(type))
+						{
+							return SyntaxFactory.FieldDeclaration(
+								SyntaxFactory.VariableDeclaration(
+									Parser.PredefinedKeywords.ObjectType,
+									SyntaxFactory.SingletonSeparatedList(
+										SyntaxFactory.VariableDeclarator(symbol.CSharpName)
+											.WithInitializer(
+												SyntaxFactory.EqualsValueClause(
+													PredefinedKeywords.EqualsToken,
+													SyntaxFactory.ObjectCreationExpression(
+														CreateQualifiedName(typeName)
+													).WithArgumentList(SyntaxFactory.ArgumentList())
+												)
+											)
+									)
+								)
+							)
+							.AddModifiers(
+								Parser.PredefinedKeywords.PublicToken,
+								Parser.PredefinedKeywords.StaticToken,
+								SyntaxFactory.Token(SyntaxKind.ReadOnlyKeyword)
+							);
+						}
+
 						return SyntaxFactory.FieldDeclaration(
 							SyntaxFactory.VariableDeclaration(
 								Parser.PredefinedKeywords.ObjectType,
@@ -304,18 +329,30 @@ namespace Keysharp.Parsing
 										.WithInitializer(
 											SyntaxFactory.EqualsValueClause(
 												PredefinedKeywords.EqualsToken,
-												SyntaxFactory.ObjectCreationExpression(
-													CreateQualifiedName(typeName)
-												).WithArgumentList(SyntaxFactory.ArgumentList())
+												SyntaxFactory.ElementAccessExpression(
+													SyntaxFactory.MemberAccessExpression(
+														SyntaxKind.SimpleMemberAccessExpression,
+														VarsNameSyntax,
+														SyntaxFactory.IdentifierName("Statics")
+													),
+													SyntaxFactory.BracketedArgumentList(
+														SyntaxFactory.SingletonSeparatedList(
+															SyntaxFactory.Argument(
+																SyntaxFactory.TypeOfExpression(
+																	CreateQualifiedName(typeName)
+																)
+															)
+														)
+													)
+												)
 											)
-										)
+									)
 								)
 							)
 						)
 						.AddModifiers(
 							Parser.PredefinedKeywords.PublicToken,
-							Parser.PredefinedKeywords.StaticToken,
-							SyntaxFactory.Token(SyntaxKind.ReadOnlyKeyword)
+							Parser.PredefinedKeywords.StaticToken
 						);
 					}
 
@@ -437,16 +474,8 @@ namespace Keysharp.Parsing
 				SyntaxFactory.MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, Q(leftQ), SyntaxFactory.IdentifierName(right));
 			static InvocationExpressionSyntax Call(ExpressionSyntax target, params ExpressionSyntax[] args) =>
 				SyntaxFactory.InvocationExpression(target, Keysharp.Parsing.Parser.CreateArgumentList(args)); // VisitorHelper
-			static LiteralExpressionSyntax S(string s) =>
-				CreateStringLiteral(s);
 			static LiteralExpressionSyntax N(int i) =>
 				CreateNumericLiteral(i);
-			static ExpressionSyntax Not(ExpressionSyntax e) =>
-				SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, e);
-			static BinaryExpressionSyntax AndAlso(ExpressionSyntax a, ExpressionSyntax b) =>
-				SyntaxFactory.BinaryExpression(SyntaxKind.LogicalAndExpression, a, b);
-			static ExpressionSyntax Plus(ExpressionSyntax a, ExpressionSyntax b) =>
-				SyntaxFactory.BinaryExpression(SyntaxKind.AddExpression, a, b);
 
 			// common symbols
 			var mainScriptId = SyntaxFactory.IdentifierName(mainScriptVarName);                       // MainScript
@@ -758,7 +787,8 @@ namespace Keysharp.Parsing
 			foreach (var classInfo in allClassDeclarations)
 			{
 				var baseText = classInfo.Declaration.classExtensionName()?.GetText();
-				var classBase = baseText == null ? "KeysharpObject" : parser.NormalizeQualifiedClassName(baseText);
+				var defaultBase = classInfo.Declaration.kind?.Type == MainParser.Struct ? "Struct" : "KeysharpObject";
+				var classBase = baseText == null ? defaultBase : parser.NormalizeQualifiedClassName(baseText);
 				if (!classBase.Contains('.'))
 					UserTypeNameToKeysharp(ref classBase);
 
@@ -771,7 +801,9 @@ namespace Keysharp.Parsing
 				var builtInBase = baseKey;
 				while (Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(builtInBase, out Type baseType))
 				{
-					builtInBase = parser.AllTypes[baseType.Name] = baseType.BaseType.Name;
+					var baseName = Script.GetUserDeclaredName(baseType) ?? baseType.Name;
+					builtInBase = Script.GetUserDeclaredName(baseType.BaseType) ?? baseType.BaseType.Name;
+					parser.AllTypes[baseName] = builtInBase;
 				}
 			}
 

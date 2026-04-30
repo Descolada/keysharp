@@ -53,6 +53,7 @@ namespace Keysharp.Builtins
 		private object _call;
 
 		public Any Parent { get; private set; }
+		internal StructFieldInfo StructField { get; private set; }
 
 		public object Value
 		{
@@ -237,6 +238,9 @@ namespace Keysharp.Builtins
 
 			if (opd.Call != null)
 				Call = opd.Call;
+
+			if (opd.StructField != null)
+				StructField = opd.StructField;
 		}
 
 		public void Merge(Map map)
@@ -281,7 +285,27 @@ namespace Keysharp.Builtins
 			if (Call != null)
 				map.DefinePropInternal("call", new OwnPropsDesc(map, Call));
 
+			if (StructField != null)
+			{
+				object typeValue = Script.TheScript?.Vars?.Statics.TryGetValue(StructField.FieldType, out var classObj) == true
+					? classObj
+					: Script.GetUserDeclaredName(StructField.FieldType) ?? StructField.FieldType.Name;
+
+				map.DefinePropInternal("type", new OwnPropsDesc(map, typeValue));
+				map.DefinePropInternal("offset", new OwnPropsDesc(map, StructField.Offset));
+
+				if (StructField.Pack > 0)
+					map.DefinePropInternal("pack", new OwnPropsDesc(map, StructField.Pack));
+			}
+
 			return map;
+		}
+
+		internal void SetStructProperty(StructFieldInfo structProperty)
+		{
+			StructField = structProperty;
+			_value = null;
+			Type = (Type & ~OwnPropsMapType.Value) | OwnPropsMapType.Get | OwnPropsMapType.Set;
 		}
 
 		public OwnPropsDesc Clone() => (OwnPropsDesc)MemberwiseClone();

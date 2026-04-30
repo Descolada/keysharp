@@ -13,19 +13,15 @@ namespace Keysharp.Internals.Invoke
 	internal class ArgumentHelper : IDisposable
 	{
 		protected bool isCom = false;
-		protected bool cdecl = false;
 		protected bool hresult = false;
 		private List<GCHandle> _gcHandles;
 		protected List<GCHandle> gcHandles => _gcHandles ??= [];
 		protected bool hasReturn = false;
 		protected Type returnType = typeof(int);
+		private Func<long, object> structReturnConverter;
 		//int is the index in the argument list, and bool specifies if it's a VarRef (false) or Ptr (true)
 		protected Dictionary<int, (Type, bool)> outputVars;
 		internal Dictionary<int, (Type, bool)> OutputVars => outputVars ??= [];
-		internal bool CDecl => cdecl;
-		internal bool HRESULT => hresult;
-		internal bool HasReturn => hasReturn;
-		internal Type ReturnType => returnType;
 		internal long[] args;
 		// contains bitwise info about the location of float and double type arguments, as well as the return type
 		// bit i = 1 if argTypes[i] is float or double
@@ -64,6 +60,7 @@ namespace Keysharp.Internals.Invoke
 			hasReturn = (paramCount & 1) != 0;
 			int lastIdx = paramCount - 1;
 			int argCount = paramCount / 2;
+
 			args = new long[argCount];
 			object p = null;
 			int n = -1;
@@ -78,8 +75,37 @@ namespace Keysharp.Internals.Invoke
 			{
 				bool isReturn = hasReturn && paramIndex == lastIdx;
 				bool parseType = isReturn;
+				bool isStructPointerArg = false;
+				Type pointerType = null;
+				Type targetType = null;
 				// Read the tag and value
-				string tag = parameters[paramIndex++] as string ?? string.Empty;
+				object rawTag = parameters[paramIndex++];
+				string tag = rawTag as string;
+
+				if (tag == null)
+				{
+					if (isReturn && TrySetStructReturn(rawTag))
+						continue;
+
+					if (!isReturn)
+					{
+						if (Struct.TryResolvePointerClass(rawTag, out pointerType, out targetType))
+						{
+							tag = "ptr";
+							isStructPointerArg = true;
+						}
+						else if (Struct.TryResolveClass(rawTag, out var structType))
+						{
+							n++;
+							p = parameters[paramIndex];
+							args[n] = ReadStructValueArg(p, structType);
+							continue;
+						}
+					}
+
+					tag ??= string.Empty;
+				}
+
 				// Trim whitespace around tag
 				ReadOnlySpan<char> span = tag.AsSpan().Trim();
 				int len = span.Length;
@@ -101,7 +127,6 @@ namespace Keysharp.Internals.Invoke
 							&& ((span[4] | 0x20) == 'l'))
 					{
 						span = span[5..].TrimStart();
-						cdecl = true;
 						len = span.Length;
 
 						if (len == 0)
@@ -111,21 +136,30 @@ namespace Keysharp.Internals.Invoke
 						}
 
 						c0 = (char)(span[0] | 0x20);
+						len = span.Length;
+						last = span[len - 1];
 					}
 				}
-				else
+				var hasPtrSuffix = last == '*' || (char)(last | 0x20) == 'p';
+				var isPtr = IsPtrType(span);
+				var isPtrByRef = hasPtrSuffix && IsPtrType(span[..^1]);
+
+				if (!isReturn)
 				{
 					n++;
 					p = parameters[paramIndex];
+
+					if (isStructPointerArg)
+						p = NormalizeStructPointerArg(parameters, p, paramIndex, pointerType, targetType);
 
 					if (p is Any kso)
 					{
 						object kptr;
 
-						if ((c0 == 'p' || (c0 == 'u') && (char)(span[1] | 0x20) == 'p') && ((kso is IPointable ip && (kptr = ip.Ptr) != null)
+						if ((isPtr || isPtrByRef) && ((kso is IPointable ip && (kptr = ip.Ptr) != null)
 							|| (kptr = Script.GetPropertyValueOrNull(kso, "ptr")) != null))
 						{
-							if (last == '*' || (char)(last | 0x20) == 'p')
+							if (hasPtrSuffix)
 								OutputVars[paramIndex] = (typeof(nint), true);
 
 							p = kptr;
@@ -133,12 +167,13 @@ namespace Keysharp.Internals.Invoke
 					}
 				}
 
-				if (last == '*' || (char)(last | 0x20) == 'p')
+				if (hasPtrSuffix)
 				{
 					// Remove the suffix
 					span = span[..--len];
 
 					if (p is Any kso
+						&& !isPtrByRef
 						&& !OutputVars.ContainsKey(paramIndex) //must not be a Ptr object
 						&& Script.GetPropertyValueOrNull(kso, "__Value") is object kptr)
 						p = kptr;
@@ -520,26 +555,114 @@ namespace Keysharp.Internals.Invoke
 					SetupPointerArg();
 				}
 			}
+
+		}
+
+		private static bool IsPtrType(ReadOnlySpan<char> span) =>
+			span.Equals("ptr", StringComparison.OrdinalIgnoreCase)
+			|| span.Equals("uptr", StringComparison.OrdinalIgnoreCase);
+
+		private bool TrySetStructReturn(object rawReturnType)
+		{
+			if (Struct.TryResolvePointerClass(rawReturnType, out _, out var pointerTargetType))
+			{
+				returnType = typeof(nint);
+				structReturnConverter = ptr => Struct.IsPrimitive(pointerTargetType)
+					? Struct.ReadPrimitiveValue(pointerTargetType, ptr)
+					: ptr == 0 ? null : Script.Invoke(Script.TheScript.Vars.Statics[pointerTargetType], "At", ptr);
+				return true;
+			}
+
+			if (!Struct.TryResolveClass(rawReturnType, out var structType))
+				return false;
+
+			returnType = typeof(nint);
+
+			if (Struct.GetSize(structType) > sizeof(long))
+				_ = Errors.ValueErrorOccurred("Struct return values larger than 8 bytes are not supported yet.");
+
+			structReturnConverter = slot =>
+			{
+				var result = Struct.CreateInstance(structType);
+				Struct.WriteArgumentSlot(result, slot);
+				return result;
+			};
+			return true;
+		}
+
+		private static long ReadStructValueArg(object input, Type structType)
+		{
+			var value = GetStructValue(structType, input);
+			var size = Struct.GetSize(structType);
+
+			if (size > sizeof(long))
+				return (long)Errors.ValueErrorOccurred("Struct arguments larger than 8 bytes are not supported yet.", null, 0L);
+
+			return Struct.ReadArgumentSlot(value);
+		}
+
+		private object NormalizeStructPointerArg(object[] parameters, object value, int paramIndex, Type pointerType, Type targetType)
+		{
+			var targetRef = value as VarRef;
+			var input = targetRef != null ? targetRef.__Value : value;
+			var hasInput = input != null;
+
+			if (!hasInput && targetRef == null)
+				return 0L;
+
+			if (hasInput && Struct.IsStructInstance(input, pointerType))
+			{
+				var pointerValue = (Struct)input;
+				return pointerValue.GetPrimitiveValue();
+			}
+
+			var structValue = GetStructValue(targetType, input);
+
+			if (targetRef != null)
+			{
+				parameters[paramIndex] = new VarRef(() => structValue, value => targetRef.__Value = value);
+				OutputVars[paramIndex] = (typeof(Struct), false);
+			}
+			else if (!ReferenceEquals(structValue, input))
+				parameters[paramIndex] = structValue;
+
+			return structValue;
+		}
+
+		private static Struct GetStructValue(Type structType, object input)
+		{
+			if (Struct.IsStructInstance(input, structType))
+				return (Struct)input;
+
+			var value = Struct.CreateInstance(structType);
+
+			if (input != null)
+				Struct.SetInputValue(value, input);
+
+			return value;
 		}
 
 		internal unsafe object ConvertReturnValue(object value)
 		{
+			if (structReturnConverter != null)
+				return structReturnConverter(((long)value).Al());
+
 			// If the return type was omitted then it should be treated as HRESULT
 			// and if that is a negative value then throw an OSError
-			if (HRESULT || (isCom && !HasReturn))
+			if (hresult || (isCom && !hasReturn))
 			{
 				long hrLong = (long)value;                // unbox the raw long
 				int hr32 = unchecked((int)hrLong);   // keep only the low 32 bits
 				return Errors.OSErrorOccurredForHR(hr32);
 			}
 			//Special conversion for the return value.
-			else if (ReturnType == typeof(int))
+			else if (returnType == typeof(int))
 			{
 				long l = (long)value;
 				int ii = *(int*)&l;
 				value = (long)ii;
 			}
-			else if (ReturnType == typeof(float))
+			else if (returnType == typeof(float))
 			{
 				if (value is not double) return _ = Errors.TypeErrorOccurred(value, typeof(double));
 
@@ -547,14 +670,14 @@ namespace Keysharp.Internals.Invoke
 				float f = *(float*)&d;
 				return (double)f;
 			}
-			else if (ReturnType == typeof(char[]))
+			else if (returnType == typeof(char[]))
 			{
 				nint ptr = (nint)(long)value;
 				var str = Marshal.PtrToStringAnsi(ptr);
 				Marshal.FreeHGlobal(ptr);
 				return str;
 			}
-			else if (ReturnType == typeof(string))
+			else if (returnType == typeof(string))
 			{
 				var str = Marshal.PtrToStringUni((nint)(long)value);
 				_ = Objects.ObjFree(value);//If this string came from us, it will be freed, else no action.

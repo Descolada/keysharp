@@ -287,7 +287,7 @@ namespace Keysharp.Parsing
                             && !type.IsAbstract
 							&& !type.IsNested
 							&& anyType.IsAssignableFrom(type)))
-					_builtinTypes[type.Name] = type;
+					_builtinTypes[Script.GetUserDeclaredName(type) ?? type.Name] = type;
 				return _builtinTypes;
 			}
         }

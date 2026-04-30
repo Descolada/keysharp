@@ -424,6 +424,18 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitFieldDefinition([NotNull] MainParser.FieldDefinitionContext context);
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="MainParser.typedFieldDefinition"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitTypedFieldDefinition([NotNull] MainParser.TypedFieldDefinitionContext context);
+	/// <summary>
+	/// Visit a parse tree produced by <see cref="MainParser.structFieldType"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitStructFieldType([NotNull] MainParser.StructFieldTypeContext context);
+	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.formalParameterList"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>

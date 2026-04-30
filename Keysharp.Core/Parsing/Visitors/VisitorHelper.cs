@@ -1440,6 +1440,28 @@ namespace Keysharp.Parsing
 			return name.TrimStart('@');
 		}
 
+		internal bool IsStructDerivedType(string typeName)
+		{
+			if (string.IsNullOrWhiteSpace(typeName))
+				return false;
+
+			var current = NormalizeQualifiedClassName(typeName);
+			while (!string.IsNullOrWhiteSpace(current))
+			{
+				var simple = GetSimpleTypeName(current);
+
+				if (simple.Equals("Struct", StringComparison.OrdinalIgnoreCase))
+					return true;
+
+				if (AllTypes.TryGetValue(current, out var next) || AllTypes.TryGetValue(simple, out next))
+					current = NormalizeQualifiedClassName(next);
+				else
+					return false;
+			}
+
+			return false;
+		}
+
         internal ExpressionStatementSyntax CreateStaticVariableInitializer(IdentifierNameSyntax identifier, ExpressionSyntax initializerValue)
         {
 			var invocationExpression = SyntaxFactory.InvocationExpression(

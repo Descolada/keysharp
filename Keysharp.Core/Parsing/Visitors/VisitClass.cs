@@ -33,11 +33,14 @@ namespace Keysharp.Parsing
 			string userDeclaredName = context.identifier().GetText();
             parser.PushClass(parser.NormalizeIdentifier(userDeclaredName, eNameCase.Title));
             parser.currentClass.UserDeclaredName = userDeclaredName;
+			parser.currentClass.IsStruct = context.kind?.Type == MainParser.Struct;
+			if (parser.currentClass.IsStruct)
+				parser.currentClass.Base = "Struct";
 			var isTopLevelClass = parser.ClassStack.Count == 1;
 			var isTopLevelExported = isTopLevelClass
 				&& parser.currentModule.ExportedTypes.Contains(parser.currentClass.Name);
 
-            // Determine the base class (Extends clause)
+			// Determine the base class (Extends clause)
             if (context.Extends() != null)
             {
                 var extendsParts = context.classExtensionName().identifier();
@@ -50,19 +53,24 @@ namespace Keysharp.Parsing
 					UserTypeNameToKeysharp(ref baseClassName);
 
 				var resolvedBase = parser.ResolveUserTypeName(baseClassName);
+				var baseTypeKey = resolvedBase ?? baseClassName;
+
+				if (parser.currentClass.IsStruct && !parser.IsStructDerivedType(baseTypeKey))
+					throw new ParseException($"Struct base type {string.Join(".", extendsParts.Select(x => x.GetText()))} must derive from Struct", context);
+
 				if (resolvedBase != null)
 					baseClassName = parser.GetUserTypeCSharpName(resolvedBase);
                 else if (extendsParts.Length == 1)
                 {
                     var lookup = Script.TheScript.ReflectionsData.stringToTypes.GetAlternateLookup<ReadOnlySpan<char>>();
                     if (lookup.TryGetValue(baseClassName, out var builtInType))
-                        baseClassName = Script.GetUserDeclaredName(builtInType) ?? builtInType.Name;
+                        baseClassName = (builtInType.FullName ?? builtInType.Name).Replace('+', '.');
                 }
                 parser.currentClass.Base = baseClassName;
             }
             else
             {
-                // Default base class is KeysharpObject
+                // Default base class is KeysharpObject or Struct.
             }
 
 			string fieldDeclarationName = parser.NormalizeIdentifier(parser.currentClass.Name);
@@ -124,9 +132,8 @@ namespace Keysharp.Parsing
                 }
             }
 
-            // Add static__Init, __Init, and static constructor method (must be after processing the elements for proper field assignments)
+            // Add static__Init and __Init after processing the elements for proper field assignments.
             AddInitMethods(parser.currentClass.Name);
-            parser.currentClass.Body.Add(CreateStaticConstructor(parser.currentClass.Name));
 
             var newClass = parser.currentClass.Assemble();
 
@@ -248,50 +255,70 @@ namespace Keysharp.Parsing
             return null;
         }
 
-        public override SyntaxNode VisitClassFieldDeclaration([NotNull] ClassFieldDeclarationContext context)
-        {
-            parser.currentClass.isInitialization = true; // If the field initializer contains closures then they shouldn't get the "this" parameter added, this keeps track of that
-            var fieldDeclarations = new List<PropertyDeclarationSyntax>();
-
+		public override SyntaxNode VisitClassFieldDeclaration([NotNull] ClassFieldDeclarationContext context)
+		{
+			parser.currentClass.isInitialization = true; // If the field initializer contains closures then they shouldn't get the "this" parameter added, this keeps track of that
             var isStatic = context.Static() != null;
+			if (context.typedFieldDefinition().Length != 0)
+			{
+				if (!parser.currentClass.IsStruct)
+					throw new ParseException("Typed fields are only supported inside structs", context);
 
-            EqualsValueClauseSyntax initializer = null;
-            ExpressionSyntax initializerValue = null;
+				if (isStatic)
+					throw new ParseException("Typed struct fields cannot be static", context);
 
-            foreach (var fieldDefinition in context.fieldDefinition())
-            {
-				ExpressionSyntax baseExpression = PredefinedKeywords.This;
-                ExpressionSyntax targetExpression = null;
+				foreach (var fieldDefinition in context.typedFieldDefinition())
+				{
+					var fieldName = fieldDefinition.propertyName().GetText();
+					var fieldTypeName = ResolveStructFieldTypeName(fieldDefinition.structFieldType());
 
-				if (fieldDefinition.propertyName().Length == 1)
-					targetExpression = CreateStringLiteral(fieldDefinition.propertyName(0).GetText());
-                else
-                {
-                    for (int i = 0; i < (fieldDefinition.propertyName().Length - 1); i++)
-                    {
-                        baseExpression = GenerateGetPropertyValue(baseExpression, CreateStringLiteral(fieldDefinition.propertyName(i).GetText()));
+					parser.currentClass.StaticInitStatements.Add(
+						CreateDefinePropStatement(
+							CreateClassStoreAccess("Prototypes", parser.currentClass.Name),
+							CreateStringLiteral(fieldName),
+							SyntaxFactory.TypeOfExpression(CreateQualifiedName(fieldTypeName))
+						)
+					);
+
+					if (fieldDefinition.singleExpression() != null)
+					{
+						var initializerValue = (ExpressionSyntax)Visit(fieldDefinition.singleExpression());
+						parser.currentClass.deferredInitializations.Add((PredefinedKeywords.This, CreateStringLiteral(fieldName), initializerValue));
 					}
-					targetExpression = CreateStringLiteral(fieldDefinition.propertyName(fieldDefinition.propertyName().Length - 1).GetText());
 				}
+			}
+			else
+			{
+				if (parser.currentClass.IsStruct && !isStatic)
+					throw new ParseException("Struct instance fields must use typed field syntax", context);
 
-                if (fieldDefinition.singleExpression() != null)
-                {
-                    initializerValue = (ExpressionSyntax)Visit(fieldDefinition.singleExpression());
+				foreach (var fieldDefinition in context.fieldDefinition())
+				{
+					if (fieldDefinition.singleExpression() != null)
+					{
+						var (baseExpression, targetExpression) = ResolveFieldTarget(fieldDefinition.propertyName());
+						var initializerValue = (ExpressionSyntax)Visit(fieldDefinition.singleExpression());
 
-                    if (IsLiteralOrConstant(initializerValue))
-                    {
-                        initializer = SyntaxFactory.EqualsValueClause(PredefinedKeywords.EqualsToken, initializerValue);
-                    }
-
-                    if (isStatic)
-                        parser.currentClass.deferredStaticInitializations.Add((baseExpression, targetExpression, initializerValue));
-                    else
-                        parser.currentClass.deferredInitializations.Add((baseExpression, targetExpression, initializerValue));
-                }
-            }
+						if (isStatic)
+							parser.currentClass.deferredStaticInitializations.Add((baseExpression, targetExpression, initializerValue));
+						else
+							parser.currentClass.deferredInitializations.Add((baseExpression, targetExpression, initializerValue));
+					}
+				}
+			}
             parser.currentClass.isInitialization = false;
-            return null;
-        }
+			return null;
+		}
+
+		private (ExpressionSyntax Base, ExpressionSyntax Name) ResolveFieldTarget(PropertyNameContext[] path)
+		{
+			ExpressionSyntax target = PredefinedKeywords.This;
+
+			for (int i = 0; i < path.Length - 1; i++)
+				target = GenerateGetPropertyValue(target, CreateStringLiteral(path[i].GetText()));
+
+			return (target, CreateStringLiteral(path[^1].GetText()));
+		}
 
 
         public override SyntaxNode VisitPropertyGetterDefinition([Antlr4.Runtime.Misc.NotNull] PropertyGetterDefinitionContext context)
@@ -336,7 +363,7 @@ namespace Keysharp.Parsing
 
         private ConstructorDeclarationSyntax CreateConstructor(string className)
         {
-            return SyntaxFactory.ConstructorDeclaration(className)
+			var ctor = SyntaxFactory.ConstructorDeclaration(className)
                 .WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.PublicToken))
                 .WithParameterList(
                     SyntaxFactory.ParameterList(
@@ -367,21 +394,41 @@ namespace Keysharp.Parsing
                     )
                 )
                 .WithBody(SyntaxFactory.Block());
+
+			return ctor;
         }
 
-        private ConstructorDeclarationSyntax CreateStaticConstructor(string className)
-        {
-            return SyntaxFactory.ConstructorDeclaration(className)
-                .WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.StaticToken))
-                .WithBody(SyntaxFactory.Block());
-        }
+		private string ResolveStructFieldTypeName(StructFieldTypeContext context)
+		{
+			var rawTypeName = string.Join(".", context.identifier().Select(id => parser.NormalizeIdentifier(id.GetText(), eNameCase.Title)));
+			if (rawTypeName.Length == 0)
+				throw new ParseException("Struct field type is required", context);
+
+			if (context.identifier().Length == 1)
+				UserTypeNameToKeysharp(ref rawTypeName);
+
+			var resolvedUserType = parser.ResolveUserTypeName(rawTypeName, Parser.UserTypeLookupMode.Scoped);
+			if (resolvedUserType != null)
+				return parser.GetUserTypeCSharpName(resolvedUserType);
+
+			var lookup = Script.TheScript.ReflectionsData.stringToTypes.GetAlternateLookup<ReadOnlySpan<char>>();
+			if (lookup.TryGetValue(rawTypeName, out var builtInType))
+				return (builtInType.FullName ?? builtInType.Name).Replace('+', '.');
+
+			throw new ParseException($"Unknown struct field type {rawTypeName}", context);
+		}
 
         private void AddInitMethods(string className)
         {
             // Check if instance __Init method already exists
             var instanceInitName = "__Init";
-            if (parser.currentClass.deferredInitializations.Count > 0 &&
-                !parser.currentClass.ContainsMethod(instanceInitName, default, true))
+			if (parser.currentClass.deferredInitializations.Count > 0
+				&& parser.currentClass.ContainsMethod(instanceInitName, default, true))
+				throw new ParseException(parser.currentClass.IsStruct
+					? "Structs with field initializers cannot declare __Init."
+					: "Classes with generated instance initialization cannot declare __Init.");
+
+			if (parser.currentClass.deferredInitializations.Count > 0)
             {
                 // Instance __Init method
                 var instanceInitMethod = SyntaxFactory.MethodDeclaration(
@@ -394,27 +441,14 @@ namespace Keysharp.Parsing
                     SyntaxFactory.Block(
                         new StatementSyntax[] // Add the call to Invoke((object)super, "__Init") as the first statement
                         {
-                    (StatementSyntax)SyntaxFactory.ExpressionStatement(
-                        ((InvocationExpressionSyntax)InternalMethods.InvokeOrNull)
-                        .WithArgumentList(
-							CreateArgumentList(
-                                parser.CreateSuperTuple(),
-                                CreateStringLiteral("__Init")
-                            )
-                        )
-                    )
+                    CreateSuperInitStatement(false)
                         }.Concat(
                             parser.currentClass.deferredInitializations.Select(deferred =>
-                                SyntaxFactory.ExpressionStatement(
-                                ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
-                                    .WithArgumentList(
-										CreateArgumentList(
-                                            deferred.Item1,
-                                            deferred.Item2,
-                                            deferred.Item3
-                                        )
-                                    )
-                                )
+                                CreateSetPropertyStatement(
+									deferred.Item1,
+									deferred.Item2,
+									deferred.Item3
+								)
                             )
                         )
                         .Append(PredefinedKeywords.DefaultReturnStatement)
@@ -424,39 +458,94 @@ namespace Keysharp.Parsing
                 parser.currentClass.Body.Add(instanceInitMethod);
             }
 
-            // Check if static __Init method already exists
-            if (parser.currentClass.deferredStaticInitializations.Count > 0 &&
-                !parser.currentClass.ContainsMethod("__Init", true, true))
-            {
-                // Static __Init method
-                var staticInitMethod = SyntaxFactory.MethodDeclaration(
-                    SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
-                    Keywords.ClassStaticPrefix + "__Init"
-                )
-                .WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken))
-                .WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SingletonSeparatedList(Parser.PredefinedKeywords.ThisParam)))
-                .WithBody(
-                    SyntaxFactory.Block(
-					        parser.currentClass.deferredStaticInitializations.Select(deferred =>
-                                (StatementSyntax)SyntaxFactory.ExpressionStatement(
-                                    ((InvocationExpressionSyntax)InternalMethods.SetPropertyValue)
-                                    .WithArgumentList(
-								        CreateArgumentList(
-                                            deferred.Item1,
-                                            deferred.Item2,
-                                            deferred.Item3
-                                        )
-                                    )
-                                )
-                            )
-                        .Append(
-                            PredefinedKeywords.DefaultReturnStatement
-                        )
-                    )
-                );
+			var staticInitStatements = new List<StatementSyntax>(parser.currentClass.StaticInitStatements);
+			staticInitStatements.AddRange(
+				parser.currentClass.deferredStaticInitializations.Select(deferred =>
+					CreateSetPropertyStatement(
+						deferred.Item1,
+						deferred.Item2,
+						deferred.Item3
+					)
+				)
+			);
 
-                parser.currentClass.Body.Add(staticInitMethod);
-            }
+			if (staticInitStatements.Count == 0)
+				return;
+
+			const string staticInitName = Keywords.ClassStaticPrefix + "__Init";
+
+			if (parser.currentClass.Body.ContainsName(staticInitName, true, static m => m is MethodDeclarationSyntax))
+				throw new ParseException(parser.currentClass.IsStruct
+					? "Structs with typed fields cannot declare static __Init."
+					: "Classes with generated static initialization cannot declare static __Init.");
+
+			// Static __Init method
+			var staticInitMethod = SyntaxFactory.MethodDeclaration(
+				SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+				staticInitName
+			)
+			.WithModifiers(SyntaxFactory.TokenList(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken))
+			.WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SingletonSeparatedList(Parser.PredefinedKeywords.ThisParam)))
+			.WithBody(
+				SyntaxFactory.Block(
+					staticInitStatements.Append(
+						PredefinedKeywords.DefaultReturnStatement
+					)
+				)
+			);
+
+			parser.currentClass.Body.Add(staticInitMethod);
         }
+
+		private static StatementSyntax CreateDefinePropStatement(ExpressionSyntax target, ExpressionSyntax name, ExpressionSyntax descriptor) =>
+			SyntaxFactory.ExpressionStatement(
+				SyntaxFactory.InvocationExpression(
+					CreateMemberAccess("Keysharp.Builtins.Objects", "ObjDefineProp"),
+					CreateArgumentList(target, name, descriptor)
+				)
+			);
+
+		private static StatementSyntax CreateSetPropertyStatement(ExpressionSyntax target, ExpressionSyntax name, ExpressionSyntax value) =>
+			SyntaxFactory.ExpressionStatement(
+				SyntaxFactory.InvocationExpression(
+					CreateMemberAccess("Keysharp.Runtime.Script", "SetPropertyValue"),
+					CreateArgumentList(target, name, value)
+				)
+			);
+
+		private StatementSyntax CreateSuperInitStatement(bool isStatic)
+		{
+			var superTuple = SyntaxFactory.CastExpression(
+				SyntaxFactory.PredefinedType(Parser.PredefinedKeywords.Object),
+				SyntaxFactory.TupleExpression(
+					SyntaxFactory.SeparatedList<ArgumentSyntax>(
+						new ArgumentSyntax[]
+						{
+							SyntaxFactory.Argument(
+								CreateClassStoreAccess(isStatic ? "Statics" : "Prototypes", parser.currentClass.Base)
+							),
+							SyntaxFactory.Argument(PredefinedKeywords.This)
+						}
+					)
+				)
+			);
+
+			return SyntaxFactory.ExpressionStatement(
+				((InvocationExpressionSyntax)InternalMethods.Invoke)
+				.WithArgumentList(
+					CreateArgumentList(
+						superTuple,
+						CreateStringLiteral("__Init")
+					)
+				)
+			);
+		}
+
+		private static ExpressionSyntax CreateClassStoreAccess(string storeName, string typeName) =>
+			GenerateItemAccess(
+				VarsNameSyntax,
+				SyntaxFactory.IdentifierName(storeName),
+				SyntaxFactory.TypeOfExpression(CreateQualifiedName(typeName))
+			);
     }
 }

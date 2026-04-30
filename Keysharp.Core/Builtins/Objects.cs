@@ -176,9 +176,13 @@ namespace Keysharp.Builtins
 
 		public static object ObjDefineProp(object obj0, object obj1, object obj2)
 		{
-			var target = obj0 as Any;
-			if (target == null) return Errors.ArgumentErrorOccurred(obj2, 1);
+			if (obj0 is not Any target)
+				return Errors.ArgumentErrorOccurred(obj0, 1);
+
 			var name = obj1.As();
+
+			if (Struct.TryDefineFieldOnPrototype(target, name, obj2, out var structResult))
+				return structResult ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 
 			var op = target.EnsureOwnProps();
 
@@ -202,9 +206,7 @@ namespace Keysharp.Builtins
 						return Errors.ValueErrorOccurred("Value can't be defined along with get, set, or call.");
 
 					if (op.TryGetValue(name, out var currProp))
-					{
 						currProp.MergeOwnPropsValues(kso.op);
-					}
 					else
 					{
 						op[name] = new OwnPropsDesc();
@@ -213,13 +215,21 @@ namespace Keysharp.Builtins
 				}
 			}
 			else
-			{
 				return Errors.ArgumentErrorOccurred(obj2, 2);
-			}
 
 			target.OnPropertyChanged(name, op[name].Type);
 
 			return target;
+		}
+
+		[PublicHiddenFromUser]
+		public static object ObjDefineProp(object obj0, object obj1, Type type)
+		{
+			if (obj0 is not Any target)
+				return Errors.ArgumentErrorOccurred(obj0, 1);
+
+			var result = Struct.DefineFieldOnPrototype(target, obj1.As(), type, 0, null, true);
+			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 		}
 
 		/// <summary>

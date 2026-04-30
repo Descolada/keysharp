@@ -443,48 +443,6 @@ namespace Keysharp.Builtins
 			return dm.CreateDelegate(delegateType);
 		}
 
-		/// <summary>
-		/// Generates (and returns) a delegate of type Func<nint, long[], long>
-		/// for a function pointer that accepts exactly n long arguments.
-		/// It reads n arguments from the provided array (pushing 0 for missing entries),
-		/// then loads the function pointer and calls it.
-		/// </summary>
-		/// <param name="n">The number of long arguments expected.</param>
-		private static Func<nint, long[], long> CreateDelegateForArgCount(int n)
-		{
-			// The dynamic method always has two parameters:
-			//  - nint: the function pointer,
-			//  - long[]: the array of arguments.
-			DynamicMethod dm = new DynamicMethod(
-				"DynamicDllCall_" + n,
-				typeof(long),
-				[typeof(nint), typeof(long[])],
-				typeof(Dll).Module,
-				skipVisibility: true);
-			ILGenerator il = dm.GetILGenerator();
-
-			// Unroll the loading of n arguments from the array.
-			for (int i = 0; i < n; i++)
-			{
-				// Load the 'args' array (argument at index 1).
-				il.Emit(OpCodes.Ldarg_1);
-				// Push the constant index i onto the stack.
-				il.Emit(OpCodes.Ldc_I4, i);
-				// Load the long element at that index (expects each element is an 8-byte long).
-				il.Emit(OpCodes.Ldelem_I8);
-			}
-
-			// Load the function pointer from the first parameter (nint).
-			il.Emit(OpCodes.Ldarg_0);
-			// Build an array of parameter types (n longs).
-			Type[] paramTypes = Enumerable.Repeat(typeof(long), n).ToArray();
-			// Emit a calli instruction to call the unmanaged function.
-			// This assumes a StdCall calling convention and that the function returns a long.
-			il.EmitCalli(OpCodes.Calli, CallingConvention.Cdecl, typeof(long), paramTypes);
-			il.Emit(OpCodes.Ret);
-			return (Func<nint, long[], long>)dm.CreateDelegate(typeof(Func<nint, long[], long>));
-		}
-
 		internal static unsafe void FixParamTypeAndCopyBack(ref object p, Type t, nint aip)
 		{
 			if (t == typeof(uint))
@@ -559,6 +517,15 @@ namespace Keysharp.Builtins
 				var pi = pair.Key;
 				var n = pi / 2;
 				var arg = helper.args[n];
+				var outputType = pair.Value.Item1;
+
+				if (outputType == typeof(Struct))
+				{
+					if (parameters[pi] is Any kso && Script.GetPropertyValueOrNull(kso, "__Value") is Struct structValue)
+						_ = Script.SetPropertyValue(kso, "__Value", Struct.GetOutputValue(structValue));
+
+					continue;
+				}
 
 				if (parameters[pi] is StringBuffer sb)
 				{

@@ -15,10 +15,12 @@ namespace Keysharp.Parsing
 			public string FullName = null;
 			public string UserDeclaredName = null;
 			public string Base = "KeysharpObject";
+			public bool IsStruct = false;
 			public List<BaseTypeSyntax> BaseList = new();
 			public NamedIndexedCollection<MemberDeclarationSyntax> Body = new(GetBodyMemberName);
 			public List<AttributeSyntax> Attributes = new();
 			public ClassDeclarationSyntax Declaration = null;
+			public readonly List<StatementSyntax> StaticInitStatements = new();
 
 			public bool isInitialization = false;
 			public readonly List<(ExpressionSyntax BaseExpr, ExpressionSyntax TargetExpr, ExpressionSyntax Initializer)> deferredInitializations = new();

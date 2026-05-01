@@ -95,7 +95,7 @@ namespace Keysharp.Builtins
 			var windowGroups = TheScript.WindowProvider.Manager.Groups;
 
 			if (string.IsNullOrEmpty(name))
-				return DefaultErrorObject;
+				return Errors.ValueErrorOccurred("Group name must not be empty.");
 
 			if (!windowGroups.ContainsKey(name))
 				windowGroups.Add(name, new WindowGroup());
@@ -122,7 +122,7 @@ namespace Keysharp.Builtins
 			if (windowGroups.TryGetValue(name, out var group))
 			{
 				if (group.sc.Count == 0)
-					return DefaultErrorObject;
+					return DefaultObject;
 
 				var stack = group.lastWasDeactivate ? group.deactivated : group.activated;
 				var windows = SearchWindows($"ahk_group {name}");
@@ -170,7 +170,7 @@ namespace Keysharp.Builtins
 			if (windowGroups.TryGetValue(name, out var group))
 			{
 				if (group.sc.Count == 0)
-					return DefaultErrorObject;
+					return DefaultObject;
 
 				var windows = SearchWindows($"ahk_group {name}");
 				var allwindows = WindowManager.FilterForGroups(WindowManager.AllWindows.Where(w => !windows.Any(ww => ww.Handle.ToInt64() == w.Handle.ToInt64()))).ToList();

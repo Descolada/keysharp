@@ -139,7 +139,6 @@ namespace Keysharp.Runtime
 		internal const long DefaultErrorLong = long.MinValue;
 		internal const string DefaultNewLine = "\n";
 		internal const string DefaultObject = "";
-		internal const string DefaultErrorObject = "";
 		internal const string DefaultErrorString = "";
 		internal const int INTERVAL_UNSPECIFIED = int.MinValue + 303;
 		internal const int maxEmergencyThreads = 10;

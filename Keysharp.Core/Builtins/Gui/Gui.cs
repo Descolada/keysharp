@@ -1491,7 +1491,7 @@ namespace Keysharp.Builtins
 			}
 
 			if (ctrl == null)
-				return DefaultErrorObject;
+				return Errors.ValueErrorOccurred($"Invalid control type: {type}.");
 
 			if (opts.name != null)
 				ctrl.Name = opts.name;

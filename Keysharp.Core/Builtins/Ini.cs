@@ -24,7 +24,7 @@ namespace Keysharp.Builtins
 			if (!File.Exists(file))
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				return DefaultErrorObject;
+				return DefaultObject;
 			}
 
 #if WINDOWS
@@ -122,7 +122,7 @@ namespace Keysharp.Builtins
 			if (!File.Exists(file))
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				return def ?? DefaultErrorObject;
+				return def ?? DefaultObject;
 			}
 
 #if WINDOWS

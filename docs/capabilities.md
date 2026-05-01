@@ -26,7 +26,6 @@ Status legend:
 | #AssemblyTrademark | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly trademark metadata for compiled scripts. |
 | #AssemblyVersion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly version metadata for compiled scripts. |
 | #ClipboardTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets how long clipboard operations should wait before timing out. |
-| #DefaultReturn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #DefaultReturn directive sets the default return to either "" or unset. |
 | #Define | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Defines a conditional compilation symbol. |
 | #DllLoad | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #DllLoad directive loads a DLL or EXE file before the script starts executing. |
 | #ElIf | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds an alternate conditional compilation branch. |

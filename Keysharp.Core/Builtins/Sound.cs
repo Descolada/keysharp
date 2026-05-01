@@ -128,7 +128,7 @@ namespace Keysharp.Builtins
 			{
 				if (!int.TryParse(file.AsSpan(1), out var n))
 				{
-					return DefaultErrorObject;
+					return Errors.ValueErrorOccurred($"Invalid SoundPlay wait option: {file}.");
 				}
 
 				switch (n)

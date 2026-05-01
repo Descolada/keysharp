@@ -9,7 +9,7 @@ namespace Keysharp.Builtins
 			if (obj == null && A_IsCompiled)
 			{
 				_ = Dialogs.MsgBox("Cannot edit a compiled script.");
-				return DefaultErrorObject;
+				return DefaultObject;
 			}
 
 			string fileName = obj == null ? A_ScriptFullPath : obj.As();

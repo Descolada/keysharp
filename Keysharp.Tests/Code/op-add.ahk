@@ -1004,3 +1004,11 @@ if (a + b == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+try
+{
+	x := "abc" + {}
+	FileAppend "fail", "*"
+}
+catch (TypeError as exc)
+	FileAppend "pass", "*"

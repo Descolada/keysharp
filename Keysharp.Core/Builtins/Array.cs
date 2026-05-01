@@ -321,7 +321,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorObject);
+			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
 		}
 
 		/// <summary>
@@ -531,7 +531,7 @@ namespace Keysharp.Builtins
 					return Errors.IndexErrorOccurred($"Invalid mapping start index of {startIndex.Ai(1)}.");
 			}
 
-			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorObject);
+			return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
 		}
 
 		/// <summary>
@@ -756,7 +756,7 @@ namespace Keysharp.Builtins
 				return this;
 			}
 			else
-				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
 		}
 
 		/// <summary>

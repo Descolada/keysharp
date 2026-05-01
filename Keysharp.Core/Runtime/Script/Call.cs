@@ -667,7 +667,7 @@ namespace Keysharp.Runtime
 				return (null, mph);
 
 			_ = Errors.ErrorOccurred($"Attempting to get static method {name} failed.");
-			return (DefaultErrorObject, null);
+			return (DefaultObject, null);
 		}
 
 		public static object FindObjectForMethod(object obj, string name, int paramCount)

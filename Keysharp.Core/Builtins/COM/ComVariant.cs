@@ -927,7 +927,7 @@ namespace Keysharp.Builtins.COM
 				VarEnum elemVt = vt & ~VarEnum.VT_ARRAY;
 				nint parray = Marshal.ReadIntPtr(dataPtr);
 				if (parray == 0)
-					return DefaultErrorObject;
+					return DefaultObject;
 
 				// Wrap without owning: the VARIANT will destroy it on VariantClear.
 				return new ComObjArray(elemVt, parray, takeOwnership: false);
@@ -1005,7 +1005,7 @@ namespace Keysharp.Builtins.COM
 						nint unk = Marshal.ReadIntPtr(dataPtr);
 
 						if (unk == 0)
-							return DefaultErrorObject;
+							return DefaultObject;
 
 						return new ComValue
 						{

@@ -221,7 +221,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object BitShiftLeft(object left, object right)
@@ -242,7 +242,7 @@ namespace Keysharp.Runtime
 				return firstl << r;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object BitShiftRight(object left, object right)
@@ -263,7 +263,7 @@ namespace Keysharp.Runtime
 				return firstl >> r;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object LogicalBitShiftRight(object left, object right)
@@ -284,7 +284,7 @@ namespace Keysharp.Runtime
 				return (long)((ulong)firstl >> r);
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object BitwiseAnd(object left, object right)
@@ -300,7 +300,7 @@ namespace Keysharp.Runtime
 				return firstl & secondl;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object BitwiseOr(object left, object right)
@@ -316,7 +316,7 @@ namespace Keysharp.Runtime
 				return firstl | secondl;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object BitwiseXor(object left, object right)
@@ -332,7 +332,7 @@ namespace Keysharp.Runtime
 				return firstl ^ secondl;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object BooleanAnd(object left, object right)
 		{
@@ -408,7 +408,7 @@ namespace Keysharp.Runtime
 				return firstl / secondl;
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object IdentityInequality(object left, object right)
@@ -522,7 +522,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object LessThanOrEqual(object left, object right)
 		{
@@ -548,7 +548,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object GreaterThan(object left, object right)
 		{
@@ -574,7 +574,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object GreaterThanOrEqual(object left, object right)
 		{
@@ -600,7 +600,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object ValueInequality(object left, object right)
 		{
@@ -638,7 +638,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object Power(object left, object right)
@@ -661,7 +661,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object Subtract(object left, object right)
@@ -684,7 +684,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 		public static object Minus(object left, object right) => Subtract(left, right);
 
@@ -708,7 +708,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object Divide(object left, object right)
@@ -751,7 +751,7 @@ namespace Keysharp.Runtime
 				}
 			}
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		public static object Is(object left, object right)

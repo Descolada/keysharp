@@ -256,7 +256,7 @@ namespace Keysharp.Builtins
 					return DefaultObject;
 				}
 				else
-				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(callback, typeof(FuncObj), DefaultObject);
 		}
 
 		/// <summary>

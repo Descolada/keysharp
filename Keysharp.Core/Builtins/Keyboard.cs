@@ -437,8 +437,9 @@ break_twice:;
 				if (A_IsSuspended)
 					initialSuspendState |= HotstringDefinition.HS_SUSPENDED;
 
-				if (HotstringManager.AddHotstring(name, ifunc, hotstringOptions, hotstringStart, action, false, initialSuspendState) is not HotstringDefinition)
-					return DefaultErrorObject;
+				var addResult = HotstringManager.AddHotstring(name, ifunc, hotstringOptions, hotstringStart, action, false, initialSuspendState);
+				if (addResult is not HotstringDefinition)
+					return addResult;
 
 				existing = hm.shs[hm.shs.Count - 1];
 				wasAlreadyEnabled = false; // Because it didn't exist.

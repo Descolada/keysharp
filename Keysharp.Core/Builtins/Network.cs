@@ -37,7 +37,7 @@ namespace Keysharp.Builtins
 						msg.To.Add((string)item);
 			}
 			else
-				return DefaultErrorObject;
+				return Errors.TypeErrorOccurred(recipients, typeof(IEnumerable));
 
 			var smtpHost = "localhost";
 			int? smtpPort = null;

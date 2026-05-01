@@ -10,7 +10,7 @@ namespace Keysharp.Builtins
 			private bool listViewCheckClickActive;
 			public string ClassNN => _control is Window && WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
 
-			public object Gui => gui != null && gui.TryGetTarget(out var g) ? g : DefaultErrorObject;
+			public object Gui => gui != null && gui.TryGetTarget(out var g) ? g : Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 			public long Hwnd => _control is Eto.Widget w ? w.Handle.ToInt64() : 0L;
 
@@ -44,7 +44,7 @@ namespace Keysharp.Builtins
 				get
 				{
 					if (_control == null)
-						return DefaultErrorObject;
+						return Errors.ErrorOccurred("GUI control is no longer available.");
 
 					if (_control is KeysharpListBox lb)
 					{
@@ -1234,7 +1234,7 @@ namespace Keysharp.Builtins
 			public object Move(object x = null, object y = null, object width = null, object height = null)
 			{
 				if (_control == null)
-					return DefaultObject;
+					return Errors.ErrorOccurred("GUI control is no longer available.");
 
 				var location = _control.GetLocation();
 				var size = _control.GetSize();
@@ -1269,7 +1269,7 @@ namespace Keysharp.Builtins
 				var i = addRemove.Al(1);
 
 				if (gui == null || !gui.TryGetTarget(out var g))
-					return DefaultErrorObject;
+					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 				var del = Functions.GetFuncObj(h, g.form.eventObj, true);
 
@@ -1386,7 +1386,7 @@ namespace Keysharp.Builtins
 			public object Opt(object options)
 			{
 				if (gui == null || !gui.TryGetTarget(out var g))
-					return DefaultErrorObject;
+					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 				var opts = g.ParseOpt(typename, _control.Text, options.As());
 

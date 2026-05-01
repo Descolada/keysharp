@@ -66,9 +66,11 @@ namespace Keysharp.Builtins.COM
 
 				if (prefixOrSink != null)//obj1 not being null means add it.
 					_ = comEvents.Add(new ComEvent(new Dispatcher(co), prefixOrSink, debug != null ? debug.Ab() : false));
+
+				return DefaultObject;
 			}
 
-			return DefaultErrorObject;
+			return Errors.TypeErrorOccurred(comObj, typeof(ComObject));
 		}
 
 		public static object ComObjFlags(object comObj, object newFlags = null, object mask = null)
@@ -102,7 +104,7 @@ namespace Keysharp.Builtins.COM
 			if (ptr != 0L)
 				return new ComObject(VarEnum.VT_DISPATCH, ptr);
 
-			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultErrorObject);
+			return Errors.TypeErrorOccurred(dispPtr, typeof(IDispatch), DefaultObject);
 		}
 
 		public static object ComObjGet(object name)
@@ -326,7 +328,7 @@ namespace Keysharp.Builtins.COM
 			if (ptr is long l)
 				ptr = new nint(l);
 			else
-				return Errors.TypeErrorOccurred(ptr, typeof(ComValue), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(ptr, typeof(ComValue), DefaultObject);
 
 			return (long)Marshal.Release((nint)ptr);
 		}

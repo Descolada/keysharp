@@ -384,7 +384,7 @@ namespace Keysharp.Builtins.COM
 				}
 			}
 
-			return hr >= 0 ? result : Errors.ErrorOccurred($"Invoke failed for '{methodName}' ({result})", DefaultErrorObject);
+			return hr >= 0 ? result : Errors.ErrorOccurred($"Invoke failed for '{methodName}' ({result})", DefaultObject);
 		}
 
 		internal unsafe object RawGetProperty(string propertyName, object[] args)

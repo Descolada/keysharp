@@ -1098,7 +1098,7 @@ namespace Keysharp.Builtins
 			ThreadAccessors.A_LastError = 0;
 
 			if (string.IsNullOrEmpty(file))
-				return DefaultErrorObject;
+				return Errors.ValueErrorOccurred("FileRead requires a file name.");
 
 			var max = -1;
 			bool binary = false, nocrlf = false;
@@ -1125,7 +1125,7 @@ namespace Keysharp.Builtins
 			}
 
 			if (max == 0)
-				return DefaultErrorObject;
+				return DefaultObject;
 
 			if (binary)
 			{

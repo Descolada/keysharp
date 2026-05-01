@@ -179,16 +179,6 @@
                  },
                  {
                      "category":  "Environment/System",
-                     "feature":  "#DefaultReturn",
-                     "syntax":  "",
-                     "windows":  "full",
-                     "linux_x11":  "full",
-                     "linux_wayland":  "full",
-                     "macos":  "full",
-                     "notes":  "The #DefaultReturn directive sets the default return to either \"\" or unset."
-                 },
-                 {
-                     "category":  "Environment/System",
                      "feature":  "#Define",
                      "syntax":  "",
                      "windows":  "full",

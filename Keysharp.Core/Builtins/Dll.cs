@@ -212,7 +212,7 @@ namespace Keysharp.Builtins
 			AddressFound:
 
 			if (address == 0)
-				return Errors.TypeErrorOccurred(function, typeof(nint), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(function, typeof(nint), DefaultObject);
 
 			try
 			{

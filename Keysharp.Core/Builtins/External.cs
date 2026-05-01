@@ -64,7 +64,7 @@ namespace Keysharp.Builtins
 			}
 #endif
 			else
-				return Errors.TypeErrorOccurred(address, typeof(nint), DefaultErrorObject);
+				return Errors.TypeErrorOccurred(address, typeof(nint), DefaultObject);
 
 			switch (t)
 			{

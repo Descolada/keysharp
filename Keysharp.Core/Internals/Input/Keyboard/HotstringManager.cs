@@ -44,7 +44,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hs = new HotstringDefinition(_name, _funcObj, _options, _hotstring, _replacement, _hasContinuationSection, _suspend);
 
 			if (!hs.constructedOK)
-				return DefaultErrorObject;
+				return Errors.ValueErrorOccurred($"Invalid hotstring: {_name}.");
 
 			var hm = script.HotstringManager;
 			hm.shs.Add(hs);

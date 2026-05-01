@@ -102,7 +102,7 @@ namespace Keysharp.Builtins
 					if (_control is KeysharpRichEdit rtf)
 						return Ks.NormalizeEol(rtf.Text);
 
-					return DefaultErrorObject;
+					return Errors.ErrorOccurred($"Can only get RichText on a RichEdit control. Attempted on a {_control?.GetType().Name ?? "null"} control.");
 				}
 				set
 				{
@@ -145,7 +145,7 @@ namespace Keysharp.Builtins
 				if (_control is KeysharpTabControl tc)
 				{
 					if (gui == null || !gui.TryGetTarget(out var g))
-						return DefaultErrorObject;
+						return DefaultObject;
 
 					var val = value;
 					var exact = exactMatch.Ab();
@@ -184,7 +184,7 @@ namespace Keysharp.Builtins
 					}
 				}
 
-				return DefaultObject;
+				return Errors.ValueErrorOccurred($"Only TreeView controls implement this method.");
 			}
 
 			public object Choose(object value)
@@ -285,7 +285,7 @@ namespace Keysharp.Builtins
 					return TreeViewHelper.TV_FindNode(tv, id);
 				}
 
-				return DefaultErrorObject;
+				return DefaultObject;
 			}
 
 			public long GetParent(object itemID)

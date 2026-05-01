@@ -253,7 +253,7 @@ namespace Keysharp.Builtins
 			{
 				if (outputVarWin != null) Script.SetPropertyValue(outputVarWin, "__Value", DefaultObject);
 				if (outputVarControl != null) Script.SetPropertyValue(outputVarControl, "__Value", DefaultObject);
-				return DefaultErrorObject;
+				return DefaultObject;
 			}
 
 			var parent = child.NonChildParentWindow;

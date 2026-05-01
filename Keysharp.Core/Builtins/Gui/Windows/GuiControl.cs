@@ -9,7 +9,7 @@ namespace Keysharp.Builtins
 			public string ClassNN => WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
 
 
-			public object Gui => gui.TryGetTarget(out var g) ? g : DefaultErrorObject;
+			public object Gui => gui.TryGetTarget(out var g) ? g : Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 			public long Hwnd => _control.Handle.ToInt64();
 
@@ -878,8 +878,7 @@ namespace Keysharp.Builtins
 
 			public object OnCommand(object notifyCode, object callback, object addRemove = null)
 			{
-				HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref commandHandlers);
-				return DefaultObject;
+				return HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref commandHandlers);
 			}
 
 			public object OnEvent(object eventName, object callback, object addRemove = null)
@@ -889,7 +888,7 @@ namespace Keysharp.Builtins
 				var i = addRemove.Al(1);
 
 				if (gui == null || !gui.TryGetTarget(out var g))
-					return DefaultErrorObject;
+					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 				var del = Functions.GetFuncObj(h, g.form.eventObj, true);
 
@@ -1012,14 +1011,13 @@ namespace Keysharp.Builtins
 
 			public object OnNotify(object notifyCode, object callback, object addRemove = null)
 			{
-				HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref notifyHandlers);
-				return DefaultObject;
+				return HandleOnCommandNotify(notifyCode.Al(), callback, addRemove.Al(1L), ref notifyHandlers);
 			}
 
 			public object Opt(object options)
 			{
 				if (gui == null || !gui.TryGetTarget(out var g))
-					return DefaultErrorObject;
+					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 				var opts = g.ParseOpt(typename, _control.Text, options.As());
 
@@ -1597,10 +1595,10 @@ namespace Keysharp.Builtins
 					CallContextMenuChangeHandlers(false, e.X, e.Y);
 			}
 
-			internal void HandleOnCommandNotify(long code, object callback, long addremove, ref ConcurrentDictionary<int, CallbackHub> handlers)
+			internal object HandleOnCommandNotify(long code, object callback, long addremove, ref ConcurrentDictionary<int, CallbackHub> handlers)
 			{
 				if (gui == null || !gui.TryGetTarget(out var g))
-					return;
+					return Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 				var del = Functions.GetFuncObj(callback, g.form.eventObj, true);
 
@@ -1609,6 +1607,7 @@ namespace Keysharp.Builtins
 
 				var h = handlers.GetOrAdd((int)code, static _ => new());
 				h.ModifyEventHandlers(del, addremove);
+				return DefaultObject;
 			}
 
 			internal unsafe object InvokeMessageHandlers(ref Message m)

@@ -23,7 +23,7 @@ namespace Keysharp.Runtime
 
 			store.Statics.AddLazy(t, () =>
 			{
-				// triggers the Prototypesâ€™ factory (if not yet run),
+				// triggers the Prototypes’ factory (if not yet run),
 				// which in turn set store.Statics[t] to the real staticInst.
 				var dummy = store.Prototypes[t];
 
@@ -350,7 +350,7 @@ namespace Keysharp.Runtime
 						}
 						else if (item == null)
 						{
-							return DefaultErrorObject;
+							return Errors.UnsetErrorOccurred("Object");
 						}
 					}
 					catch (IndexOutOfRangeException)

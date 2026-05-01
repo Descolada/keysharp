@@ -544,7 +544,7 @@ namespace Keysharp.Builtins
 			else if (GetMenu().Items.Find(s, true).FirstOrDefault() is ToolStripItem tsmi)
 				return tsmi;
 
-			return DefaultErrorObject;
+			return DefaultObject;
 		}
 
 		private object AddOrInsert(string insertbefore, string name, object funcorsub, string options)

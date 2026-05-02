@@ -50,8 +50,7 @@ namespace Keysharp.Internals.Threading
 		private readonly Dictionary<(IFuncObj Callback, ScriptEventScheduler OwnerScheduler), ScriptTimerState> timers = new(ScriptTimerKeyComparer.Instance);
 		private readonly AutoResetEvent wakeEvent = new(false);
 		private readonly TimerDispatchCallback dispatchCallback;
-		private readonly Thread timerThread;
-		private readonly int scanIntervalMs;
+		private Thread timerThread;
 		private bool disposed;
 
 		internal int Count
@@ -72,16 +71,9 @@ namespace Keysharp.Internals.Threading
 			}
 		}
 
-		internal ScriptTimerManager(TimerDispatchCallback dispatchCallback, int scanIntervalMs = 10)
+		internal ScriptTimerManager(TimerDispatchCallback dispatchCallback)
 		{
 			this.dispatchCallback = dispatchCallback ?? throw new ArgumentNullException(nameof(dispatchCallback));
-			this.scanIntervalMs = Math.Max(1, scanIntervalMs);
-			timerThread = new Thread(Run)
-			{
-				IsBackground = true,
-				Name = "Keysharp Script Timer Manager"
-			};
-			timerThread.Start();
 		}
 
 		internal ScriptTimerState[] GetSnapshot()
@@ -131,6 +123,7 @@ namespace Keysharp.Internals.Threading
 				timer.Enabled = true;
 				timer.DeletePending = false;
 				timer.SetActive(true);
+				EnsureThreadStarted();
 			}
 
 			Wake();
@@ -338,7 +331,7 @@ namespace Keysharp.Internals.Threading
 
 			Wake();
 
-			if (!ReferenceEquals(Thread.CurrentThread, timerThread))
+			if (timerThread != null && !ReferenceEquals(Thread.CurrentThread, timerThread))
 				timerThread.Join();
 
 			wakeEvent.Dispose();
@@ -349,6 +342,7 @@ namespace Keysharp.Internals.Threading
 			while (true)
 			{
 				var dueTimers = new List<ScriptTimerState>();
+				var waitMs = Timeout.Infinite;
 
 				lock (gate)
 				{
@@ -356,6 +350,7 @@ namespace Keysharp.Internals.Threading
 						return;
 
 					var now = Environment.TickCount64;
+					long nextDueTick = long.MaxValue;
 
 					foreach (var timer in timers.Values)
 					{
@@ -363,28 +358,54 @@ namespace Keysharp.Internals.Threading
 							continue;
 
 						if (now < timer.NextDueTick)
+						{
+							if (timer.NextDueTick < nextDueTick)
+								nextDueTick = timer.NextDueTick;
 							continue;
+						}
 
 						timer.Queued = true;
 						dueTimers.Add(timer);
+					}
+
+					if (nextDueTick != long.MaxValue)
+					{
+						var delay = nextDueTick - now;
+						waitMs = delay >= int.MaxValue ? int.MaxValue : Math.Max(1, (int)delay);
 					}
 				}
 
 				foreach (var timer in dueTimers)
 				{
 					if (!dispatchCallback(timer))
+					{
 						ClearQueueStateAfterFailedDispatch(timer);
+						waitMs = Math.Min(waitMs == Timeout.Infinite ? int.MaxValue : waitMs, 1);
+					}
 				}
 
 				try
 				{
-					_ = wakeEvent.WaitOne(scanIntervalMs);
+					_ = wakeEvent.WaitOne(waitMs);
 				}
 				catch (ObjectDisposedException)
 				{
 					return;
 				}
 			}
+		}
+
+		private void EnsureThreadStarted()
+		{
+			if (timerThread != null)
+				return;
+
+			timerThread = new Thread(Run)
+			{
+				IsBackground = true,
+				Name = "Keysharp Script Timer Manager"
+			};
+			timerThread.Start();
 		}
 
 		private void ClearQueueStateAfterFailedDispatch(ScriptTimerState timer)

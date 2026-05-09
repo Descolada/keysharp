@@ -25,13 +25,15 @@ namespace Keysharp.Parsing
     {
         internal Keysharp.Parsing.Parser parser;
 
-        public VisitMain(Keysharp.Parsing.Parser _parser) : base()
+		public VisitMain(Keysharp.Parsing.Parser _parser) : base()
         {
             parser = _parser;
         }
 
 		public override SyntaxNode VisitProgram([NotNull] ProgramContext context)
         {
+			ResetCompatibilityState(context);
+
 			if (parser.isFirstModulePass || parser.compilationUnit == null)
 			{
 				var usingDirectives = BuildUsingDirectiveSyntaxList(CompilerHelper.GlobalUsingStr);
@@ -147,8 +149,7 @@ namespace Keysharp.Parsing
 
 			// Module auto-exec should not include DHHR; those are run in Program.AutoExecSection.
 
-			// Return "" by default
-			parser.autoExecFunc.Body.Add(PredefinedKeywords.DefaultReturnStatement);
+			parser.autoExecFunc.Body.Add(parser.DefaultReturnStatement);
 			parser.autoExecFunc.Method = parser.autoExecFunc.Assemble();
 
             parser.GlobalClass.Body.Add(parser.autoExecFunc.Method);
@@ -163,7 +164,11 @@ namespace Keysharp.Parsing
 			foreach (var moduleName in parser.moduleParseOrder)
 			{
 				if (parser.Modules.TryGetValue(moduleName, out var module) && module.ModuleClass != null)
+				{
+					module.ModuleClass.Attributes.RemoveAll(static attr => attr.Name.ToString().Equals("CompatibilityMode", StringComparison.Ordinal));
+					module.ModuleClass.Attributes.Add(Parser.CreateCompatibilityModeAttribute(module.CompatibilityVersion));
 					moduleClasses.Add(module.ModuleClass.Assemble());
+				}
 			}
 
 			if (moduleClasses.Count > 0)
@@ -655,6 +660,8 @@ namespace Keysharp.Parsing
 				SyntaxNode visited;
 				stmt = child.statement();
 
+				SyncCompatibilitySource(child);
+
 				if (statements.Count > 0
 					&& stmt != null
 					&& stmt.iterationStatement() != null
@@ -684,7 +691,8 @@ namespace Keysharp.Parsing
                         throw new NoNullAllowedException();
                     else
                     {
-                        if (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass)))
+                        if (child.positionalDirective()?.positionalDirectiveBody() is not RequiresDirectiveContext
+							&& (parser.functionDepth > 0 || (parser.currentClass != null && !parser.IsTopLevelContainerClass(parser.currentClass))))
                             throw new ParseException("Directives, remaps, hotkeys, and hotstrings cannot be declared inside functions and classes", child);
                         continue;
                     }
@@ -1674,7 +1682,7 @@ namespace Keysharp.Parsing
                 if (parser.currentFunc.Void)
                     return SyntaxFactory.ReturnStatement();
 
-                return PredefinedKeywords.DefaultReturnStatement;
+                return parser.DefaultReturnStatement;
             }
 
             if (parser.currentFunc.Void)
@@ -1877,38 +1885,38 @@ namespace Keysharp.Parsing
 			return SyntaxFactory.ExpressionStatement(parser.GenerateFunctionInvocation(targetExpression, argumentList, methodName, useOrNull: true));
 		}
 
-        private void PushFunction(FunctionHeadContext funcHead)
+        private void PushFunction(FunctionHeadContext funcHead, ParserRuleContext definitionContext = null)
         {
             string userName = funcHead.identifierName().GetText();
             var emitKind = EmitKind.TopLevelFunction;
             if (parser.classDepth > 0 && parser.functionDepth == 0)
                 emitKind = funcHead.functionHeadPrefix()?.Static() != null ? EmitKind.StaticMethod : EmitKind.Method;
-			PushFunction(userName, emitKind);
+			PushFunction(userName, emitKind, null, definitionContext);
 			PreRegisterParameterIdentifiers(funcHead.formalParameterList());
 		}
 
-        private void PushFunction(FunctionExpressionHeadContext funcExprHead)
+        private void PushFunction(FunctionExpressionHeadContext funcExprHead, ParserRuleContext definitionContext = null)
         {
 			string userName = funcExprHead.identifierName()?.GetText() ?? (Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount);
-			PushFunction(userName, EmitKind.TopLevelFunction);
+			PushFunction(userName, EmitKind.TopLevelFunction, null, definitionContext);
 			parser.currentFunc.Static = false;
 			PreRegisterParameterIdentifiers(funcExprHead.formalParameterList());
 		}
 
-        private void PushFunction(FatArrowExpressionHeadContext funcExprHead)
+        private void PushFunction(FatArrowExpressionHeadContext funcExprHead, ParserRuleContext definitionContext = null)
         {
             if (funcExprHead.functionExpressionHead() is FunctionExpressionHeadContext funcHead && funcHead != null)
-                PushFunction(funcHead);
+                PushFunction(funcHead, definitionContext);
             else
 			{
-				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction);
+				PushFunction(Keywords.AnonymousLambdaPrefix + ++parser.lambdaCount, EmitKind.TopLevelFunction, null, definitionContext);
 				parser.currentFunc.Static = false;
 				var parameterRaw = funcExprHead.identifierName()?.GetText() ?? "args";
 				PreRegisterParameterIdentifier(parameterRaw);
 			}
 		}
 
-        private void PushFunction(string userName, EmitKind emitKind, TypeSyntax returnType = null)
+        private void PushFunction(string userName, EmitKind emitKind, TypeSyntax returnType = null, ParserRuleContext definitionContext = null)
         {
             var parent = parser.currentFunc;
 			parser.FunctionStack.Push((parent, parser.UserFuncs));
@@ -1916,23 +1924,90 @@ namespace Keysharp.Parsing
             // Create shallow copy
             parser.UserFuncs = new HashSet<string>(parser.UserFuncs, parser.UserFuncs.Comparer);
 
-            parser.functionDepth++;
-
 			var semLower = parser.NormalizeFunctionIdentifier(userName, eNameCase.Lower); // semantic AHK name
 			var implName = parser.EmitName(emitKind, semLower);            // C# method name (Fn_...)
 
-			parser.currentFunc = new Function(semLower, userName, implName, returnType);
-            parser.currentFunc.Parent = parent;
-            parser.currentFunc.Class = parser.currentClass;
-			parser.currentFunc.DerefsName = parser.ToValidIdentifier($"{Keywords.InternalPrefix}Derefs_{implName}");
+			var functionMode = CurrentCompatibilityMode;
+			parser.functionDepth++;
+
+			parser.currentFunc = new Function(semLower, userName, implName, returnType)
+			{
+				Parent = parent,
+				Class = parser.currentClass,
+				RootContext = definitionContext,
+				CompatibilityVersion = functionMode,
+				EmitCompatibilityAttribute = functionMode.CompareSortOrderTo(parser.currentModule.CompatibilityVersion) != 0,
+				DerefsName = parser.ToValidIdentifier($"{Keywords.InternalPrefix}Derefs_{implName}")
+			};
 			// Export is carried on the FuncObj field, not the implementation method.
 		}
 
-        private void PopFunction()
-        {
-            (parser.currentFunc, parser.UserFuncs) = parser.FunctionStack.Pop();
-            parser.functionDepth--;
-        }
+		private void SyncCompatibilitySource(ParserRuleContext context)
+		{
+			var source = context?.Start?.TokenSource?.SourceName ?? string.Empty;
+
+			if (compatibilityFrames.Count == 0)
+			{
+				compatibilityFrames.Push(new CompatibilityFrame
+				{
+					SourceName = source,
+					Mode = Script.DefaultCompatibilityVersion
+				});
+				return;
+			}
+
+			if (SameSourceExact(compatibilityFrames.Peek().SourceName, source))
+				return;
+
+			// Returning from an include: pop until the matching source is current.
+			foreach (var frame in compatibilityFrames)
+			{
+				if (SameSourceExact(frame.SourceName, source))
+				{
+					while (!SameSourceExact(compatibilityFrames.Peek().SourceName, source))
+						compatibilityFrames.Pop();
+					return;
+				}
+			}
+
+			// Entering a new include file.
+			compatibilityFrames.Push(new CompatibilityFrame
+			{
+				SourceName = source,
+				Mode = CurrentCompatibilityMode
+			});
+		}
+
+		private static bool SameSourceExact(string left, string right) =>
+			string.Equals(left ?? string.Empty, right ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+		private void ResetCompatibilityState(ProgramContext context)
+		{
+			compatibilityFrames.Clear();
+			moduleStartupCompatibilityLocked = false;
+
+			var rootSourceName = context?.Start?.TokenSource?.SourceName ?? string.Empty;
+
+			var initialMode = parser.currentModule.Name.Equals(Keywords.MainModuleName, StringComparison.OrdinalIgnoreCase)
+				? parser.currentModule.InitialCompatibilityVersion ?? Script.DefaultCompatibilityVersion
+				: parser.Modules.TryGetValue(Keywords.MainModuleName, out var mainModule)
+					? mainModule.CompatibilityVersion
+					: Script.DefaultCompatibilityVersion;
+
+			parser.currentModule.CompatibilityVersion = initialMode;
+
+			compatibilityFrames.Push(new CompatibilityFrame
+			{
+				SourceName = rootSourceName,
+				Mode = initialMode
+			});
+		}
+
+		private void PopFunction()
+		{
+			(parser.currentFunc, parser.UserFuncs) = parser.FunctionStack.Pop();
+			parser.functionDepth--;
+		}
 
 		private void PreRegisterParameterIdentifiers(FormalParameterListContext context)
 		{
@@ -2101,7 +2176,8 @@ namespace Keysharp.Parsing
                         methodDeclaration.Identifier)
                     .WithParameterList(methodDeclaration.ParameterList)
                     .WithBody(methodDeclaration.Body)
-                    .WithModifiers(localModifiers);
+                    .WithModifiers(localModifiers)
+					.WithAttributeLists(methodDeclaration.AttributeLists);
 
                 var isStatic = localModifiers.Any(m => m.IsKind(SyntaxKind.StaticKeyword));
 				var insertAtTop = isStatic && !isAutoExecFunc;
@@ -2181,7 +2257,7 @@ namespace Keysharp.Parsing
         public override SyntaxNode VisitFunctionDeclaration([NotNull] FunctionDeclarationContext context)
         {
             var funcHead = context.functionHead();
-            PushFunction(funcHead);
+            PushFunction(funcHead, context);
 			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix()); // Determine whether the function is static, async etc
 
 			var funcBody = context.functionBody();
@@ -2242,7 +2318,7 @@ namespace Keysharp.Parsing
         public override SyntaxNode VisitFunctionExpression([NotNull] FunctionExpressionContext context)
         {
             var funcExprHead = context.functionExpressionHead();
-            PushFunction(funcExprHead);
+            PushFunction(funcExprHead, context);
 			HandleScopeFunctions(context.block());
 
             Visit(context.functionExpressionHead());
@@ -2261,7 +2337,7 @@ namespace Keysharp.Parsing
         public override SyntaxNode VisitFatArrowExpression([Antlr4.Runtime.Misc.NotNull] FatArrowExpressionContext context)
         {
             var funcHead = context.fatArrowExpressionHead();
-            PushFunction(funcHead);
+            PushFunction(funcHead, context);
 			HandleScopeFunctions(context.singleExpression());
 			Visit(funcHead);
 
@@ -2278,6 +2354,8 @@ namespace Keysharp.Parsing
 
 			}
 			else
+			{
+				returnExpression = RewriteAccessInvocationToOrNull(returnExpression);
 				functionBody = SyntaxFactory.Block(
 					SyntaxFactory.ReturnStatement(
 						PredefinedKeywords.ReturnToken,
@@ -2285,6 +2363,7 @@ namespace Keysharp.Parsing
 						PredefinedKeywords.SemicolonToken
 					)
 				);
+			}
 
 			parser.currentFunc.Body.AddRange(functionBody.Statements.ToArray());
 
@@ -2302,7 +2381,7 @@ namespace Keysharp.Parsing
 
             if (!hasReturn)
             {
-                statements = statements.Add(PredefinedKeywords.DefaultReturnStatement);
+                statements = statements.Add(parser.DefaultReturnStatement);
             }
 
             return SyntaxFactory.Block(statements);
@@ -2468,6 +2547,7 @@ namespace Keysharp.Parsing
                         SyntaxFactory.ExpressionStatement(EnsureValidStatementExpression(expression)),
                         SyntaxFactory.ReturnStatement()
                     );
+				expression = RewriteAccessInvocationToOrNull(expression);
                 return SyntaxFactory.Block(
                     SyntaxFactory.ReturnStatement(
 						PredefinedKeywords.ReturnToken,
@@ -2478,7 +2558,7 @@ namespace Keysharp.Parsing
             }
             else if (context.block().statementList() == null || context.block().statementList().ChildCount == 0)
             {
-                return SyntaxFactory.Block(PredefinedKeywords.DefaultReturnStatement);
+                return SyntaxFactory.Block(parser.DefaultReturnStatement);
             }
             return VisitStatementList(context.block().statementList());
             /*

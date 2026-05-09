@@ -134,8 +134,17 @@ namespace Keysharp.Parsing
 			bool useOrNull,
 			bool suppressFirstOptional)
 		{
+			var limit = suffixes.Count;
+			if (limit > startIndex
+				&& suffixes[limit - 1].modifier != null
+				&& suffixes[limit - 1].modifier.Type == MainLexer.Maybe)
+			{
+				limit--;
+				useOrNull = true;
+			}
+
 			var optionalIndex = -1;
-			for (var i = startIndex; i < suffixes.Count; i++)
+			for (var i = startIndex; i < limit; i++)
 			{
 				if (suppressFirstOptional && i == startIndex)
 					continue;
@@ -186,15 +195,15 @@ namespace Keysharp.Parsing
 			}
 
 			var current = baseExpression;
-			for (var i = startIndex; i < suffixes.Count; i++)
+			for (var i = startIndex; i < limit; i++)
 			{
-				if (TryConsumePropertyIndexSuffix(current, suffixes, ref i, suffixes.Count, useOrNull && i + 1 == suffixes.Count - 1, out var combinedCurrent))
+				if (TryConsumePropertyIndexSuffix(current, suffixes, ref i, limit, useOrNull && i + 1 == limit - 1, out var combinedCurrent))
 				{
 					current = combinedCurrent;
 					continue;
 				}
 
-				var isFinal = i == suffixes.Count - 1;
+				var isFinal = i == limit - 1;
 				current = ApplyAccessSuffix(current, suffixes[i], useOrNull && isFinal);
 			}
 			return current;

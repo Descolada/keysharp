@@ -8,6 +8,89 @@ namespace Keysharp.Runtime
 		public AssemblyBuildVersionAttribute(string v) => Version = v;
 	}
 
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, Inherited = false)]
+	public sealed class CompatibilityModeAttribute : Attribute
+	{
+		public Semver.SemVersion Version { get; }
+
+		public CompatibilityModeAttribute(string version) => Version = CompatibilityVersions.ParseVersion(version);
+
+		public override string ToString() => Version.ToString();
+	}
+
+	internal static class CompatibilityVersions
+	{
+		internal static Semver.SemVersion ParseVersion(string version)
+		{
+			var text = TrimVersionPrefix(version).ToString();
+			if (text.Length == 0) text = "2.0.0";
+			var suffixIndex = text.IndexOfAny(['-', '+']);
+			var core = suffixIndex >= 0 ? text[..suffixIndex] : text;
+			core += core.Count(static ch => ch == '.') switch { 0 => ".0.0", 1 => ".0", _ => "" };
+			return Semver.SemVersion.Parse(core + (suffixIndex >= 0 ? text[suffixIndex..] : ""), Semver.SemVersionStyles.Any);
+		}
+
+		internal static Semver.SemVersion ParseRequirementVersion(string requirement)
+		{
+			var span = (requirement ?? string.Empty).AsSpan().Trim();
+			if (span.IsEmpty || span[0] == '<') return null;
+			span = TrimVersionPrefix(span.TrimStart(">=!".AsSpan()));
+			var len = 0;
+			while (len < span.Length && (char.IsLetterOrDigit(span[len]) || span[len] is '.' or '-' or '+')) len++;
+			return len == 0 ? null : ParseVersion(span[..len].ToString());
+		}
+
+		internal static bool RequirementAllowsCompatibilityLine(string requirement, Semver.SemVersion candidate)
+		{
+			if (!TryParseRequirement(requirement, out var op, out var required))
+				return false;
+
+			var lineCompare = CompareCompatibilityLine(candidate, required);
+
+			return op switch
+			{
+				"" or ">=" or ">" => lineCompare >= 0,
+				"=" => lineCompare == 0,
+				"<" => lineCompare < 0 || lineCompare == 0 && required.CompareSortOrderTo(candidate) > 0,
+				"<=" => lineCompare < 0 || lineCompare == 0 && required.CompareSortOrderTo(candidate) >= 0,
+				_ => false
+			};
+		}
+
+		internal static string NormalizeRequirement(string requirement, out bool hasOp)
+		{
+			requirement = (requirement ?? string.Empty).Trim();
+			if (requirement.EndsWith("+", StringComparison.Ordinal))
+				requirement = ">=" + requirement.TrimEnd('+').Trim();
+
+			hasOp = requirement.Length > 0 && "<>=".Contains(requirement[0]);
+			return requirement;
+		}
+
+		private static bool TryParseRequirement(string requirement, out string op, out Semver.SemVersion version)
+		{
+			var ver = NormalizeRequirement(requirement, out _);
+			op = ver.StartsWith("<=", StringComparison.Ordinal) || ver.StartsWith(">=", StringComparison.Ordinal) ? ver[..2]
+				: ver.Length > 0 && "<>=".Contains(ver[0]) ? ver[..1]
+				: "";
+
+			ver = ver[op.Length..].Trim();
+			version = ver.Length == 0 ? null : ParseRequirementVersion(ver);
+			return version != null;
+		}
+
+		private static ReadOnlySpan<char> TrimVersionPrefix(string version) => TrimVersionPrefix((version ?? string.Empty).AsSpan());
+
+		private static ReadOnlySpan<char> TrimVersionPrefix(ReadOnlySpan<char> span)
+		{
+			span = span.Trim();
+			return !span.IsEmpty && span[0] is 'v' or 'V' ? span[1..].TrimStart() : span;
+		}
+
+		private static int CompareCompatibilityLine(Semver.SemVersion left, Semver.SemVersion right) =>
+			left.Major != right.Major ? left.Major.CompareTo(right.Major) : left.Minor.CompareTo(right.Minor);
+	}
+
 	[AttributeUsage(AttributeTargets.Field | AttributeTargets.Method | AttributeTargets.Property | AttributeTargets.Class, Inherited = false)]
 	public sealed class Export : Attribute
 	{

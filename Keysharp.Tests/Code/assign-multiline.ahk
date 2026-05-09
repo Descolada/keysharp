@@ -491,6 +491,26 @@ If (x == 123.456)
 else
 	FileAppend "fail", "*"
 
+class := 456
+
+x := false ?
+	throw(Error()) :
+	123
+
+If (x == 123)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := true ?
+	class :
+	0
+
+If (x == 456)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 ProductIsAvailableInColor(a, b)
 {
 	return 123

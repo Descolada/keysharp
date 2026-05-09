@@ -41,12 +41,14 @@ namespace Keysharp.Internals.Invoke
                 return _callFunc;
 			}
         }
+
 		internal MemberInfo memberInfo => ((MemberInfo)mi ?? pi) ?? fi;
 		internal readonly MethodInfo mi;
 		internal readonly ParameterInfo[] parameters;
 		internal readonly PropertyInfo pi;
 		internal readonly FieldInfo fi;
 		internal readonly Type moduleType;
+		internal readonly Semver.SemVersion compatibilityVersion;
 		internal readonly Action<object, object> SetProp;
 		protected readonly ConcurrentStackArrayPool<object> paramsPool;
 		internal readonly bool anyOptional;
@@ -168,8 +170,9 @@ namespace Keysharp.Internals.Invoke
         public MethodPropertyHolder() { }
 
 		public MethodPropertyHolder(MethodInfo m)
-        {
-            mi = m;
+		{
+			mi = m;
+			compatibilityVersion = mi.GetCustomAttribute<Keysharp.Runtime.CompatibilityModeAttribute>()?.Version;
 			moduleType = ResolveModuleType(mi.DeclaringType);
 
             IsStatic = mi.IsStatic;
@@ -235,7 +238,10 @@ namespace Keysharp.Internals.Invoke
 
 		public MethodPropertyHolder(PropertyInfo p)
 		{
-            pi = p;
+			pi = p;
+			compatibilityVersion = (pi.GetCustomAttribute<Keysharp.Runtime.CompatibilityModeAttribute>()
+				?? pi.GetMethod?.GetCustomAttribute<Keysharp.Runtime.CompatibilityModeAttribute>()
+				?? pi.SetMethod?.GetCustomAttribute<Keysharp.Runtime.CompatibilityModeAttribute>())?.Version;
 			moduleType = ResolveModuleType(pi.DeclaringType);
 			isGuiType = Gui.IsGuiType(pi.DeclaringType);
 			parameters = pi.GetIndexParameters();

@@ -203,6 +203,9 @@ namespace Keysharp.Parsing
 			set => currentModule.CurrentFunc = value;
 		}
 
+		internal StatementSyntax DefaultReturnStatement =>
+			PredefinedKeywords.GetDefaultReturnStatement(Script.ReturnsUnsetByDefault(currentFunc?.CompatibilityVersion ?? currentModule?.CompatibilityVersion));
+
 		public List<StatementSyntax> DHHR
 		{
 			get => currentModule.DHHR;
@@ -417,11 +420,20 @@ namespace Keysharp.Parsing
 
 			public static SyntaxToken SemicolonToken = SyntaxFactory.Token(SyntaxKind.SemicolonToken);
 
-			public static StatementSyntax DefaultReturnStatement = SyntaxFactory.ReturnStatement(
-                PredefinedKeywords.ReturnToken,
-                SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("")),
-                PredefinedKeywords.SemicolonToken
-            );
+			public static readonly StatementSyntax DefaultReturnStatementEmptyString = CreateDefaultReturnStatement(false);
+			public static readonly StatementSyntax DefaultReturnStatementUnset = CreateDefaultReturnStatement(true);
+
+			private static StatementSyntax CreateDefaultReturnStatement(bool returnsUnsetByDefault) => SyntaxFactory.ReturnStatement(
+				PredefinedKeywords.ReturnToken,
+				returnsUnsetByDefault
+					? PredefinedKeywords.NullLiteral
+					: SyntaxFactory.LiteralExpression(SyntaxKind.StringLiteralExpression, SyntaxFactory.Literal("")),
+				PredefinedKeywords.SemicolonToken
+			);
+
+			public static StatementSyntax DefaultReturnStatement => DefaultReturnStatementEmptyString;
+			public static StatementSyntax GetDefaultReturnStatement(bool returnsUnsetByDefault) =>
+				returnsUnsetByDefault ? DefaultReturnStatementUnset : DefaultReturnStatementEmptyString;
 		}
 		public class Function
         {
@@ -444,8 +456,10 @@ namespace Keysharp.Parsing
 			public bool Void = false;
             public bool Async = false;
 			public bool Public = true;
-			public bool Static = true;
+            public bool Static = true;
             public bool UserStatic = false;
+			public Semver.SemVersion CompatibilityVersion = Script.DefaultCompatibilityVersion;
+			public bool EmitCompatibilityAttribute = false;
 
             public bool HasDerefs = false;
 			public bool NeedsScopeDerefFrame = false;
@@ -578,7 +592,7 @@ namespace Keysharp.Parsing
 
                     if (!hasReturn)
                     {
-                        statements.Add(PredefinedKeywords.DefaultReturnStatement);
+                        statements.Add(PredefinedKeywords.GetDefaultReturnStatement(Script.ReturnsUnsetByDefault(CompatibilityVersion)));
                     }
                 }
 
@@ -594,6 +608,10 @@ namespace Keysharp.Parsing
 
 			public MethodDeclarationSyntax Assemble()
             {
+				Attributes.RemoveAll(static attr => attr.Name.ToString().Equals("CompatibilityMode", StringComparison.Ordinal));
+				if (EmitCompatibilityAttribute)
+					Attributes.Add(CreateCompatibilityModeAttribute(CompatibilityVersion));
+
                 var modifiers = new List<SyntaxToken>();
 				if (Async)
                     modifiers.Add(Parser.PredefinedKeywords.AsyncToken);
@@ -751,6 +769,16 @@ namespace Keysharp.Parsing
 		internal void SwitchModule(string moduleName)
 		{
 			currentModule = GetOrCreateModule(moduleName);
+		}
+
+		internal static AttributeSyntax CreateCompatibilityModeAttribute(Semver.SemVersion version)
+		{
+			return SyntaxFactory.Attribute(SyntaxFactory.IdentifierName("CompatibilityMode"))
+				.WithArgumentList(SyntaxFactory.AttributeArgumentList(
+					SyntaxFactory.SingletonSeparatedList(
+						SyntaxFactory.AttributeArgument(CreateStringLiteral((version ?? Script.DefaultCompatibilityVersion).ToString()))
+					)
+				));
 		}
 
         public T Parse<T>(TextReader codeStream) => Parse<T>(codeStream, string.Empty);

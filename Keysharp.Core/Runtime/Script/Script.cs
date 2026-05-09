@@ -138,13 +138,19 @@ namespace Keysharp.Runtime
 		internal const int DefaultErrorInt = int.MinValue;
 		internal const long DefaultErrorLong = long.MinValue;
 		internal const string DefaultNewLine = "\n";
-		internal const string DefaultObject = "";
+		internal static string DefaultObject => currentCompatibilityReturnsUnsetByDefault ? null : "";
 		internal const string DefaultErrorString = "";
 		internal const int INTERVAL_UNSPECIFIED = int.MinValue + 303;
 		internal const int maxEmergencyThreads = 10;
 		internal const int maxThreadsLimit = 0xFF;
 		internal const int SLEEP_INTERVAL = 10;
 		internal const int SLEEP_INTERVAL_HALF = SLEEP_INTERVAL / 2;
+		internal static readonly Semver.SemVersion DefaultCompatibilityVersion = new(2, 0, 0);
+		[ThreadStatic]
+		private static Semver.SemVersion currentCompatibilityVersion;
+		[ThreadStatic]
+		private static bool currentCompatibilityReturnsUnsetByDefault;
+		internal Semver.SemVersion CurrentCompatibilityVersion => currentCompatibilityVersion ?? DefaultCompatibilityVersion;
 		internal CallbackRegistry<CallbackRegistration> ClipFunctions = new();
 		internal List<IFuncObj> hotCriterions = [];
 		internal List<IFuncObj> hotExprs = [];
@@ -615,7 +621,10 @@ namespace Keysharp.Runtime
 				{
 					var defaultType = Vars?.DefaultModuleType;
 					if (defaultType != null)
+					{
 						moduleData.Value = ModuleData.GetOrCreate(defaultType);
+						SetCurrentCompatibilityVersion(moduleData.Value.CompatibilityVersion);
+					}
 				}
 
 				return moduleData.Value;
@@ -630,6 +639,7 @@ namespace Keysharp.Runtime
 				if (value == null)
 				{
 					moduleData.Value = null;
+					SetCurrentCompatibilityVersion(null);
 					return;
 				}
 				else if (ModuleData?.ModuleType == value)
@@ -639,7 +649,17 @@ namespace Keysharp.Runtime
 					return;
 
 				moduleData.Value = ModuleData.GetOrCreate(value);
+				SetCurrentCompatibilityVersion(moduleData.Value.CompatibilityVersion);
 			}
+		}
+
+		internal static bool ReturnsUnsetByDefault(Semver.SemVersion version) =>
+			version?.Major > 2 || (version?.Major == 2 && version.Minor >= 1);
+
+		internal void SetCurrentCompatibilityVersion(Semver.SemVersion version)
+		{
+			currentCompatibilityVersion = version ?? DefaultCompatibilityVersion;
+			currentCompatibilityReturnsUnsetByDefault = ReturnsUnsetByDefault(currentCompatibilityVersion);
 		}
 
 		private void InitializeMainContext()
@@ -1082,27 +1102,15 @@ namespace Keysharp.Runtime
 
 		public static void VerifyVersion(string ver, bool reqAhk, int line, string code)
 		{
-			static bool HasOperator(string v)
-			{
-				return v.StartsWith("<", StringComparison.Ordinal)
-					|| v.StartsWith(">", StringComparison.Ordinal)
-					|| v.StartsWith("=", StringComparison.Ordinal);
-			}
-
-			var requirement = (ver ?? string.Empty).Trim();
-			if (requirement.EndsWith("+", StringComparison.Ordinal))
-				requirement = ">=" + requirement.TrimEnd('+').Trim();
-			bool hasOp = HasOperator(requirement);
-
-			var target = reqAhk ? "2.1" : A_AhkVersion;
-			var cmp = Strings.VerCompare(target, requirement);
+			var requirement = CompatibilityVersions.NormalizeRequirement(ver, out var hasOp);
+			var cmp = Strings.VerCompare(A_AhkVersion, requirement);
 			var ok = hasOp ? cmp == 1L : cmp >= 0L;
 
 			if (ok)
 				return;
 
 			if (reqAhk)
-				throw new ParseException($"This script requires AutoHotkey {ver}, but Keysharp supports AutoHotkey v2", line, code);
+				throw new ParseException($"This script requires AutoHotkey {ver}, but Keysharp supports AutoHotkey v{A_AhkVersion}", line, code);
 
 			throw new ParseException($"This script requires Keysharp {ver}, but you have v{A_AhkVersion}", line, code);
 		}

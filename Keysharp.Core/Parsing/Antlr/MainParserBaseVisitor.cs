@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-// Generated from Keysharp.Core/Parsing/Antlr/MainParser.g4 by ANTLR 4.13.2
+// Generated from MainParser.g4 by ANTLR 4.13.2
 
 // Unreachable code detected
 #pragma warning disable 0162
@@ -66,8 +66,18 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <return>The visitor result.</return>
 	public virtual Result VisitSourceElement([NotNull] MainParser.SourceElementContext context) { return VisitChildren(context); }
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="MainParser.positionalDirective"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitPositionalDirective([NotNull] MainParser.PositionalDirectiveContext context) { return VisitChildren(context); }
+	/// <summary>
 	/// Visit a parse tree produced by the <c>HotIfDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -78,7 +88,7 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	public virtual Result VisitHotIfDirective([NotNull] MainParser.HotIfDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>HotstringDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -89,7 +99,7 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	public virtual Result VisitHotstringDirective([NotNull] MainParser.HotstringDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>InputLevelDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -100,7 +110,7 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	public virtual Result VisitInputLevelDirective([NotNull] MainParser.InputLevelDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>UseHookDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -111,7 +121,7 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	public virtual Result VisitUseHookDirective([NotNull] MainParser.UseHookDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by the <c>SuspendExemptDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// <para>
 	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
 	/// on <paramref name="context"/>.
@@ -120,6 +130,17 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitSuspendExemptDirective([NotNull] MainParser.SuspendExemptDirectiveContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>RequiresDirective</c>
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitRequiresDirective([NotNull] MainParser.RequiresDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.remap"/>.
 	/// <para>
@@ -628,6 +649,17 @@ public partial class MainParserBaseVisitor<Result> : AbstractParseTreeVisitor<Re
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	public virtual Result VisitNestedClassDeclaration([NotNull] MainParser.NestedClassDeclarationContext context) { return VisitChildren(context); }
+	/// <summary>
+	/// Visit a parse tree produced by the <c>ClassPositionalDirective</c>
+	/// labeled alternative in <see cref="MainParser.classElement"/>.
+	/// <para>
+	/// The default implementation returns the result of calling <see cref="AbstractParseTreeVisitor{Result}.VisitChildren(IRuleNode)"/>
+	/// on <paramref name="context"/>.
+	/// </para>
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	public virtual Result VisitClassPositionalDirective([NotNull] MainParser.ClassPositionalDirectiveContext context) { return VisitChildren(context); }
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.propertyDefinition"/>.
 	/// <para>

@@ -54,7 +54,7 @@ sourceElements
 
 sourceElement
     : classDeclaration
-    | '#' positionalDirective
+    | positionalDirective
     | remap
     | hotstring
     | hotkey
@@ -64,6 +64,10 @@ sourceElement
 
 // Non-positional directives are handled elsewhere, mainly in PreReader.cs
 positionalDirective
+    : '#' positionalDirectiveBody
+    ;
+
+positionalDirectiveBody
     : HotIf singleExpression?                      # HotIfDirective
     | Hotstring
         ( StringLiteral
@@ -72,6 +76,7 @@ positionalDirective
     | InputLevel numericLiteral?                   # InputLevelDirective
     | UseHook (numericLiteral | boolean)?          # UseHookDirective
     | SuspendExempt (numericLiteral | boolean)?    # SuspendExemptDirective
+    | Requires StringLiteral                       # RequiresDirective
     ;
 
 remap
@@ -288,6 +293,7 @@ classElement
     | (Static WS*)? propertyDefinition                            # ClassPropertyDeclaration
     | (Static WS*)? (fieldDefinition (WS* ',' fieldDefinition)* | typedFieldDefinition (WS* ',' typedFieldDefinition)*) # ClassFieldDeclaration
     | classDeclaration                                            # NestedClassDeclaration
+    | positionalDirective                                         # ClassPositionalDirective // For #Requires
     ;
 
 propertyDefinition

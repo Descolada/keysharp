@@ -1,5 +1,6 @@
 using Keysharp.Builtins;
 using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace Keysharp.Runtime
 {
@@ -8,11 +9,13 @@ namespace Keysharp.Runtime
 		private static readonly ConcurrentDictionary<System.Type, ModuleData> cache = new ();
 
 		internal System.Type ModuleType { get; }
+		internal readonly Semver.SemVersion CompatibilityVersion;
 		public ModuleVars Vars { get; }
 
 		public ModuleData(System.Type moduleType)
 		{
 			ModuleType = moduleType ?? throw new System.ArgumentNullException(nameof(moduleType));
+			CompatibilityVersion = ModuleType.GetCustomAttribute<CompatibilityModeAttribute>()?.Version;
 			Vars = new ModuleVars(ModuleType);
 		}
 
@@ -37,6 +40,7 @@ namespace Keysharp.Runtime
 			if (!ReferenceEquals(prev, next))
 			{
 				script.moduleData.Value = next;
+				script.SetCurrentCompatibilityVersion(next.CompatibilityVersion);
 				changed = true;
 			}
 
@@ -46,7 +50,10 @@ namespace Keysharp.Runtime
 		internal void Pop(ModuleData previous, bool changed)
 		{
 			if (changed)
+			{
 				Script.TheScript.moduleData.Value = previous;
+				Script.TheScript.SetCurrentCompatibilityVersion(previous?.CompatibilityVersion);
+			}
 		}
 	}
 
@@ -72,4 +79,3 @@ namespace Keysharp.Runtime
 		public object SetVariable(object key, object value) => Script.TheScript.Vars.SetVariable(moduleType, key.ToString(), value);
 	}
 }
-

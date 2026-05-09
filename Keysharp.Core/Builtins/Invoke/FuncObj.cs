@@ -259,44 +259,67 @@ namespace Keysharp.Builtins
 
 		public virtual object Call(params object[] obj)
 		{
-			if (moduleType != null && Script.TheScript.ModuleData is ModuleData md && md != null)
-			{
-				var previous = md.Push(moduleType, out var changed);
-				try
-				{
-					return mph.CallFunc(Inst, obj);
-				}
-				finally
-				{
-					md.Pop(previous, changed);
-				}
-			}
+			var compatibilityVersion = mph.compatibilityVersion;
 
-			return mph.CallFunc(Inst, obj);
+			if (moduleType == null && compatibilityVersion == null)
+				return mph.CallFunc(Inst, obj);
+
+			var script = Script.TheScript;
+			var md = moduleType != null ? script.ModuleData as ModuleData : null;
+			var moduleChanged = false;
+			var previousModule = md != null ? md.Push(moduleType, out moduleChanged) : null;
+			var previousCompatibility = compatibilityVersion != null ? script.CurrentCompatibilityVersion : null;
+
+			if (compatibilityVersion != null)
+				script.SetCurrentCompatibilityVersion(compatibilityVersion);
+
+			try
+			{
+				return mph.CallFunc(Inst, obj);
+			}
+			finally
+			{
+				if (compatibilityVersion != null)
+					script.SetCurrentCompatibilityVersion(previousCompatibility);
+
+				if (md != null)
+					md.Pop(previousModule, moduleChanged);
+			}
 		}
+
 		[PublicHiddenFromUser]
 		public virtual object CallInst(object inst, params object[] args)
 		{
-			if (moduleType != null && Script.TheScript.ModuleData is ModuleData md && md != null)
+			var compatibilityVersion = mph.compatibilityVersion;
+			var callInst = Inst ?? inst;
+			var callArgs = Inst == null ? args : args.Prepend(inst);
+
+			if (moduleType == null && compatibilityVersion == null)
+				return mph.CallFunc(callInst, callArgs);
+
+			var script = Script.TheScript;
+			var md = moduleType != null ? script.ModuleData as ModuleData : null;
+			var moduleChanged = false;
+			var previousModule = md != null ? md.Push(moduleType, out moduleChanged) : null;
+			var previousCompatibility = compatibilityVersion != null ? script.CurrentCompatibilityVersion : null;
+
+			if (compatibilityVersion != null)
+				script.SetCurrentCompatibilityVersion(compatibilityVersion);
+
+			try
 			{
-				var previous = md.Push(moduleType, out var changed);
-				try
-				{
-					if (Inst == null)
-						return mph.CallFunc(inst, args);
-					return mph.CallFunc(Inst, args.Prepend(inst));
-				}
-				finally
-				{
-					md.Pop(previous, changed);
-				}
+				return mph.CallFunc(callInst, callArgs);
 			}
+			finally
+			{
+				if (compatibilityVersion != null)
+					script.SetCurrentCompatibilityVersion(previousCompatibility);
 
-			if (Inst == null)
-				return mph.CallFunc(inst, args);
-
-			return mph.CallFunc(Inst, args.Prepend(inst));
+				if (md != null)
+					md.Pop(previousModule, moduleChanged);
+			}
 		}
+
 		public override bool Equals(object obj)
 		{
 			if (obj is BoundFunc)

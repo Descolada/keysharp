@@ -19,5 +19,8 @@ namespace Keysharp.Tests
 
 		[Test, Category("Module")]
 		public void Order() => Assert.IsTrue(TestScript("module-order", false));
+
+		[Test, Category("Module")]
+		public void CompatibilityMode() => Assert.IsTrue(TestScript("module-compatibility-mode", false));
 	}
 }

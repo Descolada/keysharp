@@ -261,6 +261,7 @@ UseHook                : 'usehook'               -> mode(DEFAULT_MODE);
 Hotstring              : 'hotstring'             -> mode(DEFAULT_MODE), pushMode(HOTSTRING_OPTIONS);
 DirectiveImport        : 'import' {this.BeginImportDirective();} -> channel(DIRECTIVE), type(Import), mode(IMPORT_DIRECTIVE_MODE);
 Module                 : 'module'                -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
+Requires               : 'requires'              -> mode(DEFAULT_MODE), pushMode(DIRECTIVE_TEXT);
 // General directives
 Define                 : 'define'                -> channel(DIRECTIVE);
 Undef                  : 'undef'                 -> channel(DIRECTIVE);
@@ -278,7 +279,6 @@ Nullable               : 'nullable'              -> channel(DIRECTIVE), pushMode
 Include                : 'include'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 IncludeAgain           : 'includeagain'          -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 DllLoad                : 'dllload'               -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
-Requires               : 'requires'              -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 SingleInstance         : 'singleinstance'        -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);
 Persistent             : 'persistent'            -> channel(DIRECTIVE);
 Warn                   : 'warn'                  -> channel(DIRECTIVE), pushMode(DIRECTIVE_TEXT);

@@ -76,18 +76,23 @@ public abstract class MainLexerBase : Lexer
 
     public override IToken Emit()
     {
-        var token = base.Emit();
+        var token = base.Emit() as CommonToken;
         var type = token.Type;
 
         if (type == MainLexer.HotstringNewline)
         {
             if (_lastToken.Type == MainLexer.StringLiteral)
                 ApplyHotstringOptions(_lastToken.Text);
-            (token as CommonToken).Type = MainLexer.EOL;
+            token.Type = MainLexer.EOL;
+        }
+        else if (type == MainLexer.StringLiteral && token.Channel == MainLexer.DIRECTIVE && _lastToken?.Type == MainLexer.Requires)
+        {
+            token.Channel = _lastToken.Channel;
+            token.Type = MainLexer.StringLiteral;
         }
 
         if (type == MainLexer.StringLiteral)
-            _stringToken = token as CommonToken;
+            _stringToken = token;
 
         return token;
     }
@@ -142,13 +147,18 @@ public abstract class MainLexerBase : Lexer
             return;
         }
         if (_lastVisibleToken == null) return;
-        if (_lastVisibleToken.Type != MainLexer.OpenBrace && lineContinuationOperators.Contains(_lastVisibleToken.Type))
+        if (_lastVisibleToken.Type != MainLexer.OpenBrace && IsTriviaHiddenAfter(_lastVisibleToken.Type))
             this.Channel = Hidden;
     }
     protected void ProcessWS() {
         if (_lastVisibleToken == null) return;
-        if (lineContinuationOperators.Contains(_lastVisibleToken.Type))
+        if (IsTriviaHiddenAfter(_lastVisibleToken.Type))
             this.Channel = Hidden;
+    }
+
+    private static bool IsTriviaHiddenAfter(int tokenType)
+    {
+        return tokenType != MainLexer.QuestionMark && lineContinuationOperators.Contains(tokenType);
     }
 
     private HashSet<int> unaryOperators =

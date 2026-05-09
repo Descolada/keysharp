@@ -121,6 +121,34 @@ namespace Keysharp.Parsing
 				_sb.Append("]");
 		}
 
+		public override void VisitAttribute(AttributeSyntax node)
+		{
+			Visit(node.Name);
+			if (node.ArgumentList != null)
+				Visit(node.ArgumentList);
+		}
+
+		public override void VisitAttributeArgumentList(AttributeArgumentListSyntax node)
+		{
+			_sb.Append("(");
+			for (var i = 0; i < node.Arguments.Count; i++)
+			{
+				if (i > 0)
+					_sb.Append(", ");
+				Visit(node.Arguments[i]);
+			}
+			_sb.Append(")");
+		}
+
+		public override void VisitAttributeArgument(AttributeArgumentSyntax node)
+		{
+			if (node.NameEquals != null)
+				_sb.Append(node.NameEquals.Name.Identifier.Text).Append(" = ");
+			if (node.NameColon != null)
+				_sb.Append(node.NameColon.Name.Identifier.Text).Append(": ");
+			Visit(node.Expression);
+		}
+
 		public override void VisitNamespaceDeclaration(NamespaceDeclarationSyntax node)
 		{
 			WriteIndent();

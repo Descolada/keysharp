@@ -96,7 +96,36 @@ namespace Keysharp.Parsing
             return null;
         }
 
-        public override SyntaxNode VisitHotstringDirective([NotNull] HotstringDirectiveContext context)
+		public override SyntaxNode VisitRequiresDirective([NotNull] RequiresDirectiveContext context)
+		{
+			SyncCompatibilitySource(context);
+
+			var raw = context.StringLiteral().GetText().Trim('"', '\'');
+			var splits = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+			if (splits.Length < 2)
+				return null; // no version requirement: do not affect mode
+
+			var target = splits[0];
+			var reqAhk = target.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase);
+			var reqKeysharp = target.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase);
+
+			if (!reqAhk && !reqKeysharp)
+				return null;
+
+			var ver = splits[1].Trim().TrimStart('v', 'V');
+			var line = context.Start.Line;
+			var sourceName = context.Start.TokenSource.SourceName;
+
+			Script.VerifyVersion(ver, reqAhk, line, sourceName);
+
+			if (reqAhk)
+				ApplyCompatibilityModeDirective(GetCompatibilityModeFromRequirement(ver));
+
+			return null;
+		}
+
+		public override SyntaxNode VisitHotstringDirective([NotNull] HotstringDirectiveContext context)
         {
             var invocation = SyntaxFactory.InvocationExpression(
                 CreateMemberAccess("Keysharp.Builtins.Keyboard", "Hotstring")
@@ -570,7 +599,7 @@ namespace Keysharp.Parsing
             }
             else
                 downStatements.Add(GenerateSendInvocation(p)); // Send "{Blind}{b DownR}"};
-            downStatements.Add(PredefinedKeywords.DefaultReturnStatement);
+            downStatements.Add(parser.DefaultReturnStatement);
 
             // Generate the "down" hotkey function
             var downFunction = SyntaxFactory.MethodDeclaration(
@@ -622,7 +651,7 @@ namespace Keysharp.Parsing
                     SyntaxFactory.Block(
                         GenerateSetDelayInvocation(isMouse: remapDestIsMouse), // SetKeyDelay or SetMouseDelay
                         GenerateSendInvocation($"{{Blind}}{{{remapDest} Up}}"), // Send "{Blind}{b Up}"
-                        PredefinedKeywords.DefaultReturnStatement
+                        parser.DefaultReturnStatement
                     )
                 );
 

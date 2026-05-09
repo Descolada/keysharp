@@ -421,50 +421,6 @@ namespace Keysharp.Parsing
                                 }
                             }
                             break;
-                        case "REQUIRES":
-                        {
-                            var p1 = directiveTokens[1].Text;
-                            var reqAhk = p1.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase);
-
-                            if (reqAhk || p1.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase))
-                            {
-                                var splits = p1.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-                                if (splits.Length > 1)
-                                {
-                                    var ver = splits[1].Trim().TrimStart('v', 'V');
-
-									Script.VerifyVersion(ver, reqAhk, lineNumber, name);
-
-									//In addition to being checked here, it must be added to the code for when it runs as a compiled exe.
-									parser.mainFuncInitial.Add(
-                                        SyntaxFactory.ExpressionStatement(
-		                                    SyntaxFactory.InvocationExpression(
-                                                CreateMemberAccess("Keysharp.Runtime.Script", "VerifyVersion"),
-		                                    // (ver, reqAhk, 0, name)
-			                                    Parser.CreateArgumentList(
-				                                    SyntaxFactory.LiteralExpression(
-					                                    SyntaxKind.StringLiteralExpression,
-					                                    SyntaxFactory.Literal(ver)
-				                                    ),
-													SyntaxFactory.LiteralExpression(reqAhk ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression),
-				                                    SyntaxFactory.LiteralExpression(
-					                                    SyntaxKind.NumericLiteralExpression,
-					                                    SyntaxFactory.Literal(lineNumber)
-				                                    ),
-													SyntaxFactory.LiteralExpression(
-														SyntaxKind.StringLiteralExpression,
-														SyntaxFactory.Literal("")
-													)
-												)
-		                                    )
-                                        )
-	                                );
-                                    //Sub release designators such as "-alpha", "-beta" are not supported in C#. Only the assembly version is supported.
-								}
-                            }
-							break;
-                        }
 						case "SINGLEINSTANCE":
 							SingleInstance = (directiveTokens.Count > 1 ? directiveTokens[1].Text : "FORCE").ToUpperInvariant() switch
 							{
@@ -526,17 +482,18 @@ namespace Keysharp.Parsing
 						goto OnlyIncrementIndex;
 					else if (token.Type == MainLexer.EOL && state.SkipLinebreak)
 					{
-						goto OnlyIncrementIndex;
+						if (state.PrevVisibleToken?.Type == MainLexer.QuestionMark && IsNextVisibleTokenUnambiguousStatementKeyword(index))
+						{
+							(state.PrevVisibleToken as CommonToken)?.Type = MainLexer.Maybe;
+							state.SkipWhitespace = state.SkipLinebreak = false;
+						}
+						else
+							goto OnlyIncrementIndex;
 					}
 					else
 					{
 						// If a question mark is followed by any of these tokens, then it's a maybe operator instead of a ternary operator.
-						if (state.PrevVisibleToken?.Type == MainLexer.QuestionMark &&
-							token.Type is MainLexer.CloseParen
-							or MainLexer.CloseBrace
-							or MainLexer.CloseBracket
-							or MainLexer.Comma
-							or MainLexer.Colon)
+						if (state.PrevVisibleToken?.Type == MainLexer.QuestionMark && CanFollowMaybeOperator(token.Type))
 							(state.PrevVisibleToken as CommonToken)?.Type = MainLexer.Maybe;
 
 						if (state.SkipWhitespace)
@@ -965,9 +922,56 @@ namespace Keysharp.Parsing
 				return state.LineStartIndex == codeTokens.Count || state.PendingPrefixedStatementCount > 0;
 			}
 
+			static bool CanFollowMaybeOperator(int type)
+			{
+				return type is
+					MainLexer.CloseParen
+					or MainLexer.CloseBrace
+					or MainLexer.CloseBracket
+					or MainLexer.Comma
+					or MainLexer.Colon
+					or MainLexer.QuestionMark
+					or MainLexer.QuestionMarkDot
+					or MainLexer.Dot;
+			}
+
+			static bool IsUnambiguousStatementKeyword(int type)
+			{
+				return type is
+					MainLexer.Break
+					or MainLexer.Switch
+					or MainLexer.Else
+					or MainLexer.Catch
+					or MainLexer.Finally
+					or MainLexer.Return
+					or MainLexer.Continue
+					or MainLexer.For
+					or MainLexer.While
+					or MainLexer.Loop
+					or MainLexer.Until
+					or MainLexer.If
+					or MainLexer.Try
+					or MainLexer.Goto
+					or MainLexer.Static
+					or MainLexer.Global
+					or MainLexer.Local;
+			}
+
 			bool IsNextTokenWhitespace(int i)
 			{
 				return ++i < tokens.Count && (tokens[i].Type == MainLexer.WS || tokens[i].Type == MainLexer.EOL);
+			}
+
+			bool IsNextVisibleTokenUnambiguousStatementKeyword(int i)
+			{
+				while (++i < tokens.Count)
+				{
+					var next = tokens[i];
+					if (next.Channel != Lexer.DefaultTokenChannel || next.Type is MainLexer.WS or MainLexer.EOL)
+						continue;
+					return IsUnambiguousStatementKeyword(next.Type);
+				}
+				return false;
 			}
 
 			void TryQueueImportModule(string moduleName, IToken directiveToken)

@@ -108,7 +108,6 @@ using static Keysharp.Runtime.Script;
 using System
 using System.Runtime.InteropServices
 using Keysharp.Builtins
-using Keysharp.Builtins.COM
 using Keysharp.Runtime
 using Array = Keysharp.Builtins.Array
 using Buffer = Keysharp.Builtins.Buffer
@@ -159,7 +158,6 @@ using String = Keysharp.Builtins.String
 			"System.Runtime",
 			"System.Runtime.InteropServices",
 			"Keysharp.Builtins",
-			"Keysharp.Builtins.COM",
 		};
 
 		private static HashSet<string> _compiledScriptDependencies;

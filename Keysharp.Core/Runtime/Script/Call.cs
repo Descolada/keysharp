@@ -387,25 +387,7 @@ namespace Keysharp.Runtime
 						return mo.Call(methName, parameters);
 
 					case MethodPropertyHolder mph:
-					{
-						var moduleType = mph.moduleType;
-						if (moduleType != null)
-						{
-							var script = Script.TheScript;
-							var prev = script.CurrentModuleType;
-							script.CurrentModuleType = moduleType;
-							try
-							{
-								return mph.CallFunc(mitup.Item1, parameters);
-							}
-							finally
-							{
-								script.CurrentModuleType = prev;
-							}
-						}
-
 						return mph.CallFunc(mitup.Item1, parameters);
-					}
 				}
 			}
 			catch (Exception e) when (e.InnerException is KeysharpException ke)

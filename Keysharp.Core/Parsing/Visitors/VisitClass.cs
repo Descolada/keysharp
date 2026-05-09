@@ -157,6 +157,14 @@ namespace Keysharp.Parsing
             return base.VisitClassTail(context);
         }
 
+		public override SyntaxNode VisitClassPositionalDirective([NotNull] ClassPositionalDirectiveContext context)
+		{
+			if (context.positionalDirective().positionalDirectiveBody() is not RequiresDirectiveContext)
+				throw new ParseException("Only #Requires can be declared inside classes", context);
+
+			return Visit(context.positionalDirective());
+		}
+
         public override SyntaxNode VisitClassPropertyDeclaration([NotNull] ClassPropertyDeclarationContext context)
         {
             var propertyDefinition = context.propertyDefinition();
@@ -178,7 +186,10 @@ namespace Keysharp.Parsing
             MethodDeclarationSyntax getterMethod = null;
             if (propertyDefinition.propertyGetterDefinition().Length != 0 || propertyDefinition.singleExpression() != null)
             {
-                PushFunction(propertyName, isStatic ? EmitKind.StaticGetter : EmitKind.Getter);
+				var definitionContext = propertyDefinition.propertyGetterDefinition().Length != 0
+					? (ParserRuleContext)propertyDefinition.propertyGetterDefinition(0)
+					: propertyDefinition;
+                PushFunction(propertyName, isStatic ? EmitKind.StaticGetter : EmitKind.Getter, definitionContext: definitionContext);
 
 				if (propertyNameSyntax.formalParameterList() != null)
                 {
@@ -213,7 +224,7 @@ namespace Keysharp.Parsing
             MethodDeclarationSyntax setterMethod = null;
             if (propertyDefinition.propertySetterDefinition().Length != 0)
             {
-                PushFunction(propertyName, isStatic ? EmitKind.StaticSetter : EmitKind.Setter);
+                PushFunction(propertyName, isStatic ? EmitKind.StaticSetter : EmitKind.Setter, definitionContext: propertyDefinition.propertySetterDefinition(0));
 
 				if (propertyNameSyntax.formalParameterList() != null)
                 {
@@ -339,7 +350,7 @@ namespace Keysharp.Parsing
         {
             var methodDefinition = context.functionDeclaration();
             var funcHead = methodDefinition.functionHead();
-            PushFunction(funcHead);
+            PushFunction(funcHead, methodDefinition);
 			VisitFunctionHeadPrefix(funcHead.functionHeadPrefix());
 			var methodBodyContext = (ParserRuleContext)methodDefinition.functionBody().block() ?? methodDefinition.functionBody().singleExpression();
 			HandleScopeFunctions(methodBodyContext);
@@ -451,7 +462,7 @@ namespace Keysharp.Parsing
 								)
                             )
                         )
-                        .Append(PredefinedKeywords.DefaultReturnStatement)
+                        .Append(parser.DefaultReturnStatement)
                     )
                 );
 
@@ -489,7 +500,7 @@ namespace Keysharp.Parsing
 			.WithBody(
 				SyntaxFactory.Block(
 					staticInitStatements.Append(
-						PredefinedKeywords.DefaultReturnStatement
+						parser.DefaultReturnStatement
 					)
 				)
 			);

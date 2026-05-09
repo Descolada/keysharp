@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-// Generated from Keysharp.Core/Parsing/Antlr/MainParser.g4 by ANTLR 4.13.2
+// Generated from MainParser.g4 by ANTLR 4.13.2
 
 // Unreachable code detected
 #pragma warning disable 0162
@@ -51,40 +51,53 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <return>The visitor result.</return>
 	Result VisitSourceElement([NotNull] MainParser.SourceElementContext context);
 	/// <summary>
+	/// Visit a parse tree produced by <see cref="MainParser.positionalDirective"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitPositionalDirective([NotNull] MainParser.PositionalDirectiveContext context);
+	/// <summary>
 	/// Visit a parse tree produced by the <c>HotIfDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitHotIfDirective([NotNull] MainParser.HotIfDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>HotstringDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitHotstringDirective([NotNull] MainParser.HotstringDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>InputLevelDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitInputLevelDirective([NotNull] MainParser.InputLevelDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>UseHookDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitUseHookDirective([NotNull] MainParser.UseHookDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by the <c>SuspendExemptDirective</c>
-	/// labeled alternative in <see cref="MainParser.positionalDirective"/>.
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
 	/// </summary>
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitSuspendExemptDirective([NotNull] MainParser.SuspendExemptDirectiveContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>RequiresDirective</c>
+	/// labeled alternative in <see cref="MainParser.positionalDirectiveBody"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitRequiresDirective([NotNull] MainParser.RequiresDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.remap"/>.
 	/// </summary>
@@ -393,6 +406,13 @@ public interface IMainParserVisitor<Result> : IParseTreeVisitor<Result> {
 	/// <param name="context">The parse tree.</param>
 	/// <return>The visitor result.</return>
 	Result VisitNestedClassDeclaration([NotNull] MainParser.NestedClassDeclarationContext context);
+	/// <summary>
+	/// Visit a parse tree produced by the <c>ClassPositionalDirective</c>
+	/// labeled alternative in <see cref="MainParser.classElement"/>.
+	/// </summary>
+	/// <param name="context">The parse tree.</param>
+	/// <return>The visitor result.</return>
+	Result VisitClassPositionalDirective([NotNull] MainParser.ClassPositionalDirectiveContext context);
 	/// <summary>
 	/// Visit a parse tree produced by <see cref="MainParser.propertyDefinition"/>.
 	/// </summary>

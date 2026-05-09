@@ -1,4 +1,4 @@
-// Generated from Keysharp.Core/Parsing/Antlr/MainParser.g4 by ANTLR 4.13.2
+// Generated from MainParser.g4 by ANTLR 4.13.2
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 
 /**
@@ -37,65 +37,87 @@ public interface MainParserListener extends ParseTreeListener {
 	 */
 	void exitSourceElement(MainParser.SourceElementContext ctx);
 	/**
+	 * Enter a parse tree produced by {@link MainParser#positionalDirective}.
+	 * @param ctx the parse tree
+	 */
+	void enterPositionalDirective(MainParser.PositionalDirectiveContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link MainParser#positionalDirective}.
+	 * @param ctx the parse tree
+	 */
+	void exitPositionalDirective(MainParser.PositionalDirectiveContext ctx);
+	/**
 	 * Enter a parse tree produced by the {@code HotIfDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void enterHotIfDirective(MainParser.HotIfDirectiveContext ctx);
 	/**
 	 * Exit a parse tree produced by the {@code HotIfDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void exitHotIfDirective(MainParser.HotIfDirectiveContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code HotstringDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void enterHotstringDirective(MainParser.HotstringDirectiveContext ctx);
 	/**
 	 * Exit a parse tree produced by the {@code HotstringDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void exitHotstringDirective(MainParser.HotstringDirectiveContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code InputLevelDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void enterInputLevelDirective(MainParser.InputLevelDirectiveContext ctx);
 	/**
 	 * Exit a parse tree produced by the {@code InputLevelDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void exitInputLevelDirective(MainParser.InputLevelDirectiveContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code UseHookDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void enterUseHookDirective(MainParser.UseHookDirectiveContext ctx);
 	/**
 	 * Exit a parse tree produced by the {@code UseHookDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void exitUseHookDirective(MainParser.UseHookDirectiveContext ctx);
 	/**
 	 * Enter a parse tree produced by the {@code SuspendExemptDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void enterSuspendExemptDirective(MainParser.SuspendExemptDirectiveContext ctx);
 	/**
 	 * Exit a parse tree produced by the {@code SuspendExemptDirective}
-	 * labeled alternative in {@link MainParser#positionalDirective}.
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
 	 * @param ctx the parse tree
 	 */
 	void exitSuspendExemptDirective(MainParser.SuspendExemptDirectiveContext ctx);
+	/**
+	 * Enter a parse tree produced by the {@code RequiresDirective}
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
+	 * @param ctx the parse tree
+	 */
+	void enterRequiresDirective(MainParser.RequiresDirectiveContext ctx);
+	/**
+	 * Exit a parse tree produced by the {@code RequiresDirective}
+	 * labeled alternative in {@link MainParser#positionalDirectiveBody}.
+	 * @param ctx the parse tree
+	 */
+	void exitRequiresDirective(MainParser.RequiresDirectiveContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link MainParser#remap}.
 	 * @param ctx the parse tree
@@ -613,6 +635,18 @@ public interface MainParserListener extends ParseTreeListener {
 	 */
 	void exitNestedClassDeclaration(MainParser.NestedClassDeclarationContext ctx);
 	/**
+	 * Enter a parse tree produced by the {@code ClassPositionalDirective}
+	 * labeled alternative in {@link MainParser#classElement}.
+	 * @param ctx the parse tree
+	 */
+	void enterClassPositionalDirective(MainParser.ClassPositionalDirectiveContext ctx);
+	/**
+	 * Exit a parse tree produced by the {@code ClassPositionalDirective}
+	 * labeled alternative in {@link MainParser#classElement}.
+	 * @param ctx the parse tree
+	 */
+	void exitClassPositionalDirective(MainParser.ClassPositionalDirectiveContext ctx);
+	/**
 	 * Enter a parse tree produced by {@link MainParser#propertyDefinition}.
 	 * @param ctx the parse tree
 	 */
@@ -662,6 +696,26 @@ public interface MainParserListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitFieldDefinition(MainParser.FieldDefinitionContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link MainParser#typedFieldDefinition}.
+	 * @param ctx the parse tree
+	 */
+	void enterTypedFieldDefinition(MainParser.TypedFieldDefinitionContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link MainParser#typedFieldDefinition}.
+	 * @param ctx the parse tree
+	 */
+	void exitTypedFieldDefinition(MainParser.TypedFieldDefinitionContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link MainParser#structFieldType}.
+	 * @param ctx the parse tree
+	 */
+	void enterStructFieldType(MainParser.StructFieldTypeContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link MainParser#structFieldType}.
+	 * @param ctx the parse tree
+	 */
+	void exitStructFieldType(MainParser.StructFieldTypeContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link MainParser#formalParameterList}.
 	 * @param ctx the parse tree

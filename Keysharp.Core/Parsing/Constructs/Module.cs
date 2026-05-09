@@ -74,6 +74,8 @@ namespace Keysharp.Parsing
 			public string Name { get; }
 			public string ModuleClassName;
 			public Class ModuleClass;
+			internal Semver.SemVersion InitialCompatibilityVersion = Script.DefaultCompatibilityVersion;
+			internal Semver.SemVersion CompatibilityVersion = Script.DefaultCompatibilityVersion;
 
 			public List<ImportEntry> DirectiveImports = new();
 			public List<ImportEntry> Imports = new();

@@ -1,4 +1,4 @@
-// Generated from Keysharp.Core/Parsing/Antlr/MainParser.g4 by ANTLR 4.13.2
+// Generated from MainParser.g4 by ANTLR 4.13.2
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ErrorNode;
@@ -47,6 +47,18 @@ public class MainParserBaseListener implements MainParserListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitSourceElement(MainParser.SourceElementContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterPositionalDirective(MainParser.PositionalDirectiveContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitPositionalDirective(MainParser.PositionalDirectiveContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -107,6 +119,18 @@ public class MainParserBaseListener implements MainParserListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitSuspendExemptDirective(MainParser.SuspendExemptDirectiveContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterRequiresDirective(MainParser.RequiresDirectiveContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitRequiresDirective(MainParser.RequiresDirectiveContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -712,6 +736,18 @@ public class MainParserBaseListener implements MainParserListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
+	@Override public void enterClassPositionalDirective(MainParser.ClassPositionalDirectiveContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitClassPositionalDirective(MainParser.ClassPositionalDirectiveContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
 	@Override public void enterPropertyDefinition(MainParser.PropertyDefinitionContext ctx) { }
 	/**
 	 * {@inheritDoc}
@@ -767,6 +803,30 @@ public class MainParserBaseListener implements MainParserListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitFieldDefinition(MainParser.FieldDefinitionContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterTypedFieldDefinition(MainParser.TypedFieldDefinitionContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitTypedFieldDefinition(MainParser.TypedFieldDefinitionContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterStructFieldType(MainParser.StructFieldTypeContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitStructFieldType(MainParser.StructFieldTypeContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *

@@ -61,7 +61,6 @@
 
 	<ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 		<ProjectReference Include="..\..\Eto\src\Eto.Gtk\Eto.Gtk.csproj" />
-		<PackageReference Include="Tmds.DBus" Version="0.22.0" />
 		<Compile Remove="Internals\Input\MacOS\**\*.cs" />
 		<Compile Remove="Internals\Input\Hooks\MacOS\**\*.cs" />
 		<Compile Remove="Internals\Window\MacOS\**\*.cs" />

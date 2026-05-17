@@ -122,17 +122,11 @@ namespace Keysharp.Internals.Input.Linux
 				}
 			}
 
-			// Always release the active keyboard grab before sending, even when all target keys are
-			// already suspended by EnsureKeyGrabSuspendedForHold (which leaves ungrabKeycodes empty).
-			// Without this, the active keyboard grab from the triggering hotkey's passive grab would
-			// intercept XTest events, preventing them from reaching the focused window.
-			var ungrabAllKeys = true;
-
 			RunWithX11SendScope(lht, ungrabKeycodes, ungrabButtons, () =>
 			{
 				// On X11 we avoid synthetic pre-release/re-press based on inferred physical state.
 				ReplayLinuxEventArrayEvents(lht, events, extraInfo, scale);
-			}, ungrabAllKeys: ungrabAllKeys, ungrabAllButtons: hasMouseButtonEvent);
+			}, releaseActiveKeyboardGrab: true, ungrabAllButtons: hasMouseButtonEvent);
 
 			// Synchronously restore passive grabs for keys released by this send.
 			// SharpHook dispatches events asynchronously; without this, a suspended grab
@@ -189,7 +183,7 @@ namespace Keysharp.Internals.Input.Linux
 						}
 					}
 				}
-			}, ungrabAllKeys: true);
+			}, releaseActiveKeyboardGrab: true);
 
 			return true;
 		}
@@ -258,9 +252,9 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
-			private void RunWithX11SendScope(UnixHookThread lht, HashSet<uint> ungrabKeycodes, HashSet<uint> ungrabButtons, Action action, bool ungrabAllKeys = false, bool ungrabAllButtons = false)
+			private void RunWithX11SendScope(UnixHookThread lht, HashSet<uint> ungrabKeycodes, HashSet<uint> ungrabButtons, Action action, bool releaseActiveKeyboardGrab = false, bool ungrabAllKeys = false, bool ungrabAllButtons = false)
 			{
-				var needUngrab = ungrabAllKeys || ungrabAllButtons || (ungrabKeycodes?.Count ?? 0) != 0 || (ungrabButtons?.Count ?? 0) != 0;
+				var needUngrab = releaseActiveKeyboardGrab || ungrabAllKeys || ungrabAllButtons || (ungrabKeycodes?.Count ?? 0) != 0 || (ungrabButtons?.Count ?? 0) != 0;
 
 				WithSendScope(lht, () =>
 				{

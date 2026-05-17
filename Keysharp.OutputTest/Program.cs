@@ -1,5 +1,4 @@
-using static Keysharp.Builtins.Accessors;
-//using static Keysharp.Builtins.COM.Com;
+﻿using static Keysharp.Builtins.Accessors;
 using static Keysharp.Builtins.ControlX;
 using static Keysharp.Builtins.Debug;
 using static Keysharp.Builtins.Dialogs;
@@ -27,7 +26,6 @@ using static Keysharp.Builtins.Mouse;
 using static Keysharp.Builtins.Network;
 using static Keysharp.Builtins.Processes;
 using static Keysharp.Builtins.RegEx;
-using static Keysharp.Builtins.Registrys;
 using static Keysharp.Builtins.Screen;
 using static Keysharp.Builtins.Sound;
 using static Keysharp.Builtins.Strings;
@@ -45,7 +43,6 @@ namespace Keysharp.CompiledMain
 	using System;
 	using System.Runtime.InteropServices;
 	using Keysharp.Builtins;
-	using Keysharp.Builtins.COM;
 	using Keysharp.Runtime;
 	using Array = Keysharp.Builtins.Array;
 	using Buffer = Keysharp.Builtins.Buffer;

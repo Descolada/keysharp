@@ -11,12 +11,30 @@ DESKTOP_DIR="/usr/share/applications"
 MIME_DIR="/usr/share/mime/packages"
 ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
+DOTNET_PACKAGE="${DOTNET_PACKAGE:-dotnet-runtime-10.0}"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 have_pkg() { command -v "$1" >/dev/null 2>&1; }
+
+has_dotnet10() {
+  command -v dotnet >/dev/null 2>&1 && dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 10\.'
+}
 
 install_deps() {
   # Eto.Forms Gtk backend requires GTK3; libnotify is used for notifications; AT-SPI2 supports accessibility hooks.
   local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libnotify4 libatspi2.0-0 at-spi2-core)
+  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 libnotify at-spi2-core)
+  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 libnotify at-spi2-core)
+  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 libnotify4 at-spi2-core)
+  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 libnotify at-spi2-core)
+
+  if ! has_dotnet10; then
+    packages_apt+=("${DOTNET_PACKAGE}")
+    packages_dnf+=("${DOTNET_PACKAGE}")
+    packages_yum+=("${DOTNET_PACKAGE}")
+    packages_zypper+=("${DOTNET_PACKAGE}")
+    packages_pacman+=(dotnet-runtime)
+  fi
+
   if have_pkg apt-get; then
     echo "Installing runtime deps via apt-get..."
     apt-get update
@@ -26,39 +44,40 @@ install_deps() {
 
   if have_pkg dnf; then
     echo "Installing runtime deps via dnf..."
-    dnf install -y libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 libnotify at-spi2-core
+    dnf install -y "${packages_dnf[@]}"
     return
   fi
 
   if have_pkg yum; then
     echo "Installing runtime deps via yum..."
-    yum install -y libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 libnotify at-spi2-core
+    yum install -y "${packages_yum[@]}"
     return
   fi
 
   if have_pkg zypper; then
     echo "Installing runtime deps via zypper..."
-    zypper install -y libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 libnotify4 at-spi2-core
+    zypper install -y "${packages_zypper[@]}"
     return
   fi
 
   if have_pkg pacman; then
     echo "Installing runtime deps via pacman..."
-    pacman -Sy --noconfirm libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 libnotify at-spi2-core
+    pacman -Sy --noconfirm "${packages_pacman[@]}"
     return
   fi
 
-  echo "Package manager not detected; please ensure X11 libs, GTK3, libnotify, and optionally AT-SPI2 are installed." >&2
+  echo "Package manager not detected; please ensure .NET 10, X11 libs, GTK3, libnotify, and optionally AT-SPI2 are installed." >&2
 }
 
 check_dotnet() {
   if ! command -v dotnet >/dev/null 2>&1; then
-    echo "dotnet runtime not found. Install .NET 10.0 runtime (framework-dependent publish) or rebuild self-contained." >&2
-    return
+    echo "dotnet runtime not found. Install ${DOTNET_PACKAGE} or rebuild self-contained." >&2
+    exit 1
   fi
 
   if ! dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 10\.'; then
-    echo ".NET 10 runtime missing. Install it or rebuild self-contained." >&2
+    echo ".NET 10 runtime missing. Install ${DOTNET_PACKAGE} or rebuild self-contained." >&2
+    exit 1
   fi
 }
 

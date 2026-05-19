@@ -108,8 +108,10 @@ events are suppressed by not replaying them. Final `MODIFY` decisions carry
 replacement `ksi_input` records, which the daemon emits through the same
 `SendInput`-style synthesis path.
 
-Hook subscriptions require both hook access and the matching synthesis access
-because grabbed input cannot be safely passed through without `uinput` replay.
+Hook subscriptions require hook access, and the daemon only grants that access
+when its backend can replay grabbed pass-through events. Replay support is a
+daemon-side safety requirement; it does not grant the hook client arbitrary
+`SYNTHESIZE_INPUT` permission.
 
 Keyboard hook events are modeled after `KBDLLHOOKSTRUCT` plus the low-level
 keyboard hook `wParam` message:

@@ -182,9 +182,11 @@ namespace Keysharp.Builtins
 						tc.AdjustSize(!DpiScaling ? 1.0 : A_ScaledScreenDPI, requestedSize);
 						g.LastContainer = tc.Parent;
 					}
+
+					return DefaultObject;
 				}
 
-				return Errors.ValueErrorOccurred($"Only TreeView controls implement this method.");
+				return Errors.ValueErrorOccurred($"Only Tab controls implement this method.");
 			}
 
 			public object Choose(object value)

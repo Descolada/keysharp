@@ -1,4 +1,7 @@
 using Keysharp.Builtins;
+#if LINUX
+using Keysharp.Internals.Input.Linux;
+#endif
 namespace Keysharp.Internals.Platform
 {
 	internal enum PermissionStatus
@@ -122,6 +125,23 @@ namespace Keysharp.Internals.Platform
 			_ = access;
 			// macOS file privacy prompts are generally triggered on direct filesystem access attempts.
 			return new(PermissionStatus.NotApplicable, $"'{operation}' uses on-demand OS file permission prompts.");
+		}
+	}
+#endif
+
+#if LINUX
+	internal sealed class LinuxPermissionManager : DefaultPermissionManager
+	{
+		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
+		{
+			_ = prompt;
+			return KeysharpInputdManager.EnsureInputMonitoring(operation);
+		}
+
+		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
+		{
+			_ = prompt;
+			return KeysharpInputdManager.EnsureInputInjection(operation);
 		}
 	}
 #endif

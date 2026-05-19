@@ -3,6 +3,8 @@
 #include "keysharp_inputd/linux_devices.h"
 #include "keysharp_inputd/linux_synth.h"
 
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 static int linux_start(void)
@@ -19,6 +21,22 @@ static int linux_start(void)
     }
 
     return 0;
+}
+
+static uint32_t linux_get_available_capabilities(void)
+{
+    uint32_t caps = 0;
+    bool synth_available = ksi_linux_synth_is_available();
+
+    if (synth_available) {
+        caps |= KSI_CAP_SYNTH_KEYBOARD | KSI_CAP_SYNTH_MOUSE;
+    }
+
+    if (synth_available && ksi_linux_devices_has_candidates()) {
+        caps |= KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE;
+    }
+
+    return caps;
 }
 
 static void linux_stop(void)
@@ -38,9 +56,9 @@ static void linux_process_fd(int fd)
     ksi_linux_devices_process_fd(fd);
 }
 
-static int linux_send_input(const ksi_input *inputs, size_t count)
+static int linux_send_input(const ksi_input *inputs, size_t count, uint32_t flags)
 {
-    return ksi_linux_synth_send_input(inputs, count);
+    return ksi_linux_synth_send_input(inputs, count, flags);
 }
 
 static int linux_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event)
@@ -48,9 +66,15 @@ static int linux_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payl
     return ksi_linux_synth_replay_hook_event(hook_type, event);
 }
 
-static int linux_set_grab_enabled(bool enabled)
+static int linux_set_grab_hook_mask(uint32_t hook_mask)
 {
-    return ksi_linux_devices_set_grab_enabled(enabled);
+    int result = ksi_linux_devices_set_grab_hook_mask(hook_mask);
+
+    if (result == 0 && hook_mask == 0) {
+        ksi_linux_synth_release_all();
+    }
+
+    return result;
 }
 
 static void linux_set_hook_event_callback(ksi_hook_event_callback callback, void *context)
@@ -62,11 +86,12 @@ static const ksi_platform_backend linux_backend = {
     .name = "linux",
     .start = linux_start,
     .stop = linux_stop,
+    .get_available_capabilities = linux_get_available_capabilities,
     .poll_fds = linux_poll_fds,
     .process_fd = linux_process_fd,
     .send_input = linux_send_input,
     .replay_hook_event = linux_replay_hook_event,
-    .set_grab_enabled = linux_set_grab_enabled,
+    .set_grab_hook_mask = linux_set_grab_hook_mask,
     .set_hook_event_callback = linux_set_hook_event_callback,
 };
 

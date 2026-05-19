@@ -5,6 +5,7 @@
 #include "keysharp_inputd/protocol.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -12,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -49,6 +51,7 @@ typedef struct ksi_daemon_state {
     const ksi_platform_backend *backend;
     ksi_client *clients;
     nfds_t *client_count;
+    uint32_t available_capabilities;
     uint64_t next_event_id;
     bool pending_active;
     uint64_t pending_event_id;
@@ -84,11 +87,19 @@ static void handle_signal(int signal_number)
 static int install_signal_handlers(void)
 {
     struct sigaction action;
+    struct sigaction ignore_action;
 
     memset(&action, 0, sizeof(action));
     action.sa_handler = handle_signal;
 
+    memset(&ignore_action, 0, sizeof(ignore_action));
+    ignore_action.sa_handler = SIG_IGN;
+
     if (sigemptyset(&action.sa_mask) != 0) {
+        return -1;
+    }
+
+    if (sigemptyset(&ignore_action.sa_mask) != 0) {
         return -1;
     }
 
@@ -97,6 +108,10 @@ static int install_signal_handlers(void)
     }
 
     if (sigaction(SIGTERM, &action, NULL) != 0) {
+        return -1;
+    }
+
+    if (sigaction(SIGPIPE, &ignore_action, NULL) != 0) {
         return -1;
     }
 
@@ -178,22 +193,637 @@ static void send_hello_status(
         request->client_id,
         request->correlation_id,
         &payload,
-        sizeof(payload));
+		sizeof(payload));
 }
 
-static uint32_t daemon_available_capabilities(void)
+static void describe_capabilities(uint32_t capabilities, char *buffer, size_t buffer_size)
 {
-    uint32_t capabilities = KSI_CAP_SYNTH_KEYBOARD | KSI_CAP_SYNTH_MOUSE;
+	bool wrote = false;
 
-    if (access("/dev/input", R_OK | X_OK) == 0) {
-        capabilities |= KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE;
+	if (buffer == NULL || buffer_size == 0) {
+		return;
+	}
+
+	buffer[0] = '\0';
+
+	if ((capabilities & KSI_CAP_HOOK_KEYBOARD) != 0) {
+		(void)snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%skeyboard monitoring", wrote ? ", " : "");
+		wrote = true;
+	}
+
+	if ((capabilities & KSI_CAP_HOOK_MOUSE) != 0) {
+		(void)snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%smouse monitoring", wrote ? ", " : "");
+		wrote = true;
+	}
+
+	if ((capabilities & KSI_CAP_SYNTH_KEYBOARD) != 0) {
+		(void)snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%skeyboard injection", wrote ? ", " : "");
+		wrote = true;
+	}
+
+	if ((capabilities & KSI_CAP_SYNTH_MOUSE) != 0) {
+		(void)snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%smouse injection", wrote ? ", " : "");
+		wrote = true;
+	}
+
+	if ((capabilities & KSI_CAP_BLOCK_INPUT) != 0) {
+		(void)snprintf(buffer + strlen(buffer), buffer_size - strlen(buffer), "%sblocking input", wrote ? ", " : "");
+		wrote = true;
+	}
+
+	if (!wrote) {
+		(void)snprintf(buffer, buffer_size, "none");
+	}
+}
+
+static int get_client_exe(pid_t pid, char *buffer, size_t buffer_size)
+{
+	char link_path[64];
+	ssize_t length;
+	struct stat info;
+
+	if (buffer == NULL || buffer_size == 0) {
+		return -1;
+	}
+
+	(void)snprintf(link_path, sizeof(link_path), "/proc/%ld/exe", (long)pid);
+	length = readlink(link_path, buffer, buffer_size - 1);
+
+	if (length < 0) {
+		fprintf(stderr,
+			"inputd: readlink %s failed for client pid=%ld: %s\n",
+			link_path,
+			(long)pid,
+			strerror(errno));
+
+		if (stat(link_path, &info) != 0) {
+			fprintf(stderr,
+				"inputd: stat %s failed for client pid=%ld: %s\n",
+				link_path,
+				(long)pid,
+				strerror(errno));
+		} else {
+			fprintf(stderr,
+				"inputd: stat %s mode=0%o uid=%lu gid=%lu size=%lld for client pid=%ld\n",
+				link_path,
+				(unsigned int)(info.st_mode & 07777),
+				(unsigned long)info.st_uid,
+				(unsigned long)info.st_gid,
+				(long long)info.st_size,
+				(long)pid);
+		}
+
+		(void)snprintf(buffer, buffer_size, "pid:%ld", (long)pid);
+		return -1;
+	}
+
+	buffer[length] = '\0';
+	return 0;
+}
+
+static int get_client_exe_from_cmdline(pid_t pid, char *buffer, size_t buffer_size)
+{
+	char cmdline_path[64];
+	char cwd_link_path[64];
+	char cwd[PATH_MAX];
+	char argv0[PATH_MAX];
+	char combined[PATH_MAX];
+	FILE *file;
+	size_t bytes_read;
+	ssize_t cwd_length;
+
+	if (buffer == NULL || buffer_size == 0) {
+		return -1;
+	}
+
+	(void)snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%ld/cmdline", (long)pid);
+	file = fopen(cmdline_path, "rb");
+
+	if (file == NULL) {
+		fprintf(stderr,
+			"inputd: cannot open %s for client pid=%ld: %s\n",
+			cmdline_path,
+			(long)pid,
+			strerror(errno));
+		return -1;
+	}
+
+	bytes_read = fread(argv0, 1, sizeof(argv0) - 1, file);
+	fclose(file);
+
+	if (bytes_read == 0) {
+		return -1;
+	}
+
+	argv0[bytes_read] = '\0';
+
+	if (argv0[0] == '/') {
+		if (realpath(argv0, buffer) != NULL) {
+			return 0;
+		}
+
+		(void)snprintf(buffer, buffer_size, "%s", argv0);
+		return 0;
+	}
+
+	if (strchr(argv0, '/') == NULL) {
+		return -1;
+	}
+
+	(void)snprintf(cwd_link_path, sizeof(cwd_link_path), "/proc/%ld/cwd", (long)pid);
+	cwd_length = readlink(cwd_link_path, cwd, sizeof(cwd) - 1);
+
+	if (cwd_length < 0) {
+		fprintf(stderr,
+			"inputd: readlink %s failed for client pid=%ld: %s\n",
+			cwd_link_path,
+			(long)pid,
+			strerror(errno));
+		return -1;
+	}
+
+	cwd[cwd_length] = '\0';
+
+	if (snprintf(combined, sizeof(combined), "%s/%s", cwd, argv0) >= (int)sizeof(combined)) {
+		return -1;
+	}
+
+	if (realpath(combined, buffer) != NULL) {
+		return 0;
+	}
+
+	(void)snprintf(buffer, buffer_size, "%s", combined);
+	return 0;
+}
+
+static bool hash_executable(const char *path, uint64_t *hash)
+{
+	FILE *file;
+	unsigned char buffer[8192];
+	size_t bytes_read;
+	uint64_t value = 1469598103934665603ull;
+
+	if (path == NULL || hash == NULL) {
+		return false;
+	}
+
+	file = fopen(path, "rb");
+
+	if (file == NULL) {
+		fprintf(stderr, "inputd: cannot open executable for hashing %s: %s\n", path, strerror(errno));
+		return false;
+	}
+
+	while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+		for (size_t i = 0; i < bytes_read; i++) {
+			value ^= buffer[i];
+			value *= 1099511628211ull;
+		}
+	}
+
+	if (ferror(file)) {
+		fclose(file);
+		return false;
+	}
+
+	fclose(file);
+	*hash = value;
+	return true;
+}
+
+static bool hash_client_exe(pid_t pid, uint64_t *hash)
+{
+	char link_path[64];
+
+	(void)snprintf(link_path, sizeof(link_path), "/proc/%ld/exe", (long)pid);
+	return hash_executable(link_path, hash);
+}
+
+static int ensure_directory_mode_0700(const char *path)
+{
+	struct stat info;
+
+	if (mkdir(path, S_IRWXU) != 0 && errno != EEXIST) {
+		fprintf(stderr, "inputd: failed to create directory %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	if (stat(path, &info) != 0 || !S_ISDIR(info.st_mode)) {
+		fprintf(stderr, "inputd: trust path is not a directory: %s\n", path);
+		return -1;
+	}
+
+	if ((info.st_mode & (S_IRWXG | S_IRWXO)) != 0 && chmod(path, S_IRWXU) != 0) {
+		fprintf(stderr, "inputd: failed to chmod directory %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	return 0;
+}
+
+static int build_trust_file_path(char *buffer, size_t buffer_size)
+{
+	const char *state_home = getenv("XDG_STATE_HOME");
+	const char *home = getenv("HOME");
+	char directory[PATH_MAX];
+
+	if (state_home != NULL && state_home[0] != '\0') {
+		if (snprintf(directory, sizeof(directory), "%s/keysharp", state_home) >= (int)sizeof(directory)) {
+			return -1;
+		}
+	} else if (home != NULL && home[0] != '\0') {
+		char local_dir[PATH_MAX];
+		char local_state[PATH_MAX];
+
+		if (snprintf(local_dir, sizeof(local_dir), "%s/.local", home) >= (int)sizeof(local_dir)) {
+			return -1;
+		}
+
+		if (ensure_directory_mode_0700(local_dir) != 0) {
+			return -1;
+		}
+
+		if (snprintf(local_state, sizeof(local_state), "%s/.local/state", home) >= (int)sizeof(local_state)) {
+			return -1;
+		}
+
+		if (ensure_directory_mode_0700(local_state) != 0) {
+			return -1;
+		}
+
+		if (snprintf(directory, sizeof(directory), "%s/keysharp", local_state) >= (int)sizeof(directory)) {
+			return -1;
+		}
+	} else {
+		return -1;
+	}
+
+	if (ensure_directory_mode_0700(directory) != 0) {
+		return -1;
+	}
+
+	if (snprintf(buffer, buffer_size, "%s/inputd-trust.tsv", directory) >= (int)buffer_size) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static bool trust_store_allows(uid_t uid, uint64_t exe_hash, uint32_t requested_capabilities)
+{
+	char trust_path[PATH_MAX];
+	char line[160];
+	FILE *file;
+
+	if (requested_capabilities == 0) {
+		fprintf(stderr, "inputd: trust check skipped: requested_capabilities=0\n");
+		return false;
+	}
+
+	if (exe_hash == 0) {
+		fprintf(stderr, "inputd: trust check skipped: exe_hash=0 (could not hash executable)\n");
+		return false;
+	}
+
+	if (build_trust_file_path(trust_path, sizeof(trust_path)) != 0) {
+		fprintf(stderr, "inputd: trust check skipped: could not build trust file path\n");
+		return false;
+	}
+
+	file = fopen(trust_path, "r");
+
+	if (file == NULL) {
+		fprintf(stderr, "inputd: trust check: no trust file at %s\n", trust_path);
+		return false;
+	}
+
+	while (fgets(line, sizeof(line), file) != NULL) {
+		unsigned long stored_uid;
+		unsigned long stored_caps;
+		unsigned long long stored_hash;
+
+		if (sscanf(line, "%lu\t%lx\t%llx", &stored_uid, &stored_caps, &stored_hash) != 3) {
+			fprintf(stderr, "inputd: trust check: skipping unparseable line: %s", line);
+			continue;
+		}
+
+		if ((uid_t)stored_uid != uid) {
+			continue;
+		}
+
+		if (stored_hash != exe_hash) {
+			fprintf(stderr,
+				"inputd: trust check: uid match but hash mismatch: stored=%llx request=%llx\n",
+				(unsigned long long)stored_hash,
+				(unsigned long long)exe_hash);
+			continue;
+		}
+
+		if (((uint32_t)stored_caps & requested_capabilities) != requested_capabilities) {
+			fprintf(stderr,
+				"inputd: trust check: uid+hash match but caps mismatch: stored=0x%lx requested=0x%x\n",
+				stored_caps,
+				requested_capabilities);
+			continue;
+		}
+
+		fclose(file);
+		fprintf(stderr,
+			"inputd: trust check: granted uid=%lu hash=%llx caps=0x%x\n",
+			(unsigned long)uid,
+			(unsigned long long)exe_hash,
+			requested_capabilities);
+		return true;
+	}
+
+	fprintf(stderr,
+		"inputd: trust check: no matching entry for uid=%lu hash=%llx caps=0x%x in %s\n",
+		(unsigned long)uid,
+		(unsigned long long)exe_hash,
+		requested_capabilities,
+		trust_path);
+	fclose(file);
+	return false;
+}
+
+static void trust_store_add(uid_t uid, const char *exe_path, uint64_t exe_hash, uint32_t capabilities)
+{
+	char trust_path[PATH_MAX];
+	FILE *file;
+
+	if (capabilities == 0 || exe_hash == 0 || build_trust_file_path(trust_path, sizeof(trust_path)) != 0) {
+		fprintf(stderr,
+			"inputd: cannot remember input permission uid=%lu caps=0x%x hash=%llx exe=%s\n",
+			(unsigned long)uid,
+			capabilities,
+			(unsigned long long)exe_hash,
+			exe_path == NULL ? "unknown" : exe_path);
+		return;
+	}
+
+	file = fopen(trust_path, "a");
+
+	if (file == NULL) {
+		fprintf(stderr, "inputd: failed to open trust store %s: %s\n", trust_path, strerror(errno));
+		return;
+	}
+
+	(void)chmod(trust_path, S_IRUSR | S_IWUSR);
+	if (fprintf(file, "%lu\t%x\t%llx\n", (unsigned long)uid, capabilities, (unsigned long long)exe_hash) < 0) {
+		fprintf(stderr, "inputd: failed to write trust store %s: %s\n", trust_path, strerror(errno));
+	} else {
+		fprintf(stderr,
+			"inputd: remembered input permission uid=%lu caps=0x%x hash=%llx exe=%s store=%s\n",
+			(unsigned long)uid,
+			capabilities,
+			(unsigned long long)exe_hash,
+			exe_path,
+			trust_path);
+	}
+	fclose(file);
+}
+
+static bool env_truthy(const char *name)
+{
+	const char *value = getenv(name);
+
+	return value != NULL
+		&& (strcmp(value, "1") == 0
+			|| strcmp(value, "true") == 0
+			|| strcmp(value, "TRUE") == 0
+			|| strcmp(value, "yes") == 0
+			|| strcmp(value, "YES") == 0
+			|| strcmp(value, "on") == 0
+			|| strcmp(value, "ON") == 0);
+}
+
+static bool is_visual_prompt_available(void)
+{
+	const char *display = getenv("DISPLAY");
+	const char *wayland_display = getenv("WAYLAND_DISPLAY");
+
+	return !env_truthy("KEYSHARP_INPUTD_HEADLESS")
+		&& ((display != NULL && display[0] != '\0')
+			|| (wayland_display != NULL && wayland_display[0] != '\0'));
+}
+
+static bool command_exists(const char *command)
+{
+	char check_command[PATH_MAX + 32];
+
+	if (command == NULL || command[0] == '\0') {
+		return false;
+	}
+
+	if (snprintf(check_command, sizeof(check_command), "command -v %s >/dev/null 2>&1", command)
+		>= (int)sizeof(check_command)) {
+		return false;
+	}
+
+	return system(check_command) == 0;
+}
+
+static void shell_quote(const char *value, char *buffer, size_t buffer_size)
+{
+	size_t used = 0;
+
+	if (buffer == NULL || buffer_size == 0) {
+		return;
+	}
+
+	buffer[used++] = '\'';
+
+	for (const char *cursor = value == NULL ? "" : value; *cursor != '\0' && used + 5 < buffer_size; cursor++) {
+		if (*cursor == '\'') {
+			memcpy(buffer + used, "'\\''", 4);
+			used += 4;
+		} else {
+			buffer[used++] = *cursor;
+		}
+	}
+
+	if (used < buffer_size - 1) {
+		buffer[used++] = '\'';
+	}
+
+	buffer[used] = '\0';
+}
+
+static bool prompt_client_authorization_visual(
+	const ksi_client *client,
+	uint32_t requested_capabilities,
+	const char *exe_path,
+	uint64_t exe_hash,
+	bool *handled)
+{
+	char capability_text[256];
+	char text[PATH_MAX + 512];
+	char quoted_text[(PATH_MAX + 512) * 5];
+	char command[(PATH_MAX + 512) * 5 + 512];
+	int result;
+
+	*handled = false;
+
+	if (!is_visual_prompt_available()) {
+		return false;
+	}
+
+	describe_capabilities(requested_capabilities, capability_text, sizeof(capability_text));
+	(void)snprintf(text, sizeof(text),
+		"Process: %s\nPID: %ld\n\nRequested access: %s\n\nAllow this process to control or monitor keyboard/mouse input?",
+		exe_path == NULL ? "unknown" : exe_path,
+		(long)client->pid,
+		capability_text);
+	shell_quote(text, quoted_text, sizeof(quoted_text));
+
+	if (command_exists("zenity")) {
+		if (snprintf(command, sizeof(command),
+				"zenity --question --title='Keysharp input access request' --text=%s "
+				"--ok-label='OK' --cancel-label='Cancel'",
+				quoted_text) >= (int)sizeof(command)) {
+			return false;
+		}
+
+		*handled = true;
+		result = system(command);
+
+		if (result == 0) {
+			trust_store_add(client->uid, exe_path, exe_hash, requested_capabilities);
+			return true;
+		}
+
+		fprintf(stderr,
+			"inputd: zenity permission prompt denied or failed (exit=%d) for pid=%ld\n",
+			result,
+			(long)client->pid);
+		return false;
+	}
+
+	if (command_exists("kdialog")) {
+		if (snprintf(command, sizeof(command),
+				"kdialog --title 'Keysharp input access request' --yesno %s",
+				quoted_text) >= (int)sizeof(command)) {
+			return false;
+		}
+
+		*handled = true;
+		result = system(command);
+
+		if (result == 0) {
+			trust_store_add(client->uid, exe_path, exe_hash, requested_capabilities);
+			return true;
+		}
+
+		fprintf(stderr,
+			"inputd: kdialog permission prompt denied or failed (exit=%d) for pid=%ld\n",
+			result,
+			(long)client->pid);
+	}
+
+	return false;
+}
+
+static bool prompt_client_authorization(const ksi_client *client, uint32_t requested_capabilities, const char *exe_path, uint64_t exe_hash)
+{
+	char capability_text[256];
+	FILE *tty;
+	char answer[32];
+	bool visual_handled = false;
+
+	if (trust_store_allows(client->uid, exe_hash, requested_capabilities)) {
+		return true;
+	}
+
+	if (prompt_client_authorization_visual(client, requested_capabilities, exe_path, exe_hash, &visual_handled)) {
+		return true;
+	}
+
+	if (visual_handled) {
+		return false;
+	}
+
+	tty = fopen("/dev/tty", "r+");
+
+	if (tty == NULL) {
+		fprintf(stderr,
+			"inputd: denying client pid=%ld: no controlling terminal for input permission prompt\n",
+			(long)client->pid);
+		return false;
+	}
+
+	describe_capabilities(requested_capabilities, capability_text, sizeof(capability_text));
+	fprintf(tty, "\nKeysharp input access request\n");
+	fprintf(tty, "Process: %s\n", exe_path == NULL ? "unknown" : exe_path);
+	fprintf(tty, "PID: %ld UID: %ld\n", (long)client->pid, (long)client->uid);
+	fprintf(tty, "Requested access: %s\n", capability_text);
+	fprintf(tty, "Allow and remember this executable? [y/N]: ");
+	fflush(tty);
+
+	if (fgets(answer, sizeof(answer), tty) == NULL) {
+		fclose(tty);
+		return false;
+	}
+
+	fclose(tty);
+
+	if (answer[0] == 'y' || answer[0] == 'Y') {
+		trust_store_add(client->uid, exe_path, exe_hash, requested_capabilities);
+		return true;
+	}
+
+	return false;
+}
+
+static uint32_t authorize_client_capabilities(const ksi_client *client, uint32_t requested, uint32_t available)
+{
+	uint32_t grantable = requested & available;
+	char exe_path[PATH_MAX];
+	uint64_t exe_hash = 0;
+	bool have_exe_path;
+	bool have_exe_hash;
+
+	if (grantable == 0) {
+		return 0;
+	}
+
+	exe_path[0] = '\0';
+	have_exe_path = get_client_exe(client->pid, exe_path, sizeof(exe_path)) == 0
+		|| get_client_exe_from_cmdline(client->pid, exe_path, sizeof(exe_path)) == 0;
+	have_exe_hash = hash_client_exe(client->pid, &exe_hash)
+		|| (have_exe_path && hash_executable(exe_path, &exe_hash));
+
+	if (!have_exe_path) {
+		(void)snprintf(exe_path, sizeof(exe_path), "pid:%ld", (long)client->pid);
+	}
+
+	if (!have_exe_hash) {
+		fprintf(stderr,
+			"inputd: cannot compute executable hash for client pid=%ld path=%s; permission cannot be remembered\n",
+			(long)client->pid,
+			exe_path);
+	} else {
+		fprintf(stderr,
+			"inputd: client pid=%ld exe=%s hash=%llx grantable=0x%x\n",
+			(long)client->pid,
+			exe_path,
+			(unsigned long long)exe_hash,
+			grantable);
+	}
+
+	if (!prompt_client_authorization(client, grantable, exe_path, exe_hash)) {
+		return 0;
+	}
+
+	return grantable;
+}
+
+static uint32_t daemon_available_capabilities(const ksi_platform_backend *backend)
+{
+    if (backend->get_available_capabilities != NULL) {
+        return backend->get_available_capabilities();
     }
 
-    if (access("/dev/uinput", W_OK) != 0) {
-        capabilities &= (uint32_t)~(KSI_CAP_SYNTH_KEYBOARD | KSI_CAP_SYNTH_MOUSE);
-    }
-
-    return capabilities;
+    return 0;
 }
 
 static bool client_has_capability(const ksi_client *client, uint32_t capability)
@@ -227,18 +857,6 @@ static uint32_t hook_type_to_subscription_bit(uint32_t hook_type)
     return 0;
 }
 
-static uint32_t hook_type_to_replay_capability(uint32_t hook_type)
-{
-    if (hook_type == KSI_HOOK_KEYBOARD_LL) {
-        return KSI_CAP_SYNTH_KEYBOARD;
-    }
-
-    if (hook_type == KSI_HOOK_MOUSE_LL) {
-        return KSI_CAP_SYNTH_MOUSE;
-    }
-
-    return 0;
-}
 
 static uint32_t required_synthesis_capabilities(const ksi_input *inputs, size_t count)
 {
@@ -255,19 +873,19 @@ static uint32_t required_synthesis_capabilities(const ksi_input *inputs, size_t 
     return required;
 }
 
-static bool any_hook_subscriptions(const ksi_daemon_state *state)
+static uint32_t active_hook_subscription_mask(const ksi_daemon_state *state)
 {
+    uint32_t mask = 0;
+
     if (state == NULL || state->clients == NULL || state->client_count == NULL) {
-        return false;
+        return 0;
     }
 
     for (nfds_t i = 0; i < *state->client_count; i++) {
-        if (state->clients[i].hook_subscriptions != 0) {
-            return true;
-        }
+        mask |= state->clients[i].hook_subscriptions;
     }
 
-    return false;
+    return mask;
 }
 
 static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint32_t hook_type)
@@ -295,13 +913,13 @@ static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint3
 
 static int update_grab_state(ksi_daemon_state *state)
 {
-    bool enabled = any_hook_subscriptions(state);
+    uint32_t hook_mask = active_hook_subscription_mask(state);
 
-    if (state == NULL || state->backend == NULL || state->backend->set_grab_enabled == NULL) {
+    if (state == NULL || state->backend == NULL || state->backend->set_grab_hook_mask == NULL) {
         return 0;
     }
 
-    return state->backend->set_grab_enabled(enabled);
+    return state->backend->set_grab_hook_mask(hook_mask);
 }
 
 static bool pending_hook_event_is_injected(const ksi_daemon_state *state)
@@ -419,7 +1037,8 @@ static void finalize_pending_hook_event(ksi_daemon_state *state, const char *rea
         && state->pending_modify_input_count > 0) {
         if (state->backend->send_input(
                 state->pending_modify_inputs,
-                state->pending_modify_input_count) != 0) {
+                state->pending_modify_input_count,
+                KSI_SYNTH_FLAG_BYPASS_HOOK) != 0) {
             fprintf(stderr,
                 "hook event %llu modify synthesis failed\n",
                 (unsigned long long)state->pending_event_id);
@@ -638,12 +1257,20 @@ static void handle_binary_message(
             requested = payload->requested_capabilities;
         }
 
-        granted = requested & daemon_available_capabilities();
-        client->authenticated = true;
-        client->granted_capabilities = granted;
-        send_hello_status(client->fd, message->header, 0, granted);
-        return;
-    }
+		granted = authorize_client_capabilities(client, requested, state->available_capabilities);
+
+		if (requested != 0 && granted == 0) {
+			client->authenticated = false;
+			client->granted_capabilities = 0;
+			send_hello_status(client->fd, message->header, -1, 403);
+			return;
+		}
+
+		client->authenticated = true;
+		client->granted_capabilities = granted;
+		send_hello_status(client->fd, message->header, 0, granted);
+		return;
+	}
 
     if (message->header->type == KSI_MESSAGE_HEARTBEAT) {
         send_status(client->fd, message->header, KSI_MESSAGE_HEARTBEAT, 0, 0);
@@ -660,8 +1287,8 @@ static void handle_binary_message(
 
         if (state != NULL
             && state->backend != NULL
-            && state->backend->set_grab_enabled != NULL
-            && state->backend->set_grab_enabled(false) != 0) {
+            && state->backend->set_grab_hook_mask != NULL
+            && state->backend->set_grab_hook_mask(0) != 0) {
             send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, -1, 1);
             return;
         }
@@ -674,7 +1301,6 @@ static void handle_binary_message(
         || message->header->type == KSI_MESSAGE_UNSUBSCRIBE_HOOK) {
         const ksi_hook_subscription_payload *payload;
         uint32_t capability;
-        uint32_t replay_capability;
         uint32_t subscription_bit;
         uint32_t old_subscriptions;
 
@@ -685,15 +1311,17 @@ static void handle_binary_message(
 
         payload = (const ksi_hook_subscription_payload *)(const void *)message->payload;
         capability = hook_type_to_capability(payload->hook_type);
-        replay_capability = hook_type_to_replay_capability(payload->hook_type);
         subscription_bit = hook_type_to_subscription_bit(payload->hook_type);
 
-        if (capability == 0 || replay_capability == 0 || subscription_bit == 0) {
+        if (capability == 0 || subscription_bit == 0) {
             send_status(client->fd, message->header, message->header->type, -1, 2);
             return;
         }
 
-        if (!client_has_capability(client, capability | replay_capability)) {
+        /* Only the hook capability is required to subscribe. The backend exposes
+         * hook capability only when it can replay grabbed pass-through events.
+         * Arbitrary input synthesis remains a separate client capability. */
+        if (!client_has_capability(client, capability)) {
             send_status(client->fd, message->header, message->header->type, -1, 403);
             return;
         }
@@ -836,7 +1464,7 @@ static void handle_binary_message(
 
         result = backend->send_input == NULL
             ? -1
-            : backend->send_input(payload->inputs, payload->count);
+            : backend->send_input(payload->inputs, payload->count, payload->flags);
         send_status(
             client->fd,
             message->header,
@@ -962,6 +1590,23 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
+    /* Snapshot capabilities while still setgid, based on what the backend
+     * actually succeeded in opening. */
+    uint32_t available_capabilities = daemon_available_capabilities(backend);
+
+    /* Drop setgid privilege after the backend has opened its device fds.
+     * The open fds remain usable, but our fsgid returns to the real GID so
+     * that same-UID /proc/<client_pid>/exe access works for trust hashing. */
+    if (getegid() != getgid()) {
+        gid_t real_gid = getgid();
+
+        if (setresgid(real_gid, real_gid, real_gid) != 0) {
+            fprintf(stderr, "inputd: warning: failed to drop setgid privilege: %s\n", strerror(errno));
+        } else {
+            fprintf(stderr, "inputd: dropped setgid privilege (gid=%lu)\n", (unsigned long)real_gid);
+        }
+    }
+
     if (ksi_ipc_server_open(options->socket_path, &server) != 0) {
         backend->stop();
         return 1;
@@ -978,6 +1623,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         .backend = backend,
         .clients = clients,
         .client_count = &client_count,
+        .available_capabilities = available_capabilities,
         .next_event_id = 1,
         .pending_active = false,
     };
@@ -1080,7 +1726,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
             if ((client_poll_fd->revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
                 remove_client(&daemon_state, i);
-                continue;
+                break;
             }
 
             if ((client_poll_fd->revents & POLLIN) != 0) {
@@ -1088,7 +1734,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
                 if (read_result <= 0) {
                     remove_client(&daemon_state, i);
-                    continue;
+                    break;
                 }
             }
 

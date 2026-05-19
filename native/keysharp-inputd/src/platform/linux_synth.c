@@ -15,14 +15,21 @@
 
 #define KSI_UINPUT_PATH "/dev/uinput"
 
+/* Relative mouse: keyboard keys + BTN_* + REL_X/Y/WHEEL. */
 static int uinput_fd = -1;
-static bool suppress_replay_events;
+/* Absolute pointer: ABS_X/Y with INPUT_PROP_POINTER for absolute MouseMove. */
+static int uinput_abs_fd = -1;
 
-static int emit_event(uint16_t type, uint16_t code, int32_t value)
+static bool suppress_replay_events;
+static bool synthesized_keys_down[KEY_MAX + 1];
+static uint16_t pending_high_surrogate;
+static uint64_t current_extra_info;
+
+static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 {
     struct input_event event;
 
-    if (uinput_fd < 0) {
+    if (fd < 0) {
         return -1;
     }
 
@@ -31,20 +38,184 @@ static int emit_event(uint16_t type, uint16_t code, int32_t value)
     event.code = code;
     event.value = value;
 
-    if (write(uinput_fd, &event, sizeof(event)) != (ssize_t)sizeof(event)) {
+    if (write(fd, &event, sizeof(event)) != (ssize_t)sizeof(event)) {
         return -1;
     }
 
-    if (suppress_replay_events) {
-        ksi_linux_devices_suppress_next_replay_event(type, code, value);
-    }
+    ksi_linux_devices_record_synthetic_event(type, code, value, current_extra_info, suppress_replay_events);
 
     return 0;
+}
+
+static int emit_event(uint16_t type, uint16_t code, int32_t value)
+{
+    return emit_event_to(uinput_fd, type, code, value);
+}
+
+static int emit_abs_event(uint16_t code, int32_t value)
+{
+    return emit_event_to(uinput_abs_fd, EV_ABS, code, value);
+}
+
+static int emit_abs_sync(void)
+{
+    return emit_event_to(uinput_abs_fd, EV_SYN, SYN_REPORT, 0);
 }
 
 static int emit_sync(void)
 {
     return emit_event(EV_SYN, SYN_REPORT, 0);
+}
+
+static int send_key_code(int key_code, int value)
+{
+    if (emit_event(EV_KEY, (uint16_t)key_code, value) != 0 || emit_sync() != 0) {
+        return -1;
+    }
+
+    if (key_code >= 0 && key_code <= KEY_MAX) {
+        synthesized_keys_down[key_code] = value != 0;
+    }
+
+    return 0;
+}
+
+static int send_key_stroke(int key_code)
+{
+    if (send_key_code(key_code, 1) != 0) {
+        return -1;
+    }
+
+    return send_key_code(key_code, 0);
+}
+
+
+static int hex_digit_to_key(char digit)
+{
+    if (digit >= '0' && digit <= '9') {
+        return digit == '0' ? KEY_0 : KEY_1 + (digit - '1');
+    }
+
+    if (digit >= 'a' && digit <= 'f') {
+        switch (digit) {
+            case 'a':
+                return KEY_A;
+            case 'b':
+                return KEY_B;
+            case 'c':
+                return KEY_C;
+            case 'd':
+                return KEY_D;
+            case 'e':
+                return KEY_E;
+            case 'f':
+                return KEY_F;
+        }
+    }
+
+    if (digit >= 'A' && digit <= 'F') {
+        switch (digit) {
+            case 'A':
+                return KEY_A;
+            case 'B':
+                return KEY_B;
+            case 'C':
+                return KEY_C;
+            case 'D':
+                return KEY_D;
+            case 'E':
+                return KEY_E;
+            case 'F':
+                return KEY_F;
+        }
+    }
+
+    return -1;
+}
+
+static int send_unicode_input(uint32_t codepoint)
+{
+    char hex[9];
+    int length;
+    int result = 0;
+
+    if (codepoint == 0 || codepoint > 0x10FFFFu) {
+        fprintf(stderr, "inputd: unsupported unicode codepoint U+%x\n", codepoint);
+        return -1;
+    }
+
+    length = snprintf(hex, sizeof(hex), codepoint <= 0xFFFFu ? "%04x" : "%x", codepoint);
+
+    if (length <= 0 || length >= (int)sizeof(hex)) {
+        fprintf(stderr, "inputd: failed to format unicode codepoint U+%x\n", codepoint);
+        return -1;
+    }
+
+    if (send_key_code(KEY_LEFTCTRL, 1) != 0
+        || send_key_code(KEY_LEFTSHIFT, 1) != 0
+        || send_key_code(KEY_U, 1) != 0) {
+        result = -1;
+    }
+
+    if (send_key_code(KEY_U, 0) != 0) {
+        result = -1;
+    }
+
+    if (send_key_code(KEY_LEFTSHIFT, 0) != 0) {
+        result = -1;
+    }
+
+    if (send_key_code(KEY_LEFTCTRL, 0) != 0) {
+        result = -1;
+    }
+
+    if (result != 0) {
+        fprintf(stderr, "inputd: failed to start unicode input sequence U+%x: %s\n", codepoint, strerror(errno));
+        return -1;
+    }
+
+    for (int i = 0; i < length; i++) {
+        int key_code = hex_digit_to_key(hex[i]);
+
+        if (key_code < 0 || send_key_stroke(key_code) != 0) {
+            fprintf(stderr, "inputd: failed to emit unicode hex digit '%c' for U+%x: %s\n", hex[i], codepoint, strerror(errno));
+            return -1;
+        }
+    }
+
+    if (send_key_stroke(KEY_SPACE) != 0) {
+        fprintf(stderr, "inputd: failed to commit unicode input U+%x: %s\n", codepoint, strerror(errno));
+        return -1;
+    }
+
+    printf("inputd: synth unicode U+%x via ctrl+shift+u\n", codepoint);
+    return 0;
+}
+
+static int send_unicode_utf16_unit(uint16_t unit)
+{
+    if (unit >= 0xD800u && unit <= 0xDBFFu) {
+        pending_high_surrogate = unit;
+        return 0;
+    }
+
+    if (unit >= 0xDC00u && unit <= 0xDFFFu) {
+        uint16_t high = pending_high_surrogate;
+        uint32_t codepoint;
+
+        pending_high_surrogate = 0;
+
+        if (high < 0xD800u || high > 0xDBFFu) {
+            fprintf(stderr, "inputd: low unicode surrogate 0x%x without preceding high surrogate\n", unit);
+            return -1;
+        }
+
+        codepoint = 0x10000u + ((((uint32_t)high - 0xD800u) << 10) | ((uint32_t)unit - 0xDC00u));
+        return send_unicode_input(codepoint);
+    }
+
+    pending_high_surrogate = 0;
+    return send_unicode_input(unit);
 }
 
 static int enable_event(int event_type)
@@ -77,17 +248,80 @@ static int enable_relative(int relative_code)
     return 0;
 }
 
+
 static int vk_to_evdev_key(uint16_t vk)
 {
-    if (vk >= 0x41u && vk <= 0x5Au) {
-        return KEY_A + (int)(vk - 0x41u);
-    }
-
-    if (vk >= 0x31u && vk <= 0x39u) {
-        return KEY_1 + (int)(vk - 0x31u);
-    }
-
     switch (vk) {
+        case 0x41u:
+            return KEY_A;
+        case 0x42u:
+            return KEY_B;
+        case 0x43u:
+            return KEY_C;
+        case 0x44u:
+            return KEY_D;
+        case 0x45u:
+            return KEY_E;
+        case 0x46u:
+            return KEY_F;
+        case 0x47u:
+            return KEY_G;
+        case 0x48u:
+            return KEY_H;
+        case 0x49u:
+            return KEY_I;
+        case 0x4Au:
+            return KEY_J;
+        case 0x4Bu:
+            return KEY_K;
+        case 0x4Cu:
+            return KEY_L;
+        case 0x4Du:
+            return KEY_M;
+        case 0x4Eu:
+            return KEY_N;
+        case 0x4Fu:
+            return KEY_O;
+        case 0x50u:
+            return KEY_P;
+        case 0x51u:
+            return KEY_Q;
+        case 0x52u:
+            return KEY_R;
+        case 0x53u:
+            return KEY_S;
+        case 0x54u:
+            return KEY_T;
+        case 0x55u:
+            return KEY_U;
+        case 0x56u:
+            return KEY_V;
+        case 0x57u:
+            return KEY_W;
+        case 0x58u:
+            return KEY_X;
+        case 0x59u:
+            return KEY_Y;
+        case 0x5Au:
+            return KEY_Z;
+        case 0x31u:
+            return KEY_1;
+        case 0x32u:
+            return KEY_2;
+        case 0x33u:
+            return KEY_3;
+        case 0x34u:
+            return KEY_4;
+        case 0x35u:
+            return KEY_5;
+        case 0x36u:
+            return KEY_6;
+        case 0x37u:
+            return KEY_7;
+        case 0x38u:
+            return KEY_8;
+        case 0x39u:
+            return KEY_9;
         case 0x30u:
             return KEY_0;
         case 0x08u:
@@ -127,16 +361,25 @@ static int vk_to_evdev_key(uint16_t vk)
         case 0x5Du:
             return KEY_COMPOSE;
         case 0x60u:
+            return KEY_KP0;
         case 0x61u:
+            return KEY_KP1;
         case 0x62u:
+            return KEY_KP2;
         case 0x63u:
+            return KEY_KP3;
         case 0x64u:
+            return KEY_KP4;
         case 0x65u:
+            return KEY_KP5;
         case 0x66u:
+            return KEY_KP6;
         case 0x67u:
+            return KEY_KP7;
         case 0x68u:
+            return KEY_KP8;
         case 0x69u:
-            return KEY_KP0 + (int)(vk - 0x60u);
+            return KEY_KP9;
         case 0x6Au:
             return KEY_KPASTERISK;
         case 0x6Bu:
@@ -152,31 +395,53 @@ static int vk_to_evdev_key(uint16_t vk)
         case 0x13u:
             return KEY_PAUSE;
         case 0x70u:
+            return KEY_F1;
         case 0x71u:
+            return KEY_F2;
         case 0x72u:
+            return KEY_F3;
         case 0x73u:
+            return KEY_F4;
         case 0x74u:
+            return KEY_F5;
         case 0x75u:
+            return KEY_F6;
         case 0x76u:
+            return KEY_F7;
         case 0x77u:
+            return KEY_F8;
         case 0x78u:
+            return KEY_F9;
         case 0x79u:
+            return KEY_F10;
         case 0x7Au:
+            return KEY_F11;
         case 0x7Bu:
-            return KEY_F1 + (int)(vk - 0x70u);
+            return KEY_F12;
         case 0x7Cu:
+            return KEY_F13;
         case 0x7Du:
+            return KEY_F14;
         case 0x7Eu:
+            return KEY_F15;
         case 0x7Fu:
+            return KEY_F16;
         case 0x80u:
+            return KEY_F17;
         case 0x81u:
+            return KEY_F18;
         case 0x82u:
+            return KEY_F19;
         case 0x83u:
+            return KEY_F20;
         case 0x84u:
+            return KEY_F21;
         case 0x85u:
+            return KEY_F22;
         case 0x86u:
+            return KEY_F23;
         case 0x87u:
-            return KEY_F13 + (int)(vk - 0x7Cu);
+            return KEY_F24;
         case 0x90u:
             return KEY_NUMLOCK;
         case 0x91u:
@@ -220,12 +485,41 @@ static int vk_to_evdev_key(uint16_t vk)
     }
 }
 
-static int scan_to_evdev_key(uint16_t scan)
+static int scan_to_evdev_key(uint16_t scan, bool extended)
 {
     if (scan == 0) {
         return -1;
     }
 
+    if (extended) {
+        /* Map Windows AT set-1 E0-prefixed scan codes to evdev keycodes.
+         * These differ from the base (non-extended) numbering used by Linux. */
+        switch (scan) {
+            case 0x1Cu: return KEY_KPENTER;
+            case 0x1Du: return KEY_RIGHTCTRL;
+            case 0x35u: return KEY_KPSLASH;
+            case 0x37u: return KEY_SYSRQ;
+            case 0x38u: return KEY_RIGHTALT;
+            case 0x47u: return KEY_HOME;
+            case 0x48u: return KEY_UP;
+            case 0x49u: return KEY_PAGEUP;
+            case 0x4Bu: return KEY_LEFT;
+            case 0x4Du: return KEY_RIGHT;
+            case 0x4Fu: return KEY_END;
+            case 0x50u: return KEY_DOWN;
+            case 0x51u: return KEY_PAGEDOWN;
+            case 0x52u: return KEY_INSERT;
+            case 0x53u: return KEY_DELETE;
+            case 0x5Bu: return KEY_LEFTMETA;
+            case 0x5Cu: return KEY_RIGHTMETA;
+            case 0x5Du: return KEY_COMPOSE;
+            default: return -1;
+        }
+    }
+
+    /* For non-extended PS/2 AT scan codes the numbering is identical to
+     * Linux evdev keycodes.  This path also handles replayed hook events
+     * where the scan field already contains a raw evdev keycode. */
     if (scan <= KEY_MAX) {
         return scan;
     }
@@ -272,7 +566,8 @@ static int configure_uinput_device(void)
 {
     struct uinput_setup setup;
 
-    if (enable_event(EV_KEY) != 0 || enable_event(EV_REL) != 0) {
+    if (enable_event(EV_KEY) != 0
+        || enable_event(EV_REL) != 0) {
         return -1;
     }
 
@@ -315,6 +610,82 @@ static int configure_uinput_device(void)
     return 0;
 }
 
+static int configure_abs_uinput_device(void)
+{
+    struct uinput_setup setup;
+    struct uinput_abs_setup abs_setup;
+
+    /* INPUT_PROP_POINTER: tells libinput this is an absolute pointer device
+     * (like a drawing tablet in mouse mode), not a touchscreen or trackpad.
+     * The compositor maps the ABS range [0, 65535] directly to screen area. */
+    if (ioctl(uinput_abs_fd, UI_SET_PROPBIT, INPUT_PROP_POINTER) < 0) {
+        fprintf(stderr, "inputd: UI_SET_PROPBIT(INPUT_PROP_POINTER) failed: %s\n", strerror(errno));
+        /* Non-fatal: proceed without the property; the device may still work
+         * under xf86-input-evdev even if libinput classifies it differently. */
+    }
+
+    if (ioctl(uinput_abs_fd, UI_SET_EVBIT, EV_ABS) < 0) {
+        fprintf(stderr, "inputd: abs device UI_SET_EVBIT(EV_ABS) failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (ioctl(uinput_abs_fd, UI_SET_EVBIT, EV_KEY) < 0) {
+        fprintf(stderr, "inputd: abs device UI_SET_EVBIT(EV_KEY) failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    /* Buttons live on the absolute device too so button+absolute-move events
+     * arrive from a single device and can be correctly ordered. */
+    if (ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_LEFT) < 0
+        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_RIGHT) < 0
+        || ioctl(uinput_abs_fd, UI_SET_KEYBIT, BTN_MIDDLE) < 0) {
+        fprintf(stderr, "inputd: abs device UI_SET_KEYBIT failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (ioctl(uinput_abs_fd, UI_SET_ABSBIT, ABS_X) < 0
+        || ioctl(uinput_abs_fd, UI_SET_ABSBIT, ABS_Y) < 0) {
+        fprintf(stderr, "inputd: abs device UI_SET_ABSBIT failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    memset(&setup, 0, sizeof(setup));
+    (void)snprintf(setup.name, sizeof(setup.name), "%s", KSI_SYNTH_ABS_DEVICE_NAME);
+    setup.id.bustype = KSI_SYNTH_DEVICE_BUSTYPE;
+    setup.id.vendor  = KSI_SYNTH_DEVICE_VENDOR;
+    setup.id.product = KSI_SYNTH_ABS_DEVICE_PRODUCT;
+    setup.id.version = KSI_SYNTH_DEVICE_VERSION;
+
+    if (ioctl(uinput_abs_fd, UI_DEV_SETUP, &setup) < 0) {
+        fprintf(stderr, "inputd: abs device UI_DEV_SETUP failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    memset(&abs_setup, 0, sizeof(abs_setup));
+    abs_setup.absinfo.minimum = 0;
+    abs_setup.absinfo.maximum = 65535;
+    abs_setup.absinfo.resolution = 1;
+
+    abs_setup.code = ABS_X;
+    if (ioctl(uinput_abs_fd, UI_ABS_SETUP, &abs_setup) < 0) {
+        fprintf(stderr, "inputd: abs device UI_ABS_SETUP(ABS_X) failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    abs_setup.code = ABS_Y;
+    if (ioctl(uinput_abs_fd, UI_ABS_SETUP, &abs_setup) < 0) {
+        fprintf(stderr, "inputd: abs device UI_ABS_SETUP(ABS_Y) failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (ioctl(uinput_abs_fd, UI_DEV_CREATE) < 0) {
+        fprintf(stderr, "inputd: abs device UI_DEV_CREATE failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 int ksi_linux_synth_start(void)
 {
     uinput_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK);
@@ -330,18 +701,49 @@ int ksi_linux_synth_start(void)
         return 0;
     }
 
-    puts("inputd: uinput virtual device created");
+    puts("inputd: uinput relative mouse device created");
+
+    uinput_abs_fd = open(KSI_UINPUT_PATH, O_WRONLY | O_NONBLOCK);
+
+    if (uinput_abs_fd < 0) {
+        fprintf(stderr, "inputd: cannot open %s for abs device: %s\n", KSI_UINPUT_PATH, strerror(errno));
+        /* Non-fatal: absolute mouse moves won't work but everything else will. */
+        return 0;
+    }
+
+    if (configure_abs_uinput_device() != 0) {
+        close(uinput_abs_fd);
+        uinput_abs_fd = -1;
+        fprintf(stderr, "inputd: failed to create absolute pointer device\n");
+        return 0;
+    }
+
+    puts("inputd: uinput absolute pointer device created");
     return 0;
 }
 
 void ksi_linux_synth_stop(void)
 {
+    ksi_linux_synth_release_all();
+
     if (uinput_fd >= 0) {
         (void)ioctl(uinput_fd, UI_DEV_DESTROY);
         close(uinput_fd);
         uinput_fd = -1;
-        puts("inputd: uinput virtual device destroyed");
+        puts("inputd: uinput relative mouse device destroyed");
     }
+
+    if (uinput_abs_fd >= 0) {
+        (void)ioctl(uinput_abs_fd, UI_DEV_DESTROY);
+        close(uinput_abs_fd);
+        uinput_abs_fd = -1;
+        puts("inputd: uinput absolute pointer device destroyed");
+    }
+}
+
+bool ksi_linux_synth_is_available(void)
+{
+    return uinput_fd >= 0;
 }
 
 static int send_keyboard_input(const ksi_keybdinput *input)
@@ -350,12 +752,16 @@ static int send_keyboard_input(const ksi_keybdinput *input)
     int value = (input->flags & KSI_KEYEVENTF_KEYUP) != 0 ? 0 : 1;
 
     if ((input->flags & KSI_KEYEVENTF_UNICODE) != 0) {
-        fprintf(stderr, "inputd: unicode KEYBDINPUT synthesis is not implemented yet\n");
-        return -1;
+        if ((input->flags & KSI_KEYEVENTF_KEYUP) != 0) {
+            return 0;
+        }
+
+        return send_unicode_utf16_unit(input->scan);
     }
 
     if ((input->flags & KSI_KEYEVENTF_SCANCODE) != 0) {
-        key_code = scan_to_evdev_key(input->scan);
+        bool extended = (input->flags & KSI_KEYEVENTF_EXTENDEDKEY) != 0;
+        key_code = scan_to_evdev_key(input->scan, extended);
     }
 
     if (key_code < 0
@@ -376,7 +782,14 @@ static int send_keyboard_input(const ksi_keybdinput *input)
         return -1;
     }
 
-    if (emit_event(EV_KEY, (uint16_t)key_code, value) != 0 || emit_sync() != 0) {
+    if (value == 1
+        && key_code >= 0
+        && key_code <= KEY_MAX
+        && synthesized_keys_down[key_code]) {
+        value = 2;
+    }
+
+    if (send_key_code(key_code, value) != 0) {
         fprintf(stderr, "inputd: failed to emit keyboard input: %s\n", strerror(errno));
         return -1;
     }
@@ -385,9 +798,36 @@ static int send_keyboard_input(const ksi_keybdinput *input)
         input->vk,
         input->scan,
         key_code,
-        value == 0 ? "up" : "down");
+        value == 0 ? "up" : (value == 2 ? "repeat" : "down"));
 
     return 0;
+}
+
+void ksi_linux_synth_release_all(void)
+{
+    bool emitted = false;
+
+    if (uinput_fd < 0) {
+        memset(synthesized_keys_down, 0, sizeof(synthesized_keys_down));
+        return;
+    }
+
+    for (int key_code = 0; key_code <= KEY_MAX; key_code++) {
+        if (!synthesized_keys_down[key_code]) {
+            continue;
+        }
+
+        if (emit_event(EV_KEY, (uint16_t)key_code, 0) == 0) {
+            printf("inputd: release synthetic key evdev=%d\n", key_code);
+            emitted = true;
+        }
+
+        synthesized_keys_down[key_code] = false;
+    }
+
+    if (emitted && emit_sync() != 0) {
+        fprintf(stderr, "inputd: failed to sync synthetic key release: %s\n", strerror(errno));
+    }
 }
 
 static int send_mouse_button(uint16_t button, bool down)
@@ -419,12 +859,22 @@ static int send_mouse_input(const ksi_mouseinput *input)
     uint16_t xbutton;
 
     if ((input->flags & KSI_MOUSEEVENTF_MOVE) != 0) {
-        if (input->dx != 0 && emit_event(EV_REL, REL_X, input->dx) != 0) {
-            return -1;
-        }
+        if ((input->flags & KSI_MOUSEEVENTF_ABSOLUTE) != 0) {
+            if (uinput_abs_fd < 0) {
+                fprintf(stderr, "inputd: absolute mouse move dropped: abs device unavailable\n");
+            } else if (emit_abs_event(ABS_X, input->dx) != 0
+                       || emit_abs_event(ABS_Y, input->dy) != 0
+                       || emit_abs_sync() != 0) {
+                return -1;
+            }
+        } else {
+            if (input->dx != 0 && emit_event(EV_REL, REL_X, input->dx) != 0) {
+                return -1;
+            }
 
-        if (input->dy != 0 && emit_event(EV_REL, REL_Y, input->dy) != 0) {
-            return -1;
+            if (input->dy != 0 && emit_event(EV_REL, REL_Y, input->dy) != 0) {
+                return -1;
+            }
         }
     }
 
@@ -504,19 +954,32 @@ static int send_mouse_input(const ksi_mouseinput *input)
     return 0;
 }
 
-int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count)
+int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t flags)
 {
+    bool old_suppress;
+    uint64_t old_extra_info;
+    int result = 0;
+
     if (uinput_fd < 0) {
         fprintf(stderr, "inputd: synthesis unavailable; %s could not be opened\n", KSI_UINPUT_PATH);
         return -1;
     }
 
-    for (size_t i = 0; i < count; i++) {
-        int result;
+    /* When BYPASS_HOOK is set, suppress the evdev echo so the events don't
+     * loop back to hook subscribers — the same mechanism used for PASS replays. */
+    old_suppress = suppress_replay_events;
+    old_extra_info = current_extra_info;
 
+    if ((flags & KSI_SYNTH_FLAG_BYPASS_HOOK) != 0) {
+        suppress_replay_events = true;
+    }
+
+    for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {
+            current_extra_info = inputs[i].data.keyboard.extra_info;
             result = send_keyboard_input(&inputs[i].data.keyboard);
         } else if (inputs[i].type == KSI_INPUT_MOUSE) {
+            current_extra_info = inputs[i].data.mouse.extra_info;
             result = send_mouse_input(&inputs[i].data.mouse);
         } else {
             fprintf(stderr, "inputd: unsupported input type %u\n", inputs[i].type);
@@ -524,11 +987,13 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count)
         }
 
         if (result != 0) {
-            return -1;
+            break;
         }
     }
 
-    return 0;
+    suppress_replay_events = old_suppress;
+    current_extra_info = old_extra_info;
+    return result;
 }
 
 static int replay_keyboard_hook_event(const ksi_keyboard_hook_event *event)
@@ -545,7 +1010,7 @@ static int replay_keyboard_hook_event(const ksi_keyboard_hook_event *event)
         input.data.keyboard.flags |= KSI_KEYEVENTF_KEYUP;
     }
 
-    return ksi_linux_synth_send_input(&input, 1);
+    return ksi_linux_synth_send_input(&input, 1, KSI_SYNTH_FLAG_BYPASS_HOOK);
 }
 
 static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
@@ -558,6 +1023,11 @@ static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
     switch (event->message) {
         case KSI_WM_MOUSEMOVE:
             input.data.mouse.flags = KSI_MOUSEEVENTF_MOVE;
+
+            if ((event->mouse_data & KSI_MOUSEEVENTF_ABSOLUTE) != 0) {
+                input.data.mouse.flags |= KSI_MOUSEEVENTF_ABSOLUTE;
+            }
+
             input.data.mouse.dx = event->x;
             input.data.mouse.dy = event->y;
             break;
@@ -600,7 +1070,7 @@ static int replay_mouse_hook_event(const ksi_mouse_hook_event *event)
             return -1;
     }
 
-    return ksi_linux_synth_send_input(&input, 1);
+    return ksi_linux_synth_send_input(&input, 1, KSI_SYNTH_FLAG_BYPASS_HOOK);
 }
 
 int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event)

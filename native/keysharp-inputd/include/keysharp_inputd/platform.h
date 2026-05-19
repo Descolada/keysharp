@@ -17,11 +17,12 @@ typedef struct ksi_platform_backend {
     const char *name;
     int (*start)(void);
     void (*stop)(void);
+    uint32_t (*get_available_capabilities)(void);
     nfds_t (*poll_fds)(struct pollfd *fds, nfds_t max_fds);
     void (*process_fd)(int fd);
-    int (*send_input)(const ksi_input *inputs, size_t count);
+    int (*send_input)(const ksi_input *inputs, size_t count, uint32_t flags);
     int (*replay_hook_event)(uint32_t hook_type, const ksi_hook_event_payload *event);
-    int (*set_grab_enabled)(bool enabled);
+    int (*set_grab_hook_mask)(uint32_t hook_mask);
     void (*set_hook_event_callback)(ksi_hook_event_callback callback, void *context);
 } ksi_platform_backend;
 

@@ -3,11 +3,14 @@
 
 #include "keysharp_inputd/protocol.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 int ksi_linux_synth_start(void);
 void ksi_linux_synth_stop(void);
-int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count);
+bool ksi_linux_synth_is_available(void);
+int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t flags);
 int ksi_linux_synth_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payload *event);
+void ksi_linux_synth_release_all(void);
 
 #endif

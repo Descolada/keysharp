@@ -2,6 +2,9 @@ using Keysharp.Builtins;
 #if !WINDOWS
 using System;
 using System.Collections.Generic;
+#if LINUX
+using Keysharp.Internals.Input.Linux;
+#endif
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,6 +30,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// --- SharpHook ---
 		private SimpleGlobalHook globalHook;
 		private Task hookRunTask;
+#if LINUX
+		private KeysharpInputdClient inputdHookClient;
+		private CancellationTokenSource inputdHookCancel;
+		private Task inputdHookTask;
+		private bool usingInputdHooks;
+#endif
 
 		private readonly Lock hookStateLock = new();
 
@@ -244,7 +253,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		internal UnixHookThread()
 		{
 #if LINUX
-			kbdMsSender = new LinuxKeyboardMouseSender();
+			kbdMsSender = KeysharpInputdManager.UseLegacyX11Input
+				? new LinuxKeyboardMouseSender()
+				: new InputdKeyboardMouseSender();
 #else
 			kbdMsSender = new UnixKeyboardMouseSender();
 #endif
@@ -277,6 +288,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// -------------------- lifecycle --------------------
 		protected internal override void DeregisterHooks()
 		{
+#if LINUX
+			StopInputdHookCore();
+#endif
 			StopGlobalHook();
 			PlatformUngrabAll();
 		}
@@ -370,6 +384,39 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 
 				// Ensure the hook is running (only start/attach once).
+#if LINUX
+				var inputdMessage = string.Empty;
+
+				if (!KeysharpInputdManager.UseLegacyX11Input && TryStartInputdHookCore(wantKeyboard, wantMouse, out inputdMessage))
+				{
+					StopGlobalHookCore(dispose: true);
+
+					if (!changeIsTemporary)
+					{
+						if (wantKeyboard && !hadKeyboard)
+						{
+							keyboardEnabled = false; kbdHook = 0;
+							ResetHook(false, HookType.Keyboard, true);
+						}
+						if (wantMouse && !hadMouse)
+						{
+							mouseEnabled = false; mouseHook = 0;
+							ResetHook(false, HookType.Mouse, true);
+						}
+					}
+
+					keyboardEnabled = wantKeyboard;
+					mouseEnabled = wantMouse;
+					kbdHook = wantKeyboard ? 1 : 0;
+					mouseHook = wantMouse ? 1 : 0;
+					usingInputdHooks = true;
+					return;
+				}
+
+				if (!KeysharpInputdManager.UseLegacyX11Input)
+					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; falling back to X11/SharpHook. {inputdMessage}");
+#endif
+
 				if (globalHook == null || !globalHook.IsRunning)
 				{
 					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
@@ -427,6 +474,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 				kbdHook = wantKeyboard ? 1 : 0;   // sentinel for HasKbdHook()
 				mouseHook = wantMouse ? 1 : 0;
+#if LINUX
+				usingInputdHooks = false;
+#endif
 			}
 		}
 
@@ -514,6 +564,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		private void StopGlobalHook()
 		{
+#if LINUX
+			StopInputdHookCore();
+#endif
 			try { globalHook?.Dispose(); } catch { }
 			try { if (hookRunTask != null && !hookRunTask.IsCompleted) hookRunTask.Wait(50); } catch { }
 			globalHook = null;
@@ -524,6 +577,291 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			mouseHook = 0;
 			ResetIndicatorSnapshot();
 		}
+
+#if LINUX
+		private bool TryStartInputdHookCore(bool wantKeyboard, bool wantMouse, out string message)
+		{
+			message = string.Empty;
+
+			if (!wantKeyboard && !wantMouse)
+				return false;
+
+			if (inputdHookClient != null && inputdHookTask != null && !inputdHookTask.IsCompleted)
+				return true;
+
+			var required = KeysharpInputdClient.Capabilities.None;
+
+			if (wantKeyboard)
+				required |= KeysharpInputdClient.Capabilities.HookKeyboard;
+
+			if (wantMouse)
+				required |= KeysharpInputdClient.Capabilities.HookMouse;
+
+			var permission = KeysharpInputdManager.EnsureCapabilities(required, "install keyboard/mouse hooks");
+
+			if (!permission.IsGranted)
+			{
+				message = permission.Message;
+				return false;
+			}
+
+			KeysharpInputdClient client = null;
+
+			try
+			{
+				client = KeysharpInputdClient.Connect(required);
+
+				if (wantKeyboard)
+					_ = client.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel);
+
+				if (wantMouse)
+					_ = client.SubscribeHook(KeysharpInputdClient.HookType.MouseLowLevel);
+
+				inputdHookCancel = new CancellationTokenSource();
+				inputdHookClient = client;
+				inputdHookTask = Task.Run(() => InputdHookLoop(client, inputdHookCancel.Token));
+				return true;
+			}
+			catch (Exception ex)
+			{
+				try { client?.Dispose(); } catch { }
+				message = ex.Message;
+				return false;
+			}
+		}
+
+		private void StopInputdHookCore()
+		{
+			usingInputdHooks = false;
+			try { inputdHookCancel?.Cancel(); } catch { }
+			try { inputdHookClient?.Dispose(); } catch { }
+			try { if (inputdHookTask != null && !inputdHookTask.IsCompleted) inputdHookTask.Wait(50); } catch { }
+			inputdHookCancel = null;
+			inputdHookClient = null;
+			inputdHookTask = null;
+		}
+
+		private void InputdHookLoop(KeysharpInputdClient client, CancellationToken token)
+		{
+			while (!token.IsCancellationRequested)
+			{
+				KeysharpInputdClient.HookEvent hookEvent;
+
+				try
+				{
+					hookEvent = client.ReadHookEvent();
+				}
+				catch (ObjectDisposedException)
+				{
+					return;
+				}
+				catch (Exception ex)
+				{
+					if (!token.IsCancellationRequested)
+						Ks.OutputDebugLine($"keysharp-inputd hook reader stopped: {ex.Message}");
+
+					return;
+				}
+
+				var block = false;
+
+				try
+				{
+					block = hookEvent.HookType switch
+					{
+						KeysharpInputdClient.HookType.KeyboardLowLevel => ProcessInputdKeyboardHook(hookEvent.Keyboard),
+						KeysharpInputdClient.HookType.MouseLowLevel => ProcessInputdMouseHook(hookEvent.Mouse),
+						_ => false
+					};
+				}
+				catch (Exception ex)
+				{
+					Ks.OutputDebugLine($"keysharp-inputd hook event processing failed: {ex}");
+				}
+
+				try
+				{
+					client.SendHookDecision(
+						hookEvent.EventId,
+						block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
+				}
+				catch (Exception ex)
+				{
+					if (!token.IsCancellationRequested)
+						Ks.OutputDebugLine($"keysharp-inputd hook decision failed: {ex.Message}");
+
+					return;
+				}
+			}
+		}
+
+		private bool ProcessInputdKeyboardHook(KeysharpInputdClient.KeyboardHookEvent ev)
+		{
+			if (!keyboardEnabled)
+				return false;
+
+			var vk = ev.VkCode;
+			var sc = ev.ScanCode & 0xFFu;
+			var keyUp = (ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u;
+			var isInjected = (ev.Flags & 0x10u) != 0;
+
+			if ((ev.Flags & 0x01u) != 0)
+				sc |= 0x100u;
+
+			switch (vk)
+			{
+				case VK_SHIFT:
+					vk = sc == ScanCodes.RShift ? VK_RSHIFT : VK_LSHIFT;
+					break;
+				case VK_CONTROL:
+					vk = sc == ScanCodes.RControl ? VK_RCONTROL : VK_LCONTROL;
+					break;
+				case VK_MENU:
+					vk = sc == ScanCodes.RAlt ? VK_RMENU : VK_LMENU;
+					break;
+			}
+
+			if (vk == 0)
+				return false;
+
+			lastHookEventWasKeyboard = true;
+			lastKeyboardEventVk = vk;
+			RecordScVkMapping(sc, vk);
+
+			if (!isInjected)
+				Script.TheScript.timeLastInputPhysical = DateTime.UtcNow;
+
+			var keyCode = VkToKeyCode(vk);
+			var raw = new UioHookEvent
+			{
+				Type = keyUp ? EventType.KeyReleased : EventType.KeyPressed,
+				Time = ev.TimeMs,
+				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				Keyboard = new KeyboardEventData
+				{
+					KeyCode = keyCode,
+					RawCode = (ushort)(sc & 0xFFu),
+					RawKeyChar = KeyboardEventData.RawUndefinedChar
+				}
+			};
+
+			var args = new KeyboardHookEventArgs(raw);
+			var extraInfo = ev.ExtraInfo;
+
+			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
+				return true;
+
+			if (!isInjected && IsModifierKey(vk))
+				UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: true);
+
+			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
+			return result != 0;
+		}
+
+		private bool ProcessInputdMouseHook(KeysharpInputdClient.MouseHookEvent ev)
+		{
+			if (!mouseEnabled)
+				return false;
+
+			var isInjected = (ev.Flags & 0x01u) != 0;
+			lastHookEventWasKeyboard = false;
+
+			if (!isInjected)
+			{
+				var script = Script.TheScript;
+				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+			}
+
+			switch (ev.Message)
+			{
+				case 0x0200u:
+					return !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
+
+				case 0x020Au:
+					return ProcessInputdMouseWheelHook(ev, vertical: true, isInjected);
+
+				case 0x020Eu:
+					return ProcessInputdMouseWheelHook(ev, vertical: false, isInjected);
+			}
+
+			var keyUp = true;
+			var vk = ev.Message switch
+			{
+				0x0201u => VK_LBUTTON,
+				0x0202u => VK_LBUTTON,
+				0x0204u => VK_RBUTTON,
+				0x0205u => VK_RBUTTON,
+				0x0207u => VK_MBUTTON,
+				0x0208u => VK_MBUTTON,
+				0x020Bu => (ev.MouseData >> 16) == MouseUtils.XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2,
+				0x020Cu => (ev.MouseData >> 16) == MouseUtils.XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2,
+				_ => 0u
+			};
+
+			if (ev.Message == 0x0201u || ev.Message == 0x0204u || ev.Message == 0x0207u || ev.Message == 0x020Bu)
+				keyUp = false;
+
+			if (vk == 0)
+				return false;
+
+			var raw = new UioHookEvent
+			{
+				Type = keyUp ? EventType.MouseReleased : EventType.MousePressed,
+				Time = ev.TimeMs,
+				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				Mouse = new MouseEventData
+				{
+					Button = InputdVkToMouseButton(vk),
+					Clicks = 1,
+					X = (short)ev.X,
+					Y = (short)ev.Y
+				}
+			};
+
+			var args = new MouseHookEventArgs(raw);
+			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			return result != 0;
+		}
+
+		private bool ProcessInputdMouseWheelHook(KeysharpInputdClient.MouseHookEvent ev, bool vertical, bool isInjected)
+		{
+			var delta = unchecked((short)(ev.MouseData >> 16));
+			var vk = vertical
+				? (delta < 0 ? VK_WHEEL_DOWN : VK_WHEEL_UP)
+				: (delta < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT);
+			var sc = (uint)delta;
+			var raw = new UioHookEvent
+			{
+				Type = EventType.MouseWheel,
+				Time = ev.TimeMs,
+				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				Wheel = new MouseWheelEventData
+				{
+					Type = MouseWheelScrollType.UnitScroll,
+					Rotation = delta,
+					Delta = 120,
+					Direction = vertical ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Horizontal,
+					X = (short)ev.X,
+					Y = (short)ev.Y
+				}
+			};
+
+			var args = new MouseWheelHookEventArgs(raw);
+			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			return result != 0;
+		}
+
+		private static MouseButton InputdVkToMouseButton(uint vk) => vk switch
+		{
+			VK_LBUTTON => MouseButton.Button1,
+			VK_RBUTTON => MouseButton.Button2,
+			VK_MBUTTON => MouseButton.Button3,
+			VK_XBUTTON1 => MouseButton.Button4,
+			VK_XBUTTON2 => MouseButton.Button5,
+			_ => MouseButton.NoButton
+		};
+#endif
 
 		private static bool ShouldDisableHook()
 		{
@@ -1406,7 +1744,35 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			return false;
 		}
-		internal override bool IsKeyDownAsync(uint vk) => IsKeyDown(vk);
+		internal override bool IsKeyDownAsync(uint vk)
+		{
+			if (HasKbdHook())
+			{
+				var modMask = vk switch
+				{
+					VK_LCONTROL => MOD_LCONTROL,
+					VK_RCONTROL => MOD_RCONTROL,
+					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
+					VK_LSHIFT => MOD_LSHIFT,
+					VK_RSHIFT => MOD_RSHIFT,
+					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
+					VK_LMENU => MOD_LALT,
+					VK_RMENU => MOD_RALT,
+					VK_MENU => MOD_LALT | MOD_RALT,
+					VK_LWIN => MOD_LWIN,
+					VK_RWIN => MOD_RWIN,
+					_ => 0u
+				};
+
+				if (modMask != 0)
+					return (kbdMsSender.modifiersLRPhysical & modMask) != 0;
+
+				if (vk < physicalKeyState.Length)
+					return (physicalKeyState[vk] & StateDown) != 0;
+			}
+
+			return IsKeyDown(vk);
+		}
 		internal override bool IsKeyToggledOn(uint vk)
 		{
 			if (TryGetIndicatorStates(out var capsOn, out var numOn, out var scrollOn))

@@ -20,7 +20,7 @@
 #define KSI_EVENT_PREFIX "event"
 #define KSI_DEVICE_NAME_LENGTH 256
 #define KSI_MAX_TRACKED_DEVICES 128
-#define KSI_MAX_SUPPRESSED_REPLAY_EVENTS 256
+#define KSI_MAX_SUPPRESSED_REPLAY_EVENTS 8192
 
 #define KSI_BITS_PER_LONG (sizeof(unsigned long) * CHAR_BIT)
 #define KSI_BIT_WORD(bit) ((bit) / KSI_BITS_PER_LONG)
@@ -47,7 +47,15 @@ typedef struct ksi_suppressed_replay_event {
     uint16_t type;
     uint16_t code;
     int32_t value;
+    uint64_t extra_info;
+    bool suppress;
 } ksi_suppressed_replay_event;
+
+typedef struct ksi_synthetic_event_metadata {
+    uint64_t extra_info;
+    bool suppress;
+    bool found;
+} ksi_synthetic_event_metadata;
 
 typedef struct ksi_linux_tracked_device {
     char path[PATH_MAX];
@@ -59,10 +67,27 @@ typedef struct ksi_linux_tracked_device {
     bool keyboard_candidate;
     bool mouse_candidate;
     bool injected_source;
+    bool grab_deferred;
+    unsigned long physical_down_keys[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
+    unsigned long deferred_down_keys[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
     bool has_pending_rel;
     int32_t pending_rel_x;
     int32_t pending_rel_y;
     uint64_t pending_rel_time_ms;
+    uint64_t pending_rel_extra_info;
+    bool has_pending_abs;
+    int32_t pending_abs_x;
+    int32_t pending_abs_y;
+    int32_t current_abs_x;
+    int32_t current_abs_y;
+    int32_t current_abs_x_raw;
+    int32_t current_abs_y_raw;
+    int32_t abs_x_min;
+    int32_t abs_x_max;
+    int32_t abs_y_min;
+    int32_t abs_y_max;
+    uint64_t pending_abs_time_ms;
+    uint64_t pending_abs_extra_info;
 } ksi_linux_tracked_device;
 
 static ksi_linux_tracked_device tracked_devices[KSI_MAX_TRACKED_DEVICES];
@@ -74,11 +99,32 @@ static struct udev_monitor *udev_monitor;
 static uint32_t next_device_id = 1;
 static ksi_hook_event_callback hook_event_callback;
 static void *hook_event_context;
-static bool grab_enabled;
+static uint32_t grab_hook_mask;
 
 static bool test_bit(const unsigned long *bits, int bit)
 {
     return (bits[KSI_BIT_WORD((size_t)bit)] & KSI_BIT_MASK((size_t)bit)) != 0;
+}
+
+static void clear_bit(unsigned long *bits, int bit)
+{
+    bits[KSI_BIT_WORD((size_t)bit)] &= ~KSI_BIT_MASK((size_t)bit);
+}
+
+static void set_bit(unsigned long *bits, int bit)
+{
+    bits[KSI_BIT_WORD((size_t)bit)] |= KSI_BIT_MASK((size_t)bit);
+}
+
+static bool any_bit_set(const unsigned long *bits, size_t length)
+{
+    for (size_t i = 0; i < length; i++) {
+        if (bits[i] != 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static bool has_any_key_range(const unsigned long *key_bits, int first, int last)
@@ -123,13 +169,18 @@ static bool is_keysharp_synth_device_identity(
     uint16_t vendor,
     uint16_t product)
 {
-    if (name != NULL && strcmp(name, KSI_SYNTH_DEVICE_NAME) == 0) {
+    if (name != NULL
+        && (strcmp(name, KSI_SYNTH_DEVICE_NAME) == 0
+            || strcmp(name, KSI_SYNTH_ABS_DEVICE_NAME) == 0)) {
         return true;
     }
 
-    return bustype == KSI_SYNTH_DEVICE_BUSTYPE
-        && vendor == KSI_SYNTH_DEVICE_VENDOR
-        && product == KSI_SYNTH_DEVICE_PRODUCT;
+    if (bustype != KSI_SYNTH_DEVICE_BUSTYPE || vendor != KSI_SYNTH_DEVICE_VENDOR) {
+        return false;
+    }
+
+    return product == KSI_SYNTH_DEVICE_PRODUCT
+        || product == KSI_SYNTH_ABS_DEVICE_PRODUCT;
 }
 
 static void set_cloexec(int fd)
@@ -315,6 +366,10 @@ static void close_tracked_device(ksi_linux_tracked_device *device)
         close(device->fd);
         device->fd = -1;
     }
+
+    device->grab_deferred = false;
+    memset(device->physical_down_keys, 0, sizeof(device->physical_down_keys));
+    memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
 }
 
 static int open_tracked_device(ksi_linux_tracked_device *device)
@@ -345,16 +400,98 @@ static int open_tracked_device(ksi_linux_tracked_device *device)
     return 0;
 }
 
+static int scale_abs_axis(int32_t value, int32_t minimum, int32_t maximum)
+{
+    int64_t numerator;
+    int64_t denominator;
+
+    if (maximum <= minimum) {
+        return value;
+    }
+
+    if (value < minimum) {
+        value = minimum;
+    } else if (value > maximum) {
+        value = maximum;
+    }
+
+    numerator = (int64_t)(value - minimum) * 65535;
+    denominator = (int64_t)maximum - minimum;
+    return (int32_t)(numerator / denominator);
+}
+
+static void update_absolute_axis_ranges(ksi_linux_tracked_device *device)
+{
+    const struct input_absinfo *abs_x;
+    const struct input_absinfo *abs_y;
+
+    device->abs_x_min = 0;
+    device->abs_x_max = 65535;
+    device->abs_y_min = 0;
+    device->abs_y_max = 65535;
+    device->current_abs_x = 0;
+    device->current_abs_y = 0;
+    device->current_abs_x_raw = 0;
+    device->current_abs_y_raw = 0;
+
+    if (device->evdev == NULL) {
+        return;
+    }
+
+    abs_x = libevdev_get_abs_info(device->evdev, ABS_X);
+    abs_y = libevdev_get_abs_info(device->evdev, ABS_Y);
+
+    if (abs_x != NULL) {
+        device->abs_x_min = abs_x->minimum;
+        device->abs_x_max = abs_x->maximum;
+        device->current_abs_x_raw = abs_x->value;
+        device->current_abs_x = scale_abs_axis(abs_x->value, device->abs_x_min, device->abs_x_max);
+    }
+
+    if (abs_y != NULL) {
+        device->abs_y_min = abs_y->minimum;
+        device->abs_y_max = abs_y->maximum;
+        device->current_abs_y_raw = abs_y->value;
+        device->current_abs_y = scale_abs_axis(abs_y->value, device->abs_y_min, device->abs_y_max);
+    }
+}
+
 static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
 {
     int value = enabled ? 1 : 0;
 
-    if (device->fd < 0 || device->grabbed == enabled) {
+    if (device->fd < 0) {
+        device->grab_deferred = false;
+        memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
         return 0;
     }
 
     if (device->injected_source) {
+        device->grab_deferred = false;
+        memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
         return 0;
+    }
+
+    if (!enabled) {
+        device->grab_deferred = false;
+        memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
+
+        if (!device->grabbed) {
+            return 0;
+        }
+    } else if (device->grabbed) {
+        return 0;
+    }
+
+    if (enabled && device->keyboard_candidate) {
+        memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
+        memcpy(device->deferred_down_keys, device->physical_down_keys, sizeof(device->deferred_down_keys));
+
+        if (any_bit_set(device->deferred_down_keys, sizeof(device->deferred_down_keys) / sizeof(device->deferred_down_keys[0]))) {
+            device->grab_deferred = true;
+            printf("inputd: deferred grab %s until active keys are released\n", device->path);
+            return 0;
+        }
     }
 
     if (ioctl(device->fd, EVIOCGRAB, value) != 0) {
@@ -367,8 +504,63 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
     }
 
     device->grabbed = enabled;
+    device->grab_deferred = false;
+    memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
+
     printf("inputd: %s %s\n", enabled ? "grabbed" : "ungrabbed", device->path);
     return 0;
+}
+
+static bool process_deferred_grab_key_event(ksi_linux_tracked_device *device, const struct input_event *event)
+{
+    if (device == NULL
+        || event == NULL
+        || !device->grab_deferred
+        || event->type != EV_KEY
+        || event->code > KEY_MAX
+        || event->code >= BTN_MOUSE) {
+        return false;
+    }
+
+    if (event->value == 0) {
+        clear_bit(device->deferred_down_keys, event->code);
+    } else {
+        set_bit(device->deferred_down_keys, event->code);
+    }
+
+    if (!any_bit_set(device->deferred_down_keys, sizeof(device->deferred_down_keys) / sizeof(device->deferred_down_keys[0]))) {
+        device->grab_deferred = false;
+        (void)set_device_grab(device, true);
+    }
+
+    return true;
+}
+
+static void update_physical_key_state(ksi_linux_tracked_device *device, const struct input_event *event)
+{
+    if (device == NULL
+        || event == NULL
+        || event->type != EV_KEY
+        || event->code > KEY_MAX
+        || event->code >= BTN_MOUSE) {
+        return;
+    }
+
+    if (event->value == 0) {
+        clear_bit(device->physical_down_keys, event->code);
+    } else {
+        set_bit(device->physical_down_keys, event->code);
+    }
+}
+
+static bool should_grab_device_for_hook_mask(const ksi_linux_tracked_device *device, uint32_t hook_mask)
+{
+    if (device == NULL || device->injected_source) {
+        return false;
+    }
+
+    return ((hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0 && device->keyboard_candidate)
+        || ((hook_mask & KSI_CAP_HOOK_MOUSE) != 0 && device->mouse_candidate);
 }
 
 static void track_device(const ksi_linux_device_info *info, const char *reason)
@@ -405,9 +597,11 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
         if (open_tracked_device(target) != 0) {
             return;
         }
+
+        update_absolute_axis_ranges(target);
     }
 
-    if (grab_enabled && !target->injected_source) {
+    if (should_grab_device_for_hook_mask(target, grab_hook_mask)) {
         (void)set_device_grab(target, true);
     }
 
@@ -540,7 +734,7 @@ int ksi_linux_devices_start(void)
 {
     tracked_device_count = 0;
     suppressed_replay_event_count = 0;
-    grab_enabled = false;
+    grab_hook_mask = 0;
     scan_existing_devices();
 
     if (start_udev_monitor() != 0) {
@@ -571,34 +765,47 @@ void ksi_linux_devices_stop(void)
     suppressed_replay_event_count = 0;
 }
 
-int ksi_linux_devices_set_grab_enabled(bool enabled)
+bool ksi_linux_devices_has_candidates(void)
+{
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        if (tracked_devices[i].keyboard_candidate || tracked_devices[i].mouse_candidate) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)
 {
     int result = 0;
 
-    if (grab_enabled == enabled) {
+    if (grab_hook_mask == hook_mask) {
         return 0;
     }
 
     for (size_t i = 0; i < tracked_device_count; i++) {
-        if (set_device_grab(&tracked_devices[i], enabled) != 0) {
+        bool should_grab = should_grab_device_for_hook_mask(&tracked_devices[i], hook_mask);
+
+        if (set_device_grab(&tracked_devices[i], should_grab) != 0) {
             result = -1;
         }
     }
 
-    if (result != 0 && enabled) {
+    if (result != 0 && hook_mask != 0) {
         for (size_t i = 0; i < tracked_device_count; i++) {
             (void)set_device_grab(&tracked_devices[i], false);
         }
     }
 
     if (result == 0) {
-        grab_enabled = enabled;
+        grab_hook_mask = hook_mask;
     }
 
     return result;
 }
 
-void ksi_linux_devices_suppress_next_replay_event(uint16_t type, uint16_t code, int32_t value)
+void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int32_t value, uint64_t extra_info, bool suppress)
 {
     ksi_suppressed_replay_event *entry;
 
@@ -618,24 +825,36 @@ void ksi_linux_devices_suppress_next_replay_event(uint16_t type, uint16_t code, 
     entry->type = type;
     entry->code = code;
     entry->value = value;
+    entry->extra_info = extra_info;
+    entry->suppress = suppress;
 }
 
-static bool consume_suppressed_replay_event(const struct input_event *event)
+static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struct input_event *event)
 {
+    ksi_synthetic_event_metadata metadata = {
+        .extra_info = 0,
+        .suppress = false,
+        .found = false,
+    };
+
     for (size_t i = 0; i < suppressed_replay_event_count; i++) {
         if (suppressed_replay_events[i].type == event->type
             && suppressed_replay_events[i].code == event->code
             && suppressed_replay_events[i].value == event->value) {
+            metadata.extra_info = suppressed_replay_events[i].extra_info;
+            metadata.suppress = suppressed_replay_events[i].suppress;
+            metadata.found = true;
+
             for (size_t j = i; j + 1 < suppressed_replay_event_count; j++) {
                 suppressed_replay_events[j] = suppressed_replay_events[j + 1];
             }
 
             suppressed_replay_event_count--;
-            return true;
+            return metadata;
         }
     }
 
-    return false;
+    return metadata;
 }
 
 static nfds_t add_poll_fd(struct pollfd *fds, nfds_t max_fds, nfds_t count, int fd)
@@ -673,15 +892,77 @@ static uint64_t event_time_ms(const struct input_event *event)
 
 static uint32_t evdev_key_to_vk(unsigned int code)
 {
-    if (code >= KEY_A && code <= KEY_Z) {
-        return 0x41u + (uint32_t)(code - KEY_A);
-    }
-
-    if (code >= KEY_1 && code <= KEY_9) {
-        return 0x31u + (uint32_t)(code - KEY_1);
-    }
-
     switch (code) {
+        case KEY_A:
+            return 0x41u;
+        case KEY_B:
+            return 0x42u;
+        case KEY_C:
+            return 0x43u;
+        case KEY_D:
+            return 0x44u;
+        case KEY_E:
+            return 0x45u;
+        case KEY_F:
+            return 0x46u;
+        case KEY_G:
+            return 0x47u;
+        case KEY_H:
+            return 0x48u;
+        case KEY_I:
+            return 0x49u;
+        case KEY_J:
+            return 0x4Au;
+        case KEY_K:
+            return 0x4Bu;
+        case KEY_L:
+            return 0x4Cu;
+        case KEY_M:
+            return 0x4Du;
+        case KEY_N:
+            return 0x4Eu;
+        case KEY_O:
+            return 0x4Fu;
+        case KEY_P:
+            return 0x50u;
+        case KEY_Q:
+            return 0x51u;
+        case KEY_R:
+            return 0x52u;
+        case KEY_S:
+            return 0x53u;
+        case KEY_T:
+            return 0x54u;
+        case KEY_U:
+            return 0x55u;
+        case KEY_V:
+            return 0x56u;
+        case KEY_W:
+            return 0x57u;
+        case KEY_X:
+            return 0x58u;
+        case KEY_Y:
+            return 0x59u;
+        case KEY_Z:
+            return 0x5Au;
+        case KEY_1:
+            return 0x31u;
+        case KEY_2:
+            return 0x32u;
+        case KEY_3:
+            return 0x33u;
+        case KEY_4:
+            return 0x34u;
+        case KEY_5:
+            return 0x35u;
+        case KEY_6:
+            return 0x36u;
+        case KEY_7:
+            return 0x37u;
+        case KEY_8:
+            return 0x38u;
+        case KEY_9:
+            return 0x39u;
         case KEY_0:
             return 0x30u;
         case KEY_ESC:
@@ -744,16 +1025,25 @@ static uint32_t evdev_key_to_vk(unsigned int code)
         case KEY_RIGHT:
             return 0x27u;
         case KEY_KP0:
+            return 0x60u;
         case KEY_KP1:
+            return 0x61u;
         case KEY_KP2:
+            return 0x62u;
         case KEY_KP3:
+            return 0x63u;
         case KEY_KP4:
+            return 0x64u;
         case KEY_KP5:
+            return 0x65u;
         case KEY_KP6:
+            return 0x66u;
         case KEY_KP7:
+            return 0x67u;
         case KEY_KP8:
+            return 0x68u;
         case KEY_KP9:
-            return 0x60u + (uint32_t)(code - KEY_KP0);
+            return 0x69u;
         case KEY_KPASTERISK:
             return 0x6Au;
         case KEY_KPPLUS:
@@ -765,31 +1055,53 @@ static uint32_t evdev_key_to_vk(unsigned int code)
         case KEY_KPSLASH:
             return 0x6Fu;
         case KEY_F1:
+            return 0x70u;
         case KEY_F2:
+            return 0x71u;
         case KEY_F3:
+            return 0x72u;
         case KEY_F4:
+            return 0x73u;
         case KEY_F5:
+            return 0x74u;
         case KEY_F6:
+            return 0x75u;
         case KEY_F7:
+            return 0x76u;
         case KEY_F8:
+            return 0x77u;
         case KEY_F9:
+            return 0x78u;
         case KEY_F10:
+            return 0x79u;
         case KEY_F11:
+            return 0x7Au;
         case KEY_F12:
-            return 0x70u + (uint32_t)(code - KEY_F1);
+            return 0x7Bu;
         case KEY_F13:
+            return 0x7Cu;
         case KEY_F14:
+            return 0x7Du;
         case KEY_F15:
+            return 0x7Eu;
         case KEY_F16:
+            return 0x7Fu;
         case KEY_F17:
+            return 0x80u;
         case KEY_F18:
+            return 0x81u;
         case KEY_F19:
+            return 0x82u;
         case KEY_F20:
+            return 0x83u;
         case KEY_F21:
+            return 0x84u;
         case KEY_F22:
+            return 0x85u;
         case KEY_F23:
+            return 0x86u;
         case KEY_F24:
-            return 0x7Cu + (uint32_t)(code - KEY_F13);
+            return 0x87u;
         case KEY_SEMICOLON:
             return 0xBAu;
         case KEY_EQUAL:
@@ -906,7 +1218,7 @@ static uint32_t evdev_button_mouse_data(unsigned int code)
     return 0u;
 }
 
-static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, const struct input_event *event)
+static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
     ksi_keyboard_hook_event hook_event = {
         .message = evdev_key_to_message(event),
@@ -914,7 +1226,7 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
         .scan_code = (uint32_t)event->code,
         .flags = evdev_key_to_flags(event) | keyboard_injected_flags(device),
         .time_ms = event_time_ms(event),
-        .extra_info = 0,
+        .extra_info = extra_info,
         .device_id = device->device_id,
         .native_code = (uint32_t)event->code,
     };
@@ -938,7 +1250,7 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
     }
 }
 
-static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, const struct input_event *event)
+static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
     uint32_t message;
 
@@ -953,7 +1265,7 @@ static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, 
         .mouse_data = evdev_button_mouse_data((unsigned int)event->code),
         .flags = mouse_injected_flags(device),
         .time_ms = event_time_ms(event),
-        .extra_info = 0,
+        .extra_info = extra_info,
         .device_id = device->device_id,
         .native_code = (uint32_t)event->code,
     };
@@ -978,39 +1290,71 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
 {
     ksi_mouse_hook_event hook_event;
 
-    if (!device->has_pending_rel) {
-        return;
+    if (device->has_pending_rel) {
+        memset(&hook_event, 0, sizeof(hook_event));
+        hook_event.message = KSI_WM_MOUSEMOVE;
+        hook_event.x = device->pending_rel_x;
+        hook_event.y = device->pending_rel_y;
+        hook_event.flags = mouse_injected_flags(device);
+        hook_event.time_ms = device->pending_rel_time_ms;
+        hook_event.extra_info = device->pending_rel_extra_info;
+        hook_event.device_id = device->device_id;
+        hook_event.native_code = REL_X;
+
+        printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
+            hook_event.x,
+            hook_event.y,
+            (unsigned long long)hook_event.time_ms,
+            device->name);
+
+        device->has_pending_rel = false;
+        device->pending_rel_x = 0;
+        device->pending_rel_y = 0;
+        device->pending_rel_time_ms = 0;
+        device->pending_rel_extra_info = 0;
+
+        if (hook_event_callback != NULL) {
+            hook_event_callback(
+                hook_event_context,
+                KSI_HOOK_MOUSE_LL,
+                &hook_event,
+                sizeof(hook_event));
+        }
     }
 
-    memset(&hook_event, 0, sizeof(hook_event));
-    hook_event.message = KSI_WM_MOUSEMOVE;
-    hook_event.x = device->pending_rel_x;
-    hook_event.y = device->pending_rel_y;
-    hook_event.flags = mouse_injected_flags(device);
-    hook_event.time_ms = device->pending_rel_time_ms;
-    hook_event.device_id = device->device_id;
+    if (device->has_pending_abs) {
+        memset(&hook_event, 0, sizeof(hook_event));
+        hook_event.message = KSI_WM_MOUSEMOVE;
+        hook_event.x = device->pending_abs_x;
+        hook_event.y = device->pending_abs_y;
+        hook_event.mouse_data = KSI_MOUSEEVENTF_ABSOLUTE;
+        hook_event.flags = mouse_injected_flags(device);
+        hook_event.time_ms = device->pending_abs_time_ms;
+        hook_event.extra_info = device->pending_abs_extra_info;
+        hook_event.device_id = device->device_id;
+        hook_event.native_code = ABS_X;
 
-    printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
-        hook_event.x,
-        hook_event.y,
-        (unsigned long long)hook_event.time_ms,
-        device->name);
+        printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
+            hook_event.x,
+            hook_event.y,
+            (unsigned long long)hook_event.time_ms,
+            device->name);
 
-    device->has_pending_rel = false;
-    device->pending_rel_x = 0;
-    device->pending_rel_y = 0;
-    device->pending_rel_time_ms = 0;
+        device->has_pending_abs = false;
+        device->pending_abs_time_ms = 0;
+        device->pending_abs_extra_info = 0;
 
-    if (hook_event_callback != NULL) {
-        hook_event_callback(
-            hook_event_context,
-            KSI_HOOK_MOUSE_LL,
-            &hook_event,
-            sizeof(hook_event));
+        if (hook_event_callback != NULL) {
+            hook_event_callback(
+                hook_event_context,
+                KSI_HOOK_MOUSE_LL,
+                &hook_event,
+                sizeof(hook_event));
+        }
     }
 }
 
-static void queue_relative_motion(ksi_linux_tracked_device *device, const struct input_event *event)
+static void queue_relative_motion(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
     if (event->code == REL_X) {
         device->pending_rel_x += event->value;
@@ -1019,13 +1363,14 @@ static void queue_relative_motion(ksi_linux_tracked_device *device, const struct
     }
 
     device->pending_rel_time_ms = event_time_ms(event);
+    device->pending_rel_extra_info = extra_info;
     device->has_pending_rel = true;
 }
 
-static void dispatch_relative_event(ksi_linux_tracked_device *device, const struct input_event *event)
+static void dispatch_relative_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
     if (event->code == REL_X || event->code == REL_Y) {
-        queue_relative_motion(device, event);
+        queue_relative_motion(device, event, extra_info);
         return;
     }
 
@@ -1037,7 +1382,7 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
             .mouse_data = (uint32_t)((int32_t)event->value * 120) << 16,
             .flags = mouse_injected_flags(device),
             .time_ms = event_time_ms(event),
-            .extra_info = 0,
+            .extra_info = extra_info,
             .device_id = device->device_id,
             .native_code = (uint32_t)event->code,
         };
@@ -1061,10 +1406,55 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
     }
 }
 
+static void queue_absolute_motion(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+{
+    int32_t previous_abs_x = device->current_abs_x;
+    int32_t previous_abs_y = device->current_abs_y;
+
+    if (event->code == ABS_X) {
+        device->current_abs_x_raw = event->value;
+        device->current_abs_x = scale_abs_axis(event->value, device->abs_x_min, device->abs_x_max);
+    } else {
+        device->current_abs_y_raw = event->value;
+        device->current_abs_y = scale_abs_axis(event->value, device->abs_y_min, device->abs_y_max);
+    }
+
+    if (device->current_abs_x == previous_abs_x && device->current_abs_y == previous_abs_y) {
+        return;
+    }
+
+    /* Report the scaled [0, 65535] absolute position.  The replay path sends
+     * this as EV_ABS on the dedicated absolute uinput device whose ABS range
+     * is also [0, 65535], so the compositor maps it correctly to screen
+     * coordinates regardless of the physical device's native range. */
+    device->pending_abs_x = device->current_abs_x;
+    device->pending_abs_y = device->current_abs_y;
+    device->pending_abs_time_ms = event_time_ms(event);
+    device->pending_abs_extra_info = extra_info;
+    device->has_pending_abs = true;
+}
+
+static void dispatch_absolute_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
+{
+    if (event->code == ABS_X || event->code == ABS_Y) {
+        queue_absolute_motion(device, event, extra_info);
+    }
+}
+
 static void handle_input_event(ksi_linux_tracked_device *device, const struct input_event *event)
 {
-    if (device->injected_source && consume_suppressed_replay_event(event)) {
-        return;
+    uint64_t extra_info = 0;
+
+    if (device->injected_source) {
+        ksi_synthetic_event_metadata metadata = consume_synthetic_event_metadata(event);
+
+        if (metadata.suppress) {
+            return;
+        }
+
+        if (metadata.found) {
+            extra_info = metadata.extra_info;
+        }
     }
 
     if (event->type == EV_SYN) {
@@ -1073,14 +1463,21 @@ static void handle_input_event(ksi_linux_tracked_device *device, const struct in
         }
     } else if (event->type == EV_KEY) {
         dispatch_pending_mouse_move(device);
+        update_physical_key_state(device, event);
+
+        if (process_deferred_grab_key_event(device, event)) {
+            return;
+        }
 
         if (event->code >= BTN_MOUSE) {
-            dispatch_mouse_button_event(device, event);
+            dispatch_mouse_button_event(device, event, extra_info);
         } else {
-            dispatch_keyboard_event(device, event);
+            dispatch_keyboard_event(device, event, extra_info);
         }
     } else if (event->type == EV_REL) {
-        dispatch_relative_event(device, event);
+        dispatch_relative_event(device, event, extra_info);
+    } else if (event->type == EV_ABS) {
+        dispatch_absolute_event(device, event, extra_info);
     }
 }
 

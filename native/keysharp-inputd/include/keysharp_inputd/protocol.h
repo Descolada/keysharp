@@ -12,6 +12,10 @@
 #define KSI_SYNTH_DEVICE_VENDOR 0x4b53u
 #define KSI_SYNTH_DEVICE_PRODUCT 0x0001u
 #define KSI_SYNTH_DEVICE_VERSION 1u
+
+/* Second synthetic device: pure-absolute pointer for absolute mouse moves. */
+#define KSI_SYNTH_ABS_DEVICE_NAME "Keysharp Virtual Pointer"
+#define KSI_SYNTH_ABS_DEVICE_PRODUCT 0x0002u
 #define KSI_XBUTTON1 0x0001u
 #define KSI_XBUTTON2 0x0002u
 
@@ -181,9 +185,12 @@ typedef struct ksi_client_hello_result_payload {
     uint32_t granted_capabilities;
 } ksi_client_hello_result_payload;
 
+/* Flags for ksi_synthesize_input_payload.flags */
+#define KSI_SYNTH_FLAG_BYPASS_HOOK 0x00000001u  /* suppress events from the hook chain */
+
 typedef struct ksi_synthesize_input_payload {
     uint32_t count;
-    uint32_t reserved;
+    uint32_t flags;
     ksi_input inputs[];
 } ksi_synthesize_input_payload;
 

@@ -71,14 +71,75 @@ static int build_default_socket_path(char *buffer, size_t buffer_size)
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr,
-        "Usage: %s [--foreground] [--socket PATH] [--version]\n"
-        "\n"
-        "Options:\n"
-        "  --foreground   Run in the foreground. This is currently the default.\n"
-        "  --socket PATH  Unix domain socket path. Default: $XDG_RUNTIME_DIR/keysharp/keysharp-inputd.sock\n"
-        "  --version      Print version information.\n",
-        argv0);
+	fprintf(stderr,
+		"Usage: %s [--foreground] [--socket PATH] [--install-input-access] [--version]\n"
+		"\n"
+		"Options:\n"
+		"  --foreground   Run in the foreground. This is currently the default.\n"
+		"  --socket PATH  Unix domain socket path. Default: $XDG_RUNTIME_DIR/keysharp/keysharp-inputd.sock\n"
+		"  --install-input-access\n"
+		"                Install udev rules and load uinput. Must be run as root by the Keysharp installer.\n"
+		"  --version      Print version information.\n",
+		argv0);
+}
+
+static int install_input_access(void)
+{
+	const char *rules_path = "/etc/udev/rules.d/99-keysharp-inputd.rules";
+	const char *modules_path = "/etc/modules-load.d/uinput.conf";
+	FILE *rules;
+	FILE *modules;
+	int status = 0;
+
+	if (geteuid() != 0) {
+		fprintf(stderr, "--install-input-access must be run as root\n");
+		return 1;
+	}
+
+	rules = fopen(rules_path, "w");
+
+	if (rules == NULL) {
+		fprintf(stderr, "failed to write %s: %s\n", rules_path, strerror(errno));
+		return 1;
+	}
+
+	fprintf(rules, "KERNEL==\"event*\", SUBSYSTEM==\"input\", GROUP=\"input\", MODE=\"0660\"\\n");
+	fprintf(rules, "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"\\n");
+	fclose(rules);
+
+	modules = fopen(modules_path, "w");
+
+	if (modules == NULL) {
+		fprintf(stderr, "failed to write %s: %s\n", modules_path, strerror(errno));
+		status = 1;
+	} else {
+		fprintf(modules, "uinput\n");
+		fclose(modules);
+	}
+
+	if (system("modprobe uinput") != 0) {
+		fprintf(stderr, "warning: modprobe uinput failed\n");
+		status = 1;
+	}
+
+	if (system("udevadm control --reload-rules") != 0) {
+		fprintf(stderr, "warning: udevadm control --reload-rules failed\n");
+		status = 1;
+	}
+
+	if (system("udevadm trigger --subsystem-match=input") != 0) {
+		fprintf(stderr, "warning: udevadm trigger --subsystem-match=input failed\n");
+		status = 1;
+	}
+
+	if (system("udevadm trigger --subsystem-match=misc") != 0) {
+		fprintf(stderr, "warning: udevadm trigger --subsystem-match=misc failed\n");
+		status = 1;
+	}
+
+	puts("keysharp-inputd input access setup complete.");
+	puts("Ensure users who run Keysharp are in the 'input' group, then log out and back in.");
+	return status;
 }
 
 int main(int argc, char **argv)
@@ -95,15 +156,17 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--foreground") == 0) {
             options.foreground = true;
-        } else if (strcmp(argv[i], "--socket") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--socket requires a path\n");
-                return 2;
-            }
+		} else if (strcmp(argv[i], "--socket") == 0) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "--socket requires a path\n");
+				return 2;
+			}
 
-            options.socket_path = argv[++i];
-            socket_path_overridden = true;
-        } else if (strcmp(argv[i], "--version") == 0) {
+			options.socket_path = argv[++i];
+			socket_path_overridden = true;
+		} else if (strcmp(argv[i], "--install-input-access") == 0) {
+			return install_input_access();
+		} else if (strcmp(argv[i], "--version") == 0) {
             puts("keysharp-inputd 0.1.0");
             puts("protocol " KSI_PROTOCOL_NAME " 0.1");
             return 0;

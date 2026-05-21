@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using Keysharp.Internals.Input.Linux;
 #if LINUX
 using Keysharp.Internals.Input.Mouse;
 using Keysharp.Internals.Window.Linux.Proxies;
@@ -7,6 +8,7 @@ using SharpHook.Data;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
+using static Keysharp.Internals.Input.Unix.SharpHookKeyMapper;
 using static Keysharp.Internals.Window.Linux.X11.Xlib;
 using static Keysharp.Internals.Platform.Unix.PlatformManager;
 
@@ -26,6 +28,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		internal LinuxHookThread()
 		{
 			inputState = new LinuxX11InputState(physicalKeyState, logicalKeyState);
+
+			if (UseInputdScanCodes)
+				ConfigureInputdScanCodeNames();
 		}
 
 		protected override long SyntheticEventTimeoutMs => 250;
@@ -89,6 +94,21 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					temporarilyUngrabbedKeycodes.Clear();
 					return;
 				}
+
+			if (UsingInputdHooks)
+			{
+				dynamicPrefixGrabs.Clear();
+				ApplyGrabDiff(activeKeyGrabs, newKeyGrabs,
+					pair => _ = XDisplay.Default.XUngrabKey(pair.Item1, pair.Item2),
+					pair => _ = XDisplay.Default.XGrabKey(pair.Item1, pair.Item2, (nint)XDisplay.Default.Root.ID, true, GrabModeAsync, GrabModeAsync));
+				ApplyGrabDiff(activeButtonGrabs, newButtonGrabs,
+					pair => _ = XDisplay.Default.XUngrabButton(pair.Item1, pair.Item2, (nint)XDisplay.Default.Root.ID),
+					pair => _ = XDisplay.Default.XGrabButton(pair.Item1, pair.Item2, (nint)XDisplay.Default.Root.ID, true,
+						(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero));
+				temporarilyUngrabbedKeycodes.Clear();
+				XDisplay.Default.XSync(false);
+				return;
+			}
 
 			foreach (var entry in linuxHotkeys)
 			{
@@ -725,9 +745,20 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		internal override bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
 		{
+			// The inputd path keeps indicatorSnapshotValid=true by updating it from the
+			// LED flags embedded in every keyboard hook event (UpdateIndicatorSnapshotFromInputd).
+			// The libuiohook path keeps it current via UpdateIndicatorSnapshotFromMask.
+			// Either way the base implementation returns the snapshot when it is valid.
 			if (base.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn))
 				return true;
 
+			// Snapshot not yet populated (before the first keyboard event).  Query the
+			// daemon via the dedicated query connection so we don't race with the hook
+			// reader thread that owns the main client socket.
+			if (KeysharpInputdManager.TryGetIndicatorState(out capsOn, out numOn, out scrollOn))
+				return true;
+
+			// X11 fallback for when the daemon is unavailable.
 			capsOn = numOn = scrollOn = false;
 			var display = XDisplay.Default.Handle;
 
@@ -753,6 +784,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		protected override uint MapScToVkPlatform(uint sc)
 		{
+			if (UseInputdScanCodes)
+				return MapInputdScanCodeToVk(sc);
+
 			if (!IsX11Available || sc == 0)
 				return 0;
 
@@ -765,8 +799,85 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		protected override uint MapVkToScPlatform(uint vk, bool returnSecondary = false)
 		{
+			if (UseInputdScanCodes)
+				return MapVkToInputdScanCode(vk, returnSecondary);
+
 			return ResolveVkToXKeycode(vk, out var xcode, returnSecondary) ? xcode : 0;
 		}
+
+		private static bool UseInputdScanCodes => !KeysharpInputdManager.UseLegacyX11Input;
+
+		private void ConfigureInputdScanCodeNames()
+		{
+			keyToSc["NumpadEnter"] = 96u;
+			keyToSc["Delete"] = keyToSc["Del"] = 111u;
+			keyToSc["Insert"] = keyToSc["Ins"] = 110u;
+			keyToSc["Up"] = 103u;
+			keyToSc["Down"] = 108u;
+			keyToSc["Left"] = 105u;
+			keyToSc["Right"] = 106u;
+			keyToSc["Home"] = 102u;
+			keyToSc["End"] = 107u;
+			keyToSc["PgUp"] = 104u;
+			keyToSc["PgDn"] = 109u;
+		}
+
+		private static uint MapVkToInputdScanCode(uint vk, bool returnSecondary)
+		{
+			return vk switch
+			{
+				VK_RETURN => 28u,
+				VK_INSERT => 110u,
+				VK_DELETE => 111u,
+				VK_HOME => 102u,
+				VK_END => 107u,
+				VK_PRIOR => 104u,
+				VK_NEXT => 109u,
+				VK_UP => 103u,
+				VK_DOWN => 108u,
+				VK_LEFT => 105u,
+				VK_RIGHT => 106u,
+				VK_LCONTROL or VK_CONTROL => 29u,
+				VK_RCONTROL => 97u,
+				VK_LSHIFT or VK_SHIFT => 42u,
+				VK_RSHIFT => 54u,
+				VK_LMENU or VK_MENU => 56u,
+				VK_RMENU => 100u,
+				VK_LWIN => 125u,
+				VK_RWIN => 126u,
+				_ => KeyCodeToInputdScanCode(VkToKeyCode(vk))
+			};
+		}
+
+		private static uint MapInputdScanCodeToVk(uint sc)
+		{
+			return sc switch
+			{
+				28u or 96u => VK_RETURN,
+				110u => VK_INSERT,
+				111u => VK_DELETE,
+				102u => VK_HOME,
+				107u => VK_END,
+				104u => VK_PRIOR,
+				109u => VK_NEXT,
+				103u => VK_UP,
+				108u => VK_DOWN,
+				105u => VK_LEFT,
+				106u => VK_RIGHT,
+				29u => VK_LCONTROL,
+				97u => VK_RCONTROL,
+				42u => VK_LSHIFT,
+				54u => VK_RSHIFT,
+				56u => VK_LMENU,
+				100u => VK_RMENU,
+				125u => VK_LWIN,
+				126u => VK_RWIN,
+				_ => KeyCodeToVk((KeyCode)sc)
+			};
+		}
+
+		private static uint KeyCodeToInputdScanCode(KeyCode keyCode) =>
+			keyCode == KeyCode.VcUndefined ? 0u : (uint)keyCode;
 
 		internal override void RefreshPlatformKeyGrabs() => RebuildPlatformHotkeyGrabs();
 

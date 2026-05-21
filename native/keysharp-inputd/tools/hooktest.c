@@ -7,12 +7,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
-#define DEFAULT_SOCKET_PATH "/tmp/keysharp-inputd.sock"
+#define DEFAULT_SOCKET_PATH "/run/keysharp-inputd/keysharp-inputd.sock"
 #define DEFAULT_TARGET_VK 0x7Bu
 #define DEFAULT_MODIFY_VK 0x41u
 
@@ -104,17 +103,6 @@ static int connect_socket(const char *socket_path)
     if (fd < 0) {
         fprintf(stderr, "socket failed: %s\n", strerror(errno));
         return -1;
-    }
-
-    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
-        fprintf(stderr, "warning: failed to set PR_SET_DUMPABLE: %s\n", strerror(errno));
-    }
-
-    /* With Yama ptrace_scope >= 1, PR_SET_DUMPABLE alone is not enough for
-     * a non-parent process to read /proc/<pid>/exe. Set PR_SET_PTRACER_ANY
-     * so the daemon (same UID) can hash our binary for trust verification. */
-    if (prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0) != 0 && errno != EINVAL) {
-        fprintf(stderr, "warning: failed to set PR_SET_PTRACER_ANY: %s\n", strerror(errno));
     }
 
     memset(&address, 0, sizeof(address));
@@ -703,7 +691,7 @@ static void print_usage(const char *argv0)
         "Usage: %s [SOCKET] [options]\n"
         "\n"
         "Options:\n"
-        "  --socket PATH       Connect to PATH. Default: /tmp/keysharp-inputd.sock\n"
+        "  --socket PATH       Connect to PATH. Default: /run/keysharp-inputd/keysharp-inputd.sock\n"
         "  --keyboard          Subscribe keyboard hook. Default when no hook is specified.\n"
         "  --mouse             Subscribe mouse hook.\n"
         "  --decision MODE     pass, block, or modify. Default: pass\n"

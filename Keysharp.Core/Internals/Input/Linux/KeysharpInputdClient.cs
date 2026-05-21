@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 
 #if LINUX
 namespace Keysharp.Internals.Input.Linux
@@ -11,16 +10,13 @@ namespace Keysharp.Internals.Input.Linux
 	internal sealed class KeysharpInputdClient : IDisposable
 	{
 		internal const string SocketEnvironmentVariable = "KEYSHARP_INPUTD_SOCKET";
-		internal const string DefaultSocketName = "keysharp-inputd.sock";
+		internal const string DefaultSocketPathValue = "/run/keysharp-inputd/keysharp-inputd.sock";
 
 		private const uint ProtocolMajor = 0;
 		private const uint ProtocolMinor = 1;
 		private const int HeaderSize = 24;
 		private const int MaxMessageSize = 65536;
 		private const int InputSize = 40;
-		private const int PrSetDumpable = 4;
-		private const int PrSetPtracer = 0x59616d61; // "Yama"
-		private const ulong PrSetPtracerAny = unchecked((ulong)-1L);
 
 		[Flags]
 		internal enum Capabilities : uint
@@ -44,6 +40,8 @@ namespace Keysharp.Internals.Input.Linux
 			SynthesizeInput = 20,
 			SynthesisResult = 21,
 			EmergencyPassthrough = 30,
+			GetIndicatorState    = 40,
+			IndicatorStateResult = 41,
 		}
 
 		internal enum HookType : uint
@@ -153,24 +151,12 @@ namespace Keysharp.Internals.Input.Linux
 				if (!string.IsNullOrWhiteSpace(configured))
 					return configured;
 
-				var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-
-				if (string.IsNullOrWhiteSpace(runtimeDir))
-					return "/tmp/keysharp-inputd.sock";
-
-				var dir = Path.Combine(runtimeDir, "keysharp");
-
-				// Create the directory if needed — XDG_RUNTIME_DIR itself exists but
-				// the keysharp subdirectory may not have been created yet.
-				try { Directory.CreateDirectory(dir); }
-				catch { /* fall through; connect will fail with a clear error */ }
-
-				return Path.Combine(dir, DefaultSocketName);
+				return DefaultSocketPathValue;
 			}
 		}
 
 		internal static KeysharpInputdClient Connect(
-			Capabilities requested = Capabilities.HookKeyboard | Capabilities.HookMouse | Capabilities.SynthKeyboard | Capabilities.SynthMouse,
+			Capabilities requested = Capabilities.None,
 			string socketPath = null)
 		{
 			var endpoint = new UnixDomainSocketEndPoint(socketPath ?? DefaultSocketPath);
@@ -178,10 +164,9 @@ namespace Keysharp.Internals.Input.Linux
 
 			try
 			{
-				AllowSameUserProcessInspection();
 				socket.Connect(endpoint);
 				var client = new KeysharpInputdClient(socket);
-				client.SendHello(requested);
+				client.RequestCapabilities(requested);
 				return client;
 			}
 			catch
@@ -256,6 +241,26 @@ namespace Keysharp.Internals.Input.Linux
 			EnsureStatus(response, MessageType.SynthesisResult, correlationId);
 		}
 
+		/// <summary>
+		/// Queries the daemon for the current keyboard indicator (lock key) state.
+		/// Must be called on a dedicated query connection, not on the hook-event socket.
+		/// </summary>
+		internal (bool CapsLock, bool NumLock, bool ScrollLock) GetIndicatorState()
+		{
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadFrame();
+
+			if (response.Type != MessageType.IndicatorStateResult || response.CorrelationId != correlationId)
+				throw new InvalidDataException(
+					$"Unexpected response to GetIndicatorState: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+
+			if (response.Payload.Length < 3)
+				return (false, false, false);
+
+			return (response.Payload[0] != 0, response.Payload[1] != 0, response.Payload[2] != 0);
+		}
+
 		internal HookEvent ReadHookEvent()
 		{
 			var frame = ReadFrame();
@@ -316,7 +321,22 @@ namespace Keysharp.Internals.Input.Linux
 			socket.Dispose();
 		}
 
-		private void SendHello(Capabilities requested)
+		internal bool TryRequestCapabilities(Capabilities requested, out int status)
+		{
+			var hello = ExchangeHello(requested);
+			status = hello.Status;
+			GrantedCapabilities = hello.Granted;
+			return status == 0 && (GrantedCapabilities & requested) == requested;
+		}
+
+		internal void RequestCapabilities(Capabilities requested)
+		{
+			if (!TryRequestCapabilities(requested, out var status))
+				throw new IOException(
+					$"keysharp-inputd hello failed with status {status}. Requested: {requested}. Granted: {GrantedCapabilities}.");
+		}
+
+		private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested)
 		{
 			Span<byte> payload = stackalloc byte[8];
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
@@ -333,11 +353,8 @@ namespace Keysharp.Internals.Input.Linux
 				throw new InvalidDataException($"Unexpected hello response size {response.Payload.Length}.");
 
 			var status = BinaryPrimitives.ReadInt32LittleEndian(response.Payload);
-
-			if (status != 0)
-				throw new IOException($"keysharp-inputd hello failed with status {status}.");
-
-			GrantedCapabilities = (Capabilities)BinaryPrimitives.ReadUInt32LittleEndian(response.Payload[4..]);
+			var granted = (Capabilities)BinaryPrimitives.ReadUInt32LittleEndian(response.Payload[4..]);
+			return (status, granted);
 		}
 
 		private ulong NextCorrelationId() => nextCorrelationId++;
@@ -491,21 +508,6 @@ namespace Keysharp.Internals.Input.Linux
 			if (disposed)
 				throw new ObjectDisposedException(nameof(KeysharpInputdClient));
 		}
-
-		private static void AllowSameUserProcessInspection()
-		{
-			// PR_SET_DUMPABLE=1 is required for /proc/<pid>/exe to be readable by other same-UID processes.
-			_ = prctl(PrSetDumpable, 1, 0, 0, 0);
-
-			// With Yama ptrace_scope >= 1, PR_SET_DUMPABLE alone is not enough for a non-parent
-			// process to read /proc/<pid>/exe. PR_SET_PTRACER_ANY allows any same-UID process
-			// (i.e., the daemon) to hash our binary for trust verification. EINVAL is expected on
-			// kernels without Yama (not an error).
-			_ = prctl(PrSetPtracer, (ulong)PrSetPtracerAny, 0, 0, 0);
-		}
-
-		[DllImport("libc", SetLastError = true)]
-		private static extern int prctl(int option, ulong arg2, ulong arg3, ulong arg4, ulong arg5);
 
 		private readonly record struct Frame(MessageType Type, uint ClientId, ulong CorrelationId, byte[] Payload);
 		private readonly record struct StatusPayload(int Status, uint Detail);

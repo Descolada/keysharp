@@ -25,15 +25,6 @@ static void set_cloexec(int fd)
     }
 }
 
-static void set_nonblocking(int fd)
-{
-    int flags = fcntl(fd, F_GETFL);
-
-    if (flags >= 0) {
-        (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-}
-
 static int validate_socket_path(const char *socket_path)
 {
     struct sockaddr_un address;
@@ -122,6 +113,30 @@ int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
     return 0;
 }
 
+int ksi_ipc_server_from_fd(int fd, ksi_ipc_server **server)
+{
+    ksi_ipc_server *created;
+    int type = 0;
+    socklen_t type_length = sizeof(type);
+
+    if (server == NULL || fd < 0
+        || getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &type_length) != 0
+        || type != SOCK_STREAM) {
+        return -1;
+    }
+
+    created = calloc(1, sizeof(*created));
+
+    if (created == NULL) {
+        return -1;
+    }
+
+    set_cloexec(fd);
+    created->fd = fd;
+    *server = created;
+    return 0;
+}
+
 void ksi_ipc_server_close(ksi_ipc_server *server)
 {
     if (server == NULL) {
@@ -161,7 +176,10 @@ int ksi_ipc_accept_client(ksi_ipc_server *server)
     }
 
     set_cloexec(client_fd);
-    set_nonblocking(client_fd);
+    /* Client fds are intentionally blocking. The IPC thread uses poll() to
+     * detect readability so it never blocks on read(). Keeping fds blocking
+     * means write_exact() in the main thread won't silently fail on EAGAIN
+     * when the socket send-buffer is full. */
 
     return client_fd;
 }

@@ -30,7 +30,17 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_SYNTHESIZE_INPUT = 20,
     KSI_MESSAGE_SYNTHESIS_RESULT = 21,
     KSI_MESSAGE_EMERGENCY_PASSTHROUGH = 30,
+    KSI_MESSAGE_GET_INDICATOR_STATE    = 40,
+    KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
 } ksi_message_type;
+
+/* Payload for KSI_MESSAGE_INDICATOR_STATE_RESULT. */
+typedef struct ksi_indicator_state_payload {
+    uint8_t caps_lock;
+    uint8_t num_lock;
+    uint8_t scroll_lock;
+    uint8_t reserved;
+} ksi_indicator_state_payload;
 
 typedef enum ksi_client_capability {
     KSI_CAP_HOOK_KEYBOARD = 0x00000001u,
@@ -78,8 +88,14 @@ typedef enum ksi_windows_message {
 typedef enum ksi_keyboard_hook_flags {
     KSI_LLKHF_EXTENDED = 0x00000001u,
     KSI_LLKHF_LOWER_IL_INJECTED = 0x00000002u,
+    /* Bits 0x04 and 0x08 carry the current LED indicator state at the time
+     * the key event was generated.  This lets the C# side update its indicator
+     * snapshot without a separate round-trip query to the daemon. */
+    KSI_LLKHF_CAPS_LOCK_ON = 0x00000004u,
+    KSI_LLKHF_NUM_LOCK_ON  = 0x00000008u,
     KSI_LLKHF_INJECTED = 0x00000010u,
     KSI_LLKHF_ALTDOWN = 0x00000020u,
+    KSI_LLKHF_SCROLL_LOCK_ON = 0x00000040u,
     KSI_LLKHF_UP = 0x00000080u,
 } ksi_keyboard_hook_flags;
 

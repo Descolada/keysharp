@@ -82,46 +82,64 @@ cmake -S native/keysharp-inputd -B native/keysharp-inputd/build
 cmake --build native/keysharp-inputd/build
 ```
 
-Run:
+Development run:
 
 ```bash
 native/keysharp-inputd/build/keysharp-inputd --foreground
 ```
 
-The default socket path is:
+An installed daemon is a systemd socket-activated system service:
 
 ```text
-$XDG_RUNTIME_DIR/keysharp/keysharp-inputd.sock
+/run/keysharp-inputd/keysharp-inputd.sock
 ```
 
-The daemon creates `$XDG_RUNTIME_DIR/keysharp` as `0700` and the socket as
-`0600`. Override the socket path for local tests with:
+Install as root to install the binary and units, load `uinput`, and enable the
+system socket:
+
+```bash
+sudo cmake --install native/keysharp-inputd/build
+```
+
+Packaging installs that use `DESTDIR` should run the installed
+`keysharp-inputd --install-input-access` command from their post-install step.
+The system socket starts the daemon only when a client connects. The daemon
+exits after it has been idle with no connected clients; it only grabs evdev
+sources while a granted hook subscription is active.
+
+Manual development runs still use the private `$XDG_RUNTIME_DIR` socket by
+default. Override that socket path for local tests with:
 
 ```bash
 native/keysharp-inputd/build/keysharp-inputd --socket /tmp/keysharp-test.sock
 ```
 
-`uinput` synthesis requires write access to `/dev/uinput`. On many systems that
-means running as root or installing a udev rule/group permission for the daemon.
+The installed service owns evdev and uinput access. Keysharp users do not need
+and should not be added to the `input` group for `keysharp-inputd`.
 
 Binary IPC smoke test:
 
 ```bash
-native/keysharp-inputd/build/keysharp-inputd-client /tmp/keysharp-inputd.sock
-native/keysharp-inputd/build/keysharp-inputd-client /tmp/keysharp-inputd.sock --split
+native/keysharp-inputd/build/keysharp-inputd-client
+native/keysharp-inputd/build/keysharp-inputd-client --split
 ```
 
 ## Security model
 
-`keysharp-inputd` is currently designed as a per-user daemon.
+`keysharp-inputd` is designed as a root-owned system service.
 
-- The socket lives under `$XDG_RUNTIME_DIR/keysharp` by default.
-- The socket directory is private to the user (`0700`).
-- The socket is owner-only (`0600`).
-- Accepted clients must have the same Unix uid as the daemon.
+- systemd owns the socket at `/run/keysharp-inputd/keysharp-inputd.sock` and starts the daemon on demand
+- the service, not Keysharp user code, initiates permission prompts
 - The daemon records peer pid/uid/gid with `SO_PEERCRED`.
+- The daemon resolves the connecting process executable via `/proc/<pid>/exe`.
+- The daemon reads `/proc/<pid>/cmdline` and hashes the executable digest with
+  the raw argument vector as the persistent app identity.
 - Binary clients must send `CLIENT_HELLO` with requested capabilities.
-- The daemon grants only capabilities backed by the current user's device access.
+- The daemon grants only capabilities backed by service-owned device access.
+- Unknown process identities are prompted before privileged capabilities are granted.
+- `Allow always` decisions are stored in the root-owned system trust store,
+  partitioned by peer uid and pruned after 60 days without being seen.
+- `Allow once` decisions live only for the current daemon session.
 
 Initial capability flags are:
 
@@ -136,10 +154,10 @@ This is intentional: once `EVIOCGRAB` is active, allowed input must be replayed
 through `uinput`. If `/dev/uinput` is unavailable, hook subscriptions are denied
 instead of risking unreplayed grabbed input.
 
-Linux device permissions are user/group based. The daemon verifies the
-connecting uid and grants only capabilities backed by the daemon user's access
-to `/dev/input` and `/dev/uinput`, but it does not yet maintain a per-app trust
-database.
+The system service replaces raw evdev/uinput group access for Keysharp. A
+requesting process still needs a daemon permission grant for its uid,
+executable digest, and argument-vector identity before privileged hook or
+synthesis operations are accepted.
 
 ## Architecture
 

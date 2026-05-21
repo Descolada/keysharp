@@ -17,6 +17,7 @@ typedef struct ksi_ipc_peer_credentials {
 } ksi_ipc_peer_credentials;
 
 int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server);
+int ksi_ipc_server_from_fd(int fd, ksi_ipc_server **server);
 void ksi_ipc_server_close(ksi_ipc_server *server);
 int ksi_ipc_server_fd(const ksi_ipc_server *server);
 int ksi_ipc_accept_client(ksi_ipc_server *server);

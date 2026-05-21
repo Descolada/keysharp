@@ -86,7 +86,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 
 			if (localEvents != null && localEvents.Count != 0)
-				Client?.SendInput(localEvents, KeysharpInputdClient.SynthFlags.BypassHook);
+				KeysharpInputdManager.SendInputViaSynthesisChannel(localEvents, KeysharpInputdClient.SynthFlags.BypassHook);
 
 			keyIndex = text.Length - 1;
 			return true;
@@ -174,8 +174,11 @@ namespace Keysharp.Internals.Input.Linux
 
 			try
 			{
-				// Batch send bypasses the hook chain — same as Windows SendInput removing hooks.
-				Client?.SendInput(eventSi, KeysharpInputdClient.SynthFlags.BypassHook);
+				// Keep inputd sends visible to the hook chain. SendLevel/extra_info
+				// decides whether hotkeys ignore or consume the event; bypassing here
+				// would prevent remaps such as g::s from passing generated s through
+				// the same Windows-like filtering path as other synthesized input.
+				KeysharpInputdManager.SendInputViaSynthesisChannel(eventSi);
 			}
 			finally
 			{
@@ -205,22 +208,21 @@ namespace Keysharp.Internals.Input.Linux
 
 				if (eventType == KeyEventTypes.KeyDownAndUp)
 				{
-					var twoEvents = new[]
+					KeysharpInputdManager.SendInputViaSynthesisChannel(new[]
 					{
 						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
 						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), upFlags,  extraInfo: (ulong)extraInfo),
-					};
-
-					Client?.SendInput(twoEvents);
+					});
 					return;
 				}
 
 				keyFlags = upFlags;
 			}
 
-			var single = new[] { KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo) };
-
-			Client?.SendInput(single);
+			KeysharpInputdManager.SendInputViaSynthesisChannel(new[]
+			{
+				KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
+			});
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -277,7 +279,7 @@ namespace Keysharp.Internals.Input.Linux
 				KeysharpInputdClient.Input.Key(0, (ushort)ch, (KeysharpInputdClient.KeyEventFlags)(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP), extraInfo: (ulong)extraInfo),
 			};
 
-			Client?.SendInput(inputs, KeysharpInputdClient.SynthFlags.BypassHook);
+			KeysharpInputdManager.SendInputViaSynthesisChannel(inputs, KeysharpInputdClient.SynthFlags.BypassHook);
 
 			SetModifierLRState(
 				modifiers,
@@ -368,7 +370,7 @@ namespace Keysharp.Internals.Input.Linux
 					flags: (KeysharpInputdClient.MouseEventFlags)eventFlags),
 			};
 
-			Client?.SendInput(single);
+			KeysharpInputdManager.SendInputViaSynthesisChannel(single);
 		}
 
 		internal override void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
@@ -507,7 +509,7 @@ namespace Keysharp.Internals.Input.Linux
 
 				if (events.Count == MaxMouseMoveChunk)
 				{
-					Client?.SendInput(events);
+					KeysharpInputdManager.SendInputViaSynthesisChannel(events);
 					events.Clear();
 				}
 
@@ -516,7 +518,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 
 			if (events.Count != 0)
-				Client?.SendInput(events);
+				KeysharpInputdManager.SendInputViaSynthesisChannel(events);
 		}
 
 		private void QueueRelativeMouseMove(int dx, int dy)

@@ -565,6 +565,12 @@ namespace Keysharp.Tests
 				sc ^= 0x100;
 
 			Assert.AreEqual(Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED, ih.input.keySC[sc] & Keysharp.Internals.Input.Hooks.HookThread.END_KEY_ENABLED);
+
+#if LINUX
+			const uint EvdevEnter = 28u;
+			if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.UseLegacyX11Input)
+				Assert.AreEqual(EvdevEnter, sc);
+#endif
 		}
 
 		[Test, Category("Hotstring"), NonParallelizable]

@@ -1,5 +1,6 @@
 #include "keysharp_inputd/linux_synth.h"
 
+#include "keysharp_inputd/globals.h"
 #include "keysharp_inputd/linux_devices.h"
 
 #include <errno.h>
@@ -188,7 +189,7 @@ static int send_unicode_input(uint32_t codepoint)
         return -1;
     }
 
-    printf("inputd: synth unicode U+%x via ctrl+shift+u\n", codepoint);
+    if (g_verbose) printf("inputd: synth unicode U+%x via ctrl+shift+u\n", codepoint);
     return 0;
 }
 
@@ -328,10 +329,24 @@ static int vk_to_evdev_key(uint16_t vk)
             return KEY_BACKSPACE;
         case 0x09u:
             return KEY_TAB;
+        case 0x0Cu:
+            return KEY_KP5;
         case 0x0Du:
             return KEY_ENTER;
+        case 0x10u:
+            return KEY_LEFTSHIFT;
+        case 0x11u:
+            return KEY_LEFTCTRL;
+        case 0x12u:
+            return KEY_LEFTALT;
         case 0x1Bu:
             return KEY_ESC;
+        case 0x1Cu:
+            return KEY_HENKAN;
+        case 0x1Du:
+            return KEY_MUHENKAN;
+        case 0x1Fu:
+            return KEY_MODE;
         case 0x20u:
             return KEY_SPACE;
         case 0x21u:
@@ -350,16 +365,26 @@ static int vk_to_evdev_key(uint16_t vk)
             return KEY_RIGHT;
         case 0x28u:
             return KEY_DOWN;
+        case 0x29u:
+            return KEY_SELECT;
+        case 0x2Au:
+            return KEY_PRINT;
+        case 0x2Bu:
+            return KEY_OPEN;
         case 0x2Du:
             return KEY_INSERT;
         case 0x2Eu:
             return KEY_DELETE;
+        case 0x2Fu:
+            return KEY_HELP;
         case 0x5Bu:
             return KEY_LEFTMETA;
         case 0x5Cu:
             return KEY_RIGHTMETA;
         case 0x5Du:
             return KEY_COMPOSE;
+        case 0x5Fu:
+            return KEY_SLEEP;
         case 0x60u:
             return KEY_KP0;
         case 0x61u:
@@ -384,6 +409,8 @@ static int vk_to_evdev_key(uint16_t vk)
             return KEY_KPASTERISK;
         case 0x6Bu:
             return KEY_KPPLUS;
+        case 0x6Cu:
+            return KEY_KPCOMMA;
         case 0x6Du:
             return KEY_KPMINUS;
         case 0x6Eu:
@@ -394,6 +421,8 @@ static int vk_to_evdev_key(uint16_t vk)
             return KEY_SYSRQ;
         case 0x13u:
             return KEY_PAUSE;
+        case 0x14u:
+            return KEY_CAPSLOCK;
         case 0x70u:
             return KEY_F1;
         case 0x71u:
@@ -446,6 +475,42 @@ static int vk_to_evdev_key(uint16_t vk)
             return KEY_NUMLOCK;
         case 0x91u:
             return KEY_SCROLLLOCK;
+        case 0xA6u:
+            return KEY_BACK;
+        case 0xA7u:
+            return KEY_FORWARD;
+        case 0xA8u:
+            return KEY_REFRESH;
+        case 0xA9u:
+            return KEY_STOP;
+        case 0xAAu:
+            return KEY_SEARCH;
+        case 0xABu:
+            return KEY_FAVORITES;
+        case 0xACu:
+            return KEY_HOMEPAGE;
+        case 0xADu:
+            return KEY_MUTE;
+        case 0xAEu:
+            return KEY_VOLUMEDOWN;
+        case 0xAFu:
+            return KEY_VOLUMEUP;
+        case 0xB0u:
+            return KEY_NEXTSONG;
+        case 0xB1u:
+            return KEY_PREVIOUSSONG;
+        case 0xB2u:
+            return KEY_STOPCD;
+        case 0xB3u:
+            return KEY_PLAYPAUSE;
+        case 0xB4u:
+            return KEY_EMAIL;
+        case 0xB5u:
+            return KEY_MEDIA;
+        case 0xB6u:
+            return KEY_PROG1;
+        case 0xB7u:
+            return KEY_PROG2;
         case 0xBAu:
             return KEY_SEMICOLON;
         case 0xBBu:
@@ -537,7 +602,9 @@ static int enable_keyboard_keys(void)
         KEY_ESC, KEY_BACKSPACE, KEY_TAB, KEY_ENTER, KEY_SPACE,
         KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_LEFTSHIFT, KEY_RIGHTSHIFT,
         KEY_LEFTALT, KEY_RIGHTALT, KEY_LEFTMETA, KEY_RIGHTMETA,
-        KEY_COMPOSE, KEY_SYSRQ, KEY_PAUSE,
+        KEY_COMPOSE, KEY_SYSRQ, KEY_PAUSE, KEY_SLEEP,
+        KEY_HENKAN, KEY_MUHENKAN, KEY_MODE,
+        KEY_SELECT, KEY_PRINT, KEY_OPEN, KEY_HELP,
         KEY_CAPSLOCK, KEY_NUMLOCK, KEY_SCROLLLOCK,
         KEY_INSERT, KEY_DELETE, KEY_HOME, KEY_END, KEY_PAGEUP, KEY_PAGEDOWN,
         KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT,
@@ -545,12 +612,16 @@ static int enable_keyboard_keys(void)
         KEY_SEMICOLON, KEY_APOSTROPHE, KEY_GRAVE, KEY_COMMA, KEY_DOT, KEY_SLASH,
         KEY_KP0, KEY_KP1, KEY_KP2, KEY_KP3, KEY_KP4,
         KEY_KP5, KEY_KP6, KEY_KP7, KEY_KP8, KEY_KP9,
-        KEY_KPDOT, KEY_KPSLASH, KEY_KPASTERISK, KEY_KPMINUS, KEY_KPPLUS,
+        KEY_KPDOT, KEY_KPSLASH, KEY_KPASTERISK, KEY_KPMINUS, KEY_KPPLUS, KEY_KPCOMMA,
         KEY_KPENTER,
         KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6,
         KEY_F7, KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12,
         KEY_F13, KEY_F14, KEY_F15, KEY_F16, KEY_F17, KEY_F18,
         KEY_F19, KEY_F20, KEY_F21, KEY_F22, KEY_F23, KEY_F24,
+        KEY_BACK, KEY_FORWARD, KEY_REFRESH, KEY_STOP, KEY_SEARCH, KEY_FAVORITES,
+        KEY_HOMEPAGE, KEY_MUTE, KEY_VOLUMEDOWN, KEY_VOLUMEUP, KEY_NEXTSONG,
+        KEY_PREVIOUSSONG, KEY_STOPCD, KEY_PLAYPAUSE, KEY_EMAIL, KEY_MEDIA,
+        KEY_PROG1, KEY_PROG2,
     };
 
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
@@ -794,11 +865,13 @@ static int send_keyboard_input(const ksi_keybdinput *input)
         return -1;
     }
 
-    printf("inputd: synth key vk=0x%x scan=%u evdev=%d %s\n",
-        input->vk,
-        input->scan,
-        key_code,
-        value == 0 ? "up" : (value == 2 ? "repeat" : "down"));
+    if (g_verbose) {
+        printf("inputd: synth key vk=0x%x scan=%u evdev=%d %s\n",
+            input->vk,
+            input->scan,
+            key_code,
+            value == 0 ? "up" : (value == 2 ? "repeat" : "down"));
+    }
 
     return 0;
 }
@@ -818,7 +891,7 @@ void ksi_linux_synth_release_all(void)
         }
 
         if (emit_event(EV_KEY, (uint16_t)key_code, 0) == 0) {
-            printf("inputd: release synthetic key evdev=%d\n", key_code);
+            if (g_verbose) printf("inputd: release synthetic key evdev=%d\n", key_code);
             emitted = true;
         }
 
@@ -945,11 +1018,13 @@ static int send_mouse_input(const ksi_mouseinput *input)
         return -1;
     }
 
-    printf("inputd: synth mouse dx=%d dy=%d data=%u flags=0x%x\n",
-        input->dx,
-        input->dy,
-        input->mouse_data,
-        input->flags);
+    if (g_verbose) {
+        printf("inputd: synth mouse dx=%d dy=%d data=%u flags=0x%x\n",
+            input->dx,
+            input->dy,
+            input->mouse_data,
+            input->flags);
+    }
 
     return 0;
 }

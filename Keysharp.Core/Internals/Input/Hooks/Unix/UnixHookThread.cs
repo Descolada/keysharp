@@ -35,6 +35,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private CancellationTokenSource inputdHookCancel;
 		private Task inputdHookTask;
 		private bool usingInputdHooks;
+		protected bool UsingInputdHooks => usingInputdHooks;
 #endif
 
 		private readonly Lock hookStateLock = new();
@@ -61,6 +62,23 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 			indicatorSnapshot = new IndicatorSnapshot(false, false, false);
 			indicatorSnapshotValid = false;
+		}
+
+		private void UpdateIndicatorSnapshotFromInputd(uint flags)
+		{
+			// The indicator flags in the hook event are populated from current_caps_lock
+			// etc. in the daemon, which are updated by EV_LED events.  EV_LED arrives
+			// after EV_KEY, so the flags on the toggle-key event itself carry the
+			// pre-toggle state.  This is acceptable: the snapshot will be stale for
+			// exactly one event and corrected as soon as the next event arrives (after
+			// EV_LED has updated the daemon-side ledstate).  We update unconditionally
+			// so that the snapshot is always valid and IsKeyToggledOn never has to fall
+			// through to a potentially slow IPC query during hook-callback processing.
+			indicatorSnapshot = new IndicatorSnapshot(
+				(flags & LLKHF_CAPS_LOCK_ON)   != 0,
+				(flags & LLKHF_NUM_LOCK_ON)    != 0,
+				(flags & LLKHF_SCROLL_LOCK_ON) != 0);
+			indicatorSnapshotValid = true;
 		}
 
 		private void UpdateIndicatorSnapshotFromMask(EventMask mask)
@@ -695,18 +713,26 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 		}
 
+		// KSI_LLKHF_* indicator bits set by the daemon on every keyboard hook event.
+		private const uint LLKHF_CAPS_LOCK_ON   = 0x04u;
+		private const uint LLKHF_NUM_LOCK_ON    = 0x08u;
+		private const uint LLKHF_SCROLL_LOCK_ON = 0x40u;
+
 		private bool ProcessInputdKeyboardHook(KeysharpInputdClient.KeyboardHookEvent ev)
 		{
 			if (!keyboardEnabled)
 				return false;
 
+			// Update the indicator snapshot from the flags the daemon embeds in every
+			// keyboard event — no separate IPC query needed, no reentrancy risk.
+			// VK is passed so we can skip the update for toggle keys (EV_LED arrives
+			// after EV_KEY, so the embedded flags would be stale for those keys).
+			UpdateIndicatorSnapshotFromInputd(ev.Flags);
+
 			var vk = ev.VkCode;
-			var sc = ev.ScanCode & 0xFFu;
+			var sc = ev.ScanCode <= SC_MAX ? ev.ScanCode : 0u;
 			var keyUp = (ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u;
 			var isInjected = (ev.Flags & 0x10u) != 0;
-
-			if ((ev.Flags & 0x01u) != 0)
-				sc |= 0x100u;
 
 			switch (vk)
 			{
@@ -740,7 +766,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				Keyboard = new KeyboardEventData
 				{
 					KeyCode = keyCode,
-					RawCode = (ushort)(sc & 0xFFu),
+					RawCode = (ushort)sc,
 					RawKeyChar = KeyboardEventData.RawUndefinedChar
 				}
 			};
@@ -755,6 +781,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: true);
 
 			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			if (vk == 0x47u || vk == 0x53u || vk == 0x41u)
+				Ks.OutputDebugLine($"inputd key decision vk=0x{vk:X2} keyUp={keyUp} injected={isInjected} extra=0x{extraInfo:X} result={result}");
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
 			return result != 0;
 		}

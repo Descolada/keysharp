@@ -38,8 +38,12 @@ clients that send invalid versions, invalid sizes, or oversized frames.
 
 ## Authorization
 
-Clients must connect through the per-user Unix socket and pass same-uid peer
-credential checks. The daemon uses `SO_PEERCRED` to record peer pid/uid/gid.
+Installed clients connect through the systemd-owned Unix socket at
+`/run/keysharp-inputd/keysharp-inputd.sock`. The daemon uses `SO_PEERCRED` to
+record peer pid/uid/gid and partitions process-identity trust by peer uid.
+For privileged capability grants it also resolves `/proc/<pid>/exe`, reads
+`/proc/<pid>/cmdline`, and hashes the executable digest with the raw
+NUL-separated argument vector.
 
 Privileged binary commands require a prior `CLIENT_HELLO` message. The hello
 payload carries requested capabilities:
@@ -55,6 +59,12 @@ KSI_CAP_BLOCK_INPUT
 The daemon replies with granted capabilities. A capability is granted only when
 the current daemon user has the corresponding device access. For example,
 synthesis requires write access to `/dev/uinput`.
+
+Unknown executable-and-argument identities are prompted by the daemon on first
+privileged use. `Allow always` decisions are persisted per uid and process
+identity hash in the root-owned system trust store; `Allow once` decisions
+remain in-memory for the current daemon session. Stored trust records are
+pruned after 60 days without being seen.
 
 ## Goals
 

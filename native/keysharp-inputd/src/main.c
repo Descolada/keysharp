@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+bool g_verbose = false;
+
 #define KSI_DEFAULT_SOCKET_DIR_NAME "keysharp"
 #define KSI_DEFAULT_SOCKET_NAME "keysharp-inputd.sock"
 #define KSI_SOCKET_PATH_LENGTH 256
@@ -72,22 +74,24 @@ static int build_default_socket_path(char *buffer, size_t buffer_size)
 static void print_usage(const char *argv0)
 {
 	fprintf(stderr,
-		"Usage: %s [--foreground] [--socket PATH] [--install-input-access] [--version]\n"
+		"Usage: %s [--foreground] [--socket PATH] [--system-service] [--verbose] [--install-input-access] [--version]\n"
 		"\n"
 		"Options:\n"
 		"  --foreground   Run in the foreground. This is currently the default.\n"
 		"  --socket PATH  Unix domain socket path. Default: $XDG_RUNTIME_DIR/keysharp/keysharp-inputd.sock\n"
+		"  --system-service\n"
+		"                Use the systemd-activated socket passed as fd 3. Must be run by the system unit.\n"
+		"  --verbose      Enable per-event debug logging.\n"
 		"  --install-input-access\n"
-		"                Install udev rules and load uinput. Must be run as root by the Keysharp installer.\n"
+		"                Load uinput and enable the installed system socket. Must be run as root.\n"
 		"  --version      Print version information.\n",
 		argv0);
 }
 
 static int install_input_access(void)
 {
-	const char *rules_path = "/etc/udev/rules.d/99-keysharp-inputd.rules";
+	const char *legacy_rules_path = "/etc/udev/rules.d/99-keysharp-inputd.rules";
 	const char *modules_path = "/etc/modules-load.d/uinput.conf";
-	FILE *rules;
 	FILE *modules;
 	int status = 0;
 
@@ -95,17 +99,6 @@ static int install_input_access(void)
 		fprintf(stderr, "--install-input-access must be run as root\n");
 		return 1;
 	}
-
-	rules = fopen(rules_path, "w");
-
-	if (rules == NULL) {
-		fprintf(stderr, "failed to write %s: %s\n", rules_path, strerror(errno));
-		return 1;
-	}
-
-	fprintf(rules, "KERNEL==\"event*\", SUBSYSTEM==\"input\", GROUP=\"input\", MODE=\"0660\"\\n");
-	fprintf(rules, "KERNEL==\"uinput\", SUBSYSTEM==\"misc\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"\\n");
-	fclose(rules);
 
 	modules = fopen(modules_path, "w");
 
@@ -122,24 +115,49 @@ static int install_input_access(void)
 		status = 1;
 	}
 
-	if (system("udevadm control --reload-rules") != 0) {
-		fprintf(stderr, "warning: udevadm control --reload-rules failed\n");
+	if (unlink(legacy_rules_path) != 0 && errno != ENOENT) {
+		fprintf(stderr, "warning: failed to remove legacy rule %s: %s\n", legacy_rules_path, strerror(errno));
 		status = 1;
 	}
 
-	if (system("udevadm trigger --subsystem-match=input") != 0) {
-		fprintf(stderr, "warning: udevadm trigger --subsystem-match=input failed\n");
+	if (system("udevadm control --reload-rules && udevadm trigger --subsystem-match=input && udevadm trigger --subsystem-match=misc") != 0) {
+		fprintf(stderr, "warning: failed to refresh udev after legacy input rule removal\n");
 		status = 1;
 	}
 
-	if (system("udevadm trigger --subsystem-match=misc") != 0) {
-		fprintf(stderr, "warning: udevadm trigger --subsystem-match=misc failed\n");
+	if (system("systemctl daemon-reload && systemctl enable --now keysharp-inputd.socket") != 0) {
+		fprintf(stderr, "warning: failed to enable keysharp-inputd.socket\n");
 		status = 1;
 	}
 
 	puts("keysharp-inputd input access setup complete.");
-	puts("Ensure users who run Keysharp are in the 'input' group, then log out and back in.");
 	return status;
+}
+
+static int validate_systemd_socket_activation(void)
+{
+	const char *listen_pid = getenv("LISTEN_PID");
+	const char *listen_fds = getenv("LISTEN_FDS");
+	char *end = NULL;
+	long pid_value;
+
+	if (geteuid() != 0 || listen_pid == NULL || listen_fds == NULL || strcmp(listen_fds, "1") != 0) {
+		fprintf(stderr, "--system-service requires one systemd socket and root service context\n");
+		return -1;
+	}
+
+	errno = 0;
+	pid_value = strtol(listen_pid, &end, 10);
+
+	if (errno != 0 || end == listen_pid || *end != '\0' || pid_value != (long)getpid()) {
+		fprintf(stderr, "--system-service LISTEN_PID does not match this daemon\n");
+		return -1;
+	}
+
+	unsetenv("LISTEN_PID");
+	unsetenv("LISTEN_FDS");
+	unsetenv("LISTEN_FDNAMES");
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -150,12 +168,15 @@ int main(int argc, char **argv)
     ksi_daemon_options options = {
         .socket_path = NULL,
         .foreground = true,
+        .system_service = false,
     };
     bool socket_path_overridden = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--foreground") == 0) {
             options.foreground = true;
+        } else if (strcmp(argv[i], "--verbose") == 0) {
+            g_verbose = true;
 		} else if (strcmp(argv[i], "--socket") == 0) {
 			if (i + 1 >= argc) {
 				fprintf(stderr, "--socket requires a path\n");
@@ -164,6 +185,8 @@ int main(int argc, char **argv)
 
 			options.socket_path = argv[++i];
 			socket_path_overridden = true;
+		} else if (strcmp(argv[i], "--system-service") == 0) {
+			options.system_service = true;
 		} else if (strcmp(argv[i], "--install-input-access") == 0) {
 			return install_input_access();
 		} else if (strcmp(argv[i], "--version") == 0) {
@@ -180,7 +203,16 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!socket_path_overridden) {
+    if (options.system_service) {
+        if (socket_path_overridden) {
+            fprintf(stderr, "--socket cannot be combined with --system-service\n");
+            return 2;
+        }
+
+        if (validate_systemd_socket_activation() != 0) {
+            return 2;
+        }
+    } else if (!socket_path_overridden) {
         if (build_default_socket_path(default_socket_path, sizeof(default_socket_path)) != 0) {
             return 2;
         }

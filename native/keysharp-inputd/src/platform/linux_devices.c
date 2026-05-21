@@ -1,5 +1,6 @@
 #include "keysharp_inputd/linux_devices.h"
 
+#include "keysharp_inputd/globals.h"
 #include "keysharp_inputd/protocol.h"
 
 #include <dirent.h>
@@ -93,13 +94,23 @@ typedef struct ksi_linux_tracked_device {
 static ksi_linux_tracked_device tracked_devices[KSI_MAX_TRACKED_DEVICES];
 static ksi_suppressed_replay_event suppressed_replay_events[KSI_MAX_SUPPRESSED_REPLAY_EVENTS];
 static size_t tracked_device_count;
-static size_t suppressed_replay_event_count;
+static size_t suppressed_replay_head;   /* index of oldest entry */
+static size_t suppressed_replay_count;  /* number of valid entries */
 static struct udev *udev_context;
 static struct udev_monitor *udev_monitor;
 static uint32_t next_device_id = 1;
 static ksi_hook_event_callback hook_event_callback;
 static void *hook_event_context;
 static uint32_t grab_hook_mask;
+
+/* Current LED state, updated from EV_LED events on grabbed keyboards.
+ * Included in every keyboard hook event so the C# side can maintain an
+ * accurate indicator snapshot without a separate IPC round-trip. */
+static bool current_caps_lock;
+static bool current_num_lock;
+static bool current_scroll_lock;
+
+static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device);
 
 static bool test_bit(const unsigned long *bits, int bit)
 {
@@ -469,6 +480,20 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
     if (device->injected_source) {
         device->grab_deferred = false;
         memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
+
+        if (device->grabbed) {
+            if (ioctl(device->fd, EVIOCGRAB, 0) != 0) {
+                fprintf(stderr,
+                    "inputd: EVIOCGRAB(off) failed for injected source %s: %s\n",
+                    device->path,
+                    strerror(errno));
+                return -1;
+            }
+
+            device->grabbed = false;
+            printf("inputd: ungrabbed injected source %s\n", device->path);
+        }
+
         return 0;
     }
 
@@ -506,6 +531,12 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
     device->grabbed = enabled;
     device->grab_deferred = false;
     memset(device->deferred_down_keys, 0, sizeof(device->deferred_down_keys));
+
+    if (enabled && device->keyboard_candidate) {
+        /* Seed the LED state from the device so the first hook events carry
+         * the correct indicator flags before any EV_LED events arrive. */
+        refresh_indicator_state_from_device(device);
+    }
 
     printf("inputd: %s %s\n", enabled ? "grabbed" : "ungrabbed", device->path);
     return 0;
@@ -601,9 +632,7 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
         update_absolute_axis_ranges(target);
     }
 
-    if (should_grab_device_for_hook_mask(target, grab_hook_mask)) {
-        (void)set_device_grab(target, true);
-    }
+    (void)set_device_grab(target, should_grab_device_for_hook_mask(target, grab_hook_mask));
 
     log_device(info, reason);
 }
@@ -681,6 +710,19 @@ static void scan_existing_devices(void)
         candidates_seen);
 }
 
+static void stop_udev_monitor(void)
+{
+    if (udev_monitor != NULL) {
+        udev_monitor_unref(udev_monitor);
+        udev_monitor = NULL;
+    }
+
+    if (udev_context != NULL) {
+        udev_unref(udev_context);
+        udev_context = NULL;
+    }
+}
+
 static int start_udev_monitor(void)
 {
     udev_context = udev_new();
@@ -694,6 +736,7 @@ static int start_udev_monitor(void)
 
     if (udev_monitor == NULL) {
         fprintf(stderr, "inputd: failed to create udev monitor\n");
+        stop_udev_monitor();
         return -1;
     }
 
@@ -702,11 +745,13 @@ static int start_udev_monitor(void)
             "input",
             NULL) < 0) {
         fprintf(stderr, "inputd: failed to install udev input filter\n");
+        stop_udev_monitor();
         return -1;
     }
 
     if (udev_monitor_enable_receiving(udev_monitor) < 0) {
         fprintf(stderr, "inputd: failed to enable udev monitor\n");
+        stop_udev_monitor();
         return -1;
     }
 
@@ -733,13 +778,15 @@ static void handle_device_add_or_change(const char *path, const char *action)
 int ksi_linux_devices_start(void)
 {
     tracked_device_count = 0;
-    suppressed_replay_event_count = 0;
+    suppressed_replay_head = 0;
+    suppressed_replay_count = 0;
     grab_hook_mask = 0;
     scan_existing_devices();
 
     if (start_udev_monitor() != 0) {
-        ksi_linux_devices_stop();
-        return 0;
+        fprintf(stderr, "inputd: warning: udev monitor unavailable; hotplug disabled\n");
+        /* Continue in degraded mode: existing devices are tracked but newly
+         * plugged devices will not be detected at runtime. */
     }
 
     return 0;
@@ -751,18 +798,11 @@ void ksi_linux_devices_stop(void)
         close_tracked_device(&tracked_devices[i]);
     }
 
-    if (udev_monitor != NULL) {
-        udev_monitor_unref(udev_monitor);
-        udev_monitor = NULL;
-    }
-
-    if (udev_context != NULL) {
-        udev_unref(udev_context);
-        udev_context = NULL;
-    }
+    stop_udev_monitor();
 
     tracked_device_count = 0;
-    suppressed_replay_event_count = 0;
+    suppressed_replay_head = 0;
+    suppressed_replay_count = 0;
 }
 
 bool ksi_linux_devices_has_candidates(void)
@@ -807,21 +847,23 @@ int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)
 
 void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int32_t value, uint64_t extra_info, bool suppress)
 {
+    size_t tail;
     ksi_suppressed_replay_event *entry;
 
     if (type == EV_SYN) {
         return;
     }
 
-    if (suppressed_replay_event_count >= KSI_MAX_SUPPRESSED_REPLAY_EVENTS) {
-        memmove(
-            suppressed_replay_events,
-            suppressed_replay_events + 1,
-            (KSI_MAX_SUPPRESSED_REPLAY_EVENTS - 1) * sizeof(suppressed_replay_events[0]));
-        suppressed_replay_event_count = KSI_MAX_SUPPRESSED_REPLAY_EVENTS - 1;
+    if (suppressed_replay_count >= KSI_MAX_SUPPRESSED_REPLAY_EVENTS) {
+        /* Buffer full: overwrite the oldest entry by advancing head. */
+        suppressed_replay_head = (suppressed_replay_head + 1) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+        suppressed_replay_count--;
     }
 
-    entry = &suppressed_replay_events[suppressed_replay_event_count++];
+    tail = (suppressed_replay_head + suppressed_replay_count) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+    entry = &suppressed_replay_events[tail];
+    suppressed_replay_count++;
+
     entry->type = type;
     entry->code = code;
     entry->value = value;
@@ -837,19 +879,24 @@ static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struc
         .found = false,
     };
 
-    for (size_t i = 0; i < suppressed_replay_event_count; i++) {
-        if (suppressed_replay_events[i].type == event->type
-            && suppressed_replay_events[i].code == event->code
-            && suppressed_replay_events[i].value == event->value) {
-            metadata.extra_info = suppressed_replay_events[i].extra_info;
-            metadata.suppress = suppressed_replay_events[i].suppress;
+    for (size_t i = 0; i < suppressed_replay_count; i++) {
+        size_t idx = (suppressed_replay_head + i) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+
+        if (suppressed_replay_events[idx].type == event->type
+            && suppressed_replay_events[idx].code == event->code
+            && suppressed_replay_events[idx].value == event->value) {
+            metadata.extra_info = suppressed_replay_events[idx].extra_info;
+            metadata.suppress = suppressed_replay_events[idx].suppress;
             metadata.found = true;
 
-            for (size_t j = i; j + 1 < suppressed_replay_event_count; j++) {
-                suppressed_replay_events[j] = suppressed_replay_events[j + 1];
+            /* Compact: shift remaining entries one slot toward head. */
+            for (size_t j = i; j + 1 < suppressed_replay_count; j++) {
+                size_t dst = (suppressed_replay_head + j) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+                size_t src = (suppressed_replay_head + j + 1) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+                suppressed_replay_events[dst] = suppressed_replay_events[src];
             }
 
-            suppressed_replay_event_count--;
+            suppressed_replay_count--;
             return metadata;
         }
     }
@@ -971,6 +1018,8 @@ static uint32_t evdev_key_to_vk(unsigned int code)
             return 0x08u;
         case KEY_TAB:
             return 0x09u;
+        case KEY_CLEAR:
+            return 0x0Cu;
         case KEY_ENTER:
         case KEY_KPENTER:
             return 0x0Du;
@@ -992,6 +1041,8 @@ static uint32_t evdev_key_to_vk(unsigned int code)
             return 0x5Cu;
         case KEY_COMPOSE:
             return 0x5Du;
+        case KEY_SLEEP:
+            return 0x5Fu;
         case KEY_SPACE:
             return 0x20u;
         case KEY_SYSRQ:
@@ -1000,6 +1051,12 @@ static uint32_t evdev_key_to_vk(unsigned int code)
             return 0x13u;
         case KEY_CAPSLOCK:
             return 0x14u;
+        case KEY_HENKAN:
+            return 0x1Cu;
+        case KEY_MUHENKAN:
+            return 0x1Du;
+        case KEY_MODE:
+            return 0x1Fu;
         case KEY_NUMLOCK:
             return 0x90u;
         case KEY_SCROLLLOCK:
@@ -1048,6 +1105,8 @@ static uint32_t evdev_key_to_vk(unsigned int code)
             return 0x6Au;
         case KEY_KPPLUS:
             return 0x6Bu;
+        case KEY_KPCOMMA:
+            return 0x6Cu;
         case KEY_KPMINUS:
             return 0x6Du;
         case KEY_KPDOT:
@@ -1102,6 +1161,42 @@ static uint32_t evdev_key_to_vk(unsigned int code)
             return 0x86u;
         case KEY_F24:
             return 0x87u;
+        case KEY_BACK:
+            return 0xA6u;
+        case KEY_FORWARD:
+            return 0xA7u;
+        case KEY_REFRESH:
+            return 0xA8u;
+        case KEY_STOP:
+            return 0xA9u;
+        case KEY_SEARCH:
+            return 0xAAu;
+        case KEY_FAVORITES:
+            return 0xABu;
+        case KEY_HOMEPAGE:
+            return 0xACu;
+        case KEY_MUTE:
+            return 0xADu;
+        case KEY_VOLUMEDOWN:
+            return 0xAEu;
+        case KEY_VOLUMEUP:
+            return 0xAFu;
+        case KEY_NEXTSONG:
+            return 0xB0u;
+        case KEY_PREVIOUSSONG:
+            return 0xB1u;
+        case KEY_STOPCD:
+            return 0xB2u;
+        case KEY_PLAYPAUSE:
+            return 0xB3u;
+        case KEY_EMAIL:
+            return 0xB4u;
+        case KEY_MEDIA:
+            return 0xB5u;
+        case KEY_PROG1:
+            return 0xB6u;
+        case KEY_PROG2:
+            return 0xB7u;
         case KEY_SEMICOLON:
             return 0xBAu;
         case KEY_EQUAL:
@@ -1175,6 +1270,15 @@ static uint32_t keyboard_injected_flags(const ksi_linux_tracked_device *device)
     return device->injected_source ? KSI_LLKHF_INJECTED : 0u;
 }
 
+static uint32_t keyboard_indicator_flags(void)
+{
+    uint32_t flags = 0;
+    if (current_caps_lock)   flags |= KSI_LLKHF_CAPS_LOCK_ON;
+    if (current_num_lock)    flags |= KSI_LLKHF_NUM_LOCK_ON;
+    if (current_scroll_lock) flags |= KSI_LLKHF_SCROLL_LOCK_ON;
+    return flags;
+}
+
 static uint32_t mouse_injected_flags(const ksi_linux_tracked_device *device)
 {
     return device->injected_source ? KSI_LLMHF_INJECTED : 0u;
@@ -1224,22 +1328,24 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
         .message = evdev_key_to_message(event),
         .vk_code = evdev_key_to_vk((unsigned int)event->code),
         .scan_code = (uint32_t)event->code,
-        .flags = evdev_key_to_flags(event) | keyboard_injected_flags(device),
+        .flags = evdev_key_to_flags(event) | keyboard_injected_flags(device) | keyboard_indicator_flags(),
         .time_ms = event_time_ms(event),
         .extra_info = extra_info,
         .device_id = device->device_id,
         .native_code = (uint32_t)event->code,
     };
 
-    printf("inputd: key %s vk=0x%02x scan=%u native=%u value=%d flags=0x%x time=%llu device=\"%s\"\n",
-        hook_event.message == KSI_WM_KEYUP ? "up" : "down",
-        hook_event.vk_code,
-        hook_event.scan_code,
-        hook_event.native_code,
-        event->value,
-        hook_event.flags,
-        (unsigned long long)hook_event.time_ms,
-        device->name);
+    if (g_verbose) {
+        printf("inputd: key %s vk=0x%02x scan=%u native=%u value=%d flags=0x%x time=%llu device=\"%s\"\n",
+            hook_event.message == KSI_WM_KEYUP ? "up" : "down",
+            hook_event.vk_code,
+            hook_event.scan_code,
+            hook_event.native_code,
+            event->value,
+            hook_event.flags,
+            (unsigned long long)hook_event.time_ms,
+            device->name);
+    }
 
     if (hook_event_callback != NULL) {
         hook_event_callback(
@@ -1270,12 +1376,14 @@ static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, 
         .native_code = (uint32_t)event->code,
     };
 
-    printf("inputd: mouse button message=0x%x data=0x%x native=%u time=%llu device=\"%s\"\n",
-        hook_event.message,
-        hook_event.mouse_data,
-        hook_event.native_code,
-        (unsigned long long)hook_event.time_ms,
-        device->name);
+    if (g_verbose) {
+        printf("inputd: mouse button message=0x%x data=0x%x native=%u time=%llu device=\"%s\"\n",
+            hook_event.message,
+            hook_event.mouse_data,
+            hook_event.native_code,
+            (unsigned long long)hook_event.time_ms,
+            device->name);
+    }
 
     if (hook_event_callback != NULL) {
         hook_event_callback(
@@ -1301,11 +1409,13 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.device_id = device->device_id;
         hook_event.native_code = REL_X;
 
-        printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
-            hook_event.x,
-            hook_event.y,
-            (unsigned long long)hook_event.time_ms,
-            device->name);
+        if (g_verbose) {
+            printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
+                hook_event.x,
+                hook_event.y,
+                (unsigned long long)hook_event.time_ms,
+                device->name);
+        }
 
         device->has_pending_rel = false;
         device->pending_rel_x = 0;
@@ -1334,11 +1444,13 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.device_id = device->device_id;
         hook_event.native_code = ABS_X;
 
-        printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
-            hook_event.x,
-            hook_event.y,
-            (unsigned long long)hook_event.time_ms,
-            device->name);
+        if (g_verbose) {
+            printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
+                hook_event.x,
+                hook_event.y,
+                (unsigned long long)hook_event.time_ms,
+                device->name);
+        }
 
         device->has_pending_abs = false;
         device->pending_abs_time_ms = 0;
@@ -1389,12 +1501,14 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
 
         dispatch_pending_mouse_move(device);
 
-        printf("inputd: mouse wheel message=0x%x delta=%d native=%u time=%llu device=\"%s\"\n",
-            hook_event.message,
-            event->value * 120,
-            hook_event.native_code,
-            (unsigned long long)hook_event.time_ms,
-            device->name);
+        if (g_verbose) {
+            printf("inputd: mouse wheel message=0x%x delta=%d native=%u time=%llu device=\"%s\"\n",
+                hook_event.message,
+                event->value * 120,
+                hook_event.native_code,
+                (unsigned long long)hook_event.time_ms,
+                device->name);
+        }
 
         if (hook_event_callback != NULL) {
             hook_event_callback(
@@ -1478,7 +1592,39 @@ static void handle_input_event(ksi_linux_tracked_device *device, const struct in
         dispatch_relative_event(device, event, extra_info);
     } else if (event->type == EV_ABS) {
         dispatch_absolute_event(device, event, extra_info);
+    } else if (event->type == EV_LED && !device->injected_source) {
+        /* Track indicator LED state so we can include it in keyboard hook events. */
+        if (event->code == LED_CAPSL)
+            current_caps_lock = event->value != 0;
+        else if (event->code == LED_NUML)
+            current_num_lock = event->value != 0;
+        else if (event->code == LED_SCROLLL)
+            current_scroll_lock = event->value != 0;
     }
+}
+
+void ksi_linux_devices_get_indicator_state(bool *caps_lock, bool *num_lock, bool *scroll_lock)
+{
+    if (caps_lock)   *caps_lock   = current_caps_lock;
+    if (num_lock)    *num_lock    = current_num_lock;
+    if (scroll_lock) *scroll_lock = current_scroll_lock;
+}
+
+static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device)
+{
+    unsigned char leds = 0;
+
+    if (device == NULL || !device->keyboard_candidate || device->injected_source || device->fd < 0) {
+        return;
+    }
+
+    if (ioctl(device->fd, EVIOCGLED(sizeof(leds)), &leds) < 0) {
+        return;
+    }
+
+    current_caps_lock   = (leds & (1u << LED_CAPSL))   != 0;
+    current_num_lock    = (leds & (1u << LED_NUML))    != 0;
+    current_scroll_lock = (leds & (1u << LED_SCROLLL)) != 0;
 }
 
 void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback, void *context)

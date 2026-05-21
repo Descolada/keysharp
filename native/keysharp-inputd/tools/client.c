@@ -9,7 +9,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#define DEFAULT_SOCKET_PATH "/tmp/keysharp-inputd.sock"
+#define DEFAULT_SOCKET_PATH "/run/keysharp-inputd/keysharp-inputd.sock"
 
 static int write_exact(int fd, const void *buffer, size_t length)
 {
@@ -235,8 +235,11 @@ static int send_bogus_hook_decision(int fd)
 
 int main(int argc, char **argv)
 {
-    const char *socket_path = argc > 1 ? argv[1] : DEFAULT_SOCKET_PATH;
-    int split_frame = argc > 2 && strcmp(argv[2], "--split") == 0;
+    const char *socket_path = argc > 1 && strcmp(argv[1], "--split") != 0
+        ? argv[1]
+        : DEFAULT_SOCKET_PATH;
+    int split_frame = (argc > 1 && strcmp(argv[1], "--split") == 0)
+        || (argc > 2 && strcmp(argv[2], "--split") == 0);
     int fd = connect_socket(socket_path);
     int result = 0;
 

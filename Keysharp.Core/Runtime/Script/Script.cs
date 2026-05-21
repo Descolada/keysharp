@@ -395,11 +395,10 @@ namespace Keysharp.Runtime
 
 			_ = EventScheduler;
 
-			// Request the required privacy permissions at startup so failures are explicit and early.
+			// Request automation permission up front; input monitoring and injection are
+			// requested on demand by hooks and send operations.
 			var pm = Permissions;
 			_ = pm.RequestAccessibilityAutomation(operation: "accessibility automation");
-			_ = pm.RequestInputMonitoring(operation: "keyboard/mouse monitoring");
-			_ = pm.RequestInputInjection(operation: "keyboard/mouse sending");
 
 #if WINDOWS
 			msgFilter = new MessageFilter(this);

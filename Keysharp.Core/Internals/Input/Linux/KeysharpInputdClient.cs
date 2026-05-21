@@ -42,6 +42,8 @@ namespace Keysharp.Internals.Input.Linux
 			EmergencyPassthrough = 30,
 			GetIndicatorState    = 40,
 			IndicatorStateResult = 41,
+			GetPointerPosition   = 42,
+			PointerPositionResult = 43,
 		}
 
 		internal enum HookType : uint
@@ -130,6 +132,14 @@ namespace Keysharp.Internals.Input.Linux
 			HookType HookType,
 			KeyboardHookEvent Keyboard,
 			MouseHookEvent Mouse);
+
+		internal readonly record struct PointerPosition(
+			int X,
+			int Y,
+			int XMin,
+			int XMax,
+			int YMin,
+			int YMax);
 
 		private readonly Socket socket;
 		private ulong nextCorrelationId = 1;
@@ -259,6 +269,35 @@ namespace Keysharp.Internals.Input.Linux
 				return (false, false, false);
 
 			return (response.Payload[0] != 0, response.Payload[1] != 0, response.Payload[2] != 0);
+		}
+
+		/// <summary>
+		/// Queries the daemon for the last raw evdev ABS_X/ABS_Y pointer sample.
+		/// Screen-space mapping stays in Keysharp because the daemon has no display model.
+		/// </summary>
+		internal bool TryGetPointerPosition(out PointerPosition position)
+		{
+			position = default;
+
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadFrame();
+
+			if (response.Type != MessageType.PointerPositionResult || response.CorrelationId != correlationId)
+				throw new InvalidDataException(
+					$"Unexpected response to GetPointerPosition: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+
+			if (response.Payload.Length != 28 || response.Payload[0] == 0)
+				return false;
+
+			position = new PointerPosition(
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(4)),
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(8)),
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(12)),
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(16)),
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(20)),
+				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(24)));
+			return true;
 		}
 
 		internal HookEvent ReadHookEvent()

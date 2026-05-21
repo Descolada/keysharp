@@ -27,6 +27,9 @@ namespace Keysharp.Internals.Platform.Unix
 			XDisplay.Default.Handle != 0;
 #endif
 
+		internal static bool IsWaylandSession =>
+			string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase);
+
 		static PlatformManager()
 		{
 #if LINUX
@@ -320,12 +323,42 @@ namespace Keysharp.Internals.Platform.Unix
 
 		public static bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk) => true;
 
-			public static bool GetCursorPos(out POINT lpPoint)
+		public static bool GetCursorPos(out POINT lpPoint)
+		{
+#if LINUX
+			if (IsWaylandSession
+				&& KeysharpInputdManager.TryGetPointerPosition(
+					out var rawX,
+					out var rawY,
+					out var minX,
+					out var maxX,
+					out var minY,
+					out var maxY)
+				&& TryScalePointerAxis(rawX, minX, maxX, (int)A_ScreenWidth, out var x)
+				&& TryScalePointerAxis(rawY, minY, maxY, (int)A_ScreenHeight, out var y))
 			{
-				var pos = Forms.Mouse.Position;
-				lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
+				lpPoint = new POINT(x, y);
 				return true;
 			}
+#endif
+			var pos = Forms.Mouse.Position;
+			lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
+			return true;
+		}
+
+#if LINUX
+		private static bool TryScalePointerAxis(int value, int min, int max, int size, out int scaled)
+		{
+			scaled = 0;
+
+			if (max <= min || size <= 0)
+				return false;
+
+			var clamped = Math.Clamp(value, min, max);
+			scaled = (int)Math.Round((double)(clamped - min) * (size - 1) / (max - min));
+			return true;
+		}
+#endif
 		}
 	}
 #endif

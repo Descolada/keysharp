@@ -95,6 +95,9 @@ namespace Keysharp.Internals.Window.Linux
 		public static WindowItemBase ActiveWindow
 		{
 			get {
+				if (Wayland.WaylandForeignToplevels.Current?.Active is Wayland.WaylandToplevel waylandActive)
+					return new Wayland.WaylandWindowItem(waylandActive);
+
 				var activeId = 0L;
 				nint prop = 0;
 
@@ -140,6 +143,13 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 		{
+			var waylandWindows = Wayland.WaylandForeignToplevels.Current?.Enumerate()
+				.Select(toplevel => (WindowItemBase)new Wayland.WaylandWindowItem(toplevel))
+				.ToList() ?? [];
+
+			if (!PlatformManager.IsX11Available)
+				return waylandWindows;
+
 			var attr = new XWindowAttributes();
 			var filter = (long id) =>
 			{
@@ -149,7 +159,7 @@ namespace Keysharp.Internals.Window.Linux
 
 				return false;
 			};
-			var topLevels = new List<WindowItemBase>();
+			var topLevels = new List<WindowItemBase>(waylandWindows);
 			var seen = new HashSet<long>();
 			foreach (var window in Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w)))
 			{
@@ -169,7 +179,13 @@ namespace Keysharp.Internals.Window.Linux
 		{
 		}
 
-		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);
+		public static WindowItemBase CreateWindow(nint id)
+		{
+			if (Wayland.WaylandForeignToplevels.Current?.Get(id) is Wayland.WaylandToplevel waylandToplevel)
+				return new Wayland.WaylandWindowItem(waylandToplevel);
+
+			return new WindowItem(id);
+		}
 
 		public static IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows) => windows;
 
@@ -179,6 +195,9 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static bool IsWindow(nint handle)
 		{
+			if (Wayland.WaylandForeignToplevels.Current?.IsWindow(handle) == true)
+				return true;
+
 			if (!PlatformManager.IsX11Available || handle == 0)
 				return false;
 

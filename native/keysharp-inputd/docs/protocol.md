@@ -29,6 +29,10 @@ The daemon supports these framed binary messages:
 - `SYNTHESIZE_INPUT`
 - `SYNTHESIS_RESULT`
 - `EMERGENCY_PASSTHROUGH`
+- `GET_INDICATOR_STATE`
+- `INDICATOR_STATE_RESULT`
+- `GET_POINTER_POSITION`
+- `POINTER_POSITION_RESULT`
 
 The daemon socket is binary-only. There is no text command mode.
 
@@ -217,6 +221,17 @@ extra_info    marker used for injected/self-generated filtering
 The daemon translates these requests into `uinput` events. Linux `uinput` does
 not preserve Windows `dwExtraInfo`; the field is still present in the protocol
 so Keysharp can keep the same request shape across platforms.
+
+## Device State Queries
+
+`GET_POINTER_POSITION` returns the last absolute pointer sample that the Linux
+backend received from evdev. The result includes raw `ABS_X` and `ABS_Y` values
+and each axis's raw minimum and maximum. The daemon does not know display
+layout, so Keysharp maps that range to its screen coordinates before exposing
+the position to script code.
+
+The pointer query requires `KSI_CAP_HOOK_MOUSE`, like mouse hook delivery,
+because it exposes physical input state.
 
 ## Hook Decisions
 

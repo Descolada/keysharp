@@ -417,6 +417,7 @@ static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, const char *reason);
 static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
+static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);
 static void process_client_identified(ksi_daemon_state *state, ksi_daemon_command *command);
 static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_command *command);
@@ -1222,23 +1223,30 @@ static void process_next_queued_input(ksi_daemon_state *state)
     bool have_hook;
     bool have_synth;
 
-    if (state == NULL || state->pending_active) {
+    if (state == NULL) {
         return;
     }
 
-    have_hook = state->hook_queue_count > 0;
-    have_synth = state->synth_queue_count > 0;
+    /* Loop so that consecutive synthesis requests are all drained before returning.
+     * Without this loop, only the first queued synthesis item was processed per call:
+     * the second synthesis request (e.g. the KeyDownAndUp that restores a toggle key)
+     * would be stranded until a future finalize_pending_hook_event fired — which
+     * never happens when the first synthesis used BypassHook (no loopback events). */
+    while (!state->pending_active) {
+        have_hook = state->hook_queue_count > 0;
+        have_synth = state->synth_queue_count > 0;
 
-    if (!have_hook && !have_synth) {
-        return;
-    }
+        if (!have_hook && !have_synth) {
+            return;
+        }
 
-    if (have_hook
-        && (!have_synth || state->hook_queue[state->hook_queue_head].order_id
-                           <= state->synth_queue[state->synth_queue_head].order_id)) {
-        pop_first_hook_event(state);
-    } else {
-        pop_first_synth_request(state);
+        if (have_hook
+            && (!have_synth || state->hook_queue[state->hook_queue_head].order_id
+                               <= state->synth_queue[state->synth_queue_head].order_id)) {
+            pop_first_hook_event(state);
+        } else {
+            pop_first_synth_request(state);
+        }
     }
 }
 
@@ -1612,6 +1620,18 @@ static void handle_binary_message(
         return;
     }
 
+    if (message->header->type == KSI_MESSAGE_GET_POINTER_POSITION) {
+        /* A pointer query exposes physical input state just like hook events. */
+        if (!client->authenticated
+            || (client->granted_capabilities & KSI_CAP_HOOK_MOUSE) == 0) {
+            send_status(client->fd, message->header, KSI_MESSAGE_POINTER_POSITION_RESULT, -1, 403);
+            return;
+        }
+
+        send_pointer_position_result(client->fd, message->header);
+        return;
+    }
+
     if (message->header->type == KSI_MESSAGE_SUBSCRIBE_HOOK
         || message->header->type == KSI_MESSAGE_UNSUBSCRIBE_HOOK) {
         const ksi_hook_subscription_payload *payload;
@@ -1912,6 +1932,22 @@ static void send_indicator_state_result(int client_fd, const ksi_message_header 
     (void)ksi_ipc_send_framed_message(
         client_fd,
         KSI_MESSAGE_INDICATOR_STATE_RESULT,
+        request->client_id,
+        request->correlation_id,
+        &result,
+        sizeof(result));
+}
+
+static void send_pointer_position_result(int client_fd, const ksi_message_header *request)
+{
+    ksi_pointer_position_payload result;
+
+    memset(&result, 0, sizeof(result));
+    (void)ksi_linux_devices_get_pointer_position(&result);
+
+    (void)ksi_ipc_send_framed_message(
+        client_fd,
+        KSI_MESSAGE_POINTER_POSITION_RESULT,
         request->client_id,
         request->correlation_id,
         &result,

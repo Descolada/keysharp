@@ -109,6 +109,7 @@ static uint32_t grab_hook_mask;
 static bool current_caps_lock;
 static bool current_num_lock;
 static bool current_scroll_lock;
+static ksi_pointer_position_payload current_pointer_position;
 
 static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device);
 
@@ -781,6 +782,7 @@ int ksi_linux_devices_start(void)
     suppressed_replay_head = 0;
     suppressed_replay_count = 0;
     grab_hook_mask = 0;
+    memset(&current_pointer_position, 0, sizeof(current_pointer_position));
     scan_existing_devices();
 
     if (start_udev_monitor() != 0) {
@@ -803,6 +805,7 @@ void ksi_linux_devices_stop(void)
     tracked_device_count = 0;
     suppressed_replay_head = 0;
     suppressed_replay_count = 0;
+    memset(&current_pointer_position, 0, sizeof(current_pointer_position));
 }
 
 bool ksi_linux_devices_has_candidates(void)
@@ -1546,6 +1549,14 @@ static void queue_absolute_motion(ksi_linux_tracked_device *device, const struct
     device->pending_abs_time_ms = event_time_ms(event);
     device->pending_abs_extra_info = extra_info;
     device->has_pending_abs = true;
+
+    current_pointer_position.valid = 1u;
+    current_pointer_position.x = device->current_abs_x_raw;
+    current_pointer_position.y = device->current_abs_y_raw;
+    current_pointer_position.x_min = device->abs_x_min;
+    current_pointer_position.x_max = device->abs_x_max;
+    current_pointer_position.y_min = device->abs_y_min;
+    current_pointer_position.y_max = device->abs_y_max;
 }
 
 static void dispatch_absolute_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
@@ -1608,6 +1619,16 @@ void ksi_linux_devices_get_indicator_state(bool *caps_lock, bool *num_lock, bool
     if (caps_lock)   *caps_lock   = current_caps_lock;
     if (num_lock)    *num_lock    = current_num_lock;
     if (scroll_lock) *scroll_lock = current_scroll_lock;
+}
+
+bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *position)
+{
+    if (position == NULL) {
+        return false;
+    }
+
+    *position = current_pointer_position;
+    return position->valid != 0u;
 }
 
 static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device)

@@ -81,6 +81,50 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		internal static bool TryGetPointerPosition(
+			out int x,
+			out int y,
+			out int xMin,
+			out int xMax,
+			out int yMin,
+			out int yMax)
+		{
+			x = y = xMin = xMax = yMin = yMax = 0;
+
+			if (!EnsureCapabilities(
+					KeysharpInputdClient.Capabilities.HookMouse,
+					"query pointer position").IsGranted)
+				return false;
+
+			var qc = GetOrCreateQueryClient();
+
+			if (qc == null)
+				return false;
+
+			try
+			{
+				lock (queryGate)
+				{
+					if (!qc.TryRequestCapabilities(KeysharpInputdClient.Capabilities.HookMouse, out _)
+						|| !qc.TryGetPointerPosition(out var position))
+						return false;
+
+					x = position.X;
+					y = position.Y;
+					xMin = position.XMin;
+					xMax = position.XMax;
+					yMin = position.YMin;
+					yMax = position.YMax;
+				}
+
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
 			lock (queryGate)

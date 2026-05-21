@@ -781,8 +781,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: true);
 
 			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
-			if (vk == 0x47u || vk == 0x53u || vk == 0x41u)
-				Ks.OutputDebugLine($"inputd key decision vk=0x{vk:X2} keyUp={keyUp} injected={isInjected} extra=0x{extraInfo:X} result={result}");
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
 			return result != 0;
 		}

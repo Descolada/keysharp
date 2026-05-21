@@ -32,6 +32,8 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_EMERGENCY_PASSTHROUGH = 30,
     KSI_MESSAGE_GET_INDICATOR_STATE    = 40,
     KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
+    KSI_MESSAGE_GET_POINTER_POSITION   = 42,
+    KSI_MESSAGE_POINTER_POSITION_RESULT = 43,
 } ksi_message_type;
 
 /* Payload for KSI_MESSAGE_INDICATOR_STATE_RESULT. */
@@ -41,6 +43,18 @@ typedef struct ksi_indicator_state_payload {
     uint8_t scroll_lock;
     uint8_t reserved;
 } ksi_indicator_state_payload;
+
+/* Raw absolute axis values from the last evdev ABS_X/ABS_Y pointer report. */
+typedef struct ksi_pointer_position_payload {
+    uint8_t valid;
+    uint8_t reserved[3];
+    int32_t x;
+    int32_t y;
+    int32_t x_min;
+    int32_t x_max;
+    int32_t y_min;
+    int32_t y_max;
+} ksi_pointer_position_payload;
 
 typedef enum ksi_client_capability {
     KSI_CAP_HOOK_KEYBOARD = 0x00000001u,

@@ -187,9 +187,10 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>
-		/// Immediate single-event send — mirrors keybd_event(). Does NOT set BypassHook so the
-		/// event passes through the hook chain with the INJECTED flag set, allowing send-level
-		/// filtering by other hook clients.
+		/// Immediate single-event send — mirrors keybd_event(). Events with user-level extraInfo
+		/// pass through the hook chain with the INJECTED flag set, allowing send-level filtering
+		/// by other hook clients. Internal events (IsIgnored extraInfo) use BypassHook to avoid
+		/// unnecessary loopback round-trips that delay subsequent event processing.
 		/// </summary>
 		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
 		{
@@ -202,6 +203,14 @@ namespace Keysharp.Internals.Input.Linux
 			if (vk == 0 && (sc & 0xFF) != 0)
 				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
 
+			// Internal events (KeyPhysIgnore, KeyIgnore, KeyIgnoreAllExceptModifier) bypass
+			// the hook chain so they are delivered to X11 directly without looping back as
+			// new hook events. This eliminates the round-trips that would otherwise delay
+			// processing of subsequent events (e.g. mouse clicks queued behind them).
+			var synthFlags = IsIgnored((ulong)extraInfo)
+				? KeysharpInputdClient.SynthFlags.BypassHook
+				: KeysharpInputdClient.SynthFlags.None;
+
 			if (eventType == KeyEventTypes.KeyUp || eventType == KeyEventTypes.KeyDownAndUp)
 			{
 				var upFlags = keyFlags | (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP;
@@ -212,7 +221,7 @@ namespace Keysharp.Internals.Input.Linux
 					{
 						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
 						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), upFlags,  extraInfo: (ulong)extraInfo),
-					});
+					}, synthFlags);
 					return;
 				}
 
@@ -222,7 +231,7 @@ namespace Keysharp.Internals.Input.Linux
 			KeysharpInputdManager.SendInputViaSynthesisChannel(new[]
 			{
 				KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
-			});
+			}, synthFlags);
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)

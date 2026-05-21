@@ -1186,8 +1186,6 @@ namespace Keysharp.Builtins
 
 			var scale = A_ScaledScreenDPI;
 			Title = A_ScriptName;
-			ClientSize = new Eto.Drawing.Size((int)(550 * scale), (int)(300 * scale));
-			MinimumSize = new Eto.Drawing.Size((int)(400 * scale), (int)(200 * scale));
 			Resizable = true;
 			Topmost = true;
 
@@ -1197,7 +1195,6 @@ namespace Keysharp.Builtins
 				Text = contentText,
 				ReadOnly = true,
 				Wrap = false,
-				BackgroundColor = Eto.Drawing.Colors.White,
 			};
 			richText.KeyDown += (_, e) =>
 			{
@@ -1210,11 +1207,6 @@ namespace Keysharp.Builtins
 				}
 			};
 			ApplyFormatting(richText);
-			var scrollable = new Eto.Forms.Scrollable
-			{
-				Content = richText,
-				BackgroundColor = Eto.Drawing.Colors.White,
-			};
 			richText.ContextMenu = BuildCopyContextMenu(richText);
 
 			var btnAbort = new Eto.Forms.Button { Text = "&Abort" };
@@ -1264,17 +1256,20 @@ namespace Keysharp.Builtins
 				}
 			};
 
+			const int contentPadding = 10;
+			const int contentSpacing = 5;
 			Content = new Eto.Forms.TableLayout
 			{
-				Padding = 10,
-				Spacing = new Eto.Drawing.Size(5, 5),
+				Padding = contentPadding,
+				Spacing = new Eto.Drawing.Size(contentSpacing, contentSpacing),
 				Rows =
 				{
-					new Eto.Forms.TableRow(scrollable) { ScaleHeight = true },
+					new Eto.Forms.TableRow(richText) { ScaleHeight = true },
 					new Eto.Forms.TableRow(buttonsRow)
 				}
 			};
 
+			ClientSize = GetAutomaticClientSize(contentText, richText.Font, buttonsRow.GetPreferredSize(), contentPadding, contentSpacing, scale);
 			DefaultButton = btnAbort;
 		}
 
@@ -1294,6 +1289,15 @@ namespace Keysharp.Builtins
 				height = Math.Max(height, preferred.Height);
 			}
 			return new Eto.Drawing.Size(width + 24, height + 12);
+		}
+
+		private static Eto.Drawing.Size GetAutomaticClientSize(string text, Eto.Drawing.Font font, Eto.Drawing.SizeF buttonsSize, int padding, int spacing, double scale)
+		{
+			const int textControlMargin = 10;
+			var textSize = font.MeasureString(text);
+			var width = (int)Math.Ceiling(Math.Max(textSize.Width + textControlMargin, buttonsSize.Width)) + 2 * padding;
+			var height = (int)Math.Ceiling(textSize.Height + font.LineHeight + buttonsSize.Height + textControlMargin) + 2 * padding + spacing;
+			return new Eto.Drawing.Size(Math.Min(width, (int)(550 * scale)), Math.Min(height, (int)(300 * scale)));
 		}
 
 		private void ApplyFormatting(Eto.Forms.RichTextArea box)

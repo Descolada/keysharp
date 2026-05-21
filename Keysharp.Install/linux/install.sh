@@ -37,7 +37,9 @@ install_deps() {
 
   if have_pkg apt-get; then
     echo "Installing runtime deps via apt-get..."
-    apt-get update
+    if ! apt-get update; then
+      echo "Warning: apt-get update failed; trying dependency install with the existing package indexes." >&2
+    fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages_apt[@]}"
     return
   fi

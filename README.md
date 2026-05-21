@@ -25,8 +25,8 @@
 ### Installing on Linux ###
 * Download and extract the Keysharp installer tarball from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
 + Run the install.sh script with sudo: `sudo sh ./install.sh` which does the following:
-	+ Installs all necessary dependencies except .NET 10 runtime. You need to install that manually.
-		+ Instructions for installing .NET on Linux can be found [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
+	+ Installs the Linux runtime dependencies and attempts to install the .NET 10 runtime if it is missing.
+		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
 	+ Registers Keysharp as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
 	+ Creates a symlink at `/usr/local/bin/keysharp` so you can run it from the command line from anywhere.
 	

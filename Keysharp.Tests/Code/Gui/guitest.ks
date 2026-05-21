@@ -3158,10 +3158,10 @@ Tab.UseTab("Sound")
 		audioMeter := SoundGetInterface("{C02216F6-8C67-4B5B-9D00-D008E73E0064}")
 	#endif
 
-txtMasterName := MyGui.Add("Text", "xc+10 y+10 w400", "Master: " . SoundGetName())
+txtMasterName := MyGui.Add("Text", "xc+10 y+10 w400", "Master: " . TrySoundGetName())
 
-txtMasterVol := MyGui.Add("Text", "xp y+10 w200", "Volume: " . SoundGetVolume())
-txtMasterMute := MyGui.Add("Text", "xp y+10 w200", "Muted: " . SoundGetMute())
+txtMasterVol := MyGui.Add("Text", "xp y+10 w200", "Volume: " . TrySoundGetVolume())
+txtMasterMute := MyGui.Add("Text", "xp y+10 w200", "Muted: " . TrySoundGetMute())
 #if WINDOWS
 	txtMasterPeak := MyGui.Add("Text", "xp y+10 w200", "Peak: " . MasterPeak())
 #endif
@@ -3172,21 +3172,21 @@ btnMasterRefresh := MyGui.Add("Button", "xp y+10", "Refresh")
 btnMasterMute.OnEvent("Click", "MasterMute")
 MasterMute(*)
 {
-	SoundSetMute(true)
+	TrySoundSetMute(true)
 }
 
 btnMasterUnmute.OnEvent("Click", "MasterUnmute")
 MasterUnmute(*)
 {
-	SoundSetMute(false)
+	TrySoundSetMute(false)
 }
 
 btnMasterRefresh.OnEvent("Click", "RefreshSound")
 RefreshSound(*)
 {
-	txtMasterName.Text := "Master: " . SoundGetName()
-	txtMasterVol.Text := "Volume: " . SoundGetVolume()
-	txtMasterMute.Text := "Muted: " . SoundGetMute()
+	txtMasterName.Text := "Master: " . TrySoundGetName()
+	txtMasterVol.Text := "Volume: " . TrySoundGetVolume()
+	txtMasterMute.Text := "Muted: " . TrySoundGetMute()
 #if WINDOWS
 	txtMasterPeak.Text := "Peak: " . MasterPeak()
 #endif
@@ -3199,8 +3199,8 @@ sldMasterVolume.OnEvent("Change", "MasterVolumeSliderPos")
 MasterVolumeSliderPos(*)
 {
 	val := sldMasterVolume.Value
-	SoundSetVolume(val)
-	txtMasterVol.Text := "Volume: " . SoundGetVolume()
+	TrySoundSetVolume(val)
+	txtMasterVol.Text := "Volume: " . TrySoundGetVolume()
 }
 
 txtAdjMasterVolumeSlider := MyGui.Add("Text", "xc+10 cBlue s10", "Moving slider adjusts master volume")
@@ -3214,8 +3214,44 @@ AdjustMasterVolumeSliderPos(*)
 	if (val >= 0)
 		val := "+" . val
 
-	SoundSetVolume(val)
-	txtMasterVol.Text := "Volume: " . SoundGetVolume()
+	TrySoundSetVolume(val)
+	txtMasterVol.Text := "Volume: " . TrySoundGetVolume()
+}
+
+TrySoundGetName()
+{
+	try
+		return SoundGetName()
+	catch
+		return "Unavailable"
+}
+
+TrySoundGetVolume()
+{
+	try
+		return SoundGetVolume()
+	catch
+		return "Unavailable"
+}
+
+TrySoundGetMute()
+{
+	try
+		return SoundGetMute()
+	catch
+		return "Unavailable"
+}
+
+TrySoundSetMute(mute)
+{
+	try
+		SoundSetMute(mute)
+}
+
+TrySoundSetVolume(volume)
+{
+	try
+		SoundSetVolume(volume)
 }
 
 #if WINDOWS
@@ -3254,4 +3290,3 @@ DoWav(*)
 }
 
 MyGui.Show("Autosize")
-

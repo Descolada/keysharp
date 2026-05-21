@@ -16,7 +16,7 @@ DEB_PKG_NAME="${DEB_PKG_NAME:-keysharp}"
 DEB_TMP_DIR="${DIST_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
 DEB_ARCH=""
-DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libnotify4, libatspi2.0-0, at-spi2-core"
+DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils"
 DEB_DESCRIPTION="A C# port and enhancement of the AutoHotkey program"
 
 if [[ -z "${VERSION}" ]]; then

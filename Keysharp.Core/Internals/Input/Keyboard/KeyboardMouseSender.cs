@@ -1818,7 +1818,8 @@ namespace Keysharp.Internals.Input.Keyboard
 								}
 							}
 
-							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref modsForNextKey, targetKeybdLayout);
+							var keySource = KeySource.None;
+							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayout);
 
 							if (repeatCount < 1L)
 								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.
@@ -2077,7 +2078,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				{
 					// Best to call this separately, rather than as first arg in SendKey, since it changes the
 					// value of modifiers and the updated value is *not* guaranteed to be passed.
-					// In other words, SendKey(TextToVK(...), modifiers, ...) would often send the old
+					// In other words, SendKey(CharToVKAndModifiers(...), modifiers, ...) would often send the old
 					// value for modifiers.
 					vk = ht.CharToVKAndModifiers(sub[keyIndex], ref modsForNextKey, targetKeybdLayout
 												 , (modsForNextKey | persistentModifiersForThisSendKeys) != 0 && sendRaw == SendRawModes.NotRaw); // v1.1.27.00: Disable the a-z to vk41-vk5A fallback translation when modifiers are present since it would produce the wrong printable characters.
@@ -2478,7 +2479,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 					// The following is done to avoid an extraneous artificial {LCtrl Up} later on,
 					// since the keyboard driver should insert one in response to this {RAlt Up}:
-					if (targetLayoutHasAltGr == ResultType.ConditionTrue && sc == ScanCodes.RAlt)
+					if (targetLayoutHasAltGr == ResultType.ConditionTrue && sc == ht.SC_RALT)
 						eventModifiersLR &= ~MOD_LCONTROL;
 
 					if (doKeyHistory && ht.keyHistory is KeyHistory kh)

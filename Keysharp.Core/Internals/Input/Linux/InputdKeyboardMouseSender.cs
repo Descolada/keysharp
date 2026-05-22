@@ -387,8 +387,20 @@ namespace Keysharp.Internals.Input.Linux
 			if (x == CoordUnspecified || y == CoordUnspecified)
 				return;
 
-			var dx = x;
-			var dy = y;
+			if (moveOffset)
+			{
+				if (sendMode == SendModes.Event)
+					SendRelativeMouseMove(x, y);
+				else
+					QueueRelativeMouseMove(x, y);
+
+				DoMouseDelay();
+				eventFlags = 0;
+				x = CoordUnspecified;
+				y = CoordUnspecified;
+				return;
+			}
+
 			POINT current = default;
 			var haveCurrent = false;
 			var targetX = x;
@@ -404,24 +416,10 @@ namespace Keysharp.Internals.Input.Linux
 				haveCurrent = true;
 			}
 
-			if (moveOffset)
-			{
-				if (haveCurrent)
-				{
-					targetX = current.X + x;
-					targetY = current.Y + y;
-				}
-			}
-			else
-			{
-				CoordToScreen(ref targetX, ref targetY, CoordMode.Mouse);
+			CoordToScreen(ref targetX, ref targetY, CoordMode.Mouse);
 
-				if (!haveCurrent)
-					return;
-
-				dx = targetX - current.X;
-				dy = targetY - current.Y;
-			}
+			if (!haveCurrent)
+				return;
 
 			if (sendMode == SendModes.Input)
 			{

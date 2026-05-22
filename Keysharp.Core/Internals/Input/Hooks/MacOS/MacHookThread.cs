@@ -30,6 +30,17 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 
 		protected override bool UseSyntheticEventQueue => false;
 
+		// macOS hook SC values are raw native codes learned from hook events.
+		// Do not seed the SC tables from SharpHook KeyCode enum values.
+		internal override uint SC_LCONTROL => 0;
+		internal override uint SC_RCONTROL => 0;
+		internal override uint SC_LALT => 0;
+		internal override uint SC_RALT => 0;
+		internal override uint SC_LSHIFT => 0;
+		internal override uint SC_RSHIFT => 0;
+		internal override uint SC_LWIN => 0;
+		internal override uint SC_RWIN => 0;
+
 		protected override bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
 		{
 			var simulated = e.IsEventSimulated;

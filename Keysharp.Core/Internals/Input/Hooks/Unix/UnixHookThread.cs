@@ -737,13 +737,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			switch (vk)
 			{
 				case VK_SHIFT:
-					vk = sc == ScanCodes.RShift ? VK_RSHIFT : VK_LSHIFT;
+					vk = MapScToVk(sc) == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT;
 					break;
 				case VK_CONTROL:
-					vk = sc == ScanCodes.RControl ? VK_RCONTROL : VK_LCONTROL;
+					vk = MapScToVk(sc) == VK_RCONTROL ? VK_RCONTROL : VK_LCONTROL;
 					break;
 				case VK_MENU:
-					vk = sc == ScanCodes.RAlt ? VK_RMENU : VK_LMENU;
+					vk = MapScToVk(sc) == VK_RMENU ? VK_RMENU : VK_LMENU;
 					break;
 			}
 
@@ -1880,6 +1880,31 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				DisarmHotstring();
 		}
 
+		internal override uint MapScToVk(uint sc)
+		{
+			if (sc == 0)
+				return 0;
+
+			return MapScToVkPlatform(sc);
+		}
+
+		internal override uint MapVkToSc(uint vk, bool returnSecondary = false)
+		{
+			if (vk == 0)
+				return 0;
+
+			return MapVkToScPlatform(vk, returnSecondary);
+		}
+
+		internal override uint SC_LCONTROL => MapVkToSc(VK_LCONTROL);
+		internal override uint SC_RCONTROL => MapVkToSc(VK_RCONTROL);
+		internal override uint SC_LALT => MapVkToSc(VK_LMENU);
+		internal override uint SC_RALT => MapVkToSc(VK_RMENU);
+		internal override uint SC_LSHIFT => MapVkToSc(VK_LSHIFT);
+		internal override uint SC_RSHIFT => MapVkToSc(VK_RSHIFT);
+		internal override uint SC_LWIN => MapVkToSc(VK_LWIN);
+		internal override uint SC_RWIN => MapVkToSc(VK_RWIN);
+
 		internal override uint KeyToModifiersLR(uint vk, uint sc, ref bool? isNeutral)
 		{
 			if (vk == 0 && sc == 0)
@@ -1953,8 +1978,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 			}
 
-			var mappedFromSc = MapScToVk(sc);
-			return mappedFromSc switch
+			return MapScToVk(sc) switch
 			{
 				VK_LSHIFT => MOD_LSHIFT,
 				VK_RSHIFT => MOD_RSHIFT,
@@ -1966,22 +1990,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				VK_RWIN => MOD_RWIN,
 				_ => 0
 			};
-		}
-
-		internal override uint MapScToVk(uint sc)
-		{
-			if (sc == 0)
-				return 0;
-
-			return MapScToVkPlatform(sc);
-		}
-
-		internal override uint MapVkToSc(uint vk, bool returnSecondary = false)
-		{
-			if (vk == 0)
-				return 0;
-
-			return MapVkToScPlatform(vk, returnSecondary);
 		}
 
 		protected virtual uint MapScToVkPlatform(uint sc)

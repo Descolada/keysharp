@@ -31,6 +31,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 			if (UseInputdScanCodes)
 				ConfigureInputdScanCodeNames();
+			else
+				ConfigureX11ScanCodeNames();
 		}
 
 		protected override long SyntheticEventTimeoutMs => 250;
@@ -785,7 +787,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		protected override uint MapScToVkPlatform(uint sc)
 		{
 			if (UseInputdScanCodes)
-				return MapInputdScanCodeToVk(sc);
+					return MapInputdScToVk(sc);
 
 			if (!IsX11Available || sc == 0)
 				return 0;
@@ -800,7 +802,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		protected override uint MapVkToScPlatform(uint vk, bool returnSecondary = false)
 		{
 			if (UseInputdScanCodes)
-				return MapVkToInputdScanCode(vk, returnSecondary);
+					return MapVkToInputdSc(vk, returnSecondary);
 
 			return ResolveVkToXKeycode(vk, out var xcode, returnSecondary) ? xcode : 0;
 		}
@@ -809,20 +811,39 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		private void ConfigureInputdScanCodeNames()
 		{
-			keyToSc["NumpadEnter"] = 96u;
-			keyToSc["Delete"] = keyToSc["Del"] = 111u;
-			keyToSc["Insert"] = keyToSc["Ins"] = 110u;
-			keyToSc["Up"] = 103u;
-			keyToSc["Down"] = 108u;
-			keyToSc["Left"] = 105u;
-			keyToSc["Right"] = 106u;
-			keyToSc["Home"] = 102u;
-			keyToSc["End"] = 107u;
-			keyToSc["PgUp"] = 104u;
-			keyToSc["PgDn"] = 109u;
+			AddScKeyName("NumpadEnter", 96u);
+			AddScKeyName("Delete", 111u);
+			AddScKeyName("Del", 111u);
+			AddScKeyName("Insert", 110u);
+			AddScKeyName("Ins", 110u);
+			AddScKeyName("Up", 103u);
+			AddScKeyName("Down", 108u);
+			AddScKeyName("Left", 105u);
+			AddScKeyName("Right", 106u);
+			AddScKeyName("Home", 102u);
+			AddScKeyName("End", 107u);
+			AddScKeyName("PgUp", 104u);
+			AddScKeyName("PgDn", 109u);
 		}
 
-		private static uint MapVkToInputdScanCode(uint vk, bool returnSecondary)
+		private void ConfigureX11ScanCodeNames()
+		{
+			AddScKeyName("NumpadEnter", MapVkToSc(VK_RETURN, true));
+			AddScKeyName("Delete", MapVkToSc(VK_DELETE));
+			AddScKeyName("Del", MapVkToSc(VK_DELETE));
+			AddScKeyName("Insert", MapVkToSc(VK_INSERT));
+			AddScKeyName("Ins", MapVkToSc(VK_INSERT));
+			AddScKeyName("Up", MapVkToSc(VK_UP));
+			AddScKeyName("Down", MapVkToSc(VK_DOWN));
+			AddScKeyName("Left", MapVkToSc(VK_LEFT));
+			AddScKeyName("Right", MapVkToSc(VK_RIGHT));
+			AddScKeyName("Home", MapVkToSc(VK_HOME));
+			AddScKeyName("End", MapVkToSc(VK_END));
+			AddScKeyName("PgUp", MapVkToSc(VK_PRIOR));
+			AddScKeyName("PgDn", MapVkToSc(VK_NEXT));
+		}
+
+		private static uint MapVkToInputdSc(uint vk, bool returnSecondary)
 		{
 			return vk switch
 			{
@@ -849,7 +870,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			};
 		}
 
-		private static uint MapInputdScanCodeToVk(uint sc)
+		private static uint MapInputdScToVk(uint sc)
 		{
 			return sc switch
 			{

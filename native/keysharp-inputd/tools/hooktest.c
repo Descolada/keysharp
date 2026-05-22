@@ -533,14 +533,13 @@ static int handle_hook_event(
             return -1;
         }
 
-        printf("hook event=%llu keyboard %s vk=0x%02x scan=%u flags=0x%x injected=%s native=%u device=%u time=%llu\n",
+        printf("hook event=%llu keyboard %s vk=0x%02x scan=%u flags=0x%x injected=%s device=%u time=%llu\n",
             (unsigned long long)event->event_id,
             message_name(event->event.keyboard.message),
             event->event.keyboard.vk_code,
             event->event.keyboard.scan_code,
             event->event.keyboard.flags,
             (event->event.keyboard.flags & KSI_LLKHF_INJECTED) != 0 ? "yes" : "no",
-            event->event.keyboard.native_code,
             event->event.keyboard.device_id,
             (unsigned long long)event->event.keyboard.time_ms);
     } else if (event->hook_type == KSI_HOOK_MOUSE_LL) {
@@ -549,7 +548,7 @@ static int handle_hook_event(
             return -1;
         }
 
-        printf("hook event=%llu mouse %s x=%d y=%d data=0x%x flags=0x%x injected=%s native=%u device=%u time=%llu\n",
+        printf("hook event=%llu mouse %s x=%d y=%d data=0x%x flags=0x%x injected=%s device=%u time=%llu\n",
             (unsigned long long)event->event_id,
             message_name(event->event.mouse.message),
             event->event.mouse.x,
@@ -557,7 +556,6 @@ static int handle_hook_event(
             event->event.mouse.mouse_data,
             event->event.mouse.flags,
             (event->event.mouse.flags & KSI_LLMHF_INJECTED) != 0 ? "yes" : "no",
-            event->event.mouse.native_code,
             event->event.mouse.device_id,
             (unsigned long long)event->event.mouse.time_ms);
     } else {

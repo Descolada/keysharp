@@ -193,6 +193,19 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		private nint uwpHwndChecked = 0;
 		internal WindowsHookThread()
 		{
+			AddScKeyName("NumpadEnter", NumpadEnter);
+			AddScKeyName("Delete", Delete);
+			AddScKeyName("Del", Delete);
+			AddScKeyName("Insert", Insert);
+			AddScKeyName("Ins", Insert);
+			AddScKeyName("Up", Up);
+			AddScKeyName("Down", Down);
+			AddScKeyName("Left", Left);
+			AddScKeyName("Right", Right);
+			AddScKeyName("Home", Home);
+			AddScKeyName("End", End);
+			AddScKeyName("PgUp", PgUp);
+			AddScKeyName("PgDn", PgDn);
 			kbdMsSender = new WindowsKeyboardMouseSender();
 			kbdHandlerDel = new LowLevelKeyboardProc(LowLevelKeybdHandler);
 			mouseHandlerDel = new LowLevelMouseProc(LowLevelMouseHandler);

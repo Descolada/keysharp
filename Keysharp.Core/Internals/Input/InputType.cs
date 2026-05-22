@@ -519,11 +519,12 @@ namespace Keysharp.Internals.Input
 						// Otherwise, for any key name which has a VK shared by two possible SCs
 						// (such as Up and NumpadUp), handle it by SC so it's identified correctly.
 						var nextkey = sub.Slice(0, endPos).ToString();
-						vk = ht.TextToVK(nextkey, ref modifiersLR, true, true, GetKeyboardLayout(0));
+						var keySource = KeySource.None;
+						_ = ht.TextToVKandSC(nextkey, ref vk, ref sc, ref keySource, ref modifiersLR, GetKeyboardLayout(0), allowVkScPair: false);
 
 						if (vk != 0)
 						{
-							vkByNumber = nextkey.StartsWith("vk", StringComparison.OrdinalIgnoreCase);
+							vkByNumber = (keySource & KeySource.Vk) != 0;
 
 							if (!vkByNumber && (sc = ht.MapVkToSc(vk, true)) != 0)
 							{
@@ -534,8 +535,9 @@ namespace Keysharp.Internals.Input
 							}
 						}
 						else
-							// No virtual key, so try to find a scan code.
-							sc = ht.TextToSC(nextkey, ref scByNumber);
+						{
+							scByNumber = (keySource & KeySource.Sc) != 0;
+						}
 
 						i += endPos;  // In prep for ++i at the top of the loop.
 						break; // Break out of the switch() and do the vk handling beneath it (if there is a vk).
@@ -550,7 +552,9 @@ namespace Keysharp.Internals.Input
 
 						singleCharString = ch.ToString();
 						modifiersLR = 0u;  // Init prior to below.
-						vk = ht.TextToVK(singleCharString, ref modifiersLR, true, true, GetKeyboardLayout(0));
+						sc = 0;
+						var charKeySource = KeySource.None;
+						_ = ht.TextToVKandSC(singleCharString, ref vk, ref sc, ref charKeySource, ref modifiersLR, GetKeyboardLayout(0));
 						vkByNumber = false;
 						scByNumber = false;
 						break;

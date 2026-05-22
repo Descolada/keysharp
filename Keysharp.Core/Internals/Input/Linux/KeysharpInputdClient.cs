@@ -113,8 +113,7 @@ namespace Keysharp.Internals.Input.Linux
 			uint Flags,
 			ulong TimeMs,
 			ulong ExtraInfo,
-			uint DeviceId,
-			uint NativeCode);
+			uint DeviceId);
 
 		internal readonly record struct MouseHookEvent(
 			uint Message,
@@ -124,8 +123,7 @@ namespace Keysharp.Internals.Input.Linux
 			uint Flags,
 			ulong TimeMs,
 			ulong ExtraInfo,
-			uint DeviceId,
-			uint NativeCode);
+			uint DeviceId);
 
 		internal readonly record struct HookEvent(
 			ulong EventId,
@@ -527,8 +525,7 @@ namespace Keysharp.Internals.Input.Linux
 				BinaryPrimitives.ReadUInt32LittleEndian(payload[12..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[16..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[24..]),
-				BinaryPrimitives.ReadUInt32LittleEndian(payload[32..]),
-				BinaryPrimitives.ReadUInt32LittleEndian(payload[36..]));
+				BinaryPrimitives.ReadUInt32LittleEndian(payload[32..]));
 
 		private static MouseHookEvent ReadMouseHookEvent(ReadOnlySpan<byte> payload)
 			=> new(
@@ -539,8 +536,7 @@ namespace Keysharp.Internals.Input.Linux
 				BinaryPrimitives.ReadUInt32LittleEndian(payload[16..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[24..]),
 				BinaryPrimitives.ReadUInt64LittleEndian(payload[32..]),
-				BinaryPrimitives.ReadUInt32LittleEndian(payload[40..]),
-				BinaryPrimitives.ReadUInt32LittleEndian(payload[44..]));
+				BinaryPrimitives.ReadUInt32LittleEndian(payload[40..]));
 
 		private void ThrowIfDisposed()
 		{

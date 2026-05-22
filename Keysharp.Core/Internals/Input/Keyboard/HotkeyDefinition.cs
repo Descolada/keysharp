@@ -1552,7 +1552,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// Returns OK or FAIL.
 		internal static ResultType TextToKey(ref string text, bool isModifier, HotkeyDefinition thisHotkey, bool syntaxCheckOnly)
 		{
-			uint tempVk; // No need to initialize this one.
+			var tempVk = 0u;
 			var tempSc = 0u;
 			uint? modifiersLR = 0u;
 			var isMouse = false;
@@ -1591,8 +1591,20 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var hotkeyTypeTemp = HotkeyTypeEnum.Normal;
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
+			var keySource = KeySource.None;
+			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, 0, allowVkScPair: false);
 
-			if ((tempVk = ht.TextToVK(text, ref modifiersLR, true, true, 0)) != 0) // Assign.
+#if !WINDOWS
+			// Named SCs are the platform hook backend's disambiguated key identities.
+			// The common parser keeps ordinary names as VKs for Windows compatibility.
+			if (keySource == KeySource.Name && tempVk != 0 && ht.TryGetNamedSc(text, out var namedSc))
+			{
+				tempVk = 0;
+				tempSc = namedSc;
+			}
+#endif
+
+			if (tempVk != 0)
 			{
 				if (isModifier)
 				{
@@ -1604,7 +1616,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					// This is done here rather than at some later stage because we have access to the raw
 					// name of the suffix key (with any leading modifiers such as ^ omitted from the beginning):
 					if (thisHotkey != null)
-						thisHotkey.vkWasSpecifiedByNumber = text.StartsWith("VK", StringComparison.OrdinalIgnoreCase);
+						thisHotkey.vkWasSpecifiedByNumber = (keySource & KeySource.Vk) != 0;
 
 				isMouse = MouseUtils.IsMouseVK(tempVk);
 
@@ -1617,11 +1629,9 @@ namespace Keysharp.Internals.Input.Keyboard
 				// from the modifiers here, we're only removing it from our modifiers, not the global
 				// modifiers that have already been set elsewhere for this key (e.g. +Z will still be +z).
 			}
-			else // No virtual key was found.  Is there a scan code?
+			else
 			{
-				bool? dummy = null;
-
-				if ((tempSc = ht.TextToSC(text, ref dummy)) == 0)
+				if (tempSc == 0)
 				{
 					if ((tempSc = (uint)Keysharp.Internals.Input.Joystick.Joystick.ConvertJoy(text, ref joystickId, true)) == 0)  // Is there a joystick control/button?
 					{

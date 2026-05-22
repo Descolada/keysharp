@@ -133,12 +133,11 @@ keyboard hook `wParam` message:
 ```text
 message       WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
 vk_code       Windows virtual-key code
-scan_code     Windows-like scan code when known
+scan_code     backend-specific low-level key code, such as Linux evdev KEY_*
 flags         LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_ALTDOWN, LLKHF_UP
 time_ms       event timestamp
 extra_info    equivalent of dwExtraInfo
 device_id     daemon-assigned physical device id
-native_code   backend-native code, such as Linux evdev KEY_*
 ```
 
 Mouse hook events are modeled after `MSLLHOOKSTRUCT` plus the low-level mouse
@@ -152,13 +151,12 @@ flags         LLMHF_INJECTED-style flags
 time_ms       event timestamp
 extra_info    equivalent of dwExtraInfo
 device_id     daemon-assigned physical device id
-native_code   backend-native code, such as Linux evdev BTN_*
 ```
 
 The daemon translates platform input into this model:
 
 ```text
-evdev KEY_A       -> VK_A + scan code + native KEY_A
+evdev KEY_A       -> VK_A + scan code KEY_A
 evdev BTN_LEFT    -> WM_LBUTTONDOWN/UP
 evdev REL_WHEEL   -> WM_MOUSEWHEEL + WHEEL_DELTA-compatible mouse_data
 evdev BTN_SIDE    -> WM_XBUTTONDOWN/UP + XBUTTON1-compatible mouse_data

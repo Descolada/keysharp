@@ -216,6 +216,15 @@ done
 		Toggle
 	}
 
+	[Flags]
+	internal enum KeySource
+	{
+		None = 0,
+		Name = 1,
+		Vk = 2,
+		Sc = 4
+	}
+
 	internal enum MenuType
 	{
 		None = 0,//None must be zero.

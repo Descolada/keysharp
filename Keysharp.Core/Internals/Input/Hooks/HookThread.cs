@@ -1,5 +1,6 @@
 using Keysharp.Builtins;
 using System;
+using Keysharp.Internals.Input.Keyboard;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.ScanCodes;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
@@ -30,7 +31,13 @@ namespace Keysharp.Internals.Input.Hooks
 		internal const uint INPUT_KEY_VISIBILITY_MASK = INPUT_KEY_SUPPRESS | INPUT_KEY_VISIBLE;
 		internal const uint INPUT_KEY_VISIBLE = 0x08;
 		internal const int SC_ARRAY_COUNT = SC_MAX + 1;
+		// SC is the hook backend's low-level key code. Linux inputd follows evdev
+		// KEY_* up through KEY_MAX; Windows and the other backends keep the AHK range.
+#if LINUX
+		internal const int SC_MAX = 0x2FF;
+#else
 		internal const int SC_MAX = 0x1FF;
+#endif
 		internal const int VK_ARRAY_COUNT = VK_MAX + 1;
 		internal const int VK_MAX = 0xFF;
 		internal const int KSCM_SIZE = (int)((MODLR_MAX + 1) * SC_ARRAY_COUNT);
@@ -121,23 +128,7 @@ namespace Keysharp.Internals.Input.Hooks
 		{
 			if (keyToSc == null)
 			{
-				keyToSc = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
-				{
-					{"NumpadEnter", NumpadEnter},
-					{"Delete", Delete},
-					{"Del", Delete},
-					{"Insert", Insert},
-					{"Ins", Insert},
-					//{"Clear", SC_CLEAR},  // Seems unnecessary because there is no counterpart to the Numpad5 clear key?
-					{"Up", Up},
-					{"Down", Down},
-					{"Left", Left},
-					{"Right", Right},
-					{"Home", Home},
-					{"End", End},
-					{"PgUp", PgUp},
-					{"PgDn", PgDn}
-				};
+				keyToSc = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
 				keyToScAlt = keyToSc.GetAlternateLookup<ReadOnlySpan<char>>();
 			}
 
@@ -280,6 +271,15 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 		}
 
+		protected void AddScKeyName(string name, uint sc)
+		{
+			if (sc != 0 && sc <= SC_MAX)
+				keyToSc[name] = sc;
+		}
+
+		internal bool TryGetNamedSc(ReadOnlySpan<char> name, out uint sc) =>
+		keyToScAlt.TryGetValue(name, out sc);
+
 		public abstract void SimulateKeyPress(uint key);
 
 		internal abstract void AddRemoveHooks(HookType hooksToBeActive, bool changeIsTemporary = false);
@@ -373,14 +373,16 @@ namespace Keysharp.Internals.Input.Hooks
 				// are really modifier keys on anything but a standard English keyboard.  However,
 				// long years of use haven't shown this to be a problem, and there are certainly other
 				// parts of the code that do not support custom layouts remapping the modifier keys.
-				ksc[LControl].asModifiersLR = MOD_LCONTROL;
-				ksc[RControl].asModifiersLR = MOD_RCONTROL;
-				ksc[LAlt].asModifiersLR = MOD_LALT;
-				ksc[RAlt].asModifiersLR = MOD_RALT;
-				ksc[LShift].asModifiersLR = MOD_LSHIFT;
-				ksc[RShift].asModifiersLR = MOD_RSHIFT;
-				ksc[LWin].asModifiersLR = MOD_LWIN;
-				ksc[RWin].asModifiersLR = MOD_RWIN;
+				// Also, SC 0 is the no-SC slot. Optional platform SC metadata can fall into it
+				// because SC dispatch is enabled only by scTakesPrecedence, which must stay false for SC 0.
+				ksc[SC_LCONTROL].asModifiersLR = MOD_LCONTROL;
+				ksc[SC_RCONTROL].asModifiersLR = MOD_RCONTROL;
+				ksc[SC_LALT].asModifiersLR = MOD_LALT;
+				ksc[SC_RALT].asModifiersLR = MOD_RALT;
+				ksc[SC_LSHIFT].asModifiersLR = MOD_LSHIFT;
+				ksc[SC_RSHIFT].asModifiersLR = MOD_RSHIFT;
+				ksc[SC_LWIN].asModifiersLR = MOD_LWIN;
+				ksc[SC_RWIN].asModifiersLR = MOD_RWIN;
 				// Use the address rather than the value, so that if the global var's value
 				// changes during runtime, ours will too:
 				kvk[VK_SCROLL].forceToggle = kbd.toggleStates;
@@ -465,15 +467,15 @@ namespace Keysharp.Internals.Input.Hooks
 							// in case future changes ever ruin that assumption:
 							kvk[VK_LMENU].usedAsSuffix = true;
 							kvk[VK_RMENU].usedAsSuffix = true;
-							ksc[LAlt].usedAsSuffix = true;
-							ksc[RAlt].usedAsSuffix = true;
+							ksc[SC_LALT].usedAsSuffix = true;
+							ksc[SC_RALT].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LMENU].usedAsKeyUp = true;
 								kvk[VK_RMENU].usedAsKeyUp = true;
-								ksc[LAlt].usedAsKeyUp = true;
-								ksc[RAlt].usedAsKeyUp = true;
+								ksc[SC_LALT].usedAsKeyUp = true;
+								ksc[SC_RALT].usedAsKeyUp = true;
 							}
 
 							break;
@@ -482,15 +484,15 @@ namespace Keysharp.Internals.Input.Hooks
 							// The neutral key itself is also set to be a suffix further below.
 							kvk[VK_LSHIFT].usedAsSuffix = true;
 							kvk[VK_RSHIFT].usedAsSuffix = true;
-							ksc[LShift].usedAsSuffix = true;
-							ksc[RShift].usedAsSuffix = true;
+							ksc[SC_LSHIFT].usedAsSuffix = true;
+							ksc[SC_RSHIFT].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LSHIFT].usedAsKeyUp = true;
 								kvk[VK_RSHIFT].usedAsKeyUp = true;
-								ksc[LShift].usedAsKeyUp = true;
-								ksc[RShift].usedAsKeyUp = true;
+								ksc[SC_LSHIFT].usedAsKeyUp = true;
+								ksc[SC_RSHIFT].usedAsKeyUp = true;
 							}
 
 							break;
@@ -498,15 +500,15 @@ namespace Keysharp.Internals.Input.Hooks
 						case VK_CONTROL:
 							kvk[VK_LCONTROL].usedAsSuffix = true;
 							kvk[VK_RCONTROL].usedAsSuffix = true;
-							ksc[LControl].usedAsSuffix = true;
-							ksc[RControl].usedAsSuffix = true;
+							ksc[SC_LCONTROL].usedAsSuffix = true;
+							ksc[SC_RCONTROL].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LCONTROL].usedAsKeyUp = true;
 								kvk[VK_RCONTROL].usedAsKeyUp = true;
-								ksc[LControl].usedAsKeyUp = true;
-								ksc[RControl].usedAsKeyUp = true;
+								ksc[SC_LCONTROL].usedAsKeyUp = true;
+								ksc[SC_RCONTROL].usedAsKeyUp = true;
 							}
 
 							break;
@@ -560,8 +562,9 @@ namespace Keysharp.Internals.Input.Hooks
 
 							// For some scan codes this was already set above.  But to support explicit scan code prefixes,
 							// such as "SC118 & SC122::MsgBox", make sure it's set for every prefix that uses an explicit
-							// scan code:
-							ksc[hk.modifierSC].scTakesPrecedence = true;
+							// scan code. SC 0 is the no-SC metadata sink and must never take precedence.
+							if (hk.modifierSC != 0)
+								ksc[hk.modifierSC].scTakesPrecedence = true;
 						}
 
 						if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
@@ -766,37 +769,49 @@ namespace Keysharp.Internals.Input.Hooks
 							if (thisHk.vk == VK_MENU || thisHk.vk == VK_LMENU)
 							{
 								Kvkm(modifiersLR, VK_LMENU) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LAlt) = thisHk.idWithFlags;
+
+								if (SC_LALT != 0)
+									Kscm(modifiersLR, SC_LALT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_MENU || thisHk.vk == VK_RMENU)
 							{
 								Kvkm(modifiersLR, VK_RMENU) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RAlt) = thisHk.idWithFlags;
+
+								if (SC_RALT != 0)
+									Kscm(modifiersLR, SC_RALT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_SHIFT || thisHk.vk == VK_LSHIFT)
 							{
 								Kvkm(modifiersLR, VK_LSHIFT) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LShift) = thisHk.idWithFlags;
+
+								if (SC_LSHIFT != 0)
+									Kscm(modifiersLR, SC_LSHIFT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_SHIFT || thisHk.vk == VK_RSHIFT)
 							{
 								Kvkm(modifiersLR, VK_RSHIFT) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RShift) = thisHk.idWithFlags;
+
+								if (SC_RSHIFT != 0)
+									Kscm(modifiersLR, SC_RSHIFT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_CONTROL || thisHk.vk == VK_LCONTROL)
 							{
 								Kvkm(modifiersLR, VK_LCONTROL) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LControl) = thisHk.idWithFlags;
+
+								if (SC_LCONTROL != 0)
+									Kscm(modifiersLR, SC_LCONTROL) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_CONTROL || thisHk.vk == VK_RCONTROL)
 							{
 								Kvkm(modifiersLR, VK_RCONTROL) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RControl) = thisHk.idWithFlags;
+
+								if (SC_RCONTROL != 0)
+									Kscm(modifiersLR, SC_RCONTROL) = thisHk.idWithFlags;
 							}
 						} // if (do_cascade)
 					}
@@ -1563,6 +1578,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual void RefreshPlatformKeyGrabs() { }
 
+		internal virtual uint SC_LCONTROL => LControl;
+		internal virtual uint SC_RCONTROL => RControl;
+		internal virtual uint SC_LALT => LAlt;
+		internal virtual uint SC_RALT => RAlt;
+		internal virtual uint SC_LSHIFT => LShift;
+		internal virtual uint SC_RSHIFT => RShift;
+		internal virtual uint SC_LWIN => LWin;
+		internal virtual uint SC_RWIN => RWin;
+
 		internal void ParseClickOptions(string options, ref int x, ref int y, ref uint vk, ref KeyEventTypes eventType, ref long repeatCount, ref bool moveOffset) =>
 		ParseClickOptions(options.AsSpan(), ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
 
@@ -1744,7 +1768,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// a true alias to the object, not a copy of it, because it's address (&this_key) is compared
 			// to other addresses for equality further below.
 			var scTakesPrecedence = ksc[sc].scTakesPrecedence;
-			// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+			// SC 0 may hold metadata for optional platform SCs, but it never takes precedence.
 			var thisKey = (isKeyboardEvent && scTakesPrecedence) ? ksc[sc] : kvk[vk];
 			var thisKeyIndex = (isKeyboardEvent && scTakesPrecedence) ? sc : vk;
 
@@ -1856,9 +1880,8 @@ namespace Keysharp.Internals.Input.Hooks
 			// WinAPI docs state that for both virtual keys and scan codes:
 			// "If there is no translation, the return value is zero."
 			// Therefore, zero is never a key that can be validly configured (and likely it's never received here anyway).
-			// UPDATE: For performance reasons, this check isn't even done.  Even if sc and vk are both zero, both kvk[0]
-			// and ksc[0] should have all their attributes initialized to FALSE so nothing should happen for that key
-			// anyway.
+			// UPDATE: For performance reasons, this check isn't even done. Even if sc and vk are both zero,
+			// kvk[0] is blank and ksc[0] cannot be selected because SC 0 never takes precedence.
 			//if (!vk && !sc)
 			//    return AllowKeyToGoToSystem;
 
@@ -2027,7 +2050,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// this prefix key's hotkey has the no-suppress prefix (which should cause the hotkey to fire
 					// immediately and not be suppressed).
 					// This prefix key's hotkey should also be fired immediately if there are any modifiers down.
-					// Check hook type too in case a script ever explicitly specifies scan code zero as a hotkey:
+					// Use the SC table only for scan codes which were marked as taking precedence.
 					hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
 										? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 					hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
@@ -2494,7 +2517,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// Hotkeys are not defined to modify themselves, so look for a match accordingly.
 					modifiersLRnew &= ~thisKey.asModifiersLR;
 
-				// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+				// Use the SC table only for scan codes which were marked as taking precedence.
 				hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
 					? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 
@@ -3640,24 +3663,24 @@ namespace Keysharp.Internals.Input.Hooks
 								kvk[VK_MENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LALT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RALT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_SHIFT:
 								kvk[VK_SHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_CONTROL:
 								kvk[VK_CONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 						}
 
@@ -3704,10 +3727,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal abstract bool SystemHasAnotherMouseHook();
 
-		internal uint TextToSC(string text, ref bool? specifiedByNumber) =>
-		TextToSC(text.AsSpan(), ref specifiedByNumber);
-
-		internal virtual uint TextToSC(ReadOnlySpan<char> text, ref bool? specifiedByNumber)
+		private uint KeyNameToSc(ReadOnlySpan<char> text, ref bool? specifiedByNumber)
 		{
 			if (text.Length == 0)
 				return 0u;
@@ -3716,24 +3736,12 @@ namespace Keysharp.Internals.Input.Hooks
 				return val;
 
 			// Do this only after the above, in case any valid key names ever start with SC:
-			if (char.ToUpper(text[0]) == 'S' && char.ToUpper(text[1]) == 'C')
+			if (TryParseExplicitKeyCode(text, "sc", out var sc))
 			{
-				var s = text.Slice(2);
-				var digits = 0;
-
-				foreach (var ch in s)
-					if (ch.IsHex())
-						digits++;
-
-				var ok = uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var ii);
-
-				if (!ok || (2 + digits < text.Length))
-					return 0; // Fixed for v1.1.27: Disallow any invalid suffix so that hotkeys like a::scb() are not misinterpreted as remappings.
-
 				if (specifiedByNumber != null)
 					specifiedByNumber = true; // Override caller-set default.
 
-				return ii;
+				return sc;
 			}
 
 			return 0u; // Indicate "not found".
@@ -3856,22 +3864,11 @@ namespace Keysharp.Internals.Input.Hooks
 			return 0;
 		}
 
-		internal uint TextToVK(string text, ref uint? modifiersLR, bool excludeThoseHandledByScanCode, bool allowExplicitVK, nint keybdLayout) =>
-		TextToVK(text.AsSpan(), ref modifiersLR, excludeThoseHandledByScanCode, allowExplicitVK, keybdLayout);
-
 		/// <summary>
-		/// If modifiers_p is non-NULL, place the modifiers that are needed to realize the key in there.
+		/// If modifiersLR is non-null, add modifiers needed to realize a character key.
 		/// e.g. M is really +m (shift-m), # is really shift-3.
-		/// HOWEVER, this function does not completely overwrite the contents of pModifiersLR; instead, it just
-		/// adds the required modifiers into whatever is already there.
 		/// </summary>
-		/// <param name="text"></param>
-		/// <param name="modifiersLR"></param>
-		/// <param name="excludeThoseHandledByScanCode"></param>
-		/// <param name="allowExplicitVK"></param>
-		/// <param name="keybdLayout"></param>
-		/// <returns></returns>
-		internal virtual uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, bool excludeThoseHandledByScanCode, bool allowExplicitVK, nint keybdLayout)
+		private uint KeyNameToVk(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
 		{
 			if (text.Length == 0)
 				return 0;
@@ -3886,73 +3883,117 @@ namespace Keysharp.Internals.Input.Hooks
 			if (text.Length == 1) // _tcslen(aText) == 1
 				return CharToVKAndModifiers(text[0], ref modifiersLR, keybdLayout); // Making this a function simplifies things because it can do early return, etc.
 
-			if (allowExplicitVK && char.ToUpper(text[0]) == 'V' && char.ToUpper(text[1]) == 'K')
-			{
-				var s = text.Slice(2);
-				var digits = 0;
-
-				foreach (var ch in s)
-					if (ch.IsHex())
-						digits++;
-
-				var ok = uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var ii);
-				return !ok || (2 + digits < text.Length) ? 0 : ii; // Fixed for v1.1.27: Disallow any invalid suffix so that hotkeys like a::vkb() are not misinterpreted as remappings.
-			}
-
 			if (keyToVkAlt.TryGetValue(text, out var val))
 				return val;
 
-			if (excludeThoseHandledByScanCode)
-				return 0; // Zero is not a valid virtual key, so it should be a safe failure indicator.
-
-			// Otherwise check if aText is the name of a key handled by scan code and if so, map that
-			// scan code to its corresponding virtual key:
-			bool? dummy = null;
-			var sc = TextToSC(text, ref dummy);
-			return sc != 0 ? MapScToVk(sc) : 0;
+			return 0;
 		}
 
-		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref uint? modifiersLR, nint keybdLayout) =>
-		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref modifiersLR, keybdLayout);
+		/// <summary>
+		/// Parses a key for callers that require a VK result, mapping an SC-only spelling
+		/// through the current platform just as TextToVK did before key identities existed.
+		/// </summary>
+		internal uint TextToVK(string text, ref uint? modifiersLR, nint keybdLayout) =>
+		TextToVK(text.AsSpan(), ref modifiersLR, keybdLayout);
 
-		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref uint? modifiersLR, nint keybdLayout)
+		internal uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
 		{
-			if ((vk = TextToVK(text, ref modifiersLR, true, true, keybdLayout)) != 0)
+			var vk = 0u;
+			var sc = 0u;
+			var source = KeySource.None;
+			_ = TextToVKandSC(text, ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair: false);
+			return vk != 0 ? vk : MapScToVk(sc);
+		}
+
+		/// <summary>
+		/// Parses a key once. VK is Keysharp's portable virtual-key namespace;
+		/// SC is the active hook backend's key code.
+		/// </summary>
+		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true) =>
+		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair);
+
+		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true)
+		{
+			vk = 0;
+			sc = 0;
+			source = KeySource.None;
+
+			if (text.Length == 0)
+				return false;
+
+			if (allowVkScPair && TryParseExplicitVkSc(text, out var explicitVk, out var explicitSc))
 			{
-				sc = 0; // Caller should call vk_to_sc(aVK) if needed.
+				vk = explicitVk;
+				sc = explicitSc;
+				source = KeySource.Vk | KeySource.Sc;
 				return true;
 			}
 
-			bool? dummy = null;
-
-			if ((sc = TextToSC(text, ref dummy)) != 0)
+			if (TryParseExplicitKeyCode(text, "vk", out explicitVk) && explicitVk != 0)
 			{
-				return true;// Leave aVK set to 0.  Caller should call sc_to_vk(aSC) if needed.
+				vk = explicitVk;
+				source = KeySource.Vk;
+				return true;
 			}
 
-			if (text.StartsWith("vk", StringComparison.OrdinalIgnoreCase)) // Could be vkXXscXXX, which TextToVK() does not permit in v1.1.27+.
+			vk = KeyNameToVk(text, ref modifiersLR, keybdLayout);
+
+			if (vk != 0)
 			{
-				var vkIndex = text.IndexOf("vk", StringComparison.OrdinalIgnoreCase);
-				var scIndex = text.IndexOf("sc", StringComparison.OrdinalIgnoreCase);
+				source = KeySource.Name;
+				return true;
+			}
 
-				if (vkIndex == 0 && scIndex > 2)
-				{
-					var vkStart = vkIndex + 2;
-					var vkSpan = text.Slice(vkStart, scIndex - vkStart);
-					var scStart = scIndex;
-					var scSpan = text.Slice(scStart + 2);
+			// Preserve TextToVK's old behavior: named keys are tried above before
+			// SC names. Explicit SCs and SC-only names arrive here.
+			bool? scSpecifiedByNumber = null;
+			sc = KeyNameToSc(text, ref scSpecifiedByNumber);
 
-					if (uint.TryParse(vkSpan, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var t1) &&
-							uint.TryParse(scSpan, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var t2))
-					{
-						vk = t1;
-						sc = t2;
-						return true;
-					}
-				}
+			if (sc != 0 || scSpecifiedByNumber.IsTrue())
+			{
+				source = scSpecifiedByNumber.IsTrue() ? KeySource.Sc : KeySource.Name;
+				return true;
 			}
 
 			return false;
+		}
+
+		private static bool TryParseExplicitVkSc(ReadOnlySpan<char> text, out uint vk, out uint sc)
+		{
+			vk = 0;
+			sc = 0;
+
+			if (!text.StartsWith("vk", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			var scIndex = text.IndexOf("sc", StringComparison.OrdinalIgnoreCase);
+
+			if (scIndex <= 2)
+				return false;
+
+			return TryParseHexKeyCode(text.Slice(2, scIndex - 2), out vk)
+				&& TryParseHexKeyCode(text[(scIndex + 2)..], out sc);
+		}
+
+		private static bool TryParseExplicitKeyCode(ReadOnlySpan<char> text, string prefix, out uint code)
+		{
+			code = 0;
+			return text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+				&& TryParseHexKeyCode(text[prefix.Length..], out code);
+		}
+
+		private static bool TryParseHexKeyCode(ReadOnlySpan<char> text, out uint code)
+		{
+			code = 0;
+
+			if (text.Length == 0)
+				return false;
+
+			foreach (var ch in text)
+				if (!ch.IsHex())
+					return false;
+
+			return uint.TryParse(text, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out code);
 		}
 
 		internal abstract void Unhook();
@@ -4073,8 +4114,8 @@ namespace Keysharp.Internals.Input.Hooks
 				// that instance's kbdMsSender.modifiersLR_logical doesn't say it's down, which is definitely wrong.  So it
 				// is now omitted below:
 				var isNotIgnored = hookExtraInfo != KeyIgnore;
-				var isFakeShift = hookSC == FakeLShift || hookSC == FakeRShift;
-				var isFakeCtrl = hookSC == FakeLControl; // AltGr.
+				var isFakeShift = hookSC == ScanCodes.FakeLShift || hookSC == ScanCodes.FakeRShift;
+				var isFakeCtrl = hookSC == ScanCodes.FakeLControl; // AltGr.
 				var eventIsPhysical = !isFakeShift && KeybdEventIsPhysical(isArtificial, vk, keyUp);// For backward-compatibility, fake LCtrl is marked as physical.
 
 				if (keyUp)

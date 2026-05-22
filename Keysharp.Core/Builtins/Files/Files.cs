@@ -392,7 +392,7 @@ namespace Keysharp.Builtins
 
 				// If badly formatted, it's not a critical error, just continue.
 				uint? dummy = null;
-				uint vk = Script.TheScript.HookThread.TextToVK(sc[i..], ref dummy, false, true, GetKeyboardLayout(0));
+				uint vk = Script.TheScript.HookThread.TextToVK(sc[i..], ref dummy, GetKeyboardLayout(0));
 				if (vk != 0)
 					shellLink.SetHotkey( (short)((ushort)vk | mods << 8) );
 			}

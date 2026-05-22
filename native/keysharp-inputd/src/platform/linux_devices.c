@@ -1335,15 +1335,13 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
         .time_ms = event_time_ms(event),
         .extra_info = extra_info,
         .device_id = device->device_id,
-        .native_code = (uint32_t)event->code,
     };
 
     if (g_verbose) {
-        printf("inputd: key %s vk=0x%02x scan=%u native=%u value=%d flags=0x%x time=%llu device=\"%s\"\n",
+        printf("inputd: key %s vk=0x%02x scan=%u value=%d flags=0x%x time=%llu device=\"%s\"\n",
             hook_event.message == KSI_WM_KEYUP ? "up" : "down",
             hook_event.vk_code,
             hook_event.scan_code,
-            hook_event.native_code,
             event->value,
             hook_event.flags,
             (unsigned long long)hook_event.time_ms,
@@ -1376,14 +1374,12 @@ static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, 
         .time_ms = event_time_ms(event),
         .extra_info = extra_info,
         .device_id = device->device_id,
-        .native_code = (uint32_t)event->code,
     };
 
     if (g_verbose) {
-        printf("inputd: mouse button message=0x%x data=0x%x native=%u time=%llu device=\"%s\"\n",
+        printf("inputd: mouse button message=0x%x data=0x%x time=%llu device=\"%s\"\n",
             hook_event.message,
             hook_event.mouse_data,
-            hook_event.native_code,
             (unsigned long long)hook_event.time_ms,
             device->name);
     }
@@ -1410,7 +1406,6 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.time_ms = device->pending_rel_time_ms;
         hook_event.extra_info = device->pending_rel_extra_info;
         hook_event.device_id = device->device_id;
-        hook_event.native_code = REL_X;
 
         if (g_verbose) {
             printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
@@ -1445,7 +1440,6 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.time_ms = device->pending_abs_time_ms;
         hook_event.extra_info = device->pending_abs_extra_info;
         hook_event.device_id = device->device_id;
-        hook_event.native_code = ABS_X;
 
         if (g_verbose) {
             printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
@@ -1499,16 +1493,14 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
             .time_ms = event_time_ms(event),
             .extra_info = extra_info,
             .device_id = device->device_id,
-            .native_code = (uint32_t)event->code,
         };
 
         dispatch_pending_mouse_move(device);
 
         if (g_verbose) {
-            printf("inputd: mouse wheel message=0x%x delta=%d native=%u time=%llu device=\"%s\"\n",
+            printf("inputd: mouse wheel message=0x%x delta=%d time=%llu device=\"%s\"\n",
                 hook_event.message,
                 event->value * 120,
-                hook_event.native_code,
                 (unsigned long long)hook_event.time_ms,
                 device->name);
         }

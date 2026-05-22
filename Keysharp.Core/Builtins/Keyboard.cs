@@ -139,7 +139,7 @@ namespace Keysharp.Builtins
 			JoyControls joy;
 			uint? joystickid = 0u;
 			uint? dummy = null;
-			var vk = ht.TextToVK(keyname, ref dummy, false, true, GetKeyboardLayout(0));
+			var vk = ht.TextToVK(keyname, ref dummy, GetKeyboardLayout(0));
 
 			if (vk == 0)
 			{
@@ -556,7 +556,7 @@ break_twice:;
 			var kbdMouseSender = ht.kbdMsSender;
 			uint? modLR = null;
 
-			if ((vk = ht.TextToVK(keyname, ref modLR, false, true, GetKeyboardLayout(0))) == 0)
+			if ((vk = ht.TextToVK(keyname, ref modLR, GetKeyboardLayout(0))) == 0)
 			{
 				joy = Joystick.ConvertJoy(keyname, ref joystickId);
 
@@ -1090,13 +1090,12 @@ break_twice:;
 		/// <returns>A string or integer representation of the key.</returns>
 		private static object GetKeyNamePrivate(string keyname, int callid)
 		{
-			var script = Script.TheScript;
-			var ht = script.HookThread;
-			var kbdMouseSender = ht.kbdMsSender;
+			var ht = Script.TheScript.HookThread;
 			var vk = 0u;
 			var sc = 0u;
+			var source = KeySource.None;
 			uint? modLR = null;
-			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref modLR, GetKeyboardLayout(0));//Need to make cross platform.
+			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref source, ref modLR, GetKeyboardLayout(0));
 
 			return callid switch
 		{

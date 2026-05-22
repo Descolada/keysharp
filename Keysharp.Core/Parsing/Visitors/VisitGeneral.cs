@@ -471,10 +471,13 @@ namespace Keysharp.Parsing
             var ht = Script.TheScript.HookThread;
             var kbLayout = GetKeyboardLayout(0);
 
-            ht.TextToVKandSC(remapName = HotkeyDefinition.TextToModifiers(remapName, null), ref remapDestVk, ref remapDestSc, ref modLR, kbLayout);
+            remapName = HotkeyDefinition.TextToModifiers(remapName, null);
+            var remapDestSource = KeySource.None;
+            ht.TextToVKandSC(remapName, ref remapDestVk, ref remapDestSc, ref remapDestSource, ref modLR, kbLayout);
 
             // These will be ignored in other stages if it turns out not to be a remap later below:
-            remapSourceVk = ht.TextToVK(tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null), ref modifiersLR, false, true, kbLayout);//An earlier stage verified that it's a valid hotkey, though VK could be zero.
+            tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null);
+            remapSourceVk = ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);//An earlier stage verified that it's a valid hotkey, though VK could be zero.
             remapSourceIsCombo = tempcp1.Contains(HotkeyDefinition.COMPOSITE_DELIMITER);
             remapSourceIsMouse = MouseUtils.IsMouseVK(remapSourceVk);
             remapDestIsMouse = MouseUtils.IsMouseVK(remapDestVk);

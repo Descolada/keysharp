@@ -159,7 +159,7 @@ typedef struct ksi_keyboard_hook_event {
     uint64_t time_ms;
     uint64_t extra_info;
     uint32_t device_id;
-    uint32_t native_code;
+    uint32_t reserved;
 } ksi_keyboard_hook_event;
 
 typedef struct ksi_mouse_hook_event {
@@ -171,7 +171,7 @@ typedef struct ksi_mouse_hook_event {
     uint64_t time_ms;
     uint64_t extra_info;
     uint32_t device_id;
-    uint32_t native_code;
+    uint32_t reserved;
 } ksi_mouse_hook_event;
 
 typedef struct ksi_keybdinput {

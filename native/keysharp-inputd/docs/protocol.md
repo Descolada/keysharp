@@ -1,284 +1,163 @@
 # keysharp-inputd IPC protocol
 
-`keysharp-inputd` exposes a Windows-shaped logical input protocol.
+`keysharp-inputd` exposes a Windows-shaped logical input protocol over a Unix
+socket. The daemon uses evdev, udev, and uinput internally, but Keysharp sees
+the same concepts it already uses for Windows hooks and `SendInput`.
 
-The daemon may use evdev, udev, and uinput internally on Linux, but Keysharp
-sees the same core concepts it already uses for Windows hooks and `SendInput`.
+C constants and structs: `include/keysharp_inputd/protocol.h`
 
-```text
-Linux evdev/uinput
-  <-> keysharp-inputd platform backend
-  <-> Windows-like Keysharp input protocol
-  <-> Keysharp keyboard/mouse hook and send logic
-```
+## Framing
 
-The C protocol constants and structs live in:
-
-```text
-include/keysharp_inputd/protocol.h
-```
-
-The daemon supports these framed binary messages:
-
-- `CLIENT_HELLO`
-- `HEARTBEAT`
-- `SUBSCRIBE_HOOK`
-- `UNSUBSCRIBE_HOOK`
-- `HOOK_EVENT`
-- `HOOK_DECISION`
-- `SYNTHESIZE_INPUT`
-- `SYNTHESIS_RESULT`
-- `EMERGENCY_PASSTHROUGH`
-- `GET_INDICATOR_STATE`
-- `INDICATOR_STATE_RESULT`
-- `GET_POINTER_POSITION`
-- `POINTER_POSITION_RESULT`
-
-The daemon socket is binary-only. There is no text command mode.
-
-Frames are read from a stream socket and may arrive split or coalesced. The
-daemon buffers per-client input, dispatches all complete frames, and disconnects
-clients that send invalid versions, invalid sizes, or oversized frames.
-
-## Authorization
-
-Installed clients connect through the systemd-owned Unix socket at
-`/run/keysharp-inputd/keysharp-inputd.sock`. The daemon uses `SO_PEERCRED` to
-record peer pid/uid/gid and partitions process-identity trust by peer uid.
-For privileged capability grants it also resolves `/proc/<pid>/exe`, reads
-`/proc/<pid>/cmdline`, and hashes the executable digest with the raw
-NUL-separated argument vector.
-
-Privileged binary commands require a prior `CLIENT_HELLO` message. The hello
-payload carries requested capabilities:
-
-```text
-KSI_CAP_HOOK_KEYBOARD
-KSI_CAP_HOOK_MOUSE
-KSI_CAP_SYNTH_KEYBOARD
-KSI_CAP_SYNTH_MOUSE
-KSI_CAP_BLOCK_INPUT
-```
-
-The daemon replies with granted capabilities. A capability is granted only when
-the current daemon user has the corresponding device access. For example,
-synthesis requires write access to `/dev/uinput`.
-
-Unknown executable-and-argument identities are prompted by the daemon on first
-privileged use. `Allow always` decisions are persisted per uid and process
-identity hash in the root-owned system trust store; `Allow once` decisions
-remain in-memory for the current daemon session. Stored trust records are
-pruned after 60 days without being seen.
-
-## Goals
-
-- Preserve Keysharp's Windows-oriented keyboard/mouse semantics.
-- Keep raw evdev codes behind the daemon boundary.
-- Allow multiple Keysharp script processes to share one privileged input owner.
-- Support blocking hooks, pass-through hooks, and input synthesis.
-- Keep hook policy in Keysharp, not in the daemon.
-
-## Message Framing
-
-Every message carries:
+Every message has a `ksi_message_header` carrying:
 
 - protocol major/minor version
 - message type
 - client id
-- correlation id where a response is expected
+- correlation id (for request/response pairs)
 - payload byte size
 
-This is represented by `ksi_message_header`.
+Frames arrive over a stream socket and may be split or coalesced. The daemon
+buffers per-client input and disconnects clients that send invalid versions,
+invalid sizes, or oversized frames.
 
-## Hook Model
+Supported message types:
 
-The daemon implements low-level hook transport. It does not understand or
-evaluate AHK hotkey, hotstring, or context rules. Keysharp owns those semantics.
+```
+CLIENT_HELLO          HEARTBEAT
+SUBSCRIBE_HOOK        UNSUBSCRIBE_HOOK
+HOOK_EVENT            HOOK_DECISION
+SYNTHESIZE_INPUT      SYNTHESIS_RESULT
+EMERGENCY_PASSTHROUGH
+GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
+GET_POINTER_POSITION  POINTER_POSITION_RESULT
+```
 
-The daemon's hook path is:
+## Authorization
 
-```text
+Clients connect through the systemd socket at
+`/run/keysharp-inputd/keysharp-inputd.sock`. The daemon authenticates via
+`SO_PEERCRED` plus a hash of the peer's executable and argument vector.
+
+`CLIENT_HELLO` carries requested capabilities:
+
+```
+KSI_CAP_HOOK_KEYBOARD   KSI_CAP_HOOK_MOUSE
+KSI_CAP_SYNTH_KEYBOARD  KSI_CAP_SYNTH_MOUSE
+KSI_CAP_BLOCK_INPUT
+```
+
+The daemon replies with granted capabilities. Unknown identities trigger a
+permission prompt; `Allow always` decisions are persisted per uid in the
+root-owned trust store and pruned after 60 days.
+
+## Hook model
+
+The daemon implements hook transport only. Keysharp owns all policy.
+
+```
 physical event
-  -> platform backend normalizes event
-  -> daemon dispatches HOOK_EVENT to subscribed Keysharp client(s)
-  -> Keysharp returns PASS, BLOCK, or MODIFY
-  -> daemon replays, suppresses, or synthesizes accordingly
+  → platform backend normalizes event
+  → daemon sends HOOK_EVENT to subscribed clients
+  → Keysharp replies HOOK_DECISION (PASS / BLOCK / MODIFY)
+  → daemon replays, suppresses, or synthesizes accordingly
 ```
 
-It queues hook events, processes one pending hook event at a time, sends that
-event to subscribed clients sequentially, accepts `HOOK_DECISION` replies, and
-applies the final decision. Each callback has a one-second decision timeout.
-Timeouts currently fall back to `PASS` for that client.
+Hook subscriptions require hook access **and** the matching synthesis access.
+Once `EVIOCGRAB` is active, passed events must be replayable through `uinput`;
+if `uinput` is unavailable, subscriptions are denied.
 
-The daemon tracks consecutive hook callback failures per client. Hook delivery
-send failures and hook decision timeouts count as failures; a valid hook
-decision resets the count. After ten back-to-back failures, the daemon removes
-that client's hook subscriptions and recalculates evdev grab state so a broken
-client cannot keep the system trapped behind a grab.
+Hook decisions have a one-second timeout; a timeout currently passes the event.
+After ten consecutive delivery/timeout failures the daemon removes that client's
+subscriptions and releases grabs so a crashed script cannot keep input trapped.
 
-When hook subscriptions are active, the daemon enables `EVIOCGRAB` on tracked
-devices. Final `PASS` events are replayed through `uinput`; final `BLOCK`
-events are suppressed by not replaying them. Final `MODIFY` decisions carry
-replacement `ksi_input` records, which the daemon emits through the same
-`SendInput`-style synthesis path.
+`EMERGENCY_PASSTHROUGH` clears all hook subscriptions, discards pending hook
+events, and releases all grabs unconditionally.
 
-Hook subscriptions require hook access, and the daemon only grants that access
-when its backend can replay grabbed pass-through events. Replay support is a
-daemon-side safety requirement; it does not grant the hook client arbitrary
-`SYNTHESIZE_INPUT` permission.
+### Keyboard hook event fields
 
-Keyboard hook events are modeled after `KBDLLHOOKSTRUCT` plus the low-level
-keyboard hook `wParam` message:
+Modelled after `KBDLLHOOKSTRUCT` + low-level hook `wParam`:
 
-```text
-message       WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP
-vk_code       Windows virtual-key code
-scan_code     backend-specific low-level key code, such as Linux evdev KEY_*
-flags         LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_ALTDOWN, LLKHF_UP
-time_ms       event timestamp
-extra_info    equivalent of dwExtraInfo
-device_id     daemon-assigned physical device id
+| Field | Description |
+|---|---|
+| `message` | `WM_KEYDOWN`, `WM_KEYUP`, `WM_SYSKEYDOWN`, `WM_SYSKEYUP` |
+| `vk_code` | Windows virtual-key code |
+| `scan_code` | Backend low-level key code (e.g. Linux evdev `KEY_*`) |
+| `flags` | `LLKHF_EXTENDED`, `LLKHF_INJECTED`, `LLKHF_ALTDOWN`, `LLKHF_UP` |
+| `time_ms` | Event timestamp |
+| `extra_info` | Equivalent of `dwExtraInfo` |
+| `device_id` | Daemon-assigned physical device id |
+
+### Mouse hook event fields
+
+Modelled after `MSLLHOOKSTRUCT` + low-level hook `wParam`:
+
+| Field | Description |
+|---|---|
+| `message` | `WM_MOUSEMOVE`, `WM_LBUTTONDOWN`, `WM_MOUSEWHEEL`, etc. |
+| `x`, `y` | Pointer coordinates where available |
+| `mouse_data` | Wheel delta or X-button value |
+| `flags` | `LLMHF_INJECTED`-style flags |
+| `time_ms` | Event timestamp |
+| `extra_info` | Equivalent of `dwExtraInfo` |
+| `device_id` | Daemon-assigned physical device id |
+
+### evdev translation
+
+```
+KEY_A        → VK_A + scan code KEY_A
+BTN_LEFT     → WM_LBUTTONDOWN/UP
+REL_WHEEL    → WM_MOUSEWHEEL + WHEEL_DELTA-compatible mouse_data
+BTN_SIDE     → WM_XBUTTONDOWN/UP + XBUTTON1-compatible mouse_data
+BTN_EXTRA    → WM_XBUTTONDOWN/UP + XBUTTON2-compatible mouse_data
 ```
 
-Mouse hook events are modeled after `MSLLHOOKSTRUCT` plus the low-level mouse
-hook `wParam` message:
+Relative X/Y motion is coalesced at `SYN_REPORT` boundaries so one hardware
+packet normally becomes one `WM_MOUSEMOVE` event.
 
-```text
-message       WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_MOUSEWHEEL, etc.
-x, y          pointer coordinates where available
-mouse_data    wheel delta or X button value
-flags         LLMHF_INJECTED-style flags
-time_ms       event timestamp
-extra_info    equivalent of dwExtraInfo
-device_id     daemon-assigned physical device id
+## Synthesis model
+
+Input synthesis is modelled after Windows `SendInput` (`ksi_input`).
+
+Keyboard synthesis fields: `vk`, `scan`, `flags` (`KEYEVENTF_*`), `time`, `extra_info`.
+
+Mouse synthesis fields: `dx`, `dy`, `mouse_data`, `flags` (`MOUSEEVENTF_*`), `time`, `extra_info`.
+
+The daemon translates requests into `uinput` events. `extra_info` is present in
+the protocol for cross-platform shape compatibility but is not preserved by Linux
+`uinput`.
+
+`MODIFY` hook decisions append replacement `ksi_input` entries after the decision
+header and require the same synthesis capabilities as direct `SYNTHESIZE_INPUT`.
+
+## Device state queries
+
+`GET_POINTER_POSITION` returns the last absolute pointer sample (raw `ABS_X`,
+`ABS_Y`, and each axis's min/max). Keysharp maps this range to screen coordinates
+before exposing the value to scripts. Requires `KSI_CAP_HOOK_MOUSE`.
+
+`GET_INDICATOR_STATE` / `INDICATOR_STATE_RESULT` report the current Caps Lock,
+Num Lock, and Scroll Lock LED state.
+
+## Injected-event tagging
+
+The daemon's `uinput` device is identified by:
+
+```
+name     Keysharp Virtual Input
+bustype  BUS_VIRTUAL
+vendor   0x4b53
+product  0x0001
 ```
 
-The daemon translates platform input into this model:
+Events from this device set `LLKHF_INJECTED` / `LLMHF_INJECTED` in hook callback
+flags. Pass-through replay events are suppressed from re-entering the callback
+path; direct `SYNTHESIZE_INPUT` events are not, so Keysharp can apply
+`SendLevel`-style policy to its own synthetic input.
 
-```text
-evdev KEY_A       -> VK_A + scan code KEY_A
-evdev BTN_LEFT    -> WM_LBUTTONDOWN/UP
-evdev REL_WHEEL   -> WM_MOUSEWHEEL + WHEEL_DELTA-compatible mouse_data
-evdev BTN_SIDE    -> WM_XBUTTONDOWN/UP + XBUTTON1-compatible mouse_data
-evdev BTN_EXTRA   -> WM_XBUTTONDOWN/UP + XBUTTON2-compatible mouse_data
-```
+## Multiple scripts
 
-Linux relative X/Y motion is coalesced at evdev `SYN_REPORT` boundaries so one
-hardware packet normally becomes one `WM_MOUSEMOVE` hook event.
-
-The Linux backend recognizes the daemon's own `uinput` device by both name and
-input id:
-
-```text
-name      Keysharp Virtual Input
-bustype   BUS_VIRTUAL
-vendor    0x4b53
-product   0x0001
-```
-
-For now, only events from `Keysharp Virtual Input` are marked artificial. Those
-events set `LLKHF_INJECTED` or `LLMHF_INJECTED` in callback flags.
-
-Allowed grabbed physical events are replayed through `Keysharp Virtual Input`,
-but those replay events are suppressed from the callback path. Synthetic input
-requested directly through `SYNTHESIZE_INPUT` is not suppressed; if matching
-hooks are installed, it re-enters the callback path as injected input so
-Keysharp can apply SendLevel-style policy.
-
-## Synthesis Model
-
-Input synthesis is modeled after Windows `SendInput`:
-
-```text
-ksi_input
-  type = INPUT_KEYBOARD | INPUT_MOUSE | INPUT_HARDWARE
-  keyboard = KEYBDINPUT-like payload
-  mouse = MOUSEINPUT-like payload
-```
-
-Keyboard synthesis carries:
-
-```text
-vk            Windows virtual-key code
-scan          Windows-like scan code
-flags         KEYEVENTF_KEYUP, SCANCODE, UNICODE, EXTENDEDKEY
-time          requested event time, usually zero
-extra_info    marker used for injected/self-generated filtering
-```
-
-Mouse synthesis carries:
-
-```text
-dx, dy        relative or absolute movement
-mouse_data    wheel delta or X button value
-flags         MOUSEEVENTF_* flags
-time          requested event time, usually zero
-extra_info    marker used for injected/self-generated filtering
-```
-
-The daemon translates these requests into `uinput` events. Linux `uinput` does
-not preserve Windows `dwExtraInfo`; the field is still present in the protocol
-so Keysharp can keep the same request shape across platforms.
-
-## Device State Queries
-
-`GET_POINTER_POSITION` returns the last absolute pointer sample that the Linux
-backend received from evdev. The result includes raw `ABS_X` and `ABS_Y` values
-and each axis's raw minimum and maximum. The daemon does not know display
-layout, so Keysharp maps that range to its screen coordinates before exposing
-the position to script code.
-
-The pointer query requires `KSI_CAP_HOOK_MOUSE`, like mouse hook delivery,
-because it exposes physical input state.
-
-## Hook Decisions
-
-Hook return values are explicit over IPC:
-
-```text
-PASS       allow the event to continue
-BLOCK      suppress the event
-MODIFY     replace with daemon/client-provided synthetic input
-```
-
-Do not rely on implicit Windows callback return conventions across IPC.
-
-`MODIFY` decisions append replacement `ksi_input` entries after the decision
-header. The replacement inputs require the same synthesis capabilities as direct
-`SYNTHESIZE_INPUT` requests.
-
-## Hook Callback Timing
-
-Hook callbacks have a strict one-second timeout. A slow or crashed script must
-not make the user's keyboard or mouse unusable.
-
-Timeouts currently pass the event to the next hook client. The global emergency
-pass-through command is available for explicit recovery.
-
-`EMERGENCY_PASSTHROUGH` is a global safety valve. An authenticated client can
-send it to clear hook subscriptions, discard pending hook events, and release
-all active evdev grabs. This favors returning device control to the desktop over
-preserving queued hook events.
-
-## Multiple Scripts
-
-Multiple scripts are modeled as ordered hook clients. Each hook subscription
-is represented by:
-
-- client id
-- hook type
-- subscription order
-
-The daemon owns delivery order, timeout enforcement, device ownership, replay,
-suppression, and synthesis. Keysharp owns the policy decision. Individual
-Keysharp processes do not open/grab physical input devices themselves.
-
-## Native Codes
-
-Windows-compatible fields are the main protocol surface. Native backend codes
-are still carried for diagnostics and fallback behavior:
-
-- Linux: evdev `KEY_*`, `BTN_*`, `REL_*`, `ABS_*`
-
-Keysharp uses native codes only when Windows-compatible translation is
-insufficient.
+Multiple Keysharp processes are modelled as ordered hook clients. Each
+subscription carries a client id, hook type, and subscription order. The daemon
+owns delivery order, timeout enforcement, device ownership, replay, suppression,
+and synthesis. Individual Keysharp processes do not open or grab physical devices
+themselves.

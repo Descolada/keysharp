@@ -1594,16 +1594,6 @@ namespace Keysharp.Internals.Input.Keyboard
 			var keySource = KeySource.None;
 			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, 0, allowVkScPair: false);
 
-#if !WINDOWS
-			// Named SCs are the platform hook backend's disambiguated key identities.
-			// The common parser keeps ordinary names as VKs for Windows compatibility.
-			if (keySource == KeySource.Name && tempVk != 0 && ht.TryGetNamedSc(text, out var namedSc))
-			{
-				tempVk = 0;
-				tempSc = namedSc;
-			}
-#endif
-
 			if (tempVk != 0)
 			{
 				if (isModifier)

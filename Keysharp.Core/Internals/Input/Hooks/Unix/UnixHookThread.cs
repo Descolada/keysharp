@@ -737,13 +737,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			switch (vk)
 			{
 				case VK_SHIFT:
-					vk = MapScToVk(sc) == VK_RSHIFT ? VK_RSHIFT : VK_LSHIFT;
+					vk = sc == SC_RSHIFT ? VK_RSHIFT : VK_LSHIFT;
 					break;
 				case VK_CONTROL:
-					vk = MapScToVk(sc) == VK_RCONTROL ? VK_RCONTROL : VK_LCONTROL;
+					vk = sc == SC_RCONTROL ? VK_RCONTROL : VK_LCONTROL;
 					break;
 				case VK_MENU:
-					vk = MapScToVk(sc) == VK_RMENU ? VK_RMENU : VK_LMENU;
+					vk = sc == SC_RALT ? VK_RMENU : VK_LMENU;
 					break;
 			}
 

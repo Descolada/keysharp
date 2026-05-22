@@ -1,5 +1,6 @@
 using Keysharp.Builtins;
 using Keysharp.Internals.Input.Linux;
+using Keysharp.Internals.Input.Keyboard;
 #if LINUX
 using Keysharp.Internals.Input.Mouse;
 using Keysharp.Internals.Window.Linux.Proxies;
@@ -28,11 +29,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		internal LinuxHookThread()
 		{
 			inputState = new LinuxX11InputState(physicalKeyState, logicalKeyState);
-
-			if (UseInputdScanCodes)
-				ConfigureInputdScanCodeNames();
-			else
-				ConfigureX11ScanCodeNames();
+			ConfigureScanCodeNames();
 		}
 
 		protected override long SyntheticEventTimeoutMs => 250;
@@ -809,24 +806,10 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 		private static bool UseInputdScanCodes => !KeysharpInputdManager.UseLegacyX11Input;
 
-		private void ConfigureInputdScanCodeNames()
-		{
-			AddScKeyName("NumpadEnter", 96u);
-			AddScKeyName("Delete", 111u);
-			AddScKeyName("Del", 111u);
-			AddScKeyName("Insert", 110u);
-			AddScKeyName("Ins", 110u);
-			AddScKeyName("Up", 103u);
-			AddScKeyName("Down", 108u);
-			AddScKeyName("Left", 105u);
-			AddScKeyName("Right", 106u);
-			AddScKeyName("Home", 102u);
-			AddScKeyName("End", 107u);
-			AddScKeyName("PgUp", 104u);
-			AddScKeyName("PgDn", 109u);
-		}
-
-		private void ConfigureX11ScanCodeNames()
+		// Single method for both inputd and X11 paths: MapVkToSc dispatches to the right
+		// backend based on UseInputdScanCodes, so the names are always consistent with
+		// the actual SCs that the hook will deliver.
+		private void ConfigureScanCodeNames()
 		{
 			AddScKeyName("NumpadEnter", MapVkToSc(VK_RETURN, true));
 			AddScKeyName("Delete", MapVkToSc(VK_DELETE));
@@ -840,7 +823,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			AddScKeyName("Home", MapVkToSc(VK_HOME));
 			AddScKeyName("End", MapVkToSc(VK_END));
 			AddScKeyName("PgUp", MapVkToSc(VK_PRIOR));
+			AddScKeyName("PageUp", MapVkToSc(VK_PRIOR));
 			AddScKeyName("PgDn", MapVkToSc(VK_NEXT));
+			AddScKeyName("PageDown", MapVkToSc(VK_NEXT));
 		}
 
 		private static uint MapVkToInputdSc(uint vk, bool returnSecondary)

@@ -205,7 +205,9 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			AddScKeyName("Home", Home);
 			AddScKeyName("End", End);
 			AddScKeyName("PgUp", PgUp);
+			AddScKeyName("PageUp", PgUp);
 			AddScKeyName("PgDn", PgDn);
+			AddScKeyName("PageDown", PgDn);
 			kbdMsSender = new WindowsKeyboardMouseSender();
 			kbdHandlerDel = new LowLevelKeyboardProc(LowLevelKeybdHandler);
 			mouseHandlerDel = new LowLevelMouseProc(LowLevelMouseHandler);

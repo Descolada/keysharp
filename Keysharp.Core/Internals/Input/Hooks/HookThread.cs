@@ -186,16 +186,10 @@ namespace Keysharp.Internals.Input.Hooks
 					{"NumpadEnd", VK_END},
 					{"NumpadPgUp", VK_PRIOR},
 					{"NumpadPgDn", VK_NEXT},
-					{"Up", VK_UP},
-					{"Down", VK_DOWN},
-					{"Left", VK_LEFT},
-					{"Right", VK_RIGHT},
-					{"Home", VK_HOME},
-					{"End", VK_END},
-					{"PgUp", VK_PRIOR},
-					{"PageUp", VK_PRIOR},
-					{"PgDn", VK_NEXT},
-					{"PageDown", VK_NEXT},
+					// Up/Down/Left/Right/Home/End/PgUp/PgDn are intentionally absent here.
+					// They must resolve via scan code (keyToSc) so that the hook's scTakesPrecedence
+					// flag is set, allowing "Up::" to fire only on the cursor key and not on NumpadUp.
+					// This matches AHK v2 which keeps these keys in g_key_to_sc, not g_key_to_vk.
 					{"PrintScreen", VK_SNAPSHOT},
 					{"CtrlBreak", VK_CANCEL}, // Might want to verify this, and whether it has any peculiarities.
 					{"Pause", VK_PAUSE}, // So that VKtoKeyName() delivers consistent results, always have the preferred name first.
@@ -3727,25 +3721,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal abstract bool SystemHasAnotherMouseHook();
 
-		private uint KeyNameToSc(ReadOnlySpan<char> text, ref bool? specifiedByNumber)
-		{
-			if (text.Length == 0)
-				return 0u;
-
-			if (keyToScAlt.TryGetValue(text, out var val))
-				return val;
-
-			// Do this only after the above, in case any valid key names ever start with SC:
-			if (TryParseExplicitKeyCode(text, "sc", out var sc))
-			{
-				if (specifiedByNumber != null)
-					specifiedByNumber = true; // Override caller-set default.
-
-				return sc;
-			}
-
-			return 0u; // Indicate "not found".
-		}
 
 		internal uint TextToSpecial(string text, ref KeyEventTypes eventType, ref uint modifiersLR, bool updatePersistent) =>
 		TextToSpecial(text.AsSpan(), ref eventType, ref modifiersLR, updatePersistent);
@@ -3944,15 +3919,19 @@ namespace Keysharp.Internals.Input.Hooks
 				return true;
 			}
 
-			// Preserve TextToVK's old behavior: named keys are tried above before
-			// SC names. Explicit SCs and SC-only names arrive here.
-			bool? scSpecifiedByNumber = null;
-			sc = KeyNameToSc(text, ref scSpecifiedByNumber);
-
-			if (sc != 0 || scSpecifiedByNumber.IsTrue())
+			// Named keys are tried above before SC names (preserves TextToVK's old ordering).
+			// Check the name dictionary first so that e.g. "NumpadEnter" wins over a hypothetical
+			// key name that starts with "SC".
+			if (keyToScAlt.TryGetValue(text, out sc))
 			{
-				source = scSpecifiedByNumber.IsTrue() ? KeySource.Sc : KeySource.Name;
+				source = KeySource.Name;
 				return true;
+			}
+
+			if (TryParseExplicitKeyCode(text, "sc", out sc))
+			{
+				source = KeySource.Sc;
+				return true; // sc000 is valid: it targets events that carry no scan code
 			}
 
 			return false;
@@ -3986,14 +3965,12 @@ namespace Keysharp.Internals.Input.Hooks
 		{
 			code = 0;
 
-			if (text.Length == 0)
+			// Reject empty strings and "0x"/"0X" prefix — key codes are plain hex digits only.
+			// AllowHexSpecifier accepts the prefix by default; we don't want "SC0x1A3" to parse.
+			if (text.Length == 0 || (text.Length >= 2 && text[0] == '0' && (text[1] | 0x20) == 'x'))
 				return false;
 
-			foreach (var ch in text)
-				if (!ch.IsHex())
-					return false;
-
-			return uint.TryParse(text, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out code);
+			return uint.TryParse(text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out code);
 		}
 
 		internal abstract void Unhook();

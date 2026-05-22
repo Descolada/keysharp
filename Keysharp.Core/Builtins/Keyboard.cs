@@ -909,9 +909,12 @@ break_twice:;
 
 			// Check SC first to properly differentiate between Home/NumpadHome, End/NumpadEnd, etc.
 			// v1.0.43: WheelDown/Up store the notch/turn count in SC, so don't consider that to be a valid SC.
-			if (sc != 0 && !MouseUtils.IsWheelVK(vk) && ht.SCtoKeyName(sc, false) != "")
+			if (sc != 0 && !MouseUtils.IsWheelVK(vk))
 			{
-				return buf;
+				buf = ht.SCtoKeyName(sc, false);
+
+				if (buf != "")
+					return buf;
 				// Otherwise this key is probably one we can handle by VK.
 			}
 

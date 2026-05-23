@@ -79,7 +79,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		internal static bool CallMessageHandler(Control control, ref System.Windows.Forms.Message m)
+		internal static bool CallMessageHandler(Control control, ref Message m)
 		{
 			if (m.HWnd == control.Handle)
 			{

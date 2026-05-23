@@ -177,7 +177,12 @@ namespace Keysharp.Tests
 		{
 			for (var attempt = 0; attempt < attempts; attempt++)
 			{
+#if WINDOWS
 				Clipboard.Clear();
+#else
+				Clipboard.Instance.Clear();
+				Clipboard.Instance.Text = "";
+#endif
 				AssertClipboardState(Ks.IsClipboardEmpty, "Clipboard should be empty before ClipWait timeout test.");
 				var dt = DateTime.UtcNow;
 				var b = Env.ClipWait(0.5);

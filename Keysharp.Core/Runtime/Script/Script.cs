@@ -827,7 +827,21 @@ namespace Keysharp.Runtime
 				return;
 
 			if (!autoExecResult && !persistent)
-				_ = Keysharp.Builtins.Flow.ExitApp(1);
+			{
+				// ExitApp rethrows UserRequestedExitException to unwind script threads.
+				// On non-Windows platforms this method runs inside a Gtk# AsyncInvoke
+				// callback, where an unhandled exception is escalated by
+				// GLib.ExceptionManager and terminates the host process. Swallow the
+				// expected exit signal here so a failing script reports a normal failure
+				// instead of crashing the test host.
+				try
+				{
+					_ = Keysharp.Builtins.Flow.ExitApp(1);
+				}
+				catch (Exception ex) when (Keysharp.Internals.Flow.TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(ex, out _))
+				{
+				}
+			}
 
 			ExitIfNotPersistent();
 		}

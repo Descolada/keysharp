@@ -37,6 +37,8 @@ global using global::Keysharp.Internals.Threading;
 	global using global::Keysharp.Internals.Input.Hooks.Windows;
 	global using global::Keysharp.Internals.Window.Windows;
 	global using MessageFilter = Keysharp.Internals.Window.Windows.MessageFilter;
+#else
+	global using global::Keysharp.Internals.Window.Unix;
 #endif
 //Static
 global using static global::Keysharp.Builtins.Accessors;

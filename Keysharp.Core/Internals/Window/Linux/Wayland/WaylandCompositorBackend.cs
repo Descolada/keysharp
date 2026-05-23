@@ -95,16 +95,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal static bool IsAvailable() => DesktopMatches("KDE");
 
 			public bool TryGetCursorPos(out int x, out int y)
-			{
-				x = 0;
-				y = 0;
-				// TODO: load a KWin script via org.kde.kwin.Scripting.loadScript that reads
-				// workspace.cursorPos and callDBus's it back to a small D-Bus service we
-				// register here. kdotool implements exactly this; once we add a D-Bus
-				// client (e.g. Tmds.DBus or a hand-rolled minimal one), this method is a
-				// few dozen lines.
-				return false;
-			}
+				=> KWinDBusBridge.QueryCursorPosition(out x, out y);
 		}
 
 		internal sealed class SwayBackend : IWaylandCompositorBackend

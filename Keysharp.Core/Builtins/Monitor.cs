@@ -99,6 +99,11 @@ namespace Keysharp.Builtins
 			var (screen, _) = ResolveScreen(n);
 #if WINDOWS
 			return screen.DeviceName ?? "";
+#elif LINUX
+			if (screen.Handler is Eto.GtkSharp.Forms.ScreenHandler { Control: Gdk.Monitor monitor })
+				return string.Join(" ", new[] { monitor.Manufacturer, monitor.Model }.Where(s => !string.IsNullOrEmpty(s)));
+
+			return screen.ID ?? "";
 #else
 			return screen.ID ?? "";
 #endif

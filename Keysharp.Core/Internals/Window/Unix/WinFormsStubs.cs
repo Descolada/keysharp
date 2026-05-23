@@ -271,15 +271,6 @@ namespace System.Windows.Forms
 	public sealed class LinkLabelLinkClickedEventArgs : EventArgs
 	{
 	}
-
-	public struct Message
-	{
-		public nint HWnd;
-		public int Msg;
-		public nint WParam;
-		public nint LParam;
-		public nint Result;
-	}
 }
 #endif
 

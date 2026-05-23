@@ -14,6 +14,15 @@ namespace Keysharp.Builtins
 		/// An array of all tooltip positions used to avoid position flickering.
 		/// </summary>
 		internal readonly Point?[] persistentTooltipsPositions = new Point?[MaxToolTips];
+#if LINUX
+		/// <summary>
+		/// Parallel array of Wayland layer-shell tooltips, used in preference to the WinForms
+		/// path when zwlr_layer_shell_v1 is available. Each slot is created lazily; null means
+		/// the slot is either unused or the layer-shell path is unavailable for it.
+		/// </summary>
+		internal readonly Keysharp.Internals.Window.Linux.Wayland.WaylandTooltip[] waylandTooltips
+			= new Keysharp.Internals.Window.Linux.Wayland.WaylandTooltip[MaxToolTips];
+#endif
 	}
 
 	/// <summary>
@@ -59,8 +68,29 @@ namespace Keysharp.Builtins
 					persistentTooltipsPositions[id] = null;
 				}
 
+#if LINUX
+				var wlSlotHide = script.ToolTipData.waylandTooltips;
+
+				if (wlSlotHide[id] != null)
+				{
+					try { wlSlotHide[id].Hide(); } catch { }
+					try { wlSlotHide[id].Dispose(); } catch { }
+					wlSlotHide[id] = null;
+				}
+#endif
 				return DefaultObject;
 			}
+
+#if LINUX
+			// On Wayland, prefer a zwlr_layer_shell_v1 tooltip: WinForms tooltips on Wayland
+			// become xdg-popups, which the compositor dismisses the moment the parent loses
+			// focus. A layer-shell surface on the Overlay layer stays visible across focus
+			// changes and can be re-shown from a backgrounded application. Falls back to the
+			// WinForms path below when the compositor lacks layer-shell or the Cairo/Pango
+			// rendering stack is unavailable.
+			if (TryShowWaylandTooltip(script, id, t, _x, _y))
+				return 0L;
+#endif
 
 			var tooltipInvokerForm = GuiHelper.DialogOwner ?? Form.ActiveForm;
 			var one_or_both_coords_specified = _x != int.MinValue || _y != int.MinValue;
@@ -173,6 +203,86 @@ namespace Keysharp.Builtins
 			}, false, false);
 			return handle;
 		}
+
+#if LINUX
+		private static volatile bool waylandTooltipProbed;
+		private static volatile bool waylandTooltipsUsable;
+
+		private static bool IsWaylandTooltipUsable()
+		{
+			if (waylandTooltipProbed)
+				return waylandTooltipsUsable;
+
+			waylandTooltipProbed = true;
+
+			try
+			{
+				var client = Keysharp.Internals.Window.Linux.Wayland.WaylandLayerShellClient.Current;
+
+				if (client == null || !client.IsAvailable)
+					return waylandTooltipsUsable = false;
+
+				return waylandTooltipsUsable = Keysharp.Internals.Window.Linux.Wayland.CairoText.TryProbe();
+			}
+			catch
+			{
+				return waylandTooltipsUsable = false;
+			}
+		}
+
+		private static bool TryShowWaylandTooltip(Script script, int slotIndex, string text, int xArg, int yArg)
+		{
+			if (!IsWaylandTooltipUsable())
+				return false;
+
+			var client = Keysharp.Internals.Window.Linux.Wayland.WaylandLayerShellClient.Current;
+
+			if (client == null || !client.IsAvailable)
+				return false;
+
+			// Resolve the requested coordinates to screen-space. CoordModeToolTip can be Window,
+			// Client or Screen; missing axes default to a small offset from the cursor (mirrors
+			// the WinForms path below). If CoordToScreen throws (e.g. Window/Client mode on
+			// Wayland, where the compositor doesn't expose window positions to foreign clients),
+			// we propagate the exception so the script sees the unsupported-operation error
+			// rather than silently being misled by wrong coordinates.
+			var coordModeToolTip = ThreadAccessors.A_CoordModeToolTip;
+			var tempx = xArg;
+			var tempy = yArg;
+
+			if ((xArg != int.MinValue || yArg != int.MinValue) && coordModeToolTip != CoordModeType.Screen)
+				CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
+
+			if (xArg == int.MinValue || yArg == int.MinValue)
+			{
+				_ = GetCursorPos(out var temppt);
+
+				if (xArg == int.MinValue)
+					tempx = temppt.X + 10;
+
+				if (yArg == int.MinValue)
+					tempy = temppt.Y + 10;
+			}
+
+			try
+			{
+				var slot = script.ToolTipData.waylandTooltips;
+
+				if (slot[slotIndex] == null)
+					slot[slotIndex] = new Keysharp.Internals.Window.Linux.Wayland.WaylandTooltip(client);
+
+				slot[slotIndex].Show(text, tempx, tempy);
+				return true;
+			}
+			catch
+			{
+				// If Wayland setup blows up at runtime, disable the path permanently and let the
+				// WinForms tooltip fallback take over from this call onward.
+				waylandTooltipsUsable = false;
+				return false;
+			}
+		}
+#endif
 
 		/// <summary>
 		/// Changes the script's tray icon (which is also used by GUI and dialog windows).

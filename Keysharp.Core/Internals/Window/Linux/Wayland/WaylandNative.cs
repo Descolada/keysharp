@@ -17,6 +17,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_roundtrip")]
 		internal static partial int DisplayRoundtrip(nint display);
 
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_dispatch")]
+		internal static partial int DisplayDispatch(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_dispatch_pending")]
+		internal static partial int DisplayDispatchPending(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_flush")]
+		internal static partial int DisplayFlush(nint display);
+
+		[LibraryImport(ClientLibrary, EntryPoint = "wl_display_get_fd")]
+		internal static partial int DisplayGetFd(nint display);
+
 		[LibraryImport(ClientLibrary, EntryPoint = "wl_proxy_add_listener")]
 		internal static partial int ProxyAddListener(nint proxy, nint implementation, nint data);
 
@@ -41,13 +53,152 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern void MarshalObjectRequest(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint arg);
 
+		// Marshal variants for additional signatures used by the layer-shell, compositor, shm and
+		// surface requests. Each P/Invoke matches one wire signature; see the wl_proxy_marshal_flags
+		// docs for argument-passing rules.
+
+		// signature "i" (1 signed int): set_exclusive_zone
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalI(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, int a);
+
+		// signature "u" (1 uint): set_anchor, set_keyboard_interactivity, ack_configure, set_layer
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalU(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a);
+
+		// signature "uu" (2 uints): set_size
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalUu(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, uint a, uint b);
+
+		// signature "iiii" (4 signed ints): damage, set_margin, region.add, region.subtract
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void Marshal4I(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, int a, int b, int c, int d);
+
+		// signature "?oii" (nullable object + 2 ints): wl_surface.attach
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern void MarshalOii(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint obj, int x, int y);
+
+		// signature "nhi" (new_id + fd + int): wl_shm.create_pool
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalCreatePool(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, int fd, int size);
+
+		// signature "niiiiu" (new_id + 4 ints + uint): wl_shm_pool.create_buffer
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalCreateBuffer(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, int offset, int width, int height, int stride, uint format);
+
+		// signature "no?ous" (new_id + surface + nullable output + uint layer + string namespace):
+		// zwlr_layer_shell_v1.get_layer_surface
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalGetLayerSurface(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, nint surface, nint output, uint layer, nint namespacePtr);
+
+		// libc bindings used for the SHM buffer plumbing (memfd-backed wl_shm_pool).
+		internal const int MFD_CLOEXEC = 0x0001;
+		internal const int PROT_READ = 0x1;
+		internal const int PROT_WRITE = 0x2;
+		internal const int MAP_SHARED = 0x1;
+		internal static readonly nint MAP_FAILED = new(-1);
+
+		[DllImport("libc", EntryPoint = "memfd_create", SetLastError = true)]
+		internal static extern int MemfdCreate([MarshalAs(UnmanagedType.LPUTF8Str)] string name, uint flags);
+
+		[DllImport("libc", EntryPoint = "ftruncate", SetLastError = true)]
+		internal static extern int Ftruncate(int fd, long length);
+
+		[DllImport("libc", EntryPoint = "mmap", SetLastError = true)]
+		internal static extern nint Mmap(nint addr, nuint length, int prot, int flags, int fd, long offset);
+
+		[DllImport("libc", EntryPoint = "munmap", SetLastError = true)]
+		internal static extern int Munmap(nint addr, nuint length);
+
+		[DllImport("libc", EntryPoint = "close", SetLastError = true)]
+		internal static extern int Close(int fd);
+
 		// Stable wl_display and wl_registry opcodes (Wayland core protocol).
 		private const uint WlDisplayGetRegistryOpcode = 1; // sync=0, get_registry=1
 		private const uint WlRegistryBindOpcode = 0;
 
+		// wl_compositor opcodes
+		private const uint WlCompositorCreateSurfaceOpcode = 0;
+		private const uint WlCompositorCreateRegionOpcode = 1;
+
+		// wl_surface opcodes
+		private const uint WlSurfaceDestroyOpcode = 0;
+		private const uint WlSurfaceAttachOpcode = 1;
+		private const uint WlSurfaceDamageOpcode = 2;
+		private const uint WlSurfaceFrameOpcode = 3;
+		private const uint WlSurfaceSetOpaqueRegionOpcode = 4;
+		private const uint WlSurfaceSetInputRegionOpcode = 5;
+		private const uint WlSurfaceCommitOpcode = 6;
+
+		// wl_buffer / wl_region opcodes
+		private const uint WlBufferDestroyOpcode = 0;
+		private const uint WlRegionDestroyOpcode = 0;
+		private const uint WlRegionAddOpcode = 1;
+		private const uint WlRegionSubtractOpcode = 2;
+
+		// wl_shm / wl_shm_pool opcodes
+		private const uint WlShmCreatePoolOpcode = 0;
+		private const uint WlShmPoolCreateBufferOpcode = 0;
+		private const uint WlShmPoolDestroyOpcode = 1;
+		private const uint WlShmPoolResizeOpcode = 2;
+
+		// zwlr_layer_shell_v1 opcodes
+		private const uint WlrLayerShellGetLayerSurfaceOpcode = 0;
+		private const uint WlrLayerShellDestroyOpcode = 1; // v3+
+
+		// wl_seat opcodes
+		private const uint WlSeatGetPointerOpcode = 0;
+
+		// wl_pointer opcodes
+		private const uint WlPointerSetCursorOpcode = 0;
+		private const uint WlPointerReleaseOpcode = 1; // v3+
+
+		// zwlr_layer_surface_v1 opcodes
+		private const uint WlrLayerSurfaceSetSizeOpcode = 0;
+		private const uint WlrLayerSurfaceSetAnchorOpcode = 1;
+		private const uint WlrLayerSurfaceSetExclusiveZoneOpcode = 2;
+		private const uint WlrLayerSurfaceSetMarginOpcode = 3;
+		private const uint WlrLayerSurfaceSetKeyboardInteractivityOpcode = 4;
+		private const uint WlrLayerSurfaceAckConfigureOpcode = 6;
+		private const uint WlrLayerSurfaceDestroyOpcode = 7;
+		private const uint WlrLayerSurfaceSetLayerOpcode = 8; // v2+
+
+		// wl_shm pixel format constants. argb8888 is byte order: B,G,R,A on little-endian, with
+		// premultiplied alpha. xrgb8888 is identical layout but the alpha channel is ignored.
+		internal const uint WlShmFormatArgb8888 = 0;
+		internal const uint WlShmFormatXrgb8888 = 1;
+
+		// zwlr_layer_shell_v1 layer enum
+		internal const uint LayerBackground = 0;
+		internal const uint LayerBottom = 1;
+		internal const uint LayerTop = 2;
+		internal const uint LayerOverlay = 3;
+
+		// zwlr_layer_surface_v1 anchor enum (bitfield)
+		internal const uint AnchorTop = 1;
+		internal const uint AnchorBottom = 2;
+		internal const uint AnchorLeft = 4;
+		internal const uint AnchorRight = 8;
+
+		// zwlr_layer_surface_v1 keyboard_interactivity enum
+		internal const uint KeyboardInteractivityNone = 0;
+		internal const uint KeyboardInteractivityExclusive = 1;
+		internal const uint KeyboardInteractivityOnDemand = 2;
+
+		// libwayland-client exports the wl_*_interface symbols for every core protocol object,
+		// so we can hand them straight to wl_proxy_marshal_flags without rebuilding wl_interface
+		// structures ourselves. Extension protocols (e.g. zwlr_layer_shell_v1) have no exported
+		// symbol and must be described locally via ProtocolInterface.
 		internal static nint RegistryInterface => Export("wl_registry_interface");
 		internal static nint SeatInterface => Export("wl_seat_interface");
 		internal static nint OutputInterface => Export("wl_output_interface");
+		internal static nint CompositorInterface => Export("wl_compositor_interface");
+		internal static nint ShmInterface => Export("wl_shm_interface");
+		internal static nint ShmPoolInterface => Export("wl_shm_pool_interface");
+		internal static nint SurfaceInterface => Export("wl_surface_interface");
+		internal static nint BufferInterface => Export("wl_buffer_interface");
+		internal static nint RegionInterface => Export("wl_region_interface");
+		internal static nint CallbackInterface => Export("wl_callback_interface");
+		internal static nint PointerInterface => Export("wl_pointer_interface");
 
 		internal static nint DisplayGetRegistry(nint display)
 			=> MarshalConstructor(display, WlDisplayGetRegistryOpcode, RegistryInterface, ProxyGetVersion(display), 0, 0);
@@ -71,6 +222,134 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				Marshal.FreeCoTaskMem(namePointer);
 			}
 		}
+
+		// ----- wl_compositor helpers -----
+
+		internal static nint CompositorCreateSurface(nint compositor)
+			=> MarshalConstructor(compositor, WlCompositorCreateSurfaceOpcode, SurfaceInterface, ProxyGetVersion(compositor), 0, 0);
+
+		internal static nint CompositorCreateRegion(nint compositor)
+			=> MarshalConstructor(compositor, WlCompositorCreateRegionOpcode, RegionInterface, ProxyGetVersion(compositor), 0, 0);
+
+		// ----- wl_surface helpers -----
+
+		internal static void SurfaceAttach(nint surface, nint buffer, int x, int y)
+			=> MarshalOii(surface, WlSurfaceAttachOpcode, 0, ProxyGetVersion(surface), 0, buffer, x, y);
+
+		internal static void SurfaceDamage(nint surface, int x, int y, int width, int height)
+			=> Marshal4I(surface, WlSurfaceDamageOpcode, 0, ProxyGetVersion(surface), 0, x, y, width, height);
+
+		internal static nint SurfaceFrame(nint surface)
+			=> MarshalConstructor(surface, WlSurfaceFrameOpcode, CallbackInterface, ProxyGetVersion(surface), 0, 0);
+
+		internal static void SurfaceSetOpaqueRegion(nint surface, nint region)
+			=> MarshalObjectRequest(surface, WlSurfaceSetOpaqueRegionOpcode, 0, ProxyGetVersion(surface), 0, region);
+
+		internal static void SurfaceSetInputRegion(nint surface, nint region)
+			=> MarshalObjectRequest(surface, WlSurfaceSetInputRegionOpcode, 0, ProxyGetVersion(surface), 0, region);
+
+		internal static void SurfaceCommit(nint surface)
+			=> MarshalRequest(surface, WlSurfaceCommitOpcode, 0, ProxyGetVersion(surface), 0);
+
+		internal static void SurfaceDestroy(nint surface)
+			=> MarshalRequest(surface, WlSurfaceDestroyOpcode, 0, ProxyGetVersion(surface), DestroyFlag);
+
+		// ----- wl_buffer helpers -----
+
+		internal static void BufferDestroy(nint buffer)
+			=> MarshalRequest(buffer, WlBufferDestroyOpcode, 0, ProxyGetVersion(buffer), DestroyFlag);
+
+		// ----- wl_region helpers -----
+
+		internal static void RegionAdd(nint region, int x, int y, int width, int height)
+			=> Marshal4I(region, WlRegionAddOpcode, 0, ProxyGetVersion(region), 0, x, y, width, height);
+
+		internal static void RegionDestroy(nint region)
+			=> MarshalRequest(region, WlRegionDestroyOpcode, 0, ProxyGetVersion(region), DestroyFlag);
+
+		// ----- wl_shm helpers -----
+
+		internal static nint ShmCreatePool(nint shm, int fd, int size)
+			=> MarshalCreatePool(shm, WlShmCreatePoolOpcode, ShmPoolInterface, ProxyGetVersion(shm), 0, 0, fd, size);
+
+		internal static nint ShmPoolCreateBuffer(nint pool, int offset, int width, int height, int stride, uint format)
+			=> MarshalCreateBuffer(pool, WlShmPoolCreateBufferOpcode, BufferInterface, ProxyGetVersion(pool), 0, 0, offset, width, height, stride, format);
+
+		internal static void ShmPoolDestroy(nint pool)
+			=> MarshalRequest(pool, WlShmPoolDestroyOpcode, 0, ProxyGetVersion(pool), DestroyFlag);
+
+		// ----- wl_seat / wl_pointer helpers -----
+
+		internal static nint SeatGetPointer(nint seat)
+			=> MarshalConstructor(seat, WlSeatGetPointerOpcode, PointerInterface, ProxyGetVersion(seat), 0, 0);
+
+		internal static void PointerRelease(nint pointer)
+		{
+			// wl_pointer.release was added in version 3; on older seats we have to fall through to
+			// wl_proxy_destroy, which doesn't notify the server but is the best we can do.
+			if (ProxyGetVersion(pointer) >= 3)
+				MarshalRequest(pointer, WlPointerReleaseOpcode, 0, ProxyGetVersion(pointer), DestroyFlag);
+			else
+				ProxyDestroy(pointer);
+		}
+
+		// Converts a wl_fixed_t (24.8 fixed-point integer) to a double pixel coordinate.
+		internal static double FixedToDouble(int value) => value / 256.0;
+
+		// ----- zwlr_layer_shell_v1 helpers -----
+
+		internal static nint LayerShellGetLayerSurface(nint layerShell, nint surface, nint output, uint layer, string ns)
+		{
+			var namePtr = Marshal.StringToCoTaskMemUTF8(ns ?? string.Empty);
+
+			try
+			{
+				return MarshalGetLayerSurface(
+					layerShell,
+					WlrLayerShellGetLayerSurfaceOpcode,
+					Interfaces.WlrLayerSurface.Pointer,
+					ProxyGetVersion(layerShell),
+					0,
+					0,
+					surface,
+					output,
+					layer,
+					namePtr);
+			}
+			finally
+			{
+				Marshal.FreeCoTaskMem(namePtr);
+			}
+		}
+
+		internal static void LayerShellDestroy(nint layerShell)
+			=> MarshalRequest(layerShell, WlrLayerShellDestroyOpcode, 0, ProxyGetVersion(layerShell), DestroyFlag);
+
+		// ----- zwlr_layer_surface_v1 helpers -----
+
+		internal static void LayerSurfaceSetSize(nint surface, uint width, uint height)
+			=> MarshalUu(surface, WlrLayerSurfaceSetSizeOpcode, 0, ProxyGetVersion(surface), 0, width, height);
+
+		internal static void LayerSurfaceSetAnchor(nint surface, uint anchor)
+			=> MarshalU(surface, WlrLayerSurfaceSetAnchorOpcode, 0, ProxyGetVersion(surface), 0, anchor);
+
+		internal static void LayerSurfaceSetExclusiveZone(nint surface, int zone)
+			=> MarshalI(surface, WlrLayerSurfaceSetExclusiveZoneOpcode, 0, ProxyGetVersion(surface), 0, zone);
+
+		internal static void LayerSurfaceSetMargin(nint surface, int top, int right, int bottom, int left)
+			=> Marshal4I(surface, WlrLayerSurfaceSetMarginOpcode, 0, ProxyGetVersion(surface), 0, top, right, bottom, left);
+
+		internal static void LayerSurfaceSetKeyboardInteractivity(nint surface, uint interactivity)
+			=> MarshalU(surface, WlrLayerSurfaceSetKeyboardInteractivityOpcode, 0, ProxyGetVersion(surface), 0, interactivity);
+
+		internal static void LayerSurfaceAckConfigure(nint surface, uint serial)
+			=> MarshalU(surface, WlrLayerSurfaceAckConfigureOpcode, 0, ProxyGetVersion(surface), 0, serial);
+
+		internal static void LayerSurfaceSetLayer(nint surface, uint layer)
+			=> MarshalU(surface, WlrLayerSurfaceSetLayerOpcode, 0, ProxyGetVersion(surface), 0, layer);
+
+		internal static void LayerSurfaceDestroy(nint surface)
+			=> MarshalRequest(surface, WlrLayerSurfaceDestroyOpcode, 0, ProxyGetVersion(surface), DestroyFlag);
 
 		private static nint libraryHandle;
 
@@ -182,6 +461,39 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				owned.Add(address);
 				return address;
 			}
+		}
+
+		// Wire descriptions for the layer-shell extension protocol objects. These are not exported
+		// by libwayland-client (it only ships the core protocol), so we build them locally and feed
+		// the pointer to wl_proxy_marshal_flags via ProtocolInterface.Pointer.
+		internal static class Interfaces
+		{
+			internal static readonly ProtocolInterface WlrLayerSurface = new(WlrLayerSurfaceName, 4,
+				[
+					("set_size", "uu", []),
+					("set_anchor", "u", []),
+					("set_exclusive_zone", "i", []),
+					("set_margin", "iiii", []),
+					("set_keyboard_interactivity", "u", []),
+					("get_popup", "o", [0]),
+					("ack_configure", "u", []),
+					("destroy", "", []),
+					("set_layer", "2u", [])
+				],
+				[
+					("configure", "uuu", []),
+					("closed", "", [])
+				]);
+
+			internal static readonly ProtocolInterface WlrLayerShell = new(WlrLayerShellName, 4,
+				[
+					("get_layer_surface", "no?ous", [WlrLayerSurface.Pointer, 0, 0, 0]),
+					("destroy", "3", [])
+				],
+				[]);
+
+			internal const string WlrLayerShellName = "zwlr_layer_shell_v1";
+			internal const string WlrLayerSurfaceName = "zwlr_layer_surface_v1";
 		}
 	}
 }

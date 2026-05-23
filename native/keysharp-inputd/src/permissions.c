@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <linux/if_alg.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -50,12 +53,6 @@ struct ksi_permission_store {
     size_t capacity;
 };
 
-typedef struct ksi_sha256_context {
-    uint8_t data[64];
-    uint32_t datalen;
-    uint64_t bitlen;
-    uint32_t state[8];
-} ksi_sha256_context;
 
 static uint64_t utc_now_seconds(void)
 {
@@ -63,200 +60,128 @@ static uint64_t utc_now_seconds(void)
     return now < 0 ? 0u : (uint64_t)now;
 }
 
-static void sha256_transform(ksi_sha256_context *context, const uint8_t data[64])
+/* --- Kernel AF_ALG SHA-256 wrapper (no external library dependency) ----------
+ *
+ * Opens an AF_ALG hash socket once per context.  Call _init, any number of
+ * _update calls with MSG_MORE, then _finish to obtain the hex digest.
+ * Always call _cleanup, even on error paths.
+ * --------------------------------------------------------------------------- */
+
+typedef struct {
+    int alg_fd; /* bound template socket */
+    int op_fd;  /* per-operation socket  */
+} ksi_sha256_ctx;
+
+static int sha256_ctx_init(ksi_sha256_ctx *ctx)
 {
-    static const uint32_t k[64] = {
-        0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
-        0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
-        0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
-        0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
-        0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
-        0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
-        0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
-        0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
-        0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
-        0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
-        0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
-        0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
-        0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
-        0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
-        0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
-        0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
+    static const struct sockaddr_alg sa = {
+        .salg_family = AF_ALG,
+        .salg_type   = "hash",
+        .salg_name   = "sha256",
     };
-    uint32_t m[64];
-    uint32_t a;
-    uint32_t b;
-    uint32_t c;
-    uint32_t d;
-    uint32_t e;
-    uint32_t f;
-    uint32_t g;
-    uint32_t h;
 
-    for (size_t i = 0; i < 16; i++) {
-        size_t base = i * 4u;
-        m[i] = ((uint32_t)data[base] << 24u)
-            | ((uint32_t)data[base + 1u] << 16u)
-            | ((uint32_t)data[base + 2u] << 8u)
-            | (uint32_t)data[base + 3u];
+    ctx->alg_fd = socket(AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+
+    if (ctx->alg_fd < 0) {
+        fprintf(stderr, "inputd: AF_ALG socket failed: %s\n", strerror(errno));
+        ctx->op_fd = -1;
+        return -1;
     }
 
-    for (size_t i = 16; i < 64; i++) {
-        uint32_t s0 = ((m[i - 15u] >> 7u) | (m[i - 15u] << 25u))
-            ^ ((m[i - 15u] >> 18u) | (m[i - 15u] << 14u))
-            ^ (m[i - 15u] >> 3u);
-        uint32_t s1 = ((m[i - 2u] >> 17u) | (m[i - 2u] << 15u))
-            ^ ((m[i - 2u] >> 19u) | (m[i - 2u] << 13u))
-            ^ (m[i - 2u] >> 10u);
-        m[i] = m[i - 16u] + s0 + m[i - 7u] + s1;
+    if (bind(ctx->alg_fd, (const struct sockaddr *)&sa, sizeof(sa)) != 0) {
+        fprintf(stderr, "inputd: AF_ALG bind(sha256) failed: %s\n", strerror(errno));
+        close(ctx->alg_fd);
+        ctx->alg_fd = -1;
+        ctx->op_fd  = -1;
+        return -1;
     }
 
-    a = context->state[0];
-    b = context->state[1];
-    c = context->state[2];
-    d = context->state[3];
-    e = context->state[4];
-    f = context->state[5];
-    g = context->state[6];
-    h = context->state[7];
+    ctx->op_fd = accept(ctx->alg_fd, NULL, NULL);
 
-    for (size_t i = 0; i < 64; i++) {
-        uint32_t s1 = ((e >> 6u) | (e << 26u))
-            ^ ((e >> 11u) | (e << 21u))
-            ^ ((e >> 25u) | (e << 7u));
-        uint32_t ch = (e & f) ^ ((~e) & g);
-        uint32_t temp1 = h + s1 + ch + k[i] + m[i];
-        uint32_t s0 = ((a >> 2u) | (a << 30u))
-            ^ ((a >> 13u) | (a << 19u))
-            ^ ((a >> 22u) | (a << 10u));
-        uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
-        uint32_t temp2 = s0 + maj;
-
-        h = g;
-        g = f;
-        f = e;
-        e = d + temp1;
-        d = c;
-        c = b;
-        b = a;
-        a = temp1 + temp2;
+    if (ctx->op_fd < 0) {
+        fprintf(stderr, "inputd: AF_ALG accept failed: %s\n", strerror(errno));
+        close(ctx->alg_fd);
+        ctx->alg_fd = -1;
+        return -1;
     }
 
-    context->state[0] += a;
-    context->state[1] += b;
-    context->state[2] += c;
-    context->state[3] += d;
-    context->state[4] += e;
-    context->state[5] += f;
-    context->state[6] += g;
-    context->state[7] += h;
+    return 0;
 }
 
-static void sha256_init(ksi_sha256_context *context)
+static int sha256_ctx_update(ksi_sha256_ctx *ctx, const void *data, size_t len)
 {
-    memset(context, 0, sizeof(*context));
-    context->state[0] = 0x6a09e667u;
-    context->state[1] = 0xbb67ae85u;
-    context->state[2] = 0x3c6ef372u;
-    context->state[3] = 0xa54ff53au;
-    context->state[4] = 0x510e527fu;
-    context->state[5] = 0x9b05688cu;
-    context->state[6] = 0x1f83d9abu;
-    context->state[7] = 0x5be0cd19u;
+    if (ctx->op_fd < 0) {
+        return -1;
+    }
+
+    if (send(ctx->op_fd, data, len, MSG_MORE) != (ssize_t)len) {
+        fprintf(stderr, "inputd: AF_ALG send failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    return 0;
 }
 
-static void sha256_update(ksi_sha256_context *context, const uint8_t *data, size_t len)
+static int sha256_ctx_finish(ksi_sha256_ctx *ctx, char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
 {
-    for (size_t i = 0; i < len; i++) {
-        context->data[context->datalen] = data[i];
-        context->datalen++;
+    static const char hex_chars[] = "0123456789abcdef";
+    uint8_t hash[32];
 
-        if (context->datalen == 64u) {
-            sha256_transform(context, context->data);
-            context->bitlen += 512u;
-            context->datalen = 0u;
-        }
-    }
-}
-
-static void sha256_final(ksi_sha256_context *context, uint8_t hash[32])
-{
-    uint32_t index = context->datalen;
-
-    context->data[index++] = 0x80u;
-
-    if (index > 56u) {
-        while (index < 64u) {
-            context->data[index++] = 0u;
-        }
-
-        sha256_transform(context, context->data);
-        index = 0u;
+    if (ctx->op_fd < 0) {
+        return -1;
     }
 
-    while (index < 56u) {
-        context->data[index++] = 0u;
+    if (read(ctx->op_fd, hash, sizeof(hash)) != (ssize_t)sizeof(hash)) {
+        fprintf(stderr, "inputd: AF_ALG read digest failed: %s\n", strerror(errno));
+        return -1;
     }
-
-    context->bitlen += (uint64_t)context->datalen * 8u;
-    context->data[63] = (uint8_t)(context->bitlen);
-    context->data[62] = (uint8_t)(context->bitlen >> 8u);
-    context->data[61] = (uint8_t)(context->bitlen >> 16u);
-    context->data[60] = (uint8_t)(context->bitlen >> 24u);
-    context->data[59] = (uint8_t)(context->bitlen >> 32u);
-    context->data[58] = (uint8_t)(context->bitlen >> 40u);
-    context->data[57] = (uint8_t)(context->bitlen >> 48u);
-    context->data[56] = (uint8_t)(context->bitlen >> 56u);
-    sha256_transform(context, context->data);
-
-    for (size_t i = 0; i < 4u; i++) {
-        hash[i] = (uint8_t)((context->state[0] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 4u] = (uint8_t)((context->state[1] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 8u] = (uint8_t)((context->state[2] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 12u] = (uint8_t)((context->state[3] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 16u] = (uint8_t)((context->state[4] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 20u] = (uint8_t)((context->state[5] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 24u] = (uint8_t)((context->state[6] >> (24u - (i * 8u))) & 0xffu);
-        hash[i + 28u] = (uint8_t)((context->state[7] >> (24u - (i * 8u))) & 0xffu);
-    }
-}
-
-static void hash_to_hex(const uint8_t hash[32], char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
-{
-    static const char hex[] = "0123456789abcdef";
 
     for (size_t i = 0; i < 32u; i++) {
-        output[i * 2u] = hex[(hash[i] >> 4u) & 0x0fu];
-        output[(i * 2u) + 1u] = hex[hash[i] & 0x0fu];
+        output[i * 2u]        = hex_chars[(hash[i] >> 4u) & 0x0fu];
+        output[(i * 2u) + 1u] = hex_chars[hash[i] & 0x0fu];
     }
 
     output[KSI_PERMISSION_HASH_HEX_LENGTH] = '\0';
+    return 0;
 }
 
+static void sha256_ctx_cleanup(ksi_sha256_ctx *ctx)
+{
+    if (ctx->op_fd  >= 0) { close(ctx->op_fd);  ctx->op_fd  = -1; }
+    if (ctx->alg_fd >= 0) { close(ctx->alg_fd); ctx->alg_fd = -1; }
+}
+
+/* Hash the open file descriptor and hex-encode the digest into output. */
 static int compute_fd_sha256_hex(int fd, char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
 {
-    uint8_t buffer[8192];
-    uint8_t hash[32];
-    ksi_sha256_context context;
-    ssize_t bytes_read;
+    uint8_t io_buf[8192];
+    ksi_sha256_ctx ctx;
+    ssize_t n;
+    int result = -1;
 
     if (lseek(fd, 0, SEEK_SET) < 0) {
         return -1;
     }
 
-    sha256_init(&context);
-
-    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-        sha256_update(&context, buffer, (size_t)bytes_read);
-    }
-
-    if (bytes_read < 0) {
+    if (sha256_ctx_init(&ctx) != 0) {
         return -1;
     }
 
-    sha256_final(&context, hash);
-    hash_to_hex(hash, output);
-    return 0;
+    while ((n = read(fd, io_buf, sizeof(io_buf))) > 0) {
+        if (sha256_ctx_update(&ctx, io_buf, (size_t)n) != 0) {
+            goto cleanup;
+        }
+    }
+
+    if (n < 0) {
+        goto cleanup;
+    }
+
+    result = sha256_ctx_finish(&ctx, output);
+
+cleanup:
+    sha256_ctx_cleanup(&ctx);
+    return result;
 }
 
 static void append_argument_display(
@@ -309,13 +234,13 @@ static int hash_process_identity(
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     char proc_path[64];
     uint8_t buffer[8192];
-    uint8_t hash[32];
-    ksi_sha256_context context;
+    ksi_sha256_ctx ctx;
     size_t display_length = 0u;
     bool has_command_line = false;
     bool skipping_argv0 = true;
     ssize_t bytes_read;
     int cmdline_fd;
+    int result = -1;
 
     if (command_line_buffer == NULL || command_line_buffer_size == 0u) {
         return -1;
@@ -334,31 +259,42 @@ static int hash_process_identity(
         return -1;
     }
 
-    sha256_init(&context);
-    sha256_update(&context, domain, sizeof(domain));
-    sha256_update(&context, (const uint8_t *)exe_hash, KSI_PERMISSION_HASH_HEX_LENGTH);
+    if (sha256_ctx_init(&ctx) != 0) {
+        close(cmdline_fd);
+        return -1;
+    }
+
+    if (sha256_ctx_update(&ctx, domain, sizeof(domain)) != 0
+        || sha256_ctx_update(&ctx, exe_hash, KSI_PERMISSION_HASH_HEX_LENGTH) != 0) {
+        goto cleanup;
+    }
 
     while ((bytes_read = read(cmdline_fd, buffer, sizeof(buffer))) > 0) {
         has_command_line = true;
-        sha256_update(&context, buffer, (size_t)bytes_read);
+
+        if (sha256_ctx_update(&ctx, buffer, (size_t)bytes_read) != 0) {
+            goto cleanup;
+        }
+
         append_argument_display(
             command_line_buffer, command_line_buffer_size, &display_length, &skipping_argv0,
             buffer, (size_t)bytes_read);
     }
 
-    close(cmdline_fd);
-
     if (bytes_read < 0 || !has_command_line) {
-        return -1;
+        goto cleanup;
     }
 
     while (display_length > 0u && command_line_buffer[display_length - 1u] == ' ') {
         command_line_buffer[--display_length] = '\0';
     }
 
-    sha256_final(&context, hash);
-    hash_to_hex(hash, output);
-    return 0;
+    result = sha256_ctx_finish(&ctx, output);
+
+cleanup:
+    sha256_ctx_cleanup(&ctx);
+    close(cmdline_fd);
+    return result;
 }
 
 static bool looks_like_sha256(const char *text)
@@ -756,8 +692,8 @@ static int save_store(const ksi_permission_store *store)
 
     fd = fileno(file);
 
-    if (fd >= 0) {
-        (void)fsync(fd);
+    if (fd >= 0 && fsync(fd) != 0) {
+        fprintf(stderr, "inputd: fsync on trust store failed: %s\n", strerror(errno));
     }
 
     if (fclose(file) != 0) {
@@ -1092,15 +1028,40 @@ static int run_prompt_command(
 
     while (!child_reaped) {
         struct timespec now;
-        pid_t result;
+        struct pollfd wait_pfd;
+        int64_t remaining_ms;
+        int poll_timeout_ms;
+        pid_t reap_result;
 
-        /* Drain the pipe into the output buffer so the child never blocks
-         * on write even if its output exceeds the pipe buffer size. */
+        if (atomic_load(&g_prompt_cancelled)) {
+            break;
+        }
+
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+            break;
+        }
+
+        remaining_ms = ((int64_t)(deadline.tv_sec - now.tv_sec) * 1000LL)
+                       + ((int64_t)(deadline.tv_nsec - now.tv_nsec) / 1000000LL);
+
+        if (remaining_ms <= 0) {
+            break;
+        }
+
+        /* Cap at 100 ms so we check cancellation frequently, but wake
+         * immediately when the child writes output to the pipe. */
+        poll_timeout_ms = (int)(remaining_ms > 100LL ? 100LL : remaining_ms);
+        wait_pfd.fd = pipe_fds[0];
+        wait_pfd.events = POLLIN;
+        (void)poll(&wait_pfd, 1, poll_timeout_ms);
+
+        /* Drain whatever the child has written, whether or not poll fired. */
         if (output != NULL && output_size > 0u) {
             ssize_t n;
 
             while (output_used < output_size - 1u) {
-                n = read(pipe_fds[0], output + output_used, output_size - 1u - output_used);
+                n = read(pipe_fds[0], output + output_used,
+                         output_size - 1u - output_used);
 
                 if (n > 0) {
                     output_used += (size_t)n;
@@ -1110,28 +1071,13 @@ static int run_prompt_command(
             }
         }
 
-        result = waitpid(child, &wait_status, WNOHANG);
+        reap_result = waitpid(child, &wait_status, WNOHANG);
 
-        if (result == child) {
+        if (reap_result == child) {
             child_reaped = true;
+        } else if (reap_result < 0) {
             break;
         }
-
-        if (result < 0) {
-            break;
-        }
-
-        if (atomic_load(&g_prompt_cancelled)) {
-            break;
-        }
-
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0
-            || now.tv_sec > deadline.tv_sec
-            || (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
-            break;
-        }
-
-        usleep(100000);
     }
 
     if (!child_reaped) {

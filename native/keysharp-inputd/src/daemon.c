@@ -54,6 +54,7 @@ typedef enum ksi_client_state {
 /* Main-thread-only: holds application state for one authenticated client. */
 typedef struct ksi_client {
     int fd;
+    uint64_t connection_id;
     pid_t pid;
     uid_t uid;
     gid_t gid;
@@ -62,6 +63,7 @@ typedef struct ksi_client {
     bool authenticated;
     uint32_t granted_capabilities;
     uint32_t hook_subscriptions;
+    uint32_t block_input_mask;
     uint32_t consecutive_hook_failures;
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
@@ -107,6 +109,7 @@ typedef enum ksi_daemon_command_type {
 typedef struct ksi_daemon_command {
     ksi_daemon_command_type type;
     int client_fd;
+    uint64_t connection_id;
     ksi_ipc_peer_credentials credentials;
     union {
         struct {
@@ -179,8 +182,15 @@ static int ksi_pipe_ring_init(ksi_pipe_ring *ring, size_t element_size, size_t c
     ring->capacity = capacity;
     ring->wake_read_fd = pipe_fds[0];
     ring->wake_write_fd = pipe_fds[1];
-    (void)fcntl(ring->wake_read_fd, F_SETFL, fcntl(ring->wake_read_fd, F_GETFL) | O_NONBLOCK);
-    (void)fcntl(ring->wake_write_fd, F_SETFL, fcntl(ring->wake_write_fd, F_GETFL) | O_NONBLOCK);
+
+    {
+        int fl;
+        fl = fcntl(ring->wake_read_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(ring->wake_read_fd, F_SETFL, fl | O_NONBLOCK);
+        fl = fcntl(ring->wake_write_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(ring->wake_write_fd, F_SETFL, fl | O_NONBLOCK);
+    }
+
     return 0;
 }
 
@@ -378,6 +388,7 @@ typedef struct ksi_daemon_state {
     ksi_ipc_command_queue *reverse_commands;
     ksi_permission_store *permissions;
     uint32_t available_capabilities;
+    uint64_t next_connection_id;
     uint64_t next_order_id;
     uint64_t next_event_id;
     bool pending_active;
@@ -419,6 +430,10 @@ static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);
+static ssize_t find_client_index_by_connection(
+    const ksi_daemon_state *state,
+    int client_fd,
+    uint64_t connection_id);
 static void process_client_identified(ksi_daemon_state *state, ksi_daemon_command *command);
 static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_command *command);
 
@@ -485,11 +500,13 @@ typedef struct ksi_identify_task {
     ksi_daemon_command_queue *commands;
     pid_t pid;
     int client_fd;
+    uint64_t connection_id;
 } ksi_identify_task;
 
 typedef struct ksi_prompt_task {
     ksi_daemon_command_queue *commands;
     int client_fd;
+    uint64_t connection_id;
     uint32_t requested_capabilities;
     uint32_t missing_capabilities;
     char exe_path[KSI_PERMISSION_MAX_PATH];
@@ -506,7 +523,6 @@ static void *identify_worker(void *arg)
     ksi_daemon_command command;
     ksi_client_identified_result *result;
 
-    atomic_fetch_add(&g_worker_threads_running, 1);
     result = calloc(1, sizeof(*result));
 
     if (result != NULL) {
@@ -520,6 +536,7 @@ static void *identify_worker(void *arg)
     memset(&command, 0, sizeof(command));
     command.type = KSI_DAEMON_COMMAND_CLIENT_IDENTIFIED;
     command.client_fd = task->client_fd;
+    command.connection_id = task->connection_id;
     command.data.identified.result = result;
 
     if (!command_queue_push(task->commands, &command)) {
@@ -531,7 +548,11 @@ static void *identify_worker(void *arg)
     return NULL;
 }
 
-static bool start_identify_task(ksi_daemon_command_queue *commands, pid_t pid, int client_fd)
+static bool start_identify_task(
+    ksi_daemon_command_queue *commands,
+    pid_t pid,
+    int client_fd,
+    uint64_t connection_id)
 {
     ksi_identify_task *task;
     pthread_t thread;
@@ -546,6 +567,7 @@ static bool start_identify_task(ksi_daemon_command_queue *commands, pid_t pid, i
     task->commands = commands;
     task->pid = pid;
     task->client_fd = client_fd;
+    task->connection_id = connection_id;
 
     if (pthread_attr_init(&attr) != 0) {
         free(task);
@@ -554,7 +576,12 @@ static bool start_identify_task(ksi_daemon_command_queue *commands, pid_t pid, i
 
     (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
+    /* Account for the worker before it can be delayed by scheduling. Shutdown
+     * destroys the command queue only after this count drains. */
+    atomic_fetch_add(&g_worker_threads_running, 1);
+
     if (pthread_create(&thread, &attr, identify_worker, task) != 0) {
+        atomic_fetch_sub(&g_worker_threads_running, 1);
         pthread_attr_destroy(&attr);
         free(task);
         return false;
@@ -569,10 +596,10 @@ static void *prompt_worker(void *arg)
     ksi_prompt_task *task = arg;
     ksi_daemon_command command;
 
-    atomic_fetch_add(&g_worker_threads_running, 1);
     memset(&command, 0, sizeof(command));
     command.type = KSI_DAEMON_COMMAND_CLIENT_PROMPT_DONE;
     command.client_fd = task->client_fd;
+    command.connection_id = task->connection_id;
     command.data.prompt_done.decision =
         ksi_permissions_prompt(
             task->pid, task->uid, task->gid,
@@ -589,6 +616,7 @@ static void *prompt_worker(void *arg)
 static bool start_prompt_task(
     ksi_daemon_command_queue *commands,
     int client_fd,
+    uint64_t connection_id,
     uint32_t requested,
     uint32_t missing,
     const char *exe_path,
@@ -610,6 +638,7 @@ static bool start_prompt_task(
 
     task->commands = commands;
     task->client_fd = client_fd;
+    task->connection_id = connection_id;
     task->requested_capabilities = requested;
     task->missing_capabilities = missing;
     (void)snprintf(task->exe_path, sizeof(task->exe_path), "%s", exe_path != NULL ? exe_path : "");
@@ -628,7 +657,11 @@ static bool start_prompt_task(
 
     (void)pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
+    /* See start_identify_task: prompt workers also push to the command queue. */
+    atomic_fetch_add(&g_worker_threads_running, 1);
+
     if (pthread_create(&thread, &attr, prompt_worker, task) != 0) {
+        atomic_fetch_sub(&g_worker_threads_running, 1);
         pthread_attr_destroy(&attr);
         free(task);
         return false;
@@ -668,7 +701,9 @@ static void remove_client(ksi_daemon_state *state, nfds_t index)
 
     (*count)--;
 
-    (void)update_grab_state(state);
+    if (update_grab_state(state) != 0) {
+        fprintf(stderr, "inputd: failed to update grab state after client removal\n");
+    }
 
     if (state->pending_active) {
         (void)send_pending_event_to_next_client(state);
@@ -809,7 +844,10 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
     requested = command->data.prompt_done.requested_capabilities;
     missing = command->data.prompt_done.missing_capabilities;
 
-    client_index = find_client_index_by_fd(state, command->client_fd);
+    client_index = find_client_index_by_connection(
+        state,
+        command->client_fd,
+        command->connection_id);
 
     if (client_index < 0) {
         return;
@@ -865,7 +903,10 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
     }
 
     result = command->data.identified.result;
-    client_index = find_client_index_by_fd(state, command->client_fd);
+    client_index = find_client_index_by_connection(
+        state,
+        command->client_fd,
+        command->connection_id);
 
     if (client_index < 0) {
         return;
@@ -903,7 +944,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
         if (missing != 0u && state->permissions != NULL) {
             /* Need to prompt. Transition to AWAITING_PROMPT and start the worker. */
-            if (!start_prompt_task(state->commands, client->fd, requested, missing,
+            if (!start_prompt_task(state->commands, client->fd, client->connection_id, requested, missing,
                                    client->exe_path, client->command_line, client->exe_hash,
                                    client->pid, client->uid, client->gid)) {
                 /* Prompt thread failed; deny immediately. */
@@ -1000,6 +1041,21 @@ static uint32_t active_hook_subscription_mask(const ksi_daemon_state *state)
     return mask;
 }
 
+static uint32_t active_block_input_mask(const ksi_daemon_state *state)
+{
+    uint32_t mask = 0;
+
+    if (state == NULL) {
+        return 0;
+    }
+
+    for (nfds_t i = 0; i < state->client_count; i++) {
+        mask |= state->clients[i].block_input_mask;
+    }
+
+    return mask;
+}
+
 static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint32_t hook_type)
 {
     uint32_t subscription_bit;
@@ -1026,12 +1082,28 @@ static bool any_matching_hook_subscriptions(const ksi_daemon_state *state, uint3
 static int update_grab_state(ksi_daemon_state *state)
 {
     uint32_t hook_mask = active_hook_subscription_mask(state);
+    uint32_t block_mask = active_block_input_mask(state);
+    int result;
 
-    if (state == NULL || state->backend == NULL || state->backend->set_grab_hook_mask == NULL) {
+    if (state == NULL || state->backend == NULL) {
         return 0;
     }
 
-    return state->backend->set_grab_hook_mask(hook_mask);
+    result = state->backend->set_grab_hook_mask == NULL
+        ? 0
+        : state->backend->set_grab_hook_mask(hook_mask);
+
+    if (result != 0) {
+        return result;
+    }
+
+    /* Platforms without BlockInput support must not advertise KSI_CAP_BLOCK_INPUT.
+     * If a non-zero block mask somehow arrives on such a platform, fail so that
+     * handle_set_block_input rolls back and reports an error rather than silently
+     * accepting a mask that cannot be enforced. */
+    return state->backend->set_block_input_mask == NULL
+        ? (block_mask == 0 ? 0 : -1)
+        : state->backend->set_block_input_mask(block_mask);
 }
 
 static bool pending_hook_event_is_injected(const ksi_daemon_state *state)
@@ -1059,6 +1131,7 @@ static void clear_hook_state(ksi_daemon_state *state)
 
     for (nfds_t i = 0; i < state->client_count; i++) {
         state->clients[i].hook_subscriptions = 0;
+        state->clients[i].block_input_mask = 0;
         state->clients[i].consecutive_hook_failures = 0;
     }
 
@@ -1120,7 +1193,10 @@ static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, co
 
     client->hook_subscriptions = 0;
     client->consecutive_hook_failures = 0;
-    (void)update_grab_state(state);
+
+    if (update_grab_state(state) != 0) {
+        fprintf(stderr, "inputd: failed to update grab state after hook failure eviction\n");
+    }
 }
 
 static void process_synth_request(ksi_daemon_state *state, ksi_pending_synth_request *request)
@@ -1246,6 +1322,50 @@ static void process_next_queued_input(ksi_daemon_state *state)
             pop_first_hook_event(state);
         } else {
             pop_first_synth_request(state);
+        }
+    }
+}
+
+/* On a clean shutdown, replay any grabbed physical events that are still
+ * pending so no input is permanently lost.  Injected events are already
+ * synthetic and do not need to be forwarded.  This must be called while
+ * the backend (and therefore uinput) is still running. */
+static void flush_hook_queue_on_shutdown(ksi_daemon_state *state)
+{
+    size_t i;
+
+    if (state == NULL || state->backend == NULL
+        || state->backend->replay_hook_event == NULL) {
+        return;
+    }
+
+    /* Replay the currently-dispatched event if it was a physical key/button. */
+    if (state->pending_active && !pending_hook_event_is_injected(state)) {
+        if (state->backend->replay_hook_event(
+                state->pending_hook_type, &state->pending_payload) != 0) {
+            fprintf(stderr, "inputd: shutdown replay of pending event failed\n");
+        }
+    }
+
+    /* Replay any additional queued physical events that were not yet dispatched. */
+    for (i = 0; i < state->hook_queue_count; i++) {
+        size_t idx = (state->hook_queue_head + i) % KSI_MAX_PENDING_HOOK_EVENTS;
+        const ksi_pending_hook_event *ev = &state->hook_queue[idx];
+        bool is_injected;
+
+        if (ev->hook_type == KSI_HOOK_KEYBOARD_LL) {
+            is_injected = (ev->payload.event.keyboard.flags & KSI_LLKHF_INJECTED) != 0;
+        } else if (ev->hook_type == KSI_HOOK_MOUSE_LL) {
+            is_injected = (ev->payload.event.mouse.flags & KSI_LLMHF_INJECTED) != 0;
+        } else {
+            continue;
+        }
+
+        if (!is_injected) {
+            if (state->backend->replay_hook_event(ev->hook_type, &ev->payload) != 0) {
+                fprintf(stderr, "inputd: shutdown replay of queued event %llu failed\n",
+                    (unsigned long long)ev->event_id);
+            }
         }
     }
 }
@@ -1392,7 +1512,39 @@ static void start_pending_hook_event(
         }
 
         if (state->hook_queue_count >= KSI_MAX_PENDING_HOOK_EVENTS) {
-            fprintf(stderr, "hook event queue full; dropping event\n");
+            /* Queue full.  Rather than silently losing a physical key/button
+             * press, replay it through uinput immediately with a PASS decision.
+             * Injected events are generated by the script and can be retried, so
+             * those are simply dropped. */
+            bool is_injected;
+
+            if (hook_type == KSI_HOOK_KEYBOARD_LL) {
+                is_injected = (((const ksi_keyboard_hook_event *)event)->flags
+                               & KSI_LLKHF_INJECTED) != 0;
+            } else if (hook_type == KSI_HOOK_MOUSE_LL) {
+                is_injected = (((const ksi_mouse_hook_event *)event)->flags
+                               & KSI_LLMHF_INJECTED) != 0;
+            } else {
+                is_injected = true;
+            }
+
+            if (!is_injected
+                && state->backend != NULL
+                && state->backend->replay_hook_event != NULL) {
+                ksi_hook_event_payload temp;
+                memset(&temp, 0, sizeof(temp));
+                memcpy(&temp.event, event, event_size);
+
+                if (state->backend->replay_hook_event(hook_type, &temp) != 0) {
+                    fprintf(stderr,
+                        "inputd: hook event queue full; bypass replay failed, event lost\n");
+                } else if (g_verbose) {
+                    fprintf(stderr, "inputd: hook event queue full; bypassed hook for physical event\n");
+                }
+            } else {
+                fprintf(stderr, "inputd: hook event queue full; dropped injected event\n");
+            }
+
             return;
         }
 
@@ -1488,16 +1640,382 @@ static void daemon_handle_hook_event(
 {
     ksi_daemon_state *state = context;
     uint32_t subscription_bit = hook_type_to_cap_bit(hook_type);
+    uint32_t block_bit;
+    bool is_injected;
 
     if (state == NULL || subscription_bit == 0) {
         return;
     }
 
+    block_bit = hook_type == KSI_HOOK_KEYBOARD_LL
+        ? KSI_BLOCK_INPUT_KEYBOARD
+        : KSI_BLOCK_INPUT_MOUSE;
+    is_injected = hook_type == KSI_HOOK_KEYBOARD_LL
+        ? ((((const ksi_keyboard_hook_event *)event)->flags & KSI_LLKHF_INJECTED) != 0)
+        : ((((const ksi_mouse_hook_event *)event)->flags & KSI_LLMHF_INJECTED) != 0);
+
+    if (!is_injected && (active_block_input_mask(state) & block_bit) != 0) {
+        return;
+    }
+
     if (!any_matching_hook_subscriptions(state, hook_type)) {
+        /* A mixed keyboard/mouse device can be grabbed for the other class of
+         * input. Replay nonblocked physical events that have no hook target. */
+        if (!is_injected
+            && state->backend != NULL
+            && state->backend->replay_hook_event != NULL) {
+            ksi_hook_event_payload payload;
+            memset(&payload, 0, sizeof(payload));
+            payload.hook_type = hook_type;
+            memcpy(&payload.event, event, event_size);
+
+            if (state->backend->replay_hook_event(hook_type, &payload) != 0) {
+                fprintf(stderr, "inputd: replay of unhooked grabbed input failed\n");
+            }
+        }
         return;
     }
 
     start_pending_hook_event(state, hook_type, event, event_size);
+}
+
+static void handle_client_hello(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_client_hello_payload *payload;
+    uint32_t requested = 0;
+    uint32_t missing = 0u;
+    uint32_t granted;
+
+    if (message->payload_size >= sizeof(*payload)) {
+        payload = (const ksi_client_hello_payload *)(const void *)message->payload;
+        requested = payload->requested_capabilities;
+    }
+
+    /* If identification is still in progress, buffer the hello and defer. */
+    if (client->state == KSI_CLIENT_STATE_IDENTIFYING) {
+        client->pending_hello_valid = true;
+        client->pending_hello_requested = requested;
+        client->pending_hello_correlation_id = message->header->correlation_id;
+        client->pending_hello_client_id = message->header->client_id;
+        return;
+    }
+
+    /* If a prompt is already running for this client, reject the duplicate hello. */
+    if (client->state == KSI_CLIENT_STATE_AWAITING_PROMPT) {
+        send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, 0);
+        return;
+    }
+
+    /* Identity is known. Check what is already granted without prompting. */
+    granted = check_capabilities_sync(state, client, requested, &missing);
+
+    /* If there are missing capabilities and a permissions store is configured,
+     * start an async prompt. Response will be sent from process_client_prompt_done. */
+    if (missing != 0u && state->permissions != NULL) {
+        if (!start_prompt_task(state->commands, client->fd, client->connection_id, requested, missing,
+                               client->exe_path, client->command_line, client->exe_hash,
+                               client->pid, client->uid, client->gid)) {
+            send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
+            return;
+        }
+
+        client->state = KSI_CLIENT_STATE_AWAITING_PROMPT;
+        client->pending_hello_valid = true;
+        client->pending_hello_requested = requested;
+        client->pending_hello_correlation_id = message->header->correlation_id;
+        client->pending_hello_client_id = message->header->client_id;
+        return;
+    }
+
+    /* All requested capabilities already granted — respond immediately. */
+    if (requested != 0u && (granted & requested) != requested) {
+        client->authenticated = false;
+        client->granted_capabilities = granted;
+        send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
+        return;
+    }
+
+    if (granted != 0u && client->has_identity) {
+        ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
+    }
+
+    client->authenticated = true;
+    client->granted_capabilities = granted;
+    send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, 0, granted);
+}
+
+static void handle_emergency_passthrough(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    /* This is a rescue path for hook owners. Do not let an arbitrary
+     * zero-capability hello on the public system socket clear other scripts. */
+    if (!client->authenticated
+        || (client->granted_capabilities
+            & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) == 0u) {
+        send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, -1, 403);
+        return;
+    }
+
+    clear_hook_state(state);
+
+    if (update_grab_state(state) != 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, -1, 1);
+        return;
+    }
+
+    send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, 0, 0);
+}
+
+static void handle_get_indicator_state(
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    if (!client->authenticated
+        || (client->granted_capabilities
+            & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) == 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_INDICATOR_STATE_RESULT, -1, 403);
+        return;
+    }
+
+    send_indicator_state_result(client->fd, message->header);
+}
+
+static void handle_get_pointer_position(
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    if (!client->authenticated
+        || (client->granted_capabilities & KSI_CAP_HOOK_MOUSE) == 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_POINTER_POSITION_RESULT, -1, 403);
+        return;
+    }
+
+    send_pointer_position_result(client->fd, message->header);
+}
+
+static void handle_hook_subscription(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_hook_subscription_payload *payload;
+    uint32_t capability;
+    uint32_t subscription_bit;
+    uint32_t old_subscriptions;
+
+    if (message->payload_size != sizeof(*payload)) {
+        send_status(client->fd, message->header, message->header->type, -1, 1);
+        return;
+    }
+
+    payload = (const ksi_hook_subscription_payload *)(const void *)message->payload;
+    capability = subscription_bit = hook_type_to_cap_bit(payload->hook_type);
+
+    if (capability == 0 || subscription_bit == 0) {
+        send_status(client->fd, message->header, message->header->type, -1, 2);
+        return;
+    }
+
+    if (!client_has_capability(client, capability)) {
+        send_status(client->fd, message->header, message->header->type, -1, 403);
+        return;
+    }
+
+    old_subscriptions = client->hook_subscriptions;
+
+    if (message->header->type == KSI_MESSAGE_SUBSCRIBE_HOOK) {
+        client->hook_subscriptions |= subscription_bit;
+        client->consecutive_hook_failures = 0;
+    } else {
+        client->hook_subscriptions &= (uint32_t)~subscription_bit;
+
+        if (client->hook_subscriptions == 0) {
+            client->consecutive_hook_failures = 0;
+        }
+    }
+
+    if (update_grab_state(state) != 0) {
+        client->hook_subscriptions = old_subscriptions;
+        (void)update_grab_state(state);
+        send_status(client->fd, message->header, message->header->type, -1, 5);
+        return;
+    }
+
+    send_status(client->fd, message->header, message->header->type, 0, client->hook_subscriptions);
+}
+
+static void handle_set_block_input(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_block_input_payload *payload;
+    uint32_t old_mask;
+
+    if (message->payload_size != sizeof(*payload)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, -1, 1);
+        return;
+    }
+
+    payload = (const ksi_block_input_payload *)(const void *)message->payload;
+
+    if ((payload->block_mask & (uint32_t)~(KSI_BLOCK_INPUT_KEYBOARD | KSI_BLOCK_INPUT_MOUSE)) != 0u) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, -1, 2);
+        return;
+    }
+
+    if (!client_has_capability(client, KSI_CAP_BLOCK_INPUT)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, -1, 403);
+        return;
+    }
+
+    old_mask = client->block_input_mask;
+    client->block_input_mask = payload->block_mask;
+
+    if (update_grab_state(state) != 0) {
+        client->block_input_mask = old_mask;
+        (void)update_grab_state(state);
+        send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, -1, 5);
+        return;
+    }
+
+    send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, 0, client->block_input_mask);
+}
+
+static void handle_hook_decision(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_hook_decision_payload *payload;
+    size_t expected_size;
+    nfds_t client_index;
+
+    if (message->payload_size < sizeof(*payload)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 1);
+        return;
+    }
+
+    payload = (const ksi_hook_decision_payload *)(const void *)message->payload;
+
+    if (payload->input_count > KSI_MAX_MODIFY_INPUTS) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 5);
+        return;
+    }
+
+    expected_size = sizeof(*payload) + ((size_t)payload->input_count * sizeof(payload->inputs[0]));
+
+    if (message->payload_size != expected_size) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 6);
+        return;
+    }
+
+    if (payload->decision != KSI_HOOK_DECISION_PASS
+        && payload->decision != KSI_HOOK_DECISION_BLOCK
+        && payload->decision != KSI_HOOK_DECISION_MODIFY) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 4);
+        return;
+    }
+
+    if (payload->decision == KSI_HOOK_DECISION_MODIFY && payload->input_count == 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 7);
+        return;
+    }
+
+    if (state == NULL || !state->pending_active || payload->event_id != state->pending_event_id) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
+        return;
+    }
+
+    client_index = state->pending_client_index;
+
+    if (client_index >= state->client_count || &state->clients[client_index] != client) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 3);
+        return;
+    }
+
+    record_client_hook_success(state, client_index);
+
+    if (payload->decision == KSI_HOOK_DECISION_MODIFY) {
+        if (!client_has_capability(
+                client,
+                required_synthesis_capabilities(payload->inputs, payload->input_count))) {
+            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 403);
+            return;
+        }
+
+        memcpy(
+            state->pending_modify_inputs,
+            payload->inputs,
+            (size_t)payload->input_count * sizeof(payload->inputs[0]));
+        state->pending_modify_input_count = payload->input_count;
+        state->pending_final_decision = payload->decision;
+    } else if (payload->decision == KSI_HOOK_DECISION_BLOCK) {
+        state->pending_modify_input_count = 0;
+        state->pending_final_decision = payload->decision;
+    } else {
+        state->pending_modify_input_count = 0;
+    }
+
+    send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, 0, state->pending_final_decision);
+
+    if (state->pending_final_decision == KSI_HOOK_DECISION_BLOCK
+        || state->pending_final_decision == KSI_HOOK_DECISION_MODIFY) {
+        finalize_pending_hook_event(state, "client-decision");
+        return;
+    }
+
+    state->pending_client_index++;
+    state->pending_deadline_ms = 0;
+    (void)send_pending_event_to_next_client(state);
+}
+
+static void handle_synthesize_input(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_synthesize_input_payload *payload;
+    size_t expected_size;
+
+    if (message->payload_size < sizeof(*payload)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 1);
+        return;
+    }
+
+    payload = (const ksi_synthesize_input_payload *)(const void *)message->payload;
+
+    if (payload->count > KSI_MAX_SYNTH_INPUTS) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 2);
+        return;
+    }
+
+    expected_size = sizeof(*payload) + ((size_t)payload->count * sizeof(payload->inputs[0]));
+
+    if (message->payload_size != expected_size) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 3);
+        return;
+    }
+
+    if (!client_has_capability(
+            client,
+            required_synthesis_capabilities(payload->inputs, payload->count))) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 403);
+        return;
+    }
+
+    if (!enqueue_synth_request(state, payload->inputs, payload->count, payload->flags)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
+        return;
+    }
+
+    send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, 0, 0);
+    process_next_queued_input(state);
 }
 
 static void handle_binary_message(
@@ -1516,301 +2034,39 @@ static void handle_binary_message(
             (unsigned long long)message->header->correlation_id);
     }
 
-    if (message->header->type == KSI_MESSAGE_CLIENT_HELLO) {
-        const ksi_client_hello_payload *payload;
-        uint32_t requested = 0;
-        uint32_t missing = 0u;
-        uint32_t granted;
-
-        if (message->payload_size >= sizeof(*payload)) {
-            payload = (const ksi_client_hello_payload *)(const void *)message->payload;
-            requested = payload->requested_capabilities;
-        }
-
-        /* If identification is still in progress, buffer the hello and defer. */
-        if (client->state == KSI_CLIENT_STATE_IDENTIFYING) {
-            client->pending_hello_valid = true;
-            client->pending_hello_requested = requested;
-            client->pending_hello_correlation_id = message->header->correlation_id;
-            client->pending_hello_client_id = message->header->client_id;
+    switch (message->header->type) {
+        case KSI_MESSAGE_CLIENT_HELLO:
+            handle_client_hello(state, client, message);
             return;
-        }
-
-        /* If a prompt is already running for this client, reject the duplicate hello. */
-        if (client->state == KSI_CLIENT_STATE_AWAITING_PROMPT) {
-            send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, 0);
+        case KSI_MESSAGE_HEARTBEAT:
+            send_status(client->fd, message->header, KSI_MESSAGE_HEARTBEAT, 0, 0);
             return;
-        }
-
-        /* Identity is known. Check what is already granted without prompting. */
-        granted = check_capabilities_sync(state, client, requested, &missing);
-
-        /* If there are missing capabilities and a permissions store is configured,
-         * start an async prompt. Response will be sent from process_client_prompt_done. */
-        if (missing != 0u && state->permissions != NULL) {
-            if (!start_prompt_task(state->commands, client->fd, requested, missing,
-                                   client->exe_path, client->command_line, client->exe_hash,
-                                   client->pid, client->uid, client->gid)) {
-                send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
-                return;
-            }
-
-            client->state = KSI_CLIENT_STATE_AWAITING_PROMPT;
-            client->pending_hello_valid = true;
-            client->pending_hello_requested = requested;
-            client->pending_hello_correlation_id = message->header->correlation_id;
-            client->pending_hello_client_id = message->header->client_id;
+        case KSI_MESSAGE_EMERGENCY_PASSTHROUGH:
+            handle_emergency_passthrough(state, client, message);
             return;
-        }
-
-        /* All requested capabilities already granted — respond immediately. */
-        if (requested != 0u && (granted & requested) != requested) {
-            client->authenticated = false;
-            client->granted_capabilities = granted;
-            send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, -1, granted);
+        case KSI_MESSAGE_SET_BLOCK_INPUT:
+            handle_set_block_input(state, client, message);
             return;
-        }
-
-        if (granted != 0u && client->has_identity) {
-            ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
-        }
-
-        client->authenticated = true;
-        client->granted_capabilities = granted;
-        send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, 0, granted);
-        return;
+        case KSI_MESSAGE_GET_INDICATOR_STATE:
+            handle_get_indicator_state(client, message);
+            return;
+        case KSI_MESSAGE_GET_POINTER_POSITION:
+            handle_get_pointer_position(client, message);
+            return;
+        case KSI_MESSAGE_SUBSCRIBE_HOOK:
+        case KSI_MESSAGE_UNSUBSCRIBE_HOOK:
+            handle_hook_subscription(state, client, message);
+            return;
+        case KSI_MESSAGE_HOOK_DECISION:
+            handle_hook_decision(state, client, message);
+            return;
+        case KSI_MESSAGE_SYNTHESIZE_INPUT:
+            handle_synthesize_input(state, client, message);
+            return;
+        default:
+            send_status(client->fd, message->header, message->header->type, -1, 404);
+            return;
     }
-
-    if (message->header->type == KSI_MESSAGE_HEARTBEAT) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HEARTBEAT, 0, 0);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_EMERGENCY_PASSTHROUGH) {
-        if (!client->authenticated) {
-            send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, -1, 403);
-            return;
-        }
-
-        clear_hook_state(state);
-
-        if (state != NULL
-            && state->backend != NULL
-            && state->backend->set_grab_hook_mask != NULL
-            && state->backend->set_grab_hook_mask(0) != 0) {
-            send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, -1, 1);
-            return;
-        }
-
-        send_status(client->fd, message->header, KSI_MESSAGE_EMERGENCY_PASSTHROUGH, 0, 0);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_GET_INDICATOR_STATE) {
-        /* Require hook capability: indicator/key state queries can expose physical
-         * input information and must not be available to unprivileged connections. */
-        if (!client->authenticated
-            || (client->granted_capabilities
-                & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) == 0) {
-            send_status(client->fd, message->header, KSI_MESSAGE_INDICATOR_STATE_RESULT, -1, 403);
-            return;
-        }
-
-        send_indicator_state_result(client->fd, message->header);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_GET_POINTER_POSITION) {
-        /* A pointer query exposes physical input state just like hook events. */
-        if (!client->authenticated
-            || (client->granted_capabilities & KSI_CAP_HOOK_MOUSE) == 0) {
-            send_status(client->fd, message->header, KSI_MESSAGE_POINTER_POSITION_RESULT, -1, 403);
-            return;
-        }
-
-        send_pointer_position_result(client->fd, message->header);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_SUBSCRIBE_HOOK
-        || message->header->type == KSI_MESSAGE_UNSUBSCRIBE_HOOK) {
-        const ksi_hook_subscription_payload *payload;
-        uint32_t capability;
-        uint32_t subscription_bit;
-        uint32_t old_subscriptions;
-
-        if (message->payload_size != sizeof(*payload)) {
-            send_status(client->fd, message->header, message->header->type, -1, 1);
-            return;
-        }
-
-        payload = (const ksi_hook_subscription_payload *)(const void *)message->payload;
-        capability = subscription_bit = hook_type_to_cap_bit(payload->hook_type);
-
-        if (capability == 0 || subscription_bit == 0) {
-            send_status(client->fd, message->header, message->header->type, -1, 2);
-            return;
-        }
-
-        /* Only the hook capability is required to subscribe. The backend exposes
-         * hook capability only when it can replay grabbed pass-through events.
-         * Arbitrary input synthesis remains a separate client capability. */
-        if (!client_has_capability(client, capability)) {
-            send_status(client->fd, message->header, message->header->type, -1, 403);
-            return;
-        }
-
-        old_subscriptions = client->hook_subscriptions;
-
-        if (message->header->type == KSI_MESSAGE_SUBSCRIBE_HOOK) {
-            client->hook_subscriptions |= subscription_bit;
-            client->consecutive_hook_failures = 0;
-        } else {
-            client->hook_subscriptions &= (uint32_t)~subscription_bit;
-
-            if (client->hook_subscriptions == 0) {
-                client->consecutive_hook_failures = 0;
-            }
-        }
-
-        if (update_grab_state(state) != 0) {
-            client->hook_subscriptions = old_subscriptions;
-            (void)update_grab_state(state);
-            send_status(client->fd, message->header, message->header->type, -1, 5);
-            return;
-        }
-
-        send_status(client->fd, message->header, message->header->type, 0, client->hook_subscriptions);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_HOOK_DECISION) {
-        const ksi_hook_decision_payload *payload;
-        size_t expected_size;
-        nfds_t client_index;
-
-        if (message->payload_size < sizeof(*payload)) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 1);
-            return;
-        }
-
-        payload = (const ksi_hook_decision_payload *)(const void *)message->payload;
-
-        if (payload->input_count > KSI_MAX_MODIFY_INPUTS) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 5);
-            return;
-        }
-
-        expected_size = sizeof(*payload) + ((size_t)payload->input_count * sizeof(payload->inputs[0]));
-
-        if (message->payload_size != expected_size) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 6);
-            return;
-        }
-
-        if (payload->decision != KSI_HOOK_DECISION_PASS
-            && payload->decision != KSI_HOOK_DECISION_BLOCK
-            && payload->decision != KSI_HOOK_DECISION_MODIFY) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 4);
-            return;
-        }
-
-        if (payload->decision == KSI_HOOK_DECISION_MODIFY && payload->input_count == 0) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 7);
-            return;
-        }
-
-        if (state == NULL || !state->pending_active || payload->event_id != state->pending_event_id) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
-            return;
-        }
-
-        client_index = state->pending_client_index;
-
-        if (client_index >= state->client_count || &state->clients[client_index] != client) {
-            send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 3);
-            return;
-        }
-
-        record_client_hook_success(state, client_index);
-
-        if (payload->decision == KSI_HOOK_DECISION_MODIFY) {
-            if (!client_has_capability(
-                    client,
-                    required_synthesis_capabilities(payload->inputs, payload->input_count))) {
-                send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 403);
-                return;
-            }
-
-            memcpy(
-                state->pending_modify_inputs,
-                payload->inputs,
-                (size_t)payload->input_count * sizeof(payload->inputs[0]));
-            state->pending_modify_input_count = payload->input_count;
-            state->pending_final_decision = payload->decision;
-        } else if (payload->decision == KSI_HOOK_DECISION_BLOCK) {
-            state->pending_modify_input_count = 0;
-            state->pending_final_decision = payload->decision;
-        } else {
-            state->pending_modify_input_count = 0;
-        }
-
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, 0, state->pending_final_decision);
-
-        if (state->pending_final_decision == KSI_HOOK_DECISION_BLOCK
-            || state->pending_final_decision == KSI_HOOK_DECISION_MODIFY) {
-            finalize_pending_hook_event(state, "client-decision");
-            return;
-        }
-
-        state->pending_client_index++;
-        state->pending_deadline_ms = 0;
-        (void)send_pending_event_to_next_client(state);
-        return;
-    }
-
-    if (message->header->type == KSI_MESSAGE_SYNTHESIZE_INPUT) {
-        const ksi_synthesize_input_payload *payload;
-        size_t expected_size;
-
-        if (message->payload_size < sizeof(*payload)) {
-            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 1);
-            return;
-        }
-
-        payload = (const ksi_synthesize_input_payload *)(const void *)message->payload;
-
-        if (payload->count > KSI_MAX_SYNTH_INPUTS) {
-            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 2);
-            return;
-        }
-
-        expected_size = sizeof(*payload) + ((size_t)payload->count * sizeof(payload->inputs[0]));
-
-        if (message->payload_size != expected_size) {
-            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 3);
-            return;
-        }
-
-        if (!client_has_capability(
-                client,
-                required_synthesis_capabilities(payload->inputs, payload->count))) {
-            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 403);
-            return;
-        }
-
-        if (!enqueue_synth_request(state, payload->inputs, payload->count, payload->flags)) {
-            send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
-            return;
-        }
-
-        send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, 0, 0);
-
-        process_next_queued_input(state);
-        return;
-    }
-
-    send_status(client->fd, message->header, message->header->type, -1, 404);
 }
 
 static bool process_client_buffer(ksi_daemon_command_queue *commands, ksi_ipc_slot *slot)
@@ -1969,6 +2225,20 @@ static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client
     return -1;
 }
 
+static ssize_t find_client_index_by_connection(
+    const ksi_daemon_state *state,
+    int client_fd,
+    uint64_t connection_id)
+{
+    ssize_t index = find_client_index_by_fd(state, client_fd);
+
+    if (index < 0 || connection_id == 0u) {
+        return -1;
+    }
+
+    return state->clients[index].connection_id == connection_id ? index : -1;
+}
+
 static void add_client(ksi_daemon_state *state, const ksi_daemon_command *command)
 {
     ksi_client *client;
@@ -1985,6 +2255,12 @@ static void add_client(ksi_daemon_state *state, const ksi_daemon_command *comman
     client = &state->clients[state->client_count];
     memset(client, 0, sizeof(*client));
     client->fd = command->client_fd;
+    client->connection_id = state->next_connection_id++;
+
+    if (client->connection_id == 0u) {
+        client->connection_id = state->next_connection_id++;
+    }
+
     client->pid = command->credentials.pid;
     client->uid = command->credentials.uid;
     client->gid = command->credentials.gid;
@@ -1999,7 +2275,7 @@ static void add_client(ksi_daemon_state *state, const ksi_daemon_command *comman
             (long)client->gid);
     }
 
-    if (!start_identify_task(state->commands, client->pid, client->fd)) {
+    if (!start_identify_task(state->commands, client->pid, client->fd, client->connection_id)) {
         /* Worker thread failed to start; treat client as unidentifiable.
          * It will be refused capabilities at CLIENT_HELLO time. */
         fprintf(stderr,
@@ -2249,6 +2525,31 @@ static void *ipc_thread_main(void *context)
     return NULL;
 }
 
+/* Returns true when the daemon should exit due to the idle timeout. */
+static bool check_idle_exit(
+    const ksi_daemon_options *options,
+    const ksi_daemon_state *state,
+    uint64_t *idle_since_ms)
+{
+    uint64_t now;
+
+    if (!options->system_service
+        || state->client_count != 0
+        || atomic_load(&g_worker_threads_running) != 0) {
+        *idle_since_ms = 0u;
+        return false;
+    }
+
+    now = monotonic_ms();
+
+    if (*idle_since_ms == 0u) {
+        *idle_since_ms = now;
+        return false;
+    }
+
+    return now >= *idle_since_ms && now - *idle_since_ms >= KSI_IDLE_EXIT_MS;
+}
+
 int ksi_daemon_run(const ksi_daemon_options *options)
 {
     ksi_ipc_server *server = NULL;
@@ -2292,7 +2593,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
-    printf("keysharp-inputd listening on %s using %s backend\n",
+    fprintf(stderr, "keysharp-inputd listening on %s using %s backend\n",
         options->system_service ? "systemd socket" : options->socket_path,
         backend->name);
 
@@ -2311,6 +2612,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     daemon_state->reverse_commands = &reverse_command_queue;
     daemon_state->permissions = permissions;
     daemon_state->available_capabilities = available_capabilities;
+    daemon_state->next_connection_id = 1;
     daemon_state->next_order_id = 1;
     daemon_state->next_event_id = 1;
 
@@ -2354,7 +2656,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     ipc_thread_started = true;
 
-    uint64_t idle_since_ms = monotonic_ms();
+    uint64_t idle_since_ms = 0u;
 
     while (keep_running) {
         struct pollfd fds[KSI_MAX_POLL_FDS];
@@ -2388,17 +2690,8 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             process_hook_timeouts(daemon_state);
             process_daemon_commands(daemon_state);
 
-            if (options->system_service && daemon_state->client_count == 0
-                && atomic_load(&g_worker_threads_running) == 0) {
-                uint64_t now = monotonic_ms();
-
-                if (idle_since_ms == 0u) {
-                    idle_since_ms = now;
-                } else if (now >= idle_since_ms && now - idle_since_ms >= KSI_IDLE_EXIT_MS) {
-                    keep_running = 0;
-                }
-            } else {
-                idle_since_ms = 0u;
+            if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
+                keep_running = 0;
             }
 
             continue;
@@ -2433,6 +2726,10 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     }
 
     keep_running = 0;
+
+    /* Replay any grabbed physical events that were still in flight so the
+     * user's input is not permanently lost on a clean shutdown. */
+    flush_hook_queue_on_shutdown(daemon_state);
 
     /* Signal any in-progress permission prompts to abort so their worker
      * threads finish promptly rather than waiting up to 60 seconds. */

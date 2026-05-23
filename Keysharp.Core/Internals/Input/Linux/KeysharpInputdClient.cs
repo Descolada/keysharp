@@ -40,6 +40,7 @@ namespace Keysharp.Internals.Input.Linux
 			SynthesizeInput = 20,
 			SynthesisResult = 21,
 			EmergencyPassthrough = 30,
+			SetBlockInput = 31,
 			GetIndicatorState    = 40,
 			IndicatorStateResult = 41,
 			GetPointerPosition   = 42,
@@ -57,6 +58,14 @@ namespace Keysharp.Internals.Input.Linux
 			Pass = 0,
 			Block = 1,
 			Modify = 2,
+		}
+
+		[Flags]
+		internal enum BlockInputMask : uint
+		{
+			None = 0,
+			Keyboard = 0x00000001,
+			Mouse = 0x00000002,
 		}
 
 		internal enum InputType : uint
@@ -198,6 +207,18 @@ namespace Keysharp.Internals.Input.Linux
 			SendFrame(MessageType.EmergencyPassthrough, correlationId, ReadOnlySpan<byte>.Empty);
 			var response = ReadFrame();
 			EnsureStatus(response, MessageType.EmergencyPassthrough, correlationId);
+		}
+
+		internal BlockInputMask SetBlockInput(BlockInputMask mask)
+		{
+			Span<byte> payload = stackalloc byte[8];
+			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)mask);
+			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
+
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.SetBlockInput, correlationId, payload);
+			var response = ReadFrame();
+			return (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
 		}
 
 		internal uint SubscribeHook(HookType hookType)

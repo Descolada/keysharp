@@ -27,7 +27,7 @@ CLIENT_HELLO          HEARTBEAT
 SUBSCRIBE_HOOK        UNSUBSCRIBE_HOOK
 HOOK_EVENT            HOOK_DECISION
 SYNTHESIZE_INPUT      SYNTHESIS_RESULT
-EMERGENCY_PASSTHROUGH
+EMERGENCY_PASSTHROUGH SET_BLOCK_INPUT
 GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
 GET_POINTER_POSITION  POINTER_POSITION_RESULT
 ```
@@ -70,8 +70,13 @@ Hook decisions have a one-second timeout; a timeout currently passes the event.
 After ten consecutive delivery/timeout failures the daemon removes that client's
 subscriptions and releases grabs so a crashed script cannot keep input trapped.
 
-`EMERGENCY_PASSTHROUGH` clears all hook subscriptions, discards pending hook
-events, and releases all grabs unconditionally.
+`EMERGENCY_PASSTHROUGH` from a client already granted hook access clears all hook
+subscriptions, discards pending hook events, and releases all grabs.
+
+`SET_BLOCK_INPUT` requires `KSI_CAP_BLOCK_INPUT` and sets the calling client's
+physical input block mask: keyboard, mouse, both, or neither. The daemon drops
+blocked physical events while allowing virtual input to continue. Block masks are
+client-scoped and are removed when that client disconnects.
 
 ### Keyboard hook event fields
 

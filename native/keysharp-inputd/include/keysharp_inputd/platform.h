@@ -23,6 +23,7 @@ typedef struct ksi_platform_backend {
     int (*send_input)(const ksi_input *inputs, size_t count, uint32_t flags);
     int (*replay_hook_event)(uint32_t hook_type, const ksi_hook_event_payload *event);
     int (*set_grab_hook_mask)(uint32_t hook_mask);
+    int (*set_block_input_mask)(uint32_t block_mask);
     void (*set_hook_event_callback)(ksi_hook_event_callback callback, void *context);
 } ksi_platform_backend;
 

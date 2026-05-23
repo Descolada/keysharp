@@ -30,6 +30,7 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_SYNTHESIZE_INPUT = 20,
     KSI_MESSAGE_SYNTHESIS_RESULT = 21,
     KSI_MESSAGE_EMERGENCY_PASSTHROUGH = 30,
+    KSI_MESSAGE_SET_BLOCK_INPUT = 31,
     KSI_MESSAGE_GET_INDICATOR_STATE    = 40,
     KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
     KSI_MESSAGE_GET_POINTER_POSITION   = 42,
@@ -63,6 +64,11 @@ typedef enum ksi_client_capability {
     KSI_CAP_SYNTH_MOUSE = 0x00000008u,
     KSI_CAP_BLOCK_INPUT = 0x00000010u,
 } ksi_client_capability;
+
+typedef enum ksi_block_input_mask {
+    KSI_BLOCK_INPUT_KEYBOARD = 0x00000001u,
+    KSI_BLOCK_INPUT_MOUSE = 0x00000002u,
+} ksi_block_input_mask;
 
 typedef enum ksi_hook_type {
     KSI_HOOK_KEYBOARD_LL = 13,
@@ -228,6 +234,11 @@ typedef struct ksi_hook_subscription_payload {
     uint32_t hook_type;
     uint32_t flags;
 } ksi_hook_subscription_payload;
+
+typedef struct ksi_block_input_payload {
+    uint32_t block_mask;
+    uint32_t reserved;
+} ksi_block_input_payload;
 
 typedef struct ksi_hook_event_payload {
     uint64_t event_id;

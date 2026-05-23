@@ -932,7 +932,7 @@ break_twice:;
 		internal static ResultType ScriptBlockInput(ToggleValueType toggle)
 		{
 			var script = Script.TheScript;
-	#if LINUX
+		#if LINUX
 			var kud = script.KeyboardUtilsData;
 			var cmdstr = toggle is ToggleValueType.Off
 				or ToggleValueType.MouseMoveOff
@@ -952,6 +952,10 @@ break_twice:;
 				case ToggleValueType.Mouse:
 				case ToggleValueType.SendAndMouse:
 				case ToggleValueType.Default:
+					// These modes only store the policy; they do not block anything immediately.
+					// The send and mouse paths call ScriptBlockInput(On) at the start of each
+					// operation and ScriptBlockInput(Off) at the end, so the actual inputd
+					// block is applied through the On/Off branch, not here.
 					script.KeyboardData.blockInputMode = toggle;
 					break;
 
@@ -964,14 +968,32 @@ break_twice:;
 					list = kud.mouseList;
 					script.KeyboardData.blockMouseMove = false;
 					break;
-					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
+				// default (NEUTRAL or TOGGLE_INVALID): do nothing.
 			}
 
-			if (list != null)
+			var inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.None;
+
+			if (script.KeyboardData.blockInput)
+				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Keyboard
+					| Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
+			else if (script.KeyboardData.blockMouseMove)
+				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
+
+			var inputdMessage = string.Empty;
+			var inputdApplied = list != null
+				&& Keysharp.Internals.Input.Linux.KeysharpInputdManager.TrySetBlockInput(inputdMask, out inputdMessage);
+
+			if (list != null && !inputdApplied)
+			{
+				if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.UseLegacyX11Input
+					&& !string.IsNullOrEmpty(inputdMessage))
+					Ks.OutputDebugLine($"BlockInput: keysharp-inputd unavailable; falling back to xinput. {inputdMessage}");
+
 				foreach (var id in list)
 					if ($"xinput {cmdstr} {id}".Bash() != 0)
 						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}.");
-	#elif WINDOWS
+			}
+		#elif WINDOWS
 			switch (toggle)
 			{
 				// Always turn input ON/OFF even if g_BlockInput says its already in the right state.  This is because

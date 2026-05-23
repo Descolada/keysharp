@@ -36,7 +36,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(keysharp-inputd PRIVATE
         src/platform/linux_devices.c
         src/platform/linux_synth.c
-        src/platform/platform_linux.c)
+        src/platform/platform_linux.c
+        src/platform/vk_evdev.c)
     target_compile_definitions(keysharp-inputd PRIVATE KSI_PLATFORM_LINUX=1)
 else()
     message(FATAL_ERROR "keysharp-inputd currently supports Linux only")

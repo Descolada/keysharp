@@ -69,8 +69,8 @@ namespace Keysharp.Internals.UI.Unix
 		private void BuildMenus()
 		{
 			var fileMenu = new ButtonMenuItem { Text = "&File" };
-			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script" };
-			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Enabled = !A_IsCompiled };
+			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.R };
+			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.E, Enabled = !A_IsCompiled };
 			var windowSpyItem = new ButtonMenuItem { Text = "&Window Spy" };
 			suspendHotkeysMenuItem = new CheckMenuItem { Text = "&Suspend Hotkeys" };
 			var exitItem = new ButtonMenuItem { Text = "E&xit" };
@@ -101,11 +101,11 @@ namespace Keysharp.Internals.UI.Unix
 			fileMenu.Items.Add(exitItem);
 
 			var viewMenu = new ButtonMenuItem { Text = "&View" };
-			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents" };
-			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods" };
-			var historyItem = new ButtonMenuItem { Text = "&Key history and script info" };
+			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.V };
+			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.H };
+			var historyItem = new ButtonMenuItem { Text = "&Key history and script info", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.K };
 			var clearDebugItem = new ButtonMenuItem { Text = "&Clear debug log" };
-			var refreshItem = new ButtonMenuItem { Text = "&Refresh" };
+			var refreshItem = new ButtonMenuItem { Text = "&Refresh", Shortcut = Eto.Forms.Keys.F5 };
 
 			varsItem.Click += variablesAndTheirContentsToolStripMenuItem_Click;
 			hotkeysItem.Click += hotkeysAndTheirMethodsToolStripMenuItem_Click;
@@ -121,7 +121,7 @@ namespace Keysharp.Internals.UI.Unix
 			viewMenu.Items.Add(refreshItem);
 
 			var helpMenu = new ButtonMenuItem { Text = "&Help" };
-			var userManualItem = new ButtonMenuItem { Text = "&User Manual" };
+			var userManualItem = new ButtonMenuItem { Text = "&User Manual", Shortcut = Eto.Forms.Keys.F1 };
 			var aboutItem = new ButtonMenuItem { Text = "&About" };
 
 			userManualItem.Click += userManualToolStripMenuItem_Click;

@@ -1,4 +1,5 @@
 #include "keysharp_inputd/ipc.h"
+#include "util.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -15,15 +16,6 @@ struct ksi_ipc_server {
     int fd;
     char *socket_path;
 };
-
-static void set_cloexec(int fd)
-{
-    int flags = fcntl(fd, F_GETFD);
-
-    if (flags >= 0) {
-        (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
-    }
-}
 
 static int validate_socket_path(const char *socket_path)
 {
@@ -176,10 +168,16 @@ int ksi_ipc_accept_client(ksi_ipc_server *server)
     }
 
     set_cloexec(client_fd);
-    /* Client fds are intentionally blocking. The IPC thread uses poll() to
-     * detect readability so it never blocks on read(). Keeping fds blocking
-     * means write_exact() in the main thread won't silently fail on EAGAIN
-     * when the socket send-buffer is full. */
+
+    if (set_nonblock(client_fd) != 0) {
+        fprintf(stderr, "failed to set IPC client non-blocking: %s\n", strerror(errno));
+        close(client_fd);
+        return -1;
+    }
+
+    /* Client sockets share long-lived broker threads. Non-blocking I/O makes
+     * slow peers fail their own stream instead of holding device dispatch or
+     * the IPC poller. */
 
     return client_fd;
 }
@@ -244,11 +242,20 @@ static int write_exact(int fd, const void *buffer, size_t length)
     while (remaining > 0) {
         ssize_t bytes_written = write(fd, cursor, remaining);
 
+        if (bytes_written == 0) {
+            (void)shutdown(fd, SHUT_RDWR);
+            return -1;
+        }
+
         if (bytes_written < 0) {
             if (errno == EINTR) {
                 continue;
             }
 
+            /* A non-blocking daemon fd can be left with a partial frame when
+             * the peer applies backpressure. Tear down the stream so neither
+             * side tries to parse a truncated response as a later frame. */
+            (void)shutdown(fd, SHUT_RDWR);
             return -1;
         }
 

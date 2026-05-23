@@ -33,7 +33,7 @@ static uint32_t linux_get_available_capabilities(void)
     }
 
     if (synth_available && ksi_linux_devices_has_candidates()) {
-        caps |= KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE;
+        caps |= KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE | KSI_CAP_BLOCK_INPUT;
     }
 
     return caps;
@@ -77,6 +77,11 @@ static int linux_set_grab_hook_mask(uint32_t hook_mask)
     return result;
 }
 
+static int linux_set_block_input_mask(uint32_t block_mask)
+{
+    return ksi_linux_devices_set_block_input_mask(block_mask);
+}
+
 static void linux_set_hook_event_callback(ksi_hook_event_callback callback, void *context)
 {
     ksi_linux_devices_set_hook_event_callback(callback, context);
@@ -92,6 +97,7 @@ static const ksi_platform_backend linux_backend = {
     .send_input = linux_send_input,
     .replay_hook_event = linux_replay_hook_event,
     .set_grab_hook_mask = linux_set_grab_hook_mask,
+    .set_block_input_mask = linux_set_block_input_mask,
     .set_hook_event_callback = linux_set_hook_event_callback,
 };
 

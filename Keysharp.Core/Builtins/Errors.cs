@@ -1196,18 +1196,21 @@ namespace Keysharp.Builtins
 				ReadOnly = true,
 				Wrap = false,
 			};
-			richText.KeyDown += (_, e) =>
+			ApplyFormatting(richText);
+			richText.ContextMenu = BuildCopyContextMenu(richText);
+
+			// Handle Ctrl+C at the form level so it fires regardless of which control
+			// has focus (e.g. a button). If text is selected copy that; otherwise copy all.
+			KeyDown += (_, e) =>
 			{
 				if ((e.Modifiers & Eto.Forms.Keys.Control) == Eto.Forms.Keys.Control && e.Key == Eto.Forms.Keys.C)
 				{
-					var selected = GetSelectedText(richText);
-					if (!string.IsNullOrEmpty(selected))
-						Eto.Forms.Clipboard.Instance.Text = selected;
+					var text = GetSelectedOrAllText(richText);
+					if (!string.IsNullOrEmpty(text))
+						Eto.Forms.Clipboard.Instance.Text = text;
 					e.Handled = true;
 				}
 			};
-			ApplyFormatting(richText);
-			richText.ContextMenu = BuildCopyContextMenu(richText);
 
 			var btnAbort = new Eto.Forms.Button { Text = "&Abort" };
 			var btnContinue = new Eto.Forms.Button { Text = "&Continue" };
@@ -1350,31 +1353,53 @@ namespace Keysharp.Builtins
 		private static Eto.Forms.ContextMenu BuildCopyContextMenu(Eto.Forms.RichTextArea box)
 		{
 			var copyItem = new Eto.Forms.ButtonMenuItem { Text = "Copy" };
+			var selectAllItem = new Eto.Forms.ButtonMenuItem { Text = "Select All" };
+			var menu = new Eto.Forms.ContextMenu(copyItem, selectAllItem);
+
+			// Capture the text to copy when the menu opens, not when the item is clicked.
+			// On Wayland the right-click that shows the context menu can clear the GTK
+			// text selection before the Click handler runs, so reading box.Selection there
+			// would always return empty. Reading it here (Opening) is still reliable.
+			string pendingCopy = null;
+			menu.Opening += (_, _) =>
+			{
+				pendingCopy = GetSelectedOrAllText(box);
+				copyItem.Enabled = !string.IsNullOrEmpty(pendingCopy);
+			};
+
 			copyItem.Click += (_, _) =>
 			{
-				var selected = GetSelectedText(box);
-				if (!string.IsNullOrEmpty(selected))
-					Eto.Forms.Clipboard.Instance.Text = selected;
+				if (!string.IsNullOrEmpty(pendingCopy))
+					Eto.Forms.Clipboard.Instance.Text = pendingCopy;
 			};
-			return new Eto.Forms.ContextMenu(copyItem);
+
+			selectAllItem.Click += (_, _) =>
+			{
+				var text = box.Text ?? string.Empty;
+				if (text.Length > 0)
+					box.Selection = new Eto.Forms.Range<int>(0, text.Length - 1);
+			};
+
+			return menu;
 		}
 
-		private static string GetSelectedText(Eto.Forms.RichTextArea box)
+		// Returns the selected text if any is selected, otherwise returns all text.
+		private static string GetSelectedOrAllText(Eto.Forms.RichTextArea box)
 		{
-			var selection = box.Selection;
-			if (selection.End < selection.Start)
-				return string.Empty;
-
 			var text = box.Text ?? string.Empty;
 			if (text.Length == 0)
 				return string.Empty;
 
-			int start = Math.Clamp(selection.Start, 0, text.Length - 1);
-			int end = Math.Clamp(selection.End, 0, text.Length - 1);
-			if (end < start)
-				return string.Empty;
+			var selection = box.Selection;
+			if (selection.Start <= selection.End)
+			{
+				int start = Math.Clamp(selection.Start, 0, text.Length - 1);
+				int end   = Math.Clamp(selection.End,   0, text.Length - 1);
+				if (start <= end)
+					return text.Substring(start, end - start + 1);
+			}
 
-			return text.Substring(start, end - start + 1);
+			return text;
 		}
 
 		/// <summary>

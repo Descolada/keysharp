@@ -1,7 +1,6 @@
-using System.IO;
 using System.Net.Sockets;
 using System.Threading;
-using Keysharp.Internals.Platform;
+using Keysharp.Builtins;
 
 #if LINUX
 namespace Keysharp.Internals.Input.Linux
@@ -75,8 +74,9 @@ namespace Keysharp.Internals.Input.Linux
 
 				return true;
 			}
-			catch
+			catch (Exception ex)
 			{
+				Ks.OutputDebugLine($"keysharp-inputd: indicator state query failed: {ex.Message}");
 				return false;
 			}
 		}
@@ -177,6 +177,45 @@ namespace Keysharp.Internals.Input.Linux
 			=> EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
 				operation ?? "keyboard/mouse monitoring");
+
+		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
+		{
+			if (UseLegacyX11Input)
+			{
+				message = string.Empty;
+				return false;
+			}
+
+			lock (gate)
+			{
+				if (!TryEnsureConnected(out message))
+					return false;
+
+				if (!HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput)
+					&& !client.TryRequestCapabilities(KeysharpInputdClient.Capabilities.BlockInput, out _))
+				{
+					message = $"keysharp-inputd did not grant block-input capability. Granted: {client.GrantedCapabilities}.";
+					return false;
+				}
+
+				try
+				{
+					var granted = client.SetBlockInput(mask);
+
+					if (granted != mask)
+						Ks.OutputDebugLine($"BlockInput: daemon granted {granted}, requested {mask}.");
+
+					message = string.Empty;
+					return true;
+				}
+				catch (Exception ex) when (ex is IOException or SocketException
+					or ObjectDisposedException or InvalidDataException)
+				{
+					message = ex.Message;
+					return false;
+				}
+			}
+		}
 
 		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null)
 		{

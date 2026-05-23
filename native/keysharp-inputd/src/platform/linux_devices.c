@@ -2,6 +2,7 @@
 
 #include "keysharp_inputd/globals.h"
 #include "keysharp_inputd/protocol.h"
+#include "vk_evdev.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -102,6 +103,7 @@ static uint32_t next_device_id = 1;
 static ksi_hook_event_callback hook_event_callback;
 static void *hook_event_context;
 static uint32_t grab_hook_mask;
+static uint32_t block_input_mask;
 
 /* Current LED state, updated from EV_LED events on grabbed keyboards.
  * Included in every keyboard hook event so the C# side can maintain an
@@ -328,7 +330,7 @@ static bool is_mouse_candidate(const ksi_linux_device_info *info)
 
 static void log_device(const ksi_linux_device_info *info, const char *prefix)
 {
-    printf("inputd: %s %s: \"%s\" candidate=%s%s%s%s%s%s\n",
+    fprintf(stderr, "inputd: %s %s: \"%s\" candidate=%s%s%s%s%s%s\n",
         prefix,
         info->path,
         info->name,
@@ -492,7 +494,7 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
             }
 
             device->grabbed = false;
-            printf("inputd: ungrabbed injected source %s\n", device->path);
+            fprintf(stderr, "inputd: ungrabbed injected source %s\n", device->path);
         }
 
         return 0;
@@ -515,7 +517,7 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
 
         if (any_bit_set(device->deferred_down_keys, sizeof(device->deferred_down_keys) / sizeof(device->deferred_down_keys[0]))) {
             device->grab_deferred = true;
-            printf("inputd: deferred grab %s until active keys are released\n", device->path);
+            fprintf(stderr, "inputd: deferred grab %s until active keys are released\n", device->path);
             return 0;
         }
     }
@@ -539,7 +541,7 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
         refresh_indicator_state_from_device(device);
     }
 
-    printf("inputd: %s %s\n", enabled ? "grabbed" : "ungrabbed", device->path);
+    fprintf(stderr, "inputd: %s %s\n", enabled ? "grabbed" : "ungrabbed", device->path);
     return 0;
 }
 
@@ -585,14 +587,21 @@ static void update_physical_key_state(ksi_linux_tracked_device *device, const st
     }
 }
 
-static bool should_grab_device_for_hook_mask(const ksi_linux_tracked_device *device, uint32_t hook_mask)
+static bool should_grab_device_for_masks(
+    const ksi_linux_tracked_device *device,
+    uint32_t hook_mask,
+    uint32_t block_mask)
 {
     if (device == NULL || device->injected_source) {
         return false;
     }
 
-    return ((hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0 && device->keyboard_candidate)
-        || ((hook_mask & KSI_CAP_HOOK_MOUSE) != 0 && device->mouse_candidate);
+    return (((hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0
+             || (block_mask & KSI_BLOCK_INPUT_KEYBOARD) != 0)
+            && device->keyboard_candidate)
+        || (((hook_mask & KSI_CAP_HOOK_MOUSE) != 0
+             || (block_mask & KSI_BLOCK_INPUT_MOUSE) != 0)
+            && device->mouse_candidate);
 }
 
 static void track_device(const ksi_linux_device_info *info, const char *reason)
@@ -633,7 +642,7 @@ static void track_device(const ksi_linux_device_info *info, const char *reason)
         update_absolute_axis_ranges(target);
     }
 
-    (void)set_device_grab(target, should_grab_device_for_hook_mask(target, grab_hook_mask));
+    (void)set_device_grab(target, should_grab_device_for_masks(target, grab_hook_mask, block_input_mask));
 
     log_device(info, reason);
 }
@@ -649,7 +658,7 @@ static void untrack_device(const char *path)
 
     index = (size_t)existing_index;
 
-    printf("inputd: remove %s: \"%s\"\n",
+    fprintf(stderr, "inputd: remove %s: \"%s\"\n",
         tracked_devices[index].path,
         tracked_devices[index].name);
 
@@ -706,7 +715,7 @@ static void scan_existing_devices(void)
 
     closedir(dir);
 
-    printf("inputd: scanned %d event devices, found %d keyboard/mouse candidates\n",
+    fprintf(stderr, "inputd: scanned %d event devices, found %d keyboard/mouse candidates\n",
         devices_seen,
         candidates_seen);
 }
@@ -756,7 +765,7 @@ static int start_udev_monitor(void)
         return -1;
     }
 
-    printf("inputd: udev hotplug monitor enabled\n");
+    fprintf(stderr, "inputd: udev hotplug monitor enabled\n");
     return 0;
 }
 
@@ -769,7 +778,7 @@ static void handle_device_add_or_change(const char *path, const char *action)
     }
 
     if (!is_candidate(&info)) {
-        printf("inputd: %s %s ignored: not a keyboard/mouse candidate\n", action, path);
+        fprintf(stderr, "inputd: %s %s ignored: not a keyboard/mouse candidate\n", action, path);
         return;
     }
 
@@ -782,6 +791,7 @@ int ksi_linux_devices_start(void)
     suppressed_replay_head = 0;
     suppressed_replay_count = 0;
     grab_hook_mask = 0;
+    block_input_mask = 0;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
     scan_existing_devices();
 
@@ -819,33 +829,52 @@ bool ksi_linux_devices_has_candidates(void)
     return false;
 }
 
-int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)
+static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask)
 {
     int result = 0;
 
-    if (grab_hook_mask == hook_mask) {
+    if (grab_hook_mask == hook_mask && block_input_mask == block_mask) {
         return 0;
     }
 
     for (size_t i = 0; i < tracked_device_count; i++) {
-        bool should_grab = should_grab_device_for_hook_mask(&tracked_devices[i], hook_mask);
+        bool should_grab = should_grab_device_for_masks(&tracked_devices[i], hook_mask, block_mask);
 
         if (set_device_grab(&tracked_devices[i], should_grab) != 0) {
             result = -1;
         }
     }
 
-    if (result != 0 && hook_mask != 0) {
+    if (result != 0 && (hook_mask != 0 || block_mask != 0)) {
+        /* Grab failed on at least one device; roll back all to ungrabbed.
+         * Update grab_hook_mask to 0 regardless of whether the rollback
+         * fully succeeds so that the next call retries rather than
+         * short-circuiting on a stale mask value. */
         for (size_t i = 0; i < tracked_device_count; i++) {
             (void)set_device_grab(&tracked_devices[i], false);
         }
+
+        grab_hook_mask = 0;
+        block_input_mask = 0;
+        return -1;
     }
 
     if (result == 0) {
         grab_hook_mask = hook_mask;
+        block_input_mask = block_mask;
     }
 
     return result;
+}
+
+int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)
+{
+    return set_grab_masks(hook_mask, block_input_mask);
+}
+
+int ksi_linux_devices_set_block_input_mask(uint32_t block_mask)
+{
+    return set_grab_masks(grab_hook_mask, block_mask);
 }
 
 void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int32_t value, uint64_t extra_info, bool suppress)
@@ -942,289 +971,7 @@ static uint64_t event_time_ms(const struct input_event *event)
 
 static uint32_t evdev_key_to_vk(unsigned int code)
 {
-    switch (code) {
-        case KEY_A:
-            return 0x41u;
-        case KEY_B:
-            return 0x42u;
-        case KEY_C:
-            return 0x43u;
-        case KEY_D:
-            return 0x44u;
-        case KEY_E:
-            return 0x45u;
-        case KEY_F:
-            return 0x46u;
-        case KEY_G:
-            return 0x47u;
-        case KEY_H:
-            return 0x48u;
-        case KEY_I:
-            return 0x49u;
-        case KEY_J:
-            return 0x4Au;
-        case KEY_K:
-            return 0x4Bu;
-        case KEY_L:
-            return 0x4Cu;
-        case KEY_M:
-            return 0x4Du;
-        case KEY_N:
-            return 0x4Eu;
-        case KEY_O:
-            return 0x4Fu;
-        case KEY_P:
-            return 0x50u;
-        case KEY_Q:
-            return 0x51u;
-        case KEY_R:
-            return 0x52u;
-        case KEY_S:
-            return 0x53u;
-        case KEY_T:
-            return 0x54u;
-        case KEY_U:
-            return 0x55u;
-        case KEY_V:
-            return 0x56u;
-        case KEY_W:
-            return 0x57u;
-        case KEY_X:
-            return 0x58u;
-        case KEY_Y:
-            return 0x59u;
-        case KEY_Z:
-            return 0x5Au;
-        case KEY_1:
-            return 0x31u;
-        case KEY_2:
-            return 0x32u;
-        case KEY_3:
-            return 0x33u;
-        case KEY_4:
-            return 0x34u;
-        case KEY_5:
-            return 0x35u;
-        case KEY_6:
-            return 0x36u;
-        case KEY_7:
-            return 0x37u;
-        case KEY_8:
-            return 0x38u;
-        case KEY_9:
-            return 0x39u;
-        case KEY_0:
-            return 0x30u;
-        case KEY_ESC:
-            return 0x1Bu;
-        case KEY_BACKSPACE:
-            return 0x08u;
-        case KEY_TAB:
-            return 0x09u;
-        case KEY_CLEAR:
-            return 0x0Cu;
-        case KEY_ENTER:
-        case KEY_KPENTER:
-            return 0x0Du;
-        case KEY_LEFTCTRL:
-            return 0xA2u;
-        case KEY_RIGHTCTRL:
-            return 0xA3u;
-        case KEY_LEFTSHIFT:
-            return 0xA0u;
-        case KEY_RIGHTSHIFT:
-            return 0xA1u;
-        case KEY_LEFTALT:
-            return 0xA4u;
-        case KEY_RIGHTALT:
-            return 0xA5u;
-        case KEY_LEFTMETA:
-            return 0x5Bu;
-        case KEY_RIGHTMETA:
-            return 0x5Cu;
-        case KEY_COMPOSE:
-            return 0x5Du;
-        case KEY_SLEEP:
-            return 0x5Fu;
-        case KEY_SPACE:
-            return 0x20u;
-        case KEY_SYSRQ:
-            return 0x2Cu;
-        case KEY_PAUSE:
-            return 0x13u;
-        case KEY_CAPSLOCK:
-            return 0x14u;
-        case KEY_HENKAN:
-            return 0x1Cu;
-        case KEY_MUHENKAN:
-            return 0x1Du;
-        case KEY_MODE:
-            return 0x1Fu;
-        case KEY_NUMLOCK:
-            return 0x90u;
-        case KEY_SCROLLLOCK:
-            return 0x91u;
-        case KEY_INSERT:
-            return 0x2Du;
-        case KEY_DELETE:
-            return 0x2Eu;
-        case KEY_HOME:
-            return 0x24u;
-        case KEY_END:
-            return 0x23u;
-        case KEY_PAGEUP:
-            return 0x21u;
-        case KEY_PAGEDOWN:
-            return 0x22u;
-        case KEY_UP:
-            return 0x26u;
-        case KEY_DOWN:
-            return 0x28u;
-        case KEY_LEFT:
-            return 0x25u;
-        case KEY_RIGHT:
-            return 0x27u;
-        case KEY_KP0:
-            return 0x60u;
-        case KEY_KP1:
-            return 0x61u;
-        case KEY_KP2:
-            return 0x62u;
-        case KEY_KP3:
-            return 0x63u;
-        case KEY_KP4:
-            return 0x64u;
-        case KEY_KP5:
-            return 0x65u;
-        case KEY_KP6:
-            return 0x66u;
-        case KEY_KP7:
-            return 0x67u;
-        case KEY_KP8:
-            return 0x68u;
-        case KEY_KP9:
-            return 0x69u;
-        case KEY_KPASTERISK:
-            return 0x6Au;
-        case KEY_KPPLUS:
-            return 0x6Bu;
-        case KEY_KPCOMMA:
-            return 0x6Cu;
-        case KEY_KPMINUS:
-            return 0x6Du;
-        case KEY_KPDOT:
-            return 0x6Eu;
-        case KEY_KPSLASH:
-            return 0x6Fu;
-        case KEY_F1:
-            return 0x70u;
-        case KEY_F2:
-            return 0x71u;
-        case KEY_F3:
-            return 0x72u;
-        case KEY_F4:
-            return 0x73u;
-        case KEY_F5:
-            return 0x74u;
-        case KEY_F6:
-            return 0x75u;
-        case KEY_F7:
-            return 0x76u;
-        case KEY_F8:
-            return 0x77u;
-        case KEY_F9:
-            return 0x78u;
-        case KEY_F10:
-            return 0x79u;
-        case KEY_F11:
-            return 0x7Au;
-        case KEY_F12:
-            return 0x7Bu;
-        case KEY_F13:
-            return 0x7Cu;
-        case KEY_F14:
-            return 0x7Du;
-        case KEY_F15:
-            return 0x7Eu;
-        case KEY_F16:
-            return 0x7Fu;
-        case KEY_F17:
-            return 0x80u;
-        case KEY_F18:
-            return 0x81u;
-        case KEY_F19:
-            return 0x82u;
-        case KEY_F20:
-            return 0x83u;
-        case KEY_F21:
-            return 0x84u;
-        case KEY_F22:
-            return 0x85u;
-        case KEY_F23:
-            return 0x86u;
-        case KEY_F24:
-            return 0x87u;
-        case KEY_BACK:
-            return 0xA6u;
-        case KEY_FORWARD:
-            return 0xA7u;
-        case KEY_REFRESH:
-            return 0xA8u;
-        case KEY_STOP:
-            return 0xA9u;
-        case KEY_SEARCH:
-            return 0xAAu;
-        case KEY_FAVORITES:
-            return 0xABu;
-        case KEY_HOMEPAGE:
-            return 0xACu;
-        case KEY_MUTE:
-            return 0xADu;
-        case KEY_VOLUMEDOWN:
-            return 0xAEu;
-        case KEY_VOLUMEUP:
-            return 0xAFu;
-        case KEY_NEXTSONG:
-            return 0xB0u;
-        case KEY_PREVIOUSSONG:
-            return 0xB1u;
-        case KEY_STOPCD:
-            return 0xB2u;
-        case KEY_PLAYPAUSE:
-            return 0xB3u;
-        case KEY_EMAIL:
-            return 0xB4u;
-        case KEY_MEDIA:
-            return 0xB5u;
-        case KEY_PROG1:
-            return 0xB6u;
-        case KEY_PROG2:
-            return 0xB7u;
-        case KEY_SEMICOLON:
-            return 0xBAu;
-        case KEY_EQUAL:
-            return 0xBBu;
-        case KEY_COMMA:
-            return 0xBCu;
-        case KEY_MINUS:
-            return 0xBDu;
-        case KEY_DOT:
-            return 0xBEu;
-        case KEY_SLASH:
-            return 0xBFu;
-        case KEY_GRAVE:
-            return 0xC0u;
-        case KEY_LEFTBRACE:
-            return 0xDBu;
-        case KEY_BACKSLASH:
-            return 0xDCu;
-        case KEY_RIGHTBRACE:
-            return 0xDDu;
-        case KEY_APOSTROPHE:
-            return 0xDEu;
-        default:
-            return 0u;
-    }
+    return ksi_evdev_to_vk(code);
 }
 
 static uint32_t evdev_key_to_message(const struct input_event *event)
@@ -1287,6 +1034,11 @@ static uint32_t mouse_injected_flags(const ksi_linux_tracked_device *device)
     return device->injected_source ? KSI_LLMHF_INJECTED : 0u;
 }
 
+static bool should_dispatch_hook_input(const ksi_linux_tracked_device *device)
+{
+    return device != NULL && (device->grabbed || device->injected_source);
+}
+
 static bool evdev_button_to_mouse_message(unsigned int code, int value, uint32_t *message)
 {
     if (value != 0 && value != 1) {
@@ -1327,6 +1079,10 @@ static uint32_t evdev_button_mouse_data(unsigned int code)
 
 static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
+    if (!should_dispatch_hook_input(device)) {
+        return;
+    }
+
     ksi_keyboard_hook_event hook_event = {
         .message = evdev_key_to_message(event),
         .vk_code = evdev_key_to_vk((unsigned int)event->code),
@@ -1360,6 +1116,10 @@ static void dispatch_keyboard_event(const ksi_linux_tracked_device *device, cons
 static void dispatch_mouse_button_event(const ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)
 {
     uint32_t message;
+
+    if (!should_dispatch_hook_input(device)) {
+        return;
+    }
 
     if (!evdev_button_to_mouse_message((unsigned int)event->code, event->value, &message)) {
         return;
@@ -1421,7 +1181,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         device->pending_rel_time_ms = 0;
         device->pending_rel_extra_info = 0;
 
-        if (hook_event_callback != NULL) {
+        if (should_dispatch_hook_input(device) && hook_event_callback != NULL) {
             hook_event_callback(
                 hook_event_context,
                 KSI_HOOK_MOUSE_LL,
@@ -1453,7 +1213,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         device->pending_abs_time_ms = 0;
         device->pending_abs_extra_info = 0;
 
-        if (hook_event_callback != NULL) {
+        if (should_dispatch_hook_input(device) && hook_event_callback != NULL) {
             hook_event_callback(
                 hook_event_context,
                 KSI_HOOK_MOUSE_LL,
@@ -1505,7 +1265,7 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
                 device->name);
         }
 
-        if (hook_event_callback != NULL) {
+        if (should_dispatch_hook_input(device) && hook_event_callback != NULL) {
             hook_event_callback(
                 hook_event_context,
                 KSI_HOOK_MOUSE_LL,

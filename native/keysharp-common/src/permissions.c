@@ -1,6 +1,4 @@
-#include "keysharp_inputd/permissions.h"
-
-#include "keysharp_inputd/protocol.h"
+#include "keysharp_trust/permissions.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -31,8 +29,10 @@ void ksi_permissions_cancel(void)
     atomic_store(&g_prompt_cancelled, 1);
 }
 
-#define KSI_PERMISSION_STORE_DIRECTORY "/var/lib/keysharp-inputd"
-#define KSI_PERMISSION_STORE_FILE_NAME "inputd-permissions.tsv"
+#define KSI_PERMISSION_STORE_DIRECTORY "/var/lib/keysharp-trust"
+#define KSI_PERMISSION_LEGACY_STORE_DIRECTORY "/var/lib/keysharp-inputd"
+#define KSI_PERMISSION_STORE_FILE_NAME "permissions.tsv"
+#define KSI_PERMISSION_LEGACY_STORE_FILE_NAME "inputd-permissions.tsv"
 #define KSI_PERMISSION_STORE_VERSION "v2"
 #define KSI_PERMISSION_RECORD_TTL_SECONDS (60u * 24u * 60u * 60u)
 #define KSI_PROMPT_TIMEOUT_SECONDS 60u
@@ -83,13 +83,13 @@ static int sha256_ctx_init(ksi_sha256_ctx *ctx)
     ctx->alg_fd = socket(AF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
 
     if (ctx->alg_fd < 0) {
-        fprintf(stderr, "inputd: AF_ALG socket failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: AF_ALG socket failed: %s\n", strerror(errno));
         ctx->op_fd = -1;
         return -1;
     }
 
     if (bind(ctx->alg_fd, (const struct sockaddr *)&sa, sizeof(sa)) != 0) {
-        fprintf(stderr, "inputd: AF_ALG bind(sha256) failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: AF_ALG bind(sha256) failed: %s\n", strerror(errno));
         close(ctx->alg_fd);
         ctx->alg_fd = -1;
         ctx->op_fd  = -1;
@@ -99,7 +99,7 @@ static int sha256_ctx_init(ksi_sha256_ctx *ctx)
     ctx->op_fd = accept(ctx->alg_fd, NULL, NULL);
 
     if (ctx->op_fd < 0) {
-        fprintf(stderr, "inputd: AF_ALG accept failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: AF_ALG accept failed: %s\n", strerror(errno));
         close(ctx->alg_fd);
         ctx->alg_fd = -1;
         return -1;
@@ -115,7 +115,7 @@ static int sha256_ctx_update(ksi_sha256_ctx *ctx, const void *data, size_t len)
     }
 
     if (send(ctx->op_fd, data, len, MSG_MORE) != (ssize_t)len) {
-        fprintf(stderr, "inputd: AF_ALG send failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: AF_ALG send failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -132,7 +132,7 @@ static int sha256_ctx_finish(ksi_sha256_ctx *ctx, char output[KSI_PERMISSION_HAS
     }
 
     if (read(ctx->op_fd, hash, sizeof(hash)) != (ssize_t)sizeof(hash)) {
-        fprintf(stderr, "inputd: AF_ALG read digest failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: AF_ALG read digest failed: %s\n", strerror(errno));
         return -1;
     }
 
@@ -230,7 +230,7 @@ static int hash_process_identity(
     size_t command_line_buffer_size,
     char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
 {
-    static const uint8_t domain[] = "keysharp-inputd-process-identity-v1";
+    static const uint8_t domain[] = "Keysharp-process-identity-v1";
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     char proc_path[64];
     uint8_t buffer[8192];
@@ -377,6 +377,9 @@ static int ensure_parent_directories(const char *path)
 static char *resolve_store_path(void)
 {
     char full_path[KSI_PERMISSION_MAX_PATH];
+    char legacy_path[KSI_PERMISSION_MAX_PATH];
+    struct stat current_info;
+    struct stat legacy_info;
     int written;
 
     if (ensure_parent_directories(KSI_PERMISSION_STORE_DIRECTORY) != 0
@@ -390,6 +393,41 @@ static char *resolve_store_path(void)
 
     if (written < 0 || (size_t)written >= sizeof(full_path)) {
         return NULL;
+    }
+
+    if (stat(full_path, &current_info) != 0 && errno == ENOENT) {
+        written = snprintf(
+            legacy_path, sizeof(legacy_path), "%s/%s",
+            KSI_PERMISSION_LEGACY_STORE_DIRECTORY,
+            KSI_PERMISSION_LEGACY_STORE_FILE_NAME);
+
+        if (written >= 0 && (size_t)written < sizeof(legacy_path)
+            && stat(legacy_path, &legacy_info) == 0
+            && S_ISREG(legacy_info.st_mode)) {
+            int source = open(legacy_path, O_RDONLY | O_CLOEXEC);
+            int target = open(full_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR);
+
+            if (source >= 0 && target >= 0) {
+                char buffer[8192];
+                ssize_t bytes_read;
+
+                while ((bytes_read = read(source, buffer, sizeof(buffer))) > 0) {
+                    if (write(target, buffer, (size_t)bytes_read) != bytes_read) {
+                        break;
+                    }
+                }
+
+                (void)fsync(target);
+            }
+
+            if (source >= 0) {
+                close(source);
+            }
+
+            if (target >= 0) {
+                close(target);
+            }
+        }
     }
 
     return strdup(full_path);
@@ -693,7 +731,7 @@ static int save_store(const ksi_permission_store *store)
     fd = fileno(file);
 
     if (fd >= 0 && fsync(fd) != 0) {
-        fprintf(stderr, "inputd: fsync on trust store failed: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-trust: fsync on trust store failed: %s\n", strerror(errno));
     }
 
     if (fclose(file) != 0) {
@@ -1211,20 +1249,24 @@ static void describe_capabilities(uint32_t capabilities, char *buffer, size_t bu
 
     buffer[0] = '\0';
 
-    if ((capabilities & KSI_CAP_HOOK_KEYBOARD) != 0u) {
+    if ((capabilities & KST_CAP_INPUT_HOOK_KEYBOARD) != 0u) {
         append_capability_line(buffer, buffer_size, "Hook keyboard input (includes keyboard synthesis)");
-    } else if ((capabilities & KSI_CAP_SYNTH_KEYBOARD) != 0u) {
+    } else if ((capabilities & KST_CAP_INPUT_SYNTH_KEYBOARD) != 0u) {
         append_capability_line(buffer, buffer_size, "Synthesize keyboard input");
     }
 
-    if ((capabilities & KSI_CAP_HOOK_MOUSE) != 0u) {
+    if ((capabilities & KST_CAP_INPUT_HOOK_MOUSE) != 0u) {
         append_capability_line(buffer, buffer_size, "Hook mouse input (includes mouse synthesis)");
-    } else if ((capabilities & KSI_CAP_SYNTH_MOUSE) != 0u) {
+    } else if ((capabilities & KST_CAP_INPUT_SYNTH_MOUSE) != 0u) {
         append_capability_line(buffer, buffer_size, "Synthesize mouse input");
     }
 
-    if ((capabilities & KSI_CAP_BLOCK_INPUT) != 0u) {
+    if ((capabilities & KST_CAP_INPUT_BLOCK) != 0u) {
         append_capability_line(buffer, buffer_size, "Block or suppress input");
+    }
+
+    if ((capabilities & KST_CAP_SCREEN_CAPTURE) != 0u) {
+        append_capability_line(buffer, buffer_size, "Capture the screen");
     }
 }
 
@@ -1452,12 +1494,12 @@ ksi_permission_decision ksi_permissions_prompt(
     (void)snprintf(
         prompt_text,
         sizeof(prompt_text),
-        "An application is requesting access to keysharp-inputd.\n\n"
+        "An application is requesting access to Keysharp.\n\n"
         "Executable:\n%s\n\n"
         "Arguments:\n%s\n\n"
         "Permission identity hash:\n%s\n\n"
         "Requested access:\n%s\n"
-        "This access can capture or synthesize keyboard/mouse input.",
+        "Only allow scripts you trust.",
         display_path,
         display_args,
         exe_hash != NULL && exe_hash[0] != '\0' ? exe_hash : "(unknown)",
@@ -1469,7 +1511,7 @@ ksi_permission_decision ksi_permissions_prompt(
         static const char *kdialog_paths[] = { "/usr/bin/kdialog", "/bin/kdialog", NULL };
 
         for (size_t i = 0; zenity_paths[i] != NULL; i++) {
-            char title_arg[] = "--title=Keysharp input permissions";
+            char title_arg[] = "--title=Keysharp permissions";
             char text_arg[sizeof(prompt_text) + 8u];
             char *argv[] = {
                 "zenity",
@@ -1509,7 +1551,7 @@ ksi_permission_decision ksi_permissions_prompt(
                 "--geometry",
                 "640x480",
                 "--title",
-                "Keysharp input permissions",
+                "Keysharp permissions",
                 "--menu",
                 prompt_text,
                 "once",
@@ -1533,6 +1575,6 @@ ksi_permission_decision ksi_permissions_prompt(
         }
     }
 
-    fprintf(stderr, "inputd: permission prompt unavailable for pid=%ld uid=%ld\n", (long)pid, (long)uid);
+    fprintf(stderr, "keysharp-trust: permission prompt unavailable for pid=%ld uid=%ld\n", (long)pid, (long)uid);
     return KSI_PERMISSION_DECISION_DENY;
 }

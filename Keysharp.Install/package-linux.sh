@@ -16,7 +16,7 @@ DEB_PKG_NAME="${DEB_PKG_NAME:-keysharp}"
 DEB_TMP_DIR="${DIST_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
 DEB_ARCH=""
-DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils"
+DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libglib2.0-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils"
 DEB_DESCRIPTION="A C# port and enhancement of the AutoHotkey program"
 
 if [[ -z "${VERSION}" ]]; then
@@ -39,7 +39,31 @@ map_rid_to_deb_arch() {
 rewrite_desktop_exec() {
   local src="$1"
   local dest="$2"
-  sed 's|/usr/local/bin/|/usr/bin/|g' "${src}" > "${dest}"
+  sed -e 's|/usr/local/bin/|/usr/bin/|g' \
+      -e 's|/usr/local/lib/keysharp/|/usr/lib/keysharp/|g' \
+      "${src}" > "${dest}"
+}
+
+build_native_helpers() {
+  local build_dir="${DIST_DIR}/native-keysharp-kwin-screencap-${RID}"
+
+  if [[ "${RID}" != linux-* ]]; then
+    return
+  fi
+
+  if ! command -v cmake >/dev/null 2>&1; then
+    echo "Skipping keysharp-kwin-screencap build because cmake is not installed." >&2
+    return
+  fi
+
+  if ! pkg-config --exists gio-2.0 gio-unix-2.0; then
+    echo "Skipping keysharp-kwin-screencap build because gio-2.0 development files are missing." >&2
+    return
+  fi
+
+  cmake -S "${ROOT}/native/keysharp-kwin-screencap" -B "${build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
+  cmake --build "${build_dir}"
+  cp "${build_dir}/keysharp-kwin-screencap" "${APP_DIR}/"
 }
 
 write_deb_control() {
@@ -70,6 +94,11 @@ fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
+fi
+
+if [ -f /usr/lib/keysharp/keysharp-kwin-screencap ]; then
+  chown root:root /usr/lib/keysharp/keysharp-kwin-screencap || true
+  chmod 4755 /usr/lib/keysharp/keysharp-kwin-screencap || true
 fi
 EOF
   chmod 0755 "$1"
@@ -141,8 +170,14 @@ build_deb() {
   ln -s "../lib/keysharp/Keyview" "${bin_dir}/keyview"
   rewrite_desktop_exec "${ASSETS_DIR}/keysharp.desktop" "${applications_dir}/keysharp.desktop"
   rewrite_desktop_exec "${ASSETS_DIR}/keyview.desktop" "${applications_dir}/keyview.desktop"
+  rewrite_desktop_exec "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${applications_dir}/keysharp-kwin-screencap.desktop"
   install -Dm644 "${ASSETS_DIR}/keysharp.xml" "${mime_dir}/keysharp.xml"
   install -Dm644 "${ROOT}/Keysharp.png" "${icon_dir}/keysharp.png"
+
+  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
+    chown 0:0 "${lib_dir}/keysharp-kwin-screencap" 2>/dev/null || true
+    chmod 4755 "${lib_dir}/keysharp-kwin-screencap"
+  fi
 
   write_deb_control "${debian_dir}/control"
   write_deb_postinst "${debian_dir}/postinst"
@@ -170,10 +205,11 @@ rm -rf "${PKG_DIR}"
 mkdir -p "${APP_DIR}"
 
 rsync -a "${ROOT}/bin/${CONFIG}/${TFM}/${RID}/publish/" "${APP_DIR}/"
+build_native_helpers
 
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"
-cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
+cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
 cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
 
 mkdir -p "${DIST_DIR}"

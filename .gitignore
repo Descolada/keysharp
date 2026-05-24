@@ -7,7 +7,7 @@
 /.vs/Keysharp
 /bin
 /dist
-/native/keysharp-inputd/build
+/native/*/build
 /Keysharp/bin
 /Keysharp/obj
 /Keysharp.Core/bin

@@ -1,6 +1,7 @@
 using Keysharp.Builtins;
 #if LINUX
 using Keysharp.Internals.Input.Linux;
+using Keysharp.Internals.Window.Linux.Wayland;
 #endif
 namespace Keysharp.Internals.Platform
 {
@@ -142,6 +143,12 @@ namespace Keysharp.Internals.Platform
 		{
 			_ = prompt;
 			return KeysharpInputdManager.EnsureInputInjection(operation);
+		}
+
+		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
+		{
+			_ = prompt;
+			return WaylandScreenCapture.RequestScreenCapturePermission(operation);
 		}
 	}
 #endif

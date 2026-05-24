@@ -37,6 +37,10 @@ cmake -S native/keysharp-inputd -B native/keysharp-inputd/build
 cmake --build native/keysharp-inputd/build
 ```
 
+This also builds the shared `keysharp-trust` static library from
+`native/keysharp-common`. The KDE screen capture helper is a separate native
+target; see [`../keysharp-kwin-screencap/README.md`](../keysharp-kwin-screencap/README.md).
+
 ## Install
 
 ```bash
@@ -81,7 +85,18 @@ journalctl -u keysharp-inputd.service -f
 To reload after reinstalling the binary without a full restart:
 
 ```bash
+sudo systemctl daemon-reload
 systemctl restart keysharp-inputd.service
+```
+
+If capability requests are denied without a permission prompt after upgrading
+from an older inputd build, reinstall the unit and reload systemd so the service
+can write the shared trust store:
+
+```bash
+sudo cmake --install native/keysharp-inputd/build
+sudo systemctl daemon-reload
+sudo systemctl restart keysharp-inputd.socket keysharp-inputd.service
 ```
 
 ## Development run
@@ -116,8 +131,9 @@ should not be added to the `input` group.
 - Clients send `CLIENT_HELLO` with requested capabilities; the daemon grants only
   what its own device access allows.
 - Unknown process identities are prompted before privileged capabilities are granted.
-- `Allow always` decisions are stored in the root-owned trust store, partitioned
-  by peer uid, and pruned after 60 days.
+- `Allow always` decisions are stored in the shared root-owned keysharp-trust
+  store (`/var/lib/keysharp-trust/permissions.tsv`), partitioned by peer uid,
+  and pruned after 60 days.
 - `Allow once` decisions last for the current daemon session only.
 
 Capabilities: `KSI_CAP_HOOK_KEYBOARD`, `KSI_CAP_HOOK_MOUSE`,

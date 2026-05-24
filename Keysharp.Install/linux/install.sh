@@ -14,6 +14,13 @@ INSTALL_DEPS="${INSTALL_DEPS:-true}"
 DOTNET_PACKAGE="${DOTNET_PACKAGE:-dotnet-runtime-10.0}"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 have_pkg() { command -v "$1" >/dev/null 2>&1; }
+rewrite_desktop_exec() {
+  local src="$1"
+  local dest="$2"
+  sed -e "s|/usr/local/bin/|${BINDIR}/|g" \
+      -e "s|/usr/local/lib/keysharp/|${APP_DIR_TARGET}/|g" \
+      "${src}" > "${dest}"
+}
 
 has_dotnet10() {
   command -v dotnet >/dev/null 2>&1 && dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 10\.'
@@ -21,11 +28,11 @@ has_dotnet10() {
 
 install_deps() {
   # Eto.Forms Gtk backend requires GTK3; libnotify is used for notifications; AT-SPI2 supports accessibility hooks.
-  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libnotify4 libatspi2.0-0 at-spi2-core pulseaudio-utils)
-  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 libnotify at-spi2-core)
-  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 libnotify at-spi2-core)
-  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 libnotify4 at-spi2-core)
-  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 libnotify at-spi2-core)
+  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libglib2.0-0 libnotify4 libatspi2.0-0 at-spi2-core pulseaudio-utils)
+  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 glib2 libnotify at-spi2-core)
+  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 glib2 libnotify at-spi2-core)
+  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 glib2 libnotify4 at-spi2-core)
+  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 glib2 libnotify at-spi2-core)
 
   if ! has_dotnet10; then
     packages_apt+=("${DOTNET_PACKAGE}")
@@ -103,8 +110,15 @@ cp -a "${APP_DIR_SOURCE}/." "${APP_DIR_TARGET}/"
 ln -sf "${APP_DIR_TARGET}/Keysharp" "${BINDIR}/keysharp"
 ln -sf "${APP_DIR_TARGET}/Keyview" "${BINDIR}/keyview"
 
-install -Dm644 "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
-install -Dm644 "${SCRIPT_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp.desktop"
+if [[ -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
+  chown root:root "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+  chmod 4755 "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+fi
+
+install -d "${DESKTOP_DIR}"
+rewrite_desktop_exec "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
+rewrite_desktop_exec "${SCRIPT_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp.desktop"
+rewrite_desktop_exec "${SCRIPT_DIR}/keysharp-kwin-screencap.desktop" "${DESKTOP_DIR}/keysharp-kwin-screencap.desktop"
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
 

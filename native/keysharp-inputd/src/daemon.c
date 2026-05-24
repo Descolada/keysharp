@@ -20,6 +20,12 @@
 #include <time.h>
 #include <unistd.h>
 
+_Static_assert(KSI_CAP_HOOK_KEYBOARD == KST_CAP_INPUT_HOOK_KEYBOARD, "trust/input capability mismatch");
+_Static_assert(KSI_CAP_HOOK_MOUSE == KST_CAP_INPUT_HOOK_MOUSE, "trust/input capability mismatch");
+_Static_assert(KSI_CAP_SYNTH_KEYBOARD == KST_CAP_INPUT_SYNTH_KEYBOARD, "trust/input capability mismatch");
+_Static_assert(KSI_CAP_SYNTH_MOUSE == KST_CAP_INPUT_SYNTH_MOUSE, "trust/input capability mismatch");
+_Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capability mismatch");
+
 #define KSI_MAX_CLIENTS 64
 #define KSI_MAX_BACKEND_FDS 160
 #define KSI_MAX_POLL_FDS (1 + KSI_MAX_BACKEND_FDS + KSI_MAX_CLIENTS)

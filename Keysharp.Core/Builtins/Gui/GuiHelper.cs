@@ -174,9 +174,8 @@ namespace Keysharp.Builtins
 #if LINUX
 				// On Wayland, Eto's screen capture goes through Gdk's root-window pixbuf path,
 				// which the compositor doesn't allow for foreign clients — it returns either
-				// just our own surfaces or nothing. Try the wlr-screencopy protocol first; if
-				// the compositor doesn't advertise it (GNOME, etc.) we fall through to Eto so
-				// X11 sessions stay on the working path.
+				// just our own surfaces or nothing. Try compositor-native Wayland capture
+				// first: wlr-screencopy where available, then the KDE helper on KWin.
 				bmp = IsWaylandSession
 					? Keysharp.Internals.Window.Linux.Wayland.WaylandScreenCapture.TryCapture(x, y, w, h)
 					: null;

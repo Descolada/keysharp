@@ -48,7 +48,7 @@ KSI_CAP_BLOCK_INPUT
 
 The daemon replies with granted capabilities. Unknown identities trigger a
 permission prompt; `Allow always` decisions are persisted per uid in the
-root-owned trust store and pruned after 60 days.
+shared root-owned keysharp-trust store and pruned after 60 days.
 
 ## Hook model
 

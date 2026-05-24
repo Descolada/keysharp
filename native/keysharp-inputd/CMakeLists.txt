@@ -16,11 +16,14 @@ find_package(Threads REQUIRED)
 pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 pkg_check_modules(LIBEVDEV REQUIRED IMPORTED_TARGET libevdev)
 
+add_subdirectory(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../keysharp-common
+    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-common)
+
 add_executable(keysharp-inputd
     src/daemon.c
     src/ipc_unix.c
-    src/main.c
-    src/permissions.c)
+    src/main.c)
 
 target_include_directories(keysharp-inputd
     PRIVATE
@@ -28,6 +31,7 @@ target_include_directories(keysharp-inputd
 
 target_compile_definitions(keysharp-inputd PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
 target_link_libraries(keysharp-inputd PRIVATE
+    keysharp-trust
     Threads::Threads
     PkgConfig::LIBUDEV
     PkgConfig::LIBEVDEV)

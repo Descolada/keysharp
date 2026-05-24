@@ -3434,10 +3434,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 			criterionFoundHwnd = HotkeyDefinition.NormalizeCriterionFoundHwnd(variant.hotCriterion, criterionFoundHwnd);
 
+			// Pass the variant directly only when it has a callback criterion that was actually evaluated:
+			// CriterionFiringIsCertain may return a global (no-criterion) variant via its optimization shortcut
+			// even when criterion-having variants exist that should take precedence, so for global variants we
+			// must force receipt-time reevaluation via CriterionAllowsFiring. This mirrors AHK v2 hook.cpp,
+			// which only packs the variant index into wParam when mHotCriterion is set and HOT_IF_REQUIRES_EVAL.
 			hotkeyMsg = new HookHotkeyMsg
 			{
 				extraInfo = extraInfo,
-				variant = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? null : variant,
+				variant = variant.hotCriterion != null && !HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? variant : null,
 				criterionFoundHwnd = criterionFoundHwnd
 			};
 			return true;

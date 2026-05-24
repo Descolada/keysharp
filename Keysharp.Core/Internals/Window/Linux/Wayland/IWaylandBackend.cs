@@ -13,14 +13,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// <c>WinGetPos</c>, etc. don't have to know which one is active. Implementations should
 	/// return <c>false</c> from any Try* method they don't (yet) implement, so a partially
 	/// finished backend is still usable for the methods it does cover. The factory at
-	/// <see cref="WaylandCompositorBackend"/> picks one backend per process based on
+	/// <see cref="WaylandBackend"/> picks one backend per process based on
 	/// detection.
 	///
 	/// Compositors with no introspection IPC (labwc, river without flowing, GNOME for foreign
 	/// clients) get the null backend: every Try* method returns false and the caller falls
 	/// back to whatever degraded path it has (keysharp-inputd, Forms.Mouse, or a hard error).
 	/// </summary>
-	internal interface IWaylandCompositorBackend
+	internal interface IWaylandBackend
 	{
 		/// <summary>Human-readable name for diagnostics ("KWin", "sway", "hyprland", ...).</summary>
 		string Name { get; }
@@ -31,6 +31,38 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// false if the backend can't currently answer (compositor offline, IPC failed, etc.).
 		/// </summary>
 		bool TryGetCursorPos(out int x, out int y);
+
+		bool TryListWindows(bool includeHidden, out IReadOnlyList<WaylandWindowInfo> windows)
+		{
+			windows = [];
+			return false;
+		}
+
+		bool TryGetActiveWindow(out WaylandWindowInfo window)
+		{
+			window = null;
+			return false;
+		}
+
+		bool TryGetWindow(nint handle, out WaylandWindowInfo window)
+		{
+			window = null;
+			return false;
+		}
+
+		bool TryGetWindowAt(int x, int y, out WaylandWindowInfo window)
+		{
+			window = null;
+			return false;
+		}
+
+		bool TryActivateWindow(nint handle) => false;
+
+		bool TryMoveResizeWindow(nint handle, Rectangle bounds, bool setPosition, bool setSize) => false;
+
+		bool TrySetWindowState(nint handle, FormWindowState state) => false;
+
+		bool TryCloseWindow(nint handle) => false;
 	}
 }
 #endif

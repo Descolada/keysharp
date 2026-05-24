@@ -14,6 +14,12 @@ namespace Keysharp.Internals.Window.Linux
 		// ToDo: There may be more than only one xDisplay
 		private static XDisplay Display => XDisplay.Default;
 
+		private static Wayland.IWaylandBackend WaylandBackend
+			=> PlatformManager.IsWaylandSession ? Wayland.WaylandBackend.Current : null;
+
+		private static WindowItemBase CreateWaylandWindow(Wayland.IWaylandBackend backend, Wayland.WaylandWindowInfo info)
+			=> new Wayland.WaylandWindowItem(backend, info);
+
 		private static int HandleTestLoopXError(nint displayHandle, ref XErrorEvent errorEvent)
 		{
 			_ = displayHandle;
@@ -95,8 +101,12 @@ namespace Keysharp.Internals.Window.Linux
 		public static WindowItemBase ActiveWindow
 		{
 			get {
-				if (Wayland.WaylandForeignToplevels.Current?.Active is Wayland.WaylandToplevel waylandActive)
-					return new Wayland.WaylandWindowItem(waylandActive);
+				var backend = WaylandBackend;
+				if (backend?.TryGetActiveWindow(out var waylandActive) == true)
+					return CreateWaylandWindow(backend, waylandActive);
+
+				if (Wayland.WaylandForeignToplevels.Current?.Active is Wayland.WaylandToplevel foreignActive)
+					return new Wayland.WaylandWindowItem(foreignActive);
 
 				var activeId = 0L;
 				nint prop = 0;
@@ -143,6 +153,10 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryListWindows(detectHiddenWindows, out var backendWindows) == true)
+				return backendWindows.Select(window => CreateWaylandWindow(backend, window)).ToList();
+
 			var waylandWindows = Wayland.WaylandForeignToplevels.Current?.Enumerate()
 				.Select(toplevel => (WindowItemBase)new Wayland.WaylandWindowItem(toplevel))
 				.ToList() ?? [];
@@ -181,6 +195,10 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static WindowItemBase CreateWindow(nint id)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindow(id, out var backendWindow) == true)
+				return CreateWaylandWindow(backend, backendWindow);
+
 			if (Wayland.WaylandForeignToplevels.Current?.Get(id) is Wayland.WaylandToplevel waylandToplevel)
 				return new Wayland.WaylandWindowItem(waylandToplevel);
 
@@ -191,10 +209,21 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => 0;
 
-		public static nint GetForegroundWindowHandle() => new nint(Display.XGetInputFocusHandle());
+		public static nint GetForegroundWindowHandle()
+		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetActiveWindow(out var waylandActive) == true)
+				return waylandActive.Handle;
+
+			return new nint(Display.XGetInputFocusHandle());
+		}
 
 		public static bool IsWindow(nint handle)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindow(handle, out _) == true)
+				return true;
+
 			if (Wayland.WaylandForeignToplevels.Current?.IsWindow(handle) == true)
 				return true;
 
@@ -283,6 +312,10 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindowAt(location.X, location.Y, out var backendWindow) == true)
+				return CreateWaylandWindow(backend, backendWindow);
+
 			if (!PlatformManager.IsX11Available)
 				return null;
 

@@ -14,6 +14,7 @@ namespace Keysharp.Internals.Window
 		internal nint ID { get; set; }
 		internal bool HasNonGroupCriteria => Active || HasID || PID != 0L || HasExcludes || !string.IsNullOrEmpty(Title) || !string.IsNullOrEmpty(Text) || !string.IsNullOrEmpty(ClassName) || !string.IsNullOrEmpty(Path);
 		internal bool IsEmpty => !Active && !HasID && PID == 0 && !HasExcludes && string.IsNullOrEmpty(Group) && string.IsNullOrEmpty(Title) && string.IsNullOrEmpty(Text) && string.IsNullOrEmpty(ClassName) && string.IsNullOrEmpty(Path);
+		internal bool IsOnlyActive => Active && !HasID && PID == 0 && !HasExcludes && string.IsNullOrEmpty(Group) && string.IsNullOrEmpty(Title) && string.IsNullOrEmpty(Text) && string.IsNullOrEmpty(ClassName) && string.IsNullOrEmpty(Path);
 		internal WindowSearchOptions Options { get; private set; }
 		internal string Path { get; set; }
 		internal long PID { get; set; }

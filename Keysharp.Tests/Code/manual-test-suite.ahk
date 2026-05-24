@@ -606,6 +606,7 @@ CaptureWindowFromPoint() {
 	global gWindowTitleEdit, gWindowInfoEdit
 
 	try {
+		CoordMode "Mouse", "Screen"
 		MouseGetPos(&mx, &my)
 		hwnd := WinFromPoint(mx, my)
 

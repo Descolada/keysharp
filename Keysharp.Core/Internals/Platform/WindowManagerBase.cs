@@ -75,6 +75,9 @@ namespace Keysharp.Internals.Platform
 			if (criteria.Active)
 			{
 				var activeWindow = WindowManager.ActiveWindow;
+				if (criteria.IsOnlyActive)
+					return activeWindow is WindowItemBase activeOnly && activeOnly.IsSpecified ? activeOnly : null;
+
 				return activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions) ? active : null;
 			}
 
@@ -152,7 +155,12 @@ namespace Keysharp.Internals.Platform
 			{
 				var activeWindow = WindowManager.ActiveWindow;
 
-				if (activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions))
+				if (criteria.IsOnlyActive)
+				{
+					if (activeWindow is WindowItemBase activeOnly && activeOnly.IsSpecified)
+						found.Add(activeOnly);
+				}
+				else if (activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions))
 					found.Add(active);
 
 				return found;

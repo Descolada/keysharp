@@ -334,7 +334,7 @@ namespace Keysharp.Internals.Platform.Unix
 			// absolute-positioning devices (tablets, touchpads), not regular mice.
 			if (IsWaylandSession)
 			{
-				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandCompositorBackend.Current;
+				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
 
 				if (backend != null && backend.TryGetCursorPos(out var bx, out var by))
 				{

@@ -326,6 +326,30 @@ namespace Keysharp.Internals.Images
 			return (bmp, temp);
 		}
 
+#if !WINDOWS
+		// Returns a 32bpp opaque copy of `bmp` when its Pixbuf storage is 3 bytes per
+		// pixel; otherwise returns `bmp` unchanged. ImageFinder reads pixels as 4-byte
+		// ints, so 24bpp bitmaps would otherwise pull the next pixel's R byte (or row
+		// padding) into the high byte and break the comparison. Mirrors AutoHotkey's
+		// getbits()-via-GetDIBits step that forces both source and needle to 32bpp.
+		internal static Bitmap EnsureOpaque32Bpp(Bitmap bmp)
+		{
+			if (bmp == null)
+				return null;
+
+			using (var data = bmp.Lock())
+			{
+				if (data.BytesPerPixel == 4)
+					return bmp;
+			}
+
+			var normalized = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppRgb);
+			using (var g = new Graphics(normalized))
+				g.DrawImage(bmp, 0, 0);
+			return normalized;
+		}
+#endif
+
 		internal static Bitmap ResizeBitmap(Bitmap bmp, int w, int h)
 		{
 			if (w <= 0 && h <= 0)

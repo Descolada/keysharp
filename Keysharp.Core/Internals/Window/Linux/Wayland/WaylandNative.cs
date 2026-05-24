@@ -90,6 +90,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
 		internal static extern nint MarshalGetLayerSurface(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, nint surface, nint output, uint layer, nint namespacePtr);
 
+		// signature "nio" (new_id + int + object): zwlr_screencopy_manager_v1.capture_output
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalCaptureOutput(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, int overlayCursor, nint output);
+
+		// signature "nioiiii" (new_id + int + object + 4 ints): zwlr_screencopy_manager_v1.capture_output_region
+		[DllImport(ClientLibrary, EntryPoint = "wl_proxy_marshal_flags", CallingConvention = CallingConvention.Cdecl)]
+		internal static extern nint MarshalCaptureOutputRegion(nint proxy, uint opcode, nint protocolInterface, uint version, uint flags, nint newId, int overlayCursor, nint output, int x, int y, int width, int height);
+
 		// libc bindings used for the SHM buffer plumbing (memfd-backed wl_shm_pool).
 		internal const int MFD_CLOEXEC = 0x0001;
 		internal const int PROT_READ = 0x1;

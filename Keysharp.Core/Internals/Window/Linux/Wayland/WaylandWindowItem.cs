@@ -1,12 +1,12 @@
-using Keysharp.Builtins;
-
 #if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
 	/// Foreign Wayland toplevel exposed by a taskbar-oriented compositor protocol.
 	/// These protocols expose title, app-id, activation state, and window state only.
-	/// Geometry, PID, child controls, and window text are not available by protocol.
+	/// Geometry, PID, child controls, and window text are not available by protocol,
+	/// so the corresponding accessors silently return defaults (matching the behavior
+	/// of an unspecified X11 WindowItem on a pre-Wayland session).
 	/// </summary>
 	internal sealed class WaylandWindowItem : WindowItemBase
 	{
@@ -16,12 +16,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		}
 
 		private WaylandToplevel Toplevel => WaylandForeignToplevels.Current?.Get(Handle);
-
-		// Raises an OSError for operations the Wayland foreign-toplevel protocol cannot support.
-		// Throws when ThrowOnError is active (the default); otherwise falls through so the caller
-		// returns a safe stub value.
-		private static void RaiseUnsupported(string what) =>
-			_ = Errors.OSErrorOccurred(0, $"{what} is not supported via the Wayland foreign-toplevel protocol.");
 
 		internal override bool Active
 		{
@@ -34,94 +28,41 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		internal override bool AlwaysOnTop
-		{
-			get => false;
-			set => RaiseUnsupported("WinSetAlwaysOnTop");
-		}
+		internal override bool AlwaysOnTop { get => false; set { } }
 
-		internal override bool Bottom
-		{
-			set => RaiseUnsupported("WinMoveBottom");
-		}
+		internal override bool Bottom { set { } }
 
 		internal override HashSet<WindowItemBase> ChildWindows => [];
 
 		internal override string ClassName => Toplevel?.AppId ?? DefaultObject;
 
-		internal override Rectangle ClientLocation
-		{
-			get
-			{
-				RaiseUnsupported("WinGetClientPos");
-				return Rectangle.Empty;
-			}
-		}
+		internal override Rectangle ClientLocation => Rectangle.Empty;
 
 		internal override bool Enabled { get => true; set { } }
 
 		internal override bool Exists => Toplevel != null;
 
-		internal override long ExStyle
-		{
-			get => 0L;
-			set => RaiseUnsupported("WinSetExStyle");
-		}
+		internal override long ExStyle { get => 0L; set { } }
 
 		internal override bool IsHung => false;
 
-		internal override Rectangle Location
-		{
-			get
-			{
-				RaiseUnsupported("WinGetPos");
-				return Rectangle.Empty;
-			}
-			set => RaiseUnsupported("WinMove");
-		}
+		internal override Rectangle Location { get => Rectangle.Empty; set { } }
 
 		internal override WindowItemBase NonChildParentWindow => null;
 
 		internal override WindowItemBase ParentWindow => new WaylandWindowItem(null);
 
-		internal override long PID
-		{
-			get
-			{
-				RaiseUnsupported("WinGetPID");
-				return 0L;
-			}
-		}
+		internal override long PID => 0L;
 
-		internal override Size Size
-		{
-			get
-			{
-				RaiseUnsupported("WinGetPos");
-				return Size.Empty;
-			}
-			set => RaiseUnsupported("WinMove");
-		}
+		internal override Size Size { get => Size.Empty; set { } }
 
-		internal override long Style
-		{
-			get => 0L;
-			set => RaiseUnsupported("WinSetStyle");
-		}
+		internal override long Style { get => 0L; set { } }
 
 		internal override List<string> Text => [];
 
-		internal override object Transparency
-		{
-			get => 0xFFL;
-			set => RaiseUnsupported("WinSetTransparent");
-		}
+		internal override object Transparency { get => 0xFFL; set { } }
 
-		internal override object TransparentColor
-		{
-			get => 0L;
-			set => RaiseUnsupported("WinSetTransColor");
-		}
+		internal override object TransparentColor { get => 0L; set { } }
 
 		internal override bool Visible { get => Exists; set { } }
 
@@ -149,20 +90,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		internal override void ChildFindPoint(PointAndHwnd pah) =>
-			RaiseUnsupported("ControlGetPos/ControlClick");
+		internal override void ChildFindPoint(PointAndHwnd pah) { }
 
-		internal override void Click(Point? location = null) =>
-			RaiseUnsupported("WinClick (geometry unavailable)");
+		internal override void Click(Point? location = null) { }
 
-		internal override void ClickRight(Point? location = null) =>
-			RaiseUnsupported("WinClick (geometry unavailable)");
+		internal override void ClickRight(Point? location = null) { }
 
-		internal override POINT ClientToScreen()
-		{
-			RaiseUnsupported("ClientToScreen");
-			return new(0, 0);
-		}
+		internal override POINT ClientToScreen() => new(0, 0);
 
 		internal override bool Close()
 		{

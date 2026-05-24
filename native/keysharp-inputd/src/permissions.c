@@ -1127,6 +1127,82 @@ static void append_capability_line(char *buffer, size_t buffer_size, const char 
     (void)snprintf(buffer + used, buffer_size - used, "- %s\n", line);
 }
 
+/* Wraps str at word boundaries for display, inserting '\n' so no line exceeds
+ * line_width characters. Falls back to hard line breaks for runs longer than
+ * line_width with no spaces (e.g. paths, hashes). Writes at most
+ * out_size-1 bytes plus a NUL into out. */
+static void wrap_text(const char *str, size_t line_width, char *out, size_t out_size)
+{
+    size_t in_pos = 0u;
+    size_t out_pos = 0u;
+    size_t col = 0u;
+    size_t in_len;
+
+    if (str == NULL || out == NULL || out_size == 0u || line_width == 0u) {
+        return;
+    }
+
+    in_len = strlen(str);
+
+    while (in_pos < in_len && out_pos + 1u < out_size) {
+        char c = str[in_pos];
+
+        if (c == '\n') {
+            out[out_pos++] = '\n';
+            col = 0u;
+            in_pos++;
+            continue;
+        }
+
+        if (c == ' ') {
+            /* Drop spaces that would open a new line. */
+            if (col > 0u && out_pos + 1u < out_size) {
+                out[out_pos++] = ' ';
+                col++;
+            }
+
+            in_pos++;
+            continue;
+        }
+
+        /* Non-space: find the end of this word. */
+        {
+            size_t word_end = in_pos;
+            size_t word_len;
+
+            while (word_end < in_len && str[word_end] != ' ' && str[word_end] != '\n') {
+                word_end++;
+            }
+
+            word_len = word_end - in_pos;
+
+            /* Soft wrap: if the whole word fits on the next line but not this
+             * one, emit a line break before it. */
+            if (col > 0u && col + word_len > line_width && word_len <= line_width) {
+                if (out_pos + 1u < out_size) {
+                    out[out_pos++] = '\n';
+                    col = 0u;
+                }
+            }
+
+            /* Write word characters, hard-breaking overlong words. */
+            while (in_pos < word_end && out_pos + 1u < out_size) {
+                if (col >= line_width && out_pos + 1u < out_size) {
+                    out[out_pos++] = '\n';
+                    col = 0u;
+                }
+
+                if (out_pos + 1u < out_size) {
+                    out[out_pos++] = str[in_pos++];
+                    col++;
+                }
+            }
+        }
+    }
+
+    out[out_pos < out_size ? out_pos : out_size - 1u] = '\0';
+}
+
 static void describe_capabilities(uint32_t capabilities, char *buffer, size_t buffer_size)
 {
     if (buffer == NULL || buffer_size == 0u) {
@@ -1361,7 +1437,16 @@ ksi_permission_decision ksi_permissions_prompt(
     uint32_t capabilities)
 {
     char capability_text[512];
-    char prompt_text[2048];
+    char prompt_text[4096];
+    char display_path[512];
+    char display_args[512];
+
+    wrap_text(
+        exe_path != NULL && exe_path[0] != '\0' ? exe_path : "(unknown)",
+        72u, display_path, sizeof(display_path));
+    wrap_text(
+        command_line != NULL && command_line[0] != '\0' ? command_line : "(none)",
+        72u, display_args, sizeof(display_args));
 
     describe_capabilities(capabilities, capability_text, sizeof(capability_text));
     (void)snprintf(
@@ -1373,8 +1458,8 @@ ksi_permission_decision ksi_permissions_prompt(
         "Permission identity hash:\n%s\n\n"
         "Requested access:\n%s\n"
         "This access can capture or synthesize keyboard/mouse input.",
-        exe_path != NULL && exe_path[0] != '\0' ? exe_path : "(unknown)",
-        command_line != NULL && command_line[0] != '\0' ? command_line : "(none)",
+        display_path,
+        display_args,
         exe_hash != NULL && exe_hash[0] != '\0' ? exe_hash : "(unknown)",
         capability_text[0] != '\0' ? capability_text : "- No capabilities requested\n");
 
@@ -1421,6 +1506,8 @@ ksi_permission_decision ksi_permissions_prompt(
         for (size_t i = 0; kdialog_paths[i] != NULL; i++) {
             char *argv[] = {
                 "kdialog",
+                "--geometry",
+                "640x480",
                 "--title",
                 "Keysharp input permissions",
                 "--menu",

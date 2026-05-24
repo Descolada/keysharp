@@ -171,7 +171,20 @@ namespace Keysharp.Builtins
 					32 => PixelFormat.Format32bppRgb,
 					_ => PixelFormat.Format32bppRgb,
 				};
+#if LINUX
+				// On Wayland, Eto's screen capture goes through Gdk's root-window pixbuf path,
+				// which the compositor doesn't allow for foreign clients — it returns either
+				// just our own surfaces or nothing. Try the wlr-screencopy protocol first; if
+				// the compositor doesn't advertise it (GNOME, etc.) we fall through to Eto so
+				// X11 sessions stay on the working path.
+				bmp = IsWaylandSession
+					? Keysharp.Internals.Window.Linux.Wayland.WaylandScreenCapture.TryCapture(x, y, w, h)
+					: null;
+
+				bmp ??= Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
+#else
 				bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
+#endif
 #endif
 			}
 			catch

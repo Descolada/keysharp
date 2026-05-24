@@ -98,54 +98,72 @@ namespace Keysharp.Internals.Images
 						}
 					}
 #else
-					using var srcData = sourceImage.Lock();
-					using var fndData = findImage.Lock();
-
-					unsafe
+					// Force both bitmaps to 32bpp before the search so the per-pixel
+					// 4-byte int reads below are valid regardless of the original storage
+					// format (Pixbuf is 3bpp for 24-bit images, 4bpp otherwise). Matches
+					// AutoHotkey's getbits()-via-GetDIBits step.
+					var srcBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(sourceImage);
+					var fndBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(findImage);
+					try
 					{
-						var srcColor = new FastColor();
-						var fndColor = new FastColor();
-						var srcPtr = (byte*)srcData.Data;
-						var fndPtr = (byte*)fndData.Data;
-						var srcStride = srcData.ScanWidth;
-						var fndStride = fndData.ScanWidth;
-						var srcBpp = srcData.BytesPerPixel;
-						var fndBpp = fndData.BytesPerPixel;
+						using var srcData = srcBitmap.Lock();
+						using var fndData = fndBitmap.Lock();
 
-						for (int row = 0; row < maxMovement.Height; row++)
+						unsafe
 						{
-							for (int col = 0; col < maxMovement.Width; col++)
+							var srcColor = new FastColor();
+							var fndColor = new FastColor();
+							var srcPtr = (byte*)srcData.Data;
+							var fndPtr = (byte*)fndData.Data;
+							var srcStride = srcData.ScanWidth;
+							var fndStride = fndData.ScanWidth;
+							var srcBpp = srcData.BytesPerPixel;
+							var fndBpp = fndData.BytesPerPixel;
+
+							for (int row = 0; row < maxMovement.Height; row++)
 							{
-								for (int dr = 0; dr < findImage.Height; dr++)
+								for (int col = 0; col < maxMovement.Width; col++)
 								{
-									var srcLine = srcPtr + ((row + dr) * srcStride) + (col * srcBpp);
-									var fndLine = fndPtr + (dr * fndStride);
-
-									for (int dc = 0; dc < findImage.Width; dc++)
+									for (int dr = 0; dr < fndBitmap.Height; dr++)
 									{
-										var srcPixel = *(int*)(srcLine + dc * srcBpp);
-										var fndPixel = *(int*)(fndLine + dc * fndBpp);
+										var srcLine = srcPtr + ((row + dr) * srcStride) + (col * srcBpp);
+										var fndLine = fndPtr + (dr * fndStride);
 
-										var srcArgb = srcData.TranslateDataToArgb(srcPixel);
-										var fndArgb = fndData.TranslateDataToArgb(fndPixel);
+										for (int dc = 0; dc < fndBitmap.Width; dc++)
+										{
+											var srcPixel = *(int*)(srcLine + dc * srcBpp);
+											var fndPixel = *(int*)(fndLine + dc * fndBpp);
 
-										srcColor.Value = (uint)srcArgb;
-										fndColor.Value = (uint)fndArgb;
+											var srcArgb = srcData.TranslateDataToArgb(srcPixel);
+											var fndArgb = fndData.TranslateDataToArgb(fndPixel);
 
-										if (trans != -1 && fndColor.Value == transCol.Value)
-											continue;
+											srcColor.Value = (uint)srcArgb;
+											fndColor.Value = (uint)fndArgb;
 
-										if (!fndColor.CompareWithVar(srcColor, Variation))
-											goto NOFIND;
+											// trans-color match (caller-supplied) is intentionally RGB-only:
+											// the user gives a pure RGB value, no alpha component.
+											if (trans != -1 && (fndColor.Value & 0x00FFFFFFu) == (transCol.Value & 0x00FFFFFFu))
+												continue;
+
+											if (!fndColor.CompareWithVar(srcColor, Variation))
+												goto NOFIND;
+										}
 									}
-								}
 
-								ret = new Point(col, row);
-								return ret;
-								NOFIND:
-								;
+									ret = new Point(col, row);
+									return ret;
+									NOFIND:
+									;
+								}
 							}
 						}
+					}
+					finally
+					{
+						if (!ReferenceEquals(srcBitmap, sourceImage))
+							srcBitmap.Dispose();
+						if (!ReferenceEquals(fndBitmap, findImage))
+							fndBitmap.Dispose();
 					}
 
 #endif

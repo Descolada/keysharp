@@ -105,6 +105,12 @@ namespace Keysharp.Internals.Input.Linux
 
 			if (eventModifierStack.Count != 0)
 				eventModifiersLR = eventModifierStack.Pop();
+
+			// Reset before hook-side corrective keystrokes, such as CapsLock
+			// prefix cleanup, so they are emitted immediately instead of
+			// being queued into an event array that no caller will flush.
+			sendMode = SendModes.Event;
+			DoKeyDelay(finalKeyDelay);
 		}
 
 		internal override int SiEventCount() => eventSi.Count;

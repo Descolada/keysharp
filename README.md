@@ -12,18 +12,18 @@
 * If .NET 10 is not installed on your machine, you need to download and run the x64 ".NET Desktop Runtime" installer from [here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
 
 ### Installing on Windows ###
-* Download and run the Keysharp installer from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
+* Download and run the Keysharp installer from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ The install path can be optionally added to the $PATH varible, so you can run it from the command line from anywhere.
 		+ The path entry will be removed upon uninstall.
 	+ It also registers Keysharp.exe as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
 	
 ### Portable run on Windows ###
-* Download and unzip the zip file from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
+* Download and unzip the zip file from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ CD to the unzipped folder.
 	+ Run `.\Keysharp.exe yourfilename.ahk`
 
 ### Installing on Linux ###
-* Download and extract the Keysharp installer tarball from the [Releases](https://github.com/mfeemster/keysharp/releases) page.
+* Download and extract the Keysharp installer tarball from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 + Run the install.sh script with sudo: `sudo sh ./install.sh` which does the following:
 	+ Installs the Linux runtime dependencies and attempts to install the .NET 10 runtime if it is missing.
 		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).

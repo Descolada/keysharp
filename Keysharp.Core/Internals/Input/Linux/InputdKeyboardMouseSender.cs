@@ -14,26 +14,35 @@ namespace Keysharp.Internals.Input.Linux
 {
 	/// <summary>
 	/// Keyboard/mouse sender that routes input through keysharp-inputd.
-	/// Mirrors WindowsKeyboardMouseSender semantics: batched SendInput-mode events bypass the hook
-	/// chain (KSI_SYNTH_FLAG_BYPASS_HOOK), while single SendEvent-mode events pass through it so
-	/// other hook clients and send-level filtering see them.
 	/// </summary>
 	internal sealed class InputdKeyboardMouseSender : KeyboardMouseSender
 	{
-		// KEYEVENTF_* / MOUSEEVENTF_* constants equal KSI_KEYEVENTF_* / KSI_MOUSEEVENTF_* by design.
+		// KEYEVENTF_* constants equal KSI_KEYEVENTF_* by design.
 		private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
-		private const uint KEYEVENTF_KEYUP       = 0x0002;
-		private const uint KEYEVENTF_UNICODE     = 0x0004;
-		private const uint KEYEVENTF_SCANCODE    = 0x0008;
-		private const uint MOUSEEVENTF_ABSOLUTE  = 0x8000;
-
-		private readonly List<KeysharpInputdClient.Input> eventSi = new();
-		private readonly Stack<uint> eventModifierStack = new();
-
-		private static KeysharpInputdClient Client => KeysharpInputdManager.Client;
+		private const uint KEYEVENTF_KEYUP = 0x0002;
+		private const uint KEYEVENTF_UNICODE = 0x0004;
+		private const uint KEYEVENTF_SCANCODE = 0x0008;
+		private const int MaxInputdBatchSize = 1024;
 		private const int MaxMouseMoveChunk = 1000;
 
-		// ── Abstract overrides ────────────────────────────────────────────────
+		private readonly List<InputdQueuedEvent> eventQueue = new(MaxInitialEventsSI);
+
+		private readonly struct InputdQueuedEvent
+		{
+			internal readonly KeysharpInputdClient.Input Input;
+			internal readonly int DelayMs;
+			internal readonly bool IsDelay;
+
+			private InputdQueuedEvent(KeysharpInputdClient.Input input, int delayMs, bool isDelay)
+			{
+				Input = input;
+				DelayMs = delayMs;
+				IsDelay = isDelay;
+			}
+
+			internal static InputdQueuedEvent FromInput(KeysharpInputdClient.Input input) => new(input, 0, false);
+			internal static InputdQueuedEvent Delay(int delayMs) => new(default, delayMs, true);
+		}
 
 		internal override bool MouseButtonsSwapped => false;
 
@@ -43,7 +52,6 @@ namespace Keysharp.Internals.Input.Linux
 				return false;
 
 			var localEvents = sendMode == SendModes.Event ? new List<KeysharpInputdClient.Input>() : null;
-			var events = localEvents ?? eventSi;
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 
 			for (var i = keyIndex; i < text.Length; i++)
@@ -55,25 +63,25 @@ namespace Keysharp.Internals.Input.Linux
 					if (i + 1 < text.Length && text[i + 1] == '\n')
 						i++;
 
-					QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
+					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
 					continue;
 				}
 
 				if (ch == '\n')
 				{
-					QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
+					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
 					continue;
 				}
 
 				if (ch == '\b')
 				{
-					QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_BACK, extraInfo);
+					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_BACK, extraInfo);
 					continue;
 				}
 
 				if (ch == '\t')
 				{
-					QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_TAB, extraInfo);
+					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_TAB, extraInfo);
 					continue;
 				}
 
@@ -81,12 +89,11 @@ namespace Keysharp.Internals.Input.Linux
 					continue;
 
 				i += charsConsumed - 1;
-
-				QueueTextRune(events, rune, modifiersLR, extraInfo);
+				QueueTextRune(localEvents, rune, modifiersLR, extraInfo);
 			}
 
 			if (localEvents != null && localEvents.Count != 0)
-				KeysharpInputdManager.SendInputViaSynthesisChannel(localEvents, KeysharpInputdClient.SynthFlags.BypassHook);
+				SendInputBatches(localEvents, ShouldBypassHook(extraInfo));
 
 			keyIndex = text.Length - 1;
 			return true;
@@ -94,30 +101,34 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override void InitEventArray(int maxEvents, uint modifiersLR)
 		{
-			eventModifierStack.Push(eventModifiersLR);
+			eventQueue.Clear();
+			base.maxEvents = maxEvents;
 			eventModifiersLR = modifiersLR;
-			eventSi.Clear();
+			sendInputCursorPos.X = CoordUnspecified;
+			sendInputCursorPos.Y = CoordUnspecified;
+			abortArraySend = false;
 		}
 
 		internal override void CleanupEventArray(long finalKeyDelay)
 		{
-			eventSi.Clear();
+			eventQueue.Clear();
 
-			if (eventModifierStack.Count != 0)
-				eventModifiersLR = eventModifierStack.Pop();
-
-			// Reset before hook-side corrective keystrokes, such as CapsLock
-			// prefix cleanup, so they are emitted immediately instead of
-			// being queued into an event array that no caller will flush.
+			// Do this before any final corrective delay/keystrokes so they are emitted immediately.
 			sendMode = SendModes.Event;
 			DoKeyDelay(finalKeyDelay);
 		}
 
-		internal override int SiEventCount() => eventSi.Count;
+		internal override int SiEventCount() => eventQueue.Count;
 		internal override int PbEventCount() => 0;
 
 		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
 		{
+			if (vk == 0 && sc == 0 && eventFlags == 0)
+			{
+				eventQueue.Add(InputdQueuedEvent.Delay((int)extraInfo));
+				return;
+			}
+
 			var flags = (KeysharpInputdClient.KeyEventFlags)eventFlags;
 			var isKeyUp = (eventFlags & KEYEVENTF_KEYUP) != 0;
 			var isUnicode = (eventFlags & KEYEVENTF_UNICODE) != 0;
@@ -127,131 +138,117 @@ namespace Keysharp.Internals.Input.Linux
 			else
 				eventModifiersLR |= keyAsModifiersLR;
 
-			if (isUnicode)
+			if (!isUnicode)
 			{
-				eventSi.Add(KeysharpInputdClient.Input.Key(
-					vk: (ushort)vk,
-					scan: (ushort)sc,
-					flags: flags,
-					extraInfo: (ulong)extraInfo));
-			}
-			else if ((sc & 0x100) != 0)
-			{
-				// Mirror Windows: extended bit lives in high byte of SC; promote to EXTENDEDKEY flag.
-				flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
+				if ((sc & 0x100) != 0)
+					flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
 
-				// When no VK is available the daemon must use the scan-code path.
 				if (vk == 0 && (sc & 0xFF) != 0)
 					flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
 
-				eventSi.Add(KeysharpInputdClient.Input.Key(
-					vk: (ushort)vk,
-					scan: (ushort)(sc & 0xFF),
-					flags: flags,
-					extraInfo: (ulong)extraInfo));
+				sc &= 0xFF;
 			}
-			else
-			{
-				// When no VK is available the daemon must use the scan-code path.
-				if (vk == 0 && (sc & 0xFF) != 0)
-					flags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
 
-				eventSi.Add(KeysharpInputdClient.Input.Key(
-					vk: (ushort)vk,
-					scan: (ushort)(sc & 0xFF),
-					flags: flags,
-					extraInfo: (ulong)extraInfo));
-			}
+			QueueInput(KeysharpInputdClient.Input.Key(
+				vk: (ushort)vk,
+				scan: (ushort)sc,
+				flags: flags,
+				extraInfo: (ulong)extraInfo));
 		}
 
 		internal override void PutMouseEventIntoArray(uint eventFlags, uint data, int x, int y)
 		{
-			eventSi.Add(KeysharpInputdClient.Input.MouseEvent(
-				dx: x,
-				dy: y,
+			QueueInput(KeysharpInputdClient.Input.MouseEvent(
+				dx: x == CoordUnspecified ? 0 : x,
+				dy: y == CoordUnspecified ? 0 : y,
 				mouseData: data,
-				flags: (KeysharpInputdClient.MouseEventFlags)eventFlags));
+				flags: (KeysharpInputdClient.MouseEventFlags)eventFlags,
+				extraInfo: (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)));
 		}
 
 		internal override void SendEventArray(ref long finalKeyDelay, uint modsDuringSend)
 		{
-			if (eventSi.Count == 0)
+			if (eventQueue.Count == 0)
 				return;
 
 			try
 			{
-				// Keep inputd sends visible to the hook chain. SendLevel/extra_info
-				// decides whether hotkeys ignore or consume the event; bypassing here
-				// would prevent remaps such as g::s from passing generated s through
-				// the same Windows-like filtering path as other synthesized input.
-				KeysharpInputdManager.SendInputViaSynthesisChannel(eventSi);
+				var batch = new List<KeysharpInputdClient.Input>(Math.Min(eventQueue.Count, MaxInputdBatchSize));
+
+				for (var i = 0; i < eventQueue.Count; i++)
+				{
+					var ev = eventQueue[i];
+
+					if (!ev.IsDelay)
+					{
+						batch.Add(ev.Input);
+						continue;
+					}
+
+					SendInputBatches(batch);
+					batch.Clear();
+
+					if (i == eventQueue.Count - 1)
+						finalKeyDelay = ev.DelayMs;
+					else if (ev.DelayMs > 0)
+						Keysharp.Internals.Flow.SleepWithoutInterruption(ev.DelayMs);
+				}
+
+				SendInputBatches(batch);
 			}
 			finally
 			{
-				eventSi.Clear();
+				eventQueue.Clear();
 			}
 		}
 
 		/// <summary>
-		/// Immediate single-event send — mirrors keybd_event(). Events with user-level extraInfo
-		/// pass through the hook chain with the INJECTED flag set, allowing send-level filtering
-		/// by other hook clients. Internal events (IsIgnored extraInfo) use BypassHook to avoid
-		/// unnecessary loopback round-trips that delay subsequent event processing.
+		/// Immediate single-event send, equivalent to keybd_event() on Windows.
 		/// </summary>
 		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
 		{
-			var keyFlags = (KeysharpInputdClient.KeyEventFlags)0;
+			var keyFlags = (KeysharpInputdClient.KeyEventFlags)flags;
 
-			if ((sc & 0x100) != 0 || (flags & KEYEVENTF_EXTENDEDKEY) != 0)
+			if ((sc & 0x100) != 0)
 				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_EXTENDEDKEY;
 
-			// When no VK is available the daemon must use the scan-code path.
 			if (vk == 0 && (sc & 0xFF) != 0)
 				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_SCANCODE;
 
-			// Internal events (KeyPhysIgnore, KeyIgnore, KeyIgnoreAllExceptModifier) bypass
-			// the hook chain so they are delivered to X11 directly without looping back as
-			// new hook events. This eliminates the round-trips that would otherwise delay
-			// processing of subsequent events (e.g. mouse clicks queued behind them).
-			var synthFlags = IsIgnored((ulong)extraInfo)
-				? KeysharpInputdClient.SynthFlags.BypassHook
-				: KeysharpInputdClient.SynthFlags.None;
+			sc &= 0xFF;
 
-			if (eventType == KeyEventTypes.KeyUp || eventType == KeyEventTypes.KeyDownAndUp)
+			if (eventType == KeyEventTypes.KeyDownAndUp)
 			{
-				var upFlags = keyFlags | (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP;
-
-				if (eventType == KeyEventTypes.KeyDownAndUp)
-				{
-					KeysharpInputdManager.SendInputViaSynthesisChannel(new[]
-					{
-						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
-						KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), upFlags,  extraInfo: (ulong)extraInfo),
-					}, synthFlags);
-					return;
-				}
-
-				keyFlags = upFlags;
+				SendInputBatches(
+				[
+					KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags, extraInfo: (ulong)extraInfo),
+					KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags | (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP, extraInfo: (ulong)extraInfo),
+				], ShouldBypassHook(extraInfo));
+				return;
 			}
 
-			KeysharpInputdManager.SendInputViaSynthesisChannel(new[]
-			{
-				KeysharpInputdClient.Input.Key((ushort)vk, (ushort)(sc & 0xFF), keyFlags, extraInfo: (ulong)extraInfo),
-			}, synthFlags);
+			if (eventType == KeyEventTypes.KeyUp)
+				keyFlags |= (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP;
+
+			SendInputBatches(
+			[
+				KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags, extraInfo: (ulong)extraInfo),
+			], ShouldBypassHook(extraInfo));
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
 		{
+			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
+
 			if (!Rune.TryCreate(ch, out var rune)
 				|| !rune.IsAscii
 				|| !UnixKeyboardMouseSender.UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
 				|| vk == 0)
 			{
-				SendDaemonUnicodeChar(ch, modifiers, KeyIgnoreLevel(ThreadAccessors.A_SendLevel));
+				SendDaemonUnicodeChar(ch, modifiers, extraInfo);
 				return;
 			}
 
-			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 			uint transientModifiers = 0;
 
 			if (needShift)
@@ -261,32 +258,14 @@ namespace Keysharp.Internals.Input.Linux
 				transientModifiers |= MOD_RALT;
 
 			var targetModifiers = modifiers | transientModifiers;
-			SetModifierLRState(
-				targetModifiers,
-				sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(),
-				0,
-				false,
-				true,
-				extraInfo);
+			SetModifierLRState(targetModifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk, 0, 0, false, extraInfo);
-			SetModifierLRState(
-				modifiers,
-				sendMode != SendModes.Event ? eventModifiersLR : targetModifiers,
-				0,
-				false,
-				true,
-				extraInfo);
+			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : targetModifiers, 0, false, true, extraInfo);
 		}
 
 		private void SendDaemonUnicodeChar(char ch, uint modifiers, long extraInfo)
 		{
-			SetModifierLRState(
-				modifiers,
-				sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(),
-				0,
-				false,
-				true,
-				extraInfo);
+			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 
 			var inputs = new[]
 			{
@@ -294,15 +273,15 @@ namespace Keysharp.Internals.Input.Linux
 				KeysharpInputdClient.Input.Key(0, (ushort)ch, (KeysharpInputdClient.KeyEventFlags)(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP), extraInfo: (ulong)extraInfo),
 			};
 
-			KeysharpInputdManager.SendInputViaSynthesisChannel(inputs, KeysharpInputdClient.SynthFlags.BypassHook);
+			if (sendMode != SendModes.Event)
+			{
+				foreach (var input in inputs)
+					QueueInput(input);
+			}
+			else
+				SendInputBatches(inputs, ShouldBypassHook(extraInfo));
 
-			SetModifierLRState(
-				modifiers,
-				sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(),
-				0,
-				false,
-				true,
-				extraInfo);
+			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 		}
 
 		private void QueueTextRune(List<KeysharpInputdClient.Input> events, Rune rune, uint modifiersLR, long extraInfo)
@@ -332,21 +311,21 @@ namespace Keysharp.Internals.Input.Linux
 				QueueUnicodeUnit(events, chars[i], extraInfo);
 		}
 
-		private static void QueueUnicodeUnit(List<KeysharpInputdClient.Input> events, char ch, long extraInfo)
+		private void QueueUnicodeUnit(List<KeysharpInputdClient.Input> events, char ch, long extraInfo)
 		{
-			events.Add(KeysharpInputdClient.Input.Key(
+			AddOrQueue(events, KeysharpInputdClient.Input.Key(
 				0,
 				ch,
 				(KeysharpInputdClient.KeyEventFlags)KEYEVENTF_UNICODE,
 				extraInfo: (ulong)extraInfo));
-			events.Add(KeysharpInputdClient.Input.Key(
+			AddOrQueue(events, KeysharpInputdClient.Input.Key(
 				0,
 				ch,
 				(KeysharpInputdClient.KeyEventFlags)(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP),
 				extraInfo: (ulong)extraInfo));
 		}
 
-		private static void QueueModifierTransition(List<KeysharpInputdClient.Input> events, uint modifiers, bool down, long extraInfo)
+		private void QueueModifierTransition(List<KeysharpInputdClient.Input> events, uint modifiers, bool down, long extraInfo)
 		{
 			if ((modifiers & MOD_LSHIFT) != 0)
 				QueueKey(events, down ? KeyEventTypes.KeyDown : KeyEventTypes.KeyUp, VK_LSHIFT, extraInfo);
@@ -355,16 +334,16 @@ namespace Keysharp.Internals.Input.Linux
 				QueueKey(events, down ? KeyEventTypes.KeyDown : KeyEventTypes.KeyUp, VK_RMENU, extraInfo);
 		}
 
-		private static void QueueKey(List<KeysharpInputdClient.Input> events, KeyEventTypes eventType, uint vk, long extraInfo)
+		private void QueueKey(List<KeysharpInputdClient.Input> events, KeyEventTypes eventType, uint vk, long extraInfo)
 		{
 			var downFlags = (KeysharpInputdClient.KeyEventFlags)0;
 			var upFlags = (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP;
 
 			if (eventType != KeyEventTypes.KeyUp)
-				events.Add(KeysharpInputdClient.Input.Key((ushort)vk, 0, downFlags, extraInfo: (ulong)extraInfo));
+				AddOrQueue(events, KeysharpInputdClient.Input.Key((ushort)vk, 0, downFlags, extraInfo: (ulong)extraInfo));
 
 			if (eventType != KeyEventTypes.KeyDown)
-				events.Add(KeysharpInputdClient.Input.Key((ushort)vk, 0, upFlags, extraInfo: (ulong)extraInfo));
+				AddOrQueue(events, KeysharpInputdClient.Input.Key((ushort)vk, 0, upFlags, extraInfo: (ulong)extraInfo));
 		}
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
@@ -375,17 +354,15 @@ namespace Keysharp.Internals.Input.Linux
 				return;
 			}
 
-			// Immediate single mouse event — no bypass, visible in hook chain.
-			var single = new[]
-			{
+			SendInputBatches(
+			[
 				KeysharpInputdClient.Input.MouseEvent(
 					dx: x == CoordUnspecified ? 0 : x,
 					dy: y == CoordUnspecified ? 0 : y,
 					mouseData: data,
-					flags: (KeysharpInputdClient.MouseEventFlags)eventFlags),
-			};
-
-			KeysharpInputdManager.SendInputViaSynthesisChannel(single);
+					flags: (KeysharpInputdClient.MouseEventFlags)eventFlags,
+					extraInfo: (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel)),
+			]);
 		}
 
 		internal override void MouseMove(ref int x, ref int y, ref uint eventFlags, long speed, bool moveOffset)
@@ -396,7 +373,7 @@ namespace Keysharp.Internals.Input.Linux
 			if (moveOffset)
 			{
 				if (sendMode == SendModes.Event)
-					SendRelativeMouseMove(x, y);
+					SendRelativeMouseMove(x, y, (ulong)KeyIgnoreLevel(ThreadAccessors.A_SendLevel));
 				else
 					QueueRelativeMouseMove(x, y);
 
@@ -407,43 +384,25 @@ namespace Keysharp.Internals.Input.Linux
 				return;
 			}
 
-			POINT current = default;
-			var haveCurrent = false;
 			var targetX = x;
 			var targetY = y;
-
-			if (sendMode == SendModes.Input && sendInputCursorPos.X != CoordUnspecified)
-			{
-				current = sendInputCursorPos;
-				haveCurrent = true;
-			}
-			else if (GetCursorPos(out current))
-			{
-				haveCurrent = true;
-			}
-
 			CoordToScreen(ref targetX, ref targetY, CoordMode.Mouse);
-
-			if (!haveCurrent)
-				return;
+			var absTargetX = MouseCoordToAbs(targetX, (int)A_ScreenWidth);
+			var absTargetY = MouseCoordToAbs(targetY, (int)A_ScreenHeight);
 
 			if (sendMode == SendModes.Input)
 			{
-				if (haveCurrent)
-				{
-					sendInputCursorPos.X = targetX;
-					sendInputCursorPos.Y = targetY;
-				}
-
+				sendInputCursorPos.X = targetX;
+				sendInputCursorPos.Y = targetY;
 				PutMouseEventIntoArray(
 					(uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE,
 					0,
-					MouseCoordToAbs(targetX, (int)A_ScreenWidth),
-					MouseCoordToAbs(targetY, (int)A_ScreenHeight));
+					absTargetX,
+					absTargetY);
 				DoMouseDelay();
-				eventFlags = 0;
-				x = CoordUnspecified;
-				y = CoordUnspecified;
+				eventFlags = (uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE;
+				x = absTargetX;
+				y = absTargetY;
 				return;
 			}
 
@@ -452,13 +411,13 @@ namespace Keysharp.Internals.Input.Linux
 			else if (speed > MaxMouseSpeed)
 				speed = MaxMouseSpeed;
 
-			if (speed == 0 || !haveCurrent)
+			if (speed == 0 || !GetCursorPos(out var current))
 			{
 				MouseEvent(
 					(uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE,
 					0,
-					MouseCoordToAbs(targetX, (int)A_ScreenWidth),
-					MouseCoordToAbs(targetY, (int)A_ScreenHeight));
+					absTargetX,
+					absTargetY);
 				DoMouseDelay();
 			}
 			else
@@ -489,12 +448,12 @@ namespace Keysharp.Internals.Input.Linux
 				}
 			}
 
-			eventFlags = 0;
-			x = CoordUnspecified;
-			y = CoordUnspecified;
+			eventFlags = (uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE;
+			x = absTargetX;
+			y = absTargetY;
 		}
 
-		private static void SendRelativeMouseMove(int dx, int dy)
+		private static void SendRelativeMouseMove(int dx, int dy, ulong extraInfo)
 		{
 			if (dx == 0 && dy == 0)
 				return;
@@ -517,7 +476,8 @@ namespace Keysharp.Internals.Input.Linux
 						stepDx,
 						stepDy,
 						0,
-						KeysharpInputdClient.MouseEventFlags.Move));
+						KeysharpInputdClient.MouseEventFlags.Move,
+						extraInfo: extraInfo));
 				}
 
 				if (events.Count == MaxMouseMoveChunk)
@@ -560,43 +520,82 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
 		{
-			// Read current state from the hook thread's tracked key state.
-			var ht = Script.TheScript.HookThread;
-			var current = ht != null && ht.IsKeyToggledOn(vk)
-				? ToggleValueType.On
-				: ToggleValueType.Off;
+			var script = Script.TheScript;
+			var current = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
-			if (toggleValue == ToggleValueType.On && current == ToggleValueType.Off
-				|| toggleValue == ToggleValueType.Off && current == ToggleValueType.On)
-			{
-				// Send a down+up to toggle.
-				SendKeybdEvent(KeyEventTypes.KeyDownAndUp, vk, 0, 0, KeyIgnore);
-			}
+			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off)
+				return current;
 
+			if (current == toggleValue)
+				return current;
+
+			if (script.HookThread.IsKeyDown(vk))
+				SendKeyEvent(KeyEventTypes.KeyUp, vk);
+
+			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk);
+
+			if (vk == VK_CAPITAL && toggleValue == ToggleValueType.Off && script.HookThread.IsKeyToggledOn(vk))
+				SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_SHIFT);
+
+			Thread.Sleep(1);
 			return current;
 		}
 
-		// Absolute mouse coordinate normalisation: 0..65535 range, same as Windows MOUSEEVENTF_ABSOLUTE.
 		internal override int MouseCoordToAbs(int coord, int widthOrHeight)
-			=> widthOrHeight <= 0 ? 0 : (int)((long)coord * 65535 / widthOrHeight);
+			=> widthOrHeight <= 0 ? 0 : ((65536 * coord) / widthOrHeight) + (coord < 0 ? -1 : 1);
 
-		// These have no meaningful equivalent on Linux with the daemon.
 		internal override nint GetFocusedKeybdLayout(nint window) => nint.Zero;
-		internal override ResultType LayoutHasAltGrDirect(nint layout) => ResultType.Fail;
+		internal override ResultType LayoutHasAltGrDirect(nint layout) => ResultType.ConditionFalse;
 
-		// No-ops: Windows-specific thread attachment for cross-process sends.
 		internal override void AttachTargetWindowThread(
 			ref bool threadsAreAttached, ref uint keybdLayoutThread,
 			ref WindowItemBase tempitem, nint targetWindow) { }
 
 		internal override void DetachTargetWindowThread(uint mainThread, uint targetThread) { }
 
-		// Progress callbacks — no UI pump needed.
 		protected internal override void LongOperationUpdate() { }
 		protected internal override void LongOperationUpdateForSendKeys() { }
 
-		// No hook registration needed — daemon manages the hook subscription separately.
 		protected override void RegisterHook() { }
+
+		private void QueueInput(KeysharpInputdClient.Input input)
+			=> eventQueue.Add(InputdQueuedEvent.FromInput(input));
+
+		private void AddOrQueue(List<KeysharpInputdClient.Input> events, KeysharpInputdClient.Input input)
+		{
+			if (events != null)
+				events.Add(input);
+			else
+				QueueInput(input);
+		}
+
+		private static KeysharpInputdClient.SynthFlags ShouldBypassHook(long extraInfo)
+			=> IsIgnored((ulong)extraInfo)
+				? KeysharpInputdClient.SynthFlags.BypassHook
+				: KeysharpInputdClient.SynthFlags.None;
+
+		private static void SendInputBatches(IReadOnlyList<KeysharpInputdClient.Input> inputs, KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
+		{
+			if (inputs.Count == 0)
+				return;
+
+			if (inputs.Count <= MaxInputdBatchSize)
+			{
+				KeysharpInputdManager.SendInputViaSynthesisChannel(inputs, flags);
+				return;
+			}
+
+			for (var offset = 0; offset < inputs.Count; offset += MaxInputdBatchSize)
+			{
+				var count = Math.Min(MaxInputdBatchSize, inputs.Count - offset);
+				var batch = new KeysharpInputdClient.Input[count];
+
+				for (var i = 0; i < count; i++)
+					batch[i] = inputs[offset + i];
+
+				KeysharpInputdManager.SendInputViaSynthesisChannel(batch, flags);
+			}
+		}
 	}
 }
 #endif

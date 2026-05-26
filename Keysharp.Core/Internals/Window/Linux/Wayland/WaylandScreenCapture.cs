@@ -48,7 +48,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return IsKdeSession() ? TryCaptureWithKWin(x, y, w, h) : null;
 		}
 
-		internal static PermissionResult RequestScreenCapturePermission(string operation)
+		internal static PermissionResult RequestScreenCapturePermission(string operation, bool forcePrompt = false)
 		{
 			operation ??= "screen capture";
 
@@ -58,7 +58,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (!IsKdeSession())
 				return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
 
-			return KWinScreenCaptureHelper.Authorize(operation);
+			return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
 		}
 
 		private static bool IsKdeSession()

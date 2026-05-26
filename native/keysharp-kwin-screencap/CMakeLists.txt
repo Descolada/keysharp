@@ -27,7 +27,7 @@ target_include_directories(keysharp-kwin-screencap
 
 target_compile_definitions(keysharp-kwin-screencap PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
 target_link_libraries(keysharp-kwin-screencap PRIVATE
-    keysharp-trust
+    keysharp-trust-lib
     PkgConfig::GIO)
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")

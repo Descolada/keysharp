@@ -135,20 +135,23 @@ namespace Keysharp.Internals.Platform
 	{
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
 		{
-			_ = prompt;
-			return KeysharpInputdManager.EnsureInputMonitoring(operation);
+			return KeysharpInputdManager.EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
+				operation ?? "keyboard/mouse monitoring",
+				forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
 		{
-			_ = prompt;
-			return KeysharpInputdManager.EnsureInputInjection(operation);
+			return KeysharpInputdManager.EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
+				operation ?? "keyboard/mouse sending",
+				forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
 		{
-			_ = prompt;
-			return WaylandScreenCapture.RequestScreenCapturePermission(operation);
+			return WaylandScreenCapture.RequestScreenCapturePermission(operation, forcePrompt: prompt == true);
 		}
 	}
 #endif

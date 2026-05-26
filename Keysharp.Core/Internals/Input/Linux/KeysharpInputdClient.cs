@@ -14,9 +14,10 @@ namespace Keysharp.Internals.Input.Linux
 
 		private const uint ProtocolMajor = 0;
 		private const uint ProtocolMinor = 1;
-		private const int HeaderSize = 24;
-		private const int MaxMessageSize = 65536;
-		private const int InputSize = 40;
+			private const int HeaderSize = 24;
+			private const int MaxMessageSize = 65536;
+			private const int InputSize = 40;
+			private const uint ClientHelloFlagForcePrompt = 0x00000001;
 
 		[Flags]
 		internal enum Capabilities : uint
@@ -148,9 +149,18 @@ namespace Keysharp.Internals.Input.Linux
 			int YMin,
 			int YMax);
 
-		private readonly Socket socket;
-		private ulong nextCorrelationId = 1;
-		private bool disposed;
+			private readonly Socket socket;
+			/// <summary>
+			/// Hook events received on this socket while a thread was waiting for a
+			/// command response. Buffered by ReadResponseFrame and drained by
+			/// ReadHookEvent. Access serialized through pendingHookEventsLock so a
+			/// reader-thread + control-thread workload is safe even if both end up
+			/// touching this client concurrently.
+			/// </summary>
+			private readonly Queue<HookEvent> pendingHookEvents = new();
+			private readonly Lock pendingHookEventsLock = new();
+			private ulong nextCorrelationId = 1;
+			private bool disposed;
 
 		private KeysharpInputdClient(Socket socket)
 		{
@@ -195,19 +205,19 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal void SendHeartbeat()
 		{
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.Heartbeat, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadFrame();
-			EnsureStatus(response, MessageType.Heartbeat, correlationId);
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.Heartbeat, correlationId, ReadOnlySpan<byte>.Empty);
+				var response = ReadResponseFrame(MessageType.Heartbeat, correlationId);
+				EnsureStatus(response, MessageType.Heartbeat, correlationId);
+			}
 
 		internal void EmergencyPassthrough()
 		{
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.EmergencyPassthrough, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadFrame();
-			EnsureStatus(response, MessageType.EmergencyPassthrough, correlationId);
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.EmergencyPassthrough, correlationId, ReadOnlySpan<byte>.Empty);
+				var response = ReadResponseFrame(MessageType.EmergencyPassthrough, correlationId);
+				EnsureStatus(response, MessageType.EmergencyPassthrough, correlationId);
+			}
 
 		internal BlockInputMask SetBlockInput(BlockInputMask mask)
 		{
@@ -215,11 +225,11 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)mask);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.SetBlockInput, correlationId, payload);
-			var response = ReadFrame();
-			return (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.SetBlockInput, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.SetBlockInput, correlationId);
+				return (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
+			}
 
 		internal uint SubscribeHook(HookType hookType)
 		{
@@ -227,11 +237,11 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)hookType);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.SubscribeHook, correlationId, payload);
-			var response = ReadFrame();
-			return EnsureStatus(response, MessageType.SubscribeHook, correlationId).Detail;
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.SubscribeHook, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.SubscribeHook, correlationId);
+				return EnsureStatus(response, MessageType.SubscribeHook, correlationId).Detail;
+			}
 
 		internal uint UnsubscribeHook(HookType hookType)
 		{
@@ -239,11 +249,11 @@ namespace Keysharp.Internals.Input.Linux
 			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)hookType);
 			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.UnsubscribeHook, correlationId, payload);
-			var response = ReadFrame();
-			return EnsureStatus(response, MessageType.UnsubscribeHook, correlationId).Detail;
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.UnsubscribeHook, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.UnsubscribeHook, correlationId);
+				return EnsureStatus(response, MessageType.UnsubscribeHook, correlationId).Detail;
+			}
 
 		[Flags]
 		internal enum SynthFlags : uint
@@ -264,11 +274,11 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputs.Count; i++)
 				WriteInput(payload.AsSpan(8 + (i * InputSize), InputSize), inputs[i]);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.SynthesizeInput, correlationId, payload);
-			var response = ReadFrame();
-			EnsureStatus(response, MessageType.SynthesisResult, correlationId);
-		}
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.SynthesizeInput, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.SynthesisResult, correlationId);
+				EnsureStatus(response, MessageType.SynthesisResult, correlationId);
+			}
 
 		/// <summary>
 		/// Queries the daemon for the current keyboard indicator (lock key) state.
@@ -276,9 +286,9 @@ namespace Keysharp.Internals.Input.Linux
 		/// </summary>
 		internal (bool CapsLock, bool NumLock, bool ScrollLock) GetIndicatorState()
 		{
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadFrame();
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
+				var response = ReadResponseFrame(MessageType.IndicatorStateResult, correlationId);
 
 			if (response.Type != MessageType.IndicatorStateResult || response.CorrelationId != correlationId)
 				throw new InvalidDataException(
@@ -298,9 +308,9 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			position = default;
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
-			var response = ReadFrame();
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
+				var response = ReadResponseFrame(MessageType.PointerPositionResult, correlationId);
 
 			if (response.Type != MessageType.PointerPositionResult || response.CorrelationId != correlationId)
 				throw new InvalidDataException(
@@ -319,15 +329,26 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
-		internal HookEvent ReadHookEvent()
-		{
-			var frame = ReadFrame();
+			internal HookEvent ReadHookEvent()
+			{
+				lock (pendingHookEventsLock)
+				{
+					if (pendingHookEvents.Count != 0)
+						return pendingHookEvents.Dequeue();
+				}
 
-			if (frame.Type != MessageType.HookEvent)
-				throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
+				var frame = ReadFrame();
 
-			if (frame.Payload.Length < 16)
-				throw new InvalidDataException("Hook event payload is too small.");
+				if (frame.Type != MessageType.HookEvent)
+					throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
+
+				return ParseHookEvent(frame);
+			}
+
+			private static HookEvent ParseHookEvent(Frame frame)
+			{
+				if (frame.Payload.Length < 16)
+					throw new InvalidDataException("Hook event payload is too small.");
 
 			var eventId = BinaryPrimitives.ReadUInt64LittleEndian(frame.Payload);
 			var hookType = (HookType)BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload[8..]);
@@ -364,11 +385,11 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputCount; i++)
 				WriteInput(payload.AsSpan(16 + (i * InputSize), InputSize), replacementInputs[i]);
 
-			var correlationId = eventId;
-			SendFrame(MessageType.HookDecision, correlationId, payload);
-			var response = ReadFrame();
-			EnsureStatus(response, MessageType.HookDecision, correlationId);
-		}
+				var correlationId = eventId;
+				SendFrame(MessageType.HookDecision, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.HookDecision, correlationId);
+				EnsureStatus(response, MessageType.HookDecision, correlationId);
+			}
 
 		public void Dispose()
 		{
@@ -379,30 +400,30 @@ namespace Keysharp.Internals.Input.Linux
 			socket.Dispose();
 		}
 
-		internal bool TryRequestCapabilities(Capabilities requested, out int status)
-		{
-			var hello = ExchangeHello(requested);
-			status = hello.Status;
-			GrantedCapabilities = hello.Granted;
-			return status == 0 && (GrantedCapabilities & requested) == requested;
-		}
+			internal bool TryRequestCapabilities(Capabilities requested, out int status, bool forcePrompt = false)
+			{
+				var hello = ExchangeHello(requested, forcePrompt);
+				status = hello.Status;
+				GrantedCapabilities = hello.Granted;
+				return status == 0 && (GrantedCapabilities & requested) == requested;
+			}
 
-		internal void RequestCapabilities(Capabilities requested)
-		{
-			if (!TryRequestCapabilities(requested, out var status))
-				throw new IOException(
-					$"keysharp-inputd hello failed with status {status}. Requested: {requested}. Granted: {GrantedCapabilities}.");
-		}
+			internal void RequestCapabilities(Capabilities requested, bool forcePrompt = false)
+			{
+				if (!TryRequestCapabilities(requested, out var status, forcePrompt))
+					throw new IOException(
+						$"keysharp-inputd hello failed with status {status}. Requested: {requested}. Granted: {GrantedCapabilities}.");
+			}
 
-		private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested)
-		{
-			Span<byte> payload = stackalloc byte[8];
-			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
-			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], 0);
+			private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested, bool forcePrompt)
+			{
+				Span<byte> payload = stackalloc byte[8];
+				BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
+				BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], forcePrompt ? ClientHelloFlagForcePrompt : 0);
 
-			var correlationId = NextCorrelationId();
-			SendFrame(MessageType.ClientHello, correlationId, payload);
-			var response = ReadFrame();
+				var correlationId = NextCorrelationId();
+				SendFrame(MessageType.ClientHello, correlationId, payload);
+				var response = ReadResponseFrame(MessageType.ClientHello, correlationId);
 
 			if (response.Type != MessageType.ClientHello || response.CorrelationId != correlationId)
 				throw new InvalidDataException($"Unexpected hello response type={response.Type} correlation={response.CorrelationId}.");
@@ -436,7 +457,7 @@ namespace Keysharp.Internals.Input.Linux
 			WriteAll(payload);
 		}
 
-		private Frame ReadFrame()
+			private Frame ReadFrame()
 		{
 			ThrowIfDisposed();
 
@@ -474,9 +495,33 @@ namespace Keysharp.Internals.Input.Linux
 				if (read == 0)
 					throw new EndOfStreamException("keysharp-inputd disconnected.");
 
-				offset += read;
+					offset += read;
+				}
 			}
-		}
+
+			private Frame ReadResponseFrame(MessageType expectedType, ulong expectedCorrelationId)
+			{
+				for (;;)
+				{
+					var frame = ReadFrame();
+
+					if (frame.Type == expectedType && frame.CorrelationId == expectedCorrelationId)
+						return frame;
+
+					if (frame.Type == MessageType.HookEvent)
+					{
+						var hookEvent = ParseHookEvent(frame);
+
+						lock (pendingHookEventsLock)
+							pendingHookEvents.Enqueue(hookEvent);
+
+						continue;
+					}
+
+					throw new InvalidDataException(
+						$"Unexpected response type={frame.Type} correlation={frame.CorrelationId}; expected type={expectedType} correlation={expectedCorrelationId}.");
+				}
+			}
 
 		private void WriteAll(ReadOnlySpan<byte> buffer)
 		{

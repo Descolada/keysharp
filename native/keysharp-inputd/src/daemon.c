@@ -29,12 +29,12 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_CLIENTS 64
 #define KSI_MAX_BACKEND_FDS 160
 #define KSI_MAX_POLL_FDS (1 + KSI_MAX_BACKEND_FDS + KSI_MAX_CLIENTS)
-#define KSI_MAX_PENDING_HOOK_EVENTS 128
 #define KSI_MAX_PENDING_COMMANDS 256
 #define KSI_MAX_MODIFY_INPUTS 32
 #define KSI_MAX_SYNTH_INPUTS 1024
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
 #define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 10u
+#define KSI_MAX_LANE_ACTIONS 512u
 #define KSI_IDLE_EXIT_MS 30000u
 
 static volatile sig_atomic_t keep_running = 1;
@@ -43,6 +43,86 @@ static volatile sig_atomic_t keep_running = 1;
  * The shutdown path waits for this to reach zero before destroying the
  * command queue those threads hold a pointer to. */
 static atomic_int g_worker_threads_running = 0;
+
+/* Serializes every IPC send so lane threads and the main thread cannot
+ * interleave bytes inside a single client's Unix stream.  Acquired around
+ * ksi_ipc_send_framed_message and around client-fd close operations to
+ * prevent send-after-close from racing across threads. */
+static pthread_mutex_t g_ipc_send_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int ipc_send_locked(
+    int client_fd,
+    uint32_t message_type,
+    uint32_t client_id,
+    uint64_t correlation_id,
+    const void *payload,
+    size_t payload_size)
+{
+    int rc;
+
+    pthread_mutex_lock(&g_ipc_send_mutex);
+    rc = ksi_ipc_send_framed_message(
+        client_fd, message_type, client_id, correlation_id, payload, payload_size);
+    pthread_mutex_unlock(&g_ipc_send_mutex);
+    return rc;
+}
+
+static void ipc_close_locked(int client_fd)
+{
+    pthread_mutex_lock(&g_ipc_send_mutex);
+    ksi_ipc_close_client(client_fd);
+    pthread_mutex_unlock(&g_ipc_send_mutex);
+}
+
+typedef struct ksi_hook_send_ref {
+    int fd;
+    atomic_uint ref_count;
+} ksi_hook_send_ref;
+
+static ksi_hook_send_ref *hook_send_ref_create(int client_fd)
+{
+    ksi_hook_send_ref *ref;
+    int send_fd;
+
+    send_fd = dup(client_fd);
+
+    if (send_fd < 0) {
+        return NULL;
+    }
+
+    ref = malloc(sizeof(*ref));
+
+    if (ref == NULL) {
+        ipc_close_locked(send_fd);
+        return NULL;
+    }
+
+    ref->fd = send_fd;
+    atomic_init(&ref->ref_count, 1u);
+    return ref;
+}
+
+static bool hook_send_ref_acquire(ksi_hook_send_ref *ref)
+{
+    if (ref == NULL) {
+        return false;
+    }
+
+    (void)atomic_fetch_add(&ref->ref_count, 1u);
+    return true;
+}
+
+static void hook_send_ref_release(ksi_hook_send_ref *ref)
+{
+    if (ref == NULL) {
+        return;
+    }
+
+    if (atomic_fetch_sub(&ref->ref_count, 1u) == 1u) {
+        ipc_close_locked(ref->fd);
+        free(ref);
+    }
+}
 
 /* IPC-thread-only: holds raw socket I/O state for one connection. */
 typedef struct ksi_ipc_slot {
@@ -60,6 +140,7 @@ typedef enum ksi_client_state {
 /* Main-thread-only: holds application state for one authenticated client. */
 typedef struct ksi_client {
     int fd;
+    ksi_hook_send_ref *hook_send_ref;
     uint64_t connection_id;
     pid_t pid;
     uid_t uid;
@@ -77,6 +158,7 @@ typedef struct ksi_client {
     /* Buffered CLIENT_HELLO waiting for identification or prompt to complete. */
     bool pending_hello_valid;
     uint32_t pending_hello_requested;
+    uint32_t pending_hello_flags;
     uint64_t pending_hello_correlation_id;
     uint32_t pending_hello_client_id;
 } ksi_client;
@@ -89,27 +171,13 @@ typedef struct ksi_client_identified_result {
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
 } ksi_client_identified_result;
 
-typedef struct ksi_pending_hook_event {
-    uint64_t order_id;
-    uint64_t event_id;
-    uint32_t hook_type;
-    ksi_hook_event_payload payload;
-    size_t payload_size;
-} ksi_pending_hook_event;
-
-typedef struct ksi_pending_synth_request {
-    uint64_t order_id;
-    uint32_t flags;
-    uint32_t count;
-    ksi_input *inputs;
-} ksi_pending_synth_request;
-
 typedef enum ksi_daemon_command_type {
     KSI_DAEMON_COMMAND_CLIENT_CONNECTED,
     KSI_DAEMON_COMMAND_CLIENT_FRAME,
     KSI_DAEMON_COMMAND_CLIENT_DISCONNECTED,
     KSI_DAEMON_COMMAND_CLIENT_IDENTIFIED, /* worker -> main: identity resolution complete */
     KSI_DAEMON_COMMAND_CLIENT_PROMPT_DONE, /* worker → main: user permission prompt complete */
+    KSI_DAEMON_COMMAND_LANE_HOOK_FAILURE, /* lane → main: send/timeout failure for a client */
 } ksi_daemon_command_type;
 
 typedef struct ksi_daemon_command {
@@ -130,6 +198,9 @@ typedef struct ksi_daemon_command {
             uint32_t requested_capabilities;
             uint32_t missing_capabilities;
         } prompt_done;
+        struct {
+            char reason[32];
+        } hook_failure;
     } data;
 } ksi_daemon_command;
 
@@ -386,6 +457,124 @@ static void ipc_command_queue_drain_wake(const ksi_ipc_command_queue *q)
     if (q != NULL) ksi_pipe_ring_drain_wake(&q->ring);
 }
 
+/* Forward decls for types embedded in ksi_daemon_state.  Definitions and
+ * helper functions live later in the file, alongside the sequencer thread. */
+typedef enum ksi_output_action_type {
+    KSI_OUTPUT_ACTION_REPLAY = 0,
+    KSI_OUTPUT_ACTION_SYNTH,
+} ksi_output_action_type;
+
+typedef struct ksi_output_action {
+    ksi_output_action_type type;
+    uint32_t hook_type;
+    ksi_hook_event_payload replay_payload;
+    size_t replay_payload_size;
+    uint32_t synth_flags;
+    uint32_t synth_count;
+    ksi_input *synth_inputs;
+} ksi_output_action;
+
+/* Output queue is an intrusive linked list with mutex + wake pipe so it is
+ * unbounded (except by available RAM) but still pollable.  A bounded ring
+ * would be wrong here: a SendInput burst is one logical operation from the
+ * script's perspective and must not be partially dropped.  Lock-free MPSC
+ * was considered but rejected — the mutex is held for ~10 instructions per
+ * push and uinput write latency dominates by orders of magnitude. */
+typedef struct ksi_output_node {
+    ksi_output_action action;
+    struct ksi_output_node *next;
+} ksi_output_node;
+
+typedef struct ksi_output_queue {
+    pthread_mutex_t mutex;
+    bool mutex_initialized;
+    ksi_output_node *head;
+    ksi_output_node *tail;
+    int wake_read_fd;
+    int wake_write_fd;
+} ksi_output_queue;
+
+/* Snapshot of one hook event handed off from the main thread to a lane thread.
+ * The subscriber list is captured at enqueue time so the lane never needs to
+ * touch state->clients[] while iterating. */
+typedef struct ksi_lane_event {
+    uint64_t event_id;
+    uint32_t hook_type;
+    uint32_t generation;
+    bool is_injected;
+    ksi_hook_event_payload payload;
+    size_t payload_size;
+    int subscriber_response_fds[KSI_MAX_CLIENTS];
+    ksi_hook_send_ref *subscriber_send_refs[KSI_MAX_CLIENTS];
+    uint64_t subscriber_connection_ids[KSI_MAX_CLIENTS];
+    uint32_t subscriber_granted_caps[KSI_MAX_CLIENTS];
+    size_t subscriber_count;
+} ksi_lane_event;
+
+/* Decision routed from the main thread into a lane thread. The lane validates
+ * that responder_fd matches the current subscriber it is waiting on; mismatched
+ * decisions are dropped. */
+typedef struct ksi_lane_decision {
+    uint64_t event_id;
+    uint32_t decision;
+    int responder_fd;
+    uint64_t responder_connection_id;
+    uint32_t input_count;
+    ksi_input inputs[KSI_MAX_MODIFY_INPUTS];
+} ksi_lane_decision;
+
+/* Lane action queues are capped linked lists.  If a stalled subscriber lets a
+ * lane fall too far behind, new physical events bypass hook delivery and are
+ * replayed so daemon memory/fd use remains bounded. */
+typedef struct ksi_lane_action_node {
+    ksi_lane_event *event;
+    struct ksi_lane_action_node *next;
+} ksi_lane_action_node;
+
+typedef struct ksi_lane_action_queue {
+    pthread_mutex_t mutex;
+    bool mutex_initialized;
+    ksi_lane_action_node *head;
+    ksi_lane_action_node *tail;
+    size_t count;
+    int wake_read_fd;
+    int wake_write_fd;
+} ksi_lane_action_queue;
+
+/* Lane decision queue is also a linked list so the M1 ordering fix can hold
+ * g_ipc_send_mutex (not the queue mutex) through the ack write, and so push
+ * cannot fail under load. */
+typedef struct ksi_lane_decision_node {
+    ksi_lane_decision *decision;
+    struct ksi_lane_decision_node *next;
+} ksi_lane_decision_node;
+
+typedef struct ksi_lane_decision_queue {
+    pthread_mutex_t mutex;
+    bool mutex_initialized;
+    ksi_lane_decision_node *head;
+    ksi_lane_decision_node *tail;
+    int wake_read_fd;
+    int wake_write_fd;
+} ksi_lane_decision_queue;
+
+typedef struct ksi_hook_lane {
+    uint32_t hook_type;
+    pthread_t thread;
+    bool thread_started;
+    atomic_uint_least64_t current_event_id;  /* 0 = idle */
+    /* Set to 1 by lane_shutdown so the lane bails out of its decision wait
+     * loop and any remaining subscribers, instead of paying KSI_HOOK_DECISION_
+     * TIMEOUT_MS per subscriber per queued event during shutdown. */
+    atomic_int shutting_down;
+    /* Incremented by EmergencyPassthrough. Events captured under an older
+     * generation skip subscriber callbacks and finalize immediately. */
+    atomic_uint flush_generation;
+    ksi_lane_action_queue action_queue;
+    ksi_lane_decision_queue decision_queue;
+    struct ksi_daemon_state *state;
+} ksi_hook_lane;
+
 typedef struct ksi_daemon_state {
     const ksi_platform_backend *backend;
     ksi_client clients[KSI_MAX_CLIENTS];
@@ -395,24 +584,19 @@ typedef struct ksi_daemon_state {
     ksi_permission_store *permissions;
     uint32_t available_capabilities;
     uint64_t next_connection_id;
-    uint64_t next_order_id;
     uint64_t next_event_id;
-    bool pending_active;
-    uint64_t pending_event_id;
-    uint32_t pending_hook_type;
-    uint32_t pending_final_decision;
-    nfds_t pending_client_index;
-    uint64_t pending_deadline_ms;
-    ksi_hook_event_payload pending_payload;
-    size_t pending_payload_size;
-    ksi_input pending_modify_inputs[KSI_MAX_MODIFY_INPUTS];
-    size_t pending_modify_input_count;
-    ksi_pending_hook_event hook_queue[KSI_MAX_PENDING_HOOK_EVENTS];
-    size_t hook_queue_head;
-    size_t hook_queue_count;
-    ksi_pending_synth_request synth_queue[KSI_MAX_PENDING_HOOK_EVENTS];
-    size_t synth_queue_head;
-    size_t synth_queue_count;
+    /* Output sequencer: thread + queue that funnels every uinput write (PASS
+     * replay, MODIFY synthesis, SYNTHESIZE_INPUT) onto a single dedicated
+     * thread.  See output_queue helpers above for ordering semantics. */
+    ksi_output_queue output_queue;
+    pthread_t sequencer_thread;
+    bool sequencer_thread_started;
+    atomic_int sequencer_running;
+    /* Two independent hook lanes so a stalled keyboard hook callback can't
+     * back up mouse events (and vice versa).  Per-lane FIFO ordering, no
+     * cross-lane ordering. */
+    ksi_hook_lane kbd_lane;
+    ksi_hook_lane mouse_lane;
 } ksi_daemon_state;
 
 typedef struct ksi_binary_message_view {
@@ -428,10 +612,15 @@ typedef struct ksi_ipc_thread_context {
     ksi_ipc_command_queue *reverse_commands;
 } ksi_ipc_thread_context;
 
-static bool send_pending_event_to_next_client(ksi_daemon_state *state);
 static int update_grab_state(ksi_daemon_state *state);
 static void clear_hook_state(ksi_daemon_state *state);
 static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, const char *reason);
+static void send_status(
+    int client_fd,
+    const ksi_message_header *request,
+    uint32_t response_type,
+    int32_t status,
+    uint32_t detail);
 static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
@@ -694,13 +883,14 @@ static void remove_client(ksi_daemon_state *state, nfds_t index)
     nfds_t * const count = &state->client_count;
 
     request_close_client(state, clients[index].fd);
+    hook_send_ref_release(clients[index].hook_send_ref);
+    clients[index].hook_send_ref = NULL;
 
-    if (state->pending_active && index == state->pending_client_index) {
-        state->pending_deadline_ms = 0;
-    } else if (state->pending_active && index < state->pending_client_index) {
-        state->pending_client_index--;
-    }
-
+    /* Lane threads work from a snapshot of the subscriber list taken at
+     * enqueue time, so removing the client from clients[] does not need to
+     * disturb in-flight lane work.  If the lane is currently waiting on a
+     * decision from this client, its send/recv will simply fail and the
+     * lane will move on to the next snapshot subscriber or time out. */
     for (nfds_t i = index; i + 1 < *count; i++) {
         clients[i] = clients[i + 1];
     }
@@ -709,10 +899,6 @@ static void remove_client(ksi_daemon_state *state, nfds_t index)
 
     if (update_grab_state(state) != 0) {
         fprintf(stderr, "inputd: failed to update grab state after client removal\n");
-    }
-
-    if (state->pending_active) {
-        (void)send_pending_event_to_next_client(state);
     }
 }
 
@@ -727,21 +913,1004 @@ static uint64_t monotonic_ms(void)
     return ((uint64_t)time_value.tv_sec * 1000u) + ((uint64_t)time_value.tv_nsec / 1000000u);
 }
 
-static void clear_synth_queue(ksi_daemon_state *state)
+/* ------------------------------------------------------------------------
+ * Output sequencer
+ *
+ * All replay/synthesis writes to the platform backend (uinput) are funneled
+ * through a single sequencer thread.  Hook-event finalize and SYNTHESIZE_INPUT
+ * both enqueue actions here, and the sequencer drains them in arrival order.
+ *
+ * Decoupling output from the main loop means:
+ *  - A SendInput burst from a script is queued as a unit regardless of which
+ *    hook lane is currently waiting on a client decision.
+ *  - Slow uinput writes do not back-pressure evdev ingress or IPC handling.
+ *  - A stall in one hook lane cannot prevent the other lane's output from
+ *    reaching uinput.
+ *
+ * Actions execute in the order they were pushed onto the sequencer queue, so
+ * a SYNTH pushed by a script mid-flight no longer waits for an in-progress
+ * hook decision to finalize.  This matches the Windows behavior where
+ * SendInput does not block on pending low-level hooks.
+ * ----------------------------------------------------------------------- */
+
+static int output_queue_init(ksi_output_queue *q)
 {
-    if (state == NULL) {
+    int pipe_fds[2];
+
+    if (q == NULL) {
+        return -1;
+    }
+
+    memset(q, 0, sizeof(*q));
+    q->wake_read_fd = -1;
+    q->wake_write_fd = -1;
+
+    if (pthread_mutex_init(&q->mutex, NULL) != 0) {
+        return -1;
+    }
+
+    q->mutex_initialized = true;
+
+    if (pipe(pipe_fds) != 0) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+        return -1;
+    }
+
+    q->wake_read_fd = pipe_fds[0];
+    q->wake_write_fd = pipe_fds[1];
+
+    {
+        int fl;
+        fl = fcntl(q->wake_read_fd, F_GETFL);
+
+        if (fl >= 0) {
+            (void)fcntl(q->wake_read_fd, F_SETFL, fl | O_NONBLOCK);
+        }
+
+        fl = fcntl(q->wake_write_fd, F_GETFL);
+
+        if (fl >= 0) {
+            (void)fcntl(q->wake_write_fd, F_SETFL, fl | O_NONBLOCK);
+        }
+    }
+
+    return 0;
+}
+
+static void output_queue_push_node_locked(ksi_output_queue *q, ksi_output_node *node)
+{
+    /* Caller holds q->mutex. */
+    node->next = NULL;
+
+    if (q->tail != NULL) {
+        q->tail->next = node;
+    } else {
+        q->head = node;
+    }
+
+    q->tail = node;
+}
+
+static bool output_queue_pop(ksi_output_queue *q, ksi_output_action *out)
+{
+    ksi_output_node *node = NULL;
+
+    if (q == NULL || !q->mutex_initialized) {
+        return false;
+    }
+
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->head != NULL) {
+        node = q->head;
+        q->head = node->next;
+
+        if (q->head == NULL) {
+            q->tail = NULL;
+        }
+    }
+
+    pthread_mutex_unlock(&q->mutex);
+
+    if (node == NULL) {
+        return false;
+    }
+
+    *out = node->action;
+    free(node);
+    return true;
+}
+
+static void output_queue_drain_wake(const ksi_output_queue *q)
+{
+    uint8_t buffer[64];
+
+    if (q == NULL || q->wake_read_fd < 0) {
         return;
     }
 
-    for (size_t i = 0; i < state->synth_queue_count; i++) {
-        size_t idx = (state->synth_queue_head + i) % KSI_MAX_PENDING_HOOK_EVENTS;
-        free(state->synth_queue[idx].inputs);
-        state->synth_queue[idx].inputs = NULL;
+    while (read(q->wake_read_fd, buffer, sizeof(buffer)) > 0) {
+    }
+}
+
+static void output_queue_wake(const ksi_output_queue *q)
+{
+    uint8_t byte = 1;
+
+    if (q == NULL || q->wake_write_fd < 0) {
+        return;
     }
 
-    state->synth_queue_head = 0;
-    state->synth_queue_count = 0;
+    (void)write(q->wake_write_fd, &byte, sizeof(byte));
 }
+
+static void output_queue_close(ksi_output_queue *q)
+{
+    ksi_output_node *node;
+
+    if (q == NULL) {
+        return;
+    }
+
+    /* Free remaining nodes — and their heap-owned synth_inputs payloads —
+     * before tearing the wake pipe and mutex down. */
+    node = q->head;
+    q->head = NULL;
+    q->tail = NULL;
+
+    while (node != NULL) {
+        ksi_output_node *next = node->next;
+
+        if (node->action.type == KSI_OUTPUT_ACTION_SYNTH) {
+            free(node->action.synth_inputs);
+        }
+
+        free(node);
+        node = next;
+    }
+
+    if (q->wake_read_fd >= 0) {
+        close(q->wake_read_fd);
+        q->wake_read_fd = -1;
+    }
+
+    if (q->wake_write_fd >= 0) {
+        close(q->wake_write_fd);
+        q->wake_write_fd = -1;
+    }
+
+    if (q->mutex_initialized) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+    }
+}
+
+static bool output_queue_push_replay(
+    ksi_output_queue *q,
+    uint32_t hook_type,
+    const ksi_hook_event_payload *payload,
+    size_t payload_size)
+{
+    ksi_output_node *node;
+
+    if (q == NULL || payload == NULL || payload_size > sizeof(node->action.replay_payload)) {
+        return false;
+    }
+
+    node = malloc(sizeof(*node));
+
+    if (node == NULL) {
+        return false;
+    }
+
+    memset(&node->action, 0, sizeof(node->action));
+    node->action.type = KSI_OUTPUT_ACTION_REPLAY;
+    node->action.hook_type = hook_type;
+    node->action.replay_payload = *payload;
+    node->action.replay_payload_size = payload_size;
+
+    pthread_mutex_lock(&q->mutex);
+    output_queue_push_node_locked(q, node);
+    pthread_mutex_unlock(&q->mutex);
+
+    output_queue_wake(q);
+    return true;
+}
+
+static bool output_queue_push_synth(
+    ksi_output_queue *q,
+    const ksi_input *inputs,
+    uint32_t count,
+    uint32_t flags)
+{
+    ksi_output_node *node;
+
+    if (q == NULL) {
+        return false;
+    }
+
+    node = malloc(sizeof(*node));
+
+    if (node == NULL) {
+        return false;
+    }
+
+    memset(&node->action, 0, sizeof(node->action));
+    node->action.type = KSI_OUTPUT_ACTION_SYNTH;
+    node->action.synth_flags = flags;
+    node->action.synth_count = count;
+
+    if (count > 0u) {
+        node->action.synth_inputs = malloc((size_t)count * sizeof(*inputs));
+
+        if (node->action.synth_inputs == NULL) {
+            free(node);
+            return false;
+        }
+
+        memcpy(node->action.synth_inputs, inputs, (size_t)count * sizeof(*inputs));
+    }
+
+    pthread_mutex_lock(&q->mutex);
+    output_queue_push_node_locked(q, node);
+    pthread_mutex_unlock(&q->mutex);
+
+    output_queue_wake(q);
+    return true;
+}
+
+/* Sequencer thread.  Drains the output queue in arrival order and dispatches
+ * each action to the platform backend (uinput).  Runs until
+ * state->sequencer_running drops to zero AND the queue is empty, so any
+ * actions enqueued after shutdown signal still complete. */
+static void *output_sequencer_thread_main(void *arg)
+{
+    ksi_daemon_state *state = arg;
+    struct pollfd pfd;
+
+    if (state == NULL) {
+        return NULL;
+    }
+
+    pfd.fd = state->output_queue.wake_read_fd;
+    pfd.events = POLLIN;
+
+    for (;;) {
+        ksi_output_action action;
+        bool keep;
+
+        /* Drain wake bytes first, THEN pop.  Reversing this order races: a
+         * producer could push (then write wake byte) between an empty pop
+         * and a subsequent drain_wake, after which poll() would block even
+         * though the queue has work. */
+        output_queue_drain_wake(&state->output_queue);
+
+        while (output_queue_pop(&state->output_queue, &action)) {
+            if (action.type == KSI_OUTPUT_ACTION_REPLAY) {
+                if (state->backend != NULL && state->backend->replay_hook_event != NULL) {
+                    if (state->backend->replay_hook_event(action.hook_type, &action.replay_payload) != 0) {
+                        fprintf(stderr, "sequencer: replay failed\n");
+                    }
+                }
+            } else if (action.type == KSI_OUTPUT_ACTION_SYNTH) {
+                if (state->backend != NULL && state->backend->send_input != NULL) {
+                    if (state->backend->send_input(action.synth_inputs, action.synth_count, action.synth_flags) != 0) {
+                        fprintf(stderr, "sequencer: synth failed\n");
+                    }
+                }
+
+                free(action.synth_inputs);
+            }
+        }
+
+        keep = atomic_load(&state->sequencer_running) != 0;
+
+        if (!keep) {
+            break;
+        }
+
+        /* 100ms cap so the shutdown signal is observed promptly even if a
+         * wake byte was lost (e.g. write coalesced into an already-full pipe). */
+        (void)poll(&pfd, 1, 100);
+    }
+
+    return NULL;
+}
+
+/* ------------------------------------------------------------------------
+ * Hook lane queues
+ *
+ * Action queue: main thread pushes ksi_lane_event* onto a capped linked list.
+ * Decision queue: main thread pushes ksi_lane_decision* for the single
+ * in-flight event being delivered to a hook subscriber.
+ * ----------------------------------------------------------------------- */
+
+static int lane_action_queue_init(ksi_lane_action_queue *q)
+{
+    int pipe_fds[2];
+
+    if (q == NULL) {
+        return -1;
+    }
+
+    memset(q, 0, sizeof(*q));
+    q->wake_read_fd = -1;
+    q->wake_write_fd = -1;
+
+    if (pthread_mutex_init(&q->mutex, NULL) != 0) {
+        return -1;
+    }
+
+    q->mutex_initialized = true;
+
+    if (pipe(pipe_fds) != 0) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+        return -1;
+    }
+
+    q->wake_read_fd = pipe_fds[0];
+    q->wake_write_fd = pipe_fds[1];
+
+    {
+        int fl;
+        fl = fcntl(q->wake_read_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(q->wake_read_fd, F_SETFL, fl | O_NONBLOCK);
+        fl = fcntl(q->wake_write_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(q->wake_write_fd, F_SETFL, fl | O_NONBLOCK);
+    }
+
+    return 0;
+}
+
+static bool lane_action_queue_push(ksi_lane_action_queue *q, ksi_lane_event *event)
+{
+    ksi_lane_action_node *node;
+    uint8_t byte = 1;
+
+    if (q == NULL || event == NULL || !q->mutex_initialized) {
+        return false;
+    }
+
+    node = malloc(sizeof(*node));
+
+    if (node == NULL) {
+        return false;
+    }
+
+    node->event = event;
+    node->next = NULL;
+
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->count >= KSI_MAX_LANE_ACTIONS) {
+        pthread_mutex_unlock(&q->mutex);
+        free(node);
+        return false;
+    }
+
+    if (q->tail != NULL) {
+        q->tail->next = node;
+    } else {
+        q->head = node;
+    }
+
+    q->tail = node;
+    q->count++;
+    pthread_mutex_unlock(&q->mutex);
+
+    if (q->wake_write_fd >= 0) {
+        (void)write(q->wake_write_fd, &byte, sizeof(byte));
+    }
+
+    return true;
+}
+
+static bool lane_action_queue_pop(ksi_lane_action_queue *q, ksi_lane_event **out)
+{
+    ksi_lane_action_node *node;
+
+    if (q == NULL || out == NULL || !q->mutex_initialized) {
+        return false;
+    }
+
+    pthread_mutex_lock(&q->mutex);
+
+    node = q->head;
+
+    if (node != NULL) {
+        q->head = node->next;
+
+        if (q->head == NULL) {
+            q->tail = NULL;
+        }
+
+        if (q->count > 0u) {
+            q->count--;
+        }
+    }
+
+    pthread_mutex_unlock(&q->mutex);
+
+    if (node == NULL) {
+        return false;
+    }
+
+    *out = node->event;
+    free(node);
+    return true;
+}
+
+static void lane_action_queue_wake(const ksi_lane_action_queue *q)
+{
+    uint8_t byte = 1;
+
+    if (q == NULL || q->wake_write_fd < 0) {
+        return;
+    }
+
+    (void)write(q->wake_write_fd, &byte, sizeof(byte));
+}
+
+static void lane_action_queue_drain_wake(const ksi_lane_action_queue *q)
+{
+    uint8_t buffer[64];
+
+    if (q == NULL || q->wake_read_fd < 0) {
+        return;
+    }
+
+    while (read(q->wake_read_fd, buffer, sizeof(buffer)) > 0) {
+    }
+}
+
+static void lane_event_release_send_refs(ksi_lane_event *event)
+{
+    if (event == NULL) {
+        return;
+    }
+
+    for (size_t i = 0; i < event->subscriber_count; i++) {
+        if (event->subscriber_send_refs[i] != NULL) {
+            hook_send_ref_release(event->subscriber_send_refs[i]);
+            event->subscriber_send_refs[i] = NULL;
+        }
+    }
+}
+
+static void lane_action_queue_close(ksi_lane_action_queue *q)
+{
+    ksi_lane_action_node *node;
+
+    if (q == NULL) {
+        return;
+    }
+
+    node = q->head;
+    q->head = NULL;
+    q->tail = NULL;
+    q->count = 0u;
+
+    while (node != NULL) {
+        ksi_lane_action_node *next = node->next;
+        lane_event_release_send_refs(node->event);
+        free(node->event);
+        free(node);
+        node = next;
+    }
+
+    if (q->wake_read_fd >= 0) {
+        close(q->wake_read_fd);
+        q->wake_read_fd = -1;
+    }
+
+    if (q->wake_write_fd >= 0) {
+        close(q->wake_write_fd);
+        q->wake_write_fd = -1;
+    }
+
+    if (q->mutex_initialized) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+    }
+}
+
+static int lane_decision_queue_init(ksi_lane_decision_queue *q)
+{
+    int pipe_fds[2];
+
+    if (q == NULL) {
+        return -1;
+    }
+
+    memset(q, 0, sizeof(*q));
+    q->wake_read_fd = -1;
+    q->wake_write_fd = -1;
+
+    if (pthread_mutex_init(&q->mutex, NULL) != 0) {
+        return -1;
+    }
+
+    q->mutex_initialized = true;
+
+    if (pipe(pipe_fds) != 0) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+        return -1;
+    }
+
+    q->wake_read_fd = pipe_fds[0];
+    q->wake_write_fd = pipe_fds[1];
+
+    {
+        int fl;
+        fl = fcntl(q->wake_read_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(q->wake_read_fd, F_SETFL, fl | O_NONBLOCK);
+        fl = fcntl(q->wake_write_fd, F_GETFL);
+        if (fl >= 0) (void)fcntl(q->wake_write_fd, F_SETFL, fl | O_NONBLOCK);
+    }
+
+    return 0;
+}
+
+static void lane_decision_queue_wake(const ksi_lane_decision_queue *q)
+{
+    uint8_t byte = 1;
+
+    if (q == NULL || q->wake_write_fd < 0) {
+        return;
+    }
+
+    (void)write(q->wake_write_fd, &byte, sizeof(byte));
+}
+
+static void lane_decision_queue_drain_wake(const ksi_lane_decision_queue *q)
+{
+    uint8_t buffer[64];
+
+    if (q == NULL || q->wake_read_fd < 0) {
+        return;
+    }
+
+    while (read(q->wake_read_fd, buffer, sizeof(buffer)) > 0) {
+    }
+}
+
+/* Pushes the decision and writes the HOOK_DECISION success ack while holding
+ * g_ipc_send_mutex, so the lane thread cannot acquire that mutex to send the
+ * next HOOK_EVENT on the same stream until the ack has already been written.
+ * This preserves the "ack precedes next event" invariant the hook client
+ * depends on, without holding the decision-queue mutex through an IPC write. */
+static bool lane_decision_queue_push_with_ack(
+    ksi_lane_decision_queue *q,
+    ksi_lane_decision *decision,
+    int client_fd,
+    const ksi_message_header *request,
+    uint32_t detail)
+{
+    ksi_lane_decision_node *node;
+    ksi_status_payload ack_payload;
+
+    if (q == NULL || decision == NULL || request == NULL || !q->mutex_initialized) {
+        return false;
+    }
+
+    node = malloc(sizeof(*node));
+
+    if (node == NULL) {
+        return false;
+    }
+
+    node->decision = decision;
+    node->next = NULL;
+
+    ack_payload.status = 0;
+    ack_payload.detail = detail;
+
+    pthread_mutex_lock(&g_ipc_send_mutex);
+
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->tail != NULL) {
+        q->tail->next = node;
+    } else {
+        q->head = node;
+    }
+
+    q->tail = node;
+    pthread_mutex_unlock(&q->mutex);
+
+    /* Ack write is the unlocked variant because we already hold the IPC mutex.
+     * The lane can pop the decision the moment we wake it below, but any send
+     * it attempts must serialize behind us on g_ipc_send_mutex. */
+    (void)ksi_ipc_send_framed_message(
+        client_fd, KSI_MESSAGE_HOOK_DECISION,
+        request->client_id, request->correlation_id,
+        &ack_payload, sizeof(ack_payload));
+
+    pthread_mutex_unlock(&g_ipc_send_mutex);
+
+    lane_decision_queue_wake(q);
+    return true;
+}
+
+static bool lane_decision_queue_pop(ksi_lane_decision_queue *q, ksi_lane_decision **out)
+{
+    ksi_lane_decision_node *node;
+
+    if (q == NULL || out == NULL || !q->mutex_initialized) {
+        return false;
+    }
+
+    pthread_mutex_lock(&q->mutex);
+
+    node = q->head;
+
+    if (node != NULL) {
+        q->head = node->next;
+
+        if (q->head == NULL) {
+            q->tail = NULL;
+        }
+    }
+
+    pthread_mutex_unlock(&q->mutex);
+
+    if (node == NULL) {
+        return false;
+    }
+
+    *out = node->decision;
+    free(node);
+    return true;
+}
+
+static void lane_decision_queue_close(ksi_lane_decision_queue *q)
+{
+    ksi_lane_decision_node *node;
+
+    if (q == NULL) {
+        return;
+    }
+
+    node = q->head;
+    q->head = NULL;
+    q->tail = NULL;
+
+    while (node != NULL) {
+        ksi_lane_decision_node *next = node->next;
+        free(node->decision);
+        free(node);
+        node = next;
+    }
+
+    if (q->wake_read_fd >= 0) {
+        close(q->wake_read_fd);
+        q->wake_read_fd = -1;
+    }
+
+    if (q->wake_write_fd >= 0) {
+        close(q->wake_write_fd);
+        q->wake_write_fd = -1;
+    }
+
+    if (q->mutex_initialized) {
+        pthread_mutex_destroy(&q->mutex);
+        q->mutex_initialized = false;
+    }
+}
+
+/* Posts a hook delivery failure back to the main thread so it can update the
+ * client's consecutive_hook_failures and potentially evict its subscriptions. */
+static void lane_post_hook_failure(
+    ksi_daemon_state *state,
+    int client_fd,
+    uint64_t connection_id,
+    const char *reason)
+{
+    ksi_daemon_command cmd;
+
+    if (state == NULL || state->commands == NULL) {
+        return;
+    }
+
+    memset(&cmd, 0, sizeof(cmd));
+    cmd.type = KSI_DAEMON_COMMAND_LANE_HOOK_FAILURE;
+    cmd.client_fd = client_fd;
+    cmd.connection_id = connection_id;
+    (void)snprintf(cmd.data.hook_failure.reason, sizeof(cmd.data.hook_failure.reason),
+        "%s", reason != NULL ? reason : "unknown");
+    (void)command_queue_push(state->commands, &cmd);
+}
+
+/* Called only from the lane's thread (lane_thread_main). Reads decisions and
+ * pushes output actions through queues that are themselves thread-safe; does
+ * not touch state->clients[] (lanes work from the snapshot in `event`). */
+static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
+{
+    uint32_t final_decision = KSI_HOOK_DECISION_PASS;
+    ksi_input modify_inputs[KSI_MAX_MODIFY_INPUTS];
+    uint32_t modify_count = 0u;
+    bool finalized = false;
+
+    atomic_store(&lane->current_event_id, event->event_id);
+
+    /* During shutdown skip the per-subscriber decision dance; physical events
+     * still need to reach uinput so they replay as PASS. */
+    if (atomic_load(&lane->shutting_down)
+        || event->generation != atomic_load(&lane->flush_generation)) {
+        goto finalize;
+    }
+
+    for (size_t i = 0; i < event->subscriber_count && !finalized; i++) {
+        int response_fd = event->subscriber_response_fds[i];
+        ksi_hook_send_ref *send_ref = event->subscriber_send_refs[i];
+        int send_fd = send_ref != NULL ? send_ref->fd : -1;
+        uint64_t conn_id = event->subscriber_connection_ids[i];
+        bool got_decision = false;
+        uint64_t deadline;
+        ksi_lane_decision *decision = NULL;
+
+        if (send_fd < 0) {
+            lane_post_hook_failure(lane->state, response_fd, conn_id, "send");
+            continue;
+        }
+
+        if (ipc_send_locked(send_fd, KSI_MESSAGE_HOOK_EVENT, 0,
+                event->event_id, &event->payload, event->payload_size) != 0) {
+            hook_send_ref_release(send_ref);
+            event->subscriber_send_refs[i] = NULL;
+            lane_post_hook_failure(lane->state, response_fd, conn_id, "send");
+            continue;
+        }
+
+        deadline = monotonic_ms() + KSI_HOOK_DECISION_TIMEOUT_MS;
+
+        while (!got_decision) {
+            uint64_t now = monotonic_ms();
+            int timeout_ms;
+            struct pollfd dpfd;
+
+            if (now >= deadline
+                || atomic_load(&lane->shutting_down)
+                || event->generation != atomic_load(&lane->flush_generation)) {
+                break;
+            }
+
+            timeout_ms = (int)(deadline - now);
+
+            if (timeout_ms > 100) {
+                timeout_ms = 100;
+            }
+
+            dpfd.fd = lane->decision_queue.wake_read_fd;
+            dpfd.events = POLLIN;
+            (void)poll(&dpfd, 1, timeout_ms);
+            lane_decision_queue_drain_wake(&lane->decision_queue);
+
+            for (;;) {
+                ksi_lane_decision *candidate = NULL;
+
+                if (!lane_decision_queue_pop(&lane->decision_queue, &candidate)) {
+                    break;
+                }
+
+                if (candidate == NULL) {
+                    continue;
+                }
+
+                if (candidate->event_id == event->event_id
+                    && candidate->responder_fd == response_fd
+                    && candidate->responder_connection_id == conn_id) {
+                    decision = candidate;
+                    got_decision = true;
+                    break;
+                }
+
+                /* Stale decision (wrong event or wrong responder) — drop. */
+                free(candidate);
+            }
+        }
+
+        if (!got_decision) {
+            hook_send_ref_release(send_ref);
+            event->subscriber_send_refs[i] = NULL;
+
+            if (atomic_load(&lane->shutting_down)
+                || event->generation != atomic_load(&lane->flush_generation)) {
+                break;
+            }
+
+            lane_post_hook_failure(lane->state, response_fd, conn_id, "timeout");
+            continue;
+        }
+
+        hook_send_ref_release(send_ref);
+        event->subscriber_send_refs[i] = NULL;
+
+        if (decision->decision == KSI_HOOK_DECISION_BLOCK) {
+            final_decision = KSI_HOOK_DECISION_BLOCK;
+            finalized = true;
+        } else if (decision->decision == KSI_HOOK_DECISION_MODIFY) {
+            final_decision = KSI_HOOK_DECISION_MODIFY;
+            modify_count = decision->input_count;
+
+            if (modify_count > KSI_MAX_MODIFY_INPUTS) {
+                modify_count = KSI_MAX_MODIFY_INPUTS;
+            }
+
+            if (modify_count > 0u) {
+                memcpy(modify_inputs, decision->inputs,
+                    (size_t)modify_count * sizeof(modify_inputs[0]));
+            }
+
+            finalized = true;
+        }
+        /* else PASS — fall through to next subscriber. */
+
+        free(decision);
+    }
+
+finalize:
+    lane_event_release_send_refs(event);
+
+    if (final_decision == KSI_HOOK_DECISION_PASS && !event->is_injected) {
+        if (!output_queue_push_replay(&lane->state->output_queue,
+                event->hook_type, &event->payload, event->payload_size)) {
+            fprintf(stderr, "lane: replay enqueue failed for event %llu\n",
+                (unsigned long long)event->event_id);
+        }
+    } else if (final_decision == KSI_HOOK_DECISION_MODIFY && modify_count > 0u) {
+        if (!output_queue_push_synth(&lane->state->output_queue,
+                modify_inputs, modify_count, KSI_SYNTH_FLAG_BYPASS_HOOK)) {
+            fprintf(stderr, "lane: modify synth enqueue failed for event %llu\n",
+                (unsigned long long)event->event_id);
+        }
+    }
+
+    atomic_store(&lane->current_event_id, (uint_least64_t)0);
+}
+
+static void *lane_thread_main(void *arg)
+{
+    ksi_hook_lane *lane = arg;
+    struct pollfd pfd;
+
+    if (lane == NULL) {
+        return NULL;
+    }
+
+    pfd.fd = lane->action_queue.wake_read_fd;
+    pfd.events = POLLIN;
+
+    for (;;) {
+        ksi_lane_event *event = NULL;
+
+        if (!lane_action_queue_pop(&lane->action_queue, &event)) {
+            if (atomic_load(&lane->shutting_down)) {
+                ksi_lane_decision *decision;
+
+                while (lane_decision_queue_pop(&lane->decision_queue, &decision)) {
+                    free(decision);
+                }
+
+                return NULL;
+            }
+
+            (void)poll(&pfd, 1, 1000);
+            lane_action_queue_drain_wake(&lane->action_queue);
+            continue;
+        }
+
+        lane_process_event(lane, event);
+        free(event);
+    }
+}
+
+static ksi_hook_lane *lane_for_hook_type(ksi_daemon_state *state, uint32_t hook_type)
+{
+    if (state == NULL) {
+        return NULL;
+    }
+
+    if (hook_type == KSI_HOOK_KEYBOARD_LL) {
+        return &state->kbd_lane;
+    }
+
+    if (hook_type == KSI_HOOK_MOUSE_LL) {
+        return &state->mouse_lane;
+    }
+
+    return NULL;
+}
+
+static ksi_hook_lane *lane_for_event_id(ksi_daemon_state *state, uint64_t event_id)
+{
+    if (state == NULL || event_id == 0u) {
+        return NULL;
+    }
+
+    if (atomic_load(&state->kbd_lane.current_event_id) == event_id) {
+        return &state->kbd_lane;
+    }
+
+    if (atomic_load(&state->mouse_lane.current_event_id) == event_id) {
+        return &state->mouse_lane;
+    }
+
+    return NULL;
+}
+
+static int lane_init(ksi_hook_lane *lane, ksi_daemon_state *state, uint32_t hook_type)
+{
+    if (lane == NULL) {
+        return -1;
+    }
+
+    memset(lane, 0, sizeof(*lane));
+    lane->hook_type = hook_type;
+    lane->state = state;
+
+    if (lane_action_queue_init(&lane->action_queue) != 0) {
+        return -1;
+    }
+
+    if (lane_decision_queue_init(&lane->decision_queue) != 0) {
+        lane_action_queue_close(&lane->action_queue);
+        return -1;
+    }
+
+    atomic_store(&lane->current_event_id, (uint_least64_t)0);
+    return 0;
+}
+
+static int lane_start(ksi_hook_lane *lane)
+{
+    if (lane == NULL) {
+        return -1;
+    }
+
+    if (pthread_create(&lane->thread, NULL, lane_thread_main, lane) != 0) {
+        return -1;
+    }
+
+    lane->thread_started = true;
+    return 0;
+}
+
+static void lane_shutdown(ksi_hook_lane *lane)
+{
+    if (lane == NULL) {
+        return;
+    }
+
+    if (lane->thread_started) {
+        /* Set the shutdown flag first so any in-flight event in lane_process_
+         * event breaks out of its decision wait promptly, then wake the lane
+         * so it can drain any queued events and exit once the queue is empty. */
+        atomic_store(&lane->shutting_down, 1);
+        lane_action_queue_wake(&lane->action_queue);
+        pthread_join(lane->thread, NULL);
+        lane->thread_started = false;
+    }
+
+    lane_action_queue_close(&lane->action_queue);
+    lane_decision_queue_close(&lane->decision_queue);
+}
+
+static void lane_flush_passthrough(ksi_hook_lane *lane)
+{
+    if (lane == NULL) {
+        return;
+    }
+
+    atomic_fetch_add(&lane->flush_generation, 1u);
+    lane_decision_queue_wake(&lane->decision_queue);
+    lane_action_queue_wake(&lane->action_queue);
+}
+
+/* ------------------------------------------------------------------------ */
 
 static void send_status(
     int client_fd,
@@ -755,7 +1924,7 @@ static void send_status(
         .detail = detail,
     };
 
-    (void)ksi_ipc_send_framed_message(
+    (void)ipc_send_locked(
         client_fd,
         response_type,
         request->client_id,
@@ -776,7 +1945,7 @@ static void send_hello_status(
         .granted_capabilities = granted_capabilities,
     };
 
-    (void)ksi_ipc_send_framed_message(
+    (void)ipc_send_locked(
         client_fd,
         KSI_MESSAGE_CLIENT_HELLO,
         client_id,
@@ -785,29 +1954,23 @@ static void send_hello_status(
         sizeof(payload));
 }
 
-static uint32_t expand_requested_capabilities(uint32_t requested)
+static uint32_t permission_capabilities_for_request(uint32_t requested)
 {
-    if ((requested & KSI_CAP_HOOK_KEYBOARD) != 0u) {
-        requested |= KSI_CAP_SYNTH_KEYBOARD;
-    }
-
-    if ((requested & KSI_CAP_HOOK_MOUSE) != 0u) {
-        requested |= KSI_CAP_SYNTH_MOUSE;
-    }
-
     return requested;
 }
 
 /* Returns the capabilities currently granted from the store without prompting.
- * Sets *out_missing to the subset of expanded_requested that is not yet granted. */
+ * Sets *out_missing to the grouped permission capabilities not yet granted. */
 static uint32_t check_capabilities_sync(
     ksi_daemon_state *state,
     const ksi_client *client,
     uint32_t requested,
+    bool force_prompt,
     uint32_t *out_missing)
 {
     uint32_t expanded;
     uint32_t granted;
+    uint32_t missing;
 
     if (out_missing != NULL) {
         *out_missing = 0u;
@@ -817,16 +1980,24 @@ static uint32_t check_capabilities_sync(
         return 0u;
     }
 
-    expanded = expand_requested_capabilities(requested) & state->available_capabilities;
+    expanded = permission_capabilities_for_request(requested) & state->available_capabilities;
 
     if (expanded == 0u || !client->has_identity || state->permissions == NULL) {
         return 0u;
     }
 
     granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash) & expanded;
+    missing = expanded & ~granted;
+
+    /* Persistent denials suppress prompts until the user explicitly opts back
+     * in via RequestCapabilities(forcePrompt=true) or the keysharp-trust CLI. */
+    if (!force_prompt) {
+        missing &= ~ksi_permissions_get_denied_capabilities(
+            state->permissions, client->uid, client->exe_hash);
+    }
 
     if (out_missing != NULL) {
-        *out_missing = expanded & ~granted;
+        *out_missing = missing;
     }
 
     return granted;
@@ -847,8 +2018,8 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
     }
 
     decision = command->data.prompt_done.decision;
-    requested = command->data.prompt_done.requested_capabilities;
-    missing = command->data.prompt_done.missing_capabilities;
+	requested = command->data.prompt_done.requested_capabilities;
+	missing = command->data.prompt_done.missing_capabilities;
 
     client_index = find_client_index_by_connection(
         state,
@@ -868,16 +2039,22 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     client->pending_hello_valid = false;
 
-    if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-        (void)ksi_permissions_grant_session(
-            state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
-    } else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
-        (void)ksi_permissions_grant_persistent(
-            state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
-    }
+	if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
+		(void)ksi_permissions_grant_session(
+			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
+	} else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
+		(void)ksi_permissions_grant_persistent(
+			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
+	} else {
+		/* Persistent deny: matches the macOS model — the user must clear it
+		 * explicitly (via RequestCapabilities(forcePrompt=true) or the
+		 * keysharp-trust CLI) before we will prompt again. */
+		(void)ksi_permissions_deny_persistent(
+			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
+	}
 
     granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash)
-              & (expand_requested_capabilities(requested) & state->available_capabilities);
+              & (permission_capabilities_for_request(requested) & state->available_capabilities);
 
     if (decision == KSI_PERMISSION_DECISION_DENY || (granted & requested) != requested) {
         client->authenticated = false;
@@ -888,8 +2065,8 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
         return;
     }
 
-    ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
-    client->authenticated = true;
+	ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
+	client->authenticated = true;
     client->granted_capabilities = granted;
     send_hello_status(client->fd,
         client->pending_hello_client_id, client->pending_hello_correlation_id,
@@ -943,10 +2120,12 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
     }
 
     /* There is a buffered CLIENT_HELLO — process it now that we have identity. */
-    {
-        uint32_t requested = client->pending_hello_requested;
-        uint32_t missing = 0u;
-        uint32_t granted = check_capabilities_sync(state, client, requested, &missing);
+	{
+		uint32_t requested = client->pending_hello_requested;
+		uint32_t flags = client->pending_hello_flags;
+		bool force_prompt = (flags & KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT) != 0u;
+		uint32_t missing = 0u;
+		uint32_t granted = check_capabilities_sync(state, client, requested, force_prompt, &missing);
 
         if (missing != 0u && state->permissions != NULL) {
             /* Need to prompt. Transition to AWAITING_PROMPT and start the worker. */
@@ -977,9 +2156,9 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
             return;
         }
 
-        if (granted != 0u) {
-            ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
-        }
+		if (granted != 0u) {
+			ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
+		}
 
         client->authenticated = true;
         client->granted_capabilities = granted;
@@ -1112,48 +2291,20 @@ static int update_grab_state(ksi_daemon_state *state)
         : state->backend->set_block_input_mask(block_mask);
 }
 
-static bool pending_hook_event_is_injected(const ksi_daemon_state *state)
-{
-    if (state == NULL || !state->pending_active) {
-        return false;
-    }
-
-    if (state->pending_hook_type == KSI_HOOK_KEYBOARD_LL) {
-        return (state->pending_payload.event.keyboard.flags & KSI_LLKHF_INJECTED) != 0;
-    }
-
-    if (state->pending_hook_type == KSI_HOOK_MOUSE_LL) {
-        return (state->pending_payload.event.mouse.flags & KSI_LLMHF_INJECTED) != 0;
-    }
-
-    return false;
-}
-
 static void clear_hook_state(ksi_daemon_state *state)
 {
     if (state == NULL) {
         return;
     }
 
+    lane_flush_passthrough(&state->kbd_lane);
+    lane_flush_passthrough(&state->mouse_lane);
+
     for (nfds_t i = 0; i < state->client_count; i++) {
         state->clients[i].hook_subscriptions = 0;
         state->clients[i].block_input_mask = 0;
         state->clients[i].consecutive_hook_failures = 0;
     }
-
-    state->pending_active = false;
-    state->pending_event_id = 0;
-    state->pending_hook_type = 0;
-    state->pending_final_decision = KSI_HOOK_DECISION_PASS;
-    state->pending_client_index = 0;
-    state->pending_deadline_ms = 0;
-    state->pending_payload_size = 0;
-    state->pending_modify_input_count = 0;
-    state->hook_queue_head = 0;
-    state->hook_queue_count = 0;
-    clear_synth_queue(state);
-    memset(&state->pending_payload, 0, sizeof(state->pending_payload));
-    memset(state->pending_modify_inputs, 0, sizeof(state->pending_modify_inputs));
 }
 
 static void record_client_hook_success(ksi_daemon_state *state, nfds_t index)
@@ -1205,437 +2356,87 @@ static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, co
     }
 }
 
-static void process_synth_request(ksi_daemon_state *state, ksi_pending_synth_request *request)
-{
-    if (state == NULL || request == NULL) {
-        return;
-    }
-
-    if (state->backend != NULL && state->backend->send_input != NULL) {
-        if (state->backend->send_input(request->inputs, request->count, request->flags) != 0) {
-            fprintf(stderr, "inputd: queued synthesis request failed\n");
-        }
-    }
-
-    free(request->inputs);
-    request->inputs = NULL;
-}
-
-static bool enqueue_synth_request(
-    ksi_daemon_state *state,
-    const ksi_input *inputs,
-    uint32_t count,
-    uint32_t flags)
-{
-    ksi_pending_synth_request *request;
-
-    if (state == NULL) {
-        return false;
-    }
-
-    if (state->synth_queue_count >= KSI_MAX_PENDING_HOOK_EVENTS) {
-        return false;
-    }
-
-    {
-        size_t tail = (state->synth_queue_head + state->synth_queue_count) % KSI_MAX_PENDING_HOOK_EVENTS;
-        request = &state->synth_queue[tail];
-        state->synth_queue_count++;
-    }
-    memset(request, 0, sizeof(*request));
-    request->order_id = state->next_order_id++;
-    request->flags = flags;
-    request->count = count;
-
-    if (count != 0) {
-        request->inputs = malloc((size_t)count * sizeof(inputs[0]));
-
-        if (request->inputs == NULL) {
-            state->synth_queue_count--;
-            return false;
-        }
-
-        memcpy(request->inputs, inputs, (size_t)count * sizeof(inputs[0]));
-    }
-
-    return true;
-}
-
-static void pop_first_hook_event(ksi_daemon_state *state)
-{
-    const ksi_pending_hook_event *head;
-
-    if (state == NULL || state->hook_queue_count == 0) {
-        return;
-    }
-
-    head = &state->hook_queue[state->hook_queue_head];
-
-    state->pending_event_id = head->event_id;
-    state->pending_hook_type = head->hook_type;
-    state->pending_final_decision = KSI_HOOK_DECISION_PASS;
-    state->pending_client_index = 0;
-    state->pending_deadline_ms = 0;
-    state->pending_payload = head->payload;
-    state->pending_payload_size = head->payload_size;
-    state->pending_modify_input_count = 0;
-    state->pending_active = true;
-
-    state->hook_queue_head = (state->hook_queue_head + 1) % KSI_MAX_PENDING_HOOK_EVENTS;
-    state->hook_queue_count--;
-    (void)send_pending_event_to_next_client(state);
-}
-
-static void pop_first_synth_request(ksi_daemon_state *state)
-{
-    ksi_pending_synth_request request;
-
-    if (state == NULL || state->synth_queue_count == 0) {
-        return;
-    }
-
-    request = state->synth_queue[state->synth_queue_head];
-    state->synth_queue_head = (state->synth_queue_head + 1) % KSI_MAX_PENDING_HOOK_EVENTS;
-    state->synth_queue_count--;
-    process_synth_request(state, &request);
-}
-
-static void process_next_queued_input(ksi_daemon_state *state)
-{
-    bool have_hook;
-    bool have_synth;
-
-    if (state == NULL) {
-        return;
-    }
-
-    /* Loop so that consecutive synthesis requests are all drained before returning.
-     * Without this loop, only the first queued synthesis item was processed per call:
-     * the second synthesis request (e.g. the KeyDownAndUp that restores a toggle key)
-     * would be stranded until a future finalize_pending_hook_event fired — which
-     * never happens when the first synthesis used BypassHook (no loopback events). */
-    while (!state->pending_active) {
-        have_hook = state->hook_queue_count > 0;
-        have_synth = state->synth_queue_count > 0;
-
-        if (!have_hook && !have_synth) {
-            return;
-        }
-
-        if (have_hook
-            && (!have_synth || state->hook_queue[state->hook_queue_head].order_id
-                               <= state->synth_queue[state->synth_queue_head].order_id)) {
-            pop_first_hook_event(state);
-        } else {
-            pop_first_synth_request(state);
-        }
-    }
-}
-
-/* On a clean shutdown, replay any grabbed physical events that are still
- * pending so no input is permanently lost.  Injected events are already
- * synthetic and do not need to be forwarded.  This must be called while
- * the backend (and therefore uinput) is still running. */
-static void flush_hook_queue_on_shutdown(ksi_daemon_state *state)
-{
-    size_t i;
-
-    if (state == NULL || state->backend == NULL
-        || state->backend->replay_hook_event == NULL) {
-        return;
-    }
-
-    /* Replay the currently-dispatched event if it was a physical key/button. */
-    if (state->pending_active && !pending_hook_event_is_injected(state)) {
-        if (state->backend->replay_hook_event(
-                state->pending_hook_type, &state->pending_payload) != 0) {
-            fprintf(stderr, "inputd: shutdown replay of pending event failed\n");
-        }
-    }
-
-    /* Replay any additional queued physical events that were not yet dispatched. */
-    for (i = 0; i < state->hook_queue_count; i++) {
-        size_t idx = (state->hook_queue_head + i) % KSI_MAX_PENDING_HOOK_EVENTS;
-        const ksi_pending_hook_event *ev = &state->hook_queue[idx];
-        bool is_injected;
-
-        if (ev->hook_type == KSI_HOOK_KEYBOARD_LL) {
-            is_injected = (ev->payload.event.keyboard.flags & KSI_LLKHF_INJECTED) != 0;
-        } else if (ev->hook_type == KSI_HOOK_MOUSE_LL) {
-            is_injected = (ev->payload.event.mouse.flags & KSI_LLMHF_INJECTED) != 0;
-        } else {
-            continue;
-        }
-
-        if (!is_injected) {
-            if (state->backend->replay_hook_event(ev->hook_type, &ev->payload) != 0) {
-                fprintf(stderr, "inputd: shutdown replay of queued event %llu failed\n",
-                    (unsigned long long)ev->event_id);
-            }
-        }
-    }
-}
-
-static void finalize_pending_hook_event(ksi_daemon_state *state, const char *reason)
-{
-    if (state == NULL || !state->pending_active) {
-        return;
-    }
-
-    if (g_verbose) {
-        printf("hook event %llu final decision=%u reason=%s\n",
-            (unsigned long long)state->pending_event_id,
-            state->pending_final_decision,
-            reason);
-    }
-
-    if (state->pending_final_decision == KSI_HOOK_DECISION_PASS
-        && !pending_hook_event_is_injected(state)
-        && state->backend != NULL
-        && state->backend->replay_hook_event != NULL) {
-        if (state->backend->replay_hook_event(
-                state->pending_hook_type,
-                &state->pending_payload) != 0) {
-            fprintf(stderr,
-                "hook event %llu replay failed\n",
-                (unsigned long long)state->pending_event_id);
-        }
-    } else if (state->pending_final_decision == KSI_HOOK_DECISION_MODIFY
-        && state->backend != NULL
-        && state->backend->send_input != NULL
-        && state->pending_modify_input_count > 0) {
-        if (state->backend->send_input(
-                state->pending_modify_inputs,
-                state->pending_modify_input_count,
-                KSI_SYNTH_FLAG_BYPASS_HOOK) != 0) {
-            fprintf(stderr,
-                "hook event %llu modify synthesis failed\n",
-                (unsigned long long)state->pending_event_id);
-        }
-    }
-
-    state->pending_active = false;
-    process_next_queued_input(state);
-}
-
-static bool client_matches_pending_event(const ksi_daemon_state *state, nfds_t index)
-{
-    uint32_t subscription_bit;
-
-    if (state == NULL) {
-        return false;
-    }
-
-    if (index >= state->client_count) {
-        return false;
-    }
-
-    subscription_bit = hook_type_to_cap_bit(state->pending_hook_type);
-
-    if (subscription_bit == 0) {
-        return false;
-    }
-
-    return (state->clients[index].hook_subscriptions & subscription_bit) != 0;
-}
-
-static bool send_pending_event_to_next_client(ksi_daemon_state *state)
-{
-    if (state == NULL || !state->pending_active) {
-        return false;
-    }
-
-    while (state->pending_client_index < state->client_count) {
-        ksi_client *client = &state->clients[state->pending_client_index];
-
-        if (!client_matches_pending_event(state, state->pending_client_index)) {
-            state->pending_client_index++;
-            continue;
-        }
-
-        if (ksi_ipc_send_framed_message(
-                client->fd,
-                KSI_MESSAGE_HOOK_EVENT,
-                0,
-                state->pending_event_id,
-                &state->pending_payload,
-                state->pending_payload_size) != 0) {
-            record_client_hook_failure(state, state->pending_client_index, "send");
-            state->pending_client_index++;
-            continue;
-        }
-
-        state->pending_deadline_ms = monotonic_ms() + KSI_HOOK_DECISION_TIMEOUT_MS;
-        return true;
-    }
-
-    finalize_pending_hook_event(state, "complete");
-    return false;
-}
-
-static void start_pending_hook_event(
+/* Constructs a ksi_lane_event snapshotting the current hook subscribers and
+ * pushes it onto the matching lane's action queue.  If allocation or enqueue
+ * fails, the event is dropped; replaying it would violate the hook contract by
+ * turning a backpressured hooked key into delayed text later.
+ *
+ * Called only from the main thread (via daemon_handle_hook_event from the
+ * platform backend).  Reads state->clients[] without locking — that array is
+ * owned by the main thread. */
+static void dispatch_hook_event_to_lane(
     ksi_daemon_state *state,
     uint32_t hook_type,
     const void *event,
-    size_t event_size)
+    size_t event_size,
+    bool is_injected)
 {
-    if (state == NULL || event_size > sizeof(state->pending_payload.event)) {
+    ksi_hook_lane *lane;
+    ksi_lane_event *lane_event;
+    uint32_t subscription_bit;
+
+    lane = lane_for_hook_type(state, hook_type);
+
+    if (lane == NULL || event_size > sizeof(lane_event->payload.event)) {
         return;
     }
 
-    if (state->pending_active) {
-        ksi_pending_hook_event *queued_event;
+    subscription_bit = hook_type_to_cap_bit(hook_type);
 
-        /* Coalesce consecutive relative MOUSEMOVE events in the queue.
-         * At high polling rates (125–1000 Hz) many EV_REL frames can
-         * accumulate while a keyboard hook decision is in flight.  Each
-         * queued MOUSEMOVE requires a full C# round-trip (~5–10 ms), so
-         * 100 queued moves = ~1 second of apparent mouse freeze after a
-         * keyboard remap fires.  Merging them into a single entry with
-         * the summed delta eliminates the backlog. */
-        if (hook_type == KSI_HOOK_MOUSE_LL
-            && state->hook_queue_count > 0)
-        {
-            size_t tail_idx = (state->hook_queue_head + state->hook_queue_count - 1)
-                              % KSI_MAX_PENDING_HOOK_EVENTS;
-            ksi_pending_hook_event *tail = &state->hook_queue[tail_idx];
-            const ksi_mouse_hook_event *incoming =
-                (const ksi_mouse_hook_event *)(const void *)event;
-
-            if (tail->hook_type == KSI_HOOK_MOUSE_LL
-                && tail->payload.event.mouse.message == KSI_WM_MOUSEMOVE
-                && incoming->message == KSI_WM_MOUSEMOVE
-                /* Only merge non-absolute, non-injected relative moves. */
-                && (incoming->mouse_data & KSI_MOUSEEVENTF_ABSOLUTE) == 0
-                && (incoming->flags & KSI_LLMHF_INJECTED) == 0
-                && (tail->payload.event.mouse.flags & KSI_LLMHF_INJECTED) == 0)
-            {
-                tail->payload.event.mouse.x += incoming->x;
-                tail->payload.event.mouse.y += incoming->y;
-                tail->payload.event.mouse.time_ms = incoming->time_ms;
-                return;
-            }
-        }
-
-        if (state->hook_queue_count >= KSI_MAX_PENDING_HOOK_EVENTS) {
-            /* Queue full.  Rather than silently losing a physical key/button
-             * press, replay it through uinput immediately with a PASS decision.
-             * Injected events are generated by the script and can be retried, so
-             * those are simply dropped. */
-            bool is_injected;
-
-            if (hook_type == KSI_HOOK_KEYBOARD_LL) {
-                is_injected = (((const ksi_keyboard_hook_event *)event)->flags
-                               & KSI_LLKHF_INJECTED) != 0;
-            } else if (hook_type == KSI_HOOK_MOUSE_LL) {
-                is_injected = (((const ksi_mouse_hook_event *)event)->flags
-                               & KSI_LLMHF_INJECTED) != 0;
-            } else {
-                is_injected = true;
-            }
-
-            if (!is_injected
-                && state->backend != NULL
-                && state->backend->replay_hook_event != NULL) {
-                ksi_hook_event_payload temp;
-                memset(&temp, 0, sizeof(temp));
-                memcpy(&temp.event, event, event_size);
-
-                if (state->backend->replay_hook_event(hook_type, &temp) != 0) {
-                    fprintf(stderr,
-                        "inputd: hook event queue full; bypass replay failed, event lost\n");
-                } else if (g_verbose) {
-                    fprintf(stderr, "inputd: hook event queue full; bypassed hook for physical event\n");
-                }
-            } else {
-                fprintf(stderr, "inputd: hook event queue full; dropped injected event\n");
-            }
-
-            return;
-        }
-
-        {
-            size_t enq_idx = (state->hook_queue_head + state->hook_queue_count)
-                             % KSI_MAX_PENDING_HOOK_EVENTS;
-            queued_event = &state->hook_queue[enq_idx];
-            state->hook_queue_count++;
-        }
-        memset(queued_event, 0, sizeof(*queued_event));
-        queued_event->order_id = state->next_order_id++;
-        queued_event->event_id = state->next_event_id++;
-        queued_event->hook_type = hook_type;
-        queued_event->payload.event_id = queued_event->event_id;
-        queued_event->payload.hook_type = hook_type;
-        memcpy(&queued_event->payload.event, event, event_size);
-        queued_event->payload_size =
-            sizeof(queued_event->payload.event_id)
-            + sizeof(queued_event->payload.hook_type)
-            + sizeof(queued_event->payload.reserved)
-            + event_size;
+    if (subscription_bit == 0u) {
         return;
     }
 
-    memset(&state->pending_payload, 0, sizeof(state->pending_payload));
-    state->pending_event_id = state->next_event_id++;
-    state->next_order_id++;
-    state->pending_hook_type = hook_type;
-    state->pending_final_decision = KSI_HOOK_DECISION_PASS;
-    state->pending_client_index = 0;
-    state->pending_deadline_ms = 0;
-    state->pending_payload.event_id = state->pending_event_id;
-    state->pending_payload.hook_type = hook_type;
-    memcpy(&state->pending_payload.event, event, event_size);
-    state->pending_payload_size =
-        sizeof(state->pending_payload.event_id)
-        + sizeof(state->pending_payload.hook_type)
-        + sizeof(state->pending_payload.reserved)
+    lane_event = calloc(1, sizeof(*lane_event));
+
+    if (lane_event == NULL) {
+        return;
+    }
+
+    lane_event->event_id = state->next_event_id++;
+    lane_event->hook_type = hook_type;
+    lane_event->generation = atomic_load(&lane->flush_generation);
+    lane_event->is_injected = is_injected;
+    lane_event->payload.event_id = lane_event->event_id;
+    lane_event->payload.hook_type = hook_type;
+    memcpy(&lane_event->payload.event, event, event_size);
+    lane_event->payload_size =
+        sizeof(lane_event->payload.event_id)
+        + sizeof(lane_event->payload.hook_type)
+        + sizeof(lane_event->payload.reserved)
         + event_size;
-    state->pending_modify_input_count = 0;
-    state->pending_active = true;
 
-    (void)send_pending_event_to_next_client(state);
-}
+    for (nfds_t i = 0; i < state->client_count
+            && lane_event->subscriber_count < KSI_MAX_CLIENTS; i++) {
+        const ksi_client *c = &state->clients[i];
 
-static void process_hook_timeouts(ksi_daemon_state *state)
-{
-    if (state == NULL || !state->pending_active || state->pending_deadline_ms == 0) {
-        return;
+        if ((c->hook_subscriptions & subscription_bit) == 0u) {
+            continue;
+        }
+
+        if (!hook_send_ref_acquire(c->hook_send_ref)) {
+            fprintf(stderr, "inputd: hook subscriber has no send handle\n");
+            continue;
+        }
+
+        lane_event->subscriber_send_refs[lane_event->subscriber_count] = c->hook_send_ref;
+        lane_event->subscriber_response_fds[lane_event->subscriber_count] = c->fd;
+        lane_event->subscriber_connection_ids[lane_event->subscriber_count] = c->connection_id;
+        lane_event->subscriber_granted_caps[lane_event->subscriber_count] = c->granted_capabilities;
+        lane_event->subscriber_count++;
     }
 
-    if (monotonic_ms() < state->pending_deadline_ms) {
-        return;
+    if (!lane_action_queue_push(&lane->action_queue, lane_event)) {
+        if (!is_injected) {
+            (void)output_queue_push_replay(&state->output_queue,
+                hook_type, &lane_event->payload, lane_event->payload_size);
+        }
+
+        fprintf(stderr, "inputd: hook lane queue full; bypassed hook event %llu\n",
+            (unsigned long long)lane_event->event_id);
+        lane_event_release_send_refs(lane_event);
+        free(lane_event);
     }
-
-    if (g_verbose) {
-        printf("hook event %llu timed out waiting for client index %lu\n",
-            (unsigned long long)state->pending_event_id,
-            (unsigned long)state->pending_client_index);
-    }
-    record_client_hook_failure(state, state->pending_client_index, "timeout");
-    state->pending_client_index++;
-    state->pending_deadline_ms = 0;
-    (void)send_pending_event_to_next_client(state);
-}
-
-static int next_poll_timeout_ms(const ksi_daemon_state *state)
-{
-    uint64_t now;
-
-    if (state == NULL || !state->pending_active || state->pending_deadline_ms == 0) {
-        return 1000;
-    }
-
-    now = monotonic_ms();
-
-    if (now >= state->pending_deadline_ms) {
-        return 0;
-    }
-
-    if (state->pending_deadline_ms - now > 1000u) {
-        return 1000;
-    }
-
-    return (int)(state->pending_deadline_ms - now);
 }
 
 static void daemon_handle_hook_event(
@@ -1667,22 +2468,22 @@ static void daemon_handle_hook_event(
     if (!any_matching_hook_subscriptions(state, hook_type)) {
         /* A mixed keyboard/mouse device can be grabbed for the other class of
          * input. Replay nonblocked physical events that have no hook target. */
-        if (!is_injected
-            && state->backend != NULL
-            && state->backend->replay_hook_event != NULL) {
+        if (!is_injected) {
             ksi_hook_event_payload payload;
             memset(&payload, 0, sizeof(payload));
             payload.hook_type = hook_type;
             memcpy(&payload.event, event, event_size);
 
-            if (state->backend->replay_hook_event(hook_type, &payload) != 0) {
-                fprintf(stderr, "inputd: replay of unhooked grabbed input failed\n");
+            if (!output_queue_push_replay(&state->output_queue, hook_type, &payload,
+                    sizeof(payload.event_id) + sizeof(payload.hook_type)
+                    + sizeof(payload.reserved) + event_size)) {
+                fprintf(stderr, "inputd: replay enqueue of unhooked grabbed input failed\n");
             }
         }
         return;
     }
 
-    start_pending_hook_event(state, hook_type, event, event_size);
+    dispatch_hook_event_to_lane(state, hook_type, event, event_size, is_injected);
 }
 
 static void handle_client_hello(
@@ -1690,22 +2491,28 @@ static void handle_client_hello(
     ksi_client *client,
     const ksi_binary_message_view *message)
 {
-    const ksi_client_hello_payload *payload;
-    uint32_t requested = 0;
-    uint32_t missing = 0u;
-    uint32_t granted;
+	const ksi_client_hello_payload *payload;
+	uint32_t requested = 0;
+	uint32_t flags = 0u;
+	bool force_prompt;
+	uint32_t missing = 0u;
+	uint32_t granted;
 
-    if (message->payload_size >= sizeof(*payload)) {
-        payload = (const ksi_client_hello_payload *)(const void *)message->payload;
-        requested = payload->requested_capabilities;
-    }
+	if (message->payload_size >= sizeof(*payload)) {
+		payload = (const ksi_client_hello_payload *)(const void *)message->payload;
+		requested = payload->requested_capabilities;
+		flags = payload->flags;
+	}
+
+	force_prompt = (flags & KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT) != 0u;
 
     /* If identification is still in progress, buffer the hello and defer. */
     if (client->state == KSI_CLIENT_STATE_IDENTIFYING) {
-        client->pending_hello_valid = true;
-        client->pending_hello_requested = requested;
-        client->pending_hello_correlation_id = message->header->correlation_id;
-        client->pending_hello_client_id = message->header->client_id;
+		client->pending_hello_valid = true;
+		client->pending_hello_requested = requested;
+		client->pending_hello_flags = flags;
+		client->pending_hello_correlation_id = message->header->correlation_id;
+		client->pending_hello_client_id = message->header->client_id;
         return;
     }
 
@@ -1716,7 +2523,7 @@ static void handle_client_hello(
     }
 
     /* Identity is known. Check what is already granted without prompting. */
-    granted = check_capabilities_sync(state, client, requested, &missing);
+	granted = check_capabilities_sync(state, client, requested, force_prompt, &missing);
 
     /* If there are missing capabilities and a permissions store is configured,
      * start an async prompt. Response will be sent from process_client_prompt_done. */
@@ -1728,11 +2535,12 @@ static void handle_client_hello(
             return;
         }
 
-        client->state = KSI_CLIENT_STATE_AWAITING_PROMPT;
-        client->pending_hello_valid = true;
-        client->pending_hello_requested = requested;
-        client->pending_hello_correlation_id = message->header->correlation_id;
-        client->pending_hello_client_id = message->header->client_id;
+		client->state = KSI_CLIENT_STATE_AWAITING_PROMPT;
+		client->pending_hello_valid = true;
+		client->pending_hello_requested = requested;
+		client->pending_hello_flags = flags;
+		client->pending_hello_correlation_id = message->header->correlation_id;
+		client->pending_hello_client_id = message->header->client_id;
         return;
     }
 
@@ -1744,9 +2552,9 @@ static void handle_client_hello(
         return;
     }
 
-    if (granted != 0u && client->has_identity) {
-        ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
-    }
+	if (granted != 0u && client->has_identity) {
+		ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
+	}
 
     client->authenticated = true;
     client->granted_capabilities = granted;
@@ -1802,6 +2610,157 @@ static void handle_get_pointer_position(
     }
 
     send_pointer_position_result(client->fd, message->header);
+}
+
+/* Iteration context for handle_list_permissions: streams one entry frame per
+ * stored record back to the requesting client. */
+typedef struct ksi_list_permissions_context {
+    int client_fd;
+    uint32_t client_id;
+    uint64_t correlation_id;
+    bool send_failed;
+} ksi_list_permissions_context;
+
+static bool list_permissions_visitor(
+    const ksi_permission_entry *entry,
+    void *user_data)
+{
+    ksi_list_permissions_context *context = user_data;
+    uint8_t buffer[sizeof(ksi_list_permissions_entry_payload) + KSI_PERMISSION_MAX_PATH];
+    ksi_list_permissions_entry_payload *payload =
+        (ksi_list_permissions_entry_payload *)(void *)buffer;
+    size_t path_length = 0u;
+    size_t total_size;
+
+    if (context == NULL || entry == NULL) {
+        return false;
+    }
+
+    if (entry->exe_path != NULL) {
+        path_length = strnlen(entry->exe_path, KSI_PERMISSION_MAX_PATH);
+    }
+
+    memset(payload, 0, sizeof(*payload));
+    payload->uid = (uint32_t)entry->uid;
+    payload->persistent_allowed_capabilities = entry->persistent_allowed_capabilities;
+    payload->persistent_denied_capabilities = entry->persistent_denied_capabilities;
+    payload->path_length = (uint16_t)path_length;
+    payload->last_seen_utc = entry->last_seen_utc;
+    (void)snprintf(payload->exe_hash, sizeof(payload->exe_hash), "%s", entry->exe_hash);
+
+    if (path_length > 0u) {
+        memcpy(buffer + sizeof(*payload), entry->exe_path, path_length);
+    }
+
+    total_size = sizeof(*payload) + path_length;
+
+    if (ipc_send_locked(
+            context->client_fd,
+            KSI_MESSAGE_LIST_PERMISSIONS_ENTRY,
+            context->client_id,
+            context->correlation_id,
+            buffer,
+            total_size) != 0) {
+        context->send_failed = true;
+        return false;
+    }
+
+    return true;
+}
+
+static void handle_list_permissions(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    ksi_list_permissions_context context;
+    uid_t filter;
+
+    if (state == NULL || client == NULL) {
+        return;
+    }
+
+    /* Only a root client may enumerate other users' records. The daemon may
+     * itself run as root, so this must authorize the peer credentials. */
+    filter = (geteuid() == 0 && client->uid == 0) ? (uid_t)-1 : client->uid;
+
+    context.client_fd = client->fd;
+    context.client_id = message->header->client_id;
+    context.correlation_id = message->header->correlation_id;
+    context.send_failed = false;
+
+    if (state->permissions != NULL) {
+        ksi_permissions_for_each(state->permissions, filter, list_permissions_visitor, &context);
+    }
+
+    send_status(
+        client->fd,
+        message->header,
+        KSI_MESSAGE_LIST_PERMISSIONS_RESULT,
+        context.send_failed ? -1 : 0,
+        0u);
+}
+
+static void handle_reset_permissions(
+    ksi_daemon_state *state,
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    const ksi_reset_permissions_payload *payload;
+    uid_t target_uid;
+    uint32_t capabilities;
+    char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+
+    if (state == NULL || client == NULL) {
+        return;
+    }
+
+    if (state->permissions == NULL) {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 500);
+        return;
+    }
+
+    if (message->payload_size < sizeof(*payload)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 400);
+        return;
+    }
+
+    payload = (const ksi_reset_permissions_payload *)(const void *)message->payload;
+
+    target_uid = (payload->target_uid == KSI_RESET_PERMISSIONS_UID_SELF)
+        ? client->uid
+        : (uid_t)payload->target_uid;
+    capabilities = payload->capabilities;
+
+    if (capabilities == 0u) {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 400);
+        return;
+    }
+
+    /* Authorize: callers may only clear their own records unless the daemon
+     * runs as root and the caller is also root. */
+    if (target_uid != client->uid && (geteuid() != 0 || client->uid != 0)) {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 403);
+        return;
+    }
+
+    /* Defensive copy: the payload may not be NUL-terminated within the
+     * declared buffer if the sender filled exactly 64 hex chars. */
+    (void)snprintf(exe_hash, sizeof(exe_hash), "%.*s",
+        (int)sizeof(payload->exe_hash) - 1,
+        payload->exe_hash);
+
+    if (exe_hash[0] == '\0') {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 400);
+        return;
+    }
+
+    if (ksi_permissions_clear_persistent(state->permissions, target_uid, exe_hash, capabilities) != 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 500);
+        return;
+    }
+
+    send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, 0, 0u);
 }
 
 static void handle_hook_subscription(
@@ -1893,6 +2852,10 @@ static void handle_set_block_input(
     send_status(client->fd, message->header, KSI_MESSAGE_SET_BLOCK_INPUT, 0, client->block_input_mask);
 }
 
+/* Validates the decision payload on the main thread, then routes it to the
+ * lane that is currently processing the matching event_id.  The success ack is
+ * written before the lane can observe the queued decision, preserving stream
+ * order for clients which read HOOK_DECISION status before the next HOOK_EVENT. */
 static void handle_hook_decision(
     ksi_daemon_state *state,
     ksi_client *client,
@@ -1900,7 +2863,8 @@ static void handle_hook_decision(
 {
     const ksi_hook_decision_payload *payload;
     size_t expected_size;
-    nfds_t client_index;
+    ksi_hook_lane *lane;
+    ksi_lane_decision *decision;
 
     if (message->payload_size < sizeof(*payload)) {
         send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 1);
@@ -1933,19 +2897,10 @@ static void handle_hook_decision(
         return;
     }
 
-    if (state == NULL || !state->pending_active || payload->event_id != state->pending_event_id) {
+    if (state == NULL) {
         send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
         return;
     }
-
-    client_index = state->pending_client_index;
-
-    if (client_index >= state->client_count || &state->clients[client_index] != client) {
-        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 3);
-        return;
-    }
-
-    record_client_hook_success(state, client_index);
 
     if (payload->decision == KSI_HOOK_DECISION_MODIFY) {
         if (!client_has_capability(
@@ -1954,31 +2909,61 @@ static void handle_hook_decision(
             send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 403);
             return;
         }
-
-        memcpy(
-            state->pending_modify_inputs,
-            payload->inputs,
-            (size_t)payload->input_count * sizeof(payload->inputs[0]));
-        state->pending_modify_input_count = payload->input_count;
-        state->pending_final_decision = payload->decision;
-    } else if (payload->decision == KSI_HOOK_DECISION_BLOCK) {
-        state->pending_modify_input_count = 0;
-        state->pending_final_decision = payload->decision;
-    } else {
-        state->pending_modify_input_count = 0;
     }
 
-    send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, 0, state->pending_final_decision);
+    /* Locate the lane currently waiting on this event_id.  If neither lane
+     * has it as their current event, the decision is stale (timeout already
+     * fired or the lane already finalized via BLOCK/MODIFY from someone else). */
+    lane = lane_for_event_id(state, payload->event_id);
 
-    if (state->pending_final_decision == KSI_HOOK_DECISION_BLOCK
-        || state->pending_final_decision == KSI_HOOK_DECISION_MODIFY) {
-        finalize_pending_hook_event(state, "client-decision");
+    if (lane == NULL) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 2);
         return;
     }
 
-    state->pending_client_index++;
-    state->pending_deadline_ms = 0;
-    (void)send_pending_event_to_next_client(state);
+    decision = calloc(1, sizeof(*decision));
+
+    if (decision == NULL) {
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 500);
+        return;
+    }
+
+    decision->event_id = payload->event_id;
+    decision->decision = payload->decision;
+    decision->responder_fd = client->fd;
+    decision->responder_connection_id = client->connection_id;
+    decision->input_count = payload->input_count;
+
+    if (payload->input_count > 0u) {
+        memcpy(decision->inputs, payload->inputs,
+            (size_t)payload->input_count * sizeof(payload->inputs[0]));
+    }
+
+    if (!lane_decision_queue_push_with_ack(
+            &lane->decision_queue,
+            decision,
+            client->fd,
+            message->header,
+            payload->decision)) {
+        free(decision);
+        send_status(client->fd, message->header, KSI_MESSAGE_HOOK_DECISION, -1, 12);
+        return;
+    }
+
+    {
+        /* Resolve the responder under the connection_id guard so we don't
+         * credit success on a freshly-accepted client that happens to have
+         * inherited this fd from a prior disconnect. */
+        ssize_t resolved = find_client_index_by_fd(state, client->fd);
+
+        if (resolved >= 0
+            && state->clients[resolved].connection_id == client->connection_id) {
+            record_client_hook_success(state, (nfds_t)resolved);
+        }
+    }
+
+    /* Success ack was sent by lane_decision_queue_push_with_ack before waking
+     * the lane, so no subsequent HOOK_EVENT can overtake it on this stream. */
 }
 
 static void handle_synthesize_input(
@@ -2015,13 +3000,13 @@ static void handle_synthesize_input(
         return;
     }
 
-    if (!enqueue_synth_request(state, payload->inputs, payload->count, payload->flags)) {
+    if (!output_queue_push_synth(&state->output_queue,
+            payload->inputs, payload->count, payload->flags)) {
         send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, -1, 12);
         return;
     }
 
     send_status(client->fd, message->header, KSI_MESSAGE_SYNTHESIS_RESULT, 0, 0);
-    process_next_queued_input(state);
 }
 
 static void handle_binary_message(
@@ -2058,6 +3043,12 @@ static void handle_binary_message(
             return;
         case KSI_MESSAGE_GET_POINTER_POSITION:
             handle_get_pointer_position(client, message);
+            return;
+        case KSI_MESSAGE_LIST_PERMISSIONS:
+            handle_list_permissions(state, client, message);
+            return;
+        case KSI_MESSAGE_RESET_PERMISSIONS:
+            handle_reset_permissions(state, client, message);
             return;
         case KSI_MESSAGE_SUBSCRIBE_HOOK:
         case KSI_MESSAGE_UNSUBSCRIBE_HOOK:
@@ -2191,7 +3182,7 @@ static void send_indicator_state_result(int client_fd, const ksi_message_header 
     result.num_lock = num ? 1u : 0u;
     result.scroll_lock = scroll ? 1u : 0u;
 
-    (void)ksi_ipc_send_framed_message(
+    (void)ipc_send_locked(
         client_fd,
         KSI_MESSAGE_INDICATOR_STATE_RESULT,
         request->client_id,
@@ -2207,7 +3198,7 @@ static void send_pointer_position_result(int client_fd, const ksi_message_header
     memset(&result, 0, sizeof(result));
     (void)ksi_linux_devices_get_pointer_position(&result);
 
-    (void)ksi_ipc_send_framed_message(
+    (void)ipc_send_locked(
         client_fd,
         KSI_MESSAGE_POINTER_POSITION_RESULT,
         request->client_id,
@@ -2261,6 +3252,15 @@ static void add_client(ksi_daemon_state *state, const ksi_daemon_command *comman
     client = &state->clients[state->client_count];
     memset(client, 0, sizeof(*client));
     client->fd = command->client_fd;
+    client->hook_send_ref = hook_send_ref_create(command->client_fd);
+
+    if (client->hook_send_ref == NULL) {
+        fprintf(stderr, "inputd: failed to create hook send handle for client fd=%d: %s\n",
+            command->client_fd, strerror(errno));
+        request_close_client(state, command->client_fd);
+        return;
+    }
+
     client->connection_id = state->next_connection_id++;
 
     if (client->connection_id == 0u) {
@@ -2349,6 +3349,21 @@ static void process_daemon_command(ksi_daemon_state *state, ksi_daemon_command *
         case KSI_DAEMON_COMMAND_CLIENT_PROMPT_DONE:
             process_client_prompt_done(state, command);
             break;
+
+        case KSI_DAEMON_COMMAND_LANE_HOOK_FAILURE: {
+            ssize_t client_index = find_client_index_by_fd(state, command->client_fd);
+
+            /* connection_id check guards against blaming a reused fd: if the
+             * fd was recycled for a new client after the lane posted the
+             * failure, skip the failure-count bump for that new client. */
+            if (client_index >= 0
+                && state->clients[client_index].connection_id == command->connection_id) {
+                record_client_hook_failure(state, (nfds_t)client_index,
+                    command->data.hook_failure.reason);
+            }
+
+            break;
+        }
     }
 }
 
@@ -2441,9 +3456,9 @@ static void *ipc_thread_main(void *context)
 
                 if (ipc_slot_count >= KSI_MAX_CLIENTS) {
                     /* Never registered with main thread; safe to close directly. */
-                    ksi_ipc_close_client(client_fd);
+                    ipc_close_locked(client_fd);
                 } else if (ksi_ipc_get_peer_credentials(client_fd, &credentials) != 0) {
-                    ksi_ipc_close_client(client_fd);
+                    ipc_close_locked(client_fd);
                 } else if (!ipc_context->system_service && credentials.uid != getuid()) {
                     fprintf(stderr,
                         "rejected client pid=%ld uid=%ld gid=%ld: daemon uid is %ld\n",
@@ -2451,7 +3466,7 @@ static void *ipc_thread_main(void *context)
                         (long)credentials.uid,
                         (long)credentials.gid,
                         (long)getuid());
-                    ksi_ipc_close_client(client_fd);
+                    ipc_close_locked(client_fd);
                 } else {
                     memset(&command, 0, sizeof(command));
                     command.type = KSI_DAEMON_COMMAND_CLIENT_CONNECTED;
@@ -2460,7 +3475,7 @@ static void *ipc_thread_main(void *context)
 
                     if (!command_queue_push(commands, &command)) {
                         /* Never successfully registered; close directly. */
-                        ksi_ipc_close_client(client_fd);
+                        ipc_close_locked(client_fd);
                     } else {
                         memset(&ipc_slots[ipc_slot_count], 0, sizeof(ipc_slots[ipc_slot_count]));
                         ipc_slots[ipc_slot_count].fd = client_fd;
@@ -2479,7 +3494,7 @@ static void *ipc_thread_main(void *context)
                 if (rcmd.type == KSI_IPC_COMMAND_CLOSE_CLIENT && rcmd.client_fd >= 0) {
                     for (nfds_t j = 0; j < ipc_slot_count; j++) {
                         if (ipc_slots[j].fd == rcmd.client_fd) {
-                            close(ipc_slots[j].fd);
+                            ipc_close_locked(ipc_slots[j].fd);
                             ipc_thread_remove_slot(ipc_slots, &ipc_slot_count, j);
                             break;
                         }
@@ -2619,7 +3634,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
     daemon_state->permissions = permissions;
     daemon_state->available_capabilities = available_capabilities;
     daemon_state->next_connection_id = 1;
-    daemon_state->next_order_id = 1;
     daemon_state->next_event_id = 1;
 
     ksi_ipc_thread_context ipc_context = {
@@ -2646,11 +3660,73 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         return 1;
     }
 
+    if (output_queue_init(&daemon_state->output_queue) != 0) {
+        ipc_command_queue_destroy(&reverse_command_queue);
+        command_queue_destroy(&command_queue);
+        free(daemon_state);
+        ksi_ipc_server_close(server);
+        ksi_permissions_destroy(permissions);
+        backend->stop();
+        return 1;
+    }
+
+    /* Sequencer thread must be running before the hook callback fires for the
+     * first time so the queue always has a draining consumer. */
+    atomic_store(&daemon_state->sequencer_running, 1);
+
+    if (pthread_create(&daemon_state->sequencer_thread, NULL,
+            output_sequencer_thread_main, daemon_state) != 0) {
+        atomic_store(&daemon_state->sequencer_running, 0);
+        output_queue_close(&daemon_state->output_queue);
+        ipc_command_queue_destroy(&reverse_command_queue);
+        command_queue_destroy(&command_queue);
+        free(daemon_state);
+        ksi_ipc_server_close(server);
+        ksi_permissions_destroy(permissions);
+        backend->stop();
+        return 1;
+    }
+
+    daemon_state->sequencer_thread_started = true;
+
+    /* Initialize and start both hook lanes before the backend can start
+     * delivering events.  Errors here unwind the sequencer thread cleanly. */
+    if (lane_init(&daemon_state->kbd_lane, daemon_state, KSI_HOOK_KEYBOARD_LL) != 0
+        || lane_init(&daemon_state->mouse_lane, daemon_state, KSI_HOOK_MOUSE_LL) != 0
+        || lane_start(&daemon_state->kbd_lane) != 0
+        || lane_start(&daemon_state->mouse_lane) != 0) {
+        fprintf(stderr, "inputd: failed to start hook lanes\n");
+        lane_shutdown(&daemon_state->kbd_lane);
+        lane_shutdown(&daemon_state->mouse_lane);
+        atomic_store(&daemon_state->sequencer_running, 0);
+        output_queue_wake(&daemon_state->output_queue);
+        pthread_join(daemon_state->sequencer_thread, NULL);
+        daemon_state->sequencer_thread_started = false;
+        output_queue_close(&daemon_state->output_queue);
+        ipc_command_queue_destroy(&reverse_command_queue);
+        command_queue_destroy(&command_queue);
+        free(daemon_state);
+        ksi_ipc_server_close(server);
+        ksi_permissions_destroy(permissions);
+        backend->stop();
+        return 1;
+    }
+
     if (backend->set_hook_event_callback != NULL) {
         backend->set_hook_event_callback(daemon_handle_hook_event, daemon_state);
     }
 
     if (pthread_create(&ipc_thread, NULL, ipc_thread_main, &ipc_context) != 0) {
+        if (backend->set_hook_event_callback != NULL) {
+            backend->set_hook_event_callback(NULL, NULL);
+        }
+        lane_shutdown(&daemon_state->kbd_lane);
+        lane_shutdown(&daemon_state->mouse_lane);
+        atomic_store(&daemon_state->sequencer_running, 0);
+        output_queue_wake(&daemon_state->output_queue);
+        pthread_join(daemon_state->sequencer_thread, NULL);
+        daemon_state->sequencer_thread_started = false;
+        output_queue_close(&daemon_state->output_queue);
         ipc_command_queue_destroy(&reverse_command_queue);
         command_queue_destroy(&command_queue);
         free(daemon_state);
@@ -2681,7 +3757,9 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             : backend->poll_fds(&fds[count], KSI_MAX_POLL_FDS - count);
         count += backend_count;
 
-        int poll_result = poll(fds, count, next_poll_timeout_ms(daemon_state));
+        /* Lanes own their own decision-timeout deadlines now, so the main
+         * loop just blocks until evdev or the command queue has work. */
+        int poll_result = poll(fds, count, 1000);
 
         if (poll_result < 0) {
             if (errno == EINTR) {
@@ -2693,7 +3771,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         }
 
         if (poll_result == 0) {
-            process_hook_timeouts(daemon_state);
             process_daemon_commands(daemon_state);
 
             if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
@@ -2714,7 +3791,6 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             }
         }
 
-        process_hook_timeouts(daemon_state);
         process_daemon_commands(daemon_state);
 
         if (options->system_service && daemon_state->client_count == 0
@@ -2733,9 +3809,16 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     keep_running = 0;
 
-    /* Replay any grabbed physical events that were still in flight so the
-     * user's input is not permanently lost on a clean shutdown. */
-    flush_hook_queue_on_shutdown(daemon_state);
+    if (backend->set_hook_event_callback != NULL) {
+        backend->set_hook_event_callback(NULL, NULL);
+    }
+
+    /* Shut down both hook lanes.  lane_shutdown sets a flag the lane threads
+     * observe to bail out of any pending decision wait, then pushes a NULL
+     * sentinel.  Anything still queued is finalized as PASS so physical events
+     * reach the sequencer for replay rather than being lost. */
+    lane_shutdown(&daemon_state->kbd_lane);
+    lane_shutdown(&daemon_state->mouse_lane);
 
     /* Signal any in-progress permission prompts to abort so their worker
      * threads finish promptly rather than waiting up to 60 seconds. */
@@ -2764,10 +3847,22 @@ int ksi_daemon_run(const ksi_daemon_options *options)
 
     /* IPC thread has exited; safe to close remaining fds directly. */
     for (nfds_t i = 0; i < daemon_state->client_count; i++) {
-        ksi_ipc_close_client(daemon_state->clients[i].fd);
+        hook_send_ref_release(daemon_state->clients[i].hook_send_ref);
+        daemon_state->clients[i].hook_send_ref = NULL;
+        ipc_close_locked(daemon_state->clients[i].fd);
     }
 
-    clear_synth_queue(daemon_state);
+    /* Stop and drain the output sequencer.  The shutdown replay above queued
+     * the last batch of physical events through it, so we wait for the thread
+     * to drain them before tearing down the backend. */
+    if (daemon_state->sequencer_thread_started) {
+        atomic_store(&daemon_state->sequencer_running, 0);
+        output_queue_wake(&daemon_state->output_queue);
+        pthread_join(daemon_state->sequencer_thread, NULL);
+        daemon_state->sequencer_thread_started = false;
+    }
+
+    output_queue_close(&daemon_state->output_queue);
     ipc_command_queue_destroy(&reverse_command_queue);
     command_queue_destroy(&command_queue);
     free(daemon_state);

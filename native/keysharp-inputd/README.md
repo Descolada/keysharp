@@ -4,6 +4,10 @@
 physical input devices and virtual input synthesis while Keysharp scripts run as
 normal user processes that communicate with it over a Unix socket.
 
+This helper is optional. Portable or source-tree Keysharp runs can omit it, but
+Linux input monitoring, input synthesis, and `BlockInput` capabilities will be
+reported as unsupported until the helper is installed and configured.
+
 See [docs/protocol.md](docs/protocol.md) for the IPC protocol.
 
 ## Build
@@ -138,11 +142,22 @@ should not be added to the `input` group.
 
 Capabilities: `KSI_CAP_HOOK_KEYBOARD`, `KSI_CAP_HOOK_MOUSE`,
 `KSI_CAP_SYNTH_KEYBOARD`, `KSI_CAP_SYNTH_MOUSE`, `KSI_CAP_BLOCK_INPUT`.
+The protocol keeps keyboard and mouse bits separate. Keysharp requests both hook
+bits for its user-facing input monitoring permission and both synthesis bits for
+its user-facing input synthesis permission.
+Denied decisions are persisted in the same store as grants. After a deny the
+daemon will not re-prompt for the same capabilities until the user explicitly
+clears it. Two ways to clear a persisted deny:
 
-Hook subscriptions require both hook access and the matching synthesis access:
-once `EVIOCGRAB` is active, allowed input must be replayable through `uinput`.
-If `/dev/uinput` is unavailable, hook subscriptions are denied rather than
-risking unreplayed grabbed input.
+* An explicit Keysharp `RequestCapabilities(...)` call sends a force-prompt
+  request so the script can re-ask the user.
+* `keysharp-trust list` shows the records stored for the current user, and
+  `keysharp-trust reset <hash>` (or `--pid <pid>`) clears allow/deny bits so
+  the next prompt re-asks from scratch. The CLI talks to the daemon over its
+  Unix socket, so users do not need root.
+
+Hook subscriptions require hook access. `MODIFY` hook decisions and direct
+`SYNTHESIZE_INPUT` requests require synthesis access.
 
 ## Architecture
 

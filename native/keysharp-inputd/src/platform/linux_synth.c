@@ -40,11 +40,23 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
     event.code = code;
     event.value = value;
 
+    /* Record the suppression entry BEFORE writing so the main thread, which
+     * reads evdev concurrently with this sequencer-thread write, can match
+     * the loopback event to a recorded synthetic event and tag it INJECTED.
+     * Under the old single-threaded daemon write-then-record was fine because
+     * the same thread did both; under the lane refactor the main thread can
+     * observe the loopback before write() returns to us. */
+    ksi_linux_devices_record_synthetic_event(type, code, value, current_extra_info, suppress_replay_events);
+
     if (write(fd, &event, sizeof(event)) != (ssize_t)sizeof(event)) {
+        /* The write failed, so no event will loop back to consume this entry.
+         * Leaving it in the ring risks a future real event with the same
+         * {type, code, value} falsely matching and being suppressed.  Pop it
+         * so the ring stays consistent with what's actually pending on the
+         * input subsystem. */
+        ksi_linux_devices_unrecord_last_synthetic_event(type, code, value);
         return -1;
     }
-
-    ksi_linux_devices_record_synthetic_event(type, code, value, current_extra_info, suppress_replay_events);
 
     return 0;
 }
@@ -343,6 +355,8 @@ static int configure_uinput_device(void)
 {
     struct uinput_setup setup;
 
+    /* Intentionally do not enable EV_REP. Keyboard synthesis emits only the
+     * explicit down/up transitions requested by the caller. */
     if (enable_event(EV_KEY) != 0
         || enable_event(EV_REL) != 0) {
         return -1;
@@ -559,13 +573,8 @@ static int send_keyboard_input(const ksi_keybdinput *input)
         return -1;
     }
 
-    if (value == 1
-        && key_code >= 0
-        && key_code <= KEY_MAX
-        && synthesized_keys_down[key_code]) {
-        value = 2;
-    }
-
+    /* SendInput/keybd_event semantics are explicit transitions only. Do not
+     * emit EV_KEY value 2: that marks autorepeat from a held physical key. */
     if (send_key_code(key_code, value) != 0) {
         fprintf(stderr, "inputd: failed to emit keyboard input: %s\n", strerror(errno));
         return -1;
@@ -576,7 +585,7 @@ static int send_keyboard_input(const ksi_keybdinput *input)
             input->vk,
             input->scan,
             key_code,
-            value == 0 ? "up" : (value == 2 ? "repeat" : "down"));
+            value == 0 ? "up" : "down");
     }
 
     return 0;

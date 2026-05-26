@@ -615,7 +615,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (wantMouse)
 				required |= KeysharpInputdClient.Capabilities.HookMouse;
 
-			var permission = KeysharpInputdManager.EnsureCapabilities(required, "install keyboard/mouse hooks");
+			var permissionRequest = KeysharpInputdManager.ExpandInputPermissionRequest(required);
+			var permission = KeysharpInputdManager.EnsureCapabilities(permissionRequest, "install keyboard/mouse hooks");
 
 			if (!permission.IsGranted)
 			{
@@ -627,7 +628,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			try
 			{
-				client = KeysharpInputdClient.Connect(required);
+				client = KeysharpInputdClient.Connect(permissionRequest);
 
 				if (wantKeyboard)
 					_ = client.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel);

@@ -27,6 +27,16 @@
  * so the C# side can distinguish OK from error without ambiguity. */
 #define KSS_SERVE_STATUS_OK   0x00
 #define KSS_SERVE_STATUS_ERR  0x01
+#define KSS_EXIT_ERROR        1
+#define KSS_EXIT_USAGE        2
+#define KSS_EXIT_DENIED       3
+#define KSS_EXIT_UNSUPPORTED  4
+
+typedef enum {
+    KSS_TRUST_TRUSTED = 0,
+    KSS_TRUST_DENIED = 1,
+    KSS_TRUST_UNAVAILABLE = 2
+} kss_trust_result;
 
 /* Long-lived D-Bus connection used in --serve mode so we don't pay the
  * session-bus handshake cost on every capture. */
@@ -78,7 +88,7 @@ static bool get_requester_credentials(pid_t pid, uid_t *uid, gid_t *gid)
     return true;
 }
 
-static bool ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t requester_gid)
+static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t requester_gid)
 {
     ksi_permission_store *store = NULL;
     char exe_path[KSI_PERMISSION_MAX_PATH];
@@ -87,11 +97,11 @@ static bool ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t reque
     uint32_t allowed;
     uint32_t missing;
     ksi_permission_decision decision;
-    bool trusted = false;
+    kss_trust_result result = KSS_TRUST_DENIED;
 
     if (ksi_permissions_create(&store) != 0) {
         fprintf(stderr, "keysharp-kwin-screencap: failed to open trust store\n");
-        return false;
+        return KSS_TRUST_UNAVAILABLE;
     }
 
     if (ksi_permissions_identify_process(
@@ -102,6 +112,7 @@ static bool ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t reque
             sizeof(command_line),
             exe_hash) != 0) {
         fprintf(stderr, "keysharp-kwin-screencap: failed to identify requester pid=%ld\n", (long)requester_pid);
+        result = KSS_TRUST_UNAVAILABLE;
         goto cleanup;
     }
 
@@ -110,7 +121,7 @@ static bool ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t reque
 
     if (missing == 0u) {
         ksi_permissions_note_seen(store, requester_uid, exe_hash, exe_path);
-        trusted = true;
+        result = KSS_TRUST_TRUSTED;
         goto cleanup;
     }
 
@@ -124,15 +135,20 @@ static bool ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t reque
         missing);
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-        trusted = true;
+        result = KSS_TRUST_TRUSTED;
         (void)ksi_permissions_grant_session(store, requester_uid, exe_hash, exe_path, missing);
     } else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
-        trusted = ksi_permissions_grant_persistent(store, requester_uid, exe_hash, exe_path, missing) == 0;
+        if (ksi_permissions_grant_persistent(store, requester_uid, exe_hash, exe_path, missing) == 0) {
+            result = KSS_TRUST_TRUSTED;
+        } else {
+            fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
+            result = KSS_TRUST_UNAVAILABLE;
+        }
     }
 
 cleanup:
     ksi_permissions_destroy(store);
-    return trusted;
+    return result;
 }
 
 static bool drop_to_requester(uid_t uid, gid_t gid)
@@ -589,11 +605,6 @@ static int serve_loop(void)
     /* SIGPIPE on stdout (parent died) becomes EPIPE we can handle, not a fatal signal. */
     (void)signal(SIGPIPE, SIG_IGN);
 
-    /* Send a single-line ready banner on stderr so the parent can diagnose startup issues
-     * without conflating it with the binary stdout channel. */
-    fprintf(stderr, "keysharp-kwin-screencap: serve ready pid=%ld\n", (long)getpid());
-    fflush(stderr);
-
     for (;;) {
         char line[256];
         ssize_t length = read_line(STDIN_FILENO, line, sizeof(line));
@@ -668,6 +679,7 @@ int main(int argc, char **argv)
     pid_t requester_pid = getppid();
     uid_t requester_uid;
     gid_t requester_gid;
+    kss_trust_result trust;
 
     if (argc == 2 && strcmp(argv[1], "--diagnose") == 0) {
         if (get_requester_credentials(requester_pid, &requester_uid, &requester_gid)
@@ -693,17 +705,23 @@ int main(int argc, char **argv)
         /* one-shot mode, args parsed */
     } else {
         print_usage(argv[0]);
-        return 2;
+        return KSS_EXIT_USAGE;
     }
 
     if (!get_requester_credentials(requester_pid, &requester_uid, &requester_gid)) {
         fprintf(stderr, "keysharp-kwin-screencap: failed to get requester credentials\n");
-        return 1;
+        return KSS_EXIT_ERROR;
     }
 
-    if (!ensure_trusted(requester_pid, requester_uid, requester_gid)) {
+    trust = ensure_trusted(requester_pid, requester_uid, requester_gid);
+
+    if (trust != KSS_TRUST_TRUSTED) {
+        if (trust == KSS_TRUST_UNAVAILABLE) {
+            return KSS_EXIT_UNSUPPORTED;
+        }
+
         fprintf(stderr, "keysharp-kwin-screencap: screen capture permission denied\n");
-        return 3;
+        return KSS_EXIT_DENIED;
     }
 
     if (authorize_only) {
@@ -711,7 +729,7 @@ int main(int argc, char **argv)
     }
 
     if (!drop_to_requester(requester_uid, requester_gid)) {
-        return 1;
+        return KSS_EXIT_ERROR;
     }
 
     ensure_session_environment(requester_uid);
@@ -719,12 +737,12 @@ int main(int argc, char **argv)
     /* Warm the cached session-bus connection before entering serve_loop so the
      * first request doesn't pay the handshake cost. */
     if (get_session_bus() == NULL) {
-        return 1;
+        return KSS_EXIT_ERROR;
     }
 
     if (serve_mode) {
         return serve_loop();
     }
 
-    return capture_area(x, y, width, height) ? 0 : 1;
+    return capture_area(x, y, width, height) ? 0 : KSS_EXIT_ERROR;
 }

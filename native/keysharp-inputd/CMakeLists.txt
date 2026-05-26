@@ -31,7 +31,7 @@ target_include_directories(keysharp-inputd
 
 target_compile_definitions(keysharp-inputd PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
 target_link_libraries(keysharp-inputd PRIVATE
-    keysharp-trust
+    keysharp-trust-lib
     Threads::Threads
     PkgConfig::LIBUDEV
     PkgConfig::LIBEVDEV)
@@ -56,7 +56,27 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
         -Wshadow)
 endif()
 
-install(TARGETS keysharp-inputd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+add_executable(keysharp-trust
+    tools/trustctl.c)
+
+target_include_directories(keysharp-trust
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+target_compile_definitions(keysharp-trust PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+target_link_libraries(keysharp-trust PRIVATE
+    keysharp-trust-lib)
+
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(keysharp-trust PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wshadow)
+endif()
+
+install(TARGETS keysharp-inputd keysharp-trust RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 set(KEYSHARP_INPUTD_SYSTEMD_UNIT_DIR
     "${CMAKE_INSTALL_LIBDIR}/systemd/system"

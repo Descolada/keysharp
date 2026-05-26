@@ -4,6 +4,10 @@
 Wayland sessions. It checks the shared keysharp-trust store before calling
 `org.kde.KWin.ScreenShot2.CaptureArea`.
 
+This helper is optional. Portable or source-tree Keysharp runs can omit it, but
+KDE Wayland screen capture will be reported as unsupported until the helper is
+installed with its root-owned desktop file and setuid binary.
+
 ## Build
 
 Dependencies:
@@ -79,3 +83,7 @@ Persistent `Allow always` decisions are shared with `keysharp-inputd` in:
 The store is created automatically on first use and records one entry per
 requesting app plus CLI argument identity, with all granted Keysharp native
 capabilities accumulated in that entry.
+
+Denied decisions are not persisted. The managed Keysharp process remembers a
+screen capture denial for its current process session to avoid repeat prompts;
+an explicit `RequestCapabilities("ScreenCapture")` call can prompt again.

@@ -35,6 +35,14 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
     KSI_MESSAGE_GET_POINTER_POSITION   = 42,
     KSI_MESSAGE_POINTER_POSITION_RESULT = 43,
+    /* Trust-store administration. LIST streams one ENTRY per stored record
+     * followed by a RESULT status terminator. RESET clears allow + deny bits
+     * for a single record so the next prompt re-asks the user. Both are
+     * scoped to the caller's uid unless the daemon's effective uid is root. */
+    KSI_MESSAGE_LIST_PERMISSIONS        = 50,
+    KSI_MESSAGE_LIST_PERMISSIONS_ENTRY  = 51,
+    KSI_MESSAGE_LIST_PERMISSIONS_RESULT = 52,
+    KSI_MESSAGE_RESET_PERMISSIONS       = 53,
 } ksi_message_type;
 
 /* Payload for KSI_MESSAGE_INDICATOR_STATE_RESULT. */
@@ -213,8 +221,10 @@ typedef struct ksi_status_payload {
 
 typedef struct ksi_client_hello_payload {
     uint32_t requested_capabilities;
-    uint32_t reserved;
+    uint32_t flags;
 } ksi_client_hello_payload;
+
+#define KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT 0x00000001u
 
 typedef struct ksi_client_hello_result_payload {
     int32_t status;
@@ -256,5 +266,45 @@ typedef struct ksi_hook_decision_payload {
     uint32_t input_count;
     ksi_input inputs[];
 } ksi_hook_decision_payload;
+
+/* Length of the hex-encoded SHA-256 process identity used in LIST/RESET
+ * permissions payloads, including the trailing NUL byte. Mirrors the value
+ * KSI_PERMISSION_HASH_HEX_LENGTH from keysharp_trust/permissions.h so this
+ * header stays standalone. */
+#define KSI_PROTOCOL_HASH_HEX_BUFFER 65u
+
+/* One entry in a streamed LIST_PERMISSIONS response. The path is appended
+ * inline after the fixed header and is NOT NUL-terminated; its length is
+ * carried by path_length. */
+typedef struct ksi_list_permissions_entry_payload {
+    uint32_t uid;
+    uint32_t persistent_allowed_capabilities;
+    uint32_t persistent_denied_capabilities;
+    uint16_t path_length;
+    uint16_t reserved;
+    uint64_t last_seen_utc;
+    char exe_hash[KSI_PROTOCOL_HASH_HEX_BUFFER];
+    /* uint8_t exe_path[path_length] follows here. */
+} ksi_list_permissions_entry_payload;
+
+/* Request payload for KSI_MESSAGE_RESET_PERMISSIONS.
+ *
+ * target_uid:
+ *   The uid whose record should be cleared. Must equal the caller's uid
+ *   unless the daemon's effective uid is root. KSI_RESET_PERMISSIONS_UID_SELF
+ *   may be sent as a portable alias for "my own uid".
+ *
+ * capabilities:
+ *   Bits to clear. KSI_RESET_PERMISSIONS_CAPS_ALL clears every capability
+ *   for the matched record (both allow and deny). */
+#define KSI_RESET_PERMISSIONS_UID_SELF 0xFFFFFFFFu
+#define KSI_RESET_PERMISSIONS_CAPS_ALL 0xFFFFFFFFu
+
+typedef struct ksi_reset_permissions_payload {
+    uint32_t target_uid;
+    uint32_t capabilities;
+    char exe_hash[KSI_PROTOCOL_HASH_HEX_BUFFER];
+    uint8_t reserved[3];
+} ksi_reset_permissions_payload;
 
 #endif

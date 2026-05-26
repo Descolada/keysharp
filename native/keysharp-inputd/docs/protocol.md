@@ -38,29 +38,61 @@ Clients connect through the systemd socket at
 `/run/keysharp-inputd/keysharp-inputd.sock`. The daemon authenticates via
 `SO_PEERCRED` plus a hash of the peer's executable and argument vector.
 
-`CLIENT_HELLO` carries requested capabilities:
+`CLIENT_HELLO` carries requested capabilities and optional flags:
 
 ```
 KSI_CAP_HOOK_KEYBOARD   KSI_CAP_HOOK_MOUSE
 KSI_CAP_SYNTH_KEYBOARD  KSI_CAP_SYNTH_MOUSE
 KSI_CAP_BLOCK_INPUT
+
+KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT
 ```
 
 The daemon replies with granted capabilities. Unknown identities trigger a
 permission prompt; `Allow always` decisions are persisted per uid in the
 shared root-owned keysharp-trust store and pruned after 60 days.
+Keysharp requests both keyboard and mouse bits for its user-facing input
+monitoring permission, and both synthesis bits for its user-facing input
+synthesis permission. The protocol still keeps the device bits separate.
+
+`Deny` is also persisted — once denied, the daemon will not prompt for that
+capability again until the user explicitly opts back in. There are two ways
+to opt back in:
+
+* From inside a script, call `Ks.RequestCapabilities(...)`, which sends
+  `KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT` and bypasses the persistent deny.
+* Out of band, run `keysharp-trust reset <hash>` (or `--pid <pid>`). The CLI
+  speaks `KSI_MESSAGE_LIST_PERMISSIONS` and `KSI_MESSAGE_RESET_PERMISSIONS`
+  to the daemon, which clears the allow/deny bits for the matched record.
+
+The list/reset messages are scoped to the caller's uid. Only root (when the
+daemon is running as root) can target another user's records.
 
 ## Hook model
 
-The daemon implements hook transport only. Keysharp owns all policy.
+The daemon implements hook transport only. Keysharp owns all policy. Keyboard
+and mouse hook delivery run on independent lane threads, so a stalled keyboard
+hook callback no longer holds mouse events back (and vice versa). All
+uinput-bound writes go through a single output sequencer thread.
 
 ```
-physical event
-  → platform backend normalizes event
-  → daemon sends HOOK_EVENT to subscribed clients
-  → Keysharp replies HOOK_DECISION (PASS / BLOCK / MODIFY)
-  → daemon replays, suppresses, or synthesizes accordingly
+evdev / main thread       lane threads             sequencer thread
+─────────────────────     ────────────────         ────────────────
+classify hook event  ──►  (kbd lane)
+                            │  send HOOK_EVENT
+                            │  await decision/timeout
+                            └─►  action          ──►  uinput
+classify hook event  ──►  (mouse lane)
+                            │  …
+                            └─►  action          ──►
+SYNTHESIZE_INPUT     ──────────────────────────────►
 ```
+
+Each lane has its own decision-timeout deadline and its own pending event,
+so per-lane FIFO ordering is preserved but cross-lane ordering is relaxed:
+a SYNTHESIZE_INPUT from a client is queued onto the sequencer immediately
+and no longer waits for an in-flight hook decision to finalize. This matches
+Windows, where SendInput does not block on pending low-level hooks.
 
 Hook subscriptions require hook access **and** the matching synthesis access.
 Once `EVIOCGRAB` is active, passed events must be replayable through `uinput`;

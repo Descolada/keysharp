@@ -11,6 +11,7 @@
 #include <linux/input.h>
 #include <libevdev/libevdev.h>
 #include <libudev.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -97,6 +98,14 @@ static ksi_suppressed_replay_event suppressed_replay_events[KSI_MAX_SUPPRESSED_R
 static size_t tracked_device_count;
 static size_t suppressed_replay_head;   /* index of oldest entry */
 static size_t suppressed_replay_count;  /* number of valid entries */
+/* The suppressed-replay ring is the only piece of backend state that is
+ * legitimately shared between threads: the sequencer thread writes entries
+ * via ksi_linux_devices_record_synthetic_event when emitting to uinput, and
+ * the main thread reads / compacts them in process_fd when synthesized events
+ * loop back through evdev so it can tag them as INJECTED.  Concurrent access
+ * here was producing the wrong INJECTED flag for some loopback events, which
+ * surfaced as "stuck" keys and remap output appearing as raw input. */
+static pthread_mutex_t suppressed_replay_mutex = PTHREAD_MUTEX_INITIALIZER;
 static struct udev *udev_context;
 static struct udev_monitor *udev_monitor;
 static uint32_t next_device_id = 1;
@@ -886,6 +895,8 @@ void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int3
         return;
     }
 
+    pthread_mutex_lock(&suppressed_replay_mutex);
+
     if (suppressed_replay_count >= KSI_MAX_SUPPRESSED_REPLAY_EVENTS) {
         /* Buffer full: overwrite the oldest entry by advancing head. */
         suppressed_replay_head = (suppressed_replay_head + 1) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
@@ -901,6 +912,33 @@ void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int3
     entry->value = value;
     entry->extra_info = extra_info;
     entry->suppress = suppress;
+
+    pthread_mutex_unlock(&suppressed_replay_mutex);
+}
+
+/* Rolls back the most recent record if it still matches {type, code, value}.
+ * Used by the synth path when the uinput write fails after recording so the
+ * ring does not retain a phantom entry that could falsely match a later real
+ * event with the same identifier. */
+void ksi_linux_devices_unrecord_last_synthetic_event(uint16_t type, uint16_t code, int32_t value)
+{
+    if (type == EV_SYN) {
+        return;
+    }
+
+    pthread_mutex_lock(&suppressed_replay_mutex);
+
+    if (suppressed_replay_count > 0) {
+        size_t tail = (suppressed_replay_head + suppressed_replay_count - 1)
+                      % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
+        const ksi_suppressed_replay_event *entry = &suppressed_replay_events[tail];
+
+        if (entry->type == type && entry->code == code && entry->value == value) {
+            suppressed_replay_count--;
+        }
+    }
+
+    pthread_mutex_unlock(&suppressed_replay_mutex);
 }
 
 static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struct input_event *event)
@@ -910,6 +948,8 @@ static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struc
         .suppress = false,
         .found = false,
     };
+
+    pthread_mutex_lock(&suppressed_replay_mutex);
 
     for (size_t i = 0; i < suppressed_replay_count; i++) {
         size_t idx = (suppressed_replay_head + i) % KSI_MAX_SUPPRESSED_REPLAY_EVENTS;
@@ -929,10 +969,11 @@ static ksi_synthetic_event_metadata consume_synthetic_event_metadata(const struc
             }
 
             suppressed_replay_count--;
-            return metadata;
+            break;
         }
     }
 
+    pthread_mutex_unlock(&suppressed_replay_mutex);
     return metadata;
 }
 

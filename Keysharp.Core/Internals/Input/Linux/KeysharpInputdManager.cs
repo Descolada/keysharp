@@ -23,7 +23,7 @@ namespace Keysharp.Internals.Input.Linux
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
 			var qc = GetOrCreateQueryClient();
-			var required = GetRequiredSynthesisCapabilities(inputs);
+			var required = ExpandInputPermissionRequest(GetRequiredSynthesisCapabilities(inputs));
 
 			if (qc != null)
 			{
@@ -66,7 +66,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				lock (queryGate)
 				{
-					if (!qc.TryRequestCapabilities(KeysharpInputdClient.Capabilities.HookKeyboard, out _))
+					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
 						return false;
 
 					(capsLock, numLock, scrollLock) = qc.GetIndicatorState();
@@ -105,7 +105,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				lock (queryGate)
 				{
-					if (!qc.TryRequestCapabilities(KeysharpInputdClient.Capabilities.HookMouse, out _)
+					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookMouse), out _)
 						|| !qc.TryGetPointerPosition(out var position))
 						return false;
 
@@ -167,16 +167,16 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>Ensures the client is connected and has synthesis (Send) capability.</summary>
-		internal static PermissionResult EnsureInputInjection(string operation = null)
-			=> EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
-				operation ?? "keyboard/mouse sending");
+			internal static PermissionResult EnsureInputInjection(string operation = null)
+				=> EnsureCapabilities(
+					KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
+					operation ?? "keyboard/mouse sending");
 
 		/// <summary>Ensures the client is connected and has hook (monitoring) capability.</summary>
-		internal static PermissionResult EnsureInputMonitoring(string operation = null)
-			=> EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
-				operation ?? "keyboard/mouse monitoring");
+			internal static PermissionResult EnsureInputMonitoring(string operation = null)
+				=> EnsureCapabilities(
+					KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
+					operation ?? "keyboard/mouse monitoring");
 
 		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
 		{
@@ -188,7 +188,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			lock (gate)
 			{
-				if (!TryEnsureConnected(out message))
+				if (!TryEnsureConnected("block input", out _, out message))
 					return false;
 
 				if (!HasCapabilities(client, KeysharpInputdClient.Capabilities.BlockInput)
@@ -217,17 +217,21 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null)
-		{
+			internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
+			{
 			if (UseLegacyX11Input)
 				return new PermissionResult(PermissionStatus.NotApplicable);
 
+			operation ??= "input automation";
+
 			lock (gate)
 			{
-				if (!TryEnsureConnected(out var connectMessage))
-					return new PermissionResult(PermissionStatus.Denied, connectMessage);
+				required = ExpandInputPermissionRequest(required);
 
-				if (HasCapabilities(client, required) || client.TryRequestCapabilities(required, out _))
+				if (!TryEnsureConnected(operation, out var connectStatus, out var connectMessage))
+					return new PermissionResult(connectStatus, connectMessage);
+
+				if ((!forcePrompt && HasCapabilities(client, required)) || client.TryRequestCapabilities(required, out _, forcePrompt))
 					return new PermissionResult(PermissionStatus.Granted);
 
 				return new PermissionResult(PermissionStatus.Denied,
@@ -236,25 +240,27 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		private static bool TryEnsureConnected(out string message)
+		private static bool TryEnsureConnected(string operation, out PermissionStatus status, out string message)
 		{
 			// Already connected — reuse the existing connection regardless of which
 			// capabilities it has; individual Ensure calls do their own capability checks.
 			if (client != null)
 			{
+				status = PermissionStatus.Granted;
 				message = string.Empty;
 				return true;
 			}
 
 			// The installed systemd socket starts the privileged service on connect.
-			return TryConnect(out message);
+			return TryConnect(operation, out status, out message);
 		}
 
-		private static bool TryConnect(out string message)
+		private static bool TryConnect(string operation, out PermissionStatus status, out string message)
 		{
 			try
 			{
 				client = KeysharpInputdClient.Connect();
+				status = PermissionStatus.Granted;
 				message = string.Empty;
 
 				// Pre-warm the QueryClient (synthesis channel) in the background so the
@@ -267,13 +273,31 @@ namespace Keysharp.Internals.Input.Linux
 			catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or InvalidDataException)
 			{
 				DisposeClient();
-				message = $"keysharp-inputd is unavailable at '{KeysharpInputdClient.DefaultSocketPath}': {ex.Message}";
+				status = PermissionStatus.Unsupported;
+				message = $"keysharp-inputd is not installed or not available at '{KeysharpInputdClient.DefaultSocketPath}'. " +
+					$"Install Keysharp's optional Linux input helper to use '{operation ?? "input automation"}'. Details: {ex.Message}";
 				return false;
 			}
 		}
 
 		private static bool HasCapabilities(KeysharpInputdClient connectedClient, KeysharpInputdClient.Capabilities required)
 			=> (connectedClient.GrantedCapabilities & required) == required;
+
+		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)
+		{
+			const KeysharpInputdClient.Capabilities hook =
+				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
+			const KeysharpInputdClient.Capabilities synth =
+				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
+
+			if ((requested & hook) != 0)
+				requested |= hook;
+
+			if ((requested & synth) != 0)
+				requested |= synth;
+
+			return requested;
+		}
 
 		private static KeysharpInputdClient.Capabilities GetRequiredSynthesisCapabilities(IReadOnlyList<KeysharpInputdClient.Input> inputs)
 		{

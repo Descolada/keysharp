@@ -17,6 +17,9 @@
 #define KST_CAP_INPUT_BLOCK 0x00000010u
 #define KST_CAP_SCREEN_CAPTURE 0x00000020u
 
+#define KST_CAP_INPUT_HOOK (KST_CAP_INPUT_HOOK_KEYBOARD | KST_CAP_INPUT_HOOK_MOUSE)
+#define KST_CAP_INPUT_SYNTH (KST_CAP_INPUT_SYNTH_KEYBOARD | KST_CAP_INPUT_SYNTH_MOUSE)
+
 typedef struct ksi_permission_store ksi_permission_store;
 
 typedef enum ksi_permission_decision {
@@ -61,6 +64,59 @@ int ksi_permissions_grant_persistent(
     const char *exe_hash,
     const char *exe_path,
     uint32_t capabilities);
+
+/* Returns the persistently-denied capability bits recorded for {uid, exe_hash}.
+ * Persistent denials suppress future prompts until cleared via
+ * ksi_permissions_clear_persistent or until the caller opts into a forced
+ * re-prompt. */
+uint32_t ksi_permissions_get_denied_capabilities(
+    const ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash);
+
+/* Records a persistent denial of `capabilities` for {uid, exe_hash}. The
+ * record is flushed to disk so the denial survives restarts. Returns 0 on
+ * success. */
+int ksi_permissions_deny_persistent(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    const char *exe_path,
+    uint32_t capabilities);
+
+/* Clears the specified capability bits from the persistent allow set and the
+ * persistent deny set for {uid, exe_hash}. Used by RequestCapabilities and the
+ * keysharp-trust CLI to wipe a prior decision so the next prompt re-asks the
+ * user. Session grants are also cleared so a fresh prompt is required.
+ * Returns 0 on success. */
+int ksi_permissions_clear_persistent(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    uint32_t capabilities);
+
+/* Snapshot of a single stored record used for listing/enumeration. */
+typedef struct ksi_permission_entry {
+    uid_t uid;
+    char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+    const char *exe_path;
+    uint32_t persistent_allowed_capabilities;
+    uint32_t persistent_denied_capabilities;
+    uint64_t last_seen_utc;
+} ksi_permission_entry;
+
+typedef bool (*ksi_permissions_visit_fn)(
+    const ksi_permission_entry *entry,
+    void *user_data);
+
+/* Invokes `visit` for each stored record whose uid equals `uid_filter`, or
+ * for every record when `uid_filter == (uid_t)-1`. Iteration stops early
+ * when `visit` returns false. */
+void ksi_permissions_for_each(
+    const ksi_permission_store *store,
+    uid_t uid_filter,
+    ksi_permissions_visit_fn visit,
+    void *user_data);
 
 ksi_permission_decision ksi_permissions_prompt(
     pid_t pid,

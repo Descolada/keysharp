@@ -33,7 +33,7 @@ void ksi_permissions_cancel(void)
 #define KSI_PERMISSION_LEGACY_STORE_DIRECTORY "/var/lib/keysharp-inputd"
 #define KSI_PERMISSION_STORE_FILE_NAME "permissions.tsv"
 #define KSI_PERMISSION_LEGACY_STORE_FILE_NAME "inputd-permissions.tsv"
-#define KSI_PERMISSION_STORE_VERSION "v2"
+#define KSI_PERMISSION_STORE_VERSION "v1"
 #define KSI_PERMISSION_RECORD_TTL_SECONDS (60u * 24u * 60u * 60u)
 #define KSI_PROMPT_TIMEOUT_SECONDS 60u
 
@@ -41,6 +41,7 @@ typedef struct ksi_permission_record {
     uid_t uid;
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     uint32_t persistent_allowed_capabilities;
+    uint32_t persistent_denied_capabilities;
     uint32_t session_allowed_capabilities;
     uint64_t last_seen_utc;
     char *exe_path;
@@ -646,7 +647,8 @@ static bool prune_expired_records(ksi_permission_store *store)
     for (size_t i = 0; i < store->count;) {
         ksi_permission_record *record = &store->records[i];
         bool expired = record->last_seen_utc < cutoff;
-        bool empty_persistent = record->persistent_allowed_capabilities == 0u;
+        bool empty_persistent = record->persistent_allowed_capabilities == 0u
+            && record->persistent_denied_capabilities == 0u;
         bool empty_session = record->session_allowed_capabilities == 0u;
 
         if (expired || (empty_persistent && empty_session)) {
@@ -697,7 +699,8 @@ static int save_store(const ksi_permission_store *store)
         const ksi_permission_record *record = &store->records[i];
         char *escaped_path;
 
-        if (record->persistent_allowed_capabilities == 0u) {
+        if (record->persistent_allowed_capabilities == 0u
+            && record->persistent_denied_capabilities == 0u) {
             continue;
         }
 
@@ -712,10 +715,11 @@ static int save_store(const ksi_permission_store *store)
 
         (void)fprintf(
             file,
-            "%lu\t%s\t%08x\t%llu\t%s\n",
+            "%lu\t%s\t%08x\t%08x\t%llu\t%s\n",
             (unsigned long)record->uid,
             record->exe_hash,
             record->persistent_allowed_capabilities,
+            record->persistent_denied_capabilities,
             (unsigned long long)record->last_seen_utc,
             escaped_path);
         free(escaped_path);
@@ -770,12 +774,14 @@ static int load_store(ksi_permission_store *store)
     while ((line_length = getline(&line, &line_capacity, file)) >= 0) {
         char *uid_text;
         char *hash_text;
-        char *caps_text;
+        char *allowed_text;
+        char *denied_text;
         char *seen_text;
         char *path_text;
         char *cursor;
         char *unescaped_path;
-        unsigned long caps_value;
+        unsigned long allowed_value;
+        unsigned long denied_value;
         unsigned long long seen_value;
         ksi_permission_record *record;
 
@@ -795,14 +801,21 @@ static int load_store(ksi_permission_store *store)
         }
 
         *hash_text++ = '\0';
-        caps_text = strchr(hash_text, '\t');
+        allowed_text = strchr(hash_text, '\t');
 
-        if (caps_text == NULL) {
+        if (allowed_text == NULL) {
             continue;
         }
 
-        *caps_text++ = '\0';
-        seen_text = strchr(caps_text, '\t');
+        *allowed_text++ = '\0';
+        denied_text = strchr(allowed_text, '\t');
+
+        if (denied_text == NULL) {
+            continue;
+        }
+
+        *denied_text++ = '\0';
+        seen_text = strchr(denied_text, '\t');
 
         if (seen_text == NULL) {
             continue;
@@ -826,9 +839,16 @@ static int load_store(ksi_permission_store *store)
         }
 
         errno = 0;
-        caps_value = strtoul(caps_text, &cursor, 16);
+        allowed_value = strtoul(allowed_text, &cursor, 16);
 
-        if (errno != 0 || cursor == caps_text || *cursor != '\0') {
+        if (errno != 0 || cursor == allowed_text || *cursor != '\0') {
+            continue;
+        }
+
+        errno = 0;
+        denied_value = strtoul(denied_text, &cursor, 16);
+
+        if (errno != 0 || cursor == denied_text || *cursor != '\0') {
             continue;
         }
 
@@ -852,7 +872,8 @@ static int load_store(ksi_permission_store *store)
             continue;
         }
 
-        record->persistent_allowed_capabilities = (uint32_t)caps_value;
+        record->persistent_allowed_capabilities = (uint32_t)allowed_value;
+        record->persistent_denied_capabilities = (uint32_t)denied_value;
         record->last_seen_utc = (uint64_t)seen_value;
     }
 
@@ -1249,14 +1270,18 @@ static void describe_capabilities(uint32_t capabilities, char *buffer, size_t bu
 
     buffer[0] = '\0';
 
-    if ((capabilities & KST_CAP_INPUT_HOOK_KEYBOARD) != 0u) {
-        append_capability_line(buffer, buffer_size, "Hook keyboard input (includes keyboard synthesis)");
-    } else if ((capabilities & KST_CAP_INPUT_SYNTH_KEYBOARD) != 0u) {
-        append_capability_line(buffer, buffer_size, "Synthesize keyboard input");
+    if ((capabilities & KST_CAP_INPUT_HOOK) == KST_CAP_INPUT_HOOK) {
+        append_capability_line(buffer, buffer_size, "Monitor keyboard and mouse input");
+    } else if ((capabilities & KST_CAP_INPUT_HOOK_KEYBOARD) != 0u) {
+        append_capability_line(buffer, buffer_size, "Monitor keyboard input");
+    } else if ((capabilities & KST_CAP_INPUT_HOOK_MOUSE) != 0u) {
+        append_capability_line(buffer, buffer_size, "Monitor mouse input");
     }
 
-    if ((capabilities & KST_CAP_INPUT_HOOK_MOUSE) != 0u) {
-        append_capability_line(buffer, buffer_size, "Hook mouse input (includes mouse synthesis)");
+    if ((capabilities & KST_CAP_INPUT_SYNTH) == KST_CAP_INPUT_SYNTH) {
+        append_capability_line(buffer, buffer_size, "Synthesize keyboard and mouse input");
+    } else if ((capabilities & KST_CAP_INPUT_SYNTH_KEYBOARD) != 0u) {
+        append_capability_line(buffer, buffer_size, "Synthesize keyboard input");
     } else if ((capabilities & KST_CAP_INPUT_SYNTH_MOUSE) != 0u) {
         append_capability_line(buffer, buffer_size, "Synthesize mouse input");
     }
@@ -1465,8 +1490,117 @@ int ksi_permissions_grant_persistent(
 
     record->persistent_allowed_capabilities |= capabilities;
     record->session_allowed_capabilities |= capabilities;
+    /* Granting clears any prior denial for the same caps so the user's most
+     * recent decision wins. */
+    record->persistent_denied_capabilities &= ~capabilities;
     (void)prune_expired_records(store);
     return save_store(store);
+}
+
+uint32_t ksi_permissions_get_denied_capabilities(
+    const ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash)
+{
+    ssize_t index;
+
+    if (store == NULL || exe_hash == NULL) {
+        return 0u;
+    }
+
+    index = find_record_index(store, uid, exe_hash);
+
+    if (index < 0) {
+        return 0u;
+    }
+
+    return store->records[index].persistent_denied_capabilities;
+}
+
+int ksi_permissions_deny_persistent(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    const char *exe_path,
+    uint32_t capabilities)
+{
+    ksi_permission_record *record;
+
+    if (store == NULL || capabilities == 0u) {
+        return -1;
+    }
+
+    record = get_or_add_record(store, uid, exe_hash, exe_path);
+
+    if (record == NULL) {
+        return -1;
+    }
+
+    record->persistent_denied_capabilities |= capabilities;
+    /* A persistent deny supersedes any prior allow for the same caps. */
+    record->persistent_allowed_capabilities &= ~capabilities;
+    record->session_allowed_capabilities &= ~capabilities;
+    (void)prune_expired_records(store);
+    return save_store(store);
+}
+
+int ksi_permissions_clear_persistent(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    uint32_t capabilities)
+{
+    ssize_t index;
+    ksi_permission_record *record;
+
+    if (store == NULL || exe_hash == NULL || capabilities == 0u) {
+        return -1;
+    }
+
+    index = find_record_index(store, uid, exe_hash);
+
+    if (index < 0) {
+        return 0;
+    }
+
+    record = &store->records[index];
+    record->persistent_allowed_capabilities &= ~capabilities;
+    record->persistent_denied_capabilities &= ~capabilities;
+    record->session_allowed_capabilities &= ~capabilities;
+    (void)prune_expired_records(store);
+    return save_store(store);
+}
+
+void ksi_permissions_for_each(
+    const ksi_permission_store *store,
+    uid_t uid_filter,
+    ksi_permissions_visit_fn visit,
+    void *user_data)
+{
+    if (store == NULL || visit == NULL) {
+        return;
+    }
+
+    for (size_t i = 0; i < store->count; i++) {
+        const ksi_permission_record *record = &store->records[i];
+        ksi_permission_entry entry;
+
+        if (uid_filter != (uid_t)-1 && record->uid != uid_filter) {
+            continue;
+        }
+
+        memset(&entry, 0, sizeof(entry));
+        entry.uid = record->uid;
+        (void)snprintf(entry.exe_hash, sizeof(entry.exe_hash), "%s", record->exe_hash);
+        entry.exe_path = record->exe_path;
+        entry.persistent_allowed_capabilities = record->persistent_allowed_capabilities;
+        entry.persistent_denied_capabilities = record->persistent_denied_capabilities;
+        entry.last_seen_utc = record->last_seen_utc;
+
+        if (!visit(&entry, user_data)) {
+            return;
+        }
+    }
 }
 
 ksi_permission_decision ksi_permissions_prompt(

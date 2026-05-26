@@ -91,17 +91,17 @@ namespace Keysharp.Builtins
 			var permissions = Script.TheScript.Permissions;
 
 			return capability switch
-			{
-				KeysharpCapability.AccessibilityAutomation
-					=> permissions.RequestAccessibilityAutomation(operation: "RequestCapabilities"),
-				KeysharpCapability.InputInjection
-					=> permissions.RequestInputInjection(operation: "RequestCapabilities"),
-				KeysharpCapability.InputMonitoring
-					=> permissions.RequestInputMonitoring(operation: "RequestCapabilities"),
-				KeysharpCapability.ScreenCapture
-					=> permissions.RequestScreenCapture(operation: "RequestCapabilities"),
-				KeysharpCapability.BlockInput
-					=> RequestBlockInputCapability(),
+				{
+					KeysharpCapability.AccessibilityAutomation
+						=> permissions.RequestAccessibilityAutomation(prompt: true, operation: "RequestCapabilities"),
+					KeysharpCapability.InputInjection
+						=> permissions.RequestInputInjection(prompt: true, operation: "RequestCapabilities"),
+					KeysharpCapability.InputMonitoring
+						=> permissions.RequestInputMonitoring(prompt: true, operation: "RequestCapabilities"),
+					KeysharpCapability.ScreenCapture
+						=> permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities"),
+					KeysharpCapability.BlockInput
+						=> RequestBlockInputCapability(),
 				_ => new PermissionResult(PermissionStatus.Unsupported)
 			};
 		}
@@ -109,9 +109,10 @@ namespace Keysharp.Builtins
 		private static PermissionResult RequestBlockInputCapability()
 		{
 #if LINUX
-			return Keysharp.Internals.Input.Linux.KeysharpInputdManager.EnsureCapabilities(
-				Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput,
-				"RequestCapabilities");
+				return Keysharp.Internals.Input.Linux.KeysharpInputdManager.EnsureCapabilities(
+					Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput,
+					"RequestCapabilities",
+					forcePrompt: true);
 #else
 			return new PermissionResult(PermissionStatus.NotApplicable);
 #endif

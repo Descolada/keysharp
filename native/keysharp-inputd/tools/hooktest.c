@@ -244,7 +244,7 @@ static int send_hello(int fd)
             | KSI_CAP_HOOK_MOUSE
             | KSI_CAP_SYNTH_KEYBOARD
             | KSI_CAP_SYNTH_MOUSE,
-        .reserved = 0,
+        .flags = 0,
     };
 
     if (send_frame(fd, KSI_MESSAGE_CLIENT_HELLO, 1, &payload, sizeof(payload)) != 0) {

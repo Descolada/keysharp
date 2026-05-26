@@ -27,118 +27,152 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int RequestTimeoutMs = 30_000;
 		private const int AuthorizationTimeoutMs = 65_000;
 
-		// Single-process serialization: KWin's screenshot API is request/response over one
-		// stdin+stdout pair, so concurrent Keysharp threads asking to capture must queue.
-		// A typical capture is ~10–50ms held; if multi-thread screen capture ever becomes a
-		// bottleneck the helper would need to support pipelined requests or multiple instances.
-		private static readonly object sync = new();
-		private static Process helper;
-		private static Stream stdin;
-		private static Stream stdout;
-		private static bool exitHookInstalled;
+			// Single-process serialization: KWin's screenshot API is request/response over one
+			// stdin+stdout pair, so concurrent Keysharp threads asking to capture must queue.
+			// A typical capture is ~10–50ms held; if multi-thread screen capture ever becomes a
+			// bottleneck the helper would need to support pipelined requests or multiple instances.
+			private static readonly object sync = new();
+			private static Process helper;
+			private static Stream stdin;
+			private static Stream stdout;
+			private static bool exitHookInstalled;
+			private static bool sessionDenied;
+			private static string sessionDeniedMessage = "Screen capture permission denied.";
 
-		internal static Bitmap Capture(int x, int y, int w, int h)
-		{
-			lock (sync)
+			internal static Bitmap Capture(int x, int y, int w, int h)
 			{
-				var attempt = 0;
-
-				while (attempt < 2)
+				lock (sync)
 				{
-					attempt++;
-					var firstStart = false;
+					if (sessionDenied)
+						return null;
 
-					if (helper == null || helper.HasExited)
+					var attempt = 0;
+
+					while (attempt < 2)
 					{
-						ResetLocked();
+						attempt++;
+						var firstStart = false;
 
-						if (!StartLocked(out var startError))
+						if (helper == null || helper.HasExited)
 						{
-							DebugLine($"keysharp-kwin-screencap launch failed: {startError}");
-							return null;
+							ResetLocked();
+
+							if (!StartLocked(out var startError))
+							{
+								DebugLine($"keysharp-kwin-screencap launch failed: {startError}");
+								return null;
+							}
+
+							firstStart = true;
 						}
 
-						firstStart = true;
+						try
+						{
+							SendRequestLocked($"area {x.ToString(CultureInfo.InvariantCulture)} {y.ToString(CultureInfo.InvariantCulture)} {w.ToString(CultureInfo.InvariantCulture)} {h.ToString(CultureInfo.InvariantCulture)}\n");
+							return ReadResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
+						}
+						catch (Exception ex)
+						{
+							DebugLine($"keysharp-kwin-screencap request failed: {ex.Message}");
+							CacheDeniedIfHelperExitedLocked();
+							ResetLocked();
+							// Retry once on protocol/IO failure — covers the case where the helper
+							// died between captures (e.g. session bus went away).
+						}
 					}
 
-					try
+					return null;
+				}
+			}
+
+			internal static PermissionResult Authorize(string operation, bool forcePrompt = false)
+			{
+				lock (sync)
+				{
+					if (forcePrompt)
 					{
-						SendRequestLocked($"area {x.ToString(CultureInfo.InvariantCulture)} {y.ToString(CultureInfo.InvariantCulture)} {w.ToString(CultureInfo.InvariantCulture)} {h.ToString(CultureInfo.InvariantCulture)}\n");
-						return ReadResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
+						sessionDenied = false;
+						sessionDeniedMessage = string.Empty;
 					}
-					catch (Exception ex)
-					{
-						DebugLine($"keysharp-kwin-screencap request failed: {ex.Message}");
-						ResetLocked();
-						// Retry once on protocol/IO failure — covers the case where the helper
-						// died between captures (e.g. session bus went away).
-					}
+					else if (sessionDenied)
+						return new PermissionResult(PermissionStatus.Denied, sessionDeniedMessage);
 				}
 
-				return null;
-			}
-		}
+				var path = ResolveKWinHelper();
 
-		internal static PermissionResult Authorize(string operation)
-		{
-			var path = ResolveKWinHelper();
+				if (path == null)
+					return new PermissionResult(PermissionStatus.Unsupported, "keysharp-kwin-screencap is not installed or not configured.");
 
-			if (path == null)
-				return new PermissionResult(PermissionStatus.Unsupported, "No keysharp-kwin-screencap binary was found.");
-
-			try
-			{
-				var error = new StringBuilder();
-				using var p = new Process
+				try
 				{
-					StartInfo = new ProcessStartInfo
+					var error = new StringBuilder();
+					using var p = new Process
 					{
-						FileName = path,
-						UseShellExecute = false,
-						RedirectStandardError = true,
+						StartInfo = new ProcessStartInfo
+						{
+							FileName = path,
+							UseShellExecute = false,
+							RedirectStandardError = true,
+						}
+					};
+					p.StartInfo.ArgumentList.Add("--authorize");
+					p.ErrorDataReceived += (_, e) =>
+					{
+						if (string.IsNullOrEmpty(e.Data))
+							return;
+
+						if (error.Length > 0)
+							error.AppendLine();
+
+						error.Append(e.Data);
+					};
+
+					if (!p.Start())
+						return new PermissionResult(PermissionStatus.Unsupported, "keysharp-kwin-screencap authorization failed to start.");
+
+					p.BeginErrorReadLine();
+
+					if (!p.WaitForExit(AuthorizationTimeoutMs))
+					{
+						try { p.Kill(entireProcessTree: true); } catch { }
+						return new PermissionResult(PermissionStatus.Denied, $"Screen capture authorization for '{operation}' timed out.");
 					}
-				};
-				p.StartInfo.ArgumentList.Add("--authorize");
-				p.ErrorDataReceived += (_, e) =>
-				{
-					if (string.IsNullOrEmpty(e.Data))
-						return;
 
-					if (error.Length > 0)
-						error.AppendLine();
+					p.WaitForExit();
 
-					error.Append(e.Data);
-				};
+					if (p.ExitCode == 0)
+					{
+						lock (sync)
+						{
+							sessionDenied = false;
+							sessionDeniedMessage = string.Empty;
+						}
 
-				if (!p.Start())
-					return new PermissionResult(PermissionStatus.Denied, "keysharp-kwin-screencap authorization failed to start.");
+						return new PermissionResult(PermissionStatus.Granted);
+					}
 
-				p.BeginErrorReadLine();
+					var message = error.Length == 0
+						? $"keysharp-kwin-screencap authorization failed with exit code {p.ExitCode}."
+						: error.ToString();
 
-				if (!p.WaitForExit(AuthorizationTimeoutMs))
-				{
-					try { p.Kill(entireProcessTree: true); } catch { }
-					return new PermissionResult(PermissionStatus.Denied, $"Screen capture authorization for '{operation}' timed out.");
+					if (p.ExitCode == 3)
+					{
+						lock (sync)
+						{
+							sessionDenied = true;
+							sessionDeniedMessage = message;
+						}
+
+						return new PermissionResult(PermissionStatus.Denied, message);
+					}
+
+					return new PermissionResult(PermissionStatus.Unsupported, message);
 				}
-
-				p.WaitForExit();
-
-				if (p.ExitCode == 0)
-					return new PermissionResult(PermissionStatus.Granted);
-
-				var message = error.Length == 0
-					? $"keysharp-kwin-screencap authorization failed with exit code {p.ExitCode}."
-					: error.ToString();
-
-				return p.ExitCode == 3
-					? new PermissionResult(PermissionStatus.Denied, message)
-					: new PermissionResult(PermissionStatus.Unsupported, message);
+				catch (Exception ex)
+				{
+					return new PermissionResult(PermissionStatus.Unsupported, ex.Message);
+				}
 			}
-			catch (Exception ex)
-			{
-				return new PermissionResult(PermissionStatus.Denied, ex.Message);
-			}
-		}
 
 		private static bool StartLocked(out string error)
 		{
@@ -210,21 +244,36 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			};
 		}
 
-		private static void ResetLocked()
-		{
-			try { stdin?.Dispose(); } catch { }
-			try { stdout?.Dispose(); } catch { }
-
-			if (helper != null && !helper.HasExited)
+			private static void ResetLocked()
 			{
-				try { helper.Kill(entireProcessTree: true); } catch { }
+				try { stdin?.Dispose(); } catch { }
+				try { stdout?.Dispose(); } catch { }
+
+				if (helper != null && !helper.HasExited)
+				{
+					try { helper.Kill(entireProcessTree: true); } catch { }
+				}
+
+				try { helper?.Dispose(); } catch { }
+				helper = null;
+				stdin = null;
+				stdout = null;
 			}
 
-			try { helper?.Dispose(); } catch { }
-			helper = null;
-			stdin = null;
-			stdout = null;
-		}
+			private static void CacheDeniedIfHelperExitedLocked()
+			{
+				try
+				{
+					if (helper is { HasExited: true, ExitCode: 3 })
+					{
+						sessionDenied = true;
+						sessionDeniedMessage = "Screen capture permission denied.";
+					}
+				}
+				catch
+				{
+				}
+			}
 
 		private static void SendRequestLocked(string request)
 		{

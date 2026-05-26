@@ -3,13 +3,35 @@ if [ -z "${BASH_VERSION:-}" ]; then exec /usr/bin/env bash "$0" "$@"; fi
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PREFIX="${PREFIX:-/usr/local}"
+ROOT_INSTALL=false
+if [[ "${EUID}" -eq 0 ]]; then
+  ROOT_INSTALL=true
+fi
+
+if [[ -z "${PREFIX:-}" ]]; then
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    PREFIX="/usr/local"
+  else
+    PREFIX="${HOME}/.local"
+  fi
+fi
+
+XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 APP_DIR_SOURCE="${SCRIPT_DIR}/app"
 APP_DIR_TARGET="${PREFIX}/lib/keysharp"
 BINDIR="${PREFIX}/bin"
-DESKTOP_DIR="/usr/share/applications"
-MIME_DIR="/usr/share/mime/packages"
-ICON_DIR="/usr/share/icons/hicolor/256x256/apps"
+SYSTEMD_DIR="/etc/systemd/system"
+if [[ "${ROOT_INSTALL}" == "true" ]]; then
+  DESKTOP_DIR="/usr/share/applications"
+  MIME_ROOT="/usr/share/mime"
+  ICON_ROOT="/usr/share/icons/hicolor"
+else
+  DESKTOP_DIR="${XDG_DATA_HOME}/applications"
+  MIME_ROOT="${XDG_DATA_HOME}/mime"
+  ICON_ROOT="${XDG_DATA_HOME}/icons/hicolor"
+fi
+MIME_DIR="${MIME_ROOT}/packages"
+ICON_DIR="${ICON_ROOT}/256x256/apps"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 DOTNET_PACKAGE="${DOTNET_PACKAGE:-dotnet-runtime-10.0}"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
@@ -21,6 +43,40 @@ rewrite_desktop_exec() {
       -e "s|/usr/local/lib/keysharp/|${APP_DIR_TARGET}/|g" \
       "${src}" > "${dest}"
 }
+rewrite_systemd_service() {
+  local src="$1"
+  local dest="$2"
+  sed -e "s|@CMAKE_INSTALL_FULL_BINDIR@|${APP_DIR_TARGET}|g" \
+      "${src}" > "${dest}"
+}
+normalize_root_app_permissions() {
+  find "${APP_DIR_TARGET}" -type d -exec chmod 0755 {} +
+  find "${APP_DIR_TARGET}" -type f -exec chmod 0644 {} +
+
+  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-kwin-screencap; do
+    if [[ -f "${APP_DIR_TARGET}/${exe}" ]]; then
+      chmod 0755 "${APP_DIR_TARGET}/${exe}"
+    fi
+  done
+}
+show_install_mode() {
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    cat <<EOF
+Installing with root privileges.
+Optional Linux helpers will be enabled when present:
+  - keysharp-inputd: systemd socket service for more reliable input hooks, input synthesis, and BlockInput support.
+  - keysharp-trust: permission records and reset/list tooling for privileged helper decisions.
+  - keysharp-kwin-screencap: KDE Wayland screen capture helper using KWin's restricted ScreenShot2 interface.
+
+This install may add systemd units, enable the keysharp-inputd socket, load uinput, and mark the KDE helper root-owned setuid.
+EOF
+  else
+    cat <<EOF
+Installing without root privileges.
+Keysharp will be installed under ${PREFIX}. Optional privileged Linux helpers will be skipped, so Linux input hooks/synthesis and KDE Wayland screen capture may be unavailable until a root install is performed.
+EOF
+  fi
+}
 
 has_dotnet10() {
   command -v dotnet >/dev/null 2>&1 && dotnet --list-runtimes | grep -q 'Microsoft.NETCore.App 10\.'
@@ -28,11 +84,11 @@ has_dotnet10() {
 
 install_deps() {
   # Eto.Forms Gtk backend requires GTK3; libnotify is used for notifications; AT-SPI2 supports accessibility hooks.
-  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libglib2.0-0 libnotify4 libatspi2.0-0 at-spi2-core pulseaudio-utils)
-  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 glib2 libnotify at-spi2-core)
-  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 glib2 libnotify at-spi2-core)
-  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 glib2 libnotify4 at-spi2-core)
-  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 glib2 libnotify at-spi2-core)
+  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libglib2.0-0 libnotify4 libatspi2.0-0 at-spi2-core pulseaudio-utils libudev1 libevdev2 systemd kmod)
+  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 glib2 libnotify at-spi2-core systemd-libs libevdev systemd kmod)
+  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 glib2 libnotify at-spi2-core systemd-libs libevdev systemd kmod)
+  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 glib2 libnotify4 at-spi2-core libudev1 libevdev2 systemd kmod)
+  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 glib2 libnotify at-spi2-core systemd libevdev kmod)
 
   if ! has_dotnet10; then
     packages_apt+=("${DOTNET_PACKAGE}")
@@ -95,8 +151,14 @@ if [[ ! -d "${APP_DIR_SOURCE}" ]]; then
   exit 1
 fi
 
+show_install_mode
+
 if [[ "${INSTALL_DEPS}" == "true" ]]; then
-  install_deps
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    install_deps
+  else
+    echo "Skipping dependency install because this is a user install. Ensure .NET 10 and runtime libraries are present."
+  fi
 else
   echo "Skipping dependency install (INSTALL_DEPS=false). Ensure X11 libs are present."
 fi
@@ -107,23 +169,58 @@ echo "Installing to ${APP_DIR_TARGET} (prefix=${PREFIX})"
 mkdir -p "${APP_DIR_TARGET}" "${BINDIR}"
 cp -a "${APP_DIR_SOURCE}/." "${APP_DIR_TARGET}/"
 
+if [[ "${ROOT_INSTALL}" == "true" ]]; then
+  chown -R root:root "${APP_DIR_TARGET}"
+  normalize_root_app_permissions
+fi
+
 ln -sf "${APP_DIR_TARGET}/Keysharp" "${BINDIR}/keysharp"
 ln -sf "${APP_DIR_TARGET}/Keyview" "${BINDIR}/keyview"
 
-if [[ -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
-  chown root:root "${APP_DIR_TARGET}/keysharp-kwin-screencap"
-  chmod 4755 "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+if [[ "${ROOT_INSTALL}" == "true" ]]; then
+  if [[ -f "${APP_DIR_TARGET}/keysharp-trust" ]]; then
+    ln -sf "${APP_DIR_TARGET}/keysharp-trust" "${BINDIR}/keysharp-trust"
+  fi
+
+  if [[ -f "${APP_DIR_TARGET}/keysharp-inputd" ]]; then
+    ln -sf "${APP_DIR_TARGET}/keysharp-inputd" "${BINDIR}/keysharp-inputd"
+
+    if [[ -f "${SCRIPT_DIR}/keysharp-inputd.service.in" && -f "${SCRIPT_DIR}/keysharp-inputd.socket" ]]; then
+      install -d "${SYSTEMD_DIR}"
+      rewrite_systemd_service "${SCRIPT_DIR}/keysharp-inputd.service.in" "${SYSTEMD_DIR}/keysharp-inputd.service"
+      install -m 0644 "${SCRIPT_DIR}/keysharp-inputd.socket" "${SYSTEMD_DIR}/keysharp-inputd.socket"
+      maybe_run systemctl daemon-reload || true
+
+      if ! "${APP_DIR_TARGET}/keysharp-inputd" --install-input-access; then
+        echo "Warning: keysharp-inputd service setup did not complete. Input automation helper may be unavailable." >&2
+      fi
+    else
+      echo "Warning: keysharp-inputd systemd unit files were not found in the installer payload." >&2
+    fi
+  fi
+
+  if [[ -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
+    chown root:root "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+    chmod 4755 "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+  fi
+else
+  rm -f "${APP_DIR_TARGET}/keysharp-inputd" \
+        "${APP_DIR_TARGET}/keysharp-trust" \
+        "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+  echo "Installed in user mode; privileged Linux helpers were skipped."
 fi
 
 install -d "${DESKTOP_DIR}"
 rewrite_desktop_exec "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
 rewrite_desktop_exec "${SCRIPT_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp.desktop"
-rewrite_desktop_exec "${SCRIPT_DIR}/keysharp-kwin-screencap.desktop" "${DESKTOP_DIR}/keysharp-kwin-screencap.desktop"
+if [[ "${ROOT_INSTALL}" == "true" && -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
+  rewrite_desktop_exec "${SCRIPT_DIR}/keysharp-kwin-screencap.desktop" "${DESKTOP_DIR}/keysharp-kwin-screencap.desktop"
+fi
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
 
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true
-maybe_run update-mime-database /usr/share/mime || true
-maybe_run gtk-update-icon-cache -f /usr/share/icons/hicolor || true
+maybe_run update-mime-database "${MIME_ROOT}" || true
+maybe_run gtk-update-icon-cache -f "${ICON_ROOT}" || true
 
 echo "Install complete."

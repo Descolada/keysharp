@@ -26,6 +26,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int FirstRequestTimeoutMs = 60_000;  // first request may trigger the trust prompt
 		private const int RequestTimeoutMs = 30_000;
 		private const int AuthorizationTimeoutMs = 65_000;
+		private const int HelperStatusOk = 0;
+		private const int HelperStatusError = 1;
 
 			// Single-process serialization: KWin's screenshot API is request/response over one
 			// stdin+stdout pair, so concurrent Keysharp threads asking to capture must queue.
@@ -57,7 +59,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						{
 							ResetLocked();
 
-							if (!StartLocked(out var startError))
+							if (!StartLocked(out var startError, out _))
 							{
 								DebugLine($"keysharp-kwin-screencap launch failed: {startError}");
 								return null;
@@ -93,90 +95,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					{
 						sessionDenied = false;
 						sessionDeniedMessage = string.Empty;
+						ResetLocked();
 					}
 					else if (sessionDenied)
 						return new PermissionResult(PermissionStatus.Denied, sessionDeniedMessage);
-				}
 
-				var path = ResolveKWinHelper();
-
-				if (path == null)
-					return new PermissionResult(PermissionStatus.Unsupported, "keysharp-kwin-screencap is not installed or not configured.");
-
-				try
-				{
-					var error = new StringBuilder();
-					using var p = new Process
-					{
-						StartInfo = new ProcessStartInfo
-						{
-							FileName = path,
-							UseShellExecute = false,
-							RedirectStandardError = true,
-						}
-					};
-					p.StartInfo.ArgumentList.Add("--authorize");
-					p.ErrorDataReceived += (_, e) =>
-					{
-						if (string.IsNullOrEmpty(e.Data))
-							return;
-
-						if (error.Length > 0)
-							error.AppendLine();
-
-						error.Append(e.Data);
-					};
-
-					if (!p.Start())
-						return new PermissionResult(PermissionStatus.Unsupported, "keysharp-kwin-screencap authorization failed to start.");
-
-					p.BeginErrorReadLine();
-
-					if (!p.WaitForExit(AuthorizationTimeoutMs))
-					{
-						try { p.Kill(entireProcessTree: true); } catch { }
-						return new PermissionResult(PermissionStatus.Denied, $"Screen capture authorization for '{operation}' timed out.");
-					}
-
-					p.WaitForExit();
-
-					if (p.ExitCode == 0)
-					{
-						lock (sync)
-						{
-							sessionDenied = false;
-							sessionDeniedMessage = string.Empty;
-						}
-
+					if (helper != null && !helper.HasExited)
 						return new PermissionResult(PermissionStatus.Granted);
-					}
 
-					var message = error.Length == 0
-						? $"keysharp-kwin-screencap authorization failed with exit code {p.ExitCode}."
-						: error.ToString();
+					if (StartLocked(out var error, out var status, forcePrompt))
+						return new PermissionResult(PermissionStatus.Granted);
 
-					if (p.ExitCode == 3)
-					{
-						lock (sync)
-						{
-							sessionDenied = true;
-							sessionDeniedMessage = message;
-						}
-
-						return new PermissionResult(PermissionStatus.Denied, message);
-					}
-
-					return new PermissionResult(PermissionStatus.Unsupported, message);
-				}
-				catch (Exception ex)
-				{
-					return new PermissionResult(PermissionStatus.Unsupported, ex.Message);
+					return new PermissionResult(status, error);
 				}
 			}
 
-		private static bool StartLocked(out string error)
+		private static bool StartLocked(out string error, out PermissionStatus status, bool forcePrompt = false)
 		{
 			error = null;
+			status = PermissionStatus.Unsupported;
 			var path = ResolveKWinHelper();
 
 			if (path == null)
@@ -199,6 +136,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					}
 				};
 				p.StartInfo.ArgumentList.Add("--serve");
+
+				if (forcePrompt)
+					p.StartInfo.ArgumentList.Add("--force-prompt");
+
 				// Drain stderr asynchronously so the helper never blocks on a full stderr pipe.
 				p.ErrorDataReceived += (_, e) =>
 				{
@@ -213,15 +154,34 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 
 				p.BeginErrorReadLine();
+				var nextStdin = p.StandardInput.BaseStream;
+				var nextStdout = p.StandardOutput.BaseStream;
 				helper = p;
-				stdin = p.StandardInput.BaseStream;
-				stdout = p.StandardOutput.BaseStream;
+				stdin = nextStdin;
+				stdout = nextStdout;
+				ReadStartupStatus(nextStdout, AuthorizationTimeoutMs);
 				InstallExitHook();
 				return true;
+			}
+			catch (HelperStartException ex)
+			{
+				error = ex.Message;
+				status = ex.Status;
+
+				if (status == PermissionStatus.Denied)
+				{
+					sessionDenied = true;
+					sessionDeniedMessage = error;
+				}
+
+				ResetLocked();
+				return false;
 			}
 			catch (Exception ex)
 			{
 				error = ex.Message;
+				status = PermissionStatus.Unsupported;
+				ResetLocked();
 				return false;
 			}
 		}
@@ -282,6 +242,37 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			stdin.Flush();
 		}
 
+		private static void ReadStartupStatus(Stream s, int timeoutMs)
+		{
+			var task = Task.Run(() =>
+			{
+				var status = s.ReadByte();
+
+				if (status < 0)
+					throw new EndOfStreamException("helper closed stdout before startup status");
+
+				if (status == HelperStatusOk)
+					return;
+
+				if (status != HelperStatusError)
+					throw new IOException($"unexpected helper startup status {status}");
+
+				var message = ReadErrorMessage(s);
+				var permissionStatus = message.Contains("denied", StringComparison.OrdinalIgnoreCase)
+					? PermissionStatus.Denied
+					: PermissionStatus.Unsupported;
+				throw new HelperStartException(permissionStatus, message);
+			});
+
+			if (!task.Wait(timeoutMs))
+			{
+				ResetLocked();
+				throw new TimeoutException($"keysharp-kwin-screencap authorization timed out after {timeoutMs}ms");
+			}
+
+			task.GetAwaiter().GetResult();
+		}
+
 		private static Bitmap ReadResponseLocked(int timeoutMs)
 		{
 			// All reads happen on a worker because Stream.Read on a redirected pipe doesn't
@@ -295,15 +286,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (status != 0)
 				{
-					var lenBuf = new byte[4];
-					ReadExact(stdout, lenBuf, 0, 4);
-					var length = (int)BitConverter.ToUInt32(lenBuf, 0);
-					var msg = length > 0 ? new byte[length] : Array.Empty<byte>();
-
-					if (length > 0)
-						ReadExact(stdout, msg, 0, length);
-
-					throw new IOException("helper error: " + Encoding.UTF8.GetString(msg));
+					throw new IOException("helper error: " + ReadErrorMessage(stdout));
 				}
 
 				return ReadKsscFrame(stdout);
@@ -316,6 +299,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 
 			return task.GetAwaiter().GetResult();
+		}
+
+		private static string ReadErrorMessage(Stream s)
+		{
+			var lenBuf = new byte[4];
+			ReadExact(s, lenBuf, 0, 4);
+			var length = (int)BitConverter.ToUInt32(lenBuf, 0);
+			var msg = length > 0 ? new byte[length] : Array.Empty<byte>();
+
+			if (length > 0)
+				ReadExact(s, msg, 0, length);
+
+			return Encoding.UTF8.GetString(msg);
 		}
 
 		private static void ReadExact(Stream s, byte[] buf, int offset, int count)
@@ -570,6 +566,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				13 or 29 => 3,
 				_ => 0,
 			};
+
+		private sealed class HelperStartException(PermissionStatus status, string message) : Exception(message)
+		{
+			internal PermissionStatus Status { get; } = status;
+		}
 	}
 }
 #endif

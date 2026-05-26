@@ -1327,33 +1327,51 @@ namespace Keysharp.Internals.Input.Keyboard
 				return 1L;
 
 			var criterionType = GetHotCriterionType(criterion);
-			object val = null;
-			var foundHwnd = 0L;
+			Exception error = null;
+			var result = 0L;
+
 			var task = Task.Run(() =>
 			{
 				hotExprLastFoundHwnd = 0L;
-				val = criterion.Call(hotkeyName);
-				foundHwnd = hotExprLastFoundHwnd;
-				hotExprLastFoundHwnd = 0L;
+
+				try
+				{
+					var val = criterion.Call(hotkeyName);
+					var foundHwnd = hotExprLastFoundHwnd;
+
+					if (criterionType == HotCriterionEnum.IfCallback)
+					{
+						if (val is long callbackHwndOrBool)
+							result = callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
+						else
+							result = Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
+					}
+					else if (val is long l)
+						result = l;
+					else
+						result = Script.ForceBool(val) ? 1L : 0L;
+				}
+				catch (Exception ex)
+				{
+					error = ex;
+				}
+				finally
+				{
+					hotExprLastFoundHwnd = 0L;
+				}
 			});
 
-			if (task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
-			{
-				if (criterionType == HotCriterionEnum.IfCallback)
-				{
-					if (val is long callbackHwndOrBool)
-						return callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
-
-					return Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
-				}
-
-				if (val is long l)
-					return l;
-				else
-					return Script.ForceBool(val) ? 1L : 0L;
-			}
-			else
+			if (!task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
 				return 0L;
+
+			if (error != null)
+			{
+				_ = Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					_ = Keysharp.Internals.Flow.TryCatch(() => ExceptionDispatchInfo.Throw(error)));
+				return 0L;
+			}
+
+			return result;
 		}
 
 		internal static HotCriterionEnum GetHotCriterionType(IFuncObj criterion)

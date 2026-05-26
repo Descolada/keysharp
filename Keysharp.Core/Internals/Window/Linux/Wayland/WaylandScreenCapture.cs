@@ -39,13 +39,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
 				return null;
 
+			if (IsKdeSession())
+				return TryCaptureWithKWin(x, y, w, h);
+
 			using var session = Session.TryOpen();
-			var bitmap = session?.Capture(x, y, w, h);
-
-			if (bitmap != null)
-				return bitmap;
-
-			return IsKdeSession() ? TryCaptureWithKWin(x, y, w, h) : null;
+			return session?.Capture(x, y, w, h);
 		}
 
 		internal static PermissionResult RequestScreenCapturePermission(string operation, bool forcePrompt = false)

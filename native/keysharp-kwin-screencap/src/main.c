@@ -44,7 +44,7 @@ static GDBusConnection *g_serve_connection = NULL;
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr, "Usage: %s --area X Y WIDTH HEIGHT | --serve | --authorize | --diagnose\n", argv0);
+    fprintf(stderr, "Usage: %s --area X Y WIDTH HEIGHT | --serve [--force-prompt] | --authorize [--force-prompt] | --diagnose\n", argv0);
 }
 
 static bool parse_int_arg(const char *text, int *value)
@@ -88,7 +88,7 @@ static bool get_requester_credentials(pid_t pid, uid_t *uid, gid_t *gid)
     return true;
 }
 
-static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t requester_gid)
+static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid, gid_t requester_gid, bool force_prompt)
 {
     ksi_permission_store *store = NULL;
     char exe_path[KSI_PERMISSION_MAX_PATH];
@@ -96,6 +96,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
     uint32_t allowed;
     uint32_t missing;
+    uint32_t denied;
     ksi_permission_decision decision;
     kss_trust_result result = KSS_TRUST_DENIED;
 
@@ -125,6 +126,17 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
         goto cleanup;
     }
 
+    denied = ksi_permissions_get_denied_capabilities(store, requester_uid, exe_hash) & missing;
+
+    if (!force_prompt && denied != 0u) {
+        ksi_permissions_note_seen(store, requester_uid, exe_hash, exe_path);
+        goto cleanup;
+    }
+
+    if (force_prompt) {
+        (void)ksi_permissions_clear_persistent(store, requester_uid, exe_hash, missing);
+    }
+
     decision = ksi_permissions_prompt(
         requester_pid,
         requester_uid,
@@ -143,6 +155,10 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
         } else {
             fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
             result = KSS_TRUST_UNAVAILABLE;
+        }
+    } else {
+        if (ksi_permissions_deny_persistent(store, requester_uid, exe_hash, exe_path, missing) != 0) {
+            fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
         }
     }
 
@@ -676,6 +692,7 @@ int main(int argc, char **argv)
     int height;
     bool serve_mode = false;
     bool authorize_only = false;
+    bool force_prompt = false;
     pid_t requester_pid = getppid();
     uid_t requester_uid;
     gid_t requester_gid;
@@ -691,10 +708,28 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if (argc == 2 && strcmp(argv[1], "--serve") == 0) {
+    if ((argc == 2 || argc == 3) && strcmp(argv[1], "--serve") == 0) {
         serve_mode = true;
-    } else if (argc == 2 && strcmp(argv[1], "--authorize") == 0) {
+
+        if (argc == 3) {
+            if (strcmp(argv[2], "--force-prompt") != 0) {
+                print_usage(argv[0]);
+                return KSS_EXIT_USAGE;
+            }
+
+            force_prompt = true;
+        }
+    } else if ((argc == 2 || argc == 3) && strcmp(argv[1], "--authorize") == 0) {
         authorize_only = true;
+
+        if (argc == 3) {
+            if (strcmp(argv[2], "--force-prompt") != 0) {
+                print_usage(argv[0]);
+                return KSS_EXIT_USAGE;
+            }
+
+            force_prompt = true;
+        }
     } else if (argc == 6 && strcmp(argv[1], "--area") == 0
         && parse_int_arg(argv[2], &x)
         && parse_int_arg(argv[3], &y)
@@ -713,14 +748,23 @@ int main(int argc, char **argv)
         return KSS_EXIT_ERROR;
     }
 
-    trust = ensure_trusted(requester_pid, requester_uid, requester_gid);
+    trust = ensure_trusted(requester_pid, requester_uid, requester_gid, force_prompt);
 
     if (trust != KSS_TRUST_TRUSTED) {
         if (trust == KSS_TRUST_UNAVAILABLE) {
+            if (serve_mode) {
+                (void)write_serve_error(STDOUT_FILENO, "screen capture authorization unavailable");
+            }
+
             return KSS_EXIT_UNSUPPORTED;
         }
 
         fprintf(stderr, "keysharp-kwin-screencap: screen capture permission denied\n");
+
+        if (serve_mode) {
+            (void)write_serve_error(STDOUT_FILENO, "screen capture permission denied");
+        }
+
         return KSS_EXIT_DENIED;
     }
 
@@ -737,10 +781,18 @@ int main(int argc, char **argv)
     /* Warm the cached session-bus connection before entering serve_loop so the
      * first request doesn't pay the handshake cost. */
     if (get_session_bus() == NULL) {
+        if (serve_mode) {
+            (void)write_serve_error(STDOUT_FILENO, "failed to connect to the session bus");
+        }
+
         return KSS_EXIT_ERROR;
     }
 
     if (serve_mode) {
+        if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
+            return KSS_EXIT_ERROR;
+        }
+
         return serve_loop();
     }
 

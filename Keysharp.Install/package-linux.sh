@@ -16,8 +16,10 @@ DEB_PKG_NAME="${DEB_PKG_NAME:-keysharp}"
 DEB_TMP_DIR="${DIST_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
 DEB_ARCH=""
-DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libglib2.0-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils"
+DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libglib2.0-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils, libudev1, libevdev2, systemd, kmod"
 DEB_DESCRIPTION="A C# port and enhancement of the AutoHotkey program"
+INPUTD_SERVICE_TEMPLATE="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.service.in"
+INPUTD_SOCKET="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.socket"
 
 if [[ -z "${VERSION}" ]]; then
   echo "Unable to determine package version from Keysharp.csproj. Set VERSION explicitly." >&2
@@ -45,15 +47,31 @@ rewrite_desktop_exec() {
 }
 
 build_native_helpers() {
-  local build_dir="${DIST_DIR}/native-keysharp-kwin-screencap-${RID}"
+  local inputd_build_dir="${DIST_DIR}/native-keysharp-inputd-${RID}"
+  local kwin_build_dir="${DIST_DIR}/native-keysharp-kwin-screencap-${RID}"
 
   if [[ "${RID}" != linux-* ]]; then
     return
   fi
 
   if ! command -v cmake >/dev/null 2>&1; then
-    echo "Skipping keysharp-kwin-screencap build because cmake is not installed." >&2
+    echo "Skipping native helper builds because cmake is not installed." >&2
     return
+  fi
+
+  if ! command -v pkg-config >/dev/null 2>&1; then
+    echo "Skipping native helper builds because pkg-config is not installed." >&2
+    return
+  fi
+
+  if pkg-config --exists libudev libevdev; then
+    cmake -S "${ROOT}/native/keysharp-inputd" -B "${inputd_build_dir}" \
+      -DCMAKE_BUILD_TYPE="${CONFIG}" \
+      -DKEYSHARP_INPUTD_BUILD_TOOLS=OFF
+    cmake --build "${inputd_build_dir}"
+    cp "${inputd_build_dir}/keysharp-inputd" "${inputd_build_dir}/keysharp-trust" "${APP_DIR}/"
+  else
+    echo "Skipping keysharp-inputd/keysharp-trust build because libudev or libevdev development files are missing." >&2
   fi
 
   if ! pkg-config --exists gio-2.0 gio-unix-2.0; then
@@ -61,9 +79,20 @@ build_native_helpers() {
     return
   fi
 
-  cmake -S "${ROOT}/native/keysharp-kwin-screencap" -B "${build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
-  cmake --build "${build_dir}"
-  cp "${build_dir}/keysharp-kwin-screencap" "${APP_DIR}/"
+  cmake -S "${ROOT}/native/keysharp-kwin-screencap" -B "${kwin_build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
+  cmake --build "${kwin_build_dir}"
+  cp "${kwin_build_dir}/keysharp-kwin-screencap" "${APP_DIR}/"
+}
+
+normalize_app_permissions() {
+  find "${APP_DIR}" -type d -exec chmod 0755 {} +
+  find "${APP_DIR}" -type f -exec chmod 0644 {} +
+
+  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-kwin-screencap; do
+    if [[ -f "${APP_DIR}/${exe}" ]]; then
+      chmod 0755 "${APP_DIR}/${exe}"
+    fi
+  done
 }
 
 write_deb_control() {
@@ -97,8 +126,14 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 if [ -f /usr/lib/keysharp/keysharp-kwin-screencap ]; then
+  echo "Configuring keysharp-kwin-screencap for KDE Wayland screen capture via KWin's restricted ScreenShot2 interface."
   chown root:root /usr/lib/keysharp/keysharp-kwin-screencap || true
   chmod 4755 /usr/lib/keysharp/keysharp-kwin-screencap || true
+fi
+
+if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
+  echo "Configuring keysharp-inputd/keysharp-trust for reliable Linux input hooks, input synthesis, BlockInput, and permission prompts."
+  /usr/lib/keysharp/keysharp-inputd --install-input-access || true
 fi
 EOF
   chmod 0755 "$1"
@@ -108,6 +143,14 @@ write_deb_prerm() {
   cat > "$1" <<'EOF'
 #!/bin/sh
 set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now keysharp-inputd.socket || true
+    systemctl stop keysharp-inputd.service || true
+  fi
+fi
+
 exit 0
 EOF
   chmod 0755 "$1"
@@ -129,6 +172,10 @@ fi
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+fi
 EOF
   chmod 0755 "$1"
 }
@@ -148,6 +195,7 @@ build_deb() {
   local applications_dir="${deb_root}/usr/share/applications"
   local mime_dir="${deb_root}/usr/share/mime/packages"
   local icon_dir="${deb_root}/usr/share/icons/hicolor/256x256/apps"
+  local systemd_dir="${deb_root}/usr/lib/systemd/system"
   local build_cmd=()
 
   if ! command -v dpkg-deb >/dev/null 2>&1; then
@@ -163,16 +211,30 @@ build_deb() {
   DEB_OUT="${DIST_DIR}/${DEB_PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
   echo "Creating Debian package ${DEB_OUT}..."
   rm -rf "${deb_root}"
-  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}"
+  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}"
 
   rsync -a "${APP_DIR}/" "${lib_dir}/"
   ln -s "../lib/keysharp/Keysharp" "${bin_dir}/keysharp"
   ln -s "../lib/keysharp/Keyview" "${bin_dir}/keyview"
+  if [[ -f "${lib_dir}/keysharp-trust" ]]; then
+    ln -s "../lib/keysharp/keysharp-trust" "${bin_dir}/keysharp-trust"
+  fi
+  if [[ -f "${lib_dir}/keysharp-inputd" ]]; then
+    ln -s "../lib/keysharp/keysharp-inputd" "${bin_dir}/keysharp-inputd"
+  fi
   rewrite_desktop_exec "${ASSETS_DIR}/keysharp.desktop" "${applications_dir}/keysharp.desktop"
   rewrite_desktop_exec "${ASSETS_DIR}/keyview.desktop" "${applications_dir}/keyview.desktop"
-  rewrite_desktop_exec "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${applications_dir}/keysharp-kwin-screencap.desktop"
+  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
+    rewrite_desktop_exec "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${applications_dir}/keysharp-kwin-screencap.desktop"
+  fi
   install -Dm644 "${ASSETS_DIR}/keysharp.xml" "${mime_dir}/keysharp.xml"
   install -Dm644 "${ROOT}/Keysharp.png" "${icon_dir}/keysharp.png"
+
+  if [[ -f "${lib_dir}/keysharp-inputd" ]]; then
+    sed -e 's|@CMAKE_INSTALL_FULL_BINDIR@|/usr/lib/keysharp|g' \
+      "${INPUTD_SERVICE_TEMPLATE}" > "${systemd_dir}/keysharp-inputd.service"
+    install -m 0644 "${INPUTD_SOCKET}" "${systemd_dir}/keysharp-inputd.socket"
+  fi
 
   if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
     chown 0:0 "${lib_dir}/keysharp-kwin-screencap" 2>/dev/null || true
@@ -183,6 +245,21 @@ build_deb() {
   write_deb_postinst "${debian_dir}/postinst"
   write_deb_prerm "${debian_dir}/prerm"
   write_deb_postrm "${debian_dir}/postrm"
+
+  find "${deb_root}" -type d -exec chmod 0755 {} +
+  find "${deb_root}" -type f -exec chmod 0644 {} +
+
+  for exe in Keysharp Keyview keysharp-inputd keysharp-trust; do
+    if [[ -f "${lib_dir}/${exe}" ]]; then
+      chmod 0755 "${lib_dir}/${exe}"
+    fi
+  done
+
+  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
+    chmod 4755 "${lib_dir}/keysharp-kwin-screencap"
+  fi
+
+  chmod 0755 "${debian_dir}/postinst" "${debian_dir}/prerm" "${debian_dir}/postrm"
 
   if dpkg-deb --help 2>/dev/null | grep -q -- '--root-owner-group'; then
     build_cmd=(dpkg-deb --build --root-owner-group "${deb_root}" "${DEB_OUT}")
@@ -197,6 +274,7 @@ build_deb() {
 }
 
 echo "Publishing Keysharp and Keyview (CONFIG=${CONFIG}, RID=${RID})..."
+mkdir -p "${DIST_DIR}"
 dotnet publish "${ROOT}/Keysharp/Keysharp.csproj" -c "${CONFIG}" -r "${RID}"
 dotnet publish "${ROOT}/Keyview/Keyview.csproj" -c "${CONFIG}" -r "${RID}"
 
@@ -206,13 +284,23 @@ mkdir -p "${APP_DIR}"
 
 rsync -a "${ROOT}/bin/${CONFIG}/${TFM}/${RID}/publish/" "${APP_DIR}/"
 build_native_helpers
+normalize_app_permissions
 
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"
 cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
 cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
+cp "${INPUTD_SERVICE_TEMPLATE}" "${PKG_DIR}/keysharp-inputd.service.in"
+cp "${INPUTD_SOCKET}" "${PKG_DIR}/keysharp-inputd.socket"
+chmod 0755 "${PKG_DIR}/install.sh" "${PKG_DIR}/uninstall.sh"
+chmod 0644 "${PKG_DIR}/keyview.desktop" \
+  "${PKG_DIR}/keysharp.desktop" \
+  "${PKG_DIR}/keysharp-kwin-screencap.desktop" \
+  "${PKG_DIR}/keysharp.xml" \
+  "${PKG_DIR}/Keysharp.png" \
+  "${PKG_DIR}/keysharp-inputd.service.in" \
+  "${PKG_DIR}/keysharp-inputd.socket"
 
-mkdir -p "${DIST_DIR}"
 build_tarball
 build_deb
 

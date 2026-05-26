@@ -84,6 +84,18 @@ The store is created automatically on first use and records one entry per
 requesting app plus CLI argument identity, with all granted Keysharp native
 capabilities accumulated in that entry.
 
-Denied decisions are not persisted. The managed Keysharp process remembers a
-screen capture denial for its current process session to avoid repeat prompts;
-an explicit `RequestCapabilities("ScreenCapture")` call can prompt again.
+`Allow once` decisions are kept in the long-lived `keysharp-kwin-screencap
+--serve` process. Keysharp starts that persistent helper during screen capture
+authorization, so the same helper handles later capture requests without a
+second prompt. The decision is lost when the helper or Keysharp process exits.
+
+Denied decisions are persisted in the same store as grants. After a deny,
+Keysharp will not re-prompt for screen capture until the user explicitly clears
+or overrides the denial. Two ways to re-ask:
+
+* An explicit Keysharp `RequestCapabilities("ScreenCapture")` call sends a
+  force-prompt request.
+* `keysharp-trust list` shows the records stored for the current user, and
+  `keysharp-trust reset <hash>` (or `--pid <pid>`) clears allow/deny bits so
+  the next capture asks from scratch. The CLI talks to `keysharp-inputd`, so
+  users do not need root.

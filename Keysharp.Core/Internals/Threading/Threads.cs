@@ -4,7 +4,7 @@ namespace Keysharp.Internals.Threading
 	public class Threads
 	{
 		/// <summary>
-		/// Each thread has its own TVM. This means the main UI thread gets one, and the hook thread gets one.
+		/// Each thread has its own TVM. This means the main UI thread gets one, and worker threads get their own.
 		/// This allows the hook thread to run #HotIf evaluations separately without interfering with the main thread.
 		/// It could conceivably lead to more threads being in existence than the user allowed, for a very brief moment.
 		/// This shouldn't be a problem though.
@@ -13,27 +13,42 @@ namespace Keysharp.Internals.Threading
 		/// Always add 1 because a dummy entry is always added in the constructor.
 		/// Add the emergency reserve so synchronous unbufferable emergencies can exceed the normal limit safely.
 		/// </summary>
-		private readonly ThreadVariableManager tvm = new((int)Script.TheScript.MaxThreadsTotal + Script.maxEmergencyThreads + 1);
+		private readonly ThreadLocal<ThreadVariableManager> tvm;
+		private readonly ThreadLocal<ThreadVariables> currentThread = new();
 
-		internal ThreadVariables CurrentThread;
+		internal ThreadVariables CurrentThread
+		{
+			get
+			{
+				EnsureCurrentThreadVariables();
+				return currentThread.Value;
+			}
+			private set => currentThread.Value = value;
+		}
 
-		internal ThreadVariables UnderlyingThread => tvm.threadVars.TryPeekSecond();
-		internal int ActivePseudoThreadCount => Math.Max(0, tvm.threadVars.Index - 1);
+		private ThreadVariableManager ThreadVariableManagerForCurrentThread => tvm.Value;
+
+		internal ThreadVariables UnderlyingThread => ThreadVariableManagerForCurrentThread.threadVars.TryPeekSecond();
+		internal int ActivePseudoThreadCount => Math.Max(0, ThreadVariableManagerForCurrentThread.threadVars.Index - 1);
 
 		public Threads()
 		{
+			var tvmSize = (int)Script.TheScript.MaxThreadsTotal + Script.maxEmergencyThreads + 1;
+			tvm = new ThreadLocal<ThreadVariableManager>(() => new ThreadVariableManager(tvmSize), true);
 			EnsureCurrentThreadVariables();
 		}
 
 		internal void EnsureCurrentThreadVariables()
 		{
-			if (tvm.threadVars.Index != 0)
+			var tvmLocal = ThreadVariableManagerForCurrentThread;
+
+			if (tvmLocal.threadVars.Index != 0)
 			{
-				CurrentThread = tvm.threadVars.TryPeek();
+				CurrentThread = tvmLocal.threadVars.TryPeek();
 				return;
 			}
 
-			CurrentThread = tvm.PushThreadVariables(0, true, false);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
+			CurrentThread = tvmLocal.PushThreadVariables(0, true, false);//Ensure there is always one thread in existence for reference purposes, but do not increment the actual thread counter.
 		}
 
 		public bool TryBeginThread(out ThreadVariables tv)
@@ -98,7 +113,7 @@ namespace Keysharp.Internals.Threading
 					return false;
 			}
 
-			tv = tvm.PushThreadVariables(priority, skipUninterruptible, isCritical);
+			tv = ThreadVariableManagerForCurrentThread.PushThreadVariables(priority, skipUninterruptible, isCritical);
 
 			if (tv == null)
 			{
@@ -124,7 +139,7 @@ namespace Keysharp.Internals.Threading
 
 		internal ThreadVariables GetThreadVariables()
 		{
-			return tvm.GetThreadVariables();
+			return ThreadVariableManagerForCurrentThread.GetThreadVariables();
 		}
 
 		internal bool IsInterruptible()
@@ -173,7 +188,7 @@ namespace Keysharp.Internals.Threading
 
 		internal void PopThreadVariables(ThreadVariables tv, bool checkThread = false)
 		{
-			tvm.PopThreadVariables(tv, checkThread);
+			ThreadVariableManagerForCurrentThread.PopThreadVariables(tv, checkThread);
 			CurrentThread = GetThreadVariables();
 		}
 	}

@@ -141,7 +141,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					}
 					else if (TryMapToXGrab(entry.Vk, modsForGrab, out var keycode, out var mods))
 					{
-						foreach (var pair in entry.AllowExtra ? KeyGrabVariantsWithExtra(keycode, mods) : KeyGrabVariants(keycode, mods))
+						var selfMod = VkToSelfXModifierMask(entry.Vk);
+						var grabMods = mods | selfMod;
+						foreach (var pair in entry.AllowExtra ? KeyGrabVariantsWithExtra(keycode, grabMods) : KeyGrabVariants(keycode, grabMods))
 							AddGrabKind(newKeyGrabs, pair, GrabKinds.Hotkey);
 					}
 			}
@@ -1138,6 +1140,15 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 
 			return mods;
 		}
+
+		private static uint VkToSelfXModifierMask(uint vk) => vk switch
+		{
+			VK_LSHIFT or VK_RSHIFT or VK_SHIFT => ShiftMask,
+			VK_LCONTROL or VK_RCONTROL or VK_CONTROL => ControlMask,
+			VK_LMENU or VK_RMENU or VK_MENU => Mod1Mask,
+			VK_LWIN or VK_RWIN => Mod4Mask,
+			_ => 0
+		};
 
 		private static IEnumerable<uint> KeyGrabMaskVariants(uint modifiers, bool anyModifier = false)
 		{

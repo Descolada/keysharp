@@ -510,6 +510,26 @@ namespace Keysharp.Parsing
                 return null;
             }
 
+            var altTabAction = HotkeyDefinition.ConvertAltTab(targetKey, false);
+            if (altTabAction != 0)
+            {
+                parser.DHHR.Add(
+                    SyntaxFactory.ExpressionStatement(
+                        SyntaxFactory.InvocationExpression(
+                            CreateMemberAccess("Keysharp.Runtime.Keyboard.HotkeyDefinition", "AddHotkey")
+                        )
+                        .WithArgumentList(
+                            CreateArgumentList(
+                                SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+                                CreateNumericLiteral(altTabAction),
+                                CreateStringLiteral(hotName)
+                            )
+                        )
+                    )
+                );
+                return null;
+            }
+
             // It is a remapping. Create one "down" and one "up" hotkey,
             // eg, "x::y" yields,
             // *x::

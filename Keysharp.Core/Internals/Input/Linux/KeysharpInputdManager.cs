@@ -10,6 +10,7 @@ namespace Keysharp.Internals.Input.Linux
 		internal const string LegacyX11EnvironmentVariable = "KEYSHARP_X11_LEGACY";
 		private static readonly Lock gate = new();
 		private static readonly Lock queryGate = new();
+		private static volatile bool legacyX11FallbackActive;
 
 		/// <summary>
 		/// Sends input events to the daemon via the dedicated synthesis socket. The daemon
@@ -157,6 +158,19 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static bool UseLegacyX11Input => IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable));
 
+		internal static bool IsLegacyX11FallbackActive => UseLegacyX11Input || legacyX11FallbackActive;
+
+		internal static void ActivateLegacyX11Fallback(string reason = null)
+		{
+			if (UseLegacyX11Input)
+				return;
+
+			if (!legacyX11FallbackActive && !string.IsNullOrEmpty(reason))
+				Ks.OutputDebugLine($"keysharp-inputd unavailable; using X11/SharpHook fallback. {reason}");
+
+			legacyX11FallbackActive = true;
+		}
+
 		internal static KeysharpInputdClient Client
 		{
 			get
@@ -180,7 +194,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
 		{
-			if (UseLegacyX11Input)
+			if (IsLegacyX11FallbackActive)
 			{
 				message = string.Empty;
 				return false;
@@ -217,9 +231,9 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-			internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
-			{
-			if (UseLegacyX11Input)
+		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
+		{
+			if (IsLegacyX11FallbackActive)
 				return new PermissionResult(PermissionStatus.NotApplicable);
 
 			operation ??= "input automation";

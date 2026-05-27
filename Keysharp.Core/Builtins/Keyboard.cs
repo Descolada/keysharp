@@ -985,7 +985,7 @@ break_twice:;
 
 			if (list != null && !inputdApplied)
 			{
-				if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.UseLegacyX11Input
+				if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.IsLegacyX11FallbackActive
 					&& !string.IsNullOrEmpty(inputdMessage))
 					Ks.OutputDebugLine($"BlockInput: keysharp-inputd unavailable; falling back to xinput. {inputdMessage}");
 

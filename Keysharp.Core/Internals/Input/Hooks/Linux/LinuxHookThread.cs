@@ -804,7 +804,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			return ResolveVkToXKeycode(vk, out var xcode, returnSecondary) ? xcode : 0;
 		}
 
-		private static bool UseInputdScanCodes => !KeysharpInputdManager.UseLegacyX11Input;
+		private static bool UseInputdScanCodes => !KeysharpInputdManager.IsLegacyX11FallbackActive;
 
 		// Single method for both inputd and X11 paths: MapVkToSc dispatches to the right
 		// backend based on UseInputdScanCodes, so the names are always consistent with

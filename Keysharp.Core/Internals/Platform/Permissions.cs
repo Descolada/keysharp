@@ -2,6 +2,7 @@ using Keysharp.Builtins;
 #if LINUX
 using Keysharp.Internals.Input.Linux;
 using Keysharp.Internals.Window.Linux.Wayland;
+using Keysharp.Internals.Platform.Unix;
 #endif
 namespace Keysharp.Internals.Platform
 {
@@ -135,23 +136,39 @@ namespace Keysharp.Internals.Platform
 	{
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
 		{
-			return KeysharpInputdManager.EnsureCapabilities(
+			var result = KeysharpInputdManager.EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
 				operation ?? "keyboard/mouse monitoring",
 				forcePrompt: prompt == true);
+
+			return UseX11FallbackIfAvailable(result);
 		}
 
 		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
 		{
-			return KeysharpInputdManager.EnsureCapabilities(
+			var result = KeysharpInputdManager.EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
 				operation ?? "keyboard/mouse sending",
 				forcePrompt: prompt == true);
+
+			return UseX11FallbackIfAvailable(result);
 		}
 
 		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
 		{
 			return WaylandScreenCapture.RequestScreenCapturePermission(operation, forcePrompt: prompt == true);
+		}
+
+		private static PermissionResult UseX11FallbackIfAvailable(PermissionResult result)
+		{
+			if (result.IsGranted)
+				return result;
+
+			if (!PlatformManager.IsX11Available)
+				return result;
+
+			KeysharpInputdManager.ActivateLegacyX11Fallback(result.Message);
+			return new PermissionResult(PermissionStatus.NotApplicable, result.Message);
 		}
 	}
 #endif

@@ -271,13 +271,55 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		internal UnixHookThread()
 		{
 #if LINUX
-			kbdMsSender = KeysharpInputdManager.UseLegacyX11Input
-				? new LinuxKeyboardMouseSender()
-				: new InputdKeyboardMouseSender();
+			kbdMsSender = ShouldUseInputdSender()
+				? new InputdKeyboardMouseSender()
+				: new LinuxKeyboardMouseSender();
 #else
 			kbdMsSender = new UnixKeyboardMouseSender();
 #endif
 		}
+
+#if LINUX
+		private static bool ShouldUseInputdSender()
+		{
+			if (KeysharpInputdManager.IsLegacyX11FallbackActive)
+				return false;
+
+			if (!IsX11Available)
+				return true;
+
+			var result = KeysharpInputdManager.EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.HookKeyboard
+					| KeysharpInputdClient.Capabilities.HookMouse
+					| KeysharpInputdClient.Capabilities.SynthKeyboard
+					| KeysharpInputdClient.Capabilities.SynthMouse,
+				"initialize Linux input backend");
+
+			if (result.IsGranted)
+				return true;
+
+			KeysharpInputdManager.ActivateLegacyX11Fallback(result.Message);
+			return false;
+		}
+
+		private void EnsureLegacyX11Sender()
+		{
+			if (kbdMsSender is LinuxKeyboardMouseSender)
+				return;
+
+			try
+			{
+				if (kbdMsSender is IDisposable disposable)
+					disposable.Dispose();
+			}
+			catch
+			{
+			}
+
+			kbdMsSender = new LinuxKeyboardMouseSender();
+			ResetTrackedInputState(clearSyntheticQueue: true);
+		}
+#endif
 
 		internal SendScope EnterSendScope() => new(this);
 
@@ -405,7 +447,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 #if LINUX
 				var inputdMessage = string.Empty;
 
-				if (!KeysharpInputdManager.UseLegacyX11Input && TryStartInputdHookCore(wantKeyboard, wantMouse, out inputdMessage))
+				if (!KeysharpInputdManager.IsLegacyX11FallbackActive && TryStartInputdHookCore(wantKeyboard, wantMouse, out inputdMessage))
 				{
 					StopGlobalHookCore(dispose: true);
 
@@ -431,8 +473,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					return;
 				}
 
-				if (!KeysharpInputdManager.UseLegacyX11Input)
+				if (!KeysharpInputdManager.IsLegacyX11FallbackActive)
 					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; falling back to X11/SharpHook. {inputdMessage}");
+
+				EnsureLegacyX11Sender();
 #endif
 
 				if (globalHook == null || !globalHook.IsRunning)
@@ -621,6 +665,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!permission.IsGranted)
 			{
 				message = permission.Message;
+				if (IsX11Available)
+					KeysharpInputdManager.ActivateLegacyX11Fallback(message);
 				return false;
 			}
 
@@ -645,6 +691,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			{
 				try { client?.Dispose(); } catch { }
 				message = ex.Message;
+				if (IsX11Available)
+					KeysharpInputdManager.ActivateLegacyX11Fallback(message);
 				return false;
 			}
 		}

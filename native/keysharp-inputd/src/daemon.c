@@ -74,6 +74,17 @@ static void ipc_close_locked(int client_fd)
     pthread_mutex_unlock(&g_ipc_send_mutex);
 }
 
+/* Writes a single wake byte to a self-pipe/eventfd. The pipe's buffer is the
+ * signal — readers drain it eagerly, so EAGAIN/EPIPE failures here are
+ * harmless. The assignment is what actually consumes glibc's
+ * warn_unused_result attribute (a bare (void) cast does not). */
+static inline void wake_pipe_write(int fd)
+{
+    uint8_t byte = 1;
+    ssize_t written = write(fd, &byte, sizeof(byte));
+    (void)written;
+}
+
 typedef struct ksi_hook_send_ref {
     int fd;
     atomic_uint ref_count;
@@ -318,8 +329,7 @@ static bool ksi_pipe_ring_push(ksi_pipe_ring *ring, const void *item)
     pthread_mutex_unlock(&ring->mutex);
 
     if (pushed) {
-        uint8_t byte = 1;
-        (void)write(ring->wake_write_fd, &byte, sizeof(byte));
+        wake_pipe_write(ring->wake_write_fd);
     }
 
     return pushed;
@@ -349,13 +359,11 @@ static bool ksi_pipe_ring_pop(ksi_pipe_ring *ring, void *item)
 
 static void ksi_pipe_ring_wake(const ksi_pipe_ring *ring)
 {
-    uint8_t byte = 1;
-
     if (ring == NULL || ring->wake_write_fd < 0) {
         return;
     }
 
-    (void)write(ring->wake_write_fd, &byte, sizeof(byte));
+    wake_pipe_write(ring->wake_write_fd);
 }
 
 static void ksi_pipe_ring_drain_wake(const ksi_pipe_ring *ring)
@@ -890,7 +898,13 @@ static void remove_client(ksi_daemon_state *state, nfds_t index)
      * enqueue time, so removing the client from clients[] does not need to
      * disturb in-flight lane work.  If the lane is currently waiting on a
      * decision from this client, its send/recv will simply fail and the
-     * lane will move on to the next snapshot subscriber or time out. */
+     * lane will move on to the next snapshot subscriber or time out.
+     *
+     * "Allow once" session grants live on each client's granted_capabilities
+     * field, so they die naturally with the client here. New connections from
+     * the same script process inherit grants from sibling clients via
+     * check_capabilities_sync; a fresh process has no siblings, so it gets a
+     * new prompt. */
     for (nfds_t i = index; i + 1 < *count; i++) {
         clients[i] = clients[i + 1];
     }
@@ -1036,13 +1050,11 @@ static void output_queue_drain_wake(const ksi_output_queue *q)
 
 static void output_queue_wake(const ksi_output_queue *q)
 {
-    uint8_t byte = 1;
-
     if (q == NULL || q->wake_write_fd < 0) {
         return;
     }
 
-    (void)write(q->wake_write_fd, &byte, sizeof(byte));
+    wake_pipe_write(q->wake_write_fd);
 }
 
 static void output_queue_close(ksi_output_queue *q)
@@ -1267,7 +1279,6 @@ static int lane_action_queue_init(ksi_lane_action_queue *q)
 static bool lane_action_queue_push(ksi_lane_action_queue *q, ksi_lane_event *event)
 {
     ksi_lane_action_node *node;
-    uint8_t byte = 1;
 
     if (q == NULL || event == NULL || !q->mutex_initialized) {
         return false;
@@ -1301,7 +1312,7 @@ static bool lane_action_queue_push(ksi_lane_action_queue *q, ksi_lane_event *eve
     pthread_mutex_unlock(&q->mutex);
 
     if (q->wake_write_fd >= 0) {
-        (void)write(q->wake_write_fd, &byte, sizeof(byte));
+        wake_pipe_write(q->wake_write_fd);
     }
 
     return true;
@@ -1344,13 +1355,11 @@ static bool lane_action_queue_pop(ksi_lane_action_queue *q, ksi_lane_event **out
 
 static void lane_action_queue_wake(const ksi_lane_action_queue *q)
 {
-    uint8_t byte = 1;
-
     if (q == NULL || q->wake_write_fd < 0) {
         return;
     }
 
-    (void)write(q->wake_write_fd, &byte, sizeof(byte));
+    wake_pipe_write(q->wake_write_fd);
 }
 
 static void lane_action_queue_drain_wake(const ksi_lane_action_queue *q)
@@ -1456,13 +1465,11 @@ static int lane_decision_queue_init(ksi_lane_decision_queue *q)
 
 static void lane_decision_queue_wake(const ksi_lane_decision_queue *q)
 {
-    uint8_t byte = 1;
-
     if (q == NULL || q->wake_write_fd < 0) {
         return;
     }
 
-    (void)write(q->wake_write_fd, &byte, sizeof(byte));
+    wake_pipe_write(q->wake_write_fd);
 }
 
 static void lane_decision_queue_drain_wake(const ksi_lane_decision_queue *q)
@@ -1987,6 +1994,25 @@ static uint32_t check_capabilities_sync(
     }
 
     granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash) & expanded;
+
+    /* Inherit per-process session grants from sibling clients of the same
+     * Keysharp process (same uid+pid). This is how "Allow once" decisions
+     * survive across a script's separate hook and synthesis channels without
+     * being persisted to disk or surviving past the process. */
+    for (nfds_t i = 0; i < state->client_count; i++) {
+        const ksi_client *sibling = &state->clients[i];
+
+        if (sibling == client) {
+            continue;
+        }
+
+        if (!sibling->authenticated || sibling->pid != client->pid || sibling->uid != client->uid) {
+            continue;
+        }
+
+        granted |= (sibling->granted_capabilities & expanded);
+    }
+
     missing = expanded & ~granted;
 
     /* Persistent denials suppress prompts until the user explicitly opts back
@@ -2039,24 +2065,34 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     client->pending_hello_valid = false;
 
-	if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-		(void)ksi_permissions_grant_session(
-			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
-	} else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
+	if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
 		(void)ksi_permissions_grant_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
-	} else {
+	} else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
+		/* The prompt could not actually be shown to the user — don't record a
+		 * persistent denial, otherwise every subsequent attempt would be
+		 * silently rejected without ever giving the user a chance to decide. */
+	} else if (decision != KSI_PERMISSION_DECISION_ALLOW_ONCE) {
 		/* Persistent deny: matches the macOS model — the user must clear it
 		 * explicitly (via RequestCapabilities(forcePrompt=true) or the
 		 * keysharp-trust CLI) before we will prompt again. */
 		(void)ksi_permissions_deny_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
 	}
+	/* ALLOW_ONCE is intentionally not persisted; the grant lives on this
+	 * client's granted_capabilities below and propagates to sibling clients
+	 * of the same process via check_capabilities_sync's inheritance loop. */
 
     granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash)
               & (permission_capabilities_for_request(requested) & state->available_capabilities);
 
-    if (decision == KSI_PERMISSION_DECISION_DENY || (granted & requested) != requested) {
+    if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
+        granted |= missing;
+    }
+
+    if (decision == KSI_PERMISSION_DECISION_DENY
+        || decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE
+        || (granted & requested) != requested) {
         client->authenticated = false;
         client->granted_capabilities = granted;
         send_hello_status(client->fd,

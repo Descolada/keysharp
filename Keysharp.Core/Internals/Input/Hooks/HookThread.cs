@@ -58,7 +58,13 @@ namespace Keysharp.Internals.Input.Hooks
 		internal Dictionary<uint, string> vkToKey = [];
 		internal bool blockWinKeys = false;
 		internal nint hsHwnd = 0;
-		internal KeyboardMouseSender kbdMsSender = null;
+		private KeyboardMouseSender _kbdMsSender;
+		internal KeyboardMouseSender kbdMsSender
+		{
+			get => _kbdMsSender ??= CreateKbdMsSender();
+			set => _kbdMsSender = value;
+		}
+		protected virtual KeyboardMouseSender CreateKbdMsSender() => null;
 		internal byte[] physicalKeyState = new byte[VK_ARRAY_COUNT];
 
 		internal bool pendingDeadKeyInvisible;
@@ -2477,6 +2483,17 @@ namespace Keysharp.Internals.Input.Hooks
 
 					if ((kbdMsSender.modifiersLRLogical & MOD_RCONTROL) != 0)
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RCONTROL);
+
+					// Linux addition: Super/Win is not handled by AHK's original because
+					// Windows doesn't reinterpret Win+Alt+Tab. GNOME/KDE bind Super+Tab to
+					// their own overview/window-cycling shortcuts, so a held Win prefix
+					// would otherwise hijack the synthesized Alt+Tab. Release it for the
+					// dispatch — the user's physical Win-up later is a harmless no-op.
+					if ((kbdMsSender.modifiersLRLogical & MOD_LWIN) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_LWIN);
+
+					if ((kbdMsSender.modifiersLRLogical & MOD_RWIN) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RWIN);
 
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB);
 

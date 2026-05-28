@@ -133,7 +133,16 @@ fi
 
 if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
   echo "Configuring keysharp-inputd/keysharp-trust for reliable Linux input hooks, input synthesis, BlockInput, and permission prompts."
-  /usr/lib/keysharp/keysharp-inputd --install-input-access || true
+  if ! /usr/lib/keysharp/keysharp-inputd --install-input-access; then
+    cat >&2 <<'WARN'
+Warning: keysharp-inputd --install-input-access did not complete successfully.
+Linux input hooks, input synthesis, BlockInput and the keysharp-trust permission
+prompt may be unavailable until this is resolved. Re-run manually as root:
+  sudo /usr/lib/keysharp/keysharp-inputd --install-input-access
+and check the output for the failing step (modprobe uinput, udevadm, or
+systemctl enable --now keysharp-inputd.socket).
+WARN
+  fi
 fi
 EOF
   chmod 0755 "$1"

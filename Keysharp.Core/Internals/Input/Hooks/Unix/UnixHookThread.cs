@@ -270,12 +270,16 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		internal UnixHookThread()
 		{
+		}
+
+		protected override KeyboardMouseSender CreateKbdMsSender()
+		{
 #if LINUX
-			kbdMsSender = ShouldUseInputdSender()
+			return ShouldUseInputdSender()
 				? new InputdKeyboardMouseSender()
 				: new LinuxKeyboardMouseSender();
 #else
-			kbdMsSender = new UnixKeyboardMouseSender();
+			return new UnixKeyboardMouseSender();
 #endif
 		}
 
@@ -288,17 +292,16 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!IsX11Available)
 				return true;
 
-			var result = KeysharpInputdManager.EnsureCapabilities(
-				KeysharpInputdClient.Capabilities.HookKeyboard
-					| KeysharpInputdClient.Capabilities.HookMouse
-					| KeysharpInputdClient.Capabilities.SynthKeyboard
-					| KeysharpInputdClient.Capabilities.SynthMouse,
-				"initialize Linux input backend");
-
-			if (result.IsGranted)
+			// Only probe daemon reachability here — do NOT request any capabilities,
+			// which would trigger a permission prompt at every Script construction
+			// (including for hosts like Keyview that don't actually use hooks/send).
+			// The real capability prompt happens lazily on first hook registration
+			// or Send call via EnsureInputMonitoring / EnsureInputInjection.
+			if (KeysharpInputdManager.IsDaemonReachable())
 				return true;
 
-			KeysharpInputdManager.ActivateLegacyX11Fallback(result.Message);
+			KeysharpInputdManager.ActivateLegacyX11Fallback(
+				$"keysharp-inputd not reachable at '{KeysharpInputdClient.DefaultSocketPath}'.");
 			return false;
 		}
 
@@ -826,9 +829,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
 				return true;
 
-			if (!isInjected && IsModifierKey(vk))
-				UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: true);
-
+			// AHK's hook.cpp updates modifier state via UpdateKeybdState from
+			// inside SuppressThisKeyFunc / AllowIt at the end of LowLevelCommon —
+			// nothing pre-call is needed. The Linux-specific complication is
+			// that synth modifier events re-enter the hook asynchronously, so
+			// any sender that needs state to be current within the same hotkey
+			// dispatch must update it synchronously at the send site (see
+			// InputdKeyboardMouseSender.SendKeybdEvent).
 			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
 			return result != 0;
@@ -1821,6 +1828,19 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 		internal override bool IsKeyDownAsync(uint vk)
 		{
+			// Mirror Windows' GetAsyncKeyState: report OS-level key state, which
+			// reflects synthesised events after they reach the kernel/X11. The
+			// hook's modifiersLRPhysical only tracks user-pressed keys, so using
+			// it here would cause GetModifierLRState's "wrongly down" correction
+			// to wipe modifiersLRLogical bits set by a synth modifier press —
+			// for example, the Shift put down by ShiftAltTab would be cleared
+			// the next time any GetKeyState(..., "P") call runs, and the next
+			// AltTab dispatch would then fail to release it.
+			if (TryQueryKeyState(vk, out var isDown))
+				return isDown;
+
+			// Wayland / no-X11 fallback: trust the hook's tracking. Same
+			// semantics as before for those environments.
 			if (HasKbdHook())
 			{
 				var modMask = vk switch

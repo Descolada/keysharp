@@ -93,7 +93,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 
 			if (localEvents != null && localEvents.Count != 0)
-				SendInputBatches(localEvents, ShouldBypassHook(extraInfo));
+				SendInputBatches(localEvents);
 
 			keyIndex = text.Length - 1;
 			return true;
@@ -171,6 +171,13 @@ namespace Keysharp.Internals.Input.Linux
 			if (eventQueue.Count == 0)
 				return;
 
+			// AHK's SendInput removes the keyboard hook for the duration so the
+			// LL hook never sees the synth events; AHK then reconciles
+			// g_modifiersLR_logical from the OS state afterward (see
+			// keyboard_mouse.cpp:2755-2776). Mirror that here: ask the daemon
+			// to bypass the hook lane for these events (so they reach uinput
+			// but no client hook callback fires), then reconcile state once
+			// the batch is fully flushed.
 			try
 			{
 				var batch = new List<KeysharpInputdClient.Input>(Math.Min(eventQueue.Count, MaxInputdBatchSize));
@@ -185,7 +192,7 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					SendInputBatches(batch);
+					SendInputBatches(batch, KeysharpInputdClient.SynthFlags.BypassHook);
 					batch.Clear();
 
 					if (i == eventQueue.Count - 1)
@@ -194,16 +201,43 @@ namespace Keysharp.Internals.Input.Linux
 						Keysharp.Internals.Flow.SleepWithoutInterruption(ev.DelayMs);
 				}
 
-				SendInputBatches(batch);
+				SendInputBatches(batch, KeysharpInputdClient.SynthFlags.BypassHook);
 			}
 			finally
 			{
 				eventQueue.Clear();
 			}
+
+			ReconcileLogicalModifiersFromOs();
+		}
+
+		/// <summary>
+		/// Mirrors AHK's post-SendInput state reconciliation: after a bypass-hook
+		/// batch the daemon's hook lane did not echo the synth events back to us,
+		/// so modifiersLRLogical is stale. Pull the current OS-level modifier
+		/// state (X11 via IsKeyDownAsync → XQueryKeymap) and force the hook's
+		/// tracked logical state to match.
+		/// </summary>
+		private static void ReconcileLogicalModifiersFromOs()
+		{
+			var ht = Script.TheScript.HookThread;
+			var sender = ht.kbdMsSender;
+
+			if (sender == null)
+				return;
+
+			var modsCurrent = sender.GetModifierLRState(true);
+			sender.modifiersLRLogical = sender.modifiersLRLogicalNonIgnored = modsCurrent;
 		}
 
 		/// <summary>
 		/// Immediate single-event send, equivalent to keybd_event() on Windows.
+		/// The event always round-trips through the daemon's hook lane so
+		/// AllowIt's UpdateKeybdState updates modifiersLRLogical — matching
+		/// AHK's keybd_event semantics, where the LL hook still sees the
+		/// injected event (and routes it through AllowIt because of the
+		/// ignore marker) rather than skipping it. The bypass-hook flag is
+		/// reserved for the SendInput-mode batch path.
 		/// </summary>
 		internal override void SendKeybdEvent(KeyEventTypes eventType, uint vk, uint sc, uint flags, long extraInfo)
 		{
@@ -223,7 +257,7 @@ namespace Keysharp.Internals.Input.Linux
 				[
 					KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags, extraInfo: (ulong)extraInfo),
 					KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags | (KeysharpInputdClient.KeyEventFlags)KEYEVENTF_KEYUP, extraInfo: (ulong)extraInfo),
-				], ShouldBypassHook(extraInfo));
+				]);
 				return;
 			}
 
@@ -233,7 +267,7 @@ namespace Keysharp.Internals.Input.Linux
 			SendInputBatches(
 			[
 				KeysharpInputdClient.Input.Key((ushort)vk, (ushort)sc, keyFlags, extraInfo: (ulong)extraInfo),
-			], ShouldBypassHook(extraInfo));
+			]);
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -279,7 +313,7 @@ namespace Keysharp.Internals.Input.Linux
 					QueueInput(input);
 			}
 			else
-				SendInputBatches(inputs, ShouldBypassHook(extraInfo));
+				SendInputBatches(inputs);
 
 			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
 		}
@@ -568,11 +602,6 @@ namespace Keysharp.Internals.Input.Linux
 			else
 				QueueInput(input);
 		}
-
-		private static KeysharpInputdClient.SynthFlags ShouldBypassHook(long extraInfo)
-			=> IsIgnored((ulong)extraInfo)
-				? KeysharpInputdClient.SynthFlags.BypassHook
-				: KeysharpInputdClient.SynthFlags.None;
 
 		private static void SendInputBatches(IReadOnlyList<KeysharpInputdClient.Input> inputs, KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{

@@ -269,6 +269,21 @@ namespace Keysharp.Internals.Input.Linux
 			return TryConnect(operation, out status, out message);
 		}
 
+		/// <summary>
+		/// Probes whether keysharp-inputd is reachable without requesting any
+		/// capabilities (so no permission prompt is shown). Used to decide which
+		/// keyboard/mouse sender to construct before any hook/send is actually
+		/// requested — defer the real capability prompt to first use.
+		/// </summary>
+		internal static bool IsDaemonReachable()
+		{
+			if (IsLegacyX11FallbackActive)
+				return false;
+
+			lock (gate)
+				return TryEnsureConnected("probe keysharp-inputd", out _, out _);
+		}
+
 		private static bool TryConnect(string operation, out PermissionStatus status, out string message)
 		{
 			try
@@ -304,10 +319,14 @@ namespace Keysharp.Internals.Input.Linux
 			const KeysharpInputdClient.Capabilities synth =
 				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
 
+			// Hook access is the more invasive grant (it can observe and replay
+			// every keystroke), so when the user already authorizes hooks we
+			// fold in synthesis too — asking again for Send would be redundant.
+			// Synthesis on its own does not imply hooks: a script that only
+			// sends keys should not be granted observation rights.
 			if ((requested & hook) != 0)
-				requested |= hook;
-
-			if ((requested & synth) != 0)
+				requested |= hook | synth;
+			else if ((requested & synth) != 0)
 				requested |= synth;
 
 			return requested;

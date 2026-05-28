@@ -26,6 +26,11 @@ typedef enum ksi_permission_decision {
     KSI_PERMISSION_DECISION_DENY = 0,
     KSI_PERMISSION_DECISION_ALLOW_ONCE = 1,
     KSI_PERMISSION_DECISION_ALLOW_ALWAYS = 2,
+    /* The prompt could not be displayed (no zenity/kdialog reachable, or the
+     * requester process environment could not be read). Callers must treat
+     * this as a transient deny — do not persist a denial, so the next attempt
+     * gets another chance to show the prompt. */
+    KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE = 3,
 } ksi_permission_decision;
 
 int ksi_permissions_create(ksi_permission_store **store);
@@ -90,6 +95,17 @@ int ksi_permissions_deny_persistent(
  * user. Session grants are also cleared so a fresh prompt is required.
  * Returns 0 on success. */
 int ksi_permissions_clear_persistent(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    uint32_t capabilities);
+
+/* Clears the specified capability bits from the in-memory session allow set
+ * for {uid, exe_hash}, leaving persistent state untouched. Called by the
+ * daemon when the last client with that exe_hash disconnects so an "Allow
+ * once" decision does not survive across script runs. Returns 0 on success
+ * or when no record exists for {uid, exe_hash}. */
+int ksi_permissions_clear_session(
     ksi_permission_store *store,
     uid_t uid,
     const char *exe_hash,

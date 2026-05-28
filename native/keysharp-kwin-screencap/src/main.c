@@ -156,6 +156,10 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
             fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
             result = KSS_TRUST_UNAVAILABLE;
         }
+    } else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
+        /* No dialog backend was reachable — treat as transient deny so the
+         * user gets another chance once a prompt UI becomes available. */
+        result = KSS_TRUST_UNAVAILABLE;
     } else {
         if (ksi_permissions_deny_persistent(store, requester_uid, exe_hash, exe_path, missing) != 0) {
             fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");

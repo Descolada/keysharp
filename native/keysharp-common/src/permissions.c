@@ -30,9 +30,7 @@ void ksi_permissions_cancel(void)
 }
 
 #define KSI_PERMISSION_STORE_DIRECTORY "/var/lib/keysharp-trust"
-#define KSI_PERMISSION_LEGACY_STORE_DIRECTORY "/var/lib/keysharp-inputd"
 #define KSI_PERMISSION_STORE_FILE_NAME "permissions.tsv"
-#define KSI_PERMISSION_LEGACY_STORE_FILE_NAME "inputd-permissions.tsv"
 #define KSI_PERMISSION_STORE_VERSION "v1"
 #define KSI_PERMISSION_RECORD_TTL_SECONDS (60u * 24u * 60u * 60u)
 #define KSI_PROMPT_TIMEOUT_SECONDS 60u
@@ -378,9 +376,6 @@ static int ensure_parent_directories(const char *path)
 static char *resolve_store_path(void)
 {
     char full_path[KSI_PERMISSION_MAX_PATH];
-    char legacy_path[KSI_PERMISSION_MAX_PATH];
-    struct stat current_info;
-    struct stat legacy_info;
     int written;
 
     if (ensure_parent_directories(KSI_PERMISSION_STORE_DIRECTORY) != 0
@@ -394,41 +389,6 @@ static char *resolve_store_path(void)
 
     if (written < 0 || (size_t)written >= sizeof(full_path)) {
         return NULL;
-    }
-
-    if (stat(full_path, &current_info) != 0 && errno == ENOENT) {
-        written = snprintf(
-            legacy_path, sizeof(legacy_path), "%s/%s",
-            KSI_PERMISSION_LEGACY_STORE_DIRECTORY,
-            KSI_PERMISSION_LEGACY_STORE_FILE_NAME);
-
-        if (written >= 0 && (size_t)written < sizeof(legacy_path)
-            && stat(legacy_path, &legacy_info) == 0
-            && S_ISREG(legacy_info.st_mode)) {
-            int source = open(legacy_path, O_RDONLY | O_CLOEXEC);
-            int target = open(full_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR);
-
-            if (source >= 0 && target >= 0) {
-                char buffer[8192];
-                ssize_t bytes_read;
-
-                while ((bytes_read = read(source, buffer, sizeof(buffer))) > 0) {
-                    if (write(target, buffer, (size_t)bytes_read) != bytes_read) {
-                        break;
-                    }
-                }
-
-                (void)fsync(target);
-            }
-
-            if (source >= 0) {
-                close(source);
-            }
-
-            if (target >= 0) {
-                close(target);
-            }
-        }
     }
 
     return strdup(full_path);
@@ -1571,6 +1531,28 @@ int ksi_permissions_clear_persistent(
     return save_store(store);
 }
 
+int ksi_permissions_clear_session(
+    ksi_permission_store *store,
+    uid_t uid,
+    const char *exe_hash,
+    uint32_t capabilities)
+{
+    ssize_t index;
+
+    if (store == NULL || exe_hash == NULL || capabilities == 0u) {
+        return -1;
+    }
+
+    index = find_record_index(store, uid, exe_hash);
+
+    if (index < 0) {
+        return 0;
+    }
+
+    store->records[index].session_allowed_capabilities &= ~capabilities;
+    return 0;
+}
+
 void ksi_permissions_for_each(
     const ksi_permission_store *store,
     uid_t uid_filter,
@@ -1710,5 +1692,5 @@ ksi_permission_decision ksi_permissions_prompt(
     }
 
     fprintf(stderr, "keysharp-trust: permission prompt unavailable for pid=%ld uid=%ld\n", (long)pid, (long)uid);
-    return KSI_PERMISSION_DECISION_DENY;
+    return KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE;
 }

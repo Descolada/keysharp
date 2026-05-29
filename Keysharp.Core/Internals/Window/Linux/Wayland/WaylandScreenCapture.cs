@@ -80,7 +80,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			// Trust gate: same keysharp-screencap --authorize flow as KWin.
 			// Result is cached after the first call so hot paths (PixelSearch loops)
-			// pay only a lock check on subsequent iterations.
+			// pay only a lock check on subsequent iterations. The GNOME Shell
+			// extension performs its own per-call check against the real D-Bus
+			// sender PID; this call only warms the prompt eagerly so the first
+			// capture doesn't block on UI.
 			if (!KWinScreenCaptureHelper.AuthorizeOnly(null).IsGranted)
 				return null;
 
@@ -89,14 +92,37 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (bytes == null)
 				return null;
 
+			Bitmap bmp;
+
 			try
 			{
-				return new Bitmap(new MemoryStream(bytes));
+				bmp = new Bitmap(new MemoryStream(bytes));
 			}
 			catch
 			{
 				return null;
 			}
+
+			// Mutter applies the view scale to the captured framebuffer: a 1920x1080
+			// logical area on a 2x display returns a 3840x2160 PNG. PixelGetColor
+			// happens to "work" because GetPixel(0,0) still reads a corner pixel,
+			// but ImageSearch needs source dimensions to match the needle's coordinate
+			// space, so we downscale back to the requested logical size when they differ.
+			if ((bmp.Width != w || bmp.Height != h) && w > 0 && h > 0)
+			{
+				try
+				{
+					var resized = new Bitmap(bmp, w, h, ImageInterpolation.Default);
+					bmp.Dispose();
+					return resized;
+				}
+				catch
+				{
+					return bmp;
+				}
+			}
+
+			return bmp;
 		}
 
 		private sealed class OutputInfo

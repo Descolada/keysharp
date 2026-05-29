@@ -44,7 +44,7 @@ static GDBusConnection *g_serve_connection = NULL;
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr, "Usage: %s --area X Y WIDTH HEIGHT | --serve [--force-prompt] | --authorize [--force-prompt] | --diagnose\n", argv0);
+    fprintf(stderr, "Usage: %s --area X Y WIDTH HEIGHT | --serve [--force-prompt] | --authorize [--force-prompt] | --authorize-pid PID [--force-prompt] | --diagnose\n", argv0);
 }
 
 static bool parse_int_arg(const char *text, int *value)
@@ -728,6 +728,33 @@ int main(int argc, char **argv)
 
         if (argc == 3) {
             if (strcmp(argv[2], "--force-prompt") != 0) {
+                print_usage(argv[0]);
+                return KSS_EXIT_USAGE;
+            }
+
+            force_prompt = true;
+        }
+    } else if ((argc == 3 || argc == 4) && strcmp(argv[1], "--authorize-pid") == 0) {
+        /* Trust check against a caller-specified PID instead of getppid(). Used by the
+         * GNOME Shell extension, where the helper's parent is gnome-shell, not the
+         * requesting Keysharp process. The PID must be resolved by a trusted intermediary
+         * (e.g. the D-Bus daemon via GetConnectionUnixProcessID) — never pass through a
+         * value supplied directly by the requester. The trust check itself reads
+         * /proc/<pid>/exe to identify the binary, so even a spoofed PID can only escalate
+         * to whichever exe that PID currently runs. */
+        int pid_arg;
+
+        authorize_only = true;
+
+        if (!parse_int_arg(argv[2], &pid_arg) || pid_arg <= 0) {
+            print_usage(argv[0]);
+            return KSS_EXIT_USAGE;
+        }
+
+        requester_pid = (pid_t)pid_arg;
+
+        if (argc == 4) {
+            if (strcmp(argv[3], "--force-prompt") != 0) {
                 print_usage(argv[0]);
                 return KSS_EXIT_USAGE;
             }

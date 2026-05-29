@@ -125,6 +125,7 @@ export default class KeysharpExtension {
         this._busNameId  = 0;
         this._vPointer   = null;
         this._focusId    = null;
+        this._helperPath = null;
     }
 
     enable() {
@@ -305,32 +306,53 @@ export default class KeysharpExtension {
     // Calls Shell.Screenshot directly (bypasses the D-Bus layer, so GNOME's
     // polkit restriction on org.gnome.Shell.Screenshot does not apply and no
     // flash is triggered). Gio.MemoryOutputStream avoids any disk I/O.
-    // Returns an empty Uint8Array on failure.
-    async CaptureArea(x, y, width, height) {
-        if (width <= 0 || height <= 0)
-            return new Uint8Array(0);
+    //
+    // Authorization mirrors the KWin path: the keysharp-screencap helper
+    // (which uses keysharp-trust) validates the requester before we hand over
+    // pixels. The requester PID is resolved from the D-Bus daemon via
+    // GetConnectionUnixProcessID — *never* trusted from a method argument —
+    // so a malicious peer cannot impersonate Keysharp to bypass the prompt.
+    //
+    // GJS dispatches methods declared with one extra parameter beyond the XML
+    // input args by appending the Gio.DBusMethodInvocation. We must call
+    // invocation.return_value() instead of returning a value.
+    async CaptureArea(x, y, width, height, invocation) {
+        const reply = (bytes) =>
+            invocation.return_value(new GLib.Variant('(ay)', [bytes]));
+
+        if (width <= 0 || height <= 0) {
+            reply(new Uint8Array(0));
+            return;
+        }
 
         try {
+            const senderPid = this._resolveSenderPid(invocation.get_sender());
+
+            if (senderPid <= 0 || !this._authorizeRequester(senderPid)) {
+                reply(new Uint8Array(0));
+                return;
+            }
+
             const screenshot = new Shell.Screenshot();
             const stream = Gio.MemoryOutputStream.new_resizable();
 
-            await new Promise((resolve, reject) => {
+            await new Promise((resolve, rejectPromise) => {
                 screenshot.screenshot_area(x, y, width, height, stream, (obj, result) => {
                     try {
                         screenshot.screenshot_area_finish(result);
                         resolve();
                     } catch (e) {
-                        reject(e);
+                        rejectPromise(e);
                     }
                 });
             });
 
             stream.close(null);
             const gbytes = stream.steal_as_bytes();
-            return new Uint8Array(gbytes.get_data());
+            reply(new Uint8Array(gbytes.get_data()));
         } catch (e) {
             logError(e, 'Keysharp: CaptureArea failed');
-            return new Uint8Array(0);
+            reply(new Uint8Array(0));
         }
     }
 
@@ -386,6 +408,82 @@ export default class KeysharpExtension {
             maximized,
             visible:   !win.minimized,
         };
+    }
+
+    // Ask the D-Bus daemon for the real PID behind a unique bus name. The
+    // daemon enforces this lookup against its own connection tracking, so the
+    // value cannot be forged by the caller. Returns -1 on any failure.
+    _resolveSenderPid(senderName) {
+        if (!senderName)
+            return -1;
+
+        try {
+            const reply = Gio.DBus.session.call_sync(
+                'org.freedesktop.DBus',
+                '/org/freedesktop/DBus',
+                'org.freedesktop.DBus',
+                'GetConnectionUnixProcessID',
+                new GLib.Variant('(s)', [senderName]),
+                new GLib.VariantType('(u)'),
+                Gio.DBusCallFlags.NONE,
+                500,
+                null);
+            const [pid] = reply.deepUnpack();
+            return Number(pid);
+        } catch (e) {
+            logError(e, 'Keysharp: failed to resolve sender PID');
+            return -1;
+        }
+    }
+
+    // Spawn keysharp-screencap --authorize-pid <pid> synchronously. Exit code
+    // 0 means trust granted (either the user has previously approved this
+    // exe, or the helper prompted now and the user approved). Any other code
+    // — denied, prompt unavailable, helper missing — fails closed.
+    //
+    // No caching: the helper's own trust-store lookup is fast (microseconds
+    // once cached), and skipping the spawn would break revoke semantics.
+    _authorizeRequester(pid) {
+        const helperPath = this._resolveHelperPath();
+
+        if (!helperPath)
+            return false;
+
+        try {
+            const proc = Gio.Subprocess.new(
+                [helperPath, '--authorize-pid', String(pid)],
+                Gio.SubprocessFlags.STDERR_PIPE);
+
+            // wait() returns when the child exits; no PNG round-trip
+            // overhead since --authorize-pid does no D-Bus or capture work.
+            proc.wait(null);
+            return proc.get_exit_status() === 0;
+        } catch (e) {
+            logError(e, 'Keysharp: keysharp-screencap --authorize-pid failed');
+            return false;
+        }
+    }
+
+    _resolveHelperPath() {
+        if (this._helperPath !== null)
+            return this._helperPath;
+
+        const candidates = [
+            GLib.getenv('KEYSHARP_SCREENCAP_HELPER'),
+            '/usr/local/lib/keysharp/keysharp-screencap',
+            '/usr/lib/keysharp/keysharp-screencap',
+            '/usr/local/bin/keysharp-screencap',
+            '/usr/bin/keysharp-screencap',
+        ];
+
+        for (const candidate of candidates) {
+            if (candidate && GLib.file_test(candidate, GLib.FileTest.IS_EXECUTABLE)) {
+                this._helperPath = candidate;
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     _findWindow(handle) {

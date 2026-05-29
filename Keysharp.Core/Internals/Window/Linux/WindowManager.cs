@@ -153,16 +153,26 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 		{
+			// AHK on Windows enumerates via EnumWindows, which yields top-to-bottom z-order
+			// (index 0 = topmost). The Linux compositor APIs we use here all natively expose
+			// the opposite — KWin's workspace.stackingOrder, GNOME's get_window_actors, and
+			// X11's XQueryTree all return bottom-to-top — so we reverse at this single layer
+			// so WinGetList[1], WinExist tiebreaks, etc. match the Windows convention. The
+			// per-backend TryListWindows / TryGetWindowAt paths still see the natural
+			// compositor order, which is what their own logic expects.
 			var backend = WaylandBackend;
 			if (backend?.TryListWindows(detectHiddenWindows, out var backendWindows) == true)
-				return backendWindows.Select(window => CreateWaylandWindow(backend, window)).ToList();
+				return backendWindows.Reverse().Select(window => CreateWaylandWindow(backend, window)).ToList();
 
 			var waylandWindows = Wayland.WaylandForeignToplevels.Current?.Enumerate()
 				.Select(toplevel => (WindowItemBase)new Wayland.WaylandWindowItem(toplevel))
 				.ToList() ?? [];
 
 			if (!PlatformManager.IsX11Available)
+			{
+				waylandWindows.Reverse();
 				return waylandWindows;
+			}
 
 			var attr = new XWindowAttributes();
 			var filter = (long id) =>
@@ -186,6 +196,7 @@ namespace Keysharp.Internals.Window.Linux
 					topLevels.Add(topLevel);
 			}
 
+			topLevels.Reverse();
 			return topLevels;
 		}
 

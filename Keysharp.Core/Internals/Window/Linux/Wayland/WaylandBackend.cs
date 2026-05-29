@@ -41,6 +41,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					"sway" => new SwayBackend(),
 					"hyprland" => new HyprlandBackend(),
 					"cosmic" => new CosmicBackend(),
+					"gnome" => new GnomeBackend(),
 					_ => AutoProbe()
 				};
 			}
@@ -64,6 +65,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			if (CosmicBackend.IsAvailable())
 				return new CosmicBackend();
+
+			if (GnomeBackend.IsAvailable())
+				return new GnomeBackend();
 
 			return null;
 		}
@@ -96,6 +100,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			public string Name => "KWin";
 
+			// KWin FakeInput evdev button codes (Linux BTN_* constants).
+			private const uint BtnLeft    = 0x110;
+			private const uint BtnRight   = 0x111;
+			private const uint BtnMiddle  = 0x112;
+			private const uint BtnBack    = 0x116;
+			private const uint BtnForward = 0x115;
+
 			internal static bool IsAvailable()
 				=> DesktopMatches("KDE")
 				   || EnvironmentContains("DESKTOP_SESSION", "kde")
@@ -105,8 +116,41 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				   || string.Equals(Environment.GetEnvironmentVariable("KDE_FULL_SESSION"), "true", StringComparison.OrdinalIgnoreCase)
 				   || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KDE_SESSION_VERSION"));
 
+			public bool SupportsMouse => true;
+
 			public bool TryGetCursorPos(out int x, out int y)
 				=> KWinDBusBridge.QueryCursorPosition(out x, out y);
+
+			public bool TrySendMouseMoveAbsolute(int x, int y)
+				=> KWinFakeInputBridge.TryMoveAbsolute(x, y);
+
+			public bool TrySendMouseMoveRelative(int dx, int dy)
+				=> KWinFakeInputBridge.TryMoveRelative(dx, dy);
+
+			public bool TrySendMouseButton(uint button, bool pressed)
+			{
+				var evdev = button switch
+				{
+					1 => BtnLeft,
+					2 => BtnMiddle,
+					3 => BtnRight,
+					8 => BtnBack,
+					9 => BtnForward,
+					_ => 0u
+				};
+				return evdev != 0 && KWinFakeInputBridge.TryButton(evdev, pressed);
+			}
+
+			public bool TrySendMouseScroll(int delta, bool vertical)
+			{
+				// KWin FakeInput axis: 0 = vertical, 1 = horizontal.
+				// KWin convention: positive delta = scroll down/right.
+				// AHK/Keysharp convention: positive delta = scroll up/right.
+				// Negate the vertical axis; horizontal direction is the same.
+				var axis      = vertical ? 0u : 1u;
+				var kwinDelta = vertical ? -(double)delta / 120.0 : (double)delta / 120.0;
+				return KWinFakeInputBridge.TryAxis(axis, kwinDelta);
+			}
 
 			public bool TryListWindows(bool includeHidden, out IReadOnlyList<WaylandWindowInfo> windows)
 			{
@@ -545,6 +589,286 @@ function findWindow(id) {
 				=> element.TryGetProperty(property, out var value) && JsonBool(value);
 
 			private static bool JsonBool(JsonElement value)
+				=> value.ValueKind == JsonValueKind.True
+				   || (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var i) && i != 0)
+				   || (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out var b) && b);
+
+			private static string JsonString(JsonElement element, string property)
+				=> JsonString(element, property, out var value) ? value : string.Empty;
+
+			private static bool JsonString(JsonElement element, string property, out string result)
+			{
+				result = string.Empty;
+
+				if (!element.TryGetProperty(property, out var value))
+					return false;
+
+				result = value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
+				return true;
+			}
+
+			private static long JsonLong(JsonElement element, string property)
+			{
+				if (!element.TryGetProperty(property, out var value))
+					return 0L;
+
+				if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var l))
+					return l;
+
+				return value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out l) ? l : 0L;
+			}
+
+			private static Rectangle JsonRectangle(JsonElement element, string property)
+			{
+				if (!element.TryGetProperty(property, out var rect) || rect.ValueKind != JsonValueKind.Object)
+					return Rectangle.Empty;
+
+				return new Rectangle(JsonInt(rect, "x"), JsonInt(rect, "y"), JsonInt(rect, "width"), JsonInt(rect, "height"));
+			}
+
+			private static int JsonInt(JsonElement element, string property)
+			{
+				if (!element.TryGetProperty(property, out var value))
+					return 0;
+
+				if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var i))
+					return i;
+
+				return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out i) ? i : 0;
+			}
+		}
+
+		/// <summary>
+		/// Wayland backend for GNOME Shell. Communicates with the bundled
+		/// keysharp@keysharp.io GNOME Shell extension via D-Bus. The extension
+		/// runs inside the compositor process and therefore has access to all
+		/// Mutter window state that is normally inaccessible to foreign clients.
+		/// </summary>
+		internal sealed class GnomeBackend : IWaylandBackend
+		{
+			// Bit 61 set marks a handle as originating from this backend.
+			// Bit 62 is already used by KWinBackend; X11 XIDs are 32-bit; so
+			// bit 61 gives a collision-free range for GNOME stable_sequences.
+			private const long GnomeBit = unchecked((long)0x2000_0000_0000_0000L);
+
+			public string Name => "GNOME";
+
+			public bool SupportsMouse => true;
+
+			internal static bool IsAvailable()
+				=> DesktopMatches("GNOME")
+				   || DesktopMatches("ubuntu")
+				   || EnvironmentContains("DESKTOP_SESSION", "gnome")
+				   || EnvironmentContains("XDG_SESSION_DESKTOP", "gnome")
+				   || EnvironmentContains("XDG_CURRENT_DESKTOP", "gnome");
+
+			public bool TryGetCursorPos(out int x, out int y)
+				=> GnomeShellBridge.QueryCursorPosition(out x, out y);
+
+			public bool TryListWindows(bool includeHidden, out IReadOnlyList<WaylandWindowInfo> windows)
+			{
+				windows = [];
+				var json = GnomeShellBridge.QueryWindowList(includeHidden);
+
+				if (json.IsNullOrEmpty())
+					return false;
+
+				try
+				{
+					using var doc = JsonDocument.Parse(json);
+					var root = doc.RootElement;
+
+					if (!JsonBool(root, "ok") || !root.TryGetProperty("windows", out var arr) || arr.ValueKind != JsonValueKind.Array)
+						return false;
+
+					var parsed = new List<WaylandWindowInfo>();
+
+					foreach (var item in arr.EnumerateArray())
+						if (TryParseWindow(item, out var info))
+							parsed.Add(info);
+
+					windows = parsed;
+					return true;
+				}
+				catch
+				{
+					return false;
+				}
+			}
+
+			public bool TryGetActiveWindow(out WaylandWindowInfo window)
+			{
+				window = null;
+				var json = GnomeShellBridge.QueryActiveWindow();
+				return TryParseSingleWindow(json, out window);
+			}
+
+			public bool TryGetWindow(nint handle, out WaylandWindowInfo window)
+			{
+				window = null;
+
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				// Fetch the full list and find by handle — the extension has no
+				// single-window-by-id method, but the list is cheap.
+				if (!TryListWindows(true, out var all))
+					return false;
+
+				window = all.FirstOrDefault(w => w.Handle == handle);
+				return window != null;
+			}
+
+			public bool TryGetWindowAt(int x, int y, out WaylandWindowInfo window)
+			{
+				window = null;
+
+				// Walk the window list top-to-bottom (list is bottom-to-top order)
+				// and return the first window whose frame contains the point.
+				if (!TryListWindows(false, out var all))
+					return false;
+
+				for (var i = all.Count - 1; i >= 0; i--)
+				{
+					var w = all[i];
+
+					if (w.FrameGeometry.Contains(x, y))
+					{
+						window = w;
+						return true;
+					}
+				}
+
+				return false;
+			}
+
+			public bool TryActivateWindow(nint handle)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				return GnomeShellBridge.SendFocusWindow(seq);
+			}
+
+			public bool TryMoveResizeWindow(nint handle, Rectangle bounds, bool setPosition, bool setSize)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				return GnomeShellBridge.SendMoveResize(
+					seq,
+					setPosition ? bounds.X : int.MinValue,
+					setPosition ? bounds.Y : int.MinValue,
+					setSize && bounds.Width > 0 ? bounds.Width : 0,
+					setSize && bounds.Height > 0 ? bounds.Height : 0);
+			}
+
+			public bool TrySetWindowState(nint handle, FormWindowState state)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				return GnomeShellBridge.SendSetWindowState(seq, (int)state);
+			}
+
+			public bool TryCloseWindow(nint handle)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				return GnomeShellBridge.SendCloseWindow(seq);
+			}
+
+			public bool TrySendMouseMoveAbsolute(int x, int y)
+				=> GnomeShellBridge.SendMouseMoveAbsolute(x, y);
+
+			public bool TrySendMouseMoveRelative(int dx, int dy)
+				=> GnomeShellBridge.SendMouseMoveRelative(dx, dy);
+
+			public bool TrySendMouseButton(uint button, bool pressed)
+				=> GnomeShellBridge.SendMouseButton(button, pressed);
+
+			public bool TrySendMouseScroll(int delta, bool vertical)
+				=> GnomeShellBridge.SendMouseScroll(delta, vertical);
+
+			// ---- helpers ------------------------------------------------
+
+			private static bool TryParseWindow(JsonElement item, out WaylandWindowInfo info)
+			{
+				info = null;
+
+				if (!JsonString(item, "id", out var id) || id.IsNullOrEmpty())
+					return false;
+
+				if (!ulong.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seq))
+					return false;
+
+				info = new WaylandWindowInfo
+				{
+					Handle = SeqToHandle(seq),
+					CompositorId = id,
+					Title = JsonString(item, "title"),
+					AppId = JsonString(item, "appId"),
+					PID = JsonLong(item, "pid"),
+					FrameGeometry = JsonRectangle(item, "frame"),
+					ClientGeometry = JsonRectangle(item, "client"),
+					Active = JsonBool(item, "active"),
+					Minimized = JsonBool(item, "minimized"),
+					Maximized = JsonBool(item, "maximized"),
+					Visible = JsonBool(item, "visible"),
+				};
+				return true;
+			}
+
+			private static bool TryParseSingleWindow(string json, out WaylandWindowInfo window)
+			{
+				window = null;
+
+				if (json.IsNullOrEmpty())
+					return false;
+
+				try
+				{
+					using var doc = JsonDocument.Parse(json);
+					var root = doc.RootElement;
+
+					if (!JsonBool(root, "ok")
+						|| !root.TryGetProperty("window", out var item)
+						|| item.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+						return false;
+
+					return TryParseWindow(item, out window);
+				}
+				catch
+				{
+					return false;
+				}
+			}
+
+			// Encode a stable_sequence as an nint handle. Bit 61 marks it
+			// as a GNOME handle, keeping it above the 32-bit X11 XID range
+			// and separate from KWin's bit-62 handles.
+			private static nint SeqToHandle(ulong seq)
+				=> new nint((long)((seq & 0xFFFF_FFFF) | (ulong)GnomeBit));
+
+			private static bool TryHandleToSeq(nint handle, out ulong seq)
+			{
+				var h = handle.ToInt64();
+
+				if ((h & unchecked((long)0x6000_0000_0000_0000L)) == GnomeBit)
+				{
+					seq = (ulong)(h & 0xFFFF_FFFF);
+					return true;
+				}
+
+				seq = 0;
+				return false;
+			}
+
+			private static bool JsonBool(JsonElement element, string property)
+				=> element.TryGetProperty(property, out var value) && JsonBoolValue(value);
+
+			private static bool JsonBoolValue(JsonElement value)
 				=> value.ValueKind == JsonValueKind.True
 				   || (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var i) && i != 0)
 				   || (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out var b) && b);

@@ -27,7 +27,7 @@ namespace Keysharp.Internals.Platform.Unix
 			XDisplay.Default.Handle != 0;
 #endif
 
-		internal static bool IsWaylandSession =>
+		internal static readonly bool IsWaylandSession =
 			string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase);
 
 		static PlatformManager()

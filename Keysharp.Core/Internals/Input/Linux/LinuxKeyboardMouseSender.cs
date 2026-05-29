@@ -288,6 +288,9 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			var ms = DateTime.UtcNow;
 			var textBatch = new StringBuilder();
+			// On GNOME Wayland, use the shell extension for mouse simulation instead
+			// of SharpHook (which has no Wayland path when X11 is absent).
+			var gnomeMouse = WaylandMouseBackend();
 
 			void FlushText()
 			{
@@ -332,14 +335,26 @@ namespace Keysharp.Internals.Input.Linux
 						break;
 
 					case ArrayEventType.MouseMoveRel:
-						sim.SimulateMouseMovementRelative((short)(ev.X * scale), (short)(ev.Y * scale));
+					{
+						var dx = (int)(ev.X * scale);
+						var dy = (int)(ev.Y * scale);
+
+						if (gnomeMouse?.TrySendMouseMoveRelative(dx, dy) != true)
+							sim.SimulateMouseMovementRelative((short)dx, (short)dy);
+
 						break;
+					}
 
 					case ArrayEventType.MouseMoveAbs:
 					{
 						int mx = ev.X, my = ev.Y;
 						EnsureCoords(ref mx, ref my);
-						sim.SimulateMouseMovement((short)(mx * scale), (short)(my * scale));
+						var sx = (int)(mx * scale);
+						var sy = (int)(my * scale);
+
+						if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
+							sim.SimulateMouseMovement((short)sx, (short)sy);
+
 						break;
 					}
 
@@ -347,12 +362,25 @@ namespace Keysharp.Internals.Input.Linux
 					{
 						int mx = ev.X, my = ev.Y;
 
-						if (mx == CoordUnspecified && my == CoordUnspecified)
-							sim.SimulateMousePress(ev.Button);
-						else
+						if (mx != CoordUnspecified || my != CoordUnspecified)
 						{
 							EnsureCoords(ref mx, ref my);
-							sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
+							var sx = (int)(mx * scale);
+							var sy = (int)(my * scale);
+
+							if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
+								sim.SimulateMouseMovement((short)sx, (short)sy);
+						}
+
+						if (gnomeMouse?.TrySendMouseButton((uint)ev.Button, true) != true)
+						{
+							if (mx == CoordUnspecified && my == CoordUnspecified)
+								sim.SimulateMousePress(ev.Button);
+							else
+							{
+								EnsureCoords(ref mx, ref my);
+								sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
+							}
 						}
 
 						break;
@@ -362,23 +390,38 @@ namespace Keysharp.Internals.Input.Linux
 					{
 						int mx = ev.X, my = ev.Y;
 
-						if (mx == CoordUnspecified && my == CoordUnspecified)
-							sim.SimulateMouseRelease(ev.Button);
-						else
+						if (mx != CoordUnspecified || my != CoordUnspecified)
 						{
 							EnsureCoords(ref mx, ref my);
-							sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+							var sx = (int)(mx * scale);
+							var sy = (int)(my * scale);
+
+							if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
+								sim.SimulateMouseMovement((short)sx, (short)sy);
+						}
+
+						if (gnomeMouse?.TrySendMouseButton((uint)ev.Button, false) != true)
+						{
+							if (mx == CoordUnspecified && my == CoordUnspecified)
+								sim.SimulateMouseRelease(ev.Button);
+							else
+							{
+								EnsureCoords(ref mx, ref my);
+								sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+							}
 						}
 
 						break;
 					}
 
 					case ArrayEventType.MouseWheelV:
-						sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
+						if (gnomeMouse?.TrySendMouseScroll(ev.WheelDelta, true) != true)
+							sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Vertical, MouseWheelScrollType.UnitScroll);
 						break;
 
 					case ArrayEventType.MouseWheelH:
-						sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
+						if (gnomeMouse?.TrySendMouseScroll(ev.WheelDelta, false) != true)
+							sim.SimulateMouseWheel(ev.WheelDelta, MouseWheelScrollDirection.Horizontal, MouseWheelScrollType.UnitScroll);
 						break;
 				}
 			}
@@ -1107,6 +1150,17 @@ namespace Keysharp.Internals.Input.Linux
 				{
 				}
 			}
+		}
+
+		// Returns the active IWaylandBackend if it supports mouse simulation,
+		// otherwise null. Checked once per send batch and cached in a local.
+		private static Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend WaylandMouseBackend()
+		{
+			if (!PlatformManager.IsWaylandSession)
+				return null;
+
+			var b = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+			return b?.SupportsMouse == true ? b : null;
 		}
 
 		private static bool IsModifierVk(uint vk) => vk is

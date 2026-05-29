@@ -156,7 +156,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal static bool UseLegacyX11Input => IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable));
+		internal static readonly bool UseLegacyX11Input = IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable));
 
 		internal static bool IsLegacyX11FallbackActive => UseLegacyX11Input || legacyX11FallbackActive;
 

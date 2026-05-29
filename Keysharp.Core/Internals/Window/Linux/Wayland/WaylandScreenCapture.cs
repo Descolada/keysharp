@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using Eto.Drawing;
 
@@ -31,17 +32,27 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const uint ScreencopyFrameCopyOpcode = 0;
 		private const uint ScreencopyFrameDestroyOpcode = 1;
 
+		// Resolved once at first use of this class. WaylandBackend.Current is itself
+		// cached, so this just captures the already-computed result. null means either
+		// not a Wayland session, or the backend is unknown/none.
+		private static readonly IWaylandBackend captureBackend =
+			Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession ? WaylandBackend.Current : null;
+
 		internal static Bitmap TryCapture(int x, int y, int w, int h)
 		{
 			if (w <= 0 || h <= 0)
 				return null;
 
-			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
-				return null;
-
-			if (IsKdeSession())
+			if (captureBackend is WaylandBackend.KWinBackend)
 				return TryCaptureWithKWin(x, y, w, h);
 
+			if (captureBackend is WaylandBackend.GnomeBackend)
+				return TryCaptureWithGnome(x, y, w, h);
+
+			if (captureBackend == null)
+				return null;
+
+			// wlroots zwlr_screencopy_manager_v1 path (sway, hyprland, etc.)
 			using var session = Session.TryOpen();
 			return session?.Capture(x, y, w, h);
 		}
@@ -50,30 +61,34 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			operation ??= "screen capture";
 
-			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
+			if (!Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession)
 				return new PermissionResult(PermissionStatus.NotApplicable);
 
-			if (!IsKdeSession())
-				return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
+			if (captureBackend is WaylandBackend.KWinBackend)
+				return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
 
-			return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
-		}
-
-		private static bool IsKdeSession()
-		{
-			var forcedBackend = Environment.GetEnvironmentVariable("KEYSHARP_WAYLAND_BACKEND");
-
-			if (string.Equals(forcedBackend, "kwin", StringComparison.OrdinalIgnoreCase))
-				return true;
-
-			if (!string.IsNullOrEmpty(forcedBackend) && !string.Equals(forcedBackend, "auto", StringComparison.OrdinalIgnoreCase))
-				return false;
-
-			return WaylandBackend.KWinBackend.IsAvailable();
+			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
 		}
 
 		private static Bitmap TryCaptureWithKWin(int x, int y, int w, int h)
 			=> KWinScreenCaptureHelper.Capture(x, y, w, h);
+
+		private static Bitmap TryCaptureWithGnome(int x, int y, int w, int h)
+		{
+			var bytes = GnomeShellBridge.CaptureArea(x, y, w, h);
+
+			if (bytes == null)
+				return null;
+
+			try
+			{
+				return new Bitmap(new MemoryStream(bytes));
+			}
+			catch
+			{
+				return null;
+			}
+		}
 
 		private sealed class OutputInfo
 		{

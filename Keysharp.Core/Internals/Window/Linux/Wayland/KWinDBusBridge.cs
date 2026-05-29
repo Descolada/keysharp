@@ -25,6 +25,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		Task ReportJsonAsync(string requestId, string json);
 	}
+
+	/// <summary>
+	/// KWin's compositor-native input injection interface. Requires a one-time
+	/// authentication call that KWin grants silently for local D-Bus clients.
+	/// Object path: /org/kde/KWin/FakeInput
+	/// </summary>
+	[DBusInterface("org.kde.kwin.FakeInput")]
+	public interface IKWinFakeInput : IDBusObject
+	{
+		/// <summary>Returns true if KWin grants the input-injection permission.</summary>
+		Task<bool> authenticateAsync(string applicationName, string reason);
+		Task pointerMotionAsync(double dx, double dy);
+		Task pointerMotionAbsoluteAsync(double x, double y);
+		/// <summary>button is a Linux evdev BTN_* code; state 0 = released, 1 = pressed.</summary>
+		Task pointerButtonAsync(uint button, uint state);
+		/// <summary>axis 0 = vertical, 1 = horizontal; delta positive = scroll down/right.</summary>
+		Task pointerAxisAsync(uint axis, double delta);
+	}
+
 #pragma warning restore IDE1006
 
 
@@ -347,6 +366,109 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}, TaskScheduler.Default);
 
 				return tcs.Task;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Thin wrapper around KWin's FakeInput D-Bus interface for mouse simulation.
+	/// The first call authenticates with KWin; subsequent calls reuse the proxy.
+	/// Authentication is granted silently for same-user local D-Bus clients in
+	/// all current KWin versions; the proxy is permanently disabled on failure.
+	/// </summary>
+	internal static class KWinFakeInputBridge
+	{
+		private const string ServiceName    = "org.kde.KWin";
+		private const string FakeInputPath  = "/org/kde/KWin/FakeInput";
+		private const int    TimeoutMs      = 1000;
+
+		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
+		private static Connection  connection;
+		private static IKWinFakeInput proxy;
+		private static bool initFailed;
+
+		internal static bool TryMoveAbsolute(double x, double y)
+			=> Run(p => p.pointerMotionAbsoluteAsync(x, y));
+
+		internal static bool TryMoveRelative(double dx, double dy)
+			=> Run(p => p.pointerMotionAsync(dx, dy));
+
+		/// <param name="evdevButton">Linux BTN_* code (e.g. 0x110 = left).</param>
+		internal static bool TryButton(uint evdevButton, bool pressed)
+			=> Run(p => p.pointerButtonAsync(evdevButton, pressed ? 1u : 0u));
+
+		/// <param name="axis">0 = vertical, 1 = horizontal.</param>
+		/// <param name="delta">Scroll amount in notch units (positive = down/right).</param>
+		internal static bool TryAxis(uint axis, double delta)
+			=> Run(p => p.pointerAxisAsync(axis, delta));
+
+		private static bool Run(Func<IKWinFakeInput, Task> call)
+		{
+			try
+			{
+				var p = EnsureProxy();
+
+				if (p == null)
+					return false;
+
+				using var cts = new CancellationTokenSource(TimeoutMs);
+				Task.Run(() => call(p), cts.Token).GetAwaiter().GetResult();
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static IKWinFakeInput EnsureProxy()
+		{
+			if (proxy != null)
+				return proxy;
+
+			if (initFailed)
+				return null;
+
+			initSemaphore.Wait();
+
+			try
+			{
+				if (proxy != null)
+					return proxy;
+
+				if (initFailed)
+					return null;
+
+				var localConn = new Connection(Tmds.DBus.Address.Session);
+				Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+
+				var localProxy = localConn.CreateProxy<IKWinFakeInput>(
+					ServiceName, new ObjectPath(FakeInputPath));
+
+				using var authCts = new CancellationTokenSource(2000);
+				var granted = Task.Run(
+					() => localProxy.authenticateAsync("Keysharp", "Keysharp mouse automation"),
+					authCts.Token).GetAwaiter().GetResult();
+
+				if (!granted)
+				{
+					localConn.Dispose();
+					initFailed = true;
+					return null;
+				}
+
+				connection = localConn;
+				proxy = localProxy;
+				return proxy;
+			}
+			catch
+			{
+				initFailed = true;
+				return null;
+			}
+			finally
+			{
+				initSemaphore.Release();
 			}
 		}
 	}

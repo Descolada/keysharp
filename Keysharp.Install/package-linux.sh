@@ -20,6 +20,8 @@ DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx
 DEB_DESCRIPTION="A C# port and enhancement of the AutoHotkey program"
 INPUTD_SERVICE_TEMPLATE="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.service.in"
 INPUTD_SOCKET="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.socket"
+GNOME_EXT_UUID="keysharp@keysharp.io"
+GNOME_EXT_SOURCE="${ASSETS_DIR}/gnome-shell-extension"
 
 if [[ -z "${VERSION}" ]]; then
   echo "Unable to determine package version from Keysharp.csproj. Set VERSION explicitly." >&2
@@ -144,6 +146,53 @@ systemctl enable --now keysharp-inputd.socket).
 WARN
   fi
 fi
+
+# GNOME Shell extension: register in the installing user's enabled-extensions.
+# The extension files land system-wide at /usr/share/gnome-shell/extensions/
+# via dpkg; enabling is always per-user via gsettings.
+# /run/user/<uid>/bus is the standard sd-bus socket (systemd/logind).
+GNOME_EXT_UUID="keysharp@keysharp.io"
+if [ "$1" = "configure" ] && [ -d "/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}" ]; then
+  echo "GNOME Shell extension installed at /usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  _gnome_enabled=false
+
+  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    _sudo_uid=$(id -u "${SUDO_USER}" 2>/dev/null || true)
+    if [ -n "${_sudo_uid}" ] && [ -S "/run/user/${_sudo_uid}/bus" ]; then
+      sudo -u "${SUDO_USER}" \
+        env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_sudo_uid}/bus" \
+        python3 << 'PYEOF' 2>/dev/null && _gnome_enabled=true || true
+import subprocess, json, sys
+uuid = 'keysharp@keysharp.io'
+r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
+                   capture_output=True, text=True)
+val = r.stdout.strip().lstrip('@as ')
+try:
+    exts = json.loads(val.replace("'", '"'))
+except Exception:
+    exts = []
+if uuid not in exts:
+    exts.append(uuid)
+    new_val = '[' + ', '.join("'" + e + "'" for e in exts) + ']'
+    result = subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
+    sys.exit(result.returncode)
+PYEOF
+    fi
+  fi
+
+  if [ "${_gnome_enabled}" = "true" ]; then
+    echo "GNOME Shell extension enabled for ${SUDO_USER}. Log out and back in to activate it."
+  else
+    cat <<GNOMEMSG
+Could not automatically enable the GNOME Shell extension (no active D-Bus
+session was detected for the desktop user).  To enable it, run as your
+desktop user:
+  gnome-extensions enable ${GNOME_EXT_UUID}
+or open the GNOME Extensions app and enable 'Keysharp Integration'.
+Then log out and back in to activate it.
+GNOMEMSG
+  fi
+fi
 EOF
   chmod 0755 "$1"
 }
@@ -157,6 +206,31 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now keysharp-inputd.socket || true
     systemctl stop keysharp-inputd.service || true
+  fi
+
+  # GNOME Shell extension: remove UUID from the user's enabled-extensions list.
+  GNOME_EXT_UUID="keysharp@keysharp.io"
+  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    _sudo_uid=$(id -u "${SUDO_USER}" 2>/dev/null || true)
+    if [ -n "${_sudo_uid}" ] && [ -S "/run/user/${_sudo_uid}/bus" ]; then
+      sudo -u "${SUDO_USER}" \
+        env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_sudo_uid}/bus" \
+        python3 << 'PYEOF' 2>/dev/null || true
+import subprocess, json
+uuid = 'keysharp@keysharp.io'
+r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
+                   capture_output=True, text=True)
+val = r.stdout.strip().lstrip('@as ')
+try:
+    exts = json.loads(val.replace("'", '"'))
+except Exception:
+    exts = []
+if uuid in exts:
+    exts.remove(uuid)
+    new_val = '[' + ', '.join("'" + e + "'" for e in exts) + ']'
+    subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
+PYEOF
+    fi
   fi
 fi
 
@@ -205,6 +279,7 @@ build_deb() {
   local mime_dir="${deb_root}/usr/share/mime/packages"
   local icon_dir="${deb_root}/usr/share/icons/hicolor/256x256/apps"
   local systemd_dir="${deb_root}/usr/lib/systemd/system"
+  local gnome_ext_dir="${deb_root}/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
   local build_cmd=()
 
   if ! command -v dpkg-deb >/dev/null 2>&1; then
@@ -220,7 +295,7 @@ build_deb() {
   DEB_OUT="${DIST_DIR}/${DEB_PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
   echo "Creating Debian package ${DEB_OUT}..."
   rm -rf "${deb_root}"
-  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}"
+  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}" "${gnome_ext_dir}"
 
   rsync -a "${APP_DIR}/" "${lib_dir}/"
   ln -s "../lib/keysharp/Keysharp" "${bin_dir}/keysharp"
@@ -238,6 +313,10 @@ build_deb() {
   fi
   install -Dm644 "${ASSETS_DIR}/keysharp.xml" "${mime_dir}/keysharp.xml"
   install -Dm644 "${ROOT}/Keysharp.png" "${icon_dir}/keysharp.png"
+
+  if [[ -d "${GNOME_EXT_SOURCE}" ]]; then
+    cp -r "${GNOME_EXT_SOURCE}/." "${gnome_ext_dir}/"
+  fi
 
   if [[ -f "${lib_dir}/keysharp-inputd" ]]; then
     sed -e 's|@CMAKE_INSTALL_FULL_BINDIR@|/usr/lib/keysharp|g' \
@@ -301,6 +380,7 @@ cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DI
 cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
 cp "${INPUTD_SERVICE_TEMPLATE}" "${PKG_DIR}/keysharp-inputd.service.in"
 cp "${INPUTD_SOCKET}" "${PKG_DIR}/keysharp-inputd.socket"
+cp -r "${ASSETS_DIR}/gnome-shell-extension" "${PKG_DIR}/gnome-shell-extension"
 chmod 0755 "${PKG_DIR}/install.sh" "${PKG_DIR}/uninstall.sh"
 chmod 0644 "${PKG_DIR}/keyview.desktop" \
   "${PKG_DIR}/keysharp.desktop" \
@@ -309,6 +389,8 @@ chmod 0644 "${PKG_DIR}/keyview.desktop" \
   "${PKG_DIR}/Keysharp.png" \
   "${PKG_DIR}/keysharp-inputd.service.in" \
   "${PKG_DIR}/keysharp-inputd.socket"
+find "${PKG_DIR}/gnome-shell-extension" -type d -exec chmod 0755 {} +
+find "${PKG_DIR}/gnome-shell-extension" -type f -exec chmod 0644 {} +
 
 build_tarball
 build_deb

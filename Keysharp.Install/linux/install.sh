@@ -34,6 +34,8 @@ MIME_DIR="${MIME_ROOT}/packages"
 ICON_DIR="${ICON_ROOT}/256x256/apps"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 DOTNET_PACKAGE="${DOTNET_PACKAGE:-dotnet-runtime-10.0}"
+GNOME_EXT_UUID="keysharp@keysharp.io"
+GNOME_EXT_SOURCE="${SCRIPT_DIR}/gnome-shell-extension"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 have_pkg() { command -v "$1" >/dev/null 2>&1; }
 rewrite_desktop_exec() {
@@ -59,6 +61,118 @@ normalize_root_app_permissions() {
     fi
   done
 }
+# Install the GNOME Shell extension. This is always a per-user operation
+# because GNOME extensions live in ~/.local/share/gnome-shell/extensions/.
+# When running as root via sudo, we target the invoking user ($SUDO_USER).
+install_gnome_extension() {
+  if [[ ! -d "${GNOME_EXT_SOURCE}" ]]; then
+    echo "Warning: GNOME Shell extension source not found at ${GNOME_EXT_SOURCE}; skipping." >&2
+    return 0
+  fi
+
+  local target_user=""
+  local target_home="${HOME}"
+
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      target_user="${SUDO_USER}"
+      target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "")"
+      if [[ -z "${target_home}" ]]; then
+        echo "Warning: could not determine home directory for ${target_user}; skipping GNOME extension install." >&2
+        return 0
+      fi
+    else
+      # Running as root without sudo (e.g. in a root shell). The GNOME
+      # extension must be installed as the desktop user, but we have no way
+      # to determine who that is. Print instructions instead.
+      cat >&2 <<EOF
+Warning: running as root without SUDO_USER set.
+To install the GNOME Shell extension for your desktop user, run as that user:
+  cp -r "${GNOME_EXT_SOURCE}/." "\${HOME}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}/"
+  gnome-extensions enable "${GNOME_EXT_UUID}"
+  (then log out and back in)
+EOF
+      return 0
+    fi
+  fi
+
+  local ext_dir="${target_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  echo "Installing GNOME Shell extension to ${ext_dir}..."
+
+  local ext_registered=false
+  if [[ -n "${target_user}" ]]; then
+    sudo -u "${target_user}" mkdir -p "${ext_dir}"
+    sudo -u "${target_user}" cp -r "${GNOME_EXT_SOURCE}/." "${ext_dir}/"
+    if gnome_preregister_extension "${target_user}"; then
+      ext_registered=true
+    fi
+  else
+    mkdir -p "${ext_dir}"
+    cp -r "${GNOME_EXT_SOURCE}/." "${ext_dir}/"
+    if gnome_preregister_extension ""; then
+      ext_registered=true
+    fi
+  fi
+
+  echo "GNOME Shell extension installed (uuid: ${GNOME_EXT_UUID})."
+  if [[ "${ext_registered}" == "true" ]]; then
+    echo "Log out and back in to activate it (Wayland requires a session restart for new extensions)."
+  else
+    cat >&2 <<EOF
+Could not automatically enable the GNOME Shell extension (no active D-Bus
+session was detected for the desktop user). To enable it, run as your
+desktop user:
+  gnome-extensions enable "${GNOME_EXT_UUID}"
+or open the GNOME Extensions app and enable 'Keysharp Integration'.
+Then log out and back in.
+EOF
+  fi
+}
+
+# Add the extension UUID to org.gnome.shell enabled-extensions via gsettings.
+# Returns 0 if the UUID was successfully registered (or was already present),
+# 1 if enabling could not be attempted (python3/gsettings missing, or no
+# active D-Bus session for the target user).
+gnome_preregister_extension() {
+  local as_user="${1}"
+  command -v python3 >/dev/null 2>&1 || return 1
+  command -v gsettings >/dev/null 2>&1 || return 1
+
+  local script
+  script=$(cat <<'PYEOF'
+import subprocess, json, sys
+uuid = sys.argv[1]
+r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
+                   capture_output=True, text=True)
+val = r.stdout.strip().lstrip('@as ')
+try:
+    exts = json.loads(val.replace("'", '"'))
+except Exception:
+    exts = []
+if uuid in exts:
+    sys.exit(0)
+exts.append(uuid)
+new_val = '[' + ', '.join(f"'{e}'" for e in exts) + ']'
+result = subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
+sys.exit(result.returncode)
+PYEOF
+)
+
+  if [[ -n "${as_user}" ]]; then
+    local uid
+    uid=$(id -u "${as_user}" 2>/dev/null) || return 1
+    # /run/user/<uid>/bus is the standard sd-bus socket (systemd/logind).
+    # If it doesn't exist the user has no live D-Bus session and gsettings
+    # won't work — return 1 so the caller shows manual instructions.
+    [[ -S "/run/user/${uid}/bus" ]] || return 1
+    sudo -u "${as_user}" \
+      env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
+      python3 -c "${script}" "${GNOME_EXT_UUID}" 2>/dev/null
+  else
+    python3 -c "${script}" "${GNOME_EXT_UUID}" 2>/dev/null
+  fi
+}
+
 show_install_mode() {
   if [[ "${ROOT_INSTALL}" == "true" ]]; then
     cat <<EOF
@@ -103,7 +217,10 @@ install_deps() {
     if ! apt-get update; then
       echo "Warning: apt-get update failed; trying dependency install with the existing package indexes." >&2
     fi
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages_apt[@]}"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages_apt[@]}"; then
+      echo "Warning: apt-get install exited non-zero (an unrelated package may have failed to configure)." >&2
+      echo "Continuing — check_dotnet will verify the critical .NET 10 runtime is present." >&2
+    fi
     return
   fi
 
@@ -222,5 +339,7 @@ install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true
 maybe_run update-mime-database "${MIME_ROOT}" || true
 maybe_run gtk-update-icon-cache -f "${ICON_ROOT}" || true
+
+install_gnome_extension
 
 echo "Install complete."

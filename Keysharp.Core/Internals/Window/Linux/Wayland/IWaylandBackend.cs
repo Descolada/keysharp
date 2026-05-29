@@ -26,6 +26,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		string Name { get; }
 
 		/// <summary>
+		/// True when the backend can simulate mouse input via
+		/// <see cref="TrySendMouseMoveAbsolute"/>, <see cref="TrySendMouseButton"/>, etc.
+		/// Used by <see cref="Keysharp.Internals.Input.Linux.LinuxKeyboardMouseSender"/>
+		/// to prefer compositor-native mouse injection over SharpHook on Wayland.
+		/// </summary>
+		bool SupportsMouse => false;
+
+		/// <summary>
 		/// Best-effort global cursor position in screen coordinates. Returns true on success
 		/// with <paramref name="x"/>/<paramref name="y"/> set to a valid pixel coordinate;
 		/// false if the backend can't currently answer (compositor offline, IPC failed, etc.).
@@ -63,6 +71,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		bool TrySetWindowState(nint handle, FormWindowState state) => false;
 
 		bool TryCloseWindow(nint handle) => false;
+
+		// ---- Mouse simulation -------------------------------------------
+		// Default implementations return false (backend does not support it).
+		// GnomeBackend overrides these to use Clutter.VirtualInputDevice via
+		// the shell extension D-Bus service.
+
+		bool TrySendMouseMoveAbsolute(int x, int y) => false;
+
+		bool TrySendMouseMoveRelative(int dx, int dy) => false;
+
+		/// <summary>button: 1 = left, 2 = middle, 3 = right (X11 convention).</summary>
+		bool TrySendMouseButton(uint button, bool pressed) => false;
+
+		/// <summary>
+		/// delta in 120-unit wheel increments (positive = up/right).
+		/// vertical: true = vertical scroll axis, false = horizontal.
+		/// </summary>
+		bool TrySendMouseScroll(int delta, bool vertical) => false;
 	}
 }
 #endif

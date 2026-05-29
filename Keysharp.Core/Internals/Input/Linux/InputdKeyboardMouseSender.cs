@@ -382,6 +382,19 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
+			// Route button and scroll events through the compositor backend when available,
+			// regardless of sendMode. MOVE events are handled in MouseMove below.
+			// This must run before the sendMode check so that Input-mode batches don't
+			// bypass the compositor path and end up using inputd's uinput absolute
+			// coordinates, which do not map correctly on Wayland compositors.
+			if ((eventFlags & (uint)MOUSEEVENTF.MOVE) == 0)
+			{
+				var gnomeMouse = WaylandMouseBackend();
+
+				if (gnomeMouse != null && TryRouteToGnome(gnomeMouse, eventFlags, data))
+					return;
+			}
+
 			if (sendMode != SendModes.Event)
 			{
 				PutMouseEventIntoArray(eventFlags, data, x, y);
@@ -404,6 +417,7 @@ namespace Keysharp.Internals.Input.Linux
 			if (x == CoordUnspecified || y == CoordUnspecified)
 				return;
 
+			// Relative moves: keep using inputd (uinput relative events work fine on Wayland).
 			if (moveOffset)
 			{
 				if (sendMode == SendModes.Event)
@@ -421,6 +435,56 @@ namespace Keysharp.Internals.Input.Linux
 			var targetX = x;
 			var targetY = y;
 			CoordToScreen(ref targetX, ref targetY, CoordMode.Mouse);
+
+			// Absolute moves: prefer the compositor backend for all send modes so the
+			// cursor lands at the exact screen-pixel position. inputd's uinput path
+			// normalises coordinates to 0-65535 and the round-trip back to screen
+			// pixels is unreliable on Wayland compositors. This must be checked before
+			// the sendMode branch so that Input-mode MouseMove calls use the compositor
+			// path rather than queuing a normalised event for inputd.
+			{
+				var gnomeMouse = WaylandMouseBackend();
+
+				if (gnomeMouse != null)
+				{
+					if (speed < 0)
+						speed = 0;
+					else if (speed > MaxMouseSpeed)
+						speed = MaxMouseSpeed;
+
+					if (speed == 0 || !GetCursorPos(out var current))
+					{
+						gnomeMouse.TrySendMouseMoveAbsolute(targetX, targetY);
+						DoMouseDelay();
+					}
+					else
+					{
+						var steps = Math.Max(1, (int)speed);
+						var previousX = current.X;
+						var previousY = current.Y;
+
+						for (var step = 1; step <= steps; step++)
+						{
+							var nextX = current.X + ((targetX - current.X) * step / steps);
+							var nextY = current.Y + ((targetY - current.Y) * step / steps);
+
+							if (nextX != previousX || nextY != previousY)
+								gnomeMouse.TrySendMouseMoveAbsolute(nextX, nextY);
+
+							previousX = nextX;
+							previousY = nextY;
+							DoMouseDelay();
+						}
+					}
+
+					eventFlags = (uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE;
+					x = targetX;
+					y = targetY;
+					return;
+				}
+			}
+
+			// inputd / uinput fallback: normalise to the 0-65535 absolute range.
 			var absTargetX = MouseCoordToAbs(targetX, (int)A_ScreenWidth);
 			var absTargetY = MouseCoordToAbs(targetY, (int)A_ScreenHeight);
 
@@ -445,7 +509,7 @@ namespace Keysharp.Internals.Input.Linux
 			else if (speed > MaxMouseSpeed)
 				speed = MaxMouseSpeed;
 
-			if (speed == 0 || !GetCursorPos(out var current))
+			if (speed == 0 || !GetCursorPos(out var cur))
 			{
 				MouseEvent(
 					(uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE,
@@ -457,13 +521,13 @@ namespace Keysharp.Internals.Input.Linux
 			else
 			{
 				var steps = Math.Max(1, (int)speed);
-				var previousX = current.X;
-				var previousY = current.Y;
+				var previousX = cur.X;
+				var previousY = cur.Y;
 
 				for (var step = 1; step <= steps; step++)
 				{
-					var nextX = current.X + ((targetX - current.X) * step / steps);
-					var nextY = current.Y + ((targetY - current.Y) * step / steps);
+					var nextX = cur.X + ((targetX - cur.X) * step / steps);
+					var nextY = cur.Y + ((targetY - cur.Y) * step / steps);
 					var stepDx = nextX - previousX;
 					var stepDy = nextY - previousY;
 
@@ -485,6 +549,41 @@ namespace Keysharp.Internals.Input.Linux
 			eventFlags = (uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE;
 			x = absTargetX;
 			y = absTargetY;
+		}
+
+		// Returns the GNOME compositor backend if it supports mouse simulation,
+		// null otherwise (non-Wayland session, or extension not running).
+		private static Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend WaylandMouseBackend()
+		{
+			if (!PlatformManager.IsWaylandSession)
+				return null;
+
+			var b = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+			return b?.SupportsMouse == true ? b : null;
+		}
+
+		// Maps MOUSEEVENTF button/scroll flags to GNOME D-Bus calls.
+		// Returns false if the flag is not handled here (e.g. MOVE-only events).
+		private static bool TryRouteToGnome(
+			Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend gnomeMouse,
+			uint flags, uint data)
+		{
+			if ((flags & (uint)MOUSEEVENTF.LEFTDOWN) != 0)   return gnomeMouse.TrySendMouseButton(1, true);
+			if ((flags & (uint)MOUSEEVENTF.LEFTUP) != 0)     return gnomeMouse.TrySendMouseButton(1, false);
+			if ((flags & (uint)MOUSEEVENTF.RIGHTDOWN) != 0)  return gnomeMouse.TrySendMouseButton(3, true);
+			if ((flags & (uint)MOUSEEVENTF.RIGHTUP) != 0)    return gnomeMouse.TrySendMouseButton(3, false);
+			if ((flags & (uint)MOUSEEVENTF.MIDDLEDOWN) != 0) return gnomeMouse.TrySendMouseButton(2, true);
+			if ((flags & (uint)MOUSEEVENTF.MIDDLEUP) != 0)   return gnomeMouse.TrySendMouseButton(2, false);
+			if ((flags & (uint)MOUSEEVENTF.XDOWN) != 0)
+				return gnomeMouse.TrySendMouseButton((data & 0x0001u) != 0 ? 8u : 9u, true);
+			if ((flags & (uint)MOUSEEVENTF.XUP) != 0)
+				return gnomeMouse.TrySendMouseButton((data & 0x0001u) != 0 ? 8u : 9u, false);
+			// Wheel delta is a signed 16-bit value packed into the low word of data.
+			if ((flags & (uint)MOUSEEVENTF.WHEEL) != 0)
+				return gnomeMouse.TrySendMouseScroll(unchecked((short)(ushort)(data & 0xFFFF)), true);
+			if ((flags & (uint)MOUSEEVENTF.HWHEEL) != 0)
+				return gnomeMouse.TrySendMouseScroll(unchecked((short)(ushort)(data & 0xFFFF)), false);
+			return false;
 		}
 
 		private static void SendRelativeMouseMove(int dx, int dy, ulong extraInfo)

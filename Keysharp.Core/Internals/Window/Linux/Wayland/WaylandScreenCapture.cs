@@ -67,6 +67,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (captureBackend is WaylandBackend.KWinBackend)
 				return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
 
+			if (captureBackend is WaylandBackend.GnomeBackend)
+				return KWinScreenCaptureHelper.AuthorizeOnly(operation, forcePrompt);
+
 			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
 		}
 
@@ -75,6 +78,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static Bitmap TryCaptureWithGnome(int x, int y, int w, int h)
 		{
+			// Trust gate: same keysharp-screencap --authorize flow as KWin.
+			// Result is cached after the first call so hot paths (PixelSearch loops)
+			// pay only a lock check on subsequent iterations.
+			if (!KWinScreenCaptureHelper.AuthorizeOnly(null).IsGranted)
+				return null;
+
 			var bytes = GnomeShellBridge.CaptureArea(x, y, w, h);
 
 			if (bytes == null)

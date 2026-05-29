@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(keysharp-kwin-screencap
+project(keysharp-screencap
     VERSION 0.1.0
     DESCRIPTION "Privileged screen capture helper for Keysharp"
     LANGUAGES C)
@@ -18,20 +18,20 @@ add_subdirectory(
     ${CMAKE_CURRENT_SOURCE_DIR}/../keysharp-common
     ${CMAKE_CURRENT_BINARY_DIR}/keysharp-common)
 
-add_executable(keysharp-kwin-screencap
+add_executable(keysharp-screencap
     src/main.c)
 
-target_include_directories(keysharp-kwin-screencap
+target_include_directories(keysharp-screencap
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-target_compile_definitions(keysharp-kwin-screencap PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
-target_link_libraries(keysharp-kwin-screencap PRIVATE
+target_compile_definitions(keysharp-screencap PRIVATE _GNU_SOURCE _POSIX_C_SOURCE=200809L)
+target_link_libraries(keysharp-screencap PRIVATE
     keysharp-trust-lib
     PkgConfig::GIO)
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(keysharp-kwin-screencap PRIVATE
+    target_compile_options(keysharp-screencap PRIVATE
         -Wall
         -Wextra
         -Wpedantic
@@ -40,27 +40,27 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 configure_file(
-    keysharp-kwin-screencap.desktop.in
-    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-kwin-screencap.desktop
+    keysharp-screencap.desktop.in
+    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-screencap.desktop
     @ONLY)
 
-set(KEYSHARP_KWIN_SCREENCAP_DESKTOP_DIR
+set(KEYSHARP_SCREENCAP_DESKTOP_DIR
     "/usr/share/applications"
-    CACHE PATH "KDE system application desktop file directory")
+    CACHE PATH "System application desktop file directory")
 
-install(TARGETS keysharp-kwin-screencap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS keysharp-screencap RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-kwin-screencap.desktop
-    DESTINATION ${KEYSHARP_KWIN_SCREENCAP_DESKTOP_DIR})
+    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-screencap.desktop
+    DESTINATION ${KEYSHARP_SCREENCAP_DESKTOP_DIR})
 
 install(CODE "
     if(\"\$ENV{DESTDIR}\" STREQUAL \"\")
-        set(_bin \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/keysharp-kwin-screencap\")
+        set(_bin \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/keysharp-screencap\")
         if(EXISTS \"\${_bin}\")
             execute_process(COMMAND chown root:root \"\${_bin}\" RESULT_VARIABLE _chown_result)
             execute_process(COMMAND chmod 4755 \"\${_bin}\" RESULT_VARIABLE _chmod_result)
             if(NOT _chown_result EQUAL 0 OR NOT _chmod_result EQUAL 0)
-                message(WARNING \"keysharp-kwin-screencap privilege setup was not completed; run as root: chown root:root \${_bin} && chmod 4755 \${_bin}\")
+                message(WARNING \"keysharp-screencap privilege setup was not completed; run as root: chown root:root \${_bin} && chmod 4755 \${_bin}\")
             endif()
         endif()
     endif()

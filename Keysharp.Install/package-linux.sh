@@ -50,7 +50,7 @@ rewrite_desktop_exec() {
 
 build_native_helpers() {
   local inputd_build_dir="${DIST_DIR}/native-keysharp-inputd-${RID}"
-  local kwin_build_dir="${DIST_DIR}/native-keysharp-kwin-screencap-${RID}"
+  local kwin_build_dir="${DIST_DIR}/native-keysharp-screencap-${RID}"
 
   if [[ "${RID}" != linux-* ]]; then
     return
@@ -77,20 +77,20 @@ build_native_helpers() {
   fi
 
   if ! pkg-config --exists gio-2.0 gio-unix-2.0; then
-    echo "Skipping keysharp-kwin-screencap build because gio-2.0 development files are missing." >&2
+    echo "Skipping keysharp-screencap build because gio-2.0 development files are missing." >&2
     return
   fi
 
-  cmake -S "${ROOT}/native/keysharp-kwin-screencap" -B "${kwin_build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
+  cmake -S "${ROOT}/native/keysharp-screencap" -B "${kwin_build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
   cmake --build "${kwin_build_dir}"
-  cp "${kwin_build_dir}/keysharp-kwin-screencap" "${APP_DIR}/"
+  cp "${kwin_build_dir}/keysharp-screencap" "${APP_DIR}/"
 }
 
 normalize_app_permissions() {
   find "${APP_DIR}" -type d -exec chmod 0755 {} +
   find "${APP_DIR}" -type f -exec chmod 0644 {} +
 
-  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-kwin-screencap; do
+  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-screencap; do
     if [[ -f "${APP_DIR}/${exe}" ]]; then
       chmod 0755 "${APP_DIR}/${exe}"
     fi
@@ -127,10 +127,10 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
 
-if [ -f /usr/lib/keysharp/keysharp-kwin-screencap ]; then
-  echo "Configuring keysharp-kwin-screencap for KDE Wayland screen capture via KWin's restricted ScreenShot2 interface."
-  chown root:root /usr/lib/keysharp/keysharp-kwin-screencap || true
-  chmod 4755 /usr/lib/keysharp/keysharp-kwin-screencap || true
+if [ -f /usr/lib/keysharp/keysharp-screencap ]; then
+  echo "Configuring keysharp-screencap for Wayland screen capture (KWin ScreenShot2 serve mode; trust gate for GNOME)."
+  chown root:root /usr/lib/keysharp/keysharp-screencap || true
+  chmod 4755 /usr/lib/keysharp/keysharp-screencap || true
 fi
 
 if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
@@ -308,8 +308,8 @@ build_deb() {
   fi
   rewrite_desktop_exec "${ASSETS_DIR}/keysharp.desktop" "${applications_dir}/keysharp.desktop"
   rewrite_desktop_exec "${ASSETS_DIR}/keyview.desktop" "${applications_dir}/keyview.desktop"
-  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
-    rewrite_desktop_exec "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${applications_dir}/keysharp-kwin-screencap.desktop"
+  if [[ -f "${lib_dir}/keysharp-screencap" ]]; then
+    rewrite_desktop_exec "${ASSETS_DIR}/keysharp-screencap.desktop" "${applications_dir}/keysharp-screencap.desktop"
   fi
   install -Dm644 "${ASSETS_DIR}/keysharp.xml" "${mime_dir}/keysharp.xml"
   install -Dm644 "${ROOT}/Keysharp.png" "${icon_dir}/keysharp.png"
@@ -324,9 +324,9 @@ build_deb() {
     install -m 0644 "${INPUTD_SOCKET}" "${systemd_dir}/keysharp-inputd.socket"
   fi
 
-  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
-    chown 0:0 "${lib_dir}/keysharp-kwin-screencap" 2>/dev/null || true
-    chmod 4755 "${lib_dir}/keysharp-kwin-screencap"
+  if [[ -f "${lib_dir}/keysharp-screencap" ]]; then
+    chown 0:0 "${lib_dir}/keysharp-screencap" 2>/dev/null || true
+    chmod 4755 "${lib_dir}/keysharp-screencap"
   fi
 
   write_deb_control "${debian_dir}/control"
@@ -343,8 +343,8 @@ build_deb() {
     fi
   done
 
-  if [[ -f "${lib_dir}/keysharp-kwin-screencap" ]]; then
-    chmod 4755 "${lib_dir}/keysharp-kwin-screencap"
+  if [[ -f "${lib_dir}/keysharp-screencap" ]]; then
+    chmod 4755 "${lib_dir}/keysharp-screencap"
   fi
 
   chmod 0755 "${debian_dir}/postinst" "${debian_dir}/prerm" "${debian_dir}/postrm"
@@ -376,7 +376,7 @@ normalize_app_permissions
 
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"
-cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp-kwin-screencap.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
+cp "${ASSETS_DIR}/keyview.desktop" "${ASSETS_DIR}/keysharp.desktop" "${ASSETS_DIR}/keysharp-screencap.desktop" "${ASSETS_DIR}/keysharp.xml" "${PKG_DIR}/"
 cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
 cp "${INPUTD_SERVICE_TEMPLATE}" "${PKG_DIR}/keysharp-inputd.service.in"
 cp "${INPUTD_SOCKET}" "${PKG_DIR}/keysharp-inputd.socket"
@@ -384,7 +384,7 @@ cp -r "${ASSETS_DIR}/gnome-shell-extension" "${PKG_DIR}/gnome-shell-extension"
 chmod 0755 "${PKG_DIR}/install.sh" "${PKG_DIR}/uninstall.sh"
 chmod 0644 "${PKG_DIR}/keyview.desktop" \
   "${PKG_DIR}/keysharp.desktop" \
-  "${PKG_DIR}/keysharp-kwin-screencap.desktop" \
+  "${PKG_DIR}/keysharp-screencap.desktop" \
   "${PKG_DIR}/keysharp.xml" \
   "${PKG_DIR}/Keysharp.png" \
   "${PKG_DIR}/keysharp-inputd.service.in" \

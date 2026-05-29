@@ -43,7 +43,7 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
 fi
 
 rm -f "${BINDIR}/keysharp" "${BINDIR}/keyview" "${BINDIR}/keysharp-trust" "${BINDIR}/keysharp-inputd"
-rm -f "${DESKTOP_DIR}/keyview.desktop" "${DESKTOP_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp-kwin-screencap.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png"
+rm -f "${DESKTOP_DIR}/keyview.desktop" "${DESKTOP_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp-screencap.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png"
 rm -rf "${APP_DIR_TARGET}"
 
 # Remove the GNOME Shell extension. When uninstalling as root we check

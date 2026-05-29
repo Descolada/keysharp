@@ -11,7 +11,7 @@ using Eto.Drawing;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// Long-lived subprocess driver for <c>keysharp-kwin-screencap</c>, plus the row-major SIMD
+	/// Long-lived subprocess driver for <c>keysharp-screencap</c>, plus the row-major SIMD
 	/// converters that turn KWin's raw QImage pixel formats into a 32-bit RGBA Eto bitmap.
 	///
 	/// Why this exists: KWin's ScreenShot2 D-Bus interface only accepts calls from binaries
@@ -41,6 +41,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			private static bool sessionDenied;
 			private static string sessionDeniedMessage = "Screen capture permission denied.";
 
+			// Separate cache for the one-shot --authorize path used by GNOME.
+			// Distinct from the KWin serve-mode state so the two backends don't interfere.
+			private static readonly object authorizeOnlySync = new();
+			private static PermissionResult? authorizeOnlyCached;
+
 			internal static Bitmap Capture(int x, int y, int w, int h)
 			{
 				lock (sync)
@@ -61,7 +66,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 							if (!StartLocked(out var startError, out _))
 							{
-								DebugLine($"keysharp-kwin-screencap launch failed: {startError}");
+								DebugLine($"keysharp-screencap launch failed: {startError}");
 								return null;
 							}
 
@@ -75,7 +80,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						}
 						catch (Exception ex)
 						{
-							DebugLine($"keysharp-kwin-screencap request failed: {ex.Message}");
+							DebugLine($"keysharp-screencap request failed: {ex.Message}");
 							CacheDeniedIfHelperExitedLocked();
 							ResetLocked();
 							// Retry once on protocol/IO failure — covers the case where the helper
@@ -114,11 +119,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			error = null;
 			status = PermissionStatus.Unsupported;
-			var path = ResolveKWinHelper();
+			var path = ResolveHelper();
 
 			if (path == null)
 			{
-				error = "no keysharp-kwin-screencap binary found";
+				error = "no keysharp-screencap binary found";
 				return false;
 			}
 
@@ -144,7 +149,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				p.ErrorDataReceived += (_, e) =>
 				{
 					if (!string.IsNullOrEmpty(e.Data))
-						DebugLine($"keysharp-kwin-screencap: {e.Data}");
+						DebugLine($"keysharp-screencap: {e.Data}");
 				};
 
 				if (!p.Start())
@@ -267,7 +272,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (!task.Wait(timeoutMs))
 			{
 				ResetLocked();
-				throw new TimeoutException($"keysharp-kwin-screencap authorization timed out after {timeoutMs}ms");
+				throw new TimeoutException($"keysharp-screencap authorization timed out after {timeoutMs}ms");
 			}
 
 			task.GetAwaiter().GetResult();
@@ -295,7 +300,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (!task.Wait(timeoutMs))
 			{
 				ResetLocked();
-				throw new TimeoutException($"keysharp-kwin-screencap response timed out after {timeoutMs}ms");
+				throw new TimeoutException($"keysharp-screencap response timed out after {timeoutMs}ms");
 			}
 
 			return task.GetAwaiter().GetResult();
@@ -363,9 +368,81 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static string ResolveKWinHelper()
+		/// <summary>
+		/// Trust check for compositors (e.g. GNOME) that do their own capture but still
+		/// need the keysharp-screencap trust gate. Runs <c>keysharp-screencap --authorize</c>
+		/// once and caches the result for the session. Denied is cached permanently;
+		/// Unsupported (binary absent) is re-tried on each call so a late install works.
+		/// </summary>
+		internal static PermissionResult AuthorizeOnly(string operation, bool forcePrompt = false)
 		{
-			var configured = Environment.GetEnvironmentVariable("KEYSHARP_KWIN_SCREENCAP_HELPER");
+			lock (authorizeOnlySync)
+			{
+				if (forcePrompt)
+					authorizeOnlyCached = null;
+
+				if (authorizeOnlyCached.HasValue && authorizeOnlyCached.Value.Status != PermissionStatus.Unsupported)
+					return authorizeOnlyCached.Value;
+
+				var path = ResolveHelper();
+
+				if (path == null)
+					return new PermissionResult(PermissionStatus.Unsupported,
+						"keysharp-screencap not found; install it to enable screen capture on this compositor.");
+
+				PermissionResult result;
+
+				try
+				{
+					using var p = new Process
+					{
+						StartInfo = new ProcessStartInfo
+						{
+							FileName = path,
+							UseShellExecute = false,
+							RedirectStandardError = true,
+						}
+					};
+					p.StartInfo.ArgumentList.Add("--authorize");
+
+					if (forcePrompt)
+						p.StartInfo.ArgumentList.Add("--force-prompt");
+
+					p.ErrorDataReceived += (_, e) =>
+					{
+						if (!string.IsNullOrEmpty(e.Data))
+							DebugLine($"keysharp-screencap: {e.Data}");
+					};
+					p.Start();
+					p.BeginErrorReadLine();
+
+					if (!p.WaitForExit(AuthorizationTimeoutMs))
+					{
+						try { p.Kill(); } catch { }
+						return new PermissionResult(PermissionStatus.Unsupported,
+							$"keysharp-screencap authorization timed out after {AuthorizationTimeoutMs}ms.");
+					}
+
+					result = p.ExitCode switch
+					{
+						0 => new PermissionResult(PermissionStatus.Granted),
+						3 => new PermissionResult(PermissionStatus.Denied, "Screen capture permission denied."),
+						_ => new PermissionResult(PermissionStatus.Unsupported, "Screen capture authorization unavailable.")
+					};
+				}
+				catch (Exception ex)
+				{
+					return new PermissionResult(PermissionStatus.Unsupported, ex.Message);
+				}
+
+				authorizeOnlyCached = result;
+				return result;
+			}
+		}
+
+		private static string ResolveHelper()
+		{
+			var configured = Environment.GetEnvironmentVariable("KEYSHARP_SCREENCAP_HELPER");
 
 			if (!string.IsNullOrEmpty(configured))
 				return configured;
@@ -373,18 +450,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			var baseDir = AppContext.BaseDirectory;
 			var candidates = new[]
 			{
-				Path.Combine(baseDir, "keysharp-kwin-screencap"),
-				"/usr/local/lib/keysharp/keysharp-kwin-screencap",
-				"/usr/lib/keysharp/keysharp-kwin-screencap",
-				"/usr/local/bin/keysharp-kwin-screencap",
-				"/usr/bin/keysharp-kwin-screencap",
+				Path.Combine(baseDir, "keysharp-screencap"),
+				"/usr/local/lib/keysharp/keysharp-screencap",
+				"/usr/lib/keysharp/keysharp-screencap",
+				"/usr/local/bin/keysharp-screencap",
+				"/usr/bin/keysharp-screencap",
 			};
 
 			foreach (var candidate in candidates)
 				if (File.Exists(candidate))
 					return candidate;
 
-			return "keysharp-kwin-screencap";
+			return "keysharp-screencap";
 		}
 
 		private static void DebugLine(string message)

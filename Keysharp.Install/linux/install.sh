@@ -55,7 +55,7 @@ normalize_root_app_permissions() {
   find "${APP_DIR_TARGET}" -type d -exec chmod 0755 {} +
   find "${APP_DIR_TARGET}" -type f -exec chmod 0644 {} +
 
-  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-kwin-screencap; do
+  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-screencap; do
     if [[ -f "${APP_DIR_TARGET}/${exe}" ]]; then
       chmod 0755 "${APP_DIR_TARGET}/${exe}"
     fi
@@ -180,14 +180,14 @@ Installing with root privileges.
 Optional Linux helpers will be enabled when present:
   - keysharp-inputd: systemd socket service for more reliable input hooks, input synthesis, and BlockInput support.
   - keysharp-trust: permission records and reset/list tooling for privileged helper decisions.
-  - keysharp-kwin-screencap: KDE Wayland screen capture helper using KWin's restricted ScreenShot2 interface.
+  - keysharp-screencap: Wayland screen capture helper (KWin ScreenShot2 serve mode; trust gate for GNOME).
 
 This install may add systemd units, enable the keysharp-inputd socket, load uinput, and mark the KDE helper root-owned setuid.
 EOF
   else
     cat <<EOF
 Installing without root privileges.
-Keysharp will be installed under ${PREFIX}. Optional privileged Linux helpers will be skipped, so Linux input hooks/synthesis and KDE Wayland screen capture may be unavailable until a root install is performed.
+Keysharp will be installed under ${PREFIX}. Optional privileged Linux helpers will be skipped, so Linux input hooks/synthesis and Wayland screen capture may be unavailable until a root install is performed.
 EOF
   fi
 }
@@ -316,22 +316,22 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
     fi
   fi
 
-  if [[ -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
-    chown root:root "${APP_DIR_TARGET}/keysharp-kwin-screencap"
-    chmod 4755 "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+  if [[ -f "${APP_DIR_TARGET}/keysharp-screencap" ]]; then
+    chown root:root "${APP_DIR_TARGET}/keysharp-screencap"
+    chmod 4755 "${APP_DIR_TARGET}/keysharp-screencap"
   fi
 else
   rm -f "${APP_DIR_TARGET}/keysharp-inputd" \
         "${APP_DIR_TARGET}/keysharp-trust" \
-        "${APP_DIR_TARGET}/keysharp-kwin-screencap"
+        "${APP_DIR_TARGET}/keysharp-screencap"
   echo "Installed in user mode; privileged Linux helpers were skipped."
 fi
 
 install -d "${DESKTOP_DIR}"
 rewrite_desktop_exec "${SCRIPT_DIR}/keyview.desktop" "${DESKTOP_DIR}/keyview.desktop"
 rewrite_desktop_exec "${SCRIPT_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp.desktop"
-if [[ "${ROOT_INSTALL}" == "true" && -f "${APP_DIR_TARGET}/keysharp-kwin-screencap" ]]; then
-  rewrite_desktop_exec "${SCRIPT_DIR}/keysharp-kwin-screencap.desktop" "${DESKTOP_DIR}/keysharp-kwin-screencap.desktop"
+if [[ "${ROOT_INSTALL}" == "true" && -f "${APP_DIR_TARGET}/keysharp-screencap" ]]; then
+  rewrite_desktop_exec "${SCRIPT_DIR}/keysharp-screencap.desktop" "${DESKTOP_DIR}/keysharp-screencap.desktop"
 fi
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"

@@ -42,8 +42,8 @@ cmake --build native/keysharp-inputd/build
 ```
 
 This also builds the shared `keysharp-trust` static library from
-`native/keysharp-common`. The KDE screen capture helper is a separate native
-target; see [`../keysharp-kwin-screencap/README.md`](../keysharp-kwin-screencap/README.md).
+`native/keysharp-common`. The screen capture helper is a separate native
+target; see [`../keysharp-screencap/README.md`](../keysharp-screencap/README.md).
 
 ## Install
 

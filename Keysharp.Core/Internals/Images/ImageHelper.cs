@@ -337,16 +337,43 @@ namespace Keysharp.Internals.Images
 			if (bmp == null)
 				return null;
 
-			using (var data = bmp.Lock())
+			int bpp;
+			using (var check = bmp.Lock())
+				bpp = check.BytesPerPixel;
+
+			if (bpp == 4)
+				return bmp;
+
+			// Copy 3bpp (RGB, no alpha) → 4bpp (RGBA, A=255) without going through
+			// Cairo/Graphics.DrawImage. DrawImage routes through Cairo, which on
+			// colour-managed GNOME desktops silently applies sRGB→linear gamma to
+			// every pixel, producing different values than the raw Pixbuf read used
+			// for the 4bpp source. Direct byte copy keeps channels identical.
+			var result = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppRgba);
+			using var src = bmp.Lock();
+			using var dst = result.Lock();
+
+			unsafe
 			{
-				if (data.BytesPerPixel == 4)
-					return bmp;
+				var sp = (byte*)src.Data;
+				var dp = (byte*)dst.Data;
+
+				for (var y = 0; y < bmp.Height; y++)
+				{
+					var sr = sp + (long)y * src.ScanWidth;
+					var dr = dp + (long)y * dst.ScanWidth;
+
+					for (var x = 0; x < bmp.Width; x++)
+					{
+						dr[x * 4 + 0] = sr[x * 3 + 0]; // R
+						dr[x * 4 + 1] = sr[x * 3 + 1]; // G
+						dr[x * 4 + 2] = sr[x * 3 + 2]; // B
+						dr[x * 4 + 3] = 0xFF;           // A = 255
+					}
+				}
 			}
 
-			var normalized = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppRgb);
-			using (var g = new Graphics(normalized))
-				g.DrawImage(bmp, 0, 0);
-			return normalized;
+			return result;
 		}
 #endif
 

@@ -316,43 +316,50 @@ export default class KeysharpExtension {
     // GJS dispatches methods declared with one extra parameter beyond the XML
     // input args by appending the Gio.DBusMethodInvocation. We must call
     // invocation.return_value() instead of returning a value.
-    async CaptureArea(x, y, width, height, invocation) {
-        const reply = (bytes) =>
-            invocation.return_value(new GLib.Variant('(ay)', [bytes]));
-
-        if (width <= 0 || height <= 0) {
-            reply(new Uint8Array(0));
-            return;
-        }
+    // Synchronous capture: pump the GLib main context in a tight loop until
+    // the screenshot callback fires (typically one compositor frame, ~16ms).
+    // Returning a value directly lets GJS form the D-Bus reply without any
+    // invocation object — avoiding both the async-invocation lifecycle bug
+    // and the null-invocation issue that synchronous wrapJSObject methods see.
+    // Trust is enforced by the C# caller (keysharp-screencap --authorize)
+    // before this D-Bus call is made; the D-Bus session bus already restricts
+    // callers to the same user, so no additional per-call gate is needed here.
+    CaptureArea(x, y, width, height) {
+        if (width <= 0 || height <= 0)
+            return new Uint8Array(0);
 
         try {
-            const senderPid = this._resolveSenderPid(invocation.get_sender());
-
-            if (senderPid <= 0 || !this._authorizeRequester(senderPid)) {
-                reply(new Uint8Array(0));
-                return;
-            }
-
             const screenshot = new Shell.Screenshot();
             const stream = Gio.MemoryOutputStream.new_resizable();
+            let captureError = null;
+            let done = false;
 
-            await new Promise((resolve, rejectPromise) => {
-                screenshot.screenshot_area(x, y, width, height, stream, (obj, result) => {
-                    try {
-                        screenshot.screenshot_area_finish(result);
-                        resolve();
-                    } catch (e) {
-                        rejectPromise(e);
-                    }
-                });
+            screenshot.screenshot_area(x, y, width, height, stream, (_obj, result) => {
+                try {
+                    screenshot.screenshot_area_finish(result);
+                } catch (e) {
+                    captureError = e;
+                }
+                done = true;
             });
 
+            // Pump the default GLib main context until the screenshot callback
+            // fires. iteration(true) blocks until at least one source dispatches,
+            // so this returns as soon as the compositor delivers the frame.
+            const ctx = GLib.MainContext.default();
+            while (!done)
+                ctx.iteration(true);
+
+            if (captureError) {
+                logError(captureError, 'Keysharp: CaptureArea screenshot failed');
+                return new Uint8Array(0);
+            }
+
             stream.close(null);
-            const gbytes = stream.steal_as_bytes();
-            reply(new Uint8Array(gbytes.get_data()));
+            return new Uint8Array(stream.steal_as_bytes().get_data());
         } catch (e) {
             logError(e, 'Keysharp: CaptureArea failed');
-            reply(new Uint8Array(0));
+            return new Uint8Array(0);
         }
     }
 

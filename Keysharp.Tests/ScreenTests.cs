@@ -16,11 +16,11 @@ namespace Keysharp.Tests
 			_ = CoordMode("Pixel", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
-			_ = ImageCapture(10, 10, 500, 500, "./imagesearch.bmp");
+			_ = ImageCapture(100, 100, 500, 500, "./imagesearch.bmp");
 			VarRef x = new(null), y = new(null);
 			_ = Builtins.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "./imagesearch.bmp");
 
-			if (x.__Value is long lx && lx == 10 && y.__Value is long ly && ly == 10)
+			if (x.__Value is long lx && lx == 100 && y.__Value is long ly && ly == 100)
 				Assert.IsTrue(true);
 			else
 				Assert.IsTrue(false);

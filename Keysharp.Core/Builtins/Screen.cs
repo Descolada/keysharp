@@ -114,6 +114,9 @@ namespace Keysharp.Builtins
 
 			Point? location;
 			Bitmap source = null;
+			// Captured inside the try block before source is disposed, so the scale
+			// is available when converting physical offsets to logical coordinates.
+			double captureScaleX = 1.0, captureScaleY = 1.0;
 
 			try
 			{
@@ -127,6 +130,13 @@ namespace Keysharp.Builtins
 				var maxX = Math.Min(Ks.A_TotalScreenWidth.Ai(), _x2) - start.X;
 				var maxY = Math.Min(Ks.A_TotalScreenHeight.Ai(), _y2) - start.Y;
 				source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
+
+				// On HiDPI compositors (GNOME Wayland) GetScreen returns the physical-pixel
+				// bitmap so the needle (also physical from screenshot tools) matches exactly.
+				// Record the scale here while source is still alive; apply it below.
+				if (source != null && maxX > 0) captureScaleX = (double)source.Width / maxX;
+				if (source != null && maxY > 0) captureScaleY = (double)source.Height / maxY;
+
 				var searchImg = new ImageFinder(source) { Variation = variation };
 
 				location = searchImg.Find(bmp, trans);
@@ -143,7 +153,7 @@ namespace Keysharp.Builtins
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X + _x1, y = location.Value.Y + _y1;
+				int x = (int)Math.Round(location.Value.X / captureScaleX) + _x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + _y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
 				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
@@ -237,10 +247,15 @@ namespace Keysharp.Builtins
 			ImageFinder finder = null;
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
 			Point? location;
+			double captureScaleX = 1.0, captureScaleY = 1.0;
 
 			try
 			{
-				source = GuiHelper.GetScreen(x1, y1, x2 - x1, y2 - y1);
+				var logW = x2 - x1;
+				var logH = y2 - y1;
+				source = GuiHelper.GetScreen(x1, y1, logW, logH);
+				if (source != null && logW > 0) captureScaleX = (double)source.Width / logW;
+				if (source != null && logH > 0) captureScaleY = (double)source.Height / logH;
 				finder = new ImageFinder(source) { Variation = (byte)variation };
 				location = finder.Find(needle, ltr, ttb);
 			}
@@ -255,7 +270,7 @@ namespace Keysharp.Builtins
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X + x1, y = location.Value.Y + y1;
+				int x = (int)Math.Round(location.Value.X / captureScaleX) + x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
 				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);

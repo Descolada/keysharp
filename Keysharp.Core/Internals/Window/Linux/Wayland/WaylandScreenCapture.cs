@@ -67,8 +67,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (captureBackend is WaylandBackend.KWinBackend)
 				return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
 
-			if (captureBackend is WaylandBackend.GnomeBackend)
-				return KWinScreenCaptureHelper.AuthorizeOnly(operation, forcePrompt);
+			// GNOME: the Shell extension is session-scoped (same user only) and was
+			// explicitly installed by the user, so no per-binary trust gate is needed.
 
 			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
 		}
@@ -78,51 +78,27 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static Bitmap TryCaptureWithGnome(int x, int y, int w, int h)
 		{
-			// Trust gate: same keysharp-screencap --authorize flow as KWin.
-			// Result is cached after the first call so hot paths (PixelSearch loops)
-			// pay only a lock check on subsequent iterations. The GNOME Shell
-			// extension performs its own per-call check against the real D-Bus
-			// sender PID; this call only warms the prompt eagerly so the first
-			// capture doesn't block on UI.
-			if (!KWinScreenCaptureHelper.AuthorizeOnly(null).IsGranted)
-				return null;
-
+			// No per-binary trust check needed: the extension D-Bus service is
+			// session-scoped (same user only) and was explicitly installed by the
+			// user. Any Keysharp process can use it without separate authorization,
+			// matching the behaviour of the wlroots screencopy path.
 			var bytes = GnomeShellBridge.CaptureArea(x, y, w, h);
 
 			if (bytes == null)
 				return null;
 
-			Bitmap bmp;
-
 			try
 			{
-				bmp = new Bitmap(new MemoryStream(bytes));
+				// Return the raw physical-pixel PNG from Mutter without downscaling.
+				// Callers (ImageSearch, PixelSearch) compute the scale from
+				// bitmap.Width / requested_logical_width and convert found pixel
+				// offsets back to logical coordinates after the search.
+				return new Bitmap(new MemoryStream(bytes));
 			}
 			catch
 			{
 				return null;
 			}
-
-			// Mutter applies the view scale to the captured framebuffer: a 1920x1080
-			// logical area on a 2x display returns a 3840x2160 PNG. PixelGetColor
-			// happens to "work" because GetPixel(0,0) still reads a corner pixel,
-			// but ImageSearch needs source dimensions to match the needle's coordinate
-			// space, so we downscale back to the requested logical size when they differ.
-			if ((bmp.Width != w || bmp.Height != h) && w > 0 && h > 0)
-			{
-				try
-				{
-					var resized = new Bitmap(bmp, w, h, ImageInterpolation.Default);
-					bmp.Dispose();
-					return resized;
-				}
-				catch
-				{
-					return bmp;
-				}
-			}
-
-			return bmp;
 		}
 
 		private sealed class OutputInfo

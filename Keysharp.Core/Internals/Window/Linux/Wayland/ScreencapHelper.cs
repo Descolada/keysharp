@@ -11,17 +11,16 @@ using Eto.Drawing;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// Long-lived subprocess driver for <c>keysharp-screencap</c>, plus the row-major SIMD
-	/// converters that turn KWin's raw QImage pixel formats into a 32-bit RGBA Eto bitmap.
+	/// Long-lived subprocess driver for <c>keysharp-screencap</c>, covering both KWin and GNOME
+	/// Wayland capture paths, plus the row-major SIMD converters for KWin's raw QImage formats.
 	///
-	/// Why this exists: KWin's ScreenShot2 D-Bus interface only accepts calls from binaries
-	/// whitelisted via a privileged-location <c>.desktop</c> file (<c>X-KDE-DBUS-Restricted-
-	/// Interfaces</c>). The Keysharp managed process can't be whitelisted, so screen capture
-	/// is delegated to the C helper. We start one helper per Keysharp process (lazily, on
-	/// first capture) and keep it alive — every subsequent capture is just one line of stdin
-	/// and one framed response on stdout, no fork/exec/permission-check overhead.
+	/// KWin path: <c>--serve kwin</c> mode, KSSC1-framed raw pixels (KWin ScreenShot2 D-Bus is
+	/// restricted to desktop-file-whitelisted binaries; the managed process cannot be listed).
+	/// GNOME path: <c>--serve gnome</c> mode, KSSG1-framed PNG bytes (extension's CaptureArea
+	/// D-Bus method, callable only from the trusted root-owned setuid screencap binary).
+	/// Both paths share per-capture trust prompting and a single long-lived helper process.
 	/// </summary>
-	internal static class KWinScreenCaptureHelper
+	internal static class ScreencapHelper
 	{
 		private const int FirstRequestTimeoutMs = 60_000;  // first request may trigger the trust prompt
 		private const int RequestTimeoutMs = 30_000;
@@ -41,10 +40,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			private static bool sessionDenied;
 			private static string sessionDeniedMessage = "Screen capture permission denied.";
 
-			// Separate cache for the one-shot --authorize path used by GNOME.
-			// Distinct from the KWin serve-mode state so the two backends don't interfere.
-			private static readonly object authorizeOnlySync = new();
-			private static PermissionResult? authorizeOnlyCached;
+			// GNOME serve-mode state — mirrors the KWin state above but uses --serve gnome.
+			private static readonly object gnomeSync = new();
+			private static Process gnomeHelper;
+			private static Stream gnomeStdin;
+			private static Stream gnomeStdout;
+			private static bool gnomeSessionDenied;
+			private static string gnomeSessionDeniedMessage = "Screen capture permission denied.";
 
 			internal static Bitmap Capture(int x, int y, int w, int h)
 			{
@@ -141,6 +143,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					}
 				};
 				p.StartInfo.ArgumentList.Add("--serve");
+				p.StartInfo.ArgumentList.Add("kwin");
 
 				if (forcePrompt)
 					p.StartInfo.ArgumentList.Add("--force-prompt");
@@ -368,76 +371,227 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		/// <summary>
-		/// Trust check for compositors (e.g. GNOME) that do their own capture but still
-		/// need the keysharp-screencap trust gate. Runs <c>keysharp-screencap --authorize</c>
-		/// once and caches the result for the session. Denied is cached permanently;
-		/// Unsupported (binary absent) is re-tried on each call so a late install works.
-		/// </summary>
-		internal static PermissionResult AuthorizeOnly(string operation, bool forcePrompt = false)
+		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-screencap --serve gnome.</summary>
+		internal static Bitmap CaptureGnome(int x, int y, int w, int h)
 		{
-			lock (authorizeOnlySync)
+			lock (gnomeSync)
 			{
-				if (forcePrompt)
-					authorizeOnlyCached = null;
+				if (gnomeSessionDenied)
+					return null;
 
-				if (authorizeOnlyCached.HasValue && authorizeOnlyCached.Value.Status != PermissionStatus.Unsupported)
-					return authorizeOnlyCached.Value;
+				var attempt = 0;
 
-				var path = ResolveHelper();
-
-				if (path == null)
-					return new PermissionResult(PermissionStatus.Unsupported,
-						"keysharp-screencap not found; install it to enable screen capture on this compositor.");
-
-				PermissionResult result;
-
-				try
+				while (attempt < 2)
 				{
-					using var p = new Process
+					attempt++;
+					var firstStart = false;
+
+					if (gnomeHelper == null || gnomeHelper.HasExited)
 					{
-						StartInfo = new ProcessStartInfo
+						ResetGnomeLocked();
+
+						if (!StartGnomeLocked(out var startError, out _))
 						{
-							FileName = path,
-							UseShellExecute = false,
-							RedirectStandardError = true,
+							DebugLine($"keysharp-screencap --serve gnome launch failed: {startError}");
+							return null;
 						}
-					};
-					p.StartInfo.ArgumentList.Add("--authorize");
 
-					if (forcePrompt)
-						p.StartInfo.ArgumentList.Add("--force-prompt");
-
-					p.ErrorDataReceived += (_, e) =>
-					{
-						if (!string.IsNullOrEmpty(e.Data))
-							DebugLine($"keysharp-screencap: {e.Data}");
-					};
-					p.Start();
-					p.BeginErrorReadLine();
-
-					if (!p.WaitForExit(AuthorizationTimeoutMs))
-					{
-						try { p.Kill(); } catch { }
-						return new PermissionResult(PermissionStatus.Unsupported,
-							$"keysharp-screencap authorization timed out after {AuthorizationTimeoutMs}ms.");
+						firstStart = true;
 					}
 
-					result = p.ExitCode switch
+					try
 					{
-						0 => new PermissionResult(PermissionStatus.Granted),
-						3 => new PermissionResult(PermissionStatus.Denied, "Screen capture permission denied."),
-						_ => new PermissionResult(PermissionStatus.Unsupported, "Screen capture authorization unavailable.")
-					};
-				}
-				catch (Exception ex)
-				{
-					return new PermissionResult(PermissionStatus.Unsupported, ex.Message);
+						var request = $"area {x.ToString(System.Globalization.CultureInfo.InvariantCulture)} {y.ToString(System.Globalization.CultureInfo.InvariantCulture)} {w.ToString(System.Globalization.CultureInfo.InvariantCulture)} {h.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n";
+						var bytes = System.Text.Encoding.ASCII.GetBytes(request);
+						gnomeStdin.Write(bytes, 0, bytes.Length);
+						gnomeStdin.Flush();
+						return ReadGnomeResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
+					}
+					catch (Exception ex)
+					{
+						DebugLine($"keysharp-screencap --serve gnome request failed: {ex.Message}");
+						CacheGnomeDeniedIfHelperExitedLocked();
+						ResetGnomeLocked();
+					}
 				}
 
-				authorizeOnlyCached = result;
-				return result;
+				return null;
 			}
+		}
+
+		/// <summary>Authorizes screen capture on GNOME by starting keysharp-screencap --serve gnome.</summary>
+		internal static PermissionResult AuthorizeGnome(string operation, bool forcePrompt = false)
+		{
+			lock (gnomeSync)
+			{
+				if (forcePrompt)
+				{
+					gnomeSessionDenied = false;
+					gnomeSessionDeniedMessage = string.Empty;
+					ResetGnomeLocked();
+				}
+				else if (gnomeSessionDenied)
+					return new PermissionResult(PermissionStatus.Denied, gnomeSessionDeniedMessage);
+
+				if (gnomeHelper != null && !gnomeHelper.HasExited)
+					return new PermissionResult(PermissionStatus.Granted);
+
+				if (StartGnomeLocked(out var error, out var status, forcePrompt))
+					return new PermissionResult(PermissionStatus.Granted);
+
+				return new PermissionResult(status, error);
+			}
+		}
+
+		private static bool StartGnomeLocked(out string error, out PermissionStatus status, bool forcePrompt = false)
+		{
+			error = null;
+			status = PermissionStatus.Unsupported;
+			var path = ResolveHelper();
+
+			if (path == null)
+			{
+				error = "no keysharp-screencap binary found";
+				return false;
+			}
+
+			try
+			{
+				var p = new Process
+				{
+					StartInfo = new ProcessStartInfo
+					{
+						FileName = path,
+						UseShellExecute = false,
+						RedirectStandardInput = true,
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+					}
+				};
+				p.StartInfo.ArgumentList.Add("--serve");
+				p.StartInfo.ArgumentList.Add("gnome");
+
+				if (forcePrompt)
+					p.StartInfo.ArgumentList.Add("--force-prompt");
+
+				p.ErrorDataReceived += (_, e) =>
+				{
+					if (!string.IsNullOrEmpty(e.Data))
+						DebugLine($"keysharp-screencap: {e.Data}");
+				};
+
+				if (!p.Start())
+				{
+					error = "Process.Start returned false";
+					return false;
+				}
+
+				p.BeginErrorReadLine();
+				gnomeHelper = p;
+				gnomeStdin = p.StandardInput.BaseStream;
+				gnomeStdout = p.StandardOutput.BaseStream;
+				ReadStartupStatus(gnomeStdout, AuthorizationTimeoutMs);
+
+				AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+				{
+					lock (gnomeSync)
+						ResetGnomeLocked();
+				};
+
+				return true;
+			}
+			catch (HelperStartException ex)
+			{
+				error = ex.Message;
+				status = ex.Status;
+
+				if (status == PermissionStatus.Denied)
+				{
+					gnomeSessionDenied = true;
+					gnomeSessionDeniedMessage = error;
+				}
+
+				ResetGnomeLocked();
+				return false;
+			}
+			catch (Exception ex)
+			{
+				error = ex.Message;
+				status = PermissionStatus.Unsupported;
+				ResetGnomeLocked();
+				return false;
+			}
+		}
+
+		private static void ResetGnomeLocked()
+		{
+			try { gnomeStdin?.Dispose(); } catch { }
+			try { gnomeStdout?.Dispose(); } catch { }
+
+			if (gnomeHelper != null && !gnomeHelper.HasExited)
+			{
+				try { gnomeHelper.Kill(entireProcessTree: true); } catch { }
+			}
+
+			try { gnomeHelper?.Dispose(); } catch { }
+			gnomeHelper = null;
+			gnomeStdin = null;
+			gnomeStdout = null;
+		}
+
+		private static void CacheGnomeDeniedIfHelperExitedLocked()
+		{
+			try
+			{
+				if (gnomeHelper is { HasExited: true, ExitCode: 3 })
+				{
+					gnomeSessionDenied = true;
+					gnomeSessionDeniedMessage = "Screen capture permission denied.";
+				}
+			}
+			catch { }
+		}
+
+		private static Bitmap ReadGnomeResponseLocked(int timeoutMs)
+		{
+			var task = Task.Run(() =>
+			{
+				var status = gnomeStdout.ReadByte();
+
+				if (status < 0)
+					throw new IOException("helper closed stdout before responding");
+
+				if (status != 0)
+					throw new IOException("helper error: " + ReadErrorMessage(gnomeStdout));
+
+				return ReadKssgFrame(gnomeStdout);
+			});
+
+			if (!task.Wait(timeoutMs))
+			{
+				ResetGnomeLocked();
+				throw new TimeoutException($"keysharp-screencap --serve gnome response timed out after {timeoutMs}ms");
+			}
+
+			return task.GetAwaiter().GetResult();
+		}
+
+		private static Bitmap ReadKssgFrame(Stream s)
+		{
+			var header = new byte[8 + 8];  // magic (8) + uint64 byteCount (8)
+			ReadExact(s, header, 0, header.Length);
+
+			if (header[0] != 'K' || header[1] != 'S' || header[2] != 'S' || header[3] != 'G' || header[4] != '1')
+				throw new IOException("bad KSSG1 magic");
+
+			var byteCount = BitConverter.ToUInt64(header, 8);
+
+			if (byteCount == 0 || byteCount > int.MaxValue)
+				throw new IOException($"invalid KSSG1 byte count {byteCount}");
+
+			var bytes = new byte[(int)byteCount];
+			ReadExact(s, bytes, 0, (int)byteCount);
+			return new Bitmap(new MemoryStream(bytes));
 		}
 
 		private static string ResolveHelper()

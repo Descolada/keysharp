@@ -1,6 +1,7 @@
 # Keysharp #
 * [Overview](#markdown-header-overview)
 * [Cross-Platform Capability Matrix](#cross-platform-capability-matrix)
+* [Linux Platform Support](#linux-platform-support)
 * [Differences](#markdown-header-differences)
 	+ [Behaviors](#markdown-header-behaviors-functionality)
 	+ [Syntax](#markdown-header-syntax)
@@ -29,6 +30,10 @@
 		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
 	+ Registers Keysharp as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
 	+ Creates a symlink at `/usr/local/bin/keysharp` so you can run it from the command line from anywhere.
+	+ Installs root-owned `keysharp-inputd` daemon for evdev device access and a uinput virtual device, enabling reliable keyboard/mouse hooks, input synthesis, and `BlockInput` on both X11 and Wayland.
+	+ Installs root-owned `keysharp-screencap` which enables Wayland screen capture: on KWin it is directly needed for screen capture; on GNOME it acts as the trust gate for screen capture.
+	+ Installs a GNOME Shell extension (`keysharp@keysharp.io`) for the invoking desktop user, which is required in GNOME for screen capture, mouse location queries, and window automation. This requires a logout or reboot to take effect. If GNOME is not installed then this has no effect.
++ Without sudo, Keysharp is installed under `$HOME/.local` and the privileged helpers are skipped. Linux input hooks/synthesis and Wayland screen capture will be unavailable until a root install is performed.
 	
 ### Building from source on Windows ###
 * Download the latest version of [Visual Studio 2022](https://visualstudio.microsoft.com/vs/community/).
@@ -65,7 +70,7 @@ Status legend:
 | Directives and preprocessing | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | OS-specific directives supported via compile constants. |
 | File and directory operations | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | macOS recycle/trash and privacy-scoped file access still evolving. |
 | Keyboard/Mouse send (synthetic input) | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Requires platform permissions on macOS. |
-| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned. |
+| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | macOS behavior is still being aligned. |
 | Global mouse hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Suppression/injection semantics differ by platform. |
 | Hotkeys/Hotstrings | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Depends on hook and key-state parity. |
 | Script-owned window management | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Built on WinForms/Eto; some controls and behavior still differ. |
@@ -109,11 +114,19 @@ Some general notes about Keysharp's implementation of the [AutoHotkey v2 specifi
 
 Despite our best efforts to remain compatible with the AHK v2 spec, there are differences. Some of these differences are a reduction in functionality, and others are an increase. There are also slight syntax changes.
 
+## Linux Platform Support ##
+
+| Platform / compositor | Works without root | Root helpers add / enable | Notes |
+|---|---|---|---|
+| **X11** | Full window management and screen capture; partial input hooks, input synthesis, and hotkeys/hotstrings | Full input hooks/synthesis, `BlockInput`, reliable hotkeys/hotstrings via `keysharp-inputd` | Root mainly upgrades input control |
+| **Wayland – GNOME** | Full window management and mouse synthesis via GNOME Shell extension | Keyboard synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd`; screen capture permission via `keysharp-screencap` | Shell extension must be enabled; `keysharp-screencap` must be installed for capture authorization |
+| **Wayland – KWin / KDE Plasma** | Full window management via KWin scripting; mouse synthesis via FakeInput | Screen capture via `keysharp-screencap`; keyboard synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | `keysharp-screencap` must be root-owned setuid with desktop file |
+| **Wayland – other compositors**<br>Sway, Hyprland, COSMIC, Wayfire, labwc, etc. | Protocol-dependent window listing, active-window detection, activation, and screen capture | Input synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | Depends on foreign-toplevel and screencopy protocol support |
+
 ## Differences: ##
 
 ###	Behaviors/Functionality: ###
-* Linux support is currently partial.
-	+ Only X11 is supported at the moment, Wayland is not. This may change in the future when Wayland exposes more functionality to automate the desktop.
+* Linux support is partial. See [Linux Platform Support](#linux-platform-support) above for a detailed breakdown by display server and compositor.
 	+ Control commands only work on windows created by the running Keysharp process. This is because "controls" don't exist in Linux the same way they do in Windows.
 		+ As an alternative it's recommended to use [AtSpi.ks](https://github.com/Descolada/keysharp/blob/master/Keysharp/Scripts/AtSpi.ks): running it directly displays AtSpiViewer which can be used to inspect windows, and it also contains methods to manipulate windows and controls similarly to Acc/UIA in Windows.
 	+ GUI support is mostly implemented, but some controls are missing or incomplete.

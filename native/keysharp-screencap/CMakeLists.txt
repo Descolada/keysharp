@@ -15,8 +15,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0 gio-unix-2.0)
 
 add_subdirectory(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../keysharp-common
-    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-common)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../keysharp-trust-lib
+    ${CMAKE_CURRENT_BINARY_DIR}/keysharp-trust-lib)
 
 add_executable(keysharp-screencap
     src/main.c)

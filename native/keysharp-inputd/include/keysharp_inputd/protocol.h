@@ -35,15 +35,27 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
     KSI_MESSAGE_GET_POINTER_POSITION   = 42,
     KSI_MESSAGE_POINTER_POSITION_RESULT = 43,
-    /* Trust-store administration. LIST streams one ENTRY per stored record
-     * followed by a RESULT status terminator. RESET clears allow + deny bits
-     * for a single record so the next prompt re-asks the user. Both are
-     * scoped to the caller's uid unless the daemon's effective uid is root. */
+    /* Physical key state snapshot: KSI_CAP_HOOK_KEYBOARD required.
+     * GET_KEY_STATE has no payload. KEY_STATE_RESULT carries a
+     * ksi_key_state_payload with the aggregate modifier + indicator state
+     * across all currently grabbed keyboard devices. */
+    KSI_MESSAGE_GET_KEY_STATE          = 44,
+    KSI_MESSAGE_KEY_STATE_RESULT       = 45,
+    /* Trust-store administration scoped to input capabilities.
+     * LIST streams one ENTRY per stored record that has any input capability
+     * bits, followed by a RESULT status terminator. RESET clears allow+deny
+     * bits for a single record; the daemon clamps the mask to input caps only.
+     * Both are scoped to the caller's uid unless the daemon runs as root and
+     * the caller is also root. */
     KSI_MESSAGE_LIST_PERMISSIONS        = 50,
     KSI_MESSAGE_LIST_PERMISSIONS_ENTRY  = 51,
     KSI_MESSAGE_LIST_PERMISSIONS_RESULT = 52,
     KSI_MESSAGE_RESET_PERMISSIONS       = 53,
 } ksi_message_type;
+
+/* Bitmask of all input-related capabilities managed by keysharp-inputd.
+ * Screen-capture (0x20) is excluded — screencap manages that itself. */
+#define KSI_INPUT_CAPABILITIES 0x0000001Fu
 
 /* Payload for KSI_MESSAGE_INDICATOR_STATE_RESULT. */
 typedef struct ksi_indicator_state_payload {
@@ -52,6 +64,24 @@ typedef struct ksi_indicator_state_payload {
     uint8_t scroll_lock;
     uint8_t reserved;
 } ksi_indicator_state_payload;
+
+/* Payload for KSI_MESSAGE_KEY_STATE_RESULT.
+ *
+ * modifiers_lr: bitmask of currently physically-held modifier keys,
+ *   using the same bit assignments as Keysharp's internal modLR flags:
+ *     bit 0 = MOD_LCONTROL, bit 1 = MOD_RCONTROL,
+ *     bit 2 = MOD_LALT,     bit 3 = MOD_RALT,
+ *     bit 4 = MOD_LSHIFT,   bit 5 = MOD_RSHIFT,
+ *     bit 6 = MOD_LWIN,     bit 7 = MOD_RWIN.
+ * caps_lock, num_lock, scroll_lock: current LED/toggle state (same as
+ *   ksi_indicator_state_payload). */
+typedef struct ksi_key_state_payload {
+    uint32_t modifiers_lr;
+    uint8_t  caps_lock;
+    uint8_t  num_lock;
+    uint8_t  scroll_lock;
+    uint8_t  reserved;
+} ksi_key_state_payload;
 
 /* Raw absolute axis values from the last evdev ABS_X/ABS_Y pointer report. */
 typedef struct ksi_pointer_position_payload {
@@ -267,15 +297,13 @@ typedef struct ksi_hook_decision_payload {
     ksi_input inputs[];
 } ksi_hook_decision_payload;
 
-/* Length of the hex-encoded SHA-256 process identity used in LIST/RESET
- * permissions payloads, including the trailing NUL byte. Mirrors the value
- * KSI_PERMISSION_HASH_HEX_LENGTH from keysharp_trust/permissions.h so this
- * header stays standalone. */
+/* Length of the hex-encoded SHA-256 process identity, including the trailing
+ * NUL byte. Mirrors KSI_PERMISSION_HASH_HEX_LENGTH from permissions.h. */
 #define KSI_PROTOCOL_HASH_HEX_BUFFER 65u
 
 /* One entry in a streamed LIST_PERMISSIONS response. The path is appended
  * inline after the fixed header and is NOT NUL-terminated; its length is
- * carried by path_length. */
+ * carried by path_length. Only records with input capability bits are sent. */
 typedef struct ksi_list_permissions_entry_payload {
     uint32_t uid;
     uint32_t persistent_allowed_capabilities;
@@ -288,17 +316,9 @@ typedef struct ksi_list_permissions_entry_payload {
 } ksi_list_permissions_entry_payload;
 
 /* Request payload for KSI_MESSAGE_RESET_PERMISSIONS.
- *
- * target_uid:
- *   The uid whose record should be cleared. Must equal the caller's uid
- *   unless the daemon's effective uid is root. KSI_RESET_PERMISSIONS_UID_SELF
- *   may be sent as a portable alias for "my own uid".
- *
- * capabilities:
- *   Bits to clear. KSI_RESET_PERMISSIONS_CAPS_ALL clears every capability
- *   for the matched record (both allow and deny). */
+ * target_uid: uid to clear; KSI_RESET_PERMISSIONS_UID_SELF = caller's uid.
+ * capabilities: bits to clear, clamped by the daemon to KSI_INPUT_CAPABILITIES. */
 #define KSI_RESET_PERMISSIONS_UID_SELF 0xFFFFFFFFu
-#define KSI_RESET_PERMISSIONS_CAPS_ALL 0xFFFFFFFFu
 
 typedef struct ksi_reset_permissions_payload {
     uint32_t target_uid;

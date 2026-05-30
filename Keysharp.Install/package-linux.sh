@@ -70,10 +70,10 @@ build_native_helpers() {
     cmake -S "${ROOT}/native/keysharp-inputd" -B "${inputd_build_dir}" \
       -DCMAKE_BUILD_TYPE="${CONFIG}" \
       -DKEYSHARP_INPUTD_BUILD_TOOLS=OFF
-    cmake --build "${inputd_build_dir}"
-    cp "${inputd_build_dir}/keysharp-inputd" "${inputd_build_dir}/keysharp-trust" "${APP_DIR}/"
+    cmake --build "${inputd_build_dir}" --clean-first
+    cp "${inputd_build_dir}/keysharp-inputd" "${APP_DIR}/"
   else
-    echo "Skipping keysharp-inputd/keysharp-trust build because libudev or libevdev development files are missing." >&2
+    echo "Skipping keysharp-inputd build because libudev or libevdev development files are missing." >&2
   fi
 
   if ! pkg-config --exists gio-2.0 gio-unix-2.0; then
@@ -82,7 +82,7 @@ build_native_helpers() {
   fi
 
   cmake -S "${ROOT}/native/keysharp-screencap" -B "${kwin_build_dir}" -DCMAKE_BUILD_TYPE="${CONFIG}"
-  cmake --build "${kwin_build_dir}"
+  cmake --build "${kwin_build_dir}" --clean-first
   cp "${kwin_build_dir}/keysharp-screencap" "${APP_DIR}/"
 }
 
@@ -90,7 +90,7 @@ normalize_app_permissions() {
   find "${APP_DIR}" -type d -exec chmod 0755 {} +
   find "${APP_DIR}" -type f -exec chmod 0644 {} +
 
-  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-screencap; do
+  for exe in Keysharp Keyview keysharp-inputd keysharp-screencap; do
     if [[ -f "${APP_DIR}/${exe}" ]]; then
       chmod 0755 "${APP_DIR}/${exe}"
     fi
@@ -105,8 +105,83 @@ Section: utils
 Priority: optional
 Architecture: ${DEB_ARCH}
 Maintainer: Descolada
+Homepage: https://github.com/Descolada/keysharp
 Depends: ${DEB_DEPENDS}
 Description: ${DEB_DESCRIPTION}
+EOF
+}
+
+write_deb_copyright() {
+  cat > "$1" <<'EOF'
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: keysharp
+Upstream-Contact: Descolada
+Source: https://github.com/Descolada/keysharp
+
+Files: *
+Copyright: 2020-Present Matt Feemster <matt.feemster@gmail.com>
+           2024-Present Descolada
+           2010-2015 A. <inspiration3@gmail.com>, Tobias Kappé <tobias@ntlabs.org>
+           And other contributors.
+License: BSD-2-Clause
+
+Files: PCRE.NET.dll PCRE.NET.Native.so
+Copyright: 2014-2022 Lucas Trzesniewski <lucas.trzesniewski@gmail.com>
+           1997-2022 University of Cambridge
+           2010-2022 Zoltan Herczeg <hzmester@freemail.hu>
+           2009-2022 Zoltan Herczeg <hzmester@freemail.hu>
+License: BSD-3-Clause
+
+License: BSD-2-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are
+ met:
+ .
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are
+ met:
+ .
+  * Redistributions of source code must retain the above copyright
+    notices, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright
+    notices, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+  * Neither the name of the University of Cambridge nor the names of
+    any contributors may be used to endorse or promote products derived
+    from this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 EOF
 }
 
@@ -134,11 +209,11 @@ if [ -f /usr/lib/keysharp/keysharp-screencap ]; then
 fi
 
 if [ -f /usr/lib/keysharp/keysharp-inputd ]; then
-  echo "Configuring keysharp-inputd/keysharp-trust for reliable Linux input hooks, input synthesis, BlockInput, and permission prompts."
+  echo "Configuring keysharp-inputd for reliable Linux input hooks, input synthesis, and BlockInput."
   if ! /usr/lib/keysharp/keysharp-inputd --install-input-access; then
     cat >&2 <<'WARN'
 Warning: keysharp-inputd --install-input-access did not complete successfully.
-Linux input hooks, input synthesis, BlockInput and the keysharp-trust permission
+Linux input hooks, input synthesis, and BlockInput
 prompt may be unavailable until this is resolved. Re-run manually as root:
   sudo /usr/lib/keysharp/keysharp-inputd --install-input-access
 and check the output for the failing step (modprobe uinput, udevadm, or
@@ -280,6 +355,7 @@ build_deb() {
   local icon_dir="${deb_root}/usr/share/icons/hicolor/256x256/apps"
   local systemd_dir="${deb_root}/usr/lib/systemd/system"
   local gnome_ext_dir="${deb_root}/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  local doc_dir="${deb_root}/usr/share/doc/${DEB_PKG_NAME}"
   local build_cmd=()
 
   if ! command -v dpkg-deb >/dev/null 2>&1; then
@@ -295,14 +371,11 @@ build_deb() {
   DEB_OUT="${DIST_DIR}/${DEB_PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
   echo "Creating Debian package ${DEB_OUT}..."
   rm -rf "${deb_root}"
-  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}" "${gnome_ext_dir}"
+  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}" "${gnome_ext_dir}" "${doc_dir}"
 
   rsync -a "${APP_DIR}/" "${lib_dir}/"
   ln -s "../lib/keysharp/Keysharp" "${bin_dir}/keysharp"
   ln -s "../lib/keysharp/Keyview" "${bin_dir}/keyview"
-  if [[ -f "${lib_dir}/keysharp-trust" ]]; then
-    ln -s "../lib/keysharp/keysharp-trust" "${bin_dir}/keysharp-trust"
-  fi
   if [[ -f "${lib_dir}/keysharp-inputd" ]]; then
     ln -s "../lib/keysharp/keysharp-inputd" "${bin_dir}/keysharp-inputd"
   fi
@@ -333,11 +406,12 @@ build_deb() {
   write_deb_postinst "${debian_dir}/postinst"
   write_deb_prerm "${debian_dir}/prerm"
   write_deb_postrm "${debian_dir}/postrm"
+  write_deb_copyright "${doc_dir}/copyright"
 
   find "${deb_root}" -type d -exec chmod 0755 {} +
   find "${deb_root}" -type f -exec chmod 0644 {} +
 
-  for exe in Keysharp Keyview keysharp-inputd keysharp-trust; do
+  for exe in Keysharp Keyview keysharp-inputd; do
     if [[ -f "${lib_dir}/${exe}" ]]; then
       chmod 0755 "${lib_dir}/${exe}"
     fi

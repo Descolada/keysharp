@@ -46,6 +46,8 @@ namespace Keysharp.Internals.Input.Linux
 			IndicatorStateResult = 41,
 			GetPointerPosition   = 42,
 			PointerPositionResult = 43,
+			GetKeyState          = 44,
+			KeyStateResult       = 45,
 		}
 
 		internal enum HookType : uint
@@ -301,6 +303,30 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>
+		/// Queries the daemon for the current physical modifier and toggle-key state.
+		/// Returns (modifiersLR, capsLock, numLock, scrollLock).
+		/// modifiersLR uses the same bit layout as Keysharp's internal MOD_* constants:
+		///   0=LCONTROL 1=RCONTROL 2=LALT 3=RALT 4=LSHIFT 5=RSHIFT 6=LWIN 7=RWIN.
+		/// Must be called on a dedicated query connection, not on the hook-event socket.
+		/// </summary>
+		internal (uint ModifiersLR, bool CapsLock, bool NumLock, bool ScrollLock) QueryKeyState()
+		{
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetKeyState, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadResponseFrame(MessageType.KeyStateResult, correlationId);
+
+			if (response.Type != MessageType.KeyStateResult || response.CorrelationId != correlationId)
+				throw new InvalidDataException(
+					$"Unexpected response to GetKeyState: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+
+			if (response.Payload.Length < 8)
+				return (0u, false, false, false);
+
+			var mods = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(0));
+			return (mods, response.Payload[4] != 0, response.Payload[5] != 0, response.Payload[6] != 0);
+		}
+
+		/// <summary>
 		/// Queries the daemon for the last raw evdev ABS_X/ABS_Y pointer sample.
 		/// Screen-space mapping stays in Keysharp because the daemon has no display model.
 		/// </summary>
@@ -404,7 +430,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				var hello = ExchangeHello(requested, forcePrompt);
 				status = hello.Status;
-				GrantedCapabilities = hello.Granted;
+				GrantedCapabilities |= hello.Granted;
 				return status == 0 && (GrantedCapabilities & requested) == requested;
 			}
 

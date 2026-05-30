@@ -12,45 +12,42 @@ namespace Keysharp.Internals.Input.Linux
 		private static readonly Lock queryGate = new();
 		private static volatile bool legacyX11FallbackActive;
 
+		// Two-socket model:
+		//   client      – hook events + decisions (hook reader thread).
+		//   queryClient – synthesis + state queries (any thread, queryGate for safety).
+		//
+		// Both synthesis (SYNTHESIS_RESULT returned after enqueue, not after uinput
+		// delivery) and queries (GET_KEY_STATE, GET_INDICATOR_STATE, etc.) complete in
+		// one short IPC round-trip, so queryGate is never held for long.
+		private static KeysharpInputdClient client;
+		private static KeysharpInputdClient queryClient;
+
 		/// <summary>
-		/// Sends input events to the daemon via the dedicated synthesis socket. The daemon
-		/// acknowledges that the request was validated and queued for the input thread; it
-		/// does not wait for the queued events to be emitted to uinput.
-		///
-		/// Safe to call from any thread, including the hook-event reader thread.
+		/// Sends input events to the daemon via the query/synthesis socket.
+		/// Capabilities must already be granted (via EnsureInputInjection) before this is called.
+		/// inputd returns SYNTHESIS_RESULT as soon as events are enqueued for the
+		/// output sequencer, so this call is fast and queryGate is held briefly.
 		/// </summary>
 		internal static void SendInputViaSynthesisChannel(
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
-			var qc = GetOrCreateQueryClient();
-			var required = ExpandInputPermissionRequest(GetRequiredSynthesisCapabilities(inputs));
+			var qc = GetOrCreateQueryClient()
+				?? throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
 
-			if (qc != null)
+			lock (queryGate)
 			{
-				lock (queryGate)
-				{
-					if (!qc.TryRequestCapabilities(required, out _))
-						throw new IOException($"keysharp-inputd did not grant synthesis capabilities. Required: {required}, granted: {qc.GrantedCapabilities}.");
+				// Request synth caps lazily on first use. By the time Send is called,
+				// EnsureInputInjection has already established trust on the main client,
+				// so the daemon serves this from the trust store without a prompt.
+				if (!HasCapabilities(qc, KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse))
+					qc.TryRequestCapabilities(
+						KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
+						out _);
 
-					qc.SendInput(inputs, flags);
-				}
-				return;
-			}
-
-			// Fallback: query client not yet available (startup). Use the hook client.
-			// SendInput on the hook socket is safe here because the hook reader is
-			// not yet running (we're still in EnsureCapabilities at startup).
-			lock (gate)
-			{
-				if (client == null || !client.TryRequestCapabilities(required, out _))
-					throw new IOException($"keysharp-inputd did not grant synthesis capabilities. Required: {required}, granted: {client?.GrantedCapabilities}.");
-
-				client.SendInput(inputs, flags);
+				qc.SendInput(inputs, flags);
 			}
 		}
-		private static KeysharpInputdClient client;
-		private static KeysharpInputdClient queryClient;
 
 		internal static bool TryGetIndicatorState(out bool capsLock, out bool numLock, out bool scrollLock)
 		{
@@ -78,6 +75,41 @@ namespace Keysharp.Internals.Input.Linux
 			catch (Exception ex)
 			{
 				Ks.OutputDebugLine($"keysharp-inputd: indicator state query failed: {ex.Message}");
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Queries inputd for the current physical modifier and toggle-key state.
+		/// Returns false if the daemon is unavailable or the capability is not granted.
+		/// </summary>
+		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock)
+		{
+			modifiersLR = 0;
+			capsLock = false;
+			numLock = false;
+			scrollLock = false;
+
+			var qc = GetOrCreateQueryClient();
+
+			if (qc == null)
+				return false;
+
+			try
+			{
+				lock (queryGate)
+				{
+					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
+						return false;
+
+					(modifiersLR, capsLock, numLock, scrollLock) = qc.QueryKeyState();
+				}
+
+				return true;
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"keysharp-inputd: key state query failed: {ex.Message}");
 				return false;
 			}
 		}
@@ -144,6 +176,9 @@ namespace Keysharp.Internals.Input.Linux
 
 				try
 				{
+					// Connect with no capabilities; synthesis is requested lazily in
+					// SendInputViaSynthesisChannel after EnsureInputInjection has
+					// established trust on the main client.
 					queryClient = KeysharpInputdClient.Connect();
 				}
 				catch (Exception ex) when (ex is IOException or SocketException
@@ -330,21 +365,6 @@ namespace Keysharp.Internals.Input.Linux
 				requested |= synth;
 
 			return requested;
-		}
-
-		private static KeysharpInputdClient.Capabilities GetRequiredSynthesisCapabilities(IReadOnlyList<KeysharpInputdClient.Input> inputs)
-		{
-			var required = KeysharpInputdClient.Capabilities.None;
-
-			for (var i = 0; i < inputs.Count; i++)
-			{
-				if (inputs[i].Type == KeysharpInputdClient.InputType.Keyboard)
-					required |= KeysharpInputdClient.Capabilities.SynthKeyboard;
-				else if (inputs[i].Type == KeysharpInputdClient.InputType.Mouse)
-					required |= KeysharpInputdClient.Capabilities.SynthMouse;
-			}
-
-			return required;
 		}
 
 		private static bool IsTruthy(string value)

@@ -1531,6 +1531,39 @@ int ksi_permissions_clear_persistent(
     return save_store(store);
 }
 
+int ksi_permissions_clear_all(
+    ksi_permission_store *store,
+    uid_t uid,
+    uint32_t capabilities)
+{
+    bool changed = false;
+    size_t i;
+
+    if (store == NULL || capabilities == 0u) {
+        return -1;
+    }
+
+    for (i = 0; i < store->count; i++) {
+        ksi_permission_record *record = &store->records[i];
+
+        if (uid != (uid_t)-1 && record->uid != uid) {
+            continue;
+        }
+
+        record->persistent_allowed_capabilities &= ~capabilities;
+        record->persistent_denied_capabilities &= ~capabilities;
+        record->session_allowed_capabilities &= ~capabilities;
+        changed = true;
+    }
+
+    if (!changed) {
+        return 0;
+    }
+
+    (void)prune_expired_records(store);
+    return save_store(store);
+}
+
 int ksi_permissions_clear_session(
     ksi_permission_store *store,
     uid_t uid,

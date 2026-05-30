@@ -635,7 +635,6 @@ break_twice:;
 		public static object Send(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "Send");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}
@@ -658,7 +657,6 @@ break_twice:;
 		public static object SendEvent(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendEvent");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Event, 0);
 			return DefaultObject;
 		}
@@ -672,7 +670,6 @@ break_twice:;
 		public static object SendInput(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendInput");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode == SendModes.InputThenPlay ? SendModes.InputThenPlay : SendModes.Input, 0);
 			return DefaultObject;
 		}
@@ -711,7 +708,6 @@ break_twice:;
 		public static object SendPlay(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendPlay");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Play, 0);
 			return DefaultObject;
 		}
@@ -722,7 +718,6 @@ break_twice:;
 		public static object SendText(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendText");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.RawText, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}

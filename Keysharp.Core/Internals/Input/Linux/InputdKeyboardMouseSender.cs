@@ -214,9 +214,9 @@ namespace Keysharp.Internals.Input.Linux
 		/// <summary>
 		/// Mirrors AHK's post-SendInput state reconciliation: after a bypass-hook
 		/// batch the daemon's hook lane did not echo the synth events back to us,
-		/// so modifiersLRLogical is stale. Pull the current OS-level modifier
-		/// state (X11 via IsKeyDownAsync → XQueryKeymap) and force the hook's
-		/// tracked logical state to match.
+		/// so modifiersLRLogical may be stale. Query inputd for the ground-truth
+		/// physical modifier state (which is X11-independent and always correct),
+		/// update logical state to match, and also refresh the indicator snapshot.
 		/// </summary>
 		private static void ReconcileLogicalModifiersFromOs()
 		{
@@ -226,8 +226,74 @@ namespace Keysharp.Internals.Input.Linux
 			if (sender == null)
 				return;
 
-			var modsCurrent = sender.GetModifierLRState(true);
-			sender.modifiersLRLogical = sender.modifiersLRLogicalNonIgnored = modsCurrent;
+			if (KeysharpInputdManager.TryGetKeyState(out var physMods, out var capsOn, out var numOn, out var scrollOn))
+			{
+				// inputd returns only physical key state. Preserve any logical-only bits
+				// (synthetic modifiers that were explicitly placed by the caller and not
+				// yet released) by keeping bits that are in logical but not physical only
+				// if they're also in the current event-mode modifier set. In practice,
+				// after a bypass-hook batch, all transient synthetic modifiers should have
+				// been released by SetModifierLRState before the batch finished, so the
+				// physical state IS the correct post-Send state.
+				sender.modifiersLRLogical = physMods;
+				sender.modifiersLRLogicalNonIgnored = physMods;
+
+				// Refresh the indicator snapshot while we have fresh data.
+				if (ht is Keysharp.Internals.Input.Hooks.Unix.UnixHookThread uht)
+					uht.SetIndicatorSnapshot(capsOn, numOn, scrollOn);
+			}
+			else
+			{
+				// inputd unavailable: fall back to OS-level query (X11 or physical snapshot).
+				var modsCurrent = sender.GetModifierLRState(true);
+				sender.modifiersLRLogical = sender.modifiersLRLogicalNonIgnored = modsCurrent;
+			}
+		}
+
+		/// <summary>
+		/// Overrides the base toggle-key logic to use a live inputd hardware query
+		/// for the post-toggle check instead of the snapshot + Thread.Sleep(1).
+		///
+		/// The base class sends a CapsLock/NumLock/ScrollLock keypress and then
+		/// waits 1 ms before re-checking IsKeyToggledOn to confirm the toggle.
+		/// On the inputd path that 1 ms is far too short: the synthetic event must
+		/// travel Keysharp→inputd→uinput→compositor→EV_LED→inputd before the
+		/// cached indicator state updates. Reading the hardware LED directly via
+		/// GET_KEY_STATE (which calls EVIOCGLED) gives the correct answer
+		/// immediately because the kernel updates the LED synchronously when it
+		/// processes the uinput event.
+		/// </summary>
+		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
+		{
+			var script = Script.TheScript;
+
+			// IsKeyToggledOn now always queries live (X11 → inputd → snapshot fallback),
+			// so startingState is always the compositor's actual current state.
+			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
+
+			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off)
+				return startingState;
+
+			if (startingState == toggleValue)
+				return startingState;
+
+			// Release if held (prevents the toggle being swallowed by the OS).
+			if (script.HookThread.IsKeyDown(vk))
+				SendKeyEvent(KeyEventTypes.KeyUp, vk);
+
+			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk);
+
+			// Give the compositor a moment to update its XKB state, then verify.
+			// XkbGetState returns the post-toggle state within a few ms.
+			System.Threading.Thread.Sleep(5);
+
+			if (vk == VK_CAPITAL && toggleValue == ToggleValueType.Off && script.HookThread.IsKeyToggledOn(vk))
+			{
+				// Some keyboard layouts only toggle CapsLock off via Shift.
+				SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_SHIFT);
+			}
+
+			return startingState;
 		}
 
 		/// <summary>
@@ -651,28 +717,6 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
-		{
-			var script = Script.TheScript;
-			var current = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
-
-			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off)
-				return current;
-
-			if (current == toggleValue)
-				return current;
-
-			if (script.HookThread.IsKeyDown(vk))
-				SendKeyEvent(KeyEventTypes.KeyUp, vk);
-
-			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk);
-
-			if (vk == VK_CAPITAL && toggleValue == ToggleValueType.Off && script.HookThread.IsKeyToggledOn(vk))
-				SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_SHIFT);
-
-			Thread.Sleep(1);
-			return current;
-		}
 
 		internal override int MouseCoordToAbs(int coord, int widthOrHeight)
 			=> widthOrHeight <= 0 ? 0 : ((65536 * coord) / widthOrHeight) + (coord < 0 ? -1 : 1);

@@ -2,7 +2,7 @@
 
 #include "keysharp_inputd/ipc.h"
 #include "keysharp_inputd/linux_devices.h"
-#include "keysharp_inputd/permissions.h"
+#include "keysharp_trust/permissions.h"
 #include "keysharp_inputd/platform.h"
 #include "keysharp_inputd/protocol.h"
 
@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sched.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -632,6 +633,8 @@ static void send_status(
 static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
+static void handle_get_key_state(ksi_client *client, const ksi_binary_message_view *message);
+static void set_realtime_priority(const char *thread_name);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);
 static ssize_t find_client_index_by_connection(
     const ksi_daemon_state *state,
@@ -1180,6 +1183,8 @@ static void *output_sequencer_thread_main(void *arg)
 {
     ksi_daemon_state *state = arg;
     struct pollfd pfd;
+
+    set_realtime_priority("output sequencer");
 
     if (state == NULL) {
         return NULL;
@@ -1779,10 +1784,32 @@ finalize:
     atomic_store(&lane->current_event_id, (uint_least64_t)0);
 }
 
+/* Elevate the calling thread to SCHED_FIFO priority 1 so that hook lane and
+ * sequencer threads are not preempted by normal (SCHED_OTHER) user processes.
+ * Priority 1 is the lowest real-time priority — it yields to any higher-RT
+ * thread (audio, GPU drivers) but preempts all SCHED_OTHER threads.  This
+ * keeps hook decision round-trips and uinput writes within a bounded latency
+ * even when the system is under CPU load.
+ * Failure is non-fatal; the daemon continues with default scheduling. */
+static void set_realtime_priority(const char *thread_name)
+{
+    struct sched_param sp;
+    memset(&sp, 0, sizeof(sp));
+    sp.sched_priority = 1;
+
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
+        fprintf(stderr,
+            "inputd: note: could not set SCHED_FIFO for %s: %s\n",
+            thread_name, strerror(errno));
+    }
+}
+
 static void *lane_thread_main(void *arg)
 {
     ksi_hook_lane *lane = arg;
     struct pollfd pfd;
+
+    set_realtime_priority("hook lane");
 
     if (lane == NULL) {
         return NULL;
@@ -1977,6 +2004,7 @@ static uint32_t check_capabilities_sync(
 {
     uint32_t expanded;
     uint32_t granted;
+    uint32_t all_process_caps;
     uint32_t missing;
 
     if (out_missing != NULL) {
@@ -1998,7 +2026,10 @@ static uint32_t check_capabilities_sync(
     /* Inherit per-process session grants from sibling clients of the same
      * Keysharp process (same uid+pid). This is how "Allow once" decisions
      * survive across a script's separate hook and synthesis channels without
-     * being persisted to disk or surviving past the process. */
+     * being persisted to disk or surviving past the process.
+     * all_process_caps accumulates unfiltered sibling caps for implication checks. */
+    all_process_caps = client->granted_capabilities;
+
     for (nfds_t i = 0; i < state->client_count; i++) {
         const ksi_client *sibling = &state->clients[i];
 
@@ -2011,7 +2042,14 @@ static uint32_t check_capabilities_sync(
         }
 
         granted |= (sibling->granted_capabilities & expanded);
+        all_process_caps |= sibling->granted_capabilities;
     }
+
+    /* KSI_CAP_BLOCK_INPUT is implied by hook capabilities — mirrors client_has_capability.
+     * This prevents a redundant permission prompt when hook was already granted. */
+    if ((expanded & KSI_CAP_BLOCK_INPUT) != 0u &&
+        (all_process_caps & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) != 0u)
+        granted |= KSI_CAP_BLOCK_INPUT;
 
     missing = expanded & ~granted;
 
@@ -2103,7 +2141,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
 	ksi_permissions_note_seen(state->permissions, client->uid, client->exe_hash, client->exe_path);
 	client->authenticated = true;
-    client->granted_capabilities = granted;
+    client->granted_capabilities |= granted;
     send_hello_status(client->fd,
         client->pending_hello_client_id, client->pending_hello_correlation_id,
         0, granted);
@@ -2197,7 +2235,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 		}
 
         client->authenticated = true;
-        client->granted_capabilities = granted;
+        client->granted_capabilities |= granted;
         send_hello_status(client->fd,
             client->pending_hello_client_id, client->pending_hello_correlation_id,
             0, granted);
@@ -2215,7 +2253,9 @@ static uint32_t daemon_available_capabilities(const ksi_platform_backend *backen
 
 static bool client_has_capability(const ksi_client *client, uint32_t capability)
 {
-    return client->authenticated && (client->granted_capabilities & capability) == capability;
+    if (!client->authenticated)
+        return false;
+    return (client->granted_capabilities & capability) == capability;
 }
 
 static uint32_t hook_type_to_cap_bit(uint32_t hook_type)
@@ -2593,7 +2633,7 @@ static void handle_client_hello(
 	}
 
     client->authenticated = true;
-    client->granted_capabilities = granted;
+    client->granted_capabilities |= granted;
     send_hello_status(client->fd, message->header->client_id, message->header->correlation_id, 0, granted);
 }
 
@@ -2648,8 +2688,6 @@ static void handle_get_pointer_position(
     send_pointer_position_result(client->fd, message->header);
 }
 
-/* Iteration context for handle_list_permissions: streams one entry frame per
- * stored record back to the requesting client. */
 typedef struct ksi_list_permissions_context {
     int client_fd;
     uint32_t client_id;
@@ -2670,6 +2708,12 @@ static bool list_permissions_visitor(
 
     if (context == NULL || entry == NULL) {
         return false;
+    }
+
+    /* Only stream records that carry at least one input capability bit. */
+    if ((entry->persistent_allowed_capabilities & KSI_INPUT_CAPABILITIES) == 0u
+        && (entry->persistent_denied_capabilities & KSI_INPUT_CAPABILITIES) == 0u) {
+        return true;
     }
 
     if (entry->exe_path != NULL) {
@@ -2716,8 +2760,6 @@ static void handle_list_permissions(
         return;
     }
 
-    /* Only a root client may enumerate other users' records. The daemon may
-     * itself run as root, so this must authorize the peer credentials. */
     filter = (geteuid() == 0 && client->uid == 0) ? (uid_t)-1 : client->uid;
 
     context.client_fd = client->fd;
@@ -2766,22 +2808,20 @@ static void handle_reset_permissions(
     target_uid = (payload->target_uid == KSI_RESET_PERMISSIONS_UID_SELF)
         ? client->uid
         : (uid_t)payload->target_uid;
-    capabilities = payload->capabilities;
+
+    /* Clamp to input capabilities — screencap manages its own domain. */
+    capabilities = payload->capabilities & KSI_INPUT_CAPABILITIES;
 
     if (capabilities == 0u) {
         send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 400);
         return;
     }
 
-    /* Authorize: callers may only clear their own records unless the daemon
-     * runs as root and the caller is also root. */
     if (target_uid != client->uid && (geteuid() != 0 || client->uid != 0)) {
         send_status(client->fd, message->header, KSI_MESSAGE_RESET_PERMISSIONS, -1, 403);
         return;
     }
 
-    /* Defensive copy: the payload may not be NUL-terminated within the
-     * declared buffer if the sender filled exactly 64 hex chars. */
     (void)snprintf(exe_hash, sizeof(exe_hash), "%.*s",
         (int)sizeof(payload->exe_hash) - 1,
         payload->exe_hash);
@@ -3080,6 +3120,9 @@ static void handle_binary_message(
         case KSI_MESSAGE_GET_POINTER_POSITION:
             handle_get_pointer_position(client, message);
             return;
+        case KSI_MESSAGE_GET_KEY_STATE:
+            handle_get_key_state(client, message);
+            return;
         case KSI_MESSAGE_LIST_PERMISSIONS:
             handle_list_permissions(state, client, message);
             return;
@@ -3223,6 +3266,43 @@ static void send_indicator_state_result(int client_fd, const ksi_message_header 
         KSI_MESSAGE_INDICATOR_STATE_RESULT,
         request->client_id,
         request->correlation_id,
+        &result,
+        sizeof(result));
+}
+
+static void handle_get_key_state(
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    ksi_key_state_payload result;
+    bool caps = false, num = false, scroll = false;
+
+    if (!client->authenticated
+        || (client->granted_capabilities & KSI_CAP_HOOK_KEYBOARD) == 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_KEY_STATE_RESULT, -1, 403);
+        return;
+    }
+
+    /* Refresh the indicator state directly from hardware (EVIOCGLED) before
+     * reading it, so callers get the current LED state rather than the
+     * potentially stale EV_LED-derived cache. This is important for toggle-key
+     * checks immediately after a synthetic CapsLock/NumLock/ScrollLock event
+     * (e.g. the ToggleKeyState call in SendKeys), where the compositor's LED
+     * acknowledgement may not yet have produced an EV_LED event. */
+    ksi_linux_devices_refresh_indicator_state();
+
+    memset(&result, 0, sizeof(result));
+    result.modifiers_lr = ksi_linux_devices_get_modifier_state();
+    ksi_linux_devices_get_indicator_state(&caps, &num, &scroll);
+    result.caps_lock   = caps   ? 1u : 0u;
+    result.num_lock    = num    ? 1u : 0u;
+    result.scroll_lock = scroll ? 1u : 0u;
+
+    (void)ipc_send_locked(
+        client->fd,
+        KSI_MESSAGE_KEY_STATE_RESULT,
+        message->header->client_id,
+        message->header->correlation_id,
         &result,
         sizeof(result));
 }

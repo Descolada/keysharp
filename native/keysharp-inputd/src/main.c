@@ -1,6 +1,8 @@
 #include "keysharp_inputd/daemon.h"
 #include "keysharp_inputd/protocol.h"
 
+int trust_cli_main(int argc, char **argv);
+
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -75,8 +77,9 @@ static void print_usage(const char *argv0)
 {
 	fprintf(stderr,
 		"Usage: %s [--foreground] [--socket PATH] [--system-service] [--verbose] [--install-input-access] [--version]\n"
+		"       %s trust <list|reset> [options]\n"
 		"\n"
-		"Options:\n"
+		"Daemon options:\n"
 		"  --foreground   Run in the foreground. This is currently the default.\n"
 		"  --socket PATH  Unix domain socket path. Default: $XDG_RUNTIME_DIR/keysharp/keysharp-inputd.sock\n"
 		"  --system-service\n"
@@ -84,8 +87,10 @@ static void print_usage(const char *argv0)
 		"  --verbose      Enable per-event debug logging.\n"
 		"  --install-input-access\n"
 		"                Load uinput and enable the installed system socket. Must be run as root.\n"
-		"  --version      Print version information.\n",
-		argv0);
+		"  --version      Print version information.\n"
+		"\n"
+		"Trust subcommand: run '%s trust --help' for details.\n",
+		argv0, argv0, argv0);
 }
 
 static int install_input_access(void)
@@ -163,6 +168,10 @@ static int validate_systemd_socket_activation(void)
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
+
+    if (argc >= 2 && strcmp(argv[1], "trust") == 0) {
+        return trust_cli_main(argc - 1, argv + 1);
+    }
 
     char default_socket_path[KSI_SOCKET_PATH_LENGTH];
     ksi_daemon_options options = {

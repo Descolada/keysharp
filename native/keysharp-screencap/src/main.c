@@ -1,5 +1,6 @@
 #include "keysharp_trust/permissions.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <gio/gio.h>
@@ -20,6 +21,9 @@
 #define KSS_DBUS_NAME "org.kde.KWin"
 #define KSS_DBUS_PATH "/org/kde/KWin/ScreenShot2"
 #define KSS_DBUS_INTERFACE "org.kde.KWin.ScreenShot2"
+#define KSS_GNOME_DBUS_NAME "io.github.keysharp.GnomeShell"
+#define KSS_GNOME_DBUS_PATH "/io/github/keysharp/GnomeShell"
+#define KSS_GNOME_DBUS_INTERFACE "io.github.keysharp.GnomeShell1"
 #define KSS_CAPTURE_TIMEOUT_MS 30000
 #define KSS_CAPTURE_FILE_READY_TIMEOUT_MS 1000
 
@@ -44,7 +48,14 @@ static GDBusConnection *g_serve_connection = NULL;
 
 static void print_usage(const char *argv0)
 {
-    fprintf(stderr, "Usage: %s --area X Y WIDTH HEIGHT | --serve [--force-prompt] | --authorize [--force-prompt] | --authorize-pid PID [--force-prompt] | --diagnose\n", argv0);
+    fprintf(stderr,
+        "Usage: %s --area X Y WIDTH HEIGHT\n"
+        "       %s --serve kwin|gnome [--force-prompt]\n"
+        "       %s --authorize [--force-prompt]\n"
+        "       %s --authorize-pid PID [--force-prompt]\n"
+        "       %s --diagnose\n"
+        "       %s --trust <list|reset> [options]\n",
+        argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 static bool parse_int_arg(const char *text, int *value)
@@ -101,7 +112,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
     kss_trust_result result = KSS_TRUST_DENIED;
 
     if (ksi_permissions_create(&store) != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to open trust store\n");
+        fprintf(stderr, "keysharp-screencap: failed to open trust store\n");
         return KSS_TRUST_UNAVAILABLE;
     }
 
@@ -112,7 +123,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
             command_line,
             sizeof(command_line),
             exe_hash) != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to identify requester pid=%ld\n", (long)requester_pid);
+        fprintf(stderr, "keysharp-screencap: failed to identify requester pid=%ld\n", (long)requester_pid);
         result = KSS_TRUST_UNAVAILABLE;
         goto cleanup;
     }
@@ -153,7 +164,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
         if (ksi_permissions_grant_persistent(store, requester_uid, exe_hash, exe_path, missing) == 0) {
             result = KSS_TRUST_TRUSTED;
         } else {
-            fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
+            fprintf(stderr, "keysharp-screencap: failed to update trust store\n");
             result = KSS_TRUST_UNAVAILABLE;
         }
     } else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
@@ -162,7 +173,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
         result = KSS_TRUST_UNAVAILABLE;
     } else {
         if (ksi_permissions_deny_persistent(store, requester_uid, exe_hash, exe_path, missing) != 0) {
-            fprintf(stderr, "keysharp-kwin-screencap: failed to update trust store\n");
+            fprintf(stderr, "keysharp-screencap: failed to update trust store\n");
         }
     }
 
@@ -180,12 +191,12 @@ static bool drop_to_requester(uid_t uid, gid_t gid)
     if (setgroups(0, NULL) != 0
         || setresgid(gid, gid, gid) != 0
         || setresuid(uid, uid, uid) != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to drop privileges: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-screencap: failed to drop privileges: %s\n", strerror(errno));
         return false;
     }
 
     if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to make process inspectable: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-screencap: failed to make process inspectable: %s\n", strerror(errno));
         return false;
     }
 
@@ -234,7 +245,7 @@ static void ensure_session_environment(uid_t uid)
 
 static int create_capture_file(void)
 {
-    char path[] = "/tmp/keysharp-kwin-screencap-XXXXXX";
+    char path[] = "/tmp/keysharp-screencap-XXXXXX";
     int fd = mkstemp(path);
 
     if (fd >= 0) {
@@ -256,13 +267,13 @@ static bool write_exact(int fd, const void *buffer, size_t size, const char *con
                 continue;
             }
 
-            fprintf(stderr, "keysharp-kwin-screencap: write failed during %s: %s\n",
+            fprintf(stderr, "keysharp-screencap: write failed during %s: %s\n",
                 context != NULL ? context : "output", strerror(errno));
             return false;
         }
 
         if (written == 0) {
-            fprintf(stderr, "keysharp-kwin-screencap: short write during %s\n",
+            fprintf(stderr, "keysharp-screencap: short write during %s\n",
                 context != NULL ? context : "output");
             return false;
         }
@@ -287,12 +298,12 @@ static bool copy_fd_to_fd(int source_fd, int target_fd, uint64_t bytes)
                 continue;
             }
 
-            fprintf(stderr, "keysharp-kwin-screencap: failed to read capture data: %s\n", strerror(errno));
+            fprintf(stderr, "keysharp-screencap: failed to read capture data: %s\n", strerror(errno));
             return false;
         }
 
         if (bytes_read == 0) {
-            fprintf(stderr, "keysharp-kwin-screencap: capture data ended early with %llu bytes remaining\n",
+            fprintf(stderr, "keysharp-screencap: capture data ended early with %llu bytes remaining\n",
                 (unsigned long long)bytes);
             return false;
         }
@@ -312,7 +323,7 @@ static bool wait_for_capture_file_size(int fd, uint64_t expected_bytes)
     struct timespec start;
 
     if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to get monotonic clock: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-screencap: failed to get monotonic clock: %s\n", strerror(errno));
         return false;
     }
 
@@ -322,7 +333,7 @@ static bool wait_for_capture_file_size(int fd, uint64_t expected_bytes)
         int64_t elapsed_ms;
 
         if (fstat(fd, &info) != 0) {
-            fprintf(stderr, "keysharp-kwin-screencap: failed to stat capture file: %s\n", strerror(errno));
+            fprintf(stderr, "keysharp-screencap: failed to stat capture file: %s\n", strerror(errno));
             return false;
         }
 
@@ -331,7 +342,7 @@ static bool wait_for_capture_file_size(int fd, uint64_t expected_bytes)
         }
 
         if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            fprintf(stderr, "keysharp-kwin-screencap: failed to get monotonic clock: %s\n", strerror(errno));
+            fprintf(stderr, "keysharp-screencap: failed to get monotonic clock: %s\n", strerror(errno));
             return false;
         }
 
@@ -340,7 +351,7 @@ static bool wait_for_capture_file_size(int fd, uint64_t expected_bytes)
 
         if (elapsed_ms >= KSS_CAPTURE_FILE_READY_TIMEOUT_MS) {
             fprintf(stderr,
-                "keysharp-kwin-screencap: capture file reached only %lld of %llu bytes after %d ms\n",
+                "keysharp-screencap: capture file reached only %lld of %llu bytes after %d ms\n",
                 (long long)info.st_size,
                 (unsigned long long)expected_bytes,
                 KSS_CAPTURE_FILE_READY_TIMEOUT_MS);
@@ -363,7 +374,7 @@ static bool write_capture_response(int out_fd, int image_fd, guint32 width, guin
     uint64_t bytes = (uint64_t)stride * (uint64_t)height;
 
     if (bytes == 0u) {
-        fprintf(stderr, "keysharp-kwin-screencap: KWin returned an empty capture (%ux%u stride=%u format=%u)\n",
+        fprintf(stderr, "keysharp-screencap: KWin returned an empty capture (%ux%u stride=%u format=%u)\n",
             width, height, stride, format);
         return false;
     }
@@ -373,7 +384,7 @@ static bool write_capture_response(int out_fd, int image_fd, guint32 width, guin
     }
 
     if (lseek(image_fd, 0, SEEK_SET) < 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to rewind capture file: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-screencap: failed to rewind capture file: %s\n", strerror(errno));
         return false;
     }
 
@@ -399,7 +410,7 @@ static GDBusConnection *get_session_bus(void)
     g_serve_connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
 
     if (g_serve_connection == NULL) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to connect to session bus: %s\n",
+        fprintf(stderr, "keysharp-screencap: failed to connect to session bus: %s\n",
             error != NULL ? error->message : "unknown error");
 
         if (error != NULL) {
@@ -433,7 +444,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
     image_fd = create_capture_file();
 
     if (image_fd < 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to create capture file: %s\n", strerror(errno));
+        fprintf(stderr, "keysharp-screencap: failed to create capture file: %s\n", strerror(errno));
         return false;
     }
 
@@ -447,7 +458,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
     fd_handle = g_unix_fd_list_append(fd_list, image_fd, &error);
 
     if (fd_handle < 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to append fd: %s\n",
+        fprintf(stderr, "keysharp-screencap: failed to append fd: %s\n",
             error != NULL ? error->message : "unknown error");
         goto cleanup;
     }
@@ -472,7 +483,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
         &error);
 
     if (reply == NULL) {
-        fprintf(stderr, "keysharp-kwin-screencap: KWin CaptureArea failed: %s\n",
+        fprintf(stderr, "keysharp-screencap: KWin CaptureArea failed: %s\n",
             error != NULL ? error->message : "unknown error");
         goto cleanup;
     }
@@ -481,14 +492,14 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
 
     if (!g_variant_lookup(results, "type", "s", &type)) {
         gchar *printed = g_variant_print(results, TRUE);
-        fprintf(stderr, "keysharp-kwin-screencap: KWin capture result missing type: %s\n",
+        fprintf(stderr, "keysharp-screencap: KWin capture result missing type: %s\n",
             printed != NULL ? printed : "(unprintable)");
         g_free(printed);
         goto cleanup;
     }
 
     if (strcmp(type, "raw") != 0) {
-        fprintf(stderr, "keysharp-kwin-screencap: unsupported KWin capture type '%s'\n", type);
+        fprintf(stderr, "keysharp-screencap: unsupported KWin capture type '%s'\n", type);
         goto cleanup;
     }
 
@@ -497,7 +508,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
         || !g_variant_lookup(results, "stride", "u", &stride)
         || !g_variant_lookup(results, "format", "u", &format)) {
         gchar *printed = g_variant_print(results, TRUE);
-        fprintf(stderr, "keysharp-kwin-screencap: KWin raw capture metadata incomplete: %s\n",
+        fprintf(stderr, "keysharp-screencap: KWin raw capture metadata incomplete: %s\n",
             printed != NULL ? printed : "(unprintable)");
         g_free(printed);
         goto cleanup;
@@ -506,7 +517,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
     success = write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
 
     if (!success) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to stream capture (%ux%u stride=%u format=%u)\n",
+        fprintf(stderr, "keysharp-screencap: failed to stream capture (%ux%u stride=%u format=%u)\n",
             result_width, result_height, stride, format);
     }
 
@@ -540,9 +551,57 @@ cleanup:
     return success;
 }
 
+static bool gnome_capture_area_to_fd(int out_fd, int x, int y, int width, int height);
+
+static bool is_dbus_name_available(GDBusConnection *connection, const char *name)
+{
+    GError *error = NULL;
+    GVariant *result;
+    gboolean has_owner = FALSE;
+
+    result = g_dbus_connection_call_sync(
+        connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        g_variant_new("(s)", name),
+        G_VARIANT_TYPE("(b)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        5000,
+        NULL,
+        &error);
+
+    if (result == NULL) {
+        if (error != NULL) {
+            g_error_free(error);
+        }
+        return false;
+    }
+
+    g_variant_get(result, "(b)", &has_owner);
+    g_variant_unref(result);
+    return (bool)has_owner;
+}
+
 static bool capture_area(int x, int y, int width, int height)
 {
-    return capture_area_to_fd(STDOUT_FILENO, x, y, width, height);
+    GDBusConnection *connection = get_session_bus();
+
+    if (connection == NULL) {
+        return false;
+    }
+
+    if (is_dbus_name_available(connection, KSS_DBUS_NAME)) {
+        return capture_area_to_fd(STDOUT_FILENO, x, y, width, height);
+    }
+
+    if (is_dbus_name_available(connection, KSS_GNOME_DBUS_NAME)) {
+        return gnome_capture_area_to_fd(STDOUT_FILENO, x, y, width, height);
+    }
+
+    fprintf(stderr, "keysharp-screencap: no supported Wayland compositor found (tried KWin and GNOME)\n");
+    return false;
 }
 
 /* Reads a single line (terminated by '\n' or EOF) from in_fd into buf, returning the
@@ -610,6 +669,140 @@ static bool write_serve_error(int out_fd, const char *message)
     return write_serve_status(out_fd, KSS_SERVE_STATUS_ERR)
         && write_exact(out_fd, &length, sizeof(length), "serve error length")
         && (length == 0u || write_exact(out_fd, message, length, "serve error body"));
+}
+
+/* Calls the GNOME Shell extension's CaptureArea and writes a KSSG1-framed response
+ * (8-byte magic + uint64 PNG byte count + PNG data) to out_fd.
+ * The extension captures via Shell.Screenshot — no KWin D-Bus involved. */
+static bool gnome_capture_area_to_fd(int out_fd, int x, int y, int width, int height)
+{
+    GError *error = NULL;
+    GDBusConnection *connection = NULL;
+    GVariant *reply = NULL;
+    GVariant *png_variant = NULL;
+    const uint8_t *png_data = NULL;
+    gsize png_size = 0;
+    char magic[8] = { 'K', 'S', 'S', 'G', '1', '\0', '\0', '\0' };
+    uint64_t byte_count;
+    bool success = false;
+
+    connection = get_session_bus();
+
+    if (connection == NULL) {
+        goto cleanup;
+    }
+
+    reply = g_dbus_connection_call_sync(
+        connection,
+        KSS_GNOME_DBUS_NAME,
+        KSS_GNOME_DBUS_PATH,
+        KSS_GNOME_DBUS_INTERFACE,
+        "CaptureArea",
+        g_variant_new("(iiii)", x, y, width, height),
+        G_VARIANT_TYPE("(ay)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        KSS_CAPTURE_TIMEOUT_MS,
+        NULL,
+        &error);
+
+    if (reply == NULL) {
+        fprintf(stderr, "keysharp-screencap: GNOME CaptureArea failed: %s\n",
+            error != NULL ? error->message : "unknown error");
+        goto cleanup;
+    }
+
+    g_variant_get(reply, "(@ay)", &png_variant);
+    png_data = (const uint8_t *)g_variant_get_fixed_array(png_variant, &png_size, sizeof(uint8_t));
+
+    if (png_data == NULL || png_size == 0) {
+        fprintf(stderr, "keysharp-screencap: GNOME CaptureArea returned empty PNG\n");
+        goto cleanup;
+    }
+
+    byte_count = (uint64_t)png_size;
+    success = write_exact(out_fd, magic, sizeof(magic), "KSSG1 magic")
+        && write_exact(out_fd, &byte_count, sizeof(byte_count), "KSSG1 byte count")
+        && write_exact(out_fd, png_data, png_size, "KSSG1 PNG data");
+
+cleanup:
+    if (png_variant != NULL) {
+        g_variant_unref(png_variant);
+    }
+
+    if (reply != NULL) {
+        g_variant_unref(reply);
+    }
+
+    if (error != NULL) {
+        g_error_free(error);
+    }
+
+    return success;
+}
+
+/* GNOME serve loop — identical request protocol to serve_loop but calls the GNOME
+ * Shell extension instead of KWin, and emits KSSG1 (PNG) frames instead of KSSC1. */
+static int gnome_serve_loop(void)
+{
+    (void)signal(SIGPIPE, SIG_IGN);
+
+    for (;;) {
+        char line[256];
+        ssize_t length = read_line(STDIN_FILENO, line, sizeof(line));
+        int x;
+        int y;
+        int width;
+        int height;
+        char *token;
+        char *save;
+
+        if (length < 0) {
+            return 1;
+        }
+
+        if (length == 0) {
+            return 0;
+        }
+
+        token = strtok_r(line, " \t", &save);
+
+        if (token == NULL) {
+            (void)write_serve_error(STDOUT_FILENO, "empty request");
+            continue;
+        }
+
+        if (strcmp(token, "quit") == 0) {
+            return 0;
+        }
+
+        if (strcmp(token, "ping") == 0) {
+            (void)write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK);
+            continue;
+        }
+
+        if (strcmp(token, "area") != 0) {
+            (void)write_serve_error(STDOUT_FILENO, "unknown command");
+            continue;
+        }
+
+        if (!parse_int_arg(strtok_r(NULL, " \t", &save), &x)
+            || !parse_int_arg(strtok_r(NULL, " \t", &save), &y)
+            || !parse_int_arg(strtok_r(NULL, " \t", &save), &width)
+            || !parse_int_arg(strtok_r(NULL, " \t", &save), &height)
+            || width <= 0
+            || height <= 0) {
+            (void)write_serve_error(STDOUT_FILENO, "bad area coordinates");
+            continue;
+        }
+
+        if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
+            return 1;
+        }
+
+        if (!gnome_capture_area_to_fd(STDOUT_FILENO, x, y, width, height)) {
+            return 1;
+        }
+    }
 }
 
 /* Long-lived stdin/stdout protocol. Spawned once per Keysharp process; each capture
@@ -688,6 +881,311 @@ static int serve_loop(void)
     }
 }
 
+/* ---- trust subcommand (--trust list | --trust reset ...) ---------------
+ * Uses the library directly (this binary is setuid root) and is scoped to
+ * KST_CAP_SCREEN_CAPTURE. Uses the real caller UID for record scoping. */
+
+static void kss_describe_capabilities(uint32_t bits, char *buffer, size_t buffer_size)
+{
+    static const struct { uint32_t bit; const char *name; } caps[] = {
+        { KST_CAP_INPUT_HOOK_KEYBOARD,  "hook-keyboard" },
+        { KST_CAP_INPUT_HOOK_MOUSE,     "hook-mouse" },
+        { KST_CAP_INPUT_SYNTH_KEYBOARD, "synth-keyboard" },
+        { KST_CAP_INPUT_SYNTH_MOUSE,    "synth-mouse" },
+        { KST_CAP_INPUT_BLOCK,          "block-input" },
+        { KST_CAP_SCREEN_CAPTURE,       "screen-capture" },
+    };
+    size_t n = sizeof(caps) / sizeof(caps[0]);
+    size_t offset = 0;
+    bool first = true;
+    size_t i;
+
+    if (buffer == NULL || buffer_size == 0) {
+        return;
+    }
+
+    buffer[0] = '\0';
+
+    if (bits == 0) {
+        (void)snprintf(buffer, buffer_size, "(none)");
+        return;
+    }
+
+    for (i = 0; i < n; i++) {
+        size_t name_len;
+
+        if ((bits & caps[i].bit) == 0) {
+            continue;
+        }
+
+        name_len = strlen(caps[i].name);
+
+        if (!first) {
+            if (offset + 2u + 1u >= buffer_size) {
+                break;
+            }
+
+            buffer[offset++] = ',';
+            buffer[offset++] = ' ';
+        }
+
+        if (offset + name_len + 1u >= buffer_size) {
+            break;
+        }
+
+        memcpy(buffer + offset, caps[i].name, name_len);
+        offset += name_len;
+        first = false;
+    }
+
+    buffer[offset] = '\0';
+}
+
+static void kss_format_timestamp(uint64_t utc_seconds, char *buffer, size_t buffer_size)
+{
+    time_t when = (time_t)utc_seconds;
+    struct tm tm_value;
+
+    if (gmtime_r(&when, &tm_value) == NULL) {
+        (void)snprintf(buffer, buffer_size, "?");
+        return;
+    }
+
+    if (strftime(buffer, buffer_size, "%Y-%m-%d %H:%M UTC", &tm_value) == 0) {
+        (void)snprintf(buffer, buffer_size, "?");
+    }
+}
+
+typedef struct {
+    bool any;
+} kss_list_ctx;
+
+static bool kss_print_entry(const ksi_permission_entry *entry, void *user_data)
+{
+    kss_list_ctx *ctx = (kss_list_ctx *)user_data;
+    char allow_text[256];
+    char deny_text[256];
+    char when_text[64];
+
+    /* Only show records that have a screen-capture decision. */
+    if ((entry->persistent_allowed_capabilities & KST_CAP_SCREEN_CAPTURE) == 0u
+        && (entry->persistent_denied_capabilities & KST_CAP_SCREEN_CAPTURE) == 0u) {
+        return true;
+    }
+
+    kss_describe_capabilities(entry->persistent_allowed_capabilities, allow_text, sizeof(allow_text));
+    kss_describe_capabilities(entry->persistent_denied_capabilities, deny_text, sizeof(deny_text));
+    kss_format_timestamp(entry->last_seen_utc, when_text, sizeof(when_text));
+
+    if (ctx->any) {
+        printf("\n");
+    }
+
+    printf("uid:        %u\n", (unsigned int)entry->uid);
+    printf("hash:       %s\n", entry->exe_hash);
+    printf("exe:        %s\n",
+        entry->exe_path != NULL && entry->exe_path[0] != '\0'
+            ? entry->exe_path : "(unknown)");
+    printf("allowed:    %s\n", allow_text);
+    printf("denied:     %s\n", deny_text);
+    printf("last seen:  %s\n", when_text);
+
+    ctx->any = true;
+    return true;
+}
+
+static int kss_parse_caps_hex(const char *text, uint32_t *out)
+{
+    char *end;
+    unsigned long value;
+
+    errno = 0;
+    value = strtoul(text, &end, 0);
+
+    if (errno != 0 || end == text || *end != '\0' || value > 0xFFFFFFFFu) {
+        return -1;
+    }
+
+    *out = (uint32_t)value;
+    return 0;
+}
+
+static void trust_usage(FILE *stream, const char *argv0)
+{
+    fprintf(stream,
+        "Usage: %s --trust list\n"
+        "       %s --trust reset <hash> [--caps <mask>]\n"
+        "       %s --trust reset --pid <pid> [--caps <mask>]\n"
+        "       %s --trust reset --all [--caps <mask>]\n"
+        "\n"
+        "Capabilities are a hex bitmask (default: 0x%02x = screen-capture).\n",
+        argv0, argv0, argv0, argv0, KST_CAP_SCREEN_CAPTURE);
+}
+
+static int trust_main(int argc, char **argv, const char *argv0)
+{
+    ksi_permission_store *store = NULL;
+    uid_t caller_uid = getuid();
+    int rc = 1;
+
+    if (argc < 1 || strcmp(argv[0], "-h") == 0 || strcmp(argv[0], "--help") == 0) {
+        trust_usage(argc < 1 ? stderr : stdout, argv0);
+        return argc < 1 ? 2 : 0;
+    }
+
+    if (ksi_permissions_create(&store) != 0) {
+        fprintf(stderr, "keysharp-screencap: failed to open trust store\n");
+        return 1;
+    }
+
+    if (strcmp(argv[0], "list") == 0) {
+        uid_t filter = (caller_uid == 0) ? (uid_t)-1 : caller_uid;
+        kss_list_ctx ctx = { false };
+
+        ksi_permissions_for_each(store, filter, kss_print_entry, &ctx);
+
+        if (!ctx.any) {
+            printf("No stored screen-capture permissions%s.\n",
+                caller_uid != 0 ? " for this user" : "");
+        }
+
+        rc = 0;
+    } else if (strcmp(argv[0], "reset") == 0) {
+        uint32_t capabilities = KST_CAP_SCREEN_CAPTURE;
+        const char *hash_arg = NULL;
+        pid_t pid_arg = 0;
+        bool all = false;
+        char hash_buf[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+        int i;
+
+        for (i = 1; i < argc; i++) {
+            const char *arg = argv[i];
+
+            if (strcmp(arg, "--all") == 0) {
+                all = true;
+                continue;
+            }
+
+            if (strcmp(arg, "--pid") == 0 && i + 1 < argc) {
+                char *end;
+                unsigned long value;
+
+                errno = 0;
+                value = strtoul(argv[++i], &end, 10);
+
+                if (errno != 0 || *end != '\0' || value == 0u) {
+                    fprintf(stderr, "keysharp-screencap: invalid --pid value\n");
+                    goto done;
+                }
+
+                pid_arg = (pid_t)value;
+                continue;
+            }
+
+            if (strcmp(arg, "--caps") == 0 && i + 1 < argc) {
+                if (kss_parse_caps_hex(argv[++i], &capabilities) != 0) {
+                    fprintf(stderr, "keysharp-screencap: invalid --caps value\n");
+                    goto done;
+                }
+
+                continue;
+            }
+
+            if (arg[0] == '-') {
+                fprintf(stderr, "keysharp-screencap: unknown trust option %s\n", arg);
+                goto done;
+            }
+
+            if (hash_arg != NULL) {
+                fprintf(stderr, "keysharp-screencap: too many arguments\n");
+                goto done;
+            }
+
+            hash_arg = arg;
+        }
+
+        if (all && (hash_arg != NULL || pid_arg != 0)) {
+            fprintf(stderr, "keysharp-screencap: --all cannot be combined with a hash or --pid\n");
+            goto done;
+        }
+
+        if (!all && hash_arg == NULL && pid_arg == 0) {
+            fprintf(stderr, "keysharp-screencap: provide a hash, --pid <pid>, or --all\n");
+            goto done;
+        }
+
+        /* Clamp to screen-capture domain. */
+        capabilities &= KST_CAP_SCREEN_CAPTURE;
+
+        if (capabilities == 0u) {
+            fprintf(stderr, "keysharp-screencap: --caps mask has no screen-capture bits\n");
+            goto done;
+        }
+
+        if (pid_arg != 0) {
+            char path[KSI_PERMISSION_MAX_PATH];
+            char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
+
+            if (ksi_permissions_identify_process(
+                    pid_arg,
+                    path, sizeof(path),
+                    command_line, sizeof(command_line),
+                    hash_buf) != 0) {
+                fprintf(stderr, "keysharp-screencap: cannot identify pid %ld\n", (long)pid_arg);
+                goto done;
+            }
+
+            hash_arg = hash_buf;
+        } else if (!all) {
+            size_t hash_length = strlen(hash_arg);
+            size_t j;
+
+            if (hash_length != KSI_PERMISSION_HASH_HEX_LENGTH) {
+                fprintf(stderr, "keysharp-screencap: hash must be %u hex characters\n",
+                    (unsigned int)KSI_PERMISSION_HASH_HEX_LENGTH);
+                goto done;
+            }
+
+            for (j = 0; j < hash_length; j++) {
+                if (!isxdigit((unsigned char)hash_arg[j])) {
+                    fprintf(stderr, "keysharp-screencap: hash contains non-hex characters\n");
+                    goto done;
+                }
+            }
+        }
+
+        if (all) {
+            uid_t target = (caller_uid == 0) ? (uid_t)-1 : caller_uid;
+
+            if (ksi_permissions_clear_all(store, target, capabilities) == 0) {
+                printf("Cleared screen-capture permissions%s.\n",
+                    caller_uid != 0 ? " for this user" : "");
+                rc = 0;
+            } else {
+                fprintf(stderr, "keysharp-screencap: failed to clear permissions\n");
+            }
+        } else {
+            if (ksi_permissions_clear_persistent(store, caller_uid, hash_arg, capabilities) == 0) {
+                printf("Cleared screen-capture permissions for %s.\n", hash_arg);
+                printf("The next Keysharp request from this process will re-prompt.\n");
+                rc = 0;
+            } else {
+                fprintf(stderr, "keysharp-screencap: failed to clear permissions\n");
+            }
+        }
+    } else {
+        fprintf(stderr, "keysharp-screencap: unknown trust command '%s'\n", argv[0]);
+        trust_usage(stderr, argv0);
+        rc = 2;
+    }
+
+done:
+    ksi_permissions_destroy(store);
+    return rc;
+}
+
+/* ----------------------------------------------------------------------- */
+
 int main(int argc, char **argv)
 {
     int x;
@@ -695,12 +1193,17 @@ int main(int argc, char **argv)
     int width;
     int height;
     bool serve_mode = false;
+    bool gnome_backend = false;
     bool authorize_only = false;
     bool force_prompt = false;
     pid_t requester_pid = getppid();
     uid_t requester_uid;
     gid_t requester_gid;
     kss_trust_result trust;
+
+    if (argc >= 2 && strcmp(argv[1], "--trust") == 0) {
+        return trust_main(argc - 2, argv + 2, argv[0]);
+    }
 
     if (argc == 2 && strcmp(argv[1], "--diagnose") == 0) {
         if (get_requester_credentials(requester_pid, &requester_uid, &requester_gid)
@@ -712,11 +1215,19 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if ((argc == 2 || argc == 3) && strcmp(argv[1], "--serve") == 0) {
-        serve_mode = true;
+    if ((argc == 3 || argc == 4) && strcmp(argv[1], "--serve") == 0) {
+        if (strcmp(argv[2], "kwin") == 0) {
+            serve_mode = true;
+        } else if (strcmp(argv[2], "gnome") == 0) {
+            serve_mode = true;
+            gnome_backend = true;
+        } else {
+            print_usage(argv[0]);
+            return KSS_EXIT_USAGE;
+        }
 
-        if (argc == 3) {
-            if (strcmp(argv[2], "--force-prompt") != 0) {
+        if (argc == 4) {
+            if (strcmp(argv[3], "--force-prompt") != 0) {
                 print_usage(argv[0]);
                 return KSS_EXIT_USAGE;
             }
@@ -775,7 +1286,7 @@ int main(int argc, char **argv)
     }
 
     if (!get_requester_credentials(requester_pid, &requester_uid, &requester_gid)) {
-        fprintf(stderr, "keysharp-kwin-screencap: failed to get requester credentials\n");
+        fprintf(stderr, "keysharp-screencap: failed to get requester credentials\n");
         return KSS_EXIT_ERROR;
     }
 
@@ -790,7 +1301,7 @@ int main(int argc, char **argv)
             return KSS_EXIT_UNSUPPORTED;
         }
 
-        fprintf(stderr, "keysharp-kwin-screencap: screen capture permission denied\n");
+        fprintf(stderr, "keysharp-screencap: screen capture permission denied\n");
 
         if (serve_mode) {
             (void)write_serve_error(STDOUT_FILENO, "screen capture permission denied");
@@ -809,8 +1320,6 @@ int main(int argc, char **argv)
 
     ensure_session_environment(requester_uid);
 
-    /* Warm the cached session-bus connection before entering serve_loop so the
-     * first request doesn't pay the handshake cost. */
     if (get_session_bus() == NULL) {
         if (serve_mode) {
             (void)write_serve_error(STDOUT_FILENO, "failed to connect to the session bus");
@@ -824,7 +1333,7 @@ int main(int argc, char **argv)
             return KSS_EXIT_ERROR;
         }
 
-        return serve_loop();
+        return gnome_backend ? gnome_serve_loop() : serve_loop();
     }
 
     return capture_area(x, y, width, height) ? 0 : KSS_EXIT_ERROR;

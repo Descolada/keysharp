@@ -1302,6 +1302,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				return;
 
 			var script = Script.TheScript;
+			script.Permissions.EnsureInputInjection(operation: "SendKeys");
 			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
 			var i = 0;
 			var sub = keys.AsSpan();

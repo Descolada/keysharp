@@ -30,6 +30,7 @@ static uint64_t current_extra_info;
 static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 {
     struct input_event event;
+    ssize_t nwritten;
 
     if (fd < 0) {
         return -1;
@@ -48,7 +49,14 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
      * observe the loopback before write() returns to us. */
     ksi_linux_devices_record_synthetic_event(type, code, value, current_extra_info, suppress_replay_events);
 
-    if (write(fd, &event, sizeof(event)) != (ssize_t)sizeof(event)) {
+    /* Retry on EINTR: a signal delivered during the write syscall returns -1
+     * with errno=EINTR.  Without the retry the rest of a synthesis batch is
+     * silently dropped, which manifests as only a few characters being typed. */
+    do {
+        nwritten = write(fd, &event, sizeof(event));
+    } while (nwritten < 0 && errno == EINTR);
+
+    if (nwritten != (ssize_t)sizeof(event)) {
         /* The write failed, so no event will loop back to consume this entry.
          * Leaving it in the ring risks a future real event with the same
          * {type, code, value} falsely matching and being suppressed.  Pop it

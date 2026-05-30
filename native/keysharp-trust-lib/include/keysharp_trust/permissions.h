@@ -100,6 +100,15 @@ int ksi_permissions_clear_persistent(
     const char *exe_hash,
     uint32_t capabilities);
 
+/* Clears the specified capability bits from every record whose uid equals uid,
+ * or from every record when uid == (uid_t)-1. Clears persistent allow,
+ * persistent deny, and session allow bits. Used by keysharp-trust reset --all.
+ * Returns 0 on success (including when no records matched). */
+int ksi_permissions_clear_all(
+    ksi_permission_store *store,
+    uid_t uid,
+    uint32_t capabilities);
+
 /* Clears the specified capability bits from the in-memory session allow set
  * for {uid, exe_hash}, leaving persistent state untouched. Called by the
  * daemon when the last client with that exe_hash disconnects so an "Allow

@@ -17,6 +17,8 @@ void ksi_linux_devices_record_synthetic_event(uint16_t type, uint16_t code, int3
 void ksi_linux_devices_unrecord_last_synthetic_event(uint16_t type, uint16_t code, int32_t value);
 void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback, void *context);
 void ksi_linux_devices_get_indicator_state(bool *caps_lock, bool *num_lock, bool *scroll_lock);
+void ksi_linux_devices_refresh_indicator_state(void);
 bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *position);
+uint32_t ksi_linux_devices_get_modifier_state(void);
 
 #endif

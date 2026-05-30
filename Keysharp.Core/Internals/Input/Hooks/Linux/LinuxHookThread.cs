@@ -744,22 +744,44 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			return MapVkToSc(vk, false);
 		}
 
+		/// <summary>
+		/// Always queries the live indicator state, bypassing the cached snapshot.
+		/// The snapshot is driven by ev.Flags embedded in hook events, which carry
+		/// the daemon's PRE-event LED state (EV_LED arrives after EV_KEY), so it is
+		/// always one event behind and unsuitable for toggle-key decisions.
+		///
+		/// Priority: X11/XkbGetState (compositor's actual XKB lock state, always
+		/// current even for synthetic uinput events) → inputd GET_KEY_STATE with
+		/// a live EVIOCGLED refresh (script thread only, never from hook thread to
+		/// avoid deadlock on queryGate) → cached snapshot as a last resort.
+		/// </summary>
 		internal override bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
 		{
-			// The inputd path keeps indicatorSnapshotValid=true by updating it from the
-			// LED flags embedded in every keyboard hook event (UpdateIndicatorSnapshotFromInputd).
-			// The libuiohook path keeps it current via UpdateIndicatorSnapshotFromMask.
-			// Either way the base implementation returns the snapshot when it is valid.
-			if (base.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn))
+			// X11/XWayland reflects the compositor's XKB state and is updated
+			// synchronously when the compositor processes any CapsLock event
+			// (physical or uinput-synthesised). Safe to call from any thread.
+			if (TryGetIndicatorStatesFromX11(out capsOn, out numOn, out scrollOn))
 				return true;
 
-			// Snapshot not yet populated (before the first keyboard event).  Query the
-			// daemon via the dedicated query connection so we don't race with the hook
-			// reader thread that owns the main client socket.
-			if (KeysharpInputdManager.TryGetIndicatorState(out capsOn, out numOn, out scrollOn))
+			// Pure Wayland without XWayland: query inputd, which does a live
+			// EVIOCGLED ioctl on the grabbed keyboard devices.
+			// TryGetKeyState acquires queryGate, which the script thread may hold
+			// during SendInputViaSynthesisChannel. Calling it from the hook reader
+			// thread would deadlock (hook lane waits for HOOK_DECISION while script
+			// thread waits for SynthesisResult). Only query from the script thread.
+			// Pure Wayland without XWayland: query inputd (EVIOCGLED, fast round-trip).
+			if (!UsingInputdHooks)
+				return base.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn);
+
+			if (KeysharpInputdManager.TryGetKeyState(out _, out capsOn, out numOn, out scrollOn))
 				return true;
 
-			// X11 fallback for when the daemon is unavailable.
+			// Last resort: the snapshot (may be stale, but better than nothing).
+			return base.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn);
+		}
+
+		private static bool TryGetIndicatorStatesFromX11(out bool capsOn, out bool numOn, out bool scrollOn)
+		{
 			capsOn = numOn = scrollOn = false;
 			var display = XDisplay.Default.Handle;
 
@@ -778,7 +800,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			var numMask = XkbKeysymToModifiers(display, XK_Num_Lock);
 			var scrollMask = XkbKeysymToModifiers(display, XK_Scroll_Lock);
 
-			numOn = (st.locked_mods & (byte)numMask) != 0;
+			numOn    = (st.locked_mods & (byte)numMask)    != 0;
 			scrollOn = (st.locked_mods & (byte)scrollMask) != 0;
 			return true;
 		}

@@ -4142,7 +4142,7 @@ namespace Keysharp.Internals.Input.Hooks
 						// explanation for kbdMsSender.modifiersLR_logical_non_ignored in keyboard_mouse.h:
 						if (isNotIgnored)
 							kbdMsSender.modifiersLRLogicalNonIgnored &= ~modLR;
-					}
+						}
 
 					if (eventIsPhysical) // Note that ignored events can be physical via KEYEVENT_PHYS()
 					{
@@ -4182,7 +4182,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 						if (isNotIgnored)
 							kbdMsSender.modifiersLRLogicalNonIgnored |= modLR;
-					}
+						}
 
 					if (eventIsPhysical)
 					{

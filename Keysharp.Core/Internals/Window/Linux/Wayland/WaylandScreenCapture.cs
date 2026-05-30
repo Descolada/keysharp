@@ -65,41 +65,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return new PermissionResult(PermissionStatus.NotApplicable);
 
 			if (captureBackend is WaylandBackend.KWinBackend)
-				return KWinScreenCaptureHelper.Authorize(operation, forcePrompt);
+				return ScreencapHelper.Authorize(operation, forcePrompt);
 
-			// GNOME: the Shell extension is session-scoped (same user only) and was
-			// explicitly installed by the user, so no per-binary trust gate is needed.
+			if (captureBackend is WaylandBackend.GnomeBackend)
+				return ScreencapHelper.AuthorizeGnome(operation, forcePrompt);
 
-			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-trust screen capture authorization on this compositor.");
+			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-screencap authorization on this compositor.");
 		}
 
 		private static Bitmap TryCaptureWithKWin(int x, int y, int w, int h)
-			=> KWinScreenCaptureHelper.Capture(x, y, w, h);
+			=> ScreencapHelper.Capture(x, y, w, h);
 
 		private static Bitmap TryCaptureWithGnome(int x, int y, int w, int h)
-		{
-			// No per-binary trust check needed: the extension D-Bus service is
-			// session-scoped (same user only) and was explicitly installed by the
-			// user. Any Keysharp process can use it without separate authorization,
-			// matching the behaviour of the wlroots screencopy path.
-			var bytes = GnomeShellBridge.CaptureArea(x, y, w, h);
-
-			if (bytes == null)
-				return null;
-
-			try
-			{
-				// Return the raw physical-pixel PNG from Mutter without downscaling.
-				// Callers (ImageSearch, PixelSearch) compute the scale from
-				// bitmap.Width / requested_logical_width and convert found pixel
-				// offsets back to logical coordinates after the search.
-				return new Bitmap(new MemoryStream(bytes));
-			}
-			catch
-			{
-				return null;
-			}
-		}
+			=> ScreencapHelper.CaptureGnome(x, y, w, h);
 
 		private sealed class OutputInfo
 		{

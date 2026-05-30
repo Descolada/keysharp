@@ -1441,6 +1441,44 @@ static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *
     current_scroll_lock = (leds & (1u << LED_SCROLLL)) != 0;
 }
 
+/* Re-read indicator LED state from all grabbed keyboard devices via EVIOCGLED.
+ * Unlike current_caps_lock (which is updated lazily from EV_LED events), this
+ * always reflects the hardware LED state at call time. */
+void ksi_linux_devices_refresh_indicator_state(void)
+{
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        if (tracked_devices[i].grabbed && tracked_devices[i].keyboard_candidate)
+            refresh_indicator_state_from_device(&tracked_devices[i]);
+    }
+}
+
+/* Aggregate physical_down_keys across all grabbed keyboard devices and return
+ * the result as the modifiers_lr bitmask used by Keysharp's internal state.
+ * Bit assignments (matches KeyboardUtils.cs MOD_* constants):
+ *   0=LCONTROL  1=RCONTROL  2=LALT  3=RALT  4=LSHIFT  5=RSHIFT  6=LWIN  7=RWIN */
+uint32_t ksi_linux_devices_get_modifier_state(void)
+{
+    uint32_t mods = 0;
+
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        const ksi_linux_tracked_device *dev = &tracked_devices[i];
+
+        if (!dev->grabbed || !dev->keyboard_candidate)
+            continue;
+
+        if (test_bit(dev->physical_down_keys, KEY_LEFTCTRL))   mods |= 0x01u; /* MOD_LCONTROL */
+        if (test_bit(dev->physical_down_keys, KEY_RIGHTCTRL))  mods |= 0x02u; /* MOD_RCONTROL */
+        if (test_bit(dev->physical_down_keys, KEY_LEFTALT))    mods |= 0x04u; /* MOD_LALT     */
+        if (test_bit(dev->physical_down_keys, KEY_RIGHTALT))   mods |= 0x08u; /* MOD_RALT     */
+        if (test_bit(dev->physical_down_keys, KEY_LEFTSHIFT))  mods |= 0x10u; /* MOD_LSHIFT   */
+        if (test_bit(dev->physical_down_keys, KEY_RIGHTSHIFT)) mods |= 0x20u; /* MOD_RSHIFT   */
+        if (test_bit(dev->physical_down_keys, KEY_LEFTMETA))   mods |= 0x40u; /* MOD_LWIN     */
+        if (test_bit(dev->physical_down_keys, KEY_RIGHTMETA))  mods |= 0x80u; /* MOD_RWIN     */
+    }
+
+    return mods;
+}
+
 void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback, void *context)
 {
     hook_event_callback = callback;

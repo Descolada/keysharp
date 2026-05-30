@@ -27,6 +27,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 	{
 		private static readonly bool HookDisabled = ShouldDisableHook();
 
+		// Set to true for the duration of InputdHookLoop so callers can detect
+		// they're on the hook reader thread and avoid lock acquisitions that
+		// could deadlock against the script thread holding the same lock.
+		[System.ThreadStatic]
+		internal static bool IsHookReaderThread;
+
 		// --- SharpHook ---
 		private SimpleGlobalHook globalHook;
 		private Task hookRunTask;
@@ -329,6 +335,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private void SyncModifiersAfterSend()
 		{
 			// Ensure modifiers don't stay logically down after Send manipulates them.
+			// On the inputd path the modifier reconciliation is handled by
+			// InputdKeyboardMouseSender.ReconcileLogicalModifiersFromOs (called from
+			// SendEventArray after each bypass-hook batch), and by hook echoes for
+			// Event-mode sends. The GetModifierLRState(true) call below handles the
+			// X11/SharpHook path via the "wrongly down" correction in that method;
+			// on the inputd path it is a no-op (IsKeyDownAsync reads modifiersLRLogical
+			// directly, so modifiersWronglyDown is always zero there).
 			_ = kbdMsSender?.GetModifierLRState(true);
 		}
 
@@ -713,6 +726,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		private void InputdHookLoop(KeysharpInputdClient client, CancellationToken token)
 		{
+			IsHookReaderThread = true;
+
 			while (!token.IsCancellationRequested)
 			{
 				KeysharpInputdClient.HookEvent hookEvent;
@@ -1647,6 +1662,19 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// Grabs only reach applications via explicit replay.
 			var deliveredToApp = replayed || (result == 0 && !wasGrabbed);
 
+			if (!isInjected)
+			{
+				// Physical (user-pressed) events: always update logicalKeyState to reflect
+				// the real key state. This makes KeyWait and IsKeyDown work correctly even
+				// for suppressed prefix keys (e.g. CapsLock & a:: suppresses CapsLock-down
+				// but the script still needs KeyWait("CapsLock") to see it as held).
+				if (vk < logicalKeyState.Length)
+					logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
+				return;
+			}
+
+			// Injected events: track only when delivered to the app so that a suppressed
+			// synthetic key-down doesn't falsely report the key as logically held.
 			if (deliveredToApp)
 			{
 				if (vk < logicalKeyState.Length)
@@ -1654,7 +1682,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				return;
 			}
 
-			// Force logical up on any consumed key-up to avoid stale down-state.
+			// Force logical up on any consumed injected key-up to avoid stale down-state.
 			if (keyUp && vk < logicalKeyState.Length)
 				logicalKeyState[vk] = 0;
 		}
@@ -1828,35 +1856,76 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 		internal override bool IsKeyDownAsync(uint vk)
 		{
-			// Mirror Windows' GetAsyncKeyState: report OS-level key state, which
-			// reflects synthesised events after they reach the kernel/X11. The
-			// hook's modifiersLRPhysical only tracks user-pressed keys, so using
-			// it here would cause GetModifierLRState's "wrongly down" correction
+			// Mirror Windows' GetAsyncKeyState: report OS-level key state.
+			//
+			// On the inputd path every key event — physical (evdev) and synthetic
+			// (uinput, re-injected through the hook) — flows through UpdateKeybdState,
+			// so modifiersLRLogical is always the complete, authoritative modifier state.
+			// Querying X11/XWayland is wrong here: the evdev grab makes X11 blind to
+			// physical key events, so it returns false for held modifiers and causes
+			// GetModifierLRState's "wrongly down" correction to wipe valid state.
+			// This manifests as ^p::, !a::, <#LAlt::, etc. never firing.
+			//
+			// Note: a future improvement could query inputd for a live snapshot so that
+			// modifiers stuck across a temporary Send-ungrab window are also corrected.
+			// For now the tiny race window is an accepted trade-off.
+#if LINUX
+			if (UsingInputdHooks)
+			{
+				var modMask = vk switch
+				{
+					VK_LCONTROL => MOD_LCONTROL,
+					VK_RCONTROL => MOD_RCONTROL,
+					VK_CONTROL  => MOD_LCONTROL | MOD_RCONTROL,
+					VK_LSHIFT   => MOD_LSHIFT,
+					VK_RSHIFT   => MOD_RSHIFT,
+					VK_SHIFT    => MOD_LSHIFT | MOD_RSHIFT,
+					VK_LMENU    => MOD_LALT,
+					VK_RMENU    => MOD_RALT,
+					VK_MENU     => MOD_LALT | MOD_RALT,
+					VK_LWIN     => MOD_LWIN,
+					VK_RWIN     => MOD_RWIN,
+					_           => 0u
+				};
+
+				if (modMask != 0)
+					return (kbdMsSender.modifiersLRLogical & modMask) != 0;
+
+				// Non-modifier: physical snapshot (injected keys are not tracked here,
+				// which is correct — callers like KeyWait want the physical state).
+				if (vk < physicalKeyState.Length)
+					return (physicalKeyState[vk] & StateDown) != 0;
+
+				return false;
+			}
+#endif
+
+			// Original path: X11 / SharpHook, then Wayland no-X11 fallback.
+			// The hook's modifiersLRPhysical only tracks user-pressed keys, so using
+			// it alone would cause GetModifierLRState's "wrongly down" correction
 			// to wipe modifiersLRLogical bits set by a synth modifier press —
 			// for example, the Shift put down by ShiftAltTab would be cleared
-			// the next time any GetKeyState(..., "P") call runs, and the next
-			// AltTab dispatch would then fail to release it.
+			// the next time any GetKeyState(..., "P") call runs.
 			if (TryQueryKeyState(vk, out var isDown))
 				return isDown;
 
-			// Wayland / no-X11 fallback: trust the hook's tracking. Same
-			// semantics as before for those environments.
+			// Wayland / no-X11 fallback: trust the hook's tracking.
 			if (HasKbdHook())
 			{
 				var modMask = vk switch
 				{
 					VK_LCONTROL => MOD_LCONTROL,
 					VK_RCONTROL => MOD_RCONTROL,
-					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
-					VK_LSHIFT => MOD_LSHIFT,
-					VK_RSHIFT => MOD_RSHIFT,
-					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
-					VK_LMENU => MOD_LALT,
-					VK_RMENU => MOD_RALT,
-					VK_MENU => MOD_LALT | MOD_RALT,
-					VK_LWIN => MOD_LWIN,
-					VK_RWIN => MOD_RWIN,
-					_ => 0u
+					VK_CONTROL  => MOD_LCONTROL | MOD_RCONTROL,
+					VK_LSHIFT   => MOD_LSHIFT,
+					VK_RSHIFT   => MOD_RSHIFT,
+					VK_SHIFT    => MOD_LSHIFT | MOD_RSHIFT,
+					VK_LMENU    => MOD_LALT,
+					VK_RMENU    => MOD_RALT,
+					VK_MENU     => MOD_LALT | MOD_RALT,
+					VK_LWIN     => MOD_LWIN,
+					VK_RWIN     => MOD_RWIN,
+					_           => 0u
 				};
 
 				if (modMask != 0)
@@ -2348,6 +2417,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 			var hm = Script.TheScript.HotstringManager;
 			hm.hsBuf.Clear();
+		}
+
+		internal void SetIndicatorSnapshot(bool capsOn, bool numOn, bool scrollOn)
+		{
+			indicatorSnapshot = new IndicatorSnapshot(capsOn, numOn, scrollOn);
+			indicatorSnapshotValid = true;
 		}
 
 		internal virtual bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)

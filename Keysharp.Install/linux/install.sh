@@ -55,7 +55,7 @@ normalize_root_app_permissions() {
   find "${APP_DIR_TARGET}" -type d -exec chmod 0755 {} +
   find "${APP_DIR_TARGET}" -type f -exec chmod 0644 {} +
 
-  for exe in Keysharp Keyview keysharp-inputd keysharp-trust keysharp-screencap; do
+  for exe in Keysharp Keyview keysharp-inputd keysharp-screencap; do
     if [[ -f "${APP_DIR_TARGET}/${exe}" ]]; then
       chmod 0755 "${APP_DIR_TARGET}/${exe}"
     fi
@@ -178,9 +178,8 @@ show_install_mode() {
     cat <<EOF
 Installing with root privileges.
 Optional Linux helpers will be enabled when present:
-  - keysharp-inputd: systemd socket service for more reliable input hooks, input synthesis, and BlockInput support.
-  - keysharp-trust: permission records and reset/list tooling for privileged helper decisions.
-  - keysharp-screencap: Wayland screen capture helper (KWin ScreenShot2 serve mode; trust gate for GNOME).
+  - keysharp-inputd: systemd socket service for input hooks, synthesis, BlockInput, and input permission management (keysharp-inputd trust list/reset).
+  - keysharp-screencap: Wayland screen capture helper (KWin ScreenShot2; trust gate for GNOME; screen-capture permission management).
 
 This install may add systemd units, enable the keysharp-inputd socket, load uinput, and mark the KDE helper root-owned setuid.
 EOF
@@ -295,10 +294,6 @@ ln -sf "${APP_DIR_TARGET}/Keysharp" "${BINDIR}/keysharp"
 ln -sf "${APP_DIR_TARGET}/Keyview" "${BINDIR}/keyview"
 
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
-  if [[ -f "${APP_DIR_TARGET}/keysharp-trust" ]]; then
-    ln -sf "${APP_DIR_TARGET}/keysharp-trust" "${BINDIR}/keysharp-trust"
-  fi
-
   if [[ -f "${APP_DIR_TARGET}/keysharp-inputd" ]]; then
     ln -sf "${APP_DIR_TARGET}/keysharp-inputd" "${BINDIR}/keysharp-inputd"
 
@@ -322,7 +317,6 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
   fi
 else
   rm -f "${APP_DIR_TARGET}/keysharp-inputd" \
-        "${APP_DIR_TARGET}/keysharp-trust" \
         "${APP_DIR_TARGET}/keysharp-screencap"
   echo "Installed in user mode; privileged Linux helpers were skipped."
 fi

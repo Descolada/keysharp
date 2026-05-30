@@ -359,7 +359,7 @@ static int hash_list_append(hash_list *list, const char *hash)
         list->capacity = new_cap;
     }
 
-    (void)snprintf(list->hashes[list->count], KSI_PROTOCOL_HASH_HEX_BUFFER, "%s", hash);
+    memcpy(list->hashes[list->count], hash, KSI_PROTOCOL_HASH_HEX_BUFFER);
     list->count++;
     return 0;
 }

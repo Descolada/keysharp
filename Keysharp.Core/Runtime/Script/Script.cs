@@ -521,6 +521,14 @@ namespace Keysharp.Runtime
 
 				var hmodule = LoadLibrary(libraryName);
 
+#if !WINDOWS
+				if (hmodule == 0 && libraryName.EndsWith(Keywords.LibraryExtension, StringComparison.OrdinalIgnoreCase))
+				{
+					for (var v = 0; v <= 9 && hmodule == 0; v++)
+						hmodule = LoadLibrary(libraryName + "." + v);
+				}
+#endif
+
 				if (hmodule != 0)
 				{
 #if WINDOWS
@@ -528,6 +536,8 @@ namespace Keysharp.Runtime
 					// This is done to avoid undefined behavior when DllCall optimizations
 					// resolves a proc address in a dll loaded by this directive.
 					_ = WindowsAPI.GetModuleHandleEx(WindowsAPI.GET_MODULE_HANDLE_EX_FLAG_PIN, libraryName, out hmodule);  // MSDN regarding hmodule: "If the function fails, this parameter is NULL."
+#else
+					Dll.loadedDlls[library] = hmodule;
 #endif
 				}
 				else if (throwOnFailure)

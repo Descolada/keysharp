@@ -121,11 +121,10 @@ const INT32_MIN = -2147483648;
 
 export default class KeysharpExtension {
     constructor() {
-        this._dbusImpl   = null;
-        this._busNameId  = 0;
-        this._vPointer   = null;
-        this._focusId    = null;
-        this._helperPath = null;
+        this._dbusImpl  = null;
+        this._busNameId = 0;
+        this._vPointer  = null;
+        this._focusId   = null;
     }
 
     enable() {
@@ -303,30 +302,16 @@ export default class KeysharpExtension {
     }
 
     // Capture a screen region without any visible effect and return PNG bytes.
-    // Only accepts calls from the keysharp-screencap helper (verified by
-    // reading /proc/<pid>/exe and checking it is a root-owned setuid binary
-    // named keysharp-screencap). This ensures all captures go through the
-    // trust gate in keysharp-screencap rather than being callable directly.
-    //
-    // GJS dispatches methods with one extra parameter beyond the XML args by
-    // appending the Gio.DBusMethodInvocation, so we receive `invocation` and
-    // must call invocation.return_value() / return_error_literal() instead of
-    // returning a value directly.
-    CaptureArea(x, y, width, height, invocation) {
-        const senderName = invocation.get_sender();
-
-        if (!this._isTrustedScreencap(senderName)) {
-            invocation.return_error_literal(
-                Gio.DBusError,
-                Gio.DBusError.ACCESS_DENIED,
-                'Screen capture is only available via the keysharp-screencap helper.');
-            return;
-        }
-
-        if (width <= 0 || height <= 0) {
-            invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
-            return;
-        }
+    // Runs entirely inside the compositor process via Shell.Screenshot.
+    // Trust is enforced by keysharp-screencap's own trust gate before it ever
+    // calls this method; the D-Bus session bus already restricts callers to
+    // the same user, so no additional per-call gate is needed here.
+    // GJS wrapJSObject dispatches methods with out-args by calling the handler
+    // with only the in-parameters and using the return value as the response —
+    // the invocation is not passed. Return the Uint8Array directly.
+    CaptureArea(x, y, width, height) {
+        if (width <= 0 || height <= 0)
+            return new Uint8Array(0);
 
         try {
             const screenshot = new Shell.Screenshot();
@@ -343,24 +328,23 @@ export default class KeysharpExtension {
                 done = true;
             });
 
-            // Pump the GLib main context until the screenshot callback fires
-            // (typically one compositor frame, ~16ms).
+            // Pump the default GLib main context until the screenshot callback
+            // fires. iteration(true) blocks until at least one source dispatches,
+            // so this returns as soon as the compositor delivers the frame.
             const ctx = GLib.MainContext.default();
             while (!done)
                 ctx.iteration(true);
 
             if (captureError) {
                 logError(captureError, 'Keysharp: CaptureArea screenshot failed');
-                invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
-                return;
+                return new Uint8Array(0);
             }
 
             stream.close(null);
-            const data = new Uint8Array(stream.steal_as_bytes().get_data());
-            invocation.return_value(new GLib.Variant('(ay)', [data]));
+            return new Uint8Array(stream.steal_as_bytes().get_data());
         } catch (e) {
             logError(e, 'Keysharp: CaptureArea failed');
-            invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
+            return new Uint8Array(0);
         }
     }
 
@@ -416,114 +400,6 @@ export default class KeysharpExtension {
             maximized,
             visible:   !win.minimized,
         };
-    }
-
-    // Returns true if the D-Bus sender is the trusted keysharp-screencap binary:
-    // its /proc/<pid>/exe must be a root-owned setuid file named keysharp-screencap.
-    // Checking ownership+setuid prevents a user-created binary from spoofing the name.
-    _isTrustedScreencap(senderName) {
-        const pid = this._resolveSenderPid(senderName);
-        if (pid < 0)
-            return false;
-
-        try {
-            const exe = GLib.file_read_link(`/proc/${pid}/exe`);
-            if (!exe)
-                return false;
-
-            const basename = exe.split('/').pop();
-            if (basename !== 'keysharp-screencap')
-                return false;
-
-            // Verify root-owned setuid so a user-space ~/keysharp-screencap cannot spoof.
-            const file = Gio.File.new_for_path(exe);
-            const info = file.query_info(
-                'unix::uid,unix::mode',
-                Gio.FileQueryInfoFlags.NONE,
-                null);
-            const uid  = info.get_attribute_uint32('unix::uid');
-            const mode = info.get_attribute_uint32('unix::mode');
-            return uid === 0 && (mode & 0o4000) !== 0;
-        } catch (e) {
-            logError(e, 'Keysharp: failed to verify screencap caller');
-            return false;
-        }
-    }
-
-    // Ask the D-Bus daemon for the real PID behind a unique bus name. The
-    // daemon enforces this lookup against its own connection tracking, so the
-    // value cannot be forged by the caller. Returns -1 on any failure.
-    _resolveSenderPid(senderName) {
-        if (!senderName)
-            return -1;
-
-        try {
-            const reply = Gio.DBus.session.call_sync(
-                'org.freedesktop.DBus',
-                '/org/freedesktop/DBus',
-                'org.freedesktop.DBus',
-                'GetConnectionUnixProcessID',
-                new GLib.Variant('(s)', [senderName]),
-                new GLib.VariantType('(u)'),
-                Gio.DBusCallFlags.NONE,
-                500,
-                null);
-            const [pid] = reply.deepUnpack();
-            return Number(pid);
-        } catch (e) {
-            logError(e, 'Keysharp: failed to resolve sender PID');
-            return -1;
-        }
-    }
-
-    // Spawn keysharp-screencap --authorize-pid <pid> synchronously. Exit code
-    // 0 means trust granted (either the user has previously approved this
-    // exe, or the helper prompted now and the user approved). Any other code
-    // — denied, prompt unavailable, helper missing — fails closed.
-    //
-    // No caching: the helper's own trust-store lookup is fast (microseconds
-    // once cached), and skipping the spawn would break revoke semantics.
-    _authorizeRequester(pid) {
-        const helperPath = this._resolveHelperPath();
-
-        if (!helperPath)
-            return false;
-
-        try {
-            const proc = Gio.Subprocess.new(
-                [helperPath, '--authorize-pid', String(pid)],
-                Gio.SubprocessFlags.STDERR_PIPE);
-
-            // wait() returns when the child exits; no PNG round-trip
-            // overhead since --authorize-pid does no D-Bus or capture work.
-            proc.wait(null);
-            return proc.get_exit_status() === 0;
-        } catch (e) {
-            logError(e, 'Keysharp: keysharp-screencap --authorize-pid failed');
-            return false;
-        }
-    }
-
-    _resolveHelperPath() {
-        if (this._helperPath !== null)
-            return this._helperPath;
-
-        const candidates = [
-            GLib.getenv('KEYSHARP_SCREENCAP_HELPER'),
-            '/usr/local/lib/keysharp/keysharp-screencap',
-            '/usr/lib/keysharp/keysharp-screencap',
-            '/usr/local/bin/keysharp-screencap',
-            '/usr/bin/keysharp-screencap',
-        ];
-
-        for (const candidate of candidates) {
-            if (candidate && GLib.file_test(candidate, GLib.FileTest.IS_EXECUTABLE)) {
-                this._helperPath = candidate;
-                return candidate;
-            }
-        }
-
-        return null;
     }
 
     _findWindow(handle) {

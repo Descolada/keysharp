@@ -740,6 +740,84 @@ cleanup:
     return success;
 }
 
+/* Single GNOME serve-mode request: capture and write the complete response to
+ * out_fd as either [status-OK][KSSG1 frame] or [status-ERR][length][message].
+ * Returns true if a complete response was written (loop can continue).
+ * Returns false only on a write failure (broken pipe — loop should exit).
+ *
+ * Writing the status byte after the capture result is known avoids the
+ * desync that occurred when status-OK was written first and the capture then
+ * failed: the C# reader was left waiting for a KSSG1 header that never came,
+ * producing a 30-second timeout before it could recover. */
+static bool gnome_serve_one(int out_fd, int x, int y, int width, int height)
+{
+    GError *error = NULL;
+    GDBusConnection *connection = NULL;
+    GVariant *reply = NULL;
+    GVariant *png_variant = NULL;
+    const uint8_t *png_data = NULL;
+    gsize png_size = 0;
+    bool io_ok;
+
+    connection = get_session_bus();
+
+    if (connection == NULL) {
+        io_ok = write_serve_error(out_fd, "failed to connect to session bus");
+        goto done;
+    }
+
+    reply = g_dbus_connection_call_sync(
+        connection,
+        KSS_GNOME_DBUS_NAME,
+        KSS_GNOME_DBUS_PATH,
+        KSS_GNOME_DBUS_INTERFACE,
+        "CaptureArea",
+        g_variant_new("(iiii)", x, y, width, height),
+        G_VARIANT_TYPE("(ay)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        KSS_CAPTURE_TIMEOUT_MS,
+        NULL,
+        &error);
+
+    if (reply == NULL) {
+        fprintf(stderr, "keysharp-screencap: GNOME CaptureArea failed: %s\n",
+            error != NULL ? error->message : "unknown error");
+        io_ok = write_serve_error(out_fd, "GNOME CaptureArea failed");
+        goto cleanup;
+    }
+
+    g_variant_get(reply, "(@ay)", &png_variant);
+    png_data = (const uint8_t *)g_variant_get_fixed_array(png_variant, &png_size, sizeof(uint8_t));
+
+    if (png_data == NULL || png_size == 0) {
+        fprintf(stderr, "keysharp-screencap: GNOME CaptureArea returned empty PNG\n");
+        io_ok = write_serve_error(out_fd, "GNOME CaptureArea returned empty data");
+        goto cleanup;
+    }
+
+    {
+        char magic[8] = { 'K', 'S', 'S', 'G', '1', '\0', '\0', '\0' };
+        uint64_t byte_count = (uint64_t)png_size;
+        io_ok = write_serve_status(out_fd, KSS_SERVE_STATUS_OK)
+            && write_exact(out_fd, magic, sizeof(magic), "KSSG1 magic")
+            && write_exact(out_fd, &byte_count, sizeof(byte_count), "KSSG1 byte count")
+            && write_exact(out_fd, png_data, png_size, "KSSG1 PNG data");
+    }
+
+cleanup:
+    if (png_variant != NULL)
+        g_variant_unref(png_variant);
+
+    if (reply != NULL)
+        g_variant_unref(reply);
+
+done:
+    if (error != NULL)
+        g_error_free(error);
+
+    return io_ok;
+}
+
 /* GNOME serve loop — identical request protocol to serve_loop but calls the GNOME
  * Shell extension instead of KWin, and emits KSSG1 (PNG) frames instead of KSSC1. */
 static int gnome_serve_loop(void)
@@ -795,11 +873,7 @@ static int gnome_serve_loop(void)
             continue;
         }
 
-        if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
-            return 1;
-        }
-
-        if (!gnome_capture_area_to_fd(STDOUT_FILENO, x, y, width, height)) {
+        if (!gnome_serve_one(STDOUT_FILENO, x, y, width, height)) {
             return 1;
         }
     }

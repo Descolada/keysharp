@@ -190,17 +190,38 @@ write_deb_postinst() {
 #!/bin/sh
 set -e
 
-if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database /usr/share/applications || true
-fi
-
 if command -v update-mime-database >/dev/null 2>&1; then
   update-mime-database /usr/share/mime || true
+fi
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications || true
 fi
 
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
+
+# Set keysharp.desktop as the system-wide default handler for .ks and .ahk files.
+# Writes to /usr/share/applications/mimeapps.list (freedesktop vendor defaults).
+_set_mime_default() {
+  local mimeapps="/usr/share/applications/mimeapps.list"
+  local mime="$1"
+  local app="$2"
+  if [ ! -f "$mimeapps" ]; then
+    printf '[Default Applications]\n%s=%s\n' "$mime" "$app" > "$mimeapps"
+    return
+  fi
+  if grep -q "^${mime}=" "$mimeapps"; then
+    sed -i "s|^${mime}=.*|${mime}=${app}|" "$mimeapps"
+  elif grep -q '^\[Default Applications\]' "$mimeapps"; then
+    sed -i "/^\[Default Applications\]/a ${mime}=${app}" "$mimeapps"
+  else
+    printf '\n[Default Applications]\n%s=%s\n' "$mime" "$app" >> "$mimeapps"
+  fi
+}
+_set_mime_default application/x-keysharp  keysharp.desktop
+_set_mime_default application/x-autohotkey keysharp.desktop
 
 if [ -f /usr/lib/keysharp/keysharp-screencap ]; then
   echo "Configuring keysharp-screencap for Wayland screen capture (KWin ScreenShot2 serve mode; trust gate for GNOME)."
@@ -281,6 +302,13 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now keysharp-inputd.socket || true
     systemctl stop keysharp-inputd.service || true
+  fi
+
+  # Remove system-wide default MIME associations added by postinst.
+  _mimeapps="/usr/share/applications/mimeapps.list"
+  if [ -f "$_mimeapps" ]; then
+    sed -i '/^application\/x-keysharp=keysharp\.desktop$/d'  "$_mimeapps" || true
+    sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "$_mimeapps" || true
   fi
 
   # GNOME Shell extension: remove UUID from the user's enabled-extensions list.

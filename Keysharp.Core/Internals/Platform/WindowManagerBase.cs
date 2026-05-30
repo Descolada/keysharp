@@ -86,6 +86,19 @@ namespace Keysharp.Internals.Platform
 				if (WindowManager.IsWindow(criteria.ID) && WindowManager.CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria, matchOptions))
 					return temp;
 
+#if !WINDOWS
+				// On Wayland/XWayland, oGui.Hwnd is a GObject/Eto widget handle, not an
+				// X11 XID or Wayland protocol handle, so IsWindow returns false for own
+				// windows. Mirror the Control.FromHandle fallback from FindWindow(object).
+				if (Control.FromHandle(criteria.ID) is Control ctrl2)
+				{
+					var ctrlWin = new ControlItem(ctrl2);
+
+					if (ctrlWin.Equals(criteria, matchOptions))
+						return ctrlWin;
+				}
+#endif
+
 				return null;
 			}
 

@@ -109,14 +109,15 @@ TryUpdate() {
     curCtrlClassNN := ""
     Try curCtrlClassNN := ControlGetClassNN(curCtrl)
     
-    t1 := WinGetTitle(), t2 := WinGetClass()
+    targetWin := "ahk_id " curWin
+    t1 := WinGetTitle(targetWin), t2 := WinGetClass(targetWin)
     if (curWin = oGui.hwnd || t2 = "MultitaskingViewFrame") { ; Our Gui || Alt-tab
         UpdateText("Ctrl_Freeze", oGui.txtFrozen)
         return
     }
     
     UpdateText("Ctrl_Freeze", oGui.txtNotFrozen)
-    t3 := WinGetProcessName(), t4 := WinGetPID()
+    t3 := WinGetProcessName(targetWin), t4 := WinGetPID(targetWin)
      
     WinDataText := t1 "`n" ; ZZZ
                  . "ahk_class " t2 "`n"

@@ -125,9 +125,14 @@ namespace Keysharp.Internals.Window
 				if (!processPath.IsNullOrEmpty())
 					return processPath;
 
+				var pid = PID;
+
+				if (pid <= 0)
+					return DefaultErrorString;
+
 				try
 				{
-					using (var proc = Process.GetProcessById((int)PID))
+					using (var proc = Process.GetProcessById((int)pid))
 					{
 						//This will be extremely slow in a loop because MainModule calls an underlying method GetModules()
 						//which does a lot of processing.
@@ -151,9 +156,14 @@ namespace Keysharp.Internals.Window
 				if (!processName.IsNullOrEmpty())
 					return processName;
 
+				var pid = PID;
+
+				if (pid <= 0)
+					return processName = string.Empty;
+
 				try
 				{
-					using (var proc = Process.GetProcessById((int)PID))
+					using (var proc = Process.GetProcessById((int)pid))
 					{
 						using var module = proc.MainModule;
 						processName = module.ModuleName;

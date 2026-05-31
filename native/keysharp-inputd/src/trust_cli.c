@@ -209,6 +209,7 @@ static void describe_capabilities(uint32_t bits, char *buffer, size_t buffer_siz
         { KST_CAP_INPUT_SYNTH_MOUSE,    "synth-mouse" },
         { KST_CAP_INPUT_BLOCK,          "block-input" },
         { KST_CAP_SCREEN_CAPTURE,       "screen-capture" },
+        { KST_CAP_ACCESSIBILITY_AUTOMATION, "accessibility-automation" },
     };
     size_t n = sizeof(caps) / sizeof(caps[0]);
     size_t offset = 0;
@@ -596,7 +597,8 @@ static void trust_usage(FILE *stream)
         "\n"
         "Capabilities are a hex bitmask (default: all input caps). Bits:\n"
         "  0x01 hook-keyboard, 0x02 hook-mouse,\n"
-        "  0x04 synth-keyboard, 0x08 synth-mouse, 0x10 block-input.\n"
+        "  0x04 synth-keyboard, 0x08 synth-mouse, 0x10 block-input,\n"
+        "  0x40 accessibility-automation.\n"
         "\n"
         "Options:\n"
         "  --socket PATH  Override daemon socket path (default: %s).\n"

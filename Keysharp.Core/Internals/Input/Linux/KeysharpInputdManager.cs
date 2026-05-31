@@ -21,6 +21,12 @@ namespace Keysharp.Internals.Input.Linux
 		// one short IPC round-trip, so queryGate is never held for long.
 		private static KeysharpInputdClient client;
 		private static KeysharpInputdClient queryClient;
+		private const KeysharpInputdClient.Capabilities InputdGrantedCapabilities =
+			KeysharpInputdClient.Capabilities.HookKeyboard
+			| KeysharpInputdClient.Capabilities.HookMouse
+			| KeysharpInputdClient.Capabilities.SynthKeyboard
+			| KeysharpInputdClient.Capabilities.SynthMouse
+			| KeysharpInputdClient.Capabilities.BlockInput;
 
 		/// <summary>
 		/// Sends input events to the daemon via the query/synthesis socket.
@@ -275,17 +281,19 @@ namespace Keysharp.Internals.Input.Linux
 
 			lock (gate)
 			{
-				required = ExpandInputPermissionRequest(required);
+				var requested = ExpandInputPermissionRequest(required);
+				var requiredFromInputd = requested & InputdGrantedCapabilities;
 
 				if (!TryEnsureConnected(operation, out var connectStatus, out var connectMessage))
 					return new PermissionResult(connectStatus, connectMessage);
 
-				if ((!forcePrompt && HasCapabilities(client, required)) || client.TryRequestCapabilities(required, out _, forcePrompt))
+				if ((!forcePrompt && HasCapabilities(client, requiredFromInputd))
+					|| client.TryRequestCapabilities(requested, requiredFromInputd, out _, forcePrompt))
 					return new PermissionResult(PermissionStatus.Granted);
 
 				return new PermissionResult(PermissionStatus.Denied,
 					$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
-					$"Required: {required}, granted: {client.GrantedCapabilities}.");
+					$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
 			}
 		}
 
@@ -379,6 +387,12 @@ namespace Keysharp.Internals.Input.Linux
 			try { client?.Dispose(); } catch { }
 			client = null;
 			DisposeQueryClient();
+		}
+
+		internal static void DisconnectClients()
+		{
+			lock (gate)
+				DisposeClient();
 		}
 
 		private static void DisposeQueryClient()

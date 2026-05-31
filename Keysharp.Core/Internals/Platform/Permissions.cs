@@ -34,7 +34,7 @@ namespace Keysharp.Internals.Platform
 		PermissionResult RequestAccessibilityAutomation(bool? prompt = null, string operation = null);
 		PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null);
 		PermissionResult RequestInputInjection(bool? prompt = null, string operation = null);
-		PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool? prompt = null, string operation = null);
+		PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null);
 		PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null);
 		PermissionResult RequestFileAccess(string path, FilePermissionAccess access, bool? prompt = null, string operation = null);
 
@@ -53,9 +53,10 @@ namespace Keysharp.Internals.Platform
 		public virtual PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 		public virtual PermissionResult RequestInputInjection(bool? prompt = null, string operation = null) => new(PermissionStatus.NotApplicable);
 
-		public virtual PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool? prompt = null, string operation = null)
+		public virtual PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
 			PermissionResult result = new(PermissionStatus.NotApplicable);
+			if (accessibilityAutomation) result = RequestAccessibilityAutomation(prompt, operation);
 			if (monitoring)    result = RequestInputMonitoring(prompt, operation);
 			if (injection)     result = RequestInputInjection(prompt, operation);
 			if (screenCapture) result = RequestScreenCapture(prompt, operation);
@@ -140,9 +141,10 @@ namespace Keysharp.Internals.Platform
 		}
 
 		// macOS uses separate system dialogs per permission type, so each is requested individually.
-		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool? prompt = null, string operation = null)
+		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
 			PermissionResult result = new(PermissionStatus.NotApplicable);
+			if (accessibilityAutomation) result = RequestAccessibilityAutomation(prompt, operation);
 			if (monitoring)    result = RequestInputMonitoring(prompt, operation);
 			if (injection)     result = RequestInputInjection(prompt, operation);
 			if (screenCapture) result = RequestScreenCapture(prompt, operation);
@@ -154,6 +156,15 @@ namespace Keysharp.Internals.Platform
 #if LINUX
 	internal sealed class LinuxPermissionManager : DefaultPermissionManager
 	{
+		public override PermissionResult RequestAccessibilityAutomation(bool? prompt = null, string operation = null)
+		{
+			return UseX11FallbackIfAvailable(
+				KeysharpInputdManager.EnsureCapabilities(
+					KeysharpInputdClient.Capabilities.AccessibilityAutomation,
+					operation ?? "accessibility automation",
+					forcePrompt: prompt == true));
+		}
+
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
 		{
 			var result = KeysharpInputdManager.EnsureCapabilities(
@@ -183,10 +194,11 @@ namespace Keysharp.Internals.Platform
 		// prompt. Screen capture is included in the inputd request so the combined prompt
 		// covers it; inputd writes the PID session grant for all capabilities on ALLOW_ONCE,
 		// allowing screencap to skip its own prompt when it checks the session file.
-		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool? prompt = null, string operation = null)
+		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
 			var flags = KeysharpInputdClient.Capabilities.None;
 
+			if (accessibilityAutomation) flags |= KeysharpInputdClient.Capabilities.AccessibilityAutomation;
 			if (monitoring)    flags |= KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
 			if (injection)     flags |= KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
 			if (blockInput)    flags |= KeysharpInputdClient.Capabilities.BlockInput;

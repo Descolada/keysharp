@@ -984,6 +984,7 @@ static void kss_describe_capabilities(uint32_t bits, char *buffer, size_t buffer
         { KST_CAP_INPUT_SYNTH_MOUSE,    "synth-mouse" },
         { KST_CAP_INPUT_BLOCK,          "block-input" },
         { KST_CAP_SCREEN_CAPTURE,       "screen-capture" },
+        { KST_CAP_ACCESSIBILITY_AUTOMATION, "accessibility-automation" },
     };
     size_t n = sizeof(caps) / sizeof(caps[0]);
     size_t offset = 0;

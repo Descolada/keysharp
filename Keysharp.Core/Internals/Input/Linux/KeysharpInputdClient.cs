@@ -32,6 +32,10 @@ namespace Keysharp.Internals.Input.Linux
 			// in the CLIENT_HELLO causes the combined prompt to cover it and writes the
 			// PID session grant so that screencap can skip its own prompt.
 			ScreenCapture = 0x00000020,
+			// AT-SPI access is not provided by inputd either, but it is a privileged
+			// automation capability from the user's perspective, so inputd brokers the
+			// trust prompt and records the user's decision.
+			AccessibilityAutomation = 0x00000040,
 		}
 
 		internal enum MessageType : uint
@@ -430,22 +434,25 @@ namespace Keysharp.Internals.Input.Linux
 			socket.Dispose();
 		}
 
-			internal bool TryRequestCapabilities(Capabilities requested, out int status, bool forcePrompt = false)
-			{
-				var hello = ExchangeHello(requested, forcePrompt);
-				status = hello.Status;
-				GrantedCapabilities |= hello.Granted;
-				return status == 0 && (GrantedCapabilities & requested) == requested;
-			}
+		internal bool TryRequestCapabilities(Capabilities requested, out int status, bool forcePrompt = false)
+			=> TryRequestCapabilities(requested, requested, out status, forcePrompt);
 
-			internal void RequestCapabilities(Capabilities requested, bool forcePrompt = false)
-			{
-				if (!TryRequestCapabilities(requested, out var status, forcePrompt))
-					throw new IOException(
-						$"keysharp-inputd hello failed with status {status}. Requested: {requested}. Granted: {GrantedCapabilities}.");
-			}
+		internal bool TryRequestCapabilities(Capabilities requested, Capabilities requiredFromInputd, out int status, bool forcePrompt = false)
+		{
+			var hello = ExchangeHello(requested, forcePrompt);
+			status = hello.Status;
+			GrantedCapabilities |= hello.Granted;
+			return status == 0 && (GrantedCapabilities & requiredFromInputd) == requiredFromInputd;
+		}
 
-			private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested, bool forcePrompt)
+		internal void RequestCapabilities(Capabilities requested, bool forcePrompt = false)
+		{
+			if (!TryRequestCapabilities(requested, out var status, forcePrompt))
+				throw new IOException(
+					$"keysharp-inputd hello failed with status {status}. Requested: {requested}. Granted: {GrantedCapabilities}.");
+		}
+
+		private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested, bool forcePrompt)
 			{
 				Span<byte> payload = stackalloc byte[8];
 				BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);

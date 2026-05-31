@@ -53,9 +53,10 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_RESET_PERMISSIONS       = 53,
 } ksi_message_type;
 
-/* Bitmask of all input-related capabilities managed by keysharp-inputd.
- * Screen-capture (0x20) is excluded — screencap manages that itself. */
-#define KSI_INPUT_CAPABILITIES 0x0000001Fu
+/* Bitmask of all capabilities whose trust records are administered via
+ * keysharp-inputd. Screen-capture (0x20) is excluded — screencap manages that
+ * helper-specific domain itself. */
+#define KSI_INPUT_CAPABILITIES 0x0000005Fu
 
 /* Payload for KSI_MESSAGE_INDICATOR_STATE_RESULT. */
 typedef struct ksi_indicator_state_payload {

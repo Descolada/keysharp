@@ -1329,6 +1329,10 @@ static void describe_capabilities(uint32_t capabilities, char *buffer, size_t bu
     if ((capabilities & KST_CAP_SCREEN_CAPTURE) != 0u) {
         append_capability_line(buffer, buffer_size, "Capture the screen");
     }
+
+    if ((capabilities & KST_CAP_ACCESSIBILITY_AUTOMATION) != 0u) {
+        append_capability_line(buffer, buffer_size, "Automate applications via accessibility APIs");
+    }
 }
 
 /* ── PID-keyed session implementation ─────────────────────────────────────── */

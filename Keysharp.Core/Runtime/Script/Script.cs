@@ -395,11 +395,6 @@ namespace Keysharp.Runtime
 
 			_ = EventScheduler;
 
-			// Request automation permission up front; input monitoring and injection are
-			// requested on demand by hooks and send operations.
-			var pm = Permissions;
-			_ = pm.RequestAccessibilityAutomation(operation: "accessibility automation");
-
 #if WINDOWS
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
@@ -1062,6 +1057,9 @@ namespace Keysharp.Runtime
 				return;
 
 			HookThread?.Stop();
+#if LINUX
+			Keysharp.Internals.Input.Linux.KeysharpInputdManager.DisconnectClients();
+#endif
 			stringsData?.Free();
 			flowData?.Dispose();
 

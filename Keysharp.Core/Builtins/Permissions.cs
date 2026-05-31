@@ -44,7 +44,8 @@ namespace Keysharp.Builtins
 
 			foreach (KeysharpCapability cap in Enum.GetValues<KeysharpCapability>())
 			{
-				var permission = QueryCapabilityStatus(cap);
+				var allowPrompt = requested != null && requested.Contains(cap);
+				var permission = QueryCapabilityStatus(cap, allowPrompt);
 				result.DefinePropInternal(CapabilityName(cap), new OwnPropsDesc(result, permission.Status.ToString()));
 
 				if (requested == null || requested.Contains(cap))
@@ -70,8 +71,8 @@ namespace Keysharp.Builtins
 			// capabilities; inputd writes the PID session so that screencap finds it
 			// and skips its own prompt.  When no input caps are requested, screen capture
 			// falls through to RequestScreenCapture below.
-			if (monitoring || injection || blockInput)
-				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture, prompt: true, operation: "RequestCapabilities");
+			if (monitoring || injection || blockInput || accessibility)
+				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture, accessibility, prompt: true, operation: "RequestCapabilities");
 
 			// Always call RequestScreenCapture — on Linux screencap checks the PID
 			// session (possibly written by inputd above) and skips prompting if already
@@ -79,12 +80,13 @@ namespace Keysharp.Builtins
 			if (screenCapture)
 				permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities");
 
-			if (accessibility)
-				permissions.RequestAccessibilityAutomation(prompt: true, operation: "RequestCapabilities");
 		}
 
-		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
+		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability, bool allowPrompt)
 		{
+			if (!allowPrompt)
+				return new PermissionResult(PermissionStatus.Unsupported);
+
 			var permissions = Script.TheScript.Permissions;
 
 			return capability switch

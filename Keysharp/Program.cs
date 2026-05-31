@@ -38,10 +38,12 @@ namespace Keysharp.Main
 		{
 			Task writeExeTask = null;
 			Task writeCodeTask = null;
+			MethodInfo runtimeEntryPoint = null;
+			object[] runtimeEntryArgs = null;
 
 			try
 			{
-				var script = new Script();//One Script object will exist here, then another will be created when the script runs.
+				using var script = new Script();//One Script object will exist here, then another will be created when the script runs.
 				var asm = Assembly.GetExecutingAssembly();
 				var exePath = Path.GetFullPath(asm.Location);
 
@@ -182,8 +184,10 @@ namespace Keysharp.Main
 						if (method == null)
 							return Message($"Could not find method {assemblyMethod}", true);
 
-						Environment.ExitCode = method.Invoke(null, [script.ScriptArgs]).Ai();
-						return Environment.ExitCode;
+						runtimeEntryPoint = method;
+						runtimeEntryArgs = [script.ScriptArgs];
+						script.Dispose();
+						goto InvokeRuntimeEntryPoint;
 					}
 				}
 
@@ -205,7 +209,7 @@ namespace Keysharp.Main
 				if (!fromstdin && !File.Exists(scriptName))
 					return Message($"Could not find the script file {scriptName}.", true);
 
-                string namenoext, path, scriptdir;
+				string namenoext, path, scriptdir;
 
 				if (!fromstdin)
 				{
@@ -339,10 +343,15 @@ namespace Keysharp.Main
 
 				var program = CompilerHelper.compiledasm.GetType($"{Keywords.MainNamespaceName}.{Keywords.MainClassName}");
 				var main = program.GetMethod("Main");
+				runtimeEntryPoint = main;
+				runtimeEntryArgs = [script.ScriptArgs];
+				script.Dispose();
+
+			InvokeRuntimeEntryPoint:
 #if DEBUG
 				Ks.OutputDebugLine("Running compiled code.");
 #endif
-				Environment.ExitCode = main.Invoke(null, [script.ScriptArgs]).Ai();
+				Environment.ExitCode = runtimeEntryPoint.Invoke(null, runtimeEntryArgs).Ai();
 			}
 			catch (Exception ex)
 			{

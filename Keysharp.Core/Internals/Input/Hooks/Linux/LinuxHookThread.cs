@@ -160,6 +160,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 				}
 			}
 
+			AddForcedLockKeyGrabs(newKeyGrabs);
 			BuildInputGrabs(newKeyGrabs);
 			AddArmedHotstringGrabs(newKeyGrabs);
 
@@ -173,6 +174,24 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 					(uint)(EventMasks.ButtonPress | EventMasks.ButtonRelease), GrabModeAsync, GrabModeAsync, nint.Zero, nint.Zero));
 
 			XDisplay.Default.XSync(false);
+		}
+
+		private void AddForcedLockKeyGrabs(Dictionary<(uint keycode, uint mods), GrabKinds> target)
+		{
+			var toggleStates = Script.TheScript.KeyboardData.toggleStates;
+
+			AddForcedLockKeyGrab(VK_CAPITAL, toggleStates.forceCapsLock);
+			AddForcedLockKeyGrab(VK_NUMLOCK, toggleStates.forceNumLock);
+			AddForcedLockKeyGrab(VK_SCROLL, toggleStates.forceScrollLock);
+
+			void AddForcedLockKeyGrab(uint vk, ToggleValueType forceState)
+			{
+				if (forceState == ToggleValueType.Neutral || !TryMapToXGrab(vk, 0, out var keycode, out _))
+					return;
+
+				foreach (var pair in KeyGrabVariants(keycode, AnyModifier, anyModifier: true))
+					AddGrabKind(target, pair, GrabKinds.Hotkey);
+			}
 		}
 
 		protected override void InitSnapshotFromPlatform()

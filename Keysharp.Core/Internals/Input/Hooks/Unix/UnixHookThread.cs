@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 #if LINUX
 using Keysharp.Internals.Input.Linux;
+using EventCode = Keysharp.Internals.Input.Linux.Devices.EventCode;
 #endif
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -883,6 +884,24 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private const uint LLKHF_NUM_LOCK_ON    = 0x08u;
 		private const uint LLKHF_SCROLL_LOCK_ON = 0x40u;
 
+		// Maps a numpad key's evdev keycode (delivered by the daemon as the scan code) to the
+		// navigation VK it produces when NumLock is off; returns 0 for any non-numpad key.
+		private static uint NumpadNavigationVk(uint sc) => sc switch
+		{
+			(uint)EventCode.Kp7 => VK_HOME,   // KEY_KP7   → NumpadHome
+			(uint)EventCode.Kp8 => VK_UP,     // KEY_KP8   → NumpadUp
+			(uint)EventCode.Kp9 => VK_PRIOR,  // KEY_KP9   → NumpadPgUp
+			(uint)EventCode.Kp4 => VK_LEFT,   // KEY_KP4   → NumpadLeft
+			(uint)EventCode.Kp5 => VK_CLEAR,  // KEY_KP5   → NumpadClear
+			(uint)EventCode.Kp6 => VK_RIGHT,  // KEY_KP6   → NumpadRight
+			(uint)EventCode.Kp1 => VK_END,    // KEY_KP1   → NumpadEnd
+			(uint)EventCode.Kp2 => VK_DOWN,   // KEY_KP2   → NumpadDown
+			(uint)EventCode.Kp3 => VK_NEXT,   // KEY_KP3   → NumpadPgDn
+			(uint)EventCode.Kp0 => VK_INSERT, // KEY_KP0   → NumpadIns
+			(uint)EventCode.KpDot => VK_DELETE, // KEY_KPDOT → NumpadDel
+			_ => 0u
+		};
+
 		private bool ProcessInputdKeyboardHook(KeysharpInputdClient.KeyboardHookEvent ev)
 		{
 			if (!keyboardEnabled)
@@ -910,6 +929,25 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				case VK_MENU:
 					vk = sc == SC_RALT ? VK_RMENU : VK_LMENU;
 					break;
+			}
+
+			// evdev keycodes are NumLock-agnostic, so the daemon always reports a numpad key's
+			// NumLock-on VK (VK_NUMPAD0..9 / VK_DECIMAL). Windows' low-level hook instead reports the
+			// NumLock-off navigation VK (VK_UP, VK_HOME, ...) depending on both NumLock and Shift:
+			// holding Shift inverts the NumLock interpretation (so Shift+Numpad8 with NumLock on yields
+			// VK_UP, and Shift+Numpad8 with NumLock off yields VK_NUMPAD8). The key is in navigation
+			// mode exactly when NumLock and Shift agree. Mirror that here so "NumpadUp::" (bound by
+			// VK_UP) and "Numpad8::" (bound by VK_NUMPAD8) fire under the same conditions as on Windows.
+			// The scan code (the evdev keycode) is left untouched, so dedicated "Up::" (a distinct
+			// keycode resolved by scTakesPrecedence) is unaffected.
+			var numLockOn = (ev.Flags & LLKHF_NUM_LOCK_ON) != 0;
+			var shiftDown = (kbdMsSender.modifiersLRLogical & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
+
+			if (numLockOn == shiftDown)
+			{
+				var navVk = NumpadNavigationVk(sc);
+				if (navVk != 0)
+					vk = navVk;
 			}
 
 			if (vk == 0)

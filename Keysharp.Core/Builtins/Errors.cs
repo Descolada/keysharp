@@ -624,7 +624,7 @@ namespace Keysharp.Builtins
 #if !DEBUG
 
 				//Ignore most of our internal functions
-				if (fullName.StartsWith("Keysharp.Builtins") && method is MethodInfo mi && mi != null && !builtins.ContainsValue(mi))
+				if ((fullName.StartsWith("Keysharp.Internals") || fullName.StartsWith("Keysharp.Runtime") || fullName.StartsWith("Keysharp.Parsing")) && method is MethodInfo mi && mi != null && !builtins.ContainsValue(mi))
 					continue;
 
 #endif

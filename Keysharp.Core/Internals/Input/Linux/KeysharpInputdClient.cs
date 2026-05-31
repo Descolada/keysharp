@@ -18,6 +18,13 @@ namespace Keysharp.Internals.Input.Linux
 			private const int MaxMessageSize = 65536;
 			private const int InputSize = 40;
 			private const uint ClientHelloFlagForcePrompt = 0x00000001;
+			// Bounds a request round-trip so a hung daemon cannot block a script thread
+			// indefinitely (callers hold a manager lock across these calls).
+			internal const int DefaultRequestTimeoutMs = 5000;
+			// CLIENT_HELLO can trigger an interactive trust prompt; the daemon enforces a
+			// 60s prompt window (KSI_PROMPT_TIMEOUT_SECONDS), so allow margin beyond that
+			// for the hello response specifically.
+			private const int HelloResponseTimeoutMs = 75000;
 
 		[Flags]
 		internal enum Capabilities : uint
@@ -171,10 +178,21 @@ namespace Keysharp.Internals.Input.Linux
 			private readonly Lock pendingHookEventsLock = new();
 			private ulong nextCorrelationId = 1;
 			private bool disposed;
+			private readonly int requestTimeoutMs;
 
-		private KeysharpInputdClient(Socket socket)
+		private KeysharpInputdClient(Socket socket, int requestTimeoutMs)
 		{
 			this.socket = socket;
+			this.requestTimeoutMs = requestTimeoutMs;
+
+			// A finite timeout means a stalled daemon surfaces as a SocketException the
+			// caller can recover from, rather than an unbounded block. The hook-event
+			// read path tolerates idle timeouts explicitly (see ReadAll's idleRetry).
+			if (requestTimeoutMs > 0)
+			{
+				socket.ReceiveTimeout = requestTimeoutMs;
+				socket.SendTimeout = requestTimeoutMs;
+			}
 		}
 
 		internal Capabilities GrantedCapabilities { get; private set; }
@@ -194,7 +212,8 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static KeysharpInputdClient Connect(
 			Capabilities requested = Capabilities.None,
-			string socketPath = null)
+			string socketPath = null,
+			int requestTimeoutMs = DefaultRequestTimeoutMs)
 		{
 			var endpoint = new UnixDomainSocketEndPoint(socketPath ?? DefaultSocketPath);
 			var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
@@ -202,7 +221,7 @@ namespace Keysharp.Internals.Input.Linux
 			try
 			{
 				socket.Connect(endpoint);
-				var client = new KeysharpInputdClient(socket);
+				var client = new KeysharpInputdClient(socket, requestTimeoutMs);
 				client.RequestCapabilities(requested);
 				return client;
 			}
@@ -371,7 +390,9 @@ namespace Keysharp.Internals.Input.Linux
 						return pendingHookEvents.Dequeue();
 				}
 
-				var frame = ReadFrame();
+				// The hook connection waits an unbounded time for the next input event, so
+				// an idle receive timeout here is not a failure — keep waiting.
+				var frame = ReadFrame(idleRetry: true);
 
 				if (frame.Type != MessageType.HookEvent)
 					throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
@@ -460,7 +481,24 @@ namespace Keysharp.Internals.Input.Linux
 
 				var correlationId = NextCorrelationId();
 				SendFrame(MessageType.ClientHello, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.ClientHello, correlationId);
+
+				// The hello may block on an interactive trust prompt; widen the receive
+				// timeout to cover the daemon's prompt window, then restore it.
+				Frame response;
+				var previousReceiveTimeout = socket.ReceiveTimeout;
+
+				if (requestTimeoutMs > 0)
+					socket.ReceiveTimeout = HelloResponseTimeoutMs;
+
+				try
+				{
+					response = ReadResponseFrame(MessageType.ClientHello, correlationId);
+				}
+				finally
+				{
+					if (requestTimeoutMs > 0)
+						socket.ReceiveTimeout = previousReceiveTimeout;
+				}
 
 			if (response.Type != MessageType.ClientHello || response.CorrelationId != correlationId)
 				throw new InvalidDataException($"Unexpected hello response type={response.Type} correlation={response.CorrelationId}.");
@@ -494,12 +532,12 @@ namespace Keysharp.Internals.Input.Linux
 			WriteAll(payload);
 		}
 
-			private Frame ReadFrame()
+			private Frame ReadFrame(bool idleRetry = false)
 		{
 			ThrowIfDisposed();
 
 			var header = new byte[HeaderSize];
-			ReadAll(header);
+			ReadAll(header, idleRetry);
 
 			var size = BinaryPrimitives.ReadUInt32LittleEndian(header);
 			var major = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(4));
@@ -521,13 +559,24 @@ namespace Keysharp.Internals.Input.Linux
 				payload);
 		}
 
-		private void ReadAll(Span<byte> buffer)
+		private void ReadAll(Span<byte> buffer, bool idleRetry = false)
 		{
 			var offset = 0;
 
 			while (offset < buffer.Length)
 			{
-				var read = socket.Receive(buffer[offset..], SocketFlags.None);
+				int read;
+
+				try
+				{
+					read = socket.Receive(buffer[offset..], SocketFlags.None);
+				}
+				catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut && idleRetry && offset == 0)
+				{
+					// No frame has started arriving yet: this is an idle hook connection
+					// waiting for the next event, not a stalled daemon. Keep waiting.
+					continue;
+				}
 
 				if (read == 0)
 					throw new EndOfStreamException("keysharp-inputd disconnected.");

@@ -237,7 +237,20 @@ namespace Keysharp.Internals.Input.Linux
 				if (!ReferenceEquals(qc, queryClient))
 					return false;
 
-				return action(qc);
+				try
+				{
+					return action(qc);
+				}
+				catch (Exception ex) when (ex is IOException or SocketException
+					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
+				{
+					// Drop the dead query channel (inline: we already hold queryGate) so the
+					// next call recreates it against a freshly socket-activated daemon.
+					Ks.OutputDebugLine($"keysharp-inputd query channel lost: {ex.Message}");
+					try { queryClient?.Dispose(); } catch { }
+					queryClient = null;
+					return false;
+				}
 			}
 		}
 
@@ -308,8 +321,10 @@ namespace Keysharp.Internals.Input.Linux
 					return true;
 				}
 				catch (Exception ex) when (ex is IOException or SocketException
-					or ObjectDisposedException or InvalidDataException)
+					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
 				{
+					// Drop the dead connection so a later call reconnects.
+					DisposeClient();
 					message = ex.Message;
 					return false;
 				}
@@ -331,13 +346,25 @@ namespace Keysharp.Internals.Input.Linux
 				if (!TryEnsureConnected(operation, out var connectStatus, out var connectMessage))
 					return new PermissionResult(connectStatus, connectMessage);
 
-				if ((!forcePrompt && HasCapabilities(client, requiredFromInputd))
-					|| client.TryRequestCapabilities(requested, requiredFromInputd, out _, forcePrompt))
-					return new PermissionResult(PermissionStatus.Granted);
+				try
+				{
+					if ((!forcePrompt && HasCapabilities(client, requiredFromInputd))
+						|| client.TryRequestCapabilities(requested, requiredFromInputd, out _, forcePrompt))
+						return new PermissionResult(PermissionStatus.Granted);
 
-				return new PermissionResult(PermissionStatus.Denied,
-					$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
-					$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
+					return new PermissionResult(PermissionStatus.Denied,
+						$"keysharp-inputd did not grant the required capabilities for '{operation}'. " +
+						$"Required from inputd: {requiredFromInputd}, requested: {requested}, granted: {client.GrantedCapabilities}.");
+				}
+				catch (Exception ex) when (ex is IOException or SocketException
+					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
+				{
+					// The cached connection died (daemon crash/restart). Drop it so the
+					// next call reconnects — the systemd socket respawns the daemon.
+					DisposeClient();
+					return new PermissionResult(PermissionStatus.Unsupported,
+						$"keysharp-inputd connection lost while preparing '{operation}': {ex.Message}");
+				}
 			}
 		}
 

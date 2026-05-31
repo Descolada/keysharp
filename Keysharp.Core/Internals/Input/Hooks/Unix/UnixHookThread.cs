@@ -42,6 +42,15 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private Task inputdHookTask;
 		private bool usingInputdHooks;
 		protected bool UsingInputdHooks => usingInputdHooks;
+
+		// Recovery bookkeeping for an unexpected loss of the inputd hook reader (daemon
+		// crash/restart). One recovery runs at a time; repeated rapid losses pin the
+		// X11 fallback so we don't thrash against a crash-looping daemon.
+		private int inputdRecoveryInFlight;
+		private long lastInputdRecoveryTicks;
+		private int inputdRecoveryAttempts;
+		private const long InputdRecoveryWindowMs = 5000;
+		private const int MaxInputdRecoveryAttempts = 3;
 #endif
 
 		private readonly Lock hookStateLock = new();
@@ -743,7 +752,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				catch (Exception ex)
 				{
 					if (!token.IsCancellationRequested)
+					{
 						Ks.OutputDebugLine($"keysharp-inputd hook reader stopped: {ex.Message}");
+						HandleInputdHookReaderLoss(ex.Message);
+					}
 
 					return;
 				}
@@ -773,11 +785,97 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				catch (Exception ex)
 				{
 					if (!token.IsCancellationRequested)
+					{
 						Ks.OutputDebugLine($"keysharp-inputd hook decision failed: {ex.Message}");
+						HandleInputdHookReaderLoss(ex.Message);
+					}
 
 					return;
 				}
 			}
+		}
+
+		// Called from the inputd hook reader thread as it exits due to a daemon
+		// disconnect/error (never on an intentional stop — the caller checks the
+		// cancellation token first). Recovers on a separate thread so we don't rebuild
+		// hooks from the dying reader thread.
+		private void HandleInputdHookReaderLoss(string reason)
+		{
+			if (Interlocked.Exchange(ref inputdRecoveryInFlight, 1) == 1)
+				return;
+
+			_ = Task.Run(() =>
+			{
+				try
+				{
+					RecoverInputdHooks(reason);
+				}
+				catch (Exception ex)
+				{
+					Ks.OutputDebugLine($"keysharp-inputd hook recovery failed: {ex}");
+				}
+				finally
+				{
+					Volatile.Write(ref inputdRecoveryInFlight, 0);
+				}
+			});
+		}
+
+		private void RecoverInputdHooks(string reason)
+		{
+			HookType want;
+
+			lock (hookStateLock)
+			{
+				want = HookType.None;
+
+				if (keyboardEnabled)
+					want |= HookType.Keyboard;
+
+				if (mouseEnabled)
+					want |= HookType.Mouse;
+
+				// Force the re-arm below to treat these hooks as newly enabled so it
+				// resyncs key/modifier snapshots (avoids stuck keys after the switch).
+				keyboardEnabled = false;
+				mouseEnabled = false;
+			}
+
+			// Tear down the dead inputd hook connection/state.
+			StopInputdHookCore();
+
+			if (want == HookType.None)
+				return;
+
+			// Repeated rapid losses mean the daemon is gone or crash-looping; pin the
+			// X11/SharpHook fallback (when available) instead of reconnecting forever.
+			var now = Environment.TickCount64;
+
+			if (now - lastInputdRecoveryTicks < InputdRecoveryWindowMs)
+			{
+				if (++inputdRecoveryAttempts >= MaxInputdRecoveryAttempts && IsX11Available)
+					KeysharpInputdManager.ActivateLegacyX11Fallback(reason);
+			}
+			else
+			{
+				inputdRecoveryAttempts = 1;
+			}
+
+			lastInputdRecoveryTicks = now;
+
+			if (!IsX11Available && KeysharpInputdManager.IsLegacyX11FallbackActive)
+			{
+				// No daemon and no X11 fallback — nothing left to route input through.
+				Ks.OutputDebugLine($"keysharp-inputd hooks lost and no fallback is available: {reason}");
+				return;
+			}
+
+			Ks.OutputDebugLine($"keysharp-inputd hook reader lost ({reason}); re-establishing hooks.");
+
+			// Re-arm. If the fallback is now active this routes through X11/SharpHook;
+			// otherwise it reconnects to a freshly socket-activated daemon, and if that
+			// reconnect fails TryStartInputdHookCore activates the X11 fallback itself.
+			AddRemoveHooks(want);
 		}
 
 		// KSI_LLKHF_* indicator bits set by the daemon on every keyboard hook event.

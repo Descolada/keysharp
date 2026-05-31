@@ -1,6 +1,5 @@
-using Tmds.DBus;
-
 #if LINUX
+using Tmds.DBus;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	// D-Bus member names are case-sensitive; suppress the IDE naming rule.

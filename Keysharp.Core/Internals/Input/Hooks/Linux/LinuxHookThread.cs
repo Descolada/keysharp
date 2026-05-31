@@ -1,8 +1,8 @@
-using Keysharp.Builtins;
-using Keysharp.Internals.Input.Linux;
-using Keysharp.Internals.Input.Keyboard;
 #if LINUX
+using Keysharp.Builtins;
+using Keysharp.Internals.Input.Keyboard;
 using Keysharp.Internals.Input.Mouse;
+using Keysharp.Internals.Input.Linux;
 using Keysharp.Internals.Window.Linux.Proxies;
 using SharpHook;
 using SharpHook.Data;

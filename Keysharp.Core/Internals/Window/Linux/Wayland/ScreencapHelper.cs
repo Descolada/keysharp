@@ -1,3 +1,4 @@
+#if LINUX
 using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
@@ -7,7 +8,6 @@ using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using Eto.Drawing;
 
-#if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>

@@ -1,6 +1,6 @@
+#if LINUX
 using Tmds.DBus;
 
-#if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	// These interfaces must be public because Tmds.DBus generates proxy classes in a

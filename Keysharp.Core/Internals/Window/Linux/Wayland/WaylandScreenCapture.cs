@@ -1,8 +1,8 @@
+#if LINUX
 using System.IO;
 using System.Runtime.InteropServices;
 using Eto.Drawing;
 
-#if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>

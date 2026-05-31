@@ -205,7 +205,19 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * `Goto` statements being called as a function like `Goto("Label")` are not supported. Instead, just use `goto Label`.
 * The `#Requires` directive differs in the following ways:
 	+ In addition to supporting `AutoHotkey`, it also supports `Keysharp`.
-	+ Sub versions such as -alpha and -beta are not supported. Only the four numerical values values contained in the assembly version in the form of `0.0.0.0` are supported.	
+	+ Sub versions such as -alpha and -beta are not supported. Only the four numerical values values contained in the assembly version in the form of `0.0.0.0` are supported.
+	+ A new `capability` form requests one or more platform permissions at script startup, before hotkeys are registered, so the user sees a single combined prompt rather than separate prompts on first use:
+		```
+		#Requires capability InputMonitoring, ScreenCapture
+		```
+		Recognised capability names (case-insensitive, aliases accepted):
+		| Name | Aliases | Description |
+		|---|---|---|
+		| `InputMonitoring` | `hook`, `inputhook` | Monitor keyboard and mouse input (required for hotkeys/hotstrings) |
+		| `InputInjection` | `synthinput`, `sendinput` | Synthesize keyboard and mouse input (`Send`, `Click`, etc.) |
+		| `BlockInput` | | Suppress input events |
+		| `ScreenCapture` | `capture`, `imagecapture` | Capture screen pixels (`PixelGetColor`, `ImageSearch`, `ImageCapture`) |
+		| `AccessibilityAutomation` | `accessibility`, `automation` | Access UI accessibility trees (AT-SPI on Linux) |
 * For any `__Enum()` class method, it should have a parameter value of 2 when returning `Array` or `Map`, since their enumerators have two fields.
 * RegEx uses PCRE2 engine powered by the PCRE.NET library. There are a few limitations compared to the AutoHotkey implementation:
 	+ The following options are different:
@@ -301,6 +313,21 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ `\K` is not supported, instead, try using `(?<=abc)`.
 * New function `FormatCs()` is an alternative to AHK `Format`. The syntax used in `Format()` is exactly that of `string.Format()` in C#, except with 1-based indexing. Traditional AHK style formatting is not supported.
 	+ Full documentation for the formatting rules can be found [here](https://learn.microsoft.com/en-us/dotnet/api/system.string.format).
+* New function `RequestCapabilities(capabilities*) => Object` requests one or more platform permissions and returns an object describing the outcome.
+	+ `capabilities`: zero or more capability name strings, each optionally comma- or space-delimited. Recognised names are the same as for `#Requires capability` above.
+	+ When called with no arguments, returns the current status of all capabilities without prompting.
+	+ Returns an `Object` with a property for each capability (`"Granted"`, `"Denied"`, `"NotApplicable"`, or `"Unsupported"`) and a `Granted` property (`1`/`0`) indicating whether every *requested* capability was granted or not applicable.
+	+ On Linux, all input-related capabilities (`InputMonitoring`, `InputInjection`, `BlockInput`) plus `ScreenCapture` are batched into a single `keysharp-inputd` prompt when requested together, so the user sees at most one dialog per call.
+	```
+	caps := RequestCapabilities("InputMonitoring", "ScreenCapture")
+	if caps.Granted
+	    MsgBox "All permissions granted"
+	MsgBox caps.ScreenCapture   ; "Granted", "Denied", "NotApplicable", or "Unsupported"
+
+	; Query current status without prompting:
+	caps := RequestCapabilities()
+	```
+	+ Prefer `#Requires capability` for scripts that need permissions from startup. Use `RequestCapabilities` directly when you need to check or request permissions at a specific point in script execution, or when you want to inspect the current status.
 * New function `ImageCapture(x, y, width, height [, filename]) => Bitmap` can be used to return a bitmap screenshot of an area of the screen and optionally save it to file.
 * New clipboard functions:
 	+ `CopyImageToClipboard(filename [,options])` is supported which copies an image to the clipboard.

@@ -157,6 +157,7 @@ typedef struct ksi_client {
     pid_t pid;
     uid_t uid;
     gid_t gid;
+    uint64_t start_time;   /* field 22 of /proc/<pid>/stat; 0 if not yet known */
     ksi_client_state state;
     bool has_identity;
     bool authenticated;
@@ -181,6 +182,7 @@ typedef struct ksi_client_identified_result {
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
     char exe_hash[KSI_PERMISSION_HASH_HEX_LENGTH + 1u];
+    uint64_t start_time;
 } ksi_client_identified_result;
 
 typedef enum ksi_daemon_command_type {
@@ -737,6 +739,7 @@ static void *identify_worker(void *arg)
             result->exe_path, sizeof(result->exe_path),
             result->command_line, sizeof(result->command_line),
             result->exe_hash) == 0;
+        result->start_time = ksi_permissions_get_process_start_time(task->pid);
     }
 
     memset(&command, 0, sizeof(command));
@@ -2003,9 +2006,9 @@ static uint32_t check_capabilities_sync(
     uint32_t *out_missing)
 {
     uint32_t expanded;
-    uint32_t granted;
+    uint32_t granted = 0u;
     uint32_t all_process_caps;
-    uint32_t missing;
+    uint32_t missing = 0u;
 
     if (out_missing != NULL) {
         *out_missing = 0u;
@@ -2015,56 +2018,92 @@ static uint32_t check_capabilities_sync(
         return 0u;
     }
 
-    expanded = permission_capabilities_for_request(requested) & state->available_capabilities;
-
-    if (expanded == 0u || !client->has_identity || state->permissions == NULL) {
+    if (!client->has_identity || state->permissions == NULL) {
         return 0u;
     }
 
-    granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash) & expanded;
+    expanded = permission_capabilities_for_request(requested) & state->available_capabilities;
 
-    /* Inherit per-process session grants from sibling clients of the same
-     * Keysharp process (same uid+pid). This is how "Allow once" decisions
-     * survive across a script's separate hook and synthesis channels without
-     * being persisted to disk or surviving past the process.
-     * all_process_caps accumulates unfiltered sibling caps for implication checks. */
-    all_process_caps = client->granted_capabilities;
+    if (expanded != 0u) {
+        granted = ksi_permissions_get_allowed_capabilities(
+            state->permissions, client->uid, client->exe_hash) & expanded;
 
-    for (nfds_t i = 0; i < state->client_count; i++) {
-        const ksi_client *sibling = &state->clients[i];
+        /* Inherit per-process session grants from sibling clients of the same
+         * Keysharp process (same uid+pid).  This is how "Allow once" decisions
+         * survive across a script's separate hook and synthesis channels without
+         * being persisted to disk or surviving past the process.
+         * all_process_caps accumulates unfiltered sibling caps for implication checks. */
+        all_process_caps = client->granted_capabilities;
 
-        if (sibling == client) {
-            continue;
+        for (nfds_t i = 0; i < state->client_count; i++) {
+            const ksi_client *sibling = &state->clients[i];
+
+            if (sibling == client) {
+                continue;
+            }
+
+            if (!sibling->authenticated || sibling->pid != client->pid || sibling->uid != client->uid) {
+                continue;
+            }
+
+            granted |= (sibling->granted_capabilities & expanded);
+            all_process_caps |= sibling->granted_capabilities;
         }
 
-        if (!sibling->authenticated || sibling->pid != client->pid || sibling->uid != client->uid) {
-            continue;
+        /* KSI_CAP_BLOCK_INPUT is implied by hook capabilities. */
+        if ((expanded & KSI_CAP_BLOCK_INPUT) != 0u &&
+            (all_process_caps & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) != 0u)
+            granted |= KSI_CAP_BLOCK_INPUT;
+
+        /* Check the shared PID-keyed session file for physical capabilities.
+         * This picks up "Allow once" decisions that were written by any daemon
+         * (including a prior screencap prompt) for this specific Keysharp process. */
+        if (client->start_time != 0u) {
+            uint32_t pid_session = ksi_permissions_get_session_by_pid(
+                client->uid, client->pid, client->start_time);
+            granted |= pid_session & expanded;
         }
 
-        granted |= (sibling->granted_capabilities & expanded);
-        all_process_caps |= sibling->granted_capabilities;
+        missing = expanded & ~granted;
+
+        /* Persistent denials suppress prompts. */
+        if (!force_prompt) {
+            missing &= ~ksi_permissions_get_denied_capabilities(
+                state->permissions, client->uid, client->exe_hash);
+        }
     }
 
-    /* KSI_CAP_BLOCK_INPUT is implied by hook capabilities — mirrors client_has_capability.
-     * This prevents a redundant permission prompt when hook was already granted. */
-    if ((expanded & KSI_CAP_BLOCK_INPUT) != 0u &&
-        (all_process_caps & (KSI_CAP_HOOK_KEYBOARD | KSI_CAP_HOOK_MOUSE)) != 0u)
-        granted |= KSI_CAP_BLOCK_INPUT;
+    /* Non-physical capabilities (e.g. screen capture) that inputd does not
+     * provide directly, but brokers via the combined prompt so that the physical
+     * daemon (screencap) can check the PID session and skip its own prompt.
+     * Check persistent trust store and PID session; add to missing if neither
+     * covers them, so the prompt includes them in the requested capability list. */
+    {
+        uint32_t non_physical = requested & ~state->available_capabilities;
 
-    missing = expanded & ~granted;
+        if (non_physical != 0u) {
+            uint32_t np_granted = ksi_permissions_get_allowed_capabilities(
+                state->permissions, client->uid, client->exe_hash) & non_physical;
 
-    /* Persistent denials suppress prompts until the user explicitly opts back
-     * in via RequestCapabilities(forcePrompt=true) or the keysharp-trust CLI. */
-    if (!force_prompt) {
-        missing &= ~ksi_permissions_get_denied_capabilities(
-            state->permissions, client->uid, client->exe_hash);
+            if (client->start_time != 0u)
+                np_granted |= ksi_permissions_get_session_by_pid(
+                    client->uid, client->pid, client->start_time) & non_physical;
+
+            uint32_t np_missing = non_physical & ~np_granted;
+
+            if (!force_prompt)
+                np_missing &= ~ksi_permissions_get_denied_capabilities(
+                    state->permissions, client->uid, client->exe_hash);
+
+            missing |= np_missing;
+        }
     }
 
     if (out_missing != NULL) {
         *out_missing = missing;
     }
 
-    return granted;
+    return granted;  /* physical capabilities only */
 }
 
 /* Applies a completed prompt decision and sends the CLIENT_HELLO response. */
@@ -2103,34 +2142,52 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     client->pending_hello_valid = false;
 
+    /* Separate physical (inputd-managed) from non-physical (e.g. screen capture)
+     * capabilities.  Both appear in `missing` because check_capabilities_sync
+     * includes non-physical caps so they appear in the combined prompt. */
+    uint32_t physical_missing    = missing &  state->available_capabilities;
+    uint32_t non_physical_missing = missing & ~state->available_capabilities;
+    uint32_t physical_requested  = requested & state->available_capabilities;
+
 	if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
+		/* Grant ALL missing capabilities persistently — physical ones will be
+		 * honoured by inputd on future connections; non-physical ones (e.g. screen
+		 * capture) are stored in the shared trust store where screencap reads them. */
 		(void)ksi_permissions_grant_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
 	} else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
-		/* The prompt could not actually be shown to the user — don't record a
-		 * persistent denial, otherwise every subsequent attempt would be
-		 * silently rejected without ever giving the user a chance to decide. */
+		/* The prompt could not actually be shown — don't record a persistent denial. */
 	} else if (decision != KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-		/* Persistent deny: matches the macOS model — the user must clear it
-		 * explicitly (via RequestCapabilities(forcePrompt=true) or the
-		 * keysharp-trust CLI) before we will prompt again. */
+		/* Persistent deny for ALL requested capabilities. */
 		(void)ksi_permissions_deny_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
 	}
-	/* ALLOW_ONCE is intentionally not persisted; the grant lives on this
-	 * client's granted_capabilities below and propagates to sibling clients
-	 * of the same process via check_capabilities_sync's inheritance loop. */
 
+    if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE && missing != 0u) {
+        /* Write ALL granted capabilities (physical + non-physical) to the shared
+         * PID session file.  screencap and other daemons read this file and skip
+         * their own prompts when they find the relevant capability bits set. */
+        if (client->start_time != 0u) {
+            (void)ksi_permissions_grant_session_for_pid(
+                client->uid, client->pid, client->start_time, missing);
+        }
+    }
+
+    /* Recompute the physical capabilities actually granted for the HELLO response.
+     * Non-physical caps are intentionally excluded — inputd cannot provide them. */
     granted = ksi_permissions_get_allowed_capabilities(state->permissions, client->uid, client->exe_hash)
               & (permission_capabilities_for_request(requested) & state->available_capabilities);
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
-        granted |= missing;
+        /* Physical missing caps are granted in-process; propagate to siblings. */
+        granted |= physical_missing;
     }
+
+    (void)non_physical_missing;  /* acknowledged; handled via PID session above */
 
     if (decision == KSI_PERMISSION_DECISION_DENY
         || decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE
-        || (granted & requested) != requested) {
+        || (granted & physical_requested) != physical_requested) {
         client->authenticated = false;
         client->granted_capabilities = granted;
         send_hello_status(client->fd,
@@ -2173,6 +2230,7 @@ static void process_client_identified(ksi_daemon_state *state, ksi_daemon_comman
 
     if (result != NULL && result->has_identity) {
         client->has_identity = true;
+        client->start_time = result->start_time;
         (void)snprintf(client->exe_path, sizeof(client->exe_path), "%s", result->exe_path);
         (void)snprintf(client->command_line, sizeof(client->command_line), "%s", result->command_line);
         (void)snprintf(client->exe_hash, sizeof(client->exe_hash), "%s", result->exe_hash);

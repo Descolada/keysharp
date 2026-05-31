@@ -14,6 +14,7 @@
 #include <string.h>
 #include <linux/if_alg.h>
 #include <poll.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -220,6 +221,81 @@ static void append_argument_display(
     }
 
     output[*output_length] = '\0';
+}
+
+/* Returns true when exe at path is owned by root and not writable by group or
+ * others — i.e. only a privileged process can replace it.  In that case the
+ * path string is a sufficient trust identity and we skip reading file content. */
+static bool is_protected_exe(const char *path)
+{
+    struct stat info;
+
+    if (path == NULL || stat(path, &info) != 0)
+        return false;
+
+    return info.st_uid == 0 && (info.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+}
+
+/* Reads /proc/<pid>/cmdline and formats it for display into command_line_buffer,
+ * skipping argv[0].  Used by the protected-path fast path which doesn't need to
+ * hash the file content. */
+static void read_cmdline_display(
+    pid_t pid,
+    char *command_line_buffer,
+    size_t command_line_buffer_size)
+{
+    char proc_path[64];
+    uint8_t buffer[8192];
+    size_t display_length = 0u;
+    bool skipping_argv0 = true;
+    ssize_t bytes_read;
+    int fd;
+
+    if (command_line_buffer == NULL || command_line_buffer_size == 0u)
+        return;
+
+    command_line_buffer[0] = '\0';
+    (void)snprintf(proc_path, sizeof(proc_path), "/proc/%ld/cmdline", (long)pid);
+    fd = open(proc_path, O_RDONLY | O_CLOEXEC);
+
+    if (fd < 0)
+        return;
+
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+        append_argument_display(
+            command_line_buffer, command_line_buffer_size, &display_length, &skipping_argv0,
+            buffer, (size_t)bytes_read);
+    }
+
+    while (display_length > 0u && command_line_buffer[display_length - 1u] == ' ')
+        command_line_buffer[--display_length] = '\0';
+
+    close(fd);
+}
+
+/* Produces a stable identity hash for executables in protected (root-owned,
+ * non-world-writable) locations.  Uses only the path string — not file
+ * content — so the trust record survives package updates. */
+static int hash_protected_path_identity(
+    const char *exe_path,
+    char output[KSI_PERMISSION_HASH_HEX_LENGTH + 1u])
+{
+    static const uint8_t domain[] = "Keysharp-protected-path-identity-v1";
+    ksi_sha256_ctx ctx;
+    int result = -1;
+
+    if (sha256_ctx_init(&ctx) != 0)
+        return -1;
+
+    if (sha256_ctx_update(&ctx, domain, sizeof(domain)) != 0
+        || sha256_ctx_update(&ctx, exe_path, strlen(exe_path)) != 0)
+        goto cleanup;
+
+    result = sha256_ctx_finish(&ctx, output);
+
+cleanup:
+    sha256_ctx_cleanup(&ctx);
+    return result;
 }
 
 static int hash_process_identity(
@@ -1255,6 +1331,133 @@ static void describe_capabilities(uint32_t capabilities, char *buffer, size_t bu
     }
 }
 
+/* ── PID-keyed session implementation ─────────────────────────────────────── */
+
+#define KSI_SESSION_DIR "/run/keysharp-trust/sessions"
+
+static int build_session_path(uid_t uid, pid_t pid, uint64_t start_time,
+                               char *buf, size_t buf_size)
+{
+    int written = snprintf(buf, buf_size, KSI_SESSION_DIR "/%lu-%ld-%llx",
+                           (unsigned long)uid, (long)pid,
+                           (unsigned long long)start_time);
+    return (written > 0 && (size_t)written < buf_size) ? 0 : -1;
+}
+
+uint64_t ksi_permissions_get_process_start_time(pid_t pid)
+{
+    char path[64];
+    char buf[512];
+    int fd;
+    ssize_t n;
+    char *p;
+    int field;
+
+    (void)snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid);
+    fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0u;
+    n = read(fd, buf, sizeof(buf) - 1u);
+    close(fd);
+    if (n <= 0) return 0u;
+    buf[n] = '\0';
+
+    /* Skip past the comm field "pid (comm) state ..." — comm may contain spaces
+     * and parentheses, so find the last ')' to locate the end of the field. */
+    p = strrchr(buf, ')');
+    if (p == NULL) return 0u;
+    p += 2; /* skip ') ' */
+
+    /* starttime is field 22 (1-indexed); we are now pointing at field 3 (state).
+     * Skip fields 3–21 (19 spaces) to land on field 22. */
+    for (field = 3; field < 22; field++) {
+        p = strchr(p, ' ');
+        if (p == NULL) return 0u;
+        p++;
+    }
+
+    return (uint64_t)strtoull(p, NULL, 10);
+}
+
+uint32_t ksi_permissions_get_session_by_pid(uid_t uid, pid_t pid, uint64_t start_time)
+{
+    char path[KSI_PERMISSION_MAX_PATH];
+    char buf[32];
+    int fd;
+    ssize_t n;
+
+    if (start_time == 0u) return 0u;
+    if (build_session_path(uid, pid, start_time, path, sizeof(path)) != 0) return 0u;
+
+    fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0u;
+
+    (void)flock(fd, LOCK_SH);
+    n = read(fd, buf, sizeof(buf) - 1u);
+    (void)flock(fd, LOCK_UN);
+    close(fd);
+
+    if (n <= 0) return 0u;
+    buf[n] = '\0';
+    return (uint32_t)strtoul(buf, NULL, 16);
+}
+
+int ksi_permissions_grant_session_for_pid(uid_t uid, pid_t pid, uint64_t start_time,
+                                          uint32_t capabilities)
+{
+    char path[KSI_PERMISSION_MAX_PATH];
+    char buf[32];
+    int fd;
+    ssize_t n;
+    uint32_t existing = 0u;
+
+    if (start_time == 0u || capabilities == 0u) return -1;
+
+    /* Ensure /run/keysharp-trust/sessions/ exists (world-executable so other root
+     * processes can enter it, but only root can list or create files). */
+    if (ensure_parent_directories(KSI_SESSION_DIR) != 0
+        || ensure_directory(KSI_SESSION_DIR, false) != 0)
+        return -1;
+
+    if (build_session_path(uid, pid, start_time, path, sizeof(path)) != 0) return -1;
+
+    /* Open for read-write, creating if absent.  flock serialises concurrent
+     * writers (e.g. inputd and screencap granting at the same time). */
+    fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) return -1;
+
+    (void)flock(fd, LOCK_EX);
+
+    n = read(fd, buf, sizeof(buf) - 1u);
+    if (n > 0) {
+        buf[n] = '\0';
+        existing = (uint32_t)strtoul(buf, NULL, 16);
+    }
+
+    capabilities |= existing;
+
+    if (lseek(fd, 0, SEEK_SET) < 0
+        || ftruncate(fd, 0) != 0) {
+        (void)flock(fd, LOCK_UN);
+        close(fd);
+        return -1;
+    }
+
+    n = (ssize_t)snprintf(buf, sizeof(buf), "%08x\n", (unsigned int)capabilities);
+
+    if (n > 0 && write(fd, buf, (size_t)n) != n) {
+        (void)flock(fd, LOCK_UN);
+        close(fd);
+        return -1;
+    }
+
+    (void)fsync(fd);
+    (void)flock(fd, LOCK_UN);
+    close(fd);
+    return 0;
+}
+
+/* ── End PID-keyed session implementation ─────────────────────────────────── */
+
 int ksi_permissions_create(ksi_permission_store **store)
 {
     ksi_permission_store *created;
@@ -1337,6 +1540,16 @@ int ksi_permissions_identify_process(
     }
 
     path_buffer[path_length] = '\0';
+
+    if (is_protected_exe(path_buffer)) {
+        /* Fast path: root-owned, non-world-writable — only a privileged actor
+         * can replace this binary, so the path alone is a safe trust identity.
+         * Skipping the content read eliminates the O(filesize) startup cost and
+         * lets trust records survive package updates. */
+        close(fd);
+        read_cmdline_display(pid, command_line_buffer, command_line_buffer_size);
+        return hash_protected_path_identity(path_buffer, hash_buffer);
+    }
 
     if (hash_process_identity(fd, pid, command_line_buffer, command_line_buffer_size, hash_buffer) != 0) {
         close(fd);

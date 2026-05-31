@@ -273,10 +273,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			});
 
 			if (!task.Wait(timeoutMs))
-			{
-				ResetLocked();
 				throw new TimeoutException($"keysharp-screencap authorization timed out after {timeoutMs}ms");
-			}
 
 			task.GetAwaiter().GetResult();
 		}
@@ -411,7 +408,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					{
 						DebugLine($"keysharp-screencap --serve gnome request failed: {ex.Message}");
 						CacheGnomeDeniedIfHelperExitedLocked();
-						ResetGnomeLocked();
+
+						// Only tear down the helper if the process itself died. A transient D-Bus
+						// error inside gnome_serve_one leaves the helper alive and ready — killing
+						// it here would force a restart (and a new trust prompt) unnecessarily.
+						if (gnomeHelper == null || gnomeHelper.HasExited)
+							ResetGnomeLocked();
 					}
 				}
 

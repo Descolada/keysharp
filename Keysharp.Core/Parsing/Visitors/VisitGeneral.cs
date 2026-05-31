@@ -104,9 +104,18 @@ namespace Keysharp.Parsing
 			var splits = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 			if (splits.Length < 2)
-				return null; // no version requirement: do not affect mode
+				return null;
 
 			var target = splits[0];
+
+			if (target.StartsWith("capabilit", StringComparison.OrdinalIgnoreCase))
+			{
+				foreach (var part in raw.Substring(target.Length).Split([' ', '\t', ',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+					parser.requiredCapabilities.Add(part);
+
+				return null;
+			}
+
 			var reqAhk = target.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase);
 			var reqKeysharp = target.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase);
 

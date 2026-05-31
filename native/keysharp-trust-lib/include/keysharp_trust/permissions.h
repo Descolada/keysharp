@@ -156,4 +156,37 @@ ksi_permission_decision ksi_permissions_prompt(
  * Safe to call from any thread.  Idempotent. */
 void ksi_permissions_cancel(void);
 
+/* --- PID-keyed session grants ---
+ *
+ * A PID-keyed session grant is stored in /run/keysharp-trust/sessions/ and is
+ * visible to all daemons running as root.  It lets a single combined prompt (e.g.
+ * in keysharp-inputd) cover capabilities that span multiple daemons (e.g. screen
+ * capture handled by keysharp-screencap) without each daemon showing its own
+ * prompt.
+ *
+ * The grant is scoped to a unique (uid, pid, start_time) triplet where start_time
+ * is field 22 from /proc/<pid>/stat (jiffies since boot).  This combination is
+ * globally unique for the lifetime of the system, preventing PID reuse from
+ * inheriting a prior session's grants.
+ *
+ * Session files are automatically absent after a reboot because they live under
+ * /run (tmpfs).  Stale files left by crashes are harmless — the PID will have
+ * been reused with a different start_time, so the old session file will never
+ * match.
+ */
+
+/* Returns field 22 (start time in jiffies) from /proc/<pid>/stat, or 0 on
+ * failure.  Combine with the PID to form a collision-resistant session key. */
+uint64_t ksi_permissions_get_process_start_time(pid_t pid);
+
+/* Returns the capability bits previously granted for this (uid, pid, start_time)
+ * triplet, or 0 if no session exists or the file cannot be read. */
+uint32_t ksi_permissions_get_session_by_pid(uid_t uid, pid_t pid, uint64_t start_time);
+
+/* Grants additional capability bits to the (uid, pid, start_time) session,
+ * merging with any previously granted bits.  Creates the session file if it does
+ * not yet exist.  Returns 0 on success. */
+int ksi_permissions_grant_session_for_pid(uid_t uid, pid_t pid, uint64_t start_time,
+                                          uint32_t capabilities);
+
 #endif

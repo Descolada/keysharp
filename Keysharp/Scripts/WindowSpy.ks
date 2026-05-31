@@ -3,6 +3,7 @@
 ;
 
 #Requires AutoHotkey v2.0
+#Requires capability ScreenCapture, InputMonitoring
 
 #NoTrayIcon
 #SingleInstance Ignore

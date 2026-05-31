@@ -131,6 +131,16 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
     allowed = ksi_permissions_get_allowed_capabilities(store, requester_uid, exe_hash);
     missing = KST_CAP_SCREEN_CAPTURE & ~allowed;
 
+    /* Also check the shared PID-keyed session file.  This is written by any daemon
+     * that showed a combined prompt covering screen capture (e.g. keysharp-inputd),
+     * allowing subsequent screencap invocations to skip their own prompt. */
+    if (missing != 0u) {
+        uint64_t requester_start_time = ksi_permissions_get_process_start_time(requester_pid);
+        uint32_t pid_session = ksi_permissions_get_session_by_pid(
+            requester_uid, requester_pid, requester_start_time);
+        missing &= ~pid_session;
+    }
+
     if (missing == 0u) {
         ksi_permissions_note_seen(store, requester_uid, exe_hash, exe_path);
         result = KSS_TRUST_TRUSTED;
@@ -160,6 +170,12 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE) {
         result = KSS_TRUST_TRUSTED;
         (void)ksi_permissions_grant_session(store, requester_uid, exe_hash, exe_path, missing);
+        /* Also write to the shared PID session file so sibling daemons see the grant. */
+        {
+            uint64_t requester_start_time = ksi_permissions_get_process_start_time(requester_pid);
+            (void)ksi_permissions_grant_session_for_pid(
+                requester_uid, requester_pid, requester_start_time, KST_CAP_SCREEN_CAPTURE);
+        }
     } else if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
         if (ksi_permissions_grant_persistent(store, requester_uid, exe_hash, exe_path, missing) == 0) {
             result = KSS_TRUST_TRUSTED;

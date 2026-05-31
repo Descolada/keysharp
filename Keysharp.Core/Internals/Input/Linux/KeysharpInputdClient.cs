@@ -28,6 +28,10 @@ namespace Keysharp.Internals.Input.Linux
 			SynthKeyboard = 0x00000004,
 			SynthMouse = 0x00000008,
 			BlockInput = 0x00000010,
+			// inputd does not physically provide screen capture, but including this bit
+			// in the CLIENT_HELLO causes the combined prompt to cover it and writes the
+			// PID session grant so that screencap can skip its own prompt.
+			ScreenCapture = 0x00000020,
 		}
 
 		internal enum MessageType : uint

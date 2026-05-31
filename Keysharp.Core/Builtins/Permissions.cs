@@ -15,124 +15,122 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>
-		/// Requests one or more Keysharp platform capabilities, optionally returning per-capability details.
+		/// Requests one or more platform capabilities, batching where possible to minimise the number
+		/// of prompts shown to the user, then returns the current status of every capability.
+		/// When called with no arguments the current status of all capabilities is returned without prompting.
 		/// </summary>
-		/// <param name="capabilities">Capability name, delimited capability names, or an array of capability names.</param>
-		/// <param name="result">Optional output variable receiving a Map with Status, Granted, Denied, NotApplicable, Unsupported, and Details.</param>
-		/// <returns>1 if every requested capability was granted or not applicable, otherwise 0.</returns>
-		public static long RequestCapabilities(object capabilities, [ByRef] object result = null)
+		/// <param name="capabilities">
+		/// Zero or more capability names (strings or Arrays of strings). Names may be comma/space-delimited.
+		/// Recognised aliases: "accessibility", "blockinput", "inputinjection"/"synthinput",
+		/// "inputmonitoring"/"hook", "screencapture"/"capture".
+		/// </param>
+		/// <returns>
+		/// An Object with a property per capability ("Granted"|"Denied"|"NotApplicable"|"Unsupported")
+		/// and a <c>Granted</c> property (1/0) that is true only when every <em>requested</em> capability
+		/// was granted or not applicable.
+		/// </returns>
+		public static KeysharpObject RequestCapabilities(params object[] capabilities)
 		{
-			var requested = ParseRequestedCapabilities(capabilities);
-			var granted = new Array();
-			var denied = new Array();
-			var notApplicable = new Array();
-			var unsupported = new Array();
-			var details = new Map();
-			var messages = new List<string>();
+			List<KeysharpCapability> requested = null;
+
+			if (capabilities.Length > 0)
+			{
+				requested = ParseRequestedCapabilities(capabilities);
+				RequestCapabilitiesBatched(requested);
+			}
+
+			var result = new KeysharpObject();
 			var allGranted = true;
 
-			foreach (var capability in requested)
+			foreach (KeysharpCapability cap in Enum.GetValues<KeysharpCapability>())
 			{
-				var permission = RequestCapability(capability);
-				var capabilityName = CapabilityName(capability);
-				var detail = new Map(
-					"Status", permission.Status.ToString(),
-					"Message", permission.Message);
+				var permission = QueryCapabilityStatus(cap);
+				result.DefinePropInternal(CapabilityName(cap), new OwnPropsDesc(result, permission.Status.ToString()));
 
-				details[capabilityName] = detail;
-
-				if (!permission.Message.IsNullOrEmpty())
-					messages.Add($"{capabilityName}: {permission.Message}");
-
-				switch (permission.Status)
-				{
-					case PermissionStatus.Granted:
-						granted.Push(capabilityName);
-						break;
-
-					case PermissionStatus.NotApplicable:
-						notApplicable.Push(capabilityName);
-						break;
-
-					case PermissionStatus.Unsupported:
-						unsupported.Push(capabilityName);
-						allGranted = false;
-						break;
-
-					default:
-						denied.Push(capabilityName);
-						allGranted = false;
-						break;
-				}
+				if (requested == null || requested.Contains(cap))
+					allGranted &= permission.IsGranted;
 			}
 
-			if (result != null)
-			{
-				var status = allGranted
-					? "Granted"
-					: granted.Count > 0 || notApplicable.Count > 0 ? "Partial"
-					: unsupported.Count > 0 && denied.Count == 0 ? "Unsupported"
-					: "Denied";
-				Script.SetPropertyValue(result, "__Value", new Map(
-					"Status", status,
-					"Granted", granted,
-					"Denied", denied,
-					"NotApplicable", notApplicable,
-					"Unsupported", unsupported,
-					"Message", string.Join(Environment.NewLine, messages),
-					"Details", details));
-			}
-
-			return allGranted ? 1L : 0L;
+			result.DefinePropInternal("Granted", new OwnPropsDesc(result, allGranted ? 1L : 0L));
+			return result;
 		}
 
-		private static PermissionResult RequestCapability(KeysharpCapability capability)
+		private static void RequestCapabilitiesBatched(List<KeysharpCapability> requested)
+		{
+			var permissions = Script.TheScript.Permissions;
+
+			var monitoring    = requested.Contains(KeysharpCapability.InputMonitoring);
+			var injection     = requested.Contains(KeysharpCapability.InputInjection);
+			var blockInput    = requested.Contains(KeysharpCapability.BlockInput);
+			var screenCapture = requested.Contains(KeysharpCapability.ScreenCapture);
+			var accessibility = requested.Contains(KeysharpCapability.AccessibilityAutomation);
+
+			// When input capabilities are requested, route screen capture through the
+			// same inputd call.  On Linux this produces one combined prompt for all
+			// capabilities; inputd writes the PID session so that screencap finds it
+			// and skips its own prompt.  When no input caps are requested, screen capture
+			// falls through to RequestScreenCapture below.
+			if (monitoring || injection || blockInput)
+				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture, prompt: true, operation: "RequestCapabilities");
+
+			// Always call RequestScreenCapture — on Linux screencap checks the PID
+			// session (possibly written by inputd above) and skips prompting if already
+			// granted.  On non-Linux platforms this shows the platform's own dialog.
+			if (screenCapture)
+				permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities");
+
+			if (accessibility)
+				permissions.RequestAccessibilityAutomation(prompt: true, operation: "RequestCapabilities");
+		}
+
+		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
 		{
 			var permissions = Script.TheScript.Permissions;
 
 			return capability switch
 				{
 					KeysharpCapability.AccessibilityAutomation
-						=> permissions.RequestAccessibilityAutomation(prompt: true, operation: "RequestCapabilities"),
+						=> permissions.RequestAccessibilityAutomation(prompt: false),
 					KeysharpCapability.InputInjection
-						=> permissions.RequestInputInjection(prompt: true, operation: "RequestCapabilities"),
+						=> permissions.RequestInputInjection(prompt: false),
 					KeysharpCapability.InputMonitoring
-						=> permissions.RequestInputMonitoring(prompt: true, operation: "RequestCapabilities"),
+						=> permissions.RequestInputMonitoring(prompt: false),
 					KeysharpCapability.ScreenCapture
-						=> permissions.RequestScreenCapture(prompt: true, operation: "RequestCapabilities"),
+						=> permissions.RequestScreenCapture(prompt: false),
 					KeysharpCapability.BlockInput
-						=> RequestBlockInputCapability(),
+						=> QueryBlockInputCapability(),
 				_ => new PermissionResult(PermissionStatus.Unsupported)
 			};
 		}
 
-		private static PermissionResult RequestBlockInputCapability()
+		private static PermissionResult QueryBlockInputCapability()
 		{
 #if LINUX
 				return Keysharp.Internals.Input.Linux.KeysharpInputdManager.EnsureCapabilities(
 					Keysharp.Internals.Input.Linux.KeysharpInputdClient.Capabilities.BlockInput,
-					"RequestCapabilities",
-					forcePrompt: true);
+					"QueryCapabilities",
+					forcePrompt: false);
 #else
 			return new PermissionResult(PermissionStatus.NotApplicable);
 #endif
 		}
 
-		private static List<KeysharpCapability> ParseRequestedCapabilities(object capabilities)
+		private static List<KeysharpCapability> ParseRequestedCapabilities(object[] capabilities)
 		{
 			var requested = new List<KeysharpCapability>();
 
-			if (capabilities is Array array)
+			foreach (var cap in capabilities)
 			{
-				foreach (var item in array)
-					AddRequestedCapability(requested, item.As());
-			}
-			else
-			{
-				var text = capabilities.As();
-
-				foreach (var part in text.Split([' ', '\t', '\r', '\n', ',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-					AddRequestedCapability(requested, part);
+				if (cap is Array arr)
+				{
+					foreach (var item in arr)
+						AddRequestedCapability(requested, item.As());
+				}
+				else
+				{
+					foreach (var part in cap.As().Split([' ', '\t', '\r', '\n', ',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+						AddRequestedCapability(requested, part);
+				}
 			}
 
 			if (requested.Count == 0)

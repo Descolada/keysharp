@@ -27,6 +27,8 @@
             Running this file directly opens AtSpi.Viewer for inspection.
 */
 
+#Requires capability AccessibilityAutomation, InputMonitoring
+
 #import KS { WinFromPoint }
 
 #DllLoad libatspi

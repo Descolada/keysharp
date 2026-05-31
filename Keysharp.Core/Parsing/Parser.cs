@@ -144,6 +144,8 @@ namespace Keysharp.Parsing
         internal string hookMutexName = string.Empty;
 
 		internal bool persistent;
+
+		internal List<string> requiredCapabilities = [];
 		private const string args = "args";
 		private const string initParams = "initparams";
 		private const string mainScope = "";

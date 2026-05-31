@@ -202,10 +202,7 @@ namespace Keysharp.Builtins
 						NativeLibrary.TryGetExport(handle, name + "W", out address);
 #else
 					if (handle == 0 && path.EndsWith(LibraryExtension, StringComparison.OrdinalIgnoreCase))
-					{
-						for (var v = 0; v <= 9 && handle == 0; v++)
-							NativeLibrary.TryLoad(path + "." + v, out handle);
-					}
+						NativeLibrary.TryLoad(path + ".0", out handle);
 
 					if (handle != 0)
 						_ = NativeLibrary.TryGetExport(handle, name, out address);

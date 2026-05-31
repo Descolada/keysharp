@@ -523,10 +523,7 @@ namespace Keysharp.Runtime
 
 #if !WINDOWS
 				if (hmodule == 0 && libraryName.EndsWith(Keywords.LibraryExtension, StringComparison.OrdinalIgnoreCase))
-				{
-					for (var v = 0; v <= 9 && hmodule == 0; v++)
-						hmodule = LoadLibrary(libraryName + "." + v);
-				}
+					hmodule = LoadLibrary(libraryName + ".0");
 #endif
 
 				if (hmodule != 0)

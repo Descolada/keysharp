@@ -1,5 +1,10 @@
 <Project>
   <PropertyGroup>
+    <!-- Normalize source paths embedded in PDBs so build-machine absolute paths
+         (e.g. /home/<user>/...) don't leak into shipped binaries and stack traces -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+
     <!-- Put all Keysharp project outputs under a shared bin folder (e.g., bin/Debug/net9.0) -->
     <BaseOutputPath>$(MSBuildThisFileDirectory)bin/</BaseOutputPath>
     <!-- Keep framework-specific subfolders to avoid collisions when targeting multiple TFMs -->

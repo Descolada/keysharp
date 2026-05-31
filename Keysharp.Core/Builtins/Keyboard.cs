@@ -1184,6 +1184,7 @@ break_twice:;
 
 				case ToggleValueType.AlwaysOn:
 				case ToggleValueType.AlwaysOff:
+					EnsureForcedLockStatePermissions(vk);
 					forceLock = (toggle == ToggleValueType.AlwaysOn) ? ToggleValueType.On : ToggleValueType.Off; // Must do this first.
 					_ = kbdMouseSender.ToggleKeyState(vk, forceLock);
 					// The hook is currently needed to support keeping these keys AlwaysOn or AlwaysOff, though
@@ -1200,6 +1201,27 @@ break_twice:;
 					forceLock = ToggleValueType.Neutral;
 					break;
 			}
+		}
+
+		private static void EnsureForcedLockStatePermissions(uint vk)
+		{
+			var operation = vk switch
+			{
+				(uint)Keys.Capital => "SetCapsLockState AlwaysOn/AlwaysOff",
+				(uint)Keys.NumLock => "SetNumLockState AlwaysOn/AlwaysOff",
+				(uint)Keys.Scroll => "SetScrollLockState AlwaysOn/AlwaysOff",
+				_ => "SetLockState AlwaysOn/AlwaysOff"
+			};
+			var result = Script.TheScript.Permissions.RequestInputCapabilities(
+				monitoring: true,
+				injection: true,
+				blockInput: false,
+				operation: operation);
+
+			if (!result.IsGranted)
+				throw new InvalidOperationException(result.Message.IsNullOrEmpty()
+					? $"Permission is required for '{operation}'."
+					: result.Message);
 		}
 	}
 

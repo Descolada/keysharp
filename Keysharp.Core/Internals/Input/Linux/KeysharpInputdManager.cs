@@ -38,10 +38,7 @@ namespace Keysharp.Internals.Input.Linux
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
-			var qc = GetOrCreateQueryClient()
-				?? throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
-
-			lock (queryGate)
+			if (!TryUseQueryClient(qc =>
 			{
 				// Request synth caps lazily on first use. By the time Send is called,
 				// EnsureInputInjection has already established trust on the main client,
@@ -52,7 +49,9 @@ namespace Keysharp.Internals.Input.Linux
 						out _);
 
 				qc.SendInput(inputs, flags);
-			}
+				return true;
+			}))
+				throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
 		}
 
 		internal static bool TryGetIndicatorState(out bool capsLock, out bool numLock, out bool scrollLock)
@@ -60,22 +59,27 @@ namespace Keysharp.Internals.Input.Linux
 			capsLock = false;
 			numLock = false;
 			scrollLock = false;
-
-			var qc = GetOrCreateQueryClient();
-
-			if (qc == null)
-				return false;
+			var queryCapsLock = false;
+			var queryNumLock = false;
+			var queryScrollLock = false;
 
 			try
 			{
-				lock (queryGate)
+				var success = TryUseQueryClient(qc =>
 				{
 					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
 						return false;
 
-					(capsLock, numLock, scrollLock) = qc.GetIndicatorState();
-				}
+					(queryCapsLock, queryNumLock, queryScrollLock) = qc.GetIndicatorState();
+					return true;
+				});
 
+				if (!success)
+					return false;
+
+				capsLock = queryCapsLock;
+				numLock = queryNumLock;
+				scrollLock = queryScrollLock;
 				return true;
 			}
 			catch (Exception ex)
@@ -95,22 +99,29 @@ namespace Keysharp.Internals.Input.Linux
 			capsLock = false;
 			numLock = false;
 			scrollLock = false;
-
-			var qc = GetOrCreateQueryClient();
-
-			if (qc == null)
-				return false;
+			var queryModifiersLR = 0u;
+			var queryCapsLock = false;
+			var queryNumLock = false;
+			var queryScrollLock = false;
 
 			try
 			{
-				lock (queryGate)
+				var success = TryUseQueryClient(qc =>
 				{
 					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
 						return false;
 
-					(modifiersLR, capsLock, numLock, scrollLock) = qc.QueryKeyState();
-				}
+					(queryModifiersLR, queryCapsLock, queryNumLock, queryScrollLock) = qc.QueryKeyState();
+					return true;
+				});
 
+				if (!success)
+					return false;
+
+				modifiersLR = queryModifiersLR;
+				capsLock = queryCapsLock;
+				numLock = queryNumLock;
+				scrollLock = queryScrollLock;
 				return true;
 			}
 			catch (Exception ex)
@@ -129,33 +140,44 @@ namespace Keysharp.Internals.Input.Linux
 			out int yMax)
 		{
 			x = y = xMin = xMax = yMin = yMax = 0;
+			var queryX = 0;
+			var queryY = 0;
+			var queryXMin = 0;
+			var queryXMax = 0;
+			var queryYMin = 0;
+			var queryYMax = 0;
 
 			if (!EnsureCapabilities(
 					KeysharpInputdClient.Capabilities.HookMouse,
 					"query pointer position").IsGranted)
 				return false;
 
-			var qc = GetOrCreateQueryClient();
-
-			if (qc == null)
-				return false;
-
 			try
 			{
-				lock (queryGate)
+				var success = TryUseQueryClient(qc =>
 				{
 					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookMouse), out _)
 						|| !qc.TryGetPointerPosition(out var position))
 						return false;
 
-					x = position.X;
-					y = position.Y;
-					xMin = position.XMin;
-					xMax = position.XMax;
-					yMin = position.YMin;
-					yMax = position.YMax;
-				}
+					queryX = position.X;
+					queryY = position.Y;
+					queryXMin = position.XMin;
+					queryXMax = position.XMax;
+					queryYMin = position.YMin;
+					queryYMax = position.YMax;
+					return true;
+				});
 
+				if (!success)
+					return false;
+
+				x = queryX;
+				y = queryY;
+				xMin = queryXMin;
+				xMax = queryXMax;
+				yMin = queryYMin;
+				yMax = queryYMax;
 				return true;
 			}
 			catch
@@ -166,34 +188,56 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
-			lock (queryGate)
+			// Keep lock order consistent with DisconnectClients()/DisposeClient():
+			// gate first, then queryGate. Reversing this can deadlock shutdown while
+			// a background query-client prewarm is checking the main connection.
+			lock (gate)
 			{
-				if (queryClient != null)
-					return queryClient;
-
 				// Only create the query connection if the main connection already exists
 				// (i.e. the daemon is reachable). This avoids a redundant connect attempt
 				// during startup before the daemon has been discovered.
-				lock (gate)
-				{
-					if (client == null)
-						return null;
-				}
+				if (client == null)
+					return null;
 
-				try
+				lock (queryGate)
 				{
-					// Connect with no capabilities; synthesis is requested lazily in
-					// SendInputViaSynthesisChannel after EnsureInputInjection has
-					// established trust on the main client.
-					queryClient = KeysharpInputdClient.Connect();
-				}
-				catch (Exception ex) when (ex is IOException or SocketException
-					or ObjectDisposedException or InvalidDataException)
-				{
-					// Non-fatal: callers can fall back to the main request/response connection.
-				}
+					if (queryClient != null)
+						return queryClient;
 
-				return queryClient;
+					try
+					{
+						// Connect with no capabilities; synthesis is requested lazily in
+						// SendInputViaSynthesisChannel after EnsureInputInjection has
+						// established trust on the main client.
+						queryClient = KeysharpInputdClient.Connect();
+					}
+					catch (Exception ex) when (ex is IOException or SocketException
+						or ObjectDisposedException or InvalidDataException)
+					{
+						// Non-fatal: callers can fall back to the main request/response connection.
+					}
+
+					return queryClient;
+				}
+			}
+		}
+
+		private static bool TryUseQueryClient(Func<KeysharpInputdClient, bool> action)
+		{
+			var qc = GetOrCreateQueryClient();
+
+			if (qc == null)
+				return false;
+
+			lock (queryGate)
+			{
+				// GetOrCreateQueryClient releases queryGate before callers use the
+				// returned client. DisconnectClients() can dispose and clear it in that
+				// gap, so only use the object if it is still the cached query client.
+				if (!ReferenceEquals(qc, queryClient))
+					return false;
+
+				return action(qc);
 			}
 		}
 

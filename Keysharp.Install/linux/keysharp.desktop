@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Keysharp
-Exec=/usr/local/bin/keysharp %u
+Exec=/usr/local/bin/keysharp %f
 Icon=keysharp
 Terminal=false
-MimeType=application/x-keysharp;
+MimeType=application/x-keysharp;application/x-autohotkey;
 NoDisplay=true

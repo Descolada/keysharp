@@ -2,6 +2,10 @@
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-keysharp">
     <comment>Keysharp script</comment>
-    <glob pattern="*.ks"/>
+    <glob pattern="*.ks" weight="90"/>
+  </mime-type>
+  <mime-type type="application/x-autohotkey">
+    <comment>AutoHotkey script</comment>
+    <glob pattern="*.ahk" weight="90"/>
   </mime-type>
 </mime-info>

@@ -23,12 +23,6 @@ namespace Keysharp.Internals.UI.Unix
 		private AboutBox about;
 		private bool callingInternalVars = false;
 		private bool clipboardMonitoringEnabled;
-#if LINUX
-		private Gtk.Clipboard gtkClipboard;
-#elif OSX
-		private UITimer clipboardPollTimer;
-		private int clipboardChangeCount = -1;
-#endif
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
@@ -269,38 +263,8 @@ namespace Keysharp.Internals.UI.Unix
 
 		private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
 
-#if LINUX
-		private void GtkClipboard_OwnerChange(object o, Gtk.OwnerChangeArgs args) => ClipboardUpdate?.Invoke(null);
-#elif OSX
-		private void MacClipboardPollTimer_Elapsed(object sender, EventArgs e)
-		{
-			int currentChangeCount;
+		private void Clipboard_Changed(object sender, EventArgs e) => ClipboardUpdate?.Invoke(null);
 
-			try
-			{
-				currentChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
-			}
-			catch
-			{
-				return;
-			}
-
-			if (currentChangeCount < 0)
-				return;
-
-			if (clipboardChangeCount < 0)
-			{
-				clipboardChangeCount = currentChangeCount;
-				return;
-			}
-
-			if (currentChangeCount == clipboardChangeCount)
-				return;
-
-			clipboardChangeCount = currentChangeCount;
-			ClipboardUpdate?.Invoke(null);
-		}
-#endif
 
 		private void MainWindow_Shown(object sender, EventArgs e)
 		{
@@ -461,39 +425,16 @@ namespace Keysharp.Internals.UI.Unix
 				if (clipboardMonitoringEnabled == enabled)
 					return;
 
-#if LINUX
-				gtkClipboard ??= Gtk.Clipboard.Get(Gdk.Atom.Intern("CLIPBOARD", false));
+				var clipboard = Clipboard.Instance;
 
-				if (gtkClipboard == null)
+				if (clipboard == null)
 					return;
 
 				if (enabled)
-					gtkClipboard.OwnerChange += GtkClipboard_OwnerChange;
+					clipboard.Changed += Clipboard_Changed;
 				else
-					gtkClipboard.OwnerChange -= GtkClipboard_OwnerChange;
-#elif OSX
-				if (enabled)
-				{
-					try
-					{
-						clipboardChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
-					}
-					catch
-					{
-						clipboardChangeCount = -1;
-					}
+					clipboard.Changed -= Clipboard_Changed;
 
-					clipboardPollTimer ??= new UITimer { Interval = 0.2 };
-					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
-					clipboardPollTimer.Elapsed += MacClipboardPollTimer_Elapsed;
-					clipboardPollTimer.Start();
-				}
-				else if (clipboardPollTimer != null)
-				{
-					clipboardPollTimer.Stop();
-					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
-				}
-#endif
 				clipboardMonitoringEnabled = enabled;
 			}
 	}

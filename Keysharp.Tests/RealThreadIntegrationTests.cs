@@ -147,7 +147,7 @@ namespace Keysharp.Tests
 #else
 					Eto.Forms.Application.Instance?.RunIteration();
 #endif
-					script.EventScheduler.PumpPendingEvents();
+					script.EventScheduler.PumpThreadQueuedEvents();
 				}
 				catch
 				{

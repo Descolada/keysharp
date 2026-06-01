@@ -16,9 +16,9 @@ namespace Keysharp.Tests
 		{
 			s.HookThread.SimulateKeyPress(key);
 			mainContext?.DrainAll();
-			s.EventScheduler.PumpPendingEvents();
+			s.EventScheduler.PumpThreadQueuedEvents();
 			mainContext?.DrainAll();
-			s.UIEventScheduler.PumpPendingEvents();
+			s.UIEventScheduler.PumpThreadQueuedEvents();
 			mainContext?.DrainAll();
 		}
 

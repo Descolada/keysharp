@@ -192,7 +192,7 @@ namespace Keysharp.Builtins
 			long ExecuteCallback()
 			{
 				object val = null;
-				_ = Keysharp.Internals.Flow.TryCatch(() =>
+				try
 				{
 					if (dh._reference)
 					{
@@ -215,8 +215,23 @@ namespace Keysharp.Builtins
 						val = Script.Invoke(dh.funcObj, "Call", System.Array.ConvertAll(args, item => (object)item));
 
 					completedNormally = true;
-				});
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
+
 				return ConvertResult(val);
+			}
+
+			(ScriptEventExecutionResult status, long result) RunCallbackInPseudoThread(long launchPriority)
+			{
+				using var thread = targetScheduler.StartPseudoThreadScope(launchPriority, true, false, false);
+
+				if (!thread.Started)
+					return (thread.Result, 0L);
+
+				return (ScriptEventExecutionResult.Executed, ExecuteCallback());
 			}
 
 			long result = 0L;
@@ -228,10 +243,18 @@ namespace Keysharp.Builtins
 				// Match AutoHotkey's callback behavior: incoming native callbacks are treated like
 				// emergency interruptions, so they must not be blocked by the current thread's
 				// critical/uninterruptible state or a higher current priority.
-				var launchPriority = script.Threads.CurrentThread.priority;
+				if (targetScheduler.IsDisposed)
+					return 0L;
 
-				if (targetScheduler.TryInvokePseudoThread(launchPriority, true, false, _tv => ExecuteCallback(), out result) != ScriptEventExecutionResult.Executed)
-				return 0L;
+				var launchPriority = script.Threads.CurrentThread.priority;
+				var execution = targetScheduler.OwnsCurrentThread
+					? RunCallbackInPseudoThread(launchPriority)
+					: targetScheduler.InvokeSynchronous(() => RunCallbackInPseudoThread(launchPriority));
+
+				if (execution.status != ScriptEventExecutionResult.Executed)
+					return 0L;
+
+				result = execution.result;
 			}
 
 			if (completedNormally)

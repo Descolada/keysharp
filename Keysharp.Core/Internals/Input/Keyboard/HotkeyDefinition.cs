@@ -2140,147 +2140,145 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (!binding.TryReservePending(scheduler, callback, variant.maxThreads, variant.maxThreadsBuffer))
 					continue;
 
-				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal, eventInfo)))
+				var queuedEvent = new HotkeyQueuedEvent(this, scheduler, variant, binding, callback, critFoundHwnd, lParamVal, eventInfo);
+
+				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, queuedEvent.Execute))
 					binding.ReleasePending();
 			}
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal, object eventInfo)
+		private sealed class HotkeyQueuedEvent(HotkeyDefinition definition, ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal, object eventInfo)
 		{
-			var script = Script.TheScript;
-			var hkd = script.HotkeyData;
-
-			ScriptEventExecutionResult Complete(ScriptEventExecutionResult result)
+			internal ScriptEventExecutionResult Execute()
 			{
-				if (result == ScriptEventExecutionResult.Dropped)
-					binding.ReleasePending();
+				var script = Script.TheScript;
 
-				return result;
-			}
+				if (ShouldDropForThrottle(script))
+					return Complete(ScriptEventExecutionResult.Dropped);
 
-			if (script.HotkeyData.dialogIsDisplayed) // Another recursion layer is already displaying the warning dialog below.
-				return Complete(ScriptEventExecutionResult.Dropped);
+				if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
+					return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
 
-			long elapsedSincePrevTick;
-			bool displayWarning;
-			var ht = script.HookThread;
-			var nowTick = Environment.TickCount64;
+				using var thread = scheduler.StartPseudoThreadScope(variant.priority, false, false, false);
+				if (!thread.Started)
+					return Complete(thread.Result);
 
-			if (hkd.throttlePrevTick == long.MinValue)
-				hkd.throttlePrevTick = nowTick;
+				var callbackExecuted = false;
 
-			++hkd.throttledKeyCount;
-			hkd.throttleNowTick = nowTick;
-			// Calculate the amount of time since the last reset of the sliding interval.
-			// Note: A tickcount in the past can be subtracted from one in the future to find
-			// the true difference between them, even if the system's uptime is greater than
-			// 49 days and the future one has wrapped but the past one hasn't.  This is
-			// due to the nature of DWORD subtraction.  The only time this calculation will be
-			// unreliable is when the true difference between the past and future
-			// tickcounts itself is greater than about 49 days:
-			elapsedSincePrevTick = hkd.throttleNowTick - hkd.throttlePrevTick;
-
-			if (displayWarning = (hkd.throttledKeyCount > script.AccessorData.maxHotkeysPerInterval
-								  && elapsedSincePrevTick < script.AccessorData.hotkeyThrottleInterval))
-			{
-				// The moment any dialog is displayed, hotkey processing is halted since this
-				// app currently has only one thread.
-				var error_text = $"{hkd.throttledKeyCount} hotkeys have been received in the last {elapsedSincePrevTick}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";  // In case it's stuck in a loop.
-				// This is now needed since hotkeys can still fire while a messagebox is displayed.
-				// Seems safest to do this even if it isn't always necessary:
-				hkd.dialogIsDisplayed = true;
-				script.FlowData.allowInterruption = false;
-
-				if (Dialogs.MsgBox(error_text, null, "YesNo") == DialogResult.No.ToString())
-					_ = Keysharp.Internals.Flow.ExitAppInternal(Keysharp.Builtins.Flow.ExitReasons.Close, null, false);// Might not actually Exit if there's an OnExit function.
-
-				script.FlowData.allowInterruption = true;
-				hkd.dialogIsDisplayed = false;
-			}
-
-			// The display_warning var is needed due to the fact that there's an OR in this condition:
-			if (displayWarning || elapsedSincePrevTick > script.AccessorData.hotkeyThrottleInterval)
-			{
-				// Reset the sliding interval whenever it expires.  Doing it this way makes the
-				// sliding interval more sensitive than alternate methods might be.
-				// Also reset it if a warning was displayed, since in that case it didn't expire.
-				hkd.throttledKeyCount = 0;
-				hkd.throttlePrevTick = hkd.throttleNowTick;
-			}
-
-			// At this point, even though the user chose to continue, it seems safest
-			// to ignore this particular hotkey event since it might be WinClose or some
-			// other command that would have unpredictable results due to the displaying
-			// of the dialog itself.
-			if (displayWarning)
-				return Complete(ScriptEventExecutionResult.Dropped);
-
-			if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
-				return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
-
-			try
-			{
-				var executionResult = scheduler.TryInvokePseudoThread(variant.priority, false, false, btv =>
+				try
 				{
+					var btv = thread.ThreadVariables;
 					btv.eventInfo = HookEventInfo.Materialize(eventInfo);
-					var callbackExecuted = false;
-					_ = Keysharp.Internals.Flow.TryCatch(() =>
-					{
-						// This is stored as an attribute of the script (semi-globally) rather than passed
-						// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
-						// makes) because it's possible for SendKeys to be called asynchronously, namely
-						// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
-						// in which case we would want SendKeys() to take note of these modifiers even
-						// if it was called from an ExecUntil() other than ours here:
-						ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
-						script.SetHotNamesAndTimes(Name);
+
+					// This is stored as an attribute of the script (semi-globally) rather than passed
+					// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
+					// makes) because it's possible for SendKeys to be called asynchronously, namely
+					// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
+					// in which case we would want SendKeys() to take note of these modifiers even
+					// if it was called from an ExecUntil() other than ours here:
+						script.HookThread.kbdMsSender.thisHotkeyModifiersLR = definition.modifiersConsolidatedLR;
+						script.SetHotNamesAndTimes(definition.Name);
 						binding.ReleasePending();
-						var finalCritFoundHwnd = critFoundHwnd;
 
-						// Final #HotIf validation at execution time to minimize drift between trigger receipt and callback.
-						// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
-						if (critFoundHwnd == 0 && variant.hotCriterion != null)
-						{
-							finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name, eventInfo);
+						if (!TryResolveCriterionHwnd(out var finalCritFoundHwnd))
+							return Complete(ScriptEventExecutionResult.Dropped);
 
-							if (finalCritFoundHwnd == 0L)
-								return;
+					_ = Interlocked.Increment(ref binding.ExistingThreads);
 
-							finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
-						}
+					try
+					{
+						if (eventInfo == null && MouseUtils.IsWheelVK(definition.vk)) // Fallback for legacy/internal callers without hook metadata.
+							A_EventInfo = (long)Conversions.LowWord(lParamVal);
 
-						_ = Interlocked.Increment(ref binding.ExistingThreads);
+						A_SendLevel = variant.inputLevel;
+						btv.hwndLastUsed = new nint(finalCritFoundHwnd);
+						btv.hotCriterion = variant.hotCriterion;
+						_ = callback.Call([definition.Name]);
+						callbackExecuted = true;
+					}
+					finally
+					{
+						_ = Interlocked.Decrement(ref binding.ExistingThreads);
+					}
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
 
-						try
-						{
-							if (eventInfo == null && MouseUtils.IsWheelVK(vk)) // Fallback for legacy/internal callers without hook metadata.
-								A_EventInfo = (long)Conversions.LowWord(lParamVal);
-
-							A_SendLevel = variant.inputLevel;
-							btv.hwndLastUsed = new nint(finalCritFoundHwnd);
-							btv.hotCriterion = variant.hotCriterion;
-							_ = callback.Call([Name]);
-							callbackExecuted = true;
-						}
-						finally
-						{
-							_ = Interlocked.Decrement(ref binding.ExistingThreads);
-						}
-					});
-					return callbackExecuted;
-				}, out bool callbackExecuted);
-
-				return executionResult == ScriptEventExecutionResult.Executed && !callbackExecuted
-					? Complete(ScriptEventExecutionResult.Dropped)
-					: Complete(executionResult);
-			}
-			catch (KeysharpException ex)
-			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
+				return callbackExecuted
+					? Complete(ScriptEventExecutionResult.Executed)
+					: Complete(ScriptEventExecutionResult.Dropped);
 			}
 
-			return Complete(ScriptEventExecutionResult.Dropped);
-		}
+				private ScriptEventExecutionResult Complete(ScriptEventExecutionResult result)
+				{
+					if (result == ScriptEventExecutionResult.Dropped)
+						binding.ReleasePending();
+
+					return result;
+				}
+
+				private bool TryResolveCriterionHwnd(out long finalCritFoundHwnd)
+				{
+					finalCritFoundHwnd = critFoundHwnd;
+
+					// Re-check only when the hook/receipt path did not already evaluate #HotIf.
+					if (critFoundHwnd != 0 || variant.hotCriterion == null)
+						return true;
+
+					finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, definition.Name, eventInfo);
+
+					if (finalCritFoundHwnd == 0L)
+						return false;
+
+					finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
+					return true;
+				}
+
+				private static bool ShouldDropForThrottle(Script script)
+				{
+					var hkd = script.HotkeyData;
+
+					if (hkd.dialogIsDisplayed)
+						return true;
+
+					var nowTick = Environment.TickCount64;
+
+					if (hkd.throttlePrevTick == long.MinValue)
+						hkd.throttlePrevTick = nowTick;
+
+					hkd.throttledKeyCount++;
+					hkd.throttleNowTick = nowTick;
+					var elapsedSincePrevTick = hkd.throttleNowTick - hkd.throttlePrevTick;
+					var displayWarning = hkd.throttledKeyCount > script.AccessorData.maxHotkeysPerInterval
+						&& elapsedSincePrevTick < script.AccessorData.hotkeyThrottleInterval;
+
+					if (displayWarning)
+						ShowThrottleWarning(script, hkd, elapsedSincePrevTick);
+
+					if (displayWarning || elapsedSincePrevTick > script.AccessorData.hotkeyThrottleInterval)
+					{
+						hkd.throttledKeyCount = 0;
+						hkd.throttlePrevTick = hkd.throttleNowTick;
+					}
+
+					return displayWarning;
+				}
+
+				private static void ShowThrottleWarning(Script script, HotkeyData hkd, long elapsedSincePrevTick)
+				{
+					var errorText = $"{hkd.throttledKeyCount} hotkeys have been received in the last {elapsedSincePrevTick}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";
+					hkd.dialogIsDisplayed = true;
+					script.FlowData.allowInterruption = false;
+
+					if (Dialogs.MsgBox(errorText, null, "YesNo") == DialogResult.No.ToString())
+						_ = Keysharp.Internals.Flow.ExitAppInternal(Keysharp.Builtins.Flow.ExitReasons.Close, null, false);
+
+					script.FlowData.allowInterruption = true;
+					hkd.dialogIsDisplayed = false;
+				}
+			}
 
 		internal ResultType Register()
 		{

@@ -530,71 +530,71 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			var script = Script.TheScript;
 			var targetScheduler = ownerScheduler ?? script.UIEventScheduler;
-			_ = targetScheduler.Enqueue(ScriptEventQueue.Interactive, priority, () =>
-				TryExecuteBufferedHotstringEvent(targetScheduler, criterionFoundHwnd, recheckCriterionOnReceipt, caseMode, endChar, triggerVk, skipChars));
+			var queuedEvent = new HotstringQueuedEvent(this, targetScheduler, criterionFoundHwnd, recheckCriterionOnReceipt, caseMode, endChar, triggerVk, skipChars);
+			_ = targetScheduler.Enqueue(ScriptEventQueue.Interactive, priority, queuedEvent.Execute);
 			return ResultType.Ok;
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotstringEvent(ScriptEventScheduler scheduler, long criterionFoundHwnd, bool recheckCriterionOnReceipt, CaseConformModes caseMode, char endChar, uint triggerVk, int skipChars)
+		private sealed class HotstringQueuedEvent(HotstringDefinition definition, ScriptEventScheduler scheduler, long criterionFoundHwnd, bool recheckCriterionOnReceipt, CaseConformModes caseMode, char endChar, uint triggerVk, int skipChars)
 		{
-			var script = Script.TheScript;
-
-			if (!AnyThreadsAvailable())
-				return ScriptEventExecutionResult.Dropped;
-
-			try
+			internal ScriptEventExecutionResult Execute()
 			{
-				var executionResult = scheduler.TryInvokePseudoThread(priority, false, false, btv =>
+				if (!definition.AnyThreadsAvailable())
+					return ScriptEventExecutionResult.Dropped;
+
+				using var thread = scheduler.StartPseudoThreadScope(definition.priority, false, false, false);
+				if (!thread.Started)
+					return thread.Result;
+
+				var script = Script.TheScript;
+				var callbackExecuted = false;
+
+				try
 				{
-					var callbackExecuted = false;
-					_ = Keysharp.Internals.Flow.TryCatch(() =>
+					var hwndCritFound = criterionFoundHwnd;
+
+					if (recheckCriterionOnReceipt && definition.hotCriterion != null)
 					{
-						var hwndCritFound = criterionFoundHwnd;
+						hwndCritFound = HotkeyDefinition.HotCriterionAllowsFiring(definition.hotCriterion, definition.Name);
 
-						if (recheckCriterionOnReceipt && hotCriterion != null)
-						{
-							hwndCritFound = HotkeyDefinition.HotCriterionAllowsFiring(hotCriterion, Name);
+						if (hwndCritFound == 0)
+							return ScriptEventExecutionResult.Dropped;
+					}
 
-							if (hwndCritFound == 0)
-								return;
-						}
+					hwndCritFound = HotkeyDefinition.NormalizeCriterionFoundHwnd(definition.hotCriterion, hwndCritFound);
 
-						hwndCritFound = HotkeyDefinition.NormalizeCriterionFoundHwnd(hotCriterion, hwndCritFound);
+					script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
+					A_EndChar = definition.endCharRequired ? endChar.ToString() : "";
+					script.SetHotNamesAndTimes(definition.Name);
+					_ = Interlocked.Increment(ref definition.existingThreads);
 
-						script.HookThread.kbdMsSender.thisHotkeyModifiersLR = 0;
-						A_EndChar = endCharRequired ? endChar.ToString() : "";
-						script.SetHotNamesAndTimes(Name);
-						_ = Interlocked.Increment(ref existingThreads);
+					try
+					{
+						var btv = thread.ThreadVariables;
+						btv.configData.sendLevel = definition.inputLevel;
+						btv.hwndLastUsed = new nint(hwndCritFound);
+						btv.hotCriterion = definition.hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
+						definition.DoReplace(caseMode, endChar, triggerVk, skipChars);
 
-						try
-						{
-							btv.configData.sendLevel = inputLevel;
-							btv.hwndLastUsed = new nint(hwndCritFound);
-							btv.hotCriterion = hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
-							DoReplace(caseMode, endChar, triggerVk, skipChars);
+						if (string.IsNullOrEmpty(definition.replacement))
+							_ = definition.funcObj.Call([definition.Name]);
 
-							if (string.IsNullOrEmpty(replacement))
-								_ = funcObj.Call([Name]);
+						callbackExecuted = true;
+					}
+					finally
+					{
+						_ = Interlocked.Decrement(ref definition.existingThreads);
+					}
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
 
-							callbackExecuted = true;
-						}
-						finally
-						{
-							_ = Interlocked.Decrement(ref existingThreads);
-						}
-					});
-
-					return callbackExecuted;
-				}, out _);
-
-				return executionResult;
+				return callbackExecuted
+					? ScriptEventExecutionResult.Executed
+					: ScriptEventExecutionResult.Dropped;
 			}
-			catch (KeysharpException ex)
-			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotstring handler.\n\n{ex}", null, "iconx");
-			}
-
-			return ScriptEventExecutionResult.Dropped;
 		}
 
 		[Flags]

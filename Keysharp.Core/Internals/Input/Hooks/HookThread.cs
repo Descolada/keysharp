@@ -4384,7 +4384,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (Thread.CurrentThread.ManagedThreadId == script.ManagedMainThreadID)
 			{
-				script.UIEventScheduler.PumpPendingEvents();
+				script.UIEventScheduler.PumpThreadQueuedEvents();
 				return;
 			}
 

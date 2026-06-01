@@ -36,6 +36,11 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<WarningLevel>8</WarningLevel>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+		<!-- Precompile IL to native code at publish time. This roughly halves cold startup (and therefore
+		     Reload) by eliminating first-call JIT of the large Roslyn and Keysharp.Core assemblies that are
+		     recompiled fresh on every launch. Only applies to `dotnet publish -r <rid>`; ignored by `build`.
+		     Costs roughly 2x publish size. The JIT stays available, so runtime Roslyn compilation still works. -->
+		<PublishReadyToRun>true</PublishReadyToRun>
 		<!-- <PublishSingleFile>true</PublishSingleFile>
 		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract> -->
 	</PropertyGroup>

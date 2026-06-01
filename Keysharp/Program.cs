@@ -226,7 +226,7 @@ namespace Keysharp.Main
 
 				byte[] arr = null;
 				string result = null;
-				(arr, result) = ch.CompileCodeToByteArray(scriptName, namenoext, exeDir, minimalexeout);
+				(arr, result) = ch.CompileCodeToByteArray(scriptName, namenoext, exeDir, minimalexeout, codeout);
 
 				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
 				if (codeout)

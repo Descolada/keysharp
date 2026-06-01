@@ -698,7 +698,7 @@ using String = Keysharp.Builtins.String
 
 		internal string CreateEscapedIdentifier(string variable) => provider.CreateEscapedIdentifier(variable);
 
-		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false)
+		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false)
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
@@ -722,14 +722,22 @@ using String = Keysharp.Builtins.String
 				return (null, sb.ToString());
 			}
 
-			var code = PrettyPrinter.Print(unit);
+			// PrettyPrinter.Print walks the whole syntax tree and is comparatively expensive, so only
+			// generate the C# source when a caller actually wants it (emitCode, e.g. --codeout) or when a
+			// compile error occurs and we need it for diagnostics. Debug builds always produce it to
+			// validate PrettyPrinter against Roslyn's own normalizer.
+			string code = null;
+			string GetCode() => code ??= PrettyPrinter.Print(unit);
 #if DEBUG
 			var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
-			if (code != normalized)
+			if (GetCode() != normalized)
 			{
 				throw new Exception("Code formatting mismatch");
 			}
 #endif
+
+			if (emitCode)
+				_ = GetCode();
 
 			var (results, ms, compileexc) = Compile(unit, assemblyName, exeDir, minimalexeout);
 
@@ -737,7 +745,7 @@ using String = Keysharp.Builtins.String
 			{
 				if (results == null)
 				{
-					return (null, $"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{code}");
+					return (null, $"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{GetCode()}");
 				}
 				else if (results.Success)
 				{
@@ -747,7 +755,7 @@ using String = Keysharp.Builtins.String
 				}
 				else
 				{
-					return (null, HandleCompilerErrors(results.Diagnostics, assemblyName, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
+					return (null, HandleCompilerErrors(results.Diagnostics, assemblyName, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + GetCode());
 				}
 			}
 			finally

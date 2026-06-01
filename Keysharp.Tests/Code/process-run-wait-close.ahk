@@ -30,17 +30,15 @@
 #else
 	pid := 0
 	Run("/usr/bin/sleep", "", "max", &pid, "60")
-	ProcessWait(pid)
+	ProcessWait(pid, 2)
 	exists := ProcessExist(pid)
 
 	if (exists != 0)
 	{
-		Sleep(2000)
 		ProcessClose(pid)
-		ProcessWaitClose(pid)
+		ProcessWaitClose(pid, 5)
 	}
 
-	Sleep(1000)
 	exists := ProcessExist(pid)
 
 	if (exists == 0)

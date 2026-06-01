@@ -3,7 +3,7 @@
     <!-- Normalize source paths embedded in PDBs so build-machine absolute paths
          (e.g. /home/<user>/...) don't leak into shipped binaries and stack traces -->
     <Deterministic>true</Deterministic>
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <ContinuousIntegrationBuild Condition="'$(Configuration)' != 'Debug' or '$(CI)' == 'true' or '$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
 
     <!-- Put all Keysharp project outputs under a shared bin folder (e.g., bin/Debug/net9.0) -->
     <BaseOutputPath>$(MSBuildThisFileDirectory)bin/</BaseOutputPath>

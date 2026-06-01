@@ -1019,9 +1019,13 @@ namespace Keyview
 			inputArea.Wrap = true;
 			outputArea.Wrap = true;
 			inputArea.TextChanged += InputArea_TextChanged;
+#if LINUX
+			KeyDown += InputArea_KeyDown;
+#else
 			inputArea.KeyDown += InputArea_KeyDown;
-			inputArea.MouseUp += (_, _) => UpdateSelectionSnapshot();
 			outputArea.KeyDown += InputArea_KeyDown;
+#endif
+			inputArea.MouseUp += (_, _) => UpdateSelectionSnapshot();
 		}
 
 		private static Font TryMonospaceFont(float size)
@@ -1210,7 +1214,9 @@ namespace Keyview
 
 		private void InputArea_KeyDown(object sender, KeyEventArgs e)
 		{
-			if (ReferenceEquals(sender, inputArea))
+			var inputIsTarget = ReferenceEquals(sender, inputArea) || inputArea.HasFocus;
+
+			if (inputIsTarget)
 				UpdateSelectionSnapshot();
 
 			if (e.Key == Keys.F5)
@@ -1233,7 +1239,7 @@ namespace Keyview
 				return;
 			}
 
-			if (ReferenceEquals(sender, inputArea))
+			if (inputIsTarget)
 			{
 				if (e.Key == Keys.Z && e.Modifiers == Keys.Control)
 				{

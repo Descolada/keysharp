@@ -987,7 +987,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// any sender that needs state to be current within the same hotkey
 			// dispatch must update it synchronously at the send site (see
 			// InputdKeyboardMouseSender.SendKeybdEvent).
-			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
 			return result != 0;
 		}
@@ -1053,7 +1053,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			};
 
 			var args = new MouseHookEventArgs(raw);
-			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			return result != 0;
 		}
 
@@ -1081,7 +1081,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			};
 
 			var args = new MouseWheelHookEventArgs(raw);
-			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
+			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
 			return result != 0;
 		}
 
@@ -1913,7 +1913,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var extraInfo = (ulong)KeyboardMouseSender.KeyIgnoreLevel(eventLevel);
 			var lParam = new nint(KeyboardUtils.MakeLong((short)sc, (short)eventLevel));
 
-			if (!TryBuildHookHotkeyMessage(hotkeyId, extraInfo, null, out var hotkeyMsg))
+			if (!TryBuildHookHotkeyMessage(hotkeyId, extraInfo, null, null, out var hotkeyMsg))
 				return;
 
 			_ = PostMessage(new KeysharpMsg
@@ -2122,7 +2122,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return result;
 		}
 
-		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0)
+		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0, object eventInfo = null)
 		{
 			if (UsePlatformHotstringArming && hs != null)
 				DisarmHotstring();
@@ -2145,7 +2145,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 			}
 
-			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars);
+			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars, eventInfo);
 		}
 
 		internal override void PrepareToSendHotstringReplacement(char endChar, uint triggerVk)
@@ -2279,7 +2279,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 
 		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
-										, CollectInputState state, KeyHistoryItem keyHistoryCurr)
+										, CollectInputState state, KeyHistoryItem keyHistoryCurr, object eventInfo)
 		// Returns true if the caller should treat the key as visible (non-suppressed).
 		// Always use the parameter aVK rather than event.vkCode because the caller or caller's caller
 		// might have adjusted aVK, such as to make it a left/right specific modifier key rather than a
@@ -2290,7 +2290,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			state.used_dead_key_non_destructively = false;
 			state.charCount = 0;
 
-			if (keyUp && !CollectKeyUp(extraInfo, vk, sc, true))
+			if (keyUp && !CollectKeyUp(extraInfo, vk, sc, true, eventInfo))
 				return false;
 
 			// The checks above suppress key-up if key-down was suppressed and the Input is still active.
@@ -2479,7 +2479,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			state.ch = ch;
 			state.charCount = charCount;
 
-			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, true))
+			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, true, eventInfo))
 				return false; // Suppress.
 
 			return true;//Visible.
@@ -2495,7 +2495,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			state.keyboardLayout = IntPtr.Zero;
 
 			if (keyUp)
-				return CollectKeyUp(extraInfo, vk, sc, true);
+				return CollectKeyUp(extraInfo, vk, sc, true, eventInfo);
 
 			// Mirror Windows logic: only transcribe when no modifiers, shift-only, or AltGr (Ctrl+Alt).
 			var mods = kbdMsSender.modifiersLRLogical;

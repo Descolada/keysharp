@@ -428,14 +428,18 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)
 		{
+			const KeysharpInputdClient.Capabilities hook =
+				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse;
 			const KeysharpInputdClient.Capabilities synth =
 				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse;
 
-			// Keep hook and synthesis grants independent. The daemon treats all
-			// requested capabilities as mandatory, so folding synthesis into a
-			// hook request would make hook installation fail when only hook
-			// access was granted.
-			if ((requested & synth) != 0)
+			// Hook-backed features can synthesize events later from the hook path
+			// (for example, remaps), so a hook grant includes synthesis to avoid
+			// a second prompt on first activation. Synthesis alone still does not
+			// imply hook access.
+			if ((requested & hook) != 0)
+				requested |= hook | synth;
+			else if ((requested & synth) != 0)
 				requested |= synth;
 
 			return requested;

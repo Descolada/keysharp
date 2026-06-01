@@ -15,6 +15,7 @@ namespace Keysharp.Internals.Threading
 	internal sealed class HookHotkeyMsg
 	{
 		internal long criterionFoundHwnd;
+		internal object eventInfo;
 		internal ulong extraInfo;
 		internal HotkeyVariant variant;
 	}
@@ -23,6 +24,7 @@ namespace Keysharp.Internals.Threading
 	{
 		//internal bool completed;
 		internal nint hwnd = 0;
+		internal object eventInfo;
 
 		internal nint lParam = 0;
 		internal uint message;

@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using Keysharp.Internals.Input.Hooks;
 using Keysharp.Runtime;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
@@ -750,7 +751,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// If present, they're removed.
 		/// </summary>
 		internal static HotkeyVariant CriterionFiringIsCertain(ref uint hotkeyIDwithFlags, bool _keyUp, ulong extraInfo
-				, ref bool fireWithNoSuppress, ref char? singleChar)
+				, ref bool fireWithNoSuppress, ref char? singleChar, object eventInfo = null)
 		{
 			// aHookAction isn't checked because this should never be called for alt-tab hotkeys (see other comments above).
 			var hotkeyId = hotkeyIDwithFlags & HOTKEY_ID_MASK;
@@ -798,7 +799,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// should fire.
 			var zero = 0L;
 
-			if ((vp = hk.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar)) != null)
+			if ((vp = hk.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar, eventInfo)) != null)
 			{
 				if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty (currently, this statement might always be true).
 					fireWithNoSuppress = (vp.noSuppress & AT_LEAST_ONE_VARIANT_HAS_TILDE) != 0;
@@ -855,7 +856,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					   )
 					{
 						// The following section is similar to one higher above, so maintain them together:
-						if ((vp = hk2.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar)) != null)
+						if ((vp = hk2.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar, eventInfo)) != null)
 						{
 							if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty (currently, this statement might always be true).
 								fireWithNoSuppress = (vp.noSuppress & AT_LEAST_ONE_VARIANT_HAS_TILDE) != 0;
@@ -1321,7 +1322,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="criterion"></param>
 		/// <param name="hotkeyName"></param>
 		/// <returns></returns>
-		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName)
+		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName, object eventInfo = null)
 		{
 			if (criterion == null)
 				return 1L;
@@ -1329,13 +1330,17 @@ namespace Keysharp.Internals.Input.Keyboard
 			var criterionType = GetHotCriterionType(criterion);
 			Exception error = null;
 			var result = 0L;
-
 			var task = Task.Run(() =>
 			{
 				hotExprLastFoundHwnd = 0L;
+				var script = Script.TheScript;
+				script.Threads.EnsureCurrentThreadVariables();
+				var tv = script.Threads.CurrentThread;
+				var oldEventInfo = tv.eventInfo;
 
 				try
 				{
+					tv.eventInfo = HookEventInfo.Materialize(eventInfo);
 					var val = criterion.Call(hotkeyName);
 					var foundHwnd = hotExprLastFoundHwnd;
 
@@ -1357,6 +1362,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				}
 				finally
 				{
+					tv.eventInfo = oldEventInfo;
 					hotExprLastFoundHwnd = 0L;
 				}
 			});
@@ -2036,7 +2042,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// when the match is a global variant.  Even when set, aFoundHWND will be (HWND)1 for
 		/// "not-criteria" such as #HotIf Not WinActive().
 		/// </summary>
-		internal HotkeyVariant CriterionAllowsFiring(ref long foundHwnd, ulong extraInfo, ref char? singleChar)
+		internal HotkeyVariant CriterionAllowsFiring(ref long foundHwnd, ulong extraInfo, ref char? singleChar, object eventInfo = null)
 		{
 			// Check mParentEnabled in case the hotkey became disabled between the time the message was posted
 			// and the time it arrived.  A similar check is done for "suspend" later below (since "suspend"
@@ -2060,7 +2066,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (vp.HasEnabledBindings() // This particular variant within its parent hotkey is enabled.
 						&& (!A_IsSuspended || vp.suspendExempt) // This variant isn't suspended...
 						&& KeyboardMouseSender.HotInputLevelAllowsFiring(vp.inputLevel, extraInfo, ref singleChar) // ... its #InputLevel allows it to fire...
-						&& (vp.hotCriterion == null || ((foundHwnd = HotCriterionAllowsFiring(vp.hotCriterion, Name)) != 0L))) // ... and its criteria allow it to fire.
+						&& (vp.hotCriterion == null || ((foundHwnd = HotCriterionAllowsFiring(vp.hotCriterion, Name, eventInfo)) != 0L))) // ... and its criteria allow it to fire.
 				{
 					if (vp.hotCriterion != null) // Since this is the first criteria hotkey, it takes precedence.
 						return vp;
@@ -2124,7 +2130,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="variant"></param>
 		/// <param name="critFoundHwnd"></param>
 		/// <param name="lParamVal"></param>
-		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
+		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal, object eventInfo = null)
 		{
 			foreach (var binding in variant.GetActiveBindings())
 			{
@@ -2134,12 +2140,12 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (!binding.TryReservePending(scheduler, callback, variant.maxThreads, variant.maxThreadsBuffer))
 					continue;
 
-				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal)))
+				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal, eventInfo)))
 					binding.ReleasePending();
 			}
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal)
+		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal, object eventInfo)
 		{
 			var script = Script.TheScript;
 			var hkd = script.HotkeyData;
@@ -2216,6 +2222,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			{
 				var executionResult = scheduler.TryInvokePseudoThread(variant.priority, false, false, btv =>
 				{
+					btv.eventInfo = HookEventInfo.Materialize(eventInfo);
 					var callbackExecuted = false;
 					_ = Keysharp.Internals.Flow.TryCatch(() =>
 					{
@@ -2234,7 +2241,7 @@ namespace Keysharp.Internals.Input.Keyboard
 						// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
 						if (critFoundHwnd == 0 && variant.hotCriterion != null)
 						{
-							finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name);
+							finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name, eventInfo);
 
 							if (finalCritFoundHwnd == 0L)
 								return;
@@ -2246,7 +2253,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 						try
 						{
-							if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
+							if (eventInfo == null && MouseUtils.IsWheelVK(vk)) // Fallback for legacy/internal callers without hook metadata.
 								A_EventInfo = (long)Conversions.LowWord(lParamVal);
 
 							A_SendLevel = variant.inputLevel;

@@ -6,14 +6,21 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ASSETS_DIR="${ROOT}/Keysharp.Install/linux"
 CONFIG="${CONFIG:-Release}"
 RID="${RID:-linux-x64}"
-TFM="${TFM:-net10.0}"
 DIST_DIR="${ROOT}/dist"
+ETO_DIR="$(cd "${ROOT}/../Eto" 2>/dev/null && pwd || true)"
+PATH_MAP="${ROOT}=/_/keysharp"
+if [[ -n "${ETO_DIR}" ]]; then
+  PATH_MAP="${PATH_MAP}%2c${ETO_DIR}=/_/Eto"
+fi
+PUBLISH_DIR="${DIST_DIR}/publish/${RID}"
+STAGING_DIR="${DIST_DIR}/staging/${RID}"
+PACKAGE_ROOT_DIR="${DIST_DIR}/package-root"
 PKG_NAME="keysharp-${RID}"
-PKG_DIR="${DIST_DIR}/${PKG_NAME}"
+PKG_DIR="${STAGING_DIR}/${PKG_NAME}"
 APP_DIR="${PKG_DIR}/app"
 VERSION="${VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "${ROOT}/Keysharp/Keysharp.csproj" | head -n 1)}"
 DEB_PKG_NAME="${DEB_PKG_NAME:-keysharp}"
-DEB_TMP_DIR="${DIST_DIR}/${PKG_NAME}-deb"
+DEB_TMP_DIR="${PACKAGE_ROOT_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
 DEB_ARCH=""
 DEB_DEPENDS="dotnet-runtime-10.0, libx11-6, libxtst6, libxinerama1, libxt6, libx11-xcb1, libxkbcommon-x11-0, libxcb-xtest0, libgtk-3-0, libglib2.0-0, libnotify4, libatspi2.0-0, at-spi2-core, pulseaudio-utils, libudev1, libevdev2, systemd, kmod"
@@ -49,8 +56,8 @@ rewrite_desktop_exec() {
 }
 
 build_native_helpers() {
-  local inputd_build_dir="${DIST_DIR}/native-keysharp-inputd-${RID}"
-  local kwin_build_dir="${DIST_DIR}/native-keysharp-screencap-${RID}"
+  local inputd_build_dir="${STAGING_DIR}/native-keysharp-inputd-${RID}"
+  local kwin_build_dir="${STAGING_DIR}/native-keysharp-screencap-${RID}"
 
   if [[ "${RID}" != linux-* ]]; then
     return
@@ -95,6 +102,32 @@ normalize_app_permissions() {
       chmod 0755 "${APP_DIR}/${exe}"
     fi
   done
+}
+
+verify_no_local_paths() {
+  local scan_dir="$1"
+  local found=0
+  local patterns=("${ROOT}")
+
+  if [[ -n "${HOME:-}" ]]; then
+    patterns+=("${HOME}")
+  fi
+
+  if [[ -n "${ETO_DIR}" ]]; then
+    patterns+=("${ETO_DIR}")
+  fi
+
+  echo "Checking packaged files for local absolute paths..."
+  for pattern in "${patterns[@]}"; do
+    if rg -a -F -n --max-count 20 "${pattern}" "${scan_dir}"; then
+      found=1
+    fi
+  done
+
+  if [[ "${found}" -ne 0 ]]; then
+    echo "Package payload contains local absolute paths. Rebuild with path mapping before packaging." >&2
+    exit 1
+  fi
 }
 
 write_deb_control() {
@@ -369,7 +402,7 @@ EOF
 build_tarball() {
   local tarball="${DIST_DIR}/${PKG_NAME}.tar.gz"
   echo "Creating tarball ${tarball}..."
-  tar -czf "${tarball}" -C "${DIST_DIR}" "${PKG_NAME}"
+  tar -czf "${tarball}" -C "${STAGING_DIR}" "${PKG_NAME}"
   echo "Tarball ready at ${tarball}"
 }
 
@@ -465,16 +498,21 @@ build_deb() {
 
 echo "Publishing Keysharp and Keyview (CONFIG=${CONFIG}, RID=${RID})..."
 mkdir -p "${DIST_DIR}"
-dotnet publish "${ROOT}/Keysharp/Keysharp.csproj" -c "${CONFIG}" -r "${RID}"
-dotnet publish "${ROOT}/Keyview/Keyview.csproj" -c "${CONFIG}" -r "${RID}"
+rm -rf "${PUBLISH_DIR}/Keysharp" "${PUBLISH_DIR}/Keyview"
+dotnet publish "${ROOT}/Keysharp.sln" -c "${CONFIG}" -r "${RID}" \
+  -p:Deterministic=true \
+  -p:ContinuousIntegrationBuild=true \
+  -p:PathMap="${PATH_MAP}"
 
 echo "Staging package at ${PKG_DIR}..."
 rm -rf "${PKG_DIR}"
 mkdir -p "${APP_DIR}"
 
-rsync -a "${ROOT}/bin/${CONFIG}/${TFM}/${RID}/publish/" "${APP_DIR}/"
+rsync -a "${PUBLISH_DIR}/Keysharp/" "${APP_DIR}/"
+rsync -a "${PUBLISH_DIR}/Keyview/" "${APP_DIR}/"
 build_native_helpers
 normalize_app_permissions
+verify_no_local_paths "${APP_DIR}"
 
 # Copy installer assets
 cp "${ASSETS_DIR}/install.sh" "${ASSETS_DIR}/uninstall.sh" "${PKG_DIR}/"

@@ -12,6 +12,32 @@
     <AppendRuntimeIdentifierToOutputPath>true</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview'">
+    <IsKeysharpShippingProject>true</IsKeysharpShippingProject>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('Windows'))">
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('Linux'))">
+    <RuntimeIdentifiers>linux-x64;linux-arm64;linux-arm</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND $([MSBuild]::IsOSPlatform('OSX'))">
+    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsKeysharpShippingProject)' == 'true' AND '$(RuntimeIdentifier)' != '' AND '$(PublishDir)' == ''">
+    <PublishDir>$(MSBuildThisFileDirectory)dist/publish/$(RuntimeIdentifier)/$(MSBuildProjectName)/</PublishDir>
+  </PropertyGroup>
+
+  <Target Name="RequireRuntimeIdentifierForShippingPublish"
+          BeforeTargets="Publish"
+          Condition="'$(IsKeysharpShippingProject)' == 'true' AND '$(RuntimeIdentifier)' == ''">
+    <Error Text="Keysharp and Keyview publish output is always RID-specific. Publish with a runtime identifier, for example: dotnet publish $(MSBuildProjectName)/$(MSBuildProjectName).csproj -c Release -r win-x64" />
+  </Target>
+
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) AND ('$(MSBuildProjectName)' == 'Keysharp' OR '$(MSBuildProjectName)' == 'Keyview' OR '$(MSBuildProjectName)' == 'Keysharp.OutputTest')">
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">osx-arm64</RuntimeIdentifier>
   </PropertyGroup>

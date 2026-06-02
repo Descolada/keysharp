@@ -18,6 +18,7 @@
 	</PropertyGroup>
 
 	<PropertyGroup>
+		<IsPublishable>false</IsPublishable>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
 		<AssemblyName>Keysharp.Core</AssemblyName>

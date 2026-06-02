@@ -166,7 +166,44 @@ namespace Keysharp.Tests
 #else
 		public void ClipWait()
 		{
-			Assert.Ignore("ClipWait test currently requires Windows clipboard APIs.");
+			var clip = Clipboard.Instance;
+
+			if (clip == null)
+				Assert.Ignore("Clipboard is unavailable in this headless Linux environment.");
+
+			//Verify the clipboard is actually functional in this session; otherwise treat as headless.
+			clip.Clear();
+			clip.Text = "probe";
+
+			if (!clip.ContainsText)
+				Assert.Ignore("Clipboard text is unavailable in this headless Linux environment.");
+
+			AssertClipWaitTimeoutAfterClear();
+
+			//Text satisfies both the "any" wait and the "text or files" wait.
+			clip.Clear();
+			clip.Text = "test text";
+			AssertClipboardState(() => clip.ContainsText, "Clipboard text did not appear.");
+			Assert.AreEqual(true, Env.ClipWait(null, true));//Wait indefinitely for any type.
+			Assert.AreEqual(true, Env.ClipWait(1));//Wait for text/files.
+
+			//File URIs satisfy the "text or files" wait (this is how file copies surface on Eto/Gtk).
+			clip.Clear();
+			clip.Uris = [new Uri(Path.GetFullPath("./testfile1.txt"))];
+			AssertClipboardState(() => clip.ContainsUris, "Clipboard URI data did not appear.");
+			Assert.AreEqual(true, Env.ClipWait());//Wait indefinitely for text/files.
+
+			//An image alone must NOT satisfy the "text or files" wait (so it times out),
+			//but it does satisfy the "any" wait.
+			clip.Clear();
+			using var bitmap = new Bitmap(640, 480, PixelFormat.Format32bppRgba);
+			clip.Image = bitmap;
+			AssertClipboardState(() => clip.ContainsImage, "Clipboard image did not appear.");
+			Assert.AreEqual(false, Env.ClipWait(1));//Times out: image is neither text nor files.
+			Assert.AreEqual(true, Env.ClipWait(1, true));//Any type: detects the image.
+
+			//env-clipwait.ahk expects an image to already be on the clipboard (set just above).
+			Assert.IsTrue(TestScript("env-clipwait", true));
 		}
 #endif
 
@@ -181,7 +218,6 @@ namespace Keysharp.Tests
 				Clipboard.Clear();
 #else
 				Clipboard.Instance.Clear();
-				Clipboard.Instance.Text = "";
 #endif
 				AssertClipboardState(Ks.IsClipboardEmpty, "Clipboard should be empty before ClipWait timeout test.");
 				var dt = DateTime.UtcNow;

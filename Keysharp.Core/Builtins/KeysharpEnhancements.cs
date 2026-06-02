@@ -82,7 +82,19 @@ namespace Keysharp.Builtins
 #if WINDOWS
 			return !dataFormats.Any(Clipboard.ContainsData);
 #else
-			return !dataFormats.Any(Clipboard.Instance.Contains);
+			var clip = Clipboard.Instance;
+
+			if (clip == null)
+				return true;
+
+			//Eto's DataFormats field names don't match the underlying GTK/native clipboard target
+			//identifiers, so reflecting over them never matches. Query Eto's typed accessors directly,
+			//and fall back to the raw list of available types for anything else.
+			return !clip.ContainsText
+				&& !clip.ContainsHtml
+				&& !clip.ContainsImage
+				&& !clip.ContainsUris
+				&& (clip.Types?.Length ?? 0) == 0;
 #endif
 		}
 

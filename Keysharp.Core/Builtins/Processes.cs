@@ -785,7 +785,7 @@ namespace Keysharp.Builtins
 		/// Returns a KeysharpFile wrapping the standard input stream.
 		/// </summary>
 		private object _StdIn = null;
-		public object StdIn => _StdIn ??= new KeysharpFile(_process.StandardInput, true);
+		public object StdIn => _StdIn ??= new KeysharpFile(_process.StandardInput);
 		/// <summary>
 		/// Immediately kills the underlying process.
 		/// </summary>

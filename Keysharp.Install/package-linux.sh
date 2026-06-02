@@ -508,8 +508,8 @@ echo "Staging package at ${PKG_DIR}..."
 rm -rf "${PKG_DIR}"
 mkdir -p "${APP_DIR}"
 
-rsync -a "${PUBLISH_DIR}/Keysharp/" "${APP_DIR}/"
 rsync -a "${PUBLISH_DIR}/Keyview/" "${APP_DIR}/"
+rsync -a "${PUBLISH_DIR}/Keysharp/" "${APP_DIR}/"
 build_native_helpers
 normalize_app_permissions
 verify_no_local_paths "${APP_DIR}"

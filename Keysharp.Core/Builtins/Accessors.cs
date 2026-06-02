@@ -1586,7 +1586,7 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// The file name of the script.
 		/// </summary>
-		public static string A_ScriptName => Script.TheScript.scriptName;
+		public static string A_ScriptName => Script.TheScript?.scriptName;
 
 		/// <summary>
 		/// Current 2-digit second (00-59).

@@ -310,7 +310,7 @@ namespace Keysharp.Internals.Scripting
 		{
 			if (error)
 			{
-				ch.PrintCompilerErrors(text);
+				ch.ReportCompilerErrors(text);
 			}
 			else
 			{

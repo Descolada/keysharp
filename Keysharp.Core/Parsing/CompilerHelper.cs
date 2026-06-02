@@ -644,28 +644,34 @@ using String = Keysharp.Builtins.String
 			return (unit, errors);
 		}
 
-		public void PrintCompilerErrors(string s, bool stdout = false)
+		/// <summary>
+		/// Reports compiler errors to the user, either by writing them to the console or, for an
+		/// interactive run, by showing a fatal error dialog offering Edit/Reload/ExitApp.
+		/// </summary>
+		/// <param name="s">The error text to report.</param>
+		/// <param name="stdout">When true, write the errors to stdout instead of showing a dialog.</param>
+		/// <returns>True if the user chose "Reload" from the error dialog and the caller should restart the script.</returns>
+		public bool ReportCompilerErrors(string s, bool stdout = false)
 		{
 			if (parser.errorStdOut || Env.FindCommandLineArg("errorstdout") != null)
-			{
 				Console.Error.WriteLine(s);//For this to show on the command line, they need to pipe to more like: | more
-			}
+			else if (stdout)
+				Console.WriteLine(s);
+			else if (TryShowErrorDialog(s, out var reloadRequested))
+				return reloadRequested;
 			else
-			{
-				if (stdout)
-					Console.WriteLine(s);
-				else
-				{
-					if (!TryShowErrorMessageBox(s))
-						Console.Error.WriteLine(s);
-				}
-			}
+				Console.Error.WriteLine(s);
+
+			return false;
 		}
 
-		private static bool TryShowErrorMessageBox(string s)
+		private static bool TryShowErrorDialog(string s, out bool reloadRequested)
 		{
+			reloadRequested = false;
+			var fileToEdit = GetCurrentScriptFileToEdit();
+
 #if WINDOWS
-			_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			reloadRequested = ErrorDialog.ShowFatal(s, fileToEdit) == ErrorDialog.ErrorDialogResult.Reload;
 			return true;
 #else
 			if (Script.IsUiInitializationBlocked || Script.IsHeadless || Script.IsTestHost)
@@ -676,15 +682,21 @@ using String = Keysharp.Builtins.String
 				if (Application.Instance == null)
 					_ = new Application();
 
-				_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxType.Error);
+				reloadRequested = ErrorDialog.ShowFatal(s, fileToEdit) == ErrorDialog.ErrorDialogResult.Reload;
 				return true;
 			}
 			catch (Exception ex)
 			{
-				Ks.OutputDebugLine($"Unable to show compiler error message box: {ex.Message}");
+				Ks.OutputDebugLine($"Unable to show compiler error dialog: {ex.Message}");
 				return false;
 			}
 #endif
+		}
+
+		private static string GetCurrentScriptFileToEdit()
+		{
+			var path = Script.TheScript?.scriptPath;
+			return ScriptEditor.CanEditFile(path) ? path : null;
 		}
 
 		internal string CodeToString(CodeExpression expr)

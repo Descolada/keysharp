@@ -449,7 +449,8 @@ namespace Keysharp.Main
 
 			if (error)
 			{
-				ch.PrintCompilerErrors(text);
+				if (ch.ReportCompilerErrors(text))
+					return RestartCurrentProcess();
 			}
 			else
 			{
@@ -462,6 +463,46 @@ namespace Keysharp.Main
 			}
 
 			return error ? 1 : 0;
+		}
+
+		// Relaunches this process with the same arguments. Used when the user clicks "Reload"
+		// on a *compile-time* syntax-error dialog, which happens before the script ever runs.
+		// Flow.Reload() can't be used here: it posts the restart to the UI thread and waits for
+		// the running app to exit, but at this point the only message loop was the modal error
+		// dialog (now closed), so there is no pump to process the post and no script to exit.
+		// This also re-passes the managed dll path when running as "dotnet Keysharp.dll <script>".
+		private static int RestartCurrentProcess()
+		{
+			var processPath = Environment.ProcessPath;
+
+			if (processPath.IsNullOrEmpty())
+				return 1;
+
+			try
+			{
+				var args = Environment.GetCommandLineArgs();
+				var start = new ProcessStartInfo
+				{
+					FileName = processPath,
+					UseShellExecute = false,
+				};
+				var processName = Path.GetFileNameWithoutExtension(processPath);
+				var includeArg0 = args.Length > 0
+					&& processName.Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+					&& args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+				var firstArg = includeArg0 ? 0 : 1;
+
+				for (var i = firstArg; i < args.Length; i++)
+					start.ArgumentList.Add(args[i]);
+
+				_ = Process.Start(start);
+				return 0;
+			}
+			catch (Exception ex)
+			{
+				Console.Error.WriteLine($"Reload failed: {ex.Message}");
+				return 1;
+			}
 		}
 
 		private static bool TryShowInfoMessageBox(string text)

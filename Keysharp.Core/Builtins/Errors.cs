@@ -952,6 +952,296 @@ namespace Keysharp.Builtins
 		}
 	}
 
+	/// <summary>
+	/// Helpers for opening the script that caused an error in an external text editor,
+	/// shared by the platform-specific <see cref="ErrorDialog"/> implementations.
+	/// </summary>
+	internal static class ScriptEditor
+	{
+		/// <summary>
+		/// Returns true if <paramref name="fileToEdit"/> refers to a real file on disk that
+		/// can be opened in an editor (i.e. not empty, not the stdin marker "*").
+		/// </summary>
+		internal static bool CanEditFile(string fileToEdit)
+			=> !fileToEdit.IsNullOrEmpty() && fileToEdit != "*" && File.Exists(fileToEdit);
+
+		/// <summary>
+		/// Opens <paramref name="fileToEdit"/> in the user's text editor without running it.
+		/// </summary>
+		/// <returns>True if an editor was launched.</returns>
+		internal static bool TryEditFile(string fileToEdit)
+		{
+			if (!CanEditFile(fileToEdit))
+				return false;
+
+			try
+			{
+#if WINDOWS
+				_ = Process.Start(new ProcessStartInfo { FileName = "notepad.exe", UseShellExecute = true, ArgumentList = { fileToEdit } });
+				return true;
+#elif OSX
+				// "open -t" forces the default text editor instead of the file's associated app.
+				_ = Process.Start(new ProcessStartInfo { FileName = "open", UseShellExecute = false, ArgumentList = { "-t", fileToEdit } });
+				return true;
+#else
+				return TryEditFileLinux(fileToEdit);
+#endif
+			}
+			catch (Exception ex)
+			{
+				_ = Ks.OutputDebugLine($"Unable to edit script file '{fileToEdit}': {ex.Message}");
+				return false;
+			}
+		}
+
+#if !WINDOWS && !OSX
+		// Editors that are commonly the default text/plain handler, tried in order when the
+		// configured default cannot be resolved.
+		private static readonly string[] fallbackEditors =
+		{
+			"gnome-text-editor", "gedit", "kate", "kwrite", "mousepad", "xed", "pluma", "geany", "leafpad",
+		};
+
+		/// <summary>
+		/// Opens the file in a Linux text editor. ".ks" files are associated with Keysharp, so
+		/// xdg-open would re-run the broken script; instead resolve the default text/plain editor.
+		/// </summary>
+		private static bool TryEditFileLinux(string fileToEdit)
+		{
+			// 1) Honor the desktop's configured default editor for plain text.
+			var desktopId = RunCapture("xdg-mime", "query", "default", "text/plain");
+
+			if (!desktopId.IsNullOrEmpty() && TryLaunchDesktopEntry(desktopId, fileToEdit))
+				return true;
+
+			// 2) Fall back to the first known GUI editor available on PATH.
+			foreach (var editor in fallbackEditors)
+				if (TryStart(editor, fileToEdit))
+					return true;
+
+			return false;
+		}
+
+		private static bool TryStart(string fileName, string fileToEdit)
+		{
+			try
+			{
+				_ = Process.Start(new ProcessStartInfo { FileName = fileName, UseShellExecute = false, ArgumentList = { fileToEdit } });
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Resolves a .desktop file id (e.g. "org.gnome.gedit.desktop") to its executable and
+		/// launches it with the file, substituting the standard Exec field codes.
+		/// </summary>
+		private static bool TryLaunchDesktopEntry(string desktopId, string fileToEdit)
+		{
+			var desktopFile = ResolveDesktopFile(desktopId);
+
+			if (desktopFile == null)
+				return false;
+
+			var exec = ReadDesktopExec(desktopFile);
+
+			if (exec.IsNullOrEmpty())
+				return false;
+
+			var tokens = TokenizeExec(exec, fileToEdit);
+
+			if (tokens.Count == 0)
+				return false;
+
+			try
+			{
+				var psi = new ProcessStartInfo { FileName = tokens[0], UseShellExecute = false };
+
+				for (var i = 1; i < tokens.Count; i++)
+					psi.ArgumentList.Add(tokens[i]);
+
+				_ = Process.Start(psi);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static string ResolveDesktopFile(string desktopId)
+		{
+			foreach (var dir in ApplicationDirs())
+			{
+				var path = Path.Combine(dir, desktopId);
+
+				if (File.Exists(path))
+					return path;
+
+				// Desktop ids may encode subdirectories with '-', e.g. "kde-kate.desktop".
+				var nested = Path.Combine(dir, desktopId.Replace('-', Path.DirectorySeparatorChar));
+
+				if (File.Exists(nested))
+					return nested;
+			}
+
+			return null;
+		}
+
+		private static IEnumerable<string> ApplicationDirs()
+		{
+			var dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+
+			if (dataHome.IsNullOrEmpty())
+				dataHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+
+			yield return Path.Combine(dataHome, "applications");
+
+			var dataDirs = Environment.GetEnvironmentVariable("XDG_DATA_DIRS");
+
+			if (dataDirs.IsNullOrEmpty())
+				dataDirs = "/usr/local/share:/usr/share";
+
+			foreach (var dir in dataDirs.Split(':', StringSplitOptions.RemoveEmptyEntries))
+				yield return Path.Combine(dir, "applications");
+		}
+
+		/// <summary>
+		/// Reads the Exec= value from the [Desktop Entry] group of a .desktop file.
+		/// </summary>
+		private static string ReadDesktopExec(string desktopFile)
+		{
+			var inEntry = false;
+
+			foreach (var raw in File.ReadLines(desktopFile))
+			{
+				var line = raw.Trim();
+
+				if (line.StartsWith('[') && line.EndsWith(']'))
+					inEntry = line == "[Desktop Entry]"; // Ignore "Desktop Action" groups.
+				else if (inEntry && line.StartsWith("Exec=", StringComparison.Ordinal))
+					return line.Substring("Exec=".Length);
+			}
+
+			return null;
+		}
+
+		/// <summary>
+		/// Splits an Exec line into a program and arguments, resolving field codes. File
+		/// placeholders (%f %F %u %U) are replaced with the target file; other codes are dropped.
+		/// </summary>
+		private static List<string> TokenizeExec(string exec, string fileToEdit)
+		{
+			var tokens = new List<string>();
+			var sb = new System.Text.StringBuilder();
+			var quote = '\0';
+			var hasToken = false;
+
+			void Flush()
+			{
+				if (hasToken)
+				{
+					tokens.Add(sb.ToString());
+					_ = sb.Clear();
+					hasToken = false;
+				}
+			}
+
+			for (var i = 0; i < exec.Length; i++)
+			{
+				var c = exec[i];
+
+				if (quote != '\0')
+				{
+					if (c == quote)
+						quote = '\0';
+					else
+						_ = sb.Append(c);
+
+					hasToken = true;
+				}
+				else if (c == '"' || c == '\'')
+				{
+					quote = c;
+					hasToken = true;
+				}
+				else if (c == ' ' || c == '\t')
+				{
+					Flush();
+				}
+				else
+				{
+					_ = sb.Append(c);
+					hasToken = true;
+				}
+			}
+
+			Flush();
+
+			var fileAdded = false;
+			var result = new List<string>();
+
+			foreach (var token in tokens)
+			{
+				switch (token)
+				{
+					case "%f":
+					case "%F":
+					case "%u":
+					case "%U":
+						result.Add(fileToEdit);
+						fileAdded = true;
+						break;
+
+					case "%i":
+					case "%c":
+					case "%k":
+						break; // Drop icon/name/location field codes.
+
+					default:
+						result.Add(token.Replace("%%", "%"));
+						break;
+				}
+			}
+
+			if (result.Count > 0 && !fileAdded)
+				result.Add(fileToEdit);
+
+			return result;
+		}
+
+		/// <summary>
+		/// Runs a command and returns its trimmed standard output, or null on failure.
+		/// </summary>
+		private static string RunCapture(string fileName, params string[] args)
+		{
+			try
+			{
+				var psi = new ProcessStartInfo { FileName = fileName, UseShellExecute = false, RedirectStandardOutput = true };
+
+				foreach (var arg in args)
+					psi.ArgumentList.Add(arg);
+
+				using var proc = Process.Start(psi);
+
+				if (proc == null)
+					return null;
+
+				var output = proc.StandardOutput.ReadToEnd();
+				_ = proc.WaitForExit(2000);
+				return output.Trim();
+			}
+			catch
+			{
+				return null;
+			}
+		}
+#endif
+	}
+
 #if WINDOWS
 	internal class ErrorDialog : Form
 	{
@@ -965,15 +1255,15 @@ namespace Keysharp.Builtins
 
 		internal ErrorDialogResult Result { get; private set; } = ErrorDialogResult.Exit;
 
-		internal ErrorDialog(string errorText, bool allowContinue = false)
+		internal ErrorDialog(string errorText, bool allowContinue = false, bool useRuntimeButtons = true, string exitMessage = null, string fileToEdit = null)
 		{
 			if (!allowContinue)
-				errorText += $"{Environment.NewLine}The current thread will exit.";
+				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
 			var scale = A_ScaledScreenDPI;
 			this.AutoScaleMode = AutoScaleMode.Dpi;
 			this.AutoScaleDimensions = new SizeF(96F, 96F);
-			this.Text = A_ScriptName;
+			this.Text = A_ScriptName ?? "Keysharp";
 			this.StartPosition = FormStartPosition.CenterScreen;
 			this.Size = new Size((int)(550 * scale), (int)(300 * scale));
 			this.MinimumSize = new Size((int)(400 * scale), (int)(200 * scale));
@@ -1046,34 +1336,52 @@ namespace Keysharp.Builtins
 				AutoSize = false,
 				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
 			};
-			Size sizeContinue = TextRenderer.MeasureText(btnContinue.Text, btnContinue.Font);
-			Size uniformSize = new Size(sizeContinue.Width + 24, sizeContinue.Height + 12);
-			btnContinue.Size = uniformSize;
 			var btnExit = new Button
 			{
 				Text = "E&xitApp",
 				DialogResult = DialogResult.Cancel,
-				Size = uniformSize,
 			};
 			var btnReload = new Button
 			{
 				Text = "&Reload",
 				DialogResult = DialogResult.Cancel,
-				Size = uniformSize,
 			};
 			var btnAbort = new Button
 			{
 				Text = "&Abort",
 				DialogResult = DialogResult.Abort,
-				Size = uniformSize,
 			};
+			var btnEdit = new Button
+			{
+				Text = "&Edit",
+			};
+			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload);
+			btnAbort.Size = uniformSize;
+			btnContinue.Size = uniformSize;
+			btnEdit.Size = uniformSize;
+			btnExit.Size = uniformSize;
+			btnReload.Size = uniformSize;
+			btnEdit.Click += (_, _) => ScriptEditor.TryEditFile(fileToEdit);
 			btnAbort.Click += (_, _) => { Result = ErrorDialogResult.Abort; Close(); };
 			btnExit.Click += (_, _) => { Result = ErrorDialogResult.Exit; Close(); };
 			btnReload.Click += (_, _) => { Result = ErrorDialogResult.Reload; Close(); };
 			btnContinue.Click += (_, _) => { Result = ErrorDialogResult.Continue; Close(); };
-			leftPanel.Controls.Add(btnExit);
-			leftPanel.Controls.Add(btnReload);
-			rightPanel.Controls.Add(btnAbort);
+			if (useRuntimeButtons)
+			{
+				leftPanel.Controls.Add(btnExit);
+				leftPanel.Controls.Add(btnReload);
+			}
+			else
+			{
+				// Syntax/fatal errors offer Edit (only if the file exists) and Reload.
+				if (ScriptEditor.CanEditFile(fileToEdit))
+					leftPanel.Controls.Add(btnEdit);
+
+				leftPanel.Controls.Add(btnReload);
+			}
+
+			var defaultButton = useRuntimeButtons ? btnAbort : btnExit;
+			rightPanel.Controls.Add(defaultButton);
 
 			if (allowContinue)
 				rightPanel.Controls.Add(btnContinue);
@@ -1086,8 +1394,23 @@ namespace Keysharp.Builtins
 			mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 			mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 			this.Controls.Add(mainPanel);
-			this.AcceptButton = btnAbort;
-			this.Shown += (_, _) => btnAbort.Focus();
+			this.AcceptButton = defaultButton;
+			this.Shown += (_, _) => defaultButton.Focus();
+		}
+
+		private static Size GetUniformButtonSize(params Button[] buttons)
+		{
+			var width = 0;
+			var height = 0;
+
+			foreach (var button in buttons)
+			{
+				var size = TextRenderer.MeasureText(button.Text, button.Font);
+				width = Math.Max(width, size.Width);
+				height = Math.Max(height, size.Height);
+			}
+
+			return new Size(width + 24, height + 12);
 		}
 
 		private void ApplyFormatting(RichTextBox box)
@@ -1144,13 +1467,13 @@ namespace Keysharp.Builtins
 		/// The ErrorDialogResult value corresponding to the option the user chose.
 		/// </returns>
 		[StackTraceHidden]
-			internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
-			{
-				KeysharpException kex = ex as KeysharpException;
-				string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-				using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
-				using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
-					dlg.ShowDialog();
+		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
+		{
+			KeysharpException kex = ex as KeysharpException;
+			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
+				dlg.ShowDialog();
 
 			switch (dlg.Result)
 			{
@@ -1162,6 +1485,16 @@ namespace Keysharp.Builtins
 					_ = Flow.Reload();
 					break;
 			}
+
+			return dlg.Result;
+		}
+
+		[StackTraceHidden]
+		internal static ErrorDialogResult ShowFatal(string errorText, string fileToEdit = null)
+		{
+			using var dlg = new ErrorDialog(errorText, false, false, "The program will exit.", fileToEdit);
+			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
+				dlg.ShowDialog();
 
 			return dlg.Result;
 		}
@@ -1179,13 +1512,13 @@ namespace Keysharp.Builtins
 
 		internal ErrorDialogResult Result { get; private set; } = ErrorDialogResult.Exit;
 
-		internal ErrorDialog(string errorText, bool allowContinue = false)
+		internal ErrorDialog(string errorText, bool allowContinue = false, bool useRuntimeButtons = true, string exitMessage = null, string fileToEdit = null)
 		{
 			if (!allowContinue)
-				errorText += $"{Environment.NewLine}The current thread will exit.";
+				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
 			var scale = A_ScaledScreenDPI;
-			Title = A_ScriptName;
+			Title = A_ScriptName ?? "Keysharp";
 			Resizable = true;
 			Topmost = true;
 
@@ -1214,15 +1547,18 @@ namespace Keysharp.Builtins
 
 			var btnAbort = new Eto.Forms.Button { Text = "&Abort" };
 			var btnContinue = new Eto.Forms.Button { Text = "&Continue" };
+			var btnEdit = new Eto.Forms.Button { Text = "&Edit" };
 			var btnExit = new Eto.Forms.Button { Text = "E&xitApp" };
 			var btnReload = new Eto.Forms.Button { Text = "&Reload" };
 
-			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnExit, btnReload);
+			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload);
 			btnAbort.Size = uniformSize;
 			btnContinue.Size = uniformSize;
+			btnEdit.Size = uniformSize;
 			btnExit.Size = uniformSize;
 			btnReload.Size = uniformSize;
 
+			btnEdit.Click += (_, _) => ScriptEditor.TryEditFile(fileToEdit);
 			btnAbort.Click += (_, _) => { Result = ErrorDialogResult.Abort; Close(); };
 			btnExit.Click += (_, _) => { Result = ErrorDialogResult.Exit; Close(); };
 			btnReload.Click += (_, _) => { Result = ErrorDialogResult.Reload; Close(); };
@@ -1233,14 +1569,28 @@ namespace Keysharp.Builtins
 				Orientation = Eto.Forms.Orientation.Horizontal,
 				Spacing = 5,
 				HorizontalContentAlignment = Eto.Forms.HorizontalAlignment.Left,
-				Items = { btnExit, btnReload },
 			};
+
+			if (useRuntimeButtons)
+			{
+				leftButtons.Items.Add(btnExit);
+				leftButtons.Items.Add(btnReload);
+			}
+			else
+			{
+				// Syntax/fatal errors offer Edit (only if the file exists) and Reload.
+				if (ScriptEditor.CanEditFile(fileToEdit))
+					leftButtons.Items.Add(btnEdit);
+
+				leftButtons.Items.Add(btnReload);
+			}
+
 			var rightButtons = new Eto.Forms.StackLayout
 			{
 				Orientation = Eto.Forms.Orientation.Horizontal,
 				Spacing = 5,
 				HorizontalContentAlignment = Eto.Forms.HorizontalAlignment.Right,
-				Items = { btnAbort },
+				Items = { useRuntimeButtons ? btnAbort : btnExit },
 			};
 
 			if (allowContinue)
@@ -1414,13 +1764,13 @@ namespace Keysharp.Builtins
 		/// The ErrorDialogResult value corresponding to the option the user chose.
 		/// </returns>
 		[StackTraceHidden]
-			internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
-			{
-				KeysharpException kex = ex as KeysharpException;
-				string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-				using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
-				using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
-					dlg.ShowDialog();
+		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
+		{
+			KeysharpException kex = ex as KeysharpException;
+			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
+				dlg.ShowDialog();
 
 			switch (dlg.Result)
 			{
@@ -1432,6 +1782,16 @@ namespace Keysharp.Builtins
 					_ = Flow.Reload();
 					break;
 			}
+
+			return dlg.Result;
+		}
+
+		[StackTraceHidden]
+		internal static ErrorDialogResult ShowFatal(string errorText, string fileToEdit = null)
+		{
+			using var dlg = new ErrorDialog(errorText, false, false, "The program will exit.", fileToEdit);
+			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
+				dlg.ShowDialog();
 
 			return dlg.Result;
 		}

@@ -969,22 +969,15 @@ namespace Keysharp.Runtime
 				WriteUncaughtErrorToStdErr(msg);
 
 				if (script == null || !script.SuppressErrorOccurredDialog)
-				{
-					var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
-					_ = Dialogs.MsgBox(msg, title, "iconx");
-				}
+					_ = ErrorDialog.Show(kserr, false);
 
 				return;
 			}
 
-			var genericMsg = "Uncaught exception:\r\n" + "Message: " + unwrapped.Message + "\r\nStack: " + unwrapped.StackTrace;
 			WriteUncaughtErrorToStdErr("Uncaught exception:\r\n" + unwrapped);
 
 			if (script == null || !script.SuppressErrorOccurredDialog)
-			{
-				var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
-				_ = Dialogs.MsgBox(genericMsg, title, "iconx");
-			}
+				_ = ErrorDialog.Show(unwrapped, false);
 		}
 
 		public static void TryProcessUnhandledException(Script script, Exception ex)

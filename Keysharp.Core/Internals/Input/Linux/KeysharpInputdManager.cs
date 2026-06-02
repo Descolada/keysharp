@@ -254,7 +254,7 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal static readonly bool UseLegacyX11Input = IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable));
+		internal static readonly bool UseLegacyX11Input = ShouldUseLegacyX11Input();
 
 		internal static bool IsLegacyX11FallbackActive => UseLegacyX11Input || legacyX11FallbackActive;
 
@@ -451,6 +451,18 @@ namespace Keysharp.Internals.Input.Linux
 					|| value.Equals("true", StringComparison.OrdinalIgnoreCase)
 					|| value.Equals("yes", StringComparison.OrdinalIgnoreCase)
 					|| value.Equals("on", StringComparison.OrdinalIgnoreCase));
+
+		private static bool ShouldUseLegacyX11Input()
+		{
+			if (IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)))
+				return true;
+
+			// Test hosts must not trigger inputd permission prompts. If an X display is
+			// available, use the in-process X11/SharpHook path so hook tests can run
+			// unattended.
+			return AppDomain.CurrentDomain.FriendlyName == "testhost"
+				&& !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+		}
 
 		private static void DisposeClient()
 		{

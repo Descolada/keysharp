@@ -509,6 +509,13 @@ namespace Keysharp.Builtins
 			{
 				case Keyword_Text:
 				{
+					// AHK uses SS_CENTERIMAGE (0x200) on static/Text controls to vertically
+					// center single-line text. WinForms Labels ignore that Win32 style for
+					// layout (they use TextAlign), so translate it into vertical centering.
+					const int SS_CENTERIMAGE = 0x200;
+					if ((opts.addstyle & SS_CENTERIMAGE) != 0 && !opts.valign.HasValue)
+						opts.valign = GuiOptions.VerticalAlignment.Middle;
+
 					var lbl = new KeysharpLabel(opts.addstyle, opts.addexstyle, opts.remstyle, opts.remexstyle)
 					{
 						Font = Conversions.ConvertFont(form.Font),

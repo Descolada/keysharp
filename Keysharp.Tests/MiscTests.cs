@@ -176,7 +176,7 @@ namespace Keysharp.Tests
 		public void MiscObject()
 		{
 			var a = new Keysharp.Builtins.Array(10L, 20L, 30L);
-			var fo = (IFuncObj)a.GetMethod("Push");
+			var fo = (IFuncObj)Keysharp.Builtins.Any.GetMethod(a, "Push");
 			_ = fo.Call(a, 40L);
 			Assert.AreEqual(4L, a.Length);
 			Assert.IsTrue(new KeysharpObject().Base.Base.type == typeof(Any));

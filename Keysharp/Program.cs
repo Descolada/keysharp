@@ -307,7 +307,7 @@ namespace Keysharp.Main
 							{
 								var deps = minimalexeout ? ["Keysharp.Builtins.dll"]
 										   : CompilerHelper.requiredManagedDependencies
-										   .Concat(CompilerHelper.requiredNativeDependencies.Select(s => $"runtimes{Path.DirectorySeparatorChar}{RuntimeInformation.RuntimeIdentifier}{Path.DirectorySeparatorChar}native{Path.DirectorySeparatorChar}{s}"));
+										   .Concat(CompilerHelper.requiredNativeDependencies.Select(CompilerHelper.GetRidNativeDependencyPath));
 
 								//Need to copy Keysharp.Builtins and other dependencies from the install path to
 								//the folder the script resides in. Without them, the compiled exe cannot be run in a standalone manner.
@@ -315,10 +315,20 @@ namespace Keysharp.Main
 								//MessageBox.Show($"About to copy from {ksCorePath} to {Path.Combine(scriptdir, "Keysharp.Builtins.dll")}");
 								foreach (var dep in deps)
 								{
-									var depPath = Path.Combine(exeDir, dep);
+									var depPath = CompilerHelper.requiredNativeDependencies.Contains(Path.GetFileName(dep), StringComparer.OrdinalIgnoreCase)
+												  ? CompilerHelper.ResolveAppNativeDependencyPath(exeDir, Path.GetFileName(dep))
+												  : Path.Combine(exeDir, dep);
 
 									if (File.Exists(depPath))
-										File.Copy(depPath, Path.Combine(scriptdir, Path.GetFileName(dep)), true);
+									{
+										var destPath = Path.Combine(scriptdir, dep);
+										var destDir = Path.GetDirectoryName(destPath);
+
+										if (!string.IsNullOrEmpty(destDir))
+											_ = Directory.CreateDirectory(destDir);
+
+										File.Copy(depPath, destPath, true);
+									}
 								}
 							}
 						}

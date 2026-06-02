@@ -161,6 +161,35 @@ using String = Keysharp.Builtins.String
 		};
 
 		private static HashSet<string> _compiledScriptDependencies;
+
+		public static string GetRidNativeDependencyPath(string fileName) =>
+			Path.Combine("runtimes", RuntimeInformation.RuntimeIdentifier, "native", fileName);
+
+		public static string ResolveAppNativeDependencyPath(string appDir, string fileName)
+		{
+			var ridNativePath = Path.Combine(appDir, GetRidNativeDependencyPath(fileName));
+
+			if (File.Exists(ridNativePath))
+				return ridNativePath;
+
+			var rootPath = Path.Combine(appDir, fileName);
+			return File.Exists(rootPath) ? rootPath : ridNativePath;
+		}
+
+		private static string ResolveDependencyAssetPath(string depsDir, string assetPath)
+		{
+			if (File.Exists(assetPath))
+				return assetPath;
+
+			var relativePath = assetPath.Replace('/', Path.DirectorySeparatorChar);
+			var path = Path.Combine(depsDir, relativePath);
+
+			if (File.Exists(path))
+				return path;
+
+			return Path.Combine(depsDir, Path.GetFileName(assetPath));
+		}
+
 		public static HashSet<string> GetCompiledScriptDependencies(string depsJson)
 		{
 			if (_compiledScriptDependencies == null)
@@ -202,12 +231,12 @@ using String = Keysharp.Builtins.String
 						// nativeEntry.Name might be "runtimes/win-x64/native/PCRE.NET.Native.dll"
 						if (info.TryGetProperty("native", out var nativeGroup))
 							foreach (var nativeEntry in nativeGroup.EnumerateObject())
-								_ = _compiledScriptDependencies.Add(File.Exists(nativeEntry.Name) ? nativeEntry.Name : Path.Combine(dir, Path.GetFileName(nativeEntry.Name)));
+								_ = _compiledScriptDependencies.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 
 						if (info.TryGetProperty("runtimeTargets", out var runtimeTargetsGroup))
 							foreach (var nativeEntry in runtimeTargetsGroup.EnumerateObject())
 								if (nativeEntry.Value.TryGetProperty("rid", out var targetRid) && targetRid.ValueEquals(rid))
-									_ = _compiledScriptDependencies.Add(File.Exists(nativeEntry.Name) ? nativeEntry.Name : Path.Combine(dir, Path.GetFileName(nativeEntry.Name)));
+									_ = _compiledScriptDependencies.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 					}
 				}
 			}

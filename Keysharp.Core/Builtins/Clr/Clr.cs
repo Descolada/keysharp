@@ -19,6 +19,13 @@ namespace Keysharp.Builtins
 					: new ManagedNamespace([asm], s);
 			}
 
+			public static object static__Get(object @this, object name, object args)
+			{
+				var namestr = name.As();
+				var type = TypeResolver.Resolve(namestr);
+				return type != null ? new ManagedType(type) : new ManagedNamespace([], namestr);
+			}
+
 			// Still keep these for direct access if someone prefers:
 			public static object staticType(object @this, object fullTypeName)
 			{

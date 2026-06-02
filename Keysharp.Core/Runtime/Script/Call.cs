@@ -403,7 +403,7 @@ namespace Keysharp.Runtime
 			if (item is FuncObj || item is IMetaObject)
 				return true;
 			else if (item is KeysharpObject kso)
-				return kso.HasProp("Call") != 0L || kso.HasProp("__Call") != 0L;
+				return Functions.HasProp(kso, "Call") != 0L || Functions.HasProp(kso, "__Call") != 0L;
 			return false;
 		}
 
@@ -412,7 +412,7 @@ namespace Keysharp.Runtime
 			if (item is FuncObj)
 				return true;
 			else if (item is KeysharpObject kso)
-				return kso.HasProp("Call") != 0L;
+				return Functions.HasProp(kso, "Call") != 0L;
 			return false;
 		}
 

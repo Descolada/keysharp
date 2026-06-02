@@ -557,6 +557,14 @@ namespace Keysharp.Parsing
 
 			public override object VisitCatchProduction([NotNull] MainParser.CatchProductionContext ctx)
 			{
+				// In AHK `catch as e` declares `e` as a normal function-scoped variable.
+				// Register it here so it gets a method-level declaration, allowing closures
+				// defined inside the catch block to capture it (rather than relying on a
+				// block-scoped `is var e` pattern that hoisted local functions can't see).
+				var catchAssignable = ctx.catchAssignable();
+				if (catchAssignable?.identifier() != null)
+					_ = parser.MaybeAddVariableDeclaration(parser.NormalizeFunctionIdentifier(catchAssignable.identifier().GetText()));
+
 				using (PushRegion(RegionKind.Catch))
 					return base.VisitCatchProduction(ctx); // visits flowBlock inside
 			}

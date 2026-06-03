@@ -45,6 +45,24 @@ rewrite_desktop_exec() {
       -e "s|/usr/local/lib/keysharp/|${APP_DIR_TARGET}/|g" \
       "${src}" > "${dest}"
 }
+set_mime_default() {
+  local mimeapps="${DESKTOP_DIR}/mimeapps.list"
+  local mime="$1"
+  local app="$2"
+
+  if [[ ! -f "${mimeapps}" ]]; then
+    printf '[Default Applications]\n%s=%s\n' "${mime}" "${app}" > "${mimeapps}"
+    return
+  fi
+
+  if grep -q "^${mime}=" "${mimeapps}"; then
+    sed -i "s|^${mime}=.*|${mime}=${app}|" "${mimeapps}"
+  elif grep -q '^\[Default Applications\]' "${mimeapps}"; then
+    sed -i "/^\[Default Applications\]/a ${mime}=${app}" "${mimeapps}"
+  else
+    printf '\n[Default Applications]\n%s=%s\n' "${mime}" "${app}" >> "${mimeapps}"
+  fi
+}
 rewrite_systemd_service() {
   local src="$1"
   local dest="$2"
@@ -329,6 +347,10 @@ if [[ "${ROOT_INSTALL}" == "true" && -f "${APP_DIR_TARGET}/keysharp-screencap" ]
 fi
 install -Dm644 "${SCRIPT_DIR}/keysharp.xml" "${MIME_DIR}/keysharp.xml"
 install -Dm644 "${SCRIPT_DIR}/Keysharp.png" "${ICON_DIR}/keysharp.png"
+
+set_mime_default application/x-keysharp keysharp.desktop
+set_mime_default application/x-keysharp-compiled keysharp.desktop
+set_mime_default application/x-autohotkey keysharp.desktop
 
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true
 maybe_run update-mime-database "${MIME_ROOT}" || true

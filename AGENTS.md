@@ -47,9 +47,11 @@ Build output lands in `bin/Debug/net10.0-windows/` (or the appropriate TFM subfo
 ./bin/Debug/net10.0-windows/Keysharp.exe myscript.ahk
 
 # Useful flags
---codeout        # dump generated C# alongside the script (great for debugging transpiler)
---validate       # compile-check only, do not run
---exeout         # also emit a standalone .exe
+--transpile          # emit generated C# alongside the script and exit (great for debugging transpiler)
+--validate           # compile-check only, do not run
+--compile exe        # emit a standalone .exe and exit
+--compile exe-min    # like exe, with dependencies embedded
+--compile dll <path> # emit the raw assembly to <path> (or * for stdout) and exit
 ```
 
 ## Tests
@@ -101,7 +103,7 @@ Do not hand-edit `MainLexer.cs` or `MainParser.cs` — they will be overwritten.
 5. The compiled assembly is loaded and its entry point is invoked.
 6. At runtime, AHK built-ins dispatch to the static methods in `Keysharp.Core/Builtins/`.
 
-Use `--codeout` to see the exact C# that step 3 produces — this is the fastest way to debug transpiler issues.
+Use `--transpile` to see the exact C# that step 3 produces — this is the fastest way to debug transpiler issues.
 
 ## Platform-specific code
 

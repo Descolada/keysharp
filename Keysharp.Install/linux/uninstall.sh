@@ -46,6 +46,13 @@ rm -f "${BINDIR}/keysharp" "${BINDIR}/keyview" "${BINDIR}/keysharp-inputd"
 rm -f "${DESKTOP_DIR}/keyview.desktop" "${DESKTOP_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp-screencap.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png"
 rm -rf "${APP_DIR_TARGET}"
 
+MIMEAPPS="${DESKTOP_DIR}/mimeapps.list"
+if [[ -f "${MIMEAPPS}" ]]; then
+  sed -i '/^application\/x-keysharp=keysharp\.desktop$/d' "${MIMEAPPS}" || true
+  sed -i '/^application\/x-keysharp-compiled=keysharp\.desktop$/d' "${MIMEAPPS}" || true
+  sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "${MIMEAPPS}" || true
+fi
+
 # Remove the GNOME Shell extension. When uninstalling as root we check
 # SUDO_USER so the extension is removed from the correct user's home.
 remove_gnome_extension() {

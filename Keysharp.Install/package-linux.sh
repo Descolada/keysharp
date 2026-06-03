@@ -235,7 +235,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -f /usr/share/icons/hicolor || true
 fi
 
-# Set keysharp.desktop as the system-wide default handler for .ks and .ahk files.
+# Set keysharp.desktop as the system-wide default handler for .ks, .cks and .ahk files.
 # Writes to /usr/share/applications/mimeapps.list (freedesktop vendor defaults).
 _set_mime_default() {
   local mimeapps="/usr/share/applications/mimeapps.list"
@@ -254,6 +254,7 @@ _set_mime_default() {
   fi
 }
 _set_mime_default application/x-keysharp  keysharp.desktop
+_set_mime_default application/x-keysharp-compiled keysharp.desktop
 _set_mime_default application/x-autohotkey keysharp.desktop
 
 if [ -f /usr/lib/keysharp/keysharp-screencap ]; then
@@ -341,6 +342,7 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   _mimeapps="/usr/share/applications/mimeapps.list"
   if [ -f "$_mimeapps" ]; then
     sed -i '/^application\/x-keysharp=keysharp\.desktop$/d'  "$_mimeapps" || true
+    sed -i '/^application\/x-keysharp-compiled=keysharp\.desktop$/d' "$_mimeapps" || true
     sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "$_mimeapps" || true
   fi
 

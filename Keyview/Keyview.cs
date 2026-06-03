@@ -681,11 +681,11 @@ namespace Keyview
 			};
 			_ = scriptProcess.Start();
 
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream))
+			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
+			using (var stdin = scriptProcess.StandardInput.BaseStream)
 			{
-				writer.Write(CompilerHelper.compiledBytes.Length);
-				writer.Write(CompilerHelper.compiledBytes);
-				writer.Flush();
+				stdin.Write(CompilerHelper.compiledBytes, 0, CompilerHelper.compiledBytes.Length);
+				stdin.Flush();
 			}
 
 			btnRunScript.Text = btnRunScriptText["Stop"];
@@ -1750,11 +1750,11 @@ namespace Keyview
 			};
 			_ = scriptProcess.Start();
 
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream))
+			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
+			using (var stdin = scriptProcess.StandardInput.BaseStream)
 			{
-				writer.Write(CompilerHelper.compiledBytes.Length);
-				writer.Write(CompilerHelper.compiledBytes);
-				writer.Flush();
+				stdin.Write(CompilerHelper.compiledBytes, 0, CompilerHelper.compiledBytes.Length);
+				stdin.Flush();
 			}
 
 			runScriptButton.Text = runScriptText["Stop"];

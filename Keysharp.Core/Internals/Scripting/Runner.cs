@@ -27,40 +27,35 @@ namespace Keysharp.Internals.Scripting
 
 				var exeName = Path.GetFileNameWithoutExtension(exePath);
 				var exeDir = Path.GetFullPath(Path.GetDirectoryName(exePath));
-				var codeout = false;
-				var assembly = false;
-				var assemblyType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
-				var assemblyMethod = "Main";
+				var transpile = false;
+				var loadAsm = false;
+				var asmType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+				var asmMethod = "Main";
 				var scriptName = string.Empty;
-				var gotscript = false;
 				var fromstdin = false;
 				var validate = false;
 
 				for (var i = 0; i < args.Length; i++)
 				{
-					if (!args[i].StartsWith('-')
-#if WINDOWS
-							&& !args[i].StartsWith('/')
-#endif
-					   )
+					if (!TryGetSwitch(args[i], out var option))
 					{
-						if (!gotscript)//Script name.
-						{
-							scriptName = args[i] == "*" ? "*" : Path.GetFullPath(args[i]);
-							gotscript = true;
-							script.ScriptArgs = [.. args.Skip(i + 1)];
-							script.KeysharpArgs = [.. args.Take(i + 1)];
-							continue;
-						}
-						else//Parameters.
-						{
-							//No need to add args to A_Args, because it will be handled in the compiled program with HandleCommandLineParams().
-							continue;
-						}
+						SetInput(args, i, script, ref scriptName);
+						break;
 					}
 
-					var option = args[i].TrimStart(Keywords.DashSlash);
 					var opt = option.ToLowerInvariant();
+
+					if (opt.StartsWith("asm:", StringComparison.OrdinalIgnoreCase)
+							|| opt.StartsWith("assembly:", StringComparison.OrdinalIgnoreCase))
+					{
+						loadAsm = true;
+						var entryPoint = option.Substring(option.IndexOf(':') + 1);
+
+						if (!TryParseAsmEntryPoint(entryPoint, out asmType, out asmMethod, out var entryError))
+							return Message(entryError, true);
+
+						continue;
+					}
 
 					switch (opt)
 					{
@@ -68,31 +63,34 @@ namespace Keysharp.Internals.Scripting
 							script.ValidateThenExit = validate = true;
 							break;
 
+						case "asm":
 						case "assembly":
-							assembly = true;
-
-							if (i + 2 < args.Length && args[i + 1] != "*" && !File.Exists(args[i + 1]))
-							{
-								assemblyType = args[i + 1];
-								assemblyMethod = args[i + 2];
-								i += 2;
-							}
-
+							loadAsm = true;
 							break;
 
-						case "codeout":
-							codeout = true;
+						case "transpile":
+							transpile = true;
 							break;
 
 						case "include":
 							i++;
 							break;
+
+						default:
+							SetInput(args, i, script, ref scriptName);
+							break;
 					}
+
+					if (!string.IsNullOrEmpty(scriptName))
+						break;
 				}
 
 				//Message($"Operating off of script: {script} in current dir: {Environment.CurrentDirectory} for full path: {Path.GetFullPath(script)}", false);
 
-				if (string.IsNullOrEmpty(scriptName))
+				if (!string.IsNullOrEmpty(scriptName) && IsCompiledScriptInput(scriptName))
+					loadAsm = true;
+
+				if (string.IsNullOrEmpty(scriptName) && !loadAsm)
 				{
 					var dirs = new string[]
 					{
@@ -110,25 +108,35 @@ namespace Keysharp.Internals.Scripting
 					}
 				}
 
-				if (assembly)
+				if (loadAsm && string.IsNullOrEmpty(scriptName))
+					return Message("No assembly was specified.", true);
+
+				if (loadAsm)
 				{
-					using (var reader = new BinaryReader(scriptName == "*" ? Console.OpenStandardInput() : File.Open(scriptName, FileMode.Open)))
+					byte[] asmBytes;
+
+					if (scriptName == "*")
 					{
-						int length = reader.ReadInt32();
-						byte[] assemblyBytes = reader.ReadBytes(length);
-						Assembly scriptAsm = Assembly.Load(assemblyBytes);
-						Type type = scriptAsm.GetType(assemblyType);
-
-						if (type == null)
-							return Message($"Could not find assembly {assemblyType}", true);
-
-						MethodInfo method = type.GetMethod(assemblyMethod);
-
-						if (method == null)
-							return Message($"Could not find method {assemblyMethod}", true);
-
-						return method.Invoke(null, [script.ScriptArgs]).Ai();
+						using var stdin = Console.OpenStandardInput();
+						using var asmStream = new MemoryStream();
+						stdin.CopyTo(asmStream);
+						asmBytes = asmStream.ToArray();
 					}
+					else
+						asmBytes = File.ReadAllBytes(scriptName);
+
+					Assembly scriptAsm = Assembly.Load(asmBytes);
+					Type type = scriptAsm.GetType(asmType);
+
+					if (type == null)
+						return Message($"Could not find assembly {asmType}", true);
+
+					MethodInfo method = type.GetMethod(asmMethod);
+
+					if (method == null)
+						return Message($"Could not find method {asmMethod}", true);
+
+					return method.Invoke(null, [script.ScriptArgs]).Ai();
 				}
 
 				if (scriptName == "*")
@@ -170,7 +178,7 @@ namespace Keysharp.Internals.Scripting
 					return HandleCompilerErrors(errs, scriptName, path, "Compiling script to DOM");
 
 				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
-				if (codeout)
+				if (transpile)
 				{
 					var code = PrettyPrinter.Print(unit);
 #if DEBUG
@@ -232,6 +240,63 @@ namespace Keysharp.Internals.Scripting
 				var trace = $"{Accessors.A_AppData}/Keysharp/execution_errors.txt";
 				return Message(msg, true);
 			}
+		}
+
+		private static bool TryGetSwitch(string value, out string option)
+		{
+			option = null;
+
+			if (string.IsNullOrEmpty(value) || value.Length < 2)
+				return false;
+
+			if (value[0] != '-' && value[0] != '/')
+				return false;
+
+			option = value.TrimStart(Keywords.DashSlash);
+			return option.Length > 0;
+		}
+
+		private static void SetInput(string[] args, int index, Script script, ref string scriptName)
+		{
+			scriptName = args[index] == "*" ? "*" : Path.GetFullPath(args[index]);
+			script.ScriptArgs = [.. args.Skip(index + 1)];
+			script.KeysharpArgs = [.. args.Take(index + 1)];
+		}
+
+		private static bool TryParseAsmEntryPoint(string value, out string typeName, out string methodName, out string error)
+		{
+			typeName = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+			methodName = "Main";
+			error = null;
+
+			if (string.IsNullOrWhiteSpace(value))
+			{
+				error = "Assembly entry point cannot be empty. Use --asm or --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			var lastDot = value.LastIndexOf('.');
+
+			if (lastDot <= 0 || lastDot == value.Length - 1)
+			{
+				error = $"Invalid assembly entry point '{value}'. Use --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			typeName = value.Substring(0, lastDot);
+			methodName = value.Substring(lastDot + 1);
+			return true;
+		}
+
+		private static bool IsCompiledScriptInput(string path)
+		{
+			var ext = Path.GetExtension(path);
+
+			if (ext.Equals(".cks", StringComparison.OrdinalIgnoreCase)
+					|| ext.Equals(".dll", StringComparison.OrdinalIgnoreCase))
+				return true;
+
+			return false;
 		}
 
 		internal static string GetLatestDotNetVersion()

@@ -160,7 +160,9 @@ using String = Keysharp.Builtins.String
 			"Keysharp.Builtins",
 		};
 
-		private static HashSet<string> _compiledScriptDependencies;
+		// Cache of parsed deps.json results, keyed by the deps.json path. Instance-scoped (not static) so a
+		// long-lived compiler serving multiple scripts from different deps contexts can't return stale results.
+		private readonly Dictionary<string, HashSet<string>> _compiledScriptDependencies = new (StringComparer.OrdinalIgnoreCase);
 
 		public static string GetRidNativeDependencyPath(string fileName) =>
 			Path.Combine("runtimes", RuntimeInformation.RuntimeIdentifier, "native", fileName);
@@ -190,11 +192,12 @@ using String = Keysharp.Builtins.String
 			return Path.Combine(depsDir, Path.GetFileName(assetPath));
 		}
 
-		public static HashSet<string> GetCompiledScriptDependencies(string depsJson)
+		public HashSet<string> GetCompiledScriptDependencies(string depsJson)
 		{
-			if (_compiledScriptDependencies == null)
+			if (!_compiledScriptDependencies.TryGetValue(depsJson, out var deps))
 			{
-				_compiledScriptDependencies = new (StringComparer.OrdinalIgnoreCase);
+				deps = new (StringComparer.OrdinalIgnoreCase);
+				_compiledScriptDependencies[depsJson] = deps;
 
 				// 2) load and parse
 				using var doc = JsonDocument.Parse(File.ReadAllText(depsJson));
@@ -223,7 +226,7 @@ using String = Keysharp.Builtins.String
 										break;
 
 									default:
-										_ = _compiledScriptDependencies.Add(File.Exists(asmEntry.Name) ? asmEntry.Name : Path.Combine(dir, Path.GetFileName(asmEntry.Name)));
+										_ = deps.Add(File.Exists(asmEntry.Name) ? asmEntry.Name : Path.Combine(dir, Path.GetFileName(asmEntry.Name)));
 										break;
 								}
 
@@ -231,17 +234,17 @@ using String = Keysharp.Builtins.String
 						// nativeEntry.Name might be "runtimes/win-x64/native/PCRE.NET.Native.dll"
 						if (info.TryGetProperty("native", out var nativeGroup))
 							foreach (var nativeEntry in nativeGroup.EnumerateObject())
-								_ = _compiledScriptDependencies.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
+								_ = deps.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 
 						if (info.TryGetProperty("runtimeTargets", out var runtimeTargetsGroup))
 							foreach (var nativeEntry in runtimeTargetsGroup.EnumerateObject())
 								if (nativeEntry.Value.TryGetProperty("rid", out var targetRid) && targetRid.ValueEquals(rid))
-									_ = _compiledScriptDependencies.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
+									_ = deps.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 					}
 				}
 			}
 
-			return _compiledScriptDependencies;
+			return deps;
 		}
 
 		private readonly CodeGeneratorOptions cgo = new ()
@@ -456,7 +459,7 @@ using String = Keysharp.Builtins.String
 
 				if (currentDepsConfigPath != null)
 				{
-					allDependencies = CompilerHelper.GetCompiledScriptDependencies(currentDepsConfigPath);
+					allDependencies = GetCompiledScriptDependencies(currentDepsConfigPath);
 					resourceDescriptions = allDependencies
 											.Where(path =>
 					{
@@ -621,6 +624,24 @@ using String = Keysharp.Builtins.String
 			return (sb.ToString(), null);
 		}
 
+		/// <summary>
+		/// Prepares a (possibly long-lived, reused) <see cref="Script"/> for the next parse. A compile
+		/// server reuses one Script across many parses so its built-in-only <c>ReflectionsData</c> and the
+		/// lazily filled member caches stay warm; parsing never mutates those, so we deliberately preserve
+		/// them. This resets only what a parse actually touches on the Script: the identity fields used for
+		/// diagnostics, and the current thread's variable context the parser/accessors require. It is
+		/// intentionally NOT a <see cref="Script"/> member because it does not fully reset a Script — no
+		/// runtime, UI, hook, or reflection state is cleared.
+		/// </summary>
+		internal static void ResetScriptForParse(Script script, string scriptPath, string scriptName)
+		{
+			script.scriptPath = scriptPath;
+			script.scriptName = scriptName;
+			// Internal parsing can touch accessors, so a current thread context must exist,
+			// but parsing itself should not consume a pseudo-thread slot.
+			script.Threads.EnsureCurrentThreadVariables();
+		}
+
 		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null)
 		{
 			CompilationUnitSyntax unit = null;
@@ -628,10 +649,26 @@ using String = Keysharp.Builtins.String
 			var enc = Encoding.Default;
 			var x = Env.FindCommandLineArg("cp");
 			var script = Script.TheScript;
-			// Internal parsing can touch accessors, so a current thread context must exist,
-			// but parsing itself should not consume a pseudo-thread slot.
-			script.Threads.EnsureCurrentThreadVariables();
+			var isFile = File.Exists(fileName);
+			string scriptPath, scriptName, startupName;
+
+			if (isFile)
+			{
+				scriptPath = Path.GetFullPath(fileName);
+				scriptName = Path.GetFileName(scriptPath);
+				startupName = null;
+			}
+			else
+			{
+				scriptPath = "*";
+				scriptName = name ?? "*";
+				startupName = name;
+			}
+
+			ResetScriptForParse(script, scriptPath, scriptName);
 			parser = new Parser(this);
+			parser.startupScriptPath = scriptPath;
+			parser.startupScriptName = startupName;
 
 			if (x != null)
 			{
@@ -643,23 +680,9 @@ using String = Keysharp.Builtins.String
 
 			try
 			{
-				if (File.Exists(fileName))
-				{
-					var fullPath = Path.GetFullPath(fileName);
-					script.scriptPath = fullPath;
-					script.scriptName = Path.GetFileName(fullPath);
-					parser.startupScriptPath = fullPath;
-					parser.startupScriptName = null;
-					unit = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), fullPath);
-				}
-				else
-				{
-					script.scriptPath = "*";
-					script.scriptName = name ?? "*";
-					parser.startupScriptPath = "*";
-					parser.startupScriptName = name;
-					unit = parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), script.scriptName);
-				}
+				unit = isFile
+					   ? parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), scriptPath)
+					   : parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), scriptName);
 			}
 			catch (ParseException e)
 			{
@@ -682,7 +705,7 @@ using String = Keysharp.Builtins.String
 		/// <returns>True if the user chose "Reload" from the error dialog and the caller should restart the script.</returns>
 		public bool ReportCompilerErrors(string s, bool stdout = false)
 		{
-			if (parser.errorStdOut || Env.FindCommandLineArg("errorstdout") != null)
+			if (parser?.errorStdOut == true || Env.FindCommandLineArg("errorstdout") != null)
 				Console.Error.WriteLine(s);//For this to show on the command line, they need to pipe to more like: | more
 			else if (stdout)
 				Console.WriteLine(s);

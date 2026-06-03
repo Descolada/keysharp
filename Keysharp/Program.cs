@@ -36,6 +36,60 @@ namespace Keysharp.Main
 		[STAThread]
 		public static int Main(string[] args)
 		{
+			// Compile-server operations live under the "--daemon" namespace, detected before the Script below
+			// is constructed (the daemon owns the single warm, reused parse-context Script):
+			//   --daemon                 start the daemon
+			//   --daemon stop            stop the running daemon
+			//   --daemon ping <script>   [diagnostic] compile <script> via a running daemon and report only;
+			//                            does not spawn a daemon and does not run the script
+			if (args.Length > 0 && TryGetSwitch(args[0], out var daemonOption) && daemonOption.Equals("daemon", StringComparison.OrdinalIgnoreCase))
+			{
+				var sub = args.Length > 1 && TryGetSwitch(args[1], out var daemonSubOption) ? daemonSubOption : args.Length > 1 ? args[1] : null;
+
+				if (string.Equals(sub, "stop", StringComparison.OrdinalIgnoreCase))
+				{
+					DaemonCoordinator.StopOwner();
+					return 0;
+				}
+
+				if (string.Equals(sub, "ping", StringComparison.OrdinalIgnoreCase) && args.Length > 2)
+				{
+					var st = CompileClient.TryCompile(args[2], out var b, out var err);
+					Console.WriteLine(st switch
+					{
+						CompileDaemonStatus.Compiled => $"daemon ping: OK, {b.Length} bytes",
+						CompileDaemonStatus.CompileFailed => $"daemon ping: COMPILE ERROR\n{err}",
+						_ => "daemon ping: FAIL, no daemon reachable",
+					});
+					return st == CompileDaemonStatus.Compiled ? 0 : 1;
+				}
+
+				// Bare "--daemon" (or "--daemon" with no recognized subcommand/script): start the daemon.
+				return CompileServer.Run();
+			}
+
+			// Default lean path: a plain "keysharp <script> [args]" run (no Keysharp flags) compiles via the
+			// shared daemon - spawning one if needed - and runs the returned bytes in THIS process. Because
+			// compilation happened in the daemon, this process never calls Roslyn's Emit, so
+			// Microsoft.CodeAnalysis/ANTLR are never loaded here: the script keeps only the runtime footprint,
+			// not the compiler's. KEYSHARP_DAEMON can force this on/off; if unset, release builds use it
+			// and debug builds do not. If no daemon can be reached or spawned, we fall through anyway.
+			if (ShouldUseDaemon()
+					&& TryGetPlainScriptRun(args, out var fastPath, out var fastArgs)
+					&& File.Exists(fastPath))
+			{
+				switch (CompileClient.CompileViaServer(fastPath, out var arr, out var derr))
+				{
+					case CompileDaemonStatus.Compiled:
+						return RunCompiledBytes(arr, fastArgs);
+
+					case CompileDaemonStatus.CompileFailed:
+						return ReportDaemonCompileFailure(derr, fastPath);
+
+						// Unreachable + unspawnable: fall through to the in-process compiler below.
+				}
+			}
+
 			Task writeExeTask = null;
 			Task writeCodeTask = null;
 			MethodInfo runtimeEntryPoint = null;
@@ -53,42 +107,40 @@ namespace Keysharp.Main
 				var exeName = Path.GetFileNameWithoutExtension(exePath);
 				var exeDir = Path.GetFullPath(Path.GetDirectoryName(exePath));
 				var nsname = typeof(Program).Namespace;
-				var codeout = false;
-				var exeout = false;
-				var minimalexeout = false;
-				var assembly = false;
-				var assemblyType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
-				var assemblyMethod = "Main";
+				var transpile = false;
+				var compileExe = false;
+				var compileMinimalExe = false;
+				var loadAsm = false;
+				var asmType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+				var asmMethod = "Main";
 				var scriptName = string.Empty;
-				var gotscript = false;
 				var fromstdin = false;
 				var validate = false;
+				var compileAsm = false;
+				var compileAsmPath = "";
+				var compileDestPath = "";
 
 				for (var i = 0; i < args.Length; i++)
 				{
-					if (!args[i].StartsWith('-')
-#if WINDOWS
-							&& !args[i].StartsWith('/')
-#endif
-					   )
+					if (!TryGetSwitch(args[i], out var option))
 					{
-						if (!gotscript)//Script name.
-						{
-							scriptName = args[i] == "*" ? "*" : Path.GetFullPath(args[i]);
-							gotscript = true;
-							script.ScriptArgs = [.. args.Skip(i + 1)];
-							script.KeysharpArgs = [.. args.Take(i + 1)];
-							continue;
-						}
-						else//Parameters.
-						{
-							//No need to add args to A_Args, because it will be handled in the compiled program with HandleCommandLineParams().
-							continue;
-						}
+						SetInput(args, i, script, ref scriptName);
+						break;
 					}
 
-					var option = args[i].TrimStart(Keywords.DashSlash);
 					var opt = option.ToLowerInvariant();
+
+					if (opt.StartsWith("asm:", StringComparison.OrdinalIgnoreCase)
+							|| opt.StartsWith("assembly:", StringComparison.OrdinalIgnoreCase))
+					{
+						loadAsm = true;
+						var entryPoint = option.Substring(option.IndexOf(':') + 1);
+
+						if (!TryParseAsmEntryPoint(entryPoint, out asmType, out asmMethod, out var entryError))
+							return Message(entryError, true);
+
+						continue;
+					}
 
 					switch (opt)
 					{
@@ -104,29 +156,53 @@ namespace Keysharp.Main
 							var license = exeDir + Path.DirectorySeparatorChar + "license.txt";
 							return Message(new StreamReader(license).ReadToEnd(), false);
 
+						case "asm":
 						case "assembly":
-							assembly = true;
+							loadAsm = true;
+							break;
 
-							if (i + 2 < args.Length && args[i + 1] != "*" && !File.Exists(args[i + 1]))
+						case "transpile":
+							transpile = true;
+							break;
+
+						case "compile":
+							if (i + 1 >= args.Length)
 							{
-								assemblyType = args[i + 1];
-								assemblyMethod = args[i + 2];
-								i += 2;
+								compileAsm = true;
+								break;
+							}
+
+							switch (args[i + 1].ToLowerInvariant())
+							{
+								case "exe":
+									i++;
+									compileExe = true;
+									break;
+
+								case "exe-min":
+									i++;
+									compileMinimalExe = true;
+									compileExe = true;
+									break;
+
+								case "asm":
+								case "dll":
+									i++;
+									compileAsm = true;
+									break;
+
+								default:
+									compileAsm = true;
+									break;
 							}
 
 							break;
 
-						case "exeout":
-							exeout = true;
-							break;
+						case "dest":
+							if (i + 1 >= args.Length || TryGetSwitch(args[i + 1], out _))
+								return Message("--dest requires an output path.", true);
 
-						case "minimalexeout":
-							minimalexeout = true;
-							exeout = true;
-							break;
-
-						case "codeout":
-							codeout = true;
+							compileDestPath = args[++i];
 							break;
 
 						case "include":
@@ -141,15 +217,23 @@ namespace Keysharp.Main
 						case "uninstall"://To be called by the uninstaller during uninstallation.
 							RemoveFromPath(exeDir);
 							return 0;
-							//default:
-							//  return Message($"Unrecognized switch: {args[i]}", true);
 #endif
+
+						default:
+							SetInput(args, i, script, ref scriptName);
+							break;
 					}
+
+					if (!string.IsNullOrEmpty(scriptName))
+						break;
 				}
 
 				//Message($"Operating off of script: {script} in current dir: {Environment.CurrentDirectory} for full path: {Path.GetFullPath(script)}", false);
 
-				if (string.IsNullOrEmpty(scriptName))
+				if (!string.IsNullOrEmpty(scriptName) && IsCompiledScriptInput(scriptName))
+					loadAsm = true;
+
+				if (string.IsNullOrEmpty(scriptName) && !loadAsm)
 				{
 					var dirs = new string[]
 					{
@@ -167,22 +251,34 @@ namespace Keysharp.Main
 					}
 				}
 
-				if (assembly)
+				if (loadAsm && string.IsNullOrEmpty(scriptName))
+					return Message("No assembly was specified.", true);
+
+				if (loadAsm)
 				{
-					using (var reader = new BinaryReader(scriptName == "*" ? Console.OpenStandardInput() : File.Open(scriptName, FileMode.Open)))
 					{
-						int length = reader.ReadInt32();
-						byte[] assemblyBytes = reader.ReadBytes(length);
-						Assembly scriptAsm = Assembly.Load(assemblyBytes);
-						Type type = scriptAsm.GetType(assemblyType);
+						byte[] asmBytes;
+
+						if (scriptName == "*")
+						{
+							using var stdin = Console.OpenStandardInput();
+							using var ms = new MemoryStream();
+							stdin.CopyTo(ms);
+							asmBytes = ms.ToArray();
+						}
+						else
+							asmBytes = File.ReadAllBytes(scriptName);
+
+						Assembly scriptAsm = Assembly.Load(asmBytes);
+						Type type = scriptAsm.GetType(asmType);
 
 						if (type == null)
-							return Message($"Could not find assembly {assemblyType}", true);
+							return Message($"Could not find assembly {asmType}", true);
 
-						MethodInfo method = type.GetMethod(assemblyMethod);
+						MethodInfo method = type.GetMethod(asmMethod);
 
 						if (method == null)
-							return Message($"Could not find method {assemblyMethod}", true);
+							return Message($"Could not find method {asmMethod}", true);
 
 						runtimeEntryPoint = method;
 						runtimeEntryArgs = [script.ScriptArgs];
@@ -209,6 +305,9 @@ namespace Keysharp.Main
 				if (!fromstdin && !File.Exists(scriptName))
 					return Message($"Could not find the script file {scriptName}.", true);
 
+				if (!compileAsm && !compileExe && compileDestPath.Length != 0)
+					return Message("--dest is only valid with --compile.", true);
+
 				string namenoext, path, scriptdir;
 
 				if (!fromstdin)
@@ -224,12 +323,23 @@ namespace Keysharp.Main
 					path = $".{Path.DirectorySeparatorChar}{namenoext}";
 				}
 
+				if (compileAsm && compileAsmPath.Length == 0)
+					compileAsmPath = ResolveCompileAsmOutput(compileDestPath, scriptdir, namenoext);
+
+				if (compileExe && compileDestPath.Length != 0)
+				{
+					if (compileDestPath == "*")
+						return Message("--dest * is only valid with --compile asm.", true);
+
+					(path, scriptdir, namenoext) = ResolveCompileExeOutput(compileDestPath, scriptdir, namenoext);
+				}
+
 				byte[] arr = null;
 				string result = null;
-				(arr, result) = ch.CompileCodeToByteArray(scriptName, namenoext, exeDir, minimalexeout, codeout);
+				(arr, result) = ch.CompileCodeToByteArray(scriptName, namenoext, exeDir, compileMinimalExe, transpile);
 
 				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
-				if (codeout)
+				if (transpile)
 				{
 					writeCodeTask = Task.Run(() =>
 					{
@@ -252,7 +362,23 @@ namespace Keysharp.Main
 				if (arr == null)
 					return Message(result, true);
 
-				if (exeout)
+				if (compileAsm)
+				{
+					try
+					{
+						using var outStream = compileAsmPath == "*" ? Console.OpenStandardOutput() : File.Create(compileAsmPath);
+						outStream.Write(arr, 0, arr.Length);
+					}
+					catch (Exception writeex)
+					{
+						return Message($"Writing assembly to {compileAsmPath} failed: {writeex.Message}", true);
+					}
+
+					writeCodeTask?.Wait();//In case --transpile was also requested.
+					return 0;//Assembly written; do not run (running would also corrupt stdout for "*").
+				}
+
+				if (compileExe)
 				{
 					writeExeTask = Task.Run(() =>
 					{
@@ -305,11 +431,14 @@ namespace Keysharp.Main
 
 							if (string.Compare(exeDir, scriptdir, true) != 0)
 							{
-								var deps = minimalexeout ? ["Keysharp.Builtins.dll"]
+								var deps = compileMinimalExe ? ["Keysharp.Core.dll"]
 										   : CompilerHelper.requiredManagedDependencies
 										   .Concat(CompilerHelper.requiredNativeDependencies.Select(CompilerHelper.GetRidNativeDependencyPath));
 
-								//Need to copy Keysharp.Builtins and other dependencies from the install path to
+								//For a minimal exe, every managed/native dependency except Keysharp.Core is embedded
+								//into the script assembly (see CompilerHelper.CompileFromTree), so only Keysharp.Core.dll
+								//must be copied alongside; it loads the embedded assemblies and native libs at runtime.
+								//For a full exe, copy Keysharp.Core and the other dependencies from the install path to
 								//the folder the script resides in. Without them, the compiled exe cannot be run in a standalone manner.
 								//MessageBox.Show($"scriptdir = {scriptdir}");
 								//MessageBox.Show($"About to copy from {ksCorePath} to {Path.Combine(scriptdir, "Keysharp.Builtins.dll")}");
@@ -337,6 +466,13 @@ namespace Keysharp.Main
 							Message($"Writing executable to {finalPath} failed: {writeex.Message}", true);
 						}
 					});
+				}
+
+				if (transpile || compileExe)
+				{
+					writeExeTask?.Wait();
+					writeCodeTask?.Wait();
+					return 0;//Artifacts written; do not run unless a dedicated run action is requested later.
 				}
 
 				CompilerHelper.compiledasm = Assembly.Load(arr);
@@ -405,6 +541,205 @@ namespace Keysharp.Main
 			return Environment.ExitCode;
 		}
 
+		private static bool TryGetSwitch(string value, out string option)
+		{
+			option = null;
+
+			if (string.IsNullOrEmpty(value) || value.Length < 2)
+				return false;
+
+			if (value[0] != '-' && value[0] != '/')
+				return false;
+
+			option = value.TrimStart(Keywords.DashSlash);
+			return option.Length > 0;
+		}
+
+		private static void SetInput(string[] args, int index, Script script, ref string scriptName)
+		{
+			scriptName = args[index] == "*" ? "*" : Path.GetFullPath(args[index]);
+			script.ScriptArgs = [.. args.Skip(index + 1)];
+			script.KeysharpArgs = [.. args.Take(index + 1)];
+		}
+
+		private static bool TryParseAsmEntryPoint(string value, out string typeName, out string methodName, out string error)
+		{
+			typeName = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+			methodName = "Main";
+			error = null;
+
+			if (string.IsNullOrWhiteSpace(value))
+			{
+				error = "Assembly entry point cannot be empty. Use --asm or --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			var lastDot = value.LastIndexOf('.');
+
+			if (lastDot <= 0 || lastDot == value.Length - 1)
+			{
+				error = $"Invalid assembly entry point '{value}'. Use --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			typeName = value.Substring(0, lastDot);
+			methodName = value.Substring(lastDot + 1);
+			return true;
+		}
+
+		// Recognizes the common "keysharp <script> [scriptargs...]" invocation with no Keysharp options, which
+		// is eligible for the compile-server fast path. Any leading flag (e.g. --compile, --validate, --asm,
+		// /switch) disqualifies it so those modes keep using the full in-process flow below. Stdin ("*") is
+		// likewise left to the normal flow.
+		private static bool TryGetPlainScriptRun(string[] args, out string scriptPath, out string[] scriptArgs)
+		{
+			scriptPath = null;
+			scriptArgs = [];
+
+			if (args.Length == 0)
+				return false;
+
+			// The first token decides: if it is a Keysharp flag the full in-process flow handles it; otherwise
+			// it is the script path and everything after it are the script's own arguments.
+			if (TryGetSwitch(args[0], out _))
+				return false;
+
+			scriptPath = args[0];
+			scriptArgs = [.. args.Skip(1)];
+			return scriptPath != "*" && !IsCompiledScriptInput(scriptPath);
+		}
+
+		private static (string PathNoExtension, string OutputDir, string NameNoExt) ResolveCompileExeOutput(string outputPath, string scriptDir, string scriptNameNoExt)
+		{
+			var fullPath = Path.GetFullPath(outputPath);
+			var isDirectory = Directory.Exists(fullPath) || outputPath.EndsWith(Path.DirectorySeparatorChar) || outputPath.EndsWith(Path.AltDirectorySeparatorChar);
+
+			if (isDirectory)
+			{
+				var outputDir = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+				_ = Directory.CreateDirectory(outputDir);
+				return (Path.Combine(outputDir, scriptNameNoExt), outputDir, scriptNameNoExt);
+			}
+
+			var outputDirForFile = Path.GetDirectoryName(fullPath);
+
+			if (outputDirForFile.IsNullOrEmpty())
+				outputDirForFile = Environment.CurrentDirectory;
+			else
+				_ = Directory.CreateDirectory(outputDirForFile);
+
+			var nameNoExt = Path.GetFileNameWithoutExtension(fullPath);
+
+			if (nameNoExt.IsNullOrEmpty())
+				nameNoExt = scriptNameNoExt;
+
+			return (Path.Combine(outputDirForFile, nameNoExt), outputDirForFile, nameNoExt);
+		}
+
+		private static string ResolveCompileAsmOutput(string outputPath, string scriptDir, string scriptNameNoExt)
+		{
+			if (outputPath.Length == 0)
+				return Path.Combine(scriptDir, $"{scriptNameNoExt}.cks");
+
+			if (outputPath == "*")
+				return "*";
+
+			var fullPath = Path.GetFullPath(outputPath);
+			var isDirectory = Directory.Exists(fullPath) || outputPath.EndsWith(Path.DirectorySeparatorChar) || outputPath.EndsWith(Path.AltDirectorySeparatorChar);
+
+			if (isDirectory)
+			{
+				var outputDir = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+				_ = Directory.CreateDirectory(outputDir);
+				return Path.Combine(outputDir, $"{scriptNameNoExt}.cks");
+			}
+
+			var outputDirForFile = Path.GetDirectoryName(fullPath);
+
+			if (!outputDirForFile.IsNullOrEmpty())
+				_ = Directory.CreateDirectory(outputDirForFile);
+
+			return fullPath;
+		}
+
+		private static bool ShouldUseDaemon()
+		{
+			var value = Environment.GetEnvironmentVariable("KEYSHARP_DAEMON");
+
+			if (!string.IsNullOrWhiteSpace(value))
+			{
+				value = value.Trim();
+
+				if (value.Equals("1", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("true", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("on", StringComparison.OrdinalIgnoreCase))
+					return true;
+
+				if (value.Equals("0", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("false", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("no", StringComparison.OrdinalIgnoreCase)
+						|| value.Equals("off", StringComparison.OrdinalIgnoreCase))
+					return false;
+			}
+
+#if DEBUG
+			return false;
+#else
+			return true;
+#endif
+		}
+
+		private static bool IsCompiledScriptInput(string path)
+		{
+			var ext = Path.GetExtension(path);
+
+			if (ext.Equals(".cks", StringComparison.OrdinalIgnoreCase)
+					|| ext.Equals(".dll", StringComparison.OrdinalIgnoreCase))
+				return true;
+
+			return false;
+		}
+
+		// Loads a precompiled script assembly (produced by the compile server) and invokes its entry point in
+		// this process, mirroring the tail of Main's normal flow. No compile-context Script is created here:
+		// compilation already happened in the daemon, and the compiled Main creates its own runtime Script.
+		private static int RunCompiledBytes(byte[] arr, string[] scriptArgs)
+		{
+			try
+			{
+				CompilerHelper.compiledasm = Assembly.Load(arr);
+				var program = CompilerHelper.compiledasm.GetType($"{Keywords.MainNamespaceName}.{Keywords.MainClassName}");
+				var main = program.GetMethod("Main");
+#if DEBUG
+				Ks.OutputDebugLine("Running compiled code (served).");
+#endif
+				Environment.ExitCode = main.Invoke(null, [scriptArgs]).Ai();
+			}
+			catch (Exception ex)
+			{
+				if (ex is TargetInvocationException)
+					ex = ex.InnerException;
+
+				var error = new StringBuilder();
+				_ = error.AppendLine("Execution error:\n");
+				_ = error.AppendLine($"{ex.GetType().Name}: {ex.Message}");
+				_ = error.AppendLine();
+				_ = error.AppendLine(ex.StackTrace);
+				Environment.ExitCode = Message(error.ToString(), true);
+			}
+
+			return Environment.ExitCode;
+		}
+
+		private static int ReportDaemonCompileFailure(string error, string scriptPath)
+		{
+			using var script = new Script();
+			script.scriptPath = Path.GetFullPath(scriptPath);
+			script.scriptName = Path.GetFileName(script.scriptPath);
+			return Message(error, true);
+		}
+
 		internal static string GetLatestDotNetVersion()
 		{
 #if OSX
@@ -437,14 +772,62 @@ namespace Keysharp.Main
 
 			if (!oldPath.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(s => string.Compare(s, path, true) == 0))
 				Registry.LocalMachine.CreateSubKey(keyName).SetValue("PATH", oldPath + (oldPath.EndsWith(';') ? path : $";{path}"), RegistryValueKind.ExpandString);//Set the path as an an expandable string with the passed in value included.
+
+			RegisterShellIntegration(path);
 		}
 
 		internal static void RemoveFromPath(string path)
 		{
+			DaemonCoordinator.StopOwner();
 			var keyName = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
 			var oldPath = (string)Registry.LocalMachine.CreateSubKey(keyName).GetValue("PATH", "", RegistryValueOptions.DoNotExpandEnvironmentNames);//Get non-expanded PATH environment variable.
 			var newPath = string.Join(';', oldPath.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => string.Compare(s, path, true) != 0));
 			Registry.LocalMachine.CreateSubKey(keyName).SetValue("PATH", newPath, RegistryValueKind.ExpandString);//Restore the old path to what it was without the passed in value included.
+			UnregisterShellIntegration();
+		}
+
+		private static void RegisterShellIntegration(string path)
+		{
+			var exe = Path.Combine(path, "Keysharp.exe");
+			var command = $"\"{exe}\" \"%1\"";
+			var compileCommand = $"\"{exe}\" --compile \"%1\"";
+
+			using (var ext = Registry.LocalMachine.CreateSubKey(@"Software\Classes\.cks"))
+				ext.SetValue("", "Keysharp.CompiledScript");
+
+			using (var type = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp.CompiledScript"))
+				type.SetValue("", "Compiled Keysharp script");
+
+			using (var icon = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp.CompiledScript\DefaultIcon"))
+				icon.SetValue("", $"\"{exe}\",0");
+
+			using (var open = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp.CompiledScript\shell\open\command"))
+				open.SetValue("", command);
+
+			// Older installers registered this iconless verb under the .ks ProgID. Remove it so only the
+			// SystemFileAssociations verb below remains.
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp\shell\compile", false);
+			RegisterCompileVerb(".ahk", compileCommand, exe);
+			RegisterCompileVerb(".ks", compileCommand, exe);
+		}
+
+		private static void RegisterCompileVerb(string extension, string command, string exe)
+		{
+			using var shell = Registry.LocalMachine.CreateSubKey($@"Software\Classes\SystemFileAssociations\{extension}\shell\KeysharpCompile");
+			shell.SetValue("", "Compile");
+			shell.SetValue("Icon", $"\"{exe}\",0");
+
+			using var commandKey = shell.CreateSubKey("command");
+			commandKey.SetValue("", command);
+		}
+
+		private static void UnregisterShellIntegration()
+		{
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\.cks", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp.CompiledScript", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp\shell\compile", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ahk\shell\KeysharpCompile", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ks\shell\KeysharpCompile", false);
 		}
 
 #endif
@@ -459,8 +842,20 @@ namespace Keysharp.Main
 
 			if (error)
 			{
-				if (ch.ReportCompilerErrors(text))
-					return RestartCurrentProcess();
+				try
+				{
+					if (ch.ReportCompilerErrors(text))
+						return RestartCurrentProcess();
+				}
+				catch (Exception ex)
+				{
+					var fallback = $"{text}\n\nError reporting failed: {ex.GetType().Name}: {ex.Message}";
+
+					if (TryShowInfoMessageBox(fallback))
+						_ = MessageBox.Show(fallback, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+					else
+						Console.Error.WriteLine(fallback);
+				}
 			}
 			else
 			{

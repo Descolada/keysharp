@@ -16,7 +16,8 @@
 * Download and run the Keysharp installer from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ The install path can be optionally added to the $PATH varible, so you can run it from the command line from anywhere.
 		+ The path entry will be removed upon uninstall.
-	+ It also registers Keysharp.exe as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
+	+ It also registers Keysharp.exe as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
+	+ On Windows, the installer adds a right-click "Compile" action for `.ahk` and `.ks` source scripts, which writes a `.cks` compiled script next to the source file.
 	
 ### Portable run on Windows ###
 * Download and unzip the zip file from the [Releases](https://github.com/Descolada/keysharp/releases) page.
@@ -28,7 +29,7 @@
 + Run the install.sh script with sudo: `sudo sh ./install.sh` which does the following:
 	+ Installs the Linux runtime dependencies and attempts to install the .NET 10 runtime if it is missing.
 		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
-	+ Registers Keysharp as the default program to open `.ks` files. So after installing, double click any `.ks` file to run it.
+	+ Registers Keysharp as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
 	+ Creates a symlink at `/usr/local/bin/keysharp` so you can run it from the command line from anywhere.
 	+ Installs root-owned `keysharp-inputd` daemon for evdev device access and a uinput virtual device, enabling reliable keyboard/mouse hooks, input synthesis, and `BlockInput` on both X11 and Wayland.
 	+ Installs root-owned `keysharp-screencap` which enables Wayland screen capture: on KWin it is directly needed for screen capture; on GNOME it acts as the trust gate for screen capture.
@@ -102,10 +103,10 @@ Some general notes about Keysharp's implementation of the [AutoHotkey v2 specifi
 	+ The DOM compiler generates C# code for a single program.
 	+ The C# program code is compiled into an in-memory executable.
 	+ The executable is ran in memory as a new process.
-	+ Optionally output the generated C# code to a .cs file for debugging purposes with the `-codeout` option.
-	+ Optionally output the generated executable to an .exe file for running standalone in the future with the `-exeout` option.
+	+ Optionally output the generated C# code to a .cs file for debugging purposes with the `-transpile` option, without running the script.
+	+ Optionally output the generated executable to an .exe file for running standalone in the future with the `-compile exe` option, without running the script.
 
-* Keysharp supports files with the `.ahk` extension, however installing it will not register it with that extension. Instead, it will register the other extension it supports, `.ks`.
+* Keysharp supports files with the `.ahk` extension, however installing it will not register it with that extension. Instead, it will register the other source extension it supports, `.ks`, and the compiled-script extension `.cks`.
 
 * In addition to `Keysharp.exe`, there is another executable that ships with the installer named `Keyview.exe`. This program can be used to see the C# code that is generated from the corresponding script code.
 	+ It gives real-time feedback so you can see immediately when you have a syntax error.
@@ -560,23 +561,30 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ `#AssemblyCopyright`
 		+ `#AssemblyTrademark`
 		+ `#AssemblyVersion`
-* Command line switches may start with either `/` (Windows-only), `-` or `--`. 
+* Command line switches may start with `/`, `-` or `--`, and must appear before the script or assembly input. After the input is found, all remaining arguments are passed to the script or assembly entry point.
 * Command line switches
     - `--script`    
 	  Causes a compiled script to ignore its main code and instead executes the provided script. For this to apply, `--script` must be the first command line argument.    
 	  Example: `CompiledScript.exe /script /ErrorStdOut MyScript.ahk "Script's arg 1"`
 	- `--version`, `-v`  
 	  Displays Keysharp version.
-	- `--codeout`  
-	  In addition to running the script, Keysharp outputs a .cs file with the same name as the script containing the code which was used to compile. This is the same code displayed in Keyview. 
-	- `--exeout`  
-	  In addition to running the script, Keysharp outputs a .exe file which can be ran as standalone from Keysharp (but still requires .NET 9).
-	- `--minimalexeout`    
-	  Same as `--exeout` but the number of file dependencies is reduced by embedding them in Scriptname.dll. The resulting program will have five dependencies: Scriptname.exe, Scriptname.dll, Keysharp.Core.dll, Scriptname.deps.json, and Scriptname.runtime.config. To get a truly single-file executable the script must be compiled as a C# project, for example as Keysharp.OutputTest in the Keysharp solution.
-	- `--validate`  
+	- `--transpile`  
+	  Outputs a .cs file with the same name as the script containing the code which was used to compile. This is the same code displayed in Keyview. The script is not run.
+	- `--compile exe [--dest <path>] <script>`  
+	  Outputs a .exe file which can be ran as standalone from Keysharp (but still requires .NET 10). If `--dest` is a folder, the executable is written there using the script's base name. If `--dest` is a file name, that name and folder are used for the output. The script is not run.
+	- `--compile exe-min [--dest <path>] <script>`    
+	  Same as `--compile exe` but the number of file dependencies is reduced by embedding them in Scriptname.dll. The resulting program will have five dependencies: Scriptname.exe, Scriptname.dll, Keysharp.Core.dll, Scriptname.deps.json, and Scriptname.runtime.config. To get a truly single-file executable the script must be compiled as a C# project, for example as Keysharp.OutputTest in the Keysharp solution. The script is not run.
+	- `--compile <script>`
+	  Outputs the compiled raw assembly bytes to a `.cks` file with the same base name as the script. The script is not run.
+	- `--compile asm [--dest <path|*>] <script>`
+	  Outputs the compiled raw assembly bytes to a `.cks` file. If `--dest` is a folder, the `.cks` file is written there using the script's base name. If `--dest` is a file name, that file is used. If `--dest` is `*`, output is written to StdOut. `dll` is also accepted as an alias for `asm`. The script is not run.
+	- `--validate`, `/validate`  
 	  Compiles but does not run the script. Can be used to check for load-time errors.
-	- `--assembly [Type Method]`  
-	  Reads pre-compiled assembly code from the file or StdIn and runs it. Optionally also provide the entrypoint type and method, but if omitted then the default type `Keysharp.CompiledMain.program` and method `Main` are used.
+	- `--asm`, `--assembly`  
+	  Reads pre-compiled assembly code from the file or StdIn and runs it. If omitted, the default type `Keysharp.CompiledMain.Program` and method `Main` are used. A custom entry point can be specified with `--asm:Namespace.Type.Method`, splitting the type and method at the last dot. A `.cks` or `.dll` input is treated as an assembly even when `--asm` is omitted.
+	  Examples: `Keysharp.exe --asm Script.cks arg1 arg2`, `Keysharp.exe Script.cks arg1 arg2`, `Keysharp.exe --asm:My.Namespace.Type.Main Script.dll arg1 arg2`
+	- `--daemon`, `--daemon stop`, `--daemon ping <script>`
+	  Starts, stops, or diagnostics-checks the background compile daemon. Plain script runs use the daemon by default in release builds, but not in debug builds. Set `KEYSHARP_DAEMON=1` (or `true`, `yes`, `on`) to force daemon use, or `KEYSHARP_DAEMON=0` (or `false`, `no`, `off`) to bypass it.
 	
 ###	Removals: ###
 * `ListLines()` is non-functional because C# doesn't support it.

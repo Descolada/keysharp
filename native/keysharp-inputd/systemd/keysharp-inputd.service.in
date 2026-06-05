@@ -1,0 +1,21 @@
+[Unit]
+Description=Keysharp privileged Linux input broker
+Requires=keysharp-inputd.socket
+After=keysharp-inputd.socket systemd-udevd.service
+
+[Service]
+Type=simple
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/keysharp-inputd --system-service
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/keysharp-trust
+StateDirectory=keysharp-trust
+UMask=0077
+DevicePolicy=closed
+DeviceAllow=char-input r
+DeviceAllow=/dev/uinput rw

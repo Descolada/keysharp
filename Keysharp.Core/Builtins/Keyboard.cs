@@ -139,7 +139,7 @@ namespace Keysharp.Builtins
 			JoyControls joy;
 			uint? joystickid = 0u;
 			uint? dummy = null;
-			var vk = ht.TextToVK(keyname, ref dummy, false, true, GetKeyboardLayout(0));
+			var vk = ht.TextToVK(keyname, ref dummy, GetKeyboardLayout(0));
 
 			if (vk == 0)
 			{
@@ -556,7 +556,7 @@ break_twice:;
 			var kbdMouseSender = ht.kbdMsSender;
 			uint? modLR = null;
 
-			if ((vk = ht.TextToVK(keyname, ref modLR, false, true, GetKeyboardLayout(0))) == 0)
+			if ((vk = ht.TextToVK(keyname, ref modLR, GetKeyboardLayout(0))) == 0)
 			{
 				joy = Joystick.ConvertJoy(keyname, ref joystickId);
 
@@ -635,7 +635,6 @@ break_twice:;
 		public static object Send(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "Send");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}
@@ -658,7 +657,6 @@ break_twice:;
 		public static object SendEvent(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendEvent");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Event, 0);
 			return DefaultObject;
 		}
@@ -672,7 +670,6 @@ break_twice:;
 		public static object SendInput(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendInput");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, ThreadAccessors.A_SendMode == SendModes.InputThenPlay ? SendModes.InputThenPlay : SendModes.Input, 0);
 			return DefaultObject;
 		}
@@ -711,7 +708,6 @@ break_twice:;
 		public static object SendPlay(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendPlay");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.NotRaw, SendModes.Play, 0);
 			return DefaultObject;
 		}
@@ -722,7 +718,6 @@ break_twice:;
 		public static object SendText(object keys)
 		{
 			var script = Script.TheScript;
-			_ = script.Permissions.EnsureInputInjection(operation: "SendText");
 			script.HookThread.kbdMsSender.SendKeys(keys.As(), SendRawModes.RawText, ThreadAccessors.A_SendMode, 0);
 			return DefaultObject;
 		}
@@ -909,9 +904,12 @@ break_twice:;
 
 			// Check SC first to properly differentiate between Home/NumpadHome, End/NumpadEnd, etc.
 			// v1.0.43: WheelDown/Up store the notch/turn count in SC, so don't consider that to be a valid SC.
-			if (sc != 0 && !MouseUtils.IsWheelVK(vk) && ht.SCtoKeyName(sc, false) != "")
+			if (sc != 0 && !MouseUtils.IsWheelVK(vk))
 			{
-				return buf;
+				buf = ht.SCtoKeyName(sc, false);
+
+				if (buf != "")
+					return buf;
 				// Otherwise this key is probably one we can handle by VK.
 			}
 
@@ -929,7 +927,7 @@ break_twice:;
 		internal static ResultType ScriptBlockInput(ToggleValueType toggle)
 		{
 			var script = Script.TheScript;
-	#if LINUX
+		#if LINUX
 			var kud = script.KeyboardUtilsData;
 			var cmdstr = toggle is ToggleValueType.Off
 				or ToggleValueType.MouseMoveOff
@@ -949,6 +947,10 @@ break_twice:;
 				case ToggleValueType.Mouse:
 				case ToggleValueType.SendAndMouse:
 				case ToggleValueType.Default:
+					// These modes only store the policy; they do not block anything immediately.
+					// The send and mouse paths call ScriptBlockInput(On) at the start of each
+					// operation and ScriptBlockInput(Off) at the end, so the actual inputd
+					// block is applied through the On/Off branch, not here.
 					script.KeyboardData.blockInputMode = toggle;
 					break;
 
@@ -961,14 +963,32 @@ break_twice:;
 					list = kud.mouseList;
 					script.KeyboardData.blockMouseMove = false;
 					break;
-					// default (NEUTRAL or TOGGLE_INVALID): do nothing.
+				// default (NEUTRAL or TOGGLE_INVALID): do nothing.
 			}
 
-			if (list != null)
+			var inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.None;
+
+			if (script.KeyboardData.blockInput)
+				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Keyboard
+					| Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
+			else if (script.KeyboardData.blockMouseMove)
+				inputdMask = Keysharp.Internals.Input.Linux.KeysharpInputdClient.BlockInputMask.Mouse;
+
+			var inputdMessage = string.Empty;
+			var inputdApplied = list != null
+				&& Keysharp.Internals.Input.Linux.KeysharpInputdManager.TrySetBlockInput(inputdMask, out inputdMessage);
+
+			if (list != null && !inputdApplied)
+			{
+				if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.IsLegacyX11FallbackActive
+					&& !string.IsNullOrEmpty(inputdMessage))
+					Ks.OutputDebugLine($"BlockInput: keysharp-inputd unavailable; falling back to xinput. {inputdMessage}");
+
 				foreach (var id in list)
 					if ($"xinput {cmdstr} {id}".Bash() != 0)
 						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}.");
-	#elif WINDOWS
+			}
+		#elif WINDOWS
 			switch (toggle)
 			{
 				// Always turn input ON/OFF even if g_BlockInput says its already in the right state.  This is because
@@ -1090,13 +1110,12 @@ break_twice:;
 		/// <returns>A string or integer representation of the key.</returns>
 		private static object GetKeyNamePrivate(string keyname, int callid)
 		{
-			var script = Script.TheScript;
-			var ht = script.HookThread;
-			var kbdMouseSender = ht.kbdMsSender;
+			var ht = Script.TheScript.HookThread;
 			var vk = 0u;
 			var sc = 0u;
+			var source = KeySource.None;
 			uint? modLR = null;
-			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref modLR, GetKeyboardLayout(0));//Need to make cross platform.
+			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref source, ref modLR, GetKeyboardLayout(0));
 
 			return callid switch
 		{
@@ -1165,6 +1184,7 @@ break_twice:;
 
 				case ToggleValueType.AlwaysOn:
 				case ToggleValueType.AlwaysOff:
+					EnsureForcedLockStatePermissions(vk);
 					forceLock = (toggle == ToggleValueType.AlwaysOn) ? ToggleValueType.On : ToggleValueType.Off; // Must do this first.
 					_ = kbdMouseSender.ToggleKeyState(vk, forceLock);
 					// The hook is currently needed to support keeping these keys AlwaysOn or AlwaysOff, though
@@ -1181,6 +1201,27 @@ break_twice:;
 					forceLock = ToggleValueType.Neutral;
 					break;
 			}
+		}
+
+		private static void EnsureForcedLockStatePermissions(uint vk)
+		{
+			var operation = vk switch
+			{
+				(uint)Keys.Capital => "SetCapsLockState AlwaysOn/AlwaysOff",
+				(uint)Keys.NumLock => "SetNumLockState AlwaysOn/AlwaysOff",
+				(uint)Keys.Scroll => "SetScrollLockState AlwaysOn/AlwaysOff",
+				_ => "SetLockState AlwaysOn/AlwaysOff"
+			};
+			var result = Script.TheScript.Permissions.RequestInputCapabilities(
+				monitoring: true,
+				injection: true,
+				blockInput: false,
+				operation: operation);
+
+			if (!result.IsGranted)
+				throw new InvalidOperationException(result.Message.IsNullOrEmpty()
+					? $"Permission is required for '{operation}'."
+					: result.Message);
 		}
 	}
 

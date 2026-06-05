@@ -417,6 +417,9 @@ namespace Keysharp.Internals.Window.Linux
 		{
 			get
 			{
+				if (!IsSpecified || xwindow.XDisplay.Handle == 0)
+					return new WindowItem(0);
+
 				var parentReturn = 0L;
 				var childrenReturn = nint.Zero;
 

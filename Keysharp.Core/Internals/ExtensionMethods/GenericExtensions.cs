@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using System.Runtime.CompilerServices;
 namespace System.Collections.Generic
 {
 	/// <summary>
@@ -178,66 +179,6 @@ namespace System.Collections.Generic
 			}
 
 			return dictionary[k] as V;
-		}
-
-		/// <summary>
-		/// Invoke all event handlers in a list with each being called in its own pseudo-thread.<br/>
-		/// If any event handler returns a non-empty result, no further calls are made.
-		/// </summary>
-		/// <param name="handlers">The list of event handlers to call.</param>
-		/// <param name="obj">The parameters to pass to each event handler.</param>
-		/// <returns>The result of the last event handler that was called.</returns>
-		internal static object InvokeEventHandlers<TRegistration>(this IEnumerable<TRegistration> handlers, params object[] obj)
-			where TRegistration : CallbackRegistration
-		{
-			object result = null;
-			var snapshot = handlers as TRegistration[] ?? handlers?.ToArray();
-
-			if (snapshot?.Length <= 0)
-				return result;
-
-			var inst = obj.Length > 0 ? obj[0].GetControl() : null;
-			var script = Script.TheScript;
-			var oldEventInfo = A_EventInfo;
-
-			foreach (var entry in snapshot)
-			{
-				if (entry == null || !entry.IsActive)
-					continue;
-
-				var handler = entry.Callback;
-
-				if (handler == null)
-					continue;
-
-				var targetScheduler = entry.OwnerScheduler ?? script.EventScheduler;
-				var executionResult = targetScheduler.TryInvokePseudoThread(0, false, false, tv =>
-				{
-					object localResult = null;
-					_ = Keysharp.Internals.Flow.TryCatch(() => localResult = ExecuteHandler(script, handler, obj, tv, oldEventInfo, inst: inst));
-					return localResult;
-				}, out result);
-
-				if (executionResult != ScriptEventExecutionResult.Executed)
-					continue;
-
-				if (Script.ForceLong(result) != 0L)
-					break;
-			}
-
-			script.ExitIfNotPersistent();
-			return result;
-		}
-
-		internal static object ExecuteHandler(Script script, IFuncObj handler, object[] obj, ThreadVariables tv, object eventInfo = null, long hwnd = 0L, Control inst = null)
-		{
-			tv.eventInfo = eventInfo;
-			tv.hwndLastUsed = hwnd;
-
-			if (hwnd == 0L && inst is Control ctrl && ctrl.FindForm() is Form form)
-				script.HwndLastUsed = form.Handle;
-
-			return handler.Call(obj);
 		}
 
 		/// <summary>

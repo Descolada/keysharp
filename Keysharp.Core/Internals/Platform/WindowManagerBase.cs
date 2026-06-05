@@ -75,6 +75,9 @@ namespace Keysharp.Internals.Platform
 			if (criteria.Active)
 			{
 				var activeWindow = WindowManager.ActiveWindow;
+				if (criteria.IsOnlyActive)
+					return activeWindow is WindowItemBase activeOnly && activeOnly.IsSpecified ? activeOnly : null;
+
 				return activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions) ? active : null;
 			}
 
@@ -82,6 +85,19 @@ namespace Keysharp.Internals.Platform
 			{
 				if (WindowManager.IsWindow(criteria.ID) && WindowManager.CreateWindow(criteria.ID) is WindowItemBase temp && temp.Equals(criteria, matchOptions))
 					return temp;
+
+#if !WINDOWS
+				// On Wayland/XWayland, oGui.Hwnd is a GObject/Eto widget handle, not an
+				// X11 XID or Wayland protocol handle, so IsWindow returns false for own
+				// windows. Mirror the Control.FromHandle fallback from FindWindow(object).
+				if (Control.FromHandle(criteria.ID) is Control ctrl2)
+				{
+					var ctrlWin = new ControlItem(ctrl2);
+
+					if (ctrlWin.Equals(criteria, matchOptions))
+						return ctrlWin;
+				}
+#endif
 
 				return null;
 			}
@@ -152,7 +168,12 @@ namespace Keysharp.Internals.Platform
 			{
 				var activeWindow = WindowManager.ActiveWindow;
 
-				if (activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions))
+				if (criteria.IsOnlyActive)
+				{
+					if (activeWindow is WindowItemBase activeOnly && activeOnly.IsSpecified)
+						found.Add(activeOnly);
+				}
+				else if (activeWindow is WindowItemBase active && active.IsSpecified && active.Equals(criteria, matchOptions))
 					found.Add(active);
 
 				return found;

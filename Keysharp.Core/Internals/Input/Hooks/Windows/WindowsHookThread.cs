@@ -91,9 +91,17 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 	internal class HookEventArgs : EventArgs
 	{
-		internal HookEventArgs(EventType type) => Type = type;
+		internal HookEventArgs(EventType type, uint timestamp = 0)
+		{
+			Type = type;
+			// The event's time field is a 32-bit GetTickCount() value (ms since boot). When it's
+			// missing (e.g. some injected events report 0), fall back to the current tick count so
+			// the units stay consistent rather than mixing in a Unix-epoch timestamp.
+			Timestamp = timestamp != 0 ? timestamp : unchecked((uint)Environment.TickCount);
+		}
 		internal EventType Type { get; }
 		internal DateTime EventTime => DateTime.UtcNow;
+		internal long Timestamp { get; }
 		internal nint Hook { get; init; }
 		internal int Code { get; init; }
 		internal nint WParam { get; init; }
@@ -107,8 +115,8 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 	internal class KeyboardHookEventArgs : HookEventArgs
 	{
-		internal KeyboardHookEventArgs(nint ptr, uint vk, uint sc, uint flags, bool simulated, nint hook, int code, nint wParam)
-			: base(flags == WM_KEYUP || flags == WM_SYSKEYUP ? EventType.KeyReleased : EventType.KeyPressed)
+		internal KeyboardHookEventArgs(nint ptr, uint vk, uint sc, uint flags, bool simulated, nint hook, int code, nint wParam, uint timestamp = 0)
+			: base(flags == WM_KEYUP || flags == WM_SYSKEYUP ? EventType.KeyReleased : EventType.KeyPressed, timestamp)
 		{
 			StructPtr = ptr;
 			Hook = hook;
@@ -130,8 +138,8 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 	internal class MouseHookEventArgs : HookEventArgs
 	{
-		internal MouseHookEventArgs(EventType type, nint ptr, uint flags, bool simulated, int x, int y, nint hook, int code, nint wParam)
-			: base(type)
+		internal MouseHookEventArgs(EventType type, nint ptr, uint flags, bool simulated, int x, int y, nint hook, int code, nint wParam, uint timestamp = 0)
+			: base(type, timestamp)
 		{
 			StructPtr = ptr;
 			Hook = hook;
@@ -154,8 +162,8 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 	internal class MouseWheelHookEventArgs : HookEventArgs
 	{
-		internal MouseWheelHookEventArgs(nint ptr, int delta, uint flags, bool simulated, int x, int y, nint hook, int code, nint wParam)
-			: base(EventType.MouseWheel)
+		internal MouseWheelHookEventArgs(nint ptr, int delta, uint flags, bool simulated, int x, int y, nint hook, int code, nint wParam, uint timestamp = 0)
+			: base(EventType.MouseWheel, timestamp)
 		{
 			StructPtr = ptr;
 			Hook = hook;
@@ -193,6 +201,21 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		private nint uwpHwndChecked = 0;
 		internal WindowsHookThread()
 		{
+			AddScKeyName("NumpadEnter", NumpadEnter);
+			AddScKeyName("Delete", Delete);
+			AddScKeyName("Del", Delete);
+			AddScKeyName("Insert", Insert);
+			AddScKeyName("Ins", Insert);
+			AddScKeyName("Up", Up);
+			AddScKeyName("Down", Down);
+			AddScKeyName("Left", Left);
+			AddScKeyName("Right", Right);
+			AddScKeyName("Home", Home);
+			AddScKeyName("End", End);
+			AddScKeyName("PgUp", PgUp);
+			AddScKeyName("PageUp", PgUp);
+			AddScKeyName("PgDn", PgDn);
+			AddScKeyName("PageDown", PgDn);
 			kbdMsSender = new WindowsKeyboardMouseSender();
 			kbdHandlerDel = new LowLevelKeyboardProc(LowLevelKeybdHandler);
 			mouseHandlerDel = new LowLevelMouseProc(LowLevelMouseHandler);
@@ -500,7 +523,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		}
 
 		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
-										, CollectInputState state, KeyHistoryItem keyHistoryCurr)
+										, CollectInputState state, KeyHistoryItem keyHistoryCurr, object eventInfo)
 		// Returns true if the caller should treat the key as visible (non-suppressed).
 		// Always use the parameter aVK rather than event.vkCode because the caller or caller's caller
 		// might have adjusted aVK, such as to make it a left/right specific modifier key rather than a
@@ -511,7 +534,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			state.used_dead_key_non_destructively = false;
 			state.charCount = 0;
 
-			if (keyUp && !CollectKeyUp(extraInfo, vk, sc, true))
+			if (keyUp && !CollectKeyUp(extraInfo, vk, sc, true, eventInfo))
 				return false;
 
 			// The checks above suppress key-up if key-down was suppressed and the Input is still active.
@@ -730,7 +753,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			state.ch = ch;
 			state.charCount = charCount;
 
-			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, true))
+			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, true, eventInfo))
 				return false; // Suppress.
 
 			return true;//Visible.
@@ -1005,7 +1028,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 					sc = (uint)wheelDelta;
 					keyUp = false; // Always consider wheel movements to be "key down" events.
 
-					var hookEvent = new MouseWheelHookEventArgs(structPtr, wheelDelta, lParam.flags, isArtificial, lParam.pt.X, lParam.pt.Y, mouseHook, code, param);
+					var hookEvent = new MouseWheelHookEventArgs(structPtr, wheelDelta, lParam.flags, isArtificial, lParam.pt.X, lParam.pt.Y, mouseHook, code, param, (uint)lParam.time);
 					return LowLevelCommon(hookEvent, vk, sc, sc, keyUp, lParam.dwExtraInfo, lParam.flags);
 				}
 
@@ -1036,7 +1059,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 					vk = (Conversions.HighWord(lParam.mouseData) == XBUTTON1) ? VK_XBUTTON1 : VK_XBUTTON2; keyUp = false; break;
 			}
 
-			var hookEventDefault = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, structPtr, lParam.flags, isArtificial, lParam.pt.X, lParam.pt.Y, mouseHook, code, param);
+			var hookEventDefault = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, structPtr, lParam.flags, isArtificial, lParam.pt.X, lParam.pt.Y, mouseHook, code, param, (uint)lParam.time);
 			return LowLevelCommon(hookEventDefault, vk, sc, sc, keyUp, lParam.dwExtraInfo, lParam.flags);
 		}
 
@@ -1394,7 +1417,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			}
 
 			var structPtr = (nint)Unsafe.AsPointer(ref lParam);
-			var hookEvent = new KeyboardHookEventArgs(structPtr, vk, sc, lParam.flags, isArtificial, kbdHook, code, wParam);
+			var hookEvent = new KeyboardHookEventArgs(structPtr, vk, sc, lParam.flags, isArtificial, kbdHook, code, wParam, lParam.time);
 			return LowLevelCommon(hookEvent, vk, sc, (uint)lParam.scanCode, keyUp, lParam.dwExtraInfo, lParam.flags);
 		}
 

@@ -5,9 +5,6 @@ namespace Keysharp.Builtins
 	/// </summary>
 	public static partial class Screen
 	{
-		internal static void EnsureScreenCapturePermission(string operation)
-			=> _ = Script.TheScript.Permissions.EnsureScreenCapture(operation: operation);
-
 		private static readonly Dictionary<string, Regex> optsItems = new (StringComparer.OrdinalIgnoreCase)
 		{
 			{ Keyword_Icon, IconRegex() },
@@ -68,7 +65,6 @@ namespace Keysharp.Builtins
 		/// <exception cref="ValueError ">A <see cref="ValueError "/> exception thrown if an invalid parameter was detected or the image could not be loaded.</exception>
 		public static object ImageSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object x1, object y1, object x2, object y2, object imageFile, object options = null)
 		{
-			EnsureScreenCapturePermission("ImageSearch");
 			var _x1 = x1.Ai();
 			var _y1 = y1.Ai();
 			var _x2 = x2.Ai();
@@ -118,6 +114,9 @@ namespace Keysharp.Builtins
 
 			Point? location;
 			Bitmap source = null;
+			// Captured inside the try block before source is disposed, so the scale
+			// is available when converting physical offsets to logical coordinates.
+			double captureScaleX = 1.0, captureScaleY = 1.0;
 
 			try
 			{
@@ -131,6 +130,13 @@ namespace Keysharp.Builtins
 				var maxX = Math.Min(Ks.A_TotalScreenWidth.Ai(), _x2) - start.X;
 				var maxY = Math.Min(Ks.A_TotalScreenHeight.Ai(), _y2) - start.Y;
 				source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
+
+				// On HiDPI compositors (GNOME Wayland) GetScreen returns the physical-pixel
+				// bitmap so the needle (also physical from screenshot tools) matches exactly.
+				// Record the scale here while source is still alive; apply it below.
+				if (source != null && maxX > 0) captureScaleX = (double)source.Width / maxX;
+				if (source != null && maxY > 0) captureScaleY = (double)source.Height / maxY;
+
 				var searchImg = new ImageFinder(source) { Variation = variation };
 
 				location = searchImg.Find(bmp, trans);
@@ -147,7 +153,7 @@ namespace Keysharp.Builtins
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X + _x1, y = location.Value.Y + _y1;
+				int x = (int)Math.Round(location.Value.X / captureScaleX) + _x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + _y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
 				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
@@ -173,7 +179,6 @@ namespace Keysharp.Builtins
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		public static string PixelGetColor(object x, object y, object unsed = null)
 		{
-			EnsureScreenCapturePermission("PixelGetColor");
 			int pixel;
 			var _x = x.Ai();
 			var _y = y.Ai();
@@ -216,7 +221,6 @@ namespace Keysharp.Builtins
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
 		public static long PixelSearch([ByRef][Optional] object outX, [ByRef][Optional] object outY, object obj0, object obj1, object obj2, object obj3, object obj4, object obj5 = null)
 		{
-			EnsureScreenCapturePermission("PixelSearch");
 			var x1 = obj0.Ai();
 			var y1 = obj1.Ai();
 			var x2 = obj2.Ai();
@@ -243,10 +247,15 @@ namespace Keysharp.Builtins
 			ImageFinder finder = null;
 			var needle = Color.FromArgb((int)((uint)colorID | 0xFF000000));
 			Point? location;
+			double captureScaleX = 1.0, captureScaleY = 1.0;
 
 			try
 			{
-				source = GuiHelper.GetScreen(x1, y1, x2 - x1, y2 - y1);
+				var logW = x2 - x1;
+				var logH = y2 - y1;
+				source = GuiHelper.GetScreen(x1, y1, logW, logH);
+				if (source != null && logW > 0) captureScaleX = (double)source.Width / logW;
+				if (source != null && logH > 0) captureScaleY = (double)source.Height / logH;
 				finder = new ImageFinder(source) { Variation = (byte)variation };
 				location = finder.Find(needle, ltr, ttb);
 			}
@@ -261,7 +270,7 @@ namespace Keysharp.Builtins
 
 			if (location.HasValue)
 			{
-				int x = location.Value.X + x1, y = location.Value.Y + y1;
+				int x = (int)Math.Round(location.Value.X / captureScaleX) + x1, y = (int)Math.Round(location.Value.Y / captureScaleY) + y1;
 				ScreenToCoord(ref x, ref y, CoordMode.Pixel);
 				if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)x);
 				if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)y);
@@ -304,7 +313,6 @@ namespace Keysharp.Builtins
 		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
 		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
 		{
-			Screen.EnsureScreenCapturePermission("ImageCapture");
 			var x = left.Ai();
 			var y = top.Ai();
 			var w = width.Ai();

@@ -14,6 +14,12 @@ namespace Keysharp.Internals.Window.Linux
 		// ToDo: There may be more than only one xDisplay
 		private static XDisplay Display => XDisplay.Default;
 
+		private static Wayland.IWaylandBackend WaylandBackend
+			=> PlatformManager.IsWaylandSession ? Wayland.WaylandBackend.Current : null;
+
+		private static WindowItemBase CreateWaylandWindow(Wayland.IWaylandBackend backend, Wayland.WaylandWindowInfo info)
+			=> new Wayland.WaylandWindowItem(backend, info);
+
 		private static int HandleTestLoopXError(nint displayHandle, ref XErrorEvent errorEvent)
 		{
 			_ = displayHandle;
@@ -95,6 +101,13 @@ namespace Keysharp.Internals.Window.Linux
 		public static WindowItemBase ActiveWindow
 		{
 			get {
+				var backend = WaylandBackend;
+				if (backend?.TryGetActiveWindow(out var waylandActive) == true)
+					return CreateWaylandWindow(backend, waylandActive);
+
+				if (Wayland.WaylandForeignToplevels.Current?.Active is Wayland.WaylandToplevel foreignActive)
+					return new Wayland.WaylandWindowItem(foreignActive);
+
 				var activeId = 0L;
 				nint prop = 0;
 
@@ -140,6 +153,27 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 		{
+			// AHK on Windows enumerates via EnumWindows, which yields top-to-bottom z-order
+			// (index 0 = topmost). The Linux compositor APIs we use here all natively expose
+			// the opposite — KWin's workspace.stackingOrder, GNOME's get_window_actors, and
+			// X11's XQueryTree all return bottom-to-top — so we reverse at this single layer
+			// so WinGetList[1], WinExist tiebreaks, etc. match the Windows convention. The
+			// per-backend TryListWindows / TryGetWindowAt paths still see the natural
+			// compositor order, which is what their own logic expects.
+			var backend = WaylandBackend;
+			if (backend?.TryListWindows(detectHiddenWindows, out var backendWindows) == true)
+				return backendWindows.Reverse().Select(window => CreateWaylandWindow(backend, window)).ToList();
+
+			var waylandWindows = Wayland.WaylandForeignToplevels.Current?.Enumerate()
+				.Select(toplevel => (WindowItemBase)new Wayland.WaylandWindowItem(toplevel))
+				.ToList() ?? [];
+
+			if (!PlatformManager.IsX11Available)
+			{
+				waylandWindows.Reverse();
+				return waylandWindows;
+			}
+
 			var attr = new XWindowAttributes();
 			var filter = (long id) =>
 			{
@@ -149,7 +183,7 @@ namespace Keysharp.Internals.Window.Linux
 
 				return false;
 			};
-			var topLevels = new List<WindowItemBase>();
+			var topLevels = new List<WindowItemBase>(waylandWindows);
 			var seen = new HashSet<long>();
 			foreach (var window in Display.XQueryTreeRecursive(filter).Select(w => new WindowItem(w)))
 			{
@@ -162,6 +196,7 @@ namespace Keysharp.Internals.Window.Linux
 					topLevels.Add(topLevel);
 			}
 
+			topLevels.Reverse();
 			return topLevels;
 		}
 
@@ -169,16 +204,40 @@ namespace Keysharp.Internals.Window.Linux
 		{
 		}
 
-		public static WindowItemBase CreateWindow(nint id) => new WindowItem(id);
+		public static WindowItemBase CreateWindow(nint id)
+		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindow(id, out var backendWindow) == true)
+				return CreateWaylandWindow(backend, backendWindow);
+
+			if (Wayland.WaylandForeignToplevels.Current?.Get(id) is Wayland.WaylandToplevel waylandToplevel)
+				return new Wayland.WaylandWindowItem(waylandToplevel);
+
+			return new WindowItem(id);
+		}
 
 		public static IEnumerable<WindowItemBase> FilterForGroups(IEnumerable<WindowItemBase> windows) => windows;
 
 		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => 0;
 
-		public static nint GetForegroundWindowHandle() => new nint(Display.XGetInputFocusHandle());
+		public static nint GetForegroundWindowHandle()
+		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetActiveWindow(out var waylandActive) == true)
+				return waylandActive.Handle;
+
+			return new nint(Display.XGetInputFocusHandle());
+		}
 
 		public static bool IsWindow(nint handle)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindow(handle, out _) == true)
+				return true;
+
+			if (Wayland.WaylandForeignToplevels.Current?.IsWindow(handle) == true)
+				return true;
+
 			if (!PlatformManager.IsX11Available || handle == 0)
 				return false;
 
@@ -264,6 +323,10 @@ namespace Keysharp.Internals.Window.Linux
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)
 		{
+			var backend = WaylandBackend;
+			if (backend?.TryGetWindowAt(location.X, location.Y, out var backendWindow) == true)
+				return CreateWaylandWindow(backend, backendWindow);
+
 			if (!PlatformManager.IsX11Available)
 				return null;
 

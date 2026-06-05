@@ -104,9 +104,18 @@ namespace Keysharp.Parsing
 			var splits = raw.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 			if (splits.Length < 2)
-				return null; // no version requirement: do not affect mode
+				return null;
 
 			var target = splits[0];
+
+			if (target.StartsWith("capabilit", StringComparison.OrdinalIgnoreCase))
+			{
+				foreach (var part in raw.Substring(target.Length).Split([' ', '\t', ',', ';', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+					parser.requiredCapabilities.Add(part);
+
+				return null;
+			}
+
 			var reqAhk = target.StartsWith("AutoHotkey", StringComparison.OrdinalIgnoreCase);
 			var reqKeysharp = target.StartsWith("Keysharp", StringComparison.OrdinalIgnoreCase);
 
@@ -471,10 +480,13 @@ namespace Keysharp.Parsing
             var ht = Script.TheScript.HookThread;
             var kbLayout = GetKeyboardLayout(0);
 
-            ht.TextToVKandSC(remapName = HotkeyDefinition.TextToModifiers(remapName, null), ref remapDestVk, ref remapDestSc, ref modLR, kbLayout);
+            remapName = HotkeyDefinition.TextToModifiers(remapName, null);
+            var remapDestSource = KeySource.None;
+            ht.TextToVKandSC(remapName, ref remapDestVk, ref remapDestSc, ref remapDestSource, ref modLR, kbLayout);
 
             // These will be ignored in other stages if it turns out not to be a remap later below:
-            remapSourceVk = ht.TextToVK(tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null), ref modifiersLR, false, true, kbLayout);//An earlier stage verified that it's a valid hotkey, though VK could be zero.
+            tempcp1 = HotkeyDefinition.TextToModifiers(hotName, null);
+            remapSourceVk = ht.TextToVK(tempcp1, ref modifiersLR, kbLayout);//An earlier stage verified that it's a valid hotkey, though VK could be zero.
             remapSourceIsCombo = tempcp1.Contains(HotkeyDefinition.COMPOSITE_DELIMITER);
             remapSourceIsMouse = MouseUtils.IsMouseVK(remapSourceVk);
             remapDestIsMouse = MouseUtils.IsMouseVK(remapDestVk);
@@ -504,6 +516,26 @@ namespace Keysharp.Parsing
                 // to remap something to the Pause/Break key, and that's how it was in v1.  Any other key
                 // names are interpreted as remapping even if the user defines a function with that name.
                 // Doing otherwise would be complicated and probably undesirable.
+                return null;
+            }
+
+            var altTabAction = HotkeyDefinition.ConvertAltTab(targetKey, false);
+            if (altTabAction != 0)
+            {
+                parser.DHHR.Add(
+                    SyntaxFactory.ExpressionStatement(
+                        SyntaxFactory.InvocationExpression(
+                            CreateMemberAccess("Keysharp.Runtime.Keyboard.HotkeyDefinition", "AddHotkey")
+                        )
+                        .WithArgumentList(
+                            CreateArgumentList(
+                                SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression),
+                                CreateNumericLiteral(altTabAction),
+                                CreateStringLiteral(hotName)
+                            )
+                        )
+                    )
+                );
                 return null;
             }
 

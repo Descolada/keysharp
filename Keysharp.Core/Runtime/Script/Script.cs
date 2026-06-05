@@ -5,6 +5,7 @@ using Keysharp.Builtins;
 using Keysharp.Builtins.COM;
 #endif
 
+[assembly: InternalsVisibleTo("Keysharp")]
 [assembly: InternalsVisibleTo("Keysharp.Tests")]
 [assembly: InternalsVisibleTo("Keysharp.Benchmark")]
 [assembly: InternalsVisibleTo("Keyview")]
@@ -395,12 +396,6 @@ namespace Keysharp.Runtime
 
 			_ = EventScheduler;
 
-			// Request the required privacy permissions at startup so failures are explicit and early.
-			var pm = Permissions;
-			_ = pm.RequestAccessibilityAutomation(operation: "accessibility automation");
-			_ = pm.RequestInputMonitoring(operation: "keyboard/mouse monitoring");
-			_ = pm.RequestInputInjection(operation: "keyboard/mouse sending");
-
 #if WINDOWS
 			msgFilter = new MessageFilter(this);
 			Application.AddMessageFilter(msgFilter);
@@ -522,6 +517,11 @@ namespace Keysharp.Runtime
 
 				var hmodule = LoadLibrary(libraryName);
 
+#if !WINDOWS
+				if (hmodule == 0 && libraryName.EndsWith(Keywords.LibraryExtension, StringComparison.OrdinalIgnoreCase))
+					hmodule = LoadLibrary(libraryName + ".0");
+#endif
+
 				if (hmodule != 0)
 				{
 #if WINDOWS
@@ -529,6 +529,8 @@ namespace Keysharp.Runtime
 					// This is done to avoid undefined behavior when DllCall optimizations
 					// resolves a proc address in a dll loaded by this directive.
 					_ = WindowsAPI.GetModuleHandleEx(WindowsAPI.GET_MODULE_HANDLE_EX_FLAG_PIN, libraryName, out hmodule);  // MSDN regarding hmodule: "If the function fails, this parameter is NULL."
+#else
+					Dll.loadedDlls[library] = hmodule;
 #endif
 				}
 				else if (throwOnFailure)
@@ -828,7 +830,21 @@ namespace Keysharp.Runtime
 				return;
 
 			if (!autoExecResult && !persistent)
-				_ = Keysharp.Builtins.Flow.ExitApp(1);
+			{
+				// ExitApp rethrows UserRequestedExitException to unwind script threads.
+				// On non-Windows platforms this method runs inside a Gtk# AsyncInvoke
+				// callback, where an unhandled exception is escalated by
+				// GLib.ExceptionManager and terminates the host process. Swallow the
+				// expected exit signal here so a failing script reports a normal failure
+				// instead of crashing the test host.
+				try
+				{
+					_ = Keysharp.Builtins.Flow.ExitApp(1);
+				}
+				catch (Exception ex) when (Keysharp.Internals.Flow.TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(ex, out _))
+				{
+				}
+			}
 
 			ExitIfNotPersistent();
 		}
@@ -954,22 +970,15 @@ namespace Keysharp.Runtime
 				WriteUncaughtErrorToStdErr(msg);
 
 				if (script == null || !script.SuppressErrorOccurredDialog)
-				{
-					var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
-					_ = Dialogs.MsgBox(msg, title, "iconx");
-				}
+					_ = ErrorDialog.Show(kserr, false);
 
 				return;
 			}
 
-			var genericMsg = "Uncaught exception:\r\n" + "Message: " + unwrapped.Message + "\r\nStack: " + unwrapped.StackTrace;
 			WriteUncaughtErrorToStdErr("Uncaught exception:\r\n" + unwrapped);
 
 			if (script == null || !script.SuppressErrorOccurredDialog)
-			{
-				var title = script != null ? Accessors.A_ScriptName + ": Unhandled exception" : "Keysharp: Unhandled exception";
-				_ = Dialogs.MsgBox(genericMsg, title, "iconx");
-			}
+				_ = ErrorDialog.Show(unwrapped, false);
 		}
 
 		public static void TryProcessUnhandledException(Script script, Exception ex)
@@ -1042,6 +1051,9 @@ namespace Keysharp.Runtime
 				return;
 
 			HookThread?.Stop();
+#if LINUX
+			Keysharp.Internals.Input.Linux.KeysharpInputdManager.DisconnectClients();
+#endif
 			stringsData?.Free();
 			flowData?.Dispose();
 

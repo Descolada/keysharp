@@ -606,6 +606,7 @@ CaptureWindowFromPoint() {
 	global gWindowTitleEdit, gWindowInfoEdit
 
 	try {
+		CoordMode "Mouse", "Screen"
 		MouseGetPos(&mx, &my)
 		hwnd := WinFromPoint(mx, my)
 
@@ -695,9 +696,9 @@ RunPixelGetColorTest() {
 		EnsurePixelHelper(true)
 		WinGetPos(&x, &y, &w, &h, "KS Pixel Target")
 		sampleX := x + 30
-		sampleY := y + 30
+		sampleY := y + h - 30
 		color := PixelGetColor(sampleX, sampleY)
-		SetStatus("pixel_color", "Pixel status: PASS if the color below matches the red helper background: " color)
+		SetStatus("pixel_color", "Pixel status: PASS if the color below matches the red helper background (0xAA2233): " color)
 		AppendLog("PixelGetColor sampled (" sampleX "," sampleY ") -> " color)
 	} catch as err {
 		SetStatus("pixel_color", "Pixel status: BLOCKED/ERROR")

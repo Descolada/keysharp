@@ -54,7 +54,7 @@ namespace Keysharp.Builtins
 					proc.Kill();
 					return proc.Id;
 				}
-				catch (Win32Exception) { }
+				catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException) { }
 			}
 
 			return 0L;
@@ -425,7 +425,12 @@ namespace Keysharp.Builtins
 			try
 			{
 				var prc = Process.GetProcessesByName(name);
-				return prc.Length > 0 ? prc[0] : null;
+				var found = prc.Length > 0 ? prc[0] : null;
+
+				for (var i = found == null ? 0 : 1; i < prc.Length; i++)
+					prc[i].Dispose();
+
+				return found;
 			}
 			catch
 			{
@@ -748,13 +753,17 @@ namespace Keysharp.Builtins
 	/// <summary>
 	/// Encapsulates information and I/O for a spawned <see cref="Process"/>.
 	/// </summary>
-	public class ProcessInfo : KeysharpObject
+	public class ProcessInfo : KeysharpObject, IDisposable
 	{
 		private Process _process;
+		private bool disposed;
+
 		public ProcessInfo(params object[] args) : base(args)
 		{
 			_process = args[0] as Process;
 		}
+
+		~ProcessInfo() => Dispose(false);
 
 		public long HasExited => _process.HasExited ? 1L : 0L;
 		public long ExitCode => (long)_process.ExitCode;
@@ -785,6 +794,37 @@ namespace Keysharp.Builtins
 		{
 			_process.Kill();
 			return DefaultObject;
+		}
+
+		public object Close()
+		{
+			Dispose(true);
+			GC.SuppressFinalize(this);
+			HasFinalizer = false;
+			return DefaultObject;
+		}
+
+		protected virtual void Dispose(bool disposing)
+		{
+			if (disposed)
+				return;
+
+			disposed = true;
+
+			if (disposing)
+			{
+				(_StdIn as IDisposable)?.Dispose();
+				(_StdOut as IDisposable)?.Dispose();
+				(_StdErr as IDisposable)?.Dispose();
+				_process?.Dispose();
+			}
+		}
+
+		void IDisposable.Dispose()
+		{
+			Dispose(true);
+			GC.SuppressFinalize(this);
+			HasFinalizer = false;
 		}
 	}
 }

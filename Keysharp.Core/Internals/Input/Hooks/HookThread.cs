@@ -1,5 +1,6 @@
 using Keysharp.Builtins;
 using System;
+using Keysharp.Internals.Input.Keyboard;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.ScanCodes;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
@@ -15,6 +16,60 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 
 namespace Keysharp.Internals.Input.Hooks
 {
+	/// <summary>
+	/// Carries the raw metadata for a hook event and builds the script-visible event-info object on demand.
+	/// LowLevelCommon runs for every keystroke/click, but the vast majority of events match no hotkey or Input,
+	/// so the (relatively expensive) KeysharpObject is only materialized once something actually consumes it.
+	/// </summary>
+	internal sealed class HookEventInfo
+	{
+		private readonly long timestamp;
+		private readonly bool isInjected;
+		private readonly ulong extraInfo;
+		private readonly object extra;
+		private readonly uint? deviceId;
+		private KeysharpObject materialized;
+
+		internal HookEventInfo(long timestamp, bool isInjected, ulong extraInfo, object extra, uint? deviceId)
+		{
+			this.timestamp = timestamp;
+			this.isInjected = isInjected;
+			this.extraInfo = extraInfo;
+			this.extra = extra;
+			this.deviceId = deviceId;
+		}
+
+		/// <summary>
+		/// Returns the script-visible object, building it lazily and caching a single instance. Non-holder
+		/// values (e.g. an already-materialized object, or a legacy integer A_EventInfo) pass through unchanged.
+		/// </summary>
+		internal static object Materialize(object eventInfo) => eventInfo is HookEventInfo h ? h.Materialize() : eventInfo;
+
+		private KeysharpObject Materialize()
+		{
+			if (materialized != null)
+				return materialized;
+
+			var obj = new KeysharpObject();
+			obj.DefinePropInternal("Timestamp", new OwnPropsDesc(obj, timestamp));
+			obj.DefinePropInternal("IsInjected", new OwnPropsDesc(obj, isInjected));
+
+			var rawExtraInfo = unchecked((long)extraInfo);
+			if (rawExtraInfo >= KeyboardMouseSender.KeyIgnoreMin() && rawExtraInfo <= KeyboardMouseSender.KeyIgnoreLevel(0))
+				obj.DefinePropInternal("SendLevel", new OwnPropsDesc(obj, KeyboardMouseSender.InputLevelFromInfo(rawExtraInfo)));
+
+			if (deviceId.HasValue)
+				obj.DefinePropInternal("DeviceId", new OwnPropsDesc(obj, (long)deviceId.Value));
+
+			if (extra != null)
+				obj.DefinePropInternal("Extra", new OwnPropsDesc(obj, extra));
+
+			// Multiple dispatch paths (e.g. a key-down and its paired key-up hotkey) can share one holder and
+			// race here; CompareExchange keeps every reader on the same instance and discards any redundant build.
+			return System.Threading.Interlocked.CompareExchange(ref materialized, obj, null) ?? obj;
+		}
+	}
+
 	internal abstract class HookThread//Fill in base stuff here later, but this serves as the thread which attaches/detaches the keyboard hooks.
 	{
 		internal const uint END_KEY_ENABLED = END_KEY_WITH_SHIFT | END_KEY_WITHOUT_SHIFT;
@@ -30,7 +85,13 @@ namespace Keysharp.Internals.Input.Hooks
 		internal const uint INPUT_KEY_VISIBILITY_MASK = INPUT_KEY_SUPPRESS | INPUT_KEY_VISIBLE;
 		internal const uint INPUT_KEY_VISIBLE = 0x08;
 		internal const int SC_ARRAY_COUNT = SC_MAX + 1;
+		// SC is the hook backend's low-level key code. Linux inputd follows evdev
+		// KEY_* up through KEY_MAX; Windows and the other backends keep the AHK range.
+#if LINUX
+		internal const int SC_MAX = 0x2FF;
+#else
 		internal const int SC_MAX = 0x1FF;
+#endif
 		internal const int VK_ARRAY_COUNT = VK_MAX + 1;
 		internal const int VK_MAX = 0xFF;
 		internal const int KSCM_SIZE = (int)((MODLR_MAX + 1) * SC_ARRAY_COUNT);
@@ -51,7 +112,13 @@ namespace Keysharp.Internals.Input.Hooks
 		internal Dictionary<uint, string> vkToKey = [];
 		internal bool blockWinKeys = false;
 		internal nint hsHwnd = 0;
-		internal KeyboardMouseSender kbdMsSender = null;
+		private KeyboardMouseSender _kbdMsSender;
+		internal KeyboardMouseSender kbdMsSender
+		{
+			get => _kbdMsSender ??= CreateKbdMsSender();
+			set => _kbdMsSender = value;
+		}
+		protected virtual KeyboardMouseSender CreateKbdMsSender() => null;
 		internal byte[] physicalKeyState = new byte[VK_ARRAY_COUNT];
 
 		internal bool pendingDeadKeyInvisible;
@@ -121,23 +188,7 @@ namespace Keysharp.Internals.Input.Hooks
 		{
 			if (keyToSc == null)
 			{
-				keyToSc = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
-				{
-					{"NumpadEnter", NumpadEnter},
-					{"Delete", Delete},
-					{"Del", Delete},
-					{"Insert", Insert},
-					{"Ins", Insert},
-					//{"Clear", SC_CLEAR},  // Seems unnecessary because there is no counterpart to the Numpad5 clear key?
-					{"Up", Up},
-					{"Down", Down},
-					{"Left", Left},
-					{"Right", Right},
-					{"Home", Home},
-					{"End", End},
-					{"PgUp", PgUp},
-					{"PgDn", PgDn}
-				};
+				keyToSc = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
 				keyToScAlt = keyToSc.GetAlternateLookup<ReadOnlySpan<char>>();
 			}
 
@@ -195,16 +246,10 @@ namespace Keysharp.Internals.Input.Hooks
 					{"NumpadEnd", VK_END},
 					{"NumpadPgUp", VK_PRIOR},
 					{"NumpadPgDn", VK_NEXT},
-					{"Up", VK_UP},
-					{"Down", VK_DOWN},
-					{"Left", VK_LEFT},
-					{"Right", VK_RIGHT},
-					{"Home", VK_HOME},
-					{"End", VK_END},
-					{"PgUp", VK_PRIOR},
-					{"PageUp", VK_PRIOR},
-					{"PgDn", VK_NEXT},
-					{"PageDown", VK_NEXT},
+					// Up/Down/Left/Right/Home/End/PgUp/PgDn are intentionally absent here.
+					// They must resolve via scan code (keyToSc) so that the hook's scTakesPrecedence
+					// flag is set, allowing "Up::" to fire only on the cursor key and not on NumpadUp.
+					// This matches AHK v2 which keeps these keys in g_key_to_sc, not g_key_to_vk.
 					{"PrintScreen", VK_SNAPSHOT},
 					{"CtrlBreak", VK_CANCEL}, // Might want to verify this, and whether it has any peculiarities.
 					{"Pause", VK_PAUSE}, // So that VKtoKeyName() delivers consistent results, always have the preferred name first.
@@ -279,6 +324,15 @@ namespace Keysharp.Internals.Input.Hooks
 				}
 			}
 		}
+
+		protected void AddScKeyName(string name, uint sc)
+		{
+			if (sc != 0 && sc <= SC_MAX)
+				keyToSc[name] = sc;
+		}
+
+		internal bool TryGetNamedSc(ReadOnlySpan<char> name, out uint sc) =>
+		keyToScAlt.TryGetValue(name, out sc);
 
 		public abstract void SimulateKeyPress(uint key);
 
@@ -373,14 +427,16 @@ namespace Keysharp.Internals.Input.Hooks
 				// are really modifier keys on anything but a standard English keyboard.  However,
 				// long years of use haven't shown this to be a problem, and there are certainly other
 				// parts of the code that do not support custom layouts remapping the modifier keys.
-				ksc[LControl].asModifiersLR = MOD_LCONTROL;
-				ksc[RControl].asModifiersLR = MOD_RCONTROL;
-				ksc[LAlt].asModifiersLR = MOD_LALT;
-				ksc[RAlt].asModifiersLR = MOD_RALT;
-				ksc[LShift].asModifiersLR = MOD_LSHIFT;
-				ksc[RShift].asModifiersLR = MOD_RSHIFT;
-				ksc[LWin].asModifiersLR = MOD_LWIN;
-				ksc[RWin].asModifiersLR = MOD_RWIN;
+				// Also, SC 0 is the no-SC slot. Optional platform SC metadata can fall into it
+				// because SC dispatch is enabled only by scTakesPrecedence, which must stay false for SC 0.
+				ksc[SC_LCONTROL].asModifiersLR = MOD_LCONTROL;
+				ksc[SC_RCONTROL].asModifiersLR = MOD_RCONTROL;
+				ksc[SC_LALT].asModifiersLR = MOD_LALT;
+				ksc[SC_RALT].asModifiersLR = MOD_RALT;
+				ksc[SC_LSHIFT].asModifiersLR = MOD_LSHIFT;
+				ksc[SC_RSHIFT].asModifiersLR = MOD_RSHIFT;
+				ksc[SC_LWIN].asModifiersLR = MOD_LWIN;
+				ksc[SC_RWIN].asModifiersLR = MOD_RWIN;
 				// Use the address rather than the value, so that if the global var's value
 				// changes during runtime, ours will too:
 				kvk[VK_SCROLL].forceToggle = kbd.toggleStates;
@@ -465,15 +521,15 @@ namespace Keysharp.Internals.Input.Hooks
 							// in case future changes ever ruin that assumption:
 							kvk[VK_LMENU].usedAsSuffix = true;
 							kvk[VK_RMENU].usedAsSuffix = true;
-							ksc[LAlt].usedAsSuffix = true;
-							ksc[RAlt].usedAsSuffix = true;
+							ksc[SC_LALT].usedAsSuffix = true;
+							ksc[SC_RALT].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LMENU].usedAsKeyUp = true;
 								kvk[VK_RMENU].usedAsKeyUp = true;
-								ksc[LAlt].usedAsKeyUp = true;
-								ksc[RAlt].usedAsKeyUp = true;
+								ksc[SC_LALT].usedAsKeyUp = true;
+								ksc[SC_RALT].usedAsKeyUp = true;
 							}
 
 							break;
@@ -482,15 +538,15 @@ namespace Keysharp.Internals.Input.Hooks
 							// The neutral key itself is also set to be a suffix further below.
 							kvk[VK_LSHIFT].usedAsSuffix = true;
 							kvk[VK_RSHIFT].usedAsSuffix = true;
-							ksc[LShift].usedAsSuffix = true;
-							ksc[RShift].usedAsSuffix = true;
+							ksc[SC_LSHIFT].usedAsSuffix = true;
+							ksc[SC_RSHIFT].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LSHIFT].usedAsKeyUp = true;
 								kvk[VK_RSHIFT].usedAsKeyUp = true;
-								ksc[LShift].usedAsKeyUp = true;
-								ksc[RShift].usedAsKeyUp = true;
+								ksc[SC_LSHIFT].usedAsKeyUp = true;
+								ksc[SC_RSHIFT].usedAsKeyUp = true;
 							}
 
 							break;
@@ -498,15 +554,15 @@ namespace Keysharp.Internals.Input.Hooks
 						case VK_CONTROL:
 							kvk[VK_LCONTROL].usedAsSuffix = true;
 							kvk[VK_RCONTROL].usedAsSuffix = true;
-							ksc[LControl].usedAsSuffix = true;
-							ksc[RControl].usedAsSuffix = true;
+							ksc[SC_LCONTROL].usedAsSuffix = true;
+							ksc[SC_RCONTROL].usedAsSuffix = true;
 
 							if (hk.keyUp) // Fix for v1.1.07.03: Set only if true in case there was already an "up" hotkey.
 							{
 								kvk[VK_LCONTROL].usedAsKeyUp = true;
 								kvk[VK_RCONTROL].usedAsKeyUp = true;
-								ksc[LControl].usedAsKeyUp = true;
-								ksc[RControl].usedAsKeyUp = true;
+								ksc[SC_LCONTROL].usedAsKeyUp = true;
+								ksc[SC_RCONTROL].usedAsKeyUp = true;
 							}
 
 							break;
@@ -560,8 +616,9 @@ namespace Keysharp.Internals.Input.Hooks
 
 							// For some scan codes this was already set above.  But to support explicit scan code prefixes,
 							// such as "SC118 & SC122::MsgBox", make sure it's set for every prefix that uses an explicit
-							// scan code:
-							ksc[hk.modifierSC].scTakesPrecedence = true;
+							// scan code. SC 0 is the no-SC metadata sink and must never take precedence.
+							if (hk.modifierSC != 0)
+								ksc[hk.modifierSC].scTakesPrecedence = true;
 						}
 
 						if ((hk.noSuppress & HotkeyDefinition.NO_SUPPRESS_PREFIX) != 0)
@@ -766,37 +823,49 @@ namespace Keysharp.Internals.Input.Hooks
 							if (thisHk.vk == VK_MENU || thisHk.vk == VK_LMENU)
 							{
 								Kvkm(modifiersLR, VK_LMENU) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LAlt) = thisHk.idWithFlags;
+
+								if (SC_LALT != 0)
+									Kscm(modifiersLR, SC_LALT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_MENU || thisHk.vk == VK_RMENU)
 							{
 								Kvkm(modifiersLR, VK_RMENU) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RAlt) = thisHk.idWithFlags;
+
+								if (SC_RALT != 0)
+									Kscm(modifiersLR, SC_RALT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_SHIFT || thisHk.vk == VK_LSHIFT)
 							{
 								Kvkm(modifiersLR, VK_LSHIFT) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LShift) = thisHk.idWithFlags;
+
+								if (SC_LSHIFT != 0)
+									Kscm(modifiersLR, SC_LSHIFT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_SHIFT || thisHk.vk == VK_RSHIFT)
 							{
 								Kvkm(modifiersLR, VK_RSHIFT) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RShift) = thisHk.idWithFlags;
+
+								if (SC_RSHIFT != 0)
+									Kscm(modifiersLR, SC_RSHIFT) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_CONTROL || thisHk.vk == VK_LCONTROL)
 							{
 								Kvkm(modifiersLR, VK_LCONTROL) = thisHk.idWithFlags;
-								Kscm(modifiersLR, LControl) = thisHk.idWithFlags;
+
+								if (SC_LCONTROL != 0)
+									Kscm(modifiersLR, SC_LCONTROL) = thisHk.idWithFlags;
 							}
 
 							if (thisHk.vk == VK_CONTROL || thisHk.vk == VK_RCONTROL)
 							{
 								Kvkm(modifiersLR, VK_RCONTROL) = thisHk.idWithFlags;
-								Kscm(modifiersLR, RControl) = thisHk.idWithFlags;
+
+								if (SC_RCONTROL != 0)
+									Kscm(modifiersLR, SC_RCONTROL) = thisHk.idWithFlags;
 							}
 						} // if (do_cascade)
 					}
@@ -1034,7 +1103,7 @@ namespace Keysharp.Internals.Input.Hooks
 			return !suppressHotstringFinalChar;
 		}
 
-		internal bool CollectKeyUp(ulong extraInfo, uint vk, uint sc, bool early)
+		internal bool CollectKeyUp(ulong extraInfo, uint vk, uint sc, bool early, object eventInfo)
 		// Caller is responsible for having initialized aHotstringWparamToPost to HOTSTRING_INDEX_INVALID.
 		// Returns true if the caller should treat the key as visible (non-suppressed).
 		// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
@@ -1052,6 +1121,7 @@ namespace Keysharp.Internals.Input.Hooks
 						_ = PostMessage(new KeysharpMsg()
 						{
 							message = (uint)UserMessages.AHK_INPUT_KEYUP,
+							eventInfo = HookEventInfo.Materialize(eventInfo),
 							obj = input,
 							lParam = new nint(vk),
 							wParam = new nint(sc)
@@ -1075,7 +1145,7 @@ namespace Keysharp.Internals.Input.Hooks
 			return true;
 		}
 
-		internal bool CollectInputHook(ulong extraInfo, uint vk, uint sc, char[] ch, int charCount, bool early)
+		internal bool CollectInputHook(ulong extraInfo, uint vk, uint sc, char[] ch, int charCount, bool early, object eventInfo)
 		{
 			var input = Script.TheScript.input;
 
@@ -1159,6 +1229,7 @@ namespace Keysharp.Internals.Input.Hooks
 					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_KEYDOWN,
+						eventInfo = HookEventInfo.Materialize(eventInfo),
 						obj = input,
 						lParam = new nint(vk),
 						wParam = new nint(sc)
@@ -1173,6 +1244,7 @@ namespace Keysharp.Internals.Input.Hooks
 					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_CHAR,
+						eventInfo = HookEventInfo.Materialize(eventInfo),
 						obj = input,
 						lParam = new nint(ch[0]),
 						wParam = ch.Length > 1 ? new nint(ch[1]) : 0
@@ -1207,11 +1279,12 @@ namespace Keysharp.Internals.Input.Hooks
 		}
 
 		internal abstract bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
-										, CollectInputState state, KeyHistoryItem keyHistoryCurr);
+										, CollectInputState state, KeyHistoryItem keyHistoryCurr, object eventInfo);
 
 		internal bool CollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
 								   , CollectInputState state, KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut
 								   , ref CaseConformModes caseConformMode, ref char endChar, ref int skipChars
+								   , object eventInfo
 								  )
 		// Caller is responsible for having initialized aHotstringWparamToPost to HOTSTRING_INDEX_INVALID.
 		// Returns true if the caller should treat the key as visible (non-suppressed).
@@ -1219,11 +1292,11 @@ namespace Keysharp.Internals.Input.Hooks
 		// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
 		// neutral one.
 		{
-			if (!state.earlyCollected && !EarlyCollectInput(extraInfo, rawSC, vk, sc, keyUp, isIgnored, state, keyHistoryCurr))
+			if (!state.earlyCollected && !EarlyCollectInput(extraInfo, rawSC, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, eventInfo))
 				return false;
 
 			if (keyUp)
-				return CollectKeyUp(extraInfo, vk, sc, false);
+				return CollectKeyUp(extraInfo, vk, sc, false, eventInfo);
 
 			int charCount = state.charCount;
 			var activeWindow = state.activeWindow;
@@ -1233,7 +1306,7 @@ namespace Keysharp.Internals.Input.Hooks
 			var hm = Script.TheScript.HotstringManager;
 			var hsBuf = hm.hsBuf;
 
-			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, false))
+			if (!CollectInputHook(extraInfo, vk, sc, ch, charCount, false, eventInfo))
 				return false; // Suppress.
 
 			// Hotstrings monitor neither ignored input nor input that is invisible due to suppression by
@@ -1563,6 +1636,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual void RefreshPlatformKeyGrabs() { }
 
+		internal virtual uint SC_LCONTROL => LControl;
+		internal virtual uint SC_RCONTROL => RControl;
+		internal virtual uint SC_LALT => LAlt;
+		internal virtual uint SC_RALT => RAlt;
+		internal virtual uint SC_LSHIFT => LShift;
+		internal virtual uint SC_RSHIFT => RShift;
+		internal virtual uint SC_LWIN => LWin;
+		internal virtual uint SC_RWIN => RWin;
+
 		internal void ParseClickOptions(string options, ref int x, ref int y, ref uint vk, ref KeyEventTypes eventType, ref long repeatCount, ref bool moveOffset) =>
 		ParseClickOptions(options.AsSpan(), ref x, ref y, ref vk, ref eventType, ref repeatCount, ref moveOffset);
 
@@ -1632,13 +1714,26 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 		}
 
+		private static HookEventInfo CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
+			=> new (EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0, extraInfo, extra, deviceId);
+
+		private static long EventTimestamp(HookEventArgs e)
+		{
+#if WINDOWS
+			return e.Timestamp;
+#else
+			return unchecked((long)e.RawEvent.Time);
+#endif
+		}
+
 		/// <summary>
 		/// v1.0.38.06: The keyboard and mouse hooks now call this common function to reduce code size and improve
 		/// maintainability.  The code size savings as of v1.0.38.06 is 3.5 KB of uncompressed code, but that
 		/// savings will grow larger if more complexity is ever added to the hooks.
 		/// </summary>
-		internal nint LowLevelCommon(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo, uint eventFlags)
+		internal nint LowLevelCommon(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo, uint eventFlags, uint? deviceId = null)
 		{
+			var eventInfo = CreateEventInfo(e, extraInfo, eventFlags, MouseUtils.IsWheelVK(vk) ? (long)(short)sc : null, deviceId);
 			var isKeyboardEvent = e is KeyboardHookEventArgs;
 			var hotkeyIdToPost = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
 			var isIgnored = IsIgnored(extraInfo);
@@ -1680,7 +1775,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// Artificial character input via VK_PACKET isn't supported by hotkeys, since they always work via
 				// keycode, but hotstrings and Input are supported via the macro below when #InputLevel is non-zero.
 				// Must return now to avoid misinterpreting aSC as an actual scancode in the code below.
-				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 			}
 
 			//else: Use usual modified value.
@@ -1720,8 +1815,8 @@ namespace Keysharp.Internals.Input.Hooks
 			// later to avoid any change in behavior compared to v2.0 (such as dead keys affecting the translation prior
 			// to being suppressed by a hotkey), or not done at all if the event is suppressed by other means.
 			if (isKeyboardEvent && script.inputBeforeHotkeysCount > 0
-					&& !EarlyCollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr))
-				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					&& !EarlyCollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr, eventInfo))
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 
 			// v1.0.43: Block the Win keys during journal playback to prevent keystrokes hitting the Start Menu
 			// if the user accidentally presses one of those keys during playback.  Note: Keys other than Win
@@ -1732,10 +1827,10 @@ namespace Keysharp.Internals.Input.Hooks
 			// Also, it seems best to block artificial LWIN keystrokes too, in case some other script or
 			// program tries to display the Start Menu during playback.
 			if (blockWinKeys && (vk == VK_LWIN || vk == VK_RWIN) && !keyUp)
-				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 
 			if (altTabMenuIsVisible && CancelAltTabMenu(vk, keyUp) == HookAction.Suppress)
-				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));// Testing shows that by contrast, the upcoming key-up on Escape doesn't require this logic.
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));// Testing shows that by contrast, the upcoming key-up on Escape doesn't require this logic.
 
 			// Pointer to the key record for the current key event.  Establishes this_key as an alias
 			// for the array element in kvk or ksc that corresponds to the vk or sc, respectively.
@@ -1744,7 +1839,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// a true alias to the object, not a copy of it, because it's address (&this_key) is compared
 			// to other addresses for equality further below.
 			var scTakesPrecedence = ksc[sc].scTakesPrecedence;
-			// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+			// SC 0 may hold metadata for optional platform SCs, but it never takes precedence.
 			var thisKey = (isKeyboardEvent && scTakesPrecedence) ? ksc[sc] : kvk[vk];
 			var thisKeyIndex = (isKeyboardEvent && scTakesPrecedence) ? sc : vk;
 
@@ -1771,7 +1866,7 @@ namespace Keysharp.Internals.Input.Hooks
 					prefixKey = null;
 				}
 
-				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 			}
 
 			// Set this early since it needs to be reset prior to any of the returns below.
@@ -1797,7 +1892,7 @@ namespace Keysharp.Internals.Input.Hooks
 			{
 				// If no vk, there's no mapping for this key, so currently there's no way to process it.
 				if (vk == 0)
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				// Also, if the script is displaying a menu (tray, main, or custom popup menu), always
 				// pass left-button events through -- even if LButton is defined as a hotkey -- so
@@ -1830,7 +1925,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// ...because it returned too early here before it could get to that part further below.
 					thisKey.downPerformedAction = false; // Seems ok in this case to do this for both aKeyUp and !aKeyUp.
 					thisKey.isDown = !keyUp;
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 				}
 			} // Mouse hook.
 
@@ -1856,9 +1951,8 @@ namespace Keysharp.Internals.Input.Hooks
 			// WinAPI docs state that for both virtual keys and scan codes:
 			// "If there is no translation, the return value is zero."
 			// Therefore, zero is never a key that can be validly configured (and likely it's never received here anyway).
-			// UPDATE: For performance reasons, this check isn't even done.  Even if sc and vk are both zero, both kvk[0]
-			// and ksc[0] should have all their attributes initialized to FALSE so nothing should happen for that key
-			// anyway.
+			// UPDATE: For performance reasons, this check isn't even done. Even if sc and vk are both zero,
+			// kvk[0] is blank and ksc[0] cannot be selected because SC 0 never takes precedence.
 			//if (!vk && !sc)
 			//    return AllowKeyToGoToSystem;
 
@@ -1869,7 +1963,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// Fix for v1.1.31.03: Done conditionally because its previous value is used below.  This affects
 				// modifier keys as hotkeys, such as Shift::MsgBox.
 				thisKey.isDown = !keyUp;
-				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 			}
 
 			var hotkeyIdWithFlags = HotkeyDefinition.HOTKEY_ID_INVALID; // Set default.
@@ -2027,7 +2121,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// this prefix key's hotkey has the no-suppress prefix (which should cause the hotkey to fire
 					// immediately and not be suppressed).
 					// This prefix key's hotkey should also be fired immediately if there are any modifiers down.
-					// Check hook type too in case a script ever explicitly specifies scan code zero as a hotkey:
+					// Use the SC table only for scan codes which were marked as taking precedence.
 					hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
 										? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 					hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK;
@@ -2042,7 +2136,7 @@ namespace Keysharp.Internals.Input.Hooks
 							thisKey.wasJustUsed = KeyType.AS_PASSTHROUGH_PREFIX;
 
 						char? ch = null;
-						firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch);
+						firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref ch, eventInfo);
 
 						if (suppressThisPrefix && modifiersLRnew == 0) // So far, it looks like the prefix should be suppressed.
 						{
@@ -2059,7 +2153,7 @@ namespace Keysharp.Internals.Input.Hooks
 								if (hotkeyIdWithFlags < shk.Length && hotkeyUp[(int)hotkeyIdWithFlags] != HotkeyDefinition.HOTKEY_ID_INVALID)
 								{
 									var hkuwf = hotkeyUp[(int)hotkeyIdWithFlags];
-									firingUp = HotkeyDefinition.CriterionFiringIsCertain(ref hkuwf, keyUp, extraInfo, ref upNoSuppress, ref ch);
+									firingUp = HotkeyDefinition.CriterionFiringIsCertain(ref hkuwf, keyUp, extraInfo, ref upNoSuppress, ref ch, eventInfo);
 									hotkeyUp[(int)hotkeyIdWithFlags] = hkuwf;
 								}
 
@@ -2129,11 +2223,11 @@ namespace Keysharp.Internals.Input.Hooks
 					// If a fire-on-release variant was identified, suppression should depend only on that variant.
 					if (firingIsCertain != null ? fireWithNoSuppress :
 							(thisKey.asModifiersLR != 0 || !suppressThisPrefix || thisToggleKeyCanBeToggled))
-						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 					// Mark this key as having been suppressed, so key-up will also be suppressed.
 					thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
-					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 				}
 
 				//else valid suffix hotkey has been found; this will now fall through to Case #4 by virtue of aKeyUp==false.
@@ -2177,8 +2271,8 @@ namespace Keysharp.Internals.Input.Hooks
 				if (!thisKey.usedAsKeyUp)
 				{
 					return downWasSuppressed != 0 ?
-						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
-						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo)) :
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 				}
 
 				//else continue checking to see if the right modifiers are down to trigger one of this
@@ -2239,7 +2333,7 @@ namespace Keysharp.Internals.Input.Hooks
 					{
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk, sc, 0, false, KeyPhysIgnore); // Mark it as physical for any other hook instances.
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk, sc);
-						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 					}
 				}
 
@@ -2256,8 +2350,8 @@ namespace Keysharp.Internals.Input.Hooks
 					// For simplicity and to ensure consistency with the used_as_suffix == true case,
 					// don't reevaluate the conditions which were already evaluated on key-down.
 					return downWasSuppressed != 0
-						? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
-						: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo))
+						: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				// Since the above didn't return, this key is both a prefix and a suffix, and no
 				// other keys were pressed while this prefix was held down, so continue below to
@@ -2461,6 +2555,17 @@ namespace Keysharp.Internals.Input.Hooks
 					if ((kbdMsSender.modifiersLRLogical & MOD_RCONTROL) != 0)
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RCONTROL);
 
+					// Linux addition: Super/Win is not handled by AHK's original because
+					// Windows doesn't reinterpret Win+Alt+Tab. GNOME/KDE bind Super+Tab to
+					// their own overview/window-cycling shortcuts, so a held Win prefix
+					// would otherwise hijack the synthesized Alt+Tab. Release it for the
+					// dispatch — the user's physical Win-up later is a harmless no-op.
+					if ((kbdMsSender.modifiersLRLogical & MOD_LWIN) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_LWIN);
+
+					if ((kbdMsSender.modifiersLRLogical & MOD_RWIN) != 0)
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RWIN);
+
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB);
 
 					if (hotkeyIdTemp == HotkeyDefinition.HOTKEY_ID_ALT_TAB_SHIFT && prefixKey.itPutShiftDown
@@ -2479,7 +2584,7 @@ namespace Keysharp.Internals.Input.Hooks
 					if (!keyUp)
 						thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 
-					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 				} // end of alt-tab section.
 
 				// Since above didn't return, this isn't a prefix-triggered alt-tab action (though it might be
@@ -2494,7 +2599,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// Hotkeys are not defined to modify themselves, so look for a match accordingly.
 					modifiersLRnew &= ~thisKey.asModifiersLR;
 
-				// Check hook type too in case a script every explicitly specifies scan code zero as a hotkey:
+				// Use the SC table only for scan codes which were marked as taking precedence.
 				hotkeyIdWithFlags = (isKeyboardEvent && scTakesPrecedence)
 					? Kscm(modifiersLRnew, sc) : Kvkm(modifiersLRnew, vk);
 
@@ -2569,7 +2674,7 @@ namespace Keysharp.Internals.Input.Hooks
 						if (hotkeyIdTemp < shk.Length && hotkeyUp[(int)hotkeyIdTemp] != HotkeyDefinition.HOTKEY_ID_INVALID) // Relies on short-circuit boolean order.
 						{
 							if (!fireDownHotkey
-								|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
+								|| (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType, eventInfo)) == null)
 							{
 								// The key-down hotkey isn't eligible for firing, so fall back to the key-up hotkey:
 								hotkeyIdWithFlags = hotkeyUp[(int)hotkeyIdTemp];
@@ -2605,8 +2710,8 @@ namespace Keysharp.Internals.Input.Hooks
 						// This takes into account both prefix keys and key-up hotkeys: suppress if and only if
 						// key-down was suppressed.
 						return downWasSuppressed != 0
-							? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null))
-							: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+							? new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo))
+							: new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 					// For execution to have reached this point, the following must be true:
 					// 1) aKeyUp==false
@@ -2621,7 +2726,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// function as a prefix key (since case #1 didn't set pPrefixKey to this_key), and fixing
 					// that would change the behavior in ways that might be undesired, so it's left as is.
 					if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
-						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 					char? ch = null;
 
@@ -2633,14 +2738,14 @@ namespace Keysharp.Internals.Input.Hooks
 					if (HotkeyDefinition.CriterionFiringIsCertain(ref thisKey.hotkeyToFireUponRelease // firing_is_certain==false under these conditions, so no need to check it.
 							, true  // Always a key-up since it will fire upon release.
 							, extraInfo // May affect the result due to #InputLevel.  Assume the key-up's SendLevel will be the same as the key-down.
-							, ref fireWithNoSuppress, ref ch) == null)// fire_with_no_suppress is the value we really need to get back from it.
+							, ref fireWithNoSuppress, ref ch, eventInfo) == null)// fire_with_no_suppress is the value we really need to get back from it.
 						fireWithNoSuppress = true; // Although it's not "firing" in this case; just for use below.
 
 					if (!fireWithNoSuppress)
 						thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 					return fireWithNoSuppress ?
-						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)) :
-						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo)) :
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 				}
 
 				//else an eligible hotkey was found.
@@ -2653,10 +2758,10 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (hotkeyIdTemp < shk.Length// i.e. don't call the below for Alt-tab hotkeys and similar.
 					&& firingIsCertain == null // i.e. CriterionFiringIsCertain() wasn't already called earlier.
-					&& (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType)) == null)
+					&& (firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref hotkeyIdWithFlags, keyUp, extraInfo, ref fireWithNoSuppress, ref keyHistoryCurr.eventType, eventInfo)) == null)
 			{
 				if (keyHistoryCurr.eventType == 'i') // This non-zero SendLevel event is being ignored due to #InputLevel, so unconditionally pass it through, like with is_ignored.
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				// v1.1.08: Although the hotkey corresponding to this event is disabled, it may need to
 				// be suppressed if it has a counterpart (key-down or key-up) hotkey which is enabled.
@@ -2669,11 +2774,11 @@ namespace Keysharp.Internals.Input.Hooks
 				//     Prior to v1.1.08, neither event was suppressed.
 				if (keyUp)
 					return downWasSuppressed != 0 ?
-						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null)) :
-						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						   new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo)) :
+						   new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				if (thisKey.hotkeyToFireUponRelease == HotkeyDefinition.HOTKEY_ID_INVALID)
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				char? ch = null;
 				// Otherwise, this is a key-down event with a corresponding key-up hotkey.
@@ -2682,14 +2787,14 @@ namespace Keysharp.Internals.Input.Hooks
 				firingIsCertain = HotkeyDefinition.CriterionFiringIsCertain(ref thisKey.hotkeyToFireUponRelease // firing_is_certain==false under these conditions, so no need to check it.
 								  , true  // Always a key-up since it will fire upon release.
 								  , extraInfo // May affect the result due to #InputLevel.  Assume the key-up's SendLevel will be the same as the key-down.
-								  , ref fireWithNoSuppress, ref ch); // fire_with_no_suppress is the value we really need to get back from it.
+								  , ref fireWithNoSuppress, ref ch, eventInfo); // fire_with_no_suppress is the value we really need to get back from it.
 
 				if (firingIsCertain == null || fireWithNoSuppress)
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 				// Both this down event and the corresponding up event should be suppressed.
 				thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
-				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null));
+				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
 			}
 
 			hotkeyIdTemp = hotkeyIdWithFlags & HotkeyDefinition.HOTKEY_ID_MASK; // Update in case CriterionFiringIsCertain() changed the naked/raw ID.
@@ -2767,7 +2872,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			//Had to pull this out of the case statement because it's not allowed to fall though.
 			if (hotkeyIdToFire == HotkeyDefinition.HOTKEY_ID_ALT_TAB_MENU_DISMISS && !altTabMenuIsVisible)// This case must occur before HOTKEY_ID_ALT_TAB_MENU due to non-break.
-				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null)); // Let the key do its native function.
+				return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo)); // Let the key do its native function.
 
 			switch (hotkeyIdToFire)
 			{
@@ -2913,7 +3018,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// WheelDown::AltTab     ; But if the menu is displayed, the wheel will function normally.
 					// WheelUp::ShiftAltTab  ; But if the menu is displayed, the wheel will function normally.
 					if (!altTabMenuIsVisible)
-						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null));
+						return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, null, eventInfo));
 
 					// Unlike CONTROL, SHIFT, AND ALT, the LWIN/RWIN keys don't seem to need any
 					// special handling to make them work with the alt-tab features.
@@ -2998,7 +3103,7 @@ namespace Keysharp.Internals.Input.Hooks
 					// it probably does no harm to let the key-up pass through, and in this case, it's exactly
 					// what the script is asking to happen (by prefixing the key-up hotkey with '~').
 					// this_key.pForceToggle isn't checked because AllowIt() handles that.
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain, eventInfo));
 				} // No suppression.
 				// Otherwise, fall through to below to suppress it.
 			}
@@ -3008,7 +3113,7 @@ namespace Keysharp.Internals.Input.Hooks
 				thisKey.downPerformedAction = true;
 
 				if (fireWithNoSuppress)
-					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+					return new nint(AllowIt(e, vk, sc, rawSc, keyUp, extraInfo, collectInputState, keyHistoryCurr, hotkeyIdToPost, firingIsCertain, eventInfo));
 
 				// Fix for v1.1.37.02 and v2.0.6: The following is also done for LWin/RWin because otherwise,
 				// the system does not generate WM_SYSKEYDOWN (or even WM_KEYDOWN) messages for combinations
@@ -3069,12 +3174,13 @@ namespace Keysharp.Internals.Input.Hooks
 			if (!keyUp)
 				thisKey.downWasSuppressed |= InputLevelMaskFromInfo((long)extraInfo);
 
-			return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain));
+			return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, firingIsCertain, eventInfo: eventInfo));
 		}
 
 		internal long SuppressThisKeyFunc(HookEventArgs e, uint vk, uint sc, uint rawSc, bool keyUp, ulong extraInfo,
 										  KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant,
-										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0, int skipChars = 0)
+										  HotstringDefinition hs = null, CaseConformModes caseConformMode = CaseConformModes.None, char endChar = (char)0, int skipChars = 0,
+										  object eventInfo = null)
 		// Always use the parameter vk rather than event.vkCode because the caller or caller's caller
 		// might have adjusted vk, namely to make it a left/right specific modifier key rather than a
 		// neutral one.
@@ -3132,7 +3238,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// than the main thread is not enough to prevent the main thread from getting a timeslice
 			// before the hook thread gets back another (at least on some systems, perhaps due to their
 			// system settings of the same ilk as "favor background processes").
-			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars);
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars, eventInfo);
 			return 1;
 		}
 
@@ -3143,7 +3249,7 @@ namespace Keysharp.Internals.Input.Hooks
 		/// </summary>
 		internal long AllowIt(HookEventArgs e, uint vk, uint sc, uint rawSc,
 							  bool keyUp, ulong extraInfo, CollectInputState state, KeyHistoryItem keyHistoryCurr,
-							  uint hotkeyIDToPost, HotkeyVariant variant)
+							  uint hotkeyIDToPost, HotkeyVariant variant, object eventInfo = null)
 		{
 			var isKeyboardEvent = e is KeyboardHookEventArgs;
 			HotstringDefinition hsOut = null;
@@ -3211,12 +3317,12 @@ namespace Keysharp.Internals.Input.Hooks
 
 					if (forceToggle != null) // Key is a toggleable key.
 						if (forceToggle != ToggleValueType.Neutral) // Prevent toggle.
-							return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant);
+							return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, eventInfo: eventInfo);
 				}
 
 				if ((hm.enabledCount > 0 && !isIgnored) || script.input != null)
-					if (!CollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar, ref skipChars)) // Key should be invisible (suppressed).
-						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars);
+					if (!CollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, state, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar, ref skipChars, eventInfo)) // Key should be invisible (suppressed).
+						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars, eventInfo);
 
 				// Do this here since the above "return SuppressThisKey" will have already done it in that case.
 				UpdateKeybdState(rawSc, extraInfo, e.IsEventSimulated, vk, sc, keyUp, false);
@@ -3388,11 +3494,11 @@ namespace Keysharp.Internals.Input.Hooks
 			// able to launch a script subroutine before the hook thread can finish updating its key state.
 			// Search on AHK_HOOK_HOTKEY in this file for more comments.
 			var resultToReturn = CallNextHook(e);
-			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars);
+			SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hsOut, caseConformMode, endChar, skipChars, eventInfo);
 			return resultToReturn.ToInt64();
 		}
 
-		protected bool TryBuildHookHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, HotkeyVariant initialVariant, out HookHotkeyMsg hotkeyMsg)
+		protected bool TryBuildHookHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, HotkeyVariant initialVariant, object eventInfo, out HookHotkeyMsg hotkeyMsg)
 		{
 			hotkeyMsg = null;
 			var script = Script.TheScript;
@@ -3409,7 +3515,7 @@ namespace Keysharp.Internals.Input.Hooks
 			if (variant == null)
 			{
 				char? dummy = null;
-				variant = hotkey.CriterionAllowsFiring(ref criterionFoundHwnd, extraInfo, ref dummy);
+				variant = hotkey.CriterionAllowsFiring(ref criterionFoundHwnd, extraInfo, ref dummy, eventInfo);
 
 				if (variant == null)
 					return false;
@@ -3417,18 +3523,24 @@ namespace Keysharp.Internals.Input.Hooks
 
 			criterionFoundHwnd = HotkeyDefinition.NormalizeCriterionFoundHwnd(variant.hotCriterion, criterionFoundHwnd);
 
+			// Pass the variant directly only when it has a callback criterion that was actually evaluated:
+			// CriterionFiringIsCertain may return a global (no-criterion) variant via its optimization shortcut
+			// even when criterion-having variants exist that should take precedence, so for global variants we
+			// must force receipt-time reevaluation via CriterionAllowsFiring. This mirrors AHK v2 hook.cpp,
+			// which only packs the variant index into wParam when mHotCriterion is set and HOT_IF_REQUIRES_EVAL.
 			hotkeyMsg = new HookHotkeyMsg
 			{
+				eventInfo = HookEventInfo.Materialize(eventInfo),
 				extraInfo = extraInfo,
-				variant = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? null : variant,
+				variant = variant.hotCriterion != null && !HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? variant : null,
 				criterionFoundHwnd = criterionFoundHwnd
 			};
 			return true;
 		}
 
-		private void PostQualifiedHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, nint lParam, HotkeyVariant variant = null)
+		private void PostQualifiedHotkeyMessage(uint hotkeyIDToPost, ulong extraInfo, nint lParam, object eventInfo, HotkeyVariant variant = null)
 		{
-			if (TryBuildHookHotkeyMessage(hotkeyIDToPost, extraInfo, variant, out var hotkeyMsg))
+			if (TryBuildHookHotkeyMessage(hotkeyIDToPost, extraInfo, variant, eventInfo, out var hotkeyMsg))
 			{
 				_ = PostMessage(new KeysharpMsg()
 				{
@@ -3457,19 +3569,19 @@ namespace Keysharp.Internals.Input.Hooks
 			});
 		}
 
-		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0)
+		internal virtual void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0, object eventInfo = null)
 		{
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
 				var inputLevel = InputLevelFromInfo((long)extraInfo);
 				var lParam = new nint(MakeLong((short)keyHistoryCurr.sc, (short)inputLevel));
-				PostQualifiedHotkeyMessage(hotkeyIDToPost, extraInfo, lParam, variant);
+				PostQualifiedHotkeyMessage(hotkeyIDToPost, extraInfo, lParam, eventInfo, variant);
 
 				if (keyUp && hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK] != HotkeyDefinition.HOTKEY_ID_INVALID)
 				{
 					// This is a key-down hotkey being triggered by releasing a prefix key.
 					// There's also a corresponding key-up hotkey, so fire it too:
-					PostQualifiedHotkeyMessage(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK], extraInfo, lParam);
+					PostQualifiedHotkeyMessage(hotkeyUp[(int)hotkeyIDToPost & HotkeyDefinition.HOTKEY_ID_MASK], extraInfo, lParam, eventInfo);
 				}
 			}
 
@@ -3509,13 +3621,13 @@ namespace Keysharp.Internals.Input.Hooks
 
 							if (hkId < shkSnap.Length)
 							{
-								shkSnap[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, lParamVal);
+								shkSnap[(int)hkId].PerformInNewThreadMadeByCallerAsync(hhmsg.variant, hhmsg.criterionFoundHwnd, lParamVal, hhmsg.eventInfo);
 								return true;
 							}
 						}
 
 						// Criterion requires receipt-time recheck: resolve and enqueue directly without UI-thread hop.
-						kbdMsSender.ProcessHotkey(wParamVal, lParamVal, null, msg.message, hhmsg.extraInfo);
+						kbdMsSender.ProcessHotkey(wParamVal, lParamVal, null, msg.message, hhmsg.extraInfo, hhmsg.eventInfo);
 						return true;
 					}
 
@@ -3585,9 +3697,11 @@ namespace Keysharp.Internals.Input.Hooks
 					var message = msg.message;
 					var wParamVal = msg.wParam.ToInt64();
 					var lParamVal = msg.lParam.ToInt64();
+					var eventInfo = msg.eventInfo;
 
 					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Keysharp.Internals.Flow.TryCatch(() =>
 					{
+						script.Threads.CurrentThread.eventInfo = eventInfo;
 						InputType inputHook;
 
 						for (inputHook = script.input; inputHook != null && inputHook != inputHookParam; inputHook = inputHook.prev)
@@ -3640,24 +3754,24 @@ namespace Keysharp.Internals.Input.Hooks
 								kvk[VK_MENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RMENU].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RAlt].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LALT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RALT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_SHIFT:
 								kvk[VK_SHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RShift].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RSHIFT].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 
 							case VK_CONTROL:
 								kvk[VK_CONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_LCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								kvk[VK_RCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[LControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
-								ksc[RControl].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_LCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
+								ksc[SC_RCONTROL].usedAsPrefix |= KeyType.PREFIX_FORCED;
 								break;
 						}
 
@@ -3704,40 +3818,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal abstract bool SystemHasAnotherMouseHook();
 
-		internal uint TextToSC(string text, ref bool? specifiedByNumber) =>
-		TextToSC(text.AsSpan(), ref specifiedByNumber);
-
-		internal virtual uint TextToSC(ReadOnlySpan<char> text, ref bool? specifiedByNumber)
-		{
-			if (text.Length == 0)
-				return 0u;
-
-			if (keyToScAlt.TryGetValue(text, out var val))
-				return val;
-
-			// Do this only after the above, in case any valid key names ever start with SC:
-			if (char.ToUpper(text[0]) == 'S' && char.ToUpper(text[1]) == 'C')
-			{
-				var s = text.Slice(2);
-				var digits = 0;
-
-				foreach (var ch in s)
-					if (ch.IsHex())
-						digits++;
-
-				var ok = uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var ii);
-
-				if (!ok || (2 + digits < text.Length))
-					return 0; // Fixed for v1.1.27: Disallow any invalid suffix so that hotkeys like a::scb() are not misinterpreted as remappings.
-
-				if (specifiedByNumber != null)
-					specifiedByNumber = true; // Override caller-set default.
-
-				return ii;
-			}
-
-			return 0u; // Indicate "not found".
-		}
 
 		internal uint TextToSpecial(string text, ref KeyEventTypes eventType, ref uint modifiersLR, bool updatePersistent) =>
 		TextToSpecial(text.AsSpan(), ref eventType, ref modifiersLR, updatePersistent);
@@ -3856,22 +3936,11 @@ namespace Keysharp.Internals.Input.Hooks
 			return 0;
 		}
 
-		internal uint TextToVK(string text, ref uint? modifiersLR, bool excludeThoseHandledByScanCode, bool allowExplicitVK, nint keybdLayout) =>
-		TextToVK(text.AsSpan(), ref modifiersLR, excludeThoseHandledByScanCode, allowExplicitVK, keybdLayout);
-
 		/// <summary>
-		/// If modifiers_p is non-NULL, place the modifiers that are needed to realize the key in there.
+		/// If modifiersLR is non-null, add modifiers needed to realize a character key.
 		/// e.g. M is really +m (shift-m), # is really shift-3.
-		/// HOWEVER, this function does not completely overwrite the contents of pModifiersLR; instead, it just
-		/// adds the required modifiers into whatever is already there.
 		/// </summary>
-		/// <param name="text"></param>
-		/// <param name="modifiersLR"></param>
-		/// <param name="excludeThoseHandledByScanCode"></param>
-		/// <param name="allowExplicitVK"></param>
-		/// <param name="keybdLayout"></param>
-		/// <returns></returns>
-		internal virtual uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, bool excludeThoseHandledByScanCode, bool allowExplicitVK, nint keybdLayout)
+		private uint KeyNameToVk(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
 		{
 			if (text.Length == 0)
 				return 0;
@@ -3886,73 +3955,119 @@ namespace Keysharp.Internals.Input.Hooks
 			if (text.Length == 1) // _tcslen(aText) == 1
 				return CharToVKAndModifiers(text[0], ref modifiersLR, keybdLayout); // Making this a function simplifies things because it can do early return, etc.
 
-			if (allowExplicitVK && char.ToUpper(text[0]) == 'V' && char.ToUpper(text[1]) == 'K')
-			{
-				var s = text.Slice(2);
-				var digits = 0;
-
-				foreach (var ch in s)
-					if (ch.IsHex())
-						digits++;
-
-				var ok = uint.TryParse(s, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var ii);
-				return !ok || (2 + digits < text.Length) ? 0 : ii; // Fixed for v1.1.27: Disallow any invalid suffix so that hotkeys like a::vkb() are not misinterpreted as remappings.
-			}
-
 			if (keyToVkAlt.TryGetValue(text, out var val))
 				return val;
 
-			if (excludeThoseHandledByScanCode)
-				return 0; // Zero is not a valid virtual key, so it should be a safe failure indicator.
-
-			// Otherwise check if aText is the name of a key handled by scan code and if so, map that
-			// scan code to its corresponding virtual key:
-			bool? dummy = null;
-			var sc = TextToSC(text, ref dummy);
-			return sc != 0 ? MapScToVk(sc) : 0;
+			return 0;
 		}
 
-		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref uint? modifiersLR, nint keybdLayout) =>
-		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref modifiersLR, keybdLayout);
+		/// <summary>
+		/// Parses a key for callers that require a VK result, mapping an SC-only spelling
+		/// through the current platform just as TextToVK did before key identities existed.
+		/// </summary>
+		internal uint TextToVK(string text, ref uint? modifiersLR, nint keybdLayout) =>
+		TextToVK(text.AsSpan(), ref modifiersLR, keybdLayout);
 
-		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref uint? modifiersLR, nint keybdLayout)
+		internal uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
 		{
-			if ((vk = TextToVK(text, ref modifiersLR, true, true, keybdLayout)) != 0)
+			var vk = 0u;
+			var sc = 0u;
+			var source = KeySource.None;
+			_ = TextToVKandSC(text, ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair: false);
+			return vk != 0 ? vk : MapScToVk(sc);
+		}
+
+		/// <summary>
+		/// Parses a key once. VK is Keysharp's portable virtual-key namespace;
+		/// SC is the active hook backend's key code.
+		/// </summary>
+		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true) =>
+		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair);
+
+		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true)
+		{
+			vk = 0;
+			sc = 0;
+			source = KeySource.None;
+
+			if (text.Length == 0)
+				return false;
+
+			if (allowVkScPair && TryParseExplicitVkSc(text, out var explicitVk, out var explicitSc))
 			{
-				sc = 0; // Caller should call vk_to_sc(aVK) if needed.
+				vk = explicitVk;
+				sc = explicitSc;
+				source = KeySource.Vk | KeySource.Sc;
 				return true;
 			}
 
-			bool? dummy = null;
-
-			if ((sc = TextToSC(text, ref dummy)) != 0)
+			if (TryParseExplicitKeyCode(text, "vk", out explicitVk) && explicitVk != 0)
 			{
-				return true;// Leave aVK set to 0.  Caller should call sc_to_vk(aSC) if needed.
+				vk = explicitVk;
+				source = KeySource.Vk;
+				return true;
 			}
 
-			if (text.StartsWith("vk", StringComparison.OrdinalIgnoreCase)) // Could be vkXXscXXX, which TextToVK() does not permit in v1.1.27+.
+			vk = KeyNameToVk(text, ref modifiersLR, keybdLayout);
+
+			if (vk != 0)
 			{
-				var vkIndex = text.IndexOf("vk", StringComparison.OrdinalIgnoreCase);
-				var scIndex = text.IndexOf("sc", StringComparison.OrdinalIgnoreCase);
+				source = KeySource.Name;
+				return true;
+			}
 
-				if (vkIndex == 0 && scIndex > 2)
-				{
-					var vkStart = vkIndex + 2;
-					var vkSpan = text.Slice(vkStart, scIndex - vkStart);
-					var scStart = scIndex;
-					var scSpan = text.Slice(scStart + 2);
+			// Named keys are tried above before SC names (preserves TextToVK's old ordering).
+			// Check the name dictionary first so that e.g. "NumpadEnter" wins over a hypothetical
+			// key name that starts with "SC".
+			if (keyToScAlt.TryGetValue(text, out sc))
+			{
+				source = KeySource.Name;
+				return true;
+			}
 
-					if (uint.TryParse(vkSpan, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var t1) &&
-							uint.TryParse(scSpan, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var t2))
-					{
-						vk = t1;
-						sc = t2;
-						return true;
-					}
-				}
+			if (TryParseExplicitKeyCode(text, "sc", out sc))
+			{
+				source = KeySource.Sc;
+				return true; // sc000 is valid: it targets events that carry no scan code
 			}
 
 			return false;
+		}
+
+		private static bool TryParseExplicitVkSc(ReadOnlySpan<char> text, out uint vk, out uint sc)
+		{
+			vk = 0;
+			sc = 0;
+
+			if (!text.StartsWith("vk", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			var scIndex = text.IndexOf("sc", StringComparison.OrdinalIgnoreCase);
+
+			if (scIndex <= 2)
+				return false;
+
+			return TryParseHexKeyCode(text.Slice(2, scIndex - 2), out vk)
+				&& TryParseHexKeyCode(text[(scIndex + 2)..], out sc);
+		}
+
+		private static bool TryParseExplicitKeyCode(ReadOnlySpan<char> text, string prefix, out uint code)
+		{
+			code = 0;
+			return text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+				&& TryParseHexKeyCode(text[prefix.Length..], out code);
+		}
+
+		private static bool TryParseHexKeyCode(ReadOnlySpan<char> text, out uint code)
+		{
+			code = 0;
+
+			// Reject empty strings and "0x"/"0X" prefix — key codes are plain hex digits only.
+			// AllowHexSpecifier accepts the prefix by default; we don't want "SC0x1A3" to parse.
+			if (text.Length == 0 || (text.Length >= 2 && text[0] == '0' && (text[1] | 0x20) == 'x'))
+				return false;
+
+			return uint.TryParse(text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out code);
 		}
 
 		internal abstract void Unhook();
@@ -4073,8 +4188,8 @@ namespace Keysharp.Internals.Input.Hooks
 				// that instance's kbdMsSender.modifiersLR_logical doesn't say it's down, which is definitely wrong.  So it
 				// is now omitted below:
 				var isNotIgnored = hookExtraInfo != KeyIgnore;
-				var isFakeShift = hookSC == FakeLShift || hookSC == FakeRShift;
-				var isFakeCtrl = hookSC == FakeLControl; // AltGr.
+				var isFakeShift = hookSC == ScanCodes.FakeLShift || hookSC == ScanCodes.FakeRShift;
+				var isFakeCtrl = hookSC == ScanCodes.FakeLControl; // AltGr.
 				var eventIsPhysical = !isFakeShift && KeybdEventIsPhysical(isArtificial, vk, keyUp);// For backward-compatibility, fake LCtrl is marked as physical.
 
 				if (keyUp)
@@ -4102,7 +4217,7 @@ namespace Keysharp.Internals.Input.Hooks
 						// explanation for kbdMsSender.modifiersLR_logical_non_ignored in keyboard_mouse.h:
 						if (isNotIgnored)
 							kbdMsSender.modifiersLRLogicalNonIgnored &= ~modLR;
-					}
+						}
 
 					if (eventIsPhysical) // Note that ignored events can be physical via KEYEVENT_PHYS()
 					{
@@ -4142,7 +4257,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 						if (isNotIgnored)
 							kbdMsSender.modifiersLRLogicalNonIgnored |= modLR;
-					}
+						}
 
 					if (eventIsPhysical)
 					{
@@ -4269,7 +4384,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			if (Thread.CurrentThread.ManagedThreadId == script.ManagedMainThreadID)
 			{
-				script.UIEventScheduler.PumpPendingEvents();
+				script.UIEventScheduler.PumpThreadQueuedEvents();
 				return;
 			}
 

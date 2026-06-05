@@ -1,10 +1,16 @@
 using Keysharp.Builtins;
-using static System.Collections.Generic.SystemCollectionsGenericExtensions;
+using System.Runtime.CompilerServices;
 
 namespace Keysharp.Internals.Window
 {
 	internal static class MsgMonitorExtensions
 	{
+		internal sealed class BufferedMessageQueuedEvent(MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd)
+		{
+			internal ScriptEventExecutionResult Execute()
+				=> registration.TryExecuteBuffered(script, args, eventInfo, hwnd, out _);
+		}
+
 		private static ScriptEventExecutionResult ExecuteRegistration(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, bool skipUninterruptible, bool allowEmergencyOverflow, out long result)
 		{
 			result = 0L;
@@ -13,23 +19,49 @@ namespace Keysharp.Internals.Window
 
 			try
 			{
-				return targetScheduler.TryInvokePseudoThread(
-					0,
-					skipUninterruptible,
-					false,
-					tv =>
-					{
-						long localResult = 0L;
-						_ = Keysharp.Internals.Flow.TryCatch(() => localResult = Script.ForceLong(ExecuteHandler(script, registration.Callback, args, tv, eventInfo, hwnd)));
-						return localResult;
-					},
-					out result,
-					allowEmergencyOverflow);
+				if (targetScheduler.IsDisposed)
+					return ScriptEventExecutionResult.Dropped;
+
+				if (targetScheduler.OwnsCurrentThread)
+					return InvokeRegistrationOnSchedulerThread(targetScheduler, registration, args, eventInfo, hwnd, skipUninterruptible, allowEmergencyOverflow, out result);
+
+				var execution = targetScheduler.InvokeSynchronous(() =>
+				{
+					var status = InvokeRegistrationOnSchedulerThread(targetScheduler, registration, args, eventInfo, hwnd, skipUninterruptible, allowEmergencyOverflow, out var localResult);
+					return (status, localResult);
+				});
+				result = execution.localResult;
+				return execution.status;
 			}
 			finally
 			{
 				registration.InstanceCount--;
 			}
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static ScriptEventExecutionResult InvokeRegistrationOnSchedulerThread(ScriptEventScheduler targetScheduler, MsgMonitorRegistration registration, object[] args, object eventInfo, long hwnd, bool skipUninterruptible, bool allowEmergencyOverflow, out long result)
+		{
+			result = 0L;
+			using var thread = targetScheduler.StartPseudoThreadScope(0, skipUninterruptible, false, allowEmergencyOverflow);
+
+			if (!thread.Started)
+				return thread.Result;
+
+			try
+			{
+				var tv = thread.ThreadVariables;
+				tv.eventInfo = eventInfo;
+				tv.hwndLastUsed = hwnd;
+				result = Script.ForceLong(registration.Callback.Call(args));
+			}
+			catch (Exception ex)
+			{
+				_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				result = 0L;
+			}
+
+			return ScriptEventExecutionResult.Executed;
 		}
 
 		internal static ScriptEventExecutionResult TryExecuteBuffered(this MsgMonitorRegistration registration, Script script, object[] args, object eventInfo, long hwnd, out long result)

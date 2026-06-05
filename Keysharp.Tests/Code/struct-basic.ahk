@@ -309,59 +309,61 @@ catch
 if !threw
     FileAppend "fail field assignment", "*"
 
-pt3 := POINT()
-if !DllCall("GetCursorPos", POINT.Ptr, pt3)
-    FileAppend "fail getcursor", "*"
+if (A_OSType = "WIN32_NT") {
+    pt3 := POINT()
+    if !DllCall("GetCursorPos", POINT.Ptr, pt3)
+        FileAppend "fail getcursor", "*"
 
-if !IsNumber(pt3.x) || !IsNumber(pt3.y)
-    FileAppend "fail point", "*"
+    if !IsNumber(pt3.x) || !IsNumber(pt3.y)
+        FileAppend "fail point", "*"
 
-hwnd := DllCall("WindowFromPoint", POINT, pt3, "ptr")
+    hwnd := DllCall("WindowFromPoint", POINT, pt3, "ptr")
 
-pt4 := unset
-if !DllCall("GetCursorPos", POINT.Ptr, &pt4)
-    FileAppend "fail getcursor varref", "*"
+    pt4 := unset
+    if !DllCall("GetCursorPos", POINT.Ptr, &pt4)
+        FileAppend "fail getcursor varref", "*"
 
-if !(pt4 is POINT)
-    FileAppend "fail varref", "*"
+    if !(pt4 is POINT)
+        FileAppend "fail varref", "*"
 
-if DllCall("IsWindow", POINT.Ptr, unset) != 0
-    FileAppend "fail unset pointer", "*"
+    if DllCall("IsWindow", POINT.Ptr, unset) != 0
+        FileAppend "fail unset pointer", "*"
 
-pp := POINT.Ptr()
-pp.__Value := pt3
+    pp := POINT.Ptr()
+    pp.__Value := pt3
 
-if !DllCall("GetCursorPos", POINT.Ptr, pp)
-    FileAppend "fail pointer instance", "*"
+    if !DllCall("GetCursorPos", POINT.Ptr, pp)
+        FileAppend "fail pointer instance", "*"
 
-threw := false
-try
-    DllCall("IsWindow", POINT.Ptr, 123)
-catch as e
-    threw := e is TypeError
+    threw := false
+    try
+        DllCall("IsWindow", POINT.Ptr, 123)
+    catch as e
+        threw := e is TypeError
 
-if !threw
-    FileAppend "fail missing value typeerror", "*"
+    if !threw
+        FileAppend "fail missing value typeerror", "*"
 
-hwnd := DllCall("GetDesktopWindow", "ptr")
-pid := unset
-tid := DllCall("GetWindowThreadProcessId", "ptr", hwnd, DWORD.Ptr, &pid, "uint")
+    hwnd := DllCall("GetDesktopWindow", "ptr")
+    pid := unset
+    tid := DllCall("GetWindowThreadProcessId", "ptr", hwnd, DWORD.Ptr, &pid, "uint")
 
-if !IsNumber(pid) || pid == 0
-    FileAppend "fail custom value output", "*"
+    if !IsNumber(pid) || pid == 0
+        FileAppend "fail custom value output", "*"
 
-threw := false
-try
-    nullPtr := DllCall("GetModuleHandle", "str", "__keysharp_missing_module__", POINT.Ptr)
-catch as e
-    threw := e is UnsetError
+    threw := false
+    try
+        nullPtr := DllCall("GetModuleHandle", "str", "__keysharp_missing_module__", POINT.Ptr)
+    catch as e
+        threw := e is UnsetError
 
-if !threw
-    FileAppend "fail null pointer return", "*"
+    if !threw
+        FileAppend "fail null pointer return", "*"
 
-kernel32 := DllCall("GetModuleHandle", "str", "kernel32", Int32.Ptr)
+    kernel32 := DllCall("GetModuleHandle", "str", "kernel32", Int32.Ptr)
 
-if !IsNumber(kernel32) || kernel32 == 0
-    FileAppend "fail numeric pointer return", "*"
+    if !IsNumber(kernel32) || kernel32 == 0
+        FileAppend "fail numeric pointer return", "*"
+}
 
 FileAppend "pass", "*"

@@ -1,4 +1,5 @@
 #import "Ks" { RealThread, LockRun }
+#MaxThreads 256
 lockit := ""
 tharr := []
 tharr.Length := 100
@@ -41,7 +42,7 @@ tot := 0
 rtSumTot()
 {
 	ct := 0
-    
+
 	Loop 100
 	{
 		ct++
@@ -76,12 +77,14 @@ else
 
 CoordMode "Mouse", "Screen"
 
-RealThread(RealThreadEntry)
+coordWorker := RealThread(RealThreadEntry)
 
 cb2 := CallbackCreate(SetCoordModeMouseClient)
 Loop 10000 {
 	DllCall(cb2)
 }
+
+coordWorker.Wait()
 
 if A_CoordModeMouse = "Screen"
 	FileAppend "pass", "*"
@@ -114,6 +117,8 @@ RealThreadEntry() {
 	Loop 10000 {
 		DllCall(cb1)
 	}
+
+	CallbackFree(cb1)
 }
 
 SetCoordModeMouseWindow() {

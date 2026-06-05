@@ -79,7 +79,7 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		internal static bool CallMessageHandler(Control control, ref System.Windows.Forms.Message m)
+		internal static bool CallMessageHandler(Control control, ref Message m)
 		{
 			if (m.HWnd == control.Handle)
 			{
@@ -171,7 +171,19 @@ namespace Keysharp.Builtins
 					32 => PixelFormat.Format32bppRgb,
 					_ => PixelFormat.Format32bppRgb,
 				};
+#if LINUX
+				// On Wayland, Eto's screen capture goes through Gdk's root-window pixbuf path,
+				// which the compositor doesn't allow for foreign clients — it returns either
+				// just our own surfaces or nothing. Try compositor-native Wayland capture
+				// first: the KDE helper on KWin, otherwise wlr-screencopy where available.
+				bmp = IsWaylandSession
+					? Keysharp.Internals.Window.Linux.Wayland.WaylandScreenCapture.TryCapture(x, y, w, h)
+					: null;
+
+				bmp ??= Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
+#else
 				bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
+#endif
 #endif
 			}
 			catch

@@ -1,222 +1,325 @@
 using Keysharp.Builtins;
-using Microsoft.CodeAnalysis;
+#if !WINDOWS
+using MessageBoxIcon = Eto.Forms.MessageBoxType;
+#endif
 
 namespace Keysharp.Internals.Scripting
 {
+	internal enum CliCommandKind
+	{
+		Error,
+		Help,
+		Version,
+		About,
+		RunSource,
+		RunAssembly,
+		CompileAsm,
+		CompileExe,
+		Daemon,
+		Install,
+		Uninstall,
+	}
+
+	internal sealed class CliCommand
+	{
+		internal CliCommandKind Kind;
+		internal string ErrorText;
+		internal string ExeDir;
+		internal Assembly EntryAssembly;
+
+		internal string ScriptName = "";
+		internal string NameNoExt = "";
+		internal string ScriptDir = "";
+		internal string OutPath = "";
+		internal string DestPath = "";
+		internal string[] ScriptArgs = [];
+		internal string[] KeysharpArgs = [];
+		internal bool FromStdin;
+		internal bool Validate;
+		internal bool Transpile;
+		internal bool MinimalExe;
+
+		internal string AssemblyType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+		internal string AssemblyMethod = "Main";
+		internal string[] DaemonArgs = [];
+
+		internal bool RequiresLauncher => Kind is CliCommandKind.CompileExe
+												   or CliCommandKind.Daemon
+												   or CliCommandKind.Install
+												   or CliCommandKind.Uninstall;
+
+		internal static CliCommand Error(string text) => new() { Kind = CliCommandKind.Error, ErrorText = text };
+		internal static CliCommand Simple(CliCommandKind kind, Assembly asm, string exeDir) => new() { Kind = kind, EntryAssembly = asm, ExeDir = exeDir };
+	}
+
 	/// <summary>
-	/// This is a lightweight version of the Keysharp main program, which is used to parse and compile
-	/// scripts dynamically specifically from compiled scripts. This version doesn't support emitting
-	/// an executable(that would require the HostModel package dependency), and all errors/messages
-	/// are output to StdOut. The compiled script used to run this must be shipped with CodeAnalysis
-	/// and CodeDom dlls.
+	/// Single source of truth for Keysharp command-line parsing and Core-supported execution. The launcher
+	/// calls <see cref="Parse"/> once, handles launcher-only command kinds, and delegates the rest to
+	/// <see cref="Execute"/>. Compiled scripts use the same parser through "/script", but reject command
+	/// kinds which require the launcher.
 	/// </summary>
 	internal class Runner
 	{
 		private static readonly CompilerHelper ch = new ();
 
-		public static int Run(string[] args)
+		internal static CliCommand Parse(string[] args)
 		{
+			var asm = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+			var exePath = Path.GetFullPath(asm.Location);
+
+			if (exePath.IsNullOrEmpty())
+				exePath = Environment.ProcessPath;
+
+			var exeName = Path.GetFileNameWithoutExtension(exePath);
+			var exeDir = Path.GetFullPath(Path.GetDirectoryName(exePath));
+			var transpile = false;
+			var compileExe = false;
+			var compileMinimalExe = false;
+			var loadAsm = false;
+			var asmType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+			var asmMethod = "Main";
+			var scriptName = string.Empty;
+			var scriptArgs = System.Array.Empty<string>();
+			var keysharpArgs = System.Array.Empty<string>();
+			var fromstdin = false;
+			var validate = false;
+			var compileAsm = false;
+			var compileDestPath = "";
+
+			for (var i = 0; i < args.Length; i++)
+			{
+				if (!TryGetSwitch(args[i], out var option))
+				{
+					SetInput(args, i, ref scriptName, out scriptArgs, out keysharpArgs);
+					break;
+				}
+
+				var opt = option.ToLowerInvariant();
+
+				if (opt.StartsWith("asm:", StringComparison.OrdinalIgnoreCase)
+						|| opt.StartsWith("assembly:", StringComparison.OrdinalIgnoreCase))
+				{
+					loadAsm = true;
+					var entryPoint = option.Substring(option.IndexOf(':') + 1);
+
+					if (!TryParseAsmEntryPoint(entryPoint, out asmType, out asmMethod, out var entryError))
+						return CliCommand.Error(entryError);
+
+					continue;
+				}
+
+				switch (opt)
+				{
+					case "version":
+					case "v":
+						return CliCommand.Simple(CliCommandKind.Version, asm, exeDir);
+
+					case "help":
+					case "h":
+					case "?":
+						return CliCommand.Simple(CliCommandKind.Help, asm, exeDir);
+
+					case "daemon":
+						return new CliCommand { Kind = CliCommandKind.Daemon, EntryAssembly = asm, ExeDir = exeDir, DaemonArgs = [.. args.Skip(i)] };
+
+					case "validate":
+						validate = true;
+						break;
+
+					case "about":
+						return CliCommand.Simple(CliCommandKind.About, asm, exeDir);
+
+					case "asm":
+					case "assembly":
+						loadAsm = true;
+						break;
+
+					case "transpile":
+						transpile = true;
+						break;
+
+					case "compile":
+						if (i + 1 >= args.Length)
+						{
+							compileAsm = true;
+							break;
+						}
+
+						switch (args[i + 1].ToLowerInvariant())
+						{
+							case "exe":
+								i++;
+								compileExe = true;
+								break;
+
+							case "exe-min":
+								i++;
+								compileMinimalExe = true;
+								compileExe = true;
+								break;
+
+							case "asm":
+							case "dll":
+								i++;
+								compileAsm = true;
+								break;
+
+							default:
+								compileAsm = true;
+								break;
+						}
+
+						break;
+
+					case "dest":
+						if (i + 1 >= args.Length || TryGetSwitch(args[i + 1], out _))
+							return CliCommand.Error("--dest requires an output path.");
+
+						compileDestPath = args[++i];
+						break;
+
+					case "include":
+						i++;
+						break;
+
+					case "script":
+						break;
+#if WINDOWS
+
+					case "install":
+						return CliCommand.Simple(CliCommandKind.Install, asm, exeDir);
+
+					case "uninstall":
+						return CliCommand.Simple(CliCommandKind.Uninstall, asm, exeDir);
+#endif
+
+					default:
+						SetInput(args, i, ref scriptName, out scriptArgs, out keysharpArgs);
+						break;
+				}
+
+				if (!string.IsNullOrEmpty(scriptName))
+					break;
+			}
+
+			if (!string.IsNullOrEmpty(scriptName) && IsCompiledScriptInput(scriptName))
+				loadAsm = true;
+
+			if (string.IsNullOrEmpty(scriptName) && !loadAsm)
+			{
+				var dirs = new string[]
+				{
+					$"{Environment.CurrentDirectory}{Path.DirectorySeparatorChar}{exeName}.ahk",
+					$"{Environment.CurrentDirectory}{Path.DirectorySeparatorChar}{exeName}.ks"
+				};
+
+				foreach (var dir in dirs)
+				{
+					if (File.Exists(dir))
+					{
+						scriptName = dir;
+						break;
+					}
+				}
+			}
+
+			if (loadAsm && string.IsNullOrEmpty(scriptName))
+				return CliCommand.Error("No assembly was specified.");
+
+			if (loadAsm)
+				return new CliCommand
+				{
+					Kind = CliCommandKind.RunAssembly,
+					EntryAssembly = asm,
+					ExeDir = exeDir,
+					ScriptName = scriptName,
+					ScriptArgs = scriptArgs,
+					KeysharpArgs = keysharpArgs,
+					AssemblyType = asmType,
+					AssemblyMethod = asmMethod,
+				};
+
+			if (scriptName == "*")
+			{
+				fromstdin = true;
+				string s;
+				var sb = new StringBuilder(2048);
+
+				while ((s = Console.ReadLine()) != null)
+					sb.AppendLine(s);
+
+				scriptName = sb.ToString();
+			}
+
+			if (string.IsNullOrEmpty(scriptName))
+				return CliCommand.Error("No script was specified, no text was read from stdin, and no script named keysharp.ahk was found in the current folder or your documents folder.");
+
+			if (!fromstdin && !File.Exists(scriptName))
+				return CliCommand.Error($"Could not find the script file {scriptName}.");
+
+			if (!compileAsm && !compileExe && compileDestPath.Length != 0)
+				return CliCommand.Error("--dest is only valid with --compile.");
+
+			var (nameNoExt, scriptDir, outPath) = GetScriptOutputPaths(scriptName, fromstdin);
+
+			return new CliCommand
+			{
+				Kind = compileExe ? CliCommandKind.CompileExe : compileAsm ? CliCommandKind.CompileAsm : CliCommandKind.RunSource,
+				EntryAssembly = asm,
+				ExeDir = exeDir,
+				ScriptName = scriptName,
+				NameNoExt = nameNoExt,
+				ScriptDir = scriptDir,
+				OutPath = outPath,
+				DestPath = compileDestPath,
+				ScriptArgs = scriptArgs,
+				KeysharpArgs = keysharpArgs,
+				FromStdin = fromstdin,
+				Validate = validate,
+				Transpile = transpile,
+				MinimalExe = compileMinimalExe,
+			};
+		}
+
+		internal static int Execute(CliCommand command)
+		{
+			MethodInfo runtimeEntryPoint = null;
+			object[] runtimeEntryArgs = null;
+
 			try
 			{
-				var script = new Script();
-				var asm = Assembly.GetEntryAssembly();
-				var exePath = Path.GetFullPath(asm.Location);
-
-				if (exePath.IsNullOrEmpty()) //Happens when the assembly is dynamically loaded from memory
-					exePath = Environment.ProcessPath;
-
-				var exeName = Path.GetFileNameWithoutExtension(exePath);
-				var exeDir = Path.GetFullPath(Path.GetDirectoryName(exePath));
-				var codeout = false;
-				var assembly = false;
-				var assemblyType = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
-				var assemblyMethod = "Main";
-				var scriptName = string.Empty;
-				var gotscript = false;
-				var fromstdin = false;
-				var validate = false;
-
-				for (var i = 0; i < args.Length; i++)
+				switch (command.Kind)
 				{
-					if (!args[i].StartsWith('-')
-#if WINDOWS
-							&& !args[i].StartsWith('/')
-#endif
-					   )
-					{
-						if (!gotscript)//Script name.
-						{
-							scriptName = args[i] == "*" ? "*" : Path.GetFullPath(args[i]);
-							gotscript = true;
-							script.ScriptArgs = [.. args.Skip(i + 1)];
-							script.KeysharpArgs = [.. args.Take(i + 1)];
-							continue;
-						}
-						else//Parameters.
-						{
-							//No need to add args to A_Args, because it will be handled in the compiled program with HandleCommandLineParams().
-							continue;
-						}
-					}
+					case CliCommandKind.Error:
+						return Message(command.ErrorText, true);
 
-					var option = args[i].TrimStart(Keywords.DashSlash);
-					var opt = option.ToLowerInvariant();
+					case CliCommandKind.Version:
+						return Message($"{command.EntryAssembly.GetName().Version}", false);
 
-					switch (opt)
-					{
-						case "validate":
-							script.ValidateThenExit = validate = true;
-							break;
+					case CliCommandKind.Help:
+						return Message(HelpText(command.EntryAssembly), false);
 
-						case "assembly":
-							assembly = true;
+					case CliCommandKind.About:
+						return Message(new StreamReader(Path.Combine(command.ExeDir, "license.txt")).ReadToEnd(), false);
 
-							if (i + 2 < args.Length && args[i + 1] != "*" && !File.Exists(args[i + 1]))
-							{
-								assemblyType = args[i + 1];
-								assemblyMethod = args[i + 2];
-								i += 2;
-							}
+					case CliCommandKind.RunAssembly:
+						runtimeEntryPoint = LoadAssemblyEntryPoint(command);
+						runtimeEntryArgs = [command.ScriptArgs];
+						goto InvokeRuntimeEntryPoint;
 
-							break;
+					case CliCommandKind.RunSource:
+					case CliCommandKind.CompileAsm:
+						return CompileAndMaybeRun(command);
 
-						case "codeout":
-							codeout = true;
-							break;
-
-						case "include":
-							i++;
-							break;
-					}
+					default:
+						return Message("This option is only available from the Keysharp launcher.", true);
 				}
 
-				//Message($"Operating off of script: {script} in current dir: {Environment.CurrentDirectory} for full path: {Path.GetFullPath(script)}", false);
-
-				if (string.IsNullOrEmpty(scriptName))
-				{
-					var dirs = new string[]
-					{
-						$"{Environment.CurrentDirectory}{Path.DirectorySeparatorChar}{exeName}.ahk",//Current executable dir.
-						$"{Environment.CurrentDirectory}{Path.DirectorySeparatorChar}{exeName}.ks"
-					};
-
-					foreach (var dir in dirs)
-					{
-						if (File.Exists(dir))
-						{
-							scriptName = dir;
-							break;
-						}
-					}
-				}
-
-				if (assembly)
-				{
-					using (var reader = new BinaryReader(scriptName == "*" ? Console.OpenStandardInput() : File.Open(scriptName, FileMode.Open)))
-					{
-						int length = reader.ReadInt32();
-						byte[] assemblyBytes = reader.ReadBytes(length);
-						Assembly scriptAsm = Assembly.Load(assemblyBytes);
-						Type type = scriptAsm.GetType(assemblyType);
-
-						if (type == null)
-							return Message($"Could not find assembly {assemblyType}", true);
-
-						MethodInfo method = type.GetMethod(assemblyMethod);
-
-						if (method == null)
-							return Message($"Could not find method {assemblyMethod}", true);
-
-						return method.Invoke(null, [script.ScriptArgs]).Ai();
-					}
-				}
-
-				if (scriptName == "*")
-				{
-					fromstdin = true;
-					string s;
-					var sb = new StringBuilder(2048);
-
-					while ((s = Console.ReadLine()) != null)
-						sb.AppendLine(s);
-
-					scriptName = sb.ToString();
-				}
-
-				if (string.IsNullOrEmpty(scriptName))
-					return Message("No script was specified, no text was read from stdin, and no script named keysharp.ahk was found in the current folder or your documents folder.", true);
-
-				if (!fromstdin && !File.Exists(scriptName))
-					return Message($"Could not find the script file {scriptName}.", true);
-
-				string namenoext, path, scriptdir;
-
-				if (!fromstdin)
-				{
-					namenoext = Path.GetFileNameWithoutExtension(scriptName);
-					scriptdir = Path.GetDirectoryName(scriptName);
-					path = $"{scriptdir}{Path.DirectorySeparatorChar}{namenoext}";
-				}
-				else
-				{
-					namenoext = "pipestdin";
-					scriptdir = Environment.CurrentDirectory;
-					path = $".{Path.DirectorySeparatorChar}{namenoext}";
-				}
-
-				var (unit, errs) = ch.CreateCompilationUnitFromFile(scriptName);
-
-				if (errs.HasErrors || unit == null)
-					return HandleCompilerErrors(errs, scriptName, path, "Compiling script to DOM");
-
-				//If they want to write out the code, place it in the same folder as the script, with the same name, and .cs extension.
-				if (codeout)
-				{
-					var code = PrettyPrinter.Print(unit);
+			InvokeRuntimeEntryPoint:
 #if DEBUG
-					var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
-					if (code != normalized)
-						throw new Exception("Code formatting mismatch");
+				Ks.OutputDebugLine("Running compiled code.");
 #endif
-					Console.Write(code);
-					return 0;
-				}
-
-				var (results, ms, compileexc) = ch.Compile(unit, namenoext, exeDir);
-
-				try
-				{
-					if (results == null)
-					{
-						return Message($"Compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}", true);
-					}
-					else if (results.Success)
-					{
-						ms.Seek(0, SeekOrigin.Begin);
-						var arr = ms.ToArray();
-						CompilerHelper.compiledasm = Assembly.Load(arr);
-					}
-					else
-					{
-						return HandleCompilerErrors(results.Diagnostics, scriptName, path, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty);
-					}
-				}
-				finally
-				{
-					ms?.Dispose();
-				}
-
-				if (validate)
-				{
-					return 0;//Any other error condition returned 1 already.
-				}
-
-				if (CompilerHelper.compiledasm == null)
-					throw new Exception("Compilation failed.");
-
-				var program = CompilerHelper.compiledasm.GetType($"{Keywords.MainNamespaceName}.{Keywords.MainClassName}");
-				var main = program.GetMethod("Main");
-				return main.Invoke(null, [script.ScriptArgs]).Ai();
+				return runtimeEntryPoint.Invoke(null, runtimeEntryArgs).Ai();
 			}
 			catch (Exception ex)
 			{
@@ -228,96 +331,339 @@ namespace Keysharp.Internals.Scripting
 				_ = error.AppendLine($"{ex.GetType().Name}: {ex.Message}");
 				_ = error.AppendLine();
 				_ = error.AppendLine(ex.StackTrace);
-				var msg = error.ToString();
-				var trace = $"{Accessors.A_AppData}/Keysharp/execution_errors.txt";
-				return Message(msg, true);
+				return Message(error.ToString(), true);
 			}
 		}
 
-		internal static string GetLatestDotNetVersion()
+		internal static int Run(string[] args) => Execute(Parse(args));
+
+		private static int CompileAndMaybeRun(CliCommand command)
 		{
-#if OSX
-			var rid = RuntimeInformation.RuntimeIdentifier.Contains("osx-arm64", StringComparison.OrdinalIgnoreCase) ? "osx-arm64" : "osx-x64";
-			var hostRoots = new[]
+			using var script = new Script();
+			script.ValidateThenExit = command.Validate;
+			script.ScriptArgs = command.ScriptArgs;
+			script.KeysharpArgs = command.KeysharpArgs;
+
+			var (arr, result) = ch.CompileCodeToByteArray(command.ScriptName, command.NameNoExt, command.ExeDir, false, command.Transpile);
+
+			if (command.Transpile)
 			{
-				$"/usr/local/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/",
-				$"/usr/share/dotnet/packs/Microsoft.NETCore.App.Host.{rid}/"
-			};
-			var hostRoot = hostRoots.FirstOrDefault(Directory.Exists);
-			var dir = hostRoot != null
-				? Directory.GetDirectories(hostRoot).Select(Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault()
-				: "";
-#elif LINUX
-			var dir = Directory.GetDirectories(@"/lib/dotnet/sdk/").Select(System.IO.Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x)).FirstOrDefault();
-#elif WINDOWS
-			var dir = Directory.GetDirectories(@"C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64\").Select(Path.GetFileName).Where(x => x.StartsWith(dotNetMajorVersion)).OrderByDescending(x => new Version(x.Contains("-rc", StringComparison.OrdinalIgnoreCase) ? x.Substring(0, x.IndexOf("-rc", StringComparison.OrdinalIgnoreCase)) : x)).FirstOrDefault();
-#else
-			var dir = "";
+				var codePath = $"{command.OutPath}.cs";
+
+				try
+				{
+					using var sourceWriter = new StreamWriter(codePath);
+					sourceWriter.WriteLine(result);
+				}
+				catch (Exception writeex)
+				{
+					return Message($"Writing code to {codePath} failed: {writeex.Message}", true);
+				}
+			}
+
+			if (arr == null)
+				return Message(result, true);
+
+			if (command.Kind == CliCommandKind.CompileAsm)
+			{
+				var compileAsmPath = ResolveCompileAsmOutput(command.DestPath, command.ScriptDir, command.NameNoExt);
+
+				try
+				{
+					using var outStream = compileAsmPath == "*" ? Console.OpenStandardOutput() : File.Create(compileAsmPath);
+					outStream.Write(arr, 0, arr.Length);
+				}
+				catch (Exception writeex)
+				{
+					return Message($"Writing assembly to {compileAsmPath} failed: {writeex.Message}", true);
+				}
+
+				return 0;
+			}
+
+			if (command.Transpile)
+				return 0;
+
+			CompilerHelper.compiledasm = Assembly.Load(arr);
+
+			if (command.Validate)
+				return 0;
+
+			if (CompilerHelper.compiledasm == null)
+				throw new Exception("Compilation failed.");
+
+			var program = CompilerHelper.compiledasm.GetType($"{Keywords.MainNamespaceName}.{Keywords.MainClassName}");
+			var main = program.GetMethod("Main");
+			script.Dispose();
+#if DEBUG
+			Ks.OutputDebugLine("Running compiled code.");
 #endif
-			return dir;
+			return main.Invoke(null, [command.ScriptArgs]).Ai();
 		}
 
-		private static int HandleCompilerErrors(ImmutableArray<Diagnostic> diagnostics, string filename, string path, string desc, string message = "")
+		private static MethodInfo LoadAssemblyEntryPoint(CliCommand command)
 		{
-			var errstr = CompilerHelper.HandleCompilerErrors(diagnostics, filename, desc, message);
+			byte[] asmBytes;
 
-			if (errstr != "")
+			if (command.ScriptName == "*")
 			{
-				//System.IO.File.WriteAllText($"{Keysharp.Builtins.Accessors.A_AppData}/Keysharp/compiler_errors.txt", errstr);
-				_ = Message(errstr, true);
-				return 1;
-			}
-
-			return 0;
-		}
-
-		private static int HandleCompilerErrors(CompilerErrorCollection results, string filename, string path, string desc, string message = "")
-		{
-			var (errors, warnings) = CompilerHelper.GetCompilerErrors(results, filename);
-			var failed = errors != "";
-
-			if (failed)
-			{
-				var sb = new StringBuilder(1024);
-				_ = sb.AppendLine($"{desc} failed.");
-
-				if (!string.IsNullOrEmpty(errors))
-					_ = sb.Append(errors);
-
-				if (!string.IsNullOrEmpty(warnings))
-					_ = sb.Append(warnings);
-
-				if (!string.IsNullOrEmpty(message))
-					_ = sb.Append(message);
-
-				var errstr = sb.ToString();
-				//System.IO.File.WriteAllText($"{Keysharp.Builtins.Accessors.A_AppData}/Keysharp/compiler_errors.txt", errstr);
-				_ = Message(errstr, true);
+				using var stdin = Console.OpenStandardInput();
+				using var ms = new MemoryStream();
+				stdin.CopyTo(ms);
+				asmBytes = ms.ToArray();
 			}
 			else
+				asmBytes = File.ReadAllBytes(command.ScriptName);
+
+			var scriptAsm = Assembly.Load(asmBytes);
+			var type = scriptAsm.GetType(command.AssemblyType);
+
+			if (type == null)
+				throw new Exception($"Could not find assembly {command.AssemblyType}");
+
+			var method = type.GetMethod(command.AssemblyMethod);
+
+			if (method == null)
+				throw new Exception($"Could not find method {command.AssemblyMethod}");
+
+			return method;
+		}
+
+		private static string HelpText(Assembly asm) =>
+			$"""
+			Keysharp {asm.GetName().Version} - a C# port and enhancement of AutoHotkey.
+
+			Usage:
+			  keysharp [options] <script> [script-args...]   Run a .ahk/.ks script.
+			  keysharp <script.cks> [script-args...]         Run a precompiled script.
+
+			Run:
+			  <script>                Run a .ahk/.ks source file, or a .cks/.dll compiled assembly.
+			  --asm, --assembly       Run a precompiled assembly from a file, or from stdin ("*").
+			  --asm:NS.Type.Method    Run a precompiled assembly using a custom entry point.
+			  --script                In a compiled exe, ignore the embedded script and run the one given next.
+
+			Compile:
+			  --compile [asm|dll]     Compile the script to a .cks assembly (the default).
+			  --compile exe           Compile the script to a standalone executable.
+			  --compile exe-min       Compile to a minimal executable (dependencies embedded).
+			  --dest <path>           Output file or directory for --compile ("*" writes the asm to stdout).
+			  --transpile             Write the generated C# source next to the script (.cs).
+			  --validate              Parse and compile the script without running it.
+
+			Compile daemon:
+			  --daemon                Start the background compile server (speeds up startup).
+			  --daemon stop           Stop the running compile server.
+			  --daemon ping <script>  Compile <script> via a running daemon and report only.
+
+			Other:
+			  --version, -v           Print the version.
+			  --about                 Print license information.
+			  --help, -h, -?          Show this help.
+			{(OperatingSystem.IsWindows() ? "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n" : "")}
+			Options may be prefixed with "-" or "--"{(OperatingSystem.IsWindows() ? " or \"/\"" : "")}. The KEYSHARP_DAEMON environment
+			variable (1/0/true/false/on/off) forces the compile daemon on or off.
+			""";
+
+		internal static bool TryGetSwitch(string value, out string option)
+		{
+			option = null;
+
+			if (string.IsNullOrEmpty(value) || value.Length < 2)
+				return false;
+
+			if (value[0] != '-'
+#if WINDOWS
+			 && value[0] != '/'
+#endif
+			 )
+				return false;
+
+			option = value.TrimStart(Keywords.DashSlash);
+			return option.Length > 0;
+		}
+
+		private static void SetInput(string[] args, int index, ref string scriptName, out string[] scriptArgs, out string[] keysharpArgs)
+		{
+			scriptName = args[index] == "*" ? "*" : Path.GetFullPath(args[index]);
+			scriptArgs = [.. args.Skip(index + 1)];
+			keysharpArgs = [.. args.Take(index + 1)];
+		}
+
+		private static (string NameNoExt, string ScriptDir, string OutPath) GetScriptOutputPaths(string scriptName, bool fromstdin)
+		{
+			if (!fromstdin)
+			{
+				var nameNoExt = Path.GetFileNameWithoutExtension(scriptName);
+				var scriptDir = Path.GetDirectoryName(scriptName);
+				return (nameNoExt, scriptDir, $"{scriptDir}{Path.DirectorySeparatorChar}{nameNoExt}");
+			}
+			else
+			{
+				var nameNoExt = "pipestdin";
+				var scriptDir = Environment.CurrentDirectory;
+				return (nameNoExt, scriptDir, $".{Path.DirectorySeparatorChar}{nameNoExt}");
+			}
+		}
+
+		private static bool TryParseAsmEntryPoint(string value, out string typeName, out string methodName, out string error)
+		{
+			typeName = $"{Keywords.MainNamespaceName}.{Keywords.MainClassName}";
+			methodName = "Main";
+			error = null;
+
+			if (string.IsNullOrWhiteSpace(value))
+			{
+				error = "Assembly entry point cannot be empty. Use --asm or --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			var lastDot = value.LastIndexOf('.');
+
+			if (lastDot <= 0 || lastDot == value.Length - 1)
+			{
+				error = $"Invalid assembly entry point '{value}'. Use --asm:Namespace.Type.Method.";
+				return false;
+			}
+
+			typeName = value.Substring(0, lastDot);
+			methodName = value.Substring(lastDot + 1);
+			return true;
+		}
+
+		internal static bool IsCompiledScriptInput(string path)
+		{
+			var ext = Path.GetExtension(path);
+			return ext.Equals(".cks", StringComparison.OrdinalIgnoreCase)
+				   || ext.Equals(".dll", StringComparison.OrdinalIgnoreCase);
+		}
+
+		private static string ResolveCompileAsmOutput(string outputPath, string scriptDir, string scriptNameNoExt)
+		{
+			if (outputPath.Length == 0)
+				return Path.Combine(scriptDir, $"{scriptNameNoExt}.cks");
+
+			if (outputPath == "*")
+				return "*";
+
+			var fullPath = Path.GetFullPath(outputPath);
+			var isDirectory = Directory.Exists(fullPath) || outputPath.EndsWith(Path.DirectorySeparatorChar) || outputPath.EndsWith(Path.AltDirectorySeparatorChar);
+
+			if (isDirectory)
+			{
+				var outputDir = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+				_ = Directory.CreateDirectory(outputDir);
+				return Path.Combine(outputDir, $"{scriptNameNoExt}.cks");
+			}
+
+			var outputDirForFile = Path.GetDirectoryName(fullPath);
+
+			if (!outputDirForFile.IsNullOrEmpty())
+				_ = Directory.CreateDirectory(outputDirForFile);
+
+			return fullPath;
+		}
+
+		// Reports a message to the user. Errors go through the compiler-error reporter (an error dialog on
+		// Windows, or stdout/stderr when redirected/headless); informational text uses an info box or stdout.
+		internal static int Message(string text, bool error)
+		{
+			const string marker = "\nusing static ";
+			int idx = text.IndexOf(marker, StringComparison.Ordinal);
+
+			if (idx >= 0)
+				text = text.Substring(0, idx);
+
+			if (error)
 			{
 				try
 				{
-					//System.IO.File.Delete($"{Keysharp.Builtins.Accessors.A_AppData}/Keysharp/compiler_errors.txt");
+					if (ch.ReportCompilerErrors(text))
+						return RestartCurrentProcess();
 				}
-				catch { }
-			}
+				catch (Exception ex)
+				{
+					var fallback = $"{text}\n\nError reporting failed: {ex.GetType().Name}: {ex.Message}";
 
-			return failed ? 1 : 0;
-		}
-
-		private static int Message(string text, bool error)
-		{
-			if (error)
-			{
-				ch.PrintCompilerErrors(text);
+					if (TryShowInfoMessageBox(fallback))
+						_ = MessageBox.Show(fallback, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+					else
+						Console.Error.WriteLine(fallback);
+				}
 			}
 			else
 			{
-				Console.Write(text);
+				if (TryShowInfoMessageBox(text))
+					_ = MessageBox.Show(text, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				else
+					Console.WriteLine(text);
+
+				_ = Ks.OutputDebugLine(text);
 			}
 
 			return error ? 1 : 0;
+		}
+
+		// Relaunches this process with the same arguments. Used when the user clicks "Reload" on a
+		// *compile-time* syntax-error dialog, which happens before the script ever runs. Flow.Reload() can't
+		// be used here: it posts the restart to the UI thread and waits for the running app to exit, but at
+		// this point the only message loop was the modal error dialog (now closed). This also re-passes the
+		// managed dll path when running as "dotnet Keysharp.dll <script>".
+		private static int RestartCurrentProcess()
+		{
+			var processPath = Environment.ProcessPath;
+
+			if (processPath.IsNullOrEmpty())
+				return 1;
+
+			try
+			{
+				var args = Environment.GetCommandLineArgs();
+				var start = new ProcessStartInfo
+				{
+					FileName = processPath,
+					UseShellExecute = false,
+				};
+				var processName = Path.GetFileNameWithoutExtension(processPath);
+				var includeArg0 = args.Length > 0
+					&& processName.Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+					&& args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+				var firstArg = includeArg0 ? 0 : 1;
+
+				for (var i = firstArg; i < args.Length; i++)
+					start.ArgumentList.Add(args[i]);
+
+				_ = Process.Start(start);
+				return 0;
+			}
+			catch (Exception ex)
+			{
+				Console.Error.WriteLine($"Reload failed: {ex.Message}");
+				return 1;
+			}
+		}
+
+		private static bool TryShowInfoMessageBox(string text)
+		{
+#if WINDOWS
+			return true;
+#else
+			if (Script.IsHeadless || Script.IsTestHost)
+				return false;
+
+			try
+			{
+				if (Application.Instance == null)
+					_ = new Application();
+
+				return true;
+			}
+			catch (Exception ex)
+			{
+				_ = Ks.OutputDebugLine($"Unable to initialize UI for message box: {ex.Message}");
+				return false;
+			}
+#endif
 		}
 	}
 }

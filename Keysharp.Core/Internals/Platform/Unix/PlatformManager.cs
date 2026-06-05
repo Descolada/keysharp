@@ -27,6 +27,9 @@ namespace Keysharp.Internals.Platform.Unix
 			XDisplay.Default.Handle != 0;
 #endif
 
+		internal static readonly bool IsWaylandSession =
+			string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase);
+
 		static PlatformManager()
 		{
 #if LINUX
@@ -320,12 +323,59 @@ namespace Keysharp.Internals.Platform.Unix
 
 		public static bool RegisterHotKey(nint hWnd, uint id, KeyModifiers fsModifiers, uint vk) => true;
 
-			public static bool GetCursorPos(out POINT lpPoint)
+		public static bool GetCursorPos(out POINT lpPoint)
+		{
+#if LINUX
+			// Preferred path on Wayland: a compositor-IPC backend (KWin via D-Bus, sway/hyprland
+			// via their JSON sockets, COSMIC via its Wayland extension). These are the only ways
+			// to get the global cursor position correctly — the core Wayland protocol forbids
+			// foreign clients from querying it. Compositors without IPC (labwc, GNOME, …) fall
+			// through to the inputd-scaled-abs and Forms.Mouse paths, which only work for
+			// absolute-positioning devices (tablets, touchpads), not regular mice.
+			if (IsWaylandSession)
 			{
-				var pos = Forms.Mouse.Position;
-				lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
+				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+
+				if (backend != null && backend.TryGetCursorPos(out var bx, out var by))
+				{
+					lpPoint = new POINT(bx, by);
+					return true;
+				}
+			}
+
+			if (IsWaylandSession
+				&& KeysharpInputdManager.TryGetPointerPosition(
+					out var rawX,
+					out var rawY,
+					out var minX,
+					out var maxX,
+					out var minY,
+					out var maxY)
+				&& TryScalePointerAxis(rawX, minX, maxX, (int)A_ScreenWidth, out var x)
+				&& TryScalePointerAxis(rawY, minY, maxY, (int)A_ScreenHeight, out var y))
+			{
+				lpPoint = new POINT(x, y);
 				return true;
 			}
+#endif
+			var pos = Forms.Mouse.Position;
+			lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
+			return true;
+		}
+
+#if LINUX
+		private static bool TryScalePointerAxis(int value, int min, int max, int size, out int scaled)
+		{
+			scaled = 0;
+
+			if (max <= min || size <= 0)
+				return false;
+
+			var clamped = Math.Clamp(value, min, max);
+			scaled = (int)Math.Round((double)(clamped - min) * (size - 1) / (max - min));
+			return true;
+		}
+#endif
 		}
 	}
 #endif

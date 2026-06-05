@@ -1,4 +1,4 @@
-﻿using Antlr4.Runtime;
+using Antlr4.Runtime;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 #if WINDOWS
@@ -422,7 +422,7 @@ namespace Keyview
 
 			if (!Directory.Exists(dir))
 				_ = Directory.CreateDirectory(dir);
-				
+
 			File.WriteAllText(lastrun, txtIn.Text);
         }
 
@@ -681,11 +681,11 @@ namespace Keyview
 			};
 			_ = scriptProcess.Start();
 
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream))
+			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
+			using (var stdin = scriptProcess.StandardInput.BaseStream)
 			{
-				writer.Write(CompilerHelper.compiledBytes.Length);
-				writer.Write(CompilerHelper.compiledBytes);
-				writer.Flush();
+				stdin.Write(CompilerHelper.compiledBytes, 0, CompilerHelper.compiledBytes.Length);
+				stdin.Flush();
 			}
 
 			btnRunScript.Text = btnRunScriptText["Stop"];
@@ -1019,9 +1019,13 @@ namespace Keyview
 			inputArea.Wrap = true;
 			outputArea.Wrap = true;
 			inputArea.TextChanged += InputArea_TextChanged;
+#if LINUX
+			KeyDown += InputArea_KeyDown;
+#else
 			inputArea.KeyDown += InputArea_KeyDown;
-			inputArea.MouseUp += (_, _) => UpdateSelectionSnapshot();
 			outputArea.KeyDown += InputArea_KeyDown;
+#endif
+			inputArea.MouseUp += (_, _) => UpdateSelectionSnapshot();
 		}
 
 		private static Font TryMonospaceFont(float size)
@@ -1189,7 +1193,7 @@ namespace Keyview
 			var screen = Eto.Forms.Screen.PrimaryScreen;
 			if (screen == null)
 				return;
-			
+
 			RectangleF area = new RectangleF(0, 0, 1200, 800);
 			try {
 				area = screen.WorkingArea;
@@ -1210,7 +1214,9 @@ namespace Keyview
 
 		private void InputArea_KeyDown(object sender, KeyEventArgs e)
 		{
-			if (ReferenceEquals(sender, inputArea))
+			var inputIsTarget = ReferenceEquals(sender, inputArea) || inputArea.HasFocus;
+
+			if (inputIsTarget)
 				UpdateSelectionSnapshot();
 
 			if (e.Key == Keys.F5)
@@ -1233,7 +1239,7 @@ namespace Keyview
 				return;
 			}
 
-			if (ReferenceEquals(sender, inputArea))
+			if (inputIsTarget)
 			{
 				if (e.Key == Keys.Z && e.Modifiers == Keys.Control)
 				{
@@ -1744,11 +1750,11 @@ namespace Keyview
 			};
 			_ = scriptProcess.Start();
 
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream))
+			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
+			using (var stdin = scriptProcess.StandardInput.BaseStream)
 			{
-				writer.Write(CompilerHelper.compiledBytes.Length);
-				writer.Write(CompilerHelper.compiledBytes);
-				writer.Flush();
+				stdin.Write(CompilerHelper.compiledBytes, 0, CompilerHelper.compiledBytes.Length);
+				stdin.Flush();
 			}
 
 			runScriptButton.Text = runScriptText["Stop"];

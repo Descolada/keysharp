@@ -46,7 +46,7 @@ namespace Keysharp.Builtins
 					scheduler = script.EventScheduler;
 					_ = schedulerSource.TrySetResult(scheduler);
 					SynchronizationContext.SetSynchronizationContext(new ScriptEventSynchronizationContext(scheduler));
-					var launchResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ => result = body());
+					var launchResult = RunBodyOnSchedulerThread(scheduler, body, out result);
 
 					if (launchResult != ScriptEventExecutionResult.Executed)
 						_ = Errors.ErrorOccurred($"Unable to start RealThread worker body ({launchResult}).");
@@ -84,6 +84,12 @@ namespace Keysharp.Builtins
 			}
 
 			private static object ReportThreadNotAlive(object ret = null) => Errors.ErrorOccurred("Real thread is no longer alive.", ret);
+
+			private sealed class PostQueuedEvent(ScriptEventScheduler scheduler, IFuncObj callback, object[] args)
+			{
+				internal ScriptEventExecutionResult Execute()
+					=> RunFunctionObjectOnSchedulerThread(scheduler, callback, args, true, out _);
+			}
 
 			/// <summary>
 			/// Constructor that takes a task to keep a reference to.
@@ -154,7 +160,9 @@ namespace Keysharp.Builtins
 				if (scheduler == null)
 					return ReportThreadNotAlive();
 
-				if (!scheduler.EnqueueThreadLaunch(0, false, false, () => _ = Keysharp.Internals.Flow.TryCatch(() => _ = fo.Call(args))))
+				var queuedEvent = new PostQueuedEvent(scheduler, fo, args);
+
+				if (!scheduler.Enqueue(ScriptEventQueue.Normal, 0, queuedEvent.Execute))
 					return ReportThreadNotAlive();
 
 				return DefaultObject;
@@ -175,8 +183,7 @@ namespace Keysharp.Builtins
 				{
 					return scheduler.InvokeSynchronous(() =>
 					{
-						object result = DefaultObject;
-						var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ => result = fo.Call(args));
+						var executionResult = RunFunctionObjectOnSchedulerThread(scheduler, fo, args, false, out var result);
 						return executionResult == ScriptEventExecutionResult.Executed
 							? result
 							: Errors.ErrorOccurred("Unable to execute callback on RealThread.");
@@ -186,6 +193,39 @@ namespace Keysharp.Builtins
 				{
 					return ReportThreadNotAlive();
 				}
+			}
+
+			private static ScriptEventExecutionResult RunBodyOnSchedulerThread(ScriptEventScheduler scheduler, Func<object> body, out object result)
+			{
+				result = DefaultObject;
+				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);
+
+				if (!thread.Started)
+					return thread.Result;
+
+				result = body();
+
+				return ScriptEventExecutionResult.Executed;
+			}
+
+			private static ScriptEventExecutionResult RunFunctionObjectOnSchedulerThread(ScriptEventScheduler scheduler, IFuncObj callback, object[] args, bool handleExceptions, out object result)
+			{
+				result = DefaultObject;
+				using var thread = scheduler.StartPseudoThreadScope(0, false, false, false);
+
+				if (!thread.Started)
+					return thread.Result;
+
+				try
+				{
+					result = callback.Call(args);
+				}
+				catch (Exception ex) when (handleExceptions)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
+
+				return ScriptEventExecutionResult.Executed;
 			}
 
 			/// <summary>

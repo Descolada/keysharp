@@ -20,7 +20,13 @@ namespace Keysharp.Builtins
 				   ?? allScreens.FirstOrDefault()
 				   ?? throw new InvalidOperationException("No monitors are available.");
 #else
+			// On Wayland, IsPrimary is unreliable (GDK returns false for all monitors).
+			// GDK also enumerates monitors in window-placement order, so FirstOrDefault()
+			// picks whichever monitor the application window happens to be on — not the
+			// compositor's primary. The primary is conventionally placed at logical
+			// origin (0, 0) by GNOME and other compositors, so use that as the fallback.
 			return allScreens.FirstOrDefault(s => s?.IsPrimary == true)
+				   ?? allScreens.FirstOrDefault(s => s != null && (int)s.Bounds.Left == 0 && (int)s.Bounds.Top == 0)
 				   ?? allScreens.FirstOrDefault()
 				   ?? throw new InvalidOperationException("No monitors are available.");
 #endif
@@ -99,6 +105,11 @@ namespace Keysharp.Builtins
 			var (screen, _) = ResolveScreen(n);
 #if WINDOWS
 			return screen.DeviceName ?? "";
+#elif LINUX
+			if (screen.Handler is Eto.GtkSharp.Forms.ScreenHandler { Control: Gdk.Monitor monitor })
+				return string.Join(" ", new[] { monitor.Manufacturer, monitor.Model }.Where(s => !string.IsNullOrEmpty(s)));
+
+			return screen.ID ?? "";
 #else
 			return screen.ID ?? "";
 #endif

@@ -147,7 +147,7 @@ namespace Keysharp.Tests
 #else
 					Eto.Forms.Application.Instance?.RunIteration();
 #endif
-					script.EventScheduler.PumpPendingEvents();
+					script.EventScheduler.PumpThreadQueuedEvents();
 				}
 				catch
 				{
@@ -434,11 +434,11 @@ namespace Keysharp.Tests
 
 				var buildMethod = s.HookThread.GetType().GetMethod("TryBuildHookHotkeyMessage", BindingFlags.Instance | BindingFlags.NonPublic);
 				Assert.IsNotNull(buildMethod, "Hook hotkey message builder should exist.");
-				var args = new object[] { hk.id, 0UL, null, null };
+				var args = new object[] { hk.id, 0UL, null, null, null };
 				Assert.IsTrue((bool)buildMethod.Invoke(s.HookThread, args), "Hook hotkey should qualify successfully.");
 				Assert.AreEqual(1, Volatile.Read(ref hookWinCriterionCalls), "Window-style criterion should be evaluated once on the hook side.");
 
-				var hookMsg = (HookHotkeyMsg)args[3];
+				var hookMsg = (HookHotkeyMsg)args[4];
 				Assert.IsNull(hookMsg.variant, "Window-style criteria should be re-evaluated on receipt instead of dispatching the prequalified variant directly.");
 
 				Assert.IsTrue(s.HookThread.PostMessage(new KeysharpMsg

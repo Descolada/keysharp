@@ -87,6 +87,28 @@ namespace Keysharp.Runtime
 		internal readonly Func<ScriptEventExecutionResult> Execute = execute;
 	}
 
+	internal ref struct ScriptPseudoThreadScope
+	{
+		private readonly Script script;
+
+		internal ScriptPseudoThreadScope(Script script, ThreadVariables threadVariables, ScriptEventExecutionResult result)
+		{
+			this.script = script;
+			ThreadVariables = threadVariables;
+			Result = result;
+		}
+
+		internal ThreadVariables ThreadVariables { get; }
+		internal ScriptEventExecutionResult Result { get; }
+		internal bool Started => Result == ScriptEventExecutionResult.Executed;
+
+		public void Dispose()
+		{
+			if (Started)
+				script.Threads.EndThread(ThreadVariables);
+		}
+	}
+
 	internal sealed class ScriptEventScheduler
 	{
 		private readonly object gate = new();
@@ -209,9 +231,11 @@ namespace Keysharp.Runtime
 
 		internal bool EnqueueTimer(ScriptTimerState timer)
 		{
-			return timer != null
-					&& timer.Callback != null
-					&& Enqueue(ScriptEventQueue.Normal, timer.Priority, () => TryExecuteTimerEvent(timer));
+			if (timer == null || timer.Callback == null)
+				return false;
+
+			var queuedEvent = new TimerQueuedEvent(this, timer);
+			return Enqueue(ScriptEventQueue.Normal, timer.Priority, queuedEvent.Execute);
 		}
 
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
@@ -287,14 +311,11 @@ namespace Keysharp.Runtime
 			return result;
 		}
 
-		internal void PumpPendingEvents()
+		internal void PumpThreadQueuedEvents()
 		{
-			if (OwnsCurrentThread && !IsDisposed)
-				PumpQueuedEvents();
-		}
+			if (!OwnsCurrentThread || IsDisposed)
+				return;
 
-		private void PumpQueuedEvents()
-		{
 			bool blocked = false;
 			bool stalledOnLocalBlock = false;
 			var consecutiveInteractiveLocalBlocks = 0;
@@ -310,16 +331,16 @@ namespace Keysharp.Runtime
 				{
 					switch (TryProcessNextQueuedEvent(ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce))
 					{
-					case ScriptEventExecutionResult.Executed:
-						continue;
-					case ScriptEventExecutionResult.GlobalBlocked:
-						blocked = true;
-						return;
-					case ScriptEventExecutionResult.LocalBlocked:
-						stalledOnLocalBlock = true;
-						return;
-					case ScriptEventExecutionResult.Dropped:
-						return;
+						case ScriptEventExecutionResult.Executed:
+							continue;
+						case ScriptEventExecutionResult.GlobalBlocked:
+							blocked = true;
+							return;
+						case ScriptEventExecutionResult.LocalBlocked:
+							stalledOnLocalBlock = true;
+							return;
+						case ScriptEventExecutionResult.Dropped:
+							return;
 					}
 				}
 			}
@@ -350,7 +371,7 @@ namespace Keysharp.Runtime
 					continue;
 				}
 
-				PumpPendingEvents();
+				PumpThreadQueuedEvents();
 
 				if (script.Threads.ActivePseudoThreadCount > 0)
 					return;
@@ -396,9 +417,9 @@ namespace Keysharp.Runtime
 			if (isUiScheduler)
 			{
 				if (OwnsCurrentThread)
-					Script.PostToUIThread(PumpPendingEvents);
+					Script.PostToUIThread(PumpThreadQueuedEvents);
 				else
-					_ = ThreadPool.UnsafeQueueUserWorkItem(static state => Script.InvokeOnUIThread(((ScriptEventScheduler)state).PumpPendingEvents), this, false);
+					_ = ThreadPool.UnsafeQueueUserWorkItem(static state => Script.InvokeOnUIThread(((ScriptEventScheduler)state).PumpThreadQueuedEvents), this, false);
 			}
 			else
 				SignalWorkerPump();
@@ -583,62 +604,76 @@ namespace Keysharp.Runtime
 			return true;
 		}
 
-		private ScriptEventExecutionResult TryExecuteTimerEvent(ScriptTimerState timer)
+		private sealed class TimerQueuedEvent(ScriptEventScheduler scheduler, ScriptTimerState timer)
 		{
-			var timers = script.FlowData.timers;
-
-			if (script.hasExited)
+			internal ScriptEventExecutionResult Execute()
 			{
-				timers.ReleaseQueuedTimer(timer);
-				return ScriptEventExecutionResult.Dropped;
-			}
+				var script = scheduler.script;
+				var timers = script.FlowData.timers;
 
-			var timerRegistration = timers.Find(timer.Callback, timer.OwnerScheduler);
+				if (script.hasExited)
+				{
+					timers.ReleaseQueuedTimer(timer);
+					return ScriptEventExecutionResult.Dropped;
+				}
 
-			if (!ReferenceEquals(timerRegistration, timer) || timer.Callback == null || !timer.Enabled)
-			{
-				timers.ReleaseQueuedTimer(timer);
-				return ScriptEventExecutionResult.Dropped;
-			}
+				var callback = timer.Callback;
+				var timerRegistration = timers.Find(callback, timer.OwnerScheduler);
+
+				if (!ReferenceEquals(timerRegistration, timer) || callback == null || !timer.Enabled)
+				{
+					timers.ReleaseQueuedTimer(timer);
+					return ScriptEventExecutionResult.Dropped;
+				}
 
 #if WINDOWS
-			if (Dialogs.HasPendingWindowsMsgBoxShow())
-				return ScriptEventExecutionResult.LocalBlocked;
+				if (Dialogs.HasPendingWindowsMsgBoxShow())
+					return ScriptEventExecutionResult.LocalBlocked;
 #endif
 
-			var threads = script.Threads;
+				var threads = script.Threads;
 
-			if ((!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
-					|| !threads.AnyThreadsAvailable()
-					|| !threads.IsInterruptible())
-			{
-				timers.ReleaseQueuedTimer(timer);
-				return ScriptEventExecutionResult.Dropped;
-			}
+				if ((!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
+						|| !threads.AnyThreadsAvailable()
+						|| !threads.IsInterruptible())
+				{
+					timers.ReleaseQueuedTimer(timer);
+					return ScriptEventExecutionResult.Dropped;
+				}
 
-			timers.MarkCallbackStarted(timer);
+				timers.MarkCallbackStarted(timer);
+				var executed = false;
 
-			var startResult = TryExecuteThreadLaunch(timer.Priority, true, false, btv =>
-			{
-				btv.currentTimer = timer;
-				btv.eventInfo = timer.Callback;
-				_ = Keysharp.Internals.Flow.TryCatch(() => _ = timer.Callback.Call());
-			});
+				{
+					using var thread = scheduler.StartPseudoThreadScope(timer.Priority, true, false, false);
 
-			timers.MarkCallbackFinished(timer);
+					if (thread.Started)
+					{
+						executed = true;
 
-			if (startResult != ScriptEventExecutionResult.Executed)
-			{
+						try
+						{
+							var btv = thread.ThreadVariables;
+							btv.currentTimer = timer;
+							btv.eventInfo = callback;
+							_ = callback.Call();
+						}
+						catch (Exception ex)
+						{
+							_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+						}
+					}
+				}
+
+				timers.MarkCallbackFinished(timer);
+
 				if (timer.Callback == null)
 					script.ExitIfNotPersistent();
 
-				return ScriptEventExecutionResult.Dropped;
+				return executed
+					? ScriptEventExecutionResult.Executed
+					: ScriptEventExecutionResult.Dropped;
 			}
-
-			if (timer.Callback == null)
-				script.ExitIfNotPersistent();
-
-			return ScriptEventExecutionResult.Executed;
 		}
 
 		// Pseudo-thread execution has three separate concerns:
@@ -753,10 +788,10 @@ namespace Keysharp.Runtime
 #endif
 			}
 
-			waitingScheduler?.PumpPendingEvents();
+			waitingScheduler?.PumpThreadQueuedEvents();
 		}
 
-		private ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
+		internal ScriptEventExecutionResult TryStartPseudoThread(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow, out ThreadVariables threadVariables)
 		{
 			threadVariables = null;
 
@@ -777,6 +812,12 @@ namespace Keysharp.Runtime
 			return threads.TryPushThreadVariables(priority, skipUninterruptible, isCritical, true, allowEmergencyOverflow, out threadVariables)
 				? ScriptEventExecutionResult.Executed
 				: ScriptEventExecutionResult.GlobalBlocked;
+		}
+
+		internal ScriptPseudoThreadScope StartPseudoThreadScope(long priority, bool skipUninterruptible, bool isCritical, bool allowEmergencyOverflow)
+		{
+			var result = TryStartPseudoThread(priority, skipUninterruptible, isCritical, allowEmergencyOverflow, out var threadVariables);
+			return new(script, threadVariables, result);
 		}
 
 		private void ClearQueues()

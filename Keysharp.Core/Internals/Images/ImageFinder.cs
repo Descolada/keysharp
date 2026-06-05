@@ -1,3 +1,5 @@
+using System.Numerics;
+using System.Runtime.Intrinsics;
 using Keysharp.Builtins;
 namespace Keysharp.Internals.Images
 {
@@ -98,54 +100,72 @@ namespace Keysharp.Internals.Images
 						}
 					}
 #else
-					using var srcData = sourceImage.Lock();
-					using var fndData = findImage.Lock();
-
-					unsafe
+					// Force both bitmaps to 32bpp before the search so the per-pixel
+					// 4-byte int reads below are valid regardless of the original storage
+					// format (Pixbuf is 3bpp for 24-bit images, 4bpp otherwise). Matches
+					// AutoHotkey's getbits()-via-GetDIBits step.
+					var srcBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(sourceImage);
+					var fndBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(findImage);
+					try
 					{
-						var srcColor = new FastColor();
-						var fndColor = new FastColor();
-						var srcPtr = (byte*)srcData.Data;
-						var fndPtr = (byte*)fndData.Data;
-						var srcStride = srcData.ScanWidth;
-						var fndStride = fndData.ScanWidth;
-						var srcBpp = srcData.BytesPerPixel;
-						var fndBpp = fndData.BytesPerPixel;
+						using var srcData = srcBitmap.Lock();
+						using var fndData = fndBitmap.Lock();
 
-						for (int row = 0; row < maxMovement.Height; row++)
+						unsafe
 						{
-							for (int col = 0; col < maxMovement.Width; col++)
+							var srcColor = new FastColor();
+							var fndColor = new FastColor();
+							var srcPtr = (byte*)srcData.Data;
+							var fndPtr = (byte*)fndData.Data;
+							var srcStride = srcData.ScanWidth;
+							var fndStride = fndData.ScanWidth;
+							var srcBpp = srcData.BytesPerPixel;
+							var fndBpp = fndData.BytesPerPixel;
+
+							for (int row = 0; row < maxMovement.Height; row++)
 							{
-								for (int dr = 0; dr < findImage.Height; dr++)
+								for (int col = 0; col < maxMovement.Width; col++)
 								{
-									var srcLine = srcPtr + ((row + dr) * srcStride) + (col * srcBpp);
-									var fndLine = fndPtr + (dr * fndStride);
-
-									for (int dc = 0; dc < findImage.Width; dc++)
+									for (int dr = 0; dr < fndBitmap.Height; dr++)
 									{
-										var srcPixel = *(int*)(srcLine + dc * srcBpp);
-										var fndPixel = *(int*)(fndLine + dc * fndBpp);
+										var srcLine = srcPtr + ((row + dr) * srcStride) + (col * srcBpp);
+										var fndLine = fndPtr + (dr * fndStride);
 
-										var srcArgb = srcData.TranslateDataToArgb(srcPixel);
-										var fndArgb = fndData.TranslateDataToArgb(fndPixel);
+										for (int dc = 0; dc < fndBitmap.Width; dc++)
+										{
+											var srcPixel = *(int*)(srcLine + dc * srcBpp);
+											var fndPixel = *(int*)(fndLine + dc * fndBpp);
 
-										srcColor.Value = (uint)srcArgb;
-										fndColor.Value = (uint)fndArgb;
+											var srcArgb = srcData.TranslateDataToArgb(srcPixel);
+											var fndArgb = fndData.TranslateDataToArgb(fndPixel);
 
-										if (trans != -1 && fndColor.Value == transCol.Value)
-											continue;
+											srcColor.Value = (uint)srcArgb;
+											fndColor.Value = (uint)fndArgb;
 
-										if (!fndColor.CompareWithVar(srcColor, Variation))
-											goto NOFIND;
+											// trans-color match (caller-supplied) is intentionally RGB-only:
+											// the user gives a pure RGB value, no alpha component.
+											if (trans != -1 && (fndColor.Value & 0x00FFFFFFu) == (transCol.Value & 0x00FFFFFFu))
+												continue;
+
+											if (!fndColor.CompareWithVar(srcColor, Variation))
+												goto NOFIND;
+										}
 									}
-								}
 
-								ret = new Point(col, row);
-								return ret;
-								NOFIND:
-								;
+									ret = new Point(col, row);
+									return ret;
+									NOFIND:
+									;
+								}
 							}
 						}
+					}
+					finally
+					{
+						if (!ReferenceEquals(srcBitmap, sourceImage))
+							srcBitmap.Dispose();
+						if (!ReferenceEquals(fndBitmap, findImage))
+							fndBitmap.Dispose();
 					}
 
 #endif
@@ -168,29 +188,242 @@ namespace Keysharp.Internals.Images
 
 		internal Point? Find(Color ColorId, bool ltr, bool ttb)
 		{
-			var findPixel = new PixelMask(ColorId, Variation);
-			var startrow = ttb ? 0 : sourceImage.Size.Height - 1;
-			var startcol = ltr ? 0 : sourceImage.Size.Width - 1;
-			var rowinc = ttb ? 1 : -1;
-			var colinc = ltr ? 1 : -1;
-			var rowmax = ttb ? sourceImage.Size.Height : -1;
-			var colmax = ltr ? sourceImage.Size.Width : -1;
-			var pix = new Color();
+			// Transparent needle (alpha 0) is a "match anything" sentinel in the legacy path.
+			// Honour it by returning the corner pixel without bothering to lock the bitmap.
+			if (ColorId.A == 0)
+				return new Point(ltr ? 0 : sourceImage.Width - 1, ttb ? 0 : sourceImage.Height - 1);
 
-			for (var i = startrow; i != rowmax; i += rowinc)
+			var variation = Variation;
+
+#if WINDOWS
+			BitmapData locked = null;
+
+			try
 			{
-				for (var j = startcol; j != colmax; j += colinc)
-				{
-					pix = sourceImage.GetPixel(j, i);
+				locked = sourceImage.LockBits(
+					new Rectangle(0, 0, sourceImage.Width, sourceImage.Height),
+					ImageLockMode.ReadOnly,
+					PixelFormat.Format32bppArgb);
+				// Format32bppArgb stores BGRA in memory, so reading a 4-byte pixel as a
+				// little-endian uint yields 0xAARRGGBB — exactly Color.ToArgb's layout.
+				var target = unchecked((uint)ColorId.ToArgb());
 
-					if (findPixel.Equals(pix))
-					{
-						return new Point(j, i);
-					}
+				unsafe
+				{
+					return FindMatchingPixel(
+						(byte*)locked.Scan0,
+						locked.Stride,
+						locked.Width,
+						locked.Height,
+						target,
+						variation,
+						ltr,
+						ttb);
 				}
+			}
+			finally
+			{
+				if (locked != null)
+					sourceImage.UnlockBits(locked);
+			}
+#else
+			// Eto pixbufs may be 24bpp; normalise so the per-pixel read is always 4 bytes.
+			var normalized = ImageHelper.EnsureOpaque32Bpp(sourceImage);
+
+			try
+			{
+				using var data = normalized.Lock();
+				// Pixbuf channel order differs between Gtk (RGBA) and Cocoa (BGRA) backends.
+				// TranslateArgbToData rewrites the needle into the backend's in-memory layout
+				// so the raw uint compare below is correct regardless of platform.
+				var target = unchecked((uint)data.TranslateArgbToData(ColorId.ToArgb()));
+
+				unsafe
+				{
+					return FindMatchingPixel(
+						(byte*)data.Data,
+						data.ScanWidth,
+						normalized.Width,
+						normalized.Height,
+						target,
+						variation,
+						ltr,
+						ttb);
+				}
+			}
+			finally
+			{
+				if (!ReferenceEquals(normalized, sourceImage))
+					normalized.Dispose();
+			}
+#endif
+		}
+
+		// Vector128.IsHardwareAccelerated is true on x86 SSE2 and ARM64 NEON. The cross-platform
+		// Vector128.{Equals,LoadUnsafe,Max,SubtractSaturate,ExtractMostSignificantBits} APIs
+		// lower to PCMPEQD / UQSUB / etc. transparently, so this single implementation runs
+		// fast on Windows x64, Linux x64, macOS x64, and macOS arm64.
+		private static unsafe Point? FindMatchingPixel(
+			byte* basePtr, int stride, int width, int height,
+			uint target, byte variation, bool ltr, bool ttb)
+		{
+			var rowStart = ttb ? 0 : height - 1;
+			var rowEnd = ttb ? height : -1;
+			var rowStep = ttb ? 1 : -1;
+
+			for (var row = rowStart; row != rowEnd; row += rowStep)
+			{
+				var rowPtr = (uint*)(basePtr + ((nint)row * stride));
+				var col = ScanRow(rowPtr, width, target, variation, ltr);
+
+				if (col >= 0)
+					return new Point(col, row);
 			}
 
 			return null;
+		}
+
+		private static unsafe int ScanRow(uint* rowPtr, int width, uint target, byte variation, bool ltr)
+		{
+			if (variation == 0)
+				return ScanRowExact(rowPtr, width, target, ltr);
+
+			return ScanRowVariation(rowPtr, width, target, variation, ltr);
+		}
+
+		private static unsafe int ScanRowExact(uint* rowPtr, int width, uint target, bool ltr)
+		{
+			var col = 0;
+
+			if (Vector128.IsHardwareAccelerated && width >= Vector128<uint>.Count)
+			{
+				var vTarget = Vector128.Create(target);
+				// Bestmatch tracks the rightmost column when scanning RTL; -1 means no match yet.
+				var bestRtl = -1;
+
+				for (; col + Vector128<uint>.Count <= width; col += Vector128<uint>.Count)
+				{
+					var loaded = Vector128.LoadUnsafe(ref *(uint*)(rowPtr + col));
+					var matched = Vector128.Equals(loaded, vTarget);
+					var mask = matched.ExtractMostSignificantBits();
+
+					if (mask == 0)
+						continue;
+
+					if (ltr)
+						return col + BitOperations.TrailingZeroCount(mask);
+
+					bestRtl = col + 31 - BitOperations.LeadingZeroCount(mask);
+				}
+
+				for (; col < width; col++)
+				{
+					if (rowPtr[col] != target)
+						continue;
+
+					if (ltr)
+						return col;
+
+					bestRtl = col;
+				}
+
+				return bestRtl;
+			}
+
+			// Scalar fallback for platforms where Vector128 isn't accelerated.
+			if (ltr)
+			{
+				for (; col < width; col++)
+					if (rowPtr[col] == target)
+						return col;
+			}
+			else
+			{
+				for (var c = width - 1; c >= 0; c--)
+					if (rowPtr[c] == target)
+						return c;
+			}
+
+			return -1;
+		}
+
+		// Zeroes byte 3 of every pixel so the alpha-channel diff is forced to 0 (RGB-only match).
+		private static readonly Vector128<byte> RgbOnlyMask = Vector128.Create(0x00FFFFFFu).AsByte();
+
+		private static unsafe int ScanRowVariation(uint* rowPtr, int width, uint target, byte variation, bool ltr)
+		{
+			// |a - b| per byte = subs_epu8(a, b) | subs_epu8(b, a). With max_epu8(diff, v)
+			// equal to v iff every channel diff is <= v. Force the alpha byte's diff to 0 so
+			// it always passes — AHK's pixel variation match is RGB-only.
+			var col = 0;
+
+			if (Vector128.IsHardwareAccelerated && width >= Vector128<uint>.Count)
+			{
+				var vTargetBytes = Vector128.Create(target).AsByte();
+				var vVariation = Vector128.Create(variation);
+				var bestRtl = -1;
+
+				for (; col + Vector128<uint>.Count <= width; col += Vector128<uint>.Count)
+				{
+					var loaded = Vector128.LoadUnsafe(ref *(byte*)(rowPtr + col));
+					var diff = Vector128.SubtractSaturate(loaded, vTargetBytes)
+						| Vector128.SubtractSaturate(vTargetBytes, loaded);
+					diff &= RgbOnlyMask;  // alpha-channel diff → 0 (always passes)
+					// per-byte: diff <= variation ↔ max(diff, variation) == variation
+					var perByteOk = Vector128.Equals(Vector128.Max(diff, vVariation), vVariation);
+					// Per-pixel verdict: all 4 channel bytes must pass ↔ uint lane is 0xFFFFFFFF.
+					var perPixelOk = Vector128.Equals(perByteOk.AsUInt32(), Vector128<uint>.AllBitsSet);
+					var mask = perPixelOk.ExtractMostSignificantBits();
+
+					if (mask == 0)
+						continue;
+
+					if (ltr)
+						return col + BitOperations.TrailingZeroCount(mask);
+
+					bestRtl = col + 31 - BitOperations.LeadingZeroCount(mask);
+				}
+
+				for (; col < width; col++)
+				{
+					if (!ScalarPixelMatchesVariation(rowPtr[col], target, variation))
+						continue;
+
+					if (ltr)
+						return col;
+
+					bestRtl = col;
+				}
+
+				return bestRtl;
+			}
+
+			if (ltr)
+			{
+				for (; col < width; col++)
+					if (ScalarPixelMatchesVariation(rowPtr[col], target, variation))
+						return col;
+			}
+			else
+			{
+				for (var c = width - 1; c >= 0; c--)
+					if (ScalarPixelMatchesVariation(rowPtr[c], target, variation))
+						return c;
+			}
+
+			return -1;
+		}
+
+		private static bool ScalarPixelMatchesVariation(uint pixel, uint target, byte variation)
+		{
+			// Per-byte |pixel - target| <= variation, ignoring the alpha lane (byte 3).
+			var diff0 = (int)((pixel >> 0) & 0xFF) - (int)((target >> 0) & 0xFF);
+			var diff1 = (int)((pixel >> 8) & 0xFF) - (int)((target >> 8) & 0xFF);
+			var diff2 = (int)((pixel >> 16) & 0xFF) - (int)((target >> 16) & 0xFF);
+			var v = (int)variation;
+			return diff0 >= -v && diff0 <= v
+				&& diff1 >= -v && diff1 <= v
+				&& diff2 >= -v && diff2 <= v;
 		}
 
 		private class PixelMask

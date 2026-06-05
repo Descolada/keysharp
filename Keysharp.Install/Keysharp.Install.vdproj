@@ -1,4 +1,4 @@
-﻿"DeployProject"
+"DeployProject"
 {
 "VSVersion" = "3:800"
 "ProjectType" = "8:{978C614F-708E-4E1A-B201-565925725DBA}"
@@ -485,7 +485,7 @@
         "DisplayName" = "8:Release"
         "IsDebugOnly" = "11:FALSE"
         "IsReleaseOnly" = "11:TRUE"
-        "OutputFilename" = "8:Release\\Keysharp.msi"
+        "OutputFilename" = "8:..\\dist\\Keysharp-win-x64.msi"
         "PackageFilesAs" = "3:2"
         "PackageFileSize" = "3:-2147483648"
         "CabType" = "3:1"
@@ -583,8 +583,28 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keysharp.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.dll"
             "TargetName" = "8:"
+            "Tag" = "8:"
+            "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
+            "Condition" = "8:"
+            "Transitive" = "11:FALSE"
+            "Vital" = "11:TRUE"
+            "ReadOnly" = "11:FALSE"
+            "Hidden" = "11:FALSE"
+            "System" = "11:FALSE"
+            "Permanent" = "11:FALSE"
+            "SharedLegacy" = "11:FALSE"
+            "PackageAs" = "3:1"
+            "Register" = "3:1"
+            "Exclude" = "11:FALSE"
+            "IsDependency" = "11:FALSE"
+            "IsolateTo" = "8:"
+            }
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_F26ACD5E76564E0A9E64A72780B9F47F"
+            {
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\System.Management.dll"
+            "TargetName" = "8:System.Management.dll"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
             "Condition" = "8:"
@@ -663,9 +683,9 @@
             "IsDependency" = "11:TRUE"
             "IsolateTo" = "8:"
             }
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_151B7376AC7442A8BFA0444EBECC3D2D"
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_151B7376AC7442A8BFA0444EBECC3D2E"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\runtimes\\win-x64\\native\\Lexilla.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\runtimes\\win-x64\\native\\Lexilla.dll"
             "TargetName" = "8:Lexilla.dll"
             "Tag" = "8:"
             "Folder" = "8:_765360253D0A48A6A6CD7625FB52CD8B"
@@ -696,7 +716,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Microsoft.CodeAnalysis.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Microsoft.CodeAnalysis.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -711,12 +731,12 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_23ACF911B12C492F93EA71F4451669A5"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keysharp.runtimeconfig.json"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.runtimeconfig.json"
             "TargetName" = "8:Keysharp.runtimeconfig.json"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -747,7 +767,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Scintilla.NET.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Scintilla.NET.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -762,7 +782,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_29B9527044497B02BFF89B6736B65D06"
@@ -829,7 +849,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_3D0BDFC9206A4075858FCE6D712998F4"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keysharp.exe"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.exe"
             "TargetName" = "8:Keysharp.exe"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -860,7 +880,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Semver.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Semver.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -875,7 +895,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_44FC44DABFB6B48E1A5868C31C73267E"
@@ -891,7 +911,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Microsoft.Extensions.Primitives.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Microsoft.Extensions.Primitives.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -906,7 +926,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_48969C13B75488B50C23FCD19EDC9C44"
@@ -973,7 +993,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_4C806A8BC9994FB08EF30EBECD5935C1"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keyview.deps.json"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keyview.deps.json"
             "TargetName" = "8:Keyview.deps.json"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -993,8 +1013,28 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_597C4E20F0064EA0B035191859C1C9E3"
             {
-            "SourcePath" = "8:..\\Keysharp\\Scripts\\WindowSpy.ks"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Scripts\\WindowSpy.ks"
             "TargetName" = "8:WindowSpy.ks"
+            "Tag" = "8:"
+            "Folder" = "8:_A0134BE123494C06ACD60E118C579BBD"
+            "Condition" = "8:"
+            "Transitive" = "11:FALSE"
+            "Vital" = "11:TRUE"
+            "ReadOnly" = "11:TRUE"
+            "Hidden" = "11:FALSE"
+            "System" = "11:FALSE"
+            "Permanent" = "11:FALSE"
+            "SharedLegacy" = "11:FALSE"
+            "PackageAs" = "3:1"
+            "Register" = "3:1"
+            "Exclude" = "11:FALSE"
+            "IsDependency" = "11:FALSE"
+            "IsolateTo" = "8:"
+            }
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_597C4E20F0064EA0B035191859C1C9E4"
+            {
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Scripts\\WindowSpy.cks"
+            "TargetName" = "8:WindowSpy.cks"
             "Tag" = "8:"
             "Folder" = "8:_A0134BE123494C06ACD60E118C579BBD"
             "Condition" = "8:"
@@ -1024,7 +1064,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:PCRE.NET.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\PCRE.NET.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1039,7 +1079,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_605306909C90D8481D2E670AAF03CEF4"
@@ -1075,10 +1115,10 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_6131E587AD3D42C2ACB775191307FDBA"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\runtimes\\win-x64\\native\\PCRE.NET.Native.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\PCRE.NET.Native.dll"
             "TargetName" = "8:PCRE.NET.Native.dll"
             "Tag" = "8:"
-            "Folder" = "8:_765360253D0A48A6A6CD7625FB52CD8B"
+            "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
             "Condition" = "8:"
             "Transitive" = "11:FALSE"
             "Vital" = "11:TRUE"
@@ -1126,7 +1166,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_7E6048A7C71F416AA4C460A40BA6EC08"
             {
-            "SourcePath" = "8:..\\license.txt"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\license.txt"
             "TargetName" = "8:license.txt"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1237,26 +1277,6 @@
             "IsDependency" = "11:TRUE"
             "IsolateTo" = "8:"
             }
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_984D1A9EF6814023B12DCA2E9392E803"
-            {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keysharp.Core.deps.json"
-            "TargetName" = "8:Keysharp.Core.deps.json"
-            "Tag" = "8:"
-            "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
-            "Condition" = "8:"
-            "Transitive" = "11:FALSE"
-            "Vital" = "11:TRUE"
-            "ReadOnly" = "11:FALSE"
-            "Hidden" = "11:FALSE"
-            "System" = "11:FALSE"
-            "Permanent" = "11:FALSE"
-            "SharedLegacy" = "11:FALSE"
-            "PackageAs" = "3:1"
-            "Register" = "3:1"
-            "Exclude" = "11:FALSE"
-            "IsDependency" = "11:FALSE"
-            "IsolateTo" = "8:"
-            }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_9BEC4FC1F9AAF2A19B47BA7B9784922D"
             {
             "AssemblyRegister" = "3:1"
@@ -1290,7 +1310,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_A06CAB304A6C4160A3B6997C831A5579"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keyview.runtimeconfig.json"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keyview.runtimeconfig.json"
             "TargetName" = "8:Keyview.runtimeconfig.json"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1321,7 +1341,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Microsoft.CodeAnalysis.CSharp.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Microsoft.CodeAnalysis.CSharp.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1336,12 +1356,12 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_A2B8B6CA171941E695B72CE361F45304"
             {
-            "SourcePath" = "8:..\\Keysharp.ico"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.ico"
             "TargetName" = "8:Keysharp.ico"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1361,7 +1381,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_A44897DE712144BF913CCA029288E7A7"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keyview.exe"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keyview.exe"
             "TargetName" = "8:Keyview.exe"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1392,7 +1412,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Keysharp.Core.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.Core.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1407,7 +1427,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_AB61293417B1BBAD31FAA4E3AF500184"
@@ -1423,7 +1443,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Antlr4.Runtime.Standard.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Antlr4.Runtime.Standard.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1438,7 +1458,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_AF0E0B79D32C4451BD6147247D792EB3"
@@ -1536,7 +1556,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:BitFaster.Caching.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\BitFaster.Caching.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1551,7 +1571,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_C9E5796A882F441A9721E317CC26D70F"
@@ -1587,7 +1607,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:Microsoft.NET.HostModel.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Microsoft.NET.HostModel.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1602,7 +1622,7 @@
             "PackageAs" = "3:1"
             "Register" = "3:1"
             "Exclude" = "11:FALSE"
-            "IsDependency" = "11:TRUE"
+            "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_E639AC3BD2C345DB88A0E7AFFF3E704C"
@@ -1618,7 +1638,7 @@
                     "Attributes" = "3:512"
                     }
                 }
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keyview.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keyview.dll"
             "TargetName" = "8:"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1669,7 +1689,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_E833DB755C9742518C24502510D319A8"
             {
-            "SourcePath" = "8:..\\Keysharp\\Keysharp.manifest"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.manifest"
             "TargetName" = "8:Keysharp.manifest"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1718,9 +1738,9 @@
             "IsDependency" = "11:TRUE"
             "IsolateTo" = "8:"
             }
-            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_EA604DAF226E4BD0B5041A1418CCA615"
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_EA604DAF226E4BD0B5041A1418CCA616"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\runtimes\\win-x64\\native\\Scintilla.dll"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\runtimes\\win-x64\\native\\Scintilla.dll"
             "TargetName" = "8:Scintilla.dll"
             "Tag" = "8:"
             "Folder" = "8:_765360253D0A48A6A6CD7625FB52CD8B"
@@ -1740,7 +1760,7 @@
             }
             "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_F014225912124848ADCE93A7E8EB7F48"
             {
-            "SourcePath" = "8:..\\bin\\release\\net10.0-windows\\Keysharp.deps.json"
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Keysharp.deps.json"
             "TargetName" = "8:Keysharp.deps.json"
             "Tag" = "8:"
             "Folder" = "8:_9D47FA67B152413583BC2E00217477E3"
@@ -1807,6 +1827,29 @@
                 "Verbs"
                 {
                     "{95C0C507-CBF0-42B8-B119-07219E384A4A}:_24ED82BEEDCC4BA6B685BAA98A9AF27E"
+                    {
+                    "Command" = "8:&Open"
+                    "Verb" = "8:open"
+                    "Arguments" = "8:\"%1\""
+                    "Order" = "3:0"
+                    }
+                }
+            }
+            "{5EB83D71-FA18-4901-BE56-DE22E13CC478}:_E0F8A308C59843D4B1AEFD65E91912D5"
+            {
+            "Name" = "8:Keysharp.CompiledScript"
+            "Description" = "8:Compiled Keysharp script"
+            "Extensions" = "8:.cks"
+            "MIME" = "8:"
+            "Icon" = "8:_A2B8B6CA171941E695B72CE361F45304"
+            "IconIndex" = "3:0"
+                "Command"
+                {
+                "Command" = "8:_3D0BDFC9206A4075858FCE6D712998F4"
+                }
+                "Verbs"
+                {
+                    "{95C0C507-CBF0-42B8-B119-07219E384A4A}:_F9DB792C959E431998C30894C584523F"
                     {
                     "Command" = "8:&Open"
                     "Verb" = "8:open"

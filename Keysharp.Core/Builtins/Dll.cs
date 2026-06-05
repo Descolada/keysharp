@@ -39,7 +39,7 @@ namespace Keysharp.Builtins
 		/// An optimization is to keep a cache of these objects, keyed by the exact function name and argument types.<br/>
 		/// Doing this saves significant time when doing repeated calls to the same DLL function with the same argument types.
 		/// </summary>
-		private static readonly Dictionary<string, nint> loadedDlls = new ()
+		internal static readonly Dictionary<string, nint> loadedDlls = new ()
 		{
 #if WINDOWS
 			{ "user32", NativeLibrary.Load("user32") },
@@ -201,6 +201,9 @@ namespace Keysharp.Builtins
 					if (handle != 0 && !NativeLibrary.TryGetExport(handle, name, out address))
 						NativeLibrary.TryGetExport(handle, name + "W", out address);
 #else
+					if (handle == 0 && path.EndsWith(LibraryExtension, StringComparison.OrdinalIgnoreCase))
+						NativeLibrary.TryLoad(path + ".0", out handle);
+
 					if (handle != 0)
 						_ = NativeLibrary.TryGetExport(handle, name, out address);
 #endif

@@ -1,8 +1,10 @@
 using Keysharp.Builtins;
+#if !WINDOWS
 #if LINUX
 using Gdk;
+#endif
 
-namespace Keysharp.Internals.Window.Linux
+namespace Keysharp.Internals.Window.Unix
 {
 	internal struct Message
 	{
@@ -17,8 +19,10 @@ namespace Keysharp.Internals.Window.Linux
 	{
 		private readonly Script script;
 		internal Message handledMsg;
+#if LINUX
 		private FilterFunc gtkFilter;
 		private bool filterAttached;
+#endif
 
 		internal MessageFilter(Script associatedScript)
 		{
@@ -27,6 +31,7 @@ namespace Keysharp.Internals.Window.Linux
 
 		internal void Attach()
 		{
+#if LINUX
 			if (filterAttached)
 				return;
 
@@ -44,10 +49,12 @@ namespace Keysharp.Internals.Window.Linux
 					Ks.OutputDebugLine("Failed to attach GTK message filter");
 				}
 			}
+#endif
 		}
 
 		internal void Detach()
 		{
+#if LINUX
 			if (!filterAttached || gtkFilter == null)
 				return;
 
@@ -55,6 +62,7 @@ namespace Keysharp.Internals.Window.Linux
 			root?.RemoveFilter(gtkFilter);
 			gtkFilter = null;
 			filterAttached = false;
+#endif
 		}
 
 		internal bool CallEventHandlers(ref Message m, bool buffered = false)
@@ -75,7 +83,9 @@ namespace Keysharp.Internals.Window.Linux
 				{
 					foreach (var registration in monitor.GetRegistrationsSnapshot())
 					{
-							registration.OwnerScheduler.Enqueue(ScriptEventQueue.Normal, 0, () => registration.TryExecuteBuffered(script, args, eventInfo, hwnd, out _));
+						var targetScheduler = registration.OwnerScheduler ?? script.EventScheduler;
+						var queuedEvent = new MsgMonitorExtensions.BufferedMessageQueuedEvent(registration, script, args, eventInfo, hwnd);
+						targetScheduler.Enqueue(ScriptEventQueue.Normal, 0, queuedEvent.Execute);
 					}
 				}
 				else if (monitor.TryExecuteEmergency(script, args, eventInfo, hwnd, out var result))
@@ -97,8 +107,12 @@ namespace Keysharp.Internals.Window.Linux
 				&& left.LParam == right.LParam
 				&& left.Result == right.Result;
 
+#if LINUX
 		private FilterReturn GtkFilter(IntPtr xevent, Event evnt)
 		{
+			if (evnt?.Window == null)
+				return FilterReturn.Continue;
+
 			// No Win32 message on GTK; use the GDK event type as the message id.
 			var msg = new Message
 			{
@@ -113,6 +127,7 @@ namespace Keysharp.Internals.Window.Linux
 			_ = CallEventHandlers(ref msg, true);
 			return FilterReturn.Continue;
 		}
+#endif
 	}
 }
 #endif

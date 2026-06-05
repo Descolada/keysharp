@@ -16,7 +16,8 @@
 
         Element properties (AtSpi.Accessible):
             Name, Description, Role/RoleId/RoleName, States, Attributes, Interfaces, Parent, Children,
-            Location, HasFocus, ProcessId, Value/Minimum/Maximum/Text, etc.
+            Location, RawLocation, WinId, HasFocus, ProcessId,
+            Value/Minimum/Maximum/Text, etc.
 
         Element methods:
             FindElement/FindElements/WaitElement, Dump/DumpAll, Highlight/Click, Focus/ScrollTo,
@@ -26,7 +27,9 @@
             Running this file directly opens AtSpi.Viewer for inspection.
 */
 
-import { WinFromPoint } from Ks
+#Requires capability AccessibilityAutomation, InputMonitoring
+
+#import KS { WinFromPoint }
 
 #DllLoad libatspi
 #DllLoad libglib-2.0.so.0
@@ -577,7 +580,7 @@ class AtSpi {
     static GetRootElement(index := 1) {
         this.Init()
         p := DllCall(this.__Sym(this.LibAtSpi, "atspi_get_desktop"), "Int", index - 1, "Ptr")
-        return p ? AtSpi.Accessible(p) : 0
+        return p ? AtSpi.Accessible(p, this.__NewCoordinateContext()) : 0
     }
 
     /**
@@ -600,6 +603,7 @@ class AtSpi {
                 y := my
         }
 
+        hWnd := WinFromPoint(x, y)
         desktop := this.GetRootElement()
         if desktop {
             pComp := DllCall(this.__Sym(this.LibAtSpi, "atspi_accessible_get_component_iface")
@@ -621,12 +625,15 @@ class AtSpi {
                 if err {
                     this.__FreeGError(err)
                 } else if pHit {
-                    return AtSpi.Accessible(pHit)
+                    acc := AtSpi.Accessible(pHit)
+                    if hWnd && (root := this.ElementFromHandle(hWnd))
+                        acc.__CoordContext := root.__CoordContext
+                    if !hWnd || this.__AccessibleContainsPoint(acc, x, y)
+                        return acc
                 }
             }
         }
 
-        hWnd := WinFromPoint(x, y)
         if !hWnd
             return 0
         root := this.ElementFromHandle(hWnd)
@@ -666,6 +673,72 @@ class AtSpi {
         return x >= loc.x && y >= loc.y && x <= (loc.x + loc.w) && y <= (loc.y + loc.h)
     }
 
+    static __NewCoordinateContext(hwnd := 0) => { hwnd: hwnd, dx: 0, dy: 0, rootPtr: 0, rx: 0, ry: 0, rw: 0, rh: 0 }
+
+    static __BuildCoordinateContext(win, hWnd) {
+        ctx := this.__NewCoordinateContext(hWnd)
+        try raw := win.RawLocation, WinGetPos(&wx, &wy, &ww, &wh, hWnd)
+        catch
+            return ctx
+        if !hWnd || ww < 1 || wh < 1 || !this.__HasValidExtents(raw)
+            return ctx
+
+        ctx.rootPtr := win.Ptr
+        ctx.rx := wx, ctx.ry := wy, ctx.rw := ww, ctx.rh := wh
+
+        tol := 8
+
+        if Abs(raw.x - wx) <= tol && Abs(raw.y - wy) <= tol
+            return ctx
+        if !(Abs(raw.x) <= tol && Abs(raw.y) <= tol)
+            return ctx
+
+        if Abs(raw.w - ww) <= tol * 2 && Abs(raw.h - wh) <= tol * 2 {
+            ctx.dx := wx, ctx.dy := wy
+            return ctx
+        }
+        if this.__FindFrameSurfaceInset(win, ww, wh, tol, &ix, &iy) {
+            ctx.dx := wx - ix, ctx.dy := wy - iy
+            return ctx
+        }
+        try {
+            WinGetClientPos(&cx, &cy, &cw, &ch, hWnd)
+            if cw > 0 && ch > 0 && Abs(raw.w - cw) <= tol * 2 && Abs(raw.h - ch) <= tol * 2 {
+                ctx.dx := cx, ctx.dy := cy
+                return ctx
+            }
+        }
+
+        ctx.dx := wx, ctx.dy := wy
+        return ctx
+    }
+
+    static __FindFrameSurfaceInset(win, ww, wh, tol, &x, &y) {
+        x := 0, y := 0
+        try count := win.ChildCount
+        catch
+            return 0
+
+        Loop count {
+            try {
+                child := win.GetNthChild(A_Index)
+                cr := child.RawLocation
+            } catch
+                continue
+
+            if this.__HasValidExtents(cr)
+                && cr.x >= 0 && cr.y >= 0 && cr.x <= 128 && cr.y <= 128
+                && Abs(cr.w - ww) <= tol * 2 && Abs(cr.h - wh) <= tol * 2 {
+                x := cr.x, y := cr.y
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static __HasValidExtents(r) => IsObject(r) && r.w > 0 && r.h > 0 && Abs(r.x) < 100000 && Abs(r.y) < 100000
+
     /**
      * Finds an accessible matching a window handle by PID/title/geometry heuristics.
      * @param WinTitle Window title or hWnd
@@ -683,7 +756,10 @@ class AtSpi {
         if !desktop
             return 0
 
-        return this.__FindBestInDesktop(desktop, wTitle, wx, wy, ww, wh, wPid)
+        best := this.__FindBestInDesktop(desktop, wTitle, wx, wy, ww, wh, wPid)
+        if best
+            best.__CoordContext := this.__BuildCoordinateContext(best, hWnd)
+        return best
     }
 
     static __FindBestInDesktop(desktop, wTitle, wx, wy, ww, wh, pidFilter) {
@@ -731,8 +807,9 @@ class AtSpi {
     }
 
     static __ScoreWindowCandidate(win, wTitle, wx, wy, ww, wh) {
-        ; Must have extents for geometry matching
-        try r := win.Location
+        ; Must have extents for geometry matching. Use raw AT-SPI coordinates here;
+        ; the window candidate does not have coordinate context yet.
+        try r := win.RawLocation
         catch
             return -1
 
@@ -777,12 +854,23 @@ class AtSpi {
 
     class Accessible {
         __ptr := 0
-        __New(pAccessible) {
+        __ccx := ""
+        __New(pAccessible, coordContext := "") {
             if !pAccessible
                 throw Error("Null AtspiAccessible pointer")
             this.__ptr := pAccessible
+            this.__CoordContext := coordContext
         }
         __Delete() => AtSpi.__Unref(this.__ptr)
+
+        /**
+         * Coordinate context for this accessible: {hwnd, dx, dy}.
+         * Raw AT-SPI extents become screen coordinates by adding (dx, dy).
+         */
+        __CoordContext {
+            get => this.__ccx
+            set => this.__ccx := IsObject(value) ? value : AtSpi.__NewCoordinateContext()
+        }
 
         /**
          * Enables array-like use of AtSpi accessibles to access child elements.
@@ -846,6 +934,12 @@ class AtSpi {
          */
         Ptr => this.__ptr
 
+        /**
+         * Window id used for coordinate normalization, or 0 if unknown.
+         * @returns {Integer}
+         */
+        WinId => this.__ccx.hwnd
+
         ; --- General accessible properties ---
         /**
          * Accessible name.
@@ -901,7 +995,7 @@ class AtSpi {
                     AtSpi.__FreeGError(err)
                     return 0
                 }
-                return p ? AtSpi.Accessible(p) : 0
+                return p ? AtSpi.Accessible(p, this.__CoordContext) : 0
             }
         }
 
@@ -975,7 +1069,7 @@ class AtSpi {
             }
             if !pChild
                 throw Error("Child not found at index " index)
-            return AtSpi.Accessible(pChild)
+            return AtSpi.Accessible(pChild, this.__CoordContext)
         }
 
         /**
@@ -1166,7 +1260,7 @@ class AtSpi {
                     AtSpi.__FreeGError(err)
                     return 0
                 }
-                return p ? AtSpi.Accessible(p) : 0
+                return p ? AtSpi.Accessible(p, this.__CoordContext) : 0
             }
         }
 
@@ -1441,10 +1535,10 @@ class AtSpi {
         DoDefaultAction() => this.Actions.Length ? this.DoAction(1) : false
         ; --- Component interface ---
         /**
-         * Screen coordinates of the element.
+         * Raw AT-SPI extents without Keysharp coordinate normalization.
          * @returns {{x:Integer,y:Integer,w:Integer,h:Integer}}
          */
-        Location {
+        RawLocation {
             get {
                 ; AtspiComponent* iface
                 pComp := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_accessible_get_component_iface")
@@ -1479,9 +1573,28 @@ class AtSpi {
 
                 return { x: rx, y: ry, w: rw, h: rh }
             }
+        }
+
+        /**
+         * Screen coordinates of the element. On Wayland, AT-SPI sometimes returns
+         * coordinates relative to the owning window; those are normalized here via
+         * the CoordContext delta.
+         * @returns {{x:Integer,y:Integer,w:Integer,h:Integer}}
+         */
+        Location {
+            get {
+                ctx := this.__ccx
+                if ctx.rootPtr && this.Ptr == ctx.rootPtr
+                    return { x: ctx.rx, y: ctx.ry, w: ctx.rw, h: ctx.rh }
+                raw := this.RawLocation
+                if !AtSpi.__HasValidExtents(raw)
+                    return raw
+                return { x: raw.x + ctx.dx, y: raw.y + ctx.dy, w: raw.w, h: raw.h }
+            }
             set {
                 if !IsObject(value)
                     throw TypeError("Location must be an object with x,y,w,h", -1)
+                ctx := this.__ccx
                 pComp := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_accessible_get_component_iface")
                                , "Ptr", this.__ptr
                                , "Ptr")
@@ -1490,8 +1603,8 @@ class AtSpi {
                 err := 0
                 ok := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_component_set_extents")
                             , "Ptr", pComp
-                            , "Int", value.x
-                            , "Int", value.y
+                            , "Int", value.x - ctx.dx
+                            , "Int", value.y - ctx.dy
                             , "Int", value.w
                             , "Int", value.h
                             , "Int", AtSpi.CoordType.Screen
@@ -1569,11 +1682,12 @@ class AtSpi {
             if !pComp
                 return Error("Component interface not available")
             err := 0
+            ctx := this.__ccx
             ok := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_component_scroll_to_point")
                         , "Ptr", pComp
                         , "Int", AtSpi.CoordType.Screen
-                        , "Int", x
-                        , "Int", y
+                        , "Int", x - ctx.dx
+                        , "Int", y - ctx.dy
                         , "Ptr*", &err
                         , "Int")
             AtSpi.__Unref(pComp)
@@ -2166,6 +2280,10 @@ class AtSpi {
                 throw Error("Text interface not available")
             if !IsInteger(coordType)
                 coordType := AtSpi.CoordType.%coordType%
+            if coordType = AtSpi.CoordType.Screen {
+                ctx := this.__ccx
+                x -= ctx.dx, y -= ctx.dy
+            }
             err := 0
             offset := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_text_get_offset_at_point")
                             , "Ptr", pText
@@ -2217,7 +2335,12 @@ class AtSpi {
             rw := NumGet(pRect,  8, "Int")
             rh := NumGet(pRect, 12, "Int")
             DllCall(AtSpi.__Sym(AtSpi.LibGlib, "g_free"), "Ptr", pRect)
-            return {x: rx, y: ry, w: rw, h: rh}
+            rect := {x: rx, y: ry, w: rw, h: rh}
+            if coordType = AtSpi.CoordType.Screen && AtSpi.__HasValidExtents(rect) {
+                ctx := this.__ccx
+                rect.x += ctx.dx, rect.y += ctx.dy
+            }
+            return rect
         }
 
         /**
@@ -2257,7 +2380,12 @@ class AtSpi {
             rw := NumGet(pRect,  8, "Int")
             rh := NumGet(pRect, 12, "Int")
             DllCall(AtSpi.__Sym(AtSpi.LibGlib, "g_free"), "Ptr", pRect)
-            return {x: rx, y: ry, w: rw, h: rh}
+            rect := {x: rx, y: ry, w: rw, h: rh}
+            if coordType = AtSpi.CoordType.Screen && AtSpi.__HasValidExtents(rect) {
+                ctx := this.__ccx
+                rect.x += ctx.dx, rect.y += ctx.dy
+            }
+            return rect
         }
 
         /**
@@ -2308,6 +2436,10 @@ class AtSpi {
                 throw Error("Text interface not available")
             if !IsInteger(coordType)
                 coordType := AtSpi.CoordType.%coordType%
+            if coordType = AtSpi.CoordType.Screen {
+                ctx := this.__ccx
+                x -= ctx.dx, y -= ctx.dy
+            }
             err := 0
             ok := DllCall(AtSpi.__Sym(AtSpi.LibAtSpi, "atspi_text_scroll_substring_to_point")
                         , "Ptr", pText
@@ -2892,7 +3024,7 @@ class AtSpi {
             this.LVProps.OnEvent("ContextMenu", LV_CopyTextMethod)
             this.LVProps.ModifyCol(1,100)
             this.LVProps.ModifyCol(2,140)
-            for _, v in this.DefaultLVPropsItems := ["RoleName", "RoleId", "Name", "Description", "States", "Location", "Interfaces", "AccessibleId", "ProcessId", "Id"]
+            for _, v in this.DefaultLVPropsItems := ["RoleName", "RoleId", "Name", "Description", "States", "Location", "RawLocation", "Interfaces", "AccessibleId", "ProcessId", "Id"]
                 this.LVProps.Add(,v,"")
             this.ButCapture := this.gViewer.Add("Button", "xp+60 y+10 w130", "Start capturing (Alt+S)")
             this.ButCapture.OnEvent("Click", this.CaptureHotkeyFunc := this.GetMethod("ButCapture_Click").Bind(this))
@@ -2954,10 +3086,10 @@ class AtSpi {
                 if LVData.Length < 2
                     continue
                 switch LVData[1], 0 {
-                    case "Location":
+                    case "Location", "RawLocation":
                         LVData[2] := "{" RegExReplace(LVData[2], "(\w:) (\d+)(?= )", "$1$2,") "}"
                 }
-                out .= ", " (GuiCtrlObj.Hwnd = this.LVWin.Hwnd ? "" : LVData[1] ":") (LVData[1] = "Location" || IsInteger(LVData[2]) ? LVData[2] : "`"" StrReplace(StrReplace(LVData[2], "``", "````"), "`"", "```"") "`"")
+                out .= ", " (GuiCtrlObj.Hwnd = this.LVWin.Hwnd ? "" : LVData[1] ":") (LVData[1] = "Location" || LVData[1] = "RawLocation" || IsInteger(LVData[2]) ? LVData[2] : "`"" StrReplace(StrReplace(LVData[2], "``", "````"), "`"", "```"") "`"")
             }
             ToolTip("Copied: " (A_Clipboard := SubStr(out, 3)))
             SetTimer(ToolTip, -3000)
@@ -2988,15 +3120,15 @@ class AtSpi {
         CaptureCycle() {
             Thread "NoTimers"
             MouseGetPos(&mX, &mY, &mwId)
+            if WinExist(mwId)
+                this.LVWin_Populate(mwId)
+            else
+                this.LVWin_Clear()
+
             oContext := AtSpi.ElementFromPoint(mX, mY)
             if !IsObject(oContext) {
                 AtSpi.ClearAllHighlights()
-                this.LVWin.Delete()
-                for v in this.DefaultLVWinItems
-                    this.LVWin.Add(,v,"")
-                this.LVProps.Delete()
-                for v in this.DefaultLVPropsItems
-                    this.LVProps.Add(,v,"")
+                this.LVProps_Clear()
                 this.TVContext.Delete()
                 this.TVContext.Add("No accessible at point")
                 return
@@ -3013,25 +3145,42 @@ class AtSpi {
             }
             if !WinExist(mwId)
                 return
+            this.LVProps_Populate(oContext)
+            this.Stored.mwId := mwId, this.Stored.oContext := oContext, this.Stored.mX := mX, this.Stored.mY := mY, this.FoundTime := A_TickCount
+        }
+
+        LVWin_Clear() {
+            this.LVWin.Delete()
+            for v in this.DefaultLVWinItems
+                this.LVWin.Add(,v,"")
+        }
+
+        LVWin_Populate(mwId) {
             this.LVWin.Delete()
             WinGetPos(&mwX, &mwY, &mwW, &mwH, mwId)
             propsOrder := ["Title", "Text", "Id", "Location", "Class(NN)", "Process", "PID"]
             props := Map("Title", WinGetTitle(mwId), "Text", WinGetText(mwId), "Id", mwId, "Location", "x: " mwX " y: " mwY " w: " mwW " h: " mwH, "Class(NN)", WinGetClass(mwId), "Process", WinGetProcessName(mwId), "PID", WinGetPID(mwId))
             for propName in propsOrder
                 this.LVWin.Add(,propName,props[propName])
-            this.LVProps_Populate(oContext)
-            this.Stored.mwId := mwId, this.Stored.oContext := oContext, this.Stored.mX := mX, this.Stored.mY := mY, this.FoundTime := A_TickCount
+        }
+
+        LVProps_Clear() {
+            this.LVProps.Delete()
+            for v in this.DefaultLVPropsItems
+                this.LVProps.Add(,v,"")
         }
 
         LVProps_Populate(oContext) {
             AtSpi.ClearAllHighlights()
             oContext.Highlight(0)
             this.LVProps.Delete()
-            Location := {x:"N/A",y:"N/A",w:"N/A",h:"N/A"}, RoleName := "N/A", RoleId := "N/A", Name := "N/A", Description := "N/A", States := "N/A", Interfaces := "N/A", AccessibleId := "N/A", ProcessId := "N/A", Id := "N/A"
+            Location := {x:"N/A",y:"N/A",w:"N/A",h:"N/A"}, RawLocation := {x:"N/A",y:"N/A",w:"N/A",h:"N/A"}, RoleName := "N/A", RoleId := "N/A", Name := "N/A", Description := "N/A", States := "N/A", Interfaces := "N/A", AccessibleId := "N/A", ProcessId := "N/A", Id := "N/A"
             for _, v in this.DefaultLVPropsItems {
                 try {
                     if v = "Location"
                         Location := oContext.Location
+                    else if v = "RawLocation"
+                        RawLocation := oContext.RawLocation
                     else if v = "States" {
                         st := oContext.States
                         States := st.Length ? this.JoinArray(st, ",") : ""
@@ -3041,9 +3190,11 @@ class AtSpi {
                     } else
                         %v% := oContext.%v%
                 }
-                this.LVProps.Add(,v, v = "Location" ? ("x: " Location.x " y: " Location.y " w: " Location.w " h: " Location.h) : %v%)
+                this.LVProps.Add(,v, v = "Location" ? this.FormatLocation(Location) : v = "RawLocation" ? this.FormatLocation(RawLocation) : %v%)
             }
         }
+
+        FormatLocation(loc) => "x: " loc.x " y: " loc.y " w: " loc.w " h: " loc.h
 
         TVContext_Click(GuiCtrlObj, Info) {
             if this.Capturing

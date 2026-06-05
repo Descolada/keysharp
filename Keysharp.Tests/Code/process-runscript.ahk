@@ -7,6 +7,23 @@
 	headlessDirectives := "#NoMainWindow`n#NoTrayIcon`n"
 #endif
 
+WaitForRunScriptExit(info, timeoutMs := 10000) {
+	loops := timeoutMs // 10
+	while (!info.HasExited && loops > 0)
+	{
+		Sleep 10
+		loops--
+	}
+
+	if (!info.HasExited)
+	{
+		info.Kill()
+		return false
+	}
+
+	return true
+}
+
 info := RunScript(headlessDirectives . "ExitApp(0)",,, hostBinary)
 if (info.ExitCode == 0)
 	FileAppend "pass", "*"
@@ -26,8 +43,11 @@ AsyncCallback(callbackinfo) {
 info := "", result := ""
 info := RunScript(headlessDirectives . "ExitApp(3)", AsyncCallback,, hostBinary)
 
-while (!info.HasExited)
-	Sleep 10
+if (!WaitForRunScriptExit(info))
+{
+	FileAppend "fail", "*"
+	ExitApp(1)
+}
 
 if (info.ExitCode == 3)
 	FileAppend "pass", "*"
@@ -56,8 +76,13 @@ script := headlessDirectives . "
 )"
 info := RunScript(script, 1,, hostBinary)
 info.StdIn.WriteLine("a")
-while (!info.HasExited)
-	Sleep 10
+info.StdIn.Flush()
+
+if (!WaitForRunScriptExit(info))
+{
+	FileAppend "fail", "*"
+	ExitApp(1)
+}
 
 if (info.StdOut.Read(2) == "aa")
 	FileAppend "pass", "*"

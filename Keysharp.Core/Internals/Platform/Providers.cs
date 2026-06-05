@@ -47,6 +47,8 @@ namespace Keysharp.Internals.Platform
 		internal IPermissionManager Manager { get; } =
 #if OSX
 			new MacPermissionManager();
+#elif LINUX
+			new LinuxPermissionManager();
 #else
 			new DefaultPermissionManager();
 #endif

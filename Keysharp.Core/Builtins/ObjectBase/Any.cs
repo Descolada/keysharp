@@ -111,13 +111,13 @@ namespace Keysharp.Builtins
 			return frame?.GetMethod()?.DeclaringType;
 		}
 
-		public virtual object GetMethod(object obj0 = null, object obj1 = null) => Functions.GetMethod(this, obj0, obj1);
+		public static object GetMethod(object @this, object obj0 = null, object obj1 = null) => Functions.GetMethod(@this, obj0, obj1);
 
-		public long HasBase(object obj) => Types.HasBase(this, obj);
+		public static long HasBase(object @this, object obj) => Types.HasBase(@this, obj);
 
-		public long HasMethod(object obj0 = null, object obj1 = null) => Functions.HasMethod(this, obj0, obj1);
+		public static long HasMethod(object @this, object obj0 = null, object obj1 = null) => Functions.HasMethod(@this, obj0, obj1);
 
-		public long HasProp(object obj) => Functions.HasProp(this, obj);
+		public static long HasProp(object @this, object obj) => Functions.HasProp(@this, obj);
 
 		//public virtual string tostring() => ToString();
 

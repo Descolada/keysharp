@@ -22,9 +22,6 @@
 		<StartupObject>Keysharp.Main.Program</StartupObject>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<ApplicationIcon>..\Keysharp.ico</ApplicationIcon>
-		<AssemblyVersion>0.0.0.14</AssemblyVersion>
-		<FileVersion>0.0.0.14</FileVersion>
-		<Version>0.0.0.14</Version>
 		<Authors>Matt Feemster + legacy IronAHK developers</Authors>
 		<Description>A C# port and enhancement of the AutoHotkey program</Description>
 		<Company>Keysharp</Company>
@@ -36,6 +33,11 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<WarningLevel>8</WarningLevel>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+		<!-- Precompile IL to native code at publish time. This roughly halves cold startup (and therefore
+		     Reload) by eliminating first-call JIT of the large Roslyn and Keysharp.Core assemblies that are
+		     recompiled fresh on every launch. Only applies to `dotnet publish -r <rid>`; ignored by `build`.
+		     Costs roughly 2x publish size. The JIT stays available, so runtime Roslyn compilation still works. -->
+		<PublishReadyToRun>true</PublishReadyToRun>
 		<!-- <PublishSingleFile>true</PublishSingleFile>
 		<IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract> -->
 	</PropertyGroup>
@@ -117,5 +119,27 @@
 			<LastGenOutput>Resources.Designer.cs</LastGenOutput>
 		</EmbeddedResource>
 	</ItemGroup>
+
+	<!-- At publish time, precompile the bundled scripts (WindowSpy, plus AtSpi on Linux) to a .cks sitting
+	     next to the .ks, so the tray/main-window launchers run them without an on-the-fly compile (the
+	     launchers prefer the .cks when present, else fall back to the .ks). The just-published host is used
+	     so the .cks matches this exact build. Compiler errors go to stderr (never a modal dialog) so a
+	     headless/CI publish can't hang, and the step is non-fatal so a failure (e.g. a cross-RID publish
+	     whose host can't run here) simply leaves the .ks to be compiled on demand. -->
+	<Target Name="PrecompileBundledScripts" AfterTargets="Publish">
+		<PropertyGroup>
+			<_KsHost Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(PublishDir)Keysharp.exe</_KsHost>
+			<_KsHost Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(PublishDir)Keysharp</_KsHost>
+		</PropertyGroup>
+		<ItemGroup>
+			<_BundledScript Include="$(PublishDir)Scripts\WindowSpy.ks" Condition="Exists('$(PublishDir)Scripts\WindowSpy.ks')" />
+			<_BundledScript Include="$(PublishDir)Scripts\AtSpi.ks" Condition="Exists('$(PublishDir)Scripts\AtSpi.ks')" />
+		</ItemGroup>
+		<Exec Condition="Exists('$(_KsHost)') And '@(_BundledScript)' != ''"
+			  Command="&quot;$(_KsHost)&quot; --compile asm &quot;%(_BundledScript.FullPath)&quot; --errorstdout"
+			  WorkingDirectory="$(PublishDir)"
+			  ContinueOnError="true" />
+		<Message Importance="high" Condition="'@(_BundledScript)' != ''" Text="Precompiled bundled scripts to .cks for faster startup: @(_BundledScript->'%(Filename).cks', ', ')" />
+	</Target>
 
 </Project>

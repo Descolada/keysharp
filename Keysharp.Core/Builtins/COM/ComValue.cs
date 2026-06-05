@@ -296,7 +296,11 @@ namespace Keysharp.Builtins.COM
 						if (copy) Marshal.AddRef(p); // own one ref so VariantClear can Release it
 						v.ptrVal = p;
 					}
-					else if (Ptr != null)
+					// A numeric Ptr (e.g. ComValue(VT_UNKNOWN, 0)) is a raw interface pointer value:
+					// 0 means a null interface, so leave v.ptrVal = 0. Only wrap genuine managed
+					// objects in a CCW — wrapping a boxed integer would yield a CCW around the number,
+					// which fails to QI to the expected interface (E_NOINTERFACE).
+					else if (Ptr != null && Ptr is not long && Ptr is not nint)
 						v.ptrVal = (vtype == VarEnum.VT_DISPATCH)
 							? Marshal.GetIDispatchForObject(Ptr) // our ref, VariantClear will Release
 							: Marshal.GetIUnknownForObject(Ptr);

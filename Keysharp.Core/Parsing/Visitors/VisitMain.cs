@@ -183,6 +183,18 @@ namespace Keysharp.Parsing
 			programAutoExecFunc.Method = programAutoExecFunc.Method
 				.AddModifiers(Parser.PredefinedKeywords.PublicToken, Parser.PredefinedKeywords.StaticToken);
 
+			if (parser.requiredCapabilities.Count > 0)
+			{
+				programAutoExecFunc.Body.Add(
+					SyntaxFactory.ExpressionStatement(
+						SyntaxFactory.InvocationExpression(
+							CreateMemberAccess("Keysharp.Builtins.Ks", "RequestCapabilities"),
+							CreateArgumentList(parser.requiredCapabilities.Select(CreateStringLiteral).ToArray())
+						)
+					)
+				);
+			}
+
 			programAutoExecFunc.Body.AddRange(parser.generalDirectiveStatements);
 			for (int i = parser.moduleParseOrder.Count - 1; i >= 0; i--)
 			{

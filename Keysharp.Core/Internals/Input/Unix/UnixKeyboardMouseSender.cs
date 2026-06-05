@@ -184,12 +184,15 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			lock (inputGate)
 			{
-				if (inputStack.Count == 0)
-					return;
-
-				var st = inputStack.Pop();
-				eventModifiersLR = st.PrevEventModifiers;
+				if (inputStack.Count != 0)
+				{
+					var st = inputStack.Pop();
+					eventModifiersLR = st.PrevEventModifiers;
+				}
 			}
+
+			sendMode = SendModes.Event;
+			DoKeyDelay(finalKeyDelay);
 		}
 
 		internal override int SiEventCount()
@@ -321,8 +324,7 @@ namespace Keysharp.Internals.Input.Unix
 					return;
 
 				st = inputStack.Pop();
-				// restore previous modifier prediction now that weâ€™ve detached this send
-				//eventModifiersLR = st.PrevEventModifiers;
+				eventModifiersLR = st.PrevEventModifiers;
 			}
 
 			if (st.Events.Count == 0)

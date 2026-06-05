@@ -225,7 +225,7 @@ namespace Keysharp.Builtins
 				}
 				else
 				{
-					if (DISPID_VALUE == 0 && HasProp("__Item") != 0L)
+					if (DISPID_VALUE == 0 && Functions.HasProp(this, "__Item") != 0L)
 					{
 						if ((invokeAttr & BindingFlags.GetProperty) != 0
 							|| (invokeAttr & BindingFlags.GetField) != 0)
@@ -272,7 +272,7 @@ namespace Keysharp.Builtins
 			target ??= this;
 
 			// property getter?
-			if ((invokeAttr & BindingFlags.GetProperty) != 0 && argCount == 0 && HasProp(name) == 1L)
+			if ((invokeAttr & BindingFlags.GetProperty) != 0 && argCount == 0 && Functions.HasProp(this, name) == 1L)
 				return Com.ConvertToCOMType(Script.GetPropertyValue(target, name));
 
 			// property setter?

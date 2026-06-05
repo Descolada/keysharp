@@ -126,13 +126,11 @@ global using global::BitFaster.Caching.Scheduler;
 	global using global::Keysharp.Internals.Window.Linux;
 	global using global::Keysharp.Internals.Window.Linux.Proxies;
 	global using global::Keysharp.Internals.Window.Linux.X11;
-	global using MessageFilter = Keysharp.Internals.Window.Linux.MessageFilter;
 #endif
 
 #if OSX
 	global using global::Keysharp.Internals.Input.Hooks.MacOS;
 	global using global::Keysharp.Internals.Window.MacOS;
-	global using MessageFilter = Keysharp.Internals.Window.MacOS.MessageFilter;
 #endif
 
 //Static

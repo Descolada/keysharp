@@ -141,3 +141,17 @@ if (sortedArr.ToString() == "[81, 49, 25, 9, 1]")
     FileAppend "pass", "*"
 else
     FileAppend "fail", "*"
+
+; 15) CLR root namespace via static __Get
+directSb := Clr.System.Text.StringBuilder("Hello")
+directSb.Append(" via CLR.__Get")
+if (directSb.ToString() == "Hello via CLR.__Get")
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"
+
+; 16) CLR root static type via static __Get
+if (Clr.System.Math.Sqrt(16.0) == 4.0)
+    FileAppend "pass", "*"
+else
+    FileAppend "fail", "*"

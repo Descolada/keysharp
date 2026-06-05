@@ -171,6 +171,17 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
+		/// <summary>
+		/// Flushes any buffered data to the underlying file or stream.
+		/// </summary>
+		public object Flush()
+		{
+			bw?.Flush();
+			tw?.Flush();
+			fs?.Flush();
+			return DefaultObject;
+		}
+
 		public virtual void Dispose(bool disposing)
 		{
 			if (!disposed)

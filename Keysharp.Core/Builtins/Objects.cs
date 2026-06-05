@@ -27,7 +27,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if obj was not of type KeysharpObject.</exception>
 		public static long ObjHasOwnProp(object obj, object name) => KeysharpObject.HasOwnProp(obj, name);
 
-		public static long ObjHasProp(object obj, object name) => (obj as Any)?.HasProp(name) ?? 0L;
+		public static long ObjHasProp(object obj, object name) => obj is Any ? Functions.HasProp(obj, name) : 0L;
 
 		/// <summary>
 		/// Returns the number of properties owned by an object.

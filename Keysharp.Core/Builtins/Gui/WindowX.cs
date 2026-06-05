@@ -25,7 +25,7 @@ namespace Keysharp.Builtins
 				GetCursorPos(out var point);
 				x ??= point.X; y ??= point.Y;
 			}
-			return WindowManager.WindowFromPoint(new POINT(x.Ai(), y.Ai())).Handle;
+			return WindowManager.WindowFromPoint(new POINT(x.Ai(), y.Ai()))?.Handle ?? 0L;
 		}
 	}
 

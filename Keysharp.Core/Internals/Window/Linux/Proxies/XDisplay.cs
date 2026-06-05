@@ -163,6 +163,9 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 			var childrenReturn = nint.Zero;
 			var windows = new List<XWindow>();
 
+			if (Handle == 0 || windowToObtain == null || windowToObtain.ID == 0)
+				return windows;
+
 			try
 			{
 				if (Xlib.XQueryTree(Handle, windowToObtain.ID, out var rootReturn, out var parentReturn, out childrenReturn, out var nChildrenReturn) != 0)
@@ -214,6 +217,9 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 		{
 			var childrenReturn = nint.Zero;
 			var windows = new HashSet<XWindow>();
+
+			if (Handle == 0 || windowToObtain == null || windowToObtain.ID == 0)
+				return windows;
 
 			try
 			{

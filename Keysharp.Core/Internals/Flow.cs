@@ -230,73 +230,74 @@ namespace Keysharp.Internals
 
 		internal static bool TryCatch(Action action)
 		{
-			static void ShowHandledErrorDialog(Exception ex, bool keysharpDialog)
-			{
-				static void ShowDialog(Exception innerEx, bool useKeysharpDialog)
-				{
-					if (useKeysharpDialog)
-						_ = ErrorDialog.Show((KeysharpException)innerEx, false);
-					else
-						_ = ErrorDialog.Show(innerEx);
-				}
-
-				var script = Script.TheScript;
-				var scheduler = script.CurrentSchedulerIfCreated ?? script.EventScheduler;
-				var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ =>
-				{
-					ShowDialog(ex, keysharpDialog);
-				});
-
-				if (executionResult != ScriptEventExecutionResult.Executed)
-					ShowDialog(ex, keysharpDialog);
-			}
-
 			try
 			{
 				action();
 				return true;
 			}
-			catch (KeysharpException kserr)
-			{
-				var userErr = kserr.UserError;
-				if (userErr != null && !userErr.Processed)
-					_ = Errors.ErrorOccurred(userErr, Keywords.Keyword_Exit);
-
-				if (userErr != null && !userErr.Handled && !Script.TheScript.SuppressErrorOccurredDialog)
-					ShowHandledErrorDialog(kserr, true);
-				else if (userErr == null && !Script.TheScript.SuppressErrorOccurredDialog)
-					ShowHandledErrorDialog(kserr, true);
-
-				return false;
-			}
 			catch (Exception mainex)
 			{
-				var ex = mainex.InnerException ?? mainex;
-
-				if (TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(mainex, out _))
-					return true;
-
-				if (ex is KeysharpException kserr)
-				{
-					var userErr = kserr.UserError;
-					if (userErr != null && !userErr.Processed)
-						_ = Errors.ErrorOccurred(userErr, Keywords.Keyword_Exit);
-
-					if (userErr != null && !userErr.Handled && !Script.TheScript.SuppressErrorOccurredDialog)
-						ShowHandledErrorDialog(kserr, true);
-					else if (userErr == null && !Script.TheScript.SuppressErrorOccurredDialog)
-						ShowHandledErrorDialog(kserr, true);
-				}
-				else if (!Script.TheScript.SuppressErrorOccurredDialog)
-				{
-					var dummy = new Error(mainex);
-					_ = Errors.ErrorOccurred(dummy, Keywords.Keyword_Exit);
-					if (!dummy.Handled)
-						ShowHandledErrorDialog(ex, false);
-				}
-
-				return false;
+				return HandleCaughtException(mainex);
 			}
+		}
+
+		internal static bool HandleCaughtException(Exception mainex)
+		{
+			if (mainex is KeysharpException directKsErr)
+				return HandleKeysharpException(directKsErr);
+
+			var ex = mainex.InnerException ?? mainex;
+
+			if (TryGetException<Keysharp.Builtins.Flow.UserRequestedExitException>(mainex, out _))
+				return true;
+
+			if (ex is KeysharpException kserr)
+				return HandleKeysharpException(kserr);
+
+			if (!Script.TheScript.SuppressErrorOccurredDialog)
+			{
+				var dummy = new Error(mainex);
+				_ = Errors.ErrorOccurred(dummy, Keywords.Keyword_Exit);
+				if (!dummy.Handled)
+					ShowHandledErrorDialog(ex, false);
+			}
+
+			return false;
+		}
+
+		private static bool HandleKeysharpException(KeysharpException kserr)
+		{
+			var userErr = kserr.UserError;
+			if (userErr != null && !userErr.Processed)
+				_ = Errors.ErrorOccurred(userErr, Keywords.Keyword_Exit);
+
+			if (userErr != null && !userErr.Handled && !Script.TheScript.SuppressErrorOccurredDialog)
+				ShowHandledErrorDialog(kserr, true);
+			else if (userErr == null && !Script.TheScript.SuppressErrorOccurredDialog)
+				ShowHandledErrorDialog(kserr, true);
+
+			return false;
+		}
+
+		private static void ShowHandledErrorDialog(Exception ex, bool keysharpDialog)
+		{
+			static void ShowDialog(Exception innerEx, bool useKeysharpDialog)
+			{
+				if (useKeysharpDialog)
+					_ = ErrorDialog.Show((KeysharpException)innerEx, false);
+				else
+					_ = ErrorDialog.Show(innerEx);
+			}
+
+			var script = Script.TheScript;
+			var scheduler = script.CurrentSchedulerIfCreated ?? script.EventScheduler;
+			var executionResult = scheduler.TryExecuteThreadLaunch(0, false, false, _ =>
+			{
+				ShowDialog(ex, keysharpDialog);
+			});
+
+			if (executionResult != ScriptEventExecutionResult.Executed)
+				ShowDialog(ex, keysharpDialog);
 		}
 
 		internal static void TryDoEvents(bool allowExit = true, bool yieldTick = true)
@@ -343,7 +344,7 @@ namespace Keysharp.Internals
 #endif
 			}
 
-			scheduler.PumpPendingEvents();
+			scheduler.PumpThreadQueuedEvents();
 		}
 	}
 }

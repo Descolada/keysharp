@@ -88,11 +88,12 @@ namespace Eto.Drawing
 		/// <returns>True if a match was found, else false.</returns>
 		internal static bool CompareWithVar(this FastColor col, FastColor match, int variation)
 		{
-			if (col.A == 0)
-				return true;
-
+			// Alpha is intentionally ignored — matches AutoHotkey, which strips alpha
+			// via `image_pixel[i] &= 0x00FFFFFF` before comparison and never honors a
+			// bitmap's native alpha channel as a transparency mask. Per-pixel
+			// transparency is supported only via the explicit *TransColor option.
 			if (variation == 0)
-				return col == match;
+				return (col.Value & 0x00FFFFFFu) == (match.Value & 0x00FFFFFFu);
 
 			var r = match.R >= col.R - variation && match.R <= col.R + variation;
 			var g = match.G >= col.G - variation && match.G <= col.G + variation;

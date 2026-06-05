@@ -160,12 +160,44 @@ using String = Keysharp.Builtins.String
 			"Keysharp.Builtins",
 		};
 
-		private static HashSet<string> _compiledScriptDependencies;
-		public static HashSet<string> GetCompiledScriptDependencies(string depsJson)
+		// Cache of parsed deps.json results, keyed by the deps.json path. Instance-scoped (not static) so a
+		// long-lived compiler serving multiple scripts from different deps contexts can't return stale results.
+		private readonly Dictionary<string, HashSet<string>> _compiledScriptDependencies = new (StringComparer.OrdinalIgnoreCase);
+
+		public static string GetRidNativeDependencyPath(string fileName) =>
+			Path.Combine("runtimes", RuntimeInformation.RuntimeIdentifier, "native", fileName);
+
+		public static string ResolveAppNativeDependencyPath(string appDir, string fileName)
 		{
-			if (_compiledScriptDependencies == null)
+			var ridNativePath = Path.Combine(appDir, GetRidNativeDependencyPath(fileName));
+
+			if (File.Exists(ridNativePath))
+				return ridNativePath;
+
+			var rootPath = Path.Combine(appDir, fileName);
+			return File.Exists(rootPath) ? rootPath : ridNativePath;
+		}
+
+		private static string ResolveDependencyAssetPath(string depsDir, string assetPath)
+		{
+			if (File.Exists(assetPath))
+				return assetPath;
+
+			var relativePath = assetPath.Replace('/', Path.DirectorySeparatorChar);
+			var path = Path.Combine(depsDir, relativePath);
+
+			if (File.Exists(path))
+				return path;
+
+			return Path.Combine(depsDir, Path.GetFileName(assetPath));
+		}
+
+		public HashSet<string> GetCompiledScriptDependencies(string depsJson)
+		{
+			if (!_compiledScriptDependencies.TryGetValue(depsJson, out var deps))
 			{
-				_compiledScriptDependencies = new (StringComparer.OrdinalIgnoreCase);
+				deps = new (StringComparer.OrdinalIgnoreCase);
+				_compiledScriptDependencies[depsJson] = deps;
 
 				// 2) load and parse
 				using var doc = JsonDocument.Parse(File.ReadAllText(depsJson));
@@ -194,7 +226,7 @@ using String = Keysharp.Builtins.String
 										break;
 
 									default:
-										_ = _compiledScriptDependencies.Add(File.Exists(asmEntry.Name) ? asmEntry.Name : Path.Combine(dir, Path.GetFileName(asmEntry.Name)));
+										_ = deps.Add(File.Exists(asmEntry.Name) ? asmEntry.Name : Path.Combine(dir, Path.GetFileName(asmEntry.Name)));
 										break;
 								}
 
@@ -202,17 +234,17 @@ using String = Keysharp.Builtins.String
 						// nativeEntry.Name might be "runtimes/win-x64/native/PCRE.NET.Native.dll"
 						if (info.TryGetProperty("native", out var nativeGroup))
 							foreach (var nativeEntry in nativeGroup.EnumerateObject())
-								_ = _compiledScriptDependencies.Add(File.Exists(nativeEntry.Name) ? nativeEntry.Name : Path.Combine(dir, Path.GetFileName(nativeEntry.Name)));
+								_ = deps.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 
 						if (info.TryGetProperty("runtimeTargets", out var runtimeTargetsGroup))
 							foreach (var nativeEntry in runtimeTargetsGroup.EnumerateObject())
 								if (nativeEntry.Value.TryGetProperty("rid", out var targetRid) && targetRid.ValueEquals(rid))
-									_ = _compiledScriptDependencies.Add(File.Exists(nativeEntry.Name) ? nativeEntry.Name : Path.Combine(dir, Path.GetFileName(nativeEntry.Name)));
+									_ = deps.Add(ResolveDependencyAssetPath(dir, nativeEntry.Name));
 					}
 				}
 			}
 
-			return _compiledScriptDependencies;
+			return deps;
 		}
 
 		private readonly CodeGeneratorOptions cgo = new ()
@@ -427,7 +459,7 @@ using String = Keysharp.Builtins.String
 
 				if (currentDepsConfigPath != null)
 				{
-					allDependencies = CompilerHelper.GetCompiledScriptDependencies(currentDepsConfigPath);
+					allDependencies = GetCompiledScriptDependencies(currentDepsConfigPath);
 					resourceDescriptions = allDependencies
 											.Where(path =>
 					{
@@ -592,6 +624,24 @@ using String = Keysharp.Builtins.String
 			return (sb.ToString(), null);
 		}
 
+		/// <summary>
+		/// Prepares a (possibly long-lived, reused) <see cref="Script"/> for the next parse. A compile
+		/// server reuses one Script across many parses so its built-in-only <c>ReflectionsData</c> and the
+		/// lazily filled member caches stay warm; parsing never mutates those, so we deliberately preserve
+		/// them. This resets only what a parse actually touches on the Script: the identity fields used for
+		/// diagnostics, and the current thread's variable context the parser/accessors require. It is
+		/// intentionally NOT a <see cref="Script"/> member because it does not fully reset a Script — no
+		/// runtime, UI, hook, or reflection state is cleared.
+		/// </summary>
+		internal static void ResetScriptForParse(Script script, string scriptPath, string scriptName)
+		{
+			script.scriptPath = scriptPath;
+			script.scriptName = scriptName;
+			// Internal parsing can touch accessors, so a current thread context must exist,
+			// but parsing itself should not consume a pseudo-thread slot.
+			script.Threads.EnsureCurrentThreadVariables();
+		}
+
 		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null)
 		{
 			CompilationUnitSyntax unit = null;
@@ -599,10 +649,26 @@ using String = Keysharp.Builtins.String
 			var enc = Encoding.Default;
 			var x = Env.FindCommandLineArg("cp");
 			var script = Script.TheScript;
-			// Internal parsing can touch accessors, so a current thread context must exist,
-			// but parsing itself should not consume a pseudo-thread slot.
-			script.Threads.EnsureCurrentThreadVariables();
+			var isFile = File.Exists(fileName);
+			string scriptPath, scriptName, startupName;
+
+			if (isFile)
+			{
+				scriptPath = Path.GetFullPath(fileName);
+				scriptName = Path.GetFileName(scriptPath);
+				startupName = null;
+			}
+			else
+			{
+				scriptPath = "*";
+				scriptName = name ?? "*";
+				startupName = name;
+			}
+
+			ResetScriptForParse(script, scriptPath, scriptName);
 			parser = new Parser(this);
+			parser.startupScriptPath = scriptPath;
+			parser.startupScriptName = startupName;
 
 			if (x != null)
 			{
@@ -614,23 +680,9 @@ using String = Keysharp.Builtins.String
 
 			try
 			{
-				if (File.Exists(fileName))
-				{
-					var fullPath = Path.GetFullPath(fileName);
-					script.scriptPath = fullPath;
-					script.scriptName = Path.GetFileName(fullPath);
-					parser.startupScriptPath = fullPath;
-					parser.startupScriptName = null;
-					unit = parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), fullPath);
-				}
-				else
-				{
-					script.scriptPath = "*";
-					script.scriptName = name ?? "*";
-					parser.startupScriptPath = "*";
-					parser.startupScriptName = name;
-					unit = parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), script.scriptName);
-				}
+				unit = isFile
+					   ? parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), scriptPath)
+					   : parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), scriptName);
 			}
 			catch (ParseException e)
 			{
@@ -644,28 +696,34 @@ using String = Keysharp.Builtins.String
 			return (unit, errors);
 		}
 
-		public void PrintCompilerErrors(string s, bool stdout = false)
+		/// <summary>
+		/// Reports compiler errors to the user, either by writing them to the console or, for an
+		/// interactive run, by showing a fatal error dialog offering Edit/Reload/ExitApp.
+		/// </summary>
+		/// <param name="s">The error text to report.</param>
+		/// <param name="stdout">When true, write the errors to stdout instead of showing a dialog.</param>
+		/// <returns>True if the user chose "Reload" from the error dialog and the caller should restart the script.</returns>
+		public bool ReportCompilerErrors(string s, bool stdout = false)
 		{
-			if (parser.errorStdOut || Env.FindCommandLineArg("errorstdout") != null)
-			{
+			if (parser?.errorStdOut == true || Env.FindCommandLineArg("errorstdout") != null)
 				Console.Error.WriteLine(s);//For this to show on the command line, they need to pipe to more like: | more
-			}
+			else if (stdout)
+				Console.WriteLine(s);
+			else if (TryShowErrorDialog(s, out var reloadRequested))
+				return reloadRequested;
 			else
-			{
-				if (stdout)
-					Console.WriteLine(s);
-				else
-				{
-					if (!TryShowErrorMessageBox(s))
-						Console.Error.WriteLine(s);
-				}
-			}
+				Console.Error.WriteLine(s);
+
+			return false;
 		}
 
-		private static bool TryShowErrorMessageBox(string s)
+		private static bool TryShowErrorDialog(string s, out bool reloadRequested)
 		{
+			reloadRequested = false;
+			var fileToEdit = GetCurrentScriptFileToEdit();
+
 #if WINDOWS
-			_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			reloadRequested = ErrorDialog.ShowFatal(s, fileToEdit) == ErrorDialog.ErrorDialogResult.Reload;
 			return true;
 #else
 			if (Script.IsUiInitializationBlocked || Script.IsHeadless || Script.IsTestHost)
@@ -676,15 +734,21 @@ using String = Keysharp.Builtins.String
 				if (Application.Instance == null)
 					_ = new Application();
 
-				_ = MessageBox.Show(s, "Keysharp", MessageBoxButtons.OK, MessageBoxType.Error);
+				reloadRequested = ErrorDialog.ShowFatal(s, fileToEdit) == ErrorDialog.ErrorDialogResult.Reload;
 				return true;
 			}
 			catch (Exception ex)
 			{
-				Ks.OutputDebugLine($"Unable to show compiler error message box: {ex.Message}");
+				Ks.OutputDebugLine($"Unable to show compiler error dialog: {ex.Message}");
 				return false;
 			}
 #endif
+		}
+
+		private static string GetCurrentScriptFileToEdit()
+		{
+			var path = Script.TheScript?.scriptPath;
+			return ScriptEditor.CanEditFile(path) ? path : null;
 		}
 
 		internal string CodeToString(CodeExpression expr)
@@ -698,7 +762,7 @@ using String = Keysharp.Builtins.String
 
 		internal string CreateEscapedIdentifier(string variable) => provider.CreateEscapedIdentifier(variable);
 
-		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false)
+		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false)
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
@@ -722,14 +786,22 @@ using String = Keysharp.Builtins.String
 				return (null, sb.ToString());
 			}
 
-			var code = PrettyPrinter.Print(unit);
+			// PrettyPrinter.Print walks the whole syntax tree and is comparatively expensive, so only
+			// generate the C# source when a caller actually wants it (emitCode, e.g. --codeout) or when a
+			// compile error occurs and we need it for diagnostics. Debug builds always produce it to
+			// validate PrettyPrinter against Roslyn's own normalizer.
+			string code = null;
+			string GetCode() => code ??= PrettyPrinter.Print(unit);
 #if DEBUG
 			var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
-			if (code != normalized)
+			if (GetCode() != normalized)
 			{
 				throw new Exception("Code formatting mismatch");
 			}
 #endif
+
+			if (emitCode)
+				_ = GetCode();
 
 			var (results, ms, compileexc) = Compile(unit, assemblyName, exeDir, minimalexeout);
 
@@ -737,7 +809,7 @@ using String = Keysharp.Builtins.String
 			{
 				if (results == null)
 				{
-					return (null, $"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{code}");
+					return (null, $"Error compiling C# code to executable: {(compileexc != null ? compileexc.Message : string.Empty)}\n\n{GetCode()}");
 				}
 				else if (results.Success)
 				{
@@ -747,7 +819,7 @@ using String = Keysharp.Builtins.String
 				}
 				else
 				{
-					return (null, HandleCompilerErrors(results.Diagnostics, assemblyName, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + code);
+					return (null, HandleCompilerErrors(results.Diagnostics, assemblyName, "Compiling C# code to executable", compileexc != null ? compileexc.Message : string.Empty) + "\n" + GetCode());
 				}
 			}
 			finally

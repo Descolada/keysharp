@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Keyview
-Exec=/usr/local/bin/keyview %u
+Exec=/usr/local/bin/keyview %f
 Icon=keysharp
 Terminal=false
 Categories=Utility;Development;
@@ -9,4 +9,4 @@ Actions=Edit;
 
 [Desktop Action Edit]
 Name=Edit Keysharp Script
-Exec=/usr/local/bin/keyview --edit %u
+Exec=/usr/local/bin/keyview --edit %f

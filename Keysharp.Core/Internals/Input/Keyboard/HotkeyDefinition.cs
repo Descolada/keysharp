@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using Keysharp.Internals.Input.Hooks;
 using Keysharp.Runtime;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
@@ -750,7 +751,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// If present, they're removed.
 		/// </summary>
 		internal static HotkeyVariant CriterionFiringIsCertain(ref uint hotkeyIDwithFlags, bool _keyUp, ulong extraInfo
-				, ref bool fireWithNoSuppress, ref char? singleChar)
+				, ref bool fireWithNoSuppress, ref char? singleChar, object eventInfo = null)
 		{
 			// aHookAction isn't checked because this should never be called for alt-tab hotkeys (see other comments above).
 			var hotkeyId = hotkeyIDwithFlags & HOTKEY_ID_MASK;
@@ -798,7 +799,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// should fire.
 			var zero = 0L;
 
-			if ((vp = hk.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar)) != null)
+			if ((vp = hk.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar, eventInfo)) != null)
 			{
 				if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty (currently, this statement might always be true).
 					fireWithNoSuppress = (vp.noSuppress & AT_LEAST_ONE_VARIANT_HAS_TILDE) != 0;
@@ -855,7 +856,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					   )
 					{
 						// The following section is similar to one higher above, so maintain them together:
-						if ((vp = hk2.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar)) != null)
+						if ((vp = hk2.CriterionAllowsFiring(ref zero, extraInfo, ref singleChar, eventInfo)) != null)
 						{
 							if (!fireWithNoSuppress) // Caller hasn't yet determined its value with certainty (currently, this statement might always be true).
 								fireWithNoSuppress = (vp.noSuppress & AT_LEAST_ONE_VARIANT_HAS_TILDE) != 0;
@@ -1321,39 +1322,62 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="criterion"></param>
 		/// <param name="hotkeyName"></param>
 		/// <returns></returns>
-		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName)
+		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName, object eventInfo = null)
 		{
 			if (criterion == null)
 				return 1L;
 
 			var criterionType = GetHotCriterionType(criterion);
-			object val = null;
-			var foundHwnd = 0L;
+			Exception error = null;
+			var result = 0L;
 			var task = Task.Run(() =>
 			{
 				hotExprLastFoundHwnd = 0L;
-				val = criterion.Call(hotkeyName);
-				foundHwnd = hotExprLastFoundHwnd;
-				hotExprLastFoundHwnd = 0L;
+				var script = Script.TheScript;
+				script.Threads.EnsureCurrentThreadVariables();
+				var tv = script.Threads.CurrentThread;
+				var oldEventInfo = tv.eventInfo;
+
+				try
+				{
+					tv.eventInfo = HookEventInfo.Materialize(eventInfo);
+					var val = criterion.Call(hotkeyName);
+					var foundHwnd = hotExprLastFoundHwnd;
+
+					if (criterionType == HotCriterionEnum.IfCallback)
+					{
+						if (val is long callbackHwndOrBool)
+							result = callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
+						else
+							result = Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
+					}
+					else if (val is long l)
+						result = l;
+					else
+						result = Script.ForceBool(val) ? 1L : 0L;
+				}
+				catch (Exception ex)
+				{
+					error = ex;
+				}
+				finally
+				{
+					tv.eventInfo = oldEventInfo;
+					hotExprLastFoundHwnd = 0L;
+				}
 			});
 
-			if (task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
-			{
-				if (criterionType == HotCriterionEnum.IfCallback)
-				{
-					if (val is long callbackHwndOrBool)
-						return callbackHwndOrBool != 0L ? foundHwnd != 0L ? foundHwnd : callbackHwndOrBool : 0L;
-
-					return Script.ForceBool(val) ? foundHwnd != 0L ? foundHwnd : 1L : 0L;
-				}
-
-				if (val is long l)
-					return l;
-				else
-					return Script.ForceBool(val) ? 1L : 0L;
-			}
-			else
+			if (!task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
 				return 0L;
+
+			if (error != null)
+			{
+				_ = Script.TheScript.UIEventScheduler.EnqueueThreadLaunch(0, false, false, () =>
+					_ = Keysharp.Internals.Flow.TryCatch(() => ExceptionDispatchInfo.Throw(error)));
+				return 0L;
+			}
+
+			return result;
 		}
 
 		internal static HotCriterionEnum GetHotCriterionType(IFuncObj criterion)
@@ -1552,7 +1576,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// Returns OK or FAIL.
 		internal static ResultType TextToKey(ref string text, bool isModifier, HotkeyDefinition thisHotkey, bool syntaxCheckOnly)
 		{
-			uint tempVk; // No need to initialize this one.
+			var tempVk = 0u;
 			var tempSc = 0u;
 			uint? modifiersLR = 0u;
 			var isMouse = false;
@@ -1591,8 +1615,10 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var hotkeyTypeTemp = HotkeyTypeEnum.Normal;
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
+			var keySource = KeySource.None;
+			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, 0, allowVkScPair: false);
 
-			if ((tempVk = ht.TextToVK(text, ref modifiersLR, true, true, 0)) != 0) // Assign.
+			if (tempVk != 0)
 			{
 				if (isModifier)
 				{
@@ -1604,7 +1630,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					// This is done here rather than at some later stage because we have access to the raw
 					// name of the suffix key (with any leading modifiers such as ^ omitted from the beginning):
 					if (thisHotkey != null)
-						thisHotkey.vkWasSpecifiedByNumber = text.StartsWith("VK", StringComparison.OrdinalIgnoreCase);
+						thisHotkey.vkWasSpecifiedByNumber = (keySource & KeySource.Vk) != 0;
 
 				isMouse = MouseUtils.IsMouseVK(tempVk);
 
@@ -1617,11 +1643,9 @@ namespace Keysharp.Internals.Input.Keyboard
 				// from the modifiers here, we're only removing it from our modifiers, not the global
 				// modifiers that have already been set elsewhere for this key (e.g. +Z will still be +z).
 			}
-			else // No virtual key was found.  Is there a scan code?
+			else
 			{
-				bool? dummy = null;
-
-				if ((tempSc = ht.TextToSC(text, ref dummy)) == 0)
+				if (tempSc == 0)
 				{
 					if ((tempSc = (uint)Keysharp.Internals.Input.Joystick.Joystick.ConvertJoy(text, ref joystickId, true)) == 0)  // Is there a joystick control/button?
 					{
@@ -2018,7 +2042,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// when the match is a global variant.  Even when set, aFoundHWND will be (HWND)1 for
 		/// "not-criteria" such as #HotIf Not WinActive().
 		/// </summary>
-		internal HotkeyVariant CriterionAllowsFiring(ref long foundHwnd, ulong extraInfo, ref char? singleChar)
+		internal HotkeyVariant CriterionAllowsFiring(ref long foundHwnd, ulong extraInfo, ref char? singleChar, object eventInfo = null)
 		{
 			// Check mParentEnabled in case the hotkey became disabled between the time the message was posted
 			// and the time it arrived.  A similar check is done for "suspend" later below (since "suspend"
@@ -2042,7 +2066,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (vp.HasEnabledBindings() // This particular variant within its parent hotkey is enabled.
 						&& (!A_IsSuspended || vp.suspendExempt) // This variant isn't suspended...
 						&& KeyboardMouseSender.HotInputLevelAllowsFiring(vp.inputLevel, extraInfo, ref singleChar) // ... its #InputLevel allows it to fire...
-						&& (vp.hotCriterion == null || ((foundHwnd = HotCriterionAllowsFiring(vp.hotCriterion, Name)) != 0L))) // ... and its criteria allow it to fire.
+						&& (vp.hotCriterion == null || ((foundHwnd = HotCriterionAllowsFiring(vp.hotCriterion, Name, eventInfo)) != 0L))) // ... and its criteria allow it to fire.
 				{
 					if (vp.hotCriterion != null) // Since this is the first criteria hotkey, it takes precedence.
 						return vp;
@@ -2106,7 +2130,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="variant"></param>
 		/// <param name="critFoundHwnd"></param>
 		/// <param name="lParamVal"></param>
-		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal)
+		internal void PerformInNewThreadMadeByCallerAsync(HotkeyVariant variant, long critFoundHwnd, int lParamVal, object eventInfo = null)
 		{
 			foreach (var binding in variant.GetActiveBindings())
 			{
@@ -2116,146 +2140,145 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (!binding.TryReservePending(scheduler, callback, variant.maxThreads, variant.maxThreadsBuffer))
 					continue;
 
-				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, () => TryExecuteBufferedHotkeyEvent(scheduler, variant, binding, callback, critFoundHwnd, lParamVal)))
+				var queuedEvent = new HotkeyQueuedEvent(this, scheduler, variant, binding, callback, critFoundHwnd, lParamVal, eventInfo);
+
+				if (!scheduler.Enqueue(ScriptEventQueue.Interactive, variant.priority, queuedEvent.Execute))
 					binding.ReleasePending();
 			}
 		}
 
-		private ScriptEventExecutionResult TryExecuteBufferedHotkeyEvent(ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal)
+		private sealed class HotkeyQueuedEvent(HotkeyDefinition definition, ScriptEventScheduler scheduler, HotkeyVariant variant, HotkeyBinding binding, IFuncObj callback, long critFoundHwnd, int lParamVal, object eventInfo)
 		{
-			var script = Script.TheScript;
-			var hkd = script.HotkeyData;
-
-			ScriptEventExecutionResult Complete(ScriptEventExecutionResult result)
+			internal ScriptEventExecutionResult Execute()
 			{
-				if (result == ScriptEventExecutionResult.Dropped)
-					binding.ReleasePending();
+				var script = Script.TheScript;
 
-				return result;
-			}
+				if (ShouldDropForThrottle(script))
+					return Complete(ScriptEventExecutionResult.Dropped);
 
-			if (script.HotkeyData.dialogIsDisplayed) // Another recursion layer is already displaying the warning dialog below.
-				return Complete(ScriptEventExecutionResult.Dropped);
+				if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
+					return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
 
-			long elapsedSincePrevTick;
-			bool displayWarning;
-			var ht = script.HookThread;
-			var nowTick = Environment.TickCount64;
+				using var thread = scheduler.StartPseudoThreadScope(variant.priority, false, false, false);
+				if (!thread.Started)
+					return Complete(thread.Result);
 
-			if (hkd.throttlePrevTick == long.MinValue)
-				hkd.throttlePrevTick = nowTick;
+				var callbackExecuted = false;
 
-			++hkd.throttledKeyCount;
-			hkd.throttleNowTick = nowTick;
-			// Calculate the amount of time since the last reset of the sliding interval.
-			// Note: A tickcount in the past can be subtracted from one in the future to find
-			// the true difference between them, even if the system's uptime is greater than
-			// 49 days and the future one has wrapped but the past one hasn't.  This is
-			// due to the nature of DWORD subtraction.  The only time this calculation will be
-			// unreliable is when the true difference between the past and future
-			// tickcounts itself is greater than about 49 days:
-			elapsedSincePrevTick = hkd.throttleNowTick - hkd.throttlePrevTick;
-
-			if (displayWarning = (hkd.throttledKeyCount > script.AccessorData.maxHotkeysPerInterval
-								  && elapsedSincePrevTick < script.AccessorData.hotkeyThrottleInterval))
-			{
-				// The moment any dialog is displayed, hotkey processing is halted since this
-				// app currently has only one thread.
-				var error_text = $"{hkd.throttledKeyCount} hotkeys have been received in the last {elapsedSincePrevTick}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";  // In case it's stuck in a loop.
-				// This is now needed since hotkeys can still fire while a messagebox is displayed.
-				// Seems safest to do this even if it isn't always necessary:
-				hkd.dialogIsDisplayed = true;
-				script.FlowData.allowInterruption = false;
-
-				if (Dialogs.MsgBox(error_text, null, "YesNo") == DialogResult.No.ToString())
-					_ = Keysharp.Internals.Flow.ExitAppInternal(Keysharp.Builtins.Flow.ExitReasons.Close, null, false);// Might not actually Exit if there's an OnExit function.
-
-				script.FlowData.allowInterruption = true;
-				hkd.dialogIsDisplayed = false;
-			}
-
-			// The display_warning var is needed due to the fact that there's an OR in this condition:
-			if (displayWarning || elapsedSincePrevTick > script.AccessorData.hotkeyThrottleInterval)
-			{
-				// Reset the sliding interval whenever it expires.  Doing it this way makes the
-				// sliding interval more sensitive than alternate methods might be.
-				// Also reset it if a warning was displayed, since in that case it didn't expire.
-				hkd.throttledKeyCount = 0;
-				hkd.throttlePrevTick = hkd.throttleNowTick;
-			}
-
-			// At this point, even though the user chose to continue, it seems safest
-			// to ignore this particular hotkey event since it might be WinClose or some
-			// other command that would have unpredictable results due to the displaying
-			// of the dialog itself.
-			if (displayWarning)
-				return Complete(ScriptEventExecutionResult.Dropped);
-
-			if (binding == null || Volatile.Read(ref binding.ExistingThreads) >= variant.maxThreads)
-				return Complete(variant.maxThreadsBuffer ? ScriptEventExecutionResult.LocalBlocked : ScriptEventExecutionResult.Dropped);
-
-			try
-			{
-				var executionResult = scheduler.TryInvokePseudoThread(variant.priority, false, false, btv =>
+				try
 				{
-					var callbackExecuted = false;
-					_ = Keysharp.Internals.Flow.TryCatch(() =>
-					{
-						// This is stored as an attribute of the script (semi-globally) rather than passed
-						// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
-						// makes) because it's possible for SendKeys to be called asynchronously, namely
-						// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
-						// in which case we would want SendKeys() to take note of these modifiers even
-						// if it was called from an ExecUntil() other than ours here:
-						ht.kbdMsSender.thisHotkeyModifiersLR = modifiersConsolidatedLR;
-						script.SetHotNamesAndTimes(Name);
+					var btv = thread.ThreadVariables;
+					btv.eventInfo = HookEventInfo.Materialize(eventInfo);
+
+					// This is stored as an attribute of the script (semi-globally) rather than passed
+					// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it
+					// makes) because it's possible for SendKeys to be called asynchronously, namely
+					// by a timed subroutine, while A_HotkeyModifierTimeout is still in effect,
+					// in which case we would want SendKeys() to take note of these modifiers even
+					// if it was called from an ExecUntil() other than ours here:
+						script.HookThread.kbdMsSender.thisHotkeyModifiersLR = definition.modifiersConsolidatedLR;
+						script.SetHotNamesAndTimes(definition.Name);
 						binding.ReleasePending();
-						var finalCritFoundHwnd = critFoundHwnd;
 
-						// Final #HotIf validation at execution time to minimize drift between trigger receipt and callback.
-						// Only re-validate when critFoundHwnd == 0 (criterion not yet evaluated by hook or receipt path).
-						if (critFoundHwnd == 0 && variant.hotCriterion != null)
-						{
-							finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, Name);
+						if (!TryResolveCriterionHwnd(out var finalCritFoundHwnd))
+							return Complete(ScriptEventExecutionResult.Dropped);
 
-							if (finalCritFoundHwnd == 0L)
-								return;
+					_ = Interlocked.Increment(ref binding.ExistingThreads);
 
-							finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
-						}
+					try
+					{
+						if (eventInfo == null && MouseUtils.IsWheelVK(definition.vk)) // Fallback for legacy/internal callers without hook metadata.
+							A_EventInfo = (long)Conversions.LowWord(lParamVal);
 
-						_ = Interlocked.Increment(ref binding.ExistingThreads);
+						A_SendLevel = variant.inputLevel;
+						btv.hwndLastUsed = new nint(finalCritFoundHwnd);
+						btv.hotCriterion = variant.hotCriterion;
+						_ = callback.Call([definition.Name]);
+						callbackExecuted = true;
+					}
+					finally
+					{
+						_ = Interlocked.Decrement(ref binding.ExistingThreads);
+					}
+				}
+				catch (Exception ex)
+				{
+					_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+				}
 
-						try
-						{
-							if (MouseUtils.IsWheelVK(vk)) // If this is true then also: msg.message==AHK_HOOK_HOTKEY
-								A_EventInfo = (long)Conversions.LowWord(lParamVal);
-
-							A_SendLevel = variant.inputLevel;
-							btv.hwndLastUsed = new nint(finalCritFoundHwnd);
-							btv.hotCriterion = variant.hotCriterion;
-							_ = callback.Call([Name]);
-							callbackExecuted = true;
-						}
-						finally
-						{
-							_ = Interlocked.Decrement(ref binding.ExistingThreads);
-						}
-					});
-					return callbackExecuted;
-				}, out bool callbackExecuted);
-
-				return executionResult == ScriptEventExecutionResult.Executed && !callbackExecuted
-					? Complete(ScriptEventExecutionResult.Dropped)
-					: Complete(executionResult);
-			}
-			catch (KeysharpException ex)
-			{
-				_ = Dialogs.MsgBox($"Exception thrown during hotkey handler.\n\n{ex}", null, "iconx");
+				return callbackExecuted
+					? Complete(ScriptEventExecutionResult.Executed)
+					: Complete(ScriptEventExecutionResult.Dropped);
 			}
 
-			return Complete(ScriptEventExecutionResult.Dropped);
-		}
+				private ScriptEventExecutionResult Complete(ScriptEventExecutionResult result)
+				{
+					if (result == ScriptEventExecutionResult.Dropped)
+						binding.ReleasePending();
+
+					return result;
+				}
+
+				private bool TryResolveCriterionHwnd(out long finalCritFoundHwnd)
+				{
+					finalCritFoundHwnd = critFoundHwnd;
+
+					// Re-check only when the hook/receipt path did not already evaluate #HotIf.
+					if (critFoundHwnd != 0 || variant.hotCriterion == null)
+						return true;
+
+					finalCritFoundHwnd = HotCriterionAllowsFiring(variant.hotCriterion, definition.Name, eventInfo);
+
+					if (finalCritFoundHwnd == 0L)
+						return false;
+
+					finalCritFoundHwnd = NormalizeCriterionFoundHwnd(variant.hotCriterion, finalCritFoundHwnd);
+					return true;
+				}
+
+				private static bool ShouldDropForThrottle(Script script)
+				{
+					var hkd = script.HotkeyData;
+
+					if (hkd.dialogIsDisplayed)
+						return true;
+
+					var nowTick = Environment.TickCount64;
+
+					if (hkd.throttlePrevTick == long.MinValue)
+						hkd.throttlePrevTick = nowTick;
+
+					hkd.throttledKeyCount++;
+					hkd.throttleNowTick = nowTick;
+					var elapsedSincePrevTick = hkd.throttleNowTick - hkd.throttlePrevTick;
+					var displayWarning = hkd.throttledKeyCount > script.AccessorData.maxHotkeysPerInterval
+						&& elapsedSincePrevTick < script.AccessorData.hotkeyThrottleInterval;
+
+					if (displayWarning)
+						ShowThrottleWarning(script, hkd, elapsedSincePrevTick);
+
+					if (displayWarning || elapsedSincePrevTick > script.AccessorData.hotkeyThrottleInterval)
+					{
+						hkd.throttledKeyCount = 0;
+						hkd.throttlePrevTick = hkd.throttleNowTick;
+					}
+
+					return displayWarning;
+				}
+
+				private static void ShowThrottleWarning(Script script, HotkeyData hkd, long elapsedSincePrevTick)
+				{
+					var errorText = $"{hkd.throttledKeyCount} hotkeys have been received in the last {elapsedSincePrevTick}ms.\n\nDo you want to continue?\n(see A_MaxHotkeysPerInterval in the help file)";
+					hkd.dialogIsDisplayed = true;
+					script.FlowData.allowInterruption = false;
+
+					if (Dialogs.MsgBox(errorText, null, "YesNo") == DialogResult.No.ToString())
+						_ = Keysharp.Internals.Flow.ExitAppInternal(Keysharp.Builtins.Flow.ExitReasons.Close, null, false);
+
+					script.FlowData.allowInterruption = true;
+					hkd.dialogIsDisplayed = false;
+				}
+			}
 
 		internal ResultType Register()
 		{

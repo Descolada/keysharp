@@ -1013,7 +1013,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				_ = Builtins.Keyboard.ScriptBlockInput(ToggleValueType.Off);
 		}
 
-		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg, ulong? hookExtraInfo = null)
+		internal void ProcessHotkey(int wParamVal, int lParamVal, HotkeyVariant variant, uint msg, ulong? hookExtraInfo = null, object eventInfo = null)
 		{
 			var hkId = wParamVal & HotkeyDefinition.HOTKEY_ID_MASK;
 			var script = Script.TheScript;
@@ -1073,11 +1073,11 @@ namespace Keysharp.Internals.Input.Keyboard
 					? hookExtraInfo ?? (ulong)KeyIgnoreLevel((uint)Conversions.HighWord(lParamVal))
 					: 0UL;
 
-				if (!(variant != null || (variant = hk.CriterionAllowsFiring(ref criterion_found_hwnd, extraInfo, ref dummy)) != null))
+				if (!(variant != null || (variant = hk.CriterionAllowsFiring(ref criterion_found_hwnd, extraInfo, ref dummy, eventInfo)) != null))
 					return;
 
 				criterion_found_hwnd = HotkeyDefinition.NormalizeCriterionFoundHwnd(variant.hotCriterion, criterion_found_hwnd);
-				hk.PerformInNewThreadMadeByCallerAsync(variant, criterion_found_hwnd, lParamVal);
+				hk.PerformInNewThreadMadeByCallerAsync(variant, criterion_found_hwnd, lParamVal, eventInfo);
 			}
 		}
 
@@ -1302,6 +1302,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				return;
 
 			var script = Script.TheScript;
+			script.Permissions.EnsureInputInjection(operation: "SendKeys");
 			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
 			var i = 0;
 			var sub = keys.AsSpan();
@@ -1818,7 +1819,8 @@ namespace Keysharp.Internals.Input.Keyboard
 								}
 							}
 
-							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref modsForNextKey, targetKeybdLayout);
+							var keySource = KeySource.None;
+							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayout);
 
 							if (repeatCount < 1L)
 								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.
@@ -2077,7 +2079,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				{
 					// Best to call this separately, rather than as first arg in SendKey, since it changes the
 					// value of modifiers and the updated value is *not* guaranteed to be passed.
-					// In other words, SendKey(TextToVK(...), modifiers, ...) would often send the old
+					// In other words, SendKey(CharToVKAndModifiers(...), modifiers, ...) would often send the old
 					// value for modifiers.
 					vk = ht.CharToVKAndModifiers(sub[keyIndex], ref modsForNextKey, targetKeybdLayout
 												 , (modsForNextKey | persistentModifiersForThisSendKeys) != 0 && sendRaw == SendRawModes.NotRaw); // v1.1.27.00: Disable the a-z to vk41-vk5A fallback translation when modifiers are present since it would produce the wrong printable characters.
@@ -2478,7 +2480,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 					// The following is done to avoid an extraneous artificial {LCtrl Up} later on,
 					// since the keyboard driver should insert one in response to this {RAlt Up}:
-					if (targetLayoutHasAltGr == ResultType.ConditionTrue && sc == ScanCodes.RAlt)
+					if (targetLayoutHasAltGr == ResultType.ConditionTrue && sc == ht.SC_RALT)
 						eventModifiersLR &= ~MOD_LCONTROL;
 
 					if (doKeyHistory && ht.keyHistory is KeyHistory kh)

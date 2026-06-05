@@ -247,7 +247,10 @@ namespace Keysharp.Builtins
 			if (outputVarX != null) Script.SetPropertyValue(outputVarX, "__Value", (long)(pos.X - aX));//Convert the mouse position in screen coordinates to window coordinates.
 			if (outputVarY != null) Script.SetPropertyValue(outputVarY, "__Value", (long)(pos.Y - aY));
 
-            var child = WindowManager.ChildWindowFromPoint(pos);
+			if (outputVarWin == null && outputVarControl == null)
+				return DefaultObject;
+
+			var child = WindowManager.ChildWindowFromPoint(pos);
 
 			if (child == null || child.Handle == 0)
 			{

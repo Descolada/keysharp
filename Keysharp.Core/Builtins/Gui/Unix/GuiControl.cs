@@ -1920,7 +1920,7 @@ namespace Keysharp.Builtins
 				container.Add(_control, _control.Location);
 			}
 
-			internal object InvokeMessageHandlers(ref System.Windows.Forms.Message m) => 0L;
+			internal object InvokeMessageHandlers(ref Message m) => 0L;
 
 			private Point ConvertToClientPoint(int x, int y)
 			{

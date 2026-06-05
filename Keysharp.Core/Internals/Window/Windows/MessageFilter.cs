@@ -31,7 +31,9 @@ namespace Keysharp.Internals.Window.Windows
 				{
 					foreach (var registration in monitor.GetRegistrationsSnapshot())
 					{
-							registration.OwnerScheduler.Enqueue(ScriptEventQueue.Normal, 0, () => registration.TryExecuteBuffered(script, args, eventInfo, hwnd, out _));
+						var targetScheduler = registration.OwnerScheduler ?? script.EventScheduler;
+						var queuedEvent = new MsgMonitorExtensions.BufferedMessageQueuedEvent(registration, script, args, eventInfo, hwnd);
+						targetScheduler.Enqueue(ScriptEventQueue.Normal, 0, queuedEvent.Execute);
 					}
 				}
 				else if (monitor.TryExecuteEmergency(script, args, eventInfo, hwnd, out var result))

@@ -1,0 +1,11 @@
+[Unit]
+Description=Keysharp privileged Linux input broker socket
+
+[Socket]
+ListenStream=/run/keysharp-inputd/keysharp-inputd.sock
+SocketMode=0666
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

@@ -178,8 +178,90 @@ namespace Keysharp.Internals.Scripting
 			return ModifyEventHandlers(callback, addRemove, (Func<IFuncObj, long, TRegistration>)(object)CallbackRegistration.CreateGlobal, false);
 		}
 
+		/// <summary>
+		/// Invoke all registered event handlers, with each being called in its own pseudo-thread.<br/>
+		/// If any event handler returns a non-empty result, no further calls are made.
+		/// </summary>
+		/// <param name="args">The parameters to pass to each event handler.</param>
+		/// <returns>The result of the last event handler that was called.</returns>
 		internal object InvokeEventHandlers(params object[] args)
-			=> GetSnapshot().InvokeEventHandlers(args);
+		{
+			object result = null;
+			var snapshot = GetSnapshot();
+
+			if (snapshot.Length == 0)
+				return result;
+
+			var inst = args.Length > 0 ? args[0].GetControl() : null;
+			var script = Script.TheScript;
+			var oldEventInfo = A_EventInfo;
+
+			foreach (var entry in snapshot)
+			{
+				if (entry == null || !entry.IsActive)
+					continue;
+
+				var handler = entry.Callback;
+
+				if (handler == null)
+					continue;
+
+				var targetScheduler = entry.OwnerScheduler ?? script.EventScheduler;
+				ScriptEventExecutionResult executionResult;
+
+				if (targetScheduler.IsDisposed)
+				{
+					executionResult = ScriptEventExecutionResult.Dropped;
+					result = null;
+				}
+				else if (targetScheduler.OwnsCurrentThread)
+				{
+					executionResult = InvokeEventHandlerOnSchedulerThread(targetScheduler, script, handler, args, oldEventInfo, inst, out result);
+				}
+				else
+				{
+					executionResult = targetScheduler.InvokeSynchronous(() =>
+						InvokeEventHandlerOnSchedulerThread(targetScheduler, script, handler, args, oldEventInfo, inst, out result));
+				}
+
+				if (executionResult != ScriptEventExecutionResult.Executed)
+					continue;
+
+				if (Script.ForceLong(result) != 0L)
+					break;
+			}
+
+			script.ExitIfNotPersistent();
+			return result;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static ScriptEventExecutionResult InvokeEventHandlerOnSchedulerThread(ScriptEventScheduler targetScheduler, Script script, IFuncObj handler, object[] obj, object eventInfo, Control inst, out object result)
+		{
+			result = null;
+			using var thread = targetScheduler.StartPseudoThreadScope(0, false, false, false);
+
+			if (!thread.Started)
+				return thread.Result;
+
+			try
+			{
+				var tv = thread.ThreadVariables;
+				tv.eventInfo = eventInfo;
+				tv.hwndLastUsed = 0L;
+
+				if (inst is Control ctrl && ctrl.FindForm() is Form form)
+					script.HwndLastUsed = form.Handle;
+
+				result = handler.Call(obj);
+			}
+			catch (Exception ex)
+			{
+				_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+			}
+
+			return ScriptEventExecutionResult.Executed;
+		}
 
 		internal static bool RemoveOwned<TKey>(ConcurrentDictionary<TKey, CallbackRegistry<TRegistration>> hubs, ScriptEventScheduler scheduler)
 		{

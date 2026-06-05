@@ -23,12 +23,6 @@ namespace Keysharp.Internals.UI.Unix
 		private AboutBox about;
 		private bool callingInternalVars = false;
 		private bool clipboardMonitoringEnabled;
-#if LINUX
-		private Gtk.Clipboard gtkClipboard;
-#elif OSX
-		private UITimer clipboardPollTimer;
-		private int clipboardChangeCount = -1;
-#endif
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
@@ -69,8 +63,8 @@ namespace Keysharp.Internals.UI.Unix
 		private void BuildMenus()
 		{
 			var fileMenu = new ButtonMenuItem { Text = "&File" };
-			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script" };
-			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Enabled = !A_IsCompiled };
+			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.R };
+			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.E, Enabled = !A_IsCompiled };
 			var windowSpyItem = new ButtonMenuItem { Text = "&Window Spy" };
 			suspendHotkeysMenuItem = new CheckMenuItem { Text = "&Suspend Hotkeys" };
 			var exitItem = new ButtonMenuItem { Text = "E&xit" };
@@ -101,11 +95,11 @@ namespace Keysharp.Internals.UI.Unix
 			fileMenu.Items.Add(exitItem);
 
 			var viewMenu = new ButtonMenuItem { Text = "&View" };
-			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents" };
-			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods" };
-			var historyItem = new ButtonMenuItem { Text = "&Key history and script info" };
+			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.V };
+			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.H };
+			var historyItem = new ButtonMenuItem { Text = "&Key history and script info", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.K };
 			var clearDebugItem = new ButtonMenuItem { Text = "&Clear debug log" };
-			var refreshItem = new ButtonMenuItem { Text = "&Refresh" };
+			var refreshItem = new ButtonMenuItem { Text = "&Refresh", Shortcut = Eto.Forms.Keys.F5 };
 
 			varsItem.Click += variablesAndTheirContentsToolStripMenuItem_Click;
 			hotkeysItem.Click += hotkeysAndTheirMethodsToolStripMenuItem_Click;
@@ -121,7 +115,7 @@ namespace Keysharp.Internals.UI.Unix
 			viewMenu.Items.Add(refreshItem);
 
 			var helpMenu = new ButtonMenuItem { Text = "&Help" };
-			var userManualItem = new ButtonMenuItem { Text = "&User Manual" };
+			var userManualItem = new ButtonMenuItem { Text = "&User Manual", Shortcut = Eto.Forms.Keys.F1 };
 			var aboutItem = new ButtonMenuItem { Text = "&About" };
 
 			userManualItem.Click += userManualToolStripMenuItem_Click;
@@ -269,38 +263,8 @@ namespace Keysharp.Internals.UI.Unix
 
 		private void keyHistoryAndScriptInfoToolStripMenuItem_Click(object sender, EventArgs e) => ShowHistory();
 
-#if LINUX
-		private void GtkClipboard_OwnerChange(object o, Gtk.OwnerChangeArgs args) => ClipboardUpdate?.Invoke(null);
-#elif OSX
-		private void MacClipboardPollTimer_Elapsed(object sender, EventArgs e)
-		{
-			int currentChangeCount;
+		private void Clipboard_Changed(object sender, EventArgs e) => ClipboardUpdate?.Invoke(null);
 
-			try
-			{
-				currentChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
-			}
-			catch
-			{
-				return;
-			}
-
-			if (currentChangeCount < 0)
-				return;
-
-			if (clipboardChangeCount < 0)
-			{
-				clipboardChangeCount = currentChangeCount;
-				return;
-			}
-
-			if (currentChangeCount == clipboardChangeCount)
-				return;
-
-			clipboardChangeCount = currentChangeCount;
-			ClipboardUpdate?.Invoke(null);
-		}
-#endif
 
 		private void MainWindow_Shown(object sender, EventArgs e)
 		{
@@ -440,7 +404,8 @@ namespace Keysharp.Internals.UI.Unix
 		{
 			var path = Path.GetDirectoryName(A_KeysharpPath);
 			var exe = path + "/Keysharp";
-			var opt = path + "/Scripts/WindowSpy.ks";
+			var spyCompiled = path + "/Scripts/WindowSpy.cks";
+			var opt = File.Exists(spyCompiled) ? spyCompiled : path + "/Scripts/WindowSpy.ks";//Prefer the precompiled .cks for faster startup.
 			object pid = VarRef.Empty;
 			//Keysharp.Builtins.Dialogs.MsgBox(exe + "\r\n" + path + "\r\n" + opt);
 			_ = Processes.Run("\"" + exe + "\"", path, "", pid, "\"" + opt + "\"");
@@ -461,39 +426,16 @@ namespace Keysharp.Internals.UI.Unix
 				if (clipboardMonitoringEnabled == enabled)
 					return;
 
-#if LINUX
-				gtkClipboard ??= Gtk.Clipboard.Get(Gdk.Atom.Intern("CLIPBOARD", false));
+				var clipboard = Clipboard.Instance;
 
-				if (gtkClipboard == null)
+				if (clipboard == null)
 					return;
 
 				if (enabled)
-					gtkClipboard.OwnerChange += GtkClipboard_OwnerChange;
+					clipboard.Changed += Clipboard_Changed;
 				else
-					gtkClipboard.OwnerChange -= GtkClipboard_OwnerChange;
-#elif OSX
-				if (enabled)
-				{
-					try
-					{
-						clipboardChangeCount = (int)(MonoMac.AppKit.NSPasteboard.GeneralPasteboard?.ChangeCount ?? -1L);
-					}
-					catch
-					{
-						clipboardChangeCount = -1;
-					}
+					clipboard.Changed -= Clipboard_Changed;
 
-					clipboardPollTimer ??= new UITimer { Interval = 0.2 };
-					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
-					clipboardPollTimer.Elapsed += MacClipboardPollTimer_Elapsed;
-					clipboardPollTimer.Start();
-				}
-				else if (clipboardPollTimer != null)
-				{
-					clipboardPollTimer.Stop();
-					clipboardPollTimer.Elapsed -= MacClipboardPollTimer_Elapsed;
-				}
-#endif
 				clipboardMonitoringEnabled = enabled;
 			}
 	}

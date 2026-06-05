@@ -14,17 +14,17 @@ namespace Keysharp.Internals.Input.Linux
 
 		private const uint ProtocolMajor = 0;
 		private const uint ProtocolMinor = 1;
-			private const int HeaderSize = 24;
-			private const int MaxMessageSize = 65536;
-			private const int InputSize = 40;
-			private const uint ClientHelloFlagForcePrompt = 0x00000001;
-			// Bounds a request round-trip so a hung daemon cannot block a script thread
-			// indefinitely (callers hold a manager lock across these calls).
-			internal const int DefaultRequestTimeoutMs = 5000;
-			// CLIENT_HELLO can trigger an interactive trust prompt; the daemon enforces a
-			// 60s prompt window (KSI_PROMPT_TIMEOUT_SECONDS), so allow margin beyond that
-			// for the hello response specifically.
-			private const int HelloResponseTimeoutMs = 75000;
+		private const int HeaderSize = 24;
+		private const int MaxMessageSize = 65536;
+		private const int InputSize = 40;
+		private const uint ClientHelloFlagForcePrompt = 0x00000001;
+		// Bounds a request round-trip so a hung daemon cannot block a script thread
+		// indefinitely (callers hold a manager lock across these calls).
+		internal const int DefaultRequestTimeoutMs = 5000;
+		// CLIENT_HELLO can trigger an interactive trust prompt; the daemon enforces a
+		// 60s prompt window (KSI_PROMPT_TIMEOUT_SECONDS), so allow margin beyond that
+		// for the hello response specifically.
+		private const int HelloResponseTimeoutMs = 75000;
 
 		[Flags]
 		internal enum Capabilities : uint
@@ -303,11 +303,11 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputs.Count; i++)
 				WriteInput(payload.AsSpan(8 + (i * InputSize), InputSize), inputs[i]);
 
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.SynthesizeInput, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.SynthesisResult, correlationId);
-				EnsureStatus(response, MessageType.SynthesisResult, correlationId);
-			}
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.SynthesizeInput, correlationId, payload);
+			var response = ReadResponseFrame(MessageType.SynthesisResult, correlationId);
+			EnsureStatus(response, MessageType.SynthesisResult, correlationId);
+		}
 
 		/// <summary>
 		/// Queries the daemon for the current keyboard indicator (lock key) state.
@@ -315,9 +315,9 @@ namespace Keysharp.Internals.Input.Linux
 		/// </summary>
 		internal (bool CapsLock, bool NumLock, bool ScrollLock) GetIndicatorState()
 		{
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
-				var response = ReadResponseFrame(MessageType.IndicatorStateResult, correlationId);
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetIndicatorState, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadResponseFrame(MessageType.IndicatorStateResult, correlationId);
 
 			if (response.Type != MessageType.IndicatorStateResult || response.CorrelationId != correlationId)
 				throw new InvalidDataException(
@@ -361,9 +361,9 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			position = default;
 
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
-				var response = ReadResponseFrame(MessageType.PointerPositionResult, correlationId);
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetPointerPosition, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadResponseFrame(MessageType.PointerPositionResult, correlationId);
 
 			if (response.Type != MessageType.PointerPositionResult || response.CorrelationId != correlationId)
 				throw new InvalidDataException(
@@ -382,28 +382,28 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
-			internal HookEvent ReadHookEvent()
+		internal HookEvent ReadHookEvent()
+		{
+			lock (pendingHookEventsLock)
 			{
-				lock (pendingHookEventsLock)
-				{
-					if (pendingHookEvents.Count != 0)
-						return pendingHookEvents.Dequeue();
-				}
-
-				// The hook connection waits an unbounded time for the next input event, so
-				// an idle receive timeout here is not a failure — keep waiting.
-				var frame = ReadFrame(idleRetry: true);
-
-				if (frame.Type != MessageType.HookEvent)
-					throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
-
-				return ParseHookEvent(frame);
+				if (pendingHookEvents.Count != 0)
+					return pendingHookEvents.Dequeue();
 			}
 
-			private static HookEvent ParseHookEvent(Frame frame)
-			{
-				if (frame.Payload.Length < 16)
-					throw new InvalidDataException("Hook event payload is too small.");
+			// The hook connection waits an unbounded time for the next input event, so
+			// an idle receive timeout here is not a failure — keep waiting.
+			var frame = ReadFrame(idleRetry: true);
+
+			if (frame.Type != MessageType.HookEvent)
+				throw new InvalidDataException($"Expected hook event, got {frame.Type}.");
+
+			return ParseHookEvent(frame);
+		}
+
+		private static HookEvent ParseHookEvent(Frame frame)
+		{
+			if (frame.Payload.Length < 16)
+				throw new InvalidDataException("Hook event payload is too small.");
 
 			var eventId = BinaryPrimitives.ReadUInt64LittleEndian(frame.Payload);
 			var hookType = (HookType)BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload[8..]);
@@ -440,11 +440,11 @@ namespace Keysharp.Internals.Input.Linux
 			for (var i = 0; i < inputCount; i++)
 				WriteInput(payload.AsSpan(16 + (i * InputSize), InputSize), replacementInputs[i]);
 
-				var correlationId = eventId;
-				SendFrame(MessageType.HookDecision, correlationId, payload);
-				var response = ReadResponseFrame(MessageType.HookDecision, correlationId);
-				EnsureStatus(response, MessageType.HookDecision, correlationId);
-			}
+			var correlationId = eventId;
+			SendFrame(MessageType.HookDecision, correlationId, payload);
+			var response = ReadResponseFrame(MessageType.HookDecision, correlationId);
+			EnsureStatus(response, MessageType.HookDecision, correlationId);
+		}
 
 		public void Dispose()
 		{
@@ -474,31 +474,31 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		private (int Status, Capabilities Granted) ExchangeHello(Capabilities requested, bool forcePrompt)
+		{
+			Span<byte> payload = stackalloc byte[8];
+			BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
+			BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], forcePrompt ? ClientHelloFlagForcePrompt : 0);
+
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.ClientHello, correlationId, payload);
+
+			// The hello may block on an interactive trust prompt; widen the receive
+			// timeout to cover the daemon's prompt window, then restore it.
+			Frame response;
+			var previousReceiveTimeout = socket.ReceiveTimeout;
+
+			if (requestTimeoutMs > 0)
+				socket.ReceiveTimeout = HelloResponseTimeoutMs;
+
+			try
 			{
-				Span<byte> payload = stackalloc byte[8];
-				BinaryPrimitives.WriteUInt32LittleEndian(payload, (uint)requested);
-				BinaryPrimitives.WriteUInt32LittleEndian(payload[4..], forcePrompt ? ClientHelloFlagForcePrompt : 0);
-
-				var correlationId = NextCorrelationId();
-				SendFrame(MessageType.ClientHello, correlationId, payload);
-
-				// The hello may block on an interactive trust prompt; widen the receive
-				// timeout to cover the daemon's prompt window, then restore it.
-				Frame response;
-				var previousReceiveTimeout = socket.ReceiveTimeout;
-
+				response = ReadResponseFrame(MessageType.ClientHello, correlationId);
+			}
+			finally
+			{
 				if (requestTimeoutMs > 0)
-					socket.ReceiveTimeout = HelloResponseTimeoutMs;
-
-				try
-				{
-					response = ReadResponseFrame(MessageType.ClientHello, correlationId);
-				}
-				finally
-				{
-					if (requestTimeoutMs > 0)
-						socket.ReceiveTimeout = previousReceiveTimeout;
-				}
+					socket.ReceiveTimeout = previousReceiveTimeout;
+			}
 
 			if (response.Type != MessageType.ClientHello || response.CorrelationId != correlationId)
 				throw new InvalidDataException($"Unexpected hello response type={response.Type} correlation={response.CorrelationId}.");
@@ -532,7 +532,7 @@ namespace Keysharp.Internals.Input.Linux
 			WriteAll(payload);
 		}
 
-			private Frame ReadFrame(bool idleRetry = false)
+		private Frame ReadFrame(bool idleRetry = false)
 		{
 			ThrowIfDisposed();
 
@@ -581,33 +581,33 @@ namespace Keysharp.Internals.Input.Linux
 				if (read == 0)
 					throw new EndOfStreamException("keysharp-inputd disconnected.");
 
-					offset += read;
-				}
+				offset += read;
 			}
+		}
 
-			private Frame ReadResponseFrame(MessageType expectedType, ulong expectedCorrelationId)
+		private Frame ReadResponseFrame(MessageType expectedType, ulong expectedCorrelationId)
+		{
+			for (;;)
 			{
-				for (;;)
+				var frame = ReadFrame();
+
+				if (frame.Type == expectedType && frame.CorrelationId == expectedCorrelationId)
+					return frame;
+
+				if (frame.Type == MessageType.HookEvent)
 				{
-					var frame = ReadFrame();
+					var hookEvent = ParseHookEvent(frame);
 
-					if (frame.Type == expectedType && frame.CorrelationId == expectedCorrelationId)
-						return frame;
+					lock (pendingHookEventsLock)
+						pendingHookEvents.Enqueue(hookEvent);
 
-					if (frame.Type == MessageType.HookEvent)
-					{
-						var hookEvent = ParseHookEvent(frame);
-
-						lock (pendingHookEventsLock)
-							pendingHookEvents.Enqueue(hookEvent);
-
-						continue;
-					}
-
-					throw new InvalidDataException(
-						$"Unexpected response type={frame.Type} correlation={frame.CorrelationId}; expected type={expectedType} correlation={expectedCorrelationId}.");
+					continue;
 				}
+
+				throw new InvalidDataException(
+					$"Unexpected response type={frame.Type} correlation={frame.CorrelationId}; expected type={expectedType} correlation={expectedCorrelationId}.");
 			}
+		}
 
 		private void WriteAll(ReadOnlySpan<byte> buffer)
 		{

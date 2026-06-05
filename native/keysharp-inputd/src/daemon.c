@@ -3208,49 +3208,50 @@ static bool process_client_buffer(ksi_daemon_command_queue *commands, ksi_ipc_sl
     size_t offset = 0;
 
     while (slot->rx_used - offset >= sizeof(ksi_message_header)) {
-        const ksi_message_header *header =
-            (const ksi_message_header *)(const void *)(slot->rx_buffer + offset);
+        ksi_message_header header;
         ksi_daemon_command command;
         uint8_t *frame;
 
-        if (header->size < sizeof(*header) || header->size > KSI_MAX_MESSAGE_SIZE) {
-            fprintf(stderr, "client %d sent invalid frame size %u\n", slot->fd, header->size);
+        memcpy(&header, slot->rx_buffer + offset, sizeof(header));
+
+        if (header.size < sizeof(header) || header.size > KSI_MAX_MESSAGE_SIZE) {
+            fprintf(stderr, "client %d sent invalid frame size %u\n", slot->fd, header.size);
             return false;
         }
 
-        if (header->major != KSI_PROTOCOL_MAJOR || header->minor > KSI_PROTOCOL_MINOR) {
+        if (header.major != KSI_PROTOCOL_MAJOR || header.minor > KSI_PROTOCOL_MINOR) {
             fprintf(stderr,
                 "client %d sent unsupported protocol version %u.%u\n",
                 slot->fd,
-                header->major,
-                header->minor);
+                header.major,
+                header.minor);
             return false;
         }
 
-        if (slot->rx_used - offset < header->size) {
+        if (slot->rx_used - offset < header.size) {
             break;
         }
 
-        frame = malloc(header->size);
+        frame = malloc(header.size);
 
         if (frame == NULL) {
             return false;
         }
 
-        memcpy(frame, slot->rx_buffer + offset, header->size);
+        memcpy(frame, slot->rx_buffer + offset, header.size);
 
         memset(&command, 0, sizeof(command));
         command.type = KSI_DAEMON_COMMAND_CLIENT_FRAME;
         command.client_fd = slot->fd;
         command.data.frame.data = frame;
-        command.data.frame.size = header->size;
+        command.data.frame.size = header.size;
 
         if (!command_queue_push(commands, &command)) {
             free(frame);
             return false;
         }
 
-        offset += header->size;
+        offset += header.size;
     }
 
     if (offset > 0) {

@@ -107,6 +107,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Keysharp\Keysharp.csproj" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\Keysharp.Core\Keysharp.Core.csproj" />
 	</ItemGroup>
 

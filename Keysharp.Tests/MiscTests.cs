@@ -190,6 +190,28 @@ namespace Keysharp.Tests
 		public void MiscReserved() => Assert.IsTrue(TestScript("misc-reserved", false));
 
 		[Test, Category("Misc"), NonParallelizable]
+		public void RequestCapabilitiesNoArgsQueriesStatus()
+		{
+			var caps = Keysharp.Builtins.Ks.RequestCapabilities();
+
+#if WINDOWS
+			Assert.AreEqual("NotApplicable", Script.GetPropertyValue(caps, "AccessibilityAutomation"));
+			Assert.AreEqual("NotApplicable", Script.GetPropertyValue(caps, "BlockInput"));
+			Assert.AreEqual("NotApplicable", Script.GetPropertyValue(caps, "InputInjection"));
+			Assert.AreEqual("NotApplicable", Script.GetPropertyValue(caps, "InputMonitoring"));
+			Assert.AreEqual("NotApplicable", Script.GetPropertyValue(caps, "ScreenCapture"));
+			Assert.AreEqual(1L, Script.GetPropertyValue(caps, "Granted"));
+#else
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "AccessibilityAutomation"));
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "BlockInput"));
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "InputInjection"));
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "InputMonitoring"));
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "ScreenCapture"));
+			Assert.IsNotNull(Script.GetPropertyValue(caps, "Granted"));
+#endif
+		}
+
+		[Test, Category("Misc"), NonParallelizable]
 		public void MiscTimer()
 		{
 			SkipIfUiInitializationBlocked("Requires active UI-loop timer delivery.");

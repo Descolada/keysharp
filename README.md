@@ -18,7 +18,7 @@
 		+ The path entry will be removed upon uninstall.
 	+ It also registers Keysharp.exe as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
 	+ On Windows, the installer adds a right-click "Compile" action for `.ahk` and `.ks` source scripts, which writes a `.cks` compiled script next to the source file.
-	
+
 ### Portable run on Windows ###
 * Download and unzip the zip file from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ CD to the unzipped folder.
@@ -35,7 +35,7 @@
 	+ Installs root-owned `keysharp-screencap` which enables Wayland screen capture: on KWin it is directly needed for screen capture; on GNOME it acts as the trust gate for screen capture.
 	+ Installs a GNOME Shell extension (`keysharp@keysharp.io`) for the invoking desktop user, which is required in GNOME for screen capture, mouse location queries, and window automation. This requires a logout or reboot to take effect. If GNOME is not installed then this has no effect.
 + Without sudo, Keysharp is installed under `$HOME/.local` and the privileged helpers are skipped. Linux input hooks/synthesis and Wayland screen capture will be unavailable until a root install is performed.
-	
+
 ### Building from source on Windows ###
 * Download the latest version of [Visual Studio 2022](https://visualstudio.microsoft.com/vs/community/).
 	+ This should install .NET 10. If it doesn't, you need to install it manually from the link above.
@@ -83,7 +83,7 @@ Status legend:
 | Registry APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Windows Registry APIs are Windows-only. |
 | COM APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | COM is available on Windows only. |
 <!-- CAPABILITIES_OVERVIEW:END -->
-	
+
 ## Overview ##
 
 Keysharp is a fork and improvement of the abandoned IronAHK project, which itself was a C# re-write of the C++ AutoHotkey project.
@@ -148,9 +148,9 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ The underlying function object class is named `FuncObj`. This was named so, instead of `Func`, because C# already contains a built in class named `Func`. `MsgBox is Func` is still supported though, as is `MsgBox is FuncObj`.
 	+ Function objects can be created by passing the name of the function as as a direct reference or as a string to `Func()`.
 	+ Most built-in functions
-* Error stack traces start from where the error was thrown, not where it was constructed. 
+* Error stack traces start from where the error was thrown, not where it was constructed.
 * `StrPtr()` works slightly differently because C# strings are constant.
-	+ `StrPtr(variable)` returns a custom `StringBuffer` object which is entangled with the original string. When this object is used with DllCall, NumPut etc, then the `StringBuffer` is used as the pointer, and the entangled string is updated after the function call. 
+	+ `StrPtr(variable)` returns a custom `StringBuffer` object which is entangled with the original string. When this object is used with DllCall, NumPut etc, then the `StringBuffer` is used as the pointer, and the entangled string is updated after the function call.
 	+ `StrPtr("literal")` with a literal string will pin the string from garbage collection and return the actual address of the string. This string must not be modified, and should be freed after use with `ObjFree()`.
 	+ Instead of `StrPtr` it is recommended to use a `StringBuffer` instance instead.
 * `CallbackCreate()` does not support the `CDecl/C` option because the program will be run in 64-bit mode.
@@ -158,7 +158,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ Usage of the created callback will be inefficient, so usage of `CallbackCreate()` is discouraged.
 * Deleting a tab via `GuiCtrl.Delete()` does not reassociate the controls that it contains with the next tab. Instead, they are all deleted.
 * The size and positioning of some GUI components will be slightly different than AHK because WinForms uses different defaults.
-	+ There is an additional positioning option `xc` and `yc` which position the control relative to the container. For example inside a tab `xc+10` would position the control 10 pixels from the left side of the tab control. 
+	+ There is an additional positioning option `xc` and `yc` which position the control relative to the container. For example inside a tab `xc+10` would position the control 10 pixels from the left side of the tab control.
 	+ GroupBoxes can be used as containers by calling `GuiObj.UseGroup(groupbox)`, and to exit the group call `GuiObj.UseGroup()`.
 * The class name for statusbar/statusstrip objects created by Keysharp is "WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1". However, for accessing a statusbar created by another, non .NET program, the class name is still "msctls_statusbar321".
 * Using the class name with `ClassNN` on .NET controls gives long, version specific names such as "WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1" for a statusbar/statusstrip.
@@ -192,9 +192,9 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ `StrPtr()` does not return the address of the string, instead it returns the address of a copy of the bytes of the string.
 * `Sleep()` will not do any sleeping if shutdown has been initiated.
 * The concat-assign operator `.=` is not optimized to modify the left operand inplace, meaning calling it in a loop will be very slow. If many concats are required then use a `StringBuffer` instead.
-* `/Debug` command line switch is not implemented.  
-* If a script is compiled then none of Keysharp or AutoHotkey command parameters apply. 
-	
+* `/Debug` command line switch is not implemented.
+* If a script is compiled then none of Keysharp or AutoHotkey command parameters apply.
+
 ###	Syntax: ###
 * `DllCall()` has the following caveats:
 	+ Use `Ptr` and `StringBuffer` for double pointer parameters such as `LPTSTR*`. This is recommended over the use of `StrPtr()`.
@@ -248,11 +248,11 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ This relieves the caller of having to create a `Buffer` object, then call `StrGet()` on the new string data.
 	+ `wsprintf()` is one such example.
 ```
-	; Using a Buffer:	
+	; Using a Buffer:
 	ZeroPaddedNumber := Buffer(20)
 	DllCall("wsprintf", "Ptr", ZeroPaddedNumber, "Str", "%010d", "Int", 432, "Cdecl")
 	MsgBox(StrGet(ZeroPaddedNumber)) ; Shows "0000000432".
-	
+
 	; Using a StringBuffer:
 	sb := StringBuffer()
 	DllCall("wsprintf", "Ptr", sb, "Str", "%010d", "Int", 432, "Cdecl")
@@ -292,7 +292,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 
 		+ -C: Enables the auto-callout mode.
 			+ -This is not supported. C# regular expressions don't support calling an event handler for each match. You must manually iterate through the matches yourself.
-			
+
 		+ -D: Forces dollar-sign ($) to match at the very end of Haystack, even if Haystack's last item is a newline. Without this option, $ instead matches right before the final newline (if there is one). Note: This option is ignored when the `m` option is present.
 			+ -This is not supported, instead just use `$`. However, this will only match `\n`, not `\r\n`. To match the `CR/LF` character combination, include `\r?$` in the regular expression pattern.
 
@@ -302,7 +302,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ -S: Studies the pattern to try improve its performance.
 			+ -This is not supported. All RegEx objects are internally created with the `RegexOptions.Compiled` option specified, so performance should be reasonable.
 
-		+ -U: Ungreedy.	
+		+ -U: Ungreedy.
 			+ -This is not supported, instead use `?` after: `*, ?, +, and {min,max}`.
 
 		+ -X: Enables PCRE features that are incompatible with Perl.
@@ -339,8 +339,8 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ This rarely ever has to be used in properly written code.
 	+ Calling `Collect()` may not always have an immediate effect. For example if an object is assigned to a variable inside a function and then the variable is assigned an empty string then calling `Collect()` after it will not cause the object destructor to be called. Only after the function has returned will the object be considered to have no references and `Collect()` starts working.
 	+ If an object destructor needs to be called immediately then it may better to call `Object.__Delete()` manually.
-* A new function `RunScript(code, callbackOrAsync?, name := "*", executable?)` which dynamically parses, compiles, and runs the provided code. The default name `"*"` reflects that the script is fed to the target process via StdIn rather than loaded from disk. Optionally provide the script name; whether to run it asynchronously (non-unset non-zero `callbackOrAsync` causes async run without a callback); an executable path to run the compiled assembly (defaults to the current process). 
-  If `callbackOrAsync` is provided a function then it is called after the script has finished with the `ProcessInfo` as the only argument. Over multiple runs `RunScript` is faster than running the process manually and writing to StdIn because of assembly and compilation caching.   
+* A new function `RunScript(code, callbackOrAsync?, name := "*", executable?)` which dynamically parses, compiles, and runs the provided code. The default name `"*"` reflects that the script is fed to the target process via StdIn rather than loaded from disk. Optionally provide the script name; whether to run it asynchronously (non-unset non-zero `callbackOrAsync` causes async run without a callback); an executable path to run the compiled assembly (defaults to the current process).
+  If `callbackOrAsync` is provided a function then it is called after the script has finished with the `ProcessInfo` as the only argument. Over multiple runs `RunScript` is faster than running the process manually and writing to StdIn because of assembly and compilation caching.
   This function returns a `ProcessInfo` object encapsulating info and I/O for the process. Available properties: `HasExited`, `ExitCode`, `ExitTime` (YYYYMMDDHH24MISS), `StdOut`, `StdErr`, `StdIn` (as `KeysharpFile`). Available methods: `Kill()`.
 * New accessors:
 	+ `A_AllowTimers` returns whether timers are allowed or not. It's also easier to set this value rather than call `Thread("NoTimers")`.
@@ -408,12 +408,12 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * Experimental `Clr` class has been added which aims to provide CLR interop with regular AutoHotkey syntax, meaning easy access to CLR libraries.
 	+ `Clr.Load(asmOrPath)` loads a CLR assembly from a dll file or assembly name, and returns a `ManagedAssembly` or `ManagedNamespace` object. Example: `System := Clr.Load("System")`
 		+ `ManagedNamespace` can be accessed with property access syntax to get namespaces and types (`ManagedType`). Example: `linq := System.Linq.Enumerable`
-		+ `ManagedType` may be accessed for static methods/properties, or called to create a new `ManagedInstance`. 
+		+ `ManagedType` may be accessed for static methods/properties, or called to create a new `ManagedInstance`.
 		+ `ManagedInstance` may be accessed with normal AutoHotkey syntax for properties, methods, and indexer access. Example: `linq.Where(nums, isOdd)`
-		+ Basic type marshalling between AutoHotkey and CLR is supported (including function objects), more complicated types may not currently work. 
+		+ Basic type marshalling between AutoHotkey and CLR is supported (including function objects), more complicated types may not currently work.
 	+ `Clr.GetNamespaceName(ManagedNamespace)` returns the full intenal namespace name of the namespace wrapped by `ManagedNamespace`.
 	+ `Clr.GetTypeName(ManagedType)` returns the full internal type name of the type wrapped by `ManagedType`.
-* `Map` internally uses a real hashmap, which means item access, insertions and removals are faster, which is especially true for larger datasets. To keep at least partial compatibility with AutoHotkey the `Map` object is copied and sorted before enumeration, which means modifying the `Map` during enumeration will not have the same effect as in AHK. 
+* `Map` internally uses a real hashmap, which means item access, insertions and removals are faster, which is especially true for larger datasets. To keep at least partial compatibility with AutoHotkey the `Map` object is copied and sorted before enumeration, which means modifying the `Map` during enumeration will not have the same effect as in AHK.
 * The spread operator `*` may be used multiple times in one function call. `MyFunc(arr1*, arr2*)` is allowed.
 * Buffer has an `__Item[]` indexer which can be used to read a byte at a 1-based offset.
 * Buffer has `ToHex()`, `ToBase64()`, and `ToByteArray()` methods which can be used to convert the contents to string (hex or base64), or a byte-array to for example write to a file.
@@ -498,11 +498,11 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	{
 		x := 11
 		y11 := 0
-				
+
 		myclassreffunc(&val)
 		{
 		}
-				
+
 		callmyclassreffunc()
 		{
 			myclassreffunc(&this.y%x%) ; Use this.
@@ -532,19 +532,19 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		#else
 			MsgBox("Unsupported OS")
 		#endif
-		
+
 		#if !(WINDOWS || LINUX)
 			MsgBox("Unsupported OS")
 		#endif
-		
+
 		#if 1
 			MsgBox("Always true")
 		#endif
-		
+
 		#if 0
 			MsgBox("Always false")
 		#endif
-		
+
 		#define NEW_DEFINE
 		#if NEW_DEFINE
 			MsgBox("True because of new definition")
@@ -563,29 +563,29 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ `#AssemblyVersion`
 * Command line switches may start with `/`, `-` or `--`, and must appear before the script or assembly input. After the input is found, all remaining arguments are passed to the script or assembly entry point.
 * Command line switches
-    - `--script`    
-	  Causes a compiled script to ignore its main code and instead executes the provided script. For this to apply, `--script` must be the first command line argument.    
+    - `--script`
+	  Causes a compiled script to ignore its main code and instead executes the provided script. For this to apply, `--script` must be the first command line argument.
 	  Example: `CompiledScript.exe /script /ErrorStdOut MyScript.ahk "Script's arg 1"`
-	- `--version`, `-v`  
+	- `--version`, `-v`
 	  Displays Keysharp version.
-	- `--transpile`  
+	- `--transpile`
 	  Outputs a .cs file with the same name as the script containing the code which was used to compile. This is the same code displayed in Keyview. The script is not run.
-	- `--compile exe [--dest <path>] <script>`  
+	- `--compile exe [--dest <path>] <script>`
 	  Outputs a .exe file which can be ran as standalone from Keysharp (but still requires .NET 10). If `--dest` is a folder, the executable is written there using the script's base name. If `--dest` is a file name, that name and folder are used for the output. The script is not run.
-	- `--compile exe-min [--dest <path>] <script>`    
+	- `--compile exe-min [--dest <path>] <script>`
 	  Same as `--compile exe` but the number of file dependencies is reduced by embedding them in Scriptname.dll. The resulting program will have five dependencies: Scriptname.exe, Scriptname.dll, Keysharp.Core.dll, Scriptname.deps.json, and Scriptname.runtime.config. To get a truly single-file executable the script must be compiled as a C# project, for example as Keysharp.OutputTest in the Keysharp solution. The script is not run.
 	- `--compile <script>`
 	  Outputs the compiled raw assembly bytes to a `.cks` file with the same base name as the script. The script is not run.
 	- `--compile asm [--dest <path|*>] <script>`
 	  Outputs the compiled raw assembly bytes to a `.cks` file. If `--dest` is a folder, the `.cks` file is written there using the script's base name. If `--dest` is a file name, that file is used. If `--dest` is `*`, output is written to StdOut. `dll` is also accepted as an alias for `asm`. The script is not run.
-	- `--validate`, `/validate`  
+	- `--validate`, `/validate`
 	  Compiles but does not run the script. Can be used to check for load-time errors.
-	- `--asm`, `--assembly`  
+	- `--asm`, `--assembly`
 	  Reads pre-compiled assembly code from the file or StdIn and runs it. If omitted, the default type `Keysharp.CompiledMain.Program` and method `Main` are used. A custom entry point can be specified with `--asm:Namespace.Type.Method`, splitting the type and method at the last dot. A `.cks` or `.dll` input is treated as an assembly even when `--asm` is omitted.
 	  Examples: `Keysharp.exe --asm Script.cks arg1 arg2`, `Keysharp.exe Script.cks arg1 arg2`, `Keysharp.exe --asm:My.Namespace.Type.Main Script.dll arg1 arg2`
 	- `--daemon`, `--daemon stop`, `--daemon ping <script>`
 	  Starts, stops, or diagnostics-checks the background compile daemon. Plain script runs use the daemon by default in release builds, but not in debug builds. Set `KEYSHARP_DAEMON=1` (or `true`, `yes`, `on`) to force daemon use, or `KEYSHARP_DAEMON=0` (or `false`, `no`, `off`) to bypass it.
-	
+
 ###	Removals: ###
 * `ListLines()` is non-functional because C# doesn't support it.
 * The `R`, `Dn` or `Tn` parameters in `FormatTime()` are not supported, except for 0x80000000 to disallow user overrides.

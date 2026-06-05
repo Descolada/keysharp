@@ -44,8 +44,7 @@ namespace Keysharp.Builtins
 
 			foreach (KeysharpCapability cap in Enum.GetValues<KeysharpCapability>())
 			{
-				var allowPrompt = requested != null && requested.Contains(cap);
-				var permission = QueryCapabilityStatus(cap, allowPrompt);
+				var permission = QueryCapabilityStatus(cap);
 				result.DefinePropInternal(CapabilityName(cap), new OwnPropsDesc(result, permission.Status.ToString()));
 
 				if (requested == null || requested.Contains(cap))
@@ -82,11 +81,8 @@ namespace Keysharp.Builtins
 
 		}
 
-		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability, bool allowPrompt)
+		private static PermissionResult QueryCapabilityStatus(KeysharpCapability capability)
 		{
-			if (!allowPrompt)
-				return new PermissionResult(PermissionStatus.Unsupported);
-
 			var permissions = Script.TheScript.Permissions;
 
 			return capability switch

@@ -1,6 +1,6 @@
 #import "Ks" { ImageCapture }
 x :=
-y := 0 
+y := 0
 CoordMode("Pixel", "Screen")
 ImageCapture(100, 100, 500, 500, "./imagesearch.bmp")
 

@@ -1,4 +1,4 @@
-﻿using Antlr4.Runtime;
+using Antlr4.Runtime;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 #if WINDOWS
@@ -422,7 +422,7 @@ namespace Keyview
 
 			if (!Directory.Exists(dir))
 				_ = Directory.CreateDirectory(dir);
-				
+
 			File.WriteAllText(lastrun, txtIn.Text);
         }
 
@@ -1193,7 +1193,7 @@ namespace Keyview
 			var screen = Eto.Forms.Screen.PrimaryScreen;
 			if (screen == null)
 				return;
-			
+
 			RectangleF area = new RectangleF(0, 0, 1200, 800);
 			try {
 				area = screen.WorkingArea;

@@ -279,16 +279,16 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>Ensures the client is connected and has synthesis (Send) capability.</summary>
-			internal static PermissionResult EnsureInputInjection(string operation = null)
-				=> EnsureCapabilities(
-					KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
-					operation ?? "keyboard/mouse sending");
+		internal static PermissionResult EnsureInputInjection(string operation = null)
+			=> EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
+				operation ?? "keyboard/mouse sending");
 
 		/// <summary>Ensures the client is connected and has hook (monitoring) capability.</summary>
-			internal static PermissionResult EnsureInputMonitoring(string operation = null)
-				=> EnsureCapabilities(
-					KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
-					operation ?? "keyboard/mouse monitoring");
+		internal static PermissionResult EnsureInputMonitoring(string operation = null)
+			=> EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
+				operation ?? "keyboard/mouse monitoring");
 
 		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
 		{

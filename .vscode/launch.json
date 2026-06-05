@@ -5,7 +5,7 @@
             "name": "C#: Keysharp",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build Keysharp (AnyCPU)",
+            "preLaunchTask": "build Keysharp",
             "program": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/Keysharp.dll",
             "args": ["${workspaceFolder}/Keysharp.Tests/Code/manual-test-suite.ahk"], // Keysharp.Tests/Code/manual-test-suite.ahk  /  Keysharp.Tests/Code/Gui/guitest.ks
             "cwd": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0",
@@ -30,7 +30,7 @@
             "name": "C#: Keyview",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build Keyview (AnyCPU)",
+            "preLaunchTask": "build Keyview",
             "program": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/Keyview.dll",
             "args": [],
             "cwd": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0",

@@ -42,7 +42,7 @@ tot := 0
 rtSumTot()
 {
 	ct := 0
-    
+
 	Loop 100
 	{
 		ct++

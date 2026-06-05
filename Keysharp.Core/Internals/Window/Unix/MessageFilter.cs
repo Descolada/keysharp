@@ -110,6 +110,9 @@ namespace Keysharp.Internals.Window.Unix
 #if LINUX
 		private FilterReturn GtkFilter(IntPtr xevent, Event evnt)
 		{
+			if (evnt?.Window == null)
+				return FilterReturn.Continue;
+
 			// No Win32 message on GTK; use the GDK event type as the message id.
 			var msg = new Message
 			{

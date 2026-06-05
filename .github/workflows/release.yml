@@ -27,7 +27,8 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   BUILD_CONFIGURATION: Release
-  ETO_REF: dd599c5922ec7c4c9cc28d11c3cbc0db2a6f6067
+  ETO_REPOSITORY: https://github.com/Descolada/Eto.git
+  ETO_BRANCH: Keysharp
 
 jobs:
   prepare:
@@ -94,15 +95,26 @@ jobs:
             **/*.csproj
             **/packages.lock.json
 
+      - name: Resolve latest Eto ref (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        id: eto-ref
+        shell: pwsh
+        run: |
+          $line = git ls-remote $env:ETO_REPOSITORY "refs/heads/$env:ETO_BRANCH"
+          $sha = ($line -split "\s+")[0]
+          if (-not $sha) {
+            throw "Could not resolve $env:ETO_REPOSITORY branch $env:ETO_BRANCH."
+          }
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "Resolved Eto $env:ETO_BRANCH to $sha"
+
       - name: Cache Eto (non-Windows)
         if: ${{ matrix.platform != 'windows' }}
         id: eto-cache
         uses: actions/cache@v4
         with:
           path: ${{ runner.workspace }}/Eto
-          key: eto-${{ runner.os }}-${{ env.ETO_REF }}
-          restore-keys: |
-            eto-${{ runner.os }}-
+          key: eto-${{ runner.os }}-${{ steps.eto-ref.outputs.sha }}
 
       - name: Checkout Eto (non-Windows, cache miss)
         if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
@@ -112,18 +124,29 @@ jobs:
           if (Test-Path $etoDir) {
             Remove-Item -LiteralPath $etoDir -Recurse -Force
           }
-          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git $etoDir
-          git -C $etoDir checkout "$env:ETO_REF"
+          git clone --branch "$env:ETO_BRANCH" --recurse-submodules $env:ETO_REPOSITORY $etoDir
+          git -C $etoDir checkout "${{ steps.eto-ref.outputs.sha }}"
           git -C $etoDir submodule update --init --recursive
 
-      - name: Ensure Eto submodules (non-Windows)
+      - name: Verify Eto checkout (non-Windows)
         if: ${{ matrix.platform != 'windows' }}
         shell: pwsh
         run: |
           $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
-          if (-not (Test-Path "$etoDir/lib/monomac/src/MonoMac.csproj")) {
-            git -C $etoDir submodule update --init --recursive
+          $expected = "${{ steps.eto-ref.outputs.sha }}"
+          $current = git -C $etoDir rev-parse HEAD
+          if ($current -ne $expected) {
+            Write-Host "Cached Eto checkout was $current; updating to $expected."
+            git -C $etoDir remote set-url origin $env:ETO_REPOSITORY
+            git -C $etoDir fetch origin "$env:ETO_BRANCH"
+            git -C $etoDir checkout --force $expected
           }
+          if (-not (Test-Path "$etoDir/lib/monomac/src/MonoMac.csproj")) {
+            Write-Host "MonoMac submodule missing, initializing..."
+          } else {
+            Write-Host "MonoMac submodule present."
+          }
+          git -C $etoDir submodule update --init --recursive
 
       - name: Install Linux package dependencies
         if: ${{ matrix.platform == 'linux' }}

@@ -447,7 +447,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static bool ShouldUseLegacyX11Input()
 		{
-			if (Keysharp.Internals.Strings.Conversions.ParseBoolish(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)))
+			if (Keysharp.Internals.Strings.Conversions.ParseBoolish(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)) == true)
 				return true;
 
 			// Test hosts must not trigger inputd permission prompts. If an X display is

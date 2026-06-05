@@ -577,6 +577,23 @@ if (b)
 else
 	FileAppend "fail", "*"
 
+StackTraceDispatchTarget() {
+	throw Error("stack dispatch")
+}
+
+try {
+	f := StackTraceDispatchTarget
+	f()
+}
+catch Error as err {
+	if InStr(err.Stack, "FuncObj.Call()")
+		FileAppend "fail", "*"
+	else if InStr(err.Stack, "StackTraceDispatchTarget()")
+		FileAppend "pass", "*"
+	else
+		FileAppend "fail", "*"
+}
+
 class myclass
 {
 	myfunc()

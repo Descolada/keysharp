@@ -223,7 +223,12 @@ namespace Keysharp.Builtins
 			{
 				string[] newArgs = new string[args.Length - 1];
 				System.Array.Copy(args, 1, newArgs, 0, args.Length - 1);
-				Environment.ExitCode = Runner.Run(args);
+				var command = Runner.Parse(newArgs);
+
+				if (command.RequiresLauncher)
+					throw new Exception("This option is only available from the Keysharp launcher, not from a compiled script: --compile exe/exe-min, --daemon, --install, --uninstall.");
+
+				Environment.ExitCode = Runner.Execute(command);
 				throw new Flow.UserRequestedExitException();
 			}
 
@@ -420,13 +425,18 @@ namespace Keysharp.Builtins
 		/// <returns>The matched argument if found, else null.</returns>
 		internal static string FindCommandLineArg(string arg, bool startsWith = true)
 		{
-			var script = Script.TheScript;
+			// May be queried before a Script exists (e.g. compiler-error reporting during early argument
+			// parsing), in which case there are no script args to search.
+			var args = Script.TheScript?.ScriptArgs;
+
+			if (args == null)
+				return null;
 
 			if (startsWith)
-				return script.ScriptArgs.FirstOrDefault(x => (x.StartsWith('-')
+				return args.FirstOrDefault(x => (x.StartsWith('-')
 						|| x.StartsWith('/')) && x.Trim(DashSlash).StartsWith(arg, StringComparison.OrdinalIgnoreCase));
 			else
-				return script.ScriptArgs.FirstOrDefault(x => (x.StartsWith('-')
+				return args.FirstOrDefault(x => (x.StartsWith('-')
 						|| x.StartsWith('/')) && x.Trim(DashSlash).Contains(arg, StringComparison.OrdinalIgnoreCase));
 		}
 
@@ -439,8 +449,10 @@ namespace Keysharp.Builtins
 		/// <returns>The matched value if found, else null.</returns>
 		internal static string FindCommandLineArgVal(string arg, bool startsWith = true)
 		{
-			var script = Script.TheScript;
-			var args = script.ScriptArgs;
+			var args = Script.TheScript?.ScriptArgs;
+
+			if (args == null)
+				return null;
 
 			for (var i = 0; i < args.Length; i++)
 			{
@@ -898,12 +910,23 @@ namespace Keysharp.Builtins
 
 			string name = obj2?.As();
 			string result = null;
-			byte[] compiledBytes = null;
-			var ch = new CompilerHelper();
-			(compiledBytes, result) = ch.CompileCodeToByteArray(script, name);
+			byte[] compiledBytes;
+			var ext = Path.GetExtension(script);
 
-			if (compiledBytes == null)
-				return Errors.ErrorOccurred(result);
+			// A precompiled assembly file (.cks/.dll) is run as-is; only source needs compiling. This lets
+			// callers ship and launch a precompiled script (e.g. WindowSpy.cks) for faster startup.
+			if (File.Exists(script) && (ext.Equals(".cks", StringComparison.OrdinalIgnoreCase) || ext.Equals(".dll", StringComparison.OrdinalIgnoreCase)))
+			{
+				compiledBytes = File.ReadAllBytes(script);
+			}
+			else
+			{
+				var ch = new CompilerHelper();
+				(compiledBytes, result) = ch.CompileCodeToByteArray(script, name);
+
+				if (compiledBytes == null)
+					return Errors.ErrorOccurred(result);
+			}
 
 			var scriptProcess = new Process
 			{
@@ -923,11 +946,14 @@ namespace Keysharp.Builtins
 			scriptProcess.Exited += (object sender, EventArgs e) => cb?.Call(info);
 			_ = scriptProcess.Start();
 
-			using (var writer = new BinaryWriter(scriptProcess.StandardInput.BaseStream, Encoding.UTF8, leaveOpen: true))
+			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
+			// This must match the framing the launcher expects (Program.Main's "--assembly *" loader and
+			// Keyview): a length prefix here gets loaded as part of the assembly and fails with "Bad IL format",
+			// and leaving stdin open would hang the child's read-to-EOF.
+			using (var stdin = scriptProcess.StandardInput.BaseStream)
 			{
-				writer.Write(compiledBytes.Length);
-				writer.Write(compiledBytes);
-				writer.Flush();
+				stdin.Write(compiledBytes, 0, compiledBytes.Length);
+				stdin.Flush();
 			}
 
 			if (!ForceBool(obj1 ?? false))

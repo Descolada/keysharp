@@ -5,6 +5,7 @@ using Keysharp.Builtins;
 using Keysharp.Builtins.COM;
 #endif
 
+[assembly: InternalsVisibleTo("Keysharp")]
 [assembly: InternalsVisibleTo("Keysharp.Tests")]
 [assembly: InternalsVisibleTo("Keysharp.Benchmark")]
 [assembly: InternalsVisibleTo("Keyview")]

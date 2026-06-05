@@ -1031,6 +1031,26 @@
             "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_597C4E20F0064EA0B035191859C1C9E4"
+            {
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Scripts\\WindowSpy.cks"
+            "TargetName" = "8:WindowSpy.cks"
+            "Tag" = "8:"
+            "Folder" = "8:_A0134BE123494C06ACD60E118C579BBD"
+            "Condition" = "8:"
+            "Transitive" = "11:FALSE"
+            "Vital" = "11:TRUE"
+            "ReadOnly" = "11:TRUE"
+            "Hidden" = "11:FALSE"
+            "System" = "11:FALSE"
+            "Permanent" = "11:FALSE"
+            "SharedLegacy" = "11:FALSE"
+            "PackageAs" = "3:1"
+            "Register" = "3:1"
+            "Exclude" = "11:FALSE"
+            "IsDependency" = "11:FALSE"
+            "IsolateTo" = "8:"
+            }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_5B0351C08F088E7E4A664351DF999C1A"
             {
             "AssemblyRegister" = "3:1"

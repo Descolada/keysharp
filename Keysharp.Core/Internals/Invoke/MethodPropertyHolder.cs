@@ -390,8 +390,8 @@ namespace Keysharp.Internals.Invoke
 	}
     public class ArgumentError : Error
     {
-        public ArgumentError()
-            : base(new TargetParameterCountException().Message)
+        public ArgumentError(string message = "A required parameter was omitted or unset.")
+            : base(message)
         {
         }
     }
@@ -625,9 +625,6 @@ namespace Keysharp.Internals.Invoke
 
 			var a = new Expression[ps.Length];
 
-			// new ArgumentError() for non-optional missing/null
-			var throwArgErr = Expression.Throw(Expression.New(typeof(ArgumentError)), typeof(object));
-
 			for (int i = 0; i < ps.Length; i++)
 			{
 				var idx = Expression.Add(pStart, Expression.Constant(i));
@@ -635,15 +632,31 @@ namespace Keysharp.Internals.Invoke
 				var elem = Expression.ArrayIndex(pArgs, idx);
 				var valOrNull = Expression.Condition(inRange, elem, Expression.Constant(null, typeof(object)));
 
-				Expression chosen = isSoft[i]
-					? Expression.Condition(
+				Expression chosen;
+				if (isSoft[i])
+				{
+					chosen = Expression.Condition(
 						Expression.Equal(valOrNull, Expression.Constant(null, typeof(object))),
 						Expression.Constant(defaults[i], typeof(object)),
-						valOrNull)
-					: Expression.Condition(
+						valOrNull);
+				}
+				else
+				{
+					// Throw for non-optional missing/null via a C# helper rather than Expression.Throw.
+					// An expression-tree throw emits a raw IL throw that bypasses the user-defined Error->Exception
+					// operator, so the CLR would wrap the non-Exception Error in a RuntimeWrappedException. Going
+					// through ThrowMissingArgument() lets the C# compiler apply the operator normally; the resulting
+					// KeysharpException carries the ArgumentError as its UserError and surfaces as a normal Keysharp error.
+					// The 1-based position and parameter name are baked in per slot so the message points at the culprit.
+					var throwArgErr = Expression.Call(throwMissingArgumentMethod,
+						Expression.Constant(i + 1),
+						Expression.Constant(ps[i].Name, typeof(string)));
+
+					chosen = Expression.Condition(
 						Expression.Equal(valOrNull, Expression.Constant(null, typeof(object))),
 						throwArgErr,
 						valOrNull);
+				}
 
 				a[i] = Expression.Convert(chosen, ps[i].ParameterType);
 			}
@@ -699,6 +712,15 @@ namespace Keysharp.Internals.Invoke
 			var def = p.DefaultValue;
 			return (def is DBNull || def == System.Reflection.Missing.Value) ? null : def;
 		}
+
+		private static readonly MethodInfo throwMissingArgumentMethod =
+			typeof(DelegateFactory).GetMethod(nameof(ThrowMissingArgument), BindingFlags.NonPublic | BindingFlags.Static);
+
+		// Thrown from the compiled core when a required parameter is missing or unset. Declared in C# (not via
+		// Expression.Throw) so the Error->Exception operator is applied and the error surfaces normally.
+		[StackTraceHidden]
+		private static object ThrowMissingArgument(int position, string name)
+			=> throw new ArgumentError($"Parameter #{position}{(string.IsNullOrEmpty(name) ? "" : $" ('{name}')")} is required but was omitted or unset.");
 	}
 
 #if !INTERNALDEBUG

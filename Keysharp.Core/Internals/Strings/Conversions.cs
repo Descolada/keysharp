@@ -88,6 +88,25 @@ namespace Keysharp.Internals.Strings
 #endif
 		}
 
+		/// <summary>
+		/// Parses a string as a boolean flag: "1"/"true"/"on" => true, "0"/"false"/"off" => false (words
+		/// case-insensitive). Returns null for null/empty or any unrecognized value, so callers can supply
+		/// their own default. Does not trim - trim beforehand if leading/trailing whitespace should be ignored.
+		/// </summary>
+		public static bool? ParseBoolish(string value)
+		{
+			if (string.IsNullOrEmpty(value))
+				return null;
+
+			if (value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("on", StringComparison.OrdinalIgnoreCase))
+				return true;
+
+			if (value == "0" || value.Equals("false", StringComparison.OrdinalIgnoreCase) || value.Equals("off", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			return null;
+		}
+
 		internal static ToggleValueType ConvertOnOff(object mode, ToggleValueType def = ToggleValueType.Invalid)
 		{
 			if (mode == null)
@@ -98,11 +117,12 @@ namespace Keysharp.Internals.Strings
 			if (str?.Length == 0)
 				return ToggleValueType.Neutral;
 
-			if (string.Compare(str, "true", true) == 0 || string.Compare(str, "on", true) == 0 || str == "1") return ToggleValueType.On;
-
-			if (string.Compare(str, "false", true) == 0 || string.Compare(str, "off", true) == 0 || str == "0") return ToggleValueType.Off;
-
-			return def;
+			return ParseBoolish(str) switch
+			{
+				true => ToggleValueType.On,
+				false => ToggleValueType.Off,
+				_ => def,
+			};
 		}
 
 		internal static ToggleValueType ConvertOnOffAlways(string buf, ToggleValueType def = ToggleValueType.Invalid)

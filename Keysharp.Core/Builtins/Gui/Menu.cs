@@ -204,7 +204,8 @@ namespace Keysharp.Builtins
 			var windowSpyFunc = (params object[] args) =>
 			{
 				var dir = Path.GetDirectoryName(A_KeysharpPath);
-				var spy = Path.Combine(dir, "Scripts", "WindowSpy.ks");
+				var spyCompiled = Path.Combine(dir, "Scripts", "WindowSpy.cks");
+				var spy = File.Exists(spyCompiled) ? spyCompiled : Path.Combine(dir, "Scripts", "WindowSpy.ks");//Prefer the precompiled .cks for faster startup.
 
 				if (!File.Exists(spy))
 				{
@@ -212,7 +213,7 @@ namespace Keysharp.Builtins
 					return DefaultObject;
 				}
 
-				Ks.RunScript(spy);
+				Ks.RunScript(spy, true);//Run async so the calling script isn't blocked while Window Spy is open.
 				return DefaultObject;
 			};
 			_ = Add("&Window Spy", new FuncObj(windowSpyFunc.Method, windowSpyFunc.Target));

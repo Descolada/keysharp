@@ -297,7 +297,8 @@ namespace Keysharp.Internals.UI.Windows
 		{
 			var path = Path.GetDirectoryName(A_KeysharpPath);
 			var exe = path + "/Keysharp.exe";
-			var opt = path + "/Scripts/WindowSpy.ks";
+			var spyCompiled = path + "/Scripts/WindowSpy.cks";
+			var opt = File.Exists(spyCompiled) ? spyCompiled : path + "/Scripts/WindowSpy.ks";//Prefer the precompiled .cks for faster startup.
 			object pid = VarRef.Empty;
 			//Keysharp.Builtins.Dialogs.MsgBox(exe + "\r\n" + path + "\r\n" + opt);
 			_ = Processes.Run("\"" + exe + "\"", path, "", pid, "\"" + opt + "\"");

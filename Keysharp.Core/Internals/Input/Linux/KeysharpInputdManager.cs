@@ -445,16 +445,9 @@ namespace Keysharp.Internals.Input.Linux
 			return requested;
 		}
 
-		private static bool IsTruthy(string value)
-			=> !string.IsNullOrEmpty(value)
-				&& (value.Equals("1", StringComparison.OrdinalIgnoreCase)
-					|| value.Equals("true", StringComparison.OrdinalIgnoreCase)
-					|| value.Equals("yes", StringComparison.OrdinalIgnoreCase)
-					|| value.Equals("on", StringComparison.OrdinalIgnoreCase));
-
 		private static bool ShouldUseLegacyX11Input()
 		{
-			if (IsTruthy(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)))
+			if (Keysharp.Internals.Strings.Conversions.ParseBoolish(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)))
 				return true;
 
 			// Test hosts must not trigger inputd permission prompts. If an X display is

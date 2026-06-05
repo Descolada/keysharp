@@ -633,6 +633,9 @@ namespace Keysharp.Builtins
 				if (method.GetCustomAttributes(typeof(StackTraceHiddenAttribute)).Any())
 					continue;
 
+				if (IsFunctionObjectDispatchFrame(type, method))
+					continue;
+
 				yield return frame;
 
 				//If we reached the auto-execute section function then don't go further
@@ -640,6 +643,10 @@ namespace Keysharp.Builtins
 					break;
 			}
 		}
+
+		private static bool IsFunctionObjectDispatchFrame(Type type, MethodBase method)
+			=> typeof(IFuncObj).IsAssignableFrom(type)
+			   && (method.Name == nameof(IFuncObj.Call) || method.Name == nameof(IFuncObj.CallInst));
 
 		/// <summary>
 		/// Helper function to convert the filtered stack trace into a formatted string.

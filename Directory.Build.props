@@ -1,5 +1,11 @@
 <Project>
   <PropertyGroup>
+    <KeysharpVersion Condition="'$(KeysharpVersion)' == ''">0.0.0.14</KeysharpVersion>
+    <Version Condition="'$(Version)' == ''">$(KeysharpVersion)</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$(KeysharpVersion)</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">$(KeysharpVersion)</FileVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(KeysharpVersion)</InformationalVersion>
+
     <!-- Normalize source paths embedded in PDBs so build-machine absolute paths
          (e.g. /home/<user>/...) don't leak into shipped binaries and stack traces -->
     <Deterministic>true</Deterministic>

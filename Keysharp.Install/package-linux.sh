@@ -19,6 +19,7 @@ PKG_NAME="keysharp-${RID}"
 PKG_DIR="${STAGING_DIR}/${PKG_NAME}"
 APP_DIR="${PKG_DIR}/app"
 VERSION="${VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "${ROOT}/Keysharp/Keysharp.csproj" | head -n 1)}"
+VERSION="${VERSION:-$(sed -n 's:.*<KeysharpVersion[^>]*>\(.*\)</KeysharpVersion>.*:\1:p' "${ROOT}/Directory.Build.props" | head -n 1)}"
 DEB_PKG_NAME="${DEB_PKG_NAME:-keysharp}"
 DEB_TMP_DIR="${PACKAGE_ROOT_DIR}/${PKG_NAME}-deb"
 DEB_OUT=""
@@ -502,6 +503,7 @@ echo "Publishing Keysharp and Keyview (CONFIG=${CONFIG}, RID=${RID})..."
 mkdir -p "${DIST_DIR}"
 rm -rf "${PUBLISH_DIR}/Keysharp" "${PUBLISH_DIR}/Keyview"
 dotnet publish "${ROOT}/Keysharp.sln" -c "${CONFIG}" -r "${RID}" \
+  -p:KeysharpVersion="${VERSION}" \
   -p:Deterministic=true \
   -p:ContinuousIntegrationBuild=true \
   -p:PathMap="${PATH_MAP}"

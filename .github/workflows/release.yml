@@ -1,0 +1,301 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Four-part release version, for example 0.0.0.15"
+        required: true
+        type: string
+      draft:
+        description: "Create or update the release as a draft"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  BUILD_CONFIGURATION: Release
+  ETO_REF: dd599c5922ec7c4c9cc28d11c3cbc0db2a6f6067
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      draft: ${{ steps.version.outputs.draft }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $version = '${{ inputs.version }}'.Trim()
+            $tag = "v$version"
+            $draft = '${{ inputs.draft }}'.ToLowerInvariant()
+          } else {
+            $tag = '${{ github.ref_name }}'
+            $version = $tag -replace '^v', ''
+            $draft = 'true'
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw "Release version must have four numeric parts, for example 0.0.0.15. Got '$version'."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "draft=$draft" >> $env:GITHUB_OUTPUT
+
+  package:
+    needs: prepare
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            platform: windows
+            os: windows-latest
+            rid: win-x64
+          - name: Linux x64
+            platform: linux
+            os: ubuntu-latest
+            rid: linux-x64
+          - name: macOS arm64
+            platform: macos
+            os: macos-latest
+            rid: osx-arm64
+
+    steps:
+      - name: Checkout keysharp
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/packages.lock.json
+
+      - name: Cache Eto (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        id: eto-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.workspace }}/Eto
+          key: eto-${{ runner.os }}-${{ env.ETO_REF }}
+          restore-keys: |
+            eto-${{ runner.os }}-
+
+      - name: Checkout Eto (non-Windows, cache miss)
+        if: ${{ matrix.platform != 'windows' && steps.eto-cache.outputs.cache-hit != 'true' }}
+        shell: pwsh
+        run: |
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (Test-Path $etoDir) {
+            Remove-Item -LiteralPath $etoDir -Recurse -Force
+          }
+          git clone --branch Keysharp --recurse-submodules https://github.com/Descolada/Eto.git $etoDir
+          git -C $etoDir checkout "$env:ETO_REF"
+          git -C $etoDir submodule update --init --recursive
+
+      - name: Ensure Eto submodules (non-Windows)
+        if: ${{ matrix.platform != 'windows' }}
+        shell: pwsh
+        run: |
+          $etoDir = Join-Path $env:RUNNER_WORKSPACE "Eto"
+          if (-not (Test-Path "$etoDir/lib/monomac/src/MonoMac.csproj")) {
+            git -C $etoDir submodule update --init --recursive
+          }
+
+      - name: Install Linux package dependencies
+        if: ${{ matrix.platform == 'linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            dbus-x11 \
+            dpkg-dev \
+            fakeroot \
+            libappindicator3-1 \
+            libatspi2.0-0 \
+            libevdev-dev \
+            libglib2.0-dev \
+            libgtk-3-0 \
+            libnotify4 \
+            libudev-dev \
+            pkg-config \
+            rsync || sudo apt-get install -y \
+            build-essential \
+            cmake \
+            dbus-x11 \
+            dpkg-dev \
+            fakeroot \
+            libayatana-appindicator3-1 \
+            libatspi2.0-0 \
+            libevdev-dev \
+            libglib2.0-dev \
+            libgtk-3-0 \
+            libnotify4 \
+            libudev-dev \
+            pkg-config \
+            rsync
+
+      - name: Install Visual Studio Installer Projects
+        if: ${{ matrix.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe was not found."
+          }
+
+          $vsInstall = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vsInstall) {
+            throw "Visual Studio with MSBuild was not found."
+          }
+
+          $vsixInstaller = Join-Path $vsInstall "Common7\IDE\VSIXInstaller.exe"
+          if (-not (Test-Path $vsixInstaller)) {
+            throw "VSIXInstaller.exe was not found at $vsixInstaller."
+          }
+
+          $vsixPath = Join-Path $env:RUNNER_TEMP "InstallerProjects2022.vsix"
+          Invoke-WebRequest `
+            -Uri "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/VisualStudioClient/vsextensions/MicrosoftVisualStudio2022InstallerProjects/latest/vspackage" `
+            -OutFile $vsixPath
+
+          & $vsixInstaller /quiet /admin $vsixPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Visual Studio Installer Projects VSIX install failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Publish Windows package
+        if: ${{ matrix.platform == 'windows' }}
+        shell: pwsh
+        env:
+          KEYSHARP_VERSION: ${{ needs.prepare.outputs.version }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $assetRoot = Join-Path $PWD "dist/release-assets"
+          New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
+
+          ./Keysharp.Install/package-windows.ps1 `
+            -Configuration $env:BUILD_CONFIGURATION `
+            -RuntimeIdentifier $env:RID `
+            -Version $env:KEYSHARP_VERSION
+
+          $msi = Join-Path $PWD "dist/Keysharp-win-x64.msi"
+          if (-not (Test-Path $msi)) {
+            throw "Expected MSI was not produced: $msi"
+          }
+          Copy-Item -LiteralPath $msi -Destination (Join-Path $assetRoot "keysharp-$env:KEYSHARP_VERSION-$env:RID.msi") -Force
+
+          $zip = Join-Path $PWD "dist/Keysharp-win-x64.zip"
+          if (-not (Test-Path $zip)) {
+            throw "Expected zip was not produced: $zip"
+          }
+          Copy-Item -LiteralPath $zip -Destination (Join-Path $assetRoot "keysharp-$env:KEYSHARP_VERSION-$env:RID.zip") -Force
+
+      - name: Publish Linux package
+        if: ${{ matrix.platform == 'linux' }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RID: ${{ matrix.rid }}
+          CONFIG: Release
+        run: |
+          chmod +x Keysharp.Install/package-linux.sh
+          Keysharp.Install/package-linux.sh
+          mkdir -p dist/release-assets
+          mv "dist/keysharp-${RID}.tar.gz" "dist/release-assets/keysharp-${VERSION}-${RID}.tar.gz"
+          if compgen -G "dist/keysharp_${VERSION}_*.deb" > /dev/null; then
+            mv "dist/keysharp_${VERSION}_"*.deb "dist/release-assets/"
+          fi
+
+      - name: Publish macOS package
+        if: ${{ matrix.platform == 'macos' }}
+        shell: pwsh
+        env:
+          KEYSHARP_VERSION: ${{ needs.prepare.outputs.version }}
+          RID: ${{ matrix.rid }}
+        run: |
+          ./eng/Set-BundleVersion.ps1 -Version $env:KEYSHARP_VERSION
+
+          $publishRoot = Join-Path $PWD "dist/publish/$env:RID"
+          $assetRoot = Join-Path $PWD "dist/release-assets"
+          New-Item -ItemType Directory -Force -Path $publishRoot, $assetRoot | Out-Null
+
+          dotnet publish Keysharp/Keysharp.csproj -c $env:BUILD_CONFIGURATION -r $env:RID --self-contained false `
+            -p:KeysharpVersion=$env:KEYSHARP_VERSION `
+            -p:PublishDir="$publishRoot/Keysharp/"
+          dotnet publish Keyview/Keyview.csproj -c $env:BUILD_CONFIGURATION -r $env:RID --self-contained false `
+            -p:KeysharpVersion=$env:KEYSHARP_VERSION `
+            -p:PublishDir="$publishRoot/Keyview/"
+
+          $asset = Join-Path $assetRoot "keysharp-$env:KEYSHARP_VERSION-$env:RID.zip"
+          Compress-Archive -Path "$publishRoot/Keysharp", "$publishRoot/Keyview" -DestinationPath $asset -Force
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.rid }}
+          path: dist/release-assets/*
+          if-no-files-found: error
+
+  publish-release:
+    needs:
+      - prepare
+      - package
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: dist/release-assets
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          DRAFT: ${{ needs.prepare.outputs.draft }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/release-assets/*)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            args=(release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes)
+            if [ "$DRAFT" = "true" ]; then
+              args+=(--draft)
+            fi
+            gh "${args[@]}"
+          fi

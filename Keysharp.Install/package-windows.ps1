@@ -1,6 +1,7 @@
 param(
     [string] $Configuration = "Release",
     [string] $RuntimeIdentifier = "win-x64",
+    [string] $Version = "",
     [string] $DevenvPath = "",
     [switch] $SkipPublish
 )
@@ -17,15 +18,74 @@ $stagingDir = Join-Path $distDir "staging\$RuntimeIdentifier"
 $packageName = "Keysharp-$RuntimeIdentifier"
 $packageDir = Join-Path $stagingDir $packageName
 $appDir = Join-Path $packageDir "app"
+$zipPath = Join-Path $distDir "$packageName.zip"
 $etoDir = Join-Path (Split-Path -Parent $root) "Eto"
 $pathMap = "$root=/_/keysharp"
 if (Test-Path $etoDir) {
     $etoDir = (Resolve-Path $etoDir).Path
     $pathMap = "$pathMap%2c$etoDir=/_/Eto"
 }
+$installerProjectPath = Join-Path $root "Keysharp.Install\Keysharp.Install.vdproj"
+$installerProjectOriginalContent = $null
 
 if ($RuntimeIdentifier -ne "win-x64") {
     throw "The Visual Studio installer project is configured for win-x64 publish output. Use -RuntimeIdentifier win-x64."
+}
+
+function Resolve-KeysharpVersion {
+    param([string] $ExplicitVersion)
+
+    if ($ExplicitVersion) {
+        return $ExplicitVersion
+    }
+
+    $propsPath = Join-Path $root "Directory.Build.props"
+    if (Test-Path $propsPath) {
+        $props = Get-Content -LiteralPath $propsPath -Raw
+        $match = [regex]::Match($props, '<KeysharpVersion[^>]*>([^<]+)</KeysharpVersion>')
+        if ($match.Success) {
+            return $match.Groups[1].Value.Trim()
+        }
+    }
+
+    throw "Could not determine KeysharpVersion. Pass -Version explicitly."
+}
+
+function Convert-ToMsiProductVersion {
+    param([string] $AssemblyVersion)
+
+    $parts = $AssemblyVersion.Split(".")
+    if ($parts.Length -ne 4) {
+        throw "Windows package version must have four numeric parts, for example 0.0.0.15. Got '$AssemblyVersion'."
+    }
+
+    foreach ($part in $parts) {
+        if ($part -notmatch '^\d+$') {
+            throw "Windows package version must have four numeric parts, for example 0.0.0.15. Got '$AssemblyVersion'."
+        }
+    }
+
+    # Windows Installer ProductVersion has three fields. Preserve the historical
+    # mapping from assembly 0.0.0.14 to MSI 0.0.14 by folding patch+revision.
+    return "$($parts[0]).$($parts[1]).$([int]$parts[2] * 1000 + [int]$parts[3])"
+}
+
+function Update-InstallerProjectVersion {
+    param(
+        [string] $ProjectPath,
+        [string] $AssemblyVersion
+    )
+
+    if (-not (Test-Path $ProjectPath)) {
+        throw "Installer project was not found: $ProjectPath"
+    }
+
+    $msiVersion = Convert-ToMsiProductVersion $AssemblyVersion
+    $content = Get-Content -LiteralPath $ProjectPath -Raw
+    $content = [regex]::Replace($content, '"ProductVersion" = "8:[^"]+"', """ProductVersion"" = ""8:$msiVersion""")
+    $content = [regex]::Replace($content, '"ProductCode" = "8:\{[^}]+\}"', """ProductCode"" = ""8:{$([guid]::NewGuid().ToString().ToUpperInvariant())}""")
+    $content = [regex]::Replace($content, '"PackageCode" = "8:\{[^}]+\}"', """PackageCode"" = ""8:{$([guid]::NewGuid().ToString().ToUpperInvariant())}""")
+    Set-Content -LiteralPath $ProjectPath -Value $content -NoNewline
 }
 
 function Assert-NoLocalPaths {
@@ -184,8 +244,25 @@ function Normalize-NativeAssets {
 	Remove-Item -Path $tempNativeDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Compress-WindowsPackage {
+    param(
+        [string] $SourceRoot,
+        [string] $DestinationPath
+    )
+
+    if (-not (Test-Path $SourceRoot)) {
+        throw "Expected package app directory does not exist: $SourceRoot"
+    }
+
+    Remove-Item -LiteralPath $DestinationPath -Force -ErrorAction SilentlyContinue
+    Compress-Archive -Path (Join-Path $SourceRoot "*") -DestinationPath $DestinationPath -Force
+}
+
 Push-Location $root
 try {
+    $Version = Resolve-KeysharpVersion $Version
+    Write-Host "Packaging Keysharp version $Version."
+
     if (-not $SkipPublish) {
         Write-Host "Publishing $solution ($Configuration, $RuntimeIdentifier)..."
         $publishProjectDirs = @(
@@ -195,6 +272,7 @@ try {
         Remove-Item -Path $publishProjectDirs -Recurse -Force -ErrorAction SilentlyContinue
 
         dotnet publish $solution -c $Configuration -r $RuntimeIdentifier `
+            -p:KeysharpVersion=$Version `
             -p:Deterministic=true `
             -p:ContinuousIntegrationBuild=true `
             -p:PathMap=$pathMap
@@ -224,6 +302,8 @@ try {
 
     $devenv = Find-Devenv $DevenvPath
     $solutionConfig = "$Configuration|x64"
+    $installerProjectOriginalContent = Get-Content -LiteralPath $installerProjectPath -Raw
+    Update-InstallerProjectVersion $installerProjectPath $Version
 
     Write-Host "Building MSI with $devenv ($solutionConfig, project $installerProject)..."
     & $devenv $solution /Build $solutionConfig /Project $installerProject
@@ -231,8 +311,16 @@ try {
         throw "Installer build failed with exit code $LASTEXITCODE."
     }
 
+    Write-Host "Creating zip package at $zipPath..."
+    Compress-WindowsPackage $appDir $zipPath
+
     Write-Host "Windows package ready at $(Join-Path $root 'dist\Keysharp-win-x64.msi')"
+    Write-Host "Windows zip ready at $zipPath"
 }
 finally {
+    if ($installerProjectOriginalContent -ne $null) {
+        Set-Content -LiteralPath $installerProjectPath -Value $installerProjectOriginalContent -NoNewline
+    }
+
     Pop-Location
 }

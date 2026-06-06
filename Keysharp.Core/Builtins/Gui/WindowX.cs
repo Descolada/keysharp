@@ -77,6 +77,7 @@ namespace Keysharp.Builtins
 						win.Active = true;
 						group.activated.Push(h);
 						group.lastWasDeactivate = false;
+						WindowItemBase.DoWinDelay();
 						return h;
 					}
 				}
@@ -141,7 +142,10 @@ namespace Keysharp.Builtins
 							_ = WindowManager.CreateWindow(new nint(stack.Pop())).Close();
 
 						if (stack.Count > 0 && !windows.Any(w => w.Active))
+						{
 							_ = WindowManager.CreateWindow(new nint(stack.Peek())).Active = true;
+							WindowItemBase.DoWinDelay();
+						}
 
 						break;
 
@@ -150,7 +154,10 @@ namespace Keysharp.Builtins
 							_ = WindowManager.CreateWindow(new nint(stack.Pop())).Close();
 
 						if (stack.Count > 0)
+						{
 							WindowManager.CreateWindow(new nint(stack.ToArray()[stack.Count - 1])).Active = true;
+							WindowItemBase.DoWinDelay();
+						}
 
 						break;
 				}
@@ -193,6 +200,7 @@ namespace Keysharp.Builtins
 						win.Active = true;
 						group.deactivated.Push(h);
 						group.lastWasDeactivate = true;
+						WindowItemBase.DoWinDelay();
 						return DefaultObject;
 					}
 				}
@@ -470,6 +478,7 @@ namespace Keysharp.Builtins
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 				win.Active = true;
 
+			WindowItemBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -482,6 +491,7 @@ namespace Keysharp.Builtins
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowItemBase win)
 				win.Active = true;
 
+			WindowItemBase.DoWinDelay();
 			return DefaultObject;
 		}
 

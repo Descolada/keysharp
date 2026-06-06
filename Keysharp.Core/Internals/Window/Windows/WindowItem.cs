@@ -40,18 +40,16 @@ namespace Keysharp.Internals.Window.Windows
 			}
 			set
 			{
-				if (IsSpecified)
-				{
-					if (WindowManager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
-					{
-						if (IsIconic)
-							_ = WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_RESTORE);
-						else
-							_ = SetForegroundWindowEx(this);
+				if (!IsSpecified)
+					return;
 
-						DoWinDelay();
-					}
-				}
+				// Restore before the active check — a minimized window must be un-minimized
+				// even if it is already the foreground window (matches AHK v1.1.28.02+ behaviour).
+				if (IsIconic)
+					_ = WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_RESTORE);
+
+				if (WindowManager.ActiveWindow.Handle.ToInt64() != Handle.ToInt64())
+					_ = SetForegroundWindowEx(this);
 			}
 		}
 
@@ -66,7 +64,6 @@ namespace Keysharp.Internals.Window.Windows
 
 				var type = new nint(value ? WindowsAPI.HWND_TOPMOST : WindowsAPI.HWND_NOTOPMOST);
 				_ = WindowsAPI.SetWindowPos(Handle, type, 0, 0, 0, 0, WindowsAPI.SWP_NOMOVE | WindowsAPI.SWP_NOSIZE | WindowsAPI.SWP_NOACTIVATE);
-				DoWinDelay();
 			}
 		}
 
@@ -143,7 +140,6 @@ namespace Keysharp.Internals.Window.Windows
 					return;
 
 				_ = WindowsAPI.EnableWindow(Handle, value);
-				DoWinDelay();
 			}
 		}
 
@@ -829,9 +825,7 @@ namespace Keysharp.Internals.Window.Windows
 
 		internal override bool Show()
 		{
-			var b = IsSpecified && WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_SHOWDEFAULT);
-			DoWinDelay();
-			return b;
+			return IsSpecified && WindowsAPI.ShowWindow(Handle, WindowsAPI.SW_SHOWDEFAULT);
 		}
 
 		/// <summary>

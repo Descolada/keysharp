@@ -58,12 +58,12 @@ namespace Keysharp.Internals.Window.MacOS
 			private static readonly nint attrFocusedApplication = CreateCFString("AXFocusedApplication");
 			private static readonly nint attrFocusedWindow = CreateCFString("AXFocusedWindow");
 			private static readonly nint attrWindowNumber = CreateCFString("AXWindowNumber");
+			private static readonly nint attrTitle = CreateCFString("AXTitle");
 			private static readonly nint attrPosition = CreateCFString("AXPosition");
 			private static readonly nint attrSize = CreateCFString("AXSize");
-			private static readonly nint attrTitle = CreateCFString("AXTitle");
-		private static readonly nint attrMinimized = CreateCFString("AXMinimized");
-		private static readonly nint attrZoomed = CreateCFString("AXZoomed");
-		private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
+			private static readonly nint attrMinimized = CreateCFString("AXMinimized");
+			private static readonly nint attrZoomed = CreateCFString("AXZoomed");
+			private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
 
 		private static readonly nint actionRaise = CreateCFString("AXRaise");
 		private static readonly nint actionClose = CreateCFString("AXClose");
@@ -76,7 +76,6 @@ namespace Keysharp.Internals.Window.MacOS
 		private static int loggedListenFailure;
 		private static int loggedPostFailure;
 		private static int loggedScreenFailure;
-		private static int loggedFocusedWindowFailure;
 		private static int promptedTrust;
 		private static int promptedListen;
 		private static int promptedPost;
@@ -89,9 +88,6 @@ namespace Keysharp.Internals.Window.MacOS
 			private static partial nint AXUIElementCreateSystemWide();
 
 			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-			private static partial int AXUIElementGetPid(nint element, out int pid);
-
-			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 			private static partial int AXUIElementCopyAttributeValue(nint element, nint attribute, out nint value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
@@ -99,9 +95,6 @@ namespace Keysharp.Internals.Window.MacOS
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial int AXUIElementPerformAction(nint element, nint action);
-
-		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-		private static partial int AXUIElementCopyElementAtPosition(nint application, float x, float y, out nint element);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		[return: MarshalAs(UnmanagedType.I1)]
@@ -174,6 +167,13 @@ namespace Keysharp.Internals.Window.MacOS
 		private static partial bool CFBooleanGetValue(nint boolean);
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFNumberGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.I1)]
+		private static partial bool CFNumberGetValue(nint number, int theType, out int value);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFStringGetTypeID();
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
@@ -185,13 +185,6 @@ namespace Keysharp.Internals.Window.MacOS
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CFStringGetCString(nint theString, byte[] buffer, nint bufferSize, uint encoding);
-
-		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
-		private static partial nint CFNumberGetTypeID();
-
-		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
-		[return: MarshalAs(UnmanagedType.I1)]
-		private static partial bool CFNumberGetValue(nint number, int theType, out int value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial nint CGEventCreateMouseEvent(nint source, CGEventType mouseType, CGPointNative mouseCursorPosition, CGMouseButton mouseButton);
@@ -207,9 +200,10 @@ namespace Keysharp.Internals.Window.MacOS
 			if (!TryFindWindowElement(info, out var windowElement))
 				return MacNativeWindows.ActivateAppByPid(info.OwnerPid);
 
+			_ = MacNativeWindows.ActivateAppByPid(info.OwnerPid);
 			var ok = AXUIElementPerformAction(windowElement, actionRaise) == kAXErrorSuccess;
 			CFRelease(windowElement);
-			return ok || MacNativeWindows.ActivateAppByPid(info.OwnerPid);
+			return ok;
 		}
 
 		internal static bool TryCloseWindow(MacNativeWindowInfo info)
@@ -361,36 +355,6 @@ namespace Keysharp.Internals.Window.MacOS
 			finally
 			{
 				CFRelease(windowElement);
-			}
-		}
-
-		internal static bool TryGetElementBoundsAtPoint(MacNativeWindowInfo info, int x, int y, out Rectangle rect)
-		{
-			rect = Rectangle.Empty;
-			if (!EnsureAccessibilityAccess("query element at point"))
-				return false;
-
-			var appElement = AXUIElementCreateApplication(info.OwnerPid);
-			if (appElement == 0)
-				return false;
-
-			try
-			{
-				if (AXUIElementCopyElementAtPosition(appElement, x, y, out var element) != kAXErrorSuccess || element == 0)
-					return false;
-
-				try
-				{
-					return TryReadRect(element, out rect);
-				}
-				finally
-				{
-					CFRelease(element);
-				}
-			}
-			finally
-			{
-				CFRelease(appElement);
 			}
 		}
 
@@ -627,22 +591,16 @@ namespace Keysharp.Internals.Window.MacOS
 								return true;
 							}
 
-							_ = TryReadString(focusedWindow, attrTitle, out var focusedTitle);
-							Rectangle focusedRect = Rectangle.Empty;
-							var hasFocusedRect = TryReadRect(focusedWindow, out focusedRect);
-
-							var ownerPid = 0;
-							if (AXUIElementGetPid(focusedWindow, out ownerPid) != kAXErrorSuccess || ownerPid <= 0)
-								_ = AXUIElementGetPid(appElement, out ownerPid);
-
-							if (TryResolveFocusedWindowHandleFromSnapshot(ownerPid, focusedTitle, hasFocusedRect ? focusedRect : null, out handle))
-								return true;
-
-							if (!CheckScreenCaptureAccess() && Interlocked.Exchange(ref loggedFocusedWindowFailure, 1) == 0)
+							// AXWindowNumber is undocumented and not always present.
+							// Fall back: find the CG window whose centre is under the focused AX window.
+							if (TryReadRect(focusedWindow, out var focusedRect) && !focusedRect.IsEmpty)
 							{
-								Ks.OutputDebugLine(
-									"Unable to resolve focused foreign window handle from macOS accessibility data. " +
-									"Screen Recording permission may be required for WinExist(\"A\") on foreign apps.");
+								var centre = new POINT(focusedRect.X + focusedRect.Width / 2, focusedRect.Y + focusedRect.Height / 2);
+								if (MacNativeWindows.TryGetWindowAtPoint(centre, out var native) && native.WindowNumber != 0)
+								{
+									handle = (nint)native.WindowNumber;
+									return true;
+								}
 							}
 
 							return false;
@@ -663,83 +621,6 @@ namespace Keysharp.Internals.Window.MacOS
 				}
 			}
 
-			private static bool TryResolveFocusedWindowHandleFromSnapshot(int ownerPid, string focusedTitle, Rectangle? focusedRect, out nint handle)
-			{
-				handle = 0;
-				var snapshot = MacNativeWindows.SnapshotBasic(onScreenOnly: true);
-				if (snapshot.Count == 0)
-					return false;
-
-				var bestHandle = 0u;
-				double bestScore = double.NegativeInfinity;
-				var title = focusedTitle ?? string.Empty;
-				var hasTitle = !title.IsNullOrEmpty();
-				Dictionary<uint, string> titleCache = hasTitle ? [] : null;
-
-				for (var i = 0; i < snapshot.Count; i++)
-				{
-					var w = snapshot[i];
-					if (!w.Visible)
-						continue;
-
-					if (ownerPid > 0 && w.OwnerPid != ownerPid)
-						continue;
-
-					double score = 0.0;
-
-					if (hasTitle)
-					{
-						_ = TryResolveWindowTitle(w.WindowNumber, titleCache, out var windowTitle);
-						if (string.Equals(windowTitle, title, StringComparison.Ordinal))
-							score += 1000.0;
-						else if (!windowTitle.IsNullOrEmpty() && windowTitle.Contains(title, StringComparison.Ordinal))
-							score += 500.0;
-					}
-
-					if (focusedRect is Rectangle rect)
-					{
-						var dx = w.Bounds.X - rect.X;
-						var dy = w.Bounds.Y - rect.Y;
-						var dw = w.Bounds.Width - rect.Width;
-						var dh = w.Bounds.Height - rect.Height;
-						var distance = Math.Abs(dx) + Math.Abs(dy) + Math.Abs(dw) + Math.Abs(dh);
-						score += Math.Max(0.0, 400.0 - distance);
-					}
-
-					if (score > bestScore)
-					{
-						bestScore = score;
-						bestHandle = w.WindowNumber;
-					}
-				}
-
-				if (bestHandle == 0)
-					return false;
-
-				handle = (nint)bestHandle;
-				return true;
-			}
-
-			private static bool TryResolveWindowTitle(uint windowNumber, Dictionary<uint, string> titleCache, out string title)
-			{
-				title = string.Empty;
-				if (titleCache == null)
-					return false;
-
-				if (titleCache.TryGetValue(windowNumber, out title))
-					return true;
-
-				if (!MacNativeWindows.TryGetWindowInfo((nint)windowNumber, out var fullInfo, includeTextMetadata: true))
-				{
-					titleCache[windowNumber] = string.Empty;
-					return false;
-				}
-
-				title = fullInfo.Title ?? string.Empty;
-				titleCache[windowNumber] = title;
-				return true;
-			}
-
 			private static bool CheckPostAccess()
 			{
 				try
@@ -753,25 +634,6 @@ namespace Keysharp.Internals.Window.MacOS
 				catch
 				{
 					return false;
-				}
-			}
-
-			internal static bool TryGetWindowTitle(MacNativeWindowInfo info, out string title)
-			{
-				title = string.Empty;
-				if (!EnsureAccessibilityAccess("query window title"))
-					return false;
-
-				if (!TryFindWindowElement(info, out var windowElement))
-					return false;
-
-				try
-				{
-					return TryReadString(windowElement, attrTitle, out title);
-				}
-				finally
-				{
-					CFRelease(windowElement);
 				}
 			}
 
@@ -859,6 +721,10 @@ namespace Keysharp.Internals.Window.MacOS
 		private static double ScoreWindowElement(nint windowElement, MacNativeWindowInfo target)
 		{
 			double score = 0.0;
+
+			if (TryReadInt32(windowElement, attrWindowNumber, out var windowNumber)
+				&& unchecked((uint)windowNumber) == target.WindowNumber)
+				return 1e9; // definitive match — skip remaining scoring
 
 			if (TryReadString(windowElement, attrTitle, out var title))
 			{

@@ -153,7 +153,11 @@ namespace Keysharp.Internals.Window.Unix
 					return null;
 
 				var form = control as Form ?? control.ParentWindow as Form ?? control.Parent as Form;
+#if OSX
+				return form != null ? new ControlItem(form) : null;
+#else
 				return form != null ? WindowManager.CreateWindow(form.Handle) : null;
+#endif
 			}
 		}
 

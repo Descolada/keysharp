@@ -58,7 +58,15 @@ namespace Keysharp.Internals.Platform
 
 		public static WindowItemBase LastFound
 		{
-			get => WindowManager.CreateWindow((nint)Script.TheScript.HwndLastUsed);
+			get
+			{
+				var handle = (nint)Script.TheScript.HwndLastUsed;
+#if !WINDOWS
+				if (Control.FromHandle(handle) is Control ctrl)
+					return new ControlItem(ctrl);
+#endif
+				return WindowManager.CreateWindow(handle);
+			}
 			set => Script.TheScript.HwndLastUsed = value.Handle;
 		}
 
@@ -137,7 +145,11 @@ namespace Keysharp.Internals.Platform
 
 			if (winTitle is Gui gui)
 			{
+#if WINDOWS
 				return LastFound = WindowManager.CreateWindow((nint)gui.Hwnd);
+#else
+				return LastFound = new ControlItem(gui.form);
+#endif
 			}
 			else if ((winTitle == null || winTitle is string s && string.IsNullOrEmpty(s)) &&
 					 string.IsNullOrEmpty(text) &&

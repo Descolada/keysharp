@@ -53,7 +53,7 @@ namespace Keysharp.Internals.Window
 				var classNN = ClassName;
 				var parent = ParentWindow;
 
-				if (parent.IsSpecified)
+				if (parent?.IsSpecified == true)
 					return GetClassNN(parent.ChildWindows);
 
 				return classNN;
@@ -196,7 +196,7 @@ namespace Keysharp.Internals.Window
 		/// <returns></returns>
 		public override bool Equals(object obj) => obj is WindowItemBase window ? window.Handle == Handle : base.Equals(obj);
 
-		public override int GetHashCode() => base.GetHashCode();
+		public override int GetHashCode() => Handle.GetHashCode();
 
 		public override string ToString() => $"{Handle.ToInt64()}";
 
@@ -245,7 +245,7 @@ namespace Keysharp.Internals.Window
 			if (criteria.Active && !Active)
 				return false;
 
-			if (criteria.HasNonGroupCriteria && !GetDetectHiddenWindows(options) && !ParentWindow.IsSpecified && !Visible)
+			if (criteria.HasNonGroupCriteria && !GetDetectHiddenWindows(options) && ParentWindow?.IsSpecified != true && !Visible)
 				return false;
 
 			if (criteria.ID != 0 && Handle != criteria.ID)

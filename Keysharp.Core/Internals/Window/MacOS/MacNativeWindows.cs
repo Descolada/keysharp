@@ -26,7 +26,12 @@ namespace Keysharp.Internals.Window.MacOS
 			Alpha = alpha;
 		}
 
-		internal bool Visible => IsOnScreen && Alpha > 0.001 && Bounds.Width > 0 && Bounds.Height > 0;
+		// True for any real window regardless of on-screen state (includes minimized windows in the Dock).
+		// Minimized macOS windows have kCGWindowIsOnscreen=false but are NOT "hidden" in the AHK sense.
+		internal bool Visible => Alpha > 0.001 && Bounds.Width > 0 && Bounds.Height > 0;
+
+		// True only when the window is physically on screen — used by point-hit-testing.
+		internal bool VisibleOnScreen => IsOnScreen && Visible;
 	}
 
 	internal static partial class MacNativeWindows
@@ -53,7 +58,6 @@ namespace Keysharp.Internals.Window.MacOS
 		private static readonly nint kOwnerName = CreateCFString("kCGWindowOwnerName");
 		private static readonly nint kWindowName = CreateCFString("kCGWindowName");
 		private static readonly nint kWindowBounds = CreateCFString("kCGWindowBounds");
-		private static readonly nint kWindowLayer = CreateCFString("kCGWindowLayer");
 		private static readonly nint kWindowAlpha = CreateCFString("kCGWindowAlpha");
 		private static readonly nint kWindowIsOnscreen = CreateCFString("kCGWindowIsOnscreen");
 
@@ -116,8 +120,6 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: true);
 
-		internal static List<MacNativeWindowInfo> SnapshotBasic(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: false);
-
 		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info) => TryGetWindowInfo(handle, out info, includeTextMetadata: true);
 
 		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info, bool includeTextMetadata)
@@ -143,36 +145,24 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)
 		{
-			var snapshot = SnapshotBasic(onScreenOnly: true);
+			var snapshot = SnapshotCore(
+				onScreenOnly: true,
+				includeTextMetadata: false);
 
-			for (int i = 0; i < snapshot.Count; i++)
+			foreach (var w in snapshot)
 			{
-				var w = snapshot[i];
-				if (!w.Visible)
+				if (!w.VisibleOnScreen)
 					continue;
 
-				if (location.X >= w.Bounds.Left && location.X < w.Bounds.Right
-					&& location.Y >= w.Bounds.Top && location.Y < w.Bounds.Bottom)
-				{
-					info = w;
-					return true;
-				}
+				if (!w.Bounds.Contains(location.X, location.Y))
+					continue;
+
+				info = w;
+				return true; // front-to-back order, first real containing window wins
 			}
 
 			info = default;
 			return false;
-		}
-
-		internal static nint GetFrontWindowHandle()
-		{
-			var snapshot = SnapshotBasic(onScreenOnly: true);
-			for (int i = 0; i < snapshot.Count; i++)
-			{
-				if (snapshot[i].Visible)
-					return (nint)snapshot[i].WindowNumber;
-			}
-
-			return 0;
 		}
 
 		internal static bool ActivateAppByPid(int pid)
@@ -226,9 +216,6 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 					var dictRef = CFArrayGetValueAtIndex(arrayRef, i);
 					if (!TryGetUInt32(dictRef, kWindowNumber, out var windowNumber))
-						continue;
-
-					if (!TryGetInt32(dictRef, kWindowLayer, out var layer) || layer != 0)
 						continue;
 
 					_ = TryGetInt32(dictRef, kOwnerPid, out var ownerPid);

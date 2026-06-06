@@ -11,10 +11,6 @@ namespace Keysharp.Internals.Window.MacOS
 					if (MacAccessibility.TryGetFocusedWindowHandle(out var focusedHwnd) && focusedHwnd != 0)
 						return new WindowItem(focusedHwnd);
 
-					var hwnd = MacNativeWindows.GetFrontWindowHandle();
-					if (hwnd != 0)
-						return new WindowItem(hwnd);
-
 					return new WindowItem(0);
 				}
 			}
@@ -23,34 +19,15 @@ namespace Keysharp.Internals.Window.MacOS
 
 			public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 			{
-				var app = Application.Instance;
 				var windows = MacNativeWindows.Snapshot();
-				var list = new List<WindowItemBase>(windows.Count + 8);
-				var seen = new HashSet<nint>();
+				var list = new List<WindowItemBase>(windows.Count);
 
 				for (int i = 0; i < windows.Count; i++)
 				{
-					var h = (nint)windows[i].WindowNumber;
-					seen.Add(h);
 					var window = new WindowItem(windows[i], includesTextMetadata: true);
 
 					if (detectHiddenWindows || window.Visible)
 						list.Add(window);
-				}
-
-				// Keep app-owned Eto windows visible to window search if not exposed via CG snapshot.
-				if (app?.Windows != null)
-				{
-					foreach (var w in app.Windows)
-					{
-						if (w == null || w.Handle == 0 || !seen.Add(w.Handle))
-							continue;
-
-						var window = new WindowItem(w);
-
-						if (detectHiddenWindows || window.Visible)
-							list.Add(window);
-					}
 				}
 
 				return list;
@@ -85,9 +62,6 @@ namespace Keysharp.Internals.Window.MacOS
 			if (handle == 0)
 				return false;
 
-			if (Control.FromHandle(handle) != null)
-				return true;
-
 			return MacNativeWindows.TryGetWindowInfo(handle, out _, includeTextMetadata: false);
 		}
 
@@ -110,27 +84,17 @@ namespace Keysharp.Internals.Window.MacOS
 		}
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)
-		{
-				if (MacNativeWindows.TryGetWindowAtPoint(location, out var native))
-				{
-					var window = new WindowItem(native, includesTextMetadata: false);
-					var pah = new PointAndHwnd(location);
-					window.ChildFindPoint(pah);
-				if (pah.hwndFound != 0)
-					return WindowManager.CreateWindow(pah.hwndFound);
-
-				return window;
-			}
-
-			return ActiveWindow;
-		}
+			=> FindWindowFromPoint(location);
 
 		public static WindowItemBase WindowFromPoint(POINT location)
+			=> FindWindowFromPoint(location);
+
+		private static WindowItemBase FindWindowFromPoint(POINT location)
 		{
 			if (MacNativeWindows.TryGetWindowAtPoint(location, out var native))
 				return new WindowItem(native, includesTextMetadata: false);
 
-			return ChildWindowFromPoint(location);
+			return null;
 		}
 	}
 }

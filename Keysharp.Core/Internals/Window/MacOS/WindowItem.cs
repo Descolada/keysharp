@@ -4,32 +4,18 @@ namespace Keysharp.Internals.Window.MacOS
 {
 	internal class WindowItem : WindowItemBase
 	{
-		private readonly Control control;
-		private readonly bool isNativeHandle;
 		private const long NativeInfoCacheLifetimeTicks = TimeSpan.TicksPerMillisecond * 200;
 		private MacNativeWindowInfo nativeInfoCache;
 		private bool hasNativeInfoCache;
 		private bool nativeInfoCacheIncludesText;
 		private long nativeInfoCacheExpiryTicks;
 
-		internal WindowItem(Control source) : base(source?.Handle ?? nint.Zero)
-		{
-			control = source;
-			isNativeHandle = false;
-		}
-
 		internal WindowItem(nint handle) : base(handle)
 		{
-			control = Forms.Control.FromHandle(handle);
-			isNativeHandle = control == null;
 		}
 
 		internal WindowItem(MacNativeWindowInfo nativeInfo, bool includesTextMetadata) : base((nint)nativeInfo.WindowNumber)
-		{
-			control = null;
-			isNativeHandle = true;
-			CacheNativeInfo(nativeInfo, includesTextMetadata);
-		}
+			=> CacheNativeInfo(nativeInfo, includesTextMetadata);
 
 		private void CacheNativeInfo(MacNativeWindowInfo info, bool includesTextMetadata)
 		{
@@ -48,12 +34,6 @@ namespace Keysharp.Internals.Window.MacOS
 
 		private bool TryGetNativeInfo(out MacNativeWindowInfo info, bool includeTextMetadata = false)
 		{
-			if (!isNativeHandle)
-			{
-				info = default;
-				return false;
-			}
-
 			var nowTicks = DateTime.UtcNow.Ticks;
 
 			if (hasNativeInfoCache
@@ -76,161 +56,58 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
-		private static Form ResolveForm(Control ctrl) => ctrl as Form ?? ctrl?.ParentWindow as Form ?? ctrl?.Parent as Form;
-
 		internal override bool Active
 		{
-			get
-			{
-				if (TryGetNativeInfo(out _))
-				{
-					if (MacAccessibility.TryGetFocusedWindowHandle(out var focused) && focused != 0)
-						return focused == Handle;
-
-					var front = MacNativeWindows.GetFrontWindowHandle();
-					return front != 0 && front == Handle;
-				}
-
-				return control?.HasFocus ?? false;
-			}
+			get => MacAccessibility.TryGetFocusedWindowHandle(out var focused) && focused == Handle;
 			set
 			{
-				if (!value)
+				if (!value || !TryGetNativeInfo(out var native))
 					return;
 
-				if (TryGetNativeInfo(out var native))
-				{
-					_ = MacAccessibility.TryActivateWindow(native);
-					return;
-				}
+				// Restore before activating — matches AHK behaviour where a minimized window
+				// is un-minimized even if it is already the foreground window.
+				if (IsIconic)
+					_ = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
 
-				if (control is Eto.Forms.Window window)
-					window.BringToFront();
-
-				control?.Focus();
+				_ = MacAccessibility.TryActivateWindow(native);
 			}
 		}
 
 		internal override bool AlwaysOnTop
 		{
-			get
-			{
-				if (TryGetNativeInfo(out _))
-					return false; // macOS has no general cross-process "always on top" AX attribute.
-
-				return ResolveForm(control)?.TopMost ?? false;
-			}
-			set
-			{
-				if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("AlwaysOnTop for foreign macOS windows is not implemented yet.");
-					return;
-				}
-
-				var form = ResolveForm(control);
-				if (form != null)
-					form.TopMost = value;
-			}
+			get => false;
+			set => Ks.OutputDebugLine("AlwaysOnTop is not implemented for macOS windows.");
 		}
 
 		internal override bool Bottom
 		{
-			set
-			{
-				if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("Bottom/Top Z-order control for foreign macOS windows is not implemented yet.");
-					return;
-				}
-
-				if (control == null)
-					return;
-
-				if (value)
-				{
-					var sendToBack = control.GetType().GetMethod("SendToBack", Type.EmptyTypes);
-					sendToBack?.Invoke(control, null);
-				}
-				else if (control is Eto.Forms.Window window)
-				{
-					window.BringToFront();
-				}
-			}
+			set => Ks.OutputDebugLine("Bottom/Top Z-order control is not implemented for macOS windows.");
 		}
 
-		internal override HashSet<WindowItemBase> ChildWindows
+		internal override HashSet<WindowItemBase> ChildWindows => [];
+
+		internal override string ClassName
 		{
 			get
 			{
-				var set = new HashSet<WindowItemBase>();
+				if (className != null)
+					return className;
 
-				if (TryGetNativeInfo(out _))
-					return set;
-
-				if (control == null)
-					return set;
-
-				foreach (var child in control.GetAllControlsRecursive<Control>())
-				{
-					if (child == null || child is Layout)
-						continue;
-
-					set.Add(new WindowItem(child));
-				}
-
-				return set;
+				return className = TryGetNativeInfo(out var native, includeTextMetadata: true)
+					? native.OwnerName.IsNullOrEmpty() ? "NSWindow" : native.OwnerName
+					: DefaultErrorString;
 			}
 		}
-
-			internal override string ClassName
-			{
-				get
-				{
-					if (className != null)
-						return className;
-
-					if (TryGetNativeInfo(out var native, includeTextMetadata: true))
-						return className = native.OwnerName.IsNullOrEmpty() ? "NSWindow" : native.OwnerName;
-
-					return className = control?.GetType().Name ?? DefaultErrorString;
-				}
-			}
 
 		internal override Rectangle ClientLocation => Location;
 
 		internal override bool Enabled
 		{
-			get
-			{
-				if (TryGetNativeInfo(out _))
-					return true;
-
-				return control?.Enabled ?? false;
-			}
-			set
-			{
-				if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("Enabled state for foreign macOS windows is not implemented yet.");
-					return;
-				}
-
-				if (control != null)
-					control.Enabled = value;
-			}
+			get => Exists;
+			set => Ks.OutputDebugLine("Enabled state is not implemented for macOS windows.");
 		}
 
-		internal override bool Exists
-		{
-			get
-			{
-				if (TryGetNativeInfo(out _))
-					return true;
-
-				return Handle != 0 && control != null;
-			}
-		}
+		internal override bool Exists => TryGetNativeInfo(out _);
 
 		internal override long ExStyle
 		{
@@ -240,67 +117,48 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override bool IsHung => false;
 
-			internal override Rectangle Location
-			{
-				get
-				{
-					if (TryGetNativeInfo(out var native))
-						return native.Bounds;
-
-				return control?.GetBounds() ?? Rectangle.Empty;
-			}
-				set
-				{
-					if (TryGetNativeInfo(out var native))
-					{
-						if (!MacAccessibility.TryMoveResizeWindow(native, value, setPosition: true, setSize: true))
-							Ks.OutputDebugLine("Move/Resize for foreign macOS windows failed (likely Accessibility permission or unsupported app).");
-						else
-							InvalidateNativeInfoCache();
-						return;
-					}
-
-				control?.SetBounds(value);
-			}
-		}
-
-		internal override WindowItemBase NonChildParentWindow
+		internal override Rectangle Location
 		{
-			get
+			get => TryGetNativeInfo(out var native) ? native.Bounds : Rectangle.Empty;
+			set
 			{
-				if (TryGetNativeInfo(out _))
-					return this;
+				if (!TryGetNativeInfo(out var native))
+					return;
 
-				return ParentWindow ?? this;
+				if (!MacAccessibility.TryMoveResizeWindow(native, value, setPosition: true, setSize: false))
+					Ks.OutputDebugLine("Move for macOS window failed.");
+				else
+					InvalidateNativeInfoCache();
 			}
 		}
 
-		internal override WindowItemBase ParentWindow
-		{
-			get
-			{
-				if (TryGetNativeInfo(out _))
-					return null;
+		internal override WindowItemBase NonChildParentWindow => this;
 
-				if (control == null)
-					return null;
+		internal override WindowItemBase ParentWindow => null;
 
-				if (control.ParentWindow is Eto.Forms.Window parentWindow)
-					return new WindowItem(parentWindow);
-
-				if (control.Parent != null)
-					return new WindowItem(control.Parent);
-
-				return null;
-			}
-		}
-
-			internal override long PID => TryGetNativeInfo(out var native) ? native.OwnerPid : Environment.ProcessId;
+		internal override long PID => TryGetNativeInfo(out var native) ? native.OwnerPid : 0;
 
 		internal override Size Size
 		{
-			get => new Size(Location.Width, Location.Height);
-			set => Location = new Rectangle(Location.X, Location.Y, value.Width, value.Height);
+			get
+			{
+				var location = Location;
+				return new Size(location.Width, location.Height);
+			}
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				var rect = native.Bounds;
+				rect.Width = value.Width;
+				rect.Height = value.Height;
+
+				if (!MacAccessibility.TryMoveResizeWindow(native, rect, setPosition: false, setSize: true))
+					Ks.OutputDebugLine("Resize for macOS window failed.");
+				else
+					InvalidateNativeInfoCache();
+			}
 		}
 
 		internal override long Style
@@ -309,104 +167,37 @@ namespace Keysharp.Internals.Window.MacOS
 			set => Ks.OutputDebugLine("Styles are not supported on macOS.");
 		}
 
-			internal override List<string> Text
-			{
-				get
-				{
-					if (TryGetNativeInfo(out _, includeTextMetadata: true))
-					{
-						var title = Title;
-						return title.IsNullOrEmpty() ? [] : [title];
-					}
-
-					if (string.IsNullOrEmpty(Title))
-						return [];
-
-					return [Title];
-				}
-			}
-
-			internal override string Title
-			{
-				get
-				{
-					if (title != null)
-						return title;
-
-					if (TryGetNativeInfo(out var native, includeTextMetadata: true))
-					{
-						if (!native.Title.IsNullOrEmpty())
-							return title = native.Title;
-
-						if (MacAccessibility.TryGetWindowTitle(native, out var axTitle) && !axTitle.IsNullOrEmpty())
-							return title = axTitle;
-
-						return title = string.Empty;
-					}
-
-					return title = control?.Text ?? string.Empty;
-				}
-				set
-				{
-					if (TryGetNativeInfo(out _))
-					{
-						Ks.OutputDebugLine("Setting title of foreign macOS windows is not implemented yet.");
-						return;
-					}
-
-					if (control != null)
-					{
-						control.Text = value;
-						title = value;
-					}
-				}
-			}
-
-		internal override object Transparency
+		internal override List<string> Text
 		{
 			get
 			{
-				if (TryGetNativeInfo(out var native))
-					return (long)Math.Clamp(Convert.ToInt32(native.Alpha * 255.0), 0, 255);
-
-				var form = ResolveForm(control);
-				if (form == null)
-					return -1L;
-
-				var prop = form.GetType().GetProperty("Opacity");
-					if (prop?.CanRead == true && prop.GetValue(form) is double opacity)
-						return (long)Math.Clamp(Convert.ToInt32(opacity * 255.0), 0, 255);
-
-				return -1L;
+				var titleText = Title;
+				return titleText.IsNullOrEmpty() ? [] : [titleText];
 			}
-			set
+		}
+
+		internal override string Title
+		{
+			get
 			{
-				if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("Opacity control for foreign macOS windows is not implemented yet.");
-					return;
-				}
+				if (title != null)
+					return title;
 
-				var form = ResolveForm(control);
-				if (form == null)
-					return;
+				if (!TryGetNativeInfo(out var native, includeTextMetadata: true))
+					return title = string.Empty;
 
-				var prop = form.GetType().GetProperty("Opacity");
-				if (prop?.CanWrite != true)
-				{
-					Ks.OutputDebugLine("Window opacity is not supported by this macOS backend.");
-					return;
-				}
+				if (!native.Title.IsNullOrEmpty())
+					return title = native.Title;
 
-				if (value is string s && s.Equals("off", StringComparison.OrdinalIgnoreCase))
-				{
-					prop.SetValue(form, 1.0);
-					return;
-				}
-
-				var alpha = Math.Clamp((int)value.Al(), 0, 255);
-				prop.SetValue(form, alpha / 255.0);
+				return title = string.Empty;
 			}
+			set => Ks.OutputDebugLine("Setting window titles is not implemented on macOS.");
+		}
+
+		internal override object Transparency
+		{
+			get => TryGetNativeInfo(out var native) ? (long)Math.Clamp(Convert.ToInt32(native.Alpha * 255.0), 0, 255) : -1L;
+			set => Ks.OutputDebugLine("Opacity control is not implemented for macOS windows.");
 		}
 
 		internal override object TransparentColor
@@ -421,150 +212,77 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override bool Visible
 		{
+			get => TryGetNativeInfo(out var native) && native.Visible;
+			set => Ks.OutputDebugLine("Show/Hide is not directly supported for macOS windows.");
+		}
+
+		internal override FormWindowState WindowState
+		{
 			get
 			{
-				if (TryGetNativeInfo(out var native))
-					return native.Visible;
+				if (!TryGetNativeInfo(out var native))
+					return FormWindowState.Normal;
 
-				return control?.Visible ?? false;
+				return MacAccessibility.TryGetWindowState(native, out var state)
+					? state
+					: native.VisibleOnScreen ? FormWindowState.Normal : FormWindowState.Minimized;
 			}
 			set
 			{
-				if (TryGetNativeInfo(out _))
-				{
-					Ks.OutputDebugLine("Show/Hide for foreign macOS windows is not implemented yet.");
+				if (!TryGetNativeInfo(out var native))
 					return;
-				}
 
-				if (control != null)
-					control.Visible = value;
-			}
-		}
-
-			internal override FormWindowState WindowState
-			{
-			get
-			{
-				if (TryGetNativeInfo(out var native))
-				{
-					if (MacAccessibility.TryGetWindowState(native, out var state))
-						return state;
-
-					return native.Visible ? FormWindowState.Normal : FormWindowState.Minimized;
-				}
-
-				return control is Eto.Forms.Window window ? window.WindowState : FormWindowState.Normal;
-			}
-				set
-				{
-					if (TryGetNativeInfo(out var native))
-					{
-						if (!MacAccessibility.TrySetWindowState(native, value))
-							Ks.OutputDebugLine("WindowState for foreign macOS windows failed (likely Accessibility permission or unsupported app).");
-						else
-							InvalidateNativeInfoCache();
-						return;
-					}
-
-				if (control is Eto.Forms.Window window)
-					window.WindowState = value;
+				if (!MacAccessibility.TrySetWindowState(native, value))
+					Ks.OutputDebugLine("WindowState for macOS window failed.");
+				else
+					InvalidateNativeInfoCache();
 			}
 		}
 
 		internal override void ChildFindPoint(PointAndHwnd pah)
 		{
-			if (TryGetNativeInfo(out var native))
+			if (TryGetNativeInfo(out var native) && native.Bounds.Contains(pah.pt.X, pah.pt.Y))
 			{
-				if (pah.pt.X >= native.Bounds.Left && pah.pt.X < native.Bounds.Right
-					&& pah.pt.Y >= native.Bounds.Top && pah.pt.Y < native.Bounds.Bottom)
-				{
-					pah.hwndFound = (nint)native.WindowNumber;
-					if (MacAccessibility.TryGetElementBoundsAtPoint(native, pah.pt.X, pah.pt.Y, out var childRect)
-						&& childRect.Width > 0 && childRect.Height > 0)
-						pah.rectFound = childRect;
-					else
-						pah.rectFound = native.Bounds;
-				}
-				return;
+				pah.hwndFound = Handle;
+				pah.rectFound = native.Bounds;
 			}
-
-			if (control == null)
-				return;
-
-			pah.hwndFound = control.Handle;
-			pah.rectFound = Location;
 		}
 
 		internal override void Click(Point? location = null)
 		{
-			if (TryGetNativeInfo(out var native))
-			{
-				if (!MacAccessibility.TryClickWindow(native, location, rightButton: false))
-					Ks.OutputDebugLine("Native click failed on macOS window.");
-				return;
-			}
-
-			Ks.OutputDebugLine("ControlClick for Eto controls is not implemented for macOS yet.");
+			if (TryGetNativeInfo(out var native) && !MacAccessibility.TryClickWindow(native, location, rightButton: false))
+				Ks.OutputDebugLine("Native click failed on macOS window.");
 		}
 
 		internal override void ClickRight(Point? location = null)
 		{
-			if (TryGetNativeInfo(out var native))
-			{
-				if (!MacAccessibility.TryClickWindow(native, location, rightButton: true))
-					Ks.OutputDebugLine("Native right-click failed on macOS window.");
-				return;
-			}
-
-			Ks.OutputDebugLine("ControlClick Right for Eto controls is not implemented for macOS yet.");
+			if (TryGetNativeInfo(out var native) && !MacAccessibility.TryClickWindow(native, location, rightButton: true))
+				Ks.OutputDebugLine("Native right-click failed on macOS window.");
 		}
 
 		internal override POINT ClientToScreen()
+			=> TryGetNativeInfo(out var native) ? new POINT(native.Bounds.X, native.Bounds.Y) : new POINT();
+
+		internal override bool Close()
 		{
-			if (TryGetNativeInfo(out var native))
-				return new POINT(native.Bounds.X, native.Bounds.Y);
-
-			if (control == null)
-				return new POINT();
-
-				var pt = control.PointToScreen(Point.Empty);
-				return new POINT(Convert.ToInt32(pt.X), Convert.ToInt32(pt.Y));
-		}
-
-			internal override bool Close()
-			{
-				if (TryGetNativeInfo(out var native))
-				{
-					var closed = MacAccessibility.TryCloseWindow(native);
-					if (closed)
-						InvalidateNativeInfoCache();
-					return closed;
-				}
-
-			if (control is Eto.Forms.Window window)
-			{
-				window.Close();
-				return true;
-			}
-
-			return false;
-		}
-
-			internal override bool Hide()
-			{
-				if (TryGetNativeInfo(out var native))
-				{
-					var hidden = MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
-					if (hidden)
-						InvalidateNativeInfoCache();
-					return hidden;
-				}
-
-			if (control == null)
+			if (!TryGetNativeInfo(out var native))
 				return false;
 
-			control.Visible = false;
-			return true;
+			var closed = MacAccessibility.TryCloseWindow(native);
+			if (closed)
+				InvalidateNativeInfoCache();
+			return closed;
+		}
+
+		internal override bool Hide()
+		{
+			if (!TryGetNativeInfo(out var native))
+				return false;
+
+			var hidden = MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+			if (hidden)
+				InvalidateNativeInfoCache();
+			return hidden;
 		}
 
 		internal override bool Kill()
@@ -590,38 +308,18 @@ namespace Keysharp.Internals.Window.MacOS
 			return !Exists;
 		}
 
-		internal override bool Redraw()
+		internal override bool Redraw() => Exists;
+
+		internal override bool Show()
 		{
-			if (TryGetNativeInfo(out _))
-				return true;
-
-			if (control == null)
+			if (!TryGetNativeInfo(out var native))
 				return false;
 
-			control.Invalidate();
-			return true;
-		}
-
-			internal override bool Show()
-			{
-				if (TryGetNativeInfo(out var native))
-				{
-					var stateOk = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
-					var activated = MacAccessibility.TryActivateWindow(native);
-					if (stateOk || activated)
-						InvalidateNativeInfoCache();
-					return activated;
-				}
-
-			if (control == null)
-				return false;
-
-			control.Visible = true;
-
-			if (control is Eto.Forms.Window window)
-				window.BringToFront();
-
-			return true;
+			var stateOk = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
+			var activated = MacAccessibility.TryActivateWindow(native);
+			if (stateOk || activated)
+				InvalidateNativeInfoCache();
+			return activated;
 		}
 	}
 }

@@ -154,21 +154,18 @@ namespace Keysharp.Internals.Window.Windows
 		{
 			foreach (var window in AllWindows)
 				window.WindowState = FormWindowState.Maximized;
-			WindowItemBase.DoWinDelay();
 		}
 
 		public static void MinimizeAll()
 		{
 			var window = FindWindow(new SearchCriteria { ClassName = "Shell_TrayWnd" });
 			_ = WindowsAPI.PostMessage(window.Handle, WindowsAPI.WM_COMMAND, new nint(419), 0);
-			WindowItemBase.DoWinDelay();
 		}
 
 		public static void MinimizeAllUndo()
 		{
 			var window = FindWindow(new SearchCriteria { ClassName = "Shell_TrayWnd" });
 			_ = WindowsAPI.PostMessage(window.Handle, WindowsAPI.WM_COMMAND, new nint(416), 0);
-			WindowItemBase.DoWinDelay();
 		}
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)

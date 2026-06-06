@@ -256,26 +256,17 @@ jobs:
 
       - name: Publish macOS package
         if: ${{ matrix.platform == 'macos' }}
-        shell: pwsh
+        shell: bash
         env:
-          KEYSHARP_VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           RID: ${{ matrix.rid }}
+          CONFIG: Release
         run: |
-          ./eng/Set-BundleVersion.ps1 -Version $env:KEYSHARP_VERSION
-
-          $publishRoot = Join-Path $PWD "dist/publish/$env:RID"
-          $assetRoot = Join-Path $PWD "dist/release-assets"
-          New-Item -ItemType Directory -Force -Path $publishRoot, $assetRoot | Out-Null
-
-          dotnet publish Keysharp/Keysharp.csproj -c $env:BUILD_CONFIGURATION -r $env:RID --self-contained false `
-            -p:KeysharpVersion=$env:KEYSHARP_VERSION `
-            -p:PublishDir="$publishRoot/Keysharp/"
-          dotnet publish Keyview/Keyview.csproj -c $env:BUILD_CONFIGURATION -r $env:RID --self-contained false `
-            -p:KeysharpVersion=$env:KEYSHARP_VERSION `
-            -p:PublishDir="$publishRoot/Keyview/"
-
-          $asset = Join-Path $assetRoot "keysharp-$env:KEYSHARP_VERSION-$env:RID.zip"
-          Compress-Archive -Path "$publishRoot/Keysharp", "$publishRoot/Keyview" -DestinationPath $asset -Force
+          chmod +x Keysharp.Install/package-macos.sh
+          Keysharp.Install/package-macos.sh
+          mkdir -p dist/release-assets
+          mv "dist/Keysharp-${RID}.pkg" "dist/release-assets/keysharp-${VERSION}-${RID}.pkg"
+          mv "dist/Keysharp-${RID}.dmg" "dist/release-assets/keysharp-${VERSION}-${RID}.dmg"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4

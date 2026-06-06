@@ -45,6 +45,7 @@ namespace Keysharp.Main
 					&& !command.FromStdin
 					&& !command.Validate
 					&& !command.Transpile
+					&& command.KeysharpArgs.Length == 0
 					&& ShouldUseDaemon())
 			{
 				switch (CompileClient.CompileViaServer(command.ScriptName, out var daemonBytes, out var daemonErr))

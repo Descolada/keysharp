@@ -88,7 +88,7 @@ namespace Keysharp.Internals.Scripting
 
 			for (var i = 0; i < args.Length; i++)
 			{
-				if (!TryGetSwitch(args[i], out var option))
+				if (!TryGetSwitch(args[i], out var option) && !TryGetAhkSlashSwitch(args[i], out option))
 				{
 					SetInput(args, i, ref scriptName, out scriptArgs, out keysharpArgs);
 					break;
@@ -108,8 +108,20 @@ namespace Keysharp.Internals.Scripting
 					continue;
 				}
 
+				if (opt.StartsWith("errorstdout=", StringComparison.OrdinalIgnoreCase)
+						|| IsCodePageSwitch(opt))
+					continue;
+
 				switch (opt)
 				{
+					case "force":
+					case "f":
+					case "restart":
+					case "r":
+					case "errorstdout":
+					case "debug":
+						break;
+
 					case "version":
 					case "v":
 						return CliCommand.Simple(CliCommandKind.Version, asm, exeDir);
@@ -179,6 +191,17 @@ namespace Keysharp.Internals.Scripting
 						break;
 
 					case "include":
+						if (i + 1 >= args.Length)
+							return CliCommand.Error("--include requires a file path.");
+
+						i++;
+						break;
+
+					case "ilib":
+						if (i + 1 >= args.Length)
+							return CliCommand.Error("--iLib requires an output path.");
+
+						validate = true;
 						i++;
 						break;
 
@@ -442,6 +465,12 @@ namespace Keysharp.Internals.Scripting
 			  --asm, --assembly       Run a precompiled assembly from a file, or from stdin ("*").
 			  --asm:NS.Type.Method    Run a precompiled assembly using a custom entry point.
 			  --script                In a compiled exe, ignore the embedded script and run the one given next.
+			  --force, --restart      Override single-instance behavior.
+			  --errorstdout[=ENC]     Write load-time errors to stderr.
+			  --cpN                   Read script files using codepage N.
+			  --include <file>        Include a file before the main script.
+			  --debug                 Reserve the AutoHotkey debugging-client switch.
+			  --iLib <ignored>        Deprecated alias for --validate.
 
 			Compile:
 			  --compile [asm|dll]     Compile the script to a .cks assembly (the default).
@@ -461,8 +490,8 @@ namespace Keysharp.Internals.Scripting
 			  --about                 Print license information.
 			  --help, -h, -?          Show this help.
 			{(OperatingSystem.IsWindows() ? "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n" : "")}
-			Options may be prefixed with "-" or "--"{(OperatingSystem.IsWindows() ? " or \"/\"" : "")}. The KEYSHARP_DAEMON environment
-			variable (1/0/true/false/on/off) forces the compile daemon on or off.
+			Options may be prefixed with "-" or "--". AutoHotkey-compatible run options may also use "/".
+			The KEYSHARP_DAEMON environment variable (1/0/true/false/on/off) forces the compile daemon on or off.
 			""";
 
 		internal static bool TryGetSwitch(string value, out string option)
@@ -483,11 +512,48 @@ namespace Keysharp.Internals.Scripting
 			return option.Length > 0;
 		}
 
+		private static bool TryGetAhkSlashSwitch(string value, out string option)
+		{
+			option = null;
+
+			if (string.IsNullOrEmpty(value) || value.Length < 2 || value[0] != '/')
+				return false;
+
+			var candidate = value.Substring(1);
+
+			if (candidate.Equals("force", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("f", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("restart", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("r", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("errorstdout", StringComparison.OrdinalIgnoreCase)
+					|| candidate.StartsWith("errorstdout=", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("debug", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("validate", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("ilib", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("include", StringComparison.OrdinalIgnoreCase)
+					|| candidate.Equals("script", StringComparison.OrdinalIgnoreCase)
+					|| IsCodePageSwitch(candidate))
+			{
+				option = candidate;
+				return true;
+			}
+
+			return false;
+		}
+
+		private static bool IsCodePageSwitch(string option)
+		{
+			if (option.Length <= 2 || !option.StartsWith("cp", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			return option.AsSpan(2).IndexOfAnyExceptInRange('0', '9') < 0;
+		}
+
 		private static void SetInput(string[] args, int index, ref string scriptName, out string[] scriptArgs, out string[] keysharpArgs)
 		{
 			scriptName = args[index] == "*" ? "*" : Path.GetFullPath(args[index]);
 			scriptArgs = [.. args.Skip(index + 1)];
-			keysharpArgs = [.. args.Take(index + 1)];
+			keysharpArgs = [.. args.Take(index)];
 		}
 
 		private static (string NameNoExt, string ScriptDir, string OutPath) GetScriptOutputPaths(string scriptName, bool fromstdin)

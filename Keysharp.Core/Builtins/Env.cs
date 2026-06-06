@@ -426,8 +426,8 @@ namespace Keysharp.Builtins
 		internal static string FindCommandLineArg(string arg, bool startsWith = true)
 		{
 			// May be queried before a Script exists (e.g. compiler-error reporting during early argument
-			// parsing), in which case there are no script args to search.
-			var args = Script.TheScript?.ScriptArgs;
+			// parsing), in which case there are no Keysharp args to search.
+			var args = Script.TheScript?.KeysharpArgs;
 
 			if (args == null)
 				return null;
@@ -449,7 +449,7 @@ namespace Keysharp.Builtins
 		/// <returns>The matched value if found, else null.</returns>
 		internal static string FindCommandLineArgVal(string arg, bool startsWith = true)
 		{
-			var args = Script.TheScript?.ScriptArgs;
+			var args = Script.TheScript?.KeysharpArgs;
 
 			if (args == null)
 				return null;

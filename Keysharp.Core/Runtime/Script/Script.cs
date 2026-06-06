@@ -780,6 +780,13 @@ namespace Keysharp.Runtime
 #if OSX
 			if (app.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
 				macHandler.AllowClosingMainForm = true;
+
+			// Start as a background (accessory) app — no Dock icon, no Alt+Tab entry.
+			// Notification observers in RegisterWindowPolicyObservers switch to Regular whenever
+			// any window (including native Eto dialogs) gains focus, and back to Accessory when
+			// the last window closes.
+			MacNativeWindows.SetActivationPolicy(accessory: true);
+			MacNativeWindows.RegisterWindowPolicyObservers();
 #endif
 
 #if LINUX

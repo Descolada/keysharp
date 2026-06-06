@@ -302,7 +302,12 @@ namespace Keysharp.Internals.UI.Unix
 			//Cannot call ShowInTaskbar at all here because it causes a full re-creation of the window.
 			//So anything that previously used the window handle, including hotkeys, will no longer work.
 			if (WindowState == FormWindowState.Minimized)
+			{
 				this.Hide();
+#if OSX
+				Keysharp.Internals.Window.MacOS.MacNativeWindows.UpdateActivationPolicy();
+#endif
+			}
 			else
 				lastWindowState = WindowState;
 		}
@@ -313,6 +318,9 @@ namespace Keysharp.Internals.UI.Unix
 			{
 				e.Cancel = true;
 				this.Hide();
+#if OSX
+				Keysharp.Internals.Window.MacOS.MacNativeWindows.UpdateActivationPolicy();
+#endif
 				return;
 			}
 

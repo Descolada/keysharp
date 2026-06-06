@@ -165,6 +165,49 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
+		internal static void SetActivationPolicy(bool accessory)
+		{
+			try
+			{
+				MonoMac.AppKit.NSApplication.SharedApplication.ActivationPolicy =
+					accessory
+					? MonoMac.AppKit.NSApplicationActivationPolicy.Accessory
+					: MonoMac.AppKit.NSApplicationActivationPolicy.Regular;
+			}
+			catch { }
+		}
+
+		internal static void UpdateActivationPolicy()
+		{
+			var app = Eto.Forms.Application.Instance;
+
+			if (app == null)
+				return;
+
+			app.AsyncInvoke(() => SetActivationPolicy(accessory: !app.Windows.Any(w => w.Visible)));
+		}
+
+		// Registers NSNotificationCenter observers so that the activation policy is updated
+		// for ALL windows, including native Eto dialogs that are not KeysharpForm instances.
+		internal static void RegisterWindowPolicyObservers()
+		{
+			try
+			{
+				var nc = MonoMac.Foundation.NSNotificationCenter.DefaultCenter;
+
+				// Any window gaining key status means something is visible to the user.
+				nc.AddObserver("NSWindowDidBecomeKeyNotification", _ => SetActivationPolicy(accessory: false));
+
+				// When a window is about to close, defer a check — if no windows remain
+				// visible afterwards, revert to background (accessory) mode.
+				nc.AddObserver("NSWindowWillCloseNotification", _ =>
+				{
+					UpdateActivationPolicy();
+				});
+			}
+			catch { }
+		}
+
 		internal static bool ActivateAppByPid(int pid)
 		{
 			if (pid <= 0)

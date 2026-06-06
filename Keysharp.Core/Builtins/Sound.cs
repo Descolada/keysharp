@@ -41,6 +41,8 @@ namespace Keysharp.Builtins
 			var seconds = time / 1000.0;
 			if ($"speaker-test -t sine -f {freq} -l 1 & sleep {seconds} && kill -9 $!".Bash() != 0)
 				return Errors.ErrorOccurred("SoundBeep command failed.");
+#elif OSX
+			_ = "osascript -e 'beep'".Bash();
 #elif WINDOWS
 			Console.Beep(freq, time);
 #endif
@@ -173,6 +175,24 @@ namespace Keysharp.Builtins
 				else
 					sound.Play();
 
+#elif OSX
+				using var player = Process.Start(new ProcessStartInfo
+				{
+					FileName = "afplay",
+					UseShellExecute = false,
+					ArgumentList = { file }
+				});
+
+				if (player == null)
+					return Errors.ErrorOccurred($"Failed to play audio file {file}.");
+
+				if (doWait)
+				{
+					player.WaitForExit();
+
+					if (player.ExitCode != 0)
+						return Errors.ErrorOccurred($"Failed to play audio file {file}.");
+				}
 #else
 				if ($"aplay --quiet {filename}".Bash(doWait) != 0)
 					return Errors.ErrorOccurred($"Failed to play audio file {file}.");
@@ -854,6 +874,492 @@ namespace Keysharp.Builtins
 			internal string targetName;
 			// Valid only when target_control == SoundControlType::Name.
 		};
+#elif OSX
+		// CoreAudio property selectors (FourCC values)
+		private const uint kAudioObjectSystemObject = 1u;
+		private const uint kAudioHardwarePropertyDefaultOutputDevice              = 0x644F7574u; // 'dOut'
+		private const uint kAudioHardwarePropertyDevices                          = 0x64657623u; // 'dev#'
+		private const uint kAudioHardwareServiceDevicePropertyVirtualMasterVolume = 0x766D7663u; // 'vmvc'
+		private const uint kAudioDevicePropertyVolumeScalar                       = 0x766F6C75u; // 'volu'
+		private const uint kAudioDevicePropertyMute                               = 0x6D757465u; // 'mute'
+		private const uint kAudioDevicePropertyTransportType                      = 0x7472616Eu; // 'tran'
+		private const uint kAudioObjectPropertyName                               = 0x6C6E616Du; // 'lnam'
+		private const uint kAudioObjectPropertyScopeGlobal                        = 0x676C6F62u; // 'glob'
+		private const uint kAudioObjectPropertyScopeOutput                        = 0x6F757470u; // 'outp'
+		private const uint kAudioObjectPropertyScopeInput                         = 0x696E7074u; // 'inpt'
+		private const uint kAudioObjectPropertyElementMain                        = 0u;
+		private const uint kAudioDeviceTransportTypeAggregate                     = 0x61676772u; // 'aggr'
+		private const uint kAudioDeviceTransportTypeVirtual                       = 0x76697274u; // 'virt'
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct AudioObjectPropertyAddress
+		{
+			public uint mSelector;
+			public uint mScope;
+			public uint mElement;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct CFRange
+		{
+			public long location;
+			public long length;
+		}
+
+		[DllImport("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")]
+		private static extern int AudioObjectGetPropertyData(uint objectId, ref AudioObjectPropertyAddress addr, uint qualifierSize, nint qualifierData, ref uint dataSize, nint outData);
+
+		[DllImport("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")]
+		private static extern int AudioObjectSetPropertyData(uint objectId, ref AudioObjectPropertyAddress addr, uint qualifierSize, nint qualifierData, uint dataSize, nint inData);
+
+		[DllImport("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")]
+		private static extern int AudioObjectGetPropertyDataSize(uint objectId, ref AudioObjectPropertyAddress addr, uint qualifierSize, nint qualifierData, out uint outDataSize);
+
+		[DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static extern long CFStringGetLength(nint cfStr);
+
+		[DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static extern void CFStringGetCharacters(nint cfStr, CFRange range, nint buffer);
+
+		[DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static extern void CFRelease(nint cfTypeRef);
+
+		private static int GetPropertyFloat(uint objectId, AudioObjectPropertyAddress addr, out float value)
+		{
+			var ptr = Marshal.AllocHGlobal(sizeof(float));
+
+			try
+			{
+				uint size = sizeof(float);
+				var result = AudioObjectGetPropertyData(objectId, ref addr, 0, nint.Zero, ref size, ptr);
+				value = result == 0 ? BitConverter.Int32BitsToSingle(Marshal.ReadInt32(ptr)) : 0f;
+				return result;
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+		}
+
+		private static int SetPropertyFloat(uint objectId, AudioObjectPropertyAddress addr, float value)
+		{
+			var ptr = Marshal.AllocHGlobal(sizeof(float));
+
+			try
+			{
+				Marshal.WriteInt32(ptr, BitConverter.SingleToInt32Bits(value));
+				return AudioObjectSetPropertyData(objectId, ref addr, 0, nint.Zero, sizeof(float), ptr);
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+		}
+
+		private static int GetPropertyUInt(uint objectId, AudioObjectPropertyAddress addr, out uint value)
+		{
+			var ptr = Marshal.AllocHGlobal(sizeof(uint));
+
+			try
+			{
+				uint size = sizeof(uint);
+				var result = AudioObjectGetPropertyData(objectId, ref addr, 0, nint.Zero, ref size, ptr);
+				value = result == 0 ? (uint)Marshal.ReadInt32(ptr) : 0u;
+				return result;
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+		}
+
+		private static int SetPropertyUInt(uint objectId, AudioObjectPropertyAddress addr, uint value)
+		{
+			var ptr = Marshal.AllocHGlobal(sizeof(uint));
+
+			try
+			{
+				Marshal.WriteInt32(ptr, (int)value);
+				return AudioObjectSetPropertyData(objectId, ref addr, 0, nint.Zero, sizeof(uint), ptr);
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+		}
+
+		private static uint[] GetPropertyUInts(uint objectId, AudioObjectPropertyAddress addr)
+		{
+			if (AudioObjectGetPropertyDataSize(objectId, ref addr, 0, nint.Zero, out var dataSize) != 0 || dataSize == 0)
+				return [];
+
+			var ptr = Marshal.AllocHGlobal((int)dataSize);
+
+			try
+			{
+				if (AudioObjectGetPropertyData(objectId, ref addr, 0, nint.Zero, ref dataSize, ptr) != 0)
+					return [];
+
+				var count = (int)(dataSize / sizeof(uint));
+				var result = new uint[count];
+
+				for (var i = 0; i < count; i++)
+					result[i] = (uint)Marshal.ReadInt32(ptr, i * sizeof(uint));
+
+				return result;
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(ptr);
+			}
+		}
+
+		private static string GetPropertyString(uint objectId, AudioObjectPropertyAddress addr)
+		{
+			var ptrSize = nint.Size;
+			var cfStrHolder = Marshal.AllocHGlobal(ptrSize);
+
+			try
+			{
+				uint size = (uint)ptrSize;
+
+				if (AudioObjectGetPropertyData(objectId, ref addr, 0, nint.Zero, ref size, cfStrHolder) != 0)
+					return "";
+
+				var cfStr = Marshal.ReadIntPtr(cfStrHolder);
+
+				if (cfStr == nint.Zero)
+					return "";
+
+				try
+				{
+					var len = CFStringGetLength(cfStr);
+
+					if (len <= 0)
+						return "";
+
+					var charBuf = Marshal.AllocHGlobal((int)(len * 2));
+
+					try
+					{
+						CFStringGetCharacters(cfStr, new CFRange { location = 0, length = len }, charBuf);
+						return Marshal.PtrToStringUni(charBuf, (int)len) ?? "";
+					}
+					finally
+					{
+						Marshal.FreeHGlobal(charBuf);
+					}
+				}
+				finally
+				{
+					CFRelease(cfStr);
+				}
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(cfStrHolder);
+			}
+		}
+
+		private static uint GetDefaultOutputDevice()
+		{
+			var addr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioHardwarePropertyDefaultOutputDevice,
+				mScope = kAudioObjectPropertyScopeGlobal,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			GetPropertyUInt(kAudioObjectSystemObject, addr, out var deviceId);
+			return deviceId;
+		}
+
+		private static Dictionary<int, (uint id, string name)> GetDevices()
+		{
+			var result = new Dictionary<int, (uint, string)>();
+			var devicesAddr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioHardwarePropertyDevices,
+				mScope = kAudioObjectPropertyScopeGlobal,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var nameAddr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioObjectPropertyName,
+				mScope = kAudioObjectPropertyScopeGlobal,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var transportAddr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioDevicePropertyTransportType,
+				mScope = kAudioObjectPropertyScopeGlobal,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var deviceIds = GetPropertyUInts(kAudioObjectSystemObject, devicesAddr);
+			var outputDevices = new System.Collections.Generic.List<(uint id, string name)>();
+			var inputDevices = new System.Collections.Generic.List<(uint id, string name)>();
+			var vmvcAddr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioHardwareServiceDevicePropertyVirtualMasterVolume,
+				mScope = kAudioObjectPropertyScopeOutput,
+				mElement = kAudioObjectPropertyElementMain
+			};
+
+			foreach (var did in deviceIds)
+			{
+				GetPropertyUInt(did, transportAddr, out var transport);
+
+				if (transport == kAudioDeviceTransportTypeAggregate || transport == kAudioDeviceTransportTypeVirtual)
+					continue;
+
+				var name = GetPropertyString(did, nameAddr);
+				// Devices with vmvc on output scope are output-capable; enumerate them first.
+				if (AudioObjectGetPropertyDataSize(did, ref vmvcAddr, 0, nint.Zero, out _) == 0)
+					outputDevices.Add((did, name));
+				else
+					inputDevices.Add((did, name));
+			}
+
+			var idx = 0;
+			foreach (var dev in outputDevices) result[idx++] = dev;
+			foreach (var dev in inputDevices) result[idx++] = dev;
+			return result;
+		}
+
+		private static int GetDeviceVolume(uint deviceId, out float volume)
+		{
+			var addr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioHardwareServiceDevicePropertyVirtualMasterVolume,
+				mScope = kAudioObjectPropertyScopeOutput,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var result = GetPropertyFloat(deviceId, addr, out volume);
+
+			if (result != 0)
+			{
+				// Input-only devices (e.g. microphone): read input gain via scalar on input scope.
+				addr.mSelector = kAudioDevicePropertyVolumeScalar;
+				addr.mScope = kAudioObjectPropertyScopeInput;
+				result = GetPropertyFloat(deviceId, addr, out volume);
+
+				if (result != 0)
+				{
+					addr.mElement = 1u;
+					result = GetPropertyFloat(deviceId, addr, out volume);
+				}
+			}
+
+			return result;
+		}
+
+		private static int SetDeviceVolume(uint deviceId, float volume)
+		{
+			var addr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioHardwareServiceDevicePropertyVirtualMasterVolume,
+				mScope = kAudioObjectPropertyScopeOutput,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var result = SetPropertyFloat(deviceId, addr, volume);
+
+			if (result != 0)
+			{
+				// Input-only devices (e.g. microphone): set input gain via scalar on input scope.
+				addr.mSelector = kAudioDevicePropertyVolumeScalar;
+				addr.mScope = kAudioObjectPropertyScopeInput;
+				result = SetPropertyFloat(deviceId, addr, volume);
+
+				if (result != 0)
+				{
+					addr.mElement = 1u;
+					result = SetPropertyFloat(deviceId, addr, volume);
+				}
+			}
+
+			return result;
+		}
+
+		private static int GetDeviceMute(uint deviceId, out bool muted)
+		{
+			var addr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioDevicePropertyMute,
+				mScope = kAudioObjectPropertyScopeOutput,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var result = GetPropertyUInt(deviceId, addr, out var val);
+
+			if (result != 0)
+			{
+				// Input-only devices (e.g. microphone) use input scope.
+				addr.mScope = kAudioObjectPropertyScopeInput;
+				result = GetPropertyUInt(deviceId, addr, out val);
+			}
+
+			muted = val != 0;
+			return result;
+		}
+
+		private static int SetDeviceMute(uint deviceId, bool muted)
+		{
+			var muteVal = muted ? 1u : 0u;
+			var addr = new AudioObjectPropertyAddress
+			{
+				mSelector = kAudioDevicePropertyMute,
+				mScope = kAudioObjectPropertyScopeOutput,
+				mElement = kAudioObjectPropertyElementMain
+			};
+			var result = SetPropertyUInt(deviceId, addr, muteVal);
+
+			if (result != 0)
+			{
+				// Input-only devices (e.g. microphone) use input scope.
+				addr.mScope = kAudioObjectPropertyScopeInput;
+				result = SetPropertyUInt(deviceId, addr, muteVal);
+			}
+
+			return result;
+		}
+
+		private static object DoSound(SoundCommands soundCmd, object obj0, object obj1 = null, object obj2 = null)
+		{
+			var soundSet = soundCmd >= SoundCommands.SoundSetVolume;
+			var device = soundSet ? obj2 : obj1;
+
+			// macOS has no component topology like Windows. If a caller passes a numeric component
+			// with no device (e.g. SoundGetName(n)), treat it as a device index so scripts that
+			// enumerate devices via the component parameter work correctly.
+			if (!soundSet && device == null)
+			{
+				var compStr = obj0?.ToString() ?? "";
+
+				if (compStr.Length > 0 && int.TryParse(compStr, out _))
+					device = obj0;
+			}
+
+			uint deviceId;
+
+			if (device == null || device.ToString().Length == 0)
+			{
+				deviceId = GetDefaultOutputDevice();
+
+				if (deviceId == 0)
+					return Errors.OSErrorOccurred("", "No default output device found.");
+			}
+			else
+			{
+				var devStr = device.ToString();
+				var devs = GetDevices();
+				deviceId = 0;
+
+				if (int.TryParse(devStr, out var idx) && devs.TryGetValue(idx - 1, out var byIndex))
+					deviceId = byIndex.id;
+
+				if (deviceId == 0)
+				{
+					foreach (var kv in devs)
+					{
+						if (kv.Value.name.StartsWith(devStr, StringComparison.OrdinalIgnoreCase))
+						{
+							deviceId = kv.Value.id;
+							break;
+						}
+					}
+				}
+
+				if (deviceId == 0)
+					return Errors.TargetErrorOccurred($"Device {device} not found.");
+			}
+
+			switch (soundCmd)
+			{
+				case SoundCommands.SoundGetVolume:
+				{
+					var rc = GetDeviceVolume(deviceId, out var vol);
+
+					if (rc != 0)
+						return Errors.OSErrorOccurred("", $"Failed to query volume (CoreAudio error 0x{(uint)rc:X8}).");
+
+					return (double)(vol * 100f);
+				}
+
+				case SoundCommands.SoundGetMute:
+				{
+					var rc = GetDeviceMute(deviceId, out var muted);
+
+					if (rc != 0)
+						return Errors.OSErrorOccurred("", $"Failed to query mute state (CoreAudio error 0x{(uint)rc:X8}).");
+
+					return muted ? 1L : 0L;
+				}
+
+				case SoundCommands.SoundGetName:
+				{
+					var nameAddr = new AudioObjectPropertyAddress
+					{
+						mSelector = kAudioObjectPropertyName,
+						mScope = kAudioObjectPropertyScopeGlobal,
+						mElement = kAudioObjectPropertyElementMain
+					};
+					return GetPropertyString(deviceId, nameAddr);
+				}
+
+				case SoundCommands.SoundSetVolume:
+				{
+					var valStr = obj0?.ToString() ?? "";
+					var adjust = valStr.Length > 0 && (valStr[0] == '-' || valStr[0] == '+');
+					float newVol;
+
+					if (adjust)
+					{
+						var rc = GetDeviceVolume(deviceId, out var currentVol);
+
+						if (rc != 0)
+							return Errors.OSErrorOccurred("", $"Failed to query current volume (CoreAudio error 0x{(uint)rc:X8}).");
+
+						newVol = Math.Clamp(currentVol + (float)(obj0.Ad() * 0.01), 0f, 1f);
+					}
+					else
+					{
+						newVol = Math.Clamp((float)(obj0.Ad() * 0.01), 0f, 1f);
+					}
+
+					var setRc = SetDeviceVolume(deviceId, newVol);
+
+					if (setRc != 0)
+						return Errors.OSErrorOccurred("", $"Failed to set volume (CoreAudio error 0x{(uint)setRc:X8}).");
+				}
+				break;
+
+				case SoundCommands.SoundSetMute:
+				{
+					var act = Conversions.ConvertOnOffToggle(obj0);
+					bool muted;
+
+					if (act == ToggleValueType.Toggle)
+					{
+						var rc = GetDeviceMute(deviceId, out var currentMute);
+
+						if (rc != 0)
+							return Errors.OSErrorOccurred("", $"Failed to query mute state (CoreAudio error 0x{(uint)rc:X8}).");
+
+						muted = !currentMute;
+					}
+					else
+					{
+						muted = act == ToggleValueType.On;
+					}
+
+					var setRc = SetDeviceMute(deviceId, muted);
+
+					if (setRc != 0)
+						return Errors.OSErrorOccurred("", $"Failed to set mute state (CoreAudio error 0x{(uint)setRc:X8}).");
+				}
+				break;
+			}
+
+			return DefaultObject;
+		}
 #else
 		private static object DoSound(SoundCommands soundCmd, object obj0, object obj1 = null, object obj2 = null)
 		{

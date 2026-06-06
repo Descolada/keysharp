@@ -30,6 +30,23 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 
 		protected override bool UseSyntheticEventQueue => false;
 
+		// macOS App Switcher uses Cmd+Tab, not Alt+Tab.
+		protected override uint AltTabModifierVk => VK_LWIN;
+		protected override uint AltTabModifierMask => MOD_LWIN | MOD_RWIN;
+		protected override bool IsAltTabModifierVk(uint vk) => vk == VK_LWIN || vk == VK_RWIN;
+
+		protected override uint CurrentAltTabModifierVk
+		{
+			get
+			{
+				if ((kbdMsSender.modifiersLRLogical & MOD_LWIN) != 0)
+					return VK_LWIN;
+				if ((kbdMsSender.modifiersLRLogical & MOD_RWIN) != 0)
+					return VK_RWIN;
+				return 0;
+			}
+		}
+
 		// macOS hook SC values are raw native codes learned from hook events.
 		// Do not seed the SC tables from SharpHook KeyCode enum values.
 		internal override uint SC_LCONTROL => 0;

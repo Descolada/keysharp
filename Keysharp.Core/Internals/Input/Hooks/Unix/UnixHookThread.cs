@@ -80,6 +80,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			indicatorSnapshotValid = false;
 		}
 
+#if LINUX
 		private void UpdateIndicatorSnapshotFromInputd(uint flags)
 		{
 			// The indicator flags in the hook event are populated from current_caps_lock
@@ -96,6 +97,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				(flags & LLKHF_SCROLL_LOCK_ON) != 0);
 			indicatorSnapshotValid = true;
 		}
+#endif
 
 		private void UpdateIndicatorSnapshotFromMask(EventMask mask)
 		{

@@ -2296,10 +2296,10 @@ namespace Keysharp.Internals.Input.Hooks
 				// This seems very unlikely to be something commonly done by anyone, so for now
 				// it's just documented here as a limitation.
 
-				if (thisKey.itPutAltDown) // key pushed ALT down, or relied upon it already being down, so go up:
+				if (thisKey.itPutAltDown) // key pushed AltTab modifier down (Alt on Windows/Linux, Cmd on macOS), so put it back up:
 				{
 					thisKey.itPutAltDown = false;
-					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_MENU);
+					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, AltTabModifierVk);
 				}
 
 				if (thisKey.itPutShiftDown) // similar to above
@@ -2473,7 +2473,7 @@ namespace Keysharp.Internals.Input.Hooks
 					if (!keyUp)
 						thisKey.downPerformedAction = true; // aKeyUp is known to be false due to an earlier check.
 
-					if ((kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) == 0)  // Neither ALT key is down.
+					if ((kbdMsSender.modifiersLRLogical & AltTabModifierMask) == 0)  // AltTab modifier (Alt or Cmd on macOS) is not down.
 						// Note: Don't set the ignore-flag in this case because we want the hook to notice it.
 						// UPDATE: It might be best, after all, to have the hook ignore these keys.  That's because
 						// we want to avoid any possibility that other hotkeys will fire off while the user is
@@ -2484,7 +2484,7 @@ namespace Keysharp.Internals.Input.Hooks
 						// where <key1> & rshift is defined as alt-tab but <key1> & <key2> is defined as shift-alt-tab.
 						// In that case, if we didn't ignore these events, one hotkey might unintentionally trigger
 						// the other.
-						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, AltTabModifierVk);
 
 					// And leave it down until a key-up event on the prefix key occurs.
 
@@ -2560,10 +2560,12 @@ namespace Keysharp.Internals.Input.Hooks
 					// their own overview/window-cycling shortcuts, so a held Win prefix
 					// would otherwise hijack the synthesized Alt+Tab. Release it for the
 					// dispatch — the user's physical Win-up later is a harmless no-op.
-					if ((kbdMsSender.modifiersLRLogical & MOD_LWIN) != 0)
+					// On macOS, skip releasing Win/Cmd when it is our AltTab modifier (Cmd+Tab),
+					// because we need it held to keep the App Switcher open.
+					if ((kbdMsSender.modifiersLRLogical & MOD_LWIN) != 0 && (AltTabModifierMask & MOD_LWIN) == 0)
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_LWIN);
 
-					if ((kbdMsSender.modifiersLRLogical & MOD_RWIN) != 0)
+					if ((kbdMsSender.modifiersLRLogical & MOD_RWIN) != 0 && (AltTabModifierMask & MOD_RWIN) == 0)
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, VK_RWIN);
 
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB);
@@ -2880,12 +2882,7 @@ namespace Keysharp.Internals.Input.Hooks
 				case HotkeyDefinition.HOTKEY_ID_ALT_TAB_MENU:  // These cases must occur before the Alt-tab ones due to conditional break.
 				case HotkeyDefinition.HOTKEY_ID_ALT_TAB_AND_MENU:
 				{
-					var whichAltDown = 0u;
-
-					if ((kbdMsSender.modifiersLRLogical & MOD_LALT) != 0)
-						whichAltDown = VK_LMENU;
-					else if ((kbdMsSender.modifiersLRLogical & MOD_RALT) != 0)
-						whichAltDown = VK_RMENU;
+					var whichAltDown = CurrentAltTabModifierVk;
 
 					if (altTabMenuIsVisible)  // Can be true even if which_alt_down is zero.
 					{
@@ -2894,7 +2891,7 @@ namespace Keysharp.Internals.Input.Hooks
 							// Since it is possible for the menu to be visible when neither ALT
 							// key is down, always send an alt-up event if one isn't down
 							// so that the menu is dismissed as intended:
-							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, whichAltDown != 0 ? whichAltDown : VK_MENU);
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, whichAltDown != 0 ? whichAltDown : AltTabModifierVk);
 
 							if (thisKey.asModifiersLR != 0 && vk != VK_LWIN && vk != VK_RWIN && !keyUp)
 								// Something strange seems to happen with the foreground app
@@ -2921,7 +2918,7 @@ namespace Keysharp.Internals.Input.Hooks
 					{
 						// Unlike CONTROL, SHIFT, AND ALT, the LWIN/RWIN keys don't seem to need any
 						// special handling to make them work with the alt-tab features.
-						var vkIsAlt = vk == VK_LMENU || vk == VK_RMENU;  // Translated & no longer needed: || vk == VK_MENU;
+						var vkIsAlt = IsAltTabModifierVk(vk);  // Is the hotkey key itself the AltTab modifier?
 						var vkIsShift = vk == VK_LSHIFT || vk == VK_RSHIFT;  // || vk == VK_SHIFT;
 						var vkIsControl = vk == VK_LCONTROL || vk == VK_RCONTROL;  // || vk == VK_CONTROL;
 						var whichShiftDown = 0u;
@@ -2979,7 +2976,7 @@ namespace Keysharp.Internals.Input.Hooks
 						}
 
 						if (whichAltDown == 0)
-							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+							kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, AltTabModifierVk);
 
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDownAndUp, VK_TAB); // v1.0.28: KEYDOWNANDUP vs. KEYDOWN.
 
@@ -3033,11 +3030,11 @@ namespace Keysharp.Internals.Input.Hooks
 						// (in fact, it might not solve any at all).
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyUp, vk); // Can't send sc here since it's not defined for the mouse hook.
 
-					// Even when the menu is visible, it's possible that neither of the ALT keys
+					// Even when the menu is visible, it's possible that neither of the AltTab modifier keys
 					// is down (such as if Ctrl+Alt+Tab was used, and perhaps other cases):
-					if ((kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) == 0// Neither ALT key is down
-							|| (keyUp && (vk == VK_LMENU || vk == VK_RMENU))) // Or the suffix key for Alt-tab *is* an ALT key and it's being released: must push ALT down for upcoming TAB to work.
-						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_MENU);
+					if ((kbdMsSender.modifiersLRLogical & AltTabModifierMask) == 0// Neither AltTab modifier key is down
+							|| (keyUp && IsAltTabModifierVk(vk))) // Or the suffix key *is* the AltTab modifier and it's being released: push it down for upcoming TAB to work.
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, AltTabModifierVk);
 
 					// And never put it back up because that would dismiss the menu.
 					// Otherwise, use keystrokes to navigate through the menu:
@@ -3592,6 +3589,23 @@ namespace Keysharp.Internals.Input.Hooks
 		internal virtual void PrepareToSendHotstringReplacement(char endChar, uint triggerVk) { }
 
 		internal virtual HookAction CancelAltTabMenu(uint vk, bool keyUp) => HookAction.Continue;
+
+		// On macOS the App Switcher uses Cmd+Tab; on Windows/Linux it uses Alt+Tab.
+		protected virtual uint AltTabModifierVk => VK_MENU;
+		protected virtual uint AltTabModifierMask => MOD_LALT | MOD_RALT;
+		protected virtual bool IsAltTabModifierVk(uint vk) => vk == VK_LMENU || vk == VK_RMENU;
+
+		protected virtual uint CurrentAltTabModifierVk
+		{
+			get
+			{
+				if ((kbdMsSender.modifiersLRLogical & MOD_LALT) != 0)
+					return VK_LMENU;
+				if ((kbdMsSender.modifiersLRLogical & MOD_RALT) != 0)
+					return VK_RMENU;
+				return 0;
+			}
+		}
 
 		internal bool PostMessage(KeysharpMsg msg)
 		{

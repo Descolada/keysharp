@@ -80,7 +80,9 @@ namespace Keysharp.Internals.Window.Unix
 			Maximizable = false;
 			Minimizable = false;
 			ShowInTaskbar = false;
+#if !OSX
 			WindowStyle = WindowStyle.Utility;
+#endif
 			Shown += (_, __) => CenterOnPrimaryScreen();
 		}
 

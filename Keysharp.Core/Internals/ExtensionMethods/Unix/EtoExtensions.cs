@@ -60,7 +60,14 @@ namespace Eto.Forms
                             break;
                         case FormBorderStyle.FixedToolWindow:
                         case FormBorderStyle.SizableToolWindow:
+#if OSX
+                            // WindowStyle.Utility (NSWindowStyleMask 0x10) is unsupported on
+                            // modern macOS and logs a warning. A regular window with
+                            // ShowInTaskbar = false is the closest equivalent.
+                            form.WindowStyle = WindowStyle.Default;
+#else
                             form.WindowStyle = WindowStyle.Utility;
+#endif
                             break;
                         default:
                             form.WindowStyle = WindowStyle.Default;

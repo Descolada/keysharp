@@ -466,6 +466,9 @@ namespace Keysharp.Internals.Window.MacOS
 				catch
 				{
 				}
+
+				if (Keysharp.Internals.Flow.PollUntil(() => AXIsProcessTrustedWithOptions(0), 60_000, 500))
+					return true;
 			}
 
 			if (Interlocked.Exchange(ref loggedTrustFailure, 1) == 0)
@@ -496,6 +499,9 @@ namespace Keysharp.Internals.Window.MacOS
 				catch
 				{
 				}
+
+				if (Keysharp.Internals.Flow.PollUntil(CheckListenAccess, 60_000, 500))
+					return true;
 			}
 
 			if (Interlocked.Exchange(ref loggedListenFailure, 1) == 0)
@@ -527,6 +533,9 @@ namespace Keysharp.Internals.Window.MacOS
 				catch
 				{
 				}
+
+				if (Keysharp.Internals.Flow.PollUntil(CheckPostAccess, 60_000, 500))
+					return true;
 			}
 
 			if (Interlocked.Exchange(ref loggedPostFailure, 1) == 0)
@@ -558,6 +567,9 @@ namespace Keysharp.Internals.Window.MacOS
 				catch
 				{
 				}
+
+				if (Keysharp.Internals.Flow.PollUntil(CheckScreenCaptureAccess, 60_000, 500))
+					return true;
 			}
 
 			if (Interlocked.Exchange(ref loggedScreenFailure, 1) == 0)

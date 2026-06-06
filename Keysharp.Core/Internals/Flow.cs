@@ -216,6 +216,24 @@ namespace Keysharp.Internals
 			fd.allowInterruption = true;
 		}
 
+		internal static bool PollUntil(Func<bool> condition, int timeoutMs, int pollIntervalMs)
+		{
+			var deadline = Environment.TickCount64 + timeoutMs;
+
+			while (true)
+			{
+				if (condition())
+					return true;
+
+				var remainingMs = deadline - Environment.TickCount64;
+
+				if (remainingMs <= 0)
+					return false;
+
+				System.Threading.Thread.Sleep((int)Math.Min(pollIntervalMs, remainingMs));
+			}
+		}
+
 		internal static void StopMainTimer()
 		{
 			var script = Script.TheScript;

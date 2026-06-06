@@ -18,7 +18,11 @@ namespace Keysharp.Internals.UI.Unix
 		private readonly TextArea txtHotkeys = new () { Font = SystemFonts.Default(10), Wrap = false };
 		private readonly TextArea txtHistory = new () { Font = SystemFonts.Default(10), Wrap = false };
 
-		public static Font OurDefaultFont = SystemFonts.Default(8F);
+#if OSX
+		public static readonly Font OurDefaultFont = SystemFonts.Default(10F);
+#else
+		public static readonly Font OurDefaultFont = SystemFonts.Default(8F);
+#endif
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
 		private bool callingInternalVars = false;

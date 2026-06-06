@@ -1203,6 +1203,7 @@ namespace Keysharp.Builtins
 		etoItems.AddRange(Items);
 		foreach (var item in etoItems)
 			item.Owner = this;
+		DataStore = null;
 		DataStore = etoItems;
 		ReloadData(Enumerable.Range(0, etoItems.Count));
 	}

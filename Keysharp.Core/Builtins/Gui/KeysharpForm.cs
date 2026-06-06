@@ -482,8 +482,8 @@ namespace Keysharp.Builtins
 
 				Size client = ClientSize;
 
-				if (g.dpiscaling)
-					_ = sizeHandlers?.InvokeEventHandlers(g, state, (long)(client.Width / A_ScaledScreenDPI), (long)(client.Height / A_ScaledScreenDPI));
+				if (g.DpiScale != 1.0)
+					_ = sizeHandlers?.InvokeEventHandlers(g, state, (long)(client.Width / g.DpiScale), (long)(client.Height / g.DpiScale));
 				else
 					_ = sizeHandlers?.InvokeEventHandlers(g, state, (long)client.Width, (long)client.Height);
 			}

@@ -17,7 +17,7 @@ namespace Keysharp.Builtins
 			private WeakReference<Gui> gui;
 			private readonly CallbackHub clickHandlers = new();
 			private readonly CallbackHub doubleClickHandlers = new();
-			internal bool DpiScaling => ((Gui)Gui).dpiscaling;
+			internal bool DpiScaling => ((Gui)Gui).DpiScale != 1.0;
 			private Forms.Control _control;
 
 			// Normal event handlers can't be used because they need to return a value.
@@ -179,7 +179,7 @@ namespace Keysharp.Builtins
 					}
 					else
 					{
-						tc.AdjustSize(!DpiScaling ? 1.0 : A_ScaledScreenDPI, requestedSize);
+						tc.AdjustSize(((Gui)Gui).DpiScale, requestedSize);
 						g.LastContainer = tc.Parent;
 					}
 

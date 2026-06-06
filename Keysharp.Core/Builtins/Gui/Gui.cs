@@ -29,10 +29,18 @@ namespace Keysharp.Builtins
 		internal Dictionary<object, object> controls = [];
 #if WINDOWS
 		internal bool dpiscaling = true;
+#elif OSX
+		internal bool dpiscaling = false;
 #else
 		internal bool dpiscaling = false;
 #endif
-		internal double dpiscale => !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+#if OSX
+		// Eto on macOS uses logical points and handles HiDPI internally via BackingScaleFactor.
+		// Applying a DPIScale multiplier here would double-scale controls on Retina displays.
+		internal double DpiScale => 1.0;
+#else
+		internal double DpiScale => !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+#endif
 		internal MenuBar menuBar;
 		bool marginsInit = false;
 		internal nint owner = 0;
@@ -70,11 +78,9 @@ namespace Keysharp.Builtins
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
-#if WINDOWS
 			{
 				"DPIScale", (f, o) => { if (o is bool b) f.dpiscaling = b; }
 			},
-#endif
 			{
 				"LastFound", (f, o) =>
 				{
@@ -103,12 +109,12 @@ namespace Keysharp.Builtins
 						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
 						{
 							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MinimumSize = new Size((int)(f.dpiscale * width), f.form.MinimumSize.Height);
+								f.form.MinimumSize = new Size((int)(f.DpiScale * width), f.form.MinimumSize.Height);
 						}
 						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
 						{
 							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MinimumSize = new Size(f.form.MinimumSize.Width, (int)(f.dpiscale * height));
+								f.form.MinimumSize = new Size(f.form.MinimumSize.Width, (int)(f.DpiScale * height));
 						}
 						else
 						{
@@ -117,7 +123,7 @@ namespace Keysharp.Builtins
 							if (splits.Length == 2)
 							{
 								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MinimumSize = f.dpiscaling ? new Size((int)(f.dpiscale * width), (int)(f.dpiscale * height)) : new Size(width, height);
+									f.form.MinimumSize = f.dpiscaling ? new Size((int)(f.DpiScale * width), (int)(f.DpiScale * height)) : new Size(width, height);
 							}
 						}
 					}
@@ -135,12 +141,12 @@ namespace Keysharp.Builtins
 						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
 						{
 							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MaximumSize = new Size((int)(f.dpiscale * width), f.form.MaximumSize.Height);
+								f.form.MaximumSize = new Size((int)(f.DpiScale * width), f.form.MaximumSize.Height);
 						}
 						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
 						{
 							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MaximumSize = new Size(f.form.MaximumSize.Width, (int)(f.dpiscale * height));
+								f.form.MaximumSize = new Size(f.form.MaximumSize.Width, (int)(f.DpiScale * height));
 						}
 						else
 						{
@@ -149,7 +155,7 @@ namespace Keysharp.Builtins
 							if (splits.Length == 2)
 							{
 								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MaximumSize = f.dpiscaling ? new Size((int)(f.dpiscale * width), (int)(f.dpiscale * height)) :new Size(width, height);
+									f.form.MaximumSize = f.dpiscaling ? new Size((int)(f.DpiScale * width), (int)(f.DpiScale * height)) :new Size(width, height);
 							}
 						}
 					}
@@ -477,7 +483,7 @@ namespace Keysharp.Builtins
 		void EnsureDefaultMargins()
 		{
 			if (marginsInit) return;
-			float dpi = dpiscaling ? (float)A_ScreenDPI : 96f;
+			float dpi = DpiScale != 1.0 ? (float)A_ScreenDPI : 96f;
 			float dpiinv = 96F / dpi;
 			float fh = form.Font.GetHeight(dpi) * dpiinv;
 			int mx = (int)Math.Ceiling(fh * 1.25f);
@@ -500,7 +506,7 @@ namespace Keysharp.Builtins
 				text = text.ReplaceLineEndings(Environment.NewLine);
 
 			var al = o as Array;
-			var dpiscale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+			var dpiscale = DpiScale;
 			var dpiinv = 1.0 / dpiscale;
 			var opts = ParseOpt(type, text, options);
 			Forms.Control ctrl = null;
@@ -2239,7 +2245,7 @@ namespace Keysharp.Builtins
 								   [Optional()][DefaultParameterValue(null)] object outWidth,
 								   [Optional()][DefaultParameterValue(null)] object outHeight)
 		{
-			Gui.Control.GetClientPos(form, dpiscaling, outX, outY, outWidth, outHeight);
+			Gui.Control.GetClientPos(form, DpiScale != 1.0, outX, outY, outWidth, outHeight);
 			return DefaultObject;
 		}
 
@@ -2247,7 +2253,7 @@ namespace Keysharp.Builtins
 
 		public object GetPos([Optional()][DefaultParameterValue(null)] object outX, [Optional()][DefaultParameterValue(null)] object outY, [Optional()][DefaultParameterValue(null)] object outWidth, [Optional()][DefaultParameterValue(null)] object outHeight)
 		{
-			Gui.Control.GetPos(form, dpiscaling, outX, outY, outWidth, outHeight);
+			Gui.Control.GetPos(form, DpiScale != 1.0, outX, outY, outWidth, outHeight);
 			return DefaultObject;
 		}
 
@@ -2267,7 +2273,7 @@ namespace Keysharp.Builtins
 			var y = obj1.Ai(int.MinValue);
 			var width = obj2.Ai(int.MinValue);
 			var height = obj3.Ai(int.MinValue);
-			var scale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+			var scale = DpiScale;
 			var formLoc = form.GetLocation();
 			var formSize = form.GetSize();
 
@@ -2373,7 +2379,7 @@ namespace Keysharp.Builtins
 			EnsureDefaultMargins();
 			var s = obj.As();
 			bool /*center = false, cX = false, cY = false,*/ auto = false, min = false, max = false, restore = true, hide = false, cX = false, cY = false;
-			var dpiscale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+			var dpiscale = DpiScale;
 
 			foreach (Range r in s.AsSpan().SplitAny(Spaces))
 			{
@@ -3103,7 +3109,7 @@ namespace Keysharp.Builtins
 
 		private void ResizeTabControls()
 		{
-			var dpiscale = !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+			var dpiscale = DpiScale;
 			var tabControls = controls.Values.OfType<Gui.Control>().Where(gc => gc.Ctrl is KeysharpTabControl).ToHashSet();
 
 			foreach (var tc in tabControls)

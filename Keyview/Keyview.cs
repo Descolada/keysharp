@@ -662,7 +662,7 @@ namespace Keyview
 			{
 				StartInfo = new ProcessStartInfo
 				{
-					FileName = "Keysharp.exe",
+					FileName = GetKeysharpExecutable(),
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
@@ -691,6 +691,7 @@ namespace Keyview
 			btnRunScript.Text = btnRunScriptText["Stop"];
 		}
 
+		private static string GetKeysharpExecutable() => "Keysharp.exe";
 
 		private void TxtIn_DragDrop(object sender, DragEventArgs e)
 		{
@@ -1011,7 +1012,11 @@ namespace Keyview
 
 		private void InitializeEditors()
 		{
+#if OSX
+			var font = TryMonospaceFont(13);
+#else
 			var font = TryMonospaceFont(10);
+#endif
 			inputArea.Font = font;
 			outputArea.Font = font;
 			inputArea.TextReplacements = TextReplacements.None;
@@ -1601,7 +1606,11 @@ namespace Keyview
 
 		private void ZoomDefault()
 		{
+#if OSX
+			var font = TryMonospaceFont(13);
+#else
 			var font = TryMonospaceFont(10);
+#endif
 			inputArea.Font = font;
 			outputArea.Font = font;
 		}
@@ -1727,19 +1736,33 @@ namespace Keyview
 				return;
 			}
 
+			var keysharpExe = GetKeysharpExecutable();
+
+			if (!File.Exists(keysharpExe))
+			{
+				MessageBox.Show(this, $"Keysharp executable not found:\n{keysharpExe}\n\nCopy Keysharp.app to /Applications/ or run Keyview from the same folder as Keysharp.", "Launch Error", MessageBoxButtons.OK, MessageBoxType.Error);
+				return;
+			}
+
 			scriptProcess = new Process
 			{
 				StartInfo = new ProcessStartInfo
 				{
-					FileName = Path.Combine(AppContext.BaseDirectory ?? Path.GetDirectoryName(Environment.ProcessPath), "Keysharp"),
+					FileName = keysharpExe,
 					Arguments = "--assembly *",
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
+					RedirectStandardError = true,
 					UseShellExecute = false,
 					CreateNoWindow = true
 				}
 			};
 			scriptProcess.EnableRaisingEvents = true;
+			scriptProcess.ErrorDataReceived += (_, e) =>
+			{
+				if (!string.IsNullOrEmpty(e.Data))
+					Application.Instance.AsyncInvoke(() => outputArea.Append($"{e.Data}\n", true));
+			};
 			scriptProcess.Exited += (_, _) =>
 			{
 				Application.Instance.AsyncInvoke(() =>
@@ -1749,15 +1772,37 @@ namespace Keyview
 				});
 			};
 			_ = scriptProcess.Start();
+			scriptProcess.BeginErrorReadLine();
 
 			// Write the raw assembly bytes and close stdin; the child ("--assembly *") reads to EOF.
-			using (var stdin = scriptProcess.StandardInput.BaseStream)
+			try
 			{
+				using var stdin = scriptProcess.StandardInput.BaseStream;
 				stdin.Write(CompilerHelper.compiledBytes, 0, CompilerHelper.compiledBytes.Length);
 				stdin.Flush();
 			}
+			catch (IOException)
+			{
+				// Keysharp exited before reading stdin — error output will appear via stderr above.
+				runScriptButton.Text = runScriptText["Run"];
+				scriptProcess = null;
+				return;
+			}
 
 			runScriptButton.Text = runScriptText["Stop"];
+		}
+
+		private static string GetKeysharpExecutable()
+		{
+#if OSX && !DEBUG
+			// Prefer the binary installed to /Applications/ (pkg install).
+			// Check the binary itself rather than the /usr/local/bin shim, which may be stale.
+			const string installed = "/Applications/Keysharp.app/Contents/MacOS/Keysharp";
+			if (File.Exists(installed))
+				return installed;
+#endif
+			// Fallback: sibling binary (DMG run, ~/Applications/, or debug build).
+			return Path.Combine(AppContext.BaseDirectory ?? Path.GetDirectoryName(Environment.ProcessPath), "Keysharp");
 		}
 
 		private void WriteLastRunText()

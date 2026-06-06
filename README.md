@@ -2,6 +2,7 @@
 * [Overview](#markdown-header-overview)
 * [Cross-Platform Capability Matrix](#cross-platform-capability-matrix)
 * [Linux Platform Support](#linux-platform-support)
+* [macOS Platform Notes](#macos-platform-notes)
 * [Differences](#markdown-header-differences)
 	+ [Behaviors](#markdown-header-behaviors-functionality)
 	+ [Syntax](#markdown-header-syntax)
@@ -43,6 +44,82 @@
 * Build all (building the installer is not necessary).
 * CD to bin\release\net10.0-windows
 * Run `.\Keysharp.exe yourtestfile.ahk`
+
+### Installing on macOS ###
+
+Two packages are available on the [Releases](https://github.com/Descolada/keysharp/releases) page.
+
+#### DMG — user install, no administrator password required
+
+The DMG contains `Keysharp.app` and `Keyview.app`. Open it and drag both apps to the **Applications** folder shortcut inside, or to any folder of your choice (e.g. `~/Applications/`).
+
+**First-launch Gatekeeper workaround** — because the app is not notarized, macOS will block it on the first open. Right-click (or Control-click) `Keysharp.app` → **Open**, then click **Open** in the prompt. Do the same for `Keyview.app`. After that one-time step the apps open normally.
+
+Alternatively, in Terminal:
+```sh
+xattr -dr com.apple.quarantine /Applications/Keysharp.app
+xattr -dr com.apple.quarantine /Applications/Keyview.app
+```
+
+The DMG install does **not** add terminal commands. Use `Keyview.app` to write and run scripts. Keyview will find the sibling `Keysharp` binary automatically, whether the apps live in `/Applications/`, `~/Applications/`, or directly on a mounted DMG volume.
+
+#### PKG — system install, requires administrator password
+
+The `.pkg` installer places both apps in `/Applications/` and adds two terminal commands:
+- `keysharp` — run a script from the command line: `keysharp myscript.ahk`
+- `keyview` — open the script editor
+
+Install from Finder by double-clicking the `.pkg` and following the installer prompts (you will be asked for your administrator password), or from Terminal:
+```sh
+sudo installer -pkg Keysharp-osx-arm64.pkg -target /
+```
+
+Apply the same first-launch Gatekeeper workaround as above for each app after installation.
+
+#### macOS permissions
+
+On first use, macOS will ask for several permissions:
+
+| Permission | Required for |
+|---|---|
+| **Input Monitoring** | Hotkeys, hotstrings, and reading keyboard/mouse input |
+| **Accessibility** | Controlling and querying other application windows |
+| **Screen Recording** | `PixelGetColor`, `ImageSearch`, `ImageCapture` |
+
+Grant each permission in **System Settings → Privacy & Security** when prompted. Keysharp will wait up to 60 seconds for each permission to be granted before continuing. You can also request permissions explicitly at the top of a script:
+```ahk
+#Requires capability InputMonitoring, ScreenCapture
+```
+
+#### Uninstalling
+
+To fully remove a pkg install:
+```sh
+sudo rm -rf /Applications/Keysharp.app /Applications/Keyview.app
+sudo rm -f /usr/local/bin/keysharp /usr/local/bin/keyview
+sudo pkgutil --forget org.keysharp.pkg
+```
+
+### Building from source on macOS ###
+
+* Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
+* In the same parent folder as `keysharp`, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp). If `keysharp` is at `foo/keysharp`, clone Eto to `foo/Eto`:
+  ```sh
+  git clone -b Keysharp https://github.com/Descolada/Eto.git
+  ```
+* Run the packaging script to produce a release DMG and PKG:
+  ```sh
+  bash ./Keysharp.Install/package-macos.sh
+  ```
+  Output is written to `dist/`:
+  - `Keysharp-osx-arm64.dmg` — drag-and-drop user install
+  - `Keysharp-osx-arm64.pkg` — system install with terminal commands
+* For a quick debug run without packaging, build and run directly:
+  ```sh
+  dotnet build Keyview/Keyview.csproj -c Debug
+  open bin/Debug/net10.0/osx-arm64/Keyview.app
+  ```
+* The signing and notarization steps are skipped by default (no developer account required). To enable ad-hoc signing for local testing: `ADHOC_SIGN=true bash ./Keysharp.Install/package-macos.sh`.
 
 ### Building from source on Linux ###
 * Install the .NET 10 SDK (not just the runtime) as described in "Installing on Linux"
@@ -123,6 +200,25 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 | **Wayland – GNOME** | Full window management and mouse synthesis via GNOME Shell extension | Keyboard synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd`; screen capture permission via `keysharp-screencap` | Shell extension must be enabled; `keysharp-screencap` must be installed for capture authorization |
 | **Wayland – KWin / KDE Plasma** | Full window management via KWin scripting; mouse synthesis via FakeInput | Screen capture via `keysharp-screencap`; keyboard synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | `keysharp-screencap` must be root-owned setuid with desktop file |
 | **Wayland – other compositors**<br>Sway, Hyprland, COSMIC, Wayfire, labwc, etc. | Protocol-dependent window listing, active-window detection, activation, and screen capture | Input synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | Depends on foreign-toplevel and screencopy protocol support |
+
+## macOS Platform Notes ##
+
+macOS support is in active development. The following table summarises what works and what requires user action.
+
+| Feature | Status | Notes |
+|---|---|---|
+| Script execution | Working | Parser, compiler, and runtime are functional |
+| Hotkeys / Hotstrings | Working | Requires **Input Monitoring** permission on first use |
+| Keyboard & mouse send | Working | Requires **Accessibility** permission on first use |
+| Global keyboard/mouse hooks | Working | Requires **Input Monitoring** permission on first use |
+| GUI windows | Working | Eto.Forms backend; some controls differ from Windows |
+| Screen capture / pixel functions | Working | Requires **Screen Recording** permission on first use |
+| Window management | Partial | Accessibility API; foreign-app control requires permission |
+| AltTab / app-switcher hotkeys | Working | Maps to macOS Cmd+Tab (e.g. `^1::AltTab`) |
+| Registry APIs | Not supported | Windows-only |
+| COM APIs | Not supported | Windows-only |
+
+Permissions are requested automatically when first needed, or up front with `#Requires capability` (see [Additions/Improvements](#additionsimprovements) below). Grant them in **System Settings → Privacy & Security**.
 
 ## Differences: ##
 

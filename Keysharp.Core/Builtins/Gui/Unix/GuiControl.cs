@@ -563,7 +563,7 @@ namespace Keysharp.Builtins
 							cb.Items.AddRange(obj.Cast<object>().Select(x => x.Str()));
 						else if (_control is KeysharpTabControl tc)
 						{
-							var pages = obj.Cast<object>().Select(x => new TabPage(x.Str()));
+							var pages = obj.Cast<object>().Select(x => new TabPage(KeysharpTabControl.DisplayText(x.Str())));
 							foreach (var page in pages)
 								page.Click += _control_Click;
 							tc.TabPages.AddRange(pages);

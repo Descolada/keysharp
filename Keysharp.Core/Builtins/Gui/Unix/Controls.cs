@@ -1904,6 +1904,8 @@ namespace Keysharp.Builtins
 			removeExStyle = _removeExStyle;
 		}
 
+		internal static string DisplayText(string text) => (text ?? "").Replace("&&", "&");
+
 		internal void AdjustSize(double dpiscale, Size requestedSize)
 		{
 			if (requestedSize.Width != int.MinValue && requestedSize.Height != int.MinValue)

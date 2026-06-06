@@ -1385,7 +1385,7 @@ namespace Keysharp.Builtins
 							.Select(x => x.Item2.Str())
 							.Select(text => new TabPage
 							{
-								Text = text,
+								Text = KeysharpTabControl.DisplayText(text),
 								Content = new PixelLayout()
 							})
 							.ToArray();

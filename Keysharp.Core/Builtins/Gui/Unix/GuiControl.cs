@@ -499,59 +499,59 @@ namespace Keysharp.Builtins
 						node.Name = id.ToString();
 						result = TreeViewHelper.TV_NodeOptions(node, parent, options, false);
 					}
-				else if (_control is KeysharpListView lv)
-				{
-					var options = obj.Length > 0 && obj[0] is string s ? s : null;
-					var lvo = ParseListViewOptions(options);
-					var startIndex = options != null || obj.Length > 0 && obj[0] == null ? 1 : 0;
-					var strs = obj.Cast<object>().Skip(startIndex).Select(x => x.Str()).ToList();
-					var rowIndex = lv.AddRow(strs, lvo.ischecked ?? false, lvo.colstart);
-					var grid = (Eto.Forms.GridView)lv;
-					var rowNumber = rowIndex - 1;
-					var selectionChanged = false;
-
-					if (lvo.select.HasValue)
+					else if (_control is KeysharpListView lv)
 					{
-						if (lvo.select.Value)
+						var options = obj.Length > 0 && obj[0] is string s ? s : null;
+						var lvo = ParseListViewOptions(options);
+						var startIndex = options != null || obj.Length > 0 && obj[0] == null ? 1 : 0;
+						var strs = obj.Cast<object>().Skip(startIndex).Select(x => x.Str()).ToList();
+						var rowIndex = lv.AddRow(strs, lvo.ischecked ?? false, lvo.colstart);
+						var grid = (Eto.Forms.GridView)lv;
+						var rowNumber = rowIndex - 1;
+						var selectionChanged = false;
+
+						if (lvo.select.HasValue)
 						{
-							if (lv.MultiSelect)
-								grid.SelectRow(rowNumber);
+							if (lvo.select.Value)
+							{
+								if (lv.MultiSelect)
+									grid.SelectRow(rowNumber);
+								else
+									grid.SelectedRow = rowNumber;
+							}
 							else
-								grid.SelectedRow = rowNumber;
+							{
+								if (lv.MultiSelect)
+									grid.UnselectRow(rowNumber);
+								else if (grid.SelectedRow == rowNumber)
+									grid.SelectedRow = -1;
+							}
+							selectionChanged = true;
 						}
-						else
+
+						if (lvo.focused.HasValue)
 						{
-							if (lv.MultiSelect)
-								grid.UnselectRow(rowNumber);
-							else if (grid.SelectedRow == rowNumber)
-								grid.SelectedRow = -1;
+							if (lvo.focused.Value)
+							{
+								lv.FocusedItem = lv.Items[rowNumber];
+								listViewFocusedRow = rowNumber;
+							}
+							else if (listViewFocusedRow == rowNumber)
+							{
+								lv.FocusedItem = null;
+								listViewFocusedRow = -1;
+							}
+							selectionChanged = true;
 						}
-						selectionChanged = true;
+
+						if (lvo.vis)
+							grid.ScrollToRow(rowNumber);
+
+						if (selectionChanged)
+							Lv_SelectedRowsChanged(lv, EventArgs.Empty);
+
+						result = rowIndex;
 					}
-
-					if (lvo.focused.HasValue)
-					{
-						if (lvo.focused.Value)
-						{
-							lv.FocusedItem = lv.Items[rowNumber];
-							listViewFocusedRow = rowNumber;
-						}
-						else if (listViewFocusedRow == rowNumber)
-						{
-							lv.FocusedItem = null;
-							listViewFocusedRow = -1;
-						}
-						selectionChanged = true;
-					}
-
-					if (lvo.vis)
-						grid.ScrollToRow(rowNumber);
-
-					if (selectionChanged)
-						Lv_SelectedRowsChanged(lv, EventArgs.Empty);
-
-					result = rowIndex;
-				}
 					else
 					{
 						if (obj.Length > 0 && obj[0] is Array arr)

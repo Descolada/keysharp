@@ -368,7 +368,6 @@ namespace Keysharp.Internals.UI.Unix
 				Visible = true;
 				BringToFront();
 				WindowState = WindowState.Normal;
-
 			}
 		}
 

@@ -707,64 +707,64 @@ namespace Keysharp.Builtins
 			Float
 		}
 
-	internal event Action<int> ColumnClicked;
+		internal event Action<int> ColumnClicked;
 
-	public class ListViewItem
-	{
-		public class ListViewSubItem
+		public class ListViewItem
 		{
+			public class ListViewSubItem
+			{
+				public string Text { get; set; } = "";
+			}
+
+			public class ListViewSubItemCollection : Collection<ListViewSubItem>
+			{
+			}
+
+			public int Index { get; internal set; }
+			internal KeysharpListView Owner { get; set; }
+			public bool Checked { get; set; }
+			public bool Selected { get; set; }
+			public bool Focused { get; set; }
 			public string Text { get; set; } = "";
+			public ListViewSubItemCollection SubItems { get; } = new ListViewSubItemCollection();
+
+			public void BeginEdit()
+			{
+				Owner?.BeginEditItem(this);
+			}
 		}
 
-		public class ListViewSubItemCollection : Collection<ListViewSubItem>
+		public class ListViewItemCollection : Collection<ListViewItem>
 		{
+			protected override void InsertItem(int index, ListViewItem item)
+			{
+				base.InsertItem(index, item);
+				RefreshIndices();
+			}
+
+			protected override void SetItem(int index, ListViewItem item)
+			{
+				base.SetItem(index, item);
+				RefreshIndices();
+			}
+
+			protected override void RemoveItem(int index)
+			{
+				base.RemoveItem(index);
+				RefreshIndices();
+			}
+
+			private void RefreshIndices()
+			{
+				for (var i = 0; i < Count; i++)
+					this[i].Index = i;
+			}
 		}
 
-		public int Index { get; internal set; }
-		internal KeysharpListView Owner { get; set; }
-		public bool Checked { get; set; }
-		public bool Selected { get; set; }
-		public bool Focused { get; set; }
-		public string Text { get; set; } = "";
-		public ListViewSubItemCollection SubItems { get; } = new ListViewSubItemCollection();
-
-		public void BeginEdit()
-		{
-			Owner?.BeginEditItem(this);
-		}
-	}
-
-	public class ListViewItemCollection : Collection<ListViewItem>
-	{
-		protected override void InsertItem(int index, ListViewItem item)
-		{
-			base.InsertItem(index, item);
-			RefreshIndices();
-		}
-
-		protected override void SetItem(int index, ListViewItem item)
-		{
-			base.SetItem(index, item);
-			RefreshIndices();
-		}
-
-		protected override void RemoveItem(int index)
-		{
-			base.RemoveItem(index);
-			RefreshIndices();
-		}
-
-		private void RefreshIndices()
-		{
-			for (var i = 0; i < Count; i++)
-				this[i].Index = i;
-		}
-	}
-
-	public ListViewItemCollection Items { get; } = new ListViewItemCollection();
-	public ListViewItemCollection SelectedItems { get; } = new ListViewItemCollection();
-	public IList<int> SelectedIndices { get; } = new List<int>();
-	public ListViewItem FocusedItem { get; set; }
+		public ListViewItemCollection Items { get; } = new ListViewItemCollection();
+		public ListViewItemCollection SelectedItems { get; } = new ListViewItemCollection();
+		public IList<int> SelectedIndices { get; } = new List<int>();
+		public ListViewItem FocusedItem { get; set; }
 		public new WinForms.ColumnHeaderCollection Columns { get; } = new WinForms.ColumnHeaderCollection();
 		public bool CheckBoxes
 		{

@@ -131,6 +131,9 @@ namespace Keysharp.Builtins
 				var maxY = Math.Min(Ks.A_TotalScreenHeight.Ai(), _y2) - start.Y;
 				source = GuiHelper.GetScreen(_x1, _y1, maxX, maxY);
 
+				if (source == null)
+					return Errors.ErrorOccurred("Screen capture failed while searching for an image.");
+
 				// On HiDPI compositors (GNOME Wayland) GetScreen returns the physical-pixel
 				// bitmap so the needle (also physical from screenshot tools) matches exactly.
 				// Record the scale here while source is still alive; apply it below.
@@ -188,7 +191,12 @@ namespace Keysharp.Builtins
 				CoordToScreen(ref _x, ref _y, CoordMode.Pixel);
 
 				using (var bmp = GuiHelper.GetScreen(_x, _y, 1, 1))
-					pixel = (bmp?.GetPixel(0, 0).ToArgb() & 0xffffff) ?? 0;
+				{
+					if (bmp == null)
+						return (string)Errors.ErrorOccurred($"Screen capture failed at {_x},{_y}.", DefaultErrorString);
+
+					pixel = bmp.GetPixel(0, 0).ToArgb() & 0xffffff;
+				}
 
 				return $"0x{pixel:X6}";
 			}
@@ -254,6 +262,10 @@ namespace Keysharp.Builtins
 				var logW = x2 - x1;
 				var logH = y2 - y1;
 				source = GuiHelper.GetScreen(x1, y1, logW, logH);
+
+				if (source == null)
+					return (long)Errors.ErrorOccurred("Screen capture failed while searching for a pixel color.", DefaultErrorLong);
+
 				if (source != null && logW > 0) captureScaleX = (double)source.Width / logW;
 				if (source != null && logH > 0) captureScaleY = (double)source.Height / logH;
 				finder = new ImageFinder(source) { Variation = (byte)variation };

@@ -83,6 +83,10 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
+		<Content Include="Scripts\AxSpy.ks" Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 		<None Include="..\Keysharp.ico" Link="Keysharp.ico">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -134,6 +138,7 @@
 		<ItemGroup>
 			<_BundledScript Include="$(PublishDir)Scripts\WindowSpy.ks" Condition="Exists('$(PublishDir)Scripts\WindowSpy.ks')" />
 			<_BundledScript Include="$(PublishDir)Scripts\AtSpi.ks" Condition="Exists('$(PublishDir)Scripts\AtSpi.ks')" />
+			<_BundledScript Include="$(PublishDir)Scripts\AxSpy.ks" Condition="Exists('$(PublishDir)Scripts\AxSpy.ks')" />
 		</ItemGroup>
 		<Exec Condition="Exists('$(_KsHost)') And '@(_BundledScript)' != ''"
 			  Command="&quot;$(_KsHost)&quot; --compile asm &quot;%(_BundledScript.FullPath)&quot; --errorstdout"

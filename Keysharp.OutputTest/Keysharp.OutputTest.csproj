@@ -54,6 +54,9 @@
     <Content Include="Keysharp.OutputTest.manifest">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\Keysharp\Scripts\WindowSpy.ks" Link="Scripts\WindowSpy.ks">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Keysharp.Core\Keysharp.Core.csproj" />

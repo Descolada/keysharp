@@ -227,7 +227,13 @@ namespace Keysharp.Main
 		/// Pipe name keyed on protocol + build fingerprint + user, so a client never connects to a daemon
 		/// built from different Keysharp/Keysharp.Core binaries, or to another user's daemon.
 		/// </summary>
-		internal static string PipeName => $"keysharp-compile-{ProtocolVersion}-{KeysharpFingerprint.Value}-{Environment.UserName}";
+		internal static string PipeName { get; } = CreatePipeName();
+
+		private static string CreatePipeName()
+		{
+			var userHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Environment.UserName))).Substring(0, 8);
+			return $"ksc-{ProtocolVersion}-{KeysharpFingerprint.Value}-{userHash}";
+		}
 
 		internal static int Run()
 		{
@@ -389,7 +395,9 @@ namespace Keysharp.Main
 			}
 
 			writer.Flush();
-			server.WaitForPipeDrain();
+
+			if (OperatingSystem.IsWindows())
+				server.WaitForPipeDrain();
 		}
 	}
 

@@ -12,6 +12,9 @@ using Keysharp.Runtime;
 using Microsoft.NET.HostModel.AppHost;
 #if WINDOWS
 using Microsoft.Win32;
+#elif OSX
+using System.Threading;
+using Eto.Forms;
 #endif
 
 namespace Keysharp.Main
@@ -35,6 +38,13 @@ namespace Keysharp.Main
 			// Run Script's static constructor eagerly so any error messageboxes render correctly even before a
 			// Script instance exists (e.g. a daemon compile failure reported below).
 			System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Script).TypeHandle);
+
+#if OSX
+			// On macOS, double-clicking a .ks/.ahk file sends an Apple Event rather than a command-line
+			// argument. Receive it via Eto's AppDelegate before the normal arg-parsing pipeline.
+			if (args.Length == 0)
+				args = WaitForMacOsDocumentOpen();
+#endif
 
 			var command = Runner.Parse(args);
 
@@ -319,6 +329,45 @@ namespace Keysharp.Main
 
 			return (Path.Combine(outputDirForFile, nameNoExt), outputDirForFile, nameNoExt);
 		}
+
+#if OSX
+
+		// Start a minimal Eto Application, wait up to 1 s for macOS to deliver the "open file" Apple
+		// Event (via AppDelegate.OpenFile / OpenFiles), then stop the loop and return the first path.
+		// If no event arrives the method returns an empty array and the normal "no script" error follows.
+		// The Application instance is deliberately NOT disposed: EnsureEtoApplication() reuses it for
+		// GUI scripts that call RunMainWindow → app.Run() afterwards.
+		private static string[] WaitForMacOsDocumentOpen()
+		{
+			string openedPath = null;
+			var app = Application.Instance ?? new Application();
+
+			void OnFileOpened(string path)
+			{
+				Volatile.Write(ref openedPath, path);
+				Eto.Mac.AppDelegate.FileOpened -= OnFileOpened;
+				app.AsyncInvoke(app.Quit);
+			}
+
+			Eto.Mac.AppDelegate.FileOpened += OnFileOpened;
+
+			var timeoutThread = new Thread(() =>
+			{
+				Thread.Sleep(1000);
+
+				if (Volatile.Read(ref openedPath) == null)
+					app.AsyncInvoke(app.Quit);
+			}) { IsBackground = true };
+			timeoutThread.Start();
+
+			app.Run();
+
+			Eto.Mac.AppDelegate.FileOpened -= OnFileOpened;
+			var path = Volatile.Read(ref openedPath);
+			return path != null ? [path] : [];
+		}
+
+#endif
 
 #if WINDOWS
 

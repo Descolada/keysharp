@@ -152,8 +152,15 @@ TryUpdate() {
                . "Text:`t" textMangle(ctrlTxt) "`n"
                . "Screen:`tx: " sX "`ty: " sY "`tw: " sW "`th: " sH "`n"
                . "Client`tx: " cX "`ty: " cY "`tw: " cW "`th: " cH
-    } else
+    } else {
         cText := ""
+#if LINUX
+        cText := "No native control detected.`nUse the AtSpi accessibility inspector for UI elements."
+#endif
+#if OSX
+        cText := "No native control detected.`nUse the AxSpy accessibility inspector for UI elements."
+#endif
+    }
 
     UpdateText("Ctrl_Ctrl", cText)
     wX := "", wY := "", wW := "", wH := ""

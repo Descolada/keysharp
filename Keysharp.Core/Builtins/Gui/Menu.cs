@@ -217,6 +217,30 @@ namespace Keysharp.Builtins
 				return DefaultObject;
 			};
 			_ = Add("&Window Spy", new FuncObj(windowSpyFunc.Method, windowSpyFunc.Target));
+#if LINUX || OSX
+#if LINUX
+			const string accessibilitySpyName = "AtSpi";
+#else
+			const string accessibilitySpyName = "AxSpy";
+#endif
+			var accessibilitySpyFunc = (params object[] args) =>
+			{
+				var dir = Path.GetDirectoryName(A_KeysharpPath);
+				var spyCompiled = Path.Combine(dir, "Scripts", accessibilitySpyName + ".cks");
+				var spy = File.Exists(spyCompiled) ? spyCompiled : Path.Combine(dir, "Scripts", accessibilitySpyName + ".ks");
+
+				if (!File.Exists(spy))
+				{
+					_ = Dialogs.MsgBox($"{accessibilitySpyName} accessibility inspector script not found:\n{spy}", "Keysharp", "Icon!");
+					return DefaultObject;
+				}
+
+				Ks.RunScript(spy, true);
+				return DefaultObject;
+			};
+			_ = Add($"&Accessibility Spy", new FuncObj(accessibilitySpyFunc.Method, accessibilitySpyFunc.Target));
+			_ = menu.Items.Add(new ToolStripSeparator());
+#endif
 			_ = Add("&Reload Script", new FuncObj(reloadfunc.Method, reloadfunc.Target));
 
 			if (!A_IsCompiled)

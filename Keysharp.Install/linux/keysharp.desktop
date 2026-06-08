@@ -5,4 +5,5 @@ Exec=/usr/local/bin/keysharp %f
 Icon=keysharp
 Terminal=false
 MimeType=application/x-keysharp;application/x-keysharp-compiled;application/x-autohotkey;
+InitialPreference=100
 NoDisplay=true

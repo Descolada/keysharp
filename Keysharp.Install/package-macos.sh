@@ -43,6 +43,9 @@ SKIP_SIGN="${SKIP_SIGN:-false}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-false}"
 ADHOC_SIGN="${ADHOC_SIGN:-false}"
 PKG_IDENTIFIER="${PKG_IDENTIFIER:-org.keysharp.pkg}"
+UNINSTALL_SCRIPT="${ROOT}/Keysharp.Install/macos/uninstall.sh"
+INSTALL_CLI_SCRIPT="${ROOT}/Keysharp.Install/macos/install-cli-commands.sh"
+INSTALL_VSCODE_COMPAT_SCRIPT="${ROOT}/Keysharp.Install/macos/install-vscode-autohotkey-compat.sh"
 
 log() {
   printf '%s\n' "$*"
@@ -86,6 +89,10 @@ validate_inputs() {
   if ! is_true "${SKIP_SIGN}" && [[ -n "${APP_CERT}" && ! -f "${ENTITLEMENTS}" ]]; then
     die "Entitlements file not found: ${ENTITLEMENTS}"
   fi
+
+  [[ -f "${UNINSTALL_SCRIPT}" ]] || die "Uninstall script not found: ${UNINSTALL_SCRIPT}"
+  [[ -f "${INSTALL_CLI_SCRIPT}" ]] || die "CLI install script not found: ${INSTALL_CLI_SCRIPT}"
+  [[ -f "${INSTALL_VSCODE_COMPAT_SCRIPT}" ]] || die "VS Code compatibility install script not found: ${INSTALL_VSCODE_COMPAT_SCRIPT}"
 
   if ! is_true "${SKIP_NOTARIZE}" && [[ -n "${NOTARY_PROFILE}" && -z "${INSTALLER_CERT}" ]]; then
     die "NOTARY_PROFILE requires INSTALLER_CERT so the .pkg can be signed before notarization."
@@ -214,6 +221,27 @@ add_document_types() {
   plutil -lint "${plist}" >/dev/null
 }
 
+add_editor_document_types() {
+  local app="$1"
+  local plist="${app}/Contents/Info.plist"
+
+  [[ -f "${plist}" ]] || die "Missing Info.plist: ${plist}"
+
+  plistbuddy -c "Delete :CFBundleDocumentTypes" "${plist}" 2>/dev/null || true
+  plistbuddy -c "Add :CFBundleDocumentTypes array" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0 dict" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeName string 'Keysharp Script'" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeRole string Editor" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:LSHandlerRank string Alternate" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions array" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:0 string ahk" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:1 string ks" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" "${plist}"
+  plistbuddy -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string org.keysharp.script" "${plist}"
+
+  plutil -lint "${plist}" >/dev/null
+}
+
 clean_app_bundle() {
   local app="$1"
   local macos_dir="${app}/Contents/MacOS"
@@ -277,6 +305,40 @@ set -e
 
 mkdir -p /usr/local/bin
 
+has_dotnet10() {
+  command -v dotnet >/dev/null 2>&1 && dotnet --list-runtimes 2>/dev/null | grep -q 'Microsoft.NETCore.App 10\.'
+}
+
+install_dotnet10() {
+  echo "Keysharp requires the .NET 10 runtime; installing it now..."
+
+  local arch
+  case "$(uname -m)" in
+    arm64) arch="arm64" ;;
+    x86_64) arch="x64" ;;
+    *)
+      echo "Warning: unrecognized architecture $(uname -m); cannot auto-install the .NET 10 runtime." >&2
+      return 1
+      ;;
+  esac
+
+  local script="/tmp/dotnet-install-$$.sh"
+  if ! curl -fsSL https://dot.net/v1/dotnet-install.sh -o "${script}"; then
+    return 1
+  fi
+  chmod +x "${script}"
+  "${script}" --channel 10.0 --runtime dotnet --architecture "${arch}" --install-dir /usr/local/share/dotnet
+  local result=$?
+  rm -f "${script}"
+  [ ${result} -eq 0 ] || return 1
+
+  ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet
+}
+
+if ! has_dotnet10; then
+  install_dotnet10 || echo "Warning: could not auto-install the .NET 10 runtime. Install it manually from https://dotnet.microsoft.com/en-us/download/dotnet/10.0" >&2
+fi
+
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "${LSREGISTER}" ]; then
   "${LSREGISTER}" -f /Applications/Keysharp.app /Applications/Keyview.app >/dev/null 2>&1 || true
@@ -304,11 +366,13 @@ stage_payload() {
   set_bundle_metadata "${PKG_ROOT}/Applications/Keysharp.app"
   set_bundle_metadata "${PKG_ROOT}/Applications/Keyview.app"
   add_document_types "${PKG_ROOT}/Applications/Keysharp.app"
+  add_editor_document_types "${PKG_ROOT}/Applications/Keyview.app"
   clean_app_bundle "${PKG_ROOT}/Applications/Keysharp.app"
   clean_app_bundle "${PKG_ROOT}/Applications/Keyview.app"
 
   write_cli_shim "${PKG_ROOT}/usr/local/bin/keysharp" "Keysharp" "Keysharp"
   write_cli_shim "${PKG_ROOT}/usr/local/bin/keyview" "Keyview" "Keyview"
+  install -m 0755 "${UNINSTALL_SCRIPT}" "${PKG_ROOT}/usr/local/bin/keysharp-uninstall"
   write_install_scripts
 }
 
@@ -432,6 +496,12 @@ build_dmg() {
 
   # Standard "drag to Applications folder" symlink shown in every Mac DMG.
   ln -s /Applications "${DMG_STAGING_DIR}/Applications"
+
+  # Double-clickable uninstaller for users who installed via drag-and-drop (no
+  # terminal commands available to them otherwise).
+  install -m 0755 "${UNINSTALL_SCRIPT}" "${DMG_STAGING_DIR}/Uninstall Keysharp.command"
+  install -m 0755 "${INSTALL_CLI_SCRIPT}" "${DMG_STAGING_DIR}/Install CLI Commands.command"
+  install -m 0755 "${INSTALL_VSCODE_COMPAT_SCRIPT}" "${DMG_STAGING_DIR}/Install AutoHotkey VS Code Compatibility.command"
 
   rm -f "${DMG_OUT}"
   hdiutil create \

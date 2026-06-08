@@ -465,7 +465,7 @@
         "InstallerBootstrapper" = "3:2"
             "BootstrapperCfg:{63ACBE69-63AA-4F98-B2B6-99F9E24495F2}"
             {
-            "Enabled" = "11:FALSE"
+            "Enabled" = "11:TRUE"
             "PromptEnabled" = "11:TRUE"
             "PrerequisitesLocation" = "2:1"
             "Url" = "8:"
@@ -497,7 +497,7 @@
         "InstallerBootstrapper" = "3:2"
             "BootstrapperCfg:{63ACBE69-63AA-4F98-B2B6-99F9E24495F2}"
             {
-            "Enabled" = "11:FALSE"
+            "Enabled" = "11:TRUE"
             "PromptEnabled" = "11:TRUE"
             "PrerequisitesLocation" = "2:1"
             "Url" = "8:"
@@ -1832,6 +1832,13 @@
                     "Verb" = "8:open"
                     "Arguments" = "8:\"%1\""
                     "Order" = "3:0"
+                    }
+                    "{95C0C507-CBF0-42B8-B119-07219E384A4A}:_B47E2639A6DA4B6BB4898D19B457777A"
+                    {
+                    "Command" = "8:Edit with Keyview"
+                    "Verb" = "8:edit"
+                    "Arguments" = "8:--edit \"%1\""
+                    "Order" = "3:1"
                     }
                 }
             }

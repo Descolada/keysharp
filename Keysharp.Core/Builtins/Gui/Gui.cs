@@ -60,6 +60,12 @@ namespace Keysharp.Builtins
 			{
 				"Border", (f, o) =>
 				{
+					// FormBorderStyle conflates caption presence with border thickness, and there's no
+					// "border but no caption" value, so once the caption has been turned off via -Caption,
+					// leave the borderless style alone rather than letting this silently bring it back.
+					if (!f.caption)
+						return;
+
 					if (o is bool b && b)
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedSingle;//No such thing as a resizable single pixel border.
 					else
@@ -70,9 +76,15 @@ namespace Keysharp.Builtins
 				"Caption", (f, o) =>
 				{
 					if (o is bool b && b)
+					{
+						f.caption = true;
 						f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
+					}
 					else
+					{
+						f.caption = false;
 						f.form.FormBorderStyle = FormBorderStyle.None;
+					}
 				}
 			},
 			{
@@ -209,7 +221,10 @@ namespace Keysharp.Builtins
 					{
 						f.resizable = b;
 						f.form.MaximizeBox = b;
-						f.form.FormBorderStyle = b ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
+
+						if (f.caption)
+							f.form.FormBorderStyle = b ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
+
 						f.form.SizeGripStyle = b ? SizeGripStyle.Show : SizeGripStyle.Hide;
 						if (b)
 							f.form.AutoSize = false;
@@ -226,14 +241,14 @@ namespace Keysharp.Builtins
 				"ToolWindow", (f, o) => {
 					if (o is bool b && b)
 					{
-						if (f.form.FormBorderStyle != FormBorderStyle.None)//Only change border if they haven't requested that there be no border.
+						if (f.caption)//Only change border if they haven't requested that there be no caption/border.
 							f.form.FormBorderStyle = f.resizable ? FormBorderStyle.SizableToolWindow : FormBorderStyle.FixedToolWindow;
 
 						f.form.ShowInTaskbar = false;
 					}
 					else
 					{
-						if (f.form.FormBorderStyle != FormBorderStyle.None)
+						if (f.caption)
 							f.form.FormBorderStyle = f.resizable ? FormBorderStyle.Sizable : FormBorderStyle.FixedDialog;
 
 						f.form.ShowInTaskbar = true;
@@ -242,6 +257,7 @@ namespace Keysharp.Builtins
 			}
 		};
 
+		private bool caption = true;
 		private bool lastfound = false;
 		private bool owndialogs = false;
 		private bool resizable = false;

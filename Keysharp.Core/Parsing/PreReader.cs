@@ -274,7 +274,7 @@ namespace Keysharp.Parsing
 								var currentModule = parser.GetOrCreateModule(state.ModuleName);
 
 								foreach (var importEntry in parsedImport.Entries)
-									currentModule.DirectiveImports.Add(importEntry);
+									MergeImportEntry(currentModule, importEntry);
 
 								TryQueueImportModule(parsedImport.ModuleName, token);
 							}
@@ -1036,6 +1036,50 @@ namespace Keysharp.Parsing
 		{
 			internal string ModuleName;
 			internal List<Parser.Module.ImportEntry> Entries { get; } = [];
+		}
+
+		/// <summary>
+		/// Adds an import entry to a module's directive imports, merging it into an existing
+		/// equivalent entry when possible so that repeated/overlapping #Import directives for
+		/// the same module don't produce duplicate declarations (e.g. importing the same module
+		/// twice, or importing different named members from the same module across directives).
+		/// </summary>
+		private static void MergeImportEntry(Parser.Module module, Parser.Module.ImportEntry entry)
+		{
+			foreach (var existing in module.DirectiveImports)
+			{
+				if (existing.Kind != entry.Kind
+					|| !string.Equals(existing.ModuleName, entry.ModuleName, StringComparison.OrdinalIgnoreCase))
+					continue;
+
+				switch (entry.Kind)
+				{
+					case Parser.Module.ImportKind.ModuleAlias:
+					case Parser.Module.ImportKind.Wildcard:
+						if (string.Equals(existing.Alias, entry.Alias, StringComparison.OrdinalIgnoreCase))
+						{
+							existing.IsExported |= entry.IsExported;
+							return;
+						}
+
+						continue;
+
+					case Parser.Module.ImportKind.Named:
+						existing.IsExported |= entry.IsExported;
+
+						foreach (var specifier in entry.Specifiers)
+						{
+							if (!existing.Specifiers.Any(s =>
+								string.Equals(s.Name, specifier.Name, StringComparison.OrdinalIgnoreCase)
+								&& string.Equals(s.Alias, specifier.Alias, StringComparison.OrdinalIgnoreCase)))
+								existing.Specifiers.Add(specifier.Clone());
+						}
+
+						return;
+				}
+			}
+
+			module.DirectiveImports.Add(entry);
 		}
 
 		private ParsedImportDirective ParseImportDirective(PreprocessorParser.ImportDirectiveContext context, IToken errorToken)

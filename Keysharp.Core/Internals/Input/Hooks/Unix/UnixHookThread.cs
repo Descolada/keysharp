@@ -512,7 +512,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
 					StopGlobalHookCore(dispose: true); // clean restart if something half-exists
 
-					globalHook = new SimpleGlobalHook();
+					globalHook = new SimpleGlobalHook(default, default, true);
 
 					globalHook.KeyPressed += OnKeyPressed;
 					globalHook.KeyReleased += OnKeyReleased;
@@ -1107,6 +1107,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		// -------------------- event handlers --------------------
 
+		// On platforms without an OS-level "block all input" API (e.g. macOS, and the X11/SharpHook
+		// fallback path), BlockInput is implemented by suppressing physical events at the hook level.
+		// Injected (self-generated) events must still pass through so that Send/Click keep working
+		// while BlockInput is active.
+		private static bool ShouldSuppressForBlockInput(bool isInjected) =>
+			!isInjected && Script.TheScript.KeyboardData.blockInput;
+
 		private void OnKeyPressed(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
@@ -1123,6 +1130,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: false, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
+
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
+				e.SuppressEvent = true;
+				return;
+			}
 
 			if (ShouldConsumePlatformHotstringKeyDown(vk))
 			{
@@ -1169,6 +1183,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: true, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
+
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				UpdateObservedPhysicalKeyState(vk, keyUp: true, isInjected);
+				ClearLogicalKeyIfNeeded(vk, isInjected);
+				e.SuppressEvent = true;
+				return;
+			}
 
 			if (ShouldConsumePlatformHotstringKeyUp(vk, isInjected))
 			{
@@ -1324,6 +1346,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				e.SuppressEvent = true;
+				return;
+			}
+
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)
 				e.SuppressEvent = true;
@@ -1340,7 +1368,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				var script = Script.TheScript;
 				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
 
-				if (script.KeyboardData.blockMouseMove)
+				if (script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput)
 					e.SuppressEvent = true;
 			}
 		}
@@ -1360,6 +1388,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
+
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				e.SuppressEvent = true;
+				return;
+			}
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)
@@ -1381,6 +1415,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var sc = 0u;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
+
+			if (ShouldSuppressForBlockInput(isInjected))
+			{
+				e.SuppressEvent = true;
+				return;
+			}
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
 			if (result != 0)

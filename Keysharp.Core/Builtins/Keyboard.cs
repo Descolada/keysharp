@@ -1024,6 +1024,16 @@ break_twice:;
 				case ToggleValueType.On:
 				case ToggleValueType.Off:
 					script.KeyboardData.blockInput = toggle == ToggleValueType.On;
+
+					// There is no OS-level "block all input" API on macOS (unlike Windows' BlockInput()),
+					// so blocking is implemented by suppressing physical events in the keyboard/mouse hook.
+					// Make sure that hook is actually installed and running.
+					if (toggle == ToggleValueType.On)
+					{
+						HotkeyDefinition.InstallKeybdHook();
+						HotkeyDefinition.InstallMouseHook();
+					}
+
 					break;
 
 				case ToggleValueType.Send:

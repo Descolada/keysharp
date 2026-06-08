@@ -35,6 +35,44 @@ namespace Keysharp.Internals.Platform.Windows
 		public static bool UnregisterHotKey(nint hWnd, uint id) => WindowsAPI.UnregisterHotKey(hWnd, id);
 
 		public static bool GetCursorPos(out POINT lpPoint) => WindowsAPI.GetCursorPos(out lpPoint);
+
+		/// <summary>
+		/// Maps AHK-style cursor names to their corresponding <see cref="Cursor"/> objects.<br/>
+		/// Names not present here (e.g. Icon, Size) have no direct WinForms equivalent and are reported as Unknown.
+		/// </summary>
+		private static readonly Dictionary<string, Cursor> cursorMap = new (StringComparer.OrdinalIgnoreCase)
+		{
+			{ "AppStarting", Cursors.AppStarting },
+			{ "Arrow", Cursors.Arrow },
+			{ "Cross", Cursors.Cross },
+			{ "Help", Cursors.Help },
+			{ "IBeam", Cursors.IBeam },
+			{ "No", Cursors.No },
+			{ "SizeAll", Cursors.SizeAll },
+			{ "SizeNESW", Cursors.SizeNESW },
+			{ "SizeNS", Cursors.SizeNS },
+			{ "SizeNWSE", Cursors.SizeNWSE },
+			{ "SizeWE", Cursors.SizeWE },
+			{ "UpArrow", Cursors.UpArrow },
+			{ "Wait", Cursors.WaitCursor }
+		};
+
+		public static string GetCursor()
+		{
+			var current = Cursor.Current;
+
+			foreach (var (name, cursor) in cursorMap)
+				if (current == cursor)
+					return name;
+
+			return "Unknown";
+		}
+
+		public static void SetCursor(string cursorName)
+		{
+			if (cursorMap.TryGetValue(cursorName, out var cursor))
+				Cursor.Current = cursor;
+		}
 	}
 }
 

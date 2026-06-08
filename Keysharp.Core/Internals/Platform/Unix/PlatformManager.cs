@@ -2,6 +2,9 @@ using Keysharp.Builtins;
 #if !WINDOWS
 
 using VirtualKeys = Keysharp.Internals.Input.Keyboard.VirtualKeys;
+#if OSX
+using MonoMac.AppKit;
+#endif
 
 namespace Keysharp.Internals.Platform.Unix
 {
@@ -362,6 +365,48 @@ namespace Keysharp.Internals.Platform.Unix
 			lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
 			return true;
 		}
+
+#if OSX
+		/// <summary>
+		/// Maps AHK-style cursor names to their corresponding <see cref="NSCursor"/> objects.<br/>
+		/// Names not present here (e.g. AppStarting, Help, Icon, Size, SizeAll, SizeNESW, SizeNWSE, UpArrow, Wait)
+		/// have no direct AppKit equivalent and are reported as Unknown.
+		/// </summary>
+		private static readonly Dictionary<string, Func<NSCursor>> cursorMap = new (StringComparer.OrdinalIgnoreCase)
+		{
+			{ "Arrow", () => NSCursor.ArrowCursor },
+			{ "IBeam", () => NSCursor.IBeamCursor },
+			{ "Cross", () => NSCursor.CrosshairCursor },
+			{ "No", () => NSCursor.OperationNotAllowedCursor },
+			{ "SizeWE", () => NSCursor.ResizeLeftRightCursor },
+			{ "SizeNS", () => NSCursor.ResizeUpDownCursor }
+		};
+
+		public static string GetCursor()
+		{
+			var current = NSCursor.CurrentSystemCursor;
+
+			if (current != null)
+				foreach (var (name, cursor) in cursorMap)
+					if (current.Handle == cursor().Handle)
+						return name;
+
+			return "Unknown";
+		}
+
+		public static void SetCursor(string cursorName)
+		{
+			if (cursorMap.TryGetValue(cursorName, out var cursor))
+				cursor().Set();
+		}
+
+#else
+		public static string GetCursor() => "Unknown";
+
+		public static void SetCursor(string cursorName)
+		{
+		}
+#endif
 
 #if LINUX
 		private static bool TryScalePointerAxis(int value, int min, int max, int size, out int scaled)

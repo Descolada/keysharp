@@ -47,6 +47,19 @@ namespace Keysharp.Internals.Platform
 		internal static abstract bool UnregisterHotKey(nint hWnd, uint id);
 
 		internal static abstract bool GetCursorPos(out POINT lpPoint);
+
+		/// <summary>
+		/// Returns the AHK-style name of the mouse cursor currently being displayed.<br/>
+		/// See <see cref="Keysharp.Builtins.Accessors.A_Cursor"/> for the list of possible names.
+		/// </summary>
+		internal static abstract string GetCursor();
+
+		/// <summary>
+		/// Changes the mouse cursor currently being displayed to the one matching the given
+		/// AHK-style name. Unrecognized names are ignored.
+		/// </summary>
+		/// <param name="cursorName">The AHK-style name of the cursor to display.</param>
+		internal static abstract void SetCursor(string cursorName);
 	}
 
 	internal abstract class PlatformManagerBase

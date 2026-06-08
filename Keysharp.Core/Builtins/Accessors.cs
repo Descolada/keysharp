@@ -451,18 +451,10 @@ namespace Keysharp.Builtins
 		/// The acronyms used with the size-type cursors are compass directions, e.g. NESW = NorthEast+SouthWest.<br/>
 		/// The hand-shaped cursors (pointing and grabbing) are classified as Unknown.
 		/// </summary>
-		public static string A_Cursor
+		public static object A_Cursor
 		{
-			get
-			{
-#if WINDOWS
-				return Cursor.Current is Cursor cur
-					? cur.ToString().Trim(BothBrackets).Split(' ', StringSplitOptions.RemoveEmptyEntries)[1].Replace("Cursor", "")
-					: "Default---";
-#else
-				return "Default---";
-#endif
-			}
+			get => ThreadAccessors.A_Cursor;
+			set => ThreadAccessors.A_Cursor = value.ToString();
 		}
 
 		/// <summary>

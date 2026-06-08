@@ -44,6 +44,9 @@ namespace Keysharp.Main
 			// argument. Receive it via Eto's AppDelegate before the normal arg-parsing pipeline.
 			if (args.Length == 0)
 				args = WaitForMacOsDocumentOpen();
+#elif WINDOWS
+			if (TryEditWithKeyview(args, out var editResult))
+				return editResult;
 #endif
 
 			var command = Runner.Parse(args);
@@ -371,6 +374,31 @@ namespace Keysharp.Main
 
 #if WINDOWS
 
+		private static bool TryEditWithKeyview(string[] args, out int result)
+		{
+			result = 0;
+
+			if (args.Length < 2 || !args[0].TrimStart(Keywords.DashSlash).Equals("edit", StringComparison.OrdinalIgnoreCase))
+				return false;
+
+			var keyviewExe = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath), "Keyview.exe");
+
+			if (!File.Exists(keyviewExe))
+			{
+				Console.Error.WriteLine($"Keyview executable not found: {keyviewExe}");
+				result = 1;
+				return true;
+			}
+
+			_ = Process.Start(new ProcessStartInfo
+			{
+				FileName = keyviewExe,
+				ArgumentList = { args[1] },
+				UseShellExecute = false
+			});
+			return true;
+		}
+
 		private static int InstallToPath(string path)
 		{
 			var keyName = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
@@ -397,8 +425,22 @@ namespace Keysharp.Main
 		private static void RegisterShellIntegration(string path)
 		{
 			var exe = Path.Combine(path, "Keysharp.exe");
+			var keyviewExe = Path.Combine(path, "Keyview.exe");
 			var command = $"\"{exe}\" \"%1\"";
 			var compileCommand = $"\"{exe}\" --compile \"%1\"";
+			var editCommand = $"\"{keyviewExe}\" \"%1\"";
+
+			using (var ext = Registry.LocalMachine.CreateSubKey(@"Software\Classes\.ks"))
+				ext.SetValue("", "Keysharp");
+
+			using (var type = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp"))
+				type.SetValue("", "Keysharp script");
+
+			using (var icon = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp\DefaultIcon"))
+				icon.SetValue("", $"\"{exe}\",0");
+
+			using (var open = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Keysharp\shell\open\command"))
+				open.SetValue("", command);
 
 			using (var ext = Registry.LocalMachine.CreateSubKey(@"Software\Classes\.cks"))
 				ext.SetValue("", "Keysharp.CompiledScript");
@@ -417,6 +459,12 @@ namespace Keysharp.Main
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp\shell\compile", false);
 			RegisterCompileVerb(".ahk", compileCommand, exe);
 			RegisterCompileVerb(".ks", compileCommand, exe);
+
+			if (File.Exists(keyviewExe))
+			{
+				RegisterEditVerb(".ahk", editCommand, keyviewExe);
+				RegisterEditVerb(".ks", editCommand, keyviewExe);
+			}
 		}
 
 		private static void RegisterCompileVerb(string extension, string command, string exe)
@@ -429,13 +477,26 @@ namespace Keysharp.Main
 			commandKey.SetValue("", command);
 		}
 
+		private static void RegisterEditVerb(string extension, string command, string exe)
+		{
+			using var shell = Registry.LocalMachine.CreateSubKey($@"Software\Classes\SystemFileAssociations\{extension}\shell\KeyviewEdit");
+			shell.SetValue("", "Edit with Keyview");
+			shell.SetValue("Icon", $"\"{exe}\",0");
+
+			using var commandKey = shell.CreateSubKey("command");
+			commandKey.SetValue("", command);
+		}
+
 		private static void UnregisterShellIntegration()
 		{
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\.cks", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\.ks", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp", false);
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp.CompiledScript", false);
-			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Keysharp\shell\compile", false);
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ahk\shell\KeysharpCompile", false);
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ks\shell\KeysharpCompile", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ahk\shell\KeyviewEdit", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ks\shell\KeyviewEdit", false);
 		}
 
 #endif

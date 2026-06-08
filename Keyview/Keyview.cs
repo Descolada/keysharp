@@ -49,7 +49,9 @@ namespace Keyview
 		private static readonly string keywords1 = "true false this thishotkey super unset isset " + Keywords.GetKeywords();
 		private readonly string keywords2;
 		private readonly Button btnCopyFullCode = new ();
+		private readonly Button btnCompileScript = new ();
 		private readonly CheckBox chkFullCode = new ();
+		private readonly ToolStripLabel documentStatusLabel = new ();
 		private readonly string lastrun;
 		private readonly UITimer timer = new ();
 		private readonly char[] trimend = ['\n', '\r'];
@@ -65,6 +67,9 @@ namespace Keyview
 		private readonly string trimstr = "{}\t";
 		private Process scriptProcess = null;
 		private readonly Button btnRunScript = new ();
+		private readonly KeyviewDocumentState document = new ();
+		private string baseTitle;
+		private bool suppressDocumentChange;
 		private readonly Dictionary<string, string> btnRunScriptText = new Dictionary<string, string>()
 		{
 			{ "Run", "▶ Run script (F9)" },
@@ -93,6 +98,7 @@ namespace Keyview
 			};
 			_ = toolStrip1.Items.Add(host);
 			Text += $" {Assembly.GetExecutingAssembly().GetName().Version}";
+			baseTitle = Text;
 			btnRunScript.Text = btnRunScriptText["Run"];
 			btnRunScript.Margin = new Padding(15);
 			host = new ToolStripControlHost(btnRunScript)
@@ -102,6 +108,16 @@ namespace Keyview
 			_ = toolStrip1.Items.Add(host);
 			btnRunScript.Enabled = false;
 			btnRunScript.Click += RunScript_Click;
+			btnCompileScript.Text = "Compile .cks";
+			btnCompileScript.Margin = new Padding(15);
+			btnCompileScript.Click += (_, _) => CompileDocument();
+			host = new ToolStripControlHost(btnCompileScript);
+			_ = toolStrip1.Items.Add(host);
+			documentStatusLabel.Alignment = ToolStripItemAlignment.Left;
+			documentStatusLabel.AutoSize = false;
+			documentStatusLabel.Width = 600;
+			documentStatusLabel.TextAlign = ContentAlignment.MiddleLeft;
+			_ = toolStrip1.Items.Insert(0, documentStatusLabel);
 
 			if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
 			{
@@ -109,8 +125,10 @@ namespace Keyview
 			}
 			else if (File.Exists(lastrun))
 			{
-				LoadDataFromFile(lastrun);
+				LoadScratchDocument();
 			}
+			else
+				UpdateDocumentUi();
 		}
 
 		private static Color IntToColor(int rgb) => Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
@@ -411,19 +429,34 @@ namespace Keyview
 
 		private void Keyview_FormClosing(object sender, FormClosingEventArgs e)
 		{
+			if (!ConfirmDiscardChanges())
+			{
+				e.Cancel = true;
+				return;
+			}
+
 			timer.Stop();
 			//Script.Stop();
-			WriteLastRunText();
+			AutosaveScratchDocument();
 		}
 
-		private void WriteLastRunText()
+		private void AutosaveScratchDocument()
         {
+			if (!document.IsScratch)
+				return;
+
 			var dir = Path.GetDirectoryName(lastrun);
+			try
+			{
+				if (!Directory.Exists(dir))
+					_ = Directory.CreateDirectory(dir);
 
-			if (!Directory.Exists(dir))
-				_ = Directory.CreateDirectory(dir);
-
-			File.WriteAllText(lastrun, txtIn.Text);
+				File.WriteAllText(lastrun, txtIn.Text);
+			}
+			catch (Exception ex)
+			{
+				documentStatusLabel.Text = $"Scratch autosave failed: {ex.Message}";
+			}
         }
 
 		private void Keyview_Load(object sender, EventArgs e)
@@ -450,9 +483,6 @@ namespace Keyview
 			InitHotkeys();
 			//txtIn.StyleNeeded += TxtIn_StyleNeeded;
 
-			if (File.Exists(lastrun))
-				txtIn.Text = File.ReadAllText(lastrun);
-
 			timer.Interval = 1000;
 			timer.Tick += Timer_Tick;
 			timer.Start();
@@ -462,12 +492,45 @@ namespace Keyview
 
 		private void LoadDataFromFile(string path)
 		{
-			if (File.Exists(path))
+			if (!File.Exists(path))
+				return;
+
+			suppressDocumentChange = true;
+			try
 			{
-				FileName.Text = Path.GetFileName(path);
-				txtIn.Text = File.ReadAllText(path);
-				lastKeyTime = DateTime.UtcNow;
+				var fullPath = Path.GetFullPath(path);
+				var text = File.ReadAllText(fullPath);
+				FileName.Text = Path.GetFileName(fullPath);
+				txtIn.Text = text;
+				document.LoadFile(fullPath, text);
+				txtIn.EmptyUndoBuffer();
 			}
+			finally
+			{
+				suppressDocumentChange = false;
+			}
+
+			lastKeyTime = DateTime.UtcNow;
+			UpdateDocumentUi();
+		}
+
+		private void LoadScratchDocument()
+		{
+			suppressDocumentChange = true;
+			try
+			{
+				var text = File.Exists(lastrun) ? File.ReadAllText(lastrun) : "";
+				txtIn.Text = text;
+				document.LoadScratch();
+				txtIn.EmptyUndoBuffer();
+			}
+			finally
+			{
+				suppressDocumentChange = false;
+			}
+
+			lastKeyTime = DateTime.UtcNow;
+			UpdateDocumentUi();
 		}
 
 		private void Lowercase()
@@ -517,10 +580,83 @@ namespace Keyview
 
 		private void openToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			if (openFileDialog.ShowDialog() == DialogResult.OK)
+			if (ConfirmDiscardChanges() && openFileDialog.ShowDialog() == DialogResult.OK)
 			{
 				LoadDataFromFile(openFileDialog.FileName);
 			}
+		}
+
+		private bool ConfirmDiscardChanges()
+		{
+			if (!document.IsDirty(txtIn.Text))
+				return true;
+
+			var result = MessageBox.Show(
+				$"Save changes to {document.DisplayName}?",
+				"Keyview",
+				MessageBoxButtons.YesNoCancel,
+				MessageBoxIcon.Question);
+
+			return result switch
+			{
+				DialogResult.Yes => SaveDocument(),
+				DialogResult.No => true,
+				_ => false
+			};
+		}
+
+		private bool SaveDocument()
+		{
+			if (document.IsScratch)
+				return false;
+
+			try
+			{
+				File.WriteAllText(document.CurrentFilePath, txtIn.Text);
+				document.MarkSaved(txtIn.Text);
+				UpdateDocumentUi();
+				return true;
+			}
+			catch (Exception ex)
+			{
+				_ = MessageBox.Show($"Unable to save file: {ex.Message}", "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				return false;
+			}
+		}
+
+		private void CompileDocument()
+		{
+			if (!document.CanCompile || (document.IsDirty(txtIn.Text) && !SaveDocument()))
+				return;
+
+			btnCompileScript.Enabled = false;
+			tslCodeStatus.Text = "Writing .cks...";
+			Refresh();
+
+			if (KeyviewDocumentCompiler.TryCompile(document.CurrentFilePath, ch, out var outputPath, out var error))
+			{
+				tslCodeStatus.ForeColor = Color.Green;
+				tslCodeStatus.Text = $"Wrote {outputPath}";
+			}
+			else
+			{
+				tslCodeStatus.ForeColor = Color.Red;
+				tslCodeStatus.Text = "Compile failed";
+				SetTxtOut(error);
+			}
+
+			UpdateDocumentUi();
+		}
+
+		private void UpdateDocumentUi()
+		{
+			var dirty = document.IsDirty(txtIn.Text);
+			Text = document.GetWindowTitle(baseTitle, dirty);
+			documentStatusLabel.Text = document.GetStatusText(dirty);
+			saveToolStripMenuItem.Enabled = !document.IsScratch && dirty;
+			compileToolStripMenuItem.Enabled = document.CanCompile;
+			btnCompileScript.Visible = !document.IsScratch;
+			btnCompileScript.Enabled = document.CanCompile;
 		}
 
 		private void Outdent()
@@ -540,6 +676,10 @@ namespace Keyview
 		}
 
 		private void selectAllToolStripMenuItem_Click(object sender, EventArgs e) => txtIn.SelectAll();
+
+		private void saveToolStripMenuItem_Click(object sender, EventArgs e) => SaveDocument();
+
+		private void compileToolStripMenuItem_Click(object sender, EventArgs e) => CompileDocument();
 
 		private void selectLineToolStripMenuItem_Click(object sender, EventArgs e)
 		{
@@ -628,7 +768,7 @@ namespace Keyview
 					() => chkFullCode.Checked,
 					() => btnRunScript.Enabled = false,
 					() => btnRunScript.Enabled = true,
-					WriteLastRunText,
+					AutosaveScratchDocument,
 					() => oldIndex = txtOut.FirstVisibleLine,
 					() => txtOut.FirstVisibleLine = oldIndex);
 
@@ -702,7 +842,10 @@ namespace Keyview
 				try
 				{
 					if (filenames.Length > 0)
-						txtIn.Text = File.ReadAllText(filenames[0]);
+					{
+						if (ConfirmDiscardChanges())
+							LoadDataFromFile(filenames[0]);
+					}
 				}
 				catch (Exception ex)
 				{
@@ -754,6 +897,12 @@ namespace Keyview
 		{
 			UpdateNumberMarginWidth(txtIn);
 			lastKeyTime = DateTime.UtcNow;
+
+			if (!suppressDocumentChange)
+			{
+				UpdateDocumentUi();
+				AutosaveScratchDocument();
+			}
 		}
 
 		private void txtOut_TextChanged(object sender, EventArgs e)
@@ -853,10 +1002,18 @@ namespace Keyview
 		private readonly CheckBox fullCodeCheck = new () { Text = "Full code" };
 		private readonly Button copyFullCodeButton = new () { Text = "Copy full code" };
 		private readonly Button runScriptButton = new () { Text = "▶ Run script (F9)" };
+		private readonly Button compileScriptButton = new () { Text = "Compile .cks" };
 		private readonly Label codeStatusLabel = new () { Text = "" };
+		private readonly Label documentStatusLabel = new () { Text = "" };
 		private readonly Panel searchPanel = new ();
 		private readonly ButtonMenuItem undoMenuItem = new () { Text = "&Undo" };
 		private readonly ButtonMenuItem redoMenuItem = new () { Text = "&Redo" };
+#if OSX
+		private readonly ButtonMenuItem saveMenuItem = new () { Text = "&Save", Shortcut = Eto.Forms.Keys.Application | Eto.Forms.Keys.S };
+#else
+		private readonly ButtonMenuItem saveMenuItem = new () { Text = "&Save", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.S };
+#endif
+		private readonly ButtonMenuItem compileMenuItem = new () { Text = "&Compile .cks" };
 		private Splitter editorSplitter;
 		private readonly UITimer timer = new ();
 		private readonly CompilerHelper ch = new ();
@@ -864,6 +1021,7 @@ namespace Keyview
 		private readonly string trimstr = "{}\t";
 		private readonly double updateFreqSeconds = 1;
 		private readonly string lastrun;
+		private readonly KeyviewDocumentState document = new ();
 		private readonly Dictionary<string, string> runScriptText = new ()
 		{
 			{ "Run", "▶ Run script (F9)" },
@@ -883,11 +1041,14 @@ namespace Keyview
 		private string lastText = "";
 		private int lastSelectionStart;
 		private int lastSelectionLength;
+		private string baseTitle;
+		private bool suppressDocumentChange;
 
 		public Keyview(string initialFile = null)
 		{
 			lastrun = $"{Accessors.A_AppData}/Keysharp/lastkeyviewrun.txt";
 			Title = $"Keyview {Assembly.GetExecutingAssembly().GetName().Version}";
+			baseTitle = Title;
 			InitializeWindowIcon();
 			ShowInTaskbar = true;
 			Resizable = true;
@@ -914,10 +1075,11 @@ namespace Keyview
 					editorSplitter.Position = Math.Max(200, ClientSize.Width / 2);
 			};
 
+			Closing += (_, e) => e.Cancel = !ConfirmDiscardChanges();
 			Closed += (_, _) =>
 			{
 				timer.Stop();
-				WriteLastRunText();
+				AutosaveScratchDocument();
 				try
 				{
 					scriptProcess?.Kill();
@@ -926,6 +1088,7 @@ namespace Keyview
 				{
 				}
 #if OSX
+				Eto.Mac.AppDelegate.FileOpened -= MacFileOpened;
 				Application.Instance.Quit();
 #endif
 			};
@@ -936,8 +1099,14 @@ namespace Keyview
 			}
 			else if (File.Exists(lastrun))
 			{
-				LoadDataFromFile(lastrun);
+				LoadScratchDocument();
 			}
+			else
+				UpdateDocumentUi();
+
+#if OSX
+			Eto.Mac.AppDelegate.FileOpened += MacFileOpened;
+#endif
 		}
 
 		private void InitializeMenu()
@@ -945,7 +1114,9 @@ namespace Keyview
 			var fileMenu = new ButtonMenuItem { Text = "&File" };
 			var openItem = new ButtonMenuItem { Text = "&Open..." };
 			openItem.Click += (_, _) => OpenFile();
-			fileMenu.Items.Add(openItem);
+			saveMenuItem.Click += (_, _) => SaveDocument();
+			compileMenuItem.Click += (_, _) => CompileDocument();
+			fileMenu.Items.AddRange(new MenuItem[] { openItem, saveMenuItem, compileMenuItem });
 
 			var editMenu = new ButtonMenuItem { Text = "&Edit" };
 			undoMenuItem.Click += (_, _) => Undo();
@@ -1082,6 +1253,8 @@ namespace Keyview
 			copyFullCodeButton.Click += (_, _) => CopyFullCode();
 			runScriptButton.Click += (_, _) => RunStopScript();
 			runScriptButton.Enabled = false;
+			compileScriptButton.Click += (_, _) => CompileDocument();
+			documentStatusLabel.Width = 500;
 			codeStatusLabel.Text = "";
 		}
 
@@ -1105,11 +1278,13 @@ namespace Keyview
 				Spacing = 8,
 				Items =
 				{
+					documentStatusLabel,
 					new StackLayoutItem(new Panel()) { Expand = true },
 					new Label { Text = "Code compile:" },
 					codeStatusLabel,
 					fullCodeCheck,
 					copyFullCodeButton,
+					compileScriptButton,
 					runScriptButton
 				}
 			};
@@ -1215,6 +1390,12 @@ namespace Keyview
 		{
 			RecordUndoSnapshot();
 			lastKeyTime = DateTime.UtcNow;
+
+			if (!suppressDocumentChange)
+			{
+				UpdateDocumentUi();
+				AutosaveScratchDocument();
+			}
 		}
 
 		private void InputArea_KeyDown(object sender, KeyEventArgs e)
@@ -1635,6 +1816,9 @@ namespace Keyview
 
 		private void OpenFile()
 		{
+			if (!ConfirmDiscardChanges())
+				return;
+
 			var dialog = new OpenFileDialog();
 			if (dialog.ShowDialog(this) == DialogResult.Ok)
 			{
@@ -1647,10 +1831,125 @@ namespace Keyview
 			if (!File.Exists(path))
 				return;
 
-			inputArea.Text = File.ReadAllText(path);
+			suppressDocumentChange = true;
+			try
+			{
+				var fullPath = Path.GetFullPath(path);
+				var text = File.ReadAllText(fullPath);
+				inputArea.Text = text;
+				document.LoadFile(fullPath, text);
+				ResetUndoHistory();
+			}
+			finally
+			{
+				suppressDocumentChange = false;
+			}
+
 			lastKeyTime = DateTime.UtcNow;
-			ResetUndoHistory();
+			UpdateDocumentUi();
 		}
+
+		private void LoadScratchDocument()
+		{
+			suppressDocumentChange = true;
+			try
+			{
+				inputArea.Text = File.Exists(lastrun) ? File.ReadAllText(lastrun) : "";
+				document.LoadScratch();
+				ResetUndoHistory();
+			}
+			finally
+			{
+				suppressDocumentChange = false;
+			}
+
+			lastKeyTime = DateTime.UtcNow;
+			UpdateDocumentUi();
+		}
+
+		private bool ConfirmDiscardChanges()
+		{
+			if (!document.IsDirty(inputArea.Text))
+				return true;
+
+			var result = MessageBox.Show(
+				this,
+				$"Save changes to {document.DisplayName}?",
+				"Keyview",
+				MessageBoxButtons.YesNoCancel,
+				MessageBoxType.Question);
+
+			return result switch
+			{
+				DialogResult.Yes => SaveDocument(),
+				DialogResult.No => true,
+				_ => false
+			};
+		}
+
+		private bool SaveDocument()
+		{
+			if (document.IsScratch)
+				return false;
+
+			try
+			{
+				File.WriteAllText(document.CurrentFilePath, inputArea.Text ?? "");
+				document.MarkSaved(inputArea.Text);
+				UpdateDocumentUi();
+				return true;
+			}
+			catch (Exception ex)
+			{
+				MessageBox.Show(this, $"Unable to save file: {ex.Message}", "Save Error", MessageBoxButtons.OK, MessageBoxType.Error);
+				return false;
+			}
+		}
+
+		private void CompileDocument()
+		{
+			if (!document.CanCompile || (document.IsDirty(inputArea.Text) && !SaveDocument()))
+				return;
+
+			compileScriptButton.Enabled = false;
+			codeStatusLabel.Text = "Writing .cks...";
+
+			if (KeyviewDocumentCompiler.TryCompile(document.CurrentFilePath, ch, out var outputPath, out var error))
+			{
+				codeStatusLabel.TextColor = Colors.Green;
+				codeStatusLabel.Text = $"Wrote {outputPath}";
+			}
+			else
+			{
+				codeStatusLabel.TextColor = Colors.Red;
+				codeStatusLabel.Text = "Compile failed";
+				SetOutputText(error);
+			}
+
+			UpdateDocumentUi();
+		}
+
+		private void UpdateDocumentUi()
+		{
+			var dirty = document.IsDirty(inputArea.Text);
+			Title = document.GetWindowTitle(baseTitle, dirty);
+			documentStatusLabel.Text = document.GetStatusText(dirty);
+			saveMenuItem.Enabled = !document.IsScratch && dirty;
+			compileMenuItem.Enabled = document.CanCompile;
+			compileScriptButton.Visible = !document.IsScratch;
+			compileScriptButton.Enabled = document.CanCompile;
+		}
+
+#if OSX
+		private void MacFileOpened(string path)
+		{
+			Application.Instance.AsyncInvoke(() =>
+			{
+				if (ConfirmDiscardChanges())
+					LoadDataFromFile(path);
+			});
+		}
+#endif
 
 		private void SetStart()
 		{
@@ -1708,7 +2007,7 @@ namespace Keyview
 					() => fullCodeCheck.Checked == true,
 					() => runScriptButton.Enabled = false,
 					() => runScriptButton.Enabled = true,
-					WriteLastRunText,
+					AutosaveScratchDocument,
 					null,
 					null);
 
@@ -1805,12 +2104,23 @@ namespace Keyview
 			return Path.Combine(AppContext.BaseDirectory ?? Path.GetDirectoryName(Environment.ProcessPath), "Keysharp");
 		}
 
-		private void WriteLastRunText()
+		private void AutosaveScratchDocument()
 		{
+			if (!document.IsScratch)
+				return;
+
 			var dir = Path.GetDirectoryName(lastrun);
-			if (!Directory.Exists(dir))
-				_ = Directory.CreateDirectory(dir);
-			File.WriteAllText(lastrun, inputArea.Text ?? "");
+			try
+			{
+				if (!Directory.Exists(dir))
+					_ = Directory.CreateDirectory(dir);
+
+				File.WriteAllText(lastrun, inputArea.Text ?? "");
+			}
+			catch (Exception ex)
+			{
+				documentStatusLabel.Text = $"Scratch autosave failed: {ex.Message}";
+			}
 		}
 	}
 #endif
@@ -1922,6 +2232,87 @@ namespace Keyview
 			{
 				script?.Dispose();
 				enableRunButton?.Invoke();
+			}
+		}
+	}
+
+	internal sealed class KeyviewDocumentState
+	{
+		private string savedText = "";
+
+		internal string CurrentFilePath { get; private set; }
+		internal bool IsScratch => string.IsNullOrEmpty(CurrentFilePath);
+		internal bool CanCompile => !IsScratch && IsSourceFile(CurrentFilePath);
+		internal string DisplayName => IsScratch ? "Scratch document" : Path.GetFileName(CurrentFilePath);
+
+		internal void LoadFile(string path, string text)
+		{
+			CurrentFilePath = Path.GetFullPath(path);
+			savedText = text ?? "";
+		}
+
+		internal void LoadScratch()
+		{
+			CurrentFilePath = null;
+			savedText = "";
+		}
+
+		internal void MarkSaved(string text) => savedText = text ?? "";
+
+		internal bool IsDirty(string text) => !IsScratch && !string.Equals(savedText, text ?? "", StringComparison.Ordinal);
+
+		internal string GetWindowTitle(string baseTitle, bool dirty)
+		{
+			if (IsScratch)
+				return $"{baseTitle} — Scratchpad (autosaved)";
+
+			return $"{DisplayName}{(dirty ? " *" : "")} — {baseTitle}";
+		}
+
+		internal string GetStatusText(bool dirty)
+		{
+			if (IsScratch)
+				return "Scratchpad document — autosaved";
+
+			return $"{CurrentFilePath}{(dirty ? " — Modified" : "")}";
+		}
+
+		private static bool IsSourceFile(string path)
+		{
+			var extension = Path.GetExtension(path);
+			return extension.Equals(".ahk", StringComparison.OrdinalIgnoreCase)
+				   || extension.Equals(".ks", StringComparison.OrdinalIgnoreCase);
+		}
+	}
+
+	internal static class KeyviewDocumentCompiler
+	{
+		internal static bool TryCompile(string sourcePath, CompilerHelper compiler, out string outputPath, out string error)
+		{
+			outputPath = Path.ChangeExtension(sourcePath, ".cks");
+			error = null;
+
+			try
+			{
+				using var script = new Script();
+				script.SuppressErrorOccurredDialog = true;
+				var sourceDirectory = Path.GetDirectoryName(sourcePath);
+				var nameNoExt = Path.GetFileNameWithoutExtension(sourcePath);
+				var (bytes, result) = compiler.CompileCodeToByteArray(sourcePath, nameNoExt, sourceDirectory);
+
+				if (bytes == null)
+				{
+					error = result;
+					return false;
+				}
+
+				File.WriteAllBytes(outputPath, bytes);
+				return true;
+			}
+			catch (Exception ex)
+			{
+				error = ex.ToString();
+				return false;
 			}
 		}
 	}

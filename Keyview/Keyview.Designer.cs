@@ -34,6 +34,8 @@
 			menuStrip1 = new MenuStrip();
 			fileToolStripMenuItem = new ToolStripMenuItem();
 			openToolStripMenuItem = new ToolStripMenuItem();
+			saveToolStripMenuItem = new ToolStripMenuItem();
+			compileToolStripMenuItem = new ToolStripMenuItem();
 			editToolStripMenuItem = new ToolStripMenuItem();
 			cutToolStripMenuItem = new ToolStripMenuItem();
 			copyToolStripMenuItem = new ToolStripMenuItem();
@@ -110,7 +112,7 @@
 			//
 			// fileToolStripMenuItem
 			//
-			fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openToolStripMenuItem });
+			fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openToolStripMenuItem, saveToolStripMenuItem, compileToolStripMenuItem });
 			fileToolStripMenuItem.Name = "fileToolStripMenuItem";
 			fileToolStripMenuItem.Size = new Size(37, 22);
 			fileToolStripMenuItem.Text = "&File";
@@ -121,6 +123,23 @@
 			openToolStripMenuItem.Size = new Size(112, 22);
 			openToolStripMenuItem.Text = "&Open...";
 			openToolStripMenuItem.Click += openToolStripMenuItem_Click;
+			//
+			// saveToolStripMenuItem
+			//
+			saveToolStripMenuItem.Enabled = false;
+			saveToolStripMenuItem.Name = "saveToolStripMenuItem";
+			saveToolStripMenuItem.ShortcutKeys = Keys.Control | Keys.S;
+			saveToolStripMenuItem.Size = new Size(180, 22);
+			saveToolStripMenuItem.Text = "&Save";
+			saveToolStripMenuItem.Click += saveToolStripMenuItem_Click;
+			//
+			// compileToolStripMenuItem
+			//
+			compileToolStripMenuItem.Enabled = false;
+			compileToolStripMenuItem.Name = "compileToolStripMenuItem";
+			compileToolStripMenuItem.Size = new Size(180, 22);
+			compileToolStripMenuItem.Text = "&Compile .cks";
+			compileToolStripMenuItem.Click += compileToolStripMenuItem_Click;
 			//
 			// editToolStripMenuItem
 			//
@@ -546,6 +565,8 @@
 		private System.Windows.Forms.MenuStrip menuStrip1;
 		private System.Windows.Forms.ToolStripMenuItem fileToolStripMenuItem;
 		private System.Windows.Forms.ToolStripMenuItem openToolStripMenuItem;
+		private System.Windows.Forms.ToolStripMenuItem saveToolStripMenuItem;
+		private System.Windows.Forms.ToolStripMenuItem compileToolStripMenuItem;
 		private System.Windows.Forms.ToolStripMenuItem viewToolStripMenuItem;
 		private System.Windows.Forms.ToolStripMenuItem wordWrapItem;
 		private System.Windows.Forms.ToolStripMenuItem hiddenCharactersItem;

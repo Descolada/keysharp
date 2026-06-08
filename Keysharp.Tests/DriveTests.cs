@@ -7,6 +7,9 @@ namespace Keysharp.Tests
 #if WINDOWS
 		readonly string drive = "C:\\";
 		readonly char driveStart = 'C';
+#elif OSX
+		string drive = "/";
+		char driveStart = '/';
 #else
 		string drive = "/dev";
 		char driveStart = '/';

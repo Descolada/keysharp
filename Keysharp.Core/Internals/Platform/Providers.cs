@@ -20,7 +20,7 @@ namespace Keysharp.Internals.Platform
 #elif LINUX
 			return new Keysharp.Internals.Mapper.Linux.Drive(drive);
 #elif OSX
-			throw new PlatformNotSupportedException("Drive operations are not implemented on macOS yet.");
+			return new Keysharp.Internals.Mapper.MacOS.Drive(drive);
 #else
 #error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
 #endif

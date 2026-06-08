@@ -81,16 +81,8 @@ namespace Keysharp.Internals.Threading
 		/// </summary>
 		public static string A_Cursor
 		{
-			get
-			{
-#if WINDOWS
-				return Cursor.Current is Cursor cur
-					? cur.ToString().Trim(BothBrackets).Split(' ', StringSplitOptions.RemoveEmptyEntries)[1].Replace("Cursor", "")
-					: "Default---";
-#else
-				return "Default---";
-#endif
-			}
+			get => GetCursor();
+			set => SetCursor(value);
 		}
 
 		/// <summary>

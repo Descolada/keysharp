@@ -1,6 +1,8 @@
 using Keysharp.Builtins;
 using SearchOption = System.IO.SearchOption;
 using Calendar = System.Globalization.Calendar;
+using RuntimeInformation = System.Runtime.InteropServices.RuntimeInformation;
+using OSPlatform = System.Runtime.InteropServices.OSPlatform;
 
 namespace Keysharp.Internals.Strings
 {
@@ -669,7 +671,9 @@ namespace Keysharp.Internals.Strings
 			return id switch
 			{
 					PlatformID.MacOSX => "MACOSX",
-					PlatformID.Unix => "UNIX",
+					// .NET Core never returns PlatformID.MacOSX; both Linux and macOS report PlatformID.Unix,
+					// so the actual OS must be disambiguated via RuntimeInformation.
+					PlatformID.Unix => RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "MACOSX" : "UNIX",
 					PlatformID.Win32NT => "WIN32_NT",
 					PlatformID.Win32S => "WIN32_S",
 					PlatformID.Win32Windows => "WIN32_WINDOWS",

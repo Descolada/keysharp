@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #if WINDOWS
 	val := DriveGetFileSystem("C:\")
 #else

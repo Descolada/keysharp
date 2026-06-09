@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 i := 0
 
 Loop 5 {

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := "the string to searchz"
 y := "the"
 z := InStr(x, y)

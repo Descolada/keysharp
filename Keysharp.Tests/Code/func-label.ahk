@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 1
 goto labelz
 y := 2

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; =========================
 ; module-order.ahk
 ; Execution order + exports callable before module body executes

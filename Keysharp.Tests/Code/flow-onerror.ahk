@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 OnError("LogError1")
 OnError("LogError2")
 OnError("LogError3")

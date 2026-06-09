@@ -1,3 +1,4 @@
+#NoTrayIcon
 
 Eq(a, b)
 {

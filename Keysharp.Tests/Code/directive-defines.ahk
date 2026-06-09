@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #define SOMETHING
 #define SOMETHING_UNDERSCORE
 

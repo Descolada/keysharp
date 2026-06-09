@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { Clr }
 ; ===== Setup =====
 System := Clr.Load("System")

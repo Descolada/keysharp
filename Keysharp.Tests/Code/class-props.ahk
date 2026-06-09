@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 class testclass
 {
 	_a := 123

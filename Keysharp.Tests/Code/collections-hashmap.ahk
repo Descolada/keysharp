@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { HashMap }
 a := HashMap() ; Map with a key and property each with the same name.
 a["test"] := 3

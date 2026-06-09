@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := A_Space
 y := A_Tab

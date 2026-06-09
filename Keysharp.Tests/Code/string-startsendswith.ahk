@@ -1,4 +1,6 @@
-﻿s := "This is a test STRING"
+﻿#NoTrayIcon
+
+s := "This is a test STRING"
 
 if (s.EndsWith(" STRING", true))
 	FileAppend "pass", "*"

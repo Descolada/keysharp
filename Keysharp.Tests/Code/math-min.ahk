@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 if (Min(-6, -6) == -6)
 	FileAppend "pass", "*"
 else

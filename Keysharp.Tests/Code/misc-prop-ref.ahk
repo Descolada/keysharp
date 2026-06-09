@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; Tests for AHK v2.1 PropRef / __Ref.
 
 check(cond) {

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; Clipboard should have been set before this test script is run.
 
 ClipWait , true

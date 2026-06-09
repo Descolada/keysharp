@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { * }
 #CLIPBOARDTIMEOUT 2000
 #ERRORSTDOUT

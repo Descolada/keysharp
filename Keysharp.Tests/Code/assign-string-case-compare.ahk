@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := "HeLlO WoRlD"
 

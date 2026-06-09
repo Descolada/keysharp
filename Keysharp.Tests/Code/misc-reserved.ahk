@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 char := 123
 
 if (char == 123)

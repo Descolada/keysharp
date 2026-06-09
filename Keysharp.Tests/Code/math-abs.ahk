@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 if (1 == Abs(1))
 	FileAppend "pass", "*"

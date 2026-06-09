@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { StringBuffer }
 desktop := DllCall("GetDesktopWindow", "ptr")
 buf := Buffer(16, 0)

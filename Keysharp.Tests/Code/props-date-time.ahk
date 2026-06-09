@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := A_YYYY
 y := A_Year

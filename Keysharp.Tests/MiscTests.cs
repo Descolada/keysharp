@@ -214,7 +214,6 @@ namespace Keysharp.Tests
 		[Test, Category("Misc"), NonParallelizable]
 		public void MiscTimer()
 		{
-			SkipIfUiInitializationBlocked("Requires active UI-loop timer delivery.");
 			Assert.IsTrue(TestScript("misc-timer", false));
 		}
 

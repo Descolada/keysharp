@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; This just tests parsing.
 
 ; Hotstrings

@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 ; Can't really test if some of these properties have "valid" values. So at least just test if they can be compiled properly in a script.
 
@@ -30,12 +30,14 @@ if (x != "")
 else
 	FileAppend "fail", "*"
 
+#if !OSX
 x := A_ScriptHwnd
 
 if (x > 0)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+#endif
 
 x := A_LineNumber ; This is not a reliable indicator of the line because the preprocessor condenses everything.
 

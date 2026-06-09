@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 buf := Buffer(5, 10)
 

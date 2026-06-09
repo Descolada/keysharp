@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; =========================
 ; module-import.ahk
 ; Import forms + precedence rules

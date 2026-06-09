@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 buf := Buffer(100, 0)
 ret := NumPut("int", 1, buf)
 b1 := NumGet(buf, 0, "int")

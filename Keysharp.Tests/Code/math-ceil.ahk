@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 if (-1 == Ceil(-1))
 	FileAppend "pass", "*"

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { * }
 #Hotstring NoMouse
 

@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := "abcdefghijkl"
 y := SubStr(x)

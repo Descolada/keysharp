@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { ATan2 }
 if (-2.0344439357957027 == ATan2(-1, -0.5))
 	FileAppend "pass", "*"

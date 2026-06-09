@@ -1,4 +1,6 @@
-﻿ZeroParams() => 0
+﻿#NoTrayIcon
+
+ZeroParams() => 0
 
 try {
     ZeroParams()

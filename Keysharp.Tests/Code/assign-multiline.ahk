@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 product := "Prod"
 color := "Red"
 

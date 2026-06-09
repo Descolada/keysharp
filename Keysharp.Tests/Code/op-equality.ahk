@@ -1,4 +1,6 @@
-﻿if 1 == 1.0
+﻿#NoTrayIcon
+
+if 1 == 1.0
     FileAppend "pass", "*"
 else
     FileAppend "fail", "*"

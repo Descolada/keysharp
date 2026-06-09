@@ -72,6 +72,7 @@ namespace Keysharp.Tests
 
 		private static void EnsureUiScheduler()
 		{
+			SkipIfUiInitializationBlocked("Test requires a live Eto Application (macOS testhost cannot drive AppKit).");
 			_ = Script.TheScript.EventScheduler;
 #if !WINDOWS
 			_ = Eto.Forms.Application.Instance ?? new Eto.Forms.Application();
@@ -176,7 +177,7 @@ namespace Keysharp.Tests
 			_ = SpinWait.SpinUntil(() => !worker.IsAlive, 2000);
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void WorkerOwnedRegistrations()
 		{
 			EnsureUiScheduler();
@@ -189,9 +190,9 @@ namespace Keysharp.Tests
 			var gui = (Gui)RuntimeHelpers.GetUninitializedObject(typeof(Gui));
 			Ks.RealThread worker = null;
 
-				try
-				{
-					form.closedHandlers = new();
+			try
+			{
+				form.closedHandlers = new();
 				gui.form = form;
 				s.GuiData.allGuiHwnds[1] = gui;
 				registrations.Form = form;
@@ -303,7 +304,7 @@ namespace Keysharp.Tests
 			AssertEventually(() => registrations.CallbackHolder.Ptr == 0L, "Worker-owned callback pointer was not freed.");
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void SendPumpsMainScheduler()
 		{
 			_ = s.EventScheduler;
@@ -339,11 +340,9 @@ namespace Keysharp.Tests
 			}
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void ExactHotkeyVariantDispatchesAcrossSchedulers()
 		{
-			EnsureUiScheduler();
-
 			var probe = new CallbackProbe();
 			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ => probe.Record("main"))), 0, "$a", 0);
 			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
@@ -362,11 +361,9 @@ namespace Keysharp.Tests
 			});
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("Gui")]
 		public void HookHotkeyDispatchSkipsCriterionReevaluation()
 		{
-			EnsureUiScheduler();
-
 			var criterionCalls = 0;
 			var callbackRan = new ManualResetEventSlim(false);
 			var previousCriterion = s.Threads.CurrentThread.hotCriterion;
@@ -407,11 +404,9 @@ namespace Keysharp.Tests
 			}
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void HookHotkeyWindowCriterionReevaluatesOnReceipt()
 		{
-			EnsureUiScheduler();
-
 			var callbackRan = new ManualResetEventSlim(false);
 			var previousCriterion = s.Threads.CurrentThread.hotCriterion;
 			var previousCalls = Interlocked.Exchange(ref hookWinCriterionCalls, 0);
@@ -460,10 +455,9 @@ namespace Keysharp.Tests
 			}
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void HotIfHotkeyWithEnabledGlobalVariantCanStayRegistered()
 		{
-			EnsureUiScheduler();
 			var previousCriterion = s.Threads.CurrentThread.hotCriterion;
 
 			try
@@ -488,11 +482,9 @@ namespace Keysharp.Tests
 			}
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void WorkerHotkeyBindingRunsAfterMainThreadEnds()
 		{
-			EnsureUiScheduler();
-
 			var mainStarted = new ManualResetEventSlim(false);
 			var releaseMain = new ManualResetEventSlim(false);
 			var workerRan = new ManualResetEventSlim(false);
@@ -526,11 +518,9 @@ namespace Keysharp.Tests
 			});
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("Gui")]
 		public void WorkerHotkeyBindingProgressesWhileMainBindingBlocked()
 		{
-			EnsureUiScheduler();
-
 			var mainStarted = new ManualResetEventSlim(false);
 			var releaseMain = new ManualResetEventSlim(false);
 			var workerProgressed = new ManualResetEventSlim(false);
@@ -572,7 +562,7 @@ namespace Keysharp.Tests
 			}, "T2");
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void PostSendAfterWorkerExit()
 		{
 			_ = s.EventScheduler;
@@ -587,11 +577,9 @@ namespace Keysharp.Tests
 			Assert.That(sendError.Message, Does.Contain("Real thread is no longer alive."));
 		}
 
-		[Test, Category("Threading")]
+		[Test, Category("Threading"), Category("UI")]
 		public void StopUnhooksKeyboardHotkeys()
 		{
-			EnsureUiScheduler();
-
 			var hk = new HotkeyDefinition((uint)s.HotkeyData.shk.Length, new FuncObj((Func<object, object>)(_ => 0L)), 0, "$a", 0);
 			s.HotkeyData.shk = [..s.HotkeyData.shk, hk];
 			_ = HotkeyDefinition.ManifestAllHotkeysHotstringsHooks();

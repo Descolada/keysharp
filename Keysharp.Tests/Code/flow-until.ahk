@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 x := 1
 y := 20

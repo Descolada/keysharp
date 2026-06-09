@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := "this is a string"
 y := " and another string"
 z := x . y

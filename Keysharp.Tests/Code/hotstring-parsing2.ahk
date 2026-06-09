@@ -1,4 +1,6 @@
-﻿::bitw::biggest in the world
+﻿#NoTrayIcon
+
+::bitw::biggest in the world
 ; 1 -> :2
 ::1:::2
 ; 3 -> ::4

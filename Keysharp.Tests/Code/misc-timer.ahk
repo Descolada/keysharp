@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #MaxThreads 2
 
 x := 0

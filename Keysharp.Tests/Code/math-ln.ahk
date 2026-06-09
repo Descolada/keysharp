@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 if (-0.6931471805599453 == Ln(0.5))
 	FileAppend "pass", "*"

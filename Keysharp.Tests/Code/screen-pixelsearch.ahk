@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 0
 y := 0
 last := "0x000000"

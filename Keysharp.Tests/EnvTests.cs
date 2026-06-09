@@ -5,7 +5,7 @@ namespace Keysharp.Tests
 {
 	public class EnvTests : TestRunner
 	{
-		[Test, Category("Env"), NonParallelizable]
+		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
 #endif
@@ -39,7 +39,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual("Asdf", clip);
 		}
 
-		[Test, Category("Env"), NonParallelizable]
+		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
 #endif
@@ -51,7 +51,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual(expected, actual);
 		}
 
-		[Test, Category("Env"), NonParallelizable]
+		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 		public void ClipboardAllDataSize()
 		{
 			var source = new byte[] { 1, 2, 3, 4, 5 };
@@ -86,7 +86,7 @@ namespace Keysharp.Tests
 		/// This can fail periodically, but mostly works.
 		/// If it fails in a batch, try running on its own.
 		/// </summary>
-		[Test, Category("Env"), NonParallelizable]
+		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
 		public void ClipWait()
@@ -262,7 +262,7 @@ namespace Keysharp.Tests
 			Assert.IsTrue(TestScript("env-envupdate", true));
 		}
 
-		[Test, Category("Env"), NonParallelizable]
+		[Test, Category("Env"), Category("UI"), NonParallelizable]
 		public void SysGet()
 		{
 			//Monitors

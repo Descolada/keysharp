@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 123
 y := x ?? ""
 

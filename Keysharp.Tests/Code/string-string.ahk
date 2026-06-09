@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := 123
 y := String(x)

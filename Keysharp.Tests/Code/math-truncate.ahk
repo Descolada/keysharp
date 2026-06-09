@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 if (-1 == Truncate(-1))
 	FileAppend "pass", "*"

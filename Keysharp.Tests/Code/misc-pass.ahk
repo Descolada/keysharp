@@ -1,3 +1,3 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 FileAppend "pass", "*"

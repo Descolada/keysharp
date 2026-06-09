@@ -1,4 +1,6 @@
-﻿class c1 {
+﻿#NoTrayIcon
+
+class c1 {
     class c2 {
         test() {
             global a := 5

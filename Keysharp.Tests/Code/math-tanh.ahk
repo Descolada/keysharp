@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { Tanh }
 PI := 3.1415926535897931
 

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { Join }
 str := Join(",", "1", "2", "3")
 

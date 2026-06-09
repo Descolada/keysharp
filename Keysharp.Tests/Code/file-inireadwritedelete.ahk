@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 if (FileExist("./testini2.ini"))
 	FileDelete("./testini2.ini")

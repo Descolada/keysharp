@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 buf := Buffer(32)
 s := "tester"

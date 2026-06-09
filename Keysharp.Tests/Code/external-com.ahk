@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { RunScript }
 shell := ComObject("WScript.Shell")
 exec := shell.Exec("Notepad.exe")

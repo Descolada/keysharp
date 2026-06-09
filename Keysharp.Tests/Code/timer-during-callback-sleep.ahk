@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 fired := false
 firedDuringSleep := false
 

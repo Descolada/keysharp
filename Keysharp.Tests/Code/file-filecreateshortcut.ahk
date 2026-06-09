@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 if (DirExist("./FileCreateShortcut"))
 	DirDelete("./FileCreateShortcut", true)

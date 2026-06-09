@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; =========================
 ; module-export.ahk
 ; Default export, named exports, exported variable assignment, quoted import behavior

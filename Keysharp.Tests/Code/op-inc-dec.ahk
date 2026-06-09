@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 1
 y := 25
 y--

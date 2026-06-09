@@ -1,4 +1,6 @@
-﻿; Return true to continue enumerating, false to stop
+﻿#NoTrayIcon
+
+; Return true to continue enumerating, false to stop
 EnumFunc(&x) {
     static i := 0
     x := ++i

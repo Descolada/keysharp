@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 if (DirExist("./DirCopy2"))
 	DirDelete("./DirCopy2", true)
 

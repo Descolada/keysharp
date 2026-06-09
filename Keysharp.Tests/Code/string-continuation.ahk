@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 str := "
 (
 A line of text.

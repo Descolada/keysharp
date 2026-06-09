@@ -1,4 +1,6 @@
-﻿WM_MY_BROADCAST := DllCall("RegisterWindowMessage", "Str", "MyUniqueBroadcastMessage", "UInt")
+﻿#NoTrayIcon
+
+WM_MY_BROADCAST := DllCall("RegisterWindowMessage", "Str", "MyUniqueBroadcastMessage", "UInt")
 HWND_BROADCAST := 0xFFFF
 OnMessage(WM_MY_BROADCAST, HandleMyBroadcast)
 

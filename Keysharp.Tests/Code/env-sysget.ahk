@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 val := SysGet(80)
 
 if (val > 0)

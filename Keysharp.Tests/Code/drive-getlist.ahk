@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 val := DriveGetList()
 			
 #if WINDOWS

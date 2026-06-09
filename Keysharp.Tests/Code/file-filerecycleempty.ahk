@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 if (DirExist("./FileRecycleEmpty"))
 	DirDelete("./FileRecycleEmpty", true)

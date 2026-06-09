@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { * }
 outputVarCount :=
 match := RegExReplaceCs("abc123123", "123$", "xyz")

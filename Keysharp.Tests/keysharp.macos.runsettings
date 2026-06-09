@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+	<RunConfiguration>
+		<!--
+			macOS test hosts (dotnet test/NUnit/VSTest) run off the OS main thread, but AppKit
+			(Eto.Mac) requires the literal OS thread 1. Tests tagged Gui or Clipboard construct
+			or depend on a live Eto.Forms.Application/window/clipboard and fail with
+			"Mac platforms require to be in an .app bundle to run" under this constraint.
+			Excluding them here lets `dotnet test` run cleanly on macOS; run them separately
+			via a main-thread-capable runner.
+		-->
+		<TestSessionTimeout>0</TestSessionTimeout>
+	</RunConfiguration>
+	<NUnit>
+		<Where>cat != Gui and cat != Clipboard and cat != UI</Where>
+	</NUnit>
+</RunSettings>

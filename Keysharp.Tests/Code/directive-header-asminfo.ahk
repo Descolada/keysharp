@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #ASSEMBLYTITLE This is a title!
 #ASSEMBLYDESCRIPTION This is a description!
 #ASSEMBLYCONFIGURATION This is a config!

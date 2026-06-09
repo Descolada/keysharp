@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 FileEncoding("utf-8")
 fe := A_FileEncoding

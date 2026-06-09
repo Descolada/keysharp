@@ -1,5 +1,9 @@
+#NoTrayIcon
+
 #if WINDOWS
 	val := DriveGetSpaceFree("C:\")
+#elif OSX
+	val := DriveGetSpaceFree("/")
 #else
 	val := DriveGetSpaceFree("/dev/sda")
 #endif

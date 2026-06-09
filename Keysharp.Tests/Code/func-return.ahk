@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 func0() {
 }
 

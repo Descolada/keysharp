@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 path := "../../../Keysharp.Tests/Code/"
 dir := path . "DirCopy/file1.txt"

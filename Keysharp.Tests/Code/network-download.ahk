@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 filename := "./asciiart.txt"
 
 attr := FileExist(filename)

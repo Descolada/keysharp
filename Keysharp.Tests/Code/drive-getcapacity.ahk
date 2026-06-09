@@ -1,5 +1,9 @@
+#NoTrayIcon
+
 #if WINDOWS
 	val := DriveGetCapacity("C:\")
+#elif OSX
+	val := DriveGetCapacity("/")
 #else
 	val := DriveGetCapacity("/dev/sda")
 #endif

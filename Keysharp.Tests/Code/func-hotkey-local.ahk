@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 F12::{
 	testupdate() {
 		return 1

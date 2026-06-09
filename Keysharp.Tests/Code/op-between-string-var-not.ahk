@@ -1,3 +1,4 @@
+#NoTrayIcon
 
 b := "blue"
 o := "ooo"

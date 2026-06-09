@@ -1,4 +1,5 @@
 using Keysharp.Internals.Threading;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
@@ -45,9 +46,7 @@ namespace Keysharp.Tests
 		public void CleanupAfterEachTest()
 		{
 #if !WINDOWS
-			var app = Application.Instance;
-
-			if (app != null)
+			if (!Script.IsUiInitializationBlocked && Application.Instance is { } app)
 			{
 				void CloseWindows()
 				{
@@ -75,7 +74,8 @@ namespace Keysharp.Tests
 			hsm = null;
 
 #if !WINDOWS
-			_ = Application.Instance ?? new Application();
+			if (!Script.IsUiInitializationBlocked)
+				_ = Application.Instance ?? new Application();
 #endif
 			s = new Script();
 			hsm = s.HotstringManager;
@@ -90,7 +90,7 @@ namespace Keysharp.Tests
 		protected QueuedSynchronizationContext UseQueuedMainContext()
 		{
 			var context = new QueuedSynchronizationContext();
-			s.MainContext = context;
+			s.UIThreadContext = context;
 			return context;
 		}
 
@@ -253,7 +253,7 @@ namespace Keysharp.Tests
 					var trimmed = line.TrimStart(Keywords.Spaces);
 					if (trimmed.Length == 0
 						|| trimmed.StartsWith(';')
-						|| trimmed.StartsWith("#import ", StringComparison.OrdinalIgnoreCase))
+						|| (trimmed.StartsWith('#') && !trimmed.StartsWith("#if ")))
 					{
 						_ = sb.AppendLine(line);
 						line = null;

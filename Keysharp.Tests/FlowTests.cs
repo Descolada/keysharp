@@ -11,7 +11,6 @@ namespace Keysharp.Tests
         [Test, Category("Flow"), NonParallelizable]
         public void FlowExit()
         {
-			SkipIfUiInitializationBlocked("Uses SetTimer/Exit semantics that require an active UI loop.");
             Assert.IsTrue(HasPassed(RunScript(@"
 				FileAppend('pass', '*')
 				ExitApp(0)
@@ -41,11 +40,12 @@ namespace Keysharp.Tests
 				Exit(1)
 			", "5", true, false, 1)));
 			//Keysharp.Builtins.Flow.ResetState();
-			Assert.IsTrue(HasPassed(RunScript(@"
-				SetTimer((*) => (FileAppend('pass', '*'), Exit(3)), -1)
-				Exit(2)
-				FileAppend('fail', '*')
-			", "6", true, false, 3)));
+			if (!Script.IsUiInitializationBlocked)
+				Assert.IsTrue(HasPassed(RunScript(@"
+					SetTimer((*) => (FileAppend('pass', '*'), Exit(3)), -1)
+					Exit(2) ; Exits the auto-exec section, then the UI loop should process the timer
+					FileAppend('fail', '*')
+				", "6", true, false, 3)));
 			//Keysharp.Builtins.Flow.ResetState();
 			Assert.IsTrue(HasPassed(RunScript(@"
 				SetTimer((*) => (FileAppend('pass', '*'), ExitApp(0)), -1)

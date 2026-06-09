@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 obj := { a: 1, b: 2 }
 
 cap0 := ObjGetCapacity(obj)

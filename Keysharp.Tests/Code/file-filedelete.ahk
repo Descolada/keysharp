@@ -1,5 +1,5 @@
-; #Include %A_ScriptDir%/header.ahk
-		
+#NoTrayIcon
+	
 if (DirExist("./FileDelete"))
 	DirDelete("./FileDelete", true)
 

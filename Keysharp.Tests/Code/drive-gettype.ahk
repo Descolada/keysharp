@@ -1,5 +1,9 @@
+#NoTrayIcon
+
 #if WINDOWS
 	val := DriveGetType("C:\")
+#elif OSX
+	val := DriveGetType("/")
 #else
 	val := DriveGetType("/dev/sda")
 #endif

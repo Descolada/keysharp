@@ -1,4 +1,6 @@
-﻿a := 0
+﻿#NoTrayIcon
+
+a := 0
 Object.Prototype.DefineProp("protoCall", {call:(*) {
     global a := 1
     }

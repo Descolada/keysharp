@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { RealThread, LockRun }
 #MaxThreads 256
 lockit := ""

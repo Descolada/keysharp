@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { * }
 ; #Include %A_ScriptDir%/header.ahk
 
@@ -569,6 +571,7 @@ else
 	FileAppend "fail", "*"
 #endif
 
+#if !OSX
 if (A_TrayMenu.Handle > 0)
 	FileAppend "pass", "*"
 else
@@ -593,6 +596,7 @@ if (A_IconNumber == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+#endif
 
 Suspend true
 

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 0
 
 if (x is integer)

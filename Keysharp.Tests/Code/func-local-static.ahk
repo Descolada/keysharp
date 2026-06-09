@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 initfunc(a, b)
 {
 	return a + b

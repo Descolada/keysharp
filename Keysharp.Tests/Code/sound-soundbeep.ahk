@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 SoundBeep()
 SoundBeep(700, 500)

@@ -1,10 +1,14 @@
+#NoTrayIcon
+
 #import "Ks" { RunScript }
+
+headlessDirectives := "#NoTrayIcon`n"
 #if WINDOWS
 	hostBinary := "Keysharp.exe"
-	headlessDirectives := ""
-#else
+#elif LINUX
 	hostBinary := "./Keysharp"
-	headlessDirectives := "#NoMainWindow`n#NoTrayIcon`n"
+#else
+	hostBinary := "./osx-arm64/Keysharp.app/Contents/MacOS/Keysharp"
 #endif
 
 WaitForRunScriptExit(info, timeoutMs := 10000) {
@@ -69,14 +73,10 @@ else
 info := ""
 script := headlessDirectives . "
 (
-	stdout := FileOpen("*", "r")
-	stdin := FileOpen("*", "w")
-	str := stdout.ReadLine()
-	stdin.WriteLine(str str)
+	stdout := FileOpen("*", "w")
+	stdout.WriteLine("aa")
 )"
 info := RunScript(script, 1,, hostBinary)
-info.StdIn.WriteLine("a")
-info.StdIn.Flush()
 
 if (!WaitForRunScriptExit(info))
 {

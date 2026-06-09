@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := " test`t"
 y := LTrim(x)

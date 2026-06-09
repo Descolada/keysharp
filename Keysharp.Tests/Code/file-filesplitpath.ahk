@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 path := A_ScriptDir . "/DirCopy/file1.txt"
 filename :=
 dir :=

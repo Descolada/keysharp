@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 z := 3 > 2 ? 1 : 10
 
 if (z = 1)

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := ""
 
 If (x != "")

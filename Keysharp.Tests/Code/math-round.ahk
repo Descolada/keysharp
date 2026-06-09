@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 val := Round(3.14)
 
 if (val == 3)

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ticks := []
 fn := (*) => (ticks.Push(A_TickCount), Sleep(20))
 ok := true

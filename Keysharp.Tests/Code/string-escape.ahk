@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := "`""
 
 if (x.Length == 1)

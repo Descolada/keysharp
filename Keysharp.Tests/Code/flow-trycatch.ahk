@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 b := false
 
 try

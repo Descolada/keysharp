@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ;Simple assign.
 
 x := 123

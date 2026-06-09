@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := "ALL CAPS"
 y := StrUpper(x)

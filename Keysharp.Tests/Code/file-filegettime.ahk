@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 dir := "../../../Keysharp.Tests/Code/DirCopy/file1.txt"
 time := FileGetTime(dir)

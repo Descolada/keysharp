@@ -28,7 +28,6 @@ namespace Keysharp.Tests
 		[Test, Category("Class")]
 		public void ClassSpecialFunctions()
 		{
-			SkipIfUiInitializationBlocked("Relies on GC/finalizer-timing behavior coupled with UI-loop execution.");
 			Assert.IsTrue(TestScript("class-special-funcs", false));
 		}
 

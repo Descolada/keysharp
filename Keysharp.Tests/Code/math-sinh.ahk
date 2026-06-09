@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { Sinh }
 ; s := Format("{1:G}", Sinh(1 * PI))
 ; MsgBox("Sinh(1 * PI) == ". s)

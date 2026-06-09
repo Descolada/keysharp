@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 l :=
 t :=

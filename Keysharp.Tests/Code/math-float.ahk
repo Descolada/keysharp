@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 if (-1 == Float(-1))
 	FileAppend "pass", "*"
 else

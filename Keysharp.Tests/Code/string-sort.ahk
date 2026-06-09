@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 compfunc(x, y, z)
 {
 	return StrCompare(x, y)

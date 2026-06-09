@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := "test"
 y := StrLen(x)

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 a := ""
 
 class myclass

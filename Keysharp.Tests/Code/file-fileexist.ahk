@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 path := "../../../Keysharp.Tests/Code/"
 dir := path . "DirCopy/*.txt"
 

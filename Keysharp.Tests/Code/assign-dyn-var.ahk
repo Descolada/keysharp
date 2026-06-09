@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := 11
 y11 := 123
 z := y%x%

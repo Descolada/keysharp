@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 if (Max(-6, -6) == -6)
 	FileAppend "pass", "*"
 else

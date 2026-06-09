@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 if (0 == Sqrt(0))
 	FileAppend "pass", "*"

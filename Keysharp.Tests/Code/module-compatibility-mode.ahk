@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #Requires AutoHotkey v2.1-alpha
 #import Compat21 { NoReturn21, EmptyReturn21, ReturnNoReturn21, ReturnMaybeNoReturn21, PropertyNoReturn21, PropertyMaybeNoReturn21, NestedDefault20, NestedDefault21, NestedRestore21, RuntimeDefault20 }
 #import Compat20 { NoReturn20 }

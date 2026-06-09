@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 z := ""
 
 Loop Parse "hello"

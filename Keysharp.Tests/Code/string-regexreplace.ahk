@@ -1,3 +1,4 @@
+#NoTrayIcon
 
 outputVarCount := unset
 match := RegExReplace("abc123123", "123$", "xyz")

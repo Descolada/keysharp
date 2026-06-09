@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 x := ""
 
 ; MsgBox(A_WorkingDir)

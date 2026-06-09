@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import __Main
 #import "KS" { Collect }
 gval := 0

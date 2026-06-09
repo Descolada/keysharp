@@ -1,4 +1,6 @@
-﻿a := 1
+﻿#NoTrayIcon
+
+a := 1
 globalFatArrow := (*) => a := 2
 globalFatArrow()
 

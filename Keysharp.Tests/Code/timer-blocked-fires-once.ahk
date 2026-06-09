@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 fires := 0
 fn := () {
     global fires++

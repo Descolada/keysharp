@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 dir := "./Keysharp.Core.dll"
 ver := FileGetVersion(dir)

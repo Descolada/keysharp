@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 class myclass
 {
 	static a := unset

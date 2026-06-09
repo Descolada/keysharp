@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 optreffunc(a?, &b?)
 {
 	b := a

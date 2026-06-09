@@ -1,4 +1,4 @@
-
+#NoTrayIcon
 
 x := "hello"
 y := x " world"

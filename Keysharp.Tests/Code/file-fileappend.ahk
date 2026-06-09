@@ -1,4 +1,4 @@
-; #Include %A_ScriptDir%/header.ahk
+#NoTrayIcon
 
 if (FileExist("./fileappend.txt"))
 	FileDelete("./fileappend.txt")

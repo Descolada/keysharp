@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #if WINDOWS
 	pid := 0
 	Run("cmd.exe", "", "max", &pid)

@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 d1 := "20050126"
 d2 := "20040126"
 val := DateDiff(d1, d2, "days")

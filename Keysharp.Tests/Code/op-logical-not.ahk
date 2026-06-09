@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 testnot(true, unset)
 testnot(1, 0)
 testnot(1, "0")

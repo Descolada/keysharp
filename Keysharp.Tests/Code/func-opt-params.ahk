@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 optfunc1(a?)
 {
 	return a

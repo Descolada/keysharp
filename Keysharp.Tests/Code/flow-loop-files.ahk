@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #Include %A_ScriptDir%/header.ahk
 
 y = 5

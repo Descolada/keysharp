@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 #import "Ks" { FileDirName, FileFullPath }
 ; #Include %A_ScriptDir%/header.ahk
 

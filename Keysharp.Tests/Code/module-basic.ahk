@@ -1,3 +1,5 @@
+#NoTrayIcon
+
 ; =========================
 ; module-basic.ahk
 ; Basic module isolation + alias + built-in shadowing via AHK module

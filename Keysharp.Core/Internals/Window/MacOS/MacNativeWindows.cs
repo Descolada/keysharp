@@ -2,6 +2,7 @@ using Keysharp.Builtins;
 #if OSX
 using System.Runtime.InteropServices;
 using MonoMac.AppKit;
+using MonoMac.Foundation;
 
 namespace Keysharp.Internals.Window.MacOS
 {
@@ -32,6 +33,27 @@ namespace Keysharp.Internals.Window.MacOS
 
 		// True only when the window is physically on screen — used by point-hit-testing.
 		internal bool VisibleOnScreen => IsOnScreen && Visible;
+
+		// kCGWindowLayer alone can't separate "system chrome to skip" from "real app window":
+		// Eto maps Gui's "+AlwaysOnTop" to NSWindowLevel.PopUpMenu (101), which sits well above
+		// the Dock's own overlay layer (20) and even real popup menus. Layer is therefore not a
+		// reliable discriminator — match on the owning process instead.
+		internal bool IsDockOwned => string.Equals(OwnerName, "Dock", StringComparison.Ordinal);
+
+		// The Dock process owns two very different windows: the visible dock bar (normal-sized,
+		// should be matchable like any other window) and a large transparent overlay that covers
+		// (essentially) the whole screen and would win every point hit-test if not excluded.
+		// Distinguish them by size rather than skipping every Dock-owned window outright.
+		internal bool IsFullScreenOverlay
+		{
+			get
+			{
+				var screen = Forms.Screen.PrimaryScreen.Bounds;
+				return screen.Width > 0 && screen.Height > 0
+					   && Bounds.Width >= screen.Width * 0.9
+					   && Bounds.Height >= screen.Height * 0.9;
+			}
+		}
 	}
 
 	internal static partial class MacNativeWindows
@@ -145,65 +167,145 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)
 		{
+			// Owner name is needed to recognize the Dock's full-screen overlay window below.
 			var snapshot = SnapshotCore(
 				onScreenOnly: true,
-				includeTextMetadata: false);
+				includeTextMetadata: false,
+				includeOwnerName: true);
+
+			// The Dock's transparent full-screen overlay sits in front of (and covers) the entire
+			// desktop, including the actual dock bar — there's no separate "real" window to prefer
+			// it over. Rather than excluding it outright (which would make the Dock uninspectable),
+			// defer it: prefer any other containing window first, and only report the overlay — as
+			// "Dock" — when the point genuinely isn't over anything else (e.g. the dock bar itself).
+			MacNativeWindowInfo? deferredOverlay = null;
 
 			foreach (var w in snapshot)
 			{
-				if (!w.VisibleOnScreen)
+				if (!w.VisibleOnScreen || !w.Bounds.Contains(location.X, location.Y))
 					continue;
 
-				if (!w.Bounds.Contains(location.X, location.Y))
+				if (w.IsDockOwned && w.IsFullScreenOverlay)
+				{
+					deferredOverlay ??= w;
 					continue;
+				}
 
 				info = w;
 				return true; // front-to-back order, first real containing window wins
+			}
+
+			if (deferredOverlay.HasValue)
+			{
+				info = deferredOverlay.Value;
+				return true;
 			}
 
 			info = default;
 			return false;
 		}
 
+		// Coalesces rapid native window visibility changes (e.g. a window that is shown and then
+		// immediately self-hidden, such as Keysharp's MainWindow when AllowShowDisplay is false)
+		// into a single activation-policy update, so the Dock icon never flickers on for windows
+		// the user never actually sees.
+		private static System.Threading.Timer activationPolicyDebounceTimer;
+		private static readonly object activationPolicyLock = new();
+
 		internal static void SetActivationPolicy(bool accessory)
 		{
 			try
 			{
-				MonoMac.AppKit.NSApplication.SharedApplication.ActivationPolicy =
+				NSApplication.SharedApplication.ActivationPolicy =
 					accessory
-					? MonoMac.AppKit.NSApplicationActivationPolicy.Accessory
-					: MonoMac.AppKit.NSApplicationActivationPolicy.Regular;
+					? NSApplicationActivationPolicy.Accessory
+					: NSApplicationActivationPolicy.Regular;
 			}
 			catch { }
 		}
 
-		internal static void UpdateActivationPolicy()
+		// Counts native dialogs shown via Dialogs.RunInterruptibleDialog (MsgBox, InputBox,
+		// FileSelect, DirSelect, ...). These render as native NSAlert/NSOpenPanel-backed windows
+		// that Eto never registers in Application.Instance.Windows, so RequestActivationPolicyUpdate
+		// can't see them through the Eto window list below -- they must be tracked explicitly.
+		// See Dialogs.RunInterruptibleDialog for the increment/decrement.
+		internal static int ActiveNativeDialogs;
+
+		// AppKit creates plenty of NSWindow instances we never want to put the app in the Dock for
+		// -- status-item context menus, tooltips, popovers, and the like -- and none of those are
+		// ever registered as Eto windows. Conversely, every window Keysharp itself creates IS an
+		// Eto window, and already carries the right intent via ShowInTaskbar (set to false for
+		// ToolTips and Gui +ToolWindow, true for ordinary windows). So: a native window only counts
+		// as user-facing if it corresponds to a tracked Eto window that wants to be in the taskbar.
+		private static bool IsUserFacingWindow(NSWindow native)
 		{
 			var app = Eto.Forms.Application.Instance;
 
 			if (app == null)
-				return;
+				return false;
 
-			app.AsyncInvoke(() => SetActivationPolicy(accessory: !app.Windows.Any(w => w.Visible)));
+			foreach (var window in app.Windows)
+			{
+				// Compare native handles rather than the managed wrapper objects -- MonoMac can hand
+				// back distinct wrapper instances for the same underlying NSWindow* across calls, so
+				// ReferenceEquals(window.ControlObject, native) silently never matches.
+				if (window.ControlObject is NSObject nativeWindow && nativeWindow.Handle == native.Handle)
+					return window.ShowInTaskbar;
+			}
+
+			return false;
 		}
 
-		// Registers NSNotificationCenter observers so that the activation policy is updated
-		// for ALL windows, including native Eto dialogs that are not KeysharpForm instances.
+		// Re-derives the correct policy from the actual, current native window list -- rather
+		// than from any cached/forced state -- and applies it after a short debounce. Because
+		// the check always looks at ground truth at the moment it runs, no call site needs to
+		// (or should) force the policy directly; just request a re-evaluation when something
+		// might have changed.
+		internal static void RequestActivationPolicyUpdate()
+		{
+			lock (activationPolicyLock)
+			{
+				activationPolicyDebounceTimer?.Dispose();
+				activationPolicyDebounceTimer = new System.Threading.Timer(_ =>
+				{
+					// Timer callbacks run on a thread-pool worker thread, but IsUserFacingWindow reads
+					// Eto's window.ShowInTaskbar (and walks the native NSWindow list), both of which
+					// must only be touched on the UI thread -- so marshal the check+apply over to it.
+					try
+					{
+						_ = Eto.Forms.Application.Instance.InvokeAsync(() =>
+						{
+							try
+							{
+								var anyUserFacingWindowVisible = ActiveNativeDialogs > 0
+									|| NSApplication.SharedApplication.Windows.Any(w => w.IsVisible && IsUserFacingWindow(w));
+								SetActivationPolicy(accessory: !anyUserFacingWindowVisible);
+							}
+							catch { }
+						});
+					}
+					catch { }
+				}, null, 150, System.Threading.Timeout.Infinite);
+			}
+		}
+
+		// Registers observers covering every way a window's effective visibility to the user can
+		// change: appearing/becoming key, resigning key, miniaturizing/restoring, occlusion-state
+		// changes (e.g. moving on/off screen, behind other apps), and closing. Each one simply
+		// requests a re-evaluation rather than assuming what the resulting state should be.
 		internal static void RegisterWindowPolicyObservers()
 		{
 			try
 			{
 				var nc = MonoMac.Foundation.NSNotificationCenter.DefaultCenter;
+				Action<MonoMac.Foundation.NSNotification> onChange = _ => RequestActivationPolicyUpdate();
 
-				// Any window gaining key status means something is visible to the user.
-				nc.AddObserver("NSWindowDidBecomeKeyNotification", _ => SetActivationPolicy(accessory: false));
-
-				// When a window is about to close, defer a check — if no windows remain
-				// visible afterwards, revert to background (accessory) mode.
-				nc.AddObserver("NSWindowWillCloseNotification", _ =>
-				{
-					UpdateActivationPolicy();
-				});
+				nc.AddObserver("NSWindowDidBecomeKeyNotification", onChange);
+				nc.AddObserver("NSWindowDidResignKeyNotification", onChange);
+				nc.AddObserver("NSWindowDidMiniaturizeNotification", onChange);
+				nc.AddObserver("NSWindowDidDeminiaturizeNotification", onChange);
+				nc.AddObserver("NSWindowDidChangeOcclusionStateNotification", onChange);
+				nc.AddObserver("NSWindowWillCloseNotification", onChange);
 			}
 			catch { }
 		}
@@ -240,7 +342,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0)
+		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)
 		{
 			var options = includeSingleWindow
 				? kCGWindowListOptionIncludingWindow | kCGWindowListExcludeDesktopElements
@@ -265,11 +367,11 @@ namespace Keysharp.Internals.Window.MacOS
 					var ownerName = string.Empty;
 					var title = string.Empty;
 
-					if (includeTextMetadata)
-					{
+					if (includeTextMetadata || includeOwnerName)
 						_ = TryGetString(dictRef, kOwnerName, out ownerName);
+
+					if (includeTextMetadata)
 						_ = TryGetString(dictRef, kWindowName, out title);
-					}
 
 					var rect = Rectangle.Empty;
 					if (TryGetDictionaryValue(dictRef, kWindowBounds, out var boundsRef)

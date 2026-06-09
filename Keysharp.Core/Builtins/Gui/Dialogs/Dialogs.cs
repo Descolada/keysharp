@@ -17,13 +17,31 @@ namespace Keysharp.Builtins
 
 		private static T RunInterruptibleDialog<T>(Func<T> func)
 		{
-			using var _ = Keysharp.Internals.Flow.BeginDialogInterruptibilityScope();
-			var result = func();
+			using var scope = Keysharp.Internals.Flow.BeginDialogInterruptibilityScope();
+#if OSX
+			// MsgBox, InputBox, FileSelect, DirSelect, etc. all funnel through here. Several of them
+			// render as native NSAlert/NSOpenPanel-backed windows that Eto never tracks as Windows,
+			// so MacNativeWindows.RequestActivationPolicyUpdate can't see them on its own -- this
+			// counter lets it know one is open regardless of which kind it is.
+			Interlocked.Increment(ref MacNativeWindows.ActiveNativeDialogs);
 
-			if (Script.TheScript?.hasExited == true)
-				throw new Flow.UserRequestedExitException();
+			try
+			{
+#endif
+				var result = func();
 
-			return result;
+				if (Script.TheScript?.hasExited == true)
+					throw new Flow.UserRequestedExitException();
+
+				return result;
+#if OSX
+			}
+			finally
+			{
+				Interlocked.Decrement(ref MacNativeWindows.ActiveNativeDialogs);
+				MacNativeWindows.RequestActivationPolicyUpdate();
+			}
+#endif
 		}
 
 		private static T RunInterruptibleUIDialog<T>(Func<T> func) => RunInterruptibleDialog(() => Script.InvokeOnUIThread(func));
@@ -1077,7 +1095,7 @@ namespace Keysharp.Builtins
 #if OSX
 			try
 			{
-				_ = Internals.Window.MacOS.MacNativeWindows.ActivateAppByPid(Environment.ProcessId);
+				_ = MacNativeWindows.ActivateAppByPid(Environment.ProcessId);
 			}
 			catch
 			{
@@ -1150,4 +1168,3 @@ namespace Keysharp.Builtins
 
 	}
 }
-

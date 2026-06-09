@@ -265,16 +265,6 @@ namespace Keysharp.Builtins
 		[Browsable(false)]
 		protected new bool ShowActivated => !showWithoutActivation;
 
-#if OSX
-		public new void Show()
-		{
-			// Switch to Regular before the window appears so macOS places it in the foreground
-			// rather than behind other apps (which happens when the process is still Accessory).
-			Keysharp.Internals.Window.MacOS.MacNativeWindows.SetActivationPolicy(accessory: false);
-			base.Show();
-		}
-#endif
-
 		public override bool Visible
 		{
 			get => base.Visible;
@@ -330,19 +320,7 @@ namespace Keysharp.Builtins
 #if !WINDOWS
 				_ = this.Handle;
 #endif
-#if OSX
-				// Switch to Regular as soon as the window appears — even if it opens behind
-				// another app and never becomes the key window.
-				Keysharp.Internals.Window.MacOS.MacNativeWindows.SetActivationPolicy(accessory: false);
-#endif
 			};
-
-#if OSX
-			Closed += (_, _) =>
-			{
-				Keysharp.Internals.Window.MacOS.MacNativeWindows.UpdateActivationPolicy();
-			};
-#endif
 		}
 
 		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)

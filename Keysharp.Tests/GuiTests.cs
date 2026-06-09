@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+#if OSX
+using AppKit = MonoMac.AppKit;
+#endif
 
 namespace Keysharp.Tests
 {

@@ -43,7 +43,7 @@ namespace Keysharp.Builtins
 
 				try
 				{
-					scheduler = script.EventScheduler;
+					scheduler = script.ThreadScheduler;
 					_ = schedulerSource.TrySetResult(scheduler);
 					SynchronizationContext.SetSynchronizationContext(new ScriptEventSynchronizationContext(scheduler));
 					var launchResult = RunBodyOnSchedulerThread(scheduler, body, out result);

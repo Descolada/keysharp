@@ -11,13 +11,30 @@ namespace Keysharp.Runtime
 	{
 		private ThreadLocal<ScriptEventScheduler> eventSchedulers;
 		internal ScriptEventScheduler uiEventScheduler;
-		internal ScriptEventScheduler EventScheduler => (eventSchedulers ??= new(() => new(this, Thread.CurrentThread.ManagedThreadId, IsOnMainThread), true)).Value;
+
+		/// <summary>
+		/// Gets or creates the per-thread scheduler for the current thread, without any fallback.
+		/// Use this only during thread initialization (before the SynchronizationContext has been set),
+		/// such as in RealThread setup. All other callers should use <see cref="EventScheduler"/>.
+		/// </summary>
+		internal ScriptEventScheduler ThreadScheduler
+			=> (eventSchedulers ??= new(() => new(this, Thread.CurrentThread.ManagedThreadId, IsOnMainThread), true)).Value;
 
 		internal ScriptEventScheduler UIEventScheduler
 			=> uiEventScheduler ?? throw new InvalidOperationException("UI event scheduler has not been bound yet.");
 
 		internal ScriptEventScheduler CurrentSchedulerIfCreated
 			=> eventSchedulers != null && eventSchedulers.IsValueCreated ? eventSchedulers.Value : null;
+
+		/// <summary>
+		/// Returns the scheduler that should own work initiated on the current thread.
+		/// On threads with a SynchronizationContext (UI thread, RealThreads), returns that thread's
+		/// own scheduler. On threads without one (ad-hoc ThreadPool callbacks such as hook callbacks),
+		/// falls back to the UI scheduler so that posted work is actually drained.
+		/// </summary>
+		internal ScriptEventScheduler EventScheduler
+			=> SynchronizationContext.Current == null ? UIEventScheduler : ThreadScheduler;
+
 
 		internal void ScheduleAllEventSchedulers()
 			=> ScheduleEventSchedulers(static _ => true);
@@ -138,7 +155,11 @@ namespace Keysharp.Runtime
 		internal bool OwnsCurrentThread => Thread.CurrentThread.ManagedThreadId == ownerManagedThreadId;
 		internal int OwnerManagedThreadId => ownerManagedThreadId;
 		internal bool IsDisposed => Volatile.Read(ref workerDisposed) != 0;
-		internal bool HasBlockedQueuedWork
+		// True for schedulers that are guaranteed to be pumped: the UI scheduler (driven by the
+		// message loop) and RealThread schedulers (marked intentional before body runs, then
+		// driven by RunWorkerEventLoop). False for ephemeral ad-hoc C# thread schedulers that
+		// have no pump loop and would silently swallow any enqueued work.
+internal bool HasBlockedQueuedWork
 		{
 			get
 			{
@@ -415,12 +436,7 @@ namespace Keysharp.Runtime
 			}
 
 			if (isUiScheduler)
-			{
-				if (OwnsCurrentThread)
-					Script.PostToUIThread(PumpThreadQueuedEvents);
-				else
-					_ = ThreadPool.UnsafeQueueUserWorkItem(static state => Script.InvokeOnUIThread(((ScriptEventScheduler)state).PumpThreadQueuedEvents), this, false);
-			}
+				Script.PostToUIThread(PumpThreadQueuedEvents); // wake the UI message loop from any thread
 			else
 				SignalWorkerPump();
 		}

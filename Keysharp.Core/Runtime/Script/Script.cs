@@ -36,7 +36,25 @@ namespace Keysharp.Runtime
 			private static bool etoAppConfigured;
 #endif
 
-		public SynchronizationContext MainContext;
+		/// <summary>
+		/// SynchronizationContext for dispatching script-logic work (timers, OnMessage, hotkeys) onto the
+		/// script's logical main thread, serialized through <see cref="mainEventScheduler"/>. This is distinct
+		/// from <see cref="UIThreadContext"/>, which targets whatever thread the UI framework actually requires
+		/// (these can differ once window construction is lazy/headless).
+		/// </summary>
+		internal SynchronizationContext ScriptMainThreadContext
+			=> scriptMainThreadContext ??= new ScriptEventSynchronizationContext(mainEventScheduler);
+
+		/// <summary>
+		/// SynchronizationContext for dispatching genuine UI-framework operations (Show/Hide, native dialogs,
+		/// control creation) onto the thread the UI framework demands. Backed by
+		/// <see cref="WindowsFormsSynchronizationContext"/>/<see cref="EtoSynchronizationContext"/>, set up by
+		/// <see cref="InitializeUIThreadContext"/>.
+		/// </summary>
+		public SynchronizationContext UIThreadContext;
+
+		private SynchronizationContext scriptMainThreadContext;
+		private ScriptEventScheduler mainEventScheduler;
 
 		internal readonly uint NativeMainThreadID;
 		internal readonly int ManagedMainThreadID;
@@ -46,9 +64,12 @@ namespace Keysharp.Runtime
 		{
             get {
 #if !WINDOWS
-                var app = Application.Instance;
-                if (app != null)
-                    return app.IsUIThread;
+				if (!IsUiInitializationBlocked)
+				{
+					var app = Application.Instance;
+					if (app != null)
+						return app.IsUIThread;
+				}
 #endif
 			    return Environment.CurrentManagedThreadId == ManagedMainThreadID;
             }
@@ -64,16 +85,18 @@ namespace Keysharp.Runtime
 
 		/// <summary>
 		/// True when scripts should run without normal UI affordances.
-		/// This is true when headless mode is forced, when no displays are available, or when both
-		/// <see cref="NoMainWindow"/> and <see cref="NoTrayIcon"/> are enabled.
+		/// This is true when headless mode is forced or when no displays are available.
 		/// </summary>
 		public static bool IsHeadless => IsHeadlessForced()
-			|| !HasAvailableDisplay()
-			|| (TheScript?.NoMainWindow == true && TheScript?.NoTrayIcon == true);
+			|| IsUiInitializationBlocked
+			|| !HasAvailableDisplay();
 
 		/// <summary>
 		/// True when this host must not attempt Eto UI initialization.
 		/// </summary>
+		// On macOS, the AppKit event loop must run on the OS main thread (thread 1).
+		// The NUnit test adapter does not run on thread 1, so we cannot drive the
+		// Cocoa event loop from within testhost. Keep macOS tests headless.
 		internal static bool IsUiInitializationBlocked =>
 #if OSX
 			IsTestHost;
@@ -256,6 +279,7 @@ namespace Keysharp.Runtime
 		internal ImageListData ImageListData => imageListData ?? (imageListData = new ());
 		internal InputData InputData => inputData ?? (inputData = new ());
 		internal bool IsMainWindowClosing => mainWindow == null || mainWindow.IsClosing;
+
 		internal bool IsReadyToExecute => isReadyToExecute;
 		internal JoystickData JoystickData => joystickData ?? (joystickData = new ());
 		internal KeyboardData KeyboardData => keyboardData ?? (keyboardData = new ());
@@ -268,7 +292,7 @@ namespace Keysharp.Runtime
 			{
 #if WINDOWS
 				if (mainWindow == null)
-					InitializeMainWindow(string.Empty, persistent, false, initializeUiChrome: false);
+					EnsureMainWindowHandle();
 #else
 				if (mainWindow == null)
 					return 0;
@@ -374,6 +398,7 @@ namespace Keysharp.Runtime
 		public Script(Type program = null, string hookMutexName = null)
 		{
 			Script.TheScript = this;//Everywhere in the script will reference this.
+			MainWindow.ResetDebugOutputBuffer();
 
 			NativeMainThreadID = CurrentThreadId();
 			ManagedMainThreadID = Environment.CurrentManagedThreadId;
@@ -394,7 +419,7 @@ namespace Keysharp.Runtime
 
 			Script.TheScript.Threads.EnsureCurrentThreadVariables();
 
-			_ = EventScheduler;
+			mainEventScheduler = ThreadScheduler;
 
 #if WINDOWS
 			msgFilter = new MessageFilter(this);
@@ -546,6 +571,9 @@ namespace Keysharp.Runtime
 			if (title.Length == 0 || title == "*")//Happens when running in Keyview.
 				return false;
 
+			if (IsUiInitializationBlocked)
+				return false;
+
 			if (Env.FindCommandLineArg("force") != null || Env.FindCommandLineArg("f") != null)
 				inst = eScriptInstance.Off;
 
@@ -664,9 +692,9 @@ namespace Keysharp.Runtime
 			currentCompatibilityReturnsUnsetByDefault = ReturnsUnsetByDefault(currentCompatibilityVersion);
 		}
 
-		private void InitializeMainContext()
+		private void InitializeUIThreadContext()
 		{
-			if (MainContext != null)
+			if (UIThreadContext != null)
 				return;
 #if WINDOWS
 			InitializeScreenSystemEventsOnNeutralContext();
@@ -677,7 +705,7 @@ namespace Keysharp.Runtime
 				current = new WindowsFormsSynchronizationContext();
 				SynchronizationContext.SetSynchronizationContext(current);
 			}
-			MainContext = current;
+			UIThreadContext = current;
 #else
 			var app = EnsureEtoApplication();
 
@@ -690,7 +718,7 @@ namespace Keysharp.Runtime
 					SynchronizationContext.SetSynchronizationContext(current);
 				}
 
-				MainContext = current;
+				UIThreadContext = current;
 			});
 #endif
 		}
@@ -708,8 +736,8 @@ namespace Keysharp.Runtime
 				return;
 			}
 
-			if (script.MainContext != null)
-				script.MainContext.Send(_ => action(), null);
+			if (script.UIThreadContext != null)
+				script.UIThreadContext.Send(_ => action(), null);
 #if !WINDOWS
 			else if (Application.Instance != null)
 				Application.Instance.Invoke(action);
@@ -725,7 +753,7 @@ namespace Keysharp.Runtime
 
 			var script = TheScript;
 
-			if (script == null || script.IsOnMainThread || script.MainContext == null)
+			if (script == null || script.IsOnMainThread || script.UIThreadContext == null)
 			{
 #if !WINDOWS
 				if (script != null && !script.IsOnMainThread && Application.Instance != null)
@@ -739,7 +767,7 @@ namespace Keysharp.Runtime
 			}
 
 			T uiResult = default;
-			script.MainContext.Send(_ => uiResult = action(), null);
+			script.UIThreadContext.Send(_ => uiResult = action(), null);
 			return uiResult;
 		}
 
@@ -750,8 +778,8 @@ namespace Keysharp.Runtime
 
 			var script = TheScript;
 
-			if (script?.MainContext != null)
-				script.MainContext.Post(_ => action(), null);
+			if (script?.UIThreadContext != null)
+				script.UIThreadContext.Post(_ => action(), null);
 #if !WINDOWS
 			else if (Application.Instance != null)
 				Application.Instance.AsyncInvoke(action);
@@ -781,12 +809,10 @@ namespace Keysharp.Runtime
 			if (app.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
 				macHandler.AllowClosingMainForm = true;
 
-			// Start as a background (accessory) app — no Dock icon, no Alt+Tab entry.
-			// Notification observers in RegisterWindowPolicyObservers switch to Regular whenever
-			// any window (including native Eto dialogs) gains focus, and back to Accessory when
-			// the last window closes.
-			MacNativeWindows.SetActivationPolicy(accessory: true);
+			// Info.plist marks the app as LSUIElement (no Dock icon by default); show it only
+			// while a real, user-facing window is visible. See MacNativeWindows for details.
 			MacNativeWindows.RegisterWindowPolicyObservers();
+			MacNativeWindows.RequestActivationPolicyUpdate();
 #endif
 
 #if LINUX
@@ -856,80 +882,110 @@ namespace Keysharp.Runtime
 			ExitIfNotPersistent();
 		}
 
-		private void InitializeMainWindow(string title, bool _persistent, bool showInTaskbar, bool initializeUiChrome = true)
+		/// <summary>
+		/// Constructs the main window and wires up the bare minimum needed for it to act as a stable
+		/// native handle (for hotkey registration, async message targets, etc.) -- without attaching
+		/// any visible chrome (icon, tray menu, taskbar entry) and without ever calling Show().
+		/// Safe to call repeatedly; only constructs once.
+		/// </summary>
+		private void EnsureMainWindowHandle()
 		{
-			mainWindow = new MainWindow();
+			if (mainWindow != null)
+				return;
 
+			mainWindow = new MainWindow();
+			MainWindow.ResetDebugOutputFlush();
+			mainWindowGui = new Gui(null, null, null, mainWindow);
+			mainWindow.AllowShowDisplay = false;
+		}
+
+		/// <summary>
+		/// Attaches the main window's visible chrome -- title, icon, tray menu, and taskbar
+		/// visibility. Assumes <see cref="EnsureMainWindowHandle"/> has already run. This is the
+		/// only place that decides whether the tray icon gets created; actually displaying the
+		/// window is still left to the caller (e.g. ShowIfNeeded(), or the platform-specific
+		/// startup sequence in <see cref="InitializeUnixMainWindow"/>/<see cref="RunMainWindow"/>).
+		/// </summary>
+		private void AttachMainWindowChrome(string title, bool showInTaskbar, bool initializeUiChrome)
+		{
 			if (!string.IsNullOrEmpty(title))
 				mainWindow.Text = title;
 
 			if (initializeUiChrome && normalIcon != null)
 				mainWindow.Icon = normalIcon;
 
-			persistent = _persistent;
-			mainWindowGui = new Gui(null, null, null, mainWindow);
-
 			if (initializeUiChrome && Tray == null)
 				CreateTrayMenu();
 
-			mainWindow.AllowShowDisplay = false;
 			mainWindow.ShowInTaskbar = showInTaskbar;
 		}
 
 		public void RunMainWindow(string title, Func<object> userInit, bool _persistent)
 		{
-			InitializeMainContext();
-
-			if (IsUiInitializationBlocked)
+			if (IsUiInitializationBlocked || !HasAvailableDisplay() || IsHeadlessForced())
 			{
-				// Eto.Mac cannot initialize under dotnet testhost because it is not an app bundle.
-				// Run tests headlessly on macOS testhost.
+				// Skip the native UI message loop when it cannot be driven:
+				//   IsUiInitializationBlocked — macOS testhost: AppKit requires OS thread 1, which
+				//     the NUnit adapter does not run on.
+				//   !HasAvailableDisplay()    — no display is attached (CI, SSH without X11, etc.)
+				//   IsHeadlessForced()        — KEYSHARP_FORCE_HEADLESS env var set explicitly.
+				// Note: #NoTrayIcon only suppresses tray chrome, not the loop — those scripts still
+				// need Application.Run for event handling.
 				SuppressErrorOccurredDialog = true;
+				UIThreadContext ??= SynchronizationContext.Current ?? ScriptMainThreadContext;
 				RunAutoExecSection(userInit);
 				return;
 			}
 
-			if (IsHeadless)
-				SuppressErrorOccurredDialog = true;
+			InitializeUIThreadContext();
+			persistent = _persistent;
 
 #if WINDOWS
-			InitializeMainWindow(title, _persistent, !NoMainWindow); // Can't use !suppressTestHostUi here or OnMessage test fails
+			EnsureMainWindowHandle();
+			AttachMainWindowChrome(title, true, true);
 			_ = mainWindow.BeginInvoke(() => RunAutoExecSection(userInit));
 			Application.Run(mainWindow);
 #else
-			var suppressTestHostUi = IsTestHost;
-
 			var app = EnsureEtoApplication();
 #if LINUX
 			Keysharp.Internals.Window.Linux.WindowManager.InstallTestLoopXErrorHandler();
 #endif
 
-			app.AsyncInvoke(() => InitializeUnixMainWindow(app, title, userInit, _persistent, suppressTestHostUi));
+			app.AsyncInvoke(() => InitializeUnixMainWindow(app, title, userInit, _persistent));
 
 			app.Run();
 #endif
 		}
 
 #if !WINDOWS
-		private void InitializeUnixMainWindow(Eto.Forms.Application app, string title, Func<object> userInit, bool persistentState, bool suppressTestHostUi)
+		private void InitializeUnixMainWindow(Eto.Forms.Application app, string title, Func<object> userInit, bool persistentState)
 		{
-			var showUiChrome = !suppressTestHostUi;
-			InitializeMainWindow(title, persistentState, !NoMainWindow && showUiChrome, showUiChrome);
+			EnsureMainWindowHandle();
+			AttachMainWindowChrome(title, true, !NoTrayIcon);
+			persistent = persistentState;
 			mainWindow.Closed += (_, __) =>
 			{
 				if (hasExited)
 					app.Quit();
 			};
-			if (suppressTestHostUi)
-			{
-				mainWindow.Show();
-				mainWindow.Hide();
-			}
-			else if (!NoMainWindow)
-				mainWindow.Show();
+#if OSX
+			// AllowShowDisplay is false at this point either way (set in EnsureMainWindowHandle), so
+			// a Show()/Hide() round trip here would just self-hide again right away -- but even a
+			// brief Show() registers a real on-screen window with the window server, which makes
+			// the Dock icon flash for this Accessory-policy app. Skip showing it altogether: just
+			// realize the native handle and mark the window as "shown" so a later, user-requested
+			// Show() (e.g. opening the debug window via the tray menu, which flips AllowShowDisplay
+			// back to true) works correctly via MainWindow.ShowIfNeeded(), without ever having
+			// displayed anything here.
+			_ = mainWindow.Handle;
+			mainWindow.beenShown = true;
+#else
 
-				app.AsyncInvoke(() => RunAutoExecSection(userInit));
-			}
+			mainWindow.Show();
+#endif
+
+			app.AsyncInvoke(() => RunAutoExecSection(userInit));
+		}
 #endif
 
 		public void SetName(string path, string name = null)

@@ -25,13 +25,13 @@ namespace Keysharp.Internals.Scripting
 				_pending = true;
 				try
 				{
-					script.MainThreadContext.Post(_ => RunPendingDestructors(), null);
+					script.ScriptMainThreadContext.Post(_ => RunPendingDestructors(), null);
 				}
 				catch { }
 			}
 		}
 
-		// Called on the script's logical main thread, serialized via MainThreadContext.
+		// Called on the script's logical main thread, serialized via ScriptMainThreadContext.
 		public static void RunPendingDestructors()
 		{
 			// Drain to a batch

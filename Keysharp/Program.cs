@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Diagnostics;
 using Keysharp.Builtins;
 using Keysharp.Internals.Scripting;
 using Keysharp.Internals.Strings;
@@ -13,8 +14,8 @@ using Microsoft.NET.HostModel.AppHost;
 #if WINDOWS
 using Microsoft.Win32;
 #elif OSX
-using System.Threading;
 using Eto.Forms;
+using System.Threading;
 #endif
 
 namespace Keysharp.Main

@@ -1,4 +1,6 @@
+#if OSX
 #NoTrayIcon
+#endif
 
 #import "Ks" { * }
 ; #Include %A_ScriptDir%/header.ahk

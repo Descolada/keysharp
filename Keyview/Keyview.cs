@@ -117,7 +117,7 @@ namespace Keyview
 			documentStatusLabel.AutoSize = false;
 			documentStatusLabel.Width = 600;
 			documentStatusLabel.TextAlign = ContentAlignment.MiddleLeft;
-			_ = toolStrip1.Items.Insert(0, documentStatusLabel);
+			toolStrip1.Items.Insert(0, documentStatusLabel);
 
 			if (!string.IsNullOrWhiteSpace(initialFile) && File.Exists(initialFile))
 			{

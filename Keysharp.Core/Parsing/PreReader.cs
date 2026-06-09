@@ -204,7 +204,15 @@ namespace Keysharp.Parsing
 					if (directiveTokens.Count == 0)
 						throw new ParseException("Empty directive token", token);
 
-                    directiveTokenSource = new ListTokenSource(directiveTokens);
+					String directiveStr = directiveTokens[0].Text.Trim().ToUpper();
+
+					if (!compiledTokens && !(directiveStr is "IF" or "ELIF" or "ELSE" or "ENDIF"))
+					{
+						// If currently ignoring code due to an unsatisfied #if condition, then only process conditional compilation directives, and treat all other directives as no-ops that do not affect whether code is being ignored or not.
+						goto OnlyIncrementIndex;
+					}
+
+					directiveTokenSource = new ListTokenSource(directiveTokens);
                     directiveTokenStream = new CommonTokenStream(directiveTokenSource, MainLexer.DIRECTIVE);
                     preprocessorParser.TokenStream = directiveTokenStream;
 
@@ -216,7 +224,6 @@ namespace Keysharp.Parsing
                     // if true than next code is valid and not ignored.
                     compiledTokens = directive.value;
 
-                    String directiveStr = directiveTokens[0].Text.Trim().ToUpper();
                     var lineNumber = token.Line;
 
                     var includeOnce = false;

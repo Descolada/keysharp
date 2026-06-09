@@ -13,7 +13,7 @@ namespace Keysharp.Internals.Scripting
 
 		public static void Enqueue(Any obj)
 		{
-			MainWindow script = TheScript?.mainWindow;
+			var script = TheScript;
 			if (script == null) return;
 
 			lock (_lock)
@@ -25,13 +25,13 @@ namespace Keysharp.Internals.Scripting
 				_pending = true;
 				try
 				{
-					script.BeginInvoke(RunPendingDestructors);
+					script.MainThreadContext.Post(_ => RunPendingDestructors(), null);
 				}
 				catch { }
 			}
 		}
 
-		// Called on the main STA thread (window proc or sync ctx)
+		// Called on the script's logical main thread, serialized via MainThreadContext.
 		public static void RunPendingDestructors()
 		{
 			// Drain to a batch

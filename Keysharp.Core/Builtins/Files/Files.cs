@@ -499,7 +499,7 @@ namespace Keysharp.Builtins
 			{
 			}
 
-			return DefaultObject;
+			return DefaultErrorString;
 		}
 
 		/// <summary>
@@ -538,7 +538,7 @@ namespace Keysharp.Builtins
 				_ = (string)Errors.OSErrorOccurred(ex, $"Error getting file attributes for file {s}", DefaultErrorString);
 			}
 
-			return DefaultObject;
+			return DefaultErrorString;
 		}
 
 #if WINDOWS

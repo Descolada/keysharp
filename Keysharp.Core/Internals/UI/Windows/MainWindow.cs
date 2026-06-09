@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using System.Text;
 namespace Keysharp.Internals.UI.Windows
 {
 	public partial class MainWindow : KeysharpForm
@@ -11,6 +12,56 @@ namespace Keysharp.Internals.UI.Windows
 
 		[DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
 		public bool IsClosing { get; private set; }
+
+		private static StringBuilder debugOutputBuffer = new StringBuilder();
+		private static bool debugOutputFlushedToWindow;
+
+		/// <summary>
+		/// Appends OutputDebug text to the buffered store (the source of truth for OutputDebug
+		/// content, surviving even when no window has been constructed yet) and mirrors it into
+		/// the Debug tab's textbox if and only if the main window is currently visible to the
+		/// user. The first time the window becomes visible after being hidden/not yet
+		/// constructed, the textbox is primed with the entire accumulated buffer.
+		/// </summary>
+		internal static void AppendDebugOutput(string text, bool clear)
+		{
+			var script = Script.TheScript;
+			var mainWindow = script?.mainWindow;
+
+			lock (debugOutputBuffer)
+			{
+				if (clear)
+					debugOutputBuffer.Clear();
+
+				debugOutputBuffer.Append(text);
+
+				if (mainWindow == null || script.IsMainWindowClosing || !mainWindow.Visible)
+					return;
+
+				if (!debugOutputFlushedToWindow)
+				{
+					debugOutputFlushedToWindow = true;
+					mainWindow.SetText(clear ? text : debugOutputBuffer.ToString(), MainFocusedTab.Debug, false);
+					return;
+				}
+			}
+
+			mainWindow.AddText(text, MainFocusedTab.Debug, false);
+		}
+
+		/// <summary>Clears the buffered OutputDebug text. Called when a new Script instance is created.</summary>
+		internal static void ResetDebugOutputBuffer()
+		{
+			lock (debugOutputBuffer)
+				debugOutputBuffer = new StringBuilder();
+		}
+
+		/// <summary>Marks the Debug tab as not-yet-primed. Called when a new main window handle is realized.</summary>
+		internal static void ResetDebugOutputFlush()
+		{
+			lock (debugOutputBuffer)
+				debugOutputFlushedToWindow = false;
+		}
 
 		internal ToolStripMenuItem SuspendHotkeysToolStripMenuItem => suspendHotkeysToolStripMenuItem;
 
@@ -148,7 +199,11 @@ namespace Keysharp.Internals.UI.Windows
 			about.Show();
 		}
 
-		private void clearDebugLogToolStripMenuItem_Click(object sender, EventArgs e) => txtDebug.Text = "";
+		private void clearDebugLogToolStripMenuItem_Click(object sender, EventArgs e)
+		{
+			txtDebug.Text = "";
+			AppendDebugOutput(string.Empty, true);
+		}
 
 		private void editScriptToolStripMenuItem_Click(object sender, EventArgs e) => Builtins.Debug.Edit();
 

@@ -1,4 +1,5 @@
 using Keysharp.Builtins;
+using System.Text;
 #if !WINDOWS
 namespace Keysharp.Internals.UI.Unix
 {
@@ -18,11 +19,68 @@ namespace Keysharp.Internals.UI.Unix
 		private readonly TextArea txtHotkeys = new () { Font = SystemFonts.Default(10), Wrap = false };
 		private readonly TextArea txtHistory = new () { Font = SystemFonts.Default(10), Wrap = false };
 
+		private static Font ourDefaultFont;
+
+		// Lazily initialized: SystemFonts.Default() requires Eto's platform to already be detected/running,
+		// which is not the case at MainWindow's static-initialization time in headless/test contexts
+		// (referencing it eagerly as a static field initializer throws NullReferenceException there).
+		public static Font OurDefaultFont => ourDefaultFont ??=
 #if OSX
-		public static readonly Font OurDefaultFont = SystemFonts.Default(10F);
+			SystemFonts.Default(10F);
 #else
-		public static readonly Font OurDefaultFont = SystemFonts.Default(8F);
+			SystemFonts.Default(8F);
 #endif
+
+		private static StringBuilder debugOutputBuffer = new StringBuilder();
+		private static bool debugOutputFlushedToWindow;
+
+		/// <summary>
+		/// Appends OutputDebug text to the buffered store (the source of truth for OutputDebug
+		/// content, surviving even when no window has been constructed yet) and mirrors it into
+		/// the Debug tab's textbox if and only if the main window is currently visible to the
+		/// user. The first time the window becomes visible after being hidden/not yet
+		/// constructed, the textbox is primed with the entire accumulated buffer.
+		/// </summary>
+		internal static void AppendDebugOutput(string text, bool clear)
+		{
+			var script = Script.TheScript;
+			var mainWindow = script?.mainWindow;
+
+			lock (debugOutputBuffer)
+			{
+				if (clear)
+					debugOutputBuffer.Clear();
+
+				debugOutputBuffer.Append(text);
+
+				if (mainWindow == null || script.IsMainWindowClosing || !mainWindow.Visible)
+					return;
+
+				if (!debugOutputFlushedToWindow)
+				{
+					debugOutputFlushedToWindow = true;
+					mainWindow.SetText(clear ? text : debugOutputBuffer.ToString(), MainFocusedTab.Debug, false);
+					return;
+				}
+			}
+
+			mainWindow.AddText(text, MainFocusedTab.Debug, false);
+		}
+
+		/// <summary>Clears the buffered OutputDebug text. Called when a new Script instance is created.</summary>
+		internal static void ResetDebugOutputBuffer()
+		{
+			lock (debugOutputBuffer)
+				debugOutputBuffer = new StringBuilder();
+		}
+
+		/// <summary>Marks the Debug tab as not-yet-primed. Called when a new main window handle is realized.</summary>
+		internal static void ResetDebugOutputFlush()
+		{
+			lock (debugOutputBuffer)
+				debugOutputFlushedToWindow = false;
+		}
+
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
 		private bool callingInternalVars = false;
@@ -231,7 +289,11 @@ namespace Keysharp.Internals.UI.Unix
 			return DefaultObject;
 		}
 
-		private void clearDebugLogToolStripMenuItem_Click(object sender, EventArgs e) => txtDebug.Text = "";
+		private void clearDebugLogToolStripMenuItem_Click(object sender, EventArgs e)
+		{
+			txtDebug.Text = "";
+			AppendDebugOutput(string.Empty, true);
+		}
 
 		private void editScriptToolStripMenuItem_Click(object sender, EventArgs e) => Builtins.Debug.Edit();
 
@@ -308,9 +370,6 @@ namespace Keysharp.Internals.UI.Unix
 			if (WindowState == FormWindowState.Minimized)
 			{
 				this.Hide();
-#if OSX
-				Keysharp.Internals.Window.MacOS.MacNativeWindows.UpdateActivationPolicy();
-#endif
 			}
 			else
 				lastWindowState = WindowState;
@@ -322,9 +381,6 @@ namespace Keysharp.Internals.UI.Unix
 			{
 				e.Cancel = true;
 				this.Hide();
-#if OSX
-				Keysharp.Internals.Window.MacOS.MacNativeWindows.UpdateActivationPolicy();
-#endif
 				return;
 			}
 

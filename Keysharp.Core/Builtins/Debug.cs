@@ -242,13 +242,7 @@ namespace Keysharp.Builtins
 				return DefaultObject;
 			System.Diagnostics.Debug.Write(text);//Will print only in debug mode to the debugger so we can see it in Visual Studio.
 
-			var script = Script.TheScript;
-			var mainWindow = script?.mainWindow;
-			if (mainWindow != null && !script.IsMainWindowClosing)
-				if (clear)
-					mainWindow.SetText(text, MainWindow.MainFocusedTab.Debug, false);
-				else
-					mainWindow.AddText(text, MainWindow.MainFocusedTab.Debug, false);
+			MainWindow.AppendDebugOutput(text, clear);
 
 			return DefaultObject;
 		}

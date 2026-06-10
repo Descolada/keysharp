@@ -122,7 +122,7 @@ namespace Keysharp.Builtins
 			if (!File.Exists(file))
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				return def ?? DefaultObject;
+				return @default != null ? def : Errors.OSErrorOccurred("", $"INI file '{file}' not found.");
 			}
 
 #if WINDOWS

@@ -327,7 +327,7 @@ namespace Keysharp.Builtins
 				callbackSlot.SetActive(persistenceActive && callbackSlot.Callback != null);
 		}
 
-		private object GetCallback(int index) => callbackSlots[index].Callback;
+		private object GetCallback(int index) => callbackSlots[index].Callback ?? (object)DefaultObject;
 
 		private void SetCallback(int index, object value)
 		{

@@ -448,14 +448,15 @@ namespace Keysharp.Builtins
 		/// CPnnn: A code page with numeric identifier nnn. See Code Page Identifiers.<br/>
 		/// nnn: A numeric code page identifier.
 		/// </param>
-		public static object FileEncoding(object encoding)
+		public static object FileEncoding(object encoding = null)
 		{
+			var prev = A_FileEncoding;
 			var s = encoding.As();
 
 			if (s != "")
 				A_FileEncoding = s;
 
-			return DefaultObject;
+			return prev;
 		}
 
 		/// <summary>
@@ -535,7 +536,7 @@ namespace Keysharp.Builtins
 			catch (Exception ex)
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				_ = (string)Errors.OSErrorOccurred(ex, $"Error getting file attributes for file {s}", DefaultErrorString);
+				return (string)Errors.OSErrorOccurred(ex, $"Error getting file attributes for file {s}");
 			}
 
 			return DefaultErrorString;
@@ -845,7 +846,7 @@ namespace Keysharp.Builtins
 			catch (Exception ex)
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				return (string)Errors.OSErrorOccurred(ex, $"Error getting file time for file {file}", DefaultErrorString);
+				return (string)Errors.OSErrorOccurred(ex, $"Error getting file time for file {file}");
 			}
 		}
 
@@ -873,7 +874,7 @@ namespace Keysharp.Builtins
 			catch (Exception ex)
 			{
 				ThreadAccessors.A_LastError = Marshal.GetLastSystemError();
-				return (string)Errors.OSErrorOccurred(ex, $"Error getting file version for file {file}", DefaultErrorString);
+				return (string)Errors.OSErrorOccurred(ex, $"Error getting file version for file {file}");
 			}
 		}
 
@@ -881,7 +882,7 @@ namespace Keysharp.Builtins
 		/// Unsupported functionality which always throws an exception.
 		/// </summary>
 		/// <exception cref="Error">An <see cref="Error"/> is always thrown.</exception>
-		public static string FileInstall(object obj0, object obj1, object obj2 = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp", DefaultErrorString);
+		public static string FileInstall(object obj0, object obj1, object obj2 = null) => (string)Errors.ErrorOccurred("Compiling files into an executable is not supported in Keysharp");
 
 		/// <summary>
 		/// Moves or renames one or more files.

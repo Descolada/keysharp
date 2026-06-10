@@ -78,7 +78,7 @@ namespace Keysharp.Builtins
 					wlSlotHide[id] = null;
 				}
 #endif
-				return DefaultObject;
+				return 0L;
 			}
 
 #if LINUX

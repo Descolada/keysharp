@@ -285,7 +285,7 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		public Forms.Control FocusedCtrl => form.ActiveControl;
+		public object FocusedCtrl => form.ActiveControl ?? (object)DefaultObject;
 
 		public long Hwnd => form.Handle;
 
@@ -317,13 +317,13 @@ namespace Keysharp.Builtins
 			}
 		}
 
-		public MenuBar MenuBar
+		public object MenuBar
 		{
-			get => menuBar;
+			get => menuBar ?? (object)DefaultObject;
 
 			set
 			{
-				menuBar = value;
+				menuBar = (MenuBar)value;
 #if WINDOWS
 				form.TagAndAdd(menuBar.MenuStrip);
 				form.MainMenuStrip = menuBar.MenuStrip;

@@ -418,8 +418,7 @@ namespace Keysharp.Builtins
 				}
 				catch
 				{
-					output = null;
-					return output;
+					return DefaultObject;
 				}
 			}
 
@@ -1010,9 +1009,9 @@ namespace Keysharp.Builtins
 				ptr = new nint(l);
 
 			if (ptr == 0)
-				return (string)Errors.ValueErrorOccurred($"No valid address or buffer was supplied.", null, DefaultErrorString);
+				return (string)Errors.ValueErrorOccurred($"No valid address or buffer was supplied.");
 			else if (ptr.ToInt64() < 65536)//65536 is the first valid address.
-				return (string)Errors.ValueErrorOccurred($"Address of {ptr.ToInt64()} is less than the minimum allowable address of 65,536.", null, DefaultErrorString);
+				return (string)Errors.ValueErrorOccurred($"Address of {ptr.ToInt64()} is less than the minimum allowable address of 65,536.");
 
 			unsafe
 			{
@@ -1323,7 +1322,7 @@ namespace Keysharp.Builtins
 			if (IsAnyBlank(input, search))
 			{
                 if (outputVarCount != null) Script.SetPropertyValue(outputVarCount, "__Value", 0L);
-                return DefaultObject;
+                return input;
 			}
 
 			var compare = Conversions.ParseComparisonOption(comp);
@@ -1479,7 +1478,7 @@ namespace Keysharp.Builtins
 			var length = obj2.Ai(int.MaxValue);
 
 			if (string.IsNullOrEmpty(input) || length == 0 || index == 0 || index > input.Length)
-				return DefaultObject;
+				return DefaultErrorString;
 
 			if (index < 1)
 			{
@@ -1494,7 +1493,7 @@ namespace Keysharp.Builtins
 			var d = input.Length - index;
 
 			if (index < 0 || index >= input.Length)
-				return DefaultObject;
+				return DefaultErrorString;
 
 			if (length < 0)
 				length += d;

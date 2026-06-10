@@ -27,7 +27,18 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="path">Any path contained by the drive (might also work on UNC paths and mapped drives).</param>
 		/// <returns>The capacity of the drive in megabytes.</returns>
-		public static long DriveGetCapacity(object path) => new DriveInfo(path.As()).TotalSize / 1024 / 1024;
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the drive could not be accessed.</exception>
+		public static object DriveGetCapacity(object path)
+		{
+			try
+			{
+				return new DriveInfo(path.As()).TotalSize / 1024 / 1024;
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to get capacity for drive {path.As()}.");
+			}
+		}
 
 		/// <summary>
 		/// Returns the type of the specified drive's file system.
@@ -37,14 +48,36 @@ namespace Keysharp.Builtins
 		/// The possible values are defined by the system; they include (but are not limited to) the following:<br/>
 		/// NTFS, FAT32, FAT, CDFS (typically indicates a CD), or UDF (typically indicates a DVD).
 		/// </returns>
-		public static string DriveGetFileSystem(object drive) => new DriveInfo(drive.As()).DriveFormat;
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the drive could not be accessed.</exception>
+		public static object DriveGetFileSystem(object drive)
+		{
+			try
+			{
+				return new DriveInfo(drive.As()).DriveFormat;
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to get file system for drive {drive.As()}.");
+			}
+		}
 
 		/// <summary>
 		/// Returns the volume label of the specified drive.
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash, or a UNC name such as "\server1\share1".</param>
 		/// <returns>The drive's volume label.</returns>
-		public static string DriveGetLabel(object drive) => new DriveInfo(drive.As()).VolumeLabel;
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the drive could not be accessed.</exception>
+		public static object DriveGetLabel(object drive)
+		{
+			try
+			{
+				return new DriveInfo(drive.As()).VolumeLabel;
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to get label for drive {drive.As()}.");
+			}
+		}
 
 		/// <summary>
 		/// Returns a string of letters, one character for each drive letter in the system.
@@ -111,15 +144,36 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="drive">The drive letter followed by a colon and an optional backslash, or a UNC name such as "\server1\share1".</param>
 		/// <returns>The drive's volume serial number.</returns>
-		public static long DriveGetSerial(object drive)
-		=> DriveProvider.CreateDrive(new DriveInfo(drive.As())).Serial;
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the drive could not be accessed.</exception>
+		public static object DriveGetSerial(object drive)
+		{
+			try
+			{
+				return DriveProvider.CreateDrive(new DriveInfo(drive.As())).Serial;
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to get serial number for drive {drive.As()}.");
+			}
+		}
 
 		/// <summary>
 		/// Returns the free disk space of the drive which contains the specified path, in megabytes.
 		/// </summary>
 		/// <param name="path">Any path contained by the drive (might also work on UNC paths and mapped drives).</param>
 		/// <returns>The free disk space of the drive which contains Path, in megabytes (rounded down to the nearest megabyte).</returns>
-		public static long DriveGetSpaceFree(object path) => new DriveInfo(path.As()).TotalFreeSpace / (1024 * 1024);
+		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if the drive could not be accessed.</exception>
+		public static object DriveGetSpaceFree(object path)
+		{
+			try
+			{
+				return new DriveInfo(path.As()).TotalFreeSpace / (1024 * 1024);
+			}
+			catch (Exception ex)
+			{
+				return Errors.OSErrorOccurred(ex, $"Failed to get free space for drive containing {path.As()}.");
+			}
+		}
 
 		/// <summary>
 		/// Returns the status of the drive which contains the specified path.
@@ -142,7 +196,7 @@ namespace Keysharp.Builtins
 			}
 			catch (Exception ex)
 			{
-				return (string)Errors.ErrorOccurred($"Failed to get drive status: {ex.Message}.", DefaultErrorString);
+				return (string)Errors.ErrorOccurred($"Failed to get drive status: {ex.Message}.");
 			}
 		}
 
@@ -168,7 +222,7 @@ namespace Keysharp.Builtins
 			}
 			catch (Exception e)
 			{
-				return (string)Errors.ErrorOccurred($"Failed to get CD drive status: {e.Message}.", DefaultErrorString);
+				return (string)Errors.ErrorOccurred($"Failed to get CD drive status: {e.Message}.");
 			}
 		}
 
@@ -180,7 +234,17 @@ namespace Keysharp.Builtins
 		/// Unknown, Removable, Fixed, Network, CDROM, or RAMDisk.<br/>
 		/// If Path is invalid (e.g. because the drive does not exist), the return value is an empty string.
 		/// </returns>
-		public static string DriveGetType(object path) => Script.TheScript.DriveTypeMapper.LookUpKeysharpType(new DriveInfo(path.As()).DriveType);
+		public static string DriveGetType(object path)
+		{
+			try
+			{
+				return Script.TheScript.DriveTypeMapper.LookUpKeysharpType(new DriveInfo(path.As()).DriveType);
+			}
+			catch
+			{
+				return "";
+			}
+		}
 
 		/// <summary>
 		/// Prevents the eject feature of the specified drive from working.

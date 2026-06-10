@@ -100,7 +100,7 @@ namespace Keysharp.Builtins
 				//Swallow the exception since we still want to return an empty string even if it doesn't exist.
 			}
 
-			return DefaultObject;
+			return DefaultErrorString;
 		}
 
 		/// <summary>
@@ -200,7 +200,11 @@ namespace Keysharp.Builtins
 		/// Changes the script's current working directory.
 		/// </summary>
 		/// <param name="dirName">The name of the new working directory, which is assumed to be a subfolder of the current <see cref="A_WorkingDir"/> if an absolute path isn't specified.</param>
-		public static object SetWorkingDir(object dirName) => A_WorkingDir = dirName.As();
+		public static object SetWorkingDir(object dirName)
+		{
+			A_WorkingDir = dirName.As();
+			return DefaultObject;
+		}
 
 		/// <summary>
 		/// Separates a file name or URL into its name, directory, extension, and drive.

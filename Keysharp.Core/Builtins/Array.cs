@@ -278,7 +278,7 @@ namespace Keysharp.Builtins
 			{
 				var ob = array[i];
 				array[i] = null;
-				return ob;
+				return ob ?? DefaultObject;
 			}
 			else
 				return Errors.ValueErrorOccurred($"Invalid deletion index of {index.Ai()}.");
@@ -550,7 +550,7 @@ namespace Keysharp.Builtins
 					val = temp;
 			}
 
-			return val != long.MinValue ? val : string.Empty;
+			return val != long.MinValue ? val : DefaultObject;
 		}
 
 		/// <summary>
@@ -569,7 +569,7 @@ namespace Keysharp.Builtins
 					val = temp;
 			}
 
-			return val != long.MaxValue ? val : string.Empty;
+			return val != long.MaxValue ? val : DefaultObject;
 		}
 
 		/// <summary>
@@ -587,7 +587,7 @@ namespace Keysharp.Builtins
 
 			var val = array[index];
 			array.RemoveAt(index);
-			return val;
+			return val ?? DefaultObject;
 		}
 
 		/// <summary>
@@ -827,7 +827,7 @@ namespace Keysharp.Builtins
 				var i = index.Ai();
 
 				if ((i = TranslateIndex(i)) != -1)
-					return array[i];
+					return array[i] ?? DefaultObject;
 				else
 					return Errors.IndexErrorOccurred($"Invalid retrieval index of {index} on an array with length {array.Count}.");
 			}

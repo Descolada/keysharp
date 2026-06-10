@@ -44,8 +44,7 @@ SKIP_NOTARIZE="${SKIP_NOTARIZE:-false}"
 ADHOC_SIGN="${ADHOC_SIGN:-false}"
 PKG_IDENTIFIER="${PKG_IDENTIFIER:-org.keysharp.pkg}"
 UNINSTALL_SCRIPT="${ROOT}/Keysharp.Install/macos/uninstall.sh"
-INSTALL_CLI_SCRIPT="${ROOT}/Keysharp.Install/macos/install-cli-commands.sh"
-INSTALL_VSCODE_COMPAT_SCRIPT="${ROOT}/Keysharp.Install/macos/install-vscode-autohotkey-compat.sh"
+INSTALL_SCRIPT="${ROOT}/Keysharp.Install/macos/install.command"
 
 log() {
   printf '%s\n' "$*"
@@ -91,8 +90,7 @@ validate_inputs() {
   fi
 
   [[ -f "${UNINSTALL_SCRIPT}" ]] || die "Uninstall script not found: ${UNINSTALL_SCRIPT}"
-  [[ -f "${INSTALL_CLI_SCRIPT}" ]] || die "CLI install script not found: ${INSTALL_CLI_SCRIPT}"
-  [[ -f "${INSTALL_VSCODE_COMPAT_SCRIPT}" ]] || die "VS Code compatibility install script not found: ${INSTALL_VSCODE_COMPAT_SCRIPT}"
+  [[ -f "${INSTALL_SCRIPT}" ]] || die "Install script not found: ${INSTALL_SCRIPT}"
 
   if ! is_true "${SKIP_NOTARIZE}" && [[ -n "${NOTARY_PROFILE}" && -z "${INSTALLER_CERT}" ]]; then
     die "NOTARY_PROFILE requires INSTALLER_CERT so the .pkg can be signed before notarization."
@@ -260,18 +258,6 @@ clean_app_bundle() {
   find "${macos_dir}" -type f \( -name 'Keysharp' -o -name 'Keyview' -o -name '*.dylib' \) -exec chmod 0755 {} +
 }
 
-write_cli_shim() {
-  local dest="$1"
-  local app_name="$2"
-  local executable="$3"
-
-  cat > "${dest}" <<EOF
-#!/bin/sh
-exec "/Applications/${app_name}.app/Contents/MacOS/${executable}" "\$@"
-EOF
-  chmod 0755 "${dest}"
-}
-
 write_install_scripts() {
   mkdir -p "${SCRIPTS_DIR}"
 
@@ -344,6 +330,36 @@ if [ -x "${LSREGISTER}" ]; then
   "${LSREGISTER}" -f /Applications/Keysharp.app /Applications/Keyview.app >/dev/null 2>&1 || true
 fi
 
+# Offer optional extras via GUI prompts shown to the logged-in user, since
+# this script runs as root with no terminal attached.
+CONSOLE_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+if [ -n "${CONSOLE_USER}" ] && [ "${CONSOLE_USER}" != "root" ]; then
+  CONSOLE_UID="$(id -u "${CONSOLE_USER}" 2>/dev/null || echo 0)"
+  CONSOLE_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+
+  ask_yes_no() {
+    local prompt="$1"
+    local result
+    result="$(launchctl asuser "${CONSOLE_UID}" sudo -u "${CONSOLE_USER}" osascript -e "display dialog \"${prompt}\" buttons {\"No\", \"Yes\"} default button \"Yes\" with title \"Keysharp\"" 2>/dev/null || echo "button returned:No")"
+    case "${result}" in *"Yes"*) return 0 ;; *) return 1 ;; esac
+  }
+
+  if ask_yes_no "Install the keysharp and keyview terminal commands in /usr/local/bin?"; then
+    mkdir -p /usr/local/bin
+    printf '#!/bin/sh\nexec "/Applications/Keysharp.app/Contents/MacOS/Keysharp" "$@"\n' > /usr/local/bin/keysharp
+    printf '#!/bin/sh\nexec "/Applications/Keyview.app/Contents/MacOS/Keyview" "$@"\n' > /usr/local/bin/keyview
+    chmod 0755 /usr/local/bin/keysharp /usr/local/bin/keyview
+  fi
+
+  if [ -n "${CONSOLE_HOME}" ] && ask_yes_no "Install the VS Code AutoHotkey v2 extension compatibility shim (~/.local/bin/AutoHotkey.exe)?"; then
+    DEST="${CONSOLE_HOME}/.local/bin/AutoHotkey.exe"
+    launchctl asuser "${CONSOLE_UID}" sudo -u "${CONSOLE_USER}" mkdir -p "$(dirname "${DEST}")"
+    printf '#!/bin/sh\nexec "/Applications/Keysharp.app/Contents/MacOS/Keysharp" "$@"\n' > "${DEST}"
+    chown "${CONSOLE_USER}" "${DEST}"
+    chmod 0755 "${DEST}"
+  fi
+fi
+
 exit 0
 EOF
   chmod 0755 "${SCRIPTS_DIR}/postinstall"
@@ -370,8 +386,6 @@ stage_payload() {
   clean_app_bundle "${PKG_ROOT}/Applications/Keysharp.app"
   clean_app_bundle "${PKG_ROOT}/Applications/Keyview.app"
 
-  write_cli_shim "${PKG_ROOT}/usr/local/bin/keysharp" "Keysharp" "Keysharp"
-  write_cli_shim "${PKG_ROOT}/usr/local/bin/keyview" "Keyview" "Keyview"
   install -m 0755 "${UNINSTALL_SCRIPT}" "${PKG_ROOT}/usr/local/bin/keysharp-uninstall"
   write_install_scripts
 }
@@ -497,11 +511,10 @@ build_dmg() {
   # Standard "drag to Applications folder" symlink shown in every Mac DMG.
   ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
-  # Double-clickable uninstaller for users who installed via drag-and-drop (no
+  # Double-clickable installer/uninstaller for users who install via drag-and-drop (no
   # terminal commands available to them otherwise).
-  install -m 0755 "${UNINSTALL_SCRIPT}" "${DMG_STAGING_DIR}/Uninstall Keysharp.command"
-  install -m 0755 "${INSTALL_CLI_SCRIPT}" "${DMG_STAGING_DIR}/Install CLI Commands.command"
-  install -m 0755 "${INSTALL_VSCODE_COMPAT_SCRIPT}" "${DMG_STAGING_DIR}/Install AutoHotkey VS Code Compatibility.command"
+  install -m 0755 "${INSTALL_SCRIPT}" "${DMG_STAGING_DIR}/Install.command"
+  install -m 0755 "${UNINSTALL_SCRIPT}" "${DMG_STAGING_DIR}/Uninstall.command"
 
   rm -f "${DMG_OUT}"
   hdiutil create \

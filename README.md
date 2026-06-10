@@ -90,8 +90,8 @@ Linux behavior depends on the display server and compositor. Root helpers substa
 
 Download either package from the [Releases](https://github.com/Descolada/keysharp/releases) page:
 
-- **DMG:** drag `Keysharp.app` and `Keyview.app` into Applications. This does not require an administrator password.
-- **PKG:** installs both apps and the `keysharp` and `keyview` terminal commands system-wide.
+- **DMG:** double-click `Install.command` to copy `Keysharp.app` and `Keyview.app` into Applications, then optionally install the `keysharp`/`keyview` terminal commands and the VS Code AutoHotkey v2 compatibility shim. (You can also drag the apps into Applications manually; this does not require administrator priviledges.)
+- **PKG:** installs both apps system-wide and prompts to install the `keysharp`/`keyview` terminal commands and the VS Code AutoHotkey v2 compatibility shim.
 
 Because current packages are not notarized, first launch each app using **right-click → Open**. Alternatively:
 
@@ -100,17 +100,11 @@ xattr -dr com.apple.quarantine /Applications/Keysharp.app
 xattr -dr com.apple.quarantine /Applications/Keyview.app
 ```
 
-The DMG also includes optional helpers:
-
-- `Install CLI Commands.command`
-- `Install AutoHotkey VS Code Compatibility.command`
-- `Uninstall Keysharp.command`
-
 Keysharp requests **Input Monitoring**, **Accessibility**, and **Screen Recording** permissions when features require them.
 
 ### Uninstall
 
-- **DMG installation:** double-click `Uninstall Keysharp.command` in the mounted DMG.
+- **DMG installation:** double-click `Uninstall.command` in the mounted DMG.
 - **PKG installation:** run `sudo keysharp-uninstall`.
 
 ### Limitations
@@ -149,7 +143,7 @@ In the extension settings, set **AutoHotkey2: Interpreter Path** to the appropri
 
 - **Windows:** use the installed `Keysharp.exe` path directly, usually `C:\Program Files\Keysharp\Keysharp.exe`.
 - **Linux:** the extension requires an `.exe` filename. Create one by running `mkdir -p ~/.local/bin && ln -sf "$(command -v keysharp)" ~/.local/bin/AutoHotkey.exe` in the terminal, then use `/home/YOUR_USERNAME/.local/bin/AutoHotkey.exe`.
-- **macOS DMG:** double-click `Install AutoHotkey VS Code Compatibility.command`, then use `/Users/YOUR_USERNAME/.local/bin/AutoHotkey.exe`.
+- **macOS DMG:** answer "Yes" to the VS Code shim prompt in `Install.command`, then use `/Users/YOUR_USERNAME/.local/bin/AutoHotkey.exe`.
 - **macOS PKG or manual setup:** create the same compatibility name with `mkdir -p ~/.local/bin && ln -sf /Applications/Keysharp.app/Contents/MacOS/Keysharp ~/.local/bin/AutoHotkey.exe`.
 
 thqby's VS Code extension is designed for AutoHotkey on Windows. Static language features and running scripts are the most compatible features on Linux and macOS; Windows-specific debugging, help, and compiler integration will not work.

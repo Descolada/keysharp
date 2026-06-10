@@ -104,7 +104,14 @@ Two packages are available on the [Releases](https://github.com/Descolada/keysha
 
 #### DMG — user install, no administrator password required
 
-The DMG contains `Keysharp.app` and `Keyview.app`. Open it and drag both apps to the **Applications** folder shortcut inside, or to any folder of your choice (e.g. `~/Applications/`).
+The DMG contains `Keysharp.app`, `Keyview.app`, `Install.command`, and `Uninstall.command`.
+
+Double-click **Install.command** (it runs in Terminal) to:
+1. Copy `Keysharp.app` and `Keyview.app` to `/Applications`.
+2. Optionally install the `keysharp` and `keyview` terminal commands to `/usr/local/bin` (requests an administrator password).
+3. Optionally install the VS Code AutoHotkey v2 extension compatibility shim at `~/.local/bin/AutoHotkey.exe`.
+
+Alternatively, drag both apps to the **Applications** folder shortcut inside the DMG, or to any folder of your choice (e.g. `~/Applications/`).
 
 **First-launch Gatekeeper workaround** — because the app is not notarized, macOS will block it on the first open. Right-click (or Control-click) `Keysharp.app` → **Open**, then click **Open** in the prompt. Do the same for `Keyview.app`. After that one-time step the apps open normally.
 
@@ -114,11 +121,7 @@ xattr -dr com.apple.quarantine /Applications/Keysharp.app
 xattr -dr com.apple.quarantine /Applications/Keyview.app
 ```
 
-The DMG install does **not** add terminal commands automatically. After copying the apps, optionally double-click **Install CLI Commands.command** in the DMG to add:
-- `keysharp` — run a script from the command line: `keysharp myscript.ahk`
-- `keyview` — open the script editor
-
-The helper requests an administrator password because it writes the commands to `/usr/local/bin`. The equivalent manual setup is:
+The equivalent manual setup for the terminal commands is:
 ```sh
 sudo ln -sf /Applications/Keysharp.app/Contents/MacOS/Keysharp /usr/local/bin/keysharp
 sudo ln -sf /Applications/Keyview.app/Contents/MacOS/Keyview /usr/local/bin/keyview
@@ -126,15 +129,15 @@ sudo ln -sf /Applications/Keyview.app/Contents/MacOS/Keyview /usr/local/bin/keyv
 
 Without terminal commands, use `Keyview.app` to write and run scripts. Keyview finds the sibling `Keysharp` binary automatically, whether the apps live in `/Applications/`, `~/Applications/`, or directly on a mounted DMG volume.
 
-For thqby's **AutoHotkey v2 Language Support** VS Code extension, optionally double-click **Install AutoHotkey VS Code Compatibility.command** in the DMG. It creates `~/.local/bin/AutoHotkey.exe`; then use `/Users/YOUR_USERNAME/.local/bin/AutoHotkey.exe` as the interpreter path in the extension.
+For thqby's **AutoHotkey v2 Language Support** VS Code extension, answer "Yes" to the compatibility shim prompt in `Install.command`. It creates `~/.local/bin/AutoHotkey.exe`; then use `/Users/YOUR_USERNAME/.local/bin/AutoHotkey.exe` as the interpreter path in the extension.
 
 The extension is designed for AutoHotkey on Windows, so static language features and running scripts are the most compatible features; Windows-specific debugging, help, and compiler integration will not work.
 
 #### PKG — system install, requires administrator password
 
-The `.pkg` installer places both apps in `/Applications/` and adds two terminal commands:
-- `keysharp` — run a script from the command line: `keysharp myscript.ahk`
-- `keyview` — open the script editor
+The `.pkg` installer places both apps in `/Applications/`. After copying the apps, it shows two prompts (as the logged-in user):
+- Whether to install the `keysharp` and `keyview` terminal commands in `/usr/local/bin`.
+- Whether to install the VS Code AutoHotkey v2 extension compatibility shim at `~/.local/bin/AutoHotkey.exe`.
 
 Install from Finder by double-clicking the `.pkg` and following the installer prompts (you will be asked for your administrator password), or from Terminal:
 ```sh
@@ -162,7 +165,7 @@ Grant each permission in **System Settings → Privacy & Security** when prompte
 
 Both the DMG and the PKG bundle an uninstaller that removes the app(s), terminal commands, the package receipt (PKG installs), and stored settings/cache data — no manual `rm` commands needed.
 
-**DMG install** — open the mounted DMG and double-click **Uninstall Keysharp.command** (it runs in Terminal). Eject the DMG and empty the Trash afterwards if you also dragged the apps there yourself — macOS Launch Services can still launch apps sitting in the Trash until it's emptied.
+**DMG install** — open the mounted DMG and double-click **Uninstall.command** (it runs in Terminal). Eject the DMG and empty the Trash afterwards if you also dragged the apps there yourself — macOS Launch Services can still launch apps sitting in the Trash until it's emptied.
 
 **PKG install** — run the bundled uninstaller from a terminal:
 ```sh
@@ -172,6 +175,13 @@ sudo keysharp-uninstall
 If you removed the apps by hand instead and `.ks`/`.ahk` files still open in Keysharp, the apps are most likely still sitting in the Trash — empty it, since Launch Services can launch apps from there even though Spotlight does not index it.
 
 macOS may retain granted permissions (Accessibility, Input Monitoring, Screen Recording) even after the app is removed. To revoke them, open **System Settings → Privacy & Security**, select each category, and remove any Keysharp or Keyview entries — the uninstaller cannot do this for you.
+
+If you reinstall a different build (e.g. switching between a locally-built, ad-hoc-signed, and notarized version) and permissions seem stuck — toggles that won't stay on, or the app not appearing/disappearing from a permission list — the old TCC grant may be tied to the previous code signature. Reset *every* permission category for Keysharp/Keyview with `tccutil`:
+```sh
+tccutil reset All org.keysharp.keysharp
+tccutil reset All org.keysharp.keyview
+```
+`All` clears every TCC entry for that bundle ID (Accessibility, Input Monitoring, Screen Recording, and any others macOS may have recorded), for all versions of the app sharing that bundle ID. macOS will prompt again next time each permission is needed.
 
 ### Building from source on macOS ###
 

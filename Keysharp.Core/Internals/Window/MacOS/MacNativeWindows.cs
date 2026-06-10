@@ -1,6 +1,5 @@
 using Keysharp.Builtins;
 #if OSX
-using System.Runtime.InteropServices;
 using MonoMac.AppKit;
 using MonoMac.Foundation;
 
@@ -159,6 +158,19 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				info = snapshot[0];
 				return true;
+			}
+
+			// A window we ordered out via TryHideOwnWindow() drops out of the window server's
+			// list entirely (its NSWindow.WindowNumber even becomes -1), so it can no longer be
+			// found above. Fall back to the info captured at hide time so WinExist (with
+			// DetectHiddenWindows on) and WinShow can still find and restore it.
+			lock (hiddenOwnWindowsLock)
+			{
+				if (hiddenOwnWindowInfo.TryGetValue(id, out var hiddenInfo))
+				{
+					info = hiddenInfo;
+					return true;
+				}
 			}
 
 			info = default;
@@ -340,6 +352,184 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				return false;
 			}
+		}
+
+		// Windows we own that have been hidden via TryHideOwnWindow(), keyed by the window number
+		// they had at the time they were ordered out (NSWindow.WindowNumber becomes -1 once a
+		// window is off the window server's list, so it can't be used to find it again).
+		private static readonly object hiddenOwnWindowsLock = new();
+		private static readonly Dictionary<uint, NSWindow> hiddenOwnWindows = new();
+		private static readonly Dictionary<uint, MacNativeWindowInfo> hiddenOwnWindowInfo = new();
+
+		// Hides a single window we own without affecting any other window of this process, by
+		// ordering it out of the window server entirely (true hide, not minimize). The window's
+		// last-known info is cached so WinExist (DetectHiddenWindows) and WinShow can still find
+		// and restore it afterwards. Also re-evaluates the Dock icon, which is hidden automatically
+		// once no user-facing window remains visible (see RequestActivationPolicyUpdate).
+		internal static bool TryHideOwnWindow(uint windowNumber, MacNativeWindowInfo currentInfo)
+		{
+			var app = Eto.Forms.Application.Instance;
+
+			if (app == null)
+				return false;
+
+			try
+			{
+				foreach (var window in app.Windows)
+				{
+					if (window.ControlObject is NSWindow native && (uint)native.WindowNumber == windowNumber)
+					{
+						// Mark the cached info as hidden (zero alpha, off-screen) so Visible reports
+						// false and WindowState reports Minimized while the window is ordered out.
+						var hiddenInfo = new MacNativeWindowInfo(
+							currentInfo.WindowNumber, currentInfo.OwnerPid, currentInfo.OwnerName,
+							currentInfo.Title, currentInfo.Bounds, isOnScreen: false, alpha: 0.0);
+
+						lock (hiddenOwnWindowsLock)
+						{
+							hiddenOwnWindows[windowNumber] = native;
+							hiddenOwnWindowInfo[windowNumber] = hiddenInfo;
+						}
+
+						app.Invoke(() => native.OrderOut(null));
+						RequestActivationPolicyUpdate();
+						return true;
+					}
+				}
+			}
+			catch { }
+
+			return false;
+		}
+
+		// Restores a window previously hidden via TryHideOwnWindow().
+		internal static bool TryShowOwnWindow(uint windowNumber)
+		{
+			var app = Eto.Forms.Application.Instance;
+
+			if (app == null)
+				return false;
+
+			NSWindow native;
+
+			lock (hiddenOwnWindowsLock)
+			{
+				if (!hiddenOwnWindows.TryGetValue(windowNumber, out native))
+					return false;
+
+				_ = hiddenOwnWindows.Remove(windowNumber);
+				_ = hiddenOwnWindowInfo.Remove(windowNumber);
+			}
+
+			try
+			{
+				app.Invoke(() =>
+				{
+					native.MakeKeyAndOrderFront(null);
+					SetActivationPolicy(accessory: false);
+				});
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		// Hides every window of the given process at once via NSRunningApplication, the closest
+		// macOS equivalent of AHK's WinHide for windows we don't own (the Dock icon is left as-is,
+		// since macOS gives other apps no way to control their own Dock presence externally).
+		internal static bool HideApplication(int pid)
+		{
+			if (pid <= 0)
+				return false;
+
+			try
+			{
+				var app = NSRunningApplication.GetRunningApplication(pid);
+
+				if (app == null)
+					return false;
+
+				// Hide() asserts it's called on the main thread (AppKitThreadAccessException
+				// otherwise), so marshal over to it.
+				return Application.Instance.Invoke(app.Hide);
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		// Reverses HideApplication().
+		internal static bool UnhideApplication(int pid)
+		{
+			if (pid <= 0)
+				return false;
+
+			try
+			{
+				var app = NSRunningApplication.GetRunningApplication(pid);
+
+				if (app == null)
+					return false;
+
+				return Application.Instance.Invoke(app.Unhide);
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		// Finds the NSWindow for one of our own windows by its window number, including windows
+		// currently hidden via TryHideOwnWindow() (whose NSWindow.WindowNumber is no longer valid).
+		private static NSWindow FindOwnWindow(uint windowNumber)
+		{
+			lock (hiddenOwnWindowsLock)
+			{
+				if (hiddenOwnWindows.TryGetValue(windowNumber, out var hidden))
+					return hidden;
+			}
+
+			var app = Eto.Forms.Application.Instance;
+
+			if (app == null)
+				return null;
+
+			foreach (var window in app.Windows)
+				if (window.ControlObject is NSWindow native && (uint)native.WindowNumber == windowNumber)
+					return native;
+
+			return null;
+		}
+
+		// Sets/clears "always on top" for one of our own windows by adjusting its NSWindow level.
+		// There is no equivalent for windows owned by other applications: the Accessibility API
+		// exposes no attribute for window level, and AppleScript can't set it either.
+		internal static bool TrySetOwnWindowAlwaysOnTop(uint windowNumber, bool alwaysOnTop)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			Application.Instance.Invoke(() => native.Level = alwaysOnTop ? NSWindowLevel.Floating : NSWindowLevel.Normal);
+			return true;
+		}
+
+		internal static bool TryGetOwnWindowAlwaysOnTop(uint windowNumber, out bool alwaysOnTop)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+			{
+				alwaysOnTop = false;
+				return false;
+			}
+
+			alwaysOnTop = Application.Instance.Invoke(() => native.Level >= NSWindowLevel.Floating);
+			return true;
 		}
 
 		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)

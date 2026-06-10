@@ -75,8 +75,31 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override bool AlwaysOnTop
 		{
-			get => false;
-			set => Ks.OutputDebugLine("AlwaysOnTop is not implemented for macOS windows.");
+			get
+			{
+				if (!TryGetNativeInfo(out var native) || native.OwnerPid != Environment.ProcessId)
+					return false;
+
+				return MacNativeWindows.TryGetOwnWindowAlwaysOnTop(native.WindowNumber, out var onTop) && onTop;
+			}
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				if (native.OwnerPid != Environment.ProcessId)
+				{
+					// macOS provides no API to change another process's window level, and raising
+					// the window via Accessibility requires activating its app each time, which
+					// steals keyboard focus -- too disruptive to do automatically. Only our own
+					// windows support AlwaysOnTop.
+					Ks.OutputDebugLine("AlwaysOnTop is only supported for windows owned by this process on macOS.");
+					return;
+				}
+
+				if (!MacNativeWindows.TrySetOwnWindowAlwaysOnTop(native.WindowNumber, value))
+					Ks.OutputDebugLine("AlwaysOnTop failed for this macOS window.");
+			}
 		}
 
 		internal override bool Bottom
@@ -279,9 +302,28 @@ namespace Keysharp.Internals.Window.MacOS
 			if (!TryGetNativeInfo(out var native))
 				return false;
 
-			var hidden = MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+			bool hidden;
+
+			if (native.OwnerPid == Environment.ProcessId)
+			{
+				// One of our own windows: order it out of the window server entirely so only this
+				// window disappears, leaving any other windows of ours untouched. Falls back to
+				// minimizing if for some reason the window can't be located.
+				hidden = MacNativeWindows.TryHideOwnWindow(native.WindowNumber, native)
+						 || MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+			}
+			else
+			{
+				// A window belonging to another app: macOS gives us no way to hide just one of
+				// another app's windows, so hide the whole app instead. This hides every window
+				// of that app, which is the closest available equivalent to AHK's WinHide.
+				hidden = MacNativeWindows.HideApplication(native.OwnerPid)
+						 || MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+			}
+
 			if (hidden)
 				InvalidateNativeInfoCache();
+
 			return hidden;
 		}
 
@@ -315,11 +357,17 @@ namespace Keysharp.Internals.Window.MacOS
 			if (!TryGetNativeInfo(out var native))
 				return false;
 
+			var restored = native.OwnerPid == Environment.ProcessId
+							? MacNativeWindows.TryShowOwnWindow(native.WindowNumber)
+							: MacNativeWindows.UnhideApplication(native.OwnerPid);
+
 			var stateOk = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
 			var activated = MacAccessibility.TryActivateWindow(native);
-			if (stateOk || activated)
+
+			if (restored || stateOk || activated)
 				InvalidateNativeInfoCache();
-			return activated;
+
+			return restored || activated;
 		}
 	}
 }

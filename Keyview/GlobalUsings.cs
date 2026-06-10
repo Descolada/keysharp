@@ -8,6 +8,7 @@ global using global::System.IO;
 global using global::System.Linq;
 global using global::System.Reflection;
 global using global::System.Text;
+global using global::System.Threading.Tasks;
 #if WINDOWS
     global using global::ScintillaNET;
     global using global::System.Drawing;

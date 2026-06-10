@@ -8,11 +8,16 @@ namespace Keysharp.Internals.Mapper.MacOS
 	/// </summary>
 	internal class Drive : DriveBase
 	{
+		// Escapes characters that would otherwise let a volume name break out of the double-quoted
+		// argument when interpolated into a bash -c command string.
+		private static string EscapeForBashDoubleQuotes(string s) =>
+			s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");
+
 		internal override long Serial
 		{
 			get
 			{
-				if ($"diskutil info \"{drive.Name}\" | grep \"Volume UUID\"".Bash(out var output) != 0)
+				if ($"diskutil info \"{EscapeForBashDoubleQuotes(drive.Name)}\" | grep \"Volume UUID\"".Bash(out var output) != 0)
 					return 0L;
 
 				if (!string.IsNullOrEmpty(output))
@@ -46,7 +51,7 @@ namespace Keysharp.Internals.Mapper.MacOS
 
 		internal override void Eject()
 		{
-			if ($"diskutil eject \"{drive.Name}\"".Bash() != 0)
+			if ($"diskutil eject \"{EscapeForBashDoubleQuotes(drive.Name)}\"".Bash() != 0)
 				Ks.OutputDebugLine($"Drive.Eject failed for {drive.Name}");
 		}
 

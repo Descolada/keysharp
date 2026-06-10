@@ -62,6 +62,7 @@ namespace Keysharp.Internals.Window.MacOS
 			private static readonly nint attrPosition = CreateCFString("AXPosition");
 			private static readonly nint attrSize = CreateCFString("AXSize");
 			private static readonly nint attrMinimized = CreateCFString("AXMinimized");
+		private static readonly nint attrHidden = CreateCFString("AXHidden");
 			private static readonly nint attrZoomed = CreateCFString("AXZoomed");
 			private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
 
@@ -80,6 +81,10 @@ namespace Keysharp.Internals.Window.MacOS
 		private static int promptedListen;
 		private static int promptedPost;
 		private static int promptedScreen;
+
+		// Apple Events ("Automation") permission is granted per target application, so failures
+		// are tracked per target pid rather than with a single flag.
+		private static readonly HashSet<int> loggedAutomationFailurePids = new();
 
 			[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 			private static partial nint AXUIElementCreateApplication(int pid);
@@ -123,6 +128,29 @@ namespace Keysharp.Internals.Window.MacOS
 		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CGRequestScreenCaptureAccess();
+
+		// Apple Event "address" descriptor, used to identify the target application of an Apple
+		// Event by pid when checking/requesting Automation ("control this app") permission.
+		[StructLayout(LayoutKind.Sequential)]
+		private struct AEDesc
+		{
+			public uint DescriptorType;
+			public nint DataHandle;
+		}
+
+		private const uint TypeKernelProcessId = 0x6B706964; // 'kpid'
+		private const uint TypeWildCard = 0x2A2A2A2A; // '****'
+
+		// AECreateDesc/AEDisposeDesc return OSErr (16-bit), unlike AEDeterminePermissionToAutomateTarget
+		// which returns the 32-bit OSStatus.
+		[LibraryImport("/System/Library/Frameworks/CoreServices.framework/CoreServices")]
+		private static partial short AECreateDesc(uint typeCode, in int dataPtr, int dataSize, out AEDesc result);
+
+		[LibraryImport("/System/Library/Frameworks/CoreServices.framework/CoreServices")]
+		private static partial int AEDeterminePermissionToAutomateTarget(in AEDesc target, uint theAEEventClass, uint theAEEventID, [MarshalAs(UnmanagedType.I1)] bool askUserIfNeeded);
+
+		[LibraryImport("/System/Library/Frameworks/CoreServices.framework/CoreServices")]
+		private static partial short AEDisposeDesc(in AEDesc desc);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		[return: MarshalAs(UnmanagedType.I1)]
@@ -361,6 +389,30 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
+		// Hides/unhides an entire other application via its top-level Accessibility element's
+		// AXHidden attribute. This achieves the same result as NSRunningApplication.Hide()/Unhide()
+		// but is gated by Accessibility permission (already required for window control) instead of
+		// the separate, per-target Automation/AppleEvents permission that Hide()/Unhide() need.
+		internal static bool TrySetApplicationHidden(int pid, bool hidden)
+		{
+			if (pid <= 0 || !EnsureAccessibilityAccess("hide/show application", prompt: true))
+				return false;
+
+			var appElement = AXUIElementCreateApplication(pid);
+
+			if (appElement == 0)
+				return false;
+
+			try
+			{
+				return TryWriteBool(appElement, attrHidden, hidden);
+			}
+			finally
+			{
+				CFRelease(appElement);
+			}
+		}
+
 		internal static bool TryMoveResizeWindow(MacNativeWindowInfo info, Rectangle rect, bool setPosition, bool setSize)
 		{
 			if (!EnsureAccessibilityAccess("move/resize window", prompt: true))
@@ -484,7 +536,7 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 				}
 
-				if (Keysharp.Internals.Flow.PollUntil(() => AXIsProcessTrustedWithOptions(0), 60_000, 500))
+				if (Keysharp.Internals.Flow.PollUntilWithMessagePump(() => AXIsProcessTrustedWithOptions(0), 60_000, 500))
 					return true;
 			}
 
@@ -517,7 +569,7 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 				}
 
-				if (Keysharp.Internals.Flow.PollUntil(CheckListenAccess, 60_000, 500))
+				if (Keysharp.Internals.Flow.PollUntilWithMessagePump(CheckListenAccess, 60_000, 500))
 					return true;
 			}
 
@@ -551,7 +603,7 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 				}
 
-				if (Keysharp.Internals.Flow.PollUntil(CheckPostAccess, 60_000, 500))
+				if (Keysharp.Internals.Flow.PollUntilWithMessagePump(CheckPostAccess, 60_000, 500))
 					return true;
 			}
 
@@ -585,7 +637,7 @@ namespace Keysharp.Internals.Window.MacOS
 				{
 				}
 
-				if (Keysharp.Internals.Flow.PollUntil(CheckScreenCaptureAccess, 60_000, 500))
+				if (Keysharp.Internals.Flow.PollUntilWithMessagePump(CheckScreenCaptureAccess, 60_000, 500))
 					return true;
 			}
 
@@ -594,6 +646,62 @@ namespace Keysharp.Internals.Window.MacOS
 				Ks.OutputDebugLine(
 					$"macOS Screen Recording permission is required for '{operation}'. " +
 					"Grant access in System Settings -> Privacy & Security -> Screen Recording, then restart the app.");
+			}
+
+			return false;
+		}
+
+		// Apple Events ("Automation") permission lets this process control another app (e.g. via
+		// NSRunningApplication.Hide()/Unhide(), used by WinHide/WinShow). Unlike the other
+		// permissions, it's granted per target app, the system prompts automatically the first
+		// time an Apple Event is actually sent (given NSAppleEventsUsageDescription and the
+		// com.apple.security.automation.apple-events entitlement), and there's no separate
+		// "request access" call -- passing askUserIfNeeded triggers that prompt as a side effect.
+		internal static bool EnsureAutomationAccess(int pid, string operation, bool prompt = false)
+		{
+			if (pid <= 0)
+				return true;
+
+			const int errAEEventNotPermitted = -1743;
+			const int errAEEventWouldRequireUserConsent = -1744;
+
+			try
+			{
+				var pidValue = pid;
+
+				if (AECreateDesc(TypeKernelProcessId, in pidValue, sizeof(int), out var target) != 0)
+					return true; // Couldn't build the address descriptor; don't block the caller on this check.
+
+				try
+				{
+					var status = AEDeterminePermissionToAutomateTarget(in target, TypeWildCard, TypeWildCard, prompt);
+
+					if (status == 0 || status == errAEEventWouldRequireUserConsent)
+						return true;
+
+					if (status != errAEEventNotPermitted)
+						return true; // Target not found or some other transient error; don't block.
+				}
+				finally
+				{
+					_ = AEDisposeDesc(in target);
+				}
+			}
+			catch
+			{
+				// Older macOS without this check, or the symbols aren't available: rely on the
+				// Apple Event call itself rather than blocking here.
+				return true;
+			}
+
+			lock (loggedAutomationFailurePids)
+			{
+				if (loggedAutomationFailurePids.Add(pid))
+				{
+					Ks.OutputDebugLine(
+						$"macOS Automation permission is required for '{operation}'. " +
+						"Grant access in System Settings -> Privacy & Security -> Automation, then try again.");
+				}
 			}
 
 			return false;

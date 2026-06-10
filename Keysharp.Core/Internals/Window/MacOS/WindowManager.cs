@@ -19,6 +19,12 @@ namespace Keysharp.Internals.Window.MacOS
 
 			public static IEnumerable<WindowItemBase> EnumerateWindows(bool detectHiddenWindows)
 			{
+				// Snapshot() requests window titles (kCGWindowName), which macOS omits for windows
+				// owned by other processes unless Screen Recording access has been granted. Without
+				// it, every other app's window has an empty title and title-based WinTitle matching
+				// (e.g. WinHide("Calculator")) silently finds nothing.
+				_ = MacAccessibility.EnsureScreenCaptureAccess("enumerate window titles", prompt: true);
+
 				var windows = MacNativeWindows.Snapshot();
 				var list = new List<WindowItemBase>(windows.Count);
 

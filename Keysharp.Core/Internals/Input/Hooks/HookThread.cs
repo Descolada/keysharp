@@ -3032,9 +3032,10 @@ namespace Keysharp.Internals.Input.Hooks
 
 					// Even when the menu is visible, it's possible that neither of the AltTab modifier keys
 					// is down (such as if Ctrl+Alt+Tab was used, and perhaps other cases):
-					if ((kbdMsSender.modifiersLRLogical & AltTabModifierMask) == 0// Neither AltTab modifier key is down
-							|| (keyUp && IsAltTabModifierVk(vk))) // Or the suffix key *is* the AltTab modifier and it's being released: push it down for upcoming TAB to work.
+					if ((kbdMsSender.modifiersLRLogical & AltTabModifierMask) == 0) // Neither AltTab modifier key is down.
 						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, AltTabModifierVk);
+					else if (keyUp && IsAltTabModifierVk(vk)) // The suffix key *is* the AltTab modifier and it's being released: push the same one (e.g. LWin vs RWin) back down for upcoming TAB to work.
+						kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, vk);
 
 					// And never put it back up because that would dismiss the menu.
 					// Otherwise, use keystrokes to navigate through the menu:

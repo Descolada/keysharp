@@ -240,6 +240,22 @@ namespace Keysharp.Internals.Input.Unix
 					cache.Clear();
 					lastLayoutPtr = nint.Zero;
 					ReleaseRetainedLayoutData();
+
+					if (monitoringStarted)
+					{
+						monitoringStarted = false;
+
+						if (ReferenceEquals(monitoringInstance, this))
+							monitoringInstance = null;
+
+						// Unlike registration, removing observers doesn't need the UI thread, and
+						// Dispose() can run during shutdown after the UI message loop has stopped
+						// pumping -- InvokeOnUIThread's synchronous Send would then block forever.
+						var center = CFNotificationCenterGetDistributedCenter();
+
+						if (center != nint.Zero)
+							CFNotificationCenterRemoveEveryObserver(center, nint.Zero);
+					}
 				}
 			}
 
@@ -474,6 +490,9 @@ namespace Keysharp.Internals.Input.Unix
 				nint name,
 				nint object_,
 				nint suspensionBehavior);
+
+			[DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static extern void CFNotificationCenterRemoveEveryObserver(nint center, nint observer);
 
 			[DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
 			private static extern unsafe int UCKeyTranslate(

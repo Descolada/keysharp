@@ -1,5 +1,4 @@
 using Keysharp.Builtins;
-using System.Text;
 #if !WINDOWS
 namespace Keysharp.Internals.UI.Unix
 {
@@ -31,55 +30,11 @@ namespace Keysharp.Internals.UI.Unix
 			SystemFonts.Default(8F);
 #endif
 
-		private static StringBuilder debugOutputBuffer = new StringBuilder();
-		private static bool debugOutputFlushedToWindow;
+		internal static void AppendDebugOutput(string text, bool clear) => Internals.UI.DebugOutputBuffer.Append(text, clear);
 
-		/// <summary>
-		/// Appends OutputDebug text to the buffered store (the source of truth for OutputDebug
-		/// content, surviving even when no window has been constructed yet) and mirrors it into
-		/// the Debug tab's textbox if and only if the main window is currently visible to the
-		/// user. The first time the window becomes visible after being hidden/not yet
-		/// constructed, the textbox is primed with the entire accumulated buffer.
-		/// </summary>
-		internal static void AppendDebugOutput(string text, bool clear)
-		{
-			var script = Script.TheScript;
-			var mainWindow = script?.mainWindow;
+		internal static void ResetDebugOutputBuffer() => Internals.UI.DebugOutputBuffer.Reset();
 
-			lock (debugOutputBuffer)
-			{
-				if (clear)
-					debugOutputBuffer.Clear();
-
-				debugOutputBuffer.Append(text);
-
-				if (mainWindow == null || script.IsMainWindowClosing || !mainWindow.Visible)
-					return;
-
-				if (!debugOutputFlushedToWindow)
-				{
-					debugOutputFlushedToWindow = true;
-					mainWindow.SetText(clear ? text : debugOutputBuffer.ToString(), MainFocusedTab.Debug, false);
-					return;
-				}
-			}
-
-			mainWindow.AddText(text, MainFocusedTab.Debug, false);
-		}
-
-		/// <summary>Clears the buffered OutputDebug text. Called when a new Script instance is created.</summary>
-		internal static void ResetDebugOutputBuffer()
-		{
-			lock (debugOutputBuffer)
-				debugOutputBuffer = new StringBuilder();
-		}
-
-		/// <summary>Marks the Debug tab as not-yet-primed. Called when a new main window handle is realized.</summary>
-		internal static void ResetDebugOutputFlush()
-		{
-			lock (debugOutputBuffer)
-				debugOutputFlushedToWindow = false;
-		}
+		internal static void ResetDebugOutputFlush() => Internals.UI.DebugOutputBuffer.ResetFlush();
 
 		internal FormWindowState lastWindowState = FormWindowState.Normal;
 		private AboutBox about;
@@ -254,6 +209,10 @@ namespace Keysharp.Internals.UI.Unix
 			{
 				ShowIfNeeded();
 				tcMain.SelectedTab = tpDebug;
+
+				// Flush any OutputDebug text accumulated while the window was hidden/not yet
+				// shown -- otherwise it only appears once another OutputDebug call comes in.
+				AppendDebugOutput(string.Empty, false);
 			});
 			return DefaultObject;
 		}

@@ -59,6 +59,7 @@ namespace Keyview
 		private readonly CompilerHelper ch = new ();
 		private readonly CSharpStyler csStyler = new ();
 		private bool force = false;
+		private bool isCompiling = false;
 		private string fullCode = "";
 		private DateTime lastCompileTime = DateTime.UtcNow;
 		private DateTime lastKeyTime = DateTime.UtcNow;
@@ -744,35 +745,42 @@ namespace Keyview
 		//  }
 		//}
 
-		private void Timer_Tick(object sender, EventArgs e)
+		private async void Timer_Tick(object sender, EventArgs e)
 		{
-			if ((force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && txtIn.Text != "")
+			if (!isCompiling && (force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && txtIn.Text != "")
 			{
 				timer.Enabled = false;
+				isCompiling = true;
+				lastCompileTime = DateTime.UtcNow;
 				var oldIndex = txtOut.FirstVisibleLine;
 
-				KeyviewCompilerRunner.RunCompile(
-					txtIn.Text,
-					ch,
-					ref fullCode,
-					ref trimmedCode,
-					trimend,
-					trimstr,
-					ref lastCompileTime,
-					SetStart,
-					SetSuccess,
-					SetFailure,
-					text => tslCodeStatus.Text = text,
-					Refresh,
-					SetTxtOut,
-					() => chkFullCode.Checked,
-					() => btnRunScript.Enabled = false,
-					() => btnRunScript.Enabled = true,
-					AutosaveScratchDocument,
-					() => oldIndex = txtOut.FirstVisibleLine,
-					() => txtOut.FirstVisibleLine = oldIndex);
-
-				timer.Enabled = true;
+				try
+				{
+					await KeyviewCompilerRunner.RunCompile(
+						txtIn.Text,
+						ch,
+						code => fullCode = code,
+						code => trimmedCode = code,
+						trimend,
+						trimstr,
+						SetStart,
+						SetSuccess,
+						SetFailure,
+						text => tslCodeStatus.Text = text,
+						Refresh,
+						SetTxtOut,
+						() => chkFullCode.Checked,
+						() => btnRunScript.Enabled = false,
+						() => btnRunScript.Enabled = true,
+						AutosaveScratchDocument,
+						() => oldIndex = txtOut.FirstVisibleLine,
+						() => txtOut.FirstVisibleLine = oldIndex);
+				}
+				finally
+				{
+					isCompiling = false;
+					timer.Enabled = true;
+				}
 			}
 
 			if (force)
@@ -1029,6 +1037,7 @@ namespace Keyview
 		};
 
 		private bool force;
+		private bool isCompiling;
 		private string fullCode = "";
 		private DateTime lastCompileTime = DateTime.UtcNow;
 		private DateTime lastKeyTime = DateTime.UtcNow;
@@ -1984,34 +1993,41 @@ namespace Keyview
 			SetOutputText(desired);
 		}
 
-		private void Timer_Elapsed(object sender, EventArgs e)
+		private async void Timer_Elapsed(object sender, EventArgs e)
 		{
-			if ((force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && !string.IsNullOrEmpty(inputArea.Text))
+			if (!isCompiling && (force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && !string.IsNullOrEmpty(inputArea.Text))
 			{
 				timer.Stop();
+				isCompiling = true;
+				lastCompileTime = DateTime.UtcNow;
 
-				KeyviewCompilerRunner.RunCompile(
-					inputArea.Text,
-					ch,
-					ref fullCode,
-					ref trimmedCode,
-					trimend,
-					trimstr,
-					ref lastCompileTime,
-					SetStart,
-					SetSuccess,
-					SetFailure,
-					text => codeStatusLabel.Text = text,
-					null,
-					SetOutputText,
-					() => fullCodeCheck.Checked == true,
-					() => runScriptButton.Enabled = false,
-					() => runScriptButton.Enabled = true,
-					AutosaveScratchDocument,
-					null,
-					null);
-
-				timer.Start();
+				try
+				{
+					await KeyviewCompilerRunner.RunCompile(
+						inputArea.Text,
+						ch,
+						code => fullCode = code,
+						code => trimmedCode = code,
+						trimend,
+						trimstr,
+						SetStart,
+						SetSuccess,
+						SetFailure,
+						text => codeStatusLabel.Text = text,
+						null,
+						SetOutputText,
+						() => fullCodeCheck.Checked == true,
+						() => runScriptButton.Enabled = false,
+						() => runScriptButton.Enabled = true,
+						AutosaveScratchDocument,
+						null,
+						null);
+				}
+				finally
+				{
+					isCompiling = false;
+					timer.Start();
+				}
 			}
 
 			if (force)
@@ -2127,14 +2143,13 @@ namespace Keyview
 
 	internal static class KeyviewCompilerRunner
 	{
-		internal static void RunCompile(
+		internal static async Task RunCompile(
 			string inputText,
 			CompilerHelper compiler,
-			ref string fullCode,
-			ref string trimmedCode,
+			Action<string> setFullCode,
+			Action<string> setTrimmedCode,
 			char[] trimend,
 			string trimstr,
-			ref DateTime lastCompileTime,
 			Action setStart,
 			Action<double> setSuccess,
 			Action setFailure,
@@ -2149,9 +2164,9 @@ namespace Keyview
 			Action afterOutput)
 		{
 			Script script = null;
+			var startTime = DateTime.UtcNow;
 			try
 			{
-				lastCompileTime = DateTime.UtcNow;
 				script = new Script();
 				script.SuppressErrorOccurredDialog = true;
 				CompilerHelper.compiledasm = null;
@@ -2159,7 +2174,7 @@ namespace Keyview
 				setStart?.Invoke();
 				setStatus?.Invoke("Creating DOM from script...");
 				refreshStatus?.Invoke();
-				var (unit, domerrs) = compiler.CreateCompilationUnitFromFile(inputText);
+				var (unit, domerrs) = await Task.Run(() => compiler.CreateCompilationUnitFromFile(inputText)).ConfigureAwait(true);
 
 				if (domerrs.HasErrors)
 				{
@@ -2176,7 +2191,7 @@ namespace Keyview
 
 				setStatus?.Invoke("Creating C# code from DOM...");
 				refreshStatus?.Invoke();
-				var code = PrettyPrinter.Print(unit);
+				var code = await Task.Run(() => PrettyPrinter.Print(unit)).ConfigureAwait(true);
 
 #if DEBUG
 				var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
@@ -2186,7 +2201,7 @@ namespace Keyview
 
 				setStatus?.Invoke("Compiling C# code...");
 				refreshStatus?.Invoke();
-				var (results, ms, compileexc) = compiler.Compile(unit, "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)));
+				var (results, ms, compileexc) = await Task.Run(() => compiler.Compile(unit, "Keyview", Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath)))).ConfigureAwait(true);
 
 				if (results == null)
 				{
@@ -2195,8 +2210,8 @@ namespace Keyview
 				}
 				else if (results.Success)
 				{
-					setSuccess?.Invoke((DateTime.UtcNow - lastCompileTime).TotalSeconds);
-					fullCode = code;
+					setSuccess?.Invoke((DateTime.UtcNow - startTime).TotalSeconds);
+					setFullCode(code);
 					var token = "[System.STAThreadAttribute()]";
 					var start = code.IndexOf(token);
 					code = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
@@ -2205,9 +2220,10 @@ namespace Keyview
 					foreach (var line in code.SplitLines())
 						_ = sb.AppendLine(line.TrimNofAnyFromStart(trimstr, 2));
 
-					trimmedCode = sb.ToString().TrimEnd(trimend);
+					var trimmedCode = sb.ToString().TrimEnd(trimend);
+					setTrimmedCode(trimmedCode);
 					beforeOutput?.Invoke();
-					setOutput?.Invoke(useFullCode() ? fullCode : trimmedCode);
+					setOutput?.Invoke(useFullCode() ? code : trimmedCode);
 					afterOutput?.Invoke();
 					writeLastRun?.Invoke();
 					_ = ms.Seek(0, SeekOrigin.Begin);
@@ -2292,6 +2308,11 @@ namespace Keyview
 			outputPath = Path.ChangeExtension(sourcePath, ".cks");
 			error = null;
 
+			// Constructing a Script overwrites the global Script.TheScript singleton, so save and
+			// restore it around the temporary compile-only script to avoid clobbering whatever
+			// script Keyview itself may already be hosting (e.g. one started via "Run script").
+			var previousScript = Script.TheScript;
+
 			try
 			{
 				using var script = new Script();
@@ -2313,6 +2334,10 @@ namespace Keyview
 			{
 				error = ex.ToString();
 				return false;
+			}
+			finally
+			{
+				Script.TheScript = previousScript;
 			}
 		}
 	}

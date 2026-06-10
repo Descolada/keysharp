@@ -164,11 +164,11 @@ This is a concise overview. See [the full capability matrix](docs/capabilities.m
 |---|---|---|---|
 | Parser and script execution | Full | Full | Full |
 | File and directory operations | Full | Partial | Partial |
-| Hotkeys and hotstrings | Full | Full | Full |
-| Keyboard and mouse input | Full | Full | Full |
+| Hotkeys and hotstrings | Full | Partial | Partial |
+| Keyboard and mouse input | Full | Partial | Partial |
 | GUI windows | Full | Partial | Partial |
 | Foreign window automation | Full | Partial | Partial |
-| Screen capture and pixel functions | Full | Full | Full |
+| Screen capture and pixel functions | Full | Partial | Partial |
 | Registry and COM APIs | Full | Unsupported | Unsupported |
 
 ### Linux Platform Details

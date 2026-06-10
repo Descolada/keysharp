@@ -1,4 +1,3 @@
-using Keysharp.Builtins;
 #if OSX
 using MonoMac.AppKit;
 using MonoMac.Foundation;
@@ -312,12 +311,36 @@ namespace Keysharp.Internals.Window.MacOS
 				var nc = MonoMac.Foundation.NSNotificationCenter.DefaultCenter;
 				Action<MonoMac.Foundation.NSNotification> onChange = _ => RequestActivationPolicyUpdate();
 
+				// Closing a window that is currently tracked as "hidden via TryHideOwnWindow()" means
+				// it can never be restored via TryShowOwnWindow() again, so drop its cached entries to
+				// avoid leaking the NSWindow reference and stale info forever.
+				Action<MonoMac.Foundation.NSNotification> onClose = note =>
+				{
+					RequestActivationPolicyUpdate();
+
+					if (note.Object is NSWindow closed)
+					{
+						lock (hiddenOwnWindowsLock)
+						{
+							foreach (var kv in hiddenOwnWindows)
+							{
+								if (ReferenceEquals(kv.Value, closed))
+								{
+									_ = hiddenOwnWindows.Remove(kv.Key);
+									_ = hiddenOwnWindowInfo.Remove(kv.Key);
+									break;
+								}
+							}
+						}
+					}
+				};
+
 				nc.AddObserver("NSWindowDidBecomeKeyNotification", onChange);
 				nc.AddObserver("NSWindowDidResignKeyNotification", onChange);
 				nc.AddObserver("NSWindowDidMiniaturizeNotification", onChange);
 				nc.AddObserver("NSWindowDidDeminiaturizeNotification", onChange);
 				nc.AddObserver("NSWindowDidChangeOcclusionStateNotification", onChange);
-				nc.AddObserver("NSWindowWillCloseNotification", onChange);
+				nc.AddObserver("NSWindowWillCloseNotification", onClose);
 			}
 			catch { }
 		}
@@ -444,6 +467,18 @@ namespace Keysharp.Internals.Window.MacOS
 			if (pid <= 0)
 				return false;
 
+			// Prefer the Accessibility-based AXHidden approach: it's gated by Accessibility
+			// permission (already required for window control) rather than the separate,
+			// per-target Automation/AppleEvents permission that NSRunningApplication.Hide()
+			// needs and which macOS doesn't reliably grant/prompt for on unsigned/ad-hoc builds.
+			if (Application.Instance.Invoke(() => MacAccessibility.TrySetApplicationHidden(pid, true)))
+				return true;
+
+			// AEDeterminePermissionToAutomateTarget with wildcard event class/ID only reports an
+			// *existing* decision and doesn't reliably trigger the actual permission prompt --
+			// only the real Apple Event send below does that. Logged for diagnostics only.
+			_ = Application.Instance.Invoke(() => MacAccessibility.EnsureAutomationAccess(pid, "hide window", prompt: true));
+
 			try
 			{
 				var app = NSRunningApplication.GetRunningApplication(pid);
@@ -466,6 +501,12 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			if (pid <= 0)
 				return false;
+
+			// See HideApplication for why AXHidden is preferred over Unhide().
+			if (Application.Instance.Invoke(() => MacAccessibility.TrySetApplicationHidden(pid, false)))
+				return true;
+
+			_ = Application.Instance.Invoke(() => MacAccessibility.EnsureAutomationAccess(pid, "show window", prompt: true));
 
 			try
 			{

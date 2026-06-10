@@ -771,7 +771,11 @@ namespace Keysharp.Builtins
 									 object excludeTitle = null,
 									 object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.Hide()));
+			DoDelayedAction(() =>
+			{
+				var matches = SearchWindows(winTitle, winText, excludeTitle, excludeText);
+				matches.ForEach(win => win.Hide());
+			});
 			return DefaultObject;
 		}
 

@@ -12,5 +12,7 @@
 	<string>Icon.icns</string>
 	<key>LSUIElement</key>
     <true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Keysharp scripts can use WinHide/WinShow/WinActivate and similar commands to control other applications, which requires sending them Apple Events.</string>
 </dict>
 </plist>

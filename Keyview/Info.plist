@@ -40,5 +40,7 @@
 	</array>
 	<key>NSRequiresAquaSystemAppearance</key>
 	<false/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Keysharp scripts run from Keyview can use WinHide/WinShow/WinActivate and similar commands to control other applications, which requires sending them Apple Events.</string>
 </dict>
 </plist>

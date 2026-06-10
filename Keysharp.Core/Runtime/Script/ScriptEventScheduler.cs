@@ -30,10 +30,13 @@ namespace Keysharp.Runtime
 		/// Returns the scheduler that should own work initiated on the current thread.
 		/// On threads with a SynchronizationContext (UI thread, RealThreads), returns that thread's
 		/// own scheduler. On threads without one (ad-hoc ThreadPool callbacks such as hook callbacks),
-		/// falls back to the UI scheduler so that posted work is actually drained.
+		/// falls back to the UI scheduler so that posted work is actually drained -- or, if the UI
+		/// scheduler hasn't been bound yet (e.g. a hook callback fires before the UI thread has
+		/// initialized its own scheduler), falls back to this thread's own scheduler instead of
+		/// throwing.
 		/// </summary>
 		internal ScriptEventScheduler EventScheduler
-			=> SynchronizationContext.Current == null ? UIEventScheduler : ThreadScheduler;
+			=> SynchronizationContext.Current == null ? (uiEventScheduler ?? ThreadScheduler) : ThreadScheduler;
 
 
 		internal void ScheduleAllEventSchedulers()

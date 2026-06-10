@@ -76,7 +76,7 @@ for data in "${DATA_PATHS[@]}"; do
   fi
 done
 shopt -s nullglob
-for pattern in "${HOME}/Library/Preferences/io.keysharp."* "${HOME}/Library/Caches/io.keysharp."*; do
+for pattern in "${HOME}/Library/Preferences/org.keysharp."* "${HOME}/Library/Caches/org.keysharp."*; do
   if [[ -e "${pattern}" ]]; then
     rm -rf "${pattern}"
     log "  removed ${pattern}"

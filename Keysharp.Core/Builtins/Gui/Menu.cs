@@ -165,6 +165,10 @@ namespace Keysharp.Builtins
 						mainWindow.BringToFront();
 						mainWindow.Focus();
 						_ = mainWindow.ShowInternalVars(false);
+
+						// Flush any OutputDebug text accumulated while the window was hidden/not yet
+						// shown -- otherwise it only appears once another OutputDebug call comes in.
+						MainWindow.AppendDebugOutput(string.Empty, false);
 					});
 				}
 

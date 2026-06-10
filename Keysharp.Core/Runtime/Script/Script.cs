@@ -250,7 +250,7 @@ namespace Keysharp.Runtime
 		private WindowProvider windowProvider;
 		private int disposeStarted;
 
-		public static Keysharp.Runtime.Script TheScript { get; private set; }
+		public static Keysharp.Runtime.Script TheScript { get; internal set; }
 		public Type ProgramType;
 		public string ProgramNamespace = Keywords.MainNamespaceName;
 		internal HotstringManager HotstringManager => hotstringManager ?? (hotstringManager = new ());
@@ -607,6 +607,12 @@ namespace Keysharp.Runtime
 
 					if (hwnd != 0)
 					{
+#if !WINDOWS
+						// MsgBox below needs Application.Instance, but this runs before the
+						// rest of the UI is initialized -- ensure it exists first.
+						_ = EnsureEtoApplication();
+#endif
+
 						if (Dialogs.MsgBox("Do you want to close the existing instance before running this one?\nYes to exit that instance, No to exit this instance.", "", "YesNo") == "Yes")
 							_ = WindowX.WinClose(hwnd, "", 2);
 						else
@@ -789,7 +795,7 @@ namespace Keysharp.Runtime
 		}
 
 #if !WINDOWS
-		private static Application EnsureEtoApplication()
+		internal static Application EnsureEtoApplication()
 		{
 			var app = Application.Instance ?? new Application();
 

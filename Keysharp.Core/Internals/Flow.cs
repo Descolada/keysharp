@@ -234,6 +234,40 @@ namespace Keysharp.Internals
 			}
 		}
 
+		// Like PollUntil(), but if called on the script's main thread, pumps the UI message loop
+		// while waiting instead of blocking it with Thread.Sleep(). This keeps the app responsive
+		// while waiting for the user to grant a macOS permission (Accessibility, Input Monitoring,
+		// Screen Recording, etc.) in System Settings.
+		internal static bool PollUntilWithMessagePump(Func<bool> condition, int timeoutMs, int pollIntervalMs)
+		{
+			var script = Script.TheScript;
+
+			if (!script.IsOnMainThread)
+				return PollUntil(condition, timeoutMs, pollIntervalMs);
+
+			var deadline = Environment.TickCount64 + timeoutMs;
+
+			while (true)
+			{
+				if (condition())
+					return true;
+
+				var remainingMs = deadline - Environment.TickCount64;
+
+				if (remainingMs <= 0)
+					return false;
+
+				var start = Environment.TickCount64;
+
+				do
+				{
+					TryDoEvents();
+					System.Threading.Thread.Sleep(10);
+				}
+				while (!condition() && Environment.TickCount64 - start < pollIntervalMs && Environment.TickCount64 < deadline);
+			}
+		}
+
 		internal static void StopMainTimer()
 		{
 			var script = Script.TheScript;

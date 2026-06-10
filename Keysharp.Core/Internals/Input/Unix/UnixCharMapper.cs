@@ -34,6 +34,19 @@ namespace Keysharp.Internals.Input.Unix
 				return TextFastMapUS.TryMapCharToVkShift_US(rune, out vk, out needShift);
 			}
 
+			/// <summary>
+			/// Reverse of <see cref="TryMapRuneToKeystroke"/>: given a virtual key and the
+			/// shift/AltGr state it would be pressed with, returns the character the active
+			/// keyboard layout produces for that keystroke. Used to translate raw key events
+			/// into typed characters (e.g. for hotstring collection) in a layout-aware way.
+			/// </summary>
+			public static bool TryMapKeystrokeToRune(uint vk, bool shift, bool altGr, out Rune rune)
+			{
+				EnsureProvider();
+				rune = default;
+				return provider != null && provider.TryMapKeystrokeToRune(vk, shift, altGr, out rune);
+			}
+
 			public static void ConfigureLayout(string rules = null, string model = null, string layout = null, string variant = null, string options = null)
 			{
 				EnsureProvider();
@@ -73,6 +86,7 @@ namespace Keysharp.Internals.Input.Unix
 						return;
 
 					provider = CreateProvider();
+					provider.StartLayoutChangeMonitoring();
 				}
 			}
 
@@ -91,12 +105,31 @@ namespace Keysharp.Internals.Input.Unix
 		private interface IUnixCharMapperProvider : IDisposable
 		{
 			bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr);
+
+			/// <summary>
+			/// Reverse of <see cref="TryMapRuneToKeystroke"/>. Implementations that cannot do this
+			/// (e.g. <see cref="NullCharMapperProvider"/>) should return false.
+			/// </summary>
+			bool TryMapKeystrokeToRune(uint vk, bool shift, bool altGr, out Rune rune)
+			{
+				rune = default;
+				return false;
+			}
+
 			nint GetCurrentKeymapHandle();
 #if LINUX
 			bool TryMapXKeycodeToVk(uint keycode, out uint vk);
 			bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
 #endif
 			void ConfigureLayout(string rules, string model, string layout, string variant, string options);
+
+			/// <summary>
+			/// Starts listening for OS keyboard layout change notifications and invalidates
+			/// any cached layout/character mappings (via <see cref="ConfigureLayout"/>) when
+			/// the active layout changes. Called once when the provider is created.
+			/// Implementations that have no such notification source can leave this as a no-op.
+			/// </summary>
+			void StartLayoutChangeMonitoring() { }
 		}
 
 		private sealed class NullCharMapperProvider : IUnixCharMapperProvider

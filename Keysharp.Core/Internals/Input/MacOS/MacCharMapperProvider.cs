@@ -15,21 +15,47 @@ namespace Keysharp.Internals.Input.Unix
 			private nint retainedLayoutDataRef;
 			private nint retainedLayoutPtr;
 
-			// Carbon HIToolbox constants used by UCKeyTranslate.
-			private const ushort kUCKeyActionDown = 0;
-			private const uint kUCKeyTranslateNoDeadKeysBit = 1u;
+			// Carbon HIToolbox modifier-key-state bits (used to select between candidate runes per key,
+			// and passed directly as UCKeyTranslate's modifierKeyState parameter).
 			private const uint shiftKeyState = 0x02u; // shiftKey >> 8
 			private const uint optionKeyState = 0x08u; // optionKey >> 8
 
+			private const ushort kUCKeyActionDown = 0;
+
 			private static readonly ushort[] candidateKeyCodes =
 			{
+				// 0x0A is the extra key found on ISO keyboards (e.g. between left shift and Z, or
+				// near Enter), which many European layouts (incl. Nordic/Baltic) use for an
+				// additional letter.
+				0x0A,
 				0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0B,0x0C,0x0D,0x0E,0x0F,
 				0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
 				0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
 				0x30,0x31,0x32
 			};
 
+			private static readonly Dictionary<uint, ushort> vkToMacKeyCode = BuildVkToMacKeyCodeMap();
+
+			private static Dictionary<uint, ushort> BuildVkToMacKeyCodeMap()
+			{
+				var map = new Dictionary<uint, ushort>();
+
+				foreach (var keyCode in candidateKeyCodes)
+					if (TryMapMacKeyCodeToVk(keyCode, out var vk))
+						map[vk] = keyCode;
+
+				return map;
+			}
+
 			private static readonly nint tisUnicodeLayoutKey = CreateCfString("TISPropertyUnicodeKeyLayoutData");
+			private static readonly nint kTISNotifySelectedKeyboardInputSourceChanged = CreateCfString("TISNotifySelectedKeyboardInputSourceChanged");
+			private const nint kCFNotificationSuspensionBehaviorDeliverImmediately = 4;
+
+			// The OS posts the layout-change notification to a single distributed center, so a
+			// single static instance pointer is sufficient to route the unmanaged callback back
+			// to the provider that registered for it.
+			private static MacCharMapperProvider monitoringInstance;
+			private bool monitoringStarted;
 
 			public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
 			{
@@ -38,6 +64,7 @@ namespace Keysharp.Internals.Input.Unix
 					var key = rune.Value;
 
 					var layoutPtr = GetCurrentKeyboardLayoutPtr();
+
 					if (layoutPtr == nint.Zero)
 					{
 						needAltGr = false;
@@ -60,7 +87,7 @@ namespace Keysharp.Internals.Input.Unix
 
 					// Prefer plain keys first (e.g. spacebar), then shifted, then AltGr combos.
 					static bool TryFindForModifiers(
-						nint ptr,
+						nint layoutPtr,
 						Rune targetRune,
 						uint modifiers,
 						out uint foundVk)
@@ -69,7 +96,7 @@ namespace Keysharp.Internals.Input.Unix
 
 						foreach (var keyCode in candidateKeyCodes)
 						{
-							if (!TryTranslate(ptr, keyCode, modifiers, out var translatedRune))
+							if (!TryTranslate(layoutPtr, keyCode, modifiers, out var translatedRune))
 								continue;
 
 							if (translatedRune.Value != targetRune.Value)
@@ -122,6 +149,38 @@ namespace Keysharp.Internals.Input.Unix
 				return TextFastMapUS.TryMapCharToVkShift_US(rune, out vk, out needShift);
 			}
 
+			public bool TryMapKeystrokeToRune(uint vk, bool shift, bool altGr, out Rune rune)
+			{
+				rune = default;
+
+				lock (mapperLock)
+				{
+					if (!vkToMacKeyCode.TryGetValue(vk, out var keyCode))
+						return false;
+
+					var layoutPtr = GetCurrentKeyboardLayoutPtr();
+
+					if (layoutPtr == nint.Zero)
+						return false;
+
+					if (layoutPtr != lastLayoutPtr)
+					{
+						cache.Clear();
+						lastLayoutPtr = layoutPtr;
+					}
+
+					uint modifiers = 0;
+
+					if (shift)
+						modifiers |= shiftKeyState;
+
+					if (altGr)
+						modifiers |= optionKeyState;
+
+					return TryTranslate(layoutPtr, keyCode, modifiers, out rune);
+				}
+			}
+
 			public void ConfigureLayout(string rules, string model, string layout, string variant, string options)
 			{
 				lock (mapperLock)
@@ -131,6 +190,42 @@ namespace Keysharp.Internals.Input.Unix
 					ReleaseRetainedLayoutData();
 				}
 			}
+
+			public void StartLayoutChangeMonitoring()
+			{
+				lock (mapperLock)
+				{
+					if (monitoringStarted)
+						return;
+
+					monitoringStarted = true;
+					monitoringInstance = this;
+				}
+
+				// TIS/Carbon notification registration is most reliable on the UI thread.
+				Script.InvokeOnUIThread(() =>
+				{
+					var center = CFNotificationCenterGetDistributedCenter();
+
+					if (center == nint.Zero)
+						return;
+
+					unsafe
+					{
+						CFNotificationCenterAddObserver(
+							center,
+							nint.Zero,
+							&OnSelectedKeyboardInputSourceChanged,
+							kTISNotifySelectedKeyboardInputSourceChanged,
+							nint.Zero,
+							kCFNotificationSuspensionBehaviorDeliverImmediately);
+					}
+				});
+			}
+
+			[UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+			private static void OnSelectedKeyboardInputSourceChanged(nint center, nint observer, nint name, nint obj, nint userInfo) =>
+			monitoringInstance?.ConfigureLayout(null, null, null, null, null);
 
 			public nint GetCurrentKeymapHandle()
 			{
@@ -153,6 +248,7 @@ namespace Keysharp.Internals.Input.Unix
 				vk = keyCode switch
 				{
 					0x00 => (uint)'A',
+					0x0A => VK_OEM_102,    // ISO extra key (<> or \|)
 					0x01 => (uint)'S',
 					0x02 => (uint)'D',
 					0x03 => (uint)'F',
@@ -209,32 +305,50 @@ namespace Keysharp.Internals.Input.Unix
 				return vk != 0;
 			}
 
+			/// <summary>
+			/// Resolves the character that pressing a key (with the given Carbon modifier-key
+			/// state, e.g. <see cref="shiftKeyState"/>/<see cref="optionKeyState"/>) would produce
+			/// under the given keyboard layout's Unicode key layout data, via UCKeyTranslate.
+			/// Returns false for dead keys (no completed character without a follow-up keystroke).
+			/// </summary>
 			private static bool TryTranslate(nint layoutPtr, ushort keyCode, uint modifierState, out Rune rune)
 			{
-				rune = default;
+				var (success, result) = TryTranslateCore(layoutPtr, keyCode, modifierState);
+				rune = result;
+				return success;
+			}
+
+			private static unsafe (bool success, Rune rune) TryTranslateCore(nint layoutPtr, ushort keyCode, uint modifierState)
+			{
+				if (layoutPtr == nint.Zero)
+					return (false, default);
 
 				uint deadKeyState = 0;
-				char[] chars = new char[8];
-				var result = UCKeyTranslate(
+				const int bufferLen = 8;
+				var chars = stackalloc ushort[bufferLen];
+
+				var status = UCKeyTranslate(
 					layoutPtr,
 					keyCode,
 					kUCKeyActionDown,
 					modifierState,
-					LMGetKbdType(),
-					kUCKeyTranslateNoDeadKeysBit,
-					ref deadKeyState,
-					chars.Length,
+					0,
+					0,
+					&deadKeyState,
+					bufferLen,
 					out var actualLength,
 					chars);
 
-				if (result != 0 || actualLength <= 0)
-					return false;
+				if (status != 0 || actualLength == 0)
+					return (false, default);
 
-				if (actualLength > chars.Length)
-					actualLength = chars.Length;
+				var len = (int)Math.Min(actualLength, bufferLen);
+				var translated = new string((char*)chars, 0, len);
 
-				var translated = new string(chars, 0, actualLength);
-				return Rune.TryGetRuneAt(translated, 0, out rune);
+				if (translated.Length == 1 && translated[0] == '�')
+					return (false, default);
+
+				return (Rune.TryGetRuneAt(translated, 0, out var rune), rune);
 			}
 
 			private nint GetCurrentKeyboardLayoutPtr()
@@ -252,10 +366,14 @@ namespace Keysharp.Internals.Input.Unix
 				if (retainedLayoutPtr != nint.Zero)
 					return;
 
-				var source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
+				// Prefer the actual current input source so non-ASCII characters (e.g. "ä" on an
+				// Estonian layout) can be translated. The ASCII-capable source is only a fallback,
+				// since it represents a US-like layout used for keyboard shortcuts and would
+				// never contain non-ASCII characters.
+				var source = TISCopyCurrentKeyboardLayoutInputSource();
 
 				if (source == nint.Zero)
-					source = TISCopyCurrentKeyboardLayoutInputSource();
+					source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
 
 				if (source == nint.Zero)
 					return;
@@ -344,21 +462,31 @@ namespace Keysharp.Internals.Input.Unix
 			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 			private static partial nint CFDataGetBytePtr(nint theData);
 
-			[LibraryImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-			private static partial uint LMGetKbdType();
+
+			[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static partial nint CFNotificationCenterGetDistributedCenter();
+
+			[DllImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+			private static unsafe extern void CFNotificationCenterAddObserver(
+				nint center,
+				nint observer,
+				delegate* unmanaged[Cdecl]<nint, nint, nint, nint, nint, void> callBack,
+				nint name,
+				nint object_,
+				nint suspensionBehavior);
 
 			[DllImport("/System/Library/Frameworks/Carbon.framework/Carbon")]
-			private static extern int UCKeyTranslate(
+			private static extern unsafe int UCKeyTranslate(
 				nint keyLayoutPtr,
 				ushort virtualKeyCode,
 				ushort keyAction,
 				uint modifierKeyState,
 				uint keyboardType,
 				uint keyTranslateOptions,
-				ref uint deadKeyState,
-				int maxStringLength,
-				out int actualStringLength,
-				[Out] char[] unicodeString);
+				uint* deadKeyState,
+				uint maxStringLength,
+				out uint actualStringLength,
+				ushort* unicodeString);
 		}
 	}
 }

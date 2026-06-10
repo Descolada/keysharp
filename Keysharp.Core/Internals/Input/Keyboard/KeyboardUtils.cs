@@ -394,6 +394,7 @@ done
 		internal const uint VK_OEM_6 = 0xDD;
 		internal const uint VK_OEM_7 = 0xDE;
 		internal const uint VK_OEM_8 = 0xDF;
+		internal const uint VK_OEM_102 = 0xE2;
 		internal const uint VK_BACK = 0x08;
 		internal const uint VK_TAB = 0x09;
 		internal const uint VK_CLEAR = 0x0C;

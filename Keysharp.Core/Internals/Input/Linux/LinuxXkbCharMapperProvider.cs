@@ -107,6 +107,48 @@ namespace Keysharp.Internals.Input.Unix
 				return false;
 			}
 
+			public bool TryMapKeystrokeToRune(uint vk, bool shift, bool altGr, out Rune rune)
+			{
+				rune = default;
+
+				if (!TryMapVkToXKeycode(vk, out var keycode, false))
+					return false;
+
+				if (!TryGetReadyKeymap(out var currentKeymap))
+					return false;
+
+				const uint layout = 0;
+				int levels = xkb_keymap_num_levels_for_key(currentKeymap, keycode, layout);
+
+				for (uint level = 0; level < (uint)levels; level++)
+				{
+					if (!TryResolveSupportedModsForLevel(keycode, layout, level, out var s, out var g))
+						continue;
+
+					if (s != shift || g != altGr)
+						continue;
+
+					int count = xkb_keymap_key_get_syms_by_level(currentKeymap, keycode, layout, level, out var symsPtr);
+
+					if (count <= 0 || symsPtr == IntPtr.Zero)
+						continue;
+
+					unsafe
+					{
+						var syms = (uint*)symsPtr;
+						uint cp = xkb_keysym_to_utf32(syms[0]);
+
+						if (cp == 0)
+							continue;
+
+						rune = new Rune(cp);
+						return true;
+					}
+				}
+
+				return false;
+			}
+
 			public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
 			{
 				vk = 0;
@@ -501,6 +543,7 @@ namespace Keysharp.Internals.Input.Unix
 			[DllImport(LibXkbCommon, EntryPoint = "xkb_keymap_key_get_mods_for_level")]
 			private static extern int xkb_keymap_key_get_mods_for_level(IntPtr keymap, uint key, uint layout, uint level, IntPtr masksOut, UIntPtr masksOutSize);
 			[DllImport(LibXkbCommon)] private static extern IntPtr xkb_keymap_key_get_name(IntPtr keymap, uint key);
+			[DllImport(LibXkbCommon)] private static extern uint xkb_keysym_to_utf32(uint keysym);
 			[DllImport(LibX11Xcb)] private static extern IntPtr XGetXCBConnection(IntPtr display);
 			[DllImport(LibXkbCommonX11)] private static extern bool xkb_x11_setup_xkb_extension(IntPtr connection, ushort majorXkbVersion, ushort minorXkbVersion, uint flags, out ushort majorXkbVersionOut, out ushort minorXkbVersionOut, out byte baseEventOut, out byte baseErrorOut);
 			[DllImport(LibXkbCommonX11)] private static extern int xkb_x11_get_core_keyboard_device_id(IntPtr connection);

@@ -98,6 +98,7 @@ namespace Keysharp.Internals.Input.Unix
                 VK_OEM_COMMA   => KeyCode.VcComma,         // ,<
                 VK_OEM_PERIOD  => KeyCode.VcPeriod,        // .>
                 VK_OEM_2       => KeyCode.VcSlash,         // /?
+                VK_OEM_102     => KeyCode.Vc102,           // ISO extra key (<> or \|)
 
                 // Numpad
                 VK_NUMPAD0     => KeyCode.VcNumPad0,
@@ -186,6 +187,7 @@ namespace Keysharp.Internals.Input.Unix
                 case KeyCode.VcComma:       return VK_OEM_COMMA;  // ,<
                 case KeyCode.VcPeriod:      return VK_OEM_PERIOD; // .>
                 case KeyCode.VcSlash:       return VK_OEM_2;      // /?
+                case KeyCode.Vc102:         return VK_OEM_102;    // ISO extra key (<> or \|)
 
                 // Numpad
                 case KeyCode.VcNumPad0:        return VK_NUMPAD0;

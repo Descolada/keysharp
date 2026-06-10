@@ -78,6 +78,30 @@ namespace Keysharp.Internals.Platform.Unix
 
 			bool caps = lpKeyState.Length > VirtualKeys.VK_CAPITAL && (lpKeyState[VirtualKeys.VK_CAPITAL] & 0x01) != 0;
 
+			bool altGr =
+				(lpKeyState.Length > VirtualKeys.VK_RMENU && (lpKeyState[VirtualKeys.VK_RMENU] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_RCONTROL && (lpKeyState[VirtualKeys.VK_RCONTROL] & 0x80) != 0
+				 && lpKeyState.Length > VirtualKeys.VK_LMENU && (lpKeyState[VirtualKeys.VK_LMENU] & 0x80) != 0);
+
+			// Prefer the active OS keyboard layout (handles non-US layouts and non-ASCII
+			// characters such as "ä"); fall back to the hardcoded US table below if the
+			// platform's char mapper can't translate this key. Caps Lock only affects
+			// letter keys, so it's applied as a post-hoc case toggle rather than XOR'd
+			// into the shift state passed to the mapper (which would also affect
+			// digit/symbol keys, e.g. turning '2' into '"' on Estonian layouts).
+			if (UnixKeyboardMouseSender.UnixCharMapper.TryMapKeystrokeToRune(wVirtKey, shift, altGr, out var mappedRune))
+			{
+				if (caps && Rune.IsLetter(mappedRune))
+				{
+					var upper = Rune.ToUpperInvariant(mappedRune);
+					var lower = Rune.ToLowerInvariant(mappedRune);
+					mappedRune = mappedRune == upper ? lower : upper;
+				}
+
+				var written = mappedRune.EncodeToUtf16(pwszBuff);
+				return written;
+			}
+
 			char ch = '\0';
 
 			// Letters

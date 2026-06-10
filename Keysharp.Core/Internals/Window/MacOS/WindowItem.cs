@@ -104,7 +104,29 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override bool Bottom
 		{
-			set => Ks.OutputDebugLine("Bottom/Top Z-order control is not implemented for macOS windows.");
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				if (!value)
+				{
+					if (!MacAccessibility.TryRaiseWindow(native))
+						Ks.OutputDebugLine("Raising macOS window to top failed.");
+					else
+						InvalidateNativeInfoCache();
+
+					return;
+				}
+
+				if (native.OwnerPid == Environment.ProcessId && MacNativeWindows.TrySendOwnWindowToBack(native.WindowNumber))
+				{
+					InvalidateNativeInfoCache();
+					return;
+				}
+
+				Ks.OutputDebugLine("Sending a window to the bottom of the Z order is only supported for windows owned by this process on macOS.");
+			}
 		}
 
 		internal override HashSet<WindowItemBase> ChildWindows => [];
@@ -214,13 +236,48 @@ namespace Keysharp.Internals.Window.MacOS
 
 				return title = string.Empty;
 			}
-			set => Ks.OutputDebugLine("Setting window titles is not implemented on macOS.");
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				var ok = native.OwnerPid == Environment.ProcessId
+					? MacNativeWindows.TrySetOwnWindowTitle(native.WindowNumber, value)
+					: MacAccessibility.TrySetWindowTitle(native, value);
+
+				if (!ok)
+				{
+					Ks.OutputDebugLine("Setting the window title failed on macOS.");
+					return;
+				}
+
+				title = value;
+				InvalidateNativeInfoCache();
+			}
 		}
 
 		internal override object Transparency
 		{
 			get => TryGetNativeInfo(out var native) ? (long)Math.Clamp(Convert.ToInt32(native.Alpha * 255.0), 0, 255) : -1L;
-			set => Ks.OutputDebugLine("Opacity control is not implemented for macOS windows.");
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				if (native.OwnerPid != Environment.ProcessId)
+				{
+					// macOS provides no public API to change another process's window opacity.
+					Ks.OutputDebugLine("Opacity control is only supported for windows owned by this process on macOS.");
+					return;
+				}
+
+				var alpha = Math.Clamp(value.Al(), 0, 255) / 255.0;
+
+				if (!MacNativeWindows.TrySetOwnWindowAlpha(native.WindowNumber, alpha))
+					Ks.OutputDebugLine("Opacity control failed for this macOS window.");
+				else
+					InvalidateNativeInfoCache();
+			}
 		}
 
 		internal override object TransparentColor
@@ -236,7 +293,13 @@ namespace Keysharp.Internals.Window.MacOS
 		internal override bool Visible
 		{
 			get => TryGetNativeInfo(out var native) && native.Visible;
-			set => Ks.OutputDebugLine("Show/Hide is not directly supported for macOS windows.");
+			set
+			{
+				if (value)
+					_ = Show();
+				else
+					_ = Hide();
+			}
 		}
 
 		internal override FormWindowState WindowState

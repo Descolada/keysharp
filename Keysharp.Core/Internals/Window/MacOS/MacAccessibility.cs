@@ -206,6 +206,59 @@ namespace Keysharp.Internals.Window.MacOS
 			return ok;
 		}
 
+		// Raises the window within its own application's window list, without activating that
+		// application (unlike TryActivateWindow). This is the closest macOS equivalent to
+		// bringing a window to the top of the Z order without stealing focus from the user.
+		internal static bool TryRaiseWindow(MacNativeWindowInfo info)
+		{
+			if (!EnsureAccessibilityAccess("raise window", prompt: true))
+				return false;
+
+			if (!TryFindWindowElement(info, out var windowElement))
+				return false;
+
+			try
+			{
+				return AXUIElementPerformAction(windowElement, actionRaise) == kAXErrorSuccess;
+			}
+			finally
+			{
+				CFRelease(windowElement);
+			}
+		}
+
+		// Most apps treat AXTitle as read-only, but a few (e.g. Electron-based apps) honor writes
+		// to it, so it's worth attempting before falling back/logging.
+		internal static bool TrySetWindowTitle(MacNativeWindowInfo info, string title)
+		{
+			if (!EnsureAccessibilityAccess("set window title", prompt: true))
+				return false;
+
+			if (!TryFindWindowElement(info, out var windowElement))
+				return false;
+
+			try
+			{
+				var titleRef = CFStringCreateWithCString(0, title ?? string.Empty, kCFStringEncodingUTF8);
+
+				if (titleRef == 0)
+					return false;
+
+				try
+				{
+					return AXUIElementSetAttributeValue(windowElement, attrTitle, titleRef) == kAXErrorSuccess;
+				}
+				finally
+				{
+					CFRelease(titleRef);
+				}
+			}
+			finally
+			{
+				CFRelease(windowElement);
+			}
+		}
+
 		internal static bool TryCloseWindow(MacNativeWindowInfo info)
 		{
 			if (!EnsureAccessibilityAccess("close window", prompt: true))

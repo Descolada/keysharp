@@ -532,6 +532,47 @@ namespace Keysharp.Internals.Window.MacOS
 			return true;
 		}
 
+		// Sends one of our own windows to the back of the on-screen window list. There is no
+		// equivalent for windows owned by other applications: AppKit's orderBack: only operates
+		// on windows the calling process owns.
+		internal static bool TrySendOwnWindowToBack(uint windowNumber)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			Application.Instance.Invoke(() => native.OrderBack(null));
+			return true;
+		}
+
+		// Sets the title bar text of one of our own windows. There is no equivalent for windows
+		// owned by other applications via AppKit; MacAccessibility.TrySetWindowTitle (AXTitle) is
+		// attempted for those instead.
+		internal static bool TrySetOwnWindowTitle(uint windowNumber, string title)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			Application.Instance.Invoke(() => native.Title = title ?? string.Empty);
+			return true;
+		}
+
+		// Sets the overall opacity of one of our own windows. There is no public API to change
+		// the opacity of another application's window.
+		internal static bool TrySetOwnWindowAlpha(uint windowNumber, double alpha)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			Application.Instance.Invoke(() => native.AlphaValue = (float)Math.Clamp(alpha, 0.0, 1.0));
+			return true;
+		}
+
 		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)
 		{
 			var options = includeSingleWindow

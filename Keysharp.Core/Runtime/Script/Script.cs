@@ -809,8 +809,13 @@ namespace Keysharp.Runtime
 			if (app.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
 				macHandler.AllowClosingMainForm = true;
 
-			// Info.plist marks the app as LSUIElement (no Dock icon by default); show it only
-			// while a real, user-facing window is visible. See MacNativeWindows for details.
+			// Info.plist normally marks the app as LSUIElement (no Dock icon by default), but when
+			// launched as a child process from Keyview's bundle, NSBundle.mainBundle resolves to
+			// Keyview's own Info.plist (which has no LSUIElement), so AppKit defaults to showing a
+			// Dock icon until the debounced policy update below runs. Set Accessory immediately and
+			// synchronously to avoid that flash; RequestActivationPolicyUpdate will switch back to
+			// Regular shortly after if a real window is already visible.
+			MacNativeWindows.SetActivationPolicy(accessory: true);
 			MacNativeWindows.RegisterWindowPolicyObservers();
 			MacNativeWindows.RequestActivationPolicyUpdate();
 #endif

@@ -10,5 +10,7 @@
 	<string>0.0.0.14</string>
 	<key>CFBundleIconFile</key>
 	<string>Icon.icns</string>
+	<key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>

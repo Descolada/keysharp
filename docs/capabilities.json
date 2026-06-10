@@ -50,10 +50,10 @@
                      "category":  "Core Language",
                      "feature":  "!~=",
                      "syntax":  "x := (s !~= pat)",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Regular-expression not-match operator.",
                      "tested-by":  "string-regexmatch-cs.ahk"
                  },
@@ -321,10 +321,10 @@
                      "category":  "Environment/System",
                      "feature":  "#Import",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Imports exported names from another script file."
                  },
                  {
@@ -7710,10 +7710,10 @@
                      "category":  "Core Language",
                      "feature":  "Object.__Ref()",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Returns a reference object for object lifetime management."
                  },
                  {
@@ -8251,10 +8251,10 @@
                      "category":  "Core Language",
                      "feature":  "PropRef",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Property-reference object type."
                  },
                  {
@@ -8908,7 +8908,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "partial",
                      "notes":  "Audio device/endpoint support differs by platform."
                  },
                  {
@@ -8918,7 +8918,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Emits a tone from the PC speaker. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8928,8 +8928,8 @@
                      "syntax":  "SoundGetInterface(guid)",
                      "windows":  "full",
                      "linux_x11":  "unsupported",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
                      "notes":  "Retrieves a native COM interface of a sound device or component. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending. Returns a native COM interface and is Windows-specific.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8940,7 +8940,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8951,7 +8951,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Retrieves the name of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8962,7 +8962,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8973,7 +8973,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Plays a sound, video, or other supported file type. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8984,7 +8984,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Changes a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -8995,7 +8995,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "Changes a volume setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated \u0027Sound APIs\u0027; per-function validation pending.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
@@ -9005,8 +9005,8 @@
                      "syntax":  "SplitPath(\"C:\\path\\to\\file.txt\")",
                      "windows":  "full",
                      "linux_x11":  "full",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Separates a file name or URL into its name, directory, extension, and drive. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been.",
                      "tested-by":  "file-filesplitpath.ahk"
                  },
@@ -9188,10 +9188,10 @@
                      "category":  "Interop/Memory",
                      "feature":  "struct.__Value",
                      "syntax":  "",
-                     "windows":  "unsupported",
-                     "linux_x11":  "unsupported",
-                     "linux_wayland":  "unsupported",
-                     "macos":  "unsupported",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
                      "notes":  "Backing value property for struct instances (struct support not yet implemented)."
                  },
                  {
@@ -9208,11 +9208,11 @@
                      "category":  "Interop/Memory",
                      "feature":  "structures",
                      "syntax":  "",
-                     "windows":  "unsupported",
-                     "linux_x11":  "unsupported",
-                     "linux_wayland":  "unsupported",
-                     "macos":  "unsupported",
-                     "notes":  "User-defined structures (planned; not currently implemented)."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "User-defined structures."
                  },
                  {
                      "category":  "Interop/Memory",
@@ -9756,8 +9756,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top."
+                     "macos":  "partial",
+                     "notes":  "The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -9817,8 +9817,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinGetEnabled function returns a non-zero value if the specified window is enabled."
+                     "macos":  "unsupported",
+                     "notes":  "Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -9827,8 +9827,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinGetStyle and WinGetExStyle functions return the style or extended style (respectively) of the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -9919,8 +9919,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinGetStyle and WinGetExStyle functions return the style or extended style (respectively) of the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -9950,8 +9950,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinGetTransColor function returns the color that is marked transparent in the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -9960,7 +9960,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "The WinGetTransparent function returns the degree of transparency of the specified window."
                  },
                  {
@@ -9970,8 +9970,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinHide function hides the specified window."
+                     "macos":  "partial",
+                     "notes":  "The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10057,8 +10057,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows."
+                     "macos":  "partial",
+                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10067,8 +10067,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it."
+                     "macos":  "full",
+                     "notes":  "The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10077,8 +10077,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinRedraw function redraws the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "The WinRedraw function redraws the specified window. macOS provides no public API to force a redraw of another window; this is currently a no-op that just confirms the window exists."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10097,8 +10097,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows)."
+                     "macos":  "partial",
+                     "notes":  "The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10107,8 +10107,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetEnabled function enables or disables the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "The WinSetEnabled function enables or disables the specified window. macOS provides no public API to disable another window's input handling."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10117,18 +10117,18 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively."
+                     "macos":  "unsupported",
+                     "notes":  "The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles."
                  },
                  {
                      "category":  "Windowing/GUI",
                      "feature":  "WinSetRegion()",
                      "syntax":  "",
                      "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon."
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. This is implemented purely via the Win32 GDI region APIs (HRGN/SetWindowRgn) and is Windows-only; non-rectangular window shaping has no equivalent implementation on Linux or macOS."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10137,8 +10137,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively.",
+                     "macos":  "unsupported",
+                     "notes":  "The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -10148,8 +10148,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetTitle function changes the title of the specified window."
+                     "macos":  "partial",
+                     "notes":  "The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10158,8 +10158,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetTransColor function makes all pixels of the chosen color invisible inside the specified window."
+                     "macos":  "unsupported",
+                     "notes":  "The WinSetTransColor function makes all pixels of the chosen color invisible inside the specified window. macOS has no equivalent of a window transparency color key."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10168,8 +10168,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent."
+                     "macos":  "partial",
+                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10178,8 +10178,8 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "The WinShow function unhides the specified window."
+                     "macos":  "partial",
+                     "notes":  "The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback)."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10188,7 +10188,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "The WinWait function waits until the specified window exists.",
                      "tested-by":  "ControlTests/control_send.ahk"
                  },
@@ -10199,7 +10199,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active.",
                      "tested-by":  "ControlTests/control_show_dropdown.ahk"
                  },
@@ -10210,7 +10210,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "The WinWaitClose function waits until no matching windows can be found."
                  },
                  {
@@ -10220,7 +10220,7 @@
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
-                     "macos":  "unknown",
+                     "macos":  "full",
                      "notes":  "The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active."
                  }
              ]

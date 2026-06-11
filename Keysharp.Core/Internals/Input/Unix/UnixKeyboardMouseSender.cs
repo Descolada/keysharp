@@ -341,12 +341,7 @@ namespace Keysharp.Internals.Input.Unix
 			double scale = 1.0;
 #endif
 
-#if !WINDOWS
-			if (TrySendPlatformEventArray(lht, st, extraInfo, scale))
-				return;
-#endif
-
-			WithSendScope(lht, () => WithSendUngrab(lht, () => ReplayEventArrayEvents(st.Events, extraInfo, scale)));
+			DispatchEventArray(lht, st, extraInfo, scale);
 		}
 
 		protected void ReplayEventArrayEvents(List<ArrayEvent> events, long extraInfo, double scale)
@@ -590,7 +585,7 @@ namespace Keysharp.Internals.Input.Unix
 
 			if (lht != null)
 			{
-				WithSendScope(lht, () => WithSendUngrab(lht, () => ReplayImmediateMouseEvent(eventFlags, data, x, y)));
+				WithSendScope(lht, () => ReplayImmediateMouseEvent(eventFlags, data, x, y));
 				return;
 			}
 
@@ -860,12 +855,7 @@ namespace Keysharp.Internals.Input.Unix
 			if (lht == null)
 				return;
 
-#if !WINDOWS
-			if (TrySendPlatformKeybdEvent(lht, eventType, vk, extraInfo))
-				return;
-#endif
-
-			WithSendScope(lht, () => WithSendUngrab(lht, () => SendKeyEventDirect(eventType, vk, extraInfo)));
+			DispatchKeybdEvent(lht, eventType, vk, extraInfo);
 		}
 
 		internal override void SendUnicodeChar(char ch, uint modifiers)
@@ -879,10 +869,8 @@ namespace Keysharp.Internals.Input.Unix
 				&& UnixCharMapper.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
 				&& vk != 0;
 
-#if !WINDOWS
 			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueuePlatformMappedTextKey(ch, modifiers, extraInfo))
 				return;
-#endif
 
 			if (hasMappedKeystroke)
 				SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
@@ -898,21 +886,16 @@ namespace Keysharp.Internals.Input.Unix
 			if (lht == null)
 				return;
 
-#if !WINDOWS
 			if (TrySendPlatformUnicodeChar(lht, ch, extraInfo, hasMappedKeystroke, vk, needShift, needAltGr))
 				return;
-#endif
 
 			WithSendScope(lht, () =>
 			{
-				WithSendUngrab(lht, () =>
-				{
-					// Prefer keystroke mapping when possible.
-					if (hasMappedKeystroke)
-						SendMappedUnicodeKeystroke(vk, needShift, needAltGr, extraInfo);
-					else
-						sim.SimulateTextEntry(ch.ToString());
-				});
+				// Prefer keystroke mapping when possible.
+				if (hasMappedKeystroke)
+					SendMappedUnicodeKeystroke(vk, needShift, needAltGr, extraInfo);
+				else
+					sim.SimulateTextEntry(ch.ToString());
 			});
 		}
 
@@ -943,32 +926,36 @@ namespace Keysharp.Internals.Input.Unix
 				backend.KeyUp(vk, now, extraInfo);
 		}
 
-		protected static void WithSendScope(UnixHookThread lht, Action action)
+		// Run an action inside a send scope. By default also releases all grabs for the duration
+		// (no-op on macOS, ungrab-all on X11). Pass ungrab: false when the caller manages its own
+		// (e.g. parameterized) ungrab, as LinuxKeyboardMouseSender.RunWithX11SendScope does.
+		protected static void WithSendScope(UnixHookThread lht, Action action, bool ungrab = true)
 		{
 			var sendScope = lht.EnterSendScope();
 			try
 			{
-				action();
+				if (!ungrab)
+				{
+					action();
+					return;
+				}
+
+				lock (lht.hkLock)
+				{
+					var snap = lht.BeginSendUngrab();
+					try
+					{
+						action();
+					}
+					finally
+					{
+						lht.EndSendUngrab(snap);
+					}
+				}
 			}
 			finally
 			{
 				sendScope.Dispose();
-			}
-		}
-
-		protected static void WithSendUngrab(UnixHookThread lht, Action action)
-		{
-			lock (lht.hkLock)
-			{
-				var snap = lht.BeginSendUngrab();
-				try
-				{
-					action();
-				}
-				finally
-				{
-					lht.EndSendUngrab(snap);
-				}
 			}
 		}
 
@@ -984,9 +971,16 @@ namespace Keysharp.Internals.Input.Unix
 				backend.KeyUp(vk, ms, extraInfo);
 		}
 
-		protected virtual bool TrySendPlatformEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale) => false;
+		// Dispatch the recorded event array to the platform backend. The base implementation is
+		// the shared SharpHook path (used by macOS, and as the default); LinuxKeyboardMouseSender
+		// overrides it for grab-aware X11 sending.
+		protected virtual void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
+			=> WithSendScope(lht, () => ReplayEventArrayEvents(state.Events, extraInfo, scale));
 
-		protected virtual bool TrySendPlatformKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo) => false;
+		// Dispatch a single keyboard event to the platform backend. Base = shared SharpHook path;
+		// LinuxKeyboardMouseSender overrides it for X11.
+		protected virtual void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
+			=> WithSendScope(lht, () => SendKeyEventDirect(eventType, vk, extraInfo));
 
 		protected virtual bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr) => false;
 
@@ -1005,6 +999,19 @@ namespace Keysharp.Internals.Input.Unix
 		internal override ToggleValueType ToggleKeyState(uint vk, ToggleValueType toggleValue)
 		{
 			var script = Script.TheScript;
+#if OSX
+			// The CapsLock lock state can only be changed through IOKit on macOS;
+			// synthetic keystrokes posted via CGEvents have no effect on it.
+			if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.TryGet(out var capsOn))
+			{
+				var starting = capsOn ? ToggleValueType.On : ToggleValueType.Off;
+
+				if ((toggleValue == ToggleValueType.On || toggleValue == ToggleValueType.Off) && starting != toggleValue)
+					_ = Keysharp.Internals.Input.MacOS.MacCapsLockState.TrySet(toggleValue == ToggleValueType.On);
+
+				return starting;
+			}
+#endif
 			// Can't use IsKeyDownAsync/GetAsyncKeyState() because it doesn't have this info:
 			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
@@ -1134,6 +1141,13 @@ namespace Keysharp.Internals.Input.Unix
 			public void KeyDown(uint vk, DateTime ms, long extraInfo)
 			{
 				EnsureInputSendPermission("send keyboard input");
+#if OSX
+				// CGEvent-posted CapsLock keystrokes don't change the OS toggle state,
+				// so perform the toggle through IOKit and post no event (a system
+				// flagsChanged event is generated by the HID system on state change).
+				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.TryToggle())
+					return;
+#endif
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code == KeyCode.VcUndefined)
 					return;
@@ -1145,6 +1159,12 @@ namespace Keysharp.Internals.Input.Unix
 			public void KeyUp(uint vk, DateTime ms, long extraInfo)
 			{
 				EnsureInputSendPermission("send keyboard input");
+#if OSX
+				// The toggle was already applied by the paired KeyDown; a CapsLock
+				// key-up has no effect on the lock state, so don't post anything.
+				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.IsAvailable)
+					return;
+#endif
 				var code = SharpHookKeyMapper.VkToKeyCode(vk);
 				if (code == KeyCode.VcUndefined)
 					return;

@@ -62,7 +62,7 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		}
 
 		// Synthetic key-up grab restoration is handled synchronously by Fix B in
-		// TrySendPlatformEventArray (RestoreSuspendedGrabOnPhysicalKeyUp after the send).
+		// DispatchEventArray (RestoreSuspendedGrabOnPhysicalKeyUp after the send).
 		// Calling it here from the SharpHook thread would use a different [ThreadStatic]
 		// XDisplay connection than the one that established the grabs, causing cross-client
 		// XGrabKey/XUngrabKey failures and BadAccess errors on subsequent cycles.
@@ -532,8 +532,8 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 			_ => 0u
 		};
 
-			internal override GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
-			{
+		internal override GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
+		{
 			var snap = new GrabSnapshot { Active = IsX11Available };
 
 			if (!snap.Active)

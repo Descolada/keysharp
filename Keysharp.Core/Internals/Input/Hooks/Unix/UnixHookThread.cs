@@ -1134,6 +1134,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (ShouldSuppressForBlockInput(isInjected))
 			{
 				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
+				if (!isInjected)
+					OnPhysicalKeyDownSuppressed(vk);
 				e.SuppressEvent = true;
 				return;
 			}
@@ -1141,6 +1143,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (ShouldConsumePlatformHotstringKeyDown(vk))
 			{
 				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
+				if (!isInjected)
+					OnPhysicalKeyDownSuppressed(vk);
 				e.SuppressEvent = true;
 				return;
 			}
@@ -1164,7 +1168,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: false, isInjected, result, shouldReplayDown, wasGrabbed);
 
 			if (result != 0)
+			{
+				if (!isInjected)
+					OnPhysicalKeyDownSuppressed(vk);
 				e.SuppressEvent = true;
+			}
 		}
 
 		private void OnKeyReleased(object sender, KeyboardHookEventArgs e)
@@ -1866,6 +1874,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 
 		protected virtual void OnPlatformPhysicalKeyUpObserved(uint vk)
+		{
+		}
+
+		// Called when a physical (non-injected) key-down is suppressed by the hook.
+		// Lets platforms undo side effects the OS applies below the event tap
+		// (e.g. the macOS HID driver toggles CapsLock before suppression takes effect).
+		protected virtual void OnPhysicalKeyDownSuppressed(uint vk)
 		{
 		}
 

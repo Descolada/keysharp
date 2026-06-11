@@ -64,7 +64,7 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
-		protected override bool TrySendPlatformEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
+		protected override void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
 		{
 			var events = FilterLinuxModifierRestoreEvents(state.Events);
 
@@ -140,11 +140,9 @@ namespace Keysharp.Internals.Input.Linux
 				foreach (var vk in holdUpVks)
 					RestoreSuspendedGrabOnPhysicalKeyUp(lht, vk);
 			}
-
-			return true;
 		}
 
-		protected override bool TrySendPlatformKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
+		protected override void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
 		{
 			RunWithX11SendScope(lht, null, null, () =>
 			{
@@ -184,8 +182,6 @@ namespace Keysharp.Internals.Input.Linux
 					}
 				}
 			}, releaseActiveKeyboardGrab: true);
-
-			return true;
 		}
 
 		protected override bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr)
@@ -252,18 +248,18 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
-			private void RunWithX11SendScope(UnixHookThread lht, HashSet<uint> ungrabKeycodes, HashSet<uint> ungrabButtons, Action action, bool releaseActiveKeyboardGrab = false, bool ungrabAllKeys = false, bool ungrabAllButtons = false)
-			{
-				var needUngrab = releaseActiveKeyboardGrab || ungrabAllKeys || ungrabAllButtons || (ungrabKeycodes?.Count ?? 0) != 0 || (ungrabButtons?.Count ?? 0) != 0;
+		private void RunWithX11SendScope(UnixHookThread lht, HashSet<uint> ungrabKeycodes, HashSet<uint> ungrabButtons, Action action, bool releaseActiveKeyboardGrab = false, bool ungrabAllKeys = false, bool ungrabAllButtons = false)
+		{
+			var needUngrab = releaseActiveKeyboardGrab || ungrabAllKeys || ungrabAllButtons || (ungrabKeycodes?.Count ?? 0) != 0 || (ungrabButtons?.Count ?? 0) != 0;
 
-				WithSendScope(lht, () =>
+			WithSendScope(lht, () =>
+			{
+				if (!needUngrab)
 				{
-					if (!needUngrab)
-					{
-						action();
-						_ = XDisplay.Default.XFlush();
-						return;
-					}
+					action();
+					_ = XDisplay.Default.XFlush();
+					return;
+				}
 
 				lock (lht.hkLock)
 				{
@@ -281,7 +277,7 @@ namespace Keysharp.Internals.Input.Linux
 						lht.EndSendUngrab(snap);
 					}
 				}
-			});
+			}, ungrab: false); // RunWithX11SendScope manages its own parameterized ungrab above.
 		}
 
 		private void ReplayLinuxEventArrayEvents(UnixHookThread lht, List<ArrayEvent> events, long extraInfo, double scale)

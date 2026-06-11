@@ -212,6 +212,17 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		{
 			var hasSnapshot = base.TryGetIndicatorStates(out var snapCaps, out var snapNum, out var snapScroll);
 
+			// Prefer the HID driver's lock state: it's the ground truth and reflects
+			// IOHIDSetModifierLockState changes immediately, whereas the session flag
+			// state may lag briefly behind.
+			if (Keysharp.Internals.Input.MacOS.MacCapsLockState.TryGet(out var hidCapsOn))
+			{
+				capsOn = hidCapsOn;
+				numOn = hasSnapshot && snapNum;
+				scrollOn = hasSnapshot && snapScroll;
+				return true;
+			}
+
 			if (TryGetCurrentModifierFlags(out var flags))
 			{
 				capsOn = (flags & AlphaShiftKeyMask) != 0;
@@ -224,6 +235,16 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			numOn = snapNum;
 			scrollOn = snapScroll;
 			return hasSnapshot;
+		}
+
+		protected override void OnPhysicalKeyDownSuppressed(uint vk)
+		{
+			// The HID driver toggles the CapsLock lock state (and LED) before the
+			// event tap sees the key-down, so suppression alone can't prevent the
+			// toggle. Undo it so a suppressed CapsLock press (prefix key, remap,
+			// AlwaysOn/Off) behaves as if the key was never pressed.
+			if (vk == VK_CAPITAL)
+				_ = Keysharp.Internals.Input.MacOS.MacCapsLockState.TryToggle();
 		}
 
 		private static bool TryGetCurrentModifierFlags(out nuint flags)

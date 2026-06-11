@@ -18,7 +18,7 @@ namespace Keysharp.Tests
 		[Test, Category("Drive")]
 		public void DriveGetSpaceFree()
 		{
-			var free = Builtins.Drive.DriveGetSpaceFree(drive);
+			var free = Builtins.Drive.DriveGetSpaceFree(drive).Al();
 			Assert.IsTrue(free > 10);//Assume anyone who is running this has at least 10MB of disk space left.
 			Assert.IsTrue(TestScript("drive-getspacefree", true));
 		}
@@ -26,7 +26,7 @@ namespace Keysharp.Tests
 		[Test, Category("Drive")]
 		public void DriveGetCapacity()
 		{
-			var free = Builtins.Drive.DriveGetCapacity(drive);
+			var free = Builtins.Drive.DriveGetCapacity(drive).Al();
 			Assert.IsTrue(free > 1000);//Assume anyone who is running this has at least 1MB of total disk space.
 			Assert.IsTrue(TestScript("drive-getcapacity", true));
 		}
@@ -34,7 +34,7 @@ namespace Keysharp.Tests
 		[Test, Category("Drive")]
 		public void DriveGetFileSystem()
 		{
-			var sys = Builtins.Drive.DriveGetFileSystem(drive);
+			var sys = Builtins.Drive.DriveGetFileSystem(drive).As();
 #if WINDOWS
 			Assert.IsTrue(sys == "NTFS" || sys == "FAT32" || sys == "FAT" || sys == "CDFS" || sys == "UDF");//Assume it's at least one of the common file system types.
 #else
@@ -54,7 +54,7 @@ namespace Keysharp.Tests
 		[Test, Category("Drive")]
 		public void DriveGetSerial()
 		{
-			var sys = Builtins.Drive.DriveGetSerial(drive);
+			var sys = Builtins.Drive.DriveGetSerial(drive).Al();
 #if WINDOWS
 			Assert.IsTrue(sys > 1);//It will be some large hex number.
 #else

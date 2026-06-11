@@ -9,7 +9,6 @@ namespace Keysharp.Internals.Images
 	internal class ImageFinder
 	{
 		private readonly Bitmap sourceImage;
-		private readonly int threads = Environment.ProcessorCount;
 
 		internal byte Variation { get; set; }
 
@@ -21,169 +20,357 @@ namespace Keysharp.Internals.Images
 
 		internal Point? Find(Bitmap findImage, long trans = -1)
 		{
-#if WINDOWS
-			BitmapData srcdata = null, fnddata = null;
-#endif
 			if (sourceImage == null || findImage == null)
 				throw new InvalidOperationException();
 
-			Point? ret = null;
-			var sourceRect = new Rectangle(new Point(0, 0), sourceImage.Size);
-			var needleRect = new Rectangle(new Point(0, 0), findImage.Size);
-			var transCol = new FastColor();
+			var fndBmp = findImage;
 
-			if (trans != -1)
+			try
 			{
-				transCol.A = 255;
-				transCol.R = (byte)((trans & 0xFF0000) >> 16);//The format comes in as RGB, so we must individually break out the components.
-				transCol.G = (byte)((trans & 0x00FF00) >> 8);
-				transCol.B = (byte)(trans & 0x0000FF);
+				int srcW = sourceImage.Width, srcH = sourceImage.Height;
+				int fndW = fndBmp.Width, fndH = fndBmp.Height;
+
+				if (fndW <= 0 || fndH <= 0 || fndW > srcW || fndH > srcH)
+					return null;
+				// Normalize both images to flat 0x00RRGGBB arrays up front. This converts each
+				// pixel exactly once instead of once per candidate comparison (the old approach
+				// of translating inside the innermost loop was the dominant cost: on Eto backends
+				// TranslateDataToArgb is a virtual call doing premultiplied-alpha math). Stripping
+				// the alpha byte here matches AutoHotkey, which masks pixels with 0x00FFFFFF and
+				// only honors transparency via the explicit *TransN option.
+				var src = ToRgbArray(sourceImage);
+				var fnd = ToRgbArray(fndBmp);
+
+				// 0 → trans pixel (matches any screen color), 0xFFFFFFFF → must compare.
+				uint[] fndMask = null;
+
+				if (trans != -1)
+				{
+					var transRgb = (uint)trans & 0x00FFFFFFu;
+					fndMask = new uint[fnd.Length];
+
+					for (var i = 0; i < fnd.Length; i++)
+						fndMask[i] = fnd[i] == transRgb ? 0u : uint.MaxValue;
+				}
+
+				// Anchor pixel: the search scans rows for pixels matching the anchor and verifies
+				// the full needle only at those columns, so most of the haystack is rejected by
+				// the SIMD anchor scan alone. The first non-trans pixel serves as the anchor.
+				var anchor = 0;
+
+				if (fndMask != null)
+				{
+					while (anchor < fndMask.Length && fndMask[anchor] == 0)
+						anchor++;
+
+					if (anchor == fndMask.Length)//Every needle pixel is the trans color, so any position matches.
+						return new Point(0, 0);
+				}
+
+				// Secondary probe: the non-trans pixel most different from the anchor. Checked
+				// scalar before full verification, it rejects most false anchor hits cheaply —
+				// critical at high variation levels where the anchor alone matches much of the
+				// screen. -1 (uniform or fully trans needle) disables the check.
+				var probe = -1;
+				var probeDiff = 0;
+
+				for (var i = 0; i < fnd.Length; i++)
+				{
+					if (i == anchor || (fndMask != null && fndMask[i] == 0))
+						continue;
+
+					var d = ChannelDiffSum(fnd[i], fnd[anchor]);
+
+					if (d > probeDiff)
+					{
+						probeDiff = d;
+						probe = i;
+					}
+				}
+
+				// Verification row order: rows with the most horizontal color change first.
+				// Uniform needle rows match large flat areas of the screen within the variation
+				// tolerance, so checking edge-dense rows first fails mismatches in the first few
+				// vector chunks instead of after whole uniform rows.
+				var rowOrder = new int[fndH];
+				var rowScore = new long[fndH];
+
+				for (var ry = 0; ry < fndH; ry++)
+				{
+					long score = 0;
+					var rb = ry * fndW;
+
+					for (var rx = 1; rx < fndW; rx++)
+					{
+						if (fndMask != null && (fndMask[rb + rx] == 0 || fndMask[rb + rx - 1] == 0))
+							continue;
+
+						score += ChannelDiffSum(fnd[rb + rx], fnd[rb + rx - 1]);
+					}
+
+					rowOrder[ry] = ry;
+					rowScore[ry] = -score;//Negated: Array.Sort is ascending, we want densest first.
+				}
+
+				System.Array.Sort(rowScore, rowOrder);
+
+				unsafe
+				{
+					fixed (uint* srcPtr = src, fndPtr = fnd)
+					fixed (uint* maskPtr = fndMask)//Yields null when fndMask is null.
+					fixed (int* rowOrderPtr = rowOrder)
+					{
+						return SearchForNeedle(srcPtr, srcW, srcH, fndPtr, maskPtr, fndW, fndH,
+											   anchor % fndW, anchor / fndW, probe, rowOrderPtr, Variation);
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				_ = Ks.OutputDebugLine(ex.Message);
+				return null;
+			}
+			finally
+			{
+				if (!ReferenceEquals(fndBmp, findImage))
+					fndBmp.Dispose();
+			}
+		}
+
+		/// <summary>
+		/// Copies a bitmap's pixels into a flat array of 0x00RRGGBB values (alpha stripped).
+		/// </summary>
+		private static uint[] ToRgbArray(Bitmap bmp)
+		{
+			int w = bmp.Width, h = bmp.Height;
+			var pixels = new uint[w * h];
+#if WINDOWS
+			var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+			try
+			{
+				unsafe
+				{
+					var basePtr = (byte*)data.Scan0;
+
+					for (var y = 0; y < h; y++)
+					{
+						// Format32bppArgb stores BGRA in memory, so a little-endian uint read
+						// yields 0xAARRGGBB directly.
+						var row = (uint*)(basePtr + (nint)y * data.Stride);
+						var dst = y * w;
+
+						for (var x = 0; x < w; x++)
+							pixels[dst + x] = row[x] & 0x00FFFFFFu;
+					}
+				}
+			}
+			finally
+			{
+				bmp.UnlockBits(data);
 			}
 
-			if (sourceRect.Contains(needleRect))
-			{
-				var maxMovement = new Size(sourceImage.Size.Width - needleRect.Size.Width, sourceImage.Size.Height - needleRect.Size.Height);
-
-				try
-				{
-#if WINDOWS
-					var srcColor = new FastColor();
-					var fndColor = new FastColor();
-					srcdata = sourceImage.LockBits(new Rectangle(0, 0, sourceImage.Width, sourceImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-					fnddata = findImage.LockBits(new Rectangle(0, 0, findImage.Width, findImage.Height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-					unsafe
-					{
-						var ptrFirstSrcPixel = (byte*)srcdata.Scan0;
-						var ptrFirstFndPixel = (byte*)fnddata.Scan0;
-						var srcBytesPerPixel = Image.GetPixelFormatSize(sourceImage.PixelFormat) / 8;
-						var findBytesPerPixel = Image.GetPixelFormatSize(findImage.PixelFormat) / 8;
-						var srcWidthInBytes = maxMovement.Width * srcBytesPerPixel;
-						var fndWidthInBytes = fnddata.Width * findBytesPerPixel;
-						//This cannot be parallelized because the region must be searched sequentially from top to bottom, left to right.
-						//If there are multiple matches, the first one encountered is supposed to be the one returned.
-						for (var row = 0; row < maxMovement.Height; row++)
-						{
-							for (var col = 0; col < srcWidthInBytes; col += srcBytesPerPixel)
-							{
-								for (var destRow = 0; destRow < findImage.Size.Height; destRow++)
-								{
-									var currentSrcLine = ptrFirstSrcPixel + ((row + destRow) * srcdata.Stride) + col;//Add col here just so it doesn't have to get repeatedly added below.
-									var currentFndLine = ptrFirstFndPixel + (destRow * fnddata.Stride);
-
-									for (var destCol = 0; destCol < fndWidthInBytes; destCol += findBytesPerPixel)
-									{
-										srcColor.Value = ((uint*)(currentSrcLine + destCol))[0];
-										fndColor.Value = ((uint*)(currentFndLine + destCol))[0];
-										//var cdc = col + destCol;
-										//srcColor.B = currentLine[cdc];
-										//srcColor.G = currentLine[cdc + 1];
-										//srcColor.R = currentLine[cdc + 2];
-										//srcColor.A = currentLine[cdc + 3];
-										//fndColor.B = currentFndLine[destCol];
-										//fndColor.G = currentFndLine[destCol + 1];
-										//fndColor.R = currentFndLine[destCol + 2];
-										//fndColor.A = currentFndLine[destCol + 3];
-
-										if (trans != -1 && fndColor.Value == transCol.Value)
-											continue;
-
-										if (!fndColor.CompareWithVar(srcColor, Variation))
-											goto NOFIND;
-									}
-								}
-
-								ret = new Point(col / srcBytesPerPixel, row);
-								return ret;
-								NOFIND:
-								;
-							}
-						}
-					}
 #else
-					// Force both bitmaps to 32bpp before the search so the per-pixel
-					// 4-byte int reads below are valid regardless of the original storage
-					// format (Pixbuf is 3bpp for 24-bit images, 4bpp otherwise). Matches
-					// AutoHotkey's getbits()-via-GetDIBits step.
-					var srcBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(sourceImage);
-					var fndBitmap = Keysharp.Internals.Images.ImageHelper.EnsureOpaque32Bpp(findImage);
-					try
+			// Force 32bpp first so the 4-byte reads below are valid (Pixbuf is 3bpp for 24-bit
+			// images) and so premultiplied backends see A=255, making the translate lossless.
+			var bmp32 = ImageHelper.EnsureOpaque32Bpp(bmp);
+
+			try
+			{
+				using var data = bmp32.Lock();
+
+				unsafe
+				{
+					var basePtr = (byte*)data.Data;
+					var stride = data.ScanWidth;
+					var bpp = data.BytesPerPixel;
+
+					for (var y = 0; y < h; y++)
 					{
-						using var srcData = srcBitmap.Lock();
-						using var fndData = fndBitmap.Lock();
+						var row = basePtr + (long)y * stride;
+						var dst = y * w;
 
-						unsafe
+						// TranslateDataToArgb handles the backend's channel order
+						// (Gtk RGBA vs Cocoa BGRA) and premultiplication.
+						for (var x = 0; x < w; x++)
+							pixels[dst + x] = (uint)data.TranslateDataToArgb(*(int*)(row + x * bpp)) & 0x00FFFFFFu;
+					}
+				}
+			}
+			finally
+			{
+				if (!ReferenceEquals(bmp32, bmp))
+					bmp32.Dispose();
+			}
+
+#endif
+			return pixels;
+		}
+
+		/// <summary>
+		/// Scans the haystack for the needle and returns the top-left corner of the first match
+		/// in row-major order (top to bottom, left to right), or null if not found.
+		/// Rows are scanned with SIMD for pixels matching the anchor needle pixel within the
+		/// given variation; the full needle is verified only at those candidate positions.
+		/// The scan order must remain sequential so the first match returned is deterministic.
+		/// </summary>
+		private static unsafe Point? SearchForNeedle(
+			uint* src, int srcW, int srcH,
+			uint* fnd, uint* mask, int fndW, int fndH,
+			int anchorX, int anchorY, int probe, int* rowOrder, byte variation)
+		{
+			var anchorRgb = fnd[anchorY * fndW + anchorX];
+			var probeX = probe >= 0 ? probe % fndW : 0;
+			var probeY = probe >= 0 ? probe / fndW : 0;
+			var probeRgb = probe >= 0 ? fnd[probe] : 0u;
+			var maxRow = srcH - fndH;
+			// Candidate columns are anchor positions; the needle's top-left is (col - anchorX, row).
+			var colEnd = srcW - fndW + anchorX;//Inclusive.
+
+			for (var row = 0; row <= maxRow; row++)
+			{
+				var anchorRow = src + (long)(row + anchorY) * srcW;
+				var col = anchorX;
+
+				if (Vector128.IsHardwareAccelerated)
+				{
+					var vTarget = Vector128.Create(anchorRgb);
+					var vTargetBytes = vTarget.AsByte();
+					var vVariation = Vector128.Create(variation);
+
+					for (; col + Vector128<uint>.Count - 1 <= colEnd; col += Vector128<uint>.Count)
+					{
+						var loaded = Vector128.LoadUnsafe(ref *(anchorRow + col));
+						uint matchBits;
+
+						if (variation == 0)
 						{
-							var srcColor = new FastColor();
-							var fndColor = new FastColor();
-							var srcPtr = (byte*)srcData.Data;
-							var fndPtr = (byte*)fndData.Data;
-							var srcStride = srcData.ScanWidth;
-							var fndStride = fndData.ScanWidth;
-							var srcBpp = srcData.BytesPerPixel;
-							var fndBpp = fndData.BytesPerPixel;
+							matchBits = Vector128.Equals(loaded, vTarget).ExtractMostSignificantBits();
+						}
+						else
+						{
+							// Per-byte |a - b| <= variation; the alpha lanes are zero in both
+							// arrays so their diff is always 0 and never rejects.
+							var diff = Vector128.SubtractSaturate(loaded.AsByte(), vTargetBytes)
+									   | Vector128.SubtractSaturate(vTargetBytes, loaded.AsByte());
+							var perByteOk = Vector128.Equals(Vector128.Max(diff, vVariation), vVariation);
+							matchBits = Vector128.Equals(perByteOk.AsUInt32(), Vector128<uint>.AllBitsSet).ExtractMostSignificantBits();
+						}
 
-							for (int row = 0; row < maxMovement.Height; row++)
+						while (matchBits != 0)
+						{
+							var candidate = col + BitOperations.TrailingZeroCount(matchBits);
+							var c0 = candidate - anchorX;
+							matchBits &= matchBits - 1;//Clear lowest set bit, try the next candidate.
+
+							if (probe >= 0)
 							{
-								for (int col = 0; col < maxMovement.Width; col++)
-								{
-									for (int dr = 0; dr < fndBitmap.Height; dr++)
-									{
-										var srcLine = srcPtr + ((row + dr) * srcStride) + (col * srcBpp);
-										var fndLine = fndPtr + (dr * fndStride);
+								var probePixel = src[(long)(row + probeY) * srcW + c0 + probeX];
 
-										for (int dc = 0; dc < fndBitmap.Width; dc++)
-										{
-											var srcPixel = *(int*)(srcLine + dc * srcBpp);
-											var fndPixel = *(int*)(fndLine + dc * fndBpp);
-
-											var srcArgb = srcData.TranslateDataToArgb(srcPixel);
-											var fndArgb = fndData.TranslateDataToArgb(fndPixel);
-
-											srcColor.Value = (uint)srcArgb;
-											fndColor.Value = (uint)fndArgb;
-
-											// trans-color match (caller-supplied) is intentionally RGB-only:
-											// the user gives a pure RGB value, no alpha component.
-											if (trans != -1 && (fndColor.Value & 0x00FFFFFFu) == (transCol.Value & 0x00FFFFFFu))
-												continue;
-
-											if (!fndColor.CompareWithVar(srcColor, Variation))
-												goto NOFIND;
-										}
-									}
-
-									ret = new Point(col, row);
-									return ret;
-									NOFIND:
-									;
-								}
+								if (variation == 0 ? probePixel != probeRgb : !ScalarPixelMatchesVariation(probePixel, probeRgb, variation))
+									continue;
 							}
+
+							if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
+								return new Point(c0, row);
 						}
 					}
-					finally
+				}
+
+				for (; col <= colEnd; col++)
+				{
+					var matches = variation == 0
+								  ? anchorRow[col] == anchorRgb
+								  : ScalarPixelMatchesVariation(anchorRow[col], anchorRgb, variation);
+
+					if (!matches)
+						continue;
+
+					var c0 = col - anchorX;
+
+					if (probe >= 0)
 					{
-						if (!ReferenceEquals(srcBitmap, sourceImage))
-							srcBitmap.Dispose();
-						if (!ReferenceEquals(fndBitmap, findImage))
-							fndBitmap.Dispose();
+						var probePixel = src[(long)(row + probeY) * srcW + c0 + probeX];
+
+						if (variation == 0 ? probePixel != probeRgb : !ScalarPixelMatchesVariation(probePixel, probeRgb, variation))
+							continue;
 					}
 
-#endif
-				}
-				catch (Exception ex)
-				{
-					_ = Ks.OutputDebugLine(ex.Message);
-				}
-				finally
-				{
-#if WINDOWS
-					sourceImage?.UnlockBits(srcdata);
-					findImage?.UnlockBits(fnddata);
-#endif
+					if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
+						return new Point(c0, row);
 				}
 			}
 
-			return ret;
+			return null;
+		}
+
+		/// <summary>
+		/// Compares the full needle against the haystack with its top-left corner at (col, row).
+		/// mask may be null; where it is 0, the needle pixel is the trans color and always matches.
+		/// rowOrder lists needle rows with the most horizontal color change first: uniform rows
+		/// match large flat screen areas within the variation tolerance, so edge-dense rows
+		/// reject false candidates after far fewer chunk comparisons.
+		/// </summary>
+		private static unsafe bool VerifyMatch(
+			uint* src, int srcW, uint* fnd, uint* mask, int fndW, int fndH,
+			int col, int row, int* rowOrder, byte variation)
+		{
+			var vVariation = Vector128.Create(variation);
+
+			for (var r = 0; r < fndH; r++)
+			{
+				var dr = rowOrder[r];
+				var srcRow = src + (long)(row + dr) * srcW + col;
+				var fndRow = fnd + (long)dr * fndW;
+				var maskRow = mask == null ? null : mask + (long)dr * fndW;
+				var dc = 0;
+
+				if (Vector128.IsHardwareAccelerated)
+				{
+					for (; dc + Vector128<uint>.Count <= fndW; dc += Vector128<uint>.Count)
+					{
+						var s = Vector128.LoadUnsafe(ref *(srcRow + dc));
+						var f = Vector128.LoadUnsafe(ref *(fndRow + dc));
+
+						if (variation == 0)
+						{
+							var diff = s ^ f;
+
+							if (maskRow != null)
+								diff &= Vector128.LoadUnsafe(ref *(maskRow + dc));
+
+							if (diff != Vector128<uint>.Zero)
+								return false;
+						}
+						else
+						{
+							var diff = Vector128.SubtractSaturate(s.AsByte(), f.AsByte())
+									   | Vector128.SubtractSaturate(f.AsByte(), s.AsByte());
+
+							if (maskRow != null)
+								diff &= Vector128.LoadUnsafe(ref *(maskRow + dc)).AsByte();
+
+							if (Vector128.Equals(Vector128.Max(diff, vVariation), vVariation) != Vector128<byte>.AllBitsSet)
+								return false;
+						}
+					}
+				}
+
+				for (; dc < fndW; dc++)
+				{
+					if (maskRow != null && maskRow[dc] == 0)
+						continue;
+
+					var matches = variation == 0
+								  ? srcRow[dc] == fndRow[dc]
+								  : ScalarPixelMatchesVariation(srcRow[dc], fndRow[dc], variation);
+
+					if (!matches)
+						return false;
+				}
+			}
+
+			return true;
 		}
 
 		internal Point? Find(Color ColorId, bool ltr, bool ttb)
@@ -414,6 +601,16 @@ namespace Keysharp.Internals.Images
 			return -1;
 		}
 
+		/// <summary>
+		/// Sum of absolute per-channel differences between two 0x00RRGGBB pixels.
+		/// </summary>
+		private static int ChannelDiffSum(uint a, uint b)
+		{
+			return Math.Abs((int)(a & 0xFF) - (int)(b & 0xFF))
+				   + Math.Abs((int)((a >> 8) & 0xFF) - (int)((b >> 8) & 0xFF))
+				   + Math.Abs((int)((a >> 16) & 0xFF) - (int)((b >> 16) & 0xFF));
+		}
+
 		private static bool ScalarPixelMatchesVariation(uint pixel, uint target, byte variation)
 		{
 			// Per-byte |pixel - target| <= variation, ignoring the alpha lane (byte 3).
@@ -426,43 +623,5 @@ namespace Keysharp.Internals.Images
 				&& diff2 >= -v && diff2 <= v;
 		}
 
-		private class PixelMask
-		{
-			public Color Color { get; set; }
-
-			public bool Exact => Variation == 0;
-
-			public bool Transparent => Color.A == 0;
-
-			public byte Variation { get; set; }
-
-			public PixelMask(Color color, byte variation)
-			{
-				Color = color;
-				Variation = variation;
-			}
-
-#if WINDOWS
-			public PixelMask() : this(Color.Black, 0)
-#else
-			public PixelMask() : this(Colors.Black, 0)
-#endif
-			{
-			}
-
-			public bool Equals(Color match)
-			{
-				if (Transparent)
-					return true;
-
-				if (Exact)
-					return Color == match;
-
-				var r = match.R >= Color.R - Variation && match.R <= Color.R + Variation;
-				var g = match.G >= Color.G - Variation && match.G <= Color.G + Variation;
-				var b = match.B >= Color.B - Variation && match.B <= Color.B + Variation;
-				return r && g && b;
-			}
-		}
 	}
 }

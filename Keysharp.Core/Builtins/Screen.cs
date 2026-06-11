@@ -124,7 +124,7 @@ namespace Keysharp.Builtins
 
 			try
 			{
-				bmp = ImageHelper.LoadImage(filename, w, h, iconnumber).Item1;
+				bmp = ImageHelper.LoadImage(filename, w, h, iconnumber, exactPixels: true).Item1;
 			}
 			catch (Exception ex)
 			{

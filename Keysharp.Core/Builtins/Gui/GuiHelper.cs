@@ -182,6 +182,9 @@ namespace Keysharp.Builtins
 
 				bmp ??= Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
 #else
+				// On Retina displays this is a physical-pixel-sized bitmap (our Eto fork sizes
+				// the capture in pixels, not points); callers map coordinates back to logical
+				// units via the capture scale.
 				bmp = Eto.Forms.Screen.PrimaryScreen.GetImage(new RectangleF(x, y, w, h)) as Bitmap;
 #endif
 #endif

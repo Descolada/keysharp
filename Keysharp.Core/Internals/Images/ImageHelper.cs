@@ -116,7 +116,9 @@ namespace Keysharp.Internals.Images
 			return icon;
 		}
 
-		internal static (Bitmap, object) LoadImage(string filename, int w, int h, object iconindex)
+		/// <param name="exactPixels">See <see cref="ResizeBitmap"/>: pixel consumers
+		/// (ImageSearch needles) must pass true so *w/*h options resample real pixels.</param>
+		internal static (Bitmap, object) LoadImage(string filename, int w, int h, object iconindex, bool exactPixels = false)
 		{
 			Bitmap bmp = null;
 			object temp = null;
@@ -135,7 +137,7 @@ namespace Keysharp.Internals.Images
 					{
 						var ptr = new nint(handle);
 						bmp = GetBitmapFromHBitmap(ptr);
-						bmp = ResizeBitmap(bmp, w, h);
+						bmp = ResizeBitmap(bmp, w, h, exactPixels);
 
 						if (!dontClear)
 							ImageHandleManager.Dispose(ptr, ImageHandleKind.Bitmap);
@@ -156,7 +158,7 @@ namespace Keysharp.Internals.Images
 #if WINDOWS
 						using (var tempico = Icon.FromHandle(ptr))
 							bmp = tempico.ToBitmap();
-						bmp = ResizeBitmap(bmp, w, h);
+						bmp = ResizeBitmap(bmp, w, h, exactPixels);
 
 						if (!dontClear)
 							ImageHandleManager.Dispose(ptr, ImageHandleKind.Icon);
@@ -170,7 +172,7 @@ namespace Keysharp.Internals.Images
 						}
 
 						if (bmp != null)
-							bmp = ResizeBitmap(bmp, w, h);
+							bmp = ResizeBitmap(bmp, w, h, exactPixels);
 
 						if (!dontClear)
 							ImageHandleManager.Dispose(ptr, ImageHandleKind.Icon);
@@ -208,7 +210,7 @@ namespace Keysharp.Internals.Images
 
 							if (w > 0 || h > 0)
 							{
-								bmp = ResizeBitmap(bmp, w, h);
+								bmp = ResizeBitmap(bmp, w, h, exactPixels);
 							}
 #if WINDOWS
 							else if (bmp.Size != SystemInformation.IconSize)
@@ -261,7 +263,7 @@ namespace Keysharp.Internals.Images
 						}
 
 						if (w > 0 || h > 0)
-							bmp = ResizeBitmap(bmp, w, h);
+							bmp = ResizeBitmap(bmp, w, h, exactPixels);
 						else if (bmp.Size != SystemInformation.IconSize)
 							bmp = bmp.Resize(SystemInformation.IconSize.Width, SystemInformation.IconSize.Height);
 #else
@@ -287,7 +289,7 @@ namespace Keysharp.Internals.Images
 						}
 
 						if (bmp != null && (w > 0 || h > 0))
-							bmp = ResizeBitmap(bmp, w, h);
+							bmp = ResizeBitmap(bmp, w, h, exactPixels);
 #endif
 					}
 					else if (ext == ".cur")
@@ -305,7 +307,7 @@ namespace Keysharp.Internals.Images
 #else
 						temp = tempcur;
 						bmp = ImageHelper.ConvertCursorToBitmap(tempcur);
-						bmp = ResizeBitmap(bmp, w, h);
+						bmp = ResizeBitmap(bmp, w, h, exactPixels);
 #endif
 					}
 					else
@@ -313,7 +315,7 @@ namespace Keysharp.Internals.Images
 						using (var tempBmp = (Bitmap)Image.FromFile(filename))//Must make a copy because the original will keep the file locked.
 						{
 							bmp = new Bitmap(tempBmp);
-							bmp = ResizeBitmap(bmp, w, h);
+							bmp = ResizeBitmap(bmp, w, h, exactPixels);
 						}
 					}
 				}
@@ -325,6 +327,23 @@ namespace Keysharp.Internals.Images
 
 			return (bmp, temp);
 		}
+
+#if OSX
+		// Returns a copy of an NSImage-backed bitmap whose logical size is (w, h) points while
+		// retaining the original full-resolution representations: on Retina displays the GUI
+		// draws it sharp from the high-res rep instead of from resampled pixels, and pixel
+		// access renders at (w, h) just like a true resize would. Returns null when the bitmap
+		// isn't NSImage-backed so the caller can fall back to a resampling resize.
+		internal static Bitmap ResizeNSImagePointSize(Bitmap bmp, int w, int h)
+		{
+			if (bmp?.Handler is not Eto.Mac.Drawing.BitmapHandler handler || handler.Control == null)
+				return null;
+
+			var copy = (MonoMac.AppKit.NSImage)handler.Control.Copy();
+			copy.Size = new MonoMac.CoreGraphics.CGSize(w, h);
+			return new Bitmap(new Eto.Mac.Drawing.BitmapHandler(copy));
+		}
+#endif
 
 #if !WINDOWS
 		// Returns a 32bpp opaque copy of `bmp` when its Pixbuf storage is 3 bytes per
@@ -377,7 +396,11 @@ namespace Keysharp.Internals.Images
 		}
 #endif
 
-		internal static Bitmap ResizeBitmap(Bitmap bmp, int w, int h)
+		/// <param name="exactPixels">True to force a true pixel resample. On macOS the default
+		/// is a point-size change that keeps the high-res representation, which displays sharp
+		/// on Retina; pixel consumers (e.g. ImageSearch needles with *w/*h) need real pixels,
+		/// otherwise EnsurePixelSize would see the original representation and undo the resize.</param>
+		internal static Bitmap ResizeBitmap(Bitmap bmp, int w, int h, bool exactPixels = false)
 		{
 			if (w <= 0 && h <= 0)
 				return bmp;
@@ -388,6 +411,8 @@ namespace Keysharp.Internals.Images
 			if (bmp.Width != w || bmp.Height != h)
 #if WINDOWS
 				bmp = bmp.Resize(w, h);
+#elif OSX
+				bmp = (exactPixels ? null : ResizeNSImagePointSize(bmp, w, h)) ?? new Bitmap(bmp, w, h, ImageInterpolation.Default);
 #else
 				bmp = new Bitmap(bmp, w, h, ImageInterpolation.Default);
 #endif

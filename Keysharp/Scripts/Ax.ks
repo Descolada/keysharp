@@ -15,11 +15,10 @@
           privileged applications can deny some attributes/actions.
 
     Overview:
-        Entry points (AxSpy.*):
+        Entry points (Ax.*):
             GetRootElement(), GetFocusedElement(), GetFocusedWindow(),
-            ElementFromPoint(x, y),
-            ElementFromPid(pid), ElementFromApp(nameOrPid),
-            ElementFromWindowTitle(title := ""), WindowList(), Applications(),
+            ElementFromPoint(x, y), ElementFromHandle(WinTitle),
+            ElementFromPid(pid), WindowList(), Applications(),
             Observe(element, notifications, callback), ClearAllHighlights(), Viewer().
 
         Element properties:
@@ -35,7 +34,7 @@
             Focus/ScrollTo/Click, text range helpers, FindElement/FindElements,
             WaitElement, ElementFromPath, Dump/DumpAll, Highlight.
 
-        Running this file directly opens AxSpy.Viewer for inspection.
+        Running this file directly opens Ax.Viewer for inspection.
 */
 
 #Requires capability AccessibilityAutomation, InputMonitoring
@@ -46,9 +45,9 @@
 #DllLoad /usr/lib/libSystem.B.dylib
 
 if (!A_IsCompiled and A_LineFile = A_ScriptFullPath)
-    AxSpy.Viewer()
+    Ax.Viewer()
 
-class AxSpy {
+class Ax {
     class Enumeration {
         __Item[param] {
             get {
@@ -1020,7 +1019,7 @@ class AxSpy {
 
     static SetMessagingTimeout(elementOrSeconds, seconds := unset) {
         if IsSet(seconds) {
-            pElement := (elementOrSeconds is AxSpy.Element) ? elementOrSeconds.Ptr : elementOrSeconds
+            pElement := (elementOrSeconds is Ax.Element) ? elementOrSeconds.Ptr : elementOrSeconds
             timeout := seconds + 0.0
         } else {
             root := this.GetRootElement()
@@ -1035,7 +1034,7 @@ class AxSpy {
     static PostKeyboardEvent(charCode := 0, virtualKey := 0, keyDown := true, appOrElement := unset) {
         local pElement, root
         if IsSet(appOrElement)
-            pElement := (appOrElement is AxSpy.Element) ? appOrElement.Ptr : appOrElement
+            pElement := (appOrElement is Ax.Element) ? appOrElement.Ptr : appOrElement
         else {
             root := this.GetRootElement()
             pElement := root.Ptr
@@ -1064,7 +1063,6 @@ class AxSpy {
         this.__ThrowAX(err, "AXUIElementCopyElementAtPosition")
         return this.Element(pElement)
     }
-    static ObjectFromPoint(args*) => this.ElementFromPoint(args*)
 
     static ElementFromPid(pid) {
         p := DllCall(this.__Sym(this.LibAX, "AXUIElementCreateApplication"), "Int", pid, "Ptr")
@@ -1072,7 +1070,66 @@ class AxSpy {
             throw Error("AXUIElementCreateApplication failed for pid " pid)
         return this.Element(p, "Application")
     }
-    static ObjectFromPid(args*) => this.ElementFromPid(args*)
+
+    /**
+     * Resolves any WinExist-compatible title or native Keysharp window handle to
+     * the corresponding AX window element.  This intentionally mirrors the
+     * Windows Acc.ahk / Linux AtSpi.ks entry point: title matching, ahk_exe,
+     * ahk_pid, ahk_id, etc. are delegated to WinExist(), then the returned
+     * handle is bridged to AX by private window-id lookup when possible and by
+     * PID/title/geometry scoring otherwise.
+     */
+    static ElementFromHandle(WinTitle := "", WinText := "", ExcludeTitle := "", ExcludeText := "") {
+        hWnd := IsInteger(WinTitle) ? Integer(WinTitle) : WinExist(WinTitle, WinText, ExcludeTitle, ExcludeText)
+        if !hWnd
+            throw TargetError("Invalid window handle or window not found: " WinTitle, -1)
+
+        wPid := 0, wTitle := "", wx := 0, wy := 0, ww := 0, wh := 0
+        try wPid := WinGetPID(hWnd)
+        try wTitle := WinGetTitle(hWnd)
+        try WinGetPos(&wx, &wy, &ww, &wh, hWnd)
+
+        if !wPid {
+            ; Some Keysharp/macOS handles are CoreGraphics window numbers.  If
+            ; WinGetPID() cannot resolve one, use CGWindowList metadata as a
+            ; last source of PID/title/geometry before giving up.
+            try info := this.__WindowInfoFromNumber(hWnd)
+            catch
+                info := 0
+            if IsObject(info) {
+                wPid := info.OwnerPID
+                if (wTitle = "")
+                    wTitle := info.Name
+                if !ww || !wh
+                    wx := info.Bounds.x, wy := info.Bounds.y, ww := info.Bounds.w, wh := info.Bounds.h
+            }
+        }
+
+        if !wPid
+            throw TargetError("Unable to resolve PID for window handle: " hWnd, -1)
+
+        app := this.ElementFromPid(wPid)
+
+        ; Fast path: this private API maps an AX window back to its CGWindowID.
+        ; It only works when hWnd actually is a CGWindowID; Eto/control handles
+        ; and future macOS versions may need the heuristic path below.
+        if (hWnd > 0 && hWnd <= 0xFFFFFFFF) {
+            try {
+                axWin := this.__AXWindowFromWindowNumber(app, hWnd)
+                if axWin
+                    return axWin
+            }
+        }
+
+        axWin := this.__FindBestAXWindow(app, wTitle, wx, wy, ww, wh)
+        if axWin
+            return axWin
+
+        ; Returning the app is less misleading than returning an arbitrary
+        ; window, but callers asking for a window should usually treat this as
+        ; an error.  Throw to keep failures visible.
+        throw TargetError("Unable to resolve AX window for handle: " hWnd, -1)
+    }
 
     static GetFocusedElement() {
         root := this.GetRootElement()
@@ -1104,50 +1161,99 @@ class AxSpy {
         return apps
     }
 
-    static ElementFromApp(nameOrPid := "") {
-        if IsInteger(nameOrPid)
-            return this.ElementFromPid(nameOrPid)
-        if (nameOrPid = "") {
-            try return this.GetFocusedApplication()
-            catch
-                return this.Applications()[1]
-        }
-        for _, w in this.WindowList() {
-            if this.__MatchText(w.OwnerName, nameOrPid, this.MatchMode.Substring, false)
-                return this.ElementFromPid(w.OwnerPID)
-        }
-        throw TargetError("Application not found: " nameOrPid, -1)
-    }
-
-    static ElementFromWindowTitle(title := "", matchMode := "Substring", caseSensitive := false) {
-        if (title = "") {
-            try return this.GetFocusedWindow()
-            catch {
-                wins := this.WindowList()
-                if wins.Length
-                    return this.__AXWindowFromWindowInfo(wins[1])
-            }
-        }
-        mm := IsInteger(matchMode) ? matchMode : this.MatchMode.%matchMode%
-        for _, w in this.WindowList() {
-            if this.__MatchText(w.Name, title, mm, caseSensitive) || this.__MatchText(w.OwnerName, title, mm, caseSensitive) {
-                try return this.__AXWindowFromWindowInfo(w, title, mm, caseSensitive)
-                catch
-                    return this.ElementFromPid(w.OwnerPID)
-            }
-        }
-        throw TargetError("Window not found: " title, -1)
-    }
-    static ElementFromHandle(args*) => this.ElementFromWindowTitle(args*)
-    static ObjectFromWindow(args*) => this.ElementFromWindowTitle(args*)
-
-    static __AXWindowFromWindowInfo(w, title := "", mm := 2, caseSensitive := false) {
-        app := this.ElementFromPid(w.OwnerPID)
+    static __AXWindowFromWindowNumber(app, number) {
+        wanted := Integer(number) & 0xFFFFFFFF
         for _, axWin in app.Windows {
-            if (title = "") || this.__MatchText(axWin.Name, title, mm, caseSensitive) || this.__MatchText(axWin.Title, title, mm, caseSensitive)
+            if this.__AXWindowId(axWin) = wanted
                 return axWin
         }
-        return app
+        return 0
+    }
+
+    static __FindBestAXWindow(app, wTitle := "", wx := 0, wy := 0, ww := 0, wh := 0) {
+        wins := []
+        try wins := app.Windows
+        catch
+            return 0
+        if wins.Length = 1
+            return wins[1]
+
+        best := 0, bestScore := -1
+        for _, axWin in wins {
+            score := this.__ScoreAXWindowCandidate(axWin, wTitle, wx, wy, ww, wh)
+            if (score > bestScore) {
+                best := axWin
+                bestScore := score
+            }
+        }
+        return bestScore >= 0 ? best : 0
+    }
+
+    static __ScoreAXWindowCandidate(axWin, wTitle := "", wx := 0, wy := 0, ww := 0, wh := 0) {
+        score := 0
+
+        role := "", subrole := "", title := "", name := ""
+        try role := axWin.Role
+        try subrole := axWin.Subrole
+        try title := axWin.Title
+        try name := axWin.Name
+
+        if (role = "AXWindow")
+            score += 30
+        if (subrole = "AXDialog" || subrole = "AXSheet" || subrole = "AXStandardWindow")
+            score += 20
+
+        if (wTitle != "") {
+            tl := StrLower(wTitle)
+            for _, candidate in [title, name] {
+                if (candidate = "")
+                    continue
+                cl := StrLower(candidate)
+                if (cl = tl)
+                    score += 300
+                else if (InStr(cl, tl) || InStr(tl, cl))
+                    score += 180
+            }
+        }
+
+        if (ww > 0 && wh > 0) {
+            try r := axWin.Location
+            catch
+                r := 0
+            if IsObject(r) {
+                dx := Abs(r.x - wx), dy := Abs(r.y - wy), dw := Abs(r.w - ww), dh := Abs(r.h - wh)
+                tol := 8
+                if (dx <= tol && dy <= tol && dw <= tol * 2 && dh <= tol * 2)
+                    score += 500
+                score += Max(0, 300 - (dx + dy))
+                score += Max(0, 200 - (dw + dh))
+                cx1 := wx + (ww // 2), cy1 := wy + (wh // 2)
+                cx2 := r.x + (r.w // 2), cy2 := r.y + (r.h // 2)
+                score += Max(0, 300 - (Abs(cx1 - cx2) + Abs(cy1 - cy2)))
+            }
+        }
+
+        return score
+    }
+
+    static __AXWindowId(elementOrPtr) {
+        pElement := (elementOrPtr is Ax.Element) ? elementOrPtr.Ptr : elementOrPtr
+        if !pElement
+            return 0
+        wid := 0
+        try err := DllCall(this.__Sym(this.LibAX, "_AXUIElementGetWindow"), "Ptr", pElement, "UInt*", &wid, "Int")
+        catch
+            return 0
+        return err ? 0 : wid
+    }
+
+    static __WindowInfoFromNumber(number) {
+        number := Integer(number) & 0xFFFFFFFF
+        for _, w in this.WindowList(this.CGWindowListOptionAll, true) {
+            if w.Number = number
+                return w
+        }
+        return 0
     }
 
     static WindowList(options := unset, includeNonLayer0 := false) {
@@ -1192,8 +1298,8 @@ class AxSpy {
     }
 
     static Observe(element, notifications, callback) {
-        if !(element is AxSpy.Element)
-            throw TypeError("Observe expects a AxSpy.Element", -1)
+        if !(element is Ax.Element)
+            throw TypeError("Observe expects a Ax.Element", -1)
         if notifications is String
             notifications := [notifications]
         if !(notifications is Array)
@@ -1269,17 +1375,17 @@ class AxSpy {
         Callback => this.__callback
 
         Add(notification) {
-            notification := AxSpy.__NormalizeNotification(notification)
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXObserverAddNotification"), "Ptr", this.__ptr, "Ptr", this.__element.Ptr, "Ptr", AxSpy.__CFStr(notification), "Ptr", this.__id, "Int")
-            if err && err != AxSpy.Error.NotificationAlreadyRegistered
-                AxSpy.__ThrowAX(err, "AXObserverAddNotification(" notification ")")
+            notification := Ax.__NormalizeNotification(notification)
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXObserverAddNotification"), "Ptr", this.__ptr, "Ptr", this.__element.Ptr, "Ptr", Ax.__CFStr(notification), "Ptr", this.__id, "Int")
+            if err && err != Ax.Error.NotificationAlreadyRegistered
+                Ax.__ThrowAX(err, "AXObserverAddNotification(" notification ")")
             this.__notifications.Push(notification)
             return this
         }
 
         Remove(notification) {
-            notification := AxSpy.__NormalizeNotification(notification)
-            DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXObserverRemoveNotification"), "Ptr", this.__ptr, "Ptr", this.__element.Ptr, "Ptr", AxSpy.__CFStr(notification), "Int")
+            notification := Ax.__NormalizeNotification(notification)
+            DllCall(Ax.__Sym(Ax.LibAX, "AXObserverRemoveNotification"), "Ptr", this.__ptr, "Ptr", this.__element.Ptr, "Ptr", Ax.__CFStr(notification), "Int")
             for i, v in this.__notifications.Clone()
                 if v = notification
                     this.__notifications.RemoveAt(i)
@@ -1290,8 +1396,8 @@ class AxSpy {
             for _, n in this.__notifications.Clone()
                 try this.Remove(n)
             if this.__ptr
-                AxSpy.__Release(this.__ptr)
-            try AxSpy.__Observers.Delete(this.__id)
+                Ax.__Release(this.__ptr)
+            try Ax.__Observers.Delete(this.__id)
         }
     }
 
@@ -1306,7 +1412,7 @@ class AxSpy {
             this.__kind := kind
         }
 
-        __Delete() => this.__ptr ? AxSpy.__Release(this.__ptr) : 0
+        __Delete() => this.__ptr ? Ax.__Release(this.__ptr) : 0
 
         __Item[params*] {
             get {
@@ -1355,68 +1461,70 @@ class AxSpy {
         Pid {
             get {
                 pid := 0
-                err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementGetPid"), "Ptr", this.__ptr, "Int*", &pid, "Int")
+                err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementGetPid"), "Ptr", this.__ptr, "Int*", &pid, "Int")
                 return err ? 0 : pid
             }
         }
+        ProcessId => this.Pid
+        WinId => Ax.__AXWindowId(this)
 
         Attribute(attr, default := unset) {
-            p := AxSpy.__CopyAttributeValue(this.__ptr, attr, false)
+            p := Ax.__CopyAttributeValue(this.__ptr, attr, false)
             if !p {
                 if IsSet(default)
                     return default
-                throw Error("Attribute unavailable: " AxSpy.__NormalizeAttr(attr), -1)
+                throw Error("Attribute unavailable: " Ax.__NormalizeAttr(attr), -1)
             }
-            return AxSpy.__CFToValue(p, true)
+            return Ax.__CFToValue(p, true)
         }
 
         AttributeRaw(attr) {
-            p := AxSpy.__CopyAttributeValue(this.__ptr, attr, true)
+            p := Ax.__CopyAttributeValue(this.__ptr, attr, true)
             return p
         }
 
-        AttributeValues(attr, start := 0, maxValues := 0) => AxSpy.__CopyAttributeValues(this.__ptr, attr, start, maxValues)
+        AttributeValues(attr, start := 0, maxValues := 0) => Ax.__CopyAttributeValues(this.__ptr, attr, start, maxValues)
 
         SetAttribute(attr, value) {
-            pValue := AxSpy.__ValueToCF(attr, value)
-            err := AxSpy.__SetAttributeValue(this.__ptr, attr, pValue, true)
-            AxSpy.__ThrowAX(err, "AXUIElementSetAttributeValue(" attr ")")
+            pValue := Ax.__ValueToCF(attr, value)
+            err := Ax.__SetAttributeValue(this.__ptr, attr, pValue, true)
+            Ax.__ThrowAX(err, "AXUIElementSetAttributeValue(" attr ")")
             return this
         }
 
         SetBoolAttribute(attr, value := true) {
-            err := AxSpy.__SetAttributeValue(this.__ptr, attr, AxSpy.__CFBoolean(!!value), false)
-            AxSpy.__ThrowAX(err, "AXUIElementSetAttributeValue(" attr ")")
+            err := Ax.__SetAttributeValue(this.__ptr, attr, Ax.__CFBoolean(!!value), false)
+            Ax.__ThrowAX(err, "AXUIElementSetAttributeValue(" attr ")")
             return this
         }
 
         IsAttributeSettable(attr) {
             settable := 0
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementIsAttributeSettable"), "Ptr", this.__ptr, "Ptr", AxSpy.__CFStr(AxSpy.__NormalizeAttr(attr)), "Int*", &settable, "Int")
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementIsAttributeSettable"), "Ptr", this.__ptr, "Ptr", Ax.__CFStr(Ax.__NormalizeAttr(attr)), "Int*", &settable, "Int")
             return err ? false : !!settable
         }
 
         Attributes {
             get {
                 pNames := 0
-                err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
-                return err ? [] : AxSpy.__CFArrayToArray(pNames, true)
+                err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
+                return err ? [] : Ax.__CFArrayToArray(pNames, true)
             }
         }
 
         Actions {
             get {
                 pNames := 0
-                err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyActionNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
-                return err ? [] : AxSpy.__CFArrayToArray(pNames, true)
+                err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyActionNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
+                return err ? [] : Ax.__CFArrayToArray(pNames, true)
             }
         }
 
         ParameterizedAttributes {
             get {
                 pNames := 0
-                err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyParameterizedAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
-                return err ? [] : AxSpy.__CFArrayToArray(pNames, true)
+                err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyParameterizedAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
+                return err ? [] : Ax.__CFArrayToArray(pNames, true)
             }
         }
 
@@ -1438,17 +1546,17 @@ class AxSpy {
         }
 
         AttributeCount(attr) {
-            attr := AxSpy.__NormalizeAttr(attr)
+            attr := Ax.__NormalizeAttr(attr)
             count := 0
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementGetAttributeValueCount"), "Ptr", this.__ptr, "Ptr", AxSpy.__CFStr(attr), "Ptr*", &count, "Int")
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementGetAttributeValueCount"), "Ptr", this.__ptr, "Ptr", Ax.__CFStr(attr), "Ptr*", &count, "Int")
             return err ? 0 : count
         }
 
         MultipleAttributes(attrs := unset, options := 0) {
             if !IsSet(attrs)
                 attrs := this.Attributes
-            options := IsInteger(options) ? options : AxSpy.CopyMultipleAttributeOptions.%options%
-            return AxSpy.__CopyMultipleAttributeValues(this.__ptr, attrs, options)
+            options := IsInteger(options) ? options : Ax.CopyMultipleAttributeOptions.%options%
+            return Ax.__CopyMultipleAttributeValues(this.__ptr, attrs, options)
         }
         AttributeMap(attrs := unset, options := 0) => this.MultipleAttributes(IsSet(attrs) ? attrs : this.Attributes, options)
         AllAttributes => this.AttributeMap()
@@ -1462,8 +1570,8 @@ class AxSpy {
             }
         }
 
-        SetMessagingTimeout(seconds) => AxSpy.SetMessagingTimeout(this, seconds)
-        PostKeyboardEvent(charCode := 0, virtualKey := 0, keyDown := true) => AxSpy.PostKeyboardEvent(charCode, virtualKey, keyDown, this)
+        SetMessagingTimeout(seconds) => Ax.SetMessagingTimeout(this, seconds)
+        PostKeyboardEvent(charCode := 0, virtualKey := 0, keyDown := true) => Ax.PostKeyboardEvent(charCode, virtualKey, keyDown, this)
 
         Role => this.Attribute("AXRole", "")
         RoleName => RegExReplace(this.Role, "^AX")
@@ -1483,7 +1591,6 @@ class AxSpy {
         PlaceholderValue => this.Attribute("AXPlaceholderValue", "")
         ValueDescription => this.Attribute("AXValueDescription", "")
         RoleText => this.RoleName
-        ProcessId => this.Pid
         AccessibleId => this.Identifier
         Id => this.Identifier ? this.Identifier : Format("0x{:X}", this.Ptr)
         Hidden => !!this.Attribute("AXHidden", false)
@@ -1511,13 +1618,13 @@ class AxSpy {
                 if !(key || glyph || mods)
                     return ""
                 parts := []
-                if !(mods & AxSpy.MenuItemModifier.NoCommand)
+                if !(mods & Ax.MenuItemModifier.NoCommand)
                     parts.Push("Cmd")
-                if mods & AxSpy.MenuItemModifier.Shift
+                if mods & Ax.MenuItemModifier.Shift
                     parts.Push("Shift")
-                if mods & AxSpy.MenuItemModifier.Option
+                if mods & Ax.MenuItemModifier.Option
                     parts.Push("Option")
-                if mods & AxSpy.MenuItemModifier.Control
+                if mods & Ax.MenuItemModifier.Control
                     parts.Push("Ctrl")
                 parts.Push(key ? key : glyph)
                 out := ""
@@ -1678,7 +1785,7 @@ class AxSpy {
                 try return this.Attribute("AXApplication")
                 catch {
                     pid := this.Pid
-                    return pid ? AxSpy.ElementFromPid(pid) : 0
+                    return pid ? Ax.ElementFromPid(pid) : 0
                 }
             }
         }
@@ -1688,7 +1795,7 @@ class AxSpy {
                 try return this.Attribute("AXChildren")
                 catch {
                     if this.__kind = "SystemWide"
-                        return AxSpy.Applications()
+                        return Ax.Applications()
                     for _, attr in ["AXVisibleChildren", "AXChildrenInNavigationOrder"] {
                         try return this.Attribute(attr)
                     }
@@ -1843,18 +1950,18 @@ class AxSpy {
         }
 
         ActionDescription(action) {
-            action := IsInteger(action) ? this.Actions[action] : AxSpy.__NormalizeAction(action)
+            action := IsInteger(action) ? this.Actions[action] : Ax.__NormalizeAction(action)
             pDesc := 0
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyActionDescription"), "Ptr", this.__ptr, "Ptr", AxSpy.__CFStr(action), "Ptr*", &pDesc, "Int")
-            return err ? "" : AxSpy.__CFStringToStr(pDesc, true)
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyActionDescription"), "Ptr", this.__ptr, "Ptr", Ax.__CFStr(action), "Ptr*", &pDesc, "Int")
+            return err ? "" : Ax.__CFStringToStr(pDesc, true)
         }
 
         DoAction(action) {
             if IsInteger(action)
                 action := this.Actions[action]
             else
-                action := AxSpy.__NormalizeAction(action)
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementPerformAction"), "Ptr", this.__ptr, "Ptr", AxSpy.__CFStr(action), "Int")
+                action := Ax.__NormalizeAction(action)
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementPerformAction"), "Ptr", this.__ptr, "Ptr", Ax.__CFStr(action), "Int")
             return !err
         }
 
@@ -1867,7 +1974,7 @@ class AxSpy {
         }
 
         HasAction(action) {
-            action := AxSpy.__NormalizeAction(action)
+            action := Ax.__NormalizeAction(action)
             for _, a in this.Actions
                 if a = action
                     return true
@@ -1893,27 +2000,27 @@ class AxSpy {
         }
 
         ParameterizedAttribute(attr, parameter, default := unset) {
-            attr := AxSpy.__NormalizeParamAttr(attr)
+            attr := Ax.__NormalizeParamAttr(attr)
             pParam := 0, releaseParam := false
             if IsObject(parameter) {
                 if parameter.HasOwnProp("Ptr") && !(parameter is Array)
                     pParam := parameter.Ptr, releaseParam := false
                 else
-                    pParam := AxSpy.__AnyToCF(parameter), releaseParam := true
+                    pParam := Ax.__AnyToCF(parameter), releaseParam := true
             } else if parameter is Integer || parameter is Float || parameter is String
-                pParam := AxSpy.__AnyToCF(parameter), releaseParam := true
+                pParam := Ax.__AnyToCF(parameter), releaseParam := true
             else
                 throw TypeError("Unsupported parameter type for " attr, -1)
             pOut := 0
-            err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyParameterizedAttributeValue"), "Ptr", this.__ptr, "Ptr", AxSpy.__CFStr(attr), "Ptr", pParam, "Ptr*", &pOut, "Int")
+            err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyParameterizedAttributeValue"), "Ptr", this.__ptr, "Ptr", Ax.__CFStr(attr), "Ptr", pParam, "Ptr*", &pOut, "Int")
             if releaseParam
-                AxSpy.__Release(pParam)
+                Ax.__Release(pParam)
             if err {
                 if IsSet(default)
                     return default
-                AxSpy.__ThrowAX(err, "AXUIElementCopyParameterizedAttributeValue(" attr ")")
+                Ax.__ThrowAX(err, "AXUIElementCopyParameterizedAttributeValue(" attr ")")
             }
-            return AxSpy.__CFToValue(pOut, true)
+            return Ax.__CFToValue(pOut, true)
         }
 
         GetText(startOffset := 0, endOffset := -1) {
@@ -1968,25 +2075,25 @@ class AxSpy {
             get {
                 try {
                     pNames := 0
-                    err := DllCall(AxSpy.__Sym(AxSpy.LibAX, "AXUIElementCopyAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
+                    err := DllCall(Ax.__Sym(Ax.LibAX, "AXUIElementCopyAttributeNames"), "Ptr", this.__ptr, "Ptr*", &pNames, "Int")
                     if pNames
-                        AxSpy.__Release(pNames)
-                    return err != AxSpy.Error.InvalidUIElement
+                        Ax.__Release(pNames)
+                    return err != Ax.Error.InvalidUIElement
                 } catch
                     return false
             }
         }
 
         IsEqual(oCompare) {
-            if !(oCompare is AxSpy.Element)
+            if !(oCompare is Ax.Element)
                 return false
-            eq := DllCall(AxSpy.__Sym(AxSpy.LibCF, "CFEqual"), "Ptr", this.__ptr, "Ptr", oCompare.Ptr, "Int")
+            eq := DllCall(Ax.__Sym(Ax.LibCF, "CFEqual"), "Ptr", this.__ptr, "Ptr", oCompare.Ptr, "Int")
             return !!eq
         }
 
         GetPath(oTarget) {
-            if !(oTarget is AxSpy.Element)
-                throw TypeError("oTarget must be a valid AxSpy element", -1)
+            if !(oTarget is Ax.Element)
+                throw TypeError("oTarget must be a valid Ax element", -1)
             oNext := oTarget, oPrev := oTarget, path := ""
             try {
                 while !this.IsEqual(oNext) {
@@ -2018,8 +2125,8 @@ class AxSpy {
                 else if index = 0
                     throw Error("Condition index cannot be 0", -1)
             }
-            scope := IsInteger(scope) ? scope : AxSpy.TreeScope.%scope%
-            order := IsInteger(order) ? order : AxSpy.TreeTraversalOptions.%order%
+            scope := IsInteger(scope) ? scope : Ax.TreeScope.%scope%
+            order := IsInteger(order) ? order : Ax.TreeTraversalOptions.%order%
             if order&1
                 return order&2 ? PostOrderLastToFirstRecursiveFind(this, condition, scope,, ++depth) : PostOrderFirstToLastRecursiveFind(this, condition, scope,, ++depth)
             if scope&1
@@ -2078,7 +2185,7 @@ class AxSpy {
                 if condition.HasOwnProp("depth")
                     depth := condition.depth
             }
-            matches := [], ++depth, scope := IsInteger(scope) ? scope : AxSpy.TreeScope.%scope%
+            matches := [], ++depth, scope := IsInteger(scope) ? scope : Ax.TreeScope.%scope%
             if scope&1
                 if this.ValidateCondition(condition)
                     matches.Push(this.DefineProp("Path", {value:""}))
@@ -2199,7 +2306,7 @@ class AxSpy {
             for p in ["matchmode", "mm"]
                 if oCond.HasOwnProp(p)
                     matchmode := oCond.%p%
-            try matchmode := IsInteger(matchmode) ? matchmode : AxSpy.MatchMode.%matchmode%
+            try matchmode := IsInteger(matchmode) ? matchmode : Ax.MatchMode.%matchmode%
             for p in ["casesensitive", "cs"]
                 if oCond.HasOwnProp(p)
                     casesensitive := oCond.%p%
@@ -2212,9 +2319,9 @@ class AxSpy {
                         try propValue := this.%prop%
                         if IsObject(propValue)
                             return 0
-                        if !AxSpy.__MatchText(propValue, cond, matchmode, casesensitive)
+                        if !Ax.__MatchText(propValue, cond, matchmode, casesensitive)
                             return 0
-                    case "AxSpy.Element":
+                    case "Ax.Element":
                         if (prop="IsEqual") ? !this.IsEqual(cond) : !this.ValidateCondition(cond)
                             return 0
                     default:
@@ -2240,7 +2347,7 @@ class AxSpy {
         }
 
         Dump(scope := 1, delimiter := " ", depth := -1) {
-            out := "", scope := IsInteger(scope) ? scope : AxSpy.TreeScope.%scope%
+            out := "", scope := IsInteger(scope) ? scope : Ax.TreeScope.%scope%
             if scope&1 {
                 RoleName := "N/A", Subrole := "", Name := "N/A", Value := "", Location := {x:"N/A",y:"N/A",w:"N/A",h:"N/A"}, Pid := "N/A"
                 Actions := "", Attrs := ""
@@ -2292,12 +2399,12 @@ class AxSpy {
         DumpAll(delimiter := " ", depth := -1) => this.Dump(5, delimiter, depth)
 
         Highlight(showTime := unset, color := "Red", d := 2) {
-            if !AxSpy.__HighlightGuis.Has(this)
-                AxSpy.__HighlightGuis[this] := []
-            if (!IsSet(showTime) && AxSpy.__HighlightGuis[this].Length) || (IsSet(showTime) && showTime = "clear") {
-                for _, r in AxSpy.__HighlightGuis[this]
+            if !Ax.__HighlightGuis.Has(this)
+                Ax.__HighlightGuis[this] := []
+            if (!IsSet(showTime) && Ax.__HighlightGuis[this].Length) || (IsSet(showTime) && showTime = "clear") {
+                for _, r in Ax.__HighlightGuis[this]
                     try r.Destroy()
-                AxSpy.__HighlightGuis[this] := []
+                Ax.__HighlightGuis[this] := []
                 return this
             } else if !IsSet(showTime)
                 showTime := 2000
@@ -2306,15 +2413,15 @@ class AxSpy {
                 return this
             try {
                 Loop 4
-                    AxSpy.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000"))
+                    Ax.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000"))
                 Loop 4 {
                     i := A_Index
                     x1 := (i=2 ? loc.x+loc.w : loc.x-d)
                     y1 := (i=3 ? loc.y+loc.h : loc.y-d)
                     w1 := (i=1 or i=3 ? loc.w+2*d : d)
                     h1 := (i=2 or i=4 ? loc.h+2*d : d)
-                    AxSpy.__HighlightGuis[this][i].BackColor := color
-                    AxSpy.__HighlightGuis[this][i].Show("NA x" . x1 . " y" . y1 . " w" . w1 . " h" . h1)
+                    Ax.__HighlightGuis[this][i].BackColor := color
+                    Ax.__HighlightGuis[this][i].Show("NA x" . x1 . " y" . y1 . " w" . w1 . " h" . h1)
                 }
                 if showTime > 0 {
                     Sleep(showTime)
@@ -2359,7 +2466,7 @@ class AxSpy {
             this.Stored := {mwId:0, FilteredTreeView:Map(), TreeView:Map()}
             this.OnlyVisibleElements := false
             this.Capturing := false
-            this.gViewer := Gui("AlwaysOnTop Resize", "AxSpyViewer")
+            this.gViewer := Gui("AlwaysOnTop Resize", "AxViewer")
             this.gViewer.OnEvent("Close", (*) => ExitApp())
             this.gViewer.OnEvent("Size", this.GetMethod("gViewer_Size").Bind(this))
             this.gViewer.Add("Text", "w100", "Window Info").SetFont("bold")
@@ -2369,12 +2476,12 @@ class AxSpy {
             this.LVWin.ModifyCol(2, 140)
             for _, v in this.DefaultLVWinItems := ["Title", "Text", "Id", "Location", "Class(NN)", "Process", "PID"]
                 this.LVWin.Add(, v, "")
-            this.gViewer.Add("Text", "w100", "AxSpy Info").SetFont("bold")
+            this.gViewer.Add("Text", "w100", "Ax Info").SetFont("bold")
             this.LVProps := this.gViewer.Add("ListView", "h220 w250", ["Property", "Value"])
             this.LVProps.OnEvent("ContextMenu", LV_CopyTextMethod)
             this.LVProps.ModifyCol(1, 100)
             this.LVProps.ModifyCol(2, 140)
-            for _, v in this.DefaultLVPropsItems := ["RoleName", "RoleId", "Subrole", "RoleDescription", "Name", "Title", "Description", "Value", "ValueDescription", "States", "Location", "RawLocation", "Actions", "ActionDescriptions", "Attributes", "SettableAttributes", "ParameterizedAttributes", "Identifier", "AccessibleId", "ProcessId", "Id", "ChildCount", "Interfaces"]
+            for _, v in this.DefaultLVPropsItems := ["RoleName", "RoleId", "Subrole", "RoleDescription", "Name", "Title", "Description", "Value", "ValueDescription", "States", "Location", "RawLocation", "Actions", "ActionDescriptions", "Attributes", "SettableAttributes", "ParameterizedAttributes", "Identifier", "AccessibleId", "ProcessId", "WinId", "Id", "ChildCount", "Interfaces"]
                 this.LVProps.Add(, v, "")
             this.ButCapture := this.gViewer.Add("Button", "xp+60 y+10 w140", "Start capturing (Alt+S)")
             this.ButCapture.OnEvent("Click", this.CaptureHotkeyFunc := this.GetMethod("ButCapture_Click").Bind(this))
@@ -2476,16 +2583,16 @@ class AxSpy {
                 this.LVWin_Populate(mwId)
             else
                 this.LVWin_Clear()
-            try oElement := AxSpy.ElementFromPoint(mX, mY)
+            try oElement := Ax.ElementFromPoint(mX, mY)
             catch {
-                AxSpy.ClearAllHighlights()
+                Ax.ClearAllHighlights()
                 this.LVProps_Clear()
                 this.TVElement.Delete()
                 this.TVElement.Add("No accessible element at point")
                 return
             }
             if !IsObject(oElement) {
-                AxSpy.ClearAllHighlights()
+                Ax.ClearAllHighlights()
                 this.LVProps_Clear()
                 this.TVElement.Delete()
                 this.TVElement.Add("No accessible element at point")
@@ -2526,7 +2633,7 @@ class AxSpy {
         }
 
         LVProps_Populate(oElement) {
-            AxSpy.ClearAllHighlights()
+            Ax.ClearAllHighlights()
             oElement.Highlight(0)
             this.LVProps.Delete()
             for _, prop in this.DefaultLVPropsItems {
@@ -2658,7 +2765,7 @@ class AxSpy {
                         return root
                 }
             }
-            try return AxSpy.ElementFromPid(oElement.Pid)
+            try return Ax.ElementFromPid(oElement.Pid)
             catch
                 return oElement
         }

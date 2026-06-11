@@ -320,10 +320,6 @@ namespace Keysharp.Parsing
                                 if (p1.StartsWith('<') && p1.EndsWith('>'))
                                 {
                                     p1 = p1.Trim(libBrackets).Split('_', StringSplitOptions.None)[0];
-
-											if (!p1.EndsWith(".ahk", StringComparison.OrdinalIgnoreCase))
-												p1 += ".ahk";
-
                                     isLib = true;
                                 }
 
@@ -355,6 +351,21 @@ namespace Keysharp.Parsing
                                         paths.Add($"{Accessors.A_KeysharpPath}/{LibDir}/{p1}");//Three ways to get the possible executable folder.
                                         paths.Add($"/usr/{LibDir}/AutoHotkey/{LibDir}/{p1}");
                                         paths.Add($"/usr/local/{LibDir}/AutoHotkey/{LibDir}/{p1}");
+                                    }
+
+                                    //Library includes are normally written without an extension (e.g. #include <Ax>),
+                                    //so try the AutoHotkey-standard ".ahk" extension as well as Keysharp's ".ks".
+                                    if (!Path.HasExtension(p1))
+                                    {
+                                        var withExt = new List<string>(paths.Count * 2);
+
+                                        foreach (var basePath in paths)
+                                        {
+                                            withExt.Add(basePath + ".ahk");
+                                            withExt.Add(basePath + ".ks");
+                                        }
+
+                                        paths = withExt;
                                     }
 
                                     var found = false;

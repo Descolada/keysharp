@@ -94,6 +94,16 @@ build_native_helpers() {
   cp "${kwin_build_dir}/keysharp-screencap" "${APP_DIR}/"
 }
 
+relocate_library_scripts() {
+  # The .cks (compiled) form stays in Scripts so the tray menu can launch it as
+  # an inspector, while the .ks (source) form moves to lib/ so #include <AtSpi>
+  # resolves it as the standard library copy.
+  if [[ -f "${APP_DIR}/Scripts/AtSpi.ks" ]]; then
+    mkdir -p "${APP_DIR}/lib"
+    mv "${APP_DIR}/Scripts/AtSpi.ks" "${APP_DIR}/lib/AtSpi.ks"
+  fi
+}
+
 normalize_app_permissions() {
   find "${APP_DIR}" -type d -exec chmod 0755 {} +
   find "${APP_DIR}" -type f -exec chmod 0644 {} +
@@ -514,6 +524,7 @@ mkdir -p "${APP_DIR}"
 
 rsync -a "${PUBLISH_DIR}/Keyview/" "${APP_DIR}/"
 rsync -a "${PUBLISH_DIR}/Keysharp/" "${APP_DIR}/"
+relocate_library_scripts
 build_native_helpers
 normalize_app_permissions
 verify_no_local_paths "${APP_DIR}"

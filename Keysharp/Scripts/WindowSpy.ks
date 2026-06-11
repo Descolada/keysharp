@@ -158,7 +158,7 @@ TryUpdate() {
         cText := "No native control detected.`nUse the AtSpi accessibility inspector for UI elements."
 #endif
 #if OSX
-        cText := "No native control detected.`nUse the AxSpy accessibility inspector for UI elements."
+        cText := "No native control detected.`nUse the Ax accessibility inspector for UI elements."
 #endif
     }
 

@@ -365,6 +365,20 @@ EOF
   chmod 0755 "${SCRIPTS_DIR}/postinstall"
 }
 
+relocate_library_scripts() {
+  local app="$1"
+
+  # The .cks (compiled) form stays in Scripts so the tray menu can launch it as
+  # an inspector, while the .ks (source) form moves to lib/ so #include <Ax>
+  # resolves it as the standard library copy.
+  for dir in "${app}/Contents/MacOS" "${app}/Contents/Resources"; do
+    if [[ -f "${dir}/Scripts/Ax.ks" ]]; then
+      mkdir -p "${dir}/lib"
+      mv "${dir}/Scripts/Ax.ks" "${dir}/lib/Ax.ks"
+    fi
+  done
+}
+
 stage_payload() {
   local keysharp_app_source
   local keyview_app_source
@@ -378,6 +392,9 @@ stage_payload() {
 
   rsync -a "${keysharp_app_source}" "${PKG_ROOT}/Applications/"
   rsync -a "${keyview_app_source}" "${PKG_ROOT}/Applications/"
+
+  relocate_library_scripts "${PKG_ROOT}/Applications/Keysharp.app"
+  relocate_library_scripts "${PKG_ROOT}/Applications/Keyview.app"
 
   set_bundle_metadata "${PKG_ROOT}/Applications/Keysharp.app"
   set_bundle_metadata "${PKG_ROOT}/Applications/Keyview.app"

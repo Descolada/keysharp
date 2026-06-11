@@ -558,7 +558,7 @@ namespace Keysharp.Tests
 			const uint VkReturn = 0x0D;
 			var ih = Input.InputHook("V");
 			ih.KeyOpt("{Enter}", "E");
-			var sc = Keysharp.Runtime.Script.TheScript.HookThread.MapVkToSc(VkReturn, true);
+			var sc = Keysharp.Internals.Input.Keyboard.KeyCodes.MapVkToSc(VkReturn, true);
 			Assert.AreNotEqual(0u, sc);
 
 			if (OperatingSystem.IsWindows())

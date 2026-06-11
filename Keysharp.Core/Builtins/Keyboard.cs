@@ -898,9 +898,9 @@ break_twice:;
 				return buf;
 
 			if (vk == 0)
-				vk = ht.MapScToVk(sc);
-			else if (sc == 0 && (vk == (uint)Keys.Return || (sc = ht.MapVkToSc(vk, true)) == 0)) // Prefer the non-Numpad name.
-				sc = ht.MapVkToSc(vk);
+				vk = KeyCodes.MapScToVk(sc);
+			else if (sc == 0 && (vk == (uint)Keys.Return || (sc = KeyCodes.MapVkToSc(vk, true)) == 0)) // Prefer the non-Numpad name.
+				sc = KeyCodes.MapVkToSc(vk);
 
 			// Check SC first to properly differentiate between Home/NumpadHome, End/NumpadEnd, etc.
 			// v1.0.43: WheelDown/Up store the notch/turn count in SC, so don't consider that to be a valid SC.
@@ -1130,8 +1130,8 @@ break_twice:;
 			return callid switch
 		{
 				0 => GetKeyNameHelper(vk, sc, ""),
-					1 => sc != 0 ? sc : ht.MapVkToSc(vk),
-					2 => vk != 0 ? vk : ht.MapScToVk(sc),
+					1 => sc != 0 ? sc : KeyCodes.MapVkToSc(vk),
+					2 => vk != 0 ? vk : KeyCodes.MapScToVk(sc),
 					_ => "",
 			};
 		}

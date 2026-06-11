@@ -14,7 +14,6 @@ using SharpHook.Data;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using Keysharp.Internals.Input.Mouse;
-using static Keysharp.Internals.Input.Unix.SharpHookKeyMapper;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 using static Keysharp.Internals.Platform.Unix.PlatformManager;
 
@@ -127,7 +126,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private char lastTypedChar;
 		private uint lastKeyboardEventVk;
 		private bool lastHookEventWasKeyboard;
-
 
 		// Hotstring press-time trigger helpers
 		private ulong lastTypedExtraInfo = (ulong)(SendLevelMax + 1); // tracks last KeyTyped extra info for InputLevel checks
@@ -374,26 +372,26 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			kbdMsSender.modifiersLRPhysical = 0;
 		}
 
-		// Single method for both inputd and X11 paths: MapVkToSc dispatches to the right
-		// backend based on UseInputdScanCodes, so the names are always consistent with
-		// the actual SCs that the hook will deliver.
+		// Works for both inputd and X11 paths: KeyCodes.MapVkToSc dispatches to the right
+		// backend based on the active scan-code mode, so the names are always consistent
+		// with the actual SCs that the hook will deliver.
 		internal void ConfigureScanCodeNames()
 		{
-			AddScKeyName("NumpadEnter", MapVkToSc(VK_RETURN, true));
-			AddScKeyName("Delete", MapVkToSc(VK_DELETE));
-			AddScKeyName("Del", MapVkToSc(VK_DELETE));
-			AddScKeyName("Insert", MapVkToSc(VK_INSERT));
-			AddScKeyName("Ins", MapVkToSc(VK_INSERT));
-			AddScKeyName("Up", MapVkToSc(VK_UP));
-			AddScKeyName("Down", MapVkToSc(VK_DOWN));
-			AddScKeyName("Left", MapVkToSc(VK_LEFT));
-			AddScKeyName("Right", MapVkToSc(VK_RIGHT));
-			AddScKeyName("Home", MapVkToSc(VK_HOME));
-			AddScKeyName("End", MapVkToSc(VK_END));
-			AddScKeyName("PgUp", MapVkToSc(VK_PRIOR));
-			AddScKeyName("PageUp", MapVkToSc(VK_PRIOR));
-			AddScKeyName("PgDn", MapVkToSc(VK_NEXT));
-			AddScKeyName("PageDown", MapVkToSc(VK_NEXT));
+			AddScKeyName("NumpadEnter", KeyCodes.MapVkToSc(VK_RETURN, true));
+			AddScKeyName("Delete", KeyCodes.MapVkToSc(VK_DELETE));
+			AddScKeyName("Del", KeyCodes.MapVkToSc(VK_DELETE));
+			AddScKeyName("Insert", KeyCodes.MapVkToSc(VK_INSERT));
+			AddScKeyName("Ins", KeyCodes.MapVkToSc(VK_INSERT));
+			AddScKeyName("Up", KeyCodes.MapVkToSc(VK_UP));
+			AddScKeyName("Down", KeyCodes.MapVkToSc(VK_DOWN));
+			AddScKeyName("Left", KeyCodes.MapVkToSc(VK_LEFT));
+			AddScKeyName("Right", KeyCodes.MapVkToSc(VK_RIGHT));
+			AddScKeyName("Home", KeyCodes.MapVkToSc(VK_HOME));
+			AddScKeyName("End", KeyCodes.MapVkToSc(VK_END));
+			AddScKeyName("PgUp", KeyCodes.MapVkToSc(VK_PRIOR));
+			AddScKeyName("PageUp", KeyCodes.MapVkToSc(VK_PRIOR));
+			AddScKeyName("PgDn", KeyCodes.MapVkToSc(VK_NEXT));
+			AddScKeyName("PageDown", KeyCodes.MapVkToSc(VK_NEXT));
 		}
 
 		// -------------------- lifecycle --------------------
@@ -413,13 +411,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (vk == 0)
 				return;
 
-			var kc = VkToKeyCode(vk);
+			var kc = KeyCodes.VkToSharpHook(vk);
 			if (kc == KeyCode.VcUndefined)
 				return;
 
-			var sc = VkToXKeycode(vk);
+			var sc = KeyCodes.MapVkToSc(vk);
 			if (sc == 0)
-				sc = MapVkToSc(vk);
+				sc = KeyCodes.MapVkToSc(vk);
 
 			var raw = new UioHookEvent
 			{
@@ -474,7 +472,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				bool hadMouse    = mouseEnabled;
 
 				// ---- transition gate OFF (prevents racing init / mid-transition events) ----
-
 
 				// If nothing requested:
 				if (!wantKeyboard && !wantMouse)
@@ -611,7 +608,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// If dispose==false: we intentionally keep the hook alive and keep current
 			// state around; the processing gate is controlled by keyboardEnabled/mouseEnabled.
 		}
-
 
 		internal override void ChangeHookState(HotkeyDefinition[] hk, HookType whichHook, HookType whichHookAlways)
 		{
@@ -980,12 +976,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
-			RecordScVkMapping(sc, vk);
 
 			if (!isInjected)
 				Script.TheScript.timeLastInputPhysical = DateTime.UtcNow;
 
-			var keyCode = VkToKeyCode(vk);
+			var keyCode = KeyCodes.VkToSharpHook(vk);
 			var raw = new UioHookEvent
 			{
 				Type = keyUp ? EventType.KeyReleased : EventType.KeyPressed,
@@ -1070,7 +1065,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
 				Mouse = new MouseEventData
 				{
-					Button = InputdVkToMouseButton(vk),
+					Button = KeyCodes.VkToMouseButton(vk),
 					Clicks = 1,
 					X = (short)ev.X,
 					Y = (short)ev.Y
@@ -1109,16 +1104,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
 			return result != 0;
 		}
-
-		private static MouseButton InputdVkToMouseButton(uint vk) => vk switch
-		{
-			VK_LBUTTON => MouseButton.Button1,
-			VK_RBUTTON => MouseButton.Button2,
-			VK_MBUTTON => MouseButton.Button3,
-			VK_XBUTTON1 => MouseButton.Button4,
-			VK_XBUTTON2 => MouseButton.Button5,
-			_ => MouseButton.NoButton
-		};
 #endif
 
 		private static bool ShouldDisableHook()
@@ -1143,13 +1128,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
 
 			var keyCode = e.Data.KeyCode;
-			var vk = KeyCodeToVk(keyCode);
+			var vk = KeyCodes.SharpHookToVk(keyCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
-			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: false, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
@@ -1204,13 +1188,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
 
 			var keyCode = e.Data.KeyCode;
-			var vk = KeyCodeToVk(keyCode);
+			var vk = KeyCodes.SharpHookToVk(keyCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
-			RecordScVkMapping(sc, vk);
 			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: true, out var grabbedByHotstring);
 			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
@@ -1911,10 +1894,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 		}
 
-		protected virtual void RecordScVkMapping(uint sc, uint vk)
-		{
-		}
-
 		// Map a candidate end character to VK + required modifiers (layout-aware)
 		protected bool MapEndCharToVkAndNeeds(char endChar, out uint vk, out bool needShift, out bool needAltGr)
 		{
@@ -1930,14 +1909,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			// Use the same mapper you use for Send (handles punctuation layout properly)
 			if (System.Text.Rune.TryGetRuneAt(endChar.ToString(), 0, out var rune)
-				&& UnixKeyboardMouseSender.UnixCharMapper.TryMapRuneToKeystroke(rune, out var mappedVk, out var s, out var g))
+				&& KeyCodes.TryMapRuneToKeystroke(rune, out var mappedVk, out var s, out var g))
 			{
 				vk = mappedVk; needShift = s; needAltGr = g;
 				return vk != 0;
 			}
 			return false;
 		}
-
 
 		private IndicatorSnapshot RefreshIndicatorSnapshot()
 		{
@@ -2234,30 +2212,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				DisarmHotstring();
 		}
 
-		internal override uint MapScToVk(uint sc)
-		{
-			if (sc == 0)
-				return 0;
-
-			return MapScToVkPlatform(sc);
-		}
-
-		internal override uint MapVkToSc(uint vk, bool returnSecondary = false)
-		{
-			if (vk == 0)
-				return 0;
-
-			return MapVkToScPlatform(vk, returnSecondary);
-		}
-
-		internal override uint SC_LCONTROL => MapVkToSc(VK_LCONTROL);
-		internal override uint SC_RCONTROL => MapVkToSc(VK_RCONTROL);
-		internal override uint SC_LALT => MapVkToSc(VK_LMENU);
-		internal override uint SC_RALT => MapVkToSc(VK_RMENU);
-		internal override uint SC_LSHIFT => MapVkToSc(VK_LSHIFT);
-		internal override uint SC_RSHIFT => MapVkToSc(VK_RSHIFT);
-		internal override uint SC_LWIN => MapVkToSc(VK_LWIN);
-		internal override uint SC_RWIN => MapVkToSc(VK_RWIN);
+		internal override uint SC_LCONTROL => KeyCodes.MapVkToSc(VK_LCONTROL);
+		internal override uint SC_RCONTROL => KeyCodes.MapVkToSc(VK_RCONTROL);
+		internal override uint SC_LALT => KeyCodes.MapVkToSc(VK_LMENU);
+		internal override uint SC_RALT => KeyCodes.MapVkToSc(VK_RMENU);
+		internal override uint SC_LSHIFT => KeyCodes.MapVkToSc(VK_LSHIFT);
+		internal override uint SC_RSHIFT => KeyCodes.MapVkToSc(VK_RSHIFT);
+		internal override uint SC_LWIN => KeyCodes.MapVkToSc(VK_LWIN);
+		internal override uint SC_RWIN => KeyCodes.MapVkToSc(VK_RWIN);
 
 		internal override uint KeyToModifiersLR(uint vk, uint sc, ref bool? isNeutral)
 		{
@@ -2272,7 +2234,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					{
 						if (sc != 0)
 						{
-							var mapped = MapScToVk(sc);
+							var mapped = KeyCodes.MapScToVk(sc);
 							if (mapped == VK_RSHIFT) return MOD_RSHIFT;
 							if (mapped == VK_LSHIFT)
 							{
@@ -2291,7 +2253,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					{
 						if (sc != 0)
 						{
-							var mapped = MapScToVk(sc);
+							var mapped = KeyCodes.MapScToVk(sc);
 							if (mapped == VK_RCONTROL) return MOD_RCONTROL;
 							if (mapped == VK_LCONTROL)
 							{
@@ -2310,7 +2272,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					{
 						if (sc != 0)
 						{
-							var mapped = MapScToVk(sc);
+							var mapped = KeyCodes.MapScToVk(sc);
 							if (mapped == VK_RMENU) return MOD_RALT;
 							if (mapped == VK_LMENU)
 							{
@@ -2332,7 +2294,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 			}
 
-			return MapScToVk(sc) switch
+			return KeyCodes.MapScToVk(sc) switch
 			{
 				VK_LSHIFT => MOD_LSHIFT,
 				VK_RSHIFT => MOD_RSHIFT,
@@ -2344,18 +2306,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				VK_RWIN => MOD_RWIN,
 				_ => 0
 			};
-		}
-
-		protected virtual uint MapScToVkPlatform(uint sc)
-		{
-			var kc = (KeyCode)sc;
-			return SharpHookKeyMapper.KeyCodeToVk(kc);
-		}
-
-		protected virtual uint MapVkToScPlatform(uint vk, bool returnSecondary = false)
-		{
-			var kc = SharpHookKeyMapper.VkToKeyCode(vk);
-			return kc == KeyCode.VcUndefined ? 0u : (uint)kc;
 		}
 
 		internal override bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
@@ -2613,7 +2563,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 			// Delegate to the Linux char mapper used by the sender; add Shift/AltGr if needed.
 			if (Rune.TryGetRuneAt(ch.ToString(), 0, out var rune)
-				&& UnixKeyboardMouseSender.UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr))
+				&& KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr))
 			{
 				uint mods = modifiersLr ?? 0;
 				if (needShift) mods |= MOD_LSHIFT;
@@ -2626,8 +2576,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		internal override bool SystemHasAnotherKeybdHook() => false;
 		internal override bool SystemHasAnotherMouseHook() => false;
-
-		internal virtual uint VkToXKeycode(uint vk) => 0;
 
 		private void ClearHotstringBuffer()
 		{

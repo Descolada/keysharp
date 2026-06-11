@@ -1630,10 +1630,6 @@ namespace Keysharp.Internals.Input.Hooks
 			HotkeyDefinition.CustomComboLast(ref kvk[right].firstHotkey) = first_neutral;
 		}
 
-		internal abstract uint MapScToVk(uint sc);
-
-		internal abstract uint MapVkToSc(uint vk, bool returnSecondary = false);
-
 		internal virtual void RefreshPlatformKeyGrabs() { }
 
 		internal virtual uint SC_LCONTROL => LControl;
@@ -3833,7 +3829,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal abstract bool SystemHasAnotherMouseHook();
 
-
 		internal uint TextToSpecial(string text, ref KeyEventTypes eventType, ref uint modifiersLR, bool updatePersistent) =>
 		TextToSpecial(text.AsSpan(), ref eventType, ref modifiersLR, updatePersistent);
 
@@ -3989,7 +3984,7 @@ namespace Keysharp.Internals.Input.Hooks
 			var sc = 0u;
 			var source = KeySource.None;
 			_ = TextToVKandSC(text, ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair: false);
-			return vk != 0 ? vk : MapScToVk(sc);
+			return vk != 0 ? vk : KeyCodes.MapScToVk(sc);
 		}
 
 		/// <summary>

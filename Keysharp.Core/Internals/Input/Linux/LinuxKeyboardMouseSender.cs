@@ -90,7 +90,7 @@ namespace Keysharp.Internals.Input.Linux
 				if (IsKeyGrabSuspended(vk))
 					return;
 
-				var xkeycode = lht.VkToXKeycode(vk);
+				var xkeycode = KeyCodes.MapVkToSc(vk);
 				if (xkeycode != 0)
 					ungrabKeycodes.Add(xkeycode);
 			}
@@ -228,7 +228,7 @@ namespace Keysharp.Internals.Input.Linux
 		protected override bool TryQueuePlatformMappedTextKey(char ch, uint modifiers, long extraInfo)
 		{
 			if (!Rune.TryCreate(ch, out var rune)
-				|| !UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				|| !KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
 				|| vk == 0)
 				return false;
 
@@ -452,7 +452,7 @@ namespace Keysharp.Internals.Input.Linux
 					if (rune.Value == '\r' || rune.Value == '\n' || TryGetTextControlVk(rune, out _))
 						continue;
 
-					if (UnixCharMapper.TryMapRuneToKeystroke(rune, out var mappedVk, out _, out _) && mappedVk != 0)
+					if (KeyCodes.TryMapRuneToKeystroke(rune, out var mappedVk, out _, out _) && mappedVk != 0)
 						continue;
 
 					if (remappedSlotsByRune.ContainsKey(rune.Value))
@@ -493,7 +493,7 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					if (UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr) && vk != 0)
+					if (KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr) && vk != 0)
 					{
 						SendMappedVkViaX11(lht, vk, needShift, needAltGr, extraInfo);
 						continue;
@@ -521,7 +521,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			void AddVk(uint vk)
 			{
-				var keycode = lht.VkToXKeycode(vk);
+				var keycode = KeyCodes.MapVkToSc(vk);
 
 				if (keycode != 0)
 					keycodes.Add(keycode);
@@ -541,7 +541,7 @@ namespace Keysharp.Internals.Input.Linux
 					continue;
 				}
 
-				if (UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out _, out _) && vk != 0)
+				if (KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out _, out _) && vk != 0)
 					AddVk(vk);
 			}
 
@@ -740,7 +740,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			private void SendXTestKeycodeEvent(UnixHookThread lht, uint vk, uint keycode, bool isPress, long extraInfo)
 			{
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
+				var code = KeyCodes.VkToSharpHook(vk);
 				lht.RegisterSyntheticEvent(code, !isPress, DateTime.UtcNow, extraInfo, vk);
 				_ = XDisplay.Default.XTestFakeKeyEvent(keycode, isPress, 0);
 				XDisplay.Default.XSync(false);
@@ -781,7 +781,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static bool TryGetKeycodeForVk(UnixHookThread lht, uint vk, out uint keycode)
 		{
-			keycode = lht.VkToXKeycode(vk);
+			keycode = KeyCodes.MapVkToSc(vk);
 			return keycode != 0;
 		}
 
@@ -793,7 +793,7 @@ namespace Keysharp.Internals.Input.Linux
 			// Held remap keys (DownR/Up) need a stable mapped donor so X11 repeat and hook identity stay consistent.
 			foreach (var candidateVk in unicodeInjectionFallbackVks)
 			{
-				keycode = lht.VkToXKeycode(candidateVk);
+				keycode = KeyCodes.MapVkToSc(candidateVk);
 
 				if (keycode == 0 || IsHeldUnicodeKeycodeInUse(keycode))
 					continue;
@@ -811,14 +811,14 @@ namespace Keysharp.Internals.Input.Linux
 			// Prefer truly unused keycodes first to minimize interference with any mapped keys.
 			if (TryGetUnusedInjectionKeycode(lht, reservedInjectionKeycodes, out keycode))
 			{
-				vk = lht.MapScToVk(keycode);
+				vk = KeyCodes.MapScToVk(keycode);
 				return true;
 			}
 
 			// Fallback to uncommon mapped donors when no unused keycode is available.
 			foreach (var candidateVk in unicodeInjectionFallbackVks)
 			{
-				keycode = lht.VkToXKeycode(candidateVk);
+				keycode = KeyCodes.MapVkToSc(candidateVk);
 
 				if (keycode == 0
 					|| IsHeldUnicodeKeycodeInUse(keycode)

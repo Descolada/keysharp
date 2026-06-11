@@ -231,7 +231,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				if (HK_TYPE_CAN_BECOME_KEYBD_HOOK(type))
 					if ((modifiersLR != 0 || hookAction != 0 || keyUp || modifierVK != 0 || modifierSC != 0) // mSC is handled higher above.
 							|| (script.ForceKeybdHook || allowExtraModifiers // mNoSuppress&NO_SUPPRESS_PREFIX has already been handled elsewhere. Other bits in mNoSuppress must be checked later because they can change by any variants added after *this* one.
-								|| (vk != 0 && !vkWasSpecifiedByNumber && ht.MapVkToSc(vk, true) != 0))) // Its mVK corresponds to two scan codes (such as "ENTER").
+								|| (vk != 0 && !vkWasSpecifiedByNumber && KeyCodes.MapVkToSc(vk, true) != 0))) // Its mVK corresponds to two scan codes (such as "ENTER").
 						keybdHookMandatory = true;
 
 				// v1.0.38.02: The check of mVK_WasSpecifiedByNumber above was added so that an explicit VK hotkey such

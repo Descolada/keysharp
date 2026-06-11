@@ -223,7 +223,7 @@ namespace Keysharp.Internals.Input
 							var ch = new char[2];
 							state[(int)Keys.ShiftKey] |= 0x80; // Indicate that the neutral shift key is down for conversion purposes.
 							var active_window_keybd_layout = hook.kbdMsSender.GetFocusedKeybdLayout(0);
-							var count = ToUnicode(endingVK, hook.MapVkToSc(endingVK), state // Nothing is done about ToAsciiEx's dead key side-effects here because it seems to rare to be worth it (assuming its even a problem).
+							var count = ToUnicode(endingVK, KeyCodes.MapVkToSc(endingVK), state // Nothing is done about ToAsciiEx's dead key side-effects here because it seems to rare to be worth it (assuming its even a problem).
 										, ch, script.menuIsVisible != MenuType.None ? 1u : 0u, active_window_keybd_layout); // v1.0.44.03: Changed to call ToAsciiEx() so that active window's layout can be specified (see hook.cpp for details).
 							keyName = keyName.Substring(0, count);
 						}
@@ -526,7 +526,7 @@ namespace Keysharp.Internals.Input
 						{
 							vkByNumber = (keySource & KeySource.Vk) != 0;
 
-							if (!vkByNumber && (sc = ht.MapVkToSc(vk, true)) != 0)
+							if (!vkByNumber && (sc = KeyCodes.MapVkToSc(vk, true)) != 0)
 							{
 #if WINDOWS
 								sc ^= 0x100; // Convert sc to the primary scan code, which is the one named by end_key.
@@ -583,7 +583,7 @@ namespace Keysharp.Internals.Input
 						// to support combinations like {All} +E, {LCtrl}{RCtrl} -E.
 						uint temp_sc;
 
-						if (flagsRemove != 0 && !vkByNumber && (temp_sc = ht.MapVkToSc(vk)) != 0)
+						if (flagsRemove != 0 && !vkByNumber && (temp_sc = KeyCodes.MapVkToSc(vk)) != 0)
 						{
 							keySC[temp_sc] &= ~flagsRemove; // But apply aFlagsAdd only by VK.
 							// Since aFlagsRemove implies ScriptObject != NULL and !vk_by_number
@@ -598,7 +598,7 @@ namespace Keysharp.Internals.Input
 					keySC[sc] = (keySC[sc] & ~flagsRemove) | flagsAdd;
 
 					// If specified by name, apply flag removal to this key's VK as well.
-					if (flagsRemove != 0 && !scByNumber.IsTrue() && (vk = ht.MapScToVk(sc)) != 0)
+					if (flagsRemove != 0 && !scByNumber.IsTrue() && (vk = KeyCodes.MapScToVk(sc)) != 0)
 						keyVK[vk] &= ~flagsRemove;
 				}
 			} // for()

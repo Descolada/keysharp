@@ -342,7 +342,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			if (!Rune.TryCreate(ch, out var rune)
 				|| !rune.IsAscii
-				|| !UnixKeyboardMouseSender.UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				|| !KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
 				|| vk == 0)
 			{
 				SendDaemonUnicodeChar(ch, modifiers, extraInfo);
@@ -387,7 +387,7 @@ namespace Keysharp.Internals.Input.Linux
 		private void QueueTextRune(List<KeysharpInputdClient.Input> events, Rune rune, uint modifiersLR, long extraInfo)
 		{
 			if (rune.IsAscii
-				&& UnixKeyboardMouseSender.UnixCharMapper.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				&& KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
 				&& vk != 0)
 			{
 				uint transientModifiers = 0;

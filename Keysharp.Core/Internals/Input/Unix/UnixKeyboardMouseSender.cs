@@ -11,7 +11,6 @@ using Keysharp.Builtins;
 using Keysharp.Internals.Window.Linux.Proxies;
 using Keysharp.Internals.Window.Linux.X11;
 #endif
-using static Keysharp.Internals.Input.Unix.SharpHookKeyMapper;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using Keysharp.Internals.Input.Mouse;
@@ -212,7 +211,7 @@ namespace Keysharp.Internals.Input.Unix
 
 				if (type == KeyEventTypes.KeyDown || type == KeyEventTypes.KeyUp || type == KeyEventTypes.KeyDownAndUp)
 				{
-					var button = VkToMouseButton(eventFlags & 0xFFFF);
+					var button = KeyCodes.VkToMouseButton(eventFlags & 0xFFFF);
 
 					if (button != MouseButton.NoButton)
 					{
@@ -309,7 +308,7 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			// Normal key: record as down/up.
-			var keyCode = SharpHookKeyMapper.VkToKeyCode(vk);
+			var keyCode = KeyCodes.VkToSharpHook(vk);
 			if (keyCode == KeyCode.VcUndefined)
 				return;
 
@@ -599,7 +598,7 @@ namespace Keysharp.Internals.Input.Unix
 			// Legacy Linux usage: high word encodes KeyEventTypes, low word encodes vk.
 			if ((eventFlags & 0xFFFF0000) != 0)
 			{
-				var legacyButton = VkToMouseButton(eventFlags & 0xFFFF);
+				var legacyButton = KeyCodes.VkToMouseButton(eventFlags & 0xFFFF);
 				var legacyType = (KeyEventTypes)(eventFlags >> 16);
 				EmitButton(legacyButton, legacyType, x, y);
 				return;
@@ -868,7 +867,7 @@ namespace Keysharp.Internals.Input.Unix
 			var needShift = false;
 			var needAltGr = false;
 			var hasMappedKeystroke = System.Text.Rune.TryCreate(ch, out var rune)
-				&& UnixCharMapper.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
+				&& KeyCodes.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
 				&& vk != 0;
 
 			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueuePlatformMappedTextKey(ch, modifiers, extraInfo))
@@ -1150,7 +1149,7 @@ namespace Keysharp.Internals.Input.Unix
 				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.TryToggle())
 					return;
 #endif
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
+				var code = KeyCodes.VkToSharpHook(vk);
 				if (code == KeyCode.VcUndefined)
 					return;
 
@@ -1167,7 +1166,7 @@ namespace Keysharp.Internals.Input.Unix
 				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.IsAvailable)
 					return;
 #endif
-				var code = SharpHookKeyMapper.VkToKeyCode(vk);
+				var code = KeyCodes.VkToSharpHook(vk);
 				if (code == KeyCode.VcUndefined)
 					return;
 

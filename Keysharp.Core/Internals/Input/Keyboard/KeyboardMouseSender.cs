@@ -2369,7 +2369,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// I think it may be valid to send keybd_events that have a zero vk.
 			// In any case, it's unlikely to hurt anything:
 			if (vk == 0)
-				vk = ht.MapScToVk(sc);
+				vk = KeyCodes.MapScToVk(sc);
 			else if (sc == 0)
 				// In spite of what the MSDN docs say, the scan code parameter *is* used, as evidenced by
 				// the fact that the hook receives the proper scan code as sent by the below, rather than
@@ -2377,7 +2377,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// convert zero-value scan codes, it's much better to send it here also for full compatibility
 				// with any apps that may rely on scan code (and such would be the case if the hook isn't
 				// active because the user doesn't need it; also for some games maybe).
-				sc = ht.MapVkToSc(vk);
+				sc = KeyCodes.MapVkToSc(vk);
 
 			var eventFlags = ((sc >> 8) & 0xFF) != 0 ? KEYEVENTF_EXTENDEDKEY : 0u;
 

@@ -61,7 +61,7 @@ namespace Keysharp.Internals.Platform.Unix
 		// Return the current xkb_keymap pointer as a stand-in for HKL.
 		public static nint GetKeyboardLayout(uint idThread)
 		{
-			return UnixKeyboardMouseSender.UnixCharMapper.GetCurrentKeymapHandle();
+			return KeyCodes.GetCurrentKeymapHandle();
 		}
 
 		public static int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
@@ -89,7 +89,7 @@ namespace Keysharp.Internals.Platform.Unix
 			// letter keys, so it's applied as a post-hoc case toggle rather than XOR'd
 			// into the shift state passed to the mapper (which would also affect
 			// digit/symbol keys, e.g. turning '2' into '"' on Estonian layouts).
-			if (UnixKeyboardMouseSender.UnixCharMapper.TryMapKeystrokeToRune(wVirtKey, shift, altGr, out var mappedRune))
+			if (KeyCodes.TryMapKeystrokeToRune(wVirtKey, shift, altGr, out var mappedRune))
 			{
 				if (caps && Rune.IsLetter(mappedRune))
 				{

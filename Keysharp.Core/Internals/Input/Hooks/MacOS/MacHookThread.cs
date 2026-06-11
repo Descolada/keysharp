@@ -26,10 +26,6 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static extern ulong CGEventSourceFlagsState(int sourceState);
 
-		private readonly Lock mappingLock = new();
-		private readonly Dictionary<uint, uint> rawScToVk = new();
-		private readonly Dictionary<uint, uint> vkToRawSc = new();
-
 		protected override bool UseSyntheticEventQueue => false;
 
 		// macOS App Switcher uses Cmd+Tab, not Alt+Tab.
@@ -49,8 +45,9 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			}
 		}
 
-		// macOS hook SC values are raw native codes learned from hook events.
-		// Do not seed the SC tables from SharpHook KeyCode enum values.
+		// macOS hook SC values are raw kVK codes (resolved via KeyCodes' hardcoded kVK table).
+		// Keep these 0 so modifier handling stays VK-based and the SC modifier tables aren't
+		// seeded from kVK codes.
 		internal override uint SC_LCONTROL => 0;
 		internal override uint SC_RCONTROL => 0;
 		internal override uint SC_LALT => 0;
@@ -65,50 +62,6 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			var simulated = e.IsEventSimulated;
 			extraInfo = simulated ? (ulong)KeyIgnoreAllExceptModifier : 0UL;
 			return simulated;
-		}
-
-		protected override void RecordScVkMapping(uint sc, uint vk)
-		{
-			if (sc == 0 || vk == 0)
-				return;
-
-			lock (mappingLock)
-			{
-				rawScToVk[sc] = vk;
-				vkToRawSc[vk] = sc;
-			}
-		}
-
-		protected override uint MapScToVkPlatform(uint sc)
-		{
-			if (sc == 0)
-				return 0;
-
-			lock (mappingLock)
-			{
-				if (rawScToVk.TryGetValue(sc, out var vk))
-					return vk;
-			}
-
-			return base.MapScToVkPlatform(sc);
-		}
-
-		protected override uint MapVkToScPlatform(uint vk, bool returnSecondary = false)
-		{
-			if (vk == 0)
-				return 0;
-
-			uint sc = 0;
-
-			lock (mappingLock)
-			{
-				if (UnixKeyboardMouseSender.UnixCharMapper.TryMapVkToMacCode(vk, out sc))
-					return sc;
-				if (vkToRawSc.TryGetValue(vk, out sc))
-					return sc;
-			}
-
-			return base.MapVkToScPlatform(vk, returnSecondary);
 		}
 
 		protected override bool TryQueryModifierLRStatePlatform(out uint mods, byte[] keymapBuffer = null)

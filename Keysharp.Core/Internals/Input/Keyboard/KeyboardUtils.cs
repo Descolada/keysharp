@@ -262,7 +262,7 @@ done
 	}
 
 	// Windows scan code values; used directly by the Win32 hook path. On Unix these constants
-	// are not consumed — SharpHook's KeyCode enum drives input there (see SharpHookKeyMapper).
+	// are not consumed — SharpHook's KeyCode enum drives input there (see KeyCodes.VkToSharpHook).
 	internal static class ScanCodes
 	{
 		internal const uint NumpadEnter = 0x11C;
@@ -346,7 +346,7 @@ done
 
 	/// <summary>
 	/// Windows virtual-key values, used as Keysharp's canonical cross-platform key identifiers.
-	/// On Unix, SharpHookKeyMapper.VkToKeyCode maps these to SharpHook's KeyCode enum.
+	/// On Unix, KeyCodes.VkToSharpHook maps these to SharpHook's KeyCode enum.
 	/// We cannot use the System.Windows.Forms.Keys enum because it does not contain various keys
 	/// such as mouse wheel.
 	/// </summary>

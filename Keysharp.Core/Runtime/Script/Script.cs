@@ -580,6 +580,11 @@ namespace Keysharp.Runtime
 			if (Env.FindCommandLineArg("restart") != null || Env.FindCommandLineArg("r") != null)
 				inst = eScriptInstance.Force;
 
+			//Restrict the search to windows belonging to this executable, otherwise an unrelated
+			//app whose window title happens to match the script's filename  would be mistaken for 
+			// another running instance.
+			using var currentProcess = Process.GetCurrentProcess();
+			title = $"{title} ahk_exe {currentProcess.ProcessName}";
 			var exit = false;
 			var oldDetect = WindowX.DetectHiddenWindows(true);
 			var oldMatchMode = WindowX.SetTitleMatchMode(3);//Require exact match.

@@ -30,7 +30,14 @@ namespace Keysharp.Internals.Window.MacOS
 
 				for (int i = 0; i < windows.Count; i++)
 				{
-					var window = new WindowItem(windows[i], includesTextMetadata: true);
+					var info = windows[i];
+
+					if (!detectHiddenWindows
+						&& !info.IsOnScreen
+						&& !MacNativeWindows.TryGetWindowInfo((nint)info.WindowNumber, out _))
+						continue;//Off-screen entries some apps register for menu bar/status items aren't real windows and can't be queried individually; only exclude them when hidden windows aren't being searched.
+
+					var window = new WindowItem(info, includesTextMetadata: true);
 
 					if (detectHiddenWindows || window.Visible)
 						list.Add(window);

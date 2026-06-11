@@ -225,7 +225,7 @@ namespace Keysharp.Builtins
 #if LINUX
 			const string accessibilitySpyName = "AtSpi";
 #else
-			const string accessibilitySpyName = "AxSpy";
+			const string accessibilitySpyName = "Ax";
 #endif
 			var accessibilitySpyFunc = (params object[] args) =>
 			{

@@ -286,8 +286,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				target[key] = existing;
 		}
 
-		internal UnixHookThread()
+		internal UnixHookThread() : base()
 		{
+			ConfigureScanCodeNames();
 		}
 
 		protected override KeyboardMouseSender CreateKbdMsSender()
@@ -371,6 +372,28 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			kbdMsSender.modifiersLRLogical = 0;
 			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
 			kbdMsSender.modifiersLRPhysical = 0;
+		}
+
+		// Single method for both inputd and X11 paths: MapVkToSc dispatches to the right
+		// backend based on UseInputdScanCodes, so the names are always consistent with
+		// the actual SCs that the hook will deliver.
+		internal void ConfigureScanCodeNames()
+		{
+			AddScKeyName("NumpadEnter", MapVkToSc(VK_RETURN, true));
+			AddScKeyName("Delete", MapVkToSc(VK_DELETE));
+			AddScKeyName("Del", MapVkToSc(VK_DELETE));
+			AddScKeyName("Insert", MapVkToSc(VK_INSERT));
+			AddScKeyName("Ins", MapVkToSc(VK_INSERT));
+			AddScKeyName("Up", MapVkToSc(VK_UP));
+			AddScKeyName("Down", MapVkToSc(VK_DOWN));
+			AddScKeyName("Left", MapVkToSc(VK_LEFT));
+			AddScKeyName("Right", MapVkToSc(VK_RIGHT));
+			AddScKeyName("Home", MapVkToSc(VK_HOME));
+			AddScKeyName("End", MapVkToSc(VK_END));
+			AddScKeyName("PgUp", MapVkToSc(VK_PRIOR));
+			AddScKeyName("PageUp", MapVkToSc(VK_PRIOR));
+			AddScKeyName("PgDn", MapVkToSc(VK_NEXT));
+			AddScKeyName("PageDown", MapVkToSc(VK_NEXT));
 		}
 
 		// -------------------- lifecycle --------------------

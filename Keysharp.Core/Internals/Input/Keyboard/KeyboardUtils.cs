@@ -404,6 +404,14 @@ done
 		internal const uint VK_MENU = 0x12;
 		internal const uint VK_PAUSE = 0x13;
 		internal const uint VK_CAPITAL = 0x14;
+		internal const uint VK_KANA       = 0x15;
+		internal const uint VK_HANGUL     = 0x15;
+		internal const uint VK_IME_ON     = 0x16;
+		internal const uint VK_JUNJA      = 0x17;
+		internal const uint VK_FINAL      = 0x18;
+		internal const uint VK_HANJA      = 0x19;
+		internal const uint VK_KANJI      = 0x19;
+		internal const uint VK_IME_OFF    = 0x1A;
 		internal const uint VK_ESCAPE = 0x1B;
 		internal const uint VK_CONVERT = 0x1C;
 		internal const uint VK_NONCONVERT = 0x1D;

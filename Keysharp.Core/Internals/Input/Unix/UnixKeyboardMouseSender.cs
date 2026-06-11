@@ -178,6 +178,8 @@ namespace Keysharp.Internals.Input.Unix
 				var cap = maxEvents > 0 ? Math.Min(maxEvents, 2048) : 512;
 				inputStack.Push(new InputArrayState(new List<ArrayEvent>(cap), prev));
 			}
+			sendInputCursorPos.X = CoordUnspecified;
+			sendInputCursorPos.Y = CoordUnspecified;
 		}
 
 		internal override void CleanupEventArray(long finalKeyDelay)

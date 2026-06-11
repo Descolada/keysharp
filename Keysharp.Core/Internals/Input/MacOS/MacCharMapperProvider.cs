@@ -22,11 +22,10 @@ namespace Keysharp.Internals.Input.Unix
 
 			private const ushort kUCKeyActionDown = 0;
 
-			private static readonly ushort[] candidateKeyCodes =
+			private readonly Dictionary<uint, uint> vkToMacKeyCode = BuildVkToMacKeyCodeMap();
+
+			private static readonly ushort[] textCandidateKeyCodes =
 			{
-				// 0x0A is the extra key found on ISO keyboards (e.g. between left shift and Z, or
-				// near Enter), which many European layouts (incl. Nordic/Baltic) use for an
-				// additional letter.
 				0x0A,
 				0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0B,0x0C,0x0D,0x0E,0x0F,
 				0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
@@ -34,15 +33,36 @@ namespace Keysharp.Internals.Input.Unix
 				0x30,0x31,0x32
 			};
 
-			private static readonly Dictionary<uint, ushort> vkToMacKeyCode = BuildVkToMacKeyCodeMap();
-
-			private static Dictionary<uint, ushort> BuildVkToMacKeyCodeMap()
+			private static readonly ushort[] physicalCandidateKeyCodes =
 			{
-				var map = new Dictionary<uint, ushort>();
+				// Text-producing keys.
+				0x0A,
+				0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0B,0x0C,0x0D,0x0E,0x0F,
+				0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+				0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
+				0x30,0x31,0x32,0x33,0x35,0x36,0x37,0x38,0x39,0x3A,0x3B,0x3C,0x3D,0x3E,
 
-				foreach (var keyCode in candidateKeyCodes)
-					if (TryMapMacKeyCodeToVk(keyCode, out var vk))
-						map[vk] = keyCode;
+				// Function, keypad, media, navigation.
+				0x40,0x41,0x43,0x45,0x47,0x48,0x49,0x4A,0x4B,0x4C,0x4E,0x4F,
+				0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,
+				0x5D,0x5E,0x5F,0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67,0x68,0x69,
+				0x6A,0x6B,0x6D,0x6F,0x71,0x72,0x73,0x74,0x75,0x76,0x77,0x78,0x79,
+				0x7A,0x7B,0x7C,0x7D,0x7E
+			};
+
+			private static Dictionary<uint, uint> BuildVkToMacKeyCodeMap()
+			{
+				var map = new Dictionary<uint, uint>();
+
+				foreach (var keyCode in physicalCandidateKeyCodes)
+				{
+					if (!MapMacKeyCodeToVk(keyCode, out var vk))
+						continue;
+
+					// Preserve the first/primary mapping for duplicates like VK_RETURN:
+					// 0x24 Return before 0x4C keypad Enter.
+					map.TryAdd(vk, keyCode);
+				}
 
 				return map;
 			}
@@ -86,7 +106,7 @@ namespace Keysharp.Internals.Input.Unix
 					}
 
 					// Prefer plain keys first (e.g. spacebar), then shifted, then AltGr combos.
-					static bool TryFindForModifiers(
+					bool TryFindForModifiers(
 						nint layoutPtr,
 						Rune targetRune,
 						uint modifiers,
@@ -94,7 +114,7 @@ namespace Keysharp.Internals.Input.Unix
 					{
 						foundVk = 0;
 
-						foreach (var keyCode in candidateKeyCodes)
+						foreach (var keyCode in textCandidateKeyCodes)
 						{
 							if (!TryTranslate(layoutPtr, keyCode, modifiers, out var translatedRune))
 								continue;
@@ -177,7 +197,7 @@ namespace Keysharp.Internals.Input.Unix
 					if (altGr)
 						modifiers |= optionKeyState;
 
-					return TryTranslate(layoutPtr, keyCode, modifiers, out rune);
+					return TryTranslate(layoutPtr, (ushort)keyCode, modifiers, out rune);
 				}
 			}
 
@@ -259,12 +279,16 @@ namespace Keysharp.Internals.Input.Unix
 				}
 			}
 
-			private static bool TryMapMacKeyCodeToVk(ushort keyCode, out uint vk)
+			public bool TryMapVkToMacKeyCode(uint vk, out uint keyCode) => vkToMacKeyCode.TryGetValue(vk, out keyCode);
+
+			public bool TryMapMacKeyCodeToVk(uint keyCode, out uint vk) => MapMacKeyCodeToVk(keyCode, out vk);
+
+			public static bool MapMacKeyCodeToVk(uint keyCode, out uint vk)
 			{
 				vk = keyCode switch
 				{
+					// ANSI letter keys
 					0x00 => (uint)'A',
-					0x0A => VK_OEM_102,    // ISO extra key (<> or \|)
 					0x01 => (uint)'S',
 					0x02 => (uint)'D',
 					0x03 => (uint)'F',
@@ -281,40 +305,137 @@ namespace Keysharp.Internals.Input.Unix
 					0x0F => (uint)'R',
 					0x10 => (uint)'Y',
 					0x11 => (uint)'T',
+					0x1F => (uint)'O',
+					0x20 => (uint)'U',
+					0x22 => (uint)'I',
+					0x23 => (uint)'P',
+					0x25 => (uint)'L',
+					0x26 => (uint)'J',
+					0x28 => (uint)'K',
+					0x2D => (uint)'N',
+					0x2E => (uint)'M',
+
+					// ANSI number row
 					0x12 => (uint)'1',
 					0x13 => (uint)'2',
 					0x14 => (uint)'3',
 					0x15 => (uint)'4',
 					0x16 => (uint)'6',
 					0x17 => (uint)'5',
-					0x18 => VK_OEM_PLUS,
 					0x19 => (uint)'9',
 					0x1A => (uint)'7',
-					0x1B => VK_OEM_MINUS,
 					0x1C => (uint)'8',
 					0x1D => (uint)'0',
+
+					// ANSI punctuation / OEM keys
+					0x0A => VK_OEM_102,    // kVK_ISO_Section, ISO extra key: <> / §± / \| depending on layout
+					0x18 => VK_OEM_PLUS,   // =
+					0x1B => VK_OEM_MINUS,  // -
 					0x1E => VK_OEM_6,      // ]
-					0x1F => (uint)'O',
-					0x20 => (uint)'U',
 					0x21 => VK_OEM_4,      // [
-					0x22 => (uint)'I',
-					0x23 => (uint)'P',
-					0x24 => VK_RETURN,
-					0x25 => (uint)'L',
-					0x26 => (uint)'J',
 					0x27 => VK_OEM_7,      // '
-					0x28 => (uint)'K',
 					0x29 => VK_OEM_1,      // ;
 					0x2A => VK_OEM_5,      // \
-					0x2B => VK_OEM_COMMA,
+					0x2B => VK_OEM_COMMA,  // ,
 					0x2C => VK_OEM_2,      // /
-					0x2D => (uint)'N',
-					0x2E => (uint)'M',
-					0x2F => VK_OEM_PERIOD,
+					0x2F => VK_OEM_PERIOD, // .
+					0x32 => VK_OEM_3,      // `
+
+					// Main control keys
+					0x24 => VK_RETURN,     // Return
 					0x30 => VK_TAB,
 					0x31 => VK_SPACE,
-					0x32 => VK_OEM_3,      // `
-					0x33 => VK_BACK,
+					0x33 => VK_BACK,       // macOS Delete == Windows Backspace
+					0x35 => VK_ESCAPE,
+					0x39 => VK_CAPITAL,    // Caps Lock
+
+					// Modifiers
+					0x38 => VK_LSHIFT,
+					0x3C => VK_RSHIFT,
+
+					// macOS Control maps to Windows Ctrl
+					0x3B => VK_LCONTROL,
+					0x3E => VK_RCONTROL,
+
+					// macOS Option maps to Windows Alt/Menu
+					0x3A => VK_LMENU,
+					0x3D => VK_RMENU,
+
+					// macOS Command maps to Windows Win/Super
+					0x37 => VK_LWIN,
+					0x36 => VK_RWIN,
+
+					// Function keys
+					0x7A => VK_F1,
+					0x78 => VK_F2,
+					0x63 => VK_F3,
+					0x76 => VK_F4,
+					0x60 => VK_F5,
+					0x61 => VK_F6,
+					0x62 => VK_F7,
+					0x64 => VK_F8,
+					0x65 => VK_F9,
+					0x6D => VK_F10,
+					0x67 => VK_F11,
+					0x6F => VK_F12,
+					0x69 => VK_F13,
+					0x6B => VK_F14,
+					0x71 => VK_F15,
+					0x6A => VK_F16,
+					0x40 => VK_F17,
+					0x4F => VK_F18,
+					0x50 => VK_F19,
+					0x5A => VK_F20,
+
+					// Navigation / editing
+					0x72 => VK_INSERT,     // kVK_Help; closest Windows equivalent is Insert/Help
+					0x73 => VK_HOME,
+					0x74 => VK_PRIOR,      // Page Up
+					0x75 => VK_DELETE,     // Forward Delete
+					0x77 => VK_END,
+					0x79 => VK_NEXT,       // Page Down
+					0x7B => VK_LEFT,
+					0x7C => VK_RIGHT,
+					0x7D => VK_DOWN,
+					0x7E => VK_UP,
+
+					// Keypad
+					0x41 => VK_DECIMAL,    // keypad .
+					0x43 => VK_MULTIPLY,
+					0x45 => VK_ADD,
+					0x47 => VK_CLEAR,      // keypad clear; closest to NumLock-ish behavior on Mac
+					0x4B => VK_DIVIDE,
+					0x4C => VK_RETURN,     // keypad Enter; distinguish via scan/keyCode if needed
+					0x4E => VK_SUBTRACT,
+					0x51 => VK_OEM_PLUS,   // keypad =
+					0x52 => VK_NUMPAD0,
+					0x53 => VK_NUMPAD1,
+					0x54 => VK_NUMPAD2,
+					0x55 => VK_NUMPAD3,
+					0x56 => VK_NUMPAD4,
+					0x57 => VK_NUMPAD5,
+					0x58 => VK_NUMPAD6,
+					0x59 => VK_NUMPAD7,
+					0x5B => VK_NUMPAD8,
+					0x5C => VK_NUMPAD9,
+
+					// Volume keys
+					0x48 => VK_VOLUME_UP,
+					0x49 => VK_VOLUME_DOWN,
+					0x4A => VK_VOLUME_MUTE,
+
+					// JIS-specific keys.
+					// These do not have great Windows VK equivalents, but these are the least-bad mappings.
+					0x5D => VK_OEM_5,      // kVK_JIS_Yen
+					0x5E => VK_OEM_102,    // kVK_JIS_Underscore / Ro
+					0x5F => VK_SEPARATOR,  // kVK_JIS_KeypadComma
+					0x66 => VK_NONCONVERT,      // kVK_JIS_Eisu
+					0x68 => VK_KANA,      // kVK_JIS_Kana
+
+					// No useful Windows VK equivalent:
+					// 0x4D kVK_JIS_KeypadEquals? some tables leave this unused/ambiguous
+					// 0x6E kVK_ContextualMenu on some sources, but not reliable enough to map to VK_APPS
+					// 0x6B/0x71 etc. already used above for F14/F15.
 					_ => 0u
 				};
 

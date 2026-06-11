@@ -75,6 +75,22 @@ namespace Keysharp.Internals.Input.Unix
 			}
 #endif
 
+#if OSX
+			internal static bool TryMapMacCodeToVk(uint keycode, out uint vk)
+			{
+				EnsureProvider();
+				vk = 0;
+				return provider != null && provider.TryMapMacKeyCodeToVk(keycode, out vk);
+			}
+
+			internal static bool TryMapVkToMacCode(uint vk, out uint keycode)
+			{
+				EnsureProvider();
+				keycode = 0;
+				return provider != null && provider.TryMapVkToMacKeyCode(vk, out keycode);
+			}
+#endif
+
 			private static void EnsureProvider()
 			{
 				if (provider != null)
@@ -121,6 +137,11 @@ namespace Keysharp.Internals.Input.Unix
 			bool TryMapXKeycodeToVk(uint keycode, out uint vk);
 			bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
 #endif
+
+#if OSX
+			bool TryMapMacKeyCodeToVk(uint keycode, out uint vk);
+			bool TryMapVkToMacKeyCode(uint vk, out uint keycode);
+#endif
 			void ConfigureLayout(string rules, string model, string layout, string variant, string options);
 
 			/// <summary>
@@ -156,6 +177,20 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
+			{
+				keycode = 0;
+				return false;
+			}
+#endif
+
+#if OSX
+			public bool TryMapMacKeyCodeToVk(uint keycode, out uint vk)
+			{
+				vk = 0;
+				return false;
+			}
+
+			public bool TryMapVkToMacKeyCode(uint vk, out uint keycode)
 			{
 				keycode = 0;
 				return false;

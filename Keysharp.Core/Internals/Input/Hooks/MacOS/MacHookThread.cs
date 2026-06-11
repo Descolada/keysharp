@@ -1,4 +1,6 @@
 using Keysharp.Builtins;
+using System.Data.Common;
+
 #if OSX
 using System.Runtime.InteropServices;
 using SharpHook;
@@ -96,9 +98,13 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			if (vk == 0)
 				return 0;
 
+			uint sc = 0;
+
 			lock (mappingLock)
 			{
-				if (vkToRawSc.TryGetValue(vk, out var sc))
+				if (UnixKeyboardMouseSender.UnixCharMapper.TryMapVkToMacCode(vk, out sc))
+					return sc;
+				if (vkToRawSc.TryGetValue(vk, out sc))
 					return sc;
 			}
 

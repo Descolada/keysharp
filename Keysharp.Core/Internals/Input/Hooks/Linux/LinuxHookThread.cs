@@ -26,10 +26,9 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		private readonly LinuxX11InputState inputState;
 		private readonly Dictionary<uint, int> temporarilyUngrabbedKeycodes = [];
 
-		internal LinuxHookThread()
+		internal LinuxHookThread() : base()
 		{
 			inputState = new LinuxX11InputState(physicalKeyState, logicalKeyState);
-			ConfigureScanCodeNames();
 		}
 
 		protected override long SyntheticEventTimeoutMs => 250;
@@ -848,28 +847,6 @@ namespace Keysharp.Internals.Input.Hooks.Linux
 		}
 
 		private static bool UseInputdScanCodes => !KeysharpInputdManager.IsLegacyX11FallbackActive;
-
-		// Single method for both inputd and X11 paths: MapVkToSc dispatches to the right
-		// backend based on UseInputdScanCodes, so the names are always consistent with
-		// the actual SCs that the hook will deliver.
-		private void ConfigureScanCodeNames()
-		{
-			AddScKeyName("NumpadEnter", MapVkToSc(VK_RETURN, true));
-			AddScKeyName("Delete", MapVkToSc(VK_DELETE));
-			AddScKeyName("Del", MapVkToSc(VK_DELETE));
-			AddScKeyName("Insert", MapVkToSc(VK_INSERT));
-			AddScKeyName("Ins", MapVkToSc(VK_INSERT));
-			AddScKeyName("Up", MapVkToSc(VK_UP));
-			AddScKeyName("Down", MapVkToSc(VK_DOWN));
-			AddScKeyName("Left", MapVkToSc(VK_LEFT));
-			AddScKeyName("Right", MapVkToSc(VK_RIGHT));
-			AddScKeyName("Home", MapVkToSc(VK_HOME));
-			AddScKeyName("End", MapVkToSc(VK_END));
-			AddScKeyName("PgUp", MapVkToSc(VK_PRIOR));
-			AddScKeyName("PageUp", MapVkToSc(VK_PRIOR));
-			AddScKeyName("PgDn", MapVkToSc(VK_NEXT));
-			AddScKeyName("PageDown", MapVkToSc(VK_NEXT));
-		}
 
 		private static uint MapVkToInputdSc(uint vk, bool returnSecondary)
 		{

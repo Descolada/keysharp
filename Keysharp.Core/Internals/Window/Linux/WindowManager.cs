@@ -306,47 +306,7 @@ namespace Keysharp.Internals.Window.Linux
 			_ = Xlib.XSendEvent(Display.Handle, window, false, EventMasks.NoEvent, ref xev);
 		}
 
-		internal bool IsNetWmAtomSupported(nint atom)
-		{
-			nint prop = 0;
-
-			if (!TryGetWindowProperty(Display.Handle, Display.Root.ID, Display._NET_SUPPORTED, 0, new nint(1024), false,
-				(nint)XAtom.XA_ATOM, out _, out var actualFormat, out var nitems, out _, out prop))
-				return false;
-
-			try
-			{
-				if (actualFormat != 32)
-					return false;
-
-				for (var i = 0L; i < nitems.ToInt64(); i++)
-				{
-					if (Marshal.ReadIntPtr(prop, checked((int)(i * nint.Size))) == atom)
-						return true;
-				}
-
-				return false;
-			}
-			finally
-			{
-				if (prop != 0)
-					_ = Xlib.XFree(prop);
-			}
-		}
-
-		internal bool TryNetMoveWindow(nint window, int x, int y)
-		{
-			if (!IsNetWmAtomSupported(Display._NET_MOVERESIZE_WINDOW))
-				return false;
-
-			const int xFlag = 1 << 8;
-			const int yFlag = 1 << 9;
-			const int sourcePager = 2 << 12;
-			return SendNetWMMessage(window, Display._NET_MOVERESIZE_WINDOW,
-				(int)Gravity.StaticGravity | xFlag | yFlag | sourcePager, x, y, 0, 0);
-		}
-
-		internal bool SendNetWMMessage(nint window, nint message_type, nint l0, nint l1, nint l2, nint l3, nint l4 = default)
+		internal void SendNetWMMessage(nint window, nint message_type, nint l0, nint l1, nint l2, nint l3)
 		{
 			var xev = new XEvent();
 			xev.ClientMessageEvent.type = XEventName.ClientMessage;
@@ -358,8 +318,7 @@ namespace Keysharp.Internals.Window.Linux
 			xev.ClientMessageEvent.ptr2 = l1;
 			xev.ClientMessageEvent.ptr3 = l2;
 			xev.ClientMessageEvent.ptr4 = l3;
-			xev.ClientMessageEvent.ptr5 = l4;
-			return Xlib.XSendEvent(Display.Handle, Display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev) != 0;
+			_ = Xlib.XSendEvent(Display.Handle, Display.Root.ID, false, EventMasks.SubstructureRedirect | EventMasks.SubstructureNofity, ref xev);
 		}
 
 		public static WindowItemBase ChildWindowFromPoint(POINT location)

@@ -89,7 +89,7 @@ namespace Keysharp.Internals
 			if (script.hasExited)
 				return false;
 
-			Dialogs.CloseMessageBoxes();
+			Dialogs.CloseDialogs();
 			Dialogs.CloseToolTips();
 			var ec = exitCode.Ai();
 			Accessors.A_ExitReason = exitReason.ToString();

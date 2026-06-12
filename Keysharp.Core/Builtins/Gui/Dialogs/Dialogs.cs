@@ -202,46 +202,53 @@ namespace Keysharp.Builtins
 			}
 		}
 #else
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<Eto.Widget, byte> activeEtoDialogs = new();
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<CancellationTokenSource, byte> activeEtoMsgBoxes = new();
+
+		private static T ShowEtoDialog<T>(Eto.Widget dialog, Func<T> show)
+		{
+			_ = activeEtoDialogs.TryAdd(dialog, 0);
+
+			try
+			{
+				return show();
+			}
+			finally
+			{
+				_ = activeEtoDialogs.TryRemove(dialog, out _);
+			}
+		}
+
 		private static string ShowEtoMsgBox(Control owner, string txt, string caption, MessageBoxButtons buttons, MessageBoxType icon, MessageBoxDefaultButton defaultbutton, double timeout)
 		{
-			if (timeout != 0)
+			using var showCts = new CancellationTokenSource();
+			_ = activeEtoMsgBoxes.TryAdd(showCts, 0);
+
+			try
 			{
-				using var showCts = new CancellationTokenSource();
-				showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
 				var ownerControl = owner ?? Application.Instance?.MainForm;
 
-				ActivateAppForMessageBox(ownerControl);
-				var showTask = MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+				if (timeout != 0)
+					showCts.CancelAfter(TimeSpan.FromSeconds(timeout));
+
+				var showTask = Script.InvokeOnUIThread(() =>
+				{
+					ActivateAppForMessageBox(ownerControl);
+					return MessageBox.ShowAsync(ownerControl, txt, caption, buttons, icon, defaultbutton, showCts.Token);
+				});
 
 				while (!showTask.IsCompleted)
 					Keysharp.Internals.Flow.TryDoEvents();
 
 				if (showTask.IsCanceled)
-					return "Timeout";
+					return timeout != 0 ? "Timeout" : "";
 
 				return showTask.Result.ToString();
 			}
-
-			if (owner != null)
+			finally
 			{
-				return owner.Invoke(() =>
-				{
-					ActivateAppForMessageBox(owner);
-					return MessageBox.Show(owner, txt, caption, buttons, icon, defaultbutton).ToString();
-				});
+				_ = activeEtoMsgBoxes.TryRemove(showCts, out _);
 			}
-
-			var result = "";
-			var task = Application.Instance.InvokeAsync(() =>
-			{
-				ActivateAppForMessageBox(null);
-				result = MessageBox.Show(null, txt, caption, buttons, icon, defaultbutton).ToString();
-			});
-
-			while (!task.IsCompleted)
-				Keysharp.Internals.Flow.TryDoEvents();
-
-			return result;
 		}
 #endif
 
@@ -339,7 +346,7 @@ namespace Keysharp.Builtins
 						select.Directory = folderPath;
 				}
 
-				var selected = select.ShowDialog(GetEtoDialogOwner());
+				var selected = ShowEtoDialog(select, () => select.ShowDialog(GetEtoDialogOwner()));
 				return selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
 			});
 #endif
@@ -475,7 +482,7 @@ namespace Keysharp.Builtins
 					if (saveDir != null)
 						saveas.Directory = new Uri(saveDir);
 					ApplyEtoFilters(saveas.Filters, f);
-					var selected = saveas.ShowDialog(GetEtoDialogOwner());
+					var selected = ShowEtoDialog(saveas, () => saveas.ShowDialog(GetEtoDialogOwner()));
 					return selected == Eto.Forms.DialogResult.Ok ? saveas.FileName : "";
 				});
 #endif
@@ -511,7 +518,7 @@ namespace Keysharp.Builtins
 						var selectDir = ToFileDialogPath(rootdir + Path.DirectorySeparatorChar);
 						if (selectDir != null)
 							select.Directory = selectDir;
-						var selected = select.ShowDialog(GetEtoDialogOwner());
+						var selected = ShowEtoDialog(select, () => select.ShowDialog(GetEtoDialogOwner()));
 						return selected == Eto.Forms.DialogResult.Ok ? select.Directory ?? "" : "";
 					});
 #endif
@@ -551,7 +558,7 @@ namespace Keysharp.Builtins
 						if (openDir != null)
 							open.Directory = new Uri(openDir);
 						ApplyEtoFilters(open.Filters, f);
-						var selected = open.ShowDialog(GetEtoDialogOwner());
+						var selected = ShowEtoDialog(open, () => open.ShowDialog(GetEtoDialogOwner()));
 						var filenames = open.Filenames.Select(file => file?.ToString());
 						if (selected == Eto.Forms.DialogResult.Ok)
 							return multi ? new Array(filenames.Cast<object>()) : filenames.FirstOrDefault() ?? "";
@@ -736,7 +743,7 @@ namespace Keysharp.Builtins
 				});
 
 				dlg.Content = layout;
-				var result = (Eto.Forms.DialogResult)dlg.ShowModal();
+				var result = ShowEtoDialog(dlg, () => (Eto.Forms.DialogResult)dlg.ShowModal());
 				var obj = new KeysharpObject();
 				obj.DefinePropInternal("Value", new OwnPropsDesc(obj, passwordSpecified ? passwordBox.Text : textBox.Text));
 				obj.DefinePropInternal("Result", new OwnPropsDesc(obj, result == Eto.Forms.DialogResult.Ok ? "OK" : "Cancel"));
@@ -1133,12 +1140,10 @@ namespace Keysharp.Builtins
 		/// <summary>
 		/// Internal helper to close all message boxes.
 		/// Only used on script exit to make sure all message boxes are closed.
-		/// Currently only able to work on Windows.
 		/// </summary>
-		internal static void CloseMessageBoxes()
+		internal static void CloseDialogs()
 		{
 #if WINDOWS
-			//Will need a way to do this on linux.//TODO
 			var tempn = Script.TheScript.nMessageBoxes;
 
 			while (tempn > 0)
@@ -1151,7 +1156,34 @@ namespace Keysharp.Builtins
 					tempn--;
 				}
 			}
+#else
+			foreach (var cts in activeEtoMsgBoxes.Keys)
+			{
+				try
+				{
+					cts.Cancel();
+				}
+				catch
+				{
+				}
+			}
 
+			Script.InvokeOnUIThread(() =>
+			{
+				foreach (var dialog in activeEtoDialogs.Keys)
+				{
+					try
+					{
+						if (dialog is Eto.Forms.Window window)
+							window.Close();
+						else
+							dialog.Dispose();
+					}
+					catch
+					{
+					}
+				}
+			});
 #endif
 		}
 

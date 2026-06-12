@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define KSI_PROTOCOL_MAJOR 0u
-#define KSI_PROTOCOL_MINOR 1u
+#define KSI_PROTOCOL_MINOR 2u
 #define KSI_PROTOCOL_NAME "keysharp-inputd/windows-input-v0"
 #define KSI_MAX_MESSAGE_SIZE 65536u
 #define KSI_SYNTH_DEVICE_NAME "Keysharp Virtual Input"

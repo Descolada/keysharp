@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
+using System.Threading;
 
 #if LINUX
 namespace Keysharp.Internals.Input.Linux
@@ -13,7 +14,7 @@ namespace Keysharp.Internals.Input.Linux
 		internal const string DefaultSocketPathValue = "/run/keysharp-inputd/keysharp-inputd.sock";
 
 		private const uint ProtocolMajor = 0;
-		private const uint ProtocolMinor = 1;
+		private const uint ProtocolMinor = 2;
 		private const int HeaderSize = 24;
 		private const int MaxMessageSize = 65536;
 		private const int InputSize = 40;
@@ -25,6 +26,7 @@ namespace Keysharp.Internals.Input.Linux
 		// 60s prompt window (KSI_PROMPT_TIMEOUT_SECONDS), so allow margin beyond that
 		// for the hello response specifically.
 		private const int HelloResponseTimeoutMs = 75000;
+		private const int LeaseHeartbeatPeriodMs = 5000;
 
 		[Flags]
 		internal enum Capabilities : uint
@@ -174,8 +176,10 @@ namespace Keysharp.Internals.Input.Linux
 			/// reader-thread + control-thread workload is safe even if both end up
 			/// touching this client concurrently.
 			/// </summary>
-			private readonly Queue<HookEvent> pendingHookEvents = new();
-			private readonly Lock pendingHookEventsLock = new();
+		private readonly Queue<HookEvent> pendingHookEvents = new();
+		private readonly Lock pendingHookEventsLock = new();
+		private readonly Lock sendLock = new();
+		private Timer leaseHeartbeatTimer;
 			private ulong nextCorrelationId = 1;
 			private bool disposed;
 			private readonly int requestTimeoutMs;
@@ -220,7 +224,22 @@ namespace Keysharp.Internals.Input.Linux
 
 			try
 			{
-				socket.Connect(endpoint);
+				if (requestTimeoutMs > 0)
+				{
+					using var cancellation = new CancellationTokenSource(requestTimeoutMs);
+
+					try
+					{
+						socket.ConnectAsync(endpoint, cancellation.Token).AsTask().GetAwaiter().GetResult();
+					}
+					catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+					{
+						throw new SocketException((int)SocketError.TimedOut);
+					}
+				}
+				else
+					socket.Connect(endpoint);
+
 				var client = new KeysharpInputdClient(socket, requestTimeoutMs);
 				client.RequestCapabilities(requested);
 				return client;
@@ -257,7 +276,12 @@ namespace Keysharp.Internals.Input.Linux
 				var correlationId = NextCorrelationId();
 				SendFrame(MessageType.SetBlockInput, correlationId, payload);
 				var response = ReadResponseFrame(MessageType.SetBlockInput, correlationId);
-				return (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
+				var applied = (BlockInputMask)EnsureStatus(response, MessageType.SetBlockInput, correlationId).Detail;
+
+				if (applied != BlockInputMask.None)
+					EnsureLeaseHeartbeat();
+
+				return applied;
 			}
 
 		internal uint SubscribeHook(HookType hookType)
@@ -269,7 +293,12 @@ namespace Keysharp.Internals.Input.Linux
 				var correlationId = NextCorrelationId();
 				SendFrame(MessageType.SubscribeHook, correlationId, payload);
 				var response = ReadResponseFrame(MessageType.SubscribeHook, correlationId);
-				return EnsureStatus(response, MessageType.SubscribeHook, correlationId).Detail;
+				var subscriptions = EnsureStatus(response, MessageType.SubscribeHook, correlationId).Detail;
+
+				if (subscriptions != 0)
+					EnsureLeaseHeartbeat();
+
+				return subscriptions;
 			}
 
 		internal uint UnsubscribeHook(HookType hookType)
@@ -452,6 +481,8 @@ namespace Keysharp.Internals.Input.Linux
 				return;
 
 			disposed = true;
+			leaseHeartbeatTimer?.Dispose();
+			leaseHeartbeatTimer = null;
 			socket.Dispose();
 		}
 
@@ -515,21 +546,48 @@ namespace Keysharp.Internals.Input.Linux
 
 		private void SendFrame(MessageType type, ulong correlationId, ReadOnlySpan<byte> payload)
 		{
-			ThrowIfDisposed();
+			lock (sendLock)
+			{
+				ThrowIfDisposed();
 
-			if (payload.Length > MaxMessageSize - HeaderSize)
-				throw new ArgumentOutOfRangeException(nameof(payload));
+				if (payload.Length > MaxMessageSize - HeaderSize)
+					throw new ArgumentOutOfRangeException(nameof(payload));
 
-			Span<byte> header = stackalloc byte[HeaderSize];
-			BinaryPrimitives.WriteUInt32LittleEndian(header, (uint)(HeaderSize + payload.Length));
-			BinaryPrimitives.WriteUInt16LittleEndian(header[4..], (ushort)ProtocolMajor);
-			BinaryPrimitives.WriteUInt16LittleEndian(header[6..], (ushort)ProtocolMinor);
-			BinaryPrimitives.WriteUInt32LittleEndian(header[8..], (uint)type);
-			BinaryPrimitives.WriteUInt32LittleEndian(header[12..], 0);
-			BinaryPrimitives.WriteUInt64LittleEndian(header[16..], correlationId);
+				Span<byte> header = stackalloc byte[HeaderSize];
+				BinaryPrimitives.WriteUInt32LittleEndian(header, (uint)(HeaderSize + payload.Length));
+				BinaryPrimitives.WriteUInt16LittleEndian(header[4..], (ushort)ProtocolMajor);
+				BinaryPrimitives.WriteUInt16LittleEndian(header[6..], (ushort)ProtocolMinor);
+				BinaryPrimitives.WriteUInt32LittleEndian(header[8..], (uint)type);
+				BinaryPrimitives.WriteUInt32LittleEndian(header[12..], 0);
+				BinaryPrimitives.WriteUInt64LittleEndian(header[16..], correlationId);
 
-			WriteAll(header);
-			WriteAll(payload);
+				WriteAll(header);
+				WriteAll(payload);
+			}
+		}
+
+		private void EnsureLeaseHeartbeat()
+		{
+			if (leaseHeartbeatTimer != null)
+				return;
+
+			leaseHeartbeatTimer = new Timer(
+				_ =>
+				{
+					try
+					{
+						// Correlation zero is a protocol 0.2 one-way lease renewal,
+						// so it cannot interfere with the hook reader's receive stream.
+						SendFrame(MessageType.Heartbeat, 0, ReadOnlySpan<byte>.Empty);
+					}
+					catch
+					{
+						// Normal request/hook paths own recovery and disposal.
+					}
+				},
+				null,
+				LeaseHeartbeatPeriodMs,
+				LeaseHeartbeatPeriodMs);
 		}
 
 		private Frame ReadFrame(bool idleRetry = false)

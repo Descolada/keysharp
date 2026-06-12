@@ -32,6 +32,11 @@ GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
 GET_POINTER_POSITION  POINTER_POSITION_RESULT
 ```
 
+Protocol `0.2` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
+lease renewal. The daemon sends no response for that form, so hook-reader
+connections can renew without introducing an unexpected receive frame. Other
+heartbeat correlation ids retain request/response behavior.
+
 ## Authorization
 
 Clients connect through the systemd socket at
@@ -70,10 +75,10 @@ daemon is running as root) can target another user's records.
 
 ## Hook model
 
-The daemon implements hook transport only. Keysharp owns all policy. Keyboard
-and mouse hook delivery run on independent lane threads, so a stalled keyboard
-hook callback no longer holds mouse events back (and vice versa). All
-uinput-bound writes go through a single output sequencer thread.
+The daemon implements hook transport only; Keysharp owns all policy. Keyboard
+and mouse decision waits run on independent lane threads, so a stalled keyboard
+hook decision does not hold mouse events back (and vice versa). All uinput-bound
+writes go through a single output sequencer thread.
 
 ```
 evdev / main thread       lane threads             sequencer thread
@@ -98,17 +103,34 @@ Hook subscriptions require hook access **and** the matching synthesis access.
 Once `EVIOCGRAB` is active, passed events must be replayable through `uinput`;
 if `uinput` is unavailable, subscriptions are denied.
 
-Hook decisions have a one-second timeout; a timeout currently passes the event.
-After ten consecutive delivery/timeout failures the daemon removes that client's
-subscriptions and releases grabs so a crashed script cannot keep input trapped.
+Hook decisions have a one-second timeout; a timeout passes the event and removes
+that client's subscriptions so a crashed script cannot keep input trapped.
 
 `EMERGENCY_PASSTHROUGH` from a client already granted hook access clears all hook
 subscriptions, discards pending hook events, and releases all grabs.
+
+Hook subscriptions and non-zero `BlockInput` masks hold a 15-second lease.
+Keysharp renews active leases every five seconds using one-way heartbeats.
+Expiry clears the client's input state, releases grabs, and disconnects the
+client so managed recovery can reconnect or fall back.
+
+Physically pressing `Ctrl+Alt+Backspace` asks the daemon's main event loop to
+perform the same fail-open action and enqueue a complete press/release chord for
+the display server. It does not depend on a responsive Keysharp client, and it
+also clears all `BlockInput` masks. It is not a substitute for killing a daemon
+whose main event loop or output path is itself stalled.
 
 `SET_BLOCK_INPUT` requires `KSI_CAP_BLOCK_INPUT` and sets the calling client's
 physical input block mask: keyboard, mouse, both, or neither. The daemon drops
 blocked physical events while allowing virtual input to continue. Block masks are
 client-scoped and are removed when that client disconnects.
+
+The daemon bounds its queues and admits client input atomically. Each hook lane
+has a single pending decision slot, so a decision from any client other than the
+lane's current responder — or a late decision after the one-second timeout — is
+rejected. A `SYNTHESIZE_INPUT` request or `MODIFY` decision that would exceed the
+output bounds is rejected with a failure result rather than partially queued, and
+capacity is reserved for physical replay and the emergency chord.
 
 ### Keyboard hook event fields
 

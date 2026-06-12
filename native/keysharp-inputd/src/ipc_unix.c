@@ -82,8 +82,16 @@ int ksi_ipc_server_open(const char *socket_path, ksi_ipc_server **server)
         return -1;
     }
 
-    if (listen(fd, 16) != 0) {
+    if (listen(fd, 64) != 0) {
         fprintf(stderr, "failed to listen on IPC socket %s: %s\n", socket_path, strerror(errno));
+        close(fd);
+        (void)unlink(socket_path);
+        free(created);
+        return -1;
+    }
+
+    if (set_nonblock(fd) != 0) {
+        fprintf(stderr, "failed to set IPC server non-blocking: %s\n", strerror(errno));
         close(fd);
         (void)unlink(socket_path);
         free(created);
@@ -124,6 +132,12 @@ int ksi_ipc_server_from_fd(int fd, ksi_ipc_server **server)
     }
 
     set_cloexec(fd);
+
+    if (set_nonblock(fd) != 0) {
+        free(created);
+        return -1;
+    }
+
     created->fd = fd;
     *server = created;
     return 0;
@@ -163,7 +177,10 @@ int ksi_ipc_accept_client(ksi_ipc_server *server)
     client_fd = accept(server->fd, NULL, NULL);
 
     if (client_fd < 0) {
-        fprintf(stderr, "failed to accept IPC client: %s\n", strerror(errno));
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            fprintf(stderr, "failed to accept IPC client: %s\n", strerror(errno));
+        }
+
         return -1;
     }
 

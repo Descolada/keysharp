@@ -37,11 +37,15 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private SimpleGlobalHook globalHook;
 		private Task hookRunTask;
 #if LINUX
-		private KeysharpInputdClient inputdHookClient;
+		private KeysharpInputdClient inputdKeyboardHookClient;
+		private KeysharpInputdClient inputdMouseHookClient;
 		private CancellationTokenSource inputdHookCancel;
-		private Task inputdHookTask;
+		private Task inputdKeyboardHookTask;
+		private Task inputdMouseHookTask;
+		private readonly InputdCallbackGate inputdCallbackGate = new();
 		private bool usingInputdHooks;
 		protected bool UsingInputdHooks => usingInputdHooks;
+		private const int InputdCallbackGateWaitMs = 50;
 
 		// Recovery bookkeeping for an unexpected loss of the inputd hook reader (daemon
 		// crash/restart). One recovery runs at a time; repeated rapid losses pin the
@@ -54,6 +58,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 #endif
 
 		private readonly Lock hookStateLock = new();
+		private long hookStateGeneration;
 
 		// Cached on/off
 		private volatile bool keyboardEnabled;
@@ -397,11 +402,19 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// -------------------- lifecycle --------------------
 		protected internal override void DeregisterHooks()
 		{
+			lock (hookStateLock)
+			{
+				hookStateGeneration++;
+				keyboardEnabled = false;
+				mouseEnabled = false;
 #if LINUX
-			StopInputdHookCore();
+				StopInputdHookCore();
 #endif
-			StopGlobalHook();
-			PlatformUngrabAll();
+				StopGlobalHookCore(dispose: true);
+				kbdHook = 0;
+				mouseHook = 0;
+				PlatformUngrabAll();
+			}
 		}
 
 		public override void SimulateKeyPress(uint key)
@@ -440,15 +453,23 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		internal override void AddRemoveHooks(HookType hooksToBeActive, bool changeIsTemporary = false)
 		{
-			ChangeHookStateLinux(hooksToBeActive & (HookType.Keyboard | HookType.Mouse), changeIsTemporary);
+			long requestGeneration;
+
+			lock (hookStateLock)
+				requestGeneration = ++hookStateGeneration;
+
+			ChangeHookStateLinux(hooksToBeActive & (HookType.Keyboard | HookType.Mouse), changeIsTemporary, requestGeneration);
 		}
 
-		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary)
+		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
 		{
 			if (HookDisabled)
 			{
 				lock (hookStateLock)
 				{
+					if (hookStateGeneration != expectedGeneration)
+						return;
+
 					keyboardEnabled = false;
 					mouseEnabled = false;
 					kbdHook = 0;
@@ -467,6 +488,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			lock (hookStateLock)
 			{
+				if (hookStateGeneration != expectedGeneration)
+					return;
+
 				// Remember previous "caller wants it" state (since these bools are now dual-purpose).
 				bool hadKeyboard = keyboardEnabled;
 				bool hadMouse    = mouseEnabled;
@@ -671,22 +695,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			ResetTrackedInputState(clearSyntheticQueue: true);
 		}
 
-		private void StopGlobalHook()
-		{
-#if LINUX
-			StopInputdHookCore();
-#endif
-			try { globalHook?.Dispose(); } catch { }
-			try { if (hookRunTask != null && !hookRunTask.IsCompleted) hookRunTask.Wait(50); } catch { }
-			globalHook = null;
-			hookRunTask = null;
-
-			ResetTrackedInputState(clearSyntheticQueue: true);
-			kbdHook = 0;
-			mouseHook = 0;
-			ResetIndicatorSnapshot();
-		}
-
 #if LINUX
 		private bool TryStartInputdHookCore(bool wantKeyboard, bool wantMouse, out string message)
 		{
@@ -695,8 +703,17 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!wantKeyboard && !wantMouse)
 				return false;
 
-			if (inputdHookClient != null && inputdHookTask != null && !inputdHookTask.IsCompleted)
+			var keyboardRunning = inputdKeyboardHookClient != null
+				&& inputdKeyboardHookTask != null
+				&& !inputdKeyboardHookTask.IsCompleted;
+			var mouseRunning = inputdMouseHookClient != null
+				&& inputdMouseHookTask != null
+				&& !inputdMouseHookTask.IsCompleted;
+
+			if (keyboardRunning == wantKeyboard && mouseRunning == wantMouse)
 				return true;
+
+			StopInputdHookCore();
 
 			var required = KeysharpInputdClient.Capabilities.None;
 
@@ -717,26 +734,40 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				return false;
 			}
 
-			KeysharpInputdClient client = null;
-
 			try
 			{
-				client = KeysharpInputdClient.Connect(permissionRequest);
-
 				if (wantKeyboard)
-					_ = client.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel);
+				{
+					inputdKeyboardHookClient = KeysharpInputdClient.Connect(permissionRequest);
+					_ = inputdKeyboardHookClient.SubscribeHook(KeysharpInputdClient.HookType.KeyboardLowLevel);
+				}
 
 				if (wantMouse)
-					_ = client.SubscribeHook(KeysharpInputdClient.HookType.MouseLowLevel);
+				{
+					inputdMouseHookClient = KeysharpInputdClient.Connect(permissionRequest);
+					_ = inputdMouseHookClient.SubscribeHook(KeysharpInputdClient.HookType.MouseLowLevel);
+				}
 
 				inputdHookCancel = new CancellationTokenSource();
-				inputdHookClient = client;
-				inputdHookTask = Task.Run(() => InputdHookLoop(client, inputdHookCancel.Token));
+				var hookToken = inputdHookCancel.Token;
+
+				if (inputdKeyboardHookClient != null)
+				{
+					var keyboardClient = inputdKeyboardHookClient;
+					inputdKeyboardHookTask = Task.Run(() => InputdHookLoop(keyboardClient, hookToken));
+				}
+
+				if (inputdMouseHookClient != null)
+				{
+					var mouseClient = inputdMouseHookClient;
+					inputdMouseHookTask = Task.Run(() => InputdHookLoop(mouseClient, hookToken));
+				}
+
 				return true;
 			}
 			catch (Exception ex)
 			{
-				try { client?.Dispose(); } catch { }
+				StopInputdHookCore();
 				message = ex.Message;
 				if (IsX11Available)
 					KeysharpInputdManager.ActivateLegacyX11Fallback(message);
@@ -748,17 +779,33 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 			usingInputdHooks = false;
 			try { inputdHookCancel?.Cancel(); } catch { }
-			try { inputdHookClient?.Dispose(); } catch { }
-			try { if (inputdHookTask != null && !inputdHookTask.IsCompleted) inputdHookTask.Wait(50); } catch { }
+			try { inputdKeyboardHookClient?.Dispose(); } catch { }
+			try { inputdMouseHookClient?.Dispose(); } catch { }
+			try { if (inputdKeyboardHookTask != null && !inputdKeyboardHookTask.IsCompleted) inputdKeyboardHookTask.Wait(50); } catch { }
+			try { if (inputdMouseHookTask != null && !inputdMouseHookTask.IsCompleted) inputdMouseHookTask.Wait(50); } catch { }
 			inputdHookCancel = null;
-			inputdHookClient = null;
-			inputdHookTask = null;
+			inputdKeyboardHookClient = null;
+			inputdMouseHookClient = null;
+			inputdKeyboardHookTask = null;
+			inputdMouseHookTask = null;
 		}
 
 		private void InputdHookLoop(KeysharpInputdClient client, CancellationToken token)
 		{
 			IsHookReaderThread = true;
 
+			try
+			{
+				InputdHookLoopCore(client, token);
+			}
+			finally
+			{
+				IsHookReaderThread = false;
+			}
+		}
+
+		private void InputdHookLoopCore(KeysharpInputdClient client, CancellationToken token)
+		{
 			while (!token.IsCancellationRequested)
 			{
 				KeysharpInputdClient.HookEvent hookEvent;
@@ -783,19 +830,35 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 
 				var block = false;
+				var callbackStateLost = false;
 
 				try
 				{
-					block = hookEvent.HookType switch
+					// LowLevelCommon intentionally shares combined keyboard/mouse state.
+					// Never let one stuck callback consume the other lane's native
+					// one-second decision deadline: fail open if the shared state owner
+					// is not available promptly.
+					if (inputdCallbackGate.TryEnter(InputdCallbackGateWaitMs, out var callbackLease))
 					{
-						KeysharpInputdClient.HookType.KeyboardLowLevel => ProcessInputdKeyboardHook(hookEvent.Keyboard),
-						KeysharpInputdClient.HookType.MouseLowLevel => ProcessInputdMouseHook(hookEvent.Mouse),
-						_ => false
-					};
+						using (callbackLease)
+						{
+							block = hookEvent.HookType switch
+							{
+								KeysharpInputdClient.HookType.KeyboardLowLevel => ProcessInputdKeyboardHook(hookEvent.Keyboard),
+								KeysharpInputdClient.HookType.MouseLowLevel => ProcessInputdMouseHook(hookEvent.Mouse),
+								_ => false
+							};
+						}
+					}
+					else
+					{
+						callbackStateLost = true;
+					}
 				}
 				catch (Exception ex)
 				{
 					Ks.OutputDebugLine($"keysharp-inputd hook event processing failed: {ex}");
+					callbackStateLost = true;
 				}
 
 				try
@@ -812,6 +875,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						HandleInputdHookReaderLoss(ex.Message);
 					}
 
+					return;
+				}
+
+				if (callbackStateLost)
+				{
+					HandleInputdHookReaderLoss("managed callback state was lost");
 					return;
 				}
 			}
@@ -846,9 +915,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private void RecoverInputdHooks(string reason)
 		{
 			HookType want;
+			long recoveryGeneration;
 
 			lock (hookStateLock)
 			{
+				recoveryGeneration = hookStateGeneration;
 				want = HookType.None;
 
 				if (keyboardEnabled)
@@ -861,10 +932,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				// resyncs key/modifier snapshots (avoids stuck keys after the switch).
 				keyboardEnabled = false;
 				mouseEnabled = false;
-			}
 
-			// Tear down the dead inputd hook connection/state.
-			StopInputdHookCore();
+				// Keep teardown in the same state transition. Otherwise a newer
+				// AddRemoveHooks call can install a connection which stale recovery
+				// work then tears down.
+				StopInputdHookCore();
+			}
 
 			if (want == HookType.None)
 				return;
@@ -897,7 +970,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// Re-arm. If the fallback is now active this routes through X11/SharpHook;
 			// otherwise it reconnects to a freshly socket-activated daemon, and if that
 			// reconnect fails TryStartInputdHookCore activates the X11 fallback itself.
-			AddRemoveHooks(want);
+			ChangeHookStateLinux(want, changeIsTemporary: false, expectedGeneration: recoveryGeneration);
 		}
 
 		// KSI_LLKHF_* indicator bits set by the daemon on every keyboard hook event.

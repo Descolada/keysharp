@@ -21,10 +21,13 @@ add_subdirectory(
     ${CMAKE_CURRENT_BINARY_DIR}/keysharp-trust-lib)
 
 add_executable(keysharp-inputd
+    src/connection_ref.c
     src/daemon.c
     src/ipc_unix.c
     src/main.c
-    src/trust_cli.c)
+    src/pipe_ring.c
+    src/trust_cli.c
+    src/worker_pool.c)
 
 target_include_directories(keysharp-inputd
     PRIVATE

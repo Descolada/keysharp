@@ -24,6 +24,8 @@
 #define KSI_DEVICE_NAME_LENGTH 256
 #define KSI_MAX_TRACKED_DEVICES 128
 #define KSI_MAX_SUPPRESSED_REPLAY_EVENTS 8192
+#define KSI_MAX_DEVICE_EVENTS_PER_PASS 256
+#define KSI_MAX_UDEV_EVENTS_PER_PASS 64
 
 #define KSI_BITS_PER_LONG (sizeof(unsigned long) * CHAR_BIT)
 #define KSI_BIT_WORD(bit) ((bit) / KSI_BITS_PER_LONG)
@@ -496,9 +498,10 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
         if (device->grabbed) {
             if (ioctl(device->fd, EVIOCGRAB, 0) != 0) {
                 fprintf(stderr,
-                    "inputd: EVIOCGRAB(off) failed for injected source %s: %s\n",
+                    "inputd: EVIOCGRAB(off) failed for injected source %s: %s; closing device\n",
                     device->path,
                     strerror(errno));
+                close_tracked_device(device);
                 return -1;
             }
 
@@ -537,6 +540,13 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
             enabled ? "on" : "off",
             device->path,
             strerror(errno));
+
+        if (!enabled) {
+            /* Closing the evdev fd is the kernel-level fail-open fallback when
+             * EVIOCGRAB(off) itself fails. */
+            close_tracked_device(device);
+        }
+
         return -1;
     }
 
@@ -1487,7 +1497,7 @@ void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback,
 
 static void process_device_events(ksi_linux_tracked_device *device)
 {
-    for (;;) {
+    for (size_t processed = 0; processed < KSI_MAX_DEVICE_EVENTS_PER_PASS; processed++) {
         struct input_event event;
         int result;
 
@@ -1517,11 +1527,15 @@ static void process_device_events(ksi_linux_tracked_device *device)
         close_tracked_device(device);
         return;
     }
+
+    /* Leave remaining events readable for another poll iteration. This keeps a
+     * continuously busy device from starving other devices and cleanup work. */
+    dispatch_pending_mouse_move(device);
 }
 
 static void process_udev_events(void)
 {
-    for (;;) {
+    for (size_t processed = 0; processed < KSI_MAX_UDEV_EVENTS_PER_PASS; processed++) {
         struct udev_device *device;
         const char *action;
         const char *devnode;

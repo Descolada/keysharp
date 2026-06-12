@@ -827,7 +827,7 @@ namespace Keysharp.Builtins
 				var i = index.Ai();
 
 				if ((i = TranslateIndex(i)) != -1)
-					return array[i] ?? DefaultObject;
+					return array[i];
 				else
 					return Errors.IndexErrorOccurred($"Invalid retrieval index of {index} on an array with length {array.Count}.");
 			}

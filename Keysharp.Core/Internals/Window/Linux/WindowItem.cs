@@ -308,13 +308,15 @@ namespace Keysharp.Internals.Window.Linux
 				var frame = FrameExtents();
 				x -= frame.Left;
 				y -= frame.Top;
+				//AutoHotkey reports the OUTER (decorated) size, so add the frame extents to the client
+				//width/height (frame is L,T,R,B = X,Y,Width,Height). The Size getter/setter mirror this.
+				var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
+				var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
 #if DPI
 				var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-				//return new Rectangle((int)(scale * attr.x), (int)(scale * attr.y), (int)(scale * (attr.width + attr.border_width)), (int)(scale * (attr.height + attr.border_width)));
-				//Unsure if we should use the attr border with or the width and height from FrameExtents()? Also, where/when to scale?//TODO
-				return new Rectangle((int)(scale * x), (int)(scale * y), (int)(scale * (attr.width + attr.border_width)), (int)(scale * (attr.height + attr.border_width)));
+				return new Rectangle((int)(scale * x), (int)(scale * y), (int)(scale * outerW), (int)(scale * outerH));
 #else
-				return new Rectangle(x, y, attr.width + attr.border_width, attr.height + attr.border_width);
+				return new Rectangle(x, y, outerW, outerH);
 #endif
 			}
 			set
@@ -351,7 +353,7 @@ namespace Keysharp.Internals.Window.Linux
 							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);
 					}
 					else
-						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);//This is smart enough not to need manual processing for the title bar.
+						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);//The reparenting WM applies NorthWest gravity, so the requested coordinate becomes the outer/frame top-left, which is exactly what the getter returns.
 
 					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
 				}
@@ -472,11 +474,15 @@ namespace Keysharp.Internals.Window.Linux
 				}
 				else
 				{
+					//Report the OUTER (decorated) size to match AutoHotkey: client size plus frame extents.
+					var frame = FrameExtents();
+					var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
+					var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
 #if DPI
 					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					return new Size((int)(scale * (attr.width + attr.border_width)), (int)(scale * (attr.height + attr.border_width)));
+					return new Size((int)(scale * outerW), (int)(scale * outerH));
 #else
-					return new Size(attr.width + attr.border_width, attr.height + attr.border_width);
+					return new Size(outerW, outerH);
 #endif
 				}
 			}
@@ -494,7 +500,14 @@ namespace Keysharp.Internals.Window.Linux
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 						ctrl.Size = new Size(value.Width, value.Height);
 					else
-						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, w, h);
+					{
+						//value is the requested OUTER (decorated) size; XResizeWindow sets the CLIENT size,
+						//so subtract the frame extents. Without this the title bar is added on top, making
+						//the window taller than asked — which the WM then clamps to keep on screen, leaving
+						//it mis-positioned. (frame is L,T,R,B = X,Y,Width,Height.)
+						var frame = FrameExtents();
+						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, w - frame.Left - frame.Width, h - frame.Top - frame.Height);
+					}
 
 					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
 				}

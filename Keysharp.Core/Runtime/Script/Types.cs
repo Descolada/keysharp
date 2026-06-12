@@ -76,14 +76,14 @@ namespace Keysharp.Runtime
 			}
 			else if (left is double || right is double)
 			{
-				left = ForceDouble(left);
-				right = ForceDouble(right);
+				left = left.Ad();
+				right = right.Ad();
 				return typeof(double);
 			}
 			else if (left is long || right is long)
 			{
-				left = ForceLong(left);
-				right = ForceLong(right);
+				left = left.Al();
+				right = right.Al();
 				return typeof(long);
 			}
 			else

@@ -874,7 +874,7 @@ namespace Keysharp.Builtins
 			}
 			else
 			{
-				var size = args.Length > 1 ? args[1].Al(long.MinValue) : long.MinValue;
+				var size = args.Length > 1 && args[1] is not null ? args[1].ToLong() : long.MinValue;
 				bytes = Env.ExtractClipboardAllBytes(args[0], size);
 			}
 

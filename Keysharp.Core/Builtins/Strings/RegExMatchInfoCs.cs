@@ -15,7 +15,7 @@ namespace Keysharp.Builtins
 		public static implicit operator long(RegExMatchInfoCs r) => r.Pos();
 
 
-		public object __Get(object name, object args) => name is string s && s.ParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
+		public object __Get(object name, object args) => name is string s && s.TryParseLong(out long l) && l >= 0 && l <= match.Groups.Count ? this[l] : this[name];
 
 		public IFuncObj __Enum(object count) => CreateEnumerator(count.Ai());
 

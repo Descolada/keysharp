@@ -11,6 +11,7 @@ global using global::BenchmarkDotNet.Loggers;
 global using global::BenchmarkDotNet.Running;
 global using global::Keysharp.Builtins;
 global using global::Keysharp.Internals.Invoke;
+global using global::Keysharp.Internals.ExtensionMethods;
 global using global::Keysharp.Parsing;
 global using global::Keysharp.Runtime;
 

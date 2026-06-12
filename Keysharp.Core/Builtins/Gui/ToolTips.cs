@@ -46,9 +46,9 @@ namespace Keysharp.Builtins
 		public static object ToolTip(object text = null, object x = null, object y = null, object whichToolTip = null)
 		{
 			var t = text.As();
-			var _x = x.Ai(int.MinValue);
-			var _y = y.Ai(int.MinValue);
-			var id = whichToolTip.Ai(1);
+			var _x = (x is null ? int.MinValue : x.ToInt());
+			var _y = (y is null ? int.MinValue : y.ToInt());
+			var id = (whichToolTip is null ? 1 : whichToolTip.ToInt());
 			var script = Script.TheScript;
 			var persistentTooltips = script.ToolTipData.persistentTooltips;
 			var persistentTooltipsPositions = script.ToolTipData.persistentTooltipsPositions;
@@ -444,7 +444,7 @@ namespace Keysharp.Builtins
 				}
 			}
 			else if (opts != null)
-				HandleInt(opts.ParseInt());
+				HandleInt(opts.TryCoerceLong(out long lo) ? (int?)lo : null);
 
 #if WINDOWS
 			script.Tray.Visible = true;

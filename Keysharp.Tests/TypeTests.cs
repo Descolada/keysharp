@@ -85,5 +85,13 @@ namespace Keysharp.Tests
 					yield return nested;
 			}
 		}
+
+		/// <summary>
+		/// Verifies the numeric conversion semantics: TypeError on invalid input where a number
+		/// is required (AHK v2 parity), Float truncation toward zero in integer contexts, and
+		/// canonical Float-to-string formatting (whole-valued Floats keep a trailing .0).
+		/// </summary>
+		[Test, Category("Types"), NonParallelizable]
+		public void TypesConversions() => Assert.IsTrue(TestScript("types-conversions", true));
 	}
 }

@@ -882,7 +882,7 @@ namespace Keysharp.Builtins
 
 						if (Options.TryParse(opt, "Owner", ref hwnd)) { owner = Control.FromHandle(new nint(hwnd)); }
 						else if (Options.TryParse(opt, "T", ref timeout)) { }
-						else if (opt.ToString().ParseLong(out var lopt))
+						else if (opt.ToString().TryParseLong(out var lopt))
 						{
 							hadNumeric = true;
 							iopt |= unchecked((int)lopt);

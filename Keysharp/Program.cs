@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Diagnostics;
 using Keysharp.Builtins;
+using Keysharp.Internals.ExtensionMethods;
 using Keysharp.Internals.Scripting;
 using Keysharp.Internals.Strings;
 using Keysharp.Parsing;

@@ -227,7 +227,7 @@ namespace Keysharp.Internals.Scripting
 				if (executionResult != ScriptEventExecutionResult.Executed)
 					continue;
 
-				if (Script.ForceLong(result) != 0L)
+				if (result.Al() != 0L)
 					break;
 			}
 

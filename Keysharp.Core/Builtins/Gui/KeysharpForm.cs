@@ -407,7 +407,7 @@ namespace Keysharp.Builtins
 					var result = closedHandlers?.InvokeEventHandlers(g);
 					e.Cancel = true;
 
-					if (Script.ForceLong(result) != 0L)
+					if (result.Al() != 0L)
 						return;
 
 					this.Hide();

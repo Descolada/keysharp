@@ -87,7 +87,7 @@ namespace Keysharp.Builtins
 				{
 					var ret = ctrl.InvokeMessageHandlers(ref m);
 
-					if (Script.ForceLong(ret) != 0L)
+					if (ret.Al() != 0L)
 						return true;
 				}
 			}

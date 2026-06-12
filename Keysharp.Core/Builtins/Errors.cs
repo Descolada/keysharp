@@ -37,7 +37,7 @@ namespace Keysharp.Builtins
 					foreach (var registration in script.onErrorHandlers.GetSnapshot())
 					{
 						var result = registration.Callback.Call(err, err.ExcType);
-						var lresult = Script.ForceLong(result);
+						var lresult = result.Al();
 
 						if (lresult != 0L)
 						{

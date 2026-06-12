@@ -312,7 +312,7 @@ namespace Keysharp.Builtins
 		public static object A_ControlDelay
 		{
 			get => ThreadAccessors.A_ControlDelay;
-			set => ThreadAccessors.A_ControlDelay = value.Al();
+			set => ThreadAccessors.A_ControlDelay = value.ToLong();
 		}
 
 		/// <summary>
@@ -478,7 +478,7 @@ namespace Keysharp.Builtins
 		public static object A_DefaultMouseSpeed
 		{
 			get => ThreadAccessors.A_DefaultMouseSpeed;
-			set => ThreadAccessors.A_DefaultMouseSpeed = value.Al();
+			set => ThreadAccessors.A_DefaultMouseSpeed = value.ToLong();
 		}
 
 		/// <summary>
@@ -561,7 +561,7 @@ namespace Keysharp.Builtins
 			get => (long)ThreadAccessors.A_LastError;
 			set
 			{
-				var val = value.Ai();
+				var val = value.ToInt();
 				Marshal.SetLastSystemError(val);
 				ThreadAccessors.A_LastError = val;
 			}
@@ -597,7 +597,7 @@ namespace Keysharp.Builtins
 		public static object A_HotkeyInterval
 		{
 			get => Script.TheScript.AccessorData.hotkeyThrottleInterval;
-			set => Script.TheScript.AccessorData.hotkeyThrottleInterval = value.Al();
+			set => Script.TheScript.AccessorData.hotkeyThrottleInterval = value.ToLong();
 		}
 
 		/// <summary>
@@ -607,7 +607,7 @@ namespace Keysharp.Builtins
 		public static object A_HotkeyModifierTimeout
 		{
 			get => Script.TheScript.AccessorData.hotkeyModifierTimeout;
-			set => Script.TheScript.AccessorData.hotkeyModifierTimeout = value.Al();
+			set => Script.TheScript.AccessorData.hotkeyModifierTimeout = value.ToLong();
 		}
 
 		/// <summary>
@@ -700,7 +700,7 @@ namespace Keysharp.Builtins
 				var s = Loops.LoopStack;
 
 				if (s.TryPeek(out var result))
-					result.index = value.Al();
+					result.index = value.ToLong();
 			}
 		}
 
@@ -716,7 +716,7 @@ namespace Keysharp.Builtins
 		public static object A_InputLevel
 		{
 			get => Script.TheScript.AccessorData.inputLevel;
-			set => Script.TheScript.AccessorData.inputLevel = Math.Clamp(value.Al(), 0L, 100L);
+			set => Script.TheScript.AccessorData.inputLevel = Math.Clamp(value.ToLong(), 0L, 100L);
 		}
 
 		/// <summary>
@@ -846,7 +846,7 @@ namespace Keysharp.Builtins
 		public static object A_KeyDelay
 		{
 			get => ThreadAccessors.A_KeyDelay;
-			set => ThreadAccessors.A_KeyDelay = value.Al();
+			set => ThreadAccessors.A_KeyDelay = value.ToLong();
 		}
 
 		/// <summary>
@@ -855,7 +855,7 @@ namespace Keysharp.Builtins
 		public static object A_KeyDelayPlay
 		{
 			get => ThreadAccessors.A_KeyDelayPlay;
-			set => ThreadAccessors.A_KeyDelayPlay = value.Al();
+			set => ThreadAccessors.A_KeyDelayPlay = value.ToLong();
 		}
 
 		/// <summary>
@@ -864,7 +864,7 @@ namespace Keysharp.Builtins
 		public static object A_KeyDuration
 		{
 			get => ThreadAccessors.A_KeyDuration;
-			set => ThreadAccessors.A_KeyDuration = value.Al();
+			set => ThreadAccessors.A_KeyDuration = value.ToLong();
 		}
 
 		/// <summary>
@@ -873,7 +873,7 @@ namespace Keysharp.Builtins
 		public static object A_KeyDurationPlay
 		{
 			get => ThreadAccessors.A_KeyDurationPlay;
-			set => ThreadAccessors.A_KeyDurationPlay = value.Al();
+			set => ThreadAccessors.A_KeyDurationPlay = value.ToLong();
 		}
 
 		/// <summary>
@@ -1293,7 +1293,7 @@ namespace Keysharp.Builtins
 		public static object A_MaxHotkeysPerInterval
 		{
 			get => Script.TheScript.AccessorData.maxHotkeysPerInterval;
-			set => Script.TheScript.AccessorData.maxHotkeysPerInterval = value.Al();
+			set => Script.TheScript.AccessorData.maxHotkeysPerInterval = value.ToLong();
 		}
 
 		/// <summary>
@@ -1353,7 +1353,7 @@ namespace Keysharp.Builtins
 		public static object A_MouseDelay
 		{
 			get => ThreadAccessors.A_MouseDelay;
-			set => ThreadAccessors.A_MouseDelay = value.Al();
+			set => ThreadAccessors.A_MouseDelay = value.ToLong();
 		}
 
 		/// <summary>
@@ -1362,7 +1362,7 @@ namespace Keysharp.Builtins
 		public static object A_MouseDelayPlay
 		{
 			get => ThreadAccessors.A_MouseDelayPlay;
-			set => ThreadAccessors.A_MouseDelayPlay = value.Al();
+			set => ThreadAccessors.A_MouseDelayPlay = value.ToLong();
 		}
 
 		/// <summary>
@@ -1419,7 +1419,7 @@ namespace Keysharp.Builtins
 		public static object A_PeekFrequency
 		{
 			get => ThreadAccessors.A_PeekFrequency;
-			set => ThreadAccessors.A_PeekFrequency = value.Al();
+			set => ThreadAccessors.A_PeekFrequency = value.ToLong();
 		}
 
 		/// <summary>
@@ -1592,7 +1592,7 @@ namespace Keysharp.Builtins
 		public static object A_SendLevel
 		{
 			get => ThreadAccessors.A_SendLevel;
-			set => ThreadAccessors.A_SendLevel = Math.Clamp(value.Al(), 0L, 100L);
+			set => ThreadAccessors.A_SendLevel = Math.Clamp(value.ToLong(), 0L, 100L);
 		}
 
 		/// <summary>
@@ -1838,7 +1838,7 @@ namespace Keysharp.Builtins
 		public static object A_WinDelay
 		{
 			get => ThreadAccessors.A_WinDelay;
-			set => ThreadAccessors.A_WinDelay = value.Al();
+			set => ThreadAccessors.A_WinDelay = value.ToLong();
 		}
 
 #if WINDOWS

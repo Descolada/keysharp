@@ -620,7 +620,7 @@ namespace Keysharp.Builtins
 
 					case KeysharpTreeView tv:
 					{
-						var id = value.Al(long.MinValue);
+						var id = (value is null ? long.MinValue : value.ToLong());
 
 						if (id == long.MinValue)
 						{

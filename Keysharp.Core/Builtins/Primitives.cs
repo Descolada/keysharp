@@ -62,20 +62,11 @@ namespace Keysharp.Builtins
 			{
 				var s = value.As();
 
-				if (s.Contains('.'))
-				{
-					var val = s.ParseDouble();
+				if (!s.Contains('.') && s.TryParseLong(out long ll))
+					return ll;
 
-					if (val.HasValue)
-						return val.Value;
-				}
-				else
-				{
-					var val = s.ParseLong();
-
-					if (val.HasValue)
-						return val.Value;
-				}
+				if (s.TryParseDouble(out double dd))//Also handles scientific notation without a dot, such as "1e5".
+					return dd;
 
 				return Errors.TypeErrorOccurred(s, typeof(double));
 			}
@@ -90,14 +81,7 @@ namespace Keysharp.Builtins
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a long.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public new static object staticCall(object @this, object value)
-		{
-			if (value.ParseLong(out long l))
-				return l;
-			else if (value.ParseDouble(out double d, true))
-				return (long)d;
-			return Errors.TypeErrorOccurred(value, typeof(double));
-		}
+		public new static object staticCall(object @this, object value) => value.ToLong();
 	}
 
 	public class Float : Number
@@ -108,11 +92,6 @@ namespace Keysharp.Builtins
 		/// <param name="value">The object to be converted</param>
 		/// <returns>The converted value as a double.</returns>
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
-		public new static object staticCall(object @this, object value)
-		{
-			if (value.ParseDouble() is double d)
-				return d;
-			return Errors.TypeErrorOccurred(value, typeof(double));
-		}
+		public new static object staticCall(object @this, object value) => value.ToDouble();
 	}
 }

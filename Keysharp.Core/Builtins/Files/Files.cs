@@ -931,7 +931,7 @@ namespace Keysharp.Builtins
 			var f = flags.As();
 			var e = encoding.As();
 			var enc = ThreadAccessors.A_FileEncodingRaw;
-			var ienc = e.ParseInt(false);
+			var ienc = (int?)e.ParseLong();
 
 			if (ienc.HasValue)
 				enc = Encoding.GetEncoding(ienc.Value);
@@ -1471,7 +1471,7 @@ namespace Keysharp.Builtins
 			Encoding tempenc;
 
 			if (val.StartsWith("cp"))
-				return Encoding.GetEncoding(val.Substring(2).ParseInt().Value);
+				return Encoding.GetEncoding((int)val.Substring(2).ParseLong().Value);
 
 			if (int.TryParse(val, out var cp))
 				return Encoding.GetEncoding(cp);

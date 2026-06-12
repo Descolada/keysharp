@@ -70,8 +70,8 @@ namespace Keysharp.Builtins
 				return minVal + (unit * diff);
 			}
 
-			var minInt = min.Ai(int.MinValue);
-			var maxInt = max.Ai(int.MaxValue);
+			var minInt = (min is null ? int.MinValue : min.ToInt());
+			var maxInt = (max is null ? int.MaxValue : max.ToInt());
 
 			if (minInt == maxInt)
 				return (long)minInt;

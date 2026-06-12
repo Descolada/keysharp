@@ -58,7 +58,7 @@ else
 	
 y := StrReplace(x, "")
 
-if (y = "")
+if (y = x)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

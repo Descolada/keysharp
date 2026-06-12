@@ -1,10 +1,12 @@
 using Keysharp.Builtins;
-namespace System.Collections
+namespace Keysharp.Internals.ExtensionMethods
 {
 	/// <summary>
 	/// Extension methods for various collection classes.
+	/// Internal for the same reason as <see cref="ObjectExtensions"/>: runtime-compiled user
+	/// scripts should not get these injected; friend assemblies opt in via a using.
 	/// </summary>
-	public static class SystemCollectionsExtensions
+	internal static class SystemCollectionsExtensions
 	{
 		/// <summary>
 		/// V2 version name of Enum().
@@ -24,7 +26,7 @@ namespace System.Collections
 		/// <param name="index">The index in the list to convert.</param>
 		/// <param name="def">A default value to return if the conversion failed, the item is null or the index is out of bounds. Default: false.</param>
 		/// <returns>The element at the specified list index as a boolean.</returns>
-		public static bool Ab(this IList obj, int index, bool def = default) => obj.Count > index && obj[index] != null ? obj[index].ParseBool() ?? def : def;
+		public static bool Ab(this IList obj, int index, bool def = default) => obj.Count > index ? obj[index].Ab(def) : def;
 
 		/// <summary>
 		/// Converts an element of an <see cref="IList"/> to a double.<br/>
@@ -34,7 +36,7 @@ namespace System.Collections
 		/// <param name="index">The index in the list to convert.</param>
 		/// <param name="def">A default value to return if the conversion failed, the item is null or the index is out of bounds. Default: 0.</param>
 		/// <returns>The element at the specified list index as a double.</returns>
-		public static double Ad(this IList obj, int index, double def = default) => obj.Count > index && obj[index] != null ? obj[index].ParseDouble().Value : def;
+		public static double Ad(this IList obj, int index, double def = default) => obj.Count > index ? obj[index].Ad(def) : def;
 
 		/// <summary>
 		/// Converts an element of an <see cref="IList"/> to a int.<br/>
@@ -44,7 +46,7 @@ namespace System.Collections
 		/// <param name="index">The index in the list to convert.</param>
 		/// <param name="def">A default value to return if the conversion failed, the item is null or the index is out of bounds. Default: 0.</param>
 		/// <returns>The element at the specified list index as a int.</returns>
-		public static int Ai(this IList obj, int index, int def = default) => obj.Count > index && obj[index] != null ? obj[index].ParseInt().Value : def;
+		public static int Ai(this IList obj, int index, int def = default) => obj.Count > index ? obj[index].Ai(def) : def;
 
 		/// <summary>
 		/// Converts an element of an <see cref="IList"/> to a long.<br/>
@@ -54,7 +56,7 @@ namespace System.Collections
 		/// <param name="index">The index in the list to convert.</param>
 		/// <param name="def">A default value to return if the conversion failed, the item is null or the index is out of bounds. Default: 0.</param>
 		/// <returns>The element at the specified list index as a long.</returns>
-		public static long Al(this IList obj, int index, long def = default) => obj.Count > index && obj[index] != null ? obj[index].ParseLong().Value : def;
+		public static long Al(this IList obj, int index, long def = default) => obj.Count > index ? obj[index].Al(def) : def;
 
 		/// <summary>
 		/// Retrieves the element of an <see cref="IList"/> if index is in bounds, else def.
@@ -98,8 +100,8 @@ namespace System.Collections
 			}
 
 			var oldLen = x.Length;
-			Array.Resize(ref x, x.Length + y.Length);
-			Array.Copy(y, 0, x, oldLen, y.Length);
+			System.Array.Resize(ref x, x.Length + y.Length);
+			System.Array.Copy(y, 0, x, oldLen, y.Length);
 			return x;
 		}
 
@@ -380,7 +382,7 @@ namespace System.Collections
 		{
 			var newArray = new T[array.Length + 1];
 			newArray[0] = item;
-			Array.Copy(array, 0, newArray, 1, array.Length);
+			System.Array.Copy(array, 0, newArray, 1, array.Length);
 			return newArray;
 		}
 

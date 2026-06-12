@@ -97,7 +97,7 @@ namespace Keysharp.Internals
 			fd.allowInterruption = false;
 			var result = script.onExitHandlers.InvokeEventHandlers(Accessors.A_ExitReason, exitCode);
 
-			if (exitReason >= Keysharp.Builtins.Flow.ExitReasons.None && Script.ForceLong(result) != 0L)
+			if (exitReason >= Keysharp.Builtins.Flow.ExitReasons.None && result.Al() != 0L)
 			{
 				Accessors.A_ExitReason = "";
 				fd.allowInterruption = allowInterruptionPrev;

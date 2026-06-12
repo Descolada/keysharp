@@ -115,12 +115,12 @@ namespace Keysharp.Builtins
 					var bp = _ptr.DangerousGetHandle();
 
 					for (var i = 0; i < ct; i++)
-						Unsafe.Write((void*)nint.Add(bp, i), (byte)Script.ForceLong(array.array[i]));//Access the underlying array[] directly for performance.
+						Unsafe.Write((void*)nint.Add(bp, i), (byte)array.array[i].Al());//Access the underlying array[] directly for performance.
 				}
 				else//This will be called by the user.
 				{
 					var bytecount = obj0.Al(0);
-					var fill = obj.Length > 1 ? obj[1].Al(long.MinValue) : long.MinValue;
+					var fill = obj.Length > 1 && obj[1] is not null ? obj[1].ToLong() : long.MinValue;
 					Size = bytecount;
 
 					if (bytecount > 0)

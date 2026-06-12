@@ -1300,7 +1300,7 @@ namespace Keysharp.Builtins
 					}
 
 					if (o != null)
-						slider.Value = (int)Script.ForceLong(o);
+						slider.Value = o.Ai();
 
 					if (opts.halign.HasValue && opts.halign.Value == GuiOptions.HorizontalAlignment.Center)
 						slider.TickStyle = TickStyle.Both;
@@ -2289,10 +2289,10 @@ namespace Keysharp.Builtins
 
 		public object Move(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null)
 		{
-			var x = obj0.Ai(int.MinValue);
-			var y = obj1.Ai(int.MinValue);
-			var width = obj2.Ai(int.MinValue);
-			var height = obj3.Ai(int.MinValue);
+			var x = (obj0 is null ? int.MinValue : obj0.ToInt());
+			var y = (obj1 is null ? int.MinValue : obj1.ToInt());
+			var width = (obj2 is null ? int.MinValue : obj2.ToInt());
+			var height = (obj3 is null ? int.MinValue : obj3.ToInt());
 			var scale = DpiScale;
 			var formLoc = form.GetLocation();
 			var formSize = form.GetSize();

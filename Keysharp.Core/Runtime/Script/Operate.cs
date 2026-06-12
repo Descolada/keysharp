@@ -65,7 +65,7 @@ namespace Keysharp.Runtime
 
 						if (double.TryParse(test.AsSpan(0, z), out var low) && double.TryParse(test.AsSpan(z + Keyword_And.Length), out var high))
 						{
-							var d = ForceDouble(subject);
+							var d = subject.Ad();
 							ret = d >= low && d <= high;
 						}
 						else if (subject is string s)
@@ -795,10 +795,10 @@ namespace Keysharp.Runtime
 			{
 				firstl = b ? 1L : 0L;
 			}
-			else if (left.ParseLong(out firstl))
+			else if (left.TryParseLong(out firstl))
 			{
 			}
-			else if (left.ParseDouble(out firstd, true))
+			else if (left.TryParseDouble(out firstd, true))
 			{
 				firstIsDouble = true;
 			}
@@ -822,10 +822,10 @@ namespace Keysharp.Runtime
 			{
 				secondl = b ? 1L : 0L;
 			}
-			else if (right.ParseLong(out secondl))
+			else if (right.TryParseLong(out secondl))
 			{
 			}
-			else if (right.ParseDouble(out secondd, true))
+			else if (right.TryParseDouble(out secondd, true))
 			{
 				secondIsDouble = true;
 			}
@@ -873,9 +873,9 @@ namespace Keysharp.Runtime
 				return rd == 0d ? rd : -rd;
 			else if (right is long rl)
 				return -rl;
-			else if (right.ParseLong(out long l))
+			else if (right.TryParseLong(out long l))
 				return -l;
-			else if (right.ParseDouble(out double d, true))
+			else if (right.TryParseDouble(out double d, true))
 				return d == 0d ? d : -d;
 			else
 				return Errors.TypeErrorOccurred(right, typeof(double));
@@ -891,7 +891,7 @@ namespace Keysharp.Runtime
 			if (right is double)
 				return Errors.TypeErrorOccurred(right, typeof(long));
 
-			if (right.ParseLong(out long l))
+			if (right.TryParseLong(out long l))
 				return ~l;
 
 			return Errors.TypeErrorOccurred(right, typeof(long));

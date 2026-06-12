@@ -322,10 +322,10 @@ namespace Keysharp.Builtins
 		{
 			EnsureControlAutomationPermission("ControlMove");
 			Script.TheScript.ControlProvider.Manager.ControlMove(
-				x.Ai(int.MinValue),
-				y.Ai(int.MinValue),
-				width.Ai(int.MinValue),
-				height.Ai(int.MinValue),
+				(x is null ? int.MinValue : x.ToInt()),
+				(y is null ? int.MinValue : y.ToInt()),
+				(width is null ? int.MinValue : width.ToInt()),
+				(height is null ? int.MinValue : height.ToInt()),
 				control,
 				winTitle,
 				winText,

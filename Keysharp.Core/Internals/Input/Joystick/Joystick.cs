@@ -29,7 +29,7 @@ namespace Keysharp.Internals.Input.Joystick
 
 			if (index < buf.Length) // The string starts with a number.
 			{
-				var val = buf.ParseInt(false);
+				var val = (int?)buf.ParseLong();
 				var joystick_id = val.HasValue && val.Value > 0 ? (uint)val.Value - 1 : 0u;
 
 				if (joystick_id < 0 || joystick_id >= JoystickData.MaxJoysticks)
@@ -42,7 +42,7 @@ namespace Keysharp.Internals.Input.Joystick
 			if (buf.StartsWith("Joy", StringComparison.OrdinalIgnoreCase))
 			{
 				var sub = buf.Substring(3);
-				var val = sub.ParseInt(false);
+				var val = (int?)sub.ParseLong();
 
 				if (val.HasValue)
 				{

@@ -651,7 +651,7 @@ namespace Keysharp.Tests
 			Assert.AreEqual("a.b.c.d,e,f", y);
 			Assert.AreEqual(3L, outputVarCount.__Value);
 			y = Strings.StrReplace(x, "");
-			Assert.AreEqual("", y);
+			Assert.AreEqual(x, y);
 			y = Strings.StrReplace(x, "a", "A", 1L);
 			Assert.AreEqual("A,b,c,d,e,f", y);
 			y = Strings.StrReplace(x, "a", "A", "On");

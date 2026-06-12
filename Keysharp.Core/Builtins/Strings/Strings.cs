@@ -392,7 +392,7 @@ namespace Keysharp.Builtins
 				{
 					if (!haslsys && splits[i].StartsWith("L", StringComparison.OrdinalIgnoreCase))
 					{
-						ci = new CultureInfo(splits[i].Substring(1).ParseInt(false).Value, false);
+						ci = new CultureInfo((int)splits[i].Substring(1).ParseLong().Value, false);
 					}
 					else if (splits[i].StartsWith("D", StringComparison.OrdinalIgnoreCase))
 					{
@@ -985,7 +985,7 @@ namespace Keysharp.Builtins
 
 			if (hasThree)
 			{
-				len = length.Al(long.MinValue);
+				len = (length is null ? long.MinValue : length.ToLong());
 				encoding = Files.GetEncoding(enc.As());
 			}
 			else//Second argument could have been either length or encoding.

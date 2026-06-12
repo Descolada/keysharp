@@ -13,88 +13,16 @@ namespace Keysharp.Runtime
 			else if (input is Any a)
 				return true;
 
-			if (input.ParseBool(out bool pb))
+			if (input.TryParseBool(out bool pb))
 				return pb;
-			else if (input.ParseLong(out long l))
+			else if (input.TryParseLong(out long l))
 				return l != 0;
-			else if (input.ParseDouble(out double d, true))
+			else if (input.TryParseDouble(out double d, true))
 				return d != 0.0;
 			else if (input is string s)
 				return !string.IsNullOrEmpty(s);
 
 			return true;//Any non-null, non-empty string is considered true.
-		}
-
-		internal static double ForceDouble(object input)
-		{
-			if (input == null)
-				return 0.0D;
-			else if (input.ParseDouble(out double d, true))
-				return d;
-			else if (input.ParseLong(out long l))
-				return l;
-			else if (input.ParseBool() is bool b)
-				return b ? 1.0 : 0.0;
-			else if (input is string)
-				return 0.0D;
-			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
-			{
-				foreach (var mi in mis)
-					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(double))
-						return (double)mi.Invoke(input, [input]);
-			}
-			else if (input is IConvertible)
-				return Convert.ToDouble(input);
-
-			return 0.0D;
-		}
-
-		internal static int ForceInt(object input)
-		{
-			if (input == null)
-				return 0;
-			else if (input.ParseLong(out long l))
-				return (int)l;
-			else if (input.ParseDouble(out double d, true))
-				return (int)d;
-			else if (input.ParseBool() is bool b)
-				return b ? 1 : 0;
-			else if (input is string)
-				return 0;
-			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
-			{
-				foreach (var mi in mis)
-					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(int))
-						return (int)mi.Invoke(input, [input]);
-			}
-			else if (input is IConvertible)
-				return Convert.ToInt32(input);
-
-			return 0;
-		}
-
-		public static long ForceLong(object input)
-		{
-			if (input == null)
-				return 0L;
-			else if (input.ParseLong(out long l))
-				return l;
-			else if (input.ParseDouble(out double d, true))
-				return (long)d;
-			else if (input.ParseBool() is bool b)
-				return b ? 1L : 0L;
-			else if (input is string)
-				return 0L;
-			else if (input.GetType().GetMethods(BindingFlags.Static | BindingFlags.Public) is MethodInfo[] mis)
-			{
-				foreach (var mi in mis)
-					if (mi.Name == "op_Implicit" && mi.ReturnType == typeof(long))
-						return (long)mi.Invoke(input, [input]);
-			}
-			else if (input is IConvertible)
-				return Convert.ToInt64(input);
-
-			return 0L;
 		}
 
 		public static string ForceString(object input)
@@ -108,7 +36,14 @@ namespace Keysharp.Runtime
 			else if (input is long l)
 				return l.ToString();
 			else if (input is double dd)
-				return dd.ToString().TrimEnd(zerochars);//Remove trailing zeroes for string compare.
+			{
+				var str = dd.ToString();
+
+				if (double.IsFinite(dd) && dd == Math.Truncate(dd) && str.IndexOf('E') < 0 && str.IndexOf('e') < 0)
+					return str + ".0";
+
+				return str;
+			}
 			else if (input is Any)
 			{
 				if (input is Map map)
@@ -193,7 +128,7 @@ namespace Keysharp.Runtime
 					if (!hex)
 						format = "d";
 
-					var result = simple ? ForceLong(input).ToString(format) : ((int)(double)input).ToString("d");
+					var result = simple ? Convert.ToInt64(input).ToString(format) : ((int)(double)input).ToString("d");
 
 					if (hex)
 						result = hexpre + result;
@@ -226,13 +161,10 @@ namespace Keysharp.Runtime
 				return value;
 
 			if (requested == typeof(double))
-				return ForceDouble(value);
-
-			//if (requested == typeof(int))
-			//  return ForceInt(value);
+				return value.ToDouble();//Throws a TypeError on non-numeric input, matching AHK.
 
 			if (requested == typeof(long))
-				return ForceLong(value);
+				return value.ToLong();//Throws a TypeError on non-numeric input, matching AHK.
 
 			return requested == typeof(string) ? ForceString(value) : value;
 		}

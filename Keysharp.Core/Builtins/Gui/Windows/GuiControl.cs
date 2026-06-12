@@ -517,7 +517,7 @@ namespace Keysharp.Builtins
 
 					case KeysharpTreeView tv:
 					{
-						var id = value.Al(long.MinValue);
+						var id = (value is null ? long.MinValue : value.ToLong());
 
 						if (id == long.MinValue)
 						{
@@ -816,10 +816,10 @@ namespace Keysharp.Builtins
 
 			public object Move(object x = null, object y = null, object width = null, object height = null)
 			{
-				var _x = x.Al(long.MinValue);
-				var _y = y.Al(long.MinValue);
-				var w = width.Al(long.MinValue);
-				var h = height.Al(long.MinValue);
+				var _x = (x is null ? long.MinValue : x.ToLong());
+				var _y = (y is null ? long.MinValue : y.ToLong());
+				var w = (width is null ? long.MinValue : width.ToLong());
+				var h = (height is null ? long.MinValue : height.ToLong());
 				var scale = !DpiScaling ? 1.0 : A_ScaledScreenDPI;
 				var hasScrollBars = _control is KeysharpTextBox || _control is KeysharpRichEdit;//Reflections.SafeHasProperty(_control, "ScrollBars") || Reflections.SafeHasProperty(_control, "HorizontalScrollbar") || Reflections.SafeHasProperty(_control, "Scrollable")
 				Point offset = Parent == null || Parent.GetControl() is Form ? Point.Empty : Parent.GetControl().GetLocationRelativeToForm();
@@ -1623,7 +1623,7 @@ namespace Keysharp.Builtins
 						if (notifyHandlers.TryGetValue((int)nmhdr.code, out var handler))
 						{
 							var ret = handler?.InvokeEventHandlers(this, m.LParam.ToInt64());
-							m.Result = (nint)Script.ForceLong(ret);
+							m.Result = (nint)ret.Al();
 							return true;
 						}
 					}
@@ -1638,7 +1638,7 @@ namespace Keysharp.Builtins
 						if (commandHandlers.TryGetValue(val, out var handler))
 						{
 							var ret = handler?.InvokeEventHandlers(this);
-							m.Result = (nint)Script.ForceLong(ret);
+							m.Result = (nint)ret.Al();
 							return true;
 						}
 					}

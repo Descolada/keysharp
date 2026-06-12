@@ -1,10 +1,13 @@
 using Keysharp.Builtins;
-namespace System
+namespace Keysharp.Internals.ExtensionMethods
 {
 	/// <summary>
-	/// Extension methods for the System.Object class.
+	/// Extension methods for the System.Object class, mostly type-conversion helpers.
+	/// Internal so that runtime-compiled user scripts referencing Keysharp.Core do not get
+	/// these extensions injected onto every object; friend assemblies (Keysharp, Keysharp.Tests,
+	/// Keysharp.Benchmark, Keyview) opt in via a using of this namespace.
 	/// </summary>
-	public static class ObjectExtensions
+	internal static class ObjectExtensions
 	{
 		/// <summary>
 		/// Converts an object to a bool.
@@ -12,39 +15,97 @@ namespace System
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
 		/// <returns>The object as a bool if conversion succeeded, else def.</returns>
-		public static bool Ab(this object obj, bool def = default) => obj != null && obj.ParseBool(out var b) ? b : def;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool Ab(this object obj, bool def = default) => obj.TryParseBool(out var b) ? b : def;
 
 		/// <summary>
 		/// Converts an object to a double.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
-		/// <returns>The object as a double if it was not null, else def.</returns>
-		public static double Ad(this object obj, double def = default) => obj != null && obj.ParseDouble(out double d) ? d : def;
+		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
+		/// <returns>The object as a double if conversion succeeded, else def.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static double Ad(this object obj, double def = default) => obj is double d ? d : obj.TryParseDouble(out double dd) ? dd : def;
 
 		/// <summary>
 		/// Converts an object to a float.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
-		/// <returns>The object as a float if it was not null, else def.</returns>
-		public static float Af(this object obj, float def = default) => obj != null && obj.ParseDouble(out double d) ? unchecked((float)d) : def;
+		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
+		/// <returns>The object as a float if conversion succeeded, else def.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static float Af(this object obj, float def = default) => obj.TryParseDouble(out double d) ? unchecked((float)d) : def;
 
 		/// <summary>
-		/// Converts an object to an int.
+		/// Converts an object to an int, truncating a Float toward zero to match AutoHotkey.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
-		/// <returns>The object as an int if it was not null, else def.</returns>
-		public static int Ai(this object obj, int def = default) => obj != null && obj.ParseLong(out long l) ? unchecked((int)l) : def;
+		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
+		/// <returns>The object as an int if conversion succeeded, else def.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static int Ai(this object obj, int def = default) => obj.TryCoerceLong(out long l) ? unchecked((int)l) : def;
 
 		/// <summary>
-		/// Converts an object to a long.
+		/// Converts an object to a long, truncating a Float toward zero to match AutoHotkey.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
-		/// <returns>The object as a long if it was not null, else def.</returns>
-		public static long Al(this object obj, long def = default) => obj != null && obj.ParseLong(out long l) ? l : def;
+		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
+		/// <returns>The object as a long if conversion succeeded, else def.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long Al(this object obj, long def = default) => obj.TryCoerceLong(out long l) ? l : def;
+
+		/// <summary>
+		/// Coerces an object to a long for use in an integer context. This is the single place where
+		/// the long/double composition lives: it is the backing logic for <see cref="Ai"/>, <see cref="Al"/>,
+		/// <see cref="Aui"/> and the throwing To* converters. A Float (or float string) is truncated
+		/// toward zero to match AutoHotkey, unless allowFloat is false.
+		/// The leading type tests intentionally duplicate those inside the TryParse* primitives:
+		/// they keep the hottest cases (long and double objects) free of any call into the larger,
+		/// non-inlinable parsing methods.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="outvar">The resulting long.</param>
+		/// <param name="allowFloat">True to truncate a Float (or float string) toward zero, false to reject it. Default: true.</param>
+		/// <returns>True if the object yielded a numeric value, else false.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		internal static bool TryCoerceLong(this object obj, out long outvar, bool allowFloat = true)
+		{
+			if (obj is long l)//Hottest path: script integers.
+			{
+				outvar = l;
+				return true;
+			}
+
+			if (obj is double d)//Second hottest: arithmetic results such as mW / 3.
+			{
+				if (allowFloat)
+				{
+					outvar = (long)d;
+					return true;
+				}
+
+				outvar = 0L;
+				return false;
+			}
+
+			if (obj is null)
+			{
+				outvar = 0L;
+				return false;
+			}
+
+			if (obj.TryParseLong(out outvar))//Handles bool/int and integer/hex strings.
+				return true;
+
+			if (allowFloat && obj.TryParseDouble(out double dd))//Only reached for float strings such as "426.67".
+			{
+				outvar = (long)dd;
+				return true;
+			}
+
+			outvar = 0L;
+			return false;
+		}
 
 		/// <summary>
 		/// Converts an object to a string.
@@ -52,15 +113,59 @@ namespace System
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="def">A default value to use if obj is null.</param>
 		/// <returns>The object as a string if it was not null, else def.</returns>
-		public static string As(this object obj, string def = "") => (obj is Any kso && Functions.HasMethod(kso, "ToString") != 0L ? Invoke(kso, "ToString")?.ToString() : obj?.ToString()) ?? def;
+		public static string As(this object obj, string def = "")
+		{
+			if (obj is string s)
+				return s;
+
+			if (obj is double)
+				return Script.ForceString(obj);//Canonical Float formatting, e.g. 380.0 => "380.0" to match AHK, rather than ToString()'s "380".
+
+			return (obj is Any kso && Functions.HasMethod(kso, "ToString") != 0L ? Script.Invoke(kso, "ToString")?.ToString() : obj?.ToString()) ?? def;
+		}
 
 		/// <summary>
-		/// Converts an object to an unsigned int.
+		/// Converts an object to an unsigned int, truncating a Float toward zero to match AutoHotkey.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="def">A default value to use if obj is null.</param>
-		/// <returns>The object as an unsigned int if it was not null, else def.</returns>
-		public static uint Aui(this object obj, uint def = default) => obj != null && obj.ParseLong(out long ll) ? unchecked((uint)ll) : def;
+		/// <param name="def">A default value to use if obj is null or the conversion fails.</param>
+		/// <returns>The object as an unsigned int if conversion succeeded, else def.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static uint Aui(this object obj, uint def = default) => obj.TryCoerceLong(out long l) ? unchecked((uint)l) : def;
+
+		/// <summary>
+		/// Converts an object to a long for a context where a number is required, throwing a
+		/// <see cref="TypeError"/> if the object is not numeric. A Float (or float string) is
+		/// truncated toward zero to match AutoHotkey, unless allowFloat is false, in which case
+		/// any Float input throws.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="allowFloat">True to truncate a Float toward zero, false to reject it. Default: true.</param>
+		/// <returns>The object as a long.</returns>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long ToLong(this object obj, bool allowFloat = true) => obj.TryCoerceLong(out long l, allowFloat) ? l : (long)Errors.TypeErrorOccurred(obj, typeof(long), 0L);
+
+		/// <summary>
+		/// Converts an object to an int for a context where a number is required, throwing a
+		/// <see cref="TypeError"/> if the object is not numeric. See <see cref="ToLong"/>.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="allowFloat">True to truncate a Float toward zero, false to reject it. Default: true.</param>
+		/// <returns>The object as an int.</returns>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static int ToInt(this object obj, bool allowFloat = true) => unchecked((int)obj.ToLong(allowFloat));
+
+		/// <summary>
+		/// Converts an object to a double for a context where a number is required, throwing a
+		/// <see cref="TypeError"/> if the object is not numeric.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <returns>The object as a double.</returns>
+		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if the conversion failed.</exception>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static double ToDouble(this object obj) => obj is double d ? d : obj.TryParseDouble(out double dd) ? dd : (double)Errors.TypeErrorOccurred(obj, typeof(double), 0.0);
 
 		/// <summary>
 		/// Wrapper around casting an object to a type <typeparamref name="T"/>.
@@ -119,9 +224,9 @@ namespace System
 			else if (result is string str)
 			{
 				if (str.AsSpan().Trim().Length == 0) return false;
-				if (str.ParseLong(out long l))
+				if (str.TryParseLong(out long l))
 					return l != 0;
-				if (str.ParseDouble(out double dl))
+				if (str.TryParseDouble(out double dl))
 					return dl != 0.0;
 				return true;
 			}
@@ -154,12 +259,24 @@ namespace System
 		/// Attempt to convert an object to a bool.
 		/// This treats 0, false, and optionally "off" and "false" string literals as false.
 		/// and 1, true and optionally "on" and "true" string literals as true.
+		/// This is sugar over <see cref="TryParseBool"/> for ?? composition; no parsing logic lives here.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
+		/// <param name="allowKeywords">Whether to also accept the "on"/"off"/"true"/"false" string keywords.</param>
 		/// <returns>The nullable bool resulting from the conversion.</returns>
-		public static bool? ParseBool(this object obj, bool parseBoolKeywords = false) => obj.ParseBool(out bool b, parseBoolKeywords) ? b : null;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static bool? ParseBool(this object obj, bool allowKeywords = false) => obj.TryParseBool(out bool b, allowKeywords) ? b : null;
 
-		public static bool ParseBool(this object obj, out bool outvar, bool parseBoolKeywords = false)
+		/// <summary>
+		/// Attempt to convert an object to a bool.
+		/// This treats 0, false, and optionally "off" and "false" string literals as false.
+		/// and 1, true and optionally "on" and "true" string literals as true.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="outvar">The resulting bool.</param>
+		/// <param name="allowKeywords">Whether to also accept the "on"/"off"/"true"/"false" string keywords.</param>
+		/// <returns>True if the conversion succeeded, else false.</returns>
+		public static bool TryParseBool(this object obj, out bool outvar, bool allowKeywords = false)
 		{
 			if (obj is bool b)
 			{
@@ -175,10 +292,10 @@ namespace System
 
 			if (obj is BoolResult br)
 			{
-				return br.o.ParseBool(out outvar);
+				return br.o.TryParseBool(out outvar);
 			}
 
-			if (parseBoolKeywords)
+			if (allowKeywords && obj != null)
 			{
 				var onoff = Options.OnOff(obj);
 				if (onoff != null)
@@ -194,14 +311,24 @@ namespace System
 
 		/// <summary>
 		/// Attempts various methods for converting an object to a double value.<br/>
+		/// This is sugar over <see cref="TryParseDouble"/> for ?? composition; no parsing logic lives here.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="requireDot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
+		/// <returns>The converted value as a nullable double.</returns>
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static double? ParseDouble(this object obj, bool requireDot = false) => obj.TryParseDouble(out double d, requireDot) ? d : null;
+
+		/// <summary>
+		/// Attempts various methods for converting an object to a double value.<br/>
 		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
 		/// String parsing will be attempted after that.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
-		/// <param name="requiredot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
-		/// <returns>The converted value as a nullable double.</returns>
-		public static double? ParseDouble(this object obj, bool requiredot = false) => obj.ParseDouble(out double d, requiredot) ? d : null;
-		public static bool ParseDouble(this object obj, out double outvar, bool requiredot = false)
+		/// <param name="outvar">The resulting double.</param>
+		/// <param name="requireDot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
+		/// <returns>True if the conversion succeeded, else false.</returns>
+		public static bool TryParseDouble(this object obj, out double outvar, bool requireDot = false)
 		{
 			if (obj is double d)
 			{
@@ -211,24 +338,24 @@ namespace System
 
 			if (obj is long l)
 			{
-				if (requiredot) { outvar = default; return false; }
+				if (requireDot) { outvar = default; return false; }
 				outvar = l;
 				return true;
 			}
 
 			if (obj is BoolResult br)
 			{
-				return br.o.ParseDouble(out outvar, requiredot);
+				return br.o.TryParseDouble(out outvar, requireDot);
 			}
 
 			if (obj is int i)//int is seldom used in Keysharp, so check last.
 			{
-				if (requiredot) { outvar = default; return false; }
+				if (requireDot) { outvar = default; return false; }
 				outvar = i;
 				return true;
 			}
 
-			if (obj is Any)
+			if (obj is null || obj is Any)
 			{
 				outvar = default;
 				return false;
@@ -242,7 +369,7 @@ namespace System
 				return false;
 			}
 
-			if (requiredot && !s.Contains('.'))
+			if (requireDot && !s.Contains('.'))
 			{
 				outvar = 0.0D;
 				return false;
@@ -259,36 +386,27 @@ namespace System
 		}
 
 		/// <summary>
-		/// Attempts various methods for converting an object to a float value.<br/>
-		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that.
-		/// </summary>
-		/// <param name="obj">The object to convert.</param>
-		/// <param name="requiredot">Whether to require a . character in the string when parsing after other attempts have failed.</param>
-		/// <returns>The converted value as a nullable float.</returns>
-		public static float? ParseFloat(this object obj, bool requiredot = false) => (float?)obj.ParseDouble(requiredot);
-
-		/// <summary>
-		/// Attempts various methods for converting an object to a int value.<br/>
-		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that.
-		/// </summary>
-		/// <param name="obj">The object to convert.</param>
-		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
-		/// <returns>The converted value as a nullable int.</returns>
-		public static int? ParseInt(this object obj, bool donoprefixhex = true) => (int?)obj.ParseLong(donoprefixhex);
-
-		/// <summary>
 		/// Attempts various methods for converting an object to a long value.<br/>
-		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
-		/// String parsing will be attempted after that.
+		/// This is sugar over <see cref="TryParseLong"/> for ?? composition; no parsing logic lives here.
 		/// </summary>
 		/// <param name="obj">The object to convert.</param>
 		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
 		/// <returns>The converted value as a nullable long.</returns>
-		public static long? ParseLong(this object obj, bool donoprefixhex = true) => obj.ParseLong(out long l, donoprefixhex) ? l : null;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static long? ParseLong(this object obj, bool donoprefixhex = false) => obj.TryParseLong(out long l, donoprefixhex) ? l : null;
 
-		public static bool ParseLong(this object obj, out long outvar, bool donoprefixhex = false)
+		/// <summary>
+		/// Attempts various methods for converting an object to a long value.<br/>
+		/// This will first attempt direct casting because it's the most efficient and the most likely scenario.<br/>
+		/// String parsing will be attempted after that.<br/>
+		/// This is the STRICT integer parse: a double (Float) is rejected. Callers that want
+		/// AutoHotkey's Float-to-integer truncation must use <see cref="TryCoerceLong"/> instead.
+		/// </summary>
+		/// <param name="obj">The object to convert.</param>
+		/// <param name="outvar">The resulting long.</param>
+		/// <param name="donoprefixhex">Whether to treat a hexadecimal string without an 0x prefix as valid.</param>
+		/// <returns>True if the conversion succeeded, else false.</returns>
+		public static bool TryParseLong(this object obj, out long outvar, bool donoprefixhex = false)
 		{
 			if (obj is long l)
 			{
@@ -301,10 +419,16 @@ namespace System
 				return true;
 			}
 
-			if (obj is BoolResult br)
-				return br.o.ParseLong(out outvar);
+			if (obj is double)//Fast-reject Floats. Integer coercion of Floats lives in TryCoerceLong.
+			{
+				outvar = default;
+				return false;
+			}
 
-			if (obj is Any)
+			if (obj is BoolResult br)
+				return br.o.TryParseLong(out outvar, donoprefixhex);
+
+			if (obj is null || obj is Any)
 			{
 				outvar = default;
 				return false;
@@ -357,13 +481,6 @@ namespace System
 			outvar = 0L;
 			return false;
 		}
-
-		/// <summary>
-		/// Attempts to extract and return the object from a BoolResult if obj is a BoolResult.
-		/// </summary>
-		/// <param name="obj">The object to examine.</param>
-		/// <returns>The .o field of the object if it was a BoolResult, else the object itself.</returns>
-		public static object ParseObject(this object obj) => obj is BoolResult br ? br.o : obj;
 
 		/// <summary>
 		/// Returns the string representation of an object.

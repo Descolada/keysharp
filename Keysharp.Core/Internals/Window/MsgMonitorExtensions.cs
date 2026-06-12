@@ -53,7 +53,7 @@ namespace Keysharp.Internals.Window
 				var tv = thread.ThreadVariables;
 				tv.eventInfo = eventInfo;
 				tv.hwndLastUsed = hwnd;
-				result = Script.ForceLong(registration.Callback.Call(args));
+				result = registration.Callback.Call(args).Al();
 			}
 			catch (Exception ex)
 			{

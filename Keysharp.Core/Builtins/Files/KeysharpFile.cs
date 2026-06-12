@@ -198,7 +198,7 @@ namespace Keysharp.Builtins
 		public object RawRead(object obj0, object obj1 = null)
 		{
 			var buf = obj0;
-			var count = obj1.Al(long.MinValue);
+			var count = (obj1 is null ? long.MinValue : obj1.ToLong());
 			int len = 0;
 
 			if (br != null)
@@ -240,7 +240,7 @@ namespace Keysharp.Builtins
 		public long RawWrite(object obj0, object obj1 = null)
 		{
 			var buf = obj0;
-			var count = obj1.Al(long.MinValue);
+			var count = (obj1 is null ? long.MinValue : obj1.ToLong());
 			var len = 0;
 
 			if (bw != null)
@@ -343,8 +343,8 @@ namespace Keysharp.Builtins
 
 		public object Seek(object obj0, object obj1 = null)
 		{
-			var distance = obj0.Al();
-			var origin = obj1.Al(long.MinValue);
+			var distance = obj0.ToLong();
+			var origin = (obj1 is null ? long.MinValue : obj1.ToLong());
 			SeekOrigin so;
 
 			if (origin == 0)

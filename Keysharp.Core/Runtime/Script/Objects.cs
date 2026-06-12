@@ -334,7 +334,7 @@ namespace Keysharp.Runtime
 							return value;
 						}
 
-						var position = (int)ForceLong(key);
+						var position = key.Ai();
 
 						if (item is object[] objarr)
 						{
@@ -504,7 +504,7 @@ namespace Keysharp.Runtime
 				// Single-argument index fast paths
 				if (len == 1)
 				{
-					int position = (int)ForceLong(firstKey);
+					int position = firstKey.Ai();
 
 					// Strings
 					if (item is string s)

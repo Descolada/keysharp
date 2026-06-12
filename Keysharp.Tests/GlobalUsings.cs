@@ -23,6 +23,7 @@ global using global::System.Threading.Tasks;
 //Our usings.
 global using global::NUnit.Framework;
 global using global::Keysharp.Builtins;
+global using global::Keysharp.Internals.ExtensionMethods;
 global using global::Keysharp.Internals.Input.Keyboard;
 global using global::Keysharp.Parsing;
 global using global::Keysharp.Runtime;

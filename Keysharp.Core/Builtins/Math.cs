@@ -8,14 +8,14 @@ namespace Keysharp.Builtins
 		/// <param name="y">A number representing the Y value.</param>
 		/// <param name="x">A number representing the X value.</param>
 		/// <returns>An angle, θ, measured in radians, such that -(y/x)/2 ≤ θ ≤ (y/x)/2.</returns>
-		public static object ATan2(object y, object x) => Math.Atan2(y is double d0 ? d0 : y.Ad(), x is double d1 ? d1 : x.Ad());
+		public static object ATan2(object y, object x) => Math.Atan2(y.ToDouble(), x.ToDouble());
 
 		/// <summary>
 		/// Returns the hyperbolic cosine of the specified angle.
 		/// </summary>
 		/// <param name="n">An angle, measured in radians.</param>
 		/// <returns>The hyperbolic cosine of <paramref name="n"/>.</returns>
-		public static object Cosh(object obj) => Math.Cosh(obj is double d ? d : obj.Ad());
+		public static object Cosh(object obj) => Math.Cosh(obj.ToDouble());
 
 		/// <summary>
 		/// Reinitializes the random number generator for the current thread with the specified numerical seed.
@@ -23,7 +23,7 @@ namespace Keysharp.Builtins
 		/// <param name="obj">The numerical seed to create the random number generator with.</param>
 		public static object RandomSeed(object obj)
 		{
-			Script.TheScript.Threads.CurrentThread.RandomGenerator = new Random(obj.Ai());
+			Script.TheScript.Threads.CurrentThread.RandomGenerator = new Random(obj.ToInt());
 			return DefaultObject;
 		}
 
@@ -32,14 +32,14 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="n">An angle, measured in radians.</param>
 		/// <returns>The hyperbolic sine of <paramref name="n"/>.</returns>
-		public static object Sinh(object obj) => Math.Sinh(obj is double d ? d : obj.Ad());
+		public static object Sinh(object obj) => Math.Sinh(obj.ToDouble());
 
 		/// <summary>
 		/// Returns the hyperbolic tangent of the specified angle.
 		/// </summary>
 		/// <param name="n">An angle, measured in radians.</param>
 		/// <returns>The hyperbolic tangent of <paramref name="n"/>.</returns>
-		public static object Tanh(object obj) => Math.Tanh(obj is double d ? d : obj.Ad());
+		public static object Tanh(object obj) => Math.Tanh(obj.ToDouble());
 	}
 
 	/// <summary>
@@ -81,7 +81,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if the argument was not between -1 and 1.</exception>
 		public static object ACos(object number)
 		{
-			var n = number is double d ? d : number.Ad();
+			var n = number.ToDouble();
 
 			if (n < -1 || n > 1)
 				return Errors.ErrorOccurred($"ACos() argument of {n} was not between -1 and 1.");
@@ -97,7 +97,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if the argument was not between -1 and 1.</exception>
 		public static object ASin(object number)
 		{
-			var n = number is double d ? d : number.Ad();
+			var n = number.ToDouble();
 
 			if (n < -1 || n > 1)
 				return Errors.ErrorOccurred($"ASin() argument of {n} was not between -1 and 1.");
@@ -110,7 +110,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="number">A number representing a tangent.</param>
 		/// <returns>An angle, θ, measured in radians, such that -π/2 ≤ θ ≤ π/2.</returns>
-		public static object ATan(object number) => Math.Atan(number is double d ? d : number.Ad());
+		public static object ATan(object number) => Math.Atan(number.ToDouble());
 
 		/// <summary>
 		/// Returns the angle whose tangent is the y/x number.
@@ -118,21 +118,21 @@ namespace Keysharp.Builtins
 		/// <param name="y">A number representing the Y value.</param>
 		/// <param name="x">A number representing the X value.</param>
 		/// <returns>An angle, θ, measured in radians, such that -π ≤ θ ≤ π.</returns>
-		public static object ATan2(object y, object x) => Math.Atan2(y is double d0 ? d0 : y.Ad(), x is double d1 ? d1 : x.Ad());
+		public static object ATan2(object y, object x) => Math.Atan2(y.ToDouble(), x.ToDouble());
 
 		/// <summary>
 		/// Returns the specified number rounded up to the nearest integer.
 		/// </summary>
 		/// <param name="number">A number.</param>
 		/// <returns>The smallest integer greater than or equal to <paramref name="n"/>.</returns>
-		public static object Ceil(object number) => (long)Math.Ceiling(number is double d ? d : number.Ad());
+		public static object Ceil(object number) => (long)Math.Ceiling(number.ToDouble());
 
 		/// <summary>
 		/// Returns the cosine of the specified angle.
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The cosine of <paramref name="n"/>.</returns>
-		public static object Cos(object number) => Math.Cos(number is double d ? d : number.Ad());
+		public static object Cos(object number) => Math.Cos(number.ToDouble());
 
 		/// <summary>
 		/// Adds or subtracts time from a date-time value.
@@ -145,7 +145,7 @@ namespace Keysharp.Builtins
 		public static string DateAdd(object dateTime, object time, object timeUnits)
 		{
 			var s1 = dateTime.As();
-			var t = time.Ad();
+			var t = time.ToDouble();
 			var units = timeUnits.As();
 			var wasMs = s1.Contains('.');
 
@@ -214,14 +214,14 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="n">A number specifying a power.</param>
 		/// <returns>The number <c>e</c> raised to the power <paramref name="n"/>.</returns>
-		public static object Exp(object n) => Math.Exp(n is double d ? d : n.Ad());
+		public static object Exp(object n) => Math.Exp(n.ToDouble());
 
 		/// <summary>
 		/// Returns the largest integer less than or equal to the specified double number.
 		/// </summary>
 		/// <param name="number">A number.</param>
 		/// <returns>The largest integer less than or equal to <paramref name="n"/>.</returns>
-		public static object Floor(object number) => (long)Math.Floor(number is double d ? d : number.Ad());
+		public static object Floor(object number) => (long)Math.Floor(number.ToDouble());
 
 		/// <summary>
 		/// Returns the natural (base e) logarithm of a specified number.
@@ -231,7 +231,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if the argument was negative.</exception>
 		public static object Ln(object number)
 		{
-			var n = number is double d ? d : number.Ad();
+			var n = number.ToDouble();
 
 			if (n < 0)
 				return Errors.ErrorOccurred($"Ln() argument {n} was negative.");
@@ -416,8 +416,8 @@ namespace Keysharp.Builtins
 		{
 			if (dividend is double || divisor is double)
 			{
-				var divid = dividend.Ad();
-				var divis = divisor.Ad();
+				var divid = dividend.ToDouble();
+				var divis = divisor.ToDouble();
 
 				if (divis == 0)
 					return Errors.ErrorOccurred($"Mod() divisor argument of {divis} was 0.");
@@ -427,8 +427,8 @@ namespace Keysharp.Builtins
 			}
 			else
 			{
-				var divid = dividend.Al();
-				var divis = divisor.Al();
+				var divid = dividend.ToLong();
+				var divis = divisor.ToLong();
 
 				if (divis == 0)
 					return Errors.ErrorOccurred($"Mod() divisor argument of {divis} was 0.");
@@ -480,8 +480,8 @@ namespace Keysharp.Builtins
 				return r.NextInt64(min, max + 1L);//If one param is omitted, it defaults to 0.
 			}
 
-			var mind = a.Ad();
-			var maxd = b.Ad();
+			var mind = a is null ? 0.0 : a.ToDouble();//If one param is omitted, it defaults to 0.
+			var maxd = b is null ? 0.0 : b.ToDouble();
 			var lower = Math.Min(mind, maxd);
 			var upper = Math.Max(mind, maxd);
 			return r.NextDouble(lower, upper);
@@ -497,8 +497,8 @@ namespace Keysharp.Builtins
 		/// </returns>
 		public static object Round(object number, object n = null)
 		{
-			var num = number.Ad();
-			var places = n.Al();
+			var num = number.ToDouble();
+			var places = n is null ? 0L : n.ToLong();
 
 			if (places == 0L)
 				return Convert.ToInt64(num);
@@ -512,7 +512,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The sine of <paramref name="n"/>.</returns>
-		public static object Sin(object number) => Math.Sin(number is double d ? d : number.Ad());
+		public static object Sin(object number) => Math.Sin(number.ToDouble());
 
 		/// <summary>
 		/// Returns the square root of a specified number.
@@ -522,7 +522,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if the value is negative.</exception>
 		public static object Sqrt(object number)
 		{
-			var n = number is double d ? d : number.Ad();
+			var n = number.ToDouble();
 
 			if (n < 0)
 				return Errors.ErrorOccurred($"Sqrt() argument of {n} was negative.");
@@ -535,6 +535,6 @@ namespace Keysharp.Builtins
 		/// </summary>
 		/// <param name="number">An angle, measured in radians.</param>
 		/// <returns>The tangent of <paramref name="n"/>.</returns>
-		public static object Tan(object number) => Math.Tan(number is double d ? d : number.Ad());
+		public static object Tan(object number) => Math.Tan(number.ToDouble());
 	}
 }

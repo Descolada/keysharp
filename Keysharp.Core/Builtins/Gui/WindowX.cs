@@ -845,10 +845,10 @@ namespace Keysharp.Builtins
 									 object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinMove");
-			var _x = x.Ai(int.MinValue);
-			var _y = y.Ai(int.MinValue);
-			var w = width.Ai(int.MinValue);
-			var h = height.Ai(int.MinValue);
+			var _x = (x is null ? int.MinValue : x.ToInt());
+			var _y = (y is null ? int.MinValue : y.ToInt());
+			var w = (width is null ? int.MinValue : width.ToInt());
+			var h = (height is null ? int.MinValue : height.ToInt());
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{

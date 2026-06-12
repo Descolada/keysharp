@@ -19,7 +19,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 		internal nint WM_PROTOCOLS;
 		internal nint WM_DELETE_WINDOW;
 		internal nint WM_TAKE_FOCUS;
-		//internal nint _NET_SUPPORTED;
+		internal nint _NET_SUPPORTED;
 		//internal nint _NET_CLIENT_LIST;
 		//internal nint _NET_NUMBER_OF_DESKTOPS;
 		internal nint _NET_DESKTOP_GEOMETRY;
@@ -33,7 +33,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 		//internal nint _NET_DESKTOP_LAYOUT;
 		//internal nint _NET_SHOWING_DESKTOP;
 		//internal nint _NET_CLOSE_WINDOW;
-		//internal nint _NET_MOVERESIZE_WINDOW;
+		internal nint _NET_MOVERESIZE_WINDOW;
 		internal nint _NET_WM_MOVERESIZE;
 		//internal nint _NET_RESTACK_WINDOW;
 		//internal nint _NET_REQUEST_FRAME_EXTENTS;
@@ -289,7 +289,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 				"WM_PROTOCOLS",
 				"WM_DELETE_WINDOW",
 				"WM_TAKE_FOCUS",
-				//"_NET_SUPPORTED",
+				"_NET_SUPPORTED",
 				//"_NET_CLIENT_LIST",
 				//"_NET_NUMBER_OF_DESKTOPS",
 				"_NET_DESKTOP_GEOMETRY",
@@ -303,7 +303,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 				//"_NET_DESKTOP_LAYOUT",
 				//"_NET_SHOWING_DESKTOP",
 				//"_NET_CLOSE_WINDOW",
-				//"_NET_MOVERESIZE_WINDOW",
+				"_NET_MOVERESIZE_WINDOW",
 				"_NET_WM_MOVERESIZE",
 				//"_NET_RESTACK_WINDOW",
 				//"_NET_REQUEST_FRAME_EXTENTS",
@@ -363,7 +363,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 			WM_PROTOCOLS = atoms[off++];
 			WM_DELETE_WINDOW = atoms[off++];
 			WM_TAKE_FOCUS = atoms[off++];
-			//_NET_SUPPORTED = atoms [off++];
+			_NET_SUPPORTED = atoms[off++];
 			//_NET_CLIENT_LIST = atoms [off++];
 			//_NET_NUMBER_OF_DESKTOPS = atoms [off++];
 			_NET_DESKTOP_GEOMETRY = atoms[off++];
@@ -377,7 +377,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 			//_NET_DESKTOP_LAYOUT = atoms [off++];
 			//_NET_SHOWING_DESKTOP = atoms [off++];
 			//_NET_CLOSE_WINDOW = atoms [off++];
-			//_NET_MOVERESIZE_WINDOW = atoms [off++];
+			_NET_MOVERESIZE_WINDOW = atoms[off++];
 			_NET_WM_MOVERESIZE = atoms[off++];
 			//_NET_RESTACK_WINDOW = atoms [off++];
 			//_NET_REQUEST_FRAME_EXTENTS = atoms [off++];

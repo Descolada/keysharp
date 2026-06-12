@@ -346,13 +346,16 @@ namespace Keysharp.Internals.Window.Linux
 					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
 					{
 						if (ctrl is Eto.Forms.Window window)
-							window.Location = new Point(x, y);
+						{
+							if (!manager.TryNetMoveWindow(Handle, scaledX, scaledY))
+								window.Location = new Point(x, y);
+						}
 						else if (ctrl.Parent is PixelLayout pixel)
 							PixelLayout.SetLocation(ctrl, new Point(x, y));
 						else
 							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);
 					}
-					else
+					else if (!manager.TryNetMoveWindow(Handle, scaledX, scaledY))
 						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);//The reparenting WM applies NorthWest gravity, so the requested coordinate becomes the outer/frame top-left, which is exactly what the getter returns.
 
 					_  = Xlib.XFlush(xwindow.XDisplay.Handle);

@@ -9,6 +9,12 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 	{
 		[ThreadStatic]
 		private static nint _defaultDisp;
+
+		// Process-wide set of the per-thread "default" display handles. These live for the
+		// lifetime of the process and must never be closed out from under the thread that owns
+		// them. We can't rely on the [ThreadStatic] _defaultDisp for this check, because Dispose()
+		// (and the finalizer in particular) run on a different thread, where _defaultDisp is 0.
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> defaultHandles = new ();
 		private int screenNumber;
 		internal nint WM_PROTOCOLS;
 		internal nint WM_DELETE_WINDOW;
@@ -93,6 +99,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 				if (_defaultDisp == 0)
 				{
 					_defaultDisp = Xlib.XOpenDisplay(0);
+					_ = defaultHandles.TryAdd(_defaultDisp, 0);
 					_default = new XDisplay(_defaultDisp);
 				}
 
@@ -115,12 +122,29 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 
 		~XDisplay()
 		{
-			Dispose();
+			Dispose(false);
 		}
 
 		public void Dispose()
 		{
-			if (Handle != 0 && Handle != _defaultDisp)
+			Dispose(true);
+			GC.SuppressFinalize(this);
+		}
+
+		private void Dispose(bool disposing)
+		{
+			// Never close an X display from the finalizer thread. With XInitThreads() enabled
+			// (see Script.cs) every Xlib call locks the Display, so calling XCloseDisplay() here
+			// can deadlock against the owning thread that is mid-call on the same Display - this
+			// is what wedged shutdown (GC.WaitForPendingFinalizers() in Flow.ExitAppInternal()
+			// blocking while another thread sat in XDefaultRootWindow()).
+			if (!disposing)
+				return;
+
+			// Default per-thread displays are intentionally left open for the process lifetime;
+			// the OS reclaims them at exit. Only ever close a non-default display, and only on an
+			// explicit Dispose() (i.e. from the owning thread), never via finalization.
+			if (Handle != 0 && !defaultHandles.ContainsKey(Handle))
 			{
 				Xlib.XCloseDisplay(Handle);
 				Handle = 0;

@@ -984,21 +984,12 @@ namespace Keysharp.Runtime
 				if (hasExited)
 					app.Quit();
 			};
-#if OSX
 			// AllowShowDisplay is false at this point either way (set in EnsureMainWindowHandle), so
 			// a Show()/Hide() round trip here would just self-hide again right away -- but even a
-			// brief Show() registers a real on-screen window with the window server, which makes
-			// the Dock icon flash for this Accessory-policy app. Skip showing it altogether: just
-			// realize the native handle and mark the window as "shown" so a later, user-requested
-			// Show() (e.g. opening the debug window via the tray menu, which flips AllowShowDisplay
-			// back to true) works correctly via MainWindow.ShowIfNeeded(), without ever having
-			// displayed anything here.
-			_ = mainWindow.Handle;
-			mainWindow.beenShown = true;
-#else
-
-			mainWindow.Show();
-#endif
+			// brief Show() registers a real on-screen window with the window server, which makes its
+			// taskbar/Dock icon flash and can steal focus. Realize the native handle without mapping
+			// the window, and leave the first visible Show() to an explicit user request.
+			mainWindow.InitializeHidden();
 
 			app.AsyncInvoke(() => RunAutoExecSection(userInit));
 		}

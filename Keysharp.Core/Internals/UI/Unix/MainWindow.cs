@@ -58,6 +58,17 @@ namespace Keysharp.Internals.UI.Unix
 			SizeChanged += MainWindow_SizeChanged;
 		}
 
+		internal void InitializeHidden()
+		{
+#if LINUX
+			// Realize the GTK window so it has an X11 handle without mapping or activating it.
+			if (this.ToNative() is Gtk.Window native)
+				native.Realize();
+#endif
+			_ = this.Handle;
+			beenShown = true;
+		}
+
 		private void BuildUi()
 		{
 			BuildMenus();

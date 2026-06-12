@@ -10,6 +10,23 @@ namespace Keysharp.Tests
 	{
 		private const string MsgBoxTitle = "this is a sample title";
 
+#if !WINDOWS
+		[Test, Category("Gui")]
+		public void MainWindowInitializesHidden()
+		{
+			SkipIfUiInitializationBlocked("Test requires a live Eto Application (macOS testhost cannot drive AppKit).");
+			var shown = false;
+			using var mainWindow = new Keysharp.Internals.UI.Unix.MainWindow();
+			mainWindow.Shown += (_, _) => shown = true;
+
+			mainWindow.InitializeHidden();
+
+			Assert.AreNotEqual(0, mainWindow.NativeHandle);
+			Assert.IsFalse(mainWindow.Visible);
+			Assert.IsFalse(shown);
+		}
+#endif
+
 		[Test, Category("Gui")]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]

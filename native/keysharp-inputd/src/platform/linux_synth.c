@@ -13,9 +13,33 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 #define KSI_UINPUT_PATH "/dev/uinput"
+
+/* Synthetic-output pacing.
+ *
+ * uinput gives the producer no backpressure: write() always succeeds, and when
+ * a consumer's per-fd evdev ring fills (≈64 events on a typical keyboard) the
+ * kernel discards queued events and raises SYN_DROPPED on *that consumer*. A
+ * back-to-back burst (e.g. a long Send) therefore silently loses keystrokes —
+ * the compositor never gets a chance to drain between our writes.
+ *
+ * Since the overflow cannot be observed from here, the only robust fix is to
+ * keep the number of in-flight (un-drained) events safely below the ring and
+ * briefly yield so the consumer's event loop runs. We count emitted events and
+ * clock_nanosleep() once a chunk's worth has been written. The check runs after
+ * every event (not per high-level input), so the chunk size IS the per-cycle
+ * footprint — there is no extra overshoot from a single input expanding into a
+ * burst (e.g. a Unicode char ≈32 events).
+ *
+ * Sizing: if the consumer misses exactly one of our yield windows, two chunks
+ * can be in flight, so 2 * chunk must stay within the ~64-event minimum ring.
+ * Hence 32. Short sends never reach the threshold and pay nothing, so the
+ * common case runs at full speed. */
+#define KSI_SYNTH_PACE_EVENTS 32
+#define KSI_SYNTH_PACE_SLEEP_NS (700L * 1000L) /* 0.7 ms */
 
 /* Relative mouse: keyboard keys + BTN_* + REL_X/Y/WHEEL. */
 static int uinput_fd = -1;
@@ -26,6 +50,10 @@ static bool suppress_replay_events;
 static bool synthesized_keys_down[KEY_MAX + 1];
 static uint16_t pending_high_surrogate;
 static uint64_t current_extra_info;
+/* Pacing state, used only while a bulk client synthesis batch is being written
+ * (see pacing note). Replays/passthrough are single events and never paced. */
+static bool synth_pacing_active;
+static unsigned synth_pace_events; /* events emitted since the last yield */
 
 static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 {
@@ -64,6 +92,16 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
          * input subsystem. */
         ksi_linux_devices_unrecord_last_synthetic_event(type, code, value);
         return -1;
+    }
+
+    /* Pace bulk synthesis against the consumer's finite evdev ring. Checked
+     * after every emitted event so the chunk size is the exact per-cycle
+     * footprint. Yielding mid-report (between a key and its SYN) is harmless:
+     * the consumer applies nothing until the SYN, and we drop nothing. */
+    if (synth_pacing_active && ++synth_pace_events >= KSI_SYNTH_PACE_EVENTS) {
+        struct timespec pause = { 0, KSI_SYNTH_PACE_SLEEP_NS };
+        (void)clock_nanosleep(CLOCK_MONOTONIC, 0, &pause, NULL);
+        synth_pace_events = 0;
     }
 
     return 0;
@@ -772,6 +810,10 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
         suppress_replay_events = true;
     }
 
+    /* Enable per-event pacing for this batch (see emit_event_to). */
+    synth_pacing_active = true;
+    synth_pace_events = 0;
+
     for (size_t i = 0; i < count; i++) {
         if (inputs[i].type == KSI_INPUT_KEYBOARD) {
             current_extra_info = inputs[i].data.keyboard.extra_info;
@@ -789,6 +831,7 @@ int ksi_linux_synth_send_input(const ksi_input *inputs, size_t count, uint32_t f
         }
     }
 
+    synth_pacing_active = false;
     suppress_replay_events = old_suppress;
     current_extra_info = old_extra_info;
     return result;

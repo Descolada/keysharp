@@ -26,20 +26,19 @@
  * back-to-back burst (e.g. a long Send) therefore silently loses keystrokes —
  * the compositor never gets a chance to drain between our writes.
  *
- * Since the overflow cannot be observed from here, the only robust fix is to
- * keep the number of in-flight (un-drained) events safely below the ring and
+ * Since the overflow cannot be observed from here, the practical mitigation is
+ * to keep the number of in-flight (un-drained) events safely below the ring and
  * briefly yield so the consumer's event loop runs. We count emitted events and
  * clock_nanosleep() once a chunk's worth has been written. The check runs after
  * every event (not per high-level input), so the chunk size IS the per-cycle
  * footprint — there is no extra overshoot from a single input expanding into a
  * burst (e.g. a Unicode char ≈32 events).
  *
- * Sizing: if the consumer misses exactly one of our yield windows, two chunks
- * can be in flight, so 2 * chunk must stay within the ~64-event minimum ring.
- * Hence 32. Short sends never reach the threshold and pay nothing, so the
- * common case runs at full speed. */
-#define KSI_SYNTH_PACE_EVENTS 32
-#define KSI_SYNTH_PACE_SLEEP_NS (700L * 1000L) /* 0.7 ms */
+ * Smaller, more frequent pauses tolerate delayed consumer scheduling better
+ * while preserving the same nominal throughput. Short sends never reach the
+ * threshold and pay nothing, so the common case runs at full speed. */
+#define KSI_SYNTH_PACE_EVENTS 16
+#define KSI_SYNTH_PACE_SLEEP_NS (350L * 1000L) /* 0.35 ms */
 
 /* Relative mouse: keyboard keys + BTN_* + REL_X/Y/WHEEL. */
 static int uinput_fd = -1;
@@ -54,6 +53,21 @@ static uint64_t current_extra_info;
  * (see pacing note). Replays/passthrough are single events and never paced. */
 static bool synth_pacing_active;
 static unsigned synth_pace_events; /* events emitted since the last yield */
+
+static void pace_synthetic_output(void)
+{
+    struct timespec pause = { 0, KSI_SYNTH_PACE_SLEEP_NS };
+    struct timespec remaining;
+    int result;
+
+    do {
+        result = clock_nanosleep(CLOCK_MONOTONIC, 0, &pause, &remaining);
+
+        if (result == EINTR) {
+            pause = remaining;
+        }
+    } while (result == EINTR);
+}
 
 static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
 {
@@ -99,8 +113,7 @@ static int emit_event_to(int fd, uint16_t type, uint16_t code, int32_t value)
      * footprint. Yielding mid-report (between a key and its SYN) is harmless:
      * the consumer applies nothing until the SYN, and we drop nothing. */
     if (synth_pacing_active && ++synth_pace_events >= KSI_SYNTH_PACE_EVENTS) {
-        struct timespec pause = { 0, KSI_SYNTH_PACE_SLEEP_NS };
-        (void)clock_nanosleep(CLOCK_MONOTONIC, 0, &pause, NULL);
+        pace_synthetic_output();
         synth_pace_events = 0;
     }
 

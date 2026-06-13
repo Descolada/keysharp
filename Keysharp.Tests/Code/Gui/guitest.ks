@@ -898,7 +898,11 @@ MenuHandler(Item, *) {
 		TraySetIcon(A_KeysharpCorePath, "Keysharp.ico")
 }
 
-#z::MyMenu.Show()  ; i.e. press the Win-Z hotkey to show the menu.
+#z::
+{
+	KeyWait "LWin" ; This is necessary in X11+inputd, when a grab on Win can block the context menu from showing
+	MyMenu.Show()  ; i.e. press the Win-Z hotkey to show the menu.
+}
 ;#z::Run("Notepad.exe")
 
 ; ┌──────────────────┐

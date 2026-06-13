@@ -1226,7 +1226,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.extra_info = device->pending_rel_extra_info;
         hook_event.device_id = device->device_id;
 
-        if (g_verbose) {
+        if (g_verbose && should_dispatch_hook_input(device)) {
             printf("inputd: mouse move dx=%d dy=%d time=%llu device=\"%s\"\n",
                 hook_event.x,
                 hook_event.y,
@@ -1260,7 +1260,7 @@ static void dispatch_pending_mouse_move(ksi_linux_tracked_device *device)
         hook_event.extra_info = device->pending_abs_extra_info;
         hook_event.device_id = device->device_id;
 
-        if (g_verbose) {
+        if (g_verbose && should_dispatch_hook_input(device)) {
             printf("inputd: mouse move abs x=%d y=%d time=%llu device=\"%s\"\n",
                 hook_event.x,
                 hook_event.y,
@@ -1316,7 +1316,7 @@ static void dispatch_relative_event(ksi_linux_tracked_device *device, const stru
 
         dispatch_pending_mouse_move(device);
 
-        if (g_verbose) {
+        if (g_verbose && should_dispatch_hook_input(device)) {
             printf("inputd: mouse wheel message=0x%x delta=%d time=%llu device=\"%s\"\n",
                 hook_event.message,
                 event->value * 120,

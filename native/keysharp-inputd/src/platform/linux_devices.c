@@ -115,6 +115,10 @@ static ksi_hook_event_callback hook_event_callback;
 static void *hook_event_context;
 static uint32_t grab_hook_mask;
 static uint32_t block_input_mask;
+/* Set when the most recent set_grab_masks() could not apply the requested grab
+ * state to every device. Forces the next call to re-evaluate (rather than
+ * short-circuit on an unchanged mask) so a transient grab failure is retried. */
+static bool grab_state_incomplete;
 
 /* Current LED state, updated from EV_LED events on grabbed keyboards.
  * Included in every keyboard hook event so the C# side can maintain an
@@ -811,6 +815,7 @@ int ksi_linux_devices_start(void)
     suppressed_replay_count = 0;
     grab_hook_mask = 0;
     block_input_mask = 0;
+    grab_state_incomplete = false;
     memset(&current_pointer_position, 0, sizeof(current_pointer_position));
     scan_existing_devices();
 
@@ -850,40 +855,43 @@ bool ksi_linux_devices_has_candidates(void)
 
 static int set_grab_masks(uint32_t hook_mask, uint32_t block_mask)
 {
-    int result = 0;
+    size_t grab_failures = 0;
 
-    if (grab_hook_mask == hook_mask && block_input_mask == block_mask) {
+    if (!grab_state_incomplete
+        && grab_hook_mask == hook_mask
+        && block_input_mask == block_mask) {
         return 0;
     }
 
+    /* Best-effort, per-device: apply the requested grab state to each tracked
+     * device independently. A failure on one device must not disable
+     * hooking/blocking on the devices that did grab. This matters for
+     * composite wireless receivers (one dongle for keyboard+mouse), which
+     * commonly expose an extra "consumer/system control" evdev node that is a
+     * grab candidate but cannot be EVIOCGRAB'd; rolling everything back on that
+     * one node's failure was what made BlockInput silently do nothing. */
     for (size_t i = 0; i < tracked_device_count; i++) {
         bool should_grab = should_grab_device_for_masks(&tracked_devices[i], hook_mask, block_mask);
 
         if (set_device_grab(&tracked_devices[i], should_grab) != 0) {
-            result = -1;
+            grab_failures++;
         }
     }
 
-    if (result != 0 && (hook_mask != 0 || block_mask != 0)) {
-        /* Grab failed on at least one device; roll back all to ungrabbed.
-         * Update grab_hook_mask to 0 regardless of whether the rollback
-         * fully succeeds so that the next call retries rather than
-         * short-circuiting on a stale mask value. */
-        for (size_t i = 0; i < tracked_device_count; i++) {
-            (void)set_device_grab(&tracked_devices[i], false);
-        }
+    /* Commit the masks even on partial failure: the devices that grabbed are
+     * now enforcing this state, and devices hotplugged later must match it. */
+    grab_hook_mask = hook_mask;
+    block_input_mask = block_mask;
+    grab_state_incomplete = grab_failures != 0;
 
-        grab_hook_mask = 0;
-        block_input_mask = 0;
-        return -1;
+    if (grab_failures != 0) {
+        fprintf(stderr,
+            "inputd: %zu device(s) could not be grabbed for hook_mask=0x%x block_mask=0x%x; "
+            "continuing with the devices that grabbed successfully\n",
+            grab_failures, hook_mask, block_mask);
     }
 
-    if (result == 0) {
-        grab_hook_mask = hook_mask;
-        block_input_mask = block_mask;
-    }
-
-    return result;
+    return 0;
 }
 
 int ksi_linux_devices_set_grab_hook_mask(uint32_t hook_mask)

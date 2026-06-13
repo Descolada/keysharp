@@ -242,7 +242,7 @@ namespace Keysharp.Builtins
 				return DefaultObject;
 			System.Diagnostics.Debug.Write(text);//Will print only in debug mode to the debugger so we can see it in Visual Studio.
 
-			MainWindow.AppendDebugOutput(text, clear);
+			Script.PostToUIThread(() => MainWindow.AppendDebugOutput(text, clear));
 
 			return DefaultObject;
 		}

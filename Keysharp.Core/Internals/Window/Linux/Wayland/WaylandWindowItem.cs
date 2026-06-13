@@ -55,7 +55,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal override string ClassName => isBackendWindow ? Info?.AppId ?? DefaultObject : Toplevel?.AppId ?? DefaultObject;
 
-		internal override Rectangle ClientLocation
+		internal override Rectangle ClientBounds
 		{
 			get
 			{
@@ -75,13 +75,29 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal override bool IsHung => false;
 
-		internal override Rectangle Location
+		internal override Rectangle Bounds
 		{
 			get => isBackendWindow ? Info?.FrameGeometry ?? Rectangle.Empty : Rectangle.Empty;
 			set
 			{
-				if (isBackendWindow && IsSpecified)
-					_ = backend.TryMoveResizeWindow(Handle, value, setPosition: true, setSize: false);
+				if (!isBackendWindow || !IsSpecified)
+					return;
+
+				var setPos  = value.X != Unchanged || value.Y != Unchanged;
+				var setSize = value.Width != Unchanged || value.Height != Unchanged;
+
+				if (!setPos && !setSize)
+					return;
+
+				var rect = Info?.FrameGeometry ?? Rectangle.Empty;
+
+				if (value.X != Unchanged) rect.X = value.X;
+				if (value.Y != Unchanged) rect.Y = value.Y;
+				if (value.Width != Unchanged) rect.Width = value.Width;
+				if (value.Height != Unchanged) rect.Height = value.Height;
+
+				if (!backend.TryMoveResizeWindow(Handle, rect, setPos, setSize))
+					_ = Keysharp.Builtins.Errors.OSErrorOccurred("Move/resize for Wayland window failed.");
 			}
 		}
 
@@ -90,28 +106,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal override WindowItemBase ParentWindow => isBackendWindow ? new WaylandWindowItem(backend, null) : new WaylandWindowItem((WaylandToplevel)null);
 
 		internal override long PID => isBackendWindow ? Info?.PID ?? 0L : 0L;
-
-		internal override Size Size
-		{
-			get
-			{
-				if (!isBackendWindow)
-					return Size.Empty;
-
-				var rect = Info?.FrameGeometry ?? Rectangle.Empty;
-				return new Size(rect.Width, rect.Height);
-			}
-			set
-			{
-				if (!isBackendWindow || !IsSpecified)
-					return;
-
-				var rect = Info?.FrameGeometry ?? Rectangle.Empty;
-				rect.Width = value.Width;
-				rect.Height = value.Height;
-				_ = backend.TryMoveResizeWindow(Handle, rect, setPosition: false, setSize: true);
-			}
-		}
 
 		internal override long Style { get => 0L; set { } }
 

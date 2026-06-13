@@ -65,7 +65,7 @@ namespace Keysharp.Builtins
 			{
 				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 				{
-					var rect = client ? win.ClientLocation : win.Location;
+					var rect = client ? win.ClientBounds : win.Bounds;
 
 					if (client)
 					{

@@ -144,7 +144,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		internal override Rectangle ClientLocation => Location;
+		internal override Rectangle ClientBounds => Bounds;
 
 		internal override bool Enabled
 		{
@@ -162,7 +162,7 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override bool IsHung => false;
 
-		internal override Rectangle Location
+		internal override Rectangle Bounds
 		{
 			get => TryGetNativeInfo(out var native) ? native.Bounds : Rectangle.Empty;
 			set
@@ -170,10 +170,23 @@ namespace Keysharp.Internals.Window.MacOS
 				if (!TryGetNativeInfo(out var native))
 					return;
 
-				if (!MacAccessibility.TryMoveResizeWindow(native, value, setPosition: true, setSize: false))
-					Ks.OutputDebugLine("Move for macOS window failed.");
-				else
+				var setPos  = value.X != Unchanged || value.Y != Unchanged;
+				var setSize = value.Width != Unchanged || value.Height != Unchanged;
+
+				if (!setPos && !setSize)
+					return;
+
+				var rect = native.Bounds;
+
+				if (value.X != Unchanged) rect.X = value.X;
+				if (value.Y != Unchanged) rect.Y = value.Y;
+				if (value.Width != Unchanged) rect.Width = value.Width;
+				if (value.Height != Unchanged) rect.Height = value.Height;
+
+				if (MacAccessibility.TryMoveResizeWindow(native, rect, setPos, setSize))
 					InvalidateNativeInfoCache();
+				else
+					_ = Errors.OSErrorOccurred("Move/resize for macOS window failed.");
 			}
 		}
 
@@ -218,29 +231,6 @@ namespace Keysharp.Internals.Window.MacOS
 					return processName = System.IO.Path.GetFileName(path);
 
 				return base.ProcessName;
-			}
-		}
-
-		internal override Size Size
-		{
-			get
-			{
-				var location = Location;
-				return new Size(location.Width, location.Height);
-			}
-			set
-			{
-				if (!TryGetNativeInfo(out var native))
-					return;
-
-				var rect = native.Bounds;
-				rect.Width = value.Width;
-				rect.Height = value.Height;
-
-				if (!MacAccessibility.TryMoveResizeWindow(native, rect, setPosition: false, setSize: true))
-					Ks.OutputDebugLine("Resize for macOS window failed.");
-				else
-					InvalidateNativeInfoCache();
 			}
 		}
 

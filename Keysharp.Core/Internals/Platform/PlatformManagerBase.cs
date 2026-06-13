@@ -85,9 +85,9 @@ namespace Keysharp.Internals.Platform
 			{
 				if (coordMode == CoordModeType.Window)
 				{
-					var rect = activeWindow.Location;
-					aX += rect.Left;
-					aY += rect.Top;
+					var loc = activeWindow.Location;
+					aX += loc.X;
+					aY += loc.Y;
 				}
 				else // (coord_mode == CoordModeType.Window.Client)
 				{
@@ -126,9 +126,9 @@ namespace Keysharp.Internals.Platform
 			{
 				if (coordMode == CoordModeType.Window)
 				{
-					var rect = activeWindow.Location;
-					aX -= rect.Left;
-					aY -= rect.Top;
+					var loc = activeWindow.Location;
+					aX -= loc.X;
+					aY -= loc.Y;
 				}
 				else // CoordModeType.Window.Client
 				{

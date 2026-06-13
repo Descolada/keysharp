@@ -114,7 +114,7 @@ namespace Keysharp.Internals.Window.Windows
 
 		internal override string ClassName => className ??= IsSpecified ? WindowsAPI.GetClassName(Handle) : string.Empty;
 
-		internal override Rectangle ClientLocation
+		internal override Rectangle ClientBounds
 		{
 			get
 			{
@@ -154,7 +154,7 @@ namespace Keysharp.Internals.Window.Windows
 
 		internal override bool IsHung => Handle == 0 ? false : WindowsAPI.IsHungAppWindow(Handle);
 
-		internal override Rectangle Location
+		internal override Rectangle Bounds
 		{
 			get
 			{
@@ -170,16 +170,48 @@ namespace Keysharp.Internals.Window.Windows
 			}
 			set
 			{
-				if (!IsSpecified || !WindowsAPI.GetWindowRect(Handle, out var rect))
+				if (!IsSpecified)
 					return;
 
-				if (value.X != int.MinValue)
-					rect.Left = value.X;
+				var setPos  = value.X != Unchanged || value.Y != Unchanged;
+				var setSize = value.Width != Unchanged || value.Height != Unchanged;
 
-				if (value.Y != int.MinValue)
-					rect.Top = value.Y;
+				if (!setPos && !setSize)
+					return;
 
-				_ = WindowsAPI.MoveWindow(Handle, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top, true);
+#if DPI
+				var scale = Accessors.A_ScaledScreenDPI;
+#else
+				var scale = 1.0;
+#endif
+				//SWP_NOMOVE/SWP_NOSIZE cover a whole unchanged axis, so the current rect is only needed to
+				//fill a partially-specified move or resize (e.g. a new X with an unchanged Y).
+				int curX = 0, curY = 0, curW = 0, curH = 0;
+
+				if ((setPos && (value.X == Unchanged || value.Y == Unchanged))
+						|| (setSize && (value.Width == Unchanged || value.Height == Unchanged)))
+				{
+					if (!WindowsAPI.GetWindowRect(Handle, out var rect))
+						return;
+
+					curX = rect.Left;
+					curY = rect.Top;
+					curW = rect.Right - rect.Left;
+					curH = rect.Bottom - rect.Top;
+				}
+
+				//Any field left Unchanged keeps the current device-pixel value; specified fields are
+				//logical coordinates scaled back up to device pixels for the native call.
+				var x = value.X == Unchanged ? curX : (int)(scale * value.X);
+				var y = value.Y == Unchanged ? curY : (int)(scale * value.Y);
+				var w = value.Width == Unchanged ? curW : (int)(scale * value.Width);
+				var h = value.Height == Unchanged ? curH : (int)(scale * value.Height);
+				var flags = (uint)(WindowsAPI.SWP_NOZORDER | WindowsAPI.SWP_NOACTIVATE
+								   | (setPos ? 0 : WindowsAPI.SWP_NOMOVE)
+								   | (setSize ? 0 : WindowsAPI.SWP_NOSIZE));
+
+				if (!WindowsAPI.SetWindowPos(Handle, 0, x, y, w, h, flags))
+					_ = Errors.OSErrorOccurred(new Win32Exception(Marshal.GetLastWin32Error()));
 			}
 		}
 
@@ -231,28 +263,6 @@ namespace Keysharp.Internals.Window.Windows
 					return (string)Errors.OSErrorOccurred(new Win32Exception(Marshal.GetLastWin32Error()), "", DefaultErrorString);
 
 				return processName;
-			}
-		}
-
-		internal override Size Size
-		{
-			get
-			{
-				var scale = 1.0 / A_ScaledScreenDPI;
-				return !IsSpecified || !WindowsAPI.GetWindowRect(Handle, out var rect)
-					   ? Size.Empty
-#if DPI
-					   : new Size((int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
-#else
-					   : new Size(rect.Right - rect.Left, rect.Bottom - rect.Top);
-#endif
-			}
-			set
-			{
-				if (!IsSpecified || !WindowsAPI.GetWindowRect(Handle, out var rect))
-					return;
-
-				_ = WindowsAPI.MoveWindow(Handle, rect.Left, rect.Top, value.Width, value.Height, true);
 			}
 		}
 

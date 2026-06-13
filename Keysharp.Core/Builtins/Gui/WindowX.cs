@@ -852,32 +852,13 @@ namespace Keysharp.Builtins
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
-				if (_x != int.MinValue || _y != int.MinValue)
+				if (_x != int.MinValue || _y != int.MinValue || w != int.MinValue || h != int.MinValue)
 				{
-					var loc = win.Location;
-
-					if (_x != int.MinValue)
-						loc.X = _x;
-
-					if (_y != int.MinValue)
-						loc.Y = _y;
-
-					win.Location = loc;
+					//Unspecified args are int.MinValue, which the Bounds setter treats as "leave unchanged",
+					//so a single assignment performs move, resize, or both in one platform call.
+					win.Bounds = new Rectangle(_x, _y, w, h);
+					WindowItemBase.DoWinDelay();
 				}
-
-				if (w != int.MinValue || h != int.MinValue)
-				{
-					var size = win.Size;
-
-					if (w != int.MinValue)
-						size.Width = w;
-
-					if (h != int.MinValue)
-						size.Height = h;
-
-					win.Size = size;
-				}
-				WindowItemBase.DoWinDelay();
 			}
 
 			return DefaultObject;

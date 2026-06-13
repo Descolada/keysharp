@@ -1905,7 +1905,15 @@ namespace Keysharp.Builtins
 			removeExStyle = _removeExStyle;
 		}
 
-		internal static string DisplayText(string text) => (text ?? "").Replace("&&", "&");
+		internal static string DisplayText(string text)
+		{
+#if OSX
+			// Eto's macOS tab handler displays the raw text, while GTK already converts escaped mnemonics.
+			return (text ?? "").Replace("&&", "&");
+#else
+			return text ?? "";
+#endif
+		}
 
 		internal void AdjustSize(double dpiscale, Size requestedSize)
 		{

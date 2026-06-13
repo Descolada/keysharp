@@ -60,7 +60,7 @@ namespace Keysharp.Internals.Window
 			}
 		}
 
-		internal abstract Rectangle ClientLocation { get; }
+		internal abstract Rectangle ClientBounds { get; }
 		internal int Delay { get; set; } = 100;
 		internal abstract bool Enabled { get; set; }
 		internal abstract bool Exists { get; }
@@ -68,7 +68,27 @@ namespace Keysharp.Internals.Window
 		public nint Handle { get; set; } = 0;
 		internal abstract bool IsHung { get; }
 		internal bool IsSpecified => Handle != 0;
-		internal abstract Rectangle Location { get; set; }
+		/// <summary>
+		/// Sentinel for the <see cref="Bounds"/> setter: any field equal to this value is left unchanged.
+		/// </summary>
+		internal const int Unchanged = int.MinValue;
+
+		/// <summary>
+		/// The outer (decorated) window rectangle in logical coordinates. The getter returns the full
+		/// bounds; the setter applies them, treating any field equal to <see cref="Unchanged"/> as
+		/// "leave that field as-is" (so it can move, resize, or do both in a single platform call).
+		/// Throws OSError if the underlying platform call reports failure — but not when the call
+		/// succeeds yet the window manager repositions/clamps the window (AHK documents that success
+		/// may be reported even if the window has not moved).
+		/// </summary>
+		internal abstract Rectangle Bounds { get; set; }
+
+		/// <summary>The window's top-left position, in screen coordinates.</summary>
+		internal Point Location
+		{
+			get => Bounds.Location;
+			set => Bounds = new Rectangle(value.X, value.Y, Unchanged, Unchanged);
+		}
 		internal virtual string NetClassName
 		{
 			get
@@ -177,7 +197,12 @@ namespace Keysharp.Internals.Window
 			}
 		}
 
-		internal abstract Size Size { get; set; }
+		/// <summary>The window's outer (decorated) size.</summary>
+		internal Size Size
+		{
+			get => Bounds.Size;
+			set => Bounds = new Rectangle(Unchanged, Unchanged, value.Width, value.Height);
+		}
 		internal abstract long Style { get; set; }
 		internal abstract List<string> Text { get; }
 		internal virtual List<string> GetText(WindowSearchOptions options) => Text;

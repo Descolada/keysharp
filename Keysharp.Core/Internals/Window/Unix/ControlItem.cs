@@ -103,7 +103,7 @@ namespace Keysharp.Internals.Window.Unix
 			}
 		}
 
-		internal override Rectangle ClientLocation => Location;
+		internal override Rectangle ClientBounds => Bounds;
 
 		internal override bool Enabled
 		{
@@ -125,7 +125,7 @@ namespace Keysharp.Internals.Window.Unix
 
 		internal override bool IsHung => false;
 
-		internal override Rectangle Location
+		internal override Rectangle Bounds
 		{
 			get
 			{
@@ -136,10 +136,29 @@ namespace Keysharp.Internals.Window.Unix
 			}
 			set
 			{
-				if (control != null)
+				if (control == null)
+					return;
+
+				var setPos  = value.X != Unchanged || value.Y != Unchanged;
+				var setSize = value.Width != Unchanged || value.Height != Unchanged;
+
+				if (!setPos && !setSize)
+					return;
+
+				int x = value.X, y = value.Y, w = value.Width, h = value.Height;
+
+				//Eto's SetBounds takes a full rectangle, so query current bounds only when a field is Unchanged.
+				if (x == Unchanged || y == Unchanged || w == Unchanged || h == Unchanged)
 				{
-					control.SetBounds(value);
+					var cur = control.GetBounds();
+
+					if (x == Unchanged) x = cur.X;
+					if (y == Unchanged) y = cur.Y;
+					if (w == Unchanged) w = cur.Width;
+					if (h == Unchanged) h = cur.Height;
 				}
+
+				control.SetBounds(new Rectangle(x, y, w, h));
 			}
 		}
 
@@ -162,12 +181,6 @@ namespace Keysharp.Internals.Window.Unix
 		}
 
 		internal override long PID => ParentWindow?.PID ?? 0;
-
-		internal override Size Size
-		{
-			get => new Size(Location.Width, Location.Height);
-			set => Location = new Rectangle(Location.X, Location.Y, value.Width, value.Height);
-		}
 
 		internal override long Style
 		{

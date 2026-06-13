@@ -182,8 +182,8 @@ namespace Keysharp.Internals.Platform
 				}
 				else
 				{
-					item.Location = new Rectangle(x == int.MinValue ? item.Location.X : x, y == int.MinValue ? item.Location.Y : y, 0, 0);//Width and height are ignored.
-					item.Size = new Size(width == int.MinValue ? item.Size.Width : width, height == int.MinValue ? item.Size.Height : height);
+					//Unspecified args are int.MinValue, which the Bounds setter treats as "leave unchanged".
+					item.Bounds = new Rectangle(x, y, width, height);
 				}
 
 				WindowItemBase.DoControlDelay();

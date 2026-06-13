@@ -237,7 +237,7 @@ namespace Keysharp.Internals.Window.Linux
 			return DefaultObject;
 		}
 
-		internal override Rectangle ClientLocation
+		internal override Rectangle ClientBounds
 		{
 			get
 			{
@@ -292,7 +292,7 @@ namespace Keysharp.Internals.Window.Linux
 
 		internal override bool IsHung => false;
 
-		internal override Rectangle Location
+		internal override Rectangle Bounds
 		{
 			get
 			{
@@ -309,7 +309,7 @@ namespace Keysharp.Internals.Window.Linux
 				x -= frame.Left;
 				y -= frame.Top;
 				//AutoHotkey reports the OUTER (decorated) size, so add the frame extents to the client
-				//width/height (frame is L,T,R,B = X,Y,Width,Height). The Size getter/setter mirror this.
+				//width/height (frame is L,T,R,B = X,Y,Width,Height).
 				var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
 				var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
 #if DPI
@@ -321,44 +321,100 @@ namespace Keysharp.Internals.Window.Linux
 			}
 			set
 			{
-				if (IsSpecified)
+				if (!IsSpecified)
+					return;
+
+				var setPos  = value.X != Unchanged || value.Y != Unchanged;
+				var setSize = value.Width != Unchanged || value.Height != Unchanged;
+
+				if (!setPos && !setSize)
+					return;
+
+				//Query the current outer rect (an X round-trip via the Bounds getter) only when a field the
+				//chosen native call will actually use was left Unchanged - e.g. a position-only change never
+				//needs the width/height, so it must not pay for a lookup just to fill them.
+				int x = value.X, y = value.Y, w = value.Width, h = value.Height;
+				var needPos  = setPos  && (x == Unchanged || y == Unchanged);
+				var needSize = setSize && (w == Unchanged || h == Unchanged);
+
+				if (needPos || needSize)
 				{
-					int x = value.X, y = value.Y;
+					var cur = Bounds;
 
-					if (x == int.MinValue || y == int.MinValue)
-					{
-						var loc = Location;
-
-						if (value.X == int.MinValue)
-							x = loc.X;
-
-						if (value.Y == int.MinValue)
-							y = loc.Y;
-					}
+					if (x == Unchanged) x = cur.X;
+					if (y == Unchanged) y = cur.Y;
+					if (w == Unchanged) w = cur.Width;
+					if (h == Unchanged) h = cur.Height;
+				}
 
 #if DPI
-					var scale = Accessors.A_ScaledScreenDPI;
-					int scaledX = (int)(scale * x), scaledY = (int)(scale * y);
+				var scale = Accessors.A_ScaledScreenDPI;
 #else
-					int scaledX = x, scaledY = y;
+				var scale = 1.0;
 #endif
+				int sx = (int)(scale * x), sy = (int)(scale * y);
+				int sw = (int)(scale * w), sh = (int)(scale * h);
 
-					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
+				//Winforms/Eto controls work in logical coordinates and have no decorations.
+				if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
+				{
+					//Resize before repositioning: setting an Eto window's Location first can drop a
+					//subsequent Size change, so apply size first (also matches the resize-first ordering used below).
+					if (setSize)
+						ctrl.Size = new Size(w, h);
+
+					if (setPos)
 					{
 						if (ctrl is Eto.Forms.Window window)
 							window.Location = new Point(x, y);
 						else if (ctrl.Parent is PixelLayout pixel)
 							PixelLayout.SetLocation(ctrl, new Point(x, y));
 						else
-							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);
+							_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
 					}
-					else
-						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, scaledX, scaledY);//The reparenting WM applies NorthWest gravity, so the requested coordinate becomes the outer/frame top-left, which is exactly what the getter returns.
 
-					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
+					_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+					return;
+				}
+
+				//XMoveWindow/XMoveResizeWindow position the OUTER frame top-left (NorthWest gravity), so x/y
+				//need no frame adjustment. XResizeWindow/XMoveResizeWindow set the CLIENT size, so subtract
+				//the frame extents from the requested outer size (frame is L,T,R,B = X,Y,Width,Height).
+				var frame = FrameExtents();
+				int clientW = sw - frame.Left - frame.Width;
+				int clientH = sh - frame.Top - frame.Height;
+
+				if (setPos && setSize)
+				{
+					_ = Xlib.XMoveResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy, clientW, clientH);
+					_ = Xlib.XSync(xwindow.XDisplay.Handle, false);
+					//A reparenting WM can clamp the move while the window still has its old footprint, leaving it
+					//mis-positioned. If so, retry once resize-first: the window is already at its final (smaller-or-
+					//equal) size, so the subsequent move can no longer be clamped. Accept whatever results after that.
+					var after = Bounds;
+
+					if (Math.Abs(after.X - x) > PositionTolerance || Math.Abs(after.Y - y) > PositionTolerance)
+					{
+						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, clientW, clientH);
+						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
+						_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+					}
+				}
+				else if (setPos)
+				{
+					_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
+					_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+				}
+				else
+				{
+					_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, clientW, clientH);
+					_ = Xlib.XFlush(xwindow.XDisplay.Handle);
 				}
 			}
 		}
+
+		//Tolerance (logical px) for deciding the WM clamped a combined move+resize and a resize-first retry is warranted.
+		private const int PositionTolerance = 4;
 
 		internal override WindowItemBase NonChildParentWindow
 		{
@@ -459,58 +515,6 @@ namespace Keysharp.Internals.Window.Linux
 				}
 
 				return pid;
-			}
-		}
-
-		internal override Size Size
-		{
-			get
-			{
-				var attr = xwindow.Attributes;
-
-				if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
-				{
-					return ctrl.Size;
-				}
-				else
-				{
-					//Report the OUTER (decorated) size to match AutoHotkey: client size plus frame extents.
-					var frame = FrameExtents();
-					var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
-					var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
-#if DPI
-					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-					return new Size((int)(scale * outerW), (int)(scale * outerH));
-#else
-					return new Size(outerW, outerH);
-#endif
-				}
-			}
-			set
-			{
-				if (IsSpecified)
-				{
-#if DPI
-					var scale = Accessors.A_ScaledScreenDPI;//Unsure if we need to use this.
-					int w = (int)(value.Width * scale), h = (int)(value.Height * scale);
-#else
-					int w = value.Width, h = value.Height;
-#endif
-
-					if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
-						ctrl.Size = new Size(value.Width, value.Height);
-					else
-					{
-						//value is the requested OUTER (decorated) size; XResizeWindow sets the CLIENT size,
-						//so subtract the frame extents. Without this the title bar is added on top, making
-						//the window taller than asked — which the WM then clamps to keep on screen, leaving
-						//it mis-positioned. (frame is L,T,R,B = X,Y,Width,Height.)
-						var frame = FrameExtents();
-						_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, w - frame.Left - frame.Width, h - frame.Top - frame.Height);
-					}
-
-					_  = Xlib.XFlush(xwindow.XDisplay.Handle);
-				}
 			}
 		}
 

@@ -635,7 +635,11 @@ namespace Keysharp.Builtins
 								A_WorkingDir = workingDir;
 							}
 
-							if (System.IO.Path.Exists(temp))
+							//Per AHK, parameters follow the program/document name, so split at the first space.
+							//Skip the split only when the whole unquoted target is itself an existing path that
+							//contains spaces (such paths should be quoted, but support them anyway); otherwise
+							//split so PATH-resolved commands like "xclock -foo" pass their args correctly.
+							if (System.IO.Path.Exists(temp) || !System.IO.Path.Exists(target))
 							{
 								parsedArgs = target.Substring(nextSpace + 1).Trim();
 								target = temp;
@@ -686,7 +690,9 @@ namespace Keysharp.Builtins
 									A_WorkingDir = workingDir;
 								}
 
-								if (System.IO.Path.Exists(temp))
+								//See the matching note above: split program from params at the first space unless the
+								//whole unquoted action is itself an existing path containing spaces.
+								if (System.IO.Path.Exists(temp) || !System.IO.Path.Exists(shellAction))
 								{
 									shellParams = shellAction.Substring(nextSpace + 1).Trim();
 									shellAction = temp;

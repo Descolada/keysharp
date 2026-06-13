@@ -199,6 +199,28 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		internal sealed class RequestFailedException : IOException
+		{
+			internal MessageType RequestType { get; }
+			internal int Status { get; }
+			internal uint Detail { get; }
+
+			internal RequestFailedException(MessageType requestType, int status, uint detail)
+				: base($"keysharp-inputd request {requestType} failed with status {status}, detail {detail}.")
+			{
+				RequestType = requestType;
+				Status = status;
+				Detail = detail;
+			}
+		}
+
+		internal static bool IsStaleHookDecisionFailure(Exception exception)
+			=> exception is RequestFailedException
+			{
+				RequestType: MessageType.HookDecision,
+				Detail: 2u
+			};
+
 		internal Capabilities GrantedCapabilities { get; private set; }
 
 		internal static string DefaultSocketPath
@@ -712,7 +734,7 @@ namespace Keysharp.Internals.Input.Linux
 			var detail = BinaryPrimitives.ReadUInt32LittleEndian(frame.Payload[4..]);
 
 			if (status != 0)
-				throw new IOException($"keysharp-inputd request {expectedType} failed with status {status}, detail {detail}.");
+				throw new RequestFailedException(expectedType, status, detail);
 
 			return new StatusPayload(status, detail);
 		}

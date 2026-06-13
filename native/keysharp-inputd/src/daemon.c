@@ -42,7 +42,12 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_MODIFY_INPUTS 32
 #define KSI_MAX_SYNTH_INPUTS 1024
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
-#define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 1u
+/* A subscription is dropped only after this many *consecutive* decision
+ * timeouts/failures (the counter resets on any in-time decision via
+ * record_client_hook_success). 1 was too aggressive: a single transient stall —
+ * e.g. one debugger pause — would silently evict the hook. A handful of
+ * consecutive failures means the client is genuinely hung, not just blipping. */
+#define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 5u
 #define KSI_MAX_LANE_ACTIONS 512u
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
 #define KSI_MAX_NONCRITICAL_OUTPUT_ACTIONS 4032u

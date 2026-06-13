@@ -867,6 +867,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						hookEvent.EventId,
 						block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
 				}
+				catch (KeysharpInputdClient.RequestFailedException ex)
+					when (KeysharpInputdClient.IsStaleHookDecisionFailure(ex))
+				{
+					// The daemon already passed this event after its one-second decision
+					// deadline. This commonly happens while stopped in a debugger and does
+					// not mean the hook connection or subscription was lost.
+					Ks.OutputDebugLine($"keysharp-inputd hook decision for event {hookEvent.EventId} arrived after its deadline; continuing hooks.");
+				}
 				catch (Exception ex)
 				{
 					if (!token.IsCancellationRequested)

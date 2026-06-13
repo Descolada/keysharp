@@ -623,24 +623,42 @@ namespace Keysharp.Internals.Input.Linux
 
 			while (offset < buffer.Length)
 			{
-				int read;
+				// Wait for readability with Poll rather than a blocking Receive: Poll
+				// reports a timeout as a bool, so an idle hook connection no longer
+				// raises (and logs) a first-chance SocketException every interval.
+				// Poll returns true when bytes are available OR the peer has closed —
+				// in the latter case Receive returns 0 and we surface EndOfStream below.
+				if (!socket.Poll(ReceiveTimeoutMicroseconds(), SelectMode.SelectRead))
+				{
+					// Nothing readable within the timeout window.
+					if (idleRetry && offset == 0)
+						continue; // Idle hook connection waiting for the next event.
 
-				try
-				{
-					read = socket.Receive(buffer[offset..], SocketFlags.None);
+					// Mid-frame, or a request channel: a stall here is a real timeout
+					// that callers recover from by dropping the connection.
+					throw new SocketException((int)SocketError.TimedOut);
 				}
-				catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut && idleRetry && offset == 0)
-				{
-					// No frame has started arriving yet: this is an idle hook connection
-					// waiting for the next event, not a stalled daemon. Keep waiting.
-					continue;
-				}
+
+				var read = socket.Receive(buffer[offset..], SocketFlags.None);
 
 				if (read == 0)
 					throw new EndOfStreamException("keysharp-inputd disconnected.");
 
 				offset += read;
 			}
+		}
+
+		// Poll() wants microseconds; mirror the socket's configured receive timeout
+		// (ExchangeHello widens it to cover the prompt window). A non-positive timeout
+		// means "block indefinitely", which Poll expresses as a negative argument.
+		private int ReceiveTimeoutMicroseconds()
+		{
+			var timeoutMs = socket.ReceiveTimeout;
+
+			if (timeoutMs <= 0)
+				return -1;
+
+			return timeoutMs >= int.MaxValue / 1000 ? int.MaxValue : timeoutMs * 1000;
 		}
 
 		private Frame ReadResponseFrame(MessageType expectedType, ulong expectedCorrelationId)

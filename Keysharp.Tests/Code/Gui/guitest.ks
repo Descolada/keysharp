@@ -1928,13 +1928,17 @@ TheSendText := "I want to send some {Blind}{Text} with SendText followed by a ne
 #if WINDOWS
 	Run("Notepad.exe")
 	WinWaitActive("ahk_exe Notepad.exe")
+#else
+	ControlFocus(MySendEdit)
 #endif
-;Sleep(500)
+Sleep(500)
 SendText(TheSendText)
 Sleep(500)
 Send("{Text}You should see the Blind mode syntax after the ellipses ... '{Blind}'")
-Sleep(2000)
-Send("{Alt}fx{Tab}{Enter}")
+#if WINDOWS
+	Sleep(2000)
+	Send("!fx{Tab}{Enter}") ; In Notepad, File -> Close -> select No (to saving) -> Close
+#endif
 }
 
 BtnSendInputFunc(*) {

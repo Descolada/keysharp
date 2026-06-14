@@ -455,6 +455,7 @@ namespace Keysharp.Builtins
 						Title = t,
 						InitialDirectory = Path.GetDirectoryName(rootdir),
 						FileName = Path.GetFileName(rootdir),
+						RestoreDirectory = true,//Showing the dialog must not change the process working directory.
 					};
 					var selected = GuiHelper.DialogOwner == null ? saveas.ShowDialog() : saveas.ShowDialog(GuiHelper.DialogOwner);
 					return selected == DialogResult.OK ? saveas.FileName : "";
@@ -528,7 +529,8 @@ namespace Keysharp.Builtins
 							Filter = f,
 							Title = t,
 							InitialDirectory = Path.GetDirectoryName(rootdir),
-							FileName = Path.GetFileName(rootdir)
+							FileName = Path.GetFileName(rootdir),
+							RestoreDirectory = true,//Showing the dialog must not change the process working directory.
 						};
 						var selected = GuiHelper.DialogOwner == null ? open.ShowDialog() : open.ShowDialog(GuiHelper.DialogOwner);
 						return selected == DialogResult.OK

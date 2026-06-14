@@ -18,7 +18,7 @@ namespace Keysharp.Tests
 			var screenHeight = A_ScreenHeight.Ai();
 			var hbitmap = ImageCapture(100, 100, 500, 500);
 			VarRef x = new(null), y = new(null);
-			_ = Builtins.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "HBITMAP:*" + hbitmap);
+			_ = Builtins.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "HBITMAP:" + hbitmap);
 
 			if (x.__Value is long lx && lx == 100 && y.__Value is long ly && ly == 100)
 				Assert.IsTrue(true);

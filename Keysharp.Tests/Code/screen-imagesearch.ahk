@@ -11,7 +11,7 @@ t :=
 r :=
 b := 0
 monget := MonitorGetWorkArea(, &l, &t, &r, &b)
-ImageSearch(&x, &y, 0, 0, r, b, "HBITMAP:*" hbitmap)
+ImageSearch(&x, &y, 0, 0, r, b, "HBITMAP:" hbitmap)
 
 if (x == 100 && y == 100)
 	FileAppend "pass", "*"

@@ -136,11 +136,17 @@ namespace Keysharp.Internals.Images
 					if (long.TryParse(hstr, out var handle))
 					{
 						var ptr = new nint(handle);
-						bmp = GetBitmapFromHBitmap(ptr);
-						bmp = ResizeBitmap(bmp, w, h, exactPixels);
 
-						if (!dontClear)
-							ImageHandleManager.Dispose(ptr, ImageHandleKind.Bitmap);
+						try
+						{
+							bmp = GetBitmapFromHBitmap(ptr);
+							bmp = ResizeBitmap(bmp, w, h, exactPixels);
+						}
+						finally
+						{
+							if (!dontClear)
+								ImageHandleManager.Dispose(ptr, ImageHandleKind.Bitmap);
+						}
 					}
 				}
 				else if (filename.StartsWith("HICON:", StringComparison.OrdinalIgnoreCase))
@@ -420,21 +426,14 @@ namespace Keysharp.Internals.Images
 			return bmp;
 		}
 
-		// Image.FromHbitmap doesn't support transparency, so the following code is used as a workaround.
-		// Source: https://stackoverflow.com/questions/9275738/convert-hbitmap-to-bitmap-preserving-alpha-channel
 		internal static Bitmap GetBitmapFromHBitmap(nint nativeHBitmap)
 		{
-			Bitmap bmp = Bitmap.FromHbitmap(nativeHBitmap);
 #if WINDOWS
-			if (Bitmap.GetPixelFormatSize(bmp.PixelFormat) < 32)
-				return bmp;
-
-			BitmapData bmpData;
-
-			if (IsAlphaBitmap(bmp, out bmpData))
-				return GetlAlphaBitmapFromBitmapData(bmpData);
+			using var nativeBitmap = Bitmap.FromHbitmap(nativeHBitmap);
+			return nativeBitmap.Clone(new Rectangle(Point.Empty, nativeBitmap.Size), nativeBitmap.PixelFormat);
+#else
+			return Bitmap.FromHbitmap(nativeHBitmap);
 #endif
-			return bmp;
 		}
 
 #if WINDOWS
@@ -455,45 +454,6 @@ namespace Keysharp.Internals.Images
 			return (count > 0 && hicons[0] != 0) ? Icon.FromHandle(hicons[0]) : null;
 		}
 
-		private static Bitmap GetlAlphaBitmapFromBitmapData(BitmapData bmpData)
-		{
-			return new Bitmap(
-				bmpData.Width,
-				bmpData.Height,
-				bmpData.Stride,
-				PixelFormat.Format32bppArgb,
-				bmpData.Scan0);
-		}
-
-		private static bool IsAlphaBitmap(Bitmap bmp, out BitmapData bmpData)
-		{
-			Rectangle bmBounds = new Rectangle(0, 0, bmp.Width, bmp.Height);
-
-			bmpData = bmp.LockBits(bmBounds, ImageLockMode.ReadOnly, bmp.PixelFormat);
-
-			try
-			{
-				for (int y = 0; y <= bmpData.Height - 1; y++)
-				{
-					for (int x = 0; x <= bmpData.Width - 1; x++)
-					{
-						Color pixelColor = Color.FromArgb(
-							Marshal.ReadInt32(bmpData.Scan0, (bmpData.Stride * y) + (4 * x)));
-
-						if (pixelColor.A > 0 & pixelColor.A < 255)
-						{
-							return true;
-						}
-					}
-				}
-			}
-			finally
-			{
-				bmp.UnlockBits(bmpData);
-			}
-
-			return false;
-		}
 #endif
 
 		internal static object PrepareIconNumber(object iconnumber)

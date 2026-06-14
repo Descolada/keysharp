@@ -55,6 +55,16 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private int inputdRecoveryAttempts;
 		private const long InputdRecoveryWindowMs = 5000;
 		private const int MaxInputdRecoveryAttempts = 3;
+
+		// ClipCursor enforcement: querying the cursor on Wayland is a D-Bus round-trip (KWin even
+		// evaluates a JS snippet), so the per-move-event query is throttled to avoid flooding the
+		// bus. X11's XQueryPointer is a cheap local call and is not throttled. Between throttled
+		// queries the cursor may briefly drift outside the rectangle before being warped back.
+		private long lastClipQueryTicks;
+		private const int ClipCorrectionDelayMs = 8;
+		private static readonly long ClipQueryMinIntervalTicks = System.Diagnostics.Stopwatch.Frequency * ClipCorrectionDelayMs / 1000;
+		private int clipCorrectionRequest;
+		private int clipCorrectionWorkerActive;
 #endif
 
 		private readonly Lock hookStateLock = new();
@@ -866,6 +876,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					client.SendHookDecision(
 						hookEvent.EventId,
 						block ? KeysharpInputdClient.HookDecision.Block : KeysharpInputdClient.HookDecision.Pass);
+
+					if (!block
+						&& CursorClipActive
+						&& hookEvent.HookType == KeysharpInputdClient.HookType.MouseLowLevel
+						&& hookEvent.Mouse.Message == 0x0200u
+						&& (hookEvent.Mouse.Flags & 0x01u) == 0)
+						RequestCursorClipCorrection();
 				}
 				catch (KeysharpInputdClient.RequestFailedException ex)
 					when (KeysharpInputdClient.IsStaleHookDecisionFailure(ex))
@@ -969,6 +986,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!IsX11Available && KeysharpInputdManager.IsLegacyX11FallbackActive)
 			{
 				// No daemon and no X11 fallback — nothing left to route input through.
+				if (CursorClipActive)
+					ClearCursorClip();
+
 				Ks.OutputDebugLine($"keysharp-inputd hooks lost and no fallback is available: {reason}");
 				return;
 			}
@@ -979,6 +999,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// otherwise it reconnects to a freshly socket-activated daemon, and if that
 			// reconnect fails TryStartInputdHookCore activates the X11 fallback itself.
 			ChangeHookStateLinux(want, changeIsTemporary: false, expectedGeneration: recoveryGeneration);
+
+			if (CursorClipActive && !UsingInputdHooks)
+			{
+				ClearCursorClip();
+				Ks.OutputDebugLine("ClipCursor released because the keysharp-inputd mouse hook was lost.");
+			}
 		}
 
 		// KSI_LLKHF_* indicator bits set by the daemon on every keyboard hook event.
@@ -1093,6 +1119,190 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return result != 0;
 		}
 
+		// --- ClipCursor (Linux) ---
+		// Clipping requires inputd to receive and suppress physical move events. Wayland also
+		// requires a compositor backend capable of both querying and moving the cursor; X11 uses
+		// XQueryPointer/XWarpPointer for those operations.
+
+		protected override bool CanClipCursor(out string reason)
+		{
+			if (!UsingInputdHooks)
+			{
+				reason = "the keysharp-inputd mouse hook is not active";
+				return false;
+			}
+
+			if (!IsWaylandSession)
+			{
+				if (TryGetX11CursorPos(out _))
+				{
+					reason = "";
+					return true;
+				}
+
+				reason = "no X11 cursor-position query is available";
+				return false;
+			}
+
+			var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+
+			if (backend?.SupportsMouse != true || !backend.TryGetCursorPos(out _, out _))
+			{
+				reason = "the Wayland compositor backend cannot both query and move the cursor";
+				return false;
+			}
+
+			reason = "";
+			return true;
+		}
+
+		protected override bool TryGetClipCursorPos(out POINT p)
+		{
+			p = default;
+
+			if (IsWaylandSession)
+			{
+				// Only a compositor-IPC backend (KWin, sway, hyprland, COSMIC, or GNOME via the
+				// extension) can report the global cursor position on Wayland. Compositors without
+				// one fall through to here and fail, which is exactly what we want.
+				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+
+				if (backend != null && backend.TryGetCursorPos(out var bx, out var by))
+				{
+					p = new POINT(bx, by);
+					return true;
+				}
+
+				return false;
+			}
+
+			// X11: query the server directly for a pixel-accurate position.
+			return TryGetX11CursorPos(out p);
+		}
+
+		protected override void WarpCursor(int x, int y)
+		{
+			if (IsWaylandSession)
+			{
+				_ = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current?.TrySendMouseMoveAbsolute(x, y);
+				return;
+			}
+
+			// X11: XWarpPointer is pixel-accurate, unlike inputd's normalised uinput abs path.
+			try
+			{
+				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
+
+				if (display != null && display.Handle != 0)
+				{
+					var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
+					_ = Keysharp.Internals.Window.Linux.X11.Xlib.XWarpPointer(display.Handle, 0, root, 0, 0, 0, 0, x, y);
+					_ = Keysharp.Internals.Window.Linux.X11.Xlib.XFlush(display.Handle);
+				}
+			}
+			catch
+			{
+			}
+		}
+
+		// Hot-path query used during clip enforcement. X11 is queried every event (cheap);
+		// Wayland queries are rate-limited to avoid flooding D-Bus. A throttled-out event returns
+		// false so the caller leaves the move alone until the next allowed query.
+		private bool TryGetClipCursorPosThrottled(out POINT p)
+		{
+			if (IsWaylandSession)
+			{
+				var now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+				if (now - lastClipQueryTicks < ClipQueryMinIntervalTicks)
+				{
+					p = default;
+					return false;
+				}
+
+				lastClipQueryTicks = now;
+			}
+
+			return TryGetClipCursorPos(out p);
+		}
+
+		// inputd delivers movement before replaying it through uinput, so the position observed by
+		// ProcessInputdMouseHook belongs to the previous event. Coalesce a correction after replay
+		// so the final event which crosses the boundary cannot leave the cursor outside indefinitely.
+		private void RequestCursorClipCorrection()
+		{
+			Interlocked.Increment(ref clipCorrectionRequest);
+
+			if (Interlocked.CompareExchange(ref clipCorrectionWorkerActive, 1, 0) != 0)
+				return;
+
+			_ = Task.Run(RunCursorClipCorrectionAsync);
+		}
+
+		private async Task RunCursorClipCorrectionAsync()
+		{
+			var handledRequest = Volatile.Read(ref clipCorrectionRequest);
+
+			try
+			{
+				while (CursorClipActive)
+				{
+					handledRequest = Volatile.Read(ref clipCorrectionRequest);
+					await Task.Delay(ClipCorrectionDelayMs).ConfigureAwait(false);
+
+					if (TryGetClipCursorPos(out var p))
+					{
+						int x = p.X, y = p.Y;
+
+						if (ClampToCursorClip(ref x, ref y))
+							WarpCursor(x, y);
+					}
+
+					if (handledRequest == Volatile.Read(ref clipCorrectionRequest))
+						break;
+				}
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"ClipCursor correction failed: {ex.Message}");
+			}
+
+			Volatile.Write(ref clipCorrectionWorkerActive, 0);
+
+			// Do not lose a request which raced with the worker shutting down.
+			if (CursorClipActive
+				&& handledRequest != Volatile.Read(ref clipCorrectionRequest)
+				&& Interlocked.CompareExchange(ref clipCorrectionWorkerActive, 1, 0) == 0)
+				_ = Task.Run(RunCursorClipCorrectionAsync);
+		}
+
+		private static bool TryGetX11CursorPos(out POINT p)
+		{
+			p = default;
+
+			try
+			{
+				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
+
+				if (display == null || display.Handle == 0)
+					return false;
+
+				var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
+
+				if (Keysharp.Internals.Window.Linux.X11.Xlib.XQueryPointer(display.Handle, root,
+						out _, out _, out var rootX, out var rootY, out _, out _, out _))
+				{
+					p = new POINT(rootX, rootY);
+					return true;
+				}
+			}
+			catch
+			{
+			}
+
+			return false;
+		}
+
 		private bool ProcessInputdMouseHook(KeysharpInputdClient.MouseHookEvent ev)
 		{
 			if (!mouseEnabled)
@@ -1110,6 +1320,23 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			switch (ev.Message)
 			{
 				case 0x0200u:
+					// Confine the cursor to the active ClipCursor rectangle. ev.X/ev.Y are raw evdev
+					// values (deltas or device-range abs), not screen pixels, so query the real
+					// screen-space position to decide whether to clamp. The mouse device is grabbed,
+					// so this fires before the move reaches the compositor; the position read here is
+					// from the previous (already-clamped) event, which makes this a per-event
+					// warp-back that pins the cursor to the boundary while preserving acceleration.
+					if (!isInjected && CursorClipActive && TryGetClipCursorPosThrottled(out var clipPos))
+					{
+						int cx = clipPos.X, cy = clipPos.Y;
+
+						if (ClampToCursorClip(ref cx, ref cy))
+						{
+							WarpCursor(cx, cy);
+							return true;
+						}
+					}
+
 					return !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
 
 				case 0x020Au:
@@ -1117,6 +1344,18 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 				case 0x020Eu:
 					return ProcessInputdMouseWheelHook(ev, vertical: false, isInjected);
+			}
+
+			// Confine clicks too. Because the per-event move warp-back lags by one event, the cursor
+			// can sit just outside the rectangle when a button event arrives. inputd re-injects the
+			// button at the current cursor position, so pull the cursor back inside first; the click
+			// then lands within the clip region. Queried unthrottled since clicks are infrequent.
+			if (!isInjected && CursorClipActive && TryGetClipCursorPos(out var clickPos))
+			{
+				int bx = clickPos.X, by = clickPos.Y;
+
+				if (ClampToCursorClip(ref bx, ref by))
+					WarpCursor(bx, by);
 			}
 
 			var keyUp = true;
@@ -1462,6 +1701,20 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			{
 				var script = Script.TheScript;
 				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
+
+				// Confine the cursor to the active ClipCursor rectangle. SharpHook can suppress
+				// macOS movement before it takes effect, so no warp is needed for rejected moves.
+				// WarpCursor is still used by SetCursorClip to pull an initially-outside cursor in.
+				if (CursorClipActive)
+				{
+					int cx = e.Data.X, cy = e.Data.Y;
+
+					if (ClampToCursorClip(ref cx, ref cy))
+					{
+						e.SuppressEvent = true;
+						return;
+					}
+				}
 
 				if (script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput)
 					e.SuppressEvent = true;

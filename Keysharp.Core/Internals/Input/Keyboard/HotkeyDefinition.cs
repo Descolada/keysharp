@@ -590,7 +590,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					|| !(ts.forceNumLock == ToggleValueType.Neutral && ts.forceCapsLock == ToggleValueType.Neutral && ts.forceScrollLock == ToggleValueType.Neutral))
 				hkd.whichHookNeeded |= HookType.Keyboard;
 
-			if (kbd.blockMouseMove || (hm.hsResetUponMouseClick && hm.enabledCount != 0))
+			if (kbd.blockMouseMove || ht.CursorClipActive || (hm.hsResetUponMouseClick && hm.enabledCount != 0))
 				hkd.whichHookNeeded |= HookType.Mouse;
 
 			//Regardless of the type of hook needed, including none, we always need to start the reader queue.

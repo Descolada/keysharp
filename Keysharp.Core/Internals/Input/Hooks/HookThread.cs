@@ -1455,6 +1455,95 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal bool HasMouseHook() => mouseHook != 0;
 
+		#region Cursor clipping (ClipCursor)
+
+		private sealed record CursorClipBounds(int Left, int Top, int Right, int Bottom);
+		private volatile CursorClipBounds cursorClipBounds;
+
+		/// <summary>Whether a cursor clip rectangle is currently in effect.</summary>
+		internal bool CursorClipActive => cursorClipBounds != null;
+
+		/// <summary>
+		/// Confines the mouse cursor to the given screen-space rectangle by clamping physical
+		/// mouse-move events in the low-level hook. Throws an <see cref="OSError"/> if the current
+		/// platform/environment cannot support clipping.
+		/// </summary>
+		internal virtual void SetCursorClip(int left, int top, int right, int bottom)
+		{
+			EnsureCursorClipPermissions();
+
+			// Make sure the mouse hook is running before checking environment-specific support.
+			// Linux needs this to verify that the active hook backend is inputd, rather than the
+			// non-suppressing SharpHook fallback. The hook is left installed after ClearCursorClip
+			// (mirrors BlockInput's "MouseMoveOff").
+			HotkeyDefinition.InstallMouseHook();
+
+			if (!CanClipCursor(out var reason))
+			{
+				_ = Errors.OSErrorOccurred(null, $"ClipCursor is not supported in this environment: {reason}");
+				return;
+			}
+
+			// Normalize so the corners may be supplied in any order.
+			if (right < left) (left, right) = (right, left);
+			if (bottom < top) (top, bottom) = (bottom, top);
+
+			// Publish all bounds atomically so hook callbacks cannot observe a mixed rectangle.
+			cursorClipBounds = new CursorClipBounds(left, top, right, bottom);
+
+			// Clamp the current position immediately so the cursor jumps inside on the call itself.
+			if (TryGetClipCursorPos(out var p))
+			{
+				int x = p.X, y = p.Y;
+
+				if (ClampToCursorClip(ref x, ref y))
+					WarpCursor(x, y);
+			}
+		}
+
+		/// <summary>Releases any active cursor clip. The mouse hook is left installed.</summary>
+		internal virtual void ClearCursorClip() => cursorClipBounds = null;
+
+		/// <summary>
+		/// Clamps (x,y) into the active clip rectangle. Returns true if the point was outside and
+		/// got adjusted. Returns false (and leaves x/y untouched) when clipping is inactive.
+		/// </summary>
+		protected bool ClampToCursorClip(ref int x, ref int y)
+		{
+			var bounds = cursorClipBounds;
+
+			if (bounds == null)
+				return false;
+
+			// Like the native Windows ClipCursor RECT, right and bottom are exclusive. Preserve
+			// equal endpoints as a useful one-pixel/point clip instead of creating an empty range.
+			var maxX = bounds.Right > bounds.Left ? bounds.Right - 1 : bounds.Right;
+			var maxY = bounds.Bottom > bounds.Top ? bounds.Bottom - 1 : bounds.Bottom;
+			var nx = Math.Clamp(x, bounds.Left, maxX);
+			var ny = Math.Clamp(y, bounds.Top, maxY);
+			var moved = nx != x || ny != y;
+			x = nx; y = ny;
+			return moved;
+		}
+
+		/// <summary>Requests permissions needed to monitor and enforce cursor clipping.</summary>
+		protected virtual void EnsureCursorClipPermissions()
+			=> _ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "ClipCursor");
+
+		/// <summary>Whether ClipCursor can work in the current platform/environment.</summary>
+		protected virtual bool CanClipCursor(out string reason) { reason = ""; return true; }
+
+		/// <summary>Moves the cursor to the given absolute screen coordinates.</summary>
+		protected virtual void WarpCursor(int x, int y) { }
+
+		/// <summary>
+		/// Reads the current cursor position for clip enforcement. Platforms whose default
+		/// GetCursorPos has an unreliable fallback override this to fail instead of guessing.
+		/// </summary>
+		protected virtual bool TryGetClipCursorPos(out POINT p) => GetCursorPos(out p);
+
+		#endregion
+
 		internal virtual object Invoke(Func<object> f) => f();
 
 		internal virtual bool IsHotstringWordChar(char ch) => char.IsLetterOrDigit(ch) ? true : !char.IsWhiteSpace(ch);

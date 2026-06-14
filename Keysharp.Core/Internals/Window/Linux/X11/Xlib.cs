@@ -269,6 +269,8 @@ namespace Keysharp.Internals.Window.Linux.X11
 		[DllImport(libX11Name)] internal static extern int XQueryKeymap(nint display, byte[] keys_return);
 		[DllImport(libX11Name)] internal static extern bool XQueryPointer(nint display, nint w, out nint root_return, out nint child_return,
 			out int root_x_return, out int root_y_return, out int win_x_return, out int win_y_return, out uint mask_return);
+		[DllImport(libX11Name)] internal static extern int XWarpPointer(nint display, nint src_w, nint dest_w, int src_x, int src_y,
+			uint src_width, uint src_height, int dest_x, int dest_y);
 		[DllImport(libX11Name)] internal static extern int XSync(nint display, bool discard);
 		[DllImport(libX11Name)] internal static extern int XUngrabKeyboard(nint display, ulong time);
 		[DllImport(libX11Name)] internal static extern int XUngrabPointer(nint display, ulong time);

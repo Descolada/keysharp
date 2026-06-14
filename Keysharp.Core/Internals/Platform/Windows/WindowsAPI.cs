@@ -1473,6 +1473,10 @@ namespace Keysharp.Internals.Platform.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool GetCursorPos(out POINT lpPoint);
 
+		[LibraryImport(user32, EntryPoint = "SetCursorPos")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool SetCursorPos(int x, int y);
+
 		[LibraryImport(user32, EntryPoint = "GetDesktopWindow")]
 		internal static partial long GetDesktopWindow();
 

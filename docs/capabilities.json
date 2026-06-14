@@ -3584,6 +3584,16 @@
                      "tested-by":  "ControlTests/control_add_delete_item.ahk"
                  },
                  {
+                     "category":  "Input/Automation",
+                     "feature":  "ClipCursor()",
+                     "syntax":  "ClipCursor(x1, y1, x2, y2)",
+                     "windows":  "full",
+                     "linux_x11":  "partial",
+                     "linux_wayland":  "partial",
+                     "macos":  "partial",
+                     "notes":  "Confines physical cursor movement to a screen-coordinate rectangle with exclusive right/bottom edges; call without arguments to release. Coordinates ignore CoordMode Mouse. Artificial cursor movement is allowed. Linux requires the keysharp-inputd mouse hook and uses suppress-and-warp-back enforcement, so the cursor may briefly cross the boundary. Wayland also requires a compositor backend that can query and move the global cursor. macOS suppresses out-of-bounds movement and requires Input Monitoring and Accessibility permissions."
+                 },
+                 {
                      "category":  "Clipboard",
                      "feature":  "Clipboard",
                      "syntax":  "",

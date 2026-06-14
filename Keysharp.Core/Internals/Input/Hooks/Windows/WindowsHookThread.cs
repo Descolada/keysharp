@@ -955,6 +955,15 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			return HookAction.Continue;
 		}
 
+		protected override void WarpCursor(int x, int y) => SetCursorPos(x, y);
+
+		protected override bool CanClipCursor(out string reason)
+		{
+			var active = HasMouseHook();
+			reason = active ? "" : "the low-level mouse hook is not active";
+			return active;
+		}
+
 		internal unsafe nint LowLevelMouseHandler(int code, nint param, ref MSDLLHOOKSTRUCT lParam)
 		{
 			var script = Script.TheScript;
@@ -980,7 +989,22 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			var iwParam = param.ToInt32();
 
 			if (iwParam == WM_MOUSEMOVE) // Only after updating for physical input, above, is this checked.
+			{
+				// Confine the cursor to the active ClipCursor rectangle. Only physical movement is
+				// clamped; our own SetCursorPos re-enters here as artificial and passes through.
+				if (CursorClipActive && !isArtificial)
+				{
+					int x = lParam.pt.X, y = lParam.pt.Y;
+
+					if (ClampToCursorClip(ref x, ref y))
+					{
+						WarpCursor(x, y);
+						return new nint(1);
+					}
+				}
+
 				return (script.KeyboardData.blockMouseMove && !isArtificial) ? new nint(1) : CallNextHookEx(mouseHook, code, param, ref lParam);
+			}
 
 			// Above: In v1.0.43.11, a new mode was added to block mouse movement only since it's more flexible than
 			// BlockInput (which keybd too, and blocks all mouse buttons too).  However, this mode blocks only

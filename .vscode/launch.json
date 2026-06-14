@@ -7,10 +7,11 @@
             "request": "launch",
             "preLaunchTask": "build Keysharp",
             "program": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0/Keysharp.dll",
-            "args": ["${workspaceFolder}/Keysharp.Tests/Code/manual-test-suite.ahk"], // Keysharp.Tests/Code/manual-test-suite.ahk  /  Keysharp.Tests/Code/Gui/guitest.ks
+            "args": ["${workspaceFolder}/Keysharp.Tests/Code/Gui/guitest.ks"], // Keysharp.Tests/Code/manual-test-suite.ahk  /  Keysharp.Tests/Code/Gui/guitest.ks
             "cwd": "${workspaceFolder}/bin/${config:keysharp.buildConfiguration}/net10.0",
             "env": {
                 "GDK_BACKEND": "x11",
+                // "KEYSHARP_X11_LEGACY": "1",
                 // "WAYLAND_DISPLAY": "",
                 // "DISPLAY": ":0"
             },

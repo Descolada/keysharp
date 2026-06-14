@@ -90,6 +90,7 @@ macOS support is in active development. The following table summarises what work
 | Hotkeys / Hotstrings | Working | Requires **Input Monitoring** permission on first use. #/Win maps to the Command key, !/Alt maps to the Option key |
 | Keyboard & mouse send | Working | Requires **Accessibility** permission on first use |
 | Global keyboard/mouse hooks | Working | Requires **Input Monitoring** permission on first use |
+| Cursor confinement | Partial | `ClipCursor` suppresses out-of-bounds movement; requires **Input Monitoring** and **Accessibility** permissions |
 | GUI windows | Working | Eto.Forms backend; some controls differ from Windows |
 | Screen capture / pixel functions | Working | Requires **Screen Recording** permission on first use |
 | Window management | Partial | Accessibility API; foreign-app control requires permission |
@@ -787,4 +788,3 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 
 
 Please make an account here and post a ticket.
-

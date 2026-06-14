@@ -26,6 +26,41 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static extern ulong CGEventSourceFlagsState(int sourceState);
 
+		[StructLayout(LayoutKind.Sequential)]
+		private struct CGPoint
+		{
+			public double X;
+			public double Y;
+			public CGPoint(double x, double y) { X = x; Y = y; }
+		}
+
+		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static extern int CGWarpMouseCursorPosition(CGPoint newCursorPosition);
+
+		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static extern int CGAssociateMouseAndMouseCursorPosition(int connected);
+
+		protected override void EnsureCursorClipPermissions()
+		{
+			base.EnsureCursorClipPermissions();
+			_ = Script.TheScript.Permissions.EnsureInputInjection(operation: "ClipCursor");
+		}
+
+		protected override bool CanClipCursor(out string reason)
+		{
+			var active = HasMouseHook();
+			reason = active ? "" : "the global mouse hook is not active";
+			return active;
+		}
+
+		// Pull an initially-outside cursor into the clip rectangle. Subsequent out-of-bounds
+		// physical moves are suppressed by SharpHook and do not require warping.
+		protected override void WarpCursor(int x, int y)
+		{
+			_ = CGWarpMouseCursorPosition(new CGPoint(x, y));
+			_ = CGAssociateMouseAndMouseCursorPosition(1);
+		}
+
 		protected override bool UseSyntheticEventQueue => false;
 
 		// macOS App Switcher uses Cmd+Tab, not Alt+Tab.

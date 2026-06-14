@@ -365,5 +365,40 @@ namespace Keysharp.Builtins
 
 			return 0L;
 		}
+
+		/// <summary>
+		/// Confines the mouse cursor to a rectangular region of the screen. Subsequent physical
+		/// mouse movement is clamped to the rectangle until the clip is released. Calling
+		/// <see cref="ClipCursor"/> with no arguments releases any active clip.
+		/// </summary>
+		/// <param name="x1">The x coordinate of the first corner. Omit all four to release the clip.</param>
+		/// <param name="y1">The y coordinate of the first corner.</param>
+		/// <param name="x2">The exclusive x coordinate of the opposite corner.</param>
+		/// <param name="y2">The exclusive y coordinate of the opposite corner.</param>
+		/// <remarks>The corners may be given in any order and are always in screen coordinates.
+		/// Throws an <see cref="OSError"/> if clipping is unsupported in the current environment
+		/// (e.g. on Wayland without keysharp-inputd and a compositor mouse backend).</remarks>
+		public static object ClipCursor(object x1 = null, object y1 = null, object x2 = null, object y2 = null)
+		{
+			var ht = Script.TheScript.HookThread;
+
+			// No arguments releases any active clip.
+			if (x1 == null && y1 == null && x2 == null && y2 == null)
+			{
+				ht.ClearCursorClip();
+				return DefaultObject;
+			}
+
+			if (x1 == null || y1 == null || x2 == null || y2 == null)
+				return Errors.ValueErrorOccurred("ClipCursor requires either zero or four coordinates.");
+
+			var px1 = x1.Ai();
+			var py1 = y1.Ai();
+			var px2 = x2.Ai();
+			var py2 = y2.Ai();
+
+			ht.SetCursorClip(px1, py1, px2, py2);
+			return DefaultObject;
+		}
 	}
 }

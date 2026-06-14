@@ -1170,12 +1170,27 @@ namespace Keysharp.Internals.Input.Linux
 			if (events == null || events.Count == 0)
 				return events;
 
+			var lastPayloadIndex = -1;
+
+			for (var i = 0; i < events.Count; i++)
+			{
+				var ev = events[i];
+
+				if ((ev.Type == ArrayEventType.KeyDown || ev.Type == ArrayEventType.KeyUp) && IsModifierVk(ev.Vk))
+					continue;
+
+				if (ev.Type != ArrayEventType.DelayMs)
+					lastPayloadIndex = i;
+			}
+
 			var nonModifierKeyEventCounter = 0;
 			var modUpCounterSnapshot = new Dictionary<uint, int>();
 			var filtered = new List<ArrayEvent>(events.Count);
 
-			foreach (var ev in events)
+			for (var i = 0; i < events.Count; i++)
 			{
+				var ev = events[i];
+
 				if (ev.Type != ArrayEventType.KeyDown && ev.Type != ArrayEventType.KeyUp)
 				{
 					filtered.Add(ev);
@@ -1201,10 +1216,12 @@ namespace Keysharp.Internals.Input.Linux
 
 				// KeyDown modifier.
 				if (modUpCounterSnapshot.TryGetValue(vk, out var counterAtUp)
-					&& nonModifierKeyEventCounter > counterAtUp)
+					&& nonModifierKeyEventCounter > counterAtUp
+					&& i > lastPayloadIndex)
 				{
 					// Linux/X11 cannot reliably infer physical modifier state after synthetic release.
-					// Drop the automatic "restore" down that follows real payload keys.
+					// Drop only an automatic trailing "restore" down. A modifier down before later
+					// payload is intentional, such as Shift before each uppercase letter in Send().
 					modUpCounterSnapshot.Remove(vk);
 					continue;
 				}

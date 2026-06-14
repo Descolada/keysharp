@@ -346,6 +346,7 @@ Status legend:
 | Click() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The Click function clicks a mouse button at the specified coordinates. It can also hold down a mouse button, turn the mouse wheel, or move the mouse. |
 | Clipboard | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Clipboard functionality is implemented with platform-specific limitations outside Windows. |
 | ClipboardAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ClipboardAll class facilitates saving and restoring everything on the clipboard (such as pictures and formatting). |
+| ClipCursor() | 🟢 Full | 🟡 Partial | 🟡 Partial | 🟡 Partial | Confines physical cursor movement to a screen-coordinate rectangle with exclusive right/bottom edges; call without arguments to release. Coordinates ignore CoordMode Mouse. Artificial cursor movement is allowed. Linux requires the keysharp-inputd mouse hook and uses suppress-and-warp-back enforcement, so the cursor may briefly cross the boundary. Wayland also requires a compositor backend that can query and move the global cursor. macOS suppresses out-of-bounds movement and requires Input Monitoring and Accessibility permissions. |
 | ClipWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The ClipWait function waits until the clipboard contains data. |
 | Clr() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Creates/returns a CLR interop facade for loading and invoking .NET types. |
 | Clr.GetNamespaceName() | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns namespace name for a managed wrapper/type. |

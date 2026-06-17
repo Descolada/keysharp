@@ -321,11 +321,12 @@ namespace Keysharp.Parsing.Syntax
 		public HotkeyDef(List<string> triggers, Stmt body, FunctionDecl func) { Triggers = triggers; Body = body; Func = func; }
 	}
 
-	// A remap line `source::target` (e.g. `a::b`, `^x::^c`). Raw is the whole line text.
+	// A remap line `source::target` (e.g. `a::b`, `^x::^c`). The lexer already split the source and target key text.
 	internal sealed class RemapDef : Stmt
 	{
-		public readonly string Raw;
-		public RemapDef(string raw) => Raw = raw;
+		public readonly string Source;
+		public readonly string Target;
+		public RemapDef(string source, string target) { Source = source; Target = target; }
 	}
 
 	// One or more stacked hotstring triggers (raw `:opts:trigger::`) sharing a body: an inline/continuation
@@ -552,7 +553,7 @@ namespace Keysharp.Parsing.Syntax
 					if (hk.Func != null) Write(sb, hk.Func); else Write(sb, hk.Body);
 					sb.Append(')');
 					break;
-				case RemapDef rm: sb.Append("(remap ").Append(rm.Raw).Append(')'); break;
+				case RemapDef rm: sb.Append("(remap ").Append(rm.Source).Append("::").Append(rm.Target).Append(')'); break;
 				case ExportStmt ex: sb.Append(ex.Default ? "(export-default " : "(export "); Write(sb, ex.Decl); sb.Append(')'); break;
 				case HotstringDef hs:
 					sb.Append("(hotstring ").Append(string.Join(",", hs.Triggers));

@@ -212,6 +212,58 @@ if threw
 else
 	FileAppend "fail", "*"
 
+; v2.1 mode: absent item/member accessors return unset instead of throwing
+; (Array.Get unset element, Map.__Item/Get/Delete, Object.GetMethod/GetOwnPropDesc).
+arr := [1, , 3]
+x := (arr.Get(2)?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; An out-of-range index still throws IndexError in both modes (only absent *items* become unset).
+threw := false
+try
+	x := arr[99]
+catch IndexError
+	threw := true
+if threw
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+m := Map()
+x := (m["nope"]?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := (m.Get("nope")?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := (m.Delete("nope")?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+obj := {}
+x := (obj.GetMethod("nope")?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+x := (obj.GetOwnPropDesc("nope")?)
+if !IsSet(x)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
 #Module Compat21
 #Requires AutoHotkey v2.1-alpha
 export NoReturn21() {

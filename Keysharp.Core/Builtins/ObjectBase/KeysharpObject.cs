@@ -79,7 +79,8 @@ namespace Keysharp.Builtins
 			{
 			}
 
-			return Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
+			return Script.CompatReturnsUnsetForMissing ? null
+				: Errors.PropertyErrorOccurred($"Object did not have an OwnProp named {name}.");
 		}
 
 		public static object __Ref(object @this, object name, params object[] args)

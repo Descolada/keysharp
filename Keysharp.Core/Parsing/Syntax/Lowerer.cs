@@ -2421,22 +2421,6 @@ namespace Keysharp.Parsing.Syntax
 			}
 		}
 
-		// Splits a remap line `source::target` into the source and target key text (mirrors VisitGeneral.ParseRemapKey).
-		private static void ParseRemapKey(string remapKey, out string sourceKey, out string targetKey)
-		{
-			int index = -1; bool escape = false; int lastIndex = remapKey.Length - 2;
-			for (int i = 0; i < remapKey.Length - 1; i++)
-			{
-				if (i == lastIndex) escape = false;
-				else if (remapKey[i] == '`' && remapKey[i + 1] != ':') escape = !escape;
-				else if (remapKey[i] == ':' && remapKey[i + 1] == ':' && !escape && i != 0) { index = i; break; }
-				else escape = false;
-			}
-			sourceKey = remapKey.Substring(0, index);
-			if (sourceKey[^1] == '`' && (sourceKey.Length < 2 || sourceKey[^2] != '`')) sourceKey += '`';
-			targetKey = remapKey.Substring(index + 2);
-		}
-
 		private static StatementSyntax SetDelay(bool isMouse) =>
 			CallStmt("Keysharp.Builtins." + (isMouse ? "Mouse.SetMouseDelay" : "Keyboard.SetKeyDelay"),
 				SyntaxFactory.LiteralExpression(SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(-1L)));
@@ -2453,9 +2437,9 @@ namespace Keysharp.Parsing.Syntax
 		private void LowerRemap(RemapDef rm)
 		{
 			_persistent = true;
-			ParseRemapKey(rm.Raw, out string sourceKey, out string targetKey);
-			sourceKey = Keysharp.Parsing.Parser.EscapedString(sourceKey, true);
-			targetKey = Keysharp.Parsing.Parser.EscapedString(targetKey, true);
+			// The lexer already split the remap into its source/target key text; just decode the backtick escapes.
+			var sourceKey = Keysharp.Parsing.Parser.EscapedString(rm.Source, true);
+			var targetKey = Keysharp.Parsing.Parser.EscapedString(rm.Target, true);
 
 			uint remapDestVk = 0u, remapDestSc = 0u; uint? modLR = null, modifiersLR = null;
 			var remapName = targetKey; var hotName = sourceKey;

@@ -165,6 +165,11 @@ namespace Keysharp.Runtime
 		internal const long DefaultErrorLong = long.MinValue;
 		internal const string DefaultNewLine = "\n";
 		internal static string DefaultObject => currentCompatibilityReturnsUnsetByDefault ? null : "";
+		// True in v2.1+ compatibility mode, where the item/member accessors the Compatibility Mode docs list
+		// (Array.__Item/Get, Map.__Item/Delete/Get, Object.GetMethod/GetOwnPropDesc, Gui.__Item) return unset (null)
+		// for an absent item instead of throwing (UnsetItemError/IndexError/KeyError/etc.). This mirrors the caller's
+		// mode, since built-ins carry no [CompatibilityMode] of their own.
+		internal static bool CompatReturnsUnsetForMissing => currentCompatibilityReturnsUnsetByDefault;
 		internal const string DefaultErrorString = "";
 		internal const int INTERVAL_UNSPECIFIED = int.MinValue + 303;
 		internal const int maxEmergencyThreads = 10;

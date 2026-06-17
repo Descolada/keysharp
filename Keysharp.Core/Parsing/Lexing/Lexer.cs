@@ -524,10 +524,14 @@ namespace Keysharp.Parsing.Lexing
 			int rk = TryMatchRemapTarget(afterSep);
 			if (rk >= 0)
 			{
-				// Whole line is a remap `source::target`. Emit one RemapKey token covering source..target.
+				// The whole line is a remap `source::target`. Split it here (the parser/lowerer no longer re-parse) and
+				// emit a RemapSourceKey then RemapTargetKey pair covering source..target.
 				string remap = _s.Substring(start, rk - start);
 				while (_pos < rk) Advance();
-				tokens.Add(Tok(TokenKind.RemapKey, remap, sl, sc, start, rk - start, leadingWs));
+				SplitRemap(remap, out var src, out var tgt);
+				int sepLocal = remap.Length - tgt.Length - 2;   // index of `::` within `remap`
+				tokens.Add(Tok(TokenKind.RemapSourceKey, src, sl, sc, start, sepLocal, leadingWs));
+				tokens.Add(Tok(TokenKind.RemapTargetKey, tgt, sl, sc + sepLocal + 2, start + sepLocal + 2, tgt.Length, false));
 				return true;
 			}
 
@@ -558,6 +562,23 @@ namespace Keysharp.Parsing.Lexing
 			if (_s[i] == ';') return keyEnd;                               // trailing comment -> remap
 			if (_s[i] == '/' && i + 1 < _n && _s[i + 1] == '*') return keyEnd;
 			return -1;                                                      // something else follows -> hotkey body
+		}
+
+		// Splits a validated remap line `source::target` into its source/target key text, honoring backtick escapes
+		// before the `::` (a trailing single backtick in the source is restored, matching AHK remap parsing).
+		private static void SplitRemap(string remapKey, out string sourceKey, out string targetKey)
+		{
+			int index = -1; bool escape = false; int lastIndex = remapKey.Length - 2;
+			for (int i = 0; i < remapKey.Length - 1; i++)
+			{
+				if (i == lastIndex) escape = false;
+				else if (remapKey[i] == '`' && remapKey[i + 1] != ':') escape = !escape;
+				else if (remapKey[i] == ':' && remapKey[i + 1] == ':' && !escape && i != 0) { index = i; break; }
+				else escape = false;
+			}
+			sourceKey = remapKey.Substring(0, index);
+			if (sourceKey[^1] == '`' && (sourceKey.Length < 2 || sourceKey[^2] != '`')) sourceKey += '`';
+			targetKey = remapKey.Substring(index + 2);
 		}
 
 		private bool TryScanHotstring(List<Token> tokens, bool leadingWs)

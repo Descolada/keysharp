@@ -124,6 +124,15 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Parser")]
+		public void RemapSplitsSourceAndTargetInLexer()
+		{
+			// The lexer splits a remap `source::target` into a RemapSourceKey + RemapTargetKey pair.
+			Assert.AreEqual("(remap a::b)", Ast("a::b"));
+			Assert.AreEqual("(remap ^x::^c)", Ast("^x::^c"));
+			Assert.AreEqual("(remap Esc::CapsLock)", Ast("Esc::CapsLock"));
+		}
+
+		[Test, Category("Parser")]
 		public void Statements()
 		{
 			Assert.AreEqual("(if x (:= y 1) else (:= y 2))",

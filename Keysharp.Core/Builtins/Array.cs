@@ -407,7 +407,8 @@ namespace Keysharp.Builtins
 			else if (Default != null)
 				return Default;
 			else
-				return Errors.UnsetItemErrorOccurred($"array[{i}], default and Array.Default were all unset/null.");
+				return Script.CompatReturnsUnsetForMissing ? null
+					: Errors.UnsetItemErrorOccurred($"array[{i}], default and Array.Default were all unset/null.");
 		}
 
 		/// <summary>
@@ -829,6 +830,8 @@ namespace Keysharp.Builtins
 				if ((i = TranslateIndex(i)) != -1)
 					return array[i];
 				else
+					// An out-of-range index always throws IndexError, in both v2.0 and v2.1 mode (AHK alpha.30 Array::Invoke);
+					// only an in-range-but-unset *element* yields unset in v2.1 — see Array.Get.
 					return Errors.IndexErrorOccurred($"Invalid retrieval index of {index} on an array with length {array.Count}.");
 			}
 			set

@@ -95,7 +95,8 @@ namespace Keysharp.Parsing.Lexing
 
 		// Hotkeys / hotstrings (detected at line start by the lexer; the trigger text is kept raw)
 		HotkeyTrigger,          // `^!a::`   (text includes the trailing ::)
-		RemapKey,               // `a::b`    (whole line; the lowerer splits source/target)
+		RemapSourceKey,         // `a` in a remap `a::b` — the source key (text before `::`; emitted just before RemapTargetKey)
+		RemapTargetKey,         // `b` in a remap `a::b` — the target key (text after `::`)
 		HotstringTrigger,       // `:opts:trigger::` (text includes the trailing ::)
 		HotstringExpansion,     // raw replacement text following a HotstringTrigger (no quotes)
 	}

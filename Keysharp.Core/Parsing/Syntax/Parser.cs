@@ -180,7 +180,11 @@ namespace Keysharp.Parsing.Syntax
 		private Stmt ParseStatement()
 		{
 			SkipNewlines();
-			if (At(TokenKind.RemapKey)) return new RemapDef(Advance().Text);
+			if (At(TokenKind.RemapSourceKey))
+			{
+				var src = Advance().Text;
+				return new RemapDef(src, Expect(TokenKind.RemapTargetKey, "remap target").Text);
+			}
 			if (At(TokenKind.HotkeyTrigger)) return ParseHotkey();
 			if (At(TokenKind.HotstringTrigger)) return ParseHotstring();
 			if (At(TokenKind.Hash)) return ParseDirective();
@@ -519,7 +523,7 @@ namespace Keysharp.Parsing.Syntax
 			}
 			SkipNewlines();
 			if (IsFunctionDefinition()) return new HotkeyDef(triggers, null, (FunctionDecl)ParseFunctionDecl());
-			if (At(TokenKind.EOF) || At(TokenKind.HotkeyTrigger) || At(TokenKind.HotstringTrigger) || At(TokenKind.RemapKey))
+			if (At(TokenKind.EOF) || At(TokenKind.HotkeyTrigger) || At(TokenKind.HotstringTrigger) || At(TokenKind.RemapSourceKey))
 				return new HotkeyDef(triggers, new Block(new List<Stmt>()), null);
 			return new HotkeyDef(triggers, ParseBodyStatement(), null);
 		}
@@ -541,7 +545,7 @@ namespace Keysharp.Parsing.Syntax
 			}
 			SkipNewlines();
 			if (IsFunctionDefinition()) return new HotstringDef(triggers, null, null, (FunctionDecl)ParseFunctionDecl());
-			if (At(TokenKind.EOF) || At(TokenKind.HotkeyTrigger) || At(TokenKind.HotstringTrigger) || At(TokenKind.RemapKey))
+			if (At(TokenKind.EOF) || At(TokenKind.HotkeyTrigger) || At(TokenKind.HotstringTrigger) || At(TokenKind.RemapSourceKey))
 				return new HotstringDef(triggers, "", null, null);
 			return new HotstringDef(triggers, null, ParseBodyStatement(), null);
 		}

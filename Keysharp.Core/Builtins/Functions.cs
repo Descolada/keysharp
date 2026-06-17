@@ -141,7 +141,8 @@ namespace Keysharp.Builtins
 			if (mph != null && mph.mi != null)
 				return new FuncObj(mph.mi, null);
 
-			return Errors.MethodErrorOccurred($"Unable to retrieve method {n} from object of type {v.GetType()} with parameter count {count}.");
+			return Script.CompatReturnsUnsetForMissing ? null
+				: Errors.MethodErrorOccurred($"Unable to retrieve method {n} from object of type {v.GetType()} with parameter count {count}.");
 		}
 
 		/// <summary>

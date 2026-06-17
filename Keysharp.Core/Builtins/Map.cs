@@ -319,7 +319,8 @@ namespace Keysharp.Builtins
 				return val;
 			}
 
-			return Errors.KeyErrorOccurred($"Key {key} was not present in the map.");
+			return Script.CompatReturnsUnsetForMissing ? null
+				: Errors.KeyErrorOccurred($"Key {key} was not present in the map.");
 		}
 
 		/// <summary>
@@ -347,7 +348,8 @@ namespace Keysharp.Builtins
 			if (Default != null)
 				return Default;
 
-			return Errors.UnsetItemErrorOccurred($"Key {k} was not present in the map.");
+			return Script.CompatReturnsUnsetForMissing ? null
+				: Errors.UnsetItemErrorOccurred($"Key {k} was not present in the map.");
 		}
 
 		/// <summary>
@@ -719,7 +721,8 @@ namespace Keysharp.Builtins
 				if (TryGetValue(key, out var val))
 					return val;
 
-				return Default ?? Errors.UnsetItemErrorOccurred($"Key {key} was not present in the map.");
+				return Default ?? (Script.CompatReturnsUnsetForMissing ? null
+					: Errors.UnsetItemErrorOccurred($"Key {key} was not present in the map."));
 			}
 			set
 			{

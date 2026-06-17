@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Keysharp is a cross-platform C# implementation of AutoHotkey v2. AHK scripts (`.ahk`/`.ks`) are parsed by an ANTLR4 grammar, transpiled to C#, compiled in-memory with Roslyn, and executed as a .NET assembly. The goal is full AHK v2 compatibility on Windows, with partial Linux and eventual macOS support.
+Keysharp is a cross-platform C# implementation of AutoHotkey v2. AHK scripts (`.ahk`/`.ks`) are parsed by a hand-written lexer + recursive-descent parser into an AST, lowered to C# (Roslyn `SyntaxNode`s), compiled in-memory with Roslyn, and executed as a .NET assembly. The goal is full AHK v2 compatibility on Windows, with partial Linux and eventual macOS support.
 
 ## Solution structure
 
@@ -15,9 +15,10 @@ Keysharp.sln
 │   │   ├── Input/Hooks/    # HookThread (4 k lines) — OS keyboard/mouse callbacks
 │   │   ├── Input/Keyboard/ # HotkeyDefinition, KeyboardMouseSender
 │   │   └── Threading/      # Threads, ScriptTimerManager, SlimStack, ThreadVariables
-│   ├── Parsing/            # ANTLR4 grammar + Roslyn visitor/transpiler
-│   │   ├── Antlr/          # *.g4 grammar files + generated lexer/parser
-│   │   └── Visitors/       # VisitMain, VisitExpression, VisitFlow, VisitorHelper
+│   ├── Parsing/            # Hand-written lexer/parser/lowerer + Roslyn compile
+│   │   ├── Lexing/         # Lexer, Token, TokenKind
+│   │   ├── Syntax/         # Parser, Ast, Lowerer (AST → C#), NameMangler
+│   │   └── CompilerHelper.cs  # Wraps the lowered unit in a CSharpCompilation
 │   └── Runtime/Script/     # Script singleton, Call helpers, event scheduler
 ├── Keysharp.Tests/         # NUnit test suite; test scripts in Code/
 ├── Keysharp.Benchmark/     # BenchmarkDotNet perf suite
@@ -80,30 +81,16 @@ Test `.ahk` scripts live in `Keysharp.Tests/Code/`. Each test typically:
 
 `TestRunner.SetupBeforeEachTest` resets global state before each test. `CleanupAfterEachTest` disposes the `Script` object.
 
-## Regenerating the ANTLR grammar
-
-The generated files (`MainLexer.cs`, `MainParser.cs`, etc.) are committed. To regenerate after editing a `.g4` file:
-
-```bash
-# Requires the ANTLR4 tool jar (antlr-4.x-complete.jar)
-java -jar antlr-4.x-complete.jar -Dlanguage=CSharp -visitor -no-listener \
-     -o Keysharp.Core/Parsing/Antlr/ \
-     Keysharp.Core/Parsing/Antlr/MainLexer.g4 \
-     Keysharp.Core/Parsing/Antlr/MainParser.g4
-```
-
-Do not hand-edit `MainLexer.cs` or `MainParser.cs` — they will be overwritten.
-
 ## Architecture: how a script runs
 
-1. `Keysharp/Program.cs` → `Parser.ParseFile()` (in `Keysharp.Core/Parsing/Parser.cs`)
-2. ANTLR4 lexer + parser build a parse tree from the `.ahk` source.
-3. `VisitMain` (and sibling visitors) walk the parse tree and emit Roslyn `SyntaxNode`s.
+1. `CompilerHelper.CreateCompilationUnitFromFile()` (in `Keysharp.Core/Parsing/CompilerHelper.cs`) drives the front end.
+2. `Lexing.Lexer` tokenizes the `.ahk` source; `Syntax.Parser.ParseWithDiagnostics()` builds the strongly-typed AST (`ProgramNode`).
+3. `Syntax.Lowerer.Build()` walks the AST and emits a Roslyn `CompilationUnitSyntax` (the generated C#).
 4. `CompilerHelper.Compile()` wraps the syntax tree in a `CSharpCompilation` and emits a `MemoryStream`.
 5. The compiled assembly is loaded and its entry point is invoked.
 6. At runtime, AHK built-ins dispatch to the static methods in `Keysharp.Core/Builtins/`.
 
-Use `--transpile` to see the exact C# that step 3 produces — this is the fastest way to debug transpiler issues.
+Use `--transpile` to see the exact C# that step 3 produces — this is the fastest way to debug lowering issues.
 
 ## Platform-specific code
 
@@ -122,8 +109,8 @@ Use `#if WINDOWS`, `#if LINUX`, `#if OSX` preprocessor constants. These are set 
 | Task | Start here |
 |------|-----------|
 | Add/fix a built-in function | `Keysharp.Core/Builtins/<Category>.cs` |
-| Fix a parse/syntax error | `Keysharp.Core/Parsing/Antlr/MainParser.g4` + `Parsing/Visitors/` |
-| Fix code generation (transpiler) | `Parsing/Visitors/VisitMain.cs`, `VisitExpression.cs`, `VisitFlow.cs` |
+| Fix a parse/syntax error | `Keysharp.Core/Parsing/Lexing/Lexer.cs`, `Parsing/Syntax/Parser.cs` |
+| Fix code generation (lowering) | `Keysharp.Core/Parsing/Syntax/Lowerer.cs` |
 | Fix hotkey/hook behavior | `Internals/Input/Hooks/HookThread.cs`, `Internals/Input/Keyboard/HotkeyDefinition.cs` |
 | Fix timer behavior | `Internals/Threading/ScriptTimerManager.cs` |
 | Fix GUI | `Builtins/Gui/Gui.cs`, platform-specific `Windows/` or `Unix/` subfolder |

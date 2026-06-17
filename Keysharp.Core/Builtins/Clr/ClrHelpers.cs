@@ -1,4 +1,3 @@
-using Antlr4.Runtime.Misc;
 using Clr = Keysharp.Builtins.Ks.Clr;
 
 namespace Keysharp.Builtins

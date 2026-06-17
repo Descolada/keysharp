@@ -203,7 +203,7 @@ namespace Keysharp.Main
 	/// Compile daemon ("--daemon" mode). Holds one warm <see cref="CompilerHelper"/> and one reused
 	/// parse-context <see cref="Script"/>, accepts script paths over a per-build/per-user named pipe, and
 	/// returns compiled assembly bytes so a thin launcher can run them in a lean process that never loads
-	/// Roslyn/ANTLR (see <see cref="CompileClient"/> and Program.RunCompiledBytes).
+	/// the parser/Roslyn (see <see cref="CompileClient"/> and Program.RunCompiledBytes).
 	///
 	/// Correctness constraints (see CompilerHelper.ResetScriptForParse):
 	///   - <see cref="Script.TheScript"/> is process-global, so compiles MUST be serialized. The accept
@@ -312,7 +312,7 @@ namespace Keysharp.Main
 			}
 		}
 
-		// Compile a trivial script once so the first real client request is already warm (Roslyn/ANTLR
+		// Compile a trivial script once so the first real client request is already warm (parser + Roslyn
 		// JITted, reference metadata loaded). Failures here are non-fatal; the first request just pays cold.
 		private static void Warmup(CompilerHelper ch, string exeDir)
 		{

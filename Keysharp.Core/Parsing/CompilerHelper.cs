@@ -125,7 +125,6 @@ using String = Keysharp.Builtins.String
 		public static readonly string[] requiredManagedDependencies = new[]
 		{
 			"Keysharp.Core.dll",
-			"Antlr4.Runtime.Standard.dll",
 			"PCRE.NET.dll",
 			"BitFaster.Caching.dll",
 			"Semver.dll",
@@ -261,15 +260,12 @@ using String = Keysharp.Builtins.String
 			}
 		});
 
-		private Parser parser;
-
 		/// <summary>
 		/// Define the compile unit to use for code generation.
 		/// </summary>
 		//CodeCompileUnit targetUnit;
 		public CompilerHelper()
 		{
-			parser = new Parser(this);
 		}
 
 		public static string GenerateRuntimeConfig()
@@ -666,9 +662,6 @@ using String = Keysharp.Builtins.String
 			}
 
 			ResetScriptForParse(script, scriptPath, scriptName);
-			parser = new Parser(this);
-			parser.startupScriptPath = scriptPath;
-			parser.startupScriptName = startupName;
 
 			if (x != null)
 			{
@@ -680,9 +673,26 @@ using String = Keysharp.Builtins.String
 
 			try
 			{
-				unit = isFile
-					   ? parser.Parse<CompilationUnitSyntax>(new StreamReader(fileName, enc), scriptPath)
-					   : parser.Parse<CompilationUnitSyntax>(new StringReader(fileName), scriptName);
+				var source = isFile ? File.ReadAllText(fileName, enc) : fileName;
+				var includeDir = isFile ? Path.GetDirectoryName(scriptPath) : null;
+				var buildName = name ?? (isFile ? Path.GetFileNameWithoutExtension(scriptName) : "*");
+
+				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir);
+
+				if (parseDiags.Count > 0)
+				{
+					foreach (var d in parseDiags)
+						_ = errors.Add(ToCompilerError(d, scriptPath));
+				}
+				else
+				{
+					var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
+					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir);
+
+					if (unit == null || lowerer.Diagnostics.Count > 0)
+						foreach (var d in lowerer.Diagnostics)
+							_ = errors.Add(ToCompilerError(d, scriptPath));
+				}
 			}
 			catch (ParseException e)
 			{
@@ -696,6 +706,16 @@ using String = Keysharp.Builtins.String
 			return (unit, errors);
 		}
 
+		// New-pipeline diagnostics are "line:col: message" strings (lex + parse + lowering). Turn one into a
+		// CompilerError so the existing error-reporting path can surface line/column to the user.
+		private static CompilerError ToCompilerError(string diagnostic, string file)
+		{
+			var m = System.Text.RegularExpressions.Regex.Match(diagnostic ?? "", @"^(\d+):(\d+):\s*(.*)$");
+			if (m.Success)
+				return new CompilerError(file, int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), "0", m.Groups[3].Value);
+			return new CompilerError { ErrorText = diagnostic ?? "", FileName = file };
+		}
+
 		/// <summary>
 		/// Reports compiler errors to the user, either by writing them to the console or, for an
 		/// interactive run, by showing a fatal error dialog offering Edit/Reload/ExitApp.
@@ -705,7 +725,7 @@ using String = Keysharp.Builtins.String
 		/// <returns>True if the user chose "Reload" from the error dialog and the caller should restart the script.</returns>
 		public bool ReportCompilerErrors(string s, bool stdout = false)
 		{
-			if (parser?.errorStdOut == true || Env.FindCommandLineArg("errorstdout") != null)
+			if (Env.FindCommandLineArg("errorstdout") != null)
 				Console.Error.WriteLine(s);//For this to show on the command line, they need to pipe to more like: | more
 			else if (stdout)
 				Console.WriteLine(s);

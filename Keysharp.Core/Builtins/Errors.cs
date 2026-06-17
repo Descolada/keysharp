@@ -1,4 +1,3 @@
-using Antlr4.Runtime;
 
 namespace Keysharp.Builtins
 {
@@ -58,6 +57,12 @@ namespace Keysharp.Builtins
 				{
 					err.Handled = true;
 					err.Processed = true;
+					// #ErrorStdOut: write the error to stderr (no dialog) and exit the thread, like an uncaught error.
+					if (script.ErrorStdOut)
+					{
+						System.Console.Error.WriteLine(err.Message);
+						return true;
+					}
 					if (!script.SuppressErrorOccurredDialog)
 						return ErrorDialog.Show(err) != ErrorDialog.ErrorDialogResult.Continue;
 				}
@@ -817,26 +822,6 @@ namespace Keysharp.Builtins
 			Extra = code;
 		}
 
-		/// <summary>
-		/// Initializes a new instance of the <see cref="ParseException"/> class.
-		/// </summary>
-		/// <param name="message">The message describing the error.</param>
-		/// <param name="ParserRuleContext">The context which caused the error.</param>
-		/// <param name="extra">The code where the error occurred. If omitted then the first line of the context will be used.</param>
-		public ParseException(string message, ParserRuleContext ctx, string extra = null) : base(message)
-		{
-			Line = ctx?.Start?.Line ?? 0;
-			File = ctx?.Start?.TokenSource?.SourceName ?? "";
-			Column = ctx?.Start?.Column ?? 0;
-			var ctxText = ctx.GetText();
-			int idx = ctxText.IndexOfAny(new char[] { '\r', '\n' });
-			Extra = extra ?? (idx == -1 ? ctxText : ctxText.Substring(0, idx));
-		}
-
-		public ParseException(string message, IToken token) : this(message, token.Line, token.Text, token.TokenSource.SourceName)
-		{
-			Column = token.Column;
-		}
 	}
 
 	/// <summary>

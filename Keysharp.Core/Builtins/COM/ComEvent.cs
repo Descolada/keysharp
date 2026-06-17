@@ -1,5 +1,4 @@
 #if WINDOWS
-using Antlr4.Runtime.Misc;
 using Keysharp.Runtime.Keyboard;
 
 namespace Keysharp.Builtins.COM

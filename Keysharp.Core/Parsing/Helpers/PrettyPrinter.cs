@@ -76,8 +76,10 @@ namespace Keysharp.Parsing
 				Visit(u);
 			}
 
-			// blank line between usings and namespace
-			_sb.AppendLine();
+			// blank line between usings and namespace (only when there were usings — the new pipeline emits
+			// fully-qualified names and no usings, matching Roslyn's NormalizeWhitespace which adds no leading blank)
+			if (node.Usings.Count > 0)
+				_sb.AppendLine();
 
 			// 2) leading assembly‐attributes
 			foreach (var al in node.AttributeLists)

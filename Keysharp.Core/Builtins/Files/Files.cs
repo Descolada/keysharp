@@ -164,7 +164,7 @@ namespace Keysharp.Builtins
 						else
 							tw.Write(s);
 					}
-					else if (tw is StreamWriter sw)
+					else if (tw is StreamWriter sw && (t is Array || t is Buffer || t is byte[] || t is IList))
 					{
 						if (t is Array arr)//Most common will be array.
 						{
@@ -188,6 +188,11 @@ namespace Keysharp.Builtins
 						{
 							sw.BaseStream.Write(il.ToByteArray().ToArray());
 						}
+					}
+					else if (t != null)//A non-string, non-binary value (e.g. a number): write its string form.
+					{
+						var str = Script.ForceString(t);
+						tw.Write(crlf ? str.ReplaceLineEndings("\r\n") : str);
 					}
 
 					if (!string.IsNullOrEmpty(file) && !file.StartsWith("*"))

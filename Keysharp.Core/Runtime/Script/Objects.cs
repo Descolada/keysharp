@@ -1,7 +1,6 @@
 using System;
 using System.Reflection;
 using System.Xml.Linq;
-using Antlr4.Runtime.Misc;
 using Keysharp.Builtins;
 
 namespace Keysharp.Runtime

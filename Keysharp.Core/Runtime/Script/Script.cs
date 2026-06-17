@@ -151,6 +151,8 @@ namespace Keysharp.Runtime
 		public uint MaxThreadsTotal = 12u;
 		public bool NoMainWindow = false;
 		public bool NoTrayIcon = false;
+		public bool ErrorStdOut = false;   // #ErrorStdOut: write uncaught errors to stderr instead of showing a dialog
+
 		public bool ValidateThenExit;
 		public bool WinActivateForce = false;
 		//Some unit tests use try..catch in non-script code, which causes ErrorOccurred to display the error dialog.

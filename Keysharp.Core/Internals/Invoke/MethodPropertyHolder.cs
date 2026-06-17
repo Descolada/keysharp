@@ -2,7 +2,6 @@ using Keysharp.Builtins;
 //#define CONCURRENT
 using System.Collections.Generic;
 using System.Linq.Expressions;
-using Antlr4.Runtime.Misc;
 using Label = System.Reflection.Emit.Label;
 
 namespace Keysharp.Internals.Invoke

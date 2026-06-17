@@ -85,7 +85,6 @@ global using global::Keysharp.Internals.Threading;
 global using global::Keysharp.Internals.Window;
 global using global::Keysharp.Internals.Invoke;
 global using global::Keysharp.Parsing;
-global using global::Keysharp.Parsing.Antlr;
 global using global::Keysharp.Runtime;
 global using global::Semver.Comparers;
 global using global::Semver.Utility;

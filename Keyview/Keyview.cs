@@ -1,4 +1,3 @@
-using Antlr4.Runtime;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 #if WINDOWS
@@ -2212,7 +2211,7 @@ namespace Keyview
 				{
 					setSuccess?.Invoke((DateTime.UtcNow - startTime).TotalSeconds);
 					setFullCode(code);
-					var token = "[System.STAThreadAttribute()]";
+					var token = "[System.STAThread]";
 					var start = code.IndexOf(token);
 					code = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
 					var sb = new StringBuilder(code.Length);

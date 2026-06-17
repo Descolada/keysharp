@@ -54,7 +54,7 @@ namespace Keysharp.Main
 			var command = Runner.Parse(args);
 
 			// Daemon fast path: a plain source run can offload compilation to the shared daemon and run the
-			// returned bytes here, so this lean launcher never loads Roslyn/ANTLR. KEYSHARP_DAEMON forces it
+			// returned bytes here, so this lean launcher never loads the parser/Roslyn. KEYSHARP_DAEMON forces it
 			// on/off; if unset, release builds use it and debug builds do not.
 			if (command.Kind == CliCommandKind.RunSource
 					&& !command.FromStdin

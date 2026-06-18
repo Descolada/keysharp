@@ -1046,6 +1046,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var keyUp = (ev.Flags & 0x80u) != 0 || ev.Message == 0x0101u || ev.Message == 0x0105u;
 			var isInjected = (ev.Flags & 0x10u) != 0;
 
+			// Mirror WindowsHookThread.LowLevelKeybdHandler: an event tagged KeyPhysIgnore must be
+			// treated as PHYSICAL for key/modifier state tracking even though it was injected. AHK uses
+			// this to mark a prefix key's synthetic release as physical (see HookThread.cs where
+			// KeyPhysIgnore is sent) so IsKeyDown/KeyWait and the physical modifier mask stay correct.
+			// It still won't fire hotkeys because IsIgnored(KeyPhysIgnore) is true in LowLevelCommon.
+			if (ev.ExtraInfo == (ulong)KeyboardMouseSender.KeyPhysIgnore)
+				isInjected = false;
+
 			switch (vk)
 			{
 				case VK_SHIFT:

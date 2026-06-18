@@ -687,7 +687,7 @@ using String = Keysharp.Builtins.String
 				else
 				{
 					var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
-					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir);
+					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source);
 
 					if (unit == null || lowerer.Diagnostics.Count > 0)
 						foreach (var d in lowerer.Diagnostics)

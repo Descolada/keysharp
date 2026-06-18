@@ -87,8 +87,9 @@ namespace Keysharp.Parsing.Syntax
 		// AHK enables VarUnset+Unreachable by default; here warnings are OPT-IN (all off until a `#Warn` directive
 		// turns them on), so existing scripts are unaffected by the compile-then-run model. `_warnDefaultMode` is the
 		// program-wide default mode applied by `#Warn On` / a bare `#Warn <Mode>` (default MsgBox, like AHK).
-		private string _warnVarUnset = null, _warnUnreachable = null, _warnLocalSameAsGlobal = null;
+		private string _warnVarUnset = "MsgBox", _warnUnreachable = "MsgBox", _warnLocalSameAsGlobal = null;
 		private string _warnDefaultMode = "MsgBox";
+		private bool _warnScopeIsGlobal;   // current VarUnset-analysis scope is the module top-level (else a function)
 		private readonly List<(string mode, int line, string desc)> _warnings = new();
 		private int _hotCount;
 		private readonly HashSet<string> _exportedNames = new(System.StringComparer.OrdinalIgnoreCase);   // names marked `export`
@@ -150,12 +151,14 @@ namespace Keysharp.Parsing.Syntax
 		// The compiled script's full path ("*" for a from-string compile) and the caller-supplied startup name; used to
 		// emit `MainScript.SetName(...)` so A_ScriptName/A_ScriptFullPath are correct.
 		private string _scriptPath = "*";
+		private string[] _sourceLines;   // raw script lines, for embedding the offending line text in #Warn dialogs
 		private string _startupName;
 		private string _includeDir;   // directory for resolving file-based `#import "name"` module imports
 
-		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null)
+		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null, string source = null)
 		{
 			_scriptPath = scriptPath ?? "*";
+			_sourceLines = source?.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 			_startupName = startupName;
 			_includeDir = includeDir;
 			// Use the dedicated multi-module path when the file defines/uses modules: a `#Module`, an `export`, or a
@@ -1025,6 +1028,7 @@ namespace Keysharp.Parsing.Syntax
 			// VarUnset / LocalSameAsGlobal both need the set of names "provided" in this scope.
 			if (_warnVarUnset != null || (_warnLocalSameAsGlobal != null && !topLevel))
 			{
+				_warnScopeIsGlobal = topLevel;
 				var provided = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 				foreach (var p in paramNames) provided.Add(p.ToLowerInvariant());
 				var declaredGlobal = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
@@ -1157,7 +1161,7 @@ namespace Keysharp.Parsing.Syntax
 				case NameExpr n:
 					var lo = n.Name.ToLowerInvariant();
 					if (!provided.Contains(lo) && !warned.Contains(lo) && IsUnsetCandidate(lo))
-					{ warned.Add(lo); Warn(_warnVarUnset, n.Line, $"This variable appears to never be assigned a value: {n.Name}."); }
+					{ warned.Add(lo); Warn(_warnVarUnset, n.Line, $"This {(_warnScopeIsGlobal ? "global" : "local")} variable appears to never be assigned a value: {n.Name}."); }
 					break;
 				case AssignExpr a:   // a direct `:=` target is NOT a read; a compound/member/index target IS evaluated.
 					if (!(a.Op == ":=" && a.Target is NameExpr)) CheckReadsExpr(a.Target, provided, warned);
@@ -1286,15 +1290,38 @@ namespace Keysharp.Parsing.Syntax
 			var stmts = new List<StatementSyntax>();
 			foreach (var (mode, line, desc) in _warnings)
 			{
-				var text = (line > 0 ? $"({line}) : ==> " : "") + desc;
 				stmts.Add(mode switch
 				{
-					"StdOut" => CallStmt("Keysharp.Builtins.Files.FileAppend", Str(text + "\n"), Str("*")),
-					"OutputDebug" => CallStmt("Keysharp.Builtins.Debug.OutputDebug", Str(text)),
-					_ => CallStmt("Keysharp.Builtins.Dialogs.MsgBox", Str(text)),
+					// StdOut uses the editor-friendly "(line) : ==> Warning: …" format so editors can jump to the line.
+					"StdOut" => CallStmt("Keysharp.Builtins.Files.FileAppend", Str((line > 0 ? $"({line}) : ==> " : "") + "Warning: " + desc + "\n"), Str("*")),
+					"OutputDebug" => CallStmt("Keysharp.Builtins.Debug.OutputDebug", Str("Warning: " + desc + (line > 0 ? $"\n\nLine: {line}" : ""))),
+					// MsgBox mode shows the standard continuable warning dialog (test-host-aware; see Errors.ShowWarning).
+					_ => CallStmt("Keysharp.Builtins.Errors.ShowWarning", Str("Warning: " + desc + WarnLineContext(line))),
 				});
 			}
 			return stmts;
+		}
+
+		// The source-line excerpt shown in a #Warn dialog: the offending line marked with ▶, then up to two following
+		// non-blank lines for context, plus a pointer to the docs — mirroring AHK's #Warn warning dialog.
+		private string WarnLineContext(int line)
+		{
+			if (line <= 0)
+				return "";
+			if (_sourceLines == null || line > _sourceLines.Length)
+				return $"\n\nLine: {line}";
+
+			var sb = new System.Text.StringBuilder("\n\n");
+			for (int i = line, shown = 0; i <= _sourceLines.Length && shown < 3; i++)
+			{
+				var text = _sourceLines[i - 1].Trim();
+				if (i != line && text.Length == 0)
+					continue;   // skip blank context lines (matching AHK)
+				sb.Append(i == line ? "▶\t" : "\t").Append(i).Append(": ").Append(text).Append('\n');
+				shown++;
+			}
+			sb.Append("\nFor more details, read the documentation for #Warn.");
+			return sb.ToString();
 		}
 
 		private static BlockSyntax AsBlock(StatementSyntax s) =>

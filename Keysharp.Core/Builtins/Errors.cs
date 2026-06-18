@@ -74,6 +74,42 @@ namespace Keysharp.Builtins
 			return exitThread;
 		}
 
+		/// <summary>
+		/// Displays a load-time #Warn warning using the standard, continuable error dialog (the same dialog as errors,
+		/// with Help/Edit/Reload/ExitApp/Continue buttons). Warnings never halt the script. In the headless/test host
+		/// (where error dialogs are suppressed), the warning is written to stderr instead of a blocking dialog.
+		/// </summary>
+		public static object ShowWarning(object text)
+		{
+			var script = Script.TheScript;
+			var msg = text.As();
+
+			if (script == null || script.SuppressErrorOccurredDialog)
+			{
+				System.Console.Error.WriteLine(msg);
+				return Script.DefaultObject;
+			}
+
+			// Build the continuable warning dialog directly from the text — not from an Error — so it carries no
+			// exception stack/"thread will exit" framing and shows AHK's warning buttons (Help/Edit/Reload/ExitApp/Continue).
+			using var dlg = new ErrorDialog(msg, ErrorDialogKind.Warning, allowContinue: true, fileToEdit: script.scriptPath);
+			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
+				dlg.ShowDialog();
+
+			switch (dlg.Result)
+			{
+				case ErrorDialog.ErrorDialogResult.Exit:
+					_ = Keysharp.Internals.Flow.ExitAppInternal(Flow.ExitReasons.Critical, 2L, false);
+					break;
+
+				case ErrorDialog.ErrorDialogResult.Reload:
+					_ = Flow.Reload();
+					break;
+			}
+
+			return Script.DefaultObject;
+		}
+
 		//Used internally to suppress error processing, dialogs, and exiting via errors
 		internal sealed class SuppressErrors : IDisposable
 		{
@@ -1234,6 +1270,15 @@ namespace Keysharp.Builtins
 #endif
 	}
 
+	// Which flavor of the shared error/warning dialog to present. Selects the button set, default button, and whether
+	// the "thread/program will exit" framing is appended — the dialog widget itself is identical across all kinds.
+	internal enum ErrorDialogKind
+	{
+		RuntimeError,   // an uncaught runtime error: ExitApp, Reload, Abort (+ Continue if the thread may continue)
+		LoadError,      // a load-time / syntax error (fatal): Edit, Reload, ExitApp
+		Warning,        // a #Warn load-time warning (always continuable): Help, Edit, Reload, ExitApp, Continue
+	}
+
 #if WINDOWS
 	internal class ErrorDialog : Form
 	{
@@ -1247,7 +1292,7 @@ namespace Keysharp.Builtins
 
 		internal ErrorDialogResult Result { get; private set; } = ErrorDialogResult.Exit;
 
-		internal ErrorDialog(string errorText, bool allowContinue = false, bool useRuntimeButtons = true, string exitMessage = null, string fileToEdit = null)
+		internal ErrorDialog(string errorText, ErrorDialogKind kind = ErrorDialogKind.RuntimeError, bool allowContinue = false, string exitMessage = null, string fileToEdit = null)
 		{
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
@@ -1347,36 +1392,55 @@ namespace Keysharp.Builtins
 			{
 				Text = "&Edit",
 			};
-			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload);
+			var btnHelp = new Button
+			{
+				Text = "&Help",
+			};
+			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload, btnHelp);
 			btnAbort.Size = uniformSize;
 			btnContinue.Size = uniformSize;
 			btnEdit.Size = uniformSize;
 			btnExit.Size = uniformSize;
 			btnReload.Size = uniformSize;
+			btnHelp.Size = uniformSize;
 			btnEdit.Click += (_, _) => ScriptEditor.TryEditFile(fileToEdit);
+			btnHelp.Click += (_, _) => { try { Process.Start(new ProcessStartInfo { FileName = "https://www.autohotkey.com/docs/v2/lib/_Warn.htm", UseShellExecute = true }); } catch { } };
 			btnAbort.Click += (_, _) => { Result = ErrorDialogResult.Abort; Close(); };
 			btnExit.Click += (_, _) => { Result = ErrorDialogResult.Exit; Close(); };
 			btnReload.Click += (_, _) => { Result = ErrorDialogResult.Reload; Close(); };
 			btnContinue.Click += (_, _) => { Result = ErrorDialogResult.Continue; Close(); };
-			if (useRuntimeButtons)
+			Button defaultButton;
+
+			switch (kind)
 			{
-				leftPanel.Controls.Add(btnExit);
-				leftPanel.Controls.Add(btnReload);
+				case ErrorDialogKind.Warning:
+					// #Warn dialog (matches AHK): Help, Edit, Reload, ExitApp on the left; Continue (the default) on the
+					// right. There is nothing to abort for a load-time warning, so no Abort button is shown.
+					leftPanel.Controls.Add(btnHelp);
+					if (ScriptEditor.CanEditFile(fileToEdit)) leftPanel.Controls.Add(btnEdit);
+					leftPanel.Controls.Add(btnReload);
+					leftPanel.Controls.Add(btnExit);
+					defaultButton = btnContinue;
+					rightPanel.Controls.Add(btnContinue);
+					break;
+
+				case ErrorDialogKind.LoadError:
+					// Load-time / syntax errors offer Edit (only if the file exists) and Reload, exiting by default.
+					if (ScriptEditor.CanEditFile(fileToEdit)) leftPanel.Controls.Add(btnEdit);
+					leftPanel.Controls.Add(btnReload);
+					defaultButton = btnExit;
+					rightPanel.Controls.Add(btnExit);
+					if (allowContinue) rightPanel.Controls.Add(btnContinue);
+					break;
+
+				default:   // ErrorDialogKind.RuntimeError
+					leftPanel.Controls.Add(btnExit);
+					leftPanel.Controls.Add(btnReload);
+					defaultButton = btnAbort;
+					rightPanel.Controls.Add(btnAbort);
+					if (allowContinue) rightPanel.Controls.Add(btnContinue);
+					break;
 			}
-			else
-			{
-				// Syntax/fatal errors offer Edit (only if the file exists) and Reload.
-				if (ScriptEditor.CanEditFile(fileToEdit))
-					leftPanel.Controls.Add(btnEdit);
-
-				leftPanel.Controls.Add(btnReload);
-			}
-
-			var defaultButton = useRuntimeButtons ? btnAbort : btnExit;
-			rightPanel.Controls.Add(defaultButton);
-
-			if (allowContinue)
-				rightPanel.Controls.Add(btnContinue);
 
 			table.Controls.Add(leftPanel, 0, 0);
 			table.Controls.Add(rightPanel, 1, 0);
@@ -1425,23 +1489,18 @@ namespace Keysharp.Builtins
 				box.SelectionColor = Color.DarkOrange;
 			}
 
-			int fullStackIndex = text.IndexOf("Stack:\n");
+			// Highlight the causing line yellow. It is marked with ▶ in both an error stack ("Stack:\n▶<frame>") and a
+			// #Warn dialog ("▶<line>: <source>"), so keying off the marker covers both cases.
+			int arrowIndex = text.IndexOf('▶');
 
-			if (fullStackIndex >= 0)
+			if (arrowIndex >= 0)
 			{
-				int startOfLine = text.IndexOf('\n', fullStackIndex);
-
-				if (startOfLine >= 0)
-				{
-					int nextLineStart = startOfLine + 1;
-					int nextLineEnd = text.IndexOf('\n', nextLineStart);
-
-					if (nextLineEnd < 0) nextLineEnd = text.Length;
-
-					int highlightLength = nextLineEnd - startOfLine;
-					box.Select(startOfLine, highlightLength);
-					box.SelectionBackColor = Color.Yellow;
-				}
+				int lineStart = text.LastIndexOf('\n', arrowIndex);   // the newline before the ▶ line (-1 if at the start)
+				if (lineStart < 0) lineStart = 0;
+				int lineEnd = text.IndexOf('\n', arrowIndex);
+				if (lineEnd < 0) lineEnd = text.Length;
+				box.Select(lineStart, lineEnd - lineStart);
+				box.SelectionBackColor = Color.Yellow;
 			}
 
 			box.Select(0, 0); // Reset selection
@@ -1463,7 +1522,7 @@ namespace Keysharp.Builtins
 		{
 			KeysharpException kex = ex as KeysharpException;
 			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+			using var dlg = new ErrorDialog(msg, ErrorDialogKind.RuntimeError, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();
 
@@ -1484,7 +1543,7 @@ namespace Keysharp.Builtins
 		[StackTraceHidden]
 		internal static ErrorDialogResult ShowFatal(string errorText, string fileToEdit = null)
 		{
-			using var dlg = new ErrorDialog(errorText, false, false, "The program will exit.", fileToEdit);
+			using var dlg = new ErrorDialog(errorText, ErrorDialogKind.LoadError, false, "The program will exit.", fileToEdit);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();
 
@@ -1504,7 +1563,7 @@ namespace Keysharp.Builtins
 
 		internal ErrorDialogResult Result { get; private set; } = ErrorDialogResult.Exit;
 
-		internal ErrorDialog(string errorText, bool allowContinue = false, bool useRuntimeButtons = true, string exitMessage = null, string fileToEdit = null)
+		internal ErrorDialog(string errorText, ErrorDialogKind kind = ErrorDialogKind.RuntimeError, bool allowContinue = false, string exitMessage = null, string fileToEdit = null)
 		{
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
@@ -1542,15 +1601,18 @@ namespace Keysharp.Builtins
 			var btnEdit = new Eto.Forms.Button { Text = "&Edit" };
 			var btnExit = new Eto.Forms.Button { Text = "E&xitApp" };
 			var btnReload = new Eto.Forms.Button { Text = "&Reload" };
+			var btnHelp = new Eto.Forms.Button { Text = "&Help" };
 
-			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload);
+			var uniformSize = GetUniformButtonSize(btnAbort, btnContinue, btnEdit, btnExit, btnReload, btnHelp);
 			btnAbort.Size = uniformSize;
 			btnContinue.Size = uniformSize;
 			btnEdit.Size = uniformSize;
 			btnExit.Size = uniformSize;
 			btnReload.Size = uniformSize;
+			btnHelp.Size = uniformSize;
 
 			btnEdit.Click += (_, _) => ScriptEditor.TryEditFile(fileToEdit);
+			btnHelp.Click += (_, _) => { try { Process.Start(new ProcessStartInfo { FileName = "https://www.autohotkey.com/docs/v2/lib/_Warn.htm", UseShellExecute = true }); } catch { } };
 			btnAbort.Click += (_, _) => { Result = ErrorDialogResult.Abort; Close(); };
 			btnExit.Click += (_, _) => { Result = ErrorDialogResult.Exit; Close(); };
 			btnReload.Click += (_, _) => { Result = ErrorDialogResult.Reload; Close(); };
@@ -1563,18 +1625,31 @@ namespace Keysharp.Builtins
 				HorizontalContentAlignment = Eto.Forms.HorizontalAlignment.Left,
 			};
 
-			if (useRuntimeButtons)
-			{
-				leftButtons.Items.Add(btnExit);
-				leftButtons.Items.Add(btnReload);
-			}
-			else
-			{
-				// Syntax/fatal errors offer Edit (only if the file exists) and Reload.
-				if (ScriptEditor.CanEditFile(fileToEdit))
-					leftButtons.Items.Add(btnEdit);
+			Eto.Forms.Button defaultButton;
 
-				leftButtons.Items.Add(btnReload);
+			switch (kind)
+			{
+				case ErrorDialogKind.Warning:
+					// #Warn dialog (matches AHK): Help, Edit, Reload, ExitApp; Continue is the default. No Abort.
+					leftButtons.Items.Add(btnHelp);
+					if (ScriptEditor.CanEditFile(fileToEdit)) leftButtons.Items.Add(btnEdit);
+					leftButtons.Items.Add(btnReload);
+					leftButtons.Items.Add(btnExit);
+					defaultButton = btnContinue;
+					break;
+
+				case ErrorDialogKind.LoadError:
+					// Load-time / syntax errors offer Edit (only if the file exists) and Reload, exiting by default.
+					if (ScriptEditor.CanEditFile(fileToEdit)) leftButtons.Items.Add(btnEdit);
+					leftButtons.Items.Add(btnReload);
+					defaultButton = btnExit;
+					break;
+
+				default:   // ErrorDialogKind.RuntimeError
+					leftButtons.Items.Add(btnExit);
+					leftButtons.Items.Add(btnReload);
+					defaultButton = btnAbort;
+					break;
 			}
 
 			var rightButtons = new Eto.Forms.StackLayout
@@ -1582,10 +1657,10 @@ namespace Keysharp.Builtins
 				Orientation = Eto.Forms.Orientation.Horizontal,
 				Spacing = 5,
 				HorizontalContentAlignment = Eto.Forms.HorizontalAlignment.Right,
-				Items = { useRuntimeButtons ? btnAbort : btnExit },
+				Items = { defaultButton },
 			};
 
-			if (allowContinue)
+			if (allowContinue && defaultButton != btnContinue)
 				rightButtons.Items.Add(btnContinue);
 
 			var spacer = new Eto.Forms.Panel();
@@ -1615,7 +1690,7 @@ namespace Keysharp.Builtins
 			};
 
 			ClientSize = GetAutomaticClientSize(contentText, richText.Font, buttonsRow.GetPreferredSize(), contentPadding, contentSpacing, scale);
-			DefaultButton = btnAbort;
+			DefaultButton = defaultButton;
 		}
 
 		internal void ShowDialog()
@@ -1664,23 +1739,18 @@ namespace Keysharp.Builtins
 				box.SelectionForeground = Eto.Drawing.Colors.DarkOrange;
 			}
 
-			int fullStackIndex = text.IndexOf("Stack:\n", StringComparison.Ordinal);
+			// Highlight the causing line yellow. It is marked with ▶ in both an error stack ("Stack:\n▶<frame>") and a
+			// #Warn dialog ("▶<line>: <source>"), so keying off the marker covers both cases.
+			int arrowIndex = text.IndexOf('▶');
 
-			if (fullStackIndex >= 0)
+			if (arrowIndex >= 0)
 			{
-				int startOfLine = text.IndexOf('\n', fullStackIndex);
-
-				if (startOfLine >= 0)
-				{
-					int nextLineStart = startOfLine + 1;
-					int nextLineEnd = text.IndexOf('\n', nextLineStart);
-
-					if (nextLineEnd < 0) nextLineEnd = text.Length;
-
-					int highlightLength = nextLineEnd - startOfLine;
-					box.Selection = new Eto.Forms.Range<int>(startOfLine, startOfLine + highlightLength - 1);
-					box.SelectionBackground = Eto.Drawing.Colors.Yellow;
-				}
+				int lineStart = text.LastIndexOf('\n', arrowIndex);   // the newline before the ▶ line (-1 if at the start)
+				if (lineStart < 0) lineStart = 0;
+				int lineEnd = text.IndexOf('\n', arrowIndex);
+				if (lineEnd < 0) lineEnd = text.Length;
+				box.Selection = new Eto.Forms.Range<int>(lineStart, lineEnd - 1);
+				box.SelectionBackground = Eto.Drawing.Colors.Yellow;
 			}
 
 			ClearSelection(box);
@@ -1760,7 +1830,7 @@ namespace Keysharp.Builtins
 		{
 			KeysharpException kex = ex as KeysharpException;
 			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
-			using var dlg = new ErrorDialog(msg, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
+			using var dlg = new ErrorDialog(msg, ErrorDialogKind.RuntimeError, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();
 
@@ -1781,7 +1851,7 @@ namespace Keysharp.Builtins
 		[StackTraceHidden]
 		internal static ErrorDialogResult ShowFatal(string errorText, string fileToEdit = null)
 		{
-			using var dlg = new ErrorDialog(errorText, false, false, "The program will exit.", fileToEdit);
+			using var dlg = new ErrorDialog(errorText, ErrorDialogKind.LoadError, false, "The program will exit.", fileToEdit);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();
 

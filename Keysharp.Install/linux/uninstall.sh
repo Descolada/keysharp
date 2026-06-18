@@ -35,6 +35,10 @@ maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 
 echo "Uninstalling from ${APP_DIR_TARGET} (prefix=${PREFIX})"
 
+# Stop a running compile daemon ("Keysharp --daemon") before deleting the
+# binaries. Run as root, pkill -f also reaches the desktop user's per-user daemon.
+maybe_run pkill -f '[Kk]eysharp --daemon' || true
+
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
   maybe_run systemctl disable --now keysharp-inputd.socket || true
   maybe_run systemctl stop keysharp-inputd.service || true

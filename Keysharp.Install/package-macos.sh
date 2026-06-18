@@ -264,6 +264,11 @@ write_install_scripts() {
   cat > "${SCRIPTS_DIR}/preinstall" <<'EOF'
 #!/bin/sh
 
+# Stop a running compile daemon ("Keysharp --daemon") before the bundle is
+# replaced, so the upgraded install does not keep a stale-build daemon running.
+# preinstall runs as root, so pkill -f reaches the desktop user's daemon too.
+pkill -f '/Keysharp.app/Contents/MacOS/Keysharp --daemon' 2>/dev/null || true
+
 # Unregister any stale LaunchServices entries (dev builds, old installs) so that
 # the installer's bundle-relocation search cannot redirect files into non-standard
 # locations such as a developer's build output directory.

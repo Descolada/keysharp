@@ -299,6 +299,13 @@ fi
 
 check_dotnet
 
+# Stop a running compile daemon ("Keysharp --daemon") before replacing the
+# binaries, so the upgraded install does not keep racing/serving from a
+# stale-build daemon. Run as root, pkill -f also reaches the desktop user's
+# per-user daemon. Replacing the ELF on disk while it runs is harmless on Linux;
+# this just ensures the next script run spawns a daemon built from the new files.
+maybe_run pkill -f '[Kk]eysharp --daemon' || true
+
 echo "Installing to ${APP_DIR_TARGET} (prefix=${PREFIX})"
 mkdir -p "${APP_DIR_TARGET}" "${BINDIR}"
 cp -a "${APP_DIR_SOURCE}/." "${APP_DIR_TARGET}/"
@@ -320,6 +327,11 @@ if [[ "${ROOT_INSTALL}" == "true" ]]; then
       rewrite_systemd_service "${SCRIPT_DIR}/keysharp-inputd.service.in" "${SYSTEMD_DIR}/keysharp-inputd.service"
       install -m 0644 "${SCRIPT_DIR}/keysharp-inputd.socket" "${SYSTEMD_DIR}/keysharp-inputd.socket"
       maybe_run systemctl daemon-reload || true
+
+      # On an upgrade an older keysharp-inputd may still be running the previous
+      # binary. Stop it so socket re-activation (re-enabled by --install-input-access
+      # below) launches the just-installed binary instead of the stale one.
+      maybe_run systemctl stop keysharp-inputd.service || true
 
       if ! "${APP_DIR_TARGET}/keysharp-inputd" --install-input-access; then
         echo "Warning: keysharp-inputd service setup did not complete. Input automation helper may be unavailable." >&2

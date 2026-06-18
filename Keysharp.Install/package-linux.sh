@@ -343,10 +343,21 @@ write_deb_prerm() {
 #!/bin/sh
 set -e
 
+# Runs on both removal ("remove"/"deconfigure") and upgrade ("upgrade"). In every
+# case stop the per-user compile daemon ("Keysharp --daemon") and the running
+# input broker so the old binaries are no longer in use; on an upgrade postinst
+# re-enables the inputd socket so activation launches the new binary.
+if command -v pkill >/dev/null 2>&1; then
+  pkill -f '[Kk]eysharp --daemon' 2>/dev/null || true
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop keysharp-inputd.service || true
+fi
+
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   if command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now keysharp-inputd.socket || true
-    systemctl stop keysharp-inputd.service || true
   fi
 
   # Remove system-wide default MIME associations added by postinst.

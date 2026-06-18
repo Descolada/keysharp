@@ -16,6 +16,10 @@ ask_yes_no() {
   [[ "${answer}" =~ ^[Yy] ]]
 }
 
+# Stop a running compile daemon ("Keysharp --daemon") so the freshly-installed
+# build is used instead of an older-build daemon that may still be running.
+pkill -f '/Keysharp.app/Contents/MacOS/Keysharp --daemon' 2>/dev/null || true
+
 log "Installing Keysharp..."
 for app in Keysharp Keyview; do
   if [[ -d "${SRC_DIR}/${app}.app" ]]; then

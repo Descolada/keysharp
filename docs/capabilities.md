@@ -14,7 +14,7 @@ Status legend:
 | - | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Subtraction / unary minus operator |
 | -- | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Decrement operator |
 | ! | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Logical NOT operator |
-| !~= | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Regular-expression not-match operator. |
+| !~= | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Regular-expression not-match operator. |
 | != | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Inequality operator |
 | !== | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Strict inequality operator. |
 | #AssemblyCompany | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets assembly company metadata for compiled scripts. |
@@ -31,34 +31,34 @@ Status legend:
 | #ElIf | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds an alternate conditional compilation branch. |
 | #Else | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Adds a fallback branch in a conditional compilation block. |
 | #EndIf | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Ends a conditional compilation block. |
-| #EndRegion | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Ends a foldable source region. |
-| #Error | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Emits a compile-time error directive message. |
+| #EndRegion | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; a source-folding marker with no runtime semantics. |
+| #Error | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Emits the given message as a compile-time diagnostic. |
 | #ErrorStdOut | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #ErrorStdOut directive sends any syntax error that prevents a script from launching to the standard error stream (stderr) rather than displaying a dialog. |
 | #HookMutexName | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the mutex name used for global hook synchronization. |
 | #HotIf | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #HotIf directive creates context-sensitive hotkeys and hotstrings. They perform a different action (or none at all) depending on any condition (an expression). |
 | #HotIfTimeout | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #HotIfTimeout directive sets the maximum time that may be spent evaluating a single #HotIf expression. |
 | #Hotstring | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Hotstring directive changes hotstring options or ending characters. |
 | #If | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Begins a conditional compilation block. |
-| #Import | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Imports exported names from another script file. |
+| #Import | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Imports exported names from another module/script file. |
 | #Include | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #IncludeAgain | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Include and #IncludeAgain directives cause the script to behave as though the specified file's contents are present at this exact position. |
 | #InputLevel | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #InputLevel directive controls which artificial keyboard and mouse events are ignored by hotkeys and hotstrings. |
-| #Line | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Controls reported line/file information for diagnostics. |
+| #Line | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; line/file override for diagnostics is a no-op. |
 | #MaxThreads | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #MaxThreads directive sets the maximum number of simultaneous threads. |
 | #MaxThreadsBuffer | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #MaxThreadsBuffer directive causes some or all hotkeys to buffer rather than ignore keypresses when their #MaxThreadsPerHotkey limit has been reached. |
 | #MaxThreadsPerHotkey | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #MaxThreadsPerHotkey directive sets the maximum number of simultaneous threads per hotkey or hotstring. |
 | #Module | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Module directive starts a new module or reopens an existing module. |
 | #NoTrayIcon | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #NoTrayIcon directive disables the showing of a tray icon. |
-| #Nullable | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Sets nullable-context preprocessor state. |
-| #Pragma | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Applies pragma options recognized by the preprocessor. |
-| #Region | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Begins a foldable source region. |
+| #Nullable | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; nullable-context state is a no-op in Keysharp. |
+| #Pragma | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; preprocessor pragma options are a no-op. |
+| #Region | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Accepted; a source-folding marker with no runtime semantics. |
 | #Requires | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #Requires directive displays an error and quits if a version requirement is not met. |
 | #SingleInstance | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #SingleInstance directive determines whether a script is allowed to run again when it is already running. |
-| #StructPack | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Planned; struct support is not yet implemented in Keysharp. |
+| #StructPack | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the maximum alignment for subsequent typed struct fields. |
 | #SuspendExempt | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #SuspendExempt directive exempts subsequent hotkeys and hotstrings from suspension. |
 | #Undef | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Undefines a conditional compilation symbol. |
 | #UseHook | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #UseHook directive forces the use of the hook to implement all or some keyboard hotkeys. |
-| #Warn | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The #Warn directive is not supported yet; warning configuration such as VarUnset, Unreachable, and LocalSameAsGlobal is currently ignored. |
+| #Warn | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal); opt-in to avoid blocking the headless host. |
 | #Warning | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Emits a compile-time warning directive message. |
 | #WinActivateForce | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The #WinActivateForce directive skips the gentle method of activating a window and goes straight to the forceful method. |
 | %...% / Dereference | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Performs dynamic dereferencing (double-deref) to resolve a variable name stored in another variable. |
@@ -733,15 +733,15 @@ Status legend:
 | ObjAddRef() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjBindMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The ObjBindMethod function creates a BoundFunc object which calls a method of a given object. |
 | Object() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Creates a new Object; optional key/value arguments initialize own properties. |
-| Object.__Ref() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns a reference object for object lifetime management. |
+| Object.__Ref() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns a property-reference (PropRef) object. |
 | Object.OwnPropCount() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Returns number of own properties defined directly on the object. |
 | ObjFree() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Releases object references associated with a pointer/COM wrapper context. |
 | ObjFromPtr() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates or retrieves an object wrapper from a raw pointer. |
 | ObjFromPtrAddRef() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Creates/retrieves an object wrapper from a pointer and increments its reference count. |
 | ObjGetBase | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves the value's base object. Differs in that it only returns the name of the base type as a string. |
 | ObjGetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the current capacity of the object's internal own-property storage. |
-| ObjGetDataPtr() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns a pointer to the object's raw data area. |
-| ObjGetDataSize() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Returns the size (in bytes) of the object's raw data area. |
+| ObjGetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the address of the object's structured data (typed properties). |
+| ObjGetDataSize() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the size of the object's structure (typed properties), in bytes. |
 | ObjHasOwnProp() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns whether the object defines the specified own property name. |
 | ObjOwnPropCount() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Returns the number of own properties currently defined on the object. |
 | ObjOwnProps | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Enumerates an object's own properties. |
@@ -750,7 +750,7 @@ Status legend:
 | ObjRelease() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | The ObjAddRef and ObjRelease functions increment or decrement an object's reference count. |
 | ObjSetBase() | 🔴 Unsupported | 🔴 Unsupported | ⚪ Unknown | ⚪ Unknown | Getting or setting an object's base class is not supported in C#. |
 | ObjSetCapacity() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Unlike AHK doesn't set the exact capacity, but ensures the internal own props objects can hold the requested number of props. |
-| ObjSetDataPtr() | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Sets the pointer to the object's raw data area. |
+| ObjSetDataPtr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets the address of the object's structured data. (Slated for removal in AHK; prefer Struct.At.) |
 | OnClipboardChange() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Wires up an event to be called when the clipboard contents are change. |
 | OnError() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The OnError function registers a function to be called automatically whenever an unhandled error occurs. |
 | OnExit() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | The OnExit function registers a function to be called automatically whenever the script exits. |
@@ -784,7 +784,7 @@ Status legend:
 | ProcessWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Waits for the specified process to exist. |
 | ProcessWaitClose() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Waits for all matching processes to close. |
 | PropertyError | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in error class. |
-| PropRef | 🟠 Planned | 🟠 Planned | 🟠 Planned | 🟠 Planned | Property-reference object type. |
+| PropRef | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Property-reference object type. |
 | Props | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Helper for creating property definitions. |
 | Random() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes a random number in the range of x to y. |
 | RandomSeed() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Sets seed for the pseudo-random generator used by Random(). |
@@ -845,16 +845,16 @@ Status legend:
 | Sinh() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the hyperbolic sine of a number. |
 | Sleep() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The Sleep function waits the specified amount of time before continuing. |
 | Sort() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Arranges a variable's contents in alphabetical, numerical, or random order (optionally removing duplicates). The back slash option also supports specifying a forward slash / so it can be used for paths on non-Windows systems. |
-| Sound APIs | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Audio device/endpoint support differs by platform. macOS uses CoreAudio directly; components (sub-mixer topology) are not supported. |
-| SoundBeep() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Emits a tone from the PC speaker. On macOS, plays the system alert sound via osascript; frequency and duration parameters are accepted but ignored. |
-| SoundGetInterface() | 🟢 Full | 🔴 Unsupported | ⚪ Unknown | 🔴 Unsupported | Retrieves a native COM interface of a sound device or component. Windows-only (WASAPI/COM). |
-| SoundGetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Retrieves the mute state of a sound device. On macOS, components are not supported; a numeric Component argument is treated as a device index. Output devices use output scope; input devices (e.g. microphone) automatically fall back to input scope. |
-| SoundGetName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Retrieves the name of a sound device. On macOS, components are not supported; a numeric Component argument is treated as a device index. String Component arguments are ignored. |
-| SoundGetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Retrieves the volume of a sound device (0–100). On macOS, components are not supported; a numeric Component argument is treated as a device index. Output devices report virtual master volume. Built-in input devices (e.g. MacBook Pro Microphone) expose no software volume control via CoreAudio and will throw. |
-| SoundPlay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Plays a sound file. On macOS, uses afplay; system-sound shortcuts (*-1, *16, etc.) are not supported. |
-| SoundSetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Changes the mute state of a sound device. On macOS, components are not supported. Output and input devices are both supported; input devices automatically use input scope. |
-| SoundSetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Changes the volume of a sound device (0–100, or relative +/-). On macOS, components are not supported. Output devices set virtual master volume. Built-in input devices (e.g. MacBook Pro Microphone) expose no software volume control via CoreAudio and will throw. |
-| SplitPath() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Separates a file name or URL into its name, directory, extension, and drive. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
+| Sound APIs | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | Audio device/endpoint support differs by platform. |
+| SoundBeep() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Emits a tone from the PC speaker. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetInterface() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Retrieves a native COM interface of a sound device or component. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. Returns a native COM interface and is Windows-specific. |
+| SoundGetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves the name of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundGetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Retrieves a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundPlay() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Plays a sound, video, or other supported file type. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundSetMute() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Changes a mute setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SoundSetVolume() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | Changes a volume setting of a sound device. Differs in that there is no support for components, so the function only takes one parameter: the 1-based index, or name for the device. Platform statuses inherited from curated 'Sound APIs'; per-function validation pending. |
+| SplitPath() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Separates a file name or URL into its name, directory, extension, and drive. Differs in that instead of writing to ref arguments, it returns a structure whose fields are what the original input parameter names would have been. |
 | Sqrt() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Computes the square root of a number. Throws an exception if the argument is negative. |
 | StatusBarGetText() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StatusbarGetText function retrieves the text from a standard status bar control. |
 | StatusBarWait() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StatusBarWait function waits until a window's status bar contains the specified string. |
@@ -871,9 +871,9 @@ Status legend:
 | StrReplace() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Replaces occurrences of a substring and returns the updated string. |
 | StrSplit() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Retrieves one or more characters from the specified position in a string. |
 | StrTitle() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The StrLower, StrUpper and StrTitle functions convert a string to lowercase, uppercase or title case. |
-| struct.__Value | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Backing value property for struct instances (struct support not yet implemented). |
-| StructFromPtr() | 🟠 Planned | 🟠 Planned | ⚪ Unknown | ⚪ Unknown | Not implemented. |
-| structures | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | User-defined structures (planned; not currently implemented). |
+| struct.__Value | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Backing value property for struct instances. |
+| StructFromPtr() | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | Removed in AHK v2.1-alpha; superseded by Struct.At. |
+| structures | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | User-defined structures via the struct keyword: typed fields, nesting, At, numeric types, pointer classes, #StructPack alignment, and structured arrays (Int32[10] / Struct.Array). |
 | StrUpper() | 🟢 Full | 🟢 Full | ⚪ Unknown | ⚪ Unknown | Converts a string to uppercase. |
 | SubStr() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Retrieves one or more characters from the specified position in a string. |
 | super | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Keyword that accesses base-class methods and properties. |
@@ -924,14 +924,14 @@ Status legend:
 | WinClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinClose function closes the specified window. |
 | WinExist() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinExist function checks if the specified window exists and returns the unique ID (HWND) of the first matching window. |
 | WinFromPoint() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Returns window handle located at screen coordinates. |
-| WinGetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. |
+| WinGetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinGetAlwaysOnTop function returns a non-zero value if the specified window is always-on-top. On macOS, only supported for windows owned by the calling process; always returns false for windows owned by other applications. |
 | WinGetClass() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetClass function retrieves the specified window's class name. |
 | WinGetClientPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetClientPos function retrieves the position and size of the specified window's client area. |
 | WinGetControls() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetControls function returns an array of ClassNNs for all controls in the specified window. |
 | WinGetControlsHwnd() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetControlsHwnd function returns an array of unique IDs (HWNDs) for all controls in the specified window. |
 | WinGetCount() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetCount function returns the number of existing windows that match the specified criteria. |
-| WinGetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetEnabled function returns a non-zero value if the specified window is enabled. |
-| WinGetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetStyle and WinGetExStyle functions return the style or extended style (respectively) of the specified window. |
+| WinGetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the enabled/disabled state of the specified window. On macOS this always reflects whether the window exists, not its true enabled state, since there is no API to query it. |
+| WinGetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the extended style of the specified window. macOS has no equivalent of Win32 extended window styles; always returns 0. |
 | WinGetID() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetID function returns the unique ID (HWND) of the specified window. |
 | WinGetIDLast() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetIDLast function returns the unique ID (HWND) of the last/bottommost window if there is more than one match. |
 | WinGetList() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetList function returns an array of unique IDs (HWNDs) for all existing windows that match the specified criteria. |
@@ -940,12 +940,12 @@ Status legend:
 | WinGetPos() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetPos function retrieves the position and size of the specified window. |
 | WinGetProcessName() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetProcessName function returns the name of the process that owns the specified window. |
 | WinGetProcessPath() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetProcessPath function returns the full path and name of the process that owns the specified window. |
-| WinGetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetStyle and WinGetExStyle functions return the style or extended style (respectively) of the specified window. |
+| WinGetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the style of the specified window. macOS has no equivalent of Win32 window styles; always returns 0. |
 | WinGetText | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetText function retrieves the text from the specified window. |
 | WinGetTitle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetTitle function retrieves the title of the specified window. |
-| WinGetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetTransColor function returns the color that is marked transparent in the specified window. |
-| WinGetTransparent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinGetTransparent function returns the degree of transparency of the specified window. |
-| WinHide() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinHide function hides the specified window. |
+| WinGetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | Retrieves the current transparent color of the specified window. macOS has no equivalent of a window transparency color key; always returns 0. |
+| WinGetTransparent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinGetTransparent function returns the degree of transparency of the specified window. |
+| WinHide() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinHide function hides the specified window. On macOS, windows owned by the calling process are hidden individually; for windows owned by other applications, macOS provides no per-window hide API, so the entire owning application is hidden instead. |
 | WinKill() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinKill function forces the specified window to close. |
 | WinMaximize() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMaximize function enlarges the specified window to its maximum size. |
 | WinMaximizeAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Maximizes all top-level windows. |
@@ -953,20 +953,20 @@ Status legend:
 | WinMinimizeAll() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
 | WinMinimizeAllUndo() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMinimizeAll and WinMinimizeAllUndo functions minimize or unminimize all windows. |
 | WinMove() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMove function changes the position and/or size of the specified window. |
-| WinMoveBottom() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. |
-| WinMoveTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. |
-| WinRedraw() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinRedraw function redraws the specified window. |
+| WinMoveBottom() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window. |
+| WinMoveTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application. |
+| WinRedraw() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinRedraw function redraws the specified window. macOS provides no public API to force a redraw of another window; this is currently a no-op that just confirms the window exists. |
 | WinRestore() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinRestore function unminimizes or unmaximizes the specified window if it is minimized or maximized. |
-| WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). |
-| WinSetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetEnabled function enables or disables the specified window. |
-| WinSetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. |
-| WinSetRegion() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. |
-| WinSetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. |
-| WinSetTitle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetTitle function changes the title of the specified window. |
-| WinSetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetTransColor function makes all pixels of the chosen color invisible inside the specified window. |
-| WinSetTransparent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinSetTransparent function makes the specified window semi-transparent. |
-| WinShow() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinShow function unhides the specified window. |
-| WinWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinWait function waits until the specified window exists. |
-| WinWaitActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
-| WinWaitClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinWaitClose function waits until no matching windows can be found. |
-| WinWaitNotActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinSetAlwaysOnTop() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications. |
+| WinSetEnabled() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetEnabled function enables or disables the specified window. macOS provides no public API to disable another window's input handling. |
+| WinSetExStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles. |
+| WinSetRegion() | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | The WinSetRegion function changes the shape of the specified window to be the specified rectangle, ellipse, or polygon. This is implemented purely via the Win32 GDI region APIs (HRGN/SetWindowRgn) and is Windows-only; non-rectangular window shaping has no equivalent implementation on Linux or macOS. |
+| WinSetStyle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetStyle and WinSetExStyle functions change the style or extended style of the specified window, respectively. macOS has no equivalent of Win32 window styles/extended styles. |
+| WinSetTitle() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinSetTitle function changes the title of the specified window. On macOS, windows owned by the calling process have their title set directly; for windows owned by other applications, setting AXTitle via the Accessibility API is attempted, but most applications treat it as read-only and the call has no effect. |
+| WinSetTransColor() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🔴 Unsupported | The WinSetTransColor function makes all pixels of the chosen color invisible inside the specified window. macOS has no equivalent of a window transparency color key. |
+| WinSetTransparent() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinSetTransparent function makes the specified window semi-transparent. On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity. |
+| WinShow() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟡 Partial | The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback). |
+| WinWait() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWait function waits until the specified window exists. |
+| WinWaitActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |
+| WinWaitClose() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitClose function waits until no matching windows can be found. |
+| WinWaitNotActive() | 🟢 Full | 🟡 Partial | ⚪ Unknown | 🟢 Full | The WinWaitActive and WinWaitNotActive functions wait until the specified window is active or not active. |

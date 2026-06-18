@@ -232,6 +232,35 @@ namespace Keysharp.Builtins
 			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
 		}
 
+		// Typed-field registration with an explicit #StructPack alignment (emitted by the lowerer for packed struct fields).
+		public static object ObjDefineProp(object obj0, object obj1, Type type, long pack)
+		{
+			if (obj0 is not Any target)
+				return Errors.ArgumentErrorOccurred(obj0, 1);
+
+			var result = Struct.DefineFieldOnPrototype(target, obj1.As(), type, pack, null, true);
+			return result ?? Errors.ValueErrorOccurred("Type is only valid for struct fields.");
+		}
+
+		/// <summary>Returns the address of the object's structured data (typed properties). [v2.1-alpha.3+]</summary>
+		public static object ObjGetDataPtr(object obj) =>
+			obj is Struct st ? st.Ptr : Errors.TypeErrorOccurred(obj, typeof(Struct));
+
+		/// <summary>Returns the size of the object's structure (typed properties), in bytes. [v2.1-alpha.3+]</summary>
+		public static object ObjGetDataSize(object obj) =>
+			obj is Struct st ? st.Size : Errors.TypeErrorOccurred(obj, typeof(Struct));
+
+		/// <summary>Sets the address of the object's structured data (typed properties). [v2.1-alpha.3+]
+		/// (Slated for removal in AHK; prefer Struct.At.)</summary>
+		public static object ObjSetDataPtr(object obj, object ptr)
+		{
+			if (obj is not Struct st)
+				return Errors.TypeErrorOccurred(obj, typeof(Struct));
+
+			st.SetDataPtr(ptr.Al());
+			return Script.DefaultObject;
+		}
+
 		/// <summary>
 		/// Sets the current capacity of the object's internal array of own properties.
 		/// </summary>

@@ -236,21 +236,21 @@
                      "category":  "Environment/System",
                      "feature":  "#EndRegion",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Ends a foldable source region."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Accepted; a source-folding marker with no runtime semantics."
                  },
                  {
                      "category":  "Environment/System",
                      "feature":  "#Error",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Emits a compile-time error directive message.",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Emits the given message as a compile-time diagnostic.",
                      "tested-by":  "directive-misc.ahk"
                  },
                  {
@@ -325,7 +325,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Imports exported names from another script file."
+                     "notes":  "Imports exported names from another module/script file."
                  },
                  {
                      "category":  "Environment/System",
@@ -364,11 +364,11 @@
                      "category":  "Environment/System",
                      "feature":  "#Line",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Controls reported line/file information for diagnostics."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Accepted; line/file override for diagnostics is a no-op."
                  },
                  {
                      "category":  "Environment/System",
@@ -429,31 +429,31 @@
                      "category":  "Environment/System",
                      "feature":  "#Nullable",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Sets nullable-context preprocessor state."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Accepted; nullable-context state is a no-op in Keysharp."
                  },
                  {
                      "category":  "Environment/System",
                      "feature":  "#Pragma",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Applies pragma options recognized by the preprocessor."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Accepted; preprocessor pragma options are a no-op."
                  },
                  {
                      "category":  "Environment/System",
                      "feature":  "#Region",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Begins a foldable source region."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Accepted; a source-folding marker with no runtime semantics."
                  },
                  {
                      "category":  "Environment/System",
@@ -480,11 +480,11 @@
                      "category":  "Environment/System",
                      "feature":  "#StructPack",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Planned; struct support is not yet implemented in Keysharp."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Sets the maximum alignment for subsequent typed struct fields."
                  },
                  {
                      "category":  "Environment/System",
@@ -523,11 +523,11 @@
                      "category":  "Environment/System",
                      "feature":  "#Warn",
                      "syntax":  "",
-                     "windows":  "unsupported",
-                     "linux_x11":  "unsupported",
-                     "linux_wayland":  "unsupported",
-                     "macos":  "unsupported",
-                     "notes":  "The #Warn directive is not supported yet; warning configuration such as VarUnset, Unreachable, and LocalSameAsGlobal is currently ignored."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Enables warnings (VarUnset, Unreachable, LocalSameAsGlobal); opt-in to avoid blocking the headless host."
                  },
                  {
                      "category":  "Environment/System",
@@ -1691,7 +1691,7 @@
                      "macos":  "unsupported",
                      "notes":  "Gets/sets the application-wide WinForms GUI theme. Accepted values: Classic, System, Dark. Windows only; no-op on other platforms."
                  },
-                {
+                 {
                      "category":  "Keysharp Module (Ks)",
                      "feature":  "A_HasExited",
                      "syntax":  "",
@@ -7724,7 +7724,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Returns a reference object for object lifetime management."
+                     "notes":  "Returns a property-reference (PropRef) object."
                  },
                  {
                      "category":  "Collections",
@@ -7795,21 +7795,21 @@
                      "category":  "Core Language",
                      "feature":  "ObjGetDataPtr()",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Returns a pointer to the object\u0027s raw data area."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Returns the address of the object\u0027s structured data (typed properties)."
                  },
                  {
                      "category":  "Core Language",
                      "feature":  "ObjGetDataSize()",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Returns the size (in bytes) of the object\u0027s raw data area."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Returns the size of the object\u0027s structure (typed properties), in bytes."
                  },
                  {
                      "category":  "Core Language",
@@ -7903,11 +7903,11 @@
                      "category":  "Core Language",
                      "feature":  "ObjSetDataPtr()",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "planned",
-                     "macos":  "planned",
-                     "notes":  "Sets the pointer to the object\u0027s raw data area."
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "Sets the address of the object\u0027s structured data. (Slated for removal in AHK; prefer Struct.At.)"
                  },
                  {
                      "category":  "Clipboard",
@@ -9202,17 +9202,17 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "Backing value property for struct instances (struct support not yet implemented)."
+                     "notes":  "Backing value property for struct instances."
                  },
                  {
                      "category":  "Interop/Memory",
                      "feature":  "StructFromPtr()",
                      "syntax":  "",
-                     "windows":  "planned",
-                     "linux_x11":  "planned",
-                     "linux_wayland":  "unknown",
-                     "macos":  "unknown",
-                     "notes":  "Not implemented."
+                     "windows":  "unsupported",
+                     "linux_x11":  "unsupported",
+                     "linux_wayland":  "unsupported",
+                     "macos":  "unsupported",
+                     "notes":  "Removed in AHK v2.1-alpha; superseded by Struct.At."
                  },
                  {
                      "category":  "Interop/Memory",
@@ -9222,7 +9222,7 @@
                      "linux_x11":  "full",
                      "linux_wayland":  "full",
                      "macos":  "full",
-                     "notes":  "User-defined structures."
+                     "notes":  "User-defined structures via the struct keyword: typed fields, nesting, At, numeric types, pointer classes, #StructPack alignment, and structured arrays (Int32[10] / Struct.Array)."
                  },
                  {
                      "category":  "Interop/Memory",
@@ -10068,7 +10068,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "partial",
-                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process's window."
+                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process\u0027s window."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10108,7 +10108,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "partial",
-                     "notes":  "The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process's window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications."
+                     "notes":  "The WinSetAlwaysOnTop function makes the specified window stay on top of all other windows (except other always-on-top windows). On macOS, only supported for windows owned by the calling process; macOS provides no API to change another process\u0027s window level, and raising it via Accessibility would require repeatedly stealing focus, so it is a no-op for windows owned by other applications."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10118,7 +10118,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "unsupported",
-                     "notes":  "The WinSetEnabled function enables or disables the specified window. macOS provides no public API to disable another window's input handling."
+                     "notes":  "The WinSetEnabled function enables or disables the specified window. macOS provides no public API to disable another window\u0027s input handling."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10179,7 +10179,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "partial",
-                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process's window opacity."
+                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process\u0027s window opacity."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10189,7 +10189,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "partial",
-                     "notes":  "The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide's fallback)."
+                     "notes":  "The WinShow function unhides the specified window. On macOS, windows owned by the calling process are restored individually; for windows owned by other applications, the entire owning application is unhidden (the inverse of WinHide\u0027s fallback)."
                  },
                  {
                      "category":  "Windowing/GUI",

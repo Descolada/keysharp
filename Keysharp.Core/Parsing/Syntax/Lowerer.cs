@@ -931,6 +931,17 @@ namespace Keysharp.Parsing.Syntax
 				case "WARN":
 				case "NULLABLE":
 				case "NODYNAMICVARS":
+				// Source-folding region markers and diagnostic-pragma directives have no runtime semantics.
+				case "REGION":
+				case "ENDREGION":
+				case "LINE":
+				case "PRAGMA":
+				// #StructPack is applied per-field by the parser inside a class/struct body; at module level it is a no-op.
+				case "STRUCTPACK":
+					return null;
+				// #Error emits a user-specified compile-time diagnostic.
+				case "ERROR":
+					Diag(string.IsNullOrWhiteSpace(args) ? "#Error directive" : args.Trim());
 					return null;
 				// #Assembly* metadata -> assembly attributes on the generated unit (A_Asm* read them at runtime).
 				case "ASSEMBLYTITLE": _asmAttributes.Add(("System.Reflection.AssemblyTitleAttribute", args)); return null;
@@ -2157,11 +2168,32 @@ namespace Keysharp.Parsing.Syntax
 		// Registers a typed struct field on the prototype: `Objects.ObjDefineProp(Prototypes[typeof(Struct)], "x", typeof(FieldType))`.
 		private StatementSyntax StructFieldDefineProp(ClassField f)
 		{
-			var fieldType = ResolveStructFieldType(f.TypeName);
-			if (fieldType == null) { Diag($"unknown struct field type '{f.TypeName}'"); return null; }
 			var proto = SyntaxFactory.ElementAccessExpression(Access("MainScript.Vars.Prototypes"))
 				.WithArgumentList(SyntaxFactory.BracketedArgumentList(SyntaxFactory.SingletonSeparatedList(Arg(SyntaxFactory.TypeOfExpression(Ty(_structTypeName))))));
-			return ExprStmt(Inv(Access("Keysharp.Builtins.Objects.ObjDefineProp"), proto, Str(f.Name), SyntaxFactory.TypeOfExpression(Ty(fieldType))));
+			ExpressionSyntax typeOf;
+			var bracket = f.TypeName.IndexOf('[');
+
+			if (bracket >= 0)
+			{
+				// Structured-array field `ElementType[N]`: the array class is created at runtime, so resolve it via
+				// Struct.MakeArrayType(typeof(ElementType), N) rather than a compile-time typeof.
+				var elemName = f.TypeName.Substring(0, bracket);
+				var lenStr = f.TypeName.Substring(bracket + 1, f.TypeName.Length - bracket - 2);
+				var elemType = ResolveStructFieldType(elemName);
+				if (elemType == null) { Diag($"unknown struct array element type '{elemName}'"); return null; }
+				typeOf = Inv(Access("Keysharp.Builtins.Struct.MakeArrayType"), SyntaxFactory.TypeOfExpression(Ty(elemType)), Num(lenStr));
+			}
+			else
+			{
+				var fieldType = ResolveStructFieldType(f.TypeName);
+				if (fieldType == null) { Diag($"unknown struct field type '{f.TypeName}'"); return null; }
+				typeOf = SyntaxFactory.TypeOfExpression(Ty(fieldType));
+			}
+
+			// Pass the #StructPack alignment as a 4th argument when one is in effect (0 = default packing).
+			return f.Pack != 0
+				? ExprStmt(Inv(Access("Keysharp.Builtins.Objects.ObjDefineProp"), proto, Str(f.Name), typeOf, Num(f.Pack.ToString())))
+				: ExprStmt(Inv(Access("Keysharp.Builtins.Objects.ObjDefineProp"), proto, Str(f.Name), typeOf));
 		}
 
 		// Resolves a struct field/base type name to its C# type: a user struct/class, or a builtin (Int32 -> StructInt32).

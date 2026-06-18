@@ -29,7 +29,22 @@ namespace Keysharp.Parsing.Syntax
 		private readonly List<Stmt> _hoistedStmts = new();
 		private bool _inFlowCond;     // true while parsing a control-flow header — `(cond){…}` is the body, not an anon block fn
 		// Preprocessor symbols for #if/#elif. WINDOWS is predefined (this front-end targets the Windows runtime); #define adds more.
-		private readonly HashSet<string> _defines = new(System.StringComparer.OrdinalIgnoreCase) { "WINDOWS" };
+		private readonly HashSet<string> _defines = new(System.StringComparer.OrdinalIgnoreCase)
+		{
+			"KEYSHARP"
+#if WINDOWS
+			, "WINDOWS"
+#elif OSX
+			, "OSX"
+#elif LINUX
+			, "LINUX"
+#else
+#error Unsupported platform symbol. Define exactly one of WINDOWS, LINUX, or OSX.
+#endif
+#if DEBUG
+            , "DEBUG"
+#endif
+		};
 		public readonly List<string> Diagnostics = new();
 
 		private readonly string _includeDir;   // directory used to resolve relative #include paths (null => disabled)
@@ -773,6 +788,7 @@ namespace Keysharp.Parsing.Syntax
 			var staticInits = new List<Stmt>();     // `static x.y := z` member/index-target static initializers
 			var instanceInits = new List<Stmt>();   // `x.y := z` member/index-target instance initializers
 			string classRequires = null;
+			long structPack = 0;   // #StructPack alignment in effect for subsequent typed fields (0 = default)
 			SkipNewlines();
 			while (!At(TokenKind.RBrace) && !At(TokenKind.EOF))
 			{
@@ -782,6 +798,9 @@ namespace Keysharp.Parsing.Syntax
 				{
 					var dir = (DirectiveStmt)ParseDirective();
 					if (dir.Name.Equals("Requires", System.StringComparison.OrdinalIgnoreCase)) classRequires = dir.Args;
+					// #StructPack [1|2|4|8] sets the max alignment for subsequent typed fields (0/omitted resets to default).
+					else if (dir.Name.Equals("StructPack", System.StringComparison.OrdinalIgnoreCase))
+						structPack = long.TryParse((dir.Args ?? "").Trim(), out var sp) ? sp : 0;
 					SkipNewlines();
 					continue;
 				}
@@ -830,8 +849,16 @@ namespace Keysharp.Parsing.Syntax
 							Advance();
 							var tn = ExpectIdentifier("struct field type");
 							while (At(TokenKind.Dot)) { Advance(); tn += "." + ExpectIdentifier("struct field type"); }
+							// Structured-array element type `ElementType[N]` (a fixed-size array of N elements).
+							if (At(TokenKind.LBracket))
+							{
+								Advance();
+								var len = Expect(TokenKind.Number, "struct array length").Text;
+								Expect(TokenKind.RBracket, "']' after struct array length");
+								tn += "[" + len + "]";
+							}
 							Expr tinit = Match(TokenKind.Assign) ? ParseExpression(1) : null;
-							fields.Add(new ClassField(fname, tinit, isStatic, tn));
+							fields.Add(new ClassField(fname, tinit, isStatic, tn, structPack));
 						}
 						else
 						{

@@ -39,5 +39,11 @@ namespace Keysharp.Tests
 
 		[Test, Category("Class")]
 		public void StructBasic() => Assert.IsTrue(TestScript("struct-basic", false));
+
+		[Test, Category("Class")]
+		public void StructPack() => Assert.IsTrue(TestScript("struct-pack", false));
+
+		[Test, Category("Class")]
+		public void StructArray() => Assert.IsTrue(TestScript("struct-array", false));
 	}
 }

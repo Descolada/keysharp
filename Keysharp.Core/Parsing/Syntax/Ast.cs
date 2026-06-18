@@ -347,7 +347,8 @@ namespace Keysharp.Parsing.Syntax
 		public readonly Expr Init;     // null => no initializer
 		public readonly bool Static;
 		public readonly string TypeName;   // for a typed struct field `name : Type` (dotted allowed); null otherwise
-		public ClassField(string name, Expr init, bool isStatic, string typeName = null) { Name = name; Init = init; Static = isStatic; TypeName = typeName; }
+		public readonly long Pack;         // #StructPack alignment in effect for this typed field (0 = default)
+		public ClassField(string name, Expr init, bool isStatic, string typeName = null, long pack = 0) { Name = name; Init = init; Static = isStatic; TypeName = typeName; Pack = pack; }
 	}
 
 	internal sealed class ClassMethod

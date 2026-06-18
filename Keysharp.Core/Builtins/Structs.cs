@@ -34,8 +34,11 @@ namespace Keysharp.Builtins
 			public long Alignment = 1;
 			public bool SizeAligned;
 			public bool FieldsLocked;
+			public Type ArrayElementType;   // non-null for a structured-array type (Struct.Array subclass), e.g. Int32[10]
+			public long ArrayLength;        // element count for an array type
 
 			public bool IsPrimitive => PrimitiveKind != StructPrimitiveKind.None;
+			public bool IsArray => ArrayElementType != null;
 		}
 
 		private static readonly Lock infoLock = new();
@@ -45,6 +48,7 @@ namespace Keysharp.Builtins
 		private static readonly Dictionary<Type, Type> pointerTypes = new();
 		private static readonly Dictionary<Type, Type> pointerTargets = new();
 		private static readonly Dictionary<Type, Type> structBases = new();
+		private static readonly Dictionary<(Type element, long length), Type> arrayTypes = new();
 		private static int dynamicTypeId;
 
 		private NativeMemoryHandle ownedHandle;
@@ -102,6 +106,72 @@ namespace Keysharp.Builtins
 				return Errors.PropertyErrorOccurred("Struct class does not have a prototype.");
 
 			return CreatePointerView(proto.type, proto, address.Al());
+		}
+
+		// Base class for structured arrays (fixed-size, single element type). `Int32[10]` etc. are subclasses of this.
+		[PublicHiddenFromUser]
+		[UserDeclaredName("Array")]
+		public class StructArray(params object[] args) : Struct(args) { }
+
+		// Class-level indexing `StructClass[N]` yields the structured-array class with N elements of StructClass.
+		public static object staticget___Item(object @this, object index)
+		{
+			if (@this is not Class cls)
+				return Errors.TypeErrorOccurred(@this, typeof(Class));
+
+			if (Script.GetPropertyValueOrNull(cls, "Prototype") is not Any proto)
+				return Errors.PropertyErrorOccurred("Struct class does not have a prototype.");
+
+			var elementType = GetStructType(proto);
+
+			if (elementType == null)
+				return Errors.TypeErrorOccurred(@this, typeof(Struct));
+
+			var length = index.Al();
+
+			if (length <= 0)
+				return Errors.ValueErrorOccurred("Struct array length must be a positive integer.");
+
+			var arrType = GetArrayType(elementType, length);
+			EnsurePointerTypeInitialized(arrType);
+			return Script.TheScript.Vars.Statics[arrType];
+		}
+
+		// Resolves the structured-array type for `element[length]` (created on demand, cached). Used by the lowerer to
+		// register array-typed struct fields, since the array class has no compile-time C# type. The array class is
+		// initialized so its prototype exists for field views and type checks.
+		public static Type MakeArrayType(Type element, long length)
+		{
+			var arrType = GetArrayType(element, length);
+			EnsurePointerTypeInitialized(arrType);
+			return arrType;
+		}
+
+		private static Type GetArrayType(Type elementType, long length)
+		{
+			lock (infoLock)
+			{
+				if (arrayTypes.TryGetValue((elementType, length), out var existing))
+					return existing;
+
+				var elemName = elementType.GetCustomAttribute<UserDeclaredNameAttribute>()?.Name ?? elementType.Name;
+				var created = CreateDynamicType(typeof(StructArray), elementType.Name, "Array", $"{elemName}[{length}]");
+				var info = GetOrCreateInfo(created);
+				info.ArrayElementType = elementType;
+				info.ArrayLength = length;
+				info.SizeAligned = false;
+				info.FieldsLocked = true;
+				structBases[created] = typeof(StructArray);
+				arrayTypes[(elementType, length)] = created;
+				return created;
+			}
+		}
+
+		// Length of a structured-array instance (number of elements); errors for a non-array struct.
+		public object get_Length()
+		{
+			var info = GetLayoutInfo(StructType, true);
+			return info.IsArray ? info.ArrayLength : Errors.PropertyErrorOccurred("This struct is not a structured array.");
 		}
 
 		internal static bool IsAutoPointerClass(Type type) => type != null && pointerTargets.ContainsKey(type);
@@ -320,7 +390,8 @@ namespace Keysharp.Builtins
 		public object get___Value() => GetValue();
 		public object set___Value(object value) => SetPrimitiveValue(value);
 		public object get___Item(params object[] indexArgs) => GetPrimitiveItem(indexArgs);
-		public object set___Item(params object[] args) => SetPrimitiveItem(args);
+		// Item setters take the index keys first and the assigned value last: set___Item(keys[], value).
+		public object set___Item(object[] keys, object value) => SetPrimitiveItem(keys, value);
 
 		internal static bool TryDefineFieldOnPrototype(Any proto, string fieldName, object descriptor, out object result)
 		{
@@ -547,17 +618,79 @@ namespace Keysharp.Builtins
 			return value;
 		}
 
-		protected object GetPrimitiveItem(params object[] indexArgs) =>
-			indexArgs == null || indexArgs.Length == 0
+		protected object GetPrimitiveItem(params object[] indexArgs)
+		{
+			var info = GetLayoutInfo(StructType, true);
+
+			if (info.IsArray)
+			{
+				if (indexArgs == null || indexArgs.Length != 1)
+					return Errors.PropertyErrorOccurred("Structured array access requires exactly one index.");
+
+				return GetArrayElement(info, indexArgs[0].Al());
+			}
+
+			return indexArgs == null || indexArgs.Length == 0
 				? GetPrimitiveValue()
 				: Errors.PropertyErrorOccurred("This struct does not support indexed [] access.");
+		}
 
-		protected object SetPrimitiveItem(params object[] args)
+		protected object SetPrimitiveItem(object[] keys, object value)
 		{
-			if (args == null || args.Length != 1)
+			var info = GetLayoutInfo(StructType, true);
+
+			if (info.IsArray)
+			{
+				if (keys == null || keys.Length != 1)
+					return Errors.PropertyErrorOccurred("Structured array assignment requires exactly one index.");
+
+				return SetArrayElement(info, keys[0].Al(), value);
+			}
+
+			if (keys != null && keys.Length != 0)
 				return Errors.PropertyErrorOccurred("This struct does not support indexed [] assignment.");
 
-			return SetPrimitiveValue(args[0]);
+			return SetPrimitiveValue(value);
+		}
+
+		// Normalizes a 1-based (negative = from end) array index to a 0-based element offset, or returns -1 if out of range.
+		private static long NormalizeArrayIndex(StructInfo info, long index)
+		{
+			var len = info.ArrayLength;
+			var norm = index < 0 ? len + index + 1 : index;
+			return norm < 1 || norm > len ? -1 : norm - 1;
+		}
+
+		private object GetArrayElement(StructInfo info, long index)
+		{
+			var slot = NormalizeArrayIndex(info, index);
+
+			if (slot < 0)
+				return Errors.IndexErrorOccurred($"Structured array index {index} is out of bounds (1..{info.ArrayLength}).");
+
+			var elemInfo = GetLayoutInfo(info.ArrayElementType, true);
+			var address = GetDataPointer() + slot * elemInfo.Size;
+
+			// A primitive element yields its value; a composite element yields a struct view onto the element's memory.
+			return elemInfo.IsPrimitive
+				? ReadPrimitive(elemInfo.PrimitiveKind, address)
+				: CreatePointerView(info.ArrayElementType, Script.TheScript.Vars.Prototypes[info.ArrayElementType], address);
+		}
+
+		private object SetArrayElement(StructInfo info, long index, object value)
+		{
+			var slot = NormalizeArrayIndex(info, index);
+
+			if (slot < 0)
+				return Errors.IndexErrorOccurred($"Structured array index {index} is out of bounds (1..{info.ArrayLength}).");
+
+			var elemInfo = GetLayoutInfo(info.ArrayElementType, true);
+
+			if (!elemInfo.IsPrimitive)
+				return Errors.PropertyErrorOccurred("Assignment to a composite structured-array element is not supported.");
+
+			WritePrimitive(elemInfo.PrimitiveKind, GetDataPointer() + slot * elemInfo.Size, value);
+			return value;
 		}
 
 		private long GetDataPointer()
@@ -579,6 +712,9 @@ namespace Keysharp.Builtins
 			borrowedPtr = ptr;
 			nestedViews?.Clear();
 		}
+
+		// Backs ObjSetDataPtr: rebinds this struct to view an externally-supplied address (like Struct.At, but in place).
+		internal void SetDataPtr(long ptr) => BindToPointer(ptr);
 
 		private static StructInfo GetLayoutInfo(Type type, bool lockFields)
 		{
@@ -691,6 +827,17 @@ namespace Keysharp.Builtins
 
 		private static void UpdateLayout(Type type, StructInfo info, bool lockFields)
 		{
+			if (info.IsArray)
+			{
+				// A structured array's size/alignment derive entirely from its element type and length.
+				var elemInfo = GetLayoutInfo(info.ArrayElementType, true);
+				info.Size = elemInfo.Size * info.ArrayLength;
+				info.Alignment = elemInfo.Alignment;
+				info.SizeAligned = true;
+				info.FieldsLocked = true;
+				return;
+			}
+
 			if (!info.SizeAligned || (lockFields && !info.FieldsLocked))
 			{
 				var size = 0L;

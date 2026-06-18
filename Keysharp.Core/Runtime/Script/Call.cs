@@ -223,7 +223,12 @@ namespace Keysharp.Runtime
 					if (TryGetOwnPropsMap(kso, namestr, out var opm))
 					{
 						if (opm.StructField != null && item is Struct getStruct)
-							return getStruct.GetFieldValue(opm.StructField);
+						{
+							// `s.field[i]` folds to GetPropertyValue(s, "field", i); apply any trailing index to the field
+							// value (e.g. a structured-array field element) rather than dropping it.
+							var fieldValue = getStruct.GetFieldValue(opm.StructField);
+							return args.Length > 0 ? GetIndexOrNull(fieldValue, args) : fieldValue;
+						}
 
 						if (opm.Value != null)
 						{

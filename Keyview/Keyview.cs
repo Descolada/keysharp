@@ -70,6 +70,8 @@ namespace Keyview
 		private readonly KeyviewDocumentState document = new ();
 		private string baseTitle;
 		private bool suppressDocumentChange;
+		private bool scratchAutosavePending;
+		private bool closing;
 		private readonly Dictionary<string, string> btnRunScriptText = new Dictionary<string, string>()
 		{
 			{ "Run", "▶ Run script (F9)" },
@@ -437,12 +439,15 @@ namespace Keyview
 
 			timer.Stop();
 			//Script.Stop();
+			// Save while the editor text is still valid, then block any later (post-close) autosave —
+			// e.g. an in-flight compile's writeLastRun callback — from overwriting with an empty string.
 			AutosaveScratchDocument();
+			closing = true;
 		}
 
 		private void AutosaveScratchDocument()
         {
-			if (!document.IsScratch)
+			if (closing || !document.IsScratch)
 				return;
 
 			var dir = Path.GetDirectoryName(lastrun);
@@ -648,9 +653,9 @@ namespace Keyview
 			UpdateDocumentUi();
 		}
 
-		private void UpdateDocumentUi()
+		private void UpdateDocumentUi(string text = null)
 		{
-			var dirty = document.IsDirty(txtIn.Text);
+			var dirty = document.IsDirty(text ?? txtIn.Text);
 			Text = document.GetWindowTitle(baseTitle, dirty);
 			documentStatusLabel.Text = document.GetStatusText(dirty);
 			saveToolStripMenuItem.Enabled = !document.IsScratch && dirty;
@@ -746,6 +751,14 @@ namespace Keyview
 
 		private async void Timer_Tick(object sender, EventArgs e)
 		{
+			// Flush the debounced scratch autosave once typing has paused, keeping disk writes off the
+			// per-keystroke path.
+			if (scratchAutosavePending && (DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds)
+			{
+				scratchAutosavePending = false;
+				AutosaveScratchDocument();
+			}
+
 			if (!isCompiling && (force || ((DateTime.UtcNow - lastKeyTime).TotalSeconds >= updateFreqSeconds && lastKeyTime > lastCompileTime)) && txtIn.Text != "")
 			{
 				timer.Enabled = false;
@@ -907,8 +920,10 @@ namespace Keyview
 
 			if (!suppressDocumentChange)
 			{
-				UpdateDocumentUi();
-				AutosaveScratchDocument();
+				// Read Text once (Scintilla rebuilds the whole string) and debounce the scratch autosave
+				// onto the timer instead of writing the file to disk on every keystroke.
+				UpdateDocumentUi(txtIn.Text);
+				scratchAutosavePending = true;
 			}
 		}
 
@@ -1000,8 +1015,11 @@ namespace Keyview
 
 		private readonly Stack<TextSnapshot> undoStack = new ();
 		private readonly Stack<TextSnapshot> redoStack = new ();
-		private readonly TextArea inputArea = new ();
-		private readonly TextArea outputArea = new ();
+		private readonly RichTextArea inputArea = new ();
+		private readonly RichTextArea outputArea = new ();
+		private readonly SyntaxHighlighter inputHighlighter = SyntaxHighlighter.ForKeysharp();
+		private readonly SyntaxHighlighter outputHighlighter = SyntaxHighlighter.ForCSharp();
+		private readonly UITimer highlightTimer = new ();
 		private readonly TextBox searchBox = new ();
 		private readonly Button nextSearchButton = new () { Text = "Next" };
 		private readonly Button prevSearchButton = new () { Text = "Prev" };
@@ -1051,6 +1069,10 @@ namespace Keyview
 		private int lastSelectionLength;
 		private string baseTitle;
 		private bool suppressDocumentChange;
+		private bool highlighting;
+		private bool outputHighlighting;
+		private int highlightBaseLength;
+		private bool closing;
 
 		public Keyview(string initialFile = null)
 		{
@@ -1083,11 +1105,24 @@ namespace Keyview
 					editorSplitter.Position = Math.Max(200, ClientSize.Width / 2);
 			};
 
-			Closing += (_, e) => e.Cancel = !ConfirmDiscardChanges();
+			Closing += (_, e) =>
+			{
+				if (!ConfirmDiscardChanges())
+				{
+					e.Cancel = true;
+					return;
+				}
+
+				// Save while the editor text is still valid. Once the window starts tearing down, the
+				// text-area buffer is gone and reads as empty, so block any later autosave (e.g. a
+				// debounce tick or compile callback) from overwriting the file with that empty string.
+				AutosaveScratchDocument();
+				closing = true;
+			};
 			Closed += (_, _) =>
 			{
 				timer.Stop();
-				AutosaveScratchDocument();
+				highlightTimer.Stop();
 				try
 				{
 					scriptProcess?.Kill();
@@ -1203,6 +1238,10 @@ namespace Keyview
 			inputArea.Wrap = true;
 			outputArea.Wrap = true;
 			inputArea.TextChanged += InputArea_TextChanged;
+			// Debounce input highlighting so a full re-color runs once typing pauses rather than
+			// on every keystroke (important for large scripts).
+			highlightTimer.Interval = 0.25;
+			highlightTimer.Elapsed += HighlightTimer_Elapsed;
 #if LINUX
 			KeyDown += InputArea_KeyDown;
 #else
@@ -1396,13 +1435,54 @@ namespace Keyview
 
 		private void InputArea_TextChanged(object sender, EventArgs e)
 		{
-			RecordUndoSnapshot();
+			// Applying highlight tags raises spurious TextChanged events (same length); ignore those.
+			// A real edit typed while a pumped highlight yields changes the length, so let it through
+			// (the highlighter notices the change and aborts to avoid applying stale offsets).
+			if (highlighting && inputArea.TextLength == highlightBaseLength)
+				return;
+
+			// Read the buffer once: inputArea.Text rebuilds the whole string, so calling it per consumer
+			// (undo, dirty check, autosave) on every keystroke is a major cost on large scripts.
+			var text = inputArea.Text ?? "";
+			RecordUndoSnapshot(text);
 			lastKeyTime = DateTime.UtcNow;
 
 			if (!suppressDocumentChange)
+				UpdateDocumentUi(text);
+
+			RequestInputHighlight();
+		}
+
+		private void RequestInputHighlight()
+		{
+			// Restart the idle timer; highlighting fires once it stops being reset.
+			highlightTimer.Stop();
+			highlightTimer.Start();
+		}
+
+		private void HighlightTimer_Elapsed(object sender, EventArgs e)
+		{
+			highlightTimer.Stop();
+			// Autosave is debounced onto this idle tick instead of running on every keystroke.
+			AutosaveScratchDocument();
+			HighlightInput();
+		}
+
+		private void HighlightInput()
+		{
+			if (highlighting)
+				return;
+
+			highlighting = true;
+			highlightBaseLength = inputArea.TextLength;
+			try
 			{
-				UpdateDocumentUi();
-				AutosaveScratchDocument();
+				// Yield to the UI loop periodically so re-highlighting a large script doesn't block typing.
+				inputHighlighter.Highlight(inputArea, Application.Instance.RunIteration);
+			}
+			finally
+			{
+				highlighting = false;
 			}
 		}
 
@@ -1592,12 +1672,11 @@ namespace Keyview
 			UpdateUndoRedoState();
 		}
 
-		private void RecordUndoSnapshot()
+		private void RecordUndoSnapshot(string currentText)
 		{
 			if (suppressUndo)
 				return;
 
-			var currentText = inputArea.Text ?? "";
 			if (currentText == lastText)
 				return;
 
@@ -1937,9 +2016,10 @@ namespace Keyview
 			UpdateDocumentUi();
 		}
 
-		private void UpdateDocumentUi()
+		private void UpdateDocumentUi(string text = null)
 		{
-			var dirty = document.IsDirty(inputArea.Text);
+			text ??= inputArea.Text;
+			var dirty = document.IsDirty(text);
 			Title = document.GetWindowTitle(baseTitle, dirty);
 			documentStatusLabel.Text = document.GetStatusText(dirty);
 			saveMenuItem.Enabled = !document.IsScratch && dirty;
@@ -1981,7 +2061,20 @@ namespace Keyview
 
 		private void SetOutputText(string text)
 		{
+			if (outputHighlighting)
+				return; // ignore re-entrant updates (e.g. a Full-code toggle) while a pumped highlight runs
+
 			outputArea.Text = text;
+			outputHighlighting = true;
+			try
+			{
+				// Yield to the UI loop periodically so highlighting a large generated file doesn't freeze.
+				outputHighlighter.Highlight(outputArea, Application.Instance.RunIteration);
+			}
+			finally
+			{
+				outputHighlighting = false;
+			}
 		}
 
 		private void UpdateOutputFromCache()
@@ -2072,10 +2165,19 @@ namespace Keyview
 				}
 			};
 			scriptProcess.EnableRaisingEvents = true;
+			var runtimeOutputStarted = false;
 			scriptProcess.ErrorDataReceived += (_, e) =>
 			{
-				if (!string.IsNullOrEmpty(e.Data))
-					Application.Instance.AsyncInvoke(() => outputArea.Append($"{e.Data}\n", true));
+				if (string.IsNullOrEmpty(e.Data))
+					return;
+
+				Application.Instance.AsyncInvoke(() =>
+				{
+					// The generated C# in the output box has no trailing newline, so start the first
+					// runtime message on its own line instead of right after the closing '}'.
+					outputArea.Append(runtimeOutputStarted ? $"{e.Data}\n" : $"\n{e.Data}\n", true);
+					runtimeOutputStarted = true;
+				});
 			};
 			scriptProcess.Exited += (_, _) =>
 			{
@@ -2121,7 +2223,7 @@ namespace Keyview
 
 		private void AutosaveScratchDocument()
 		{
-			if (!document.IsScratch)
+			if (closing || !document.IsScratch)
 				return;
 
 			var dir = Path.GetDirectoryName(lastrun);
@@ -2193,7 +2295,8 @@ namespace Keyview
 				var code = await Task.Run(() => PrettyPrinter.Print(unit)).ConfigureAwait(true);
 
 #if DEBUG
-				var normalized = unit.NormalizeWhitespace("\t", Environment.NewLine).ToString();
+				// NormalizeWhitespace + ToString on a large tree is expensive; keep it off the UI thread.
+				var normalized = await Task.Run(() => unit.NormalizeWhitespace("\t", Environment.NewLine).ToString()).ConfigureAwait(true);
 				if (code != normalized)
 					throw new Exception("Code formatting mismatch");
 #endif
@@ -2211,18 +2314,25 @@ namespace Keyview
 				{
 					setSuccess?.Invoke((DateTime.UtcNow - startTime).TotalSeconds);
 					setFullCode(code);
-					var token = "[System.STAThread]";
-					var start = code.IndexOf(token);
-					code = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
-					var sb = new StringBuilder(code.Length);
 
-					foreach (var line in code.SplitLines())
-						_ = sb.AppendLine(line.TrimNofAnyFromStart(trimstr, 2));
+					// Trimming the generated code is pure string work over the whole file; do it on a
+					// background thread so the UI thread is not blocked between compile and display.
+					var (displayCode, trimmedCode) = await Task.Run(() =>
+					{
+						var token = "[System.STAThread]";
+						var start = code.IndexOf(token);
+						var display = code.AsSpan(start + token.Length + 2).TrimEnd(trimend).ToString();
+						var sb = new StringBuilder(display.Length);
 
-					var trimmedCode = sb.ToString().TrimEnd(trimend);
+						foreach (var line in display.SplitLines())
+							_ = sb.AppendLine(line.TrimNofAnyFromStart(trimstr, 2));
+
+						return (display, sb.ToString().TrimEnd(trimend));
+					}).ConfigureAwait(true);
+
 					setTrimmedCode(trimmedCode);
 					beforeOutput?.Invoke();
-					setOutput?.Invoke(useFullCode() ? code : trimmedCode);
+					setOutput?.Invoke(useFullCode() ? displayCode : trimmedCode);
 					afterOutput?.Invoke();
 					writeLastRun?.Invoke();
 					_ = ms.Seek(0, SeekOrigin.Begin);

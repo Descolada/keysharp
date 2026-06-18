@@ -84,9 +84,9 @@ namespace Keysharp.Parsing.Syntax
 		private string _singleInstanceMode;  // #SingleInstance mode (Force/Ignore/Prompt/Off), null = directive absent
 		private string _hookMutexName;       // #HookMutexName argument (passed to the Script constructor), null = absent
 		// #Warn config: per-type output mode ("MsgBox"/"StdOut"/"OutputDebug") or null when that warning is off.
-		// AHK enables VarUnset+Unreachable by default; here warnings are OPT-IN (all off until a `#Warn` directive
-		// turns them on), so existing scripts are unaffected by the compile-then-run model. `_warnDefaultMode` is the
-		// program-wide default mode applied by `#Warn On` / a bare `#Warn <Mode>` (default MsgBox, like AHK).
+		// Matching AHK, VarUnset and Unreachable are ENABLED by default (MsgBox mode); LocalSameAsGlobal is off until a
+		// `#Warn` directive turns it on. A `#Warn` directive overrides these. `_warnDefaultMode` is the program-wide
+		// default mode applied by `#Warn On` / a bare `#Warn <Mode>` (default MsgBox, like AHK).
 		private string _warnVarUnset = "MsgBox", _warnUnreachable = "MsgBox", _warnLocalSameAsGlobal = null;
 		private string _warnDefaultMode = "MsgBox";
 		private bool _warnScopeIsGlobal;   // current VarUnset-analysis scope is the module top-level (else a function)
@@ -1022,9 +1022,14 @@ namespace Keysharp.Parsing.Syntax
 		}
 
 		// Analyzes one scope (a statement list and/or an arrow expression) plus recurses into the scopes nested in it.
-		private void AnalyzeScope(IReadOnlyList<Stmt> body, Expr arrow, System.Collections.Generic.IEnumerable<string> paramNames, HashSet<string> globals, bool topLevel)
+		// `outerProvided` is the union of names provided by all ENCLOSING function/lambda scopes (params, locals, nested
+		// functions): a nested function or fat-arrow closes over them, so reading one is not "unset" (null at top level).
+		private void AnalyzeScope(IReadOnlyList<Stmt> body, Expr arrow, System.Collections.Generic.IEnumerable<string> paramNames, HashSet<string> globals, bool topLevel, HashSet<string> outerProvided = null)
 		{
 			if (_warnUnreachable != null && body != null) CheckUnreachable(body);
+			// Names visible to scopes NESTED in this one (this scope's provided plus everything inherited); defaults to
+			// what we inherited so Unreachable-only mode still threads the closure set through untouched.
+			var visible = outerProvided;
 			// VarUnset / LocalSameAsGlobal both need the set of names "provided" in this scope.
 			if (_warnVarUnset != null || (_warnLocalSameAsGlobal != null && !topLevel))
 			{
@@ -1034,18 +1039,24 @@ namespace Keysharp.Parsing.Syntax
 				var declaredGlobal = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 				if (body != null) foreach (var s in body) CollectProvided(s, provided, declaredGlobal);
 				if (arrow != null) CollectProvidedExpr(arrow, provided, declaredGlobal);
+				// Names readable here = this scope's provided + everything from enclosing scopes (closure capture).
+				var readable = provided;
+				if (outerProvided != null) { readable = new HashSet<string>(provided, System.StringComparer.OrdinalIgnoreCase); readable.UnionWith(outerProvided); }
 				if (_warnVarUnset != null)
 				{
 					var warned = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-					if (body != null) foreach (var s in body) CheckReadsStmt(s, provided, warned);
-					if (arrow != null) CheckReadsExpr(arrow, provided, warned);
+					if (body != null) foreach (var s in body) CheckReadsStmt(s, readable, warned);
+					if (arrow != null) CheckReadsExpr(arrow, readable, warned);
 				}
+				// LocalSameAsGlobal compares only THIS scope's own locals (not inherited ones) against the globals.
 				if (_warnLocalSameAsGlobal != null && !topLevel && globals != null)
 					foreach (var n in provided) if (!declaredGlobal.Contains(n) && globals.Contains(n)) Warn(_warnLocalSameAsGlobal, 0, $"This local variable has the same name as a global variable: {n}.");
+				visible = readable;
 			}
-			// Recurse into nested scopes (their bodies are separate scopes).
-			if (body != null) foreach (var s in body) RecurseScopes(s, globals);
-			if (arrow != null) RecurseScopesExpr(arrow, globals);
+			// Recurse into nested scopes (their bodies are separate scopes), passing this scope's visible names down so
+			// closures over our locals aren't flagged.
+			if (body != null) foreach (var s in body) RecurseScopes(s, globals, visible);
+			if (arrow != null) RecurseScopesExpr(arrow, globals, visible);
 		}
 
 		private static bool IsFlowTerminator(Stmt s) => s is ReturnStmt or BreakStmt or ContinueStmt or ThrowStmt or GotoStmt;
@@ -1067,6 +1078,12 @@ namespace Keysharp.Parsing.Syntax
 		{
 			switch (s)
 			{
+				// A nested function/class declaration binds its name as a (read-only) local throughout the enclosing
+				// scope (AHK hoists nested functions), so a reference to it is not "unset". Only TOP-LEVEL functions are
+				// in _userFuncByLower, so nested ones must be recorded here. The body is a separate scope (analyzed by
+				// RecurseScopes) — do not descend into it.
+				case FunctionDecl fd: provided.Add(fd.Name.ToLowerInvariant()); break;
+				case ClassDecl cd: provided.Add(cd.Name.ToLowerInvariant()); break;
 				case DeclStmt d:
 					foreach (var item in d.Items) { var nm = DeclItemName(item); if (nm != null) { provided.Add(nm.ToLowerInvariant()); if (d.Keyword == "global") declaredGlobal.Add(nm.ToLowerInvariant()); } CollectProvidedExpr(item, provided, declaredGlobal); }
 					break;
@@ -1196,6 +1213,13 @@ namespace Keysharp.Parsing.Syntax
 			if (lower.StartsWith("a_", System.StringComparison.Ordinal)) return false;   // built-in vars (A_*) — be conservative
 			if (_userFuncByLower.ContainsKey(lower) || _userClassByLower.ContainsKey(lower)) return false;
 			if (_inlineAliases.ContainsKey(lower)) return false;
+			// A name already bound to a global field slot at analysis time is provided externally — most importantly an
+			// imported name (`#import "Ks" { Cosh }`, `#import "X" { Calc as C }`, which RegisterImport/EmitImports add to
+			// _fields before the warning pass). Regular global variable slots are created later (during lowering), so this
+			// cannot mask a genuinely-unset global.
+			if (_fields.ContainsKey(lower)) return false;
+			// A `#import "Mod"` / `#import "Mod" { * }` wildcard (single-module path) resolves member names on demand.
+			if (_wildcardModules.Count > 0 && _wildcardModules.Any(t => BindModuleMember(t, lower) != null)) return false;
 			var rd = Script.TheScript.ReflectionsData;
 			if (rd.flatPublicStaticProperties.ContainsKey(lower) || rd.flatPublicStaticMethods.ContainsKey(lower) || rd.stringToTypes.ContainsKey(lower)) return false;
 			if (Keysharp.Parsing.Keywords.TypeNameAliases.Any(kv => kv.Value.Equals(lower, System.StringComparison.OrdinalIgnoreCase))) return false;
@@ -1203,11 +1227,13 @@ namespace Keysharp.Parsing.Syntax
 		}
 
 		// Recurses into the scopes nested in a statement (function/method/property/lambda bodies are separate scopes).
-		private void RecurseScopes(Stmt s, HashSet<string> globals)
+		// `outerProvided` flows the enclosing scope's visible names into nested closures; same-scope blocks pass it
+		// through unchanged. Class methods/properties do NOT close over enclosing function locals, so they reset it.
+		private void RecurseScopes(Stmt s, HashSet<string> globals, HashSet<string> outerProvided = null)
 		{
 			switch (s)
 			{
-				case FunctionDecl fd: AnalyzeScope(fd.Body?.Body, fd.ArrowBody, fd.Params.Select(p => p.Name), globals, topLevel: false); break;
+				case FunctionDecl fd: AnalyzeScope(fd.Body?.Body, fd.ArrowBody, fd.Params.Select(p => p.Name), globals, topLevel: false, outerProvided); break;
 				case ClassDecl cd:
 					foreach (var m in cd.Methods) AnalyzeScope(m.Body?.Body, m.ArrowBody, m.Params.Select(p => p.Name), globals, topLevel: false);
 					foreach (var pr in cd.Properties)
@@ -1217,46 +1243,46 @@ namespace Keysharp.Parsing.Syntax
 					}
 					foreach (var nc in cd.Nested) RecurseScopes(nc, globals);
 					break;
-				case Block b: foreach (var x in b.Body) RecurseScopes(x, globals); break;
-				case IfStmt iff: RecurseScopes(iff.Then, globals); if (iff.Else != null) RecurseScopes(iff.Else, globals); RecurseScopesExpr(iff.Cond, globals); break;
-				case WhileStmt w: RecurseScopesExpr(w.Cond, globals); RecurseScopes(w.Body, globals); break;
-				case LoopStmt lp: RecurseScopes(lp.Body, globals); break;
-				case SpecialLoopStmt slp: RecurseScopes(slp.Body, globals); break;
-				case ForStmt fr: RecurseScopesExpr(fr.Enumerable, globals); RecurseScopes(fr.Body, globals); break;
+				case Block b: foreach (var x in b.Body) RecurseScopes(x, globals, outerProvided); break;
+				case IfStmt iff: RecurseScopes(iff.Then, globals, outerProvided); if (iff.Else != null) RecurseScopes(iff.Else, globals, outerProvided); RecurseScopesExpr(iff.Cond, globals, outerProvided); break;
+				case WhileStmt w: RecurseScopesExpr(w.Cond, globals, outerProvided); RecurseScopes(w.Body, globals, outerProvided); break;
+				case LoopStmt lp: RecurseScopes(lp.Body, globals, outerProvided); break;
+				case SpecialLoopStmt slp: RecurseScopes(slp.Body, globals, outerProvided); break;
+				case ForStmt fr: RecurseScopesExpr(fr.Enumerable, globals, outerProvided); RecurseScopes(fr.Body, globals, outerProvided); break;
 				case SwitchStmt sw:
-					foreach (var c in sw.Cases) foreach (var st in c.Body) RecurseScopes(st, globals);
-					if (sw.Default != null) foreach (var st in sw.Default) RecurseScopes(st, globals);
+					foreach (var c in sw.Cases) foreach (var st in c.Body) RecurseScopes(st, globals, outerProvided);
+					if (sw.Default != null) foreach (var st in sw.Default) RecurseScopes(st, globals, outerProvided);
 					break;
 				case TryStmt tr:
-					RecurseScopes(tr.Body, globals);
-					foreach (var cb in tr.Catches) RecurseScopes(cb.Body, globals);
-					if (tr.Else != null) RecurseScopes(tr.Else, globals);
-					if (tr.Finally != null) RecurseScopes(tr.Finally, globals);
+					RecurseScopes(tr.Body, globals, outerProvided);
+					foreach (var cb in tr.Catches) RecurseScopes(cb.Body, globals, outerProvided);
+					if (tr.Else != null) RecurseScopes(tr.Else, globals, outerProvided);
+					if (tr.Finally != null) RecurseScopes(tr.Finally, globals, outerProvided);
 					break;
-				case ExpressionStmt es: RecurseScopesExpr(es.Expr, globals); break;
-				case ReturnStmt r: if (r.Value != null) RecurseScopesExpr(r.Value, globals); break;
-				case DeclStmt d: foreach (var item in d.Items) RecurseScopesExpr(item, globals); break;
+				case ExpressionStmt es: RecurseScopesExpr(es.Expr, globals, outerProvided); break;
+				case ReturnStmt r: if (r.Value != null) RecurseScopesExpr(r.Value, globals, outerProvided); break;
+				case DeclStmt d: foreach (var item in d.Items) RecurseScopesExpr(item, globals, outerProvided); break;
 			}
 		}
 
-		private void RecurseScopesExpr(Expr e, HashSet<string> globals)
+		private void RecurseScopesExpr(Expr e, HashSet<string> globals, HashSet<string> outerProvided = null)
 		{
 			switch (e)
 			{
-				case FatArrowExpr fa: AnalyzeScope(fa.BlockBody?.Body, fa.Body, fa.Params.Select(p => p.Name), globals, topLevel: false); break;
-				case AssignExpr a: RecurseScopesExpr(a.Target, globals); RecurseScopesExpr(a.Value, globals); break;
-				case BinaryExpr b: RecurseScopesExpr(b.Left, globals); RecurseScopesExpr(b.Right, globals); break;
-				case UnaryExpr u: RecurseScopesExpr(u.Operand, globals); break;
-				case TernaryExpr t: RecurseScopesExpr(t.Cond, globals); RecurseScopesExpr(t.Then, globals); RecurseScopesExpr(t.Else, globals); break;
-				case GroupExpr g: RecurseScopesExpr(g.Inner, globals); break;
-				case SequenceExpr sq: foreach (var it in sq.Items) RecurseScopesExpr(it, globals); break;
-				case CallExpr c: RecurseScopesExpr(c.Callee, globals); foreach (var ar in c.Args) if (ar.Value != null) RecurseScopesExpr(ar.Value, globals); break;
-				case MemberExpr m: RecurseScopesExpr(m.Target, globals); break;
-				case DynMemberExpr dm: RecurseScopesExpr(dm.Target, globals); RecurseScopesExpr(dm.NameExpr, globals); break;
-				case IndexExpr ix: RecurseScopesExpr(ix.Target, globals); foreach (var ar in ix.Args) if (ar.Value != null) RecurseScopesExpr(ar.Value, globals); break;
-				case ObjectExpr oe: foreach (var en in oe.Entries) { RecurseScopesExpr(en.Key, globals); RecurseScopesExpr(en.Value, globals); } break;
-				case ArrayExpr ar2: foreach (var el in ar2.Elements) if (el.Value != null) RecurseScopesExpr(el.Value, globals); break;
-				case MapExpr mp: foreach (var (k, v) in mp.Entries) { RecurseScopesExpr(k, globals); RecurseScopesExpr(v, globals); } break;
+				case FatArrowExpr fa: AnalyzeScope(fa.BlockBody?.Body, fa.Body, fa.Params.Select(p => p.Name), globals, topLevel: false, outerProvided); break;
+				case AssignExpr a: RecurseScopesExpr(a.Target, globals, outerProvided); RecurseScopesExpr(a.Value, globals, outerProvided); break;
+				case BinaryExpr b: RecurseScopesExpr(b.Left, globals, outerProvided); RecurseScopesExpr(b.Right, globals, outerProvided); break;
+				case UnaryExpr u: RecurseScopesExpr(u.Operand, globals, outerProvided); break;
+				case TernaryExpr t: RecurseScopesExpr(t.Cond, globals, outerProvided); RecurseScopesExpr(t.Then, globals, outerProvided); RecurseScopesExpr(t.Else, globals, outerProvided); break;
+				case GroupExpr g: RecurseScopesExpr(g.Inner, globals, outerProvided); break;
+				case SequenceExpr sq: foreach (var it in sq.Items) RecurseScopesExpr(it, globals, outerProvided); break;
+				case CallExpr c: RecurseScopesExpr(c.Callee, globals, outerProvided); foreach (var ar in c.Args) if (ar.Value != null) RecurseScopesExpr(ar.Value, globals, outerProvided); break;
+				case MemberExpr m: RecurseScopesExpr(m.Target, globals, outerProvided); break;
+				case DynMemberExpr dm: RecurseScopesExpr(dm.Target, globals, outerProvided); RecurseScopesExpr(dm.NameExpr, globals, outerProvided); break;
+				case IndexExpr ix: RecurseScopesExpr(ix.Target, globals, outerProvided); foreach (var ar in ix.Args) if (ar.Value != null) RecurseScopesExpr(ar.Value, globals, outerProvided); break;
+				case ObjectExpr oe: foreach (var en in oe.Entries) { RecurseScopesExpr(en.Key, globals, outerProvided); RecurseScopesExpr(en.Value, globals, outerProvided); } break;
+				case ArrayExpr ar2: foreach (var el in ar2.Elements) if (el.Value != null) RecurseScopesExpr(el.Value, globals, outerProvided); break;
+				case MapExpr mp: foreach (var (k, v) in mp.Entries) { RecurseScopesExpr(k, globals, outerProvided); RecurseScopesExpr(v, globals, outerProvided); } break;
 			}
 		}
 

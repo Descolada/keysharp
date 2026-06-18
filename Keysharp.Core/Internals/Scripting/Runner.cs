@@ -18,6 +18,7 @@ namespace Keysharp.Internals.Scripting
 		Daemon,
 		Install,
 		Uninstall,
+		CloseInstances,
 	}
 
 	internal sealed class CliCommand
@@ -46,7 +47,8 @@ namespace Keysharp.Internals.Scripting
 		internal bool RequiresLauncher => Kind is CliCommandKind.CompileExe
 												   or CliCommandKind.Daemon
 												   or CliCommandKind.Install
-												   or CliCommandKind.Uninstall;
+												   or CliCommandKind.Uninstall
+												   or CliCommandKind.CloseInstances;
 
 		internal static CliCommand Error(string text) => new() { Kind = CliCommandKind.Error, ErrorText = text };
 		internal static CliCommand Simple(CliCommandKind kind, Assembly asm, string exeDir) => new() { Kind = kind, EntryAssembly = asm, ExeDir = exeDir };
@@ -214,6 +216,20 @@ namespace Keysharp.Internals.Scripting
 
 					case "uninstall":
 						return CliCommand.Simple(CliCommandKind.Uninstall, asm, exeDir);
+
+					// Closes every running process of this install (scripts launched via Keysharp.exe, the
+					// compile daemon, and Keyview) so a locked Keysharp.exe / Keysharp.Core.dll can be replaced
+					// or removed. Offered as a manual command; the MSI itself closes instances with an injected
+					// version-independent action (see Keysharp.Install/package-windows.ps1). An optional trailing
+					// number is treated as a UILevel: >= 5 shows a confirmation before closing.
+					case "close-instances":
+						return new CliCommand
+						{
+							Kind = CliCommandKind.CloseInstances,
+							EntryAssembly = asm,
+							ExeDir = exeDir,
+							ScriptArgs = [.. args.Skip(i + 1)],
+						};
 #endif
 
 					default:
@@ -489,7 +505,7 @@ namespace Keysharp.Internals.Scripting
 			  --version, -v           Print the version.
 			  --about                 Print license information.
 			  --help, -h, -?          Show this help.
-			{(OperatingSystem.IsWindows() ? "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n" : "")}
+			{(OperatingSystem.IsWindows() ? "  --install, --uninstall  Register/unregister Keysharp shell integration (used by the installer).\n  --close-instances       Close every running Keysharp process of this install (used by the installer).\n" : "")}
 			Options may be prefixed with "-" or "--". AutoHotkey-compatible run options may also use "/".
 			The KEYSHARP_DAEMON environment variable (1/0/true/false/on/off) forces the compile daemon on or off.
 			""";

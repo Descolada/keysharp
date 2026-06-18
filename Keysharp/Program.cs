@@ -14,6 +14,7 @@ using Keysharp.Runtime;
 using Microsoft.NET.HostModel.AppHost;
 #if WINDOWS
 using Microsoft.Win32;
+using System.Windows.Forms;
 #elif OSX
 using Eto.Forms;
 using System.Threading;
@@ -82,6 +83,7 @@ namespace Keysharp.Main
 #if WINDOWS
 				CliCommandKind.Install => InstallToPath(command.ExeDir),
 				CliCommandKind.Uninstall => RemoveFromPath(command.ExeDir),
+				CliCommandKind.CloseInstances => CloseRunningInstances(command.ExeDir, command.ScriptArgs),
 #endif
 				_ => Runner.Execute(command),
 			};
@@ -421,6 +423,77 @@ namespace Keysharp.Main
 			var newPath = string.Join(';', oldPath.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => string.Compare(s, path, true) != 0));
 			Registry.LocalMachine.CreateSubKey(keyName).SetValue("PATH", newPath, RegistryValueKind.ExpandString);//Restore the old path to what it was without the passed in value included.
 			UnregisterShellIntegration();
+			return 0;
+		}
+
+		// Closes every process belonging to THIS install — scripts launched through Keysharp.exe, the compile
+		// daemon, and the Keyview editor — so a locked Keysharp.exe / Keysharp.Core.dll can be replaced or
+		// deleted. Windows refuses to overwrite a running image or a loaded DLL, so an upgrade or uninstall
+		// performed while Keysharp is running otherwise fails or defers files to a reboot, which can leave a
+		// stale-version compile daemon serving against the new binaries. This is a manual command; the MSI does
+		// its own version-independent close before InstallValidate (see Keysharp.Install/package-windows.ps1).
+		// Best-effort: a kill failure never blocks; only an explicit "No" at the optional prompt returns nonzero.
+		private static int CloseRunningInstances(string exeDir, string[] args)
+		{
+			// Stop the compile daemon through its coordinator first: it may run as a different user, and
+			// StopOwner kills by the recorded PID regardless. The scan below mops up anything still holding files.
+			try { DaemonCoordinator.StopOwner(); } catch { }
+
+			var dir = Path.GetFullPath(exeDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+			var selfId = Environment.ProcessId;
+
+			var targets = Process.GetProcessesByName("Keysharp")
+						  .Concat(Process.GetProcessesByName("Keyview"))
+						  .Where(p =>
+			{
+				if (p.Id == selfId)
+					return false;
+
+				try
+				{
+					var moduleDir = Path.GetDirectoryName(Path.GetFullPath(p.MainModule.FileName));
+					return string.Equals(moduleDir?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), dir, StringComparison.OrdinalIgnoreCase);
+				}
+				catch
+				{
+					return false; // Exited, or a process we cannot inspect (different elevation/user).
+				}
+			}).ToArray();
+
+			if (targets.Length == 0)
+				return 0;
+
+			// Confirm before closing when a UILevel >= 5 is passed. Uses MessageBox.Show, matching how the rest
+			// of Keysharp reports to the user (see Runner.Message).
+			if (args.Length > 0 && int.TryParse(args[0], out var uiLevel) && uiLevel >= 5)
+			{
+				var prompt = $"Keysharp is currently running ({targets.Length} process(es)).\n\n"
+							 + "It must be closed to continue. Close it now?\n\n"
+							 + "Choose No to cancel.";
+
+				if (MessageBox.Show(prompt, "Keysharp", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+					return 1; // Caller asked to confirm and the user declined.
+			}
+
+			foreach (var p in targets)
+			{
+				try
+				{
+					// Ask GUI scripts / Keyview to close gracefully (runs OnExit, lets them save), then force-kill
+					// anything that ignores it or has no window (background scripts, the console daemon).
+					if (p.MainWindowHandle != IntPtr.Zero && p.CloseMainWindow() && p.WaitForExit(3000))
+						continue;
+
+					if (!p.HasExited)
+					{
+						p.Kill();
+						_ = p.WaitForExit(5000);
+					}
+				}
+				catch { /* already gone, or cannot be killed; best-effort */ }
+				finally { p.Dispose(); }
+			}
+
 			return 0;
 		}
 

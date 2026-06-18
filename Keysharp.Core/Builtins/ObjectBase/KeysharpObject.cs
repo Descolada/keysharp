@@ -101,7 +101,7 @@ namespace Keysharp.Builtins
 			if (obj.op != null && obj.op.ContainsKey(name))
 				return 1L;
 
-			return Reflections.FindOwnProp(obj.GetType(), name.ToLower()) ? 1L : 0L;
+			return Reflections.FindOwnProp(obj.GetType(), name) ? 1L : 0L;
 		}
 
 		public static long OwnPropCount(object @this)

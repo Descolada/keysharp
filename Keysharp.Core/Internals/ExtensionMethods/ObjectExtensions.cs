@@ -230,7 +230,6 @@ namespace Keysharp.Internals.ExtensionMethods
 					return dl != 0.0;
 				return true;
 			}
-			else if (result is BoolResult br) return br;
 			return true;
 		}
 
@@ -290,11 +289,6 @@ namespace Keysharp.Internals.ExtensionMethods
 				return true;
 			}
 
-			if (obj is BoolResult br)
-			{
-				return br.o.TryParseBool(out outvar);
-			}
-
 			if (allowKeywords && obj != null)
 			{
 				var onoff = Options.OnOff(obj);
@@ -341,11 +335,6 @@ namespace Keysharp.Internals.ExtensionMethods
 				if (requireDot) { outvar = default; return false; }
 				outvar = l;
 				return true;
-			}
-
-			if (obj is BoolResult br)
-			{
-				return br.o.TryParseDouble(out outvar, requireDot);
 			}
 
 			if (obj is int i)//int is seldom used in Keysharp, so check last.
@@ -424,9 +413,6 @@ namespace Keysharp.Internals.ExtensionMethods
 				outvar = default;
 				return false;
 			}
-
-			if (obj is BoolResult br)
-				return br.o.TryParseLong(out outvar, donoprefixhex);
 
 			if (obj is null || obj is Any)
 			{

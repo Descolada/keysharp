@@ -197,7 +197,7 @@ namespace Keysharp.Runtime
 		}
 
 
-		public static BoolResult IfTest(object result) => new (ForceBool(result), result);
+		public static bool IfTest(object result) => ForceBool(result);
 
 		//Binary operators
 

@@ -423,8 +423,6 @@ namespace Keysharp.Internals.Invoke
 
 		internal static bool FindOwnProp(Type t, string name, bool userOnly = true)
 		{
-			name = name.ToLower();
-
 			while (t != typeof(KeysharpObject))
 			{
 				if (userOnly && t.Assembly == typeof(Any).Assembly)
@@ -432,7 +430,8 @@ namespace Keysharp.Internals.Invoke
 
 				if (Script.TheScript.ReflectionsData.typeToStringProperties.TryGetValue(t, out var dkt))
 				{
-					if (name != "__Class" && name != "__Static")
+					if (!string.Equals(name, "__Class", StringComparison.OrdinalIgnoreCase)
+						&& !string.Equals(name, "__Static", StringComparison.OrdinalIgnoreCase))
 						if (dkt.TryGetValue(name, out var prop))
 							return true;
 				}

@@ -4,7 +4,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// <summary>
 	/// Singleton chooser for <see cref="IWaylandBackend"/>. Probes the running
 	/// compositor on first access and caches the result. Override probing with
-	/// <c>KEYSHARP_WAYLAND_BACKEND=auto|kwin|sway|hyprland|cosmic|none</c>.
+	/// <c>KEYSHARP_WAYLAND_BACKEND=auto|kwin|sway|hyprland|cosmic|gnome|cinnamon|none</c>.
 	/// </summary>
 	internal static class WaylandBackend
 	{
@@ -42,6 +42,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					"hyprland" => new HyprlandBackend(),
 					"cosmic" => new CosmicBackend(),
 					"gnome" => new GnomeBackend(),
+					"cinnamon" => new CinnamonBackend(),
 					_ => AutoProbe()
 				};
 			}
@@ -68,6 +69,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			if (GnomeBackend.IsAvailable())
 				return new GnomeBackend();
+
+			if (CinnamonBackend.IsAvailable())
+				return new CinnamonBackend();
 
 			return null;
 		}

@@ -334,6 +334,16 @@ namespace Keysharp.Runtime
 		internal string ldLibraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH") ?? "";
 #endif
 
+#if LINUX
+		// Native setenv so GDK_BACKEND reaches GLib/GTK's getenv() (managed
+		// Environment.SetEnvironmentVariable does not propagate to native code on Unix).
+		[DllImport("libc", EntryPoint = "setenv")]
+		private static extern int NativeSetEnv(
+			[MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+			[MarshalAs(UnmanagedType.LPUTF8Str)] string value,
+			int overwrite);
+#endif
+
 		static Script()
 		{
 			// Needed for string and file encodings such as Windows-1252
@@ -380,8 +390,17 @@ namespace Keysharp.Runtime
 
 			// Keysharp's Linux automation path is still X11-based, so force Gtk onto X11/Xwayland
 			// when an X display is available before Eto initializes its platform backend.
+			// NOTE: Environment.SetEnvironmentVariable only updates .NET's managed environment
+			// cache on Unix; GLib/GTK read GDK_BACKEND through the C runtime's getenv(), which would
+			// still see the session value (e.g. "wayland") and bring GTK up on Wayland. There the
+			// legacy GtkStatusIcon + gtk_menu_popup path that libayatana-appindicator uses for the
+			// tray menu is broken (menu pops at the screen corner with no grab, can't be dismissed
+			// or reopened). Use the native setenv() so GTK actually initializes on X11/Xwayland.
 			if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
+			{
+				_ = NativeSetEnv("GDK_BACKEND", "x11", 1);
 				Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
+			}
 #endif
 		}
 

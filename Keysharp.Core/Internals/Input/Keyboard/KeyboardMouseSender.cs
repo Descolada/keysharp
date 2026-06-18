@@ -1820,6 +1820,13 @@ namespace Keysharp.Internals.Input.Keyboard
 							}
 
 							var keySource = KeySource.None;
+#if !WINDOWS
+							// Capture the explicit prefix modifiers (!^+#) before TextToVKandSC adds any
+							// layout-required modifiers (e.g. Shift/AltGr to produce the character). Only the
+							// layout-added ones should be held across an explicit {key Down}/{key Up}; the
+							// explicit modifiers are one-shot for the keystroke (see mappedModifiersForHold below).
+							var explicitModsForNextKey = modsForNextKey ?? 0u;
+#endif
 							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayout);
 
 							if (repeatCount < 1L)
@@ -1871,14 +1878,17 @@ namespace Keysharp.Internals.Input.Keyboard
 								}
 
 #if !WINDOWS
-								// For explicit {char Down}/{char Up}, keep any mapped modifiers (for example Shift
+								// For explicit {char Down}/{char Up}, keep any layout-mapped modifiers (for example Shift
 								// for '"' on some layouts) down across the pair rather than treating them as
 								// one-shot modifiers for a single keypress. Otherwise the base key remains down
 								// while its mapped modifier is released, which breaks auto-repeat/remap behavior.
+								// Only modifiers TextToVKandSC *added* (layout-derived) qualify; explicit prefix
+								// modifiers like the '!' in "!{k DownR}" are one-shot and must be released after the
+								// keystroke, otherwise they get latched into modifiersLRRemapped and stick down.
 								var mappedModifiersForHold = keyAsModifiersLR == 0
 									&& targetWindow == 0
 									&& eventType != KeyEventTypes.KeyDownAndUp
-									? modsForNextKey.Value
+									? modsForNextKey.Value & ~explicitModsForNextKey
 									: 0u;
 
 								if (mappedModifiersForHold != 0 && eventType == KeyEventTypes.KeyDown)

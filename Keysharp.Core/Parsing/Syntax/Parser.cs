@@ -192,7 +192,19 @@ namespace Keysharp.Parsing.Syntax
 			return new ProgramNode(body);
 		}
 
+		// Stamps every parsed statement with the source position of its first token, so diagnostics (e.g. #Warn
+		// "unreachable") can report a line even for statements that carry no inner expression (break/continue/goto,
+		// bare return, declarations). Sub-parsers that already set a more specific position are left as-is.
 		private Stmt ParseStatement()
+		{
+			SkipNewlines();
+			int line = Current.Line, col = Current.Column;
+			var s = ParseStatementCore();
+			if (s != null && s.Line == 0) { s.Line = line; s.Column = col; }
+			return s;
+		}
+
+		private Stmt ParseStatementCore()
 		{
 			SkipNewlines();
 			if (At(TokenKind.RemapSourceKey))

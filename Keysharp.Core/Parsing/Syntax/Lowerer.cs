@@ -1034,6 +1034,11 @@ namespace Keysharp.Parsing.Syntax
 			if (_warnVarUnset != null || (_warnLocalSameAsGlobal != null && !topLevel))
 			{
 				_warnScopeIsGlobal = topLevel;
+				// A bare `global` switches a function/method to assume-global: every bare name is a GLOBAL, which may be
+				// assigned in another scope we can't see here. We can't locally prove such a global is never assigned, so
+				// skip both VarUnset and LocalSameAsGlobal for this scope's own reads/locals (params still resolve normally).
+				bool assumeGlobal = !topLevel && body != null
+					&& body.Any(st => st is DeclStmt dg && dg.Keyword == "global" && dg.Items.Count == 0);
 				var provided = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 				foreach (var p in paramNames) provided.Add(p.ToLowerInvariant());
 				var declaredGlobal = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
@@ -1042,14 +1047,14 @@ namespace Keysharp.Parsing.Syntax
 				// Names readable here = this scope's provided + everything from enclosing scopes (closure capture).
 				var readable = provided;
 				if (outerProvided != null) { readable = new HashSet<string>(provided, System.StringComparer.OrdinalIgnoreCase); readable.UnionWith(outerProvided); }
-				if (_warnVarUnset != null)
+				if (_warnVarUnset != null && !assumeGlobal)
 				{
 					var warned = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 					if (body != null) foreach (var s in body) CheckReadsStmt(s, readable, warned);
 					if (arrow != null) CheckReadsExpr(arrow, readable, warned);
 				}
 				// LocalSameAsGlobal compares only THIS scope's own locals (not inherited ones) against the globals.
-				if (_warnLocalSameAsGlobal != null && !topLevel && globals != null)
+				if (_warnLocalSameAsGlobal != null && !topLevel && !assumeGlobal && globals != null)
 					foreach (var n in provided) if (!declaredGlobal.Contains(n) && globals.Contains(n)) Warn(_warnLocalSameAsGlobal, 0, $"This local variable has the same name as a global variable: {n}.");
 				visible = readable;
 			}
@@ -1061,14 +1066,24 @@ namespace Keysharp.Parsing.Syntax
 
 		private static bool IsFlowTerminator(Stmt s) => s is ReturnStmt or BreakStmt or ContinueStmt or ThrowStmt or GotoStmt;
 
-		// Unreachable: a statement immediately following a Return/Break/Continue/Throw/Goto at the same level that is not
-		// a label target. Applies within every statement list (recurses into nested blocks/bodies).
+		// Definitions (function/class/hotkey/hotstring/remap) are hoisted or registered at load regardless of textual
+		// position, and a directive is processed at compile time — none execute in sequence, so they are never
+		// "unreachable" and do not break an unreachable run (e.g. a nested helper `func` defined AFTER a `return`).
+		private static bool IsHoistedOrDirective(Stmt s) =>
+			s is FunctionDecl or ClassDecl or HotkeyDef or HotstringDef or RemapDef or DirectiveStmt;
+
+		// Unreachable: an executable statement following a Return/Break/Continue/Throw/Goto at the same level. Hoisted
+		// definitions/directives are skipped (never unreachable); a label is a goto target, so it makes flow reachable
+		// again. Only the first statement of each unreachable run is reported (matching AHK).
 		private void CheckUnreachable(IReadOnlyList<Stmt> list)
 		{
-			for (int i = 0; i < list.Count; i++)
+			bool unreachable = false;
+			foreach (var s in list)
 			{
-				if (i + 1 < list.Count && IsFlowTerminator(list[i]) && list[i + 1] is not LabelStmt)
-					Warn(_warnUnreachable, StmtLine(list[i + 1]), "This line will never be executed.");
+				if (IsHoistedOrDirective(s)) continue;
+				if (s is LabelStmt) { unreachable = false; continue; }
+				if (unreachable) { Warn(_warnUnreachable, StmtLine(s), "This line will never be executed."); unreachable = false; }
+				if (IsFlowTerminator(s)) unreachable = true;
 			}
 		}
 
@@ -1286,16 +1301,21 @@ namespace Keysharp.Parsing.Syntax
 			}
 		}
 
-		// Best-effort source line for a statement-level warning (statements carry no line; dig for a NameExpr).
-		private static int StmtLine(Stmt s) => s switch
+		// Source line for a statement-level warning. The parser stamps every statement with the line of its first token
+		// (see Parser.ParseStatement), so prefer that; fall back to digging for a NameExpr line for any unstamped node.
+		private static int StmtLine(Stmt s)
 		{
-			ExpressionStmt es => ExprLine(es.Expr),
-			ReturnStmt r => r.Value != null ? ExprLine(r.Value) : 0,
-			ThrowStmt t => t.Value != null ? ExprLine(t.Value) : 0,
-			IfStmt iff => ExprLine(iff.Cond),
-			WhileStmt w => ExprLine(w.Cond),
-			_ => 0
-		};
+			if (s.Line != 0) return s.Line;
+			return s switch
+			{
+				ExpressionStmt es => ExprLine(es.Expr),
+				ReturnStmt r => r.Value != null ? ExprLine(r.Value) : 0,
+				ThrowStmt t => t.Value != null ? ExprLine(t.Value) : 0,
+				IfStmt iff => ExprLine(iff.Cond),
+				WhileStmt w => ExprLine(w.Cond),
+				_ => 0
+			};
+		}
 		private static int ExprLine(Expr e) => e switch
 		{
 			NameExpr n => n.Line,

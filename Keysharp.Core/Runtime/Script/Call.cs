@@ -538,6 +538,11 @@ namespace Keysharp.Runtime
 						if (opm2.Get != null)
 							return Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only.");
 					}
+					// A name that resolves to a method (Call) without a Set is a read-only property.
+					else if (TryGetOwnPropsMap(kso, namestr, out _, searchBase: true, type: OwnPropsMapType.Call))
+					{
+						return Errors.PropertyErrorOccurred($"Property {namestr} on object {item} is read-only.");
+					}
 					// __Set meta (function or callable object), only if no Set/Get/Value is found
 					else if (TryGetOwnPropsMap(kso, "__Set", out var protoSet) && (protoSet.Call ?? protoSet.Value) is object metaSet)
 					{

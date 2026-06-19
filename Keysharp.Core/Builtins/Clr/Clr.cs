@@ -393,7 +393,7 @@ namespace Keysharp.Builtins
 
 					return moved;
 				},
-				() => currentProperty.GetValue(source),
+				() => ManagedInvoke.ConvertOut(currentProperty.GetValue(source)),
 				() =>
 				{
 					var parts = TryDecompose(currentProperty.GetValue(source));

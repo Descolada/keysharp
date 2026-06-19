@@ -299,21 +299,21 @@ else
 arr := [1, 2, 3]
 arr.Length := 5
 
-if (arr[4] is null && arr[5] is null && arr.Length == 5)
+if (arr[4] is unset && arr[5] is unset && arr.Length == 5)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 arr.Capacity := 5
 
-if (arr[4] is null && arr[5] is null && arr.Length == 5 && arr.Capacity == 5)
+if (arr[4] is unset && arr[5] is unset && arr.Length == 5 && arr.Capacity == 5)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
 arr.Capacity := 10
 
-if (arr[4] is null && arr[5] is null && arr.Length == 5 && arr.Capacity == 10)
+if (arr[4] is unset && arr[5] is unset && arr.Length == 5 && arr.Capacity == 10)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

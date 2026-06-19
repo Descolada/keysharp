@@ -36,12 +36,12 @@ y := 2
 z := 3
 func2(,)
 
-If (x == null)
+If (x == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -56,7 +56,7 @@ y := 2
 z := 3
 func2(, 22, 33)
 
-If (x == null)
+If (x == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -81,7 +81,7 @@ If (x == 11)
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -101,7 +101,7 @@ If (x == 11)
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -121,7 +121,7 @@ If (x == 11)
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -136,7 +136,7 @@ y := 2
 z := 3
 func2(,22,)
 
-If (x == null)
+If (x == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
@@ -156,12 +156,12 @@ y := 2
 z := 3
 func2(,,)
 
-If (x == null)
+If (x == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

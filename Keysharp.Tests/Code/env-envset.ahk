@@ -10,7 +10,7 @@ if (val == s)
 else
 	FileAppend "fail", "*"
 	
-EnvSet(key, null)
+EnvSet(key, unset)
 val := EnvGet(key)
 
 if (val == "") 

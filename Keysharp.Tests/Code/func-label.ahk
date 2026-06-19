@@ -12,7 +12,7 @@ If (x == 1)
 else
 	FileAppend "fail", "*"
 
-If (y == null)
+If (y == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

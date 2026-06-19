@@ -32,7 +32,7 @@ if (y = "a.b.c.d.e.f")
 else
 	FileAppend "fail", "*"
 
-y := StrReplace(x, ",", ".", null, &varct)
+y := StrReplace(x, ",", ".", unset, &varct)
 
 if (y = "a.b.c.d.e.f")
 	FileAppend "pass", "*"

@@ -329,7 +329,6 @@ namespace Keysharp.Parsing
 					result = false;
 					return true;
 
-				case NullTxt:
 				case Unset:
 					result = null;
 					return true;

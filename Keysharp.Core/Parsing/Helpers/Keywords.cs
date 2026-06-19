@@ -668,7 +668,6 @@ namespace Keysharp.Parsing
 			NotTxt,
 			TrueTxt,
 			FalseTxt,
-			NullTxt,
 			IsTxt,
 			FlowBreak,
 			FlowContinue,

@@ -20,47 +20,42 @@ if (x is unset)
 else
 	FileAppend "fail", "*"
 
-if (x is null)
+if (x = unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (x = null)
+if (x == unset)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (x == null)
-	FileAppend "pass", "*"
-else
-	FileAppend "fail", "*"
-
-if (null = x)
+if (unset = x)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 	
-if (null == x)
+if (unset == x)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (x != null)
+if (x != unset)
 	FileAppend "fail", "*"
 else
 	FileAppend "pass", "*"
 
-if (x !== null)
+if (x !== unset)
 	FileAppend "fail", "*"
 else
 	FileAppend "pass", "*"
 
-if (null != x)
+if (unset != x)
 	FileAppend "fail", "*"
 else
 	FileAppend "pass", "*"
 	
-if (null !== x)
+if (unset !== x)
 	FileAppend "fail", "*"
 else
 	FileAppend "pass", "*"

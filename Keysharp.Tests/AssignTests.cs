@@ -23,7 +23,7 @@ namespace Keysharp.Tests
 		public void AssignMultiline() => Assert.IsTrue(TestScript("assign-multiline", false));
 
 		[Test, Category("Assign")]
-		public void AssignNull() => Assert.IsTrue(TestScript("assign-null", true));
+		public void AssignUnset() => Assert.IsTrue(TestScript("assign-unset", true));
 
 		[Test, Category("Assign")]
 		public void AssignNumerics() => Assert.IsTrue(TestScript("assign-numerics", true));

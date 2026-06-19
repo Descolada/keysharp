@@ -1422,10 +1422,10 @@ namespace Keysharp.Parsing.Syntax
 					// outer GetPropertyValue/GetIndex/Invoke to the *OrNull form (as for IsSet). Lowered to C#'s `??` so b is
 					// only evaluated when a is unset (short-circuit) — `b ?? MsgBox()` must not call MsgBox() when b is set.
 					if (b.Op == "??") return Coalesce(RewriteToOrNull(LowerExpr(b.Left)), LowerExpr(b.Right));
-					// `X is unset` / `X is null` test whether X is unset, so X itself must NOT raise when unset — make its
+					// `X is unset` tests whether X is unset, so X itself must NOT raise when unset — make its
 					// outer GetIndex/GetPropertyValue/Invoke lenient (`*OrNull`); `Is(null, null)` is then true.
 					if (b.Op.Equals("is", System.StringComparison.OrdinalIgnoreCase)
-						&& b.Right is NameExpr { Name: "unset" or "null" })
+						&& b.Right is NameExpr { Name: "unset" })
 						return Op("Is", RewriteToOrNull(LowerExpr(b.Left)), Null);
 					if (BinOps.TryGetValue(b.Op, out var m))
 					{

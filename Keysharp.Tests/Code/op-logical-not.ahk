@@ -101,22 +101,17 @@ testnot(x, y := false)
 
 x := 123
 
-if (not (x is null))
-	FileAppend "pass", "*"
-else
-	FileAppend "fail", "*"
-
 if (not (x is unset))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (not (x = null))
+if (not (x = unset))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
 
-if (not (x == null))
+if (not (x == unset))
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"

@@ -36,25 +36,30 @@ namespace Keysharp.Internals.Platform.Unix
 		static PlatformManager()
 		{
 #if LINUX
-			_ = "echo $DESKTOP_SESSION".Bash(out var sessionOutput);
-			var session = sessionOutput.ToLower();
+			// Detect the desktop environment from the standard freedesktop variables rather than
+			// shelling out to bash on every startup. XDG_CURRENT_DESKTOP is the canonical source (a
+			// colon-separated list, e.g. "ubuntu:GNOME"); fall back to the older session variables.
+			// These flags only select the per-DE logout/session command, so an unrecognized DE leaves
+			// them all false (no command is sent) instead of wrongly assuming GNOME.
+			var de = (Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")
+					  ?? Environment.GetEnvironmentVariable("XDG_SESSION_DESKTOP")
+					  ?? Environment.GetEnvironmentVariable("DESKTOP_SESSION")
+					  ?? string.Empty).ToLowerInvariant();
 
-			if (session.Contains("gnome", StringComparison.OrdinalIgnoreCase))
+			if (de.Contains("gnome") || de.Contains("unity"))
 				isGnome = true;
-			else if (session.Contains("kde", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("kde") || de.Contains("plasma"))
 				isKde = true;
-			else if (session.Contains("xfce", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("xfce"))
 				isXfce = true;
-			else if (session.Contains("mate", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("mate"))
 				isMate = true;
-			else if (session.Contains("cinnamon", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("cinnamon"))
 				isCinnamon = true;
-			else if (session.Contains("lxqt", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("lxqt"))
 				isLxqt = true;
-			else if (session.Contains("lxde", StringComparison.OrdinalIgnoreCase))
+			else if (de.Contains("lxde"))
 				isLxde = true;
-			else
-				isGnome = true;//Assume Gnome if no other DE was found.
 #endif
 		}
 

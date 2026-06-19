@@ -39,6 +39,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>state: 0 = normal, 1 = minimized, 2 = maximized.</summary>
 		Task SetWindowStateAsync(ulong handle, int state);
 
+		/// <summary>Keep the window above all others (true) or clear keep-above (false).</summary>
+		Task SetWindowAboveAsync(ulong handle, bool above);
+
 		Task CloseWindowAsync(ulong handle);
 
 		Task SendMouseMoveAbsoluteAsync(int x, int y);
@@ -122,6 +125,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendSetWindowState(ulong handle, int state)
 			=> RunCommand(p => p.SetWindowStateAsync(handle, state));
+
+		internal static bool SendSetWindowAbove(ulong handle, bool above)
+			=> RunCommand(p => p.SetWindowAboveAsync(handle, above));
 
 		internal static bool SendCloseWindow(ulong handle)
 			=> RunCommand(p => p.CloseWindowAsync(handle));

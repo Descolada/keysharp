@@ -14,6 +14,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal bool Minimized { get; init; }
 		internal bool Maximized { get; init; }
 		internal bool Visible { get; init; }
+		// Keep-above state. Not yet populated by the per-compositor windowInfo scripts (the foreign
+		// query path can't read it at all), so the WaylandWindowItem getter is currently best-effort.
+		internal bool AlwaysOnTop { get; init; }
 	}
 }
 #endif

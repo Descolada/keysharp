@@ -268,7 +268,7 @@ namespace Keysharp.Parsing.Lexing
 				char prev = ' ';
 				while (_pos < _n && Cur != '\n' && Cur != '\r')
 				{
-					if (Cur == '`') { Advance(); if (_pos < _n) Advance(); prefixEnd = _pos; prev = '`'; continue; }
+					if (Cur == '`') { Advance(); if (_pos < _n && Cur != '\n' && Cur != '\r') Advance(); prefixEnd = _pos; prev = '`'; continue; } // escape: skip next char but never the line terminator (CRLF/LF parity)
 					if (Cur == quote) { closed = true; break; }
 					if (Cur == ';' && (prev == ' ' || prev == '\t')) break;   // a `;`-comment ends the visible content
 					prev = Cur;
@@ -297,7 +297,7 @@ namespace Keysharp.Parsing.Lexing
 			{
 				var ch = _s[_pos];
 				if (ch == '\n' || ch == '\r') break;   // AHK strings do not span raw line breaks (unterminated)
-				if (ch == '`') { Advance(); if (_pos < _n) Advance(); continue; } // backtick escape: skip next char
+				if (ch == '`') { Advance(); if (_pos < _n && Cur != '\n' && Cur != '\r') Advance(); continue; } // backtick escape: skip next char but never the line terminator (CRLF/LF parity)
 				if (ch == quote) { Advance(); return; } // closing quote
 				Advance();
 			}
@@ -554,7 +554,11 @@ namespace Keysharp.Parsing.Lexing
 			// One key: an identifier-like run (a key name) or a single character.
 			if (char.IsLetterOrDigit(_s[i]) || _s[i] == '_')
 				while (i < _n && (char.IsLetterOrDigit(_s[i]) || _s[i] == '_')) i++;
-			else if (_s[i] == '`') { i++; if (i < _n) i++; }
+			// Backtick escape: skip the escaped char too, but never the line terminator. A trailing
+			// backtick at EOL is the literal backtick key; consuming the following char would eat the
+			// '\n' on LF files (the next char after '`' is '\r' on CRLF, '\n' on LF), making an
+			// otherwise-valid remap like "+w::`" fail to parse on Linux while passing on Windows.
+			else if (_s[i] == '`') { i++; if (i < _n && _s[i] != '\n' && _s[i] != '\r') i++; }
 			else i++;
 			int keyEnd = i;
 			while (i < _n && (_s[i] == ' ' || _s[i] == '\t')) i++;          // trailing whitespace

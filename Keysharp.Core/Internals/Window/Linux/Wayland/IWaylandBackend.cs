@@ -70,6 +70,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		bool TrySetWindowState(nint handle, FormWindowState state) => false;
 
+		/// <summary>Keep the window above (true) / clear keep-above (false). False = unsupported.</summary>
+		bool TrySetAlwaysOnTop(nint handle, bool onTop) => false;
+
 		bool TryCloseWindow(nint handle) => false;
 
 		// ---- Mouse simulation -------------------------------------------

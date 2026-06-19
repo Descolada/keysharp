@@ -15,6 +15,11 @@ namespace Keysharp.Internals.Window.Linux.X11
 		internal const ulong CurrentTime = 0UL;  // Xlib constant
 
 		internal const int GrabModeAsync = 1;
+
+		// XSetInputFocus revert_to values (X.h)
+		internal const int RevertToNone = 0;
+		internal const int RevertToPointerRoot = 1;
+		internal const int RevertToParent = 2;
 		internal const uint AnyModifier = 1 << 15;
 		internal const uint ShiftMask = 1 << 0;
 		internal const uint LockMask = 1 << 1;
@@ -43,6 +48,9 @@ namespace Keysharp.Internals.Window.Linux.X11
 
 		[DllImport(libX11Name)]
 		internal static extern int XGetInputFocus(nint display, out long window, out int focusState);
+
+		[DllImport(libX11Name)]
+		internal static extern int XSetInputFocus(nint display, long window, int revertTo, ulong time);
 
 		[DllImport(libX11Name)]
 		internal static extern int XDeleteProperty(nint display, long window, nint property);

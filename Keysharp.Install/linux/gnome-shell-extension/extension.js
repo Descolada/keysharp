@@ -63,6 +63,12 @@ const DBUS_IFACE_XML = `
       <arg type="i" direction="in" name="state"/>
     </method>
 
+    <!-- above: true = keep above all others, false = clear keep-above. -->
+    <method name="SetWindowAbove">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="in" name="above"/>
+    </method>
+
     <method name="CloseWindow">
       <arg type="t" direction="in" name="handle"/>
     </method>
@@ -256,6 +262,21 @@ export default class KeysharpExtension {
         } else {
             win.unminimize();
             win.unmaximize(Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL);
+        }
+    }
+
+    SetWindowAbove(handle, above) {
+        const win = this._findWindow(handle);
+        if (!win) return;
+
+        // Mutter exposes make_above()/unmake_above(); guard with is_above() so a redundant
+        // call doesn't throw on compositor versions that are strict about state transitions.
+        if (above) {
+            if (!win.is_above())
+                win.make_above();
+        } else {
+            if (win.is_above())
+                win.unmake_above();
         }
     }
 

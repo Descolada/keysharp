@@ -19,7 +19,9 @@ namespace Keysharp.Internals.Input.Linux
 		// Both synthesis (SYNTHESIS_RESULT returned after enqueue, not after uinput
 		// delivery) and queries (GET_KEY_STATE, GET_INDICATOR_STATE, etc.) complete in
 		// one short IPC round-trip, so queryGate is never held for long.
-		private static KeysharpInputdClient client;
+		// volatile so the best-effort lock-free read in IsDaemonReachable (when a capability prompt is
+		// holding 'gate') observes a consistent connect/disconnect state.
+		private static volatile KeysharpInputdClient client;
 		private static KeysharpInputdClient queryClient;
 		private const KeysharpInputdClient.Capabilities InputdGrantedCapabilities =
 			KeysharpInputdClient.Capabilities.HookKeyboard
@@ -52,6 +54,27 @@ namespace Keysharp.Internals.Input.Linux
 				return true;
 			}))
 				throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
+		}
+
+		/// <summary>
+		/// Best-effort panic release: asks keysharp-inputd to drop ALL grabs and block-input
+		/// (emergency passthrough). Sent on the query channel so it works even while the hook lane and
+		/// the main script thread are busy/hung. Never throws — if even the query channel is gone there
+		/// is nothing more to do here (the daemon also auto-releases when this client disconnects).
+		/// </summary>
+		internal static void EmergencyReleaseInput()
+		{
+			try
+			{
+				_ = TryUseQueryClient(qc =>
+				{
+					qc.EmergencyPassthrough();
+					return true;
+				});
+			}
+			catch
+			{
+			}
 		}
 
 		internal static bool TryGetIndicatorState(out bool capsLock, out bool numLock, out bool scrollLock)
@@ -394,8 +417,21 @@ namespace Keysharp.Internals.Input.Linux
 			if (IsLegacyX11FallbackActive)
 				return false;
 
-			lock (gate)
+			// A capability/trust prompt in EnsureCapabilities can hold 'gate' for as long as the user
+			// takes to decide (tens of seconds). This probe drives sender selection and must stay
+			// responsive, so don't block behind that prompt: if the lock isn't promptly available,
+			// answer from the current (volatile) connection state instead of stalling.
+			if (!gate.TryEnter(TimeSpan.FromMilliseconds(50)))
+				return client != null;
+
+			try
+			{
 				return TryEnsureConnected("probe keysharp-inputd", out _, out _);
+			}
+			finally
+			{
+				gate.Exit();
+			}
 		}
 
 		private static bool TryConnect(string operation, out PermissionStatus status, out string message)

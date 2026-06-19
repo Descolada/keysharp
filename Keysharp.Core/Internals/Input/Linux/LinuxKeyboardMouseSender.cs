@@ -20,6 +20,11 @@ namespace Keysharp.Internals.Input.Linux
 		private static readonly int unicodeRestoreDelayMs = GetUnicodeRestoreDelayMs();
 			private readonly object heldUnicodeRemapGate = new();
 			private readonly Dictionary<char, RemappedKeycodeSlot> heldUnicodeRemaps = [];
+			// Injection keycodes currently claimed by an in-flight transient OR held unicode remap.
+			// Guarded by heldUnicodeRemapGate. Slot creation reserves a keycode here atomically with the
+			// XChangeKeyboardMapping that overwrites it, and restore releases it, so two concurrent sends
+			// can never claim the same keycode and clobber each other's saved original mapping.
+			private readonly HashSet<uint> activeInjectionKeycodes = [];
 			private readonly object suspendedKeyGrabGate = new();
 			private readonly Dictionary<uint, SuspendedKeyGrabState> suspendedKeyGrabs = [];
 			private bool disposed;
@@ -336,7 +341,7 @@ namespace Keysharp.Internals.Input.Linux
 						var dy = (int)(ev.Y * scale);
 
 						if (gnomeMouse?.TrySendMouseMoveRelative(dx, dy) != true)
-							sim.SimulateMouseMovementRelative((short)dx, (short)dy);
+							sim.SimulateMouseMovementRelative(ClampShort(dx), ClampShort(dy));
 
 						break;
 					}
@@ -349,7 +354,7 @@ namespace Keysharp.Internals.Input.Linux
 						var sy = (int)(my * scale);
 
 						if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
-							sim.SimulateMouseMovement((short)sx, (short)sy);
+							sim.SimulateMouseMovement(ClampShort(sx), ClampShort(sy));
 
 						break;
 					}
@@ -365,7 +370,7 @@ namespace Keysharp.Internals.Input.Linux
 							var sy = (int)(my * scale);
 
 							if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
-								sim.SimulateMouseMovement((short)sx, (short)sy);
+								sim.SimulateMouseMovement(ClampShort(sx), ClampShort(sy));
 						}
 
 						if (gnomeMouse?.TrySendMouseButton((uint)ev.Button, true) != true)
@@ -375,7 +380,7 @@ namespace Keysharp.Internals.Input.Linux
 							else
 							{
 								EnsureCoords(ref mx, ref my);
-								sim.SimulateMousePress((short)(mx * scale), (short)(my * scale), ev.Button);
+								sim.SimulateMousePress(ClampShort(mx * scale), ClampShort(my * scale), ev.Button);
 							}
 						}
 
@@ -393,7 +398,7 @@ namespace Keysharp.Internals.Input.Linux
 							var sy = (int)(my * scale);
 
 							if (gnomeMouse?.TrySendMouseMoveAbsolute(sx, sy) != true)
-								sim.SimulateMouseMovement((short)sx, (short)sy);
+								sim.SimulateMouseMovement(ClampShort(sx), ClampShort(sy));
 						}
 
 						if (gnomeMouse?.TrySendMouseButton((uint)ev.Button, false) != true)
@@ -403,7 +408,7 @@ namespace Keysharp.Internals.Input.Linux
 							else
 							{
 								EnsureCoords(ref mx, ref my);
-								sim.SimulateMouseRelease((short)(mx * scale), (short)(my * scale), ev.Button);
+								sim.SimulateMouseRelease(ClampShort(mx * scale), ClampShort(my * scale), ev.Button);
 							}
 						}
 
@@ -641,15 +646,25 @@ namespace Keysharp.Internals.Input.Linux
 				return false;
 			}
 
-			var original = XDisplay.Default.XGetKeyboardMapping((byte)injectionKeycode, 1, out var keysymsPerKeycode);
+			slot = null;
 
-			if (original.Length == 0 || keysymsPerKeycode <= 0)
+			lock (heldUnicodeRemapGate)
 			{
-				slot = null;
-				return false;
-			}
+				// Atomically claim the keycode. If another in-flight remap grabbed it between selection
+				// and here, skip rather than overwrite (and later restore) its mapping -- doing so would
+				// save the already-remapped keysym as the "original" and corrupt the keymap on restore.
+				if (!activeInjectionKeycodes.Add(injectionKeycode))
+					return false;
 
-			var remapped = new UIntPtr[original.Length];
+				var original = XDisplay.Default.XGetKeyboardMapping((byte)injectionKeycode, 1, out var keysymsPerKeycode);
+
+				if (original.Length == 0 || keysymsPerKeycode <= 0)
+				{
+					activeInjectionKeycodes.Remove(injectionKeycode);
+					return false;
+				}
+
+				var remapped = new UIntPtr[original.Length];
 
 				for (var i = 0; i < remapped.Length; i++)
 					remapped[i] = keysym;
@@ -657,28 +672,26 @@ namespace Keysharp.Internals.Input.Linux
 				XDisplay.Default.XChangeKeyboardMapping((int)injectionKeycode, keysymsPerKeycode, remapped, 1);
 				XDisplay.Default.XSync(false);
 
+				slot = new RemappedKeycodeSlot
+				{
+					InjectionVk = injectionVk,
+					InjectionKeycode = injectionKeycode,
+					OriginalMapping = original,
+					KeysymsPerKeycode = keysymsPerKeycode
+				};
+			}
+
 			if (unicodeRemapDelayMs > 0)
 				Keysharp.Internals.Flow.SleepWithoutInterruption(unicodeRemapDelayMs);
 
-			slot = new RemappedKeycodeSlot
-			{
-				InjectionVk = injectionVk,
-				InjectionKeycode = injectionKeycode,
-				OriginalMapping = original,
-				KeysymsPerKeycode = keysymsPerKeycode
-			};
 			return true;
 		}
 
+		// True when the keycode is currently claimed by any in-flight unicode remap (transient or held).
 		private bool IsHeldUnicodeKeycodeInUse(uint keycode)
 		{
-			foreach (var slot in heldUnicodeRemaps.Values)
-			{
-				if (slot.InjectionKeycode == keycode)
-					return true;
-			}
-
-			return false;
+			lock (heldUnicodeRemapGate)
+				return activeInjectionKeycodes.Contains(keycode);
 		}
 
 		private void SendHeldUnicodeRemapEvent(UnixHookThread lht, RemappedKeycodeSlot slot, bool isPress, long extraInfo)
@@ -704,14 +717,18 @@ namespace Keysharp.Internals.Input.Linux
 			return new Rune(ch);
 		}
 
-		private static void RestoreRemappedKeycodeSlot(RemappedKeycodeSlot slot)
+		private void RestoreRemappedKeycodeSlot(RemappedKeycodeSlot slot)
 		{
-				if (slot == null)
-					return;
+			if (slot == null)
+				return;
 
+			lock (heldUnicodeRemapGate)
+			{
 				XDisplay.Default.XChangeKeyboardMapping((int)slot.InjectionKeycode, slot.KeysymsPerKeycode, slot.OriginalMapping, 1);
 				XDisplay.Default.XSync(false);
+				activeInjectionKeycodes.Remove(slot.InjectionKeycode);
 			}
+		}
 
 		private void SendXTestKeyForVk(UnixHookThread lht, uint vk, bool isPress, long extraInfo)
 		{
@@ -721,8 +738,28 @@ namespace Keysharp.Internals.Input.Linux
 			SendXTestKeycodeEvent(lht, vk, keycode, isPress, extraInfo);
 		}
 
+		private static bool warnedWaylandKeyboardUnavailable;
+
+		// On Wayland this sender is only chosen when keysharp-inputd is unreachable, in which case the
+		// keyboard path below is pure X11/XTEST -- which Wayland compositors ignore, so keystrokes never
+		// reach applications. Surface that once (it used to be a completely silent no-op) with an
+		// actionable hint rather than leaving the user to wonder why Send does nothing.
+		private static void WarnIfWaylandKeyboardUnavailable()
+		{
+			if (warnedWaylandKeyboardUnavailable || !PlatformManager.IsWaylandSession)
+				return;
+
+			warnedWaylandKeyboardUnavailable = true;
+			Script.WriteUncaughtErrorToStdErr(
+				"Keysharp: keyboard Send is falling back to X11/XTEST, which Wayland compositors ignore, " +
+				"so keystrokes will not reach applications. Install and enable the keysharp-inputd helper " +
+				"(re-run the installer, or 'keysharp-inputd --install-input-access') to enable input synthesis on Wayland.");
+		}
+
 		private void SendKeyEventViaX11OrBackend(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
 		{
+			WarnIfWaylandKeyboardUnavailable();
+
 			if (TryGetKeycodeForVk(lht, vk, out var keycode))
 			{
 				if (eventType == KeyEventTypes.KeyDown || eventType == KeyEventTypes.KeyDownAndUp)

@@ -47,7 +47,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		internal override bool AlwaysOnTop { get => false; set { } }
+		internal override bool AlwaysOnTop
+		{
+			// No foreign-client way to read keep-above on Wayland; the snapshot doesn't carry it.
+			get => isBackendWindow && Info?.AlwaysOnTop == true;
+			set
+			{
+				if (!IsSpecified)
+					return;
+
+				// Only the IPC backends (KWin/GNOME/Cinnamon) can set keep-above. Foreign-toplevel
+				// compositors (sway/hyprland/wlroots/COSMIC) have no such protocol, so fail loudly
+				// instead of silently doing nothing.
+				if (isBackendWindow && backend.TrySetAlwaysOnTop(Handle, value))
+					return;
+
+				_ = Keysharp.Builtins.Errors.OSErrorOccurred("Setting always-on-top is not supported for this window on the current Wayland compositor.");
+			}
+		}
 
 		internal override bool Bottom { set { } }
 
@@ -80,7 +97,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			get => isBackendWindow ? Info?.FrameGeometry ?? Rectangle.Empty : Rectangle.Empty;
 			set
 			{
-				if (!isBackendWindow || !IsSpecified)
+				if (!IsSpecified)
 					return;
 
 				var setPos  = value.X != Unchanged || value.Y != Unchanged;
@@ -88,6 +105,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (!setPos && !setSize)
 					return;
+
+				// Foreign-toplevel compositors (sway/hyprland/wlroots/COSMIC) expose no move/resize
+				// protocol and no geometry, so this used to silently no-op. Fail loudly instead.
+				if (!isBackendWindow)
+				{
+					_ = Keysharp.Builtins.Errors.OSErrorOccurred("Moving/resizing windows is not supported on this Wayland compositor (the wlr-foreign-toplevel protocol exposes no geometry).");
+					return;
+				}
 
 				var rect = Info?.FrameGeometry ?? Rectangle.Empty;
 

@@ -263,16 +263,22 @@ namespace Keysharp.Internals.Window.Linux
 		{
 			get
 			{
-				var ctrl = Control.FromHandle(Handle);
-				return ctrl != null && ctrl.Enabled;
-				//Need to figure out how to do this for non Winforms controls.//TODO
+				if (Control.FromHandle(Handle) is Control ctrl)
+					return ctrl.Enabled;
+
+				// X11 has no core-protocol equivalent of Win32's WS_DISABLED / IsWindowEnabled:
+				// a "disabled" state is a toolkit-level concept (GTK/Qt widget sensitivity), not
+				// a window property, so it cannot be queried for a foreign native window. Treat
+				// any existing window as enabled, matching the interactive default for real windows.
+				return IsSpecified;
 			}
 			set
 			{
 				if (Control.FromHandle(Handle) is Control ctrl)
 					ctrl.Enabled = value;
 
-				//Need to figure out how to do this for non Winforms controls.//TODO
+				// No-op for foreign native X11 windows: see the getter. There is no X11 mechanism
+				// to enable/disable a window we do not own.
 			}
 		}
 

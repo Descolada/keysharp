@@ -839,6 +839,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					return;
 				}
 
+				// Emergency panic-ungrab is checked here, before the shared callback gate, so it still
+				// fires when the main script thread is hung or has BlockInput active (a runaway script
+				// can otherwise lock the user out since inputd grabs the devices).
+				CheckInputdPanicCombo(hookEvent);
+
 				var block = false;
 				var callbackStateLost = false;
 
@@ -915,6 +920,48 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// disconnect/error (never on an intentional stop — the caller checks the
 		// cancellation token first). Recovers on a separate thread so we don't rebuild
 		// hooks from the dying reader thread.
+		// Emergency panic-ungrab combo state (Ctrl+Alt+Pause). Updated and read only on the keyboard
+		// hook reader thread, so no synchronization is needed.
+		private bool inputdPanicCtrlDown;
+		private bool inputdPanicAltDown;
+
+		// Detects Ctrl+Alt+Pause from the raw keyboard hook stream and asks the daemon to release all
+		// grabs/block-input. Runs before the callback gate so it works even when the main thread is
+		// hung. Never alters the event's pass/block decision -- the keystroke still flows normally.
+		private void CheckInputdPanicCombo(in KeysharpInputdClient.HookEvent hookEvent)
+		{
+			if (hookEvent.HookType != KeysharpInputdClient.HookType.KeyboardLowLevel)
+				return;
+
+			var ev = hookEvent.Keyboard;
+			var down = (ev.Flags & 0x80u) == 0 && ev.Message != 0x0101u && ev.Message != 0x0105u;
+
+			switch (ev.VkCode)
+			{
+				case VK_CONTROL:
+				case VK_LCONTROL:
+				case VK_RCONTROL:
+					inputdPanicCtrlDown = down;
+					break;
+
+				case VK_MENU:
+				case VK_LMENU:
+				case VK_RMENU:
+					inputdPanicAltDown = down;
+					break;
+
+				case VK_PAUSE:
+				case VK_CANCEL: // Ctrl+Pause reports as Break/Cancel on some layouts.
+					if (down && inputdPanicCtrlDown && inputdPanicAltDown)
+					{
+						Ks.OutputDebugLine("keysharp-inputd: Ctrl+Alt+Pause emergency passthrough - releasing all grabs/block-input.");
+						KeysharpInputdManager.EmergencyReleaseInput();
+					}
+
+					break;
+			}
+		}
+
 		private void HandleInputdHookReaderLoss(string reason)
 		{
 			if (Interlocked.Exchange(ref inputdRecoveryInFlight, 1) == 1)

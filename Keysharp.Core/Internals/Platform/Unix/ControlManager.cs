@@ -333,7 +333,14 @@ namespace Keysharp.Internals.Platform.Unix
 				if (item.Control is Control ctrl2)
 					ctrl2.Focus();
 				else
-					item.Active = true;//Will not work for X11.//TODO
+#if LINUX
+					// Native (non-Eto) X11 child window: focus the control directly. item.Active=true
+					// only activates the containing top-level window, which does not move keyboard
+					// focus onto the sub-control. XSetInputFocus targets the child window itself.
+					_ = XDisplay.Default.TrySetInputFocus(item.Handle.ToInt64());
+#else
+					item.Active = true;
+#endif
 			}
 		}
 

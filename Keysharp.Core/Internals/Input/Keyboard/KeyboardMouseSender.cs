@@ -140,6 +140,27 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		internal abstract bool MouseButtonsSwapped { get; }
 
+		// libuiohook's IEventSimulator takes Int16 screen coordinates. Truncate toward zero (matching the
+		// previous (short) cast) but clamp to the Int16 range first, so coordinates on a very large or
+		// HiDPI-scaled virtual desktop (> 32767 px) land at the screen edge instead of wrapping to a
+		// completely wrong location via signed-integer overflow.
+		protected static short ClampShort(double v) => (short)Math.Clamp((long)v, short.MinValue, short.MaxValue);
+
+		// SendPlay relies on a journal-playback hook that only exists on Windows. Senders without it
+		// override this to false; PerformMouseCommon/SendKeys then surface the silent downgrade-to-Event
+		// once via WarnIfPlayUnsupported so SendPlay scripts don't appear to misbehave with no explanation.
+		protected virtual bool SupportsPlayMode => true;
+		private static bool warnedNoPlayMode;
+
+		protected void WarnIfPlayUnsupported(SendModes mode)
+		{
+			if (mode == SendModes.Play && !SupportsPlayMode && !warnedNoPlayMode)
+			{
+				warnedNoPlayMode = true;
+				Script.WriteUncaughtErrorToStdErr("Keysharp: SendPlay / SendMode \"Play\" has no journal-playback equivalent on this platform and is sent as SendEvent instead.");
+			}
+		}
+
 		public string ApplyCase(string typedstr, string hotstr)
 		{
 			var typedlen = typedstr.Length;
@@ -748,7 +769,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// on whether the mouse buttons are swapped via the Control Panel.  Note that journal playback doesn't
 			// need the swap because every aspect of it is "logical".
 			if ((vk == VK_LBUTTON || vk == VK_RBUTTON) && sendMode != SendModes.Play && MouseButtonsSwapped)
-				vk = (vk == VK_LBUTTON) ? VK_RBUTTON : VK_LBUTTON;//Need to figure out making this cross platform.//TODO
+				vk = (vk == VK_LBUTTON) ? VK_RBUTTON : VK_LBUTTON;
 
 			// MSDN: If [event_flags] is not MOUSEEVENTF_WHEEL, [MOUSEEVENTF_HWHEEL,] MOUSEEVENTF_XDOWN,
 			// or MOUSEEVENTF_XUP, then [event_data] should be zero.
@@ -973,6 +994,8 @@ namespace Keysharp.Internals.Input.Keyboard
 				else
 					sendMode = SendModes.Input; // Resolve early so that other sections don't have to consider SM_INPUT_FALLBACK_TO_PLAY a valid value.
 			}
+
+			WarnIfPlayUnsupported(sendMode);
 
 			if (sendMode != SendModes.Event) // We're also responsible for setting sSendMode to SM_EVENT prior to returning.
 				InitEventArray(MAX_PERFORM_MOUSE_EVENTS, 0);
@@ -1603,6 +1626,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// sent; but the behavior seems inconsistent and might vary depending on OS type, so it seems best
 			// not to rely on it.
 			sendMode = sendModeOrig;
+			WarnIfPlayUnsupported(sendMode);
 
 			if (sendMode != SendModes.Event) // Build an array.  We're also responsible for setting sendMode to SM_EVENT prior to returning.
 			{

@@ -121,6 +121,9 @@ namespace Keysharp.Internals.Input.Linux
 		internal override int SiEventCount() => eventQueue.Count;
 		internal override int PbEventCount() => 0;
 
+		// No journal-playback hook via uinput/inputd; SendPlay is sent as SendEvent (see WarnIfPlayUnsupported).
+		protected override bool SupportsPlayMode => false;
+
 		internal override void PutKeybdEventIntoArray(uint keyAsModifiersLR, uint vk, uint sc, uint eventFlags, long extraInfo)
 		{
 			if (vk == 0 && sc == 0 && eventFlags == 0)
@@ -550,9 +553,15 @@ namespace Keysharp.Internals.Input.Linux
 				}
 			}
 
-			// inputd / uinput fallback: normalise to the 0-65535 absolute range.
-			var absTargetX = MouseCoordToAbs(targetX, (int)A_ScreenWidth);
-			var absTargetY = MouseCoordToAbs(targetY, (int)A_ScreenHeight);
+			// inputd / uinput fallback: normalise to the 0-65535 absolute range. The daemon's uinput
+			// absolute pointer maps [0,65535] across the WHOLE virtual desktop (the union of all
+			// monitors), so normalise against the virtual bounds and offset by its (possibly negative)
+			// origin rather than the primary screen size -- otherwise the cursor lands at the wrong
+			// place on a multi-monitor setup. For a single monitor at the origin this is identical
+			// to the previous A_ScreenWidth/Height behaviour.
+			var vb = Keysharp.Builtins.Monitor.GetVirtualScreenBounds();
+			var absTargetX = MouseCoordToAbs(targetX - (int)vb.Left, (int)vb.Width);
+			var absTargetY = MouseCoordToAbs(targetY - (int)vb.Top, (int)vb.Height);
 
 			if (sendMode == SendModes.Input)
 			{
@@ -602,8 +611,8 @@ namespace Keysharp.Internals.Input.Linux
 						MouseEvent(
 							(uint)MOUSEEVENTF.MOVE | (uint)MOUSEEVENTF.ABSOLUTE,
 							0,
-							MouseCoordToAbs(nextX, (int)A_ScreenWidth),
-							MouseCoordToAbs(nextY, (int)A_ScreenHeight));
+							MouseCoordToAbs(nextX - (int)vb.Left, (int)vb.Width),
+							MouseCoordToAbs(nextY - (int)vb.Top, (int)vb.Height));
 					}
 
 					previousX = nextX;

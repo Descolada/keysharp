@@ -82,6 +82,7 @@ namespace Keysharp.Parsing.Syntax
 		private readonly List<StatementSyntax> _dhhr = new();
 		private bool _persistent;            // a hotkey/hotstring makes the script persistent
 		private string _singleInstanceMode;  // #SingleInstance mode (Force/Ignore/Prompt/Off), null = directive absent
+		private bool _noTrayIcon;            // #NoTrayIcon present: applied at the top of Main, before any tray chrome is created
 		private string _hookMutexName;       // #HookMutexName argument (passed to the Script constructor), null = absent
 		// #Warn config: per-type output mode ("MsgBox"/"StdOut"/"OutputDebug") or null when that warning is off.
 		// Matching AHK, VarUnset and Unreachable are ENABLED by default (MsgBox mode); LocalSameAsGlobal is off until a
@@ -893,7 +894,11 @@ namespace Keysharp.Parsing.Syntax
 					long.TryParse(args, out var mtph);
 					return Set("Keysharp.Builtins.Accessors.A_MaxThreadsPerHotkey", Num(System.Math.Clamp(mtph, 1, 255).ToString()));
 				case "USEHOOK": return Set("MainScript.ForceKeybdHook", Op("ForceBool", NumArg(0)));
-				case "NOTRAYICON": return Set("MainScript.NoTrayIcon", True);
+				// #NoTrayIcon: recorded here and applied at the top of Main (see BuildMain), before any tray
+				// chrome is created. Emitting it inline in the auto-exec section runs too late -- the default
+				// tray icon would already have been created/shown by RunMainWindow, so the directive would be
+				// ignored (a brief tray flash on Linux).
+				case "NOTRAYICON": _noTrayIcon = true; return null;
 				case "NOMAINWINDOW": return Set("MainScript.NoMainWindow", True);
 				case "WINACTIVATEFORCE": return Set("MainScript.WinActivateForce", True);
 				// #MaxThreads N: global concurrent-thread cap (AHK clamps 1..255). MaxThreadsTotal is a uint field.
@@ -3144,6 +3149,10 @@ namespace Keysharp.Parsing.Syntax
 			{
 				ExprStmt(Inv(Member(Id("MainScript"), "SetName"), setNameArgs.ToArray())),
 			};
+			// #NoTrayIcon: suppress the tray icon before RunMainWindow creates the default tray chrome.
+			if (_noTrayIcon)
+				tryStmts.Add(ExprStmt(Assign(Access("MainScript.NoTrayIcon"),
+					SyntaxFactory.LiteralExpression(SyntaxKind.TrueLiteralExpression))));
 			// #SingleInstance: bail out (return 0) when another instance already handles this one — placed right after
 			// SetName so A_ScriptName is set, before any window/auto-exec runs (matches the canonical Main).
 			if (_singleInstanceMode != null)

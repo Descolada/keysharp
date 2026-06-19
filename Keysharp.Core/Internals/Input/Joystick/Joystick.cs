@@ -27,21 +27,24 @@ namespace Keysharp.Internals.Input.Joystick
 
 			for (; index < buf.Length && buf[index] >= '0' && buf[index] <= '9'; ++index) ; // self-contained loop to find the first non-digit.
 
-			if (index < buf.Length) // The string starts with a number.
+			if (index > 0) // The string starts with a joystick number, e.g. "2JoyX".
 			{
-				var val = (int?)buf.ParseLong();
-				var joystick_id = val.HasValue && val.Value > 0 ? (uint)val.Value - 1 : 0u;
+				var val = (int?)buf.Substring(0, index).ParseLong();
+				var joystick_id = val.HasValue && val.Value > 0 ? (uint)(val.Value - 1) : 0u;
 
-				if (joystick_id < 0 || joystick_id >= JoystickData.MaxJoysticks)
+				if (joystick_id >= JoystickData.MaxJoysticks)
 					return JoyControls.Invalid;
 
 				if (joystickID != null)
 					joystickID = joystick_id;  // Use ATOI vs. atoi even though hex isn't supported yet.
 			}
 
-			if (buf.StartsWith("Joy", StringComparison.OrdinalIgnoreCase))
+			// Everything after the optional leading joystick number is the control name itself.
+			var rest = index > 0 ? buf.Substring(index) : buf;
+
+			if (rest.StartsWith("Joy", StringComparison.OrdinalIgnoreCase))
 			{
-				var sub = buf.Substring(3);
+				var sub = rest.Substring(3);
 				var val = (int?)sub.ParseLong();
 
 				if (val.HasValue)
@@ -56,27 +59,27 @@ namespace Keysharp.Internals.Input.Joystick
 			if (allowOnlyButtons)
 				return JoyControls.Invalid;
 
-			if (buf.StartsWith("JoyX", StringComparison.OrdinalIgnoreCase)) return JoyControls.Xpos;
+			if (rest.StartsWith("JoyX", StringComparison.OrdinalIgnoreCase)) return JoyControls.Xpos;
 
-			if (buf.StartsWith("JoyY", StringComparison.OrdinalIgnoreCase)) return JoyControls.Ypos;
+			if (rest.StartsWith("JoyY", StringComparison.OrdinalIgnoreCase)) return JoyControls.Ypos;
 
-			if (buf.StartsWith("JoyZ", StringComparison.OrdinalIgnoreCase)) return JoyControls.Zpos;
+			if (rest.StartsWith("JoyZ", StringComparison.OrdinalIgnoreCase)) return JoyControls.Zpos;
 
-			if (buf.StartsWith("JoyR", StringComparison.OrdinalIgnoreCase)) return JoyControls.Rpos;
+			if (rest.StartsWith("JoyR", StringComparison.OrdinalIgnoreCase)) return JoyControls.Rpos;
 
-			if (buf.StartsWith("JoyU", StringComparison.OrdinalIgnoreCase)) return JoyControls.Upos;
+			if (rest.StartsWith("JoyU", StringComparison.OrdinalIgnoreCase)) return JoyControls.Upos;
 
-			if (buf.StartsWith("JoyV", StringComparison.OrdinalIgnoreCase)) return JoyControls.Vpos;
+			if (rest.StartsWith("JoyV", StringComparison.OrdinalIgnoreCase)) return JoyControls.Vpos;
 
-			if (buf.StartsWith("JoyPOV", StringComparison.OrdinalIgnoreCase)) return JoyControls.Pov;
+			if (rest.StartsWith("JoyPOV", StringComparison.OrdinalIgnoreCase)) return JoyControls.Pov;
 
-			if (buf.StartsWith("JoyName", StringComparison.OrdinalIgnoreCase)) return JoyControls.Name;
+			if (rest.StartsWith("JoyName", StringComparison.OrdinalIgnoreCase)) return JoyControls.Name;
 
-			if (buf.StartsWith("JoyButtons", StringComparison.OrdinalIgnoreCase)) return JoyControls.Buttons;
+			if (rest.StartsWith("JoyButtons", StringComparison.OrdinalIgnoreCase)) return JoyControls.Buttons;
 
-			if (buf.StartsWith("JoyAxes", StringComparison.OrdinalIgnoreCase)) return JoyControls.Axes;
+			if (rest.StartsWith("JoyAxes", StringComparison.OrdinalIgnoreCase)) return JoyControls.Axes;
 
-			if (buf.StartsWith("JoyInfo", StringComparison.OrdinalIgnoreCase)) return JoyControls.Info;
+			if (rest.StartsWith("JoyInfo", StringComparison.OrdinalIgnoreCase)) return JoyControls.Info;
 
 			return JoyControls.Invalid;
 		}
@@ -98,7 +101,7 @@ namespace Keysharp.Internals.Input.Joystick
 		/// 4) Even if the joySetCapture() succeeds, other programs (e.g. older games), would be prevented from
 		///    capturing the joystick while the script in question is running.
 		/// </summary>
-		internal static void PollJoysticks()//Will need to figure out making this cross platform.//TODO
+		internal static void PollJoysticks()
 		{
 #if WINDOWS
 			// Even if joystick hotkeys aren't currently allowed to fire, poll it anyway so that hotkey
@@ -134,6 +137,8 @@ namespace Keysharp.Internals.Input.Joystick
 				HotkeyDefinition.TriggerJoyHotkeys(i, buttons_newly_down);
 			}
 
+#elif LINUX
+			LinuxJoystick.PollJoysticks();
 #else
 			throw new NotImplementedException();
 #endif
@@ -252,6 +257,8 @@ namespace Keysharp.Internals.Input.Joystick
 			} // switch()
 
 			return resultDouble;// If above didn't return, the result should now be in result_double.
+#elif LINUX
+			return LinuxJoystick.ScriptGetJoyState(joy, joystickID);
 #else
 			throw new NotImplementedException();
 #endif

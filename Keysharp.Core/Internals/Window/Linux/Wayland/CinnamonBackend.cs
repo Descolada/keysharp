@@ -94,6 +94,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool SendCloseWindow(ulong seq)
 			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w)w.delete(global.get_current_time());return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
 
+		internal static bool SendSetAlwaysOnTop(ulong seq, bool above)
+			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(" + (above ? "true" : "false") + "){if(!w.is_above())w.make_above();}else{if(w.is_above())w.unmake_above();}}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
 		// Lazily creates a Clutter virtual pointer (Muffin is Clutter-based, same API as the
 		// GNOME extension) and stashes it on `global` so it persists across Eval calls.
 		private const string JsVPointer =
@@ -324,6 +327,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public bool TrySetWindowState(nint handle, FormWindowState state)
 			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetWindowState(seq, (int)state);
+
+		public bool TrySetAlwaysOnTop(nint handle, bool onTop)
+			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetAlwaysOnTop(seq, onTop);
 
 		public bool TryCloseWindow(nint handle)
 			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendCloseWindow(seq);

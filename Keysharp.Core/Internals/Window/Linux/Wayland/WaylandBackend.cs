@@ -314,6 +314,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return RunCommand(body, "state");
 			}
 
+			public bool TrySetAlwaysOnTop(nint handle, bool onTop)
+			{
+				if (!TryGetCompositorId(handle, out var id))
+					return false;
+
+				return RunCommand(WindowHelpers
+					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
+					+ "if (!w) { report({ ok: false }); return; }\n"
+					+ $"w.keepAbove = {(onTop ? "true" : "false")};\n"
+					+ "report({ ok: true });\n", "keepabove");
+			}
+
 			public bool TryCloseWindow(nint handle)
 			{
 				if (!TryGetCompositorId(handle, out var id))
@@ -773,6 +785,14 @@ function findWindow(id) {
 					return false;
 
 				return GnomeShellBridge.SendSetWindowState(seq, (int)state);
+			}
+
+			public bool TrySetAlwaysOnTop(nint handle, bool onTop)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				return GnomeShellBridge.SendSetWindowAbove(seq, onTop);
 			}
 
 			public bool TryCloseWindow(nint handle)

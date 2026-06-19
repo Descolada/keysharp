@@ -172,6 +172,29 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 		}
 
 		/// <summary>
+		/// Gives keyboard input focus to the specified window. XSetInputFocus raises a BadMatch
+		/// error when the target is not viewable, so the window is checked first and only focused
+		/// when mapped. RevertTo=Parent is used so focus falls back to the parent (the top-level
+		/// window) rather than the root if the control is later unmapped.
+		/// </summary>
+		/// <param name="window">The X11 window id to focus.</param>
+		/// <returns>True if focus was requested, false if the window was missing or not viewable.</returns>
+		internal bool TrySetInputFocus(long window)
+		{
+			if (Handle == 0 || window == 0)
+				return false;
+
+			var attr = new XWindowAttributes();
+
+			if (Xlib.XGetWindowAttributes(Handle, window, ref attr) == 0 || attr.map_state != MapState.IsViewable)
+				return false;
+
+			_ = Xlib.XSetInputFocus(Handle, window, Xlib.RevertToParent, Xlib.CurrentTime);
+			_ = Xlib.XFlush(Handle);
+			return true;
+		}
+
+		/// <summary>
 		/// Returns all Windows of this XDisplay
 		/// </summary>
 		/// <returns></returns>

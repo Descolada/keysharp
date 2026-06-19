@@ -57,16 +57,27 @@ namespace Keysharp.Builtins
 
 		internal static (long Width, long Height) GetVirtualScreenSize()
 		{
+			var (_, _, width, height) = GetVirtualScreenBounds();
+			return (width, height);
+		}
+
+		/// <summary>
+		/// Returns the bounding rectangle of the whole virtual desktop (the union of all monitors),
+		/// including its origin. The origin can be negative when a monitor sits left of / above the
+		/// primary, so callers that map a screen coordinate into a normalized range must offset by it.
+		/// </summary>
+		internal static (long Left, long Top, long Width, long Height) GetVirtualScreenBounds()
+		{
 			var allScreens = AllScreens;
 
 			if (allScreens.Length == 0)
-				return (0L, 0L);
+				return (0L, 0L, 0L, 0L);
 
 			var left = allScreens.Min(s => s.Bounds.Left);
 			var top = allScreens.Min(s => s.Bounds.Top);
 			var right = allScreens.Max(s => s.Bounds.Right);
 			var bottom = allScreens.Max(s => s.Bounds.Bottom);
-			return ((long)(right - left), (long)(bottom - top));
+			return ((long)left, (long)top, (long)(right - left), (long)(bottom - top));
 		}
 
 		/// <summary>

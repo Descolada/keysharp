@@ -56,8 +56,13 @@ Linux (and macOS where possible).
 
 ---
 
-## Large standalone feature (own design pass)
+## .NET / managed interop — already covered by the `Clr` class
 
-- [ ] **`DllCall` against .NET DLLs via reflection.** `Keysharp.Core/Builtins/Dll.cs:87`
-  Let scripts call into managed assemblies (assembly-qualified type names, assembly loading,
-  method reflection, argument marshaling). Substantial; OS-agnostic; scope on its own.
+- [x] **Calling into .NET DLLs.** (`Keysharp.Core/Builtins/Dll.cs:87` TODO resolved)
+  This is already implemented — not via `DllCall`, but by the dedicated `Clr` class
+  (`Keysharp.Core/Builtins/Clr/Clr.cs`). `Clr.Load(...)` loads a managed assembly and reflects over
+  its namespaces, types, instances, generics, indexers, `for`-in enumerators, and delegates — more
+  dynamic than overloading `DllCall` would be. Usage example in
+  `Keysharp.Tests/Code/external-clr.ahk` (`System := Clr.Load("System")`, then
+  `System.Text.StringBuilder(...)`, etc.). A `DllCall`-syntax shim for managed methods would be
+  redundant sugar at best; `DllCall` stays focused on native (C ABI) calls.

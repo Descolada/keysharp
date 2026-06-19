@@ -84,7 +84,10 @@ namespace Keysharp.Builtins
 		/// <exception cref="TypeError">A <see cref="TypeError"/> exception is thrown if any of the arguments was required to have a .Ptr member, but none was found.</exception>
 		public static unsafe object DllCall(object function, params object[] parameters)
 		{
-			//You should some day add the ability to use this with .NET dlls, exposing some type of reflection to the Script.TheScript.//TODO
+			// .NET (managed) interop is handled by the Clr class (Builtins/Clr/Clr.cs): Clr.Load(...) loads an
+			// assembly and reflects over its namespaces/types/instances (incl. generics, indexers, enumerators and
+			// delegates) far more dynamically than DllCall could, so DllCall stays focused on native (C ABI) calls.
+			// See Keysharp.Tests/Code/external-clr.ahk for usage.
 			nint handle = 0;
 			nint address = 0;
 

@@ -899,8 +899,6 @@ namespace Keysharp.Runtime
 
 		public static int OperateZero(object expression) => 0;
 
-		public static object OrMaybe(object left, object right) => Types.IsSet(left) == 1L ? left : right;
-
 
 		// Is methods
 

@@ -186,17 +186,21 @@ namespace Keysharp.Builtins
 			{
 				"Owner", (f, o) =>
 				{
-					if (o is string s)
-					{
-						if (int.TryParse(s, out var hwnd))
-						{
-							f.owner = hwnd;
+					var s = o as string ?? "";
+					nint ownerHandle = 0;
+
+					if (int.TryParse(s, out var hwnd))
+						ownerHandle = hwnd;
+					else if (Script.TheScript.mainWindow is Form mw)   // +Owner with no HWND => owned by the script's main window (AHK).
+						ownerHandle = mw.Handle;
+
+					f.owner = ownerHandle;   // applied at Show time on Windows; set on the form directly elsewhere.
 #if !WINDOWS
-							if (Forms.Control.FromHandle(new nint(hwnd)) is Form theform)
-								f.form.Owner = theform;
+					if (Forms.Control.FromHandle(ownerHandle) is Form theform)
+						f.form.Owner = theform;
 #endif
-						}
-					}
+					// An owned GUI has no taskbar button (matches AHK's +Owner behaviour).
+					f.form.ShowInTaskbar = false;
 				}
 			},
 #if WINDOWS
@@ -2328,7 +2332,14 @@ namespace Keysharp.Builtins
 
 			foreach (var split in Options.ParseOptions(options))
 			{
-				var str = split.Substring(1);
+				if (split.Length == 0)
+					continue;
+
+				// An option with no leading +/- means + (add/enable), per AHK. Separate the sign first; otherwise
+				// Substring(1) strips the first letter of a no-sign option (e.g. "AlwaysOnTop", "Owner") and it is misparsed.
+				var signed = split[0] == '+' || split[0] == '-';
+				var add = split[0] != '-';
+				var str = signed ? split.Substring(1) : split;
 
 				if (str.Length > 0)
 				{
@@ -2336,7 +2347,7 @@ namespace Keysharp.Builtins
 
 					if (str.StartsWith("MinSize", StringComparison.OrdinalIgnoreCase))
 					{
-						if (split[0] == '+')
+						if (add)
 							val = str.Substring(7);
 
 						if (showOptionsDkt.TryGetValue("MinSize", out var func))
@@ -2344,7 +2355,7 @@ namespace Keysharp.Builtins
 					}
 					else if (str.StartsWith("MaxSize", StringComparison.OrdinalIgnoreCase))
 					{
-						if (split[0] == '+')
+						if (add)
 							val = str.Substring(7);
 
 						if (showOptionsDkt.TryGetValue("MaxSize", out var func))
@@ -2352,30 +2363,18 @@ namespace Keysharp.Builtins
 					}
 					else if (str.StartsWith("Owner", StringComparison.OrdinalIgnoreCase))
 					{
-						if (split[0] == '+')
-							val = str.Substring(5);
-
-						if (showOptionsDkt.TryGetValue("Owner", out var func))
-							func(this, val);
+						// +Owner / +OwnerHWND adds an owner (a value of "" means owned by the script's main window).
+						if (add && showOptionsDkt.TryGetValue("Owner", out var func))
+							func(this, str.Substring(5));
 					}
 					else if (str.StartsWith("Parent", StringComparison.OrdinalIgnoreCase))
 					{
-						if (split[0] == '+')
-							val = str.Substring(6);
-
-						if (showOptionsDkt.TryGetValue("Owner", out var func))
-							func(this, val);
+						if (add && showOptionsDkt.TryGetValue("Owner", out var func))
+							func(this, str.Substring(6));
 					}
-					else if (showOptionsDkt.TryGetValue(str, out var func))//Used +/-.
+					else if (showOptionsDkt.TryGetValue(str, out var func))
 					{
-						if (split[0] == '+')
-							func(this, true);
-						else if (split[0] == '-')
-							func(this, false);
-					}
-					else if (showOptionsDkt.TryGetValue(split, out var func2))//No +/-, so just try as is.
-					{
-						func2(this, true);//No +/- so just assume true.
+						func(this, add);
 					}
 				}
 			}
@@ -3091,8 +3090,12 @@ namespace Keysharp.Builtins
 			// These are raw Win32 WS_/WS_EX_ style bits (e.g. +E0x8) with no portable equivalent, so this method is
 			// a no-op on non-Windows; portable window attributes are expressed through Eto's typed properties
 			// rather than raw style numbers.
-			foreach (var split in Options.ParseOptions(options))
+			foreach (var raw in Options.ParseOptions(options))
 			{
+				// An option with no leading +/- means + (add), per AHK. Normalize so the sign-aware checks below see an
+				// explicit sign; otherwise a no-sign flag like "AlwaysOnTop" parses as false (empty suffix => default) and
+				// is never applied — leaving the window non-topmost.
+				var split = (raw.Length > 0 && raw[0] != '+' && raw[0] != '-') ? "+" + raw : raw;
 				var str = split.Substring(1);
 
 				if (str.Length > 0)

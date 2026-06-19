@@ -146,7 +146,7 @@ namespace Keysharp.Parsing.Syntax
 			["="] = "ValueEquality", ["=="] = "IdentityEquality", ["!="] = "ValueInequality", ["!=="] = "IdentityInequality",
 			["~="] = "RegEx", ["!~="] = "NotRegEx",
 			["&&"] = "BooleanAnd", ["||"] = "BooleanOr", ["and"] = "BooleanAnd", ["or"] = "BooleanOr",
-			["is"] = "Is", ["??"] = "OrMaybe",
+			["is"] = "Is",   // `??` / `??=` are lowered to C#'s short-circuiting null-coalescing operator, not a helper call.
 		};
 
 		// The compiled script's full path ("*" for a from-string compile) and the caller-supplied startup name; used to
@@ -1141,7 +1141,10 @@ namespace Keysharp.Parsing.Syntax
 			switch (e)
 			{
 				case AssignExpr a:
-					if (a.Op == ":=" && a.Target is NameExpr tn) provided.Add(tn.Name.ToLowerInvariant());   // direct assignment
+					// `:=` plainly assigns the target. `.=` (concat-assign) also counts: AHK treats an unset target as ""
+					// for string concatenation, so `x .= 'a'` is a valid assignment to `x` and must not warn. Numeric
+					// compound ops (`+=`, `-=`, `*=`, ...) require a value and DO warn on an unset target, so they are excluded.
+					if ((a.Op == ":=" || a.Op == ".=") && a.Target is NameExpr tn) provided.Add(tn.Name.ToLowerInvariant());
 					CollectProvidedExpr(a.Target, provided, declaredGlobal); CollectProvidedExpr(a.Value, provided, declaredGlobal);
 					break;
 				case UnaryExpr u:
@@ -1416,8 +1419,9 @@ namespace Keysharp.Parsing.Syntax
 					if (b.Op == "&&" || b.Op.Equals("and", System.StringComparison.OrdinalIgnoreCase)) return LowerShortCircuit(b, andOp: true);
 					if (b.Op == "||" || b.Op.Equals("or", System.StringComparison.OrdinalIgnoreCase)) return LowerShortCircuit(b, andOp: false);
 					// `a ?? b` (maybe): the left's unset must yield null (not throw) so the default applies — rewrite its
-					// outer GetPropertyValue/GetIndex/Invoke to the *OrNull form (as for IsSet).
-					if (b.Op == "??") return Op("OrMaybe", RewriteToOrNull(LowerExpr(b.Left)), LowerExpr(b.Right));
+					// outer GetPropertyValue/GetIndex/Invoke to the *OrNull form (as for IsSet). Lowered to C#'s `??` so b is
+					// only evaluated when a is unset (short-circuit) — `b ?? MsgBox()` must not call MsgBox() when b is set.
+					if (b.Op == "??") return Coalesce(RewriteToOrNull(LowerExpr(b.Left)), LowerExpr(b.Right));
 					// `X is unset` / `X is null` test whether X is unset, so X itself must NOT raise when unset — make its
 					// outer GetIndex/GetPropertyValue/Invoke lenient (`*OrNull`); `Is(null, null)` is then true.
 					if (b.Op.Equals("is", System.StringComparison.OrdinalIgnoreCase)
@@ -1485,29 +1489,31 @@ namespace Keysharp.Parsing.Syntax
 				if (a.Op == ":=")
 					return DerefWrite(LowerExpr(dt.Name), LowerExpr(a.Value));
 				// Compound `%name% op= v`: capture the (possibly side-effecting) name once, then write op(read, v) back.
-				if (!BinOps.TryGetValue(a.Op[..^1], out var dop)) { Diag($"compound assignment to a dereference ('{a.Op}') not yet lowerable"); return Str(""); }
 				var nt = NewTemp();
-				return Op("MultiStatement", Assign(Id(nt), LowerExpr(dt.Name)),
-					DerefWrite(Id(nt), Op(dop, DerefRead(Id(nt)), LowerExpr(a.Value))));
+				var dval = CompoundValue(a.Op[..^1], DerefRead(Id(nt)), LowerExpr(a.Value));
+				if (dval == null) { Diag($"compound assignment to a dereference ('{a.Op}') not yet lowerable"); return Str(""); }
+				return Op("MultiStatement", Assign(Id(nt), LowerExpr(dt.Name)), DerefWrite(Id(nt), dval));
 			}
 			if (a.Target is MemberExpr me)
 			{
 				if (a.Op == ":=")   // target evaluated once — no temp needed
 					return Op("SetPropertyValue", LowerExpr(me.Target), Str(me.Name), LowerExpr(a.Value));
-				if (!BinOps.TryGetValue(a.Op[..^1], out var mm)) { Diag($"compound assignment to a member ('{a.Op}') not yet lowerable"); return Str(""); }
 				// Compound: capture the target once so a side-effecting target expression runs a single time.
 				var t = NewTemp();
+				var mval = CompoundValue(a.Op[..^1], Op("GetPropertyValue", Id(t), Str(me.Name)), LowerExpr(a.Value));
+				if (mval == null) { Diag($"compound assignment to a member ('{a.Op}') not yet lowerable"); return Str(""); }
 				return Op("MultiStatement", Assign(Id(t), LowerExpr(me.Target)),
-					Op("SetPropertyValue", Id(t), Str(me.Name), Op(mm, Op("GetPropertyValue", Id(t), Str(me.Name)), LowerExpr(a.Value))));
+					Op("SetPropertyValue", Id(t), Str(me.Name), mval));
 			}
 			if (a.Target is DynMemberExpr dme)   // obj.%x% := v / obj.%x% op= v — capture target and the computed name once
 			{
 				if (a.Op == ":=")
 					return Op("SetPropertyValue", LowerExpr(dme.Target), LowerExpr(dme.NameExpr), LowerExpr(a.Value));
-				if (!BinOps.TryGetValue(a.Op[..^1], out var dmm)) { Diag($"compound assignment to a member ('{a.Op}') not yet lowerable"); return Str(""); }
 				var dmt = NewTemp(); var dmn = NewTemp();
+				var dmval = CompoundValue(a.Op[..^1], Op("GetPropertyValue", Id(dmt), Id(dmn)), LowerExpr(a.Value));
+				if (dmval == null) { Diag($"compound assignment to a member ('{a.Op}') not yet lowerable"); return Str(""); }
 				return Op("MultiStatement", Assign(Id(dmt), LowerExpr(dme.Target)), Assign(Id(dmn), LowerExpr(dme.NameExpr)),
-					Op("SetPropertyValue", Id(dmt), Id(dmn), Op(dmm, Op("GetPropertyValue", Id(dmt), Id(dmn)), LowerExpr(a.Value))));
+					Op("SetPropertyValue", Id(dmt), Id(dmn), dmval));
 			}
 			if (a.Target is IndexExpr ie)
 			{
@@ -1518,7 +1524,6 @@ namespace Keysharp.Parsing.Syntax
 					argv.Add(LowerExpr(a.Value));
 					return Op("SetObject", argv.ToArray());
 				}
-				if (!BinOps.TryGetValue(a.Op[..^1], out var im)) { Diag($"compound assignment to an index ('{a.Op}') not yet lowerable"); return Str(""); }
 				// Compound: capture the target and each index once.
 				var tt = NewTemp();
 				var loweredArgs = LowerArgs(ie.Args);
@@ -1526,7 +1531,8 @@ namespace Keysharp.Parsing.Syntax
 				var ops = new List<ExpressionSyntax> { Assign(Id(tt), LowerExpr(ie.Target)) };
 				for (int k = 0; k < argTemps.Count; k++) ops.Add(Assign(Id(argTemps[k]), loweredArgs[k]));
 				List<ExpressionSyntax> IdxIds() => argTemps.Select(n => (ExpressionSyntax)Id(n)).ToList();
-				var newVal = Op(im, Op("GetIndex", Cons(Id(tt), IdxIds())), LowerExpr(a.Value));
+				var newVal = CompoundValue(a.Op[..^1], Op("GetIndex", Cons(Id(tt), IdxIds())), LowerExpr(a.Value));
+				if (newVal == null) { Diag($"compound assignment to an index ('{a.Op}') not yet lowerable"); return Str(""); }
 				var setArgs = new List<ExpressionSyntax> { Id(tt) };
 				setArgs.AddRange(IdxIds());
 				setArgs.Add(newVal);
@@ -1543,8 +1549,7 @@ namespace Keysharp.Parsing.Syntax
 			{
 				var refId = Id(NameMangler.Escape(tn.Name.ToLowerInvariant()));
 				var rv = a.Op == ":=" ? LowerExpr(a.Value)
-					: BinOps.TryGetValue(a.Op[..^1], out var bm) ? Op(bm, Op("GetPropertyValue", refId, Str("__Value")), LowerExpr(a.Value))
-					: null;
+					: CompoundValue(a.Op[..^1], Op("GetPropertyValue", refId, Str("__Value")), LowerExpr(a.Value));
 				if (rv == null) { Diag($"compound assignment '{a.Op}' not yet lowerable"); return Str(""); }
 				return Op("SetPropertyValue", refId, Str("__Value"), rv);
 			}
@@ -1554,9 +1559,8 @@ namespace Keysharp.Parsing.Syntax
 			if (a.Op == ":=") value = LowerExpr(a.Value);
 			else
 			{
-				var baseOp = a.Op[..^1];
-				if (BinOps.TryGetValue(baseOp, out var m)) value = Op(m, target, LowerExpr(a.Value));
-				else { Diag($"compound assignment '{a.Op}' not yet lowerable"); return Str(""); }
+				value = CompoundValue(a.Op[..^1], target, LowerExpr(a.Value));
+				if (value == null) { Diag($"compound assignment '{a.Op}' not yet lowerable"); return Str(""); }
 			}
 			return Assign(target, value);
 		}
@@ -3257,6 +3261,23 @@ namespace Keysharp.Parsing.Syntax
 		private static ExpressionSyntax Op(string method, params ExpressionSyntax[] args) =>
 			Inv(Access("Keysharp.Runtime.Script." + method), args);
 
+		// AHK's `??` / `??=`: yield the left operand if it is set (non-null), otherwise the right. Lowered to C#'s native
+		// null-coalescing operator so the right operand is NOT evaluated when the left is set (true short-circuit) — a plain
+		// helper call would eagerly evaluate both, e.g. `b ?? MsgBox()` would always call MsgBox(). The left is cast to
+		// object so a value-type operand (e.g. a numeric literal) is still a valid `??` left-hand side. Callers pass an
+		// unset-permissive (RewriteToOrNull) left so an unset read yields null rather than raising.
+		private static ExpressionSyntax Coalesce(ExpressionSyntax left, ExpressionSyntax right) =>
+			SyntaxFactory.ParenthesizedExpression(SyntaxFactory.BinaryExpression(SyntaxKind.CoalesceExpression,
+				SyntaxFactory.CastExpression(ObjType, SyntaxFactory.ParenthesizedExpression(left)), right));
+
+		// The new value for a compound assignment `target op= rhs`, where `read` is the lowered current value of the target.
+		// `??=` short-circuits via Coalesce (skipping rhs when the target is already set) and reads the target leniently so
+		// an unset target yields null instead of raising; every other op is a plain Script.<Op>(read, rhs). Null = not lowerable.
+		private ExpressionSyntax CompoundValue(string baseOp, ExpressionSyntax read, ExpressionSyntax rhs) =>
+			baseOp == "??" ? Coalesce(RewriteToOrNull(read), rhs)
+			: BinOps.TryGetValue(baseOp, out var m) ? Op(m, read, rhs)
+			: null;
+
 		private static ExpressionSyntax IfTest(ExpressionSyntax cond) => Op("IfTest", cond);
 		private static ExpressionSyntax Assign(ExpressionSyntax target, ExpressionSyntax value) =>
 			SyntaxFactory.AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, target, value);
@@ -3310,12 +3331,12 @@ namespace Keysharp.Parsing.Syntax
 			{
 				case NameExpr n:
 					var lown = n.Name.ToLowerInvariant();
-					if (_byRefParams != null && _byRefParams.Contains(lown))   // &param: read/write the underlying VarRef's __Value
-					{
-						var refId = Id(NameMangler.Escape(lown));
-						return MakeVarRefGS(Op("GetPropertyValue", refId, Str("__Value")),
-							Op("SetPropertyValue", refId, Str("__Value"), Id("KS_value")));
-					}
+					// &param: the param already holds a VarRef (or virtual reference) aliasing the caller's variable, so
+					// forward THAT ref directly. Re-wrapping it in a fresh VarRef would add a needless layer of indirection
+					// and — because MakeVarRef eagerly probes its getter — read the caller's variable, throwing UnsetError
+					// when it is currently unset (e.g. `f(&out)` where `f` fills `out` via a nested `g(&out)`).
+					if (_byRefParams != null && _byRefParams.Contains(lown))
+						return Id(NameMangler.Escape(lown));
 					var nr = NameRef(n.Name);
 					return MakeVarRefGS(nr, Assign(nr, Id("KS_value")));
 				// `&obj.prop` / `&obj[i]` produce a v2.1 PropRef bound to the property slot, via obj.__Ref(name[, args]).

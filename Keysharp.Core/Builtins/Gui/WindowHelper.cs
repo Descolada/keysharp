@@ -44,6 +44,14 @@ namespace Keysharp.Builtins
 			WindowItemBase.DoWinDelay();
 		}
 
+		// Same as DoDelayedAction but WITHOUT a trailing A_WinDelay, for the window functions AHK does not delay
+		// (WinMoveTop, WinMoveBottom, WinRedraw — see win.cpp WinMoveTopBottom/WinRedraw, neither calls DoWinDelay).
+		internal static void DoAction(Action act)
+		{
+			EnsureWindowAutomationPermission("window operation");
+			act();
+		}
+
 		internal static T DoDelayedFunc<T>(Func<T> func)
 		{
 			var val = func();
@@ -144,8 +152,7 @@ namespace Keysharp.Builtins
 						else win.Style = val.ParseLong().Value;
 					}
 				}
-
-				WindowItemBase.DoWinDelay();
+				// No A_WinDelay: AHK's WinSetStyle/WinSetExStyle do not call DoWinDelay.
 			}
 		}
 
@@ -167,8 +174,7 @@ namespace Keysharp.Builtins
 					set(win, true);
 				else if (val == -1)
 					set(win, !get(win));
-
-				WindowItemBase.DoWinDelay();
+				// No A_WinDelay: AHK's WinSetAlwaysOnTop/WinSetEnabled do not call DoWinDelay.
 			}
 		}
 	}

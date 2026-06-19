@@ -413,7 +413,7 @@ namespace Keysharp.Internals.Platform.Windows
 				if (WindowsAPI.SendMessageTimeout(item.Handle, msg, -1, str, SendMessageTimeoutFlags.SMTO_ABORTIFHUNG, 2000, out var index) == 0 || index.ToInt64() == WindowsAPI.CB_ERR) // CB_ERR == LB_ERR
 					return (long)Errors.TargetErrorOccurred($"Could not search for combo or list box item string {str}", title, text, excludeTitle, excludeText, DefaultErrorLong);
 
-				WindowItemBase.DoControlDelay();
+				// No A_ControlDelay: AHK's ControlFindItem is a query and does not call DoControlDelay.
 				return index.ToInt64() + 1;
 			}
 
@@ -1144,7 +1144,7 @@ namespace Keysharp.Internals.Platform.Windows
 					if (menuId != 0xFFFFFFFF)
 					{
 						_ = WindowsAPI.PostMessage(win.Handle, (uint)(sysMenu ? WindowsAPI.WM_SYSCOMMAND : WindowsAPI.WM_COMMAND), menuId, 0U);
-						WindowItemBase.DoWinDelay();
+						// No delay: AHK's MenuSelect ends with PostMessage and does not call DoWinDelay/DoControlDelay.
 					}
 					else
 						_ = Errors.ValueErrorOccurred($"Could not find menu.", $"{title}, {text}, {menu}, {sub1}, {sub2}, {sub3}, {sub4}, {sub5}, {sub6}, {excludeTitle}, {excludeText}");

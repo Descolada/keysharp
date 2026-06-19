@@ -869,7 +869,7 @@ namespace Keysharp.Builtins
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = true; });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = true; });
 			return DefaultObject;
 		}
 
@@ -878,7 +878,7 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = false; });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = false; });
 			return DefaultObject;
 		}
 
@@ -887,7 +887,7 @@ namespace Keysharp.Builtins
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-			DoDelayedAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) _ = win.Redraw(); });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) _ = win.Redraw(); });
 			return DefaultObject;
 		}
 
@@ -988,7 +988,6 @@ namespace Keysharp.Builtins
 				if (WindowsAPI.SetWindowRgn(win.Handle, 0, true) == 0)
 					return Errors.OSErrorOccurred("", $"Could not reset window region with criteria: title: {winTitle}, text: {winText}, exclude title: {excludeTitle}, exclude text: {excludeText}");
 
-				WindowItemBase.DoWinDelay();
 				return DefaultObject;
 			}
 			else if (w != int.MinValue && h != int.MinValue)
@@ -1017,7 +1016,9 @@ namespace Keysharp.Builtins
 			else
 				return Errors.ValueErrorOccurred($"Could not create region for window with criteria: title: {winTitle}, text: {winText}, exclude title: {excludeTitle}, exclude text: {excludeText}");
 
-			WindowItemBase.DoWinDelay();
+			// AHK's WinSetRegion (and the rest of the WinSet* family) applies NO SetWinDelay — only positional/visibility
+			// ops (WinMove/WinActivate/WinShow/WinHide/WinMinimize/Maximize/Restore/WinClose) delay. A per-call A_WinDelay
+			// here makes frequent region updates (e.g. following a window on every LOCATIONCHANGE) extremely laggy.
 			return DefaultObject;
 		}
 #endif
@@ -1040,8 +1041,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTitle");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
-				win.Title = newTitle.As();
-				WindowItemBase.DoWinDelay();
+				win.Title = newTitle.As();   // No A_WinDelay: AHK's WinSetTitle does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1056,8 +1056,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTransColor");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
-				win.TransparentColor = color;
-				WindowItemBase.DoWinDelay();
+				win.TransparentColor = color;   // No A_WinDelay: AHK's WinSetTransColor does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1072,8 +1071,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTransparent");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 			{
-				win.Transparency = n;
-				WindowItemBase.DoWinDelay();
+				win.Transparency = n;   // No A_WinDelay: AHK's WinSetTransparent does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1121,9 +1119,11 @@ namespace Keysharp.Builtins
 			} while (win == null);
 
 			if (win != null)
+			{
 				WindowManager.LastFound = win;
+				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+			}
 
-			WindowItemBase.DoWinDelay();
 			return win != null ? win.Handle.ToInt64() : 0L;
 		}
 
@@ -1164,7 +1164,9 @@ namespace Keysharp.Builtins
 					_ = Flow.Sleep(10);
 			}
 
-			WindowItemBase.DoWinDelay();
+			if (b)
+				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+
 			return hwnd;
 		}
 
@@ -1193,7 +1195,9 @@ namespace Keysharp.Builtins
 				_ = Flow.Sleep(10);
 			}
 
-			WindowItemBase.DoWinDelay();
+			if (result == 1L)
+				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+
 			return result;
 		}
 
@@ -1241,7 +1245,9 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			WindowItemBase.DoWinDelay();
+			if (b)
+				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+
 			return b ? 1L : 0L;
 		}
 

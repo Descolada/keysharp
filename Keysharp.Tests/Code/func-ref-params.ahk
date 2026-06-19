@@ -708,4 +708,26 @@ if (z == 2)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; Forwarding a by-ref param whose target is still UNSET must not raise.
+fill_inner(&fi_a, &fi_b)
+{
+	fi_a := 7, fi_b := 8
+}
+
+fill_outer(&fo_a, &fo_b)
+{
+	fill_inner(&fo_a, &fo_b) ; forward by-ref params whose targets are unset
+}
+
+forward_unset_test()
+{
+	fill_outer(&uo, &ut) ; uo and ut have never been assigned (unset) before the call
+	return (uo == 7 && ut == 8)
+}
+
+if (forward_unset_test())
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
 	

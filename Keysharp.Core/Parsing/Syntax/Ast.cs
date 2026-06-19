@@ -12,6 +12,9 @@ namespace Keysharp.Parsing.Syntax
 	{
 		public int Line;
 		public int Column;
+		// Full path of the source file this node came from (an #included file); null for the main script. Used to fold
+		// A_LineFile to the including file's path, matching AHK.
+		public string File;
 	}
 
 	internal abstract class Expr : Node { }

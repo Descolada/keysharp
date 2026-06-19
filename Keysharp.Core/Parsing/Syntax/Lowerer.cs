@@ -759,6 +759,12 @@ namespace Keysharp.Parsing.Syntax
 			!string.IsNullOrEmpty(_scriptPath) && System.IO.File.Exists(_scriptPath)
 				? System.IO.Path.GetFullPath(_scriptPath) : _scriptPath ?? "";
 
+		// A_LineFile is the full path of the file containing the line: an #included file's path (stamped on the node), or
+		// the main script path. This differs from A_ScriptFullPath only inside #included files — the canonical "am I the
+		// main script?" idiom `A_LineFile = A_ScriptFullPath` relies on it.
+		private string LineFilePath(NameExpr n) =>
+			!string.IsNullOrEmpty(n.File) ? n.File : ScriptFullPath();
+
 		private ExpressionSyntax NameRef(string name)
 		{
 			var lower = name.ToLowerInvariant();
@@ -1394,7 +1400,7 @@ namespace Keysharp.Parsing.Syntax
 						// A_LineNumber/A_LineFile are folded to compile-time literals (the source line / script path) —
 						// they have no runtime accessor and the canonical substitutes them the same way.
 						case "a_linenumber" when !IsDeclaredLocal("a_linenumber"): return Num(n.Line.ToString());
-						case "a_linefile" when !IsDeclaredLocal("a_linefile"): return Str(ScriptFullPath());
+						case "a_linefile" when !IsDeclaredLocal("a_linefile"): return Str(LineFilePath(n));
 					}
 					return NameRef(n.Name);
 				case GroupExpr g: return SyntaxFactory.ParenthesizedExpression(LowerExpr(g.Inner));

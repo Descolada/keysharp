@@ -170,7 +170,7 @@ namespace Keysharp.Parsing.Syntax
 		// A lex/parse error terminates parsing immediately by throwing (caught in ParseWithDiagnostics and surfaced as a
 		// single diagnostic), so error-recovery can't silently produce a wrong AST or cascade bogus follow-on errors.
 		private void Error(string msg) => throw new Keysharp.Builtins.ParseException(
-			$"{(Current.File != null ? Current.File + ":" : "")}{Current.Line}:{Current.Column}: {msg}");
+			$"{(Current.File != null ? System.IO.Path.GetFileName(Current.File) + ":" : "")}{Current.Line}:{Current.Column}: {msg}");
 
 		// ---- program / statements ----
 
@@ -677,14 +677,14 @@ namespace Keysharp.Parsing.Syntax
 			else if (again) _included.Add(path);
 			if (!System.IO.File.Exists(path)) return null;
 			includedDir = System.IO.Path.GetDirectoryName(path);   // nested includes in this file resolve against its dir
-			var fileName = System.IO.Path.GetFileName(path);
-			// The lexer stamps each token with this file name (per-file line numbers + diagnostics), no post-pass needed.
-			var lexer = new Lexing.Lexer(System.IO.File.ReadAllText(path), fileName);
+			// The lexer stamps each token with this file's full path (per-file line numbers + diagnostics + A_LineFile),
+			// no post-pass needed. Diagnostics shorten it to the file name; A_LineFile needs the full path.
+			var lexer = new Lexing.Lexer(System.IO.File.ReadAllText(path), path);
 			var toks = lexer.Tokenize();
 			// A lex error in the included file terminates immediately, reported against that file.
-			if (lexer.Diagnostics.Count > 0) throw new Keysharp.Builtins.ParseException($"{fileName}:{lexer.Diagnostics[0]}");
+			if (lexer.Diagnostics.Count > 0) throw new Keysharp.Builtins.ParseException($"{System.IO.Path.GetFileName(path)}:{lexer.Diagnostics[0]}");
 			if (toks.Count > 0 && toks[^1].Kind == TokenKind.EOF) toks.RemoveAt(toks.Count - 1);   // drop the included EOF
-			toks.Insert(0, new Token(TokenKind.Newline, "\n", 0, 0, 0, 0, true, fileName));   // keep line separation from the host
+			toks.Insert(0, new Token(TokenKind.Newline, "\n", 0, 0, 0, 0, true, path));   // keep line separation from the host
 			return toks;
 		}
 
@@ -1302,7 +1302,7 @@ namespace Keysharp.Parsing.Syntax
 					// but a '%' that closes the enclosing %…% is a delimiter, not the start of a new name.
 					if (!_inDerefInner && !Current.LeadingWhitespace && At(TokenKind.Percent))
 						return ParseNameBuild(new LiteralExpr(LiteralKind.String, "\"" + t.Text + "\""));
-					return new NameExpr(t.Text, t.Line);
+					return new NameExpr(t.Text, t.Line) { File = t.File };
 				case TokenKind.LParen:
 					Advance(); _groupDepth++;
 					var inner = ParseExpression(1);

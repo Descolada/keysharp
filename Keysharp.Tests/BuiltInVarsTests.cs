@@ -56,6 +56,12 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("BuiltInVars"), NonParallelizable]
+		public void PropsLineFile()
+		{
+			Assert.IsTrue(TestScript("props-linefile", false));
+		}
+
+		[Test, Category("BuiltInVars"), NonParallelizable]
 		public void PropsScriptName()
 		{
 			var scriptPath = Path.Combine(TestContext.CurrentContext.WorkDirectory, "script-name-path.ahk");

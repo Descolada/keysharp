@@ -4515,7 +4515,9 @@ namespace Keysharp.Internals.Input.Hooks
 	// for AHK_USER_MENU (perhaps WM_COMMNOTIFY can be "overloaded" to contain more than one type of msg).
 	// Also, it has been announced in OnMessage() that message numbers between WM_USER and 0x1000 are earmarked
 	// for possible future use by the program, so don't use a message above 0x1000 without good reason.
-	//Make sure the minimum value of WM_USER (0x0400) is ok for linux.//TODO
+	// On non-Windows platforms these are never posted to an OS message queue (PlatformManager.PostMessage
+	// is a no-op there); they are dispatched purely by Keysharp's own switch in HookThread.PostMessage, so the
+	// WM_USER (0x0400) base only needs to keep the enum members unique among themselves, which it does.
 	internal enum UserMessages : uint
 	{
 		AHK_HOOK_HOTKEY = 0x0400, AHK_HOTSTRING, AHK_USER_MENU, AHK_DIALOG, AHK_NOTIFYICON

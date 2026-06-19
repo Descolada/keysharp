@@ -27,7 +27,9 @@ namespace Keysharp.Internals.UI.Windows
 			SetStyle(ControlStyles.StandardClick, true);
 			SetStyle(ControlStyles.StandardDoubleClick, true);
 			SetStyle(ControlStyles.EnableNotifyMessage, true);
-			clipSuccess = WindowsAPI.AddClipboardFormatListener(Handle);//Need a cross platform way to do this.//TODO
+			// Cross-platform counterpart lives in the Unix MainWindow, which subscribes to Eto's Clipboard.Changed
+			// and raises the same ClipboardUpdate event; this Win32 listener is the Windows-specific implementation.
+			clipSuccess = WindowsAPI.AddClipboardFormatListener(Handle);
 			tpVars.HandleCreated += TpVars_HandleCreated;
 			editScriptToolStripMenuItem.Visible = !A_IsCompiled;
 		}
@@ -133,7 +135,10 @@ namespace Keysharp.Internals.UI.Windows
 					_ = Keysharp.Internals.Flow.ExitAppInternal((m.Msg & WindowsAPI.ENDSESSION_LOGOFF) != 0 ? Keysharp.Builtins.Flow.ExitReasons.LogOff : Keysharp.Builtins.Flow.ExitReasons.Shutdown, null, false);
 					break;
 
-				case WindowsAPI.WM_HOTKEY://We will need to find a cross platform way to do this. At the moment, hotkeys appear to be a built in feature in Windows.//TODO
+				// WM_HOTKEY is delivery for OS-registered (RegisterHotKey) hotkeys, which is Windows-only. On Linux/macOS
+				// there is no equivalent OS facility; hotkeys are instead delivered through the keyboard hook (HookThread),
+				// so no cross-platform mechanism is needed here.
+				case WindowsAPI.WM_HOTKEY:
 					_ = Script.TheScript.HookThread.PostMessage(new KeysharpMsg()
 					{
 						hwnd = m.HWnd,//Unused, but probably still good to assign.

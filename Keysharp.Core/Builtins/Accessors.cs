@@ -1383,7 +1383,6 @@ namespace Keysharp.Builtins
 
 		/// <summary>
 		/// The full path and name of the current user's "My Documents" folder.
-		/// Need a cross platform way to do this.//TODO
 		/// </summary>
 		public static string A_MyDocuments => Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 

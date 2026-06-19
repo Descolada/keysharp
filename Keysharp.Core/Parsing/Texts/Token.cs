@@ -378,8 +378,8 @@ namespace Keysharp.Parsing
 		{
 				//Minus doesn't seem to be needed here.
 				Script.Operator.Subtract or Script.Operator.LogicalNot or Script.Operator.LogicalNotEx or Script.Operator.BitwiseNot or Script.Operator.BitwiseAnd or Script.Operator.Dereference => true,
-				//TODO
-				//This messes up the postfix operator when used in an assignment like y := x++
+				//Add is intentionally excluded: treating it as a unary operator breaks the postfix operator
+				//when used in an assignment like y := x++
 				//case Script.Operator.Add:
 				//return true;
 				_ => false,

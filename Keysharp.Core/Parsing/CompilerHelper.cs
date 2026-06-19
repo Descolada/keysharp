@@ -488,7 +488,9 @@ using String = Keysharp.Builtins.String
 				}
 			}
 
-			// should probably try to extract these from deps.json as well, TODO
+			// This curated list is intentional: as the note further below explains, we deliberately reference only
+			// the few assemblies a user script can actually touch rather than everything in deps.json, because
+			// pulling in large assemblies (e.g. Microsoft.CodeAnalysis) measurably slows script compilation.
 			var references = new List<MetadataReference>
 			{
 				MetadataReference.CreateFromFile(Path.Combine(coreDir, "System.dll")),

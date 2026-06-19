@@ -735,7 +735,8 @@ break_twice:;
 		/// </param>
 		public static object SetCapsLockState(object state = null)
 		{
-			SetToggleState((uint)Keys.Capital, ref Script.TheScript.KeyboardData.toggleStates.forceCapsLock, state.As());//Shouldn't have windows code in a common location.//TODO
+			// Keys is a cross-platform alias (see GlobalUsings); this is a standard VK code handled by the platform-specific ToggleKeyState.
+			SetToggleState((uint)Keys.Capital, ref Script.TheScript.KeyboardData.toggleStates.forceCapsLock, state.As());
 			return DefaultObject;
 		}
 
@@ -790,7 +791,8 @@ break_twice:;
 		/// </summary>
 		public static object SetNumLockState(object state = null)
 		{
-			SetToggleState((uint)Keys.NumLock, ref Script.TheScript.KeyboardData.toggleStates.forceNumLock, state.As());//Shouldn't have windows code in a common location.//TODO
+			// Keys is a cross-platform alias (see GlobalUsings); this is a standard VK code handled by the platform-specific ToggleKeyState.
+			SetToggleState((uint)Keys.NumLock, ref Script.TheScript.KeyboardData.toggleStates.forceNumLock, state.As());
 			return DefaultObject;
 		}
 
@@ -799,7 +801,8 @@ break_twice:;
 		/// </summary>
 		public static object SetScrollLockState(object state = null)
 		{
-			SetToggleState((uint)Keys.Scroll, ref Script.TheScript.KeyboardData.toggleStates.forceScrollLock, state.As());//Shouldn't have windows code in a common location.//TODO
+			// Keys is a cross-platform alias (see GlobalUsings); this is a standard VK code handled by the platform-specific ToggleKeyState.
+			SetToggleState((uint)Keys.Scroll, ref Script.TheScript.KeyboardData.toggleStates.forceScrollLock, state.As());
 			return DefaultObject;
 		}
 

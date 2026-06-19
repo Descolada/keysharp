@@ -6,7 +6,7 @@ namespace Keysharp.Internals.Input.Keyboard
 	[PublicHiddenFromUser]
 	internal class HotstringManager
 	{
-		internal string defEndChars = "-()[]{}:;'\"/\\,.?!\r\n \t";//Should this be a platform specific newline instead of \r\n?//TODO
+		internal string defEndChars = "-()[]{}:;'\"/\\,.?!\r\n \t";
 		internal uint enabledCount;      // Keep in sync with the above.
 		internal List<char> hsBuf = new (256);
 		internal bool hsCaseSensitive;

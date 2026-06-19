@@ -9,12 +9,12 @@ Jump directly to:
 - [Linux platform support](#linux-platform-support)
 - [Linux setup](#installing-on-linux)
 - [macOS platform support](#macos-platform-support)
-- [MacOS setup](#installing-on-macos)
+- [macOS setup](#installing-on-macos)
 - [Cross-platform capability matrix](#cross-platform-capability-matrix)
 - [AutoHotkey v2 differences](#differences)
 - [Code acknowledgements](#code-acknowledgements)
 
-## How do I get set up? ##
+## Prerequisites
 * If .NET 10 is not installed on your machine, download it from the [.NET 10 download page](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
 
 ## Windows Platform Support
@@ -23,19 +23,19 @@ Windows has the best feature implementation rate and very high AutoHotkey v2 com
 * Object destruction logic, which happens non-deterministically due to C# garbage collection
 * GUI rendering, because WinForms is used as the backend. WinForms uses lazy initialization which means for example that GUIs render blank before they've been showed. Additionally WinForms has some differences concerning Z-ordering of controls and label rendering.
 
-### Installing on Windows ###
+### Installing on Windows
 * Download and run the Keysharp installer from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ The install path can be optionally added to the $PATH varible, so you can run it from the command line from anywhere.
 		+ The path entry will be removed upon uninstall.
 	+ It also registers Keysharp.exe as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
 	+ On Windows, the installer adds a right-click "Compile" action for `.ahk` and `.ks` source scripts, which writes a `.cks` compiled script next to the source file.
 
-### Portable run on Windows ###
+### Portable run on Windows
 * Download and unzip the zip file from the [Releases](https://github.com/Descolada/keysharp/releases) page.
 	+ CD to the unzipped folder.
 	+ Run `.\Keysharp.exe yourfilename.ahk`
 
-### Building from source on Windows ###
+### Building from source on Windows
 * Download the latest version of [Visual Studio 2022](https://visualstudio.microsoft.com/vs/community/).
 	+ This should install .NET 10. If it doesn't, you need to install it manually from the link above.
 * Open Keysharp.sln
@@ -43,7 +43,9 @@ Windows has the best feature implementation rate and very high AutoHotkey v2 com
 * CD to bin\release\net10.0-windows (or \debug\, depending whether using Debug or Release mode)
 * Run `.\Keysharp.exe yourtestfile.ahk`
 
-## Linux Platform Support ##
+To build the release MSI installer and portable ZIP, run `Keysharp.Install\package-windows.ps1` from PowerShell. Packaging output is written to `dist\`. Building the MSI requires Visual Studio with the **Microsoft Visual Studio Installer Projects** extension; the portable ZIP is produced regardless.
+
+## Linux Platform Support
 Linux support is in active development. The following table summarises what works and what requires user action.
 
 | Platform / compositor | Without root access | Root-access helpers add / enable | Notes |
@@ -53,9 +55,9 @@ Linux support is in active development. The following table summarises what work
 | **Wayland – KWin / KDE Plasma** | Full window management via KWin scripting; mouse synthesis via FakeInput | Screen capture via `keysharp-screencap`; keyboard synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | `keysharp-screencap` must be root-owned setuid with desktop file |
 | **Wayland – other compositors**<br>Sway, Hyprland, COSMIC, Wayfire, labwc, etc. | Protocol-dependent window listing, active-window detection, activation, and screen capture | Input synthesis, hooks, `BlockInput`, hotkeys/hotstrings via `keysharp-inputd` | Depends on foreign-toplevel and screencopy protocol support |
 
-### Installing on Linux ###
+### Installing on Linux
 * Download and extract the Keysharp installer tarball from the [Releases](https://github.com/Descolada/keysharp/releases) page.
-+ Either run the .deb file to install, or run the install.sh script with sudo: `sudo sh ./install.sh` which does the following:
++ Either run the .deb file to install, or run the install.sh script with sudo: `sudo bash ./install.sh` which does the following:
 	+ Installs the Linux runtime dependencies and attempts to install the .NET 10 runtime if it is missing.
 		+ If your distribution does not provide the .NET 10 runtime package, install it manually using the instructions [here](https://learn.microsoft.com/en-us/dotnet/core/install/linux).
 	+ Registers Keysharp as the default program to open `.ks` and `.cks` files. So after installing, double click any `.ks` source script or `.cks` compiled script to run it.
@@ -72,7 +74,7 @@ ln -sf "$(command -v keysharp)" ~/.local/bin/AutoHotkey.exe
 ```
 Then use `/home/YOUR_USERNAME/.local/bin/AutoHotkey.exe` as the interpreter path in the extension. The extension is designed for AutoHotkey on Windows, so static language features and running scripts are the most compatible features; Windows-specific debugging, help, and compiler integration will not work.
 
-### Building from source on Linux ###
+### Building from source on Linux
 * Install the .NET 10 SDK (not just the runtime) as described in "Installing on Linux"
 * In the same parent folder as keysharp, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp); if keysharp is at `foo/keysharp`, clone Eto to `foo/Eto` by running `git clone -b Keysharp https://github.com/Descolada/Eto.git` from within `foo`.
 * Run `Keysharp.Install/package-linux.sh`
@@ -81,7 +83,7 @@ Then use `/home/YOUR_USERNAME/.local/bin/AutoHotkey.exe` as the interpreter path
 * The folder and tarball are portable so both source repositories can be safely deleted.
 * **Alternatively**, on arch-based systems keysharp is provided as an [AUR package](https://aur.archlinux.org/packages/keysharp-git)
 
-## macOS Platform Support ##
+## macOS Platform Support
 macOS support is in active development. The following table summarises what works and what requires user action.
 
 | Feature | Status | Notes |
@@ -97,9 +99,9 @@ macOS support is in active development. The following table summarises what work
 | Registry APIs | Not supported | Windows-only |
 | COM APIs | Not supported | Windows-only |
 
-Permissions are requested automatically when first needed, or up front with `#Requires capability` (see [Additions/Improvements](#additionsimprovements) below). Grant them in **System Settings → Privacy & Security**.
+Permissions are requested automatically when first needed, or up front with `#Requires capability` (see [Additions and Improvements](#additions-and-improvements) below). Grant them in **System Settings → Privacy & Security**.
 
-### Installing on macOS ###
+### Installing on macOS
 
 Two packages are available on the [Releases](https://github.com/Descolada/keysharp/releases) page.
 
@@ -184,7 +186,7 @@ tccutil reset All org.keysharp.keyview
 ```
 `All` clears every TCC entry for that bundle ID (Accessibility, Input Monitoring, Screen Recording, and any others macOS may have recorded), for all versions of the app sharing that bundle ID. macOS will prompt again next time each permission is needed.
 
-### Building from source on macOS ###
+### Building from source on macOS
 
 * Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
 * In the same parent folder as `keysharp`, clone the Keysharp branch of [Descolada's fork of Eto](https://github.com/Descolada/Eto/tree/Keysharp). If `keysharp` is at `foo/keysharp`, clone Eto to `foo/Eto`:
@@ -236,7 +238,7 @@ Status legend:
 | COM APIs | 🟢 Full | 🔴 Unsupported | 🔴 Unsupported | 🔴 Unsupported | COM is available on Windows only. |
 <!-- CAPABILITIES_OVERVIEW:END -->
 
-## Overview ##
+## Overview
 
 Keysharp is a fork and improvement of the abandoned IronAHK project, which itself was a C# re-write of the C++ AutoHotkey project.
 
@@ -253,8 +255,8 @@ Some general notes about Keysharp's implementation of the [AutoHotkey v2 specifi
 	+ The DOM compiler generates C# code for a single program.
 	+ The C# program code is compiled into an in-memory executable.
 	+ The executable is ran in memory as a new process.
-	+ Optionally output the generated C# code to a .cs file for debugging purposes with the `-transpile` option, without running the script.
-	+ Optionally output the generated executable to an .exe file for running standalone in the future with the `-compile exe` option, without running the script.
+	+ Optionally output the generated C# code to a .cs file for debugging purposes with the `--transpile` option, without running the script.
+	+ Optionally output the generated executable to an .exe file for running standalone in the future with the `--compile exe` option, without running the script.
 
 * Keysharp supports `.ahk` and `.ks` source files and `.cks` compiled scripts. Installers associate supported files with Keysharp and provide an editing action through Keyview where supported.
 
@@ -265,9 +267,9 @@ Some general notes about Keysharp's implementation of the [AutoHotkey v2 specifi
 
 Despite our best efforts to remain compatible with the AHK v2 spec, there are differences. Some of these differences are a reduction in functionality, and others are an increase. There are also slight syntax changes.
 
-## Differences: ##
+## Differences
 
-###	Behaviors/Functionality: ###
+### Behaviors and Functionality
 * Linux support is partial. See [Linux Platform Support](#linux-platform-support) above for a detailed breakdown by display server and compositor.
 	+ Control commands only work on windows created by the running Keysharp process. This is because "controls" don't exist in Linux the same way they do in Windows.
 		+ As an alternative it's recommended to use [AtSpi.ks](https://github.com/Descolada/keysharp/blob/master/Keysharp/Scripts/AtSpi.ks): running it directly displays AtSpiViewer which can be used to inspect windows, and it also contains methods to manipulate windows and controls similarly to Acc/UIA in Windows.
@@ -287,8 +289,8 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ For example, a file with nothing but the line `x++` in it, will end with a variable named x which has the value of 1.
 * Function objects behave mostly the same as in AHK.
 	+ The underlying function object class is named `FuncObj`. This was named so, instead of `Func`, because C# already contains a built in class named `Func`. `MsgBox is Func` is still supported though, as is `MsgBox is FuncObj`.
-	+ Function objects can be created by passing the name of the function as as a direct reference or as a string to `Func()`.
-	+ Most built-in functions
+	+ Function objects can be created by passing the name of the function as a direct reference or as a string to `Func()`.
+	+ Most built-in functions can also be used as function objects.
 * Error stack traces start from where the error was thrown, not where it was constructed.
 * `StrPtr()` works slightly differently because C# strings are constant.
 	+ `StrPtr(variable)` returns a custom `StringBuffer` object which is entangled with the original string. When this object is used with DllCall, NumPut etc, then the `StringBuffer` is used as the pointer, and the entangled string is updated after the function call.
@@ -303,7 +305,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	+ GroupBoxes can be used as containers by calling `GuiObj.UseGroup(groupbox)`, and to exit the group call `GuiObj.UseGroup()`.
 * The class name for statusbar/statusstrip objects created by Keysharp is "WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1". However, for accessing a statusbar created by another, non .NET program, the class name is still "msctls_statusbar321".
 * Using the class name with `ClassNN` on .NET controls gives long, version specific names such as "WindowsForms10.Window.8.app.0.2b89eaa_r3_ad1" for a statusbar/statusstrip.
-	+ This is because a simpler class names can't be specified in code the way they can in AHK with calls to `CreatWindowEx()`.
+	+ This is because simpler class names can't be specified in code the way they can in AHK with calls to `CreatWindowEx()`.
 	+ These long names may change from machine to machine, and may change for the same GUI if you edit its code.
 	+ There is an new `NetClassNN` property alongside `ClassNN`.
 	+ The class names of all GUI controls created in Keysharp are prefixed with the string "Keysharp", eg: `KeysharpButton`, `KeysharpEdit` etc...
@@ -326,7 +328,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * Function objects are much slower than direct function calls due to the need to use reflection. So for repeated function calls, such as those involving math, it's best to use the functions directly.
 * The `File` object is internally named `KeysharpFile` so that it doesn't conflict with `System.IO.File`.
 * In `SetTimer()`, the priority is not in the range -2147483648 and 2147483647, instead it is only 0-4.
-* If a `ComObject` with `VarType` of `VT_DISPATCH` and a null pointer value is assinged a non-null pointer value, its type does not change. The `Ptr` member remains available.
+* If a `ComObject` with `VarType` of `VT_DISPATCH` and a null pointer value is assigned a non-null pointer value, its type does not change. The `Ptr` member remains available.
 * `A_LineNumber` is not a reliable indicator of the line number because the preprocessor condenses the code before parsing and compiling it.
 * `ObjPtr()` returns an IUnknown `ComValue` with the pointer wrapped in it, whereas `ObjPtrAddRef()` returns a raw pointer.
 * Pointers returned by `StrPtr()` must be freed by passing the value to a new function named `ObjFree()`.
@@ -336,7 +338,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * `/Debug` command line switch is not implemented.
 * If a script is compiled then none of Keysharp or AutoHotkey command parameters apply.
 
-###	Syntax: ###
+### Syntax
 * `DllCall()` has the following caveats:
 	+ Use `Ptr` and `StringBuffer` for double pointer parameters such as `LPTSTR*`. This is recommended over the use of `StrPtr()`.
 * `ImageSearch()` takes an options string as a fifth parameter, rather than inserted in the string before the `imageFile` parameter.
@@ -372,7 +374,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		+ The callout function must be a top-level function
 		+ A named callout must be enclosed in "", '', or {}
 
-###	Additions/Improvements: ###
+### Additions and Improvements
 * In addition to the AHK module, a KS module has been added which contains extra variabes and methods added to Keysharp. Accessing them requires using the `import` statement.
 	+ These include all new classes, functions and variables mentioned here (eg `HashMap`, `Sinh` etc)
 	+ Note: class method/property additions are always included and do not need to be imported (eg `String` or `Buffer` extra methods)
@@ -727,7 +729,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	- `--daemon`, `--daemon stop`, `--daemon ping <script>`
 	  Starts, stops, or diagnostics-checks the background compile daemon. Plain script runs use the daemon by default in release builds, but not in debug builds. Set `KEYSHARP_DAEMON=1` (or `true`, `yes`, `on`) to force daemon use, or `KEYSHARP_DAEMON=0` (or `false`, `no`, `off`) to bypass it.
 
-###	Removals: ###
+### Removals
 * `ListLines()` is non-functional because C# doesn't support it.
 * The `R`, `Dn` or `Tn` parameters in `FormatTime()` are not supported, except for 0x80000000 to disallow user overrides.
 	+ If you want to specify a particular format or order, do it in the format argument. There is no need or reason to have one argument alter the other.
@@ -768,7 +770,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * When passing `"Interrupt"` as the first argument to `Thread()`, the third argument for `LineCount` is not supported because Keysharp does not support line level awareness.
 * Tooltips do not automatically disappear when clicking on them.
 
-## Code acknowledgements ##
+## Code acknowledgements
 
 * The initial IronAHK developers 2010 - 2015
 * [Logical string comparison](https://www.codeproject.com/Articles/22175/Sorting-Strings-for-Humans-with-IComparer), [cddl 1.0](https://opensource.org/licenses/cddl1.php)
@@ -784,7 +786,6 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 * [Scintilla setup code in Keyview](https://github.com/robinrodricks/ScintillaNET.Demo)
 * Various posts on [Stack Overflow](https://stackoverflow.com/)
 
-## Who do I talk to? ##
+## Contributing and Support
 
-
-Please make an account here and post a ticket.
+Please use the [issue tracker](https://github.com/Descolada/keysharp/issues) for bug reports, compatibility gaps, and feature requests.

@@ -950,9 +950,65 @@ function findWindow(id) {
 			{
 				x = 0;
 				y = 0;
-				// TODO: open $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock,
-				// send the literal request "cursorpos", read "X, Y" back. Trivial — would
-				// be ~30 lines of socket code.
+
+				var sig = Environment.GetEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE");
+
+				if (string.IsNullOrEmpty(sig))
+					return false;
+
+				// Hyprland's command socket reads a single request, writes the reply, then closes.
+				// Newer builds place it under $XDG_RUNTIME_DIR/hypr/<sig>/; older ones used /tmp/hypr/<sig>/.
+				var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+
+				if (!string.IsNullOrEmpty(runtimeDir)
+						&& TryQueryCursorPos(Path.Combine(runtimeDir, "hypr", sig, ".socket.sock"), out x, out y))
+					return true;
+
+				return TryQueryCursorPos(Path.Combine("/tmp", "hypr", sig, ".socket.sock"), out x, out y);
+			}
+
+			// Connects to the given Hyprland command socket, sends "cursorpos", and parses the
+			// "X, Y" reply. Returns false (with x/y zeroed) on any failure so the caller can fall back.
+			private static bool TryQueryCursorPos(string socketPath, out int x, out int y)
+			{
+				x = 0;
+				y = 0;
+
+				if (!File.Exists(socketPath))
+					return false;
+
+				try
+				{
+					using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)
+					{
+						ReceiveTimeout = 250,
+						SendTimeout = 250
+					};
+					socket.Connect(new UnixDomainSocketEndPoint(socketPath));
+					_ = socket.Send(Encoding.ASCII.GetBytes("cursorpos"));
+
+					var sb = new StringBuilder();
+					var buffer = new byte[256];
+					int read;
+
+					while ((read = socket.Receive(buffer)) > 0)
+						_ = sb.Append(Encoding.ASCII.GetString(buffer, 0, read));
+
+					var response = sb.ToString();
+					var comma = response.IndexOf(',');
+
+					if (comma >= 0
+							&& int.TryParse(response.AsSpan(0, comma).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out x)
+							&& int.TryParse(response.AsSpan(comma + 1).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out y))
+						return true;
+				}
+				catch
+				{
+					// Socket gone, permission denied, malformed reply, etc. — fall through to failure.
+				}
+
+				x = 0;
+				y = 0;
 				return false;
 			}
 		}

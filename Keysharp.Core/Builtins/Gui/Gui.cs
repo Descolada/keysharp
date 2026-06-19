@@ -1977,7 +1977,10 @@ namespace Keysharp.Builtins
 			loc = new Point(Convert.ToInt32(xoffset), Convert.ToInt32(yoffset));
 
 			//Note we check DockStyle here because if the previous control was docked to a side, then we can't really use its location as a reference to base this control's location off of.
-			if (ctrl is KeysharpStatusStrip ksss)//Need to figure out how to do this without resizing all tab controls on every add. Maybe at the end before show(), and also on every add after show()?//TODO
+			// Only runs when the added control is itself the status strip (not on every control add); the strip is
+			// also re-laid-out on resize and on show via the other UpdateStatusStripLayout call sites, and the method
+			// is a no-op on Windows.
+			if (ctrl is KeysharpStatusStrip ksss)
 			{
 				form.UpdateStatusStripLayout();
 			}
@@ -3085,7 +3088,9 @@ namespace Keysharp.Builtins
 			var options = obj.As();
 			var tempbool = false;
 
-			//Special style, windows only. Need to figure out how to make this cross platform.//TODO
+			// These are raw Win32 WS_/WS_EX_ style bits (e.g. +E0x8) with no portable equivalent, so this method is
+			// a no-op on non-Windows; portable window attributes are expressed through Eto's typed properties
+			// rather than raw style numbers.
 			foreach (var split in Options.ParseOptions(options))
 			{
 				var str = split.Substring(1);

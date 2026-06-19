@@ -34,7 +34,9 @@ namespace Keysharp.Internals.Input.Keyboard
 	/// </summary>
 	internal abstract class KeyboardMouseSender
 	{
-		//Need to figure out if these should be signed or not. Weird bugs can happen with wraparound comparisons if you get it wrong.//TODO
+		// Signed int sentinels, matching AHK's COORD_UNSPECIFIED (INT_MIN) and COORD_CENTERED (INT_MIN + 1).
+		// These are only ever used in equality checks (== / != / ^), never in ordering or arithmetic
+		// comparisons, so there is no signed/unsigned wraparound hazard.
 		internal const int CoordCentered = int.MinValue + 1;
 
 		internal const int CoordModeCaret = 6;
@@ -626,7 +628,9 @@ namespace Keysharp.Internals.Input.Keyboard
 					return;
 
 				case VK_WHEEL_DOWN:
-					MouseEvent(eventFlags | (uint)MOUSEEVENTF.WHEEL, (uint)(-(repeatCount * WHEEL_DELTA)), x, y);//Unsure if casting a negative int to uint will work, need to test scrolling with mouse events.//TODO
+					// The negative delta is reinterpreted as a DWORD via two's complement, which is exactly what
+					// Win32 mouse_event expects for downward scrolling (the HWHEEL cases below use the same cast).
+					MouseEvent(eventFlags | (uint)MOUSEEVENTF.WHEEL, (uint)(-(repeatCount * WHEEL_DELTA)), x, y);
 					return;
 
 				// v1.0.48: Lexikos: Support horizontal scrolling in Windows Vista and later.

@@ -1938,8 +1938,13 @@ namespace Keysharp.Builtins
 				if (!eventHandlerActive)
 					return;
 
-				if (_control is KeysharpTreeView tv)
-					_ = clickHandlers.InvokeEventHandlers(this, GetSelection());
+				if (_control is KeysharpTreeView)
+				{
+					//Don't report Click here: this runs on MouseDown, before the TreeView updates its
+					//selection, so GetSelection() would return the previously selected item (forcing the
+					//user to click twice). The Click event is reported from Tv_CellClick instead, which
+					//receives the actually-clicked node. This mirrors the Windows backend.
+				}
 				else if (_control is KeysharpListView lv)
 				{
 					if (lv.SelectedIndices.Count > 0)
@@ -2028,15 +2033,30 @@ namespace Keysharp.Builtins
 
 			internal void Tv_CellClick(object sender, GridCellMouseEventArgs e)
 			{
-				if (!eventHandlerActive || _control is not KeysharpTreeView tv || !tv.HasCheckBoxes)
+				if (!eventHandlerActive || _control is not KeysharpTreeView tv || e.Item is not TreeNode node)
 					return;
 
-				if (e.Column != tv.Columns.IndexOf(tv.CheckColumn) || e.Item is not TreeNode node)
+				//Clicking the checkbox column toggles the check and raises ItemCheck (not Click).
+				if (tv.HasCheckBoxes && e.Column == tv.Columns.IndexOf(tv.CheckColumn))
+				{
+					node.Checked = !node.Checked;
+					tv.CheckedBeginInvoke(new Action(tv.ReloadData), true, false);
+					_ = (itemCheckHandlers?.InvokeEventHandlers(this, node.Handle.ToInt64(), node.Checked ? 1L : 0L));
 					return;
+				}
 
-				node.Checked = !node.Checked;
-				tv.CheckedBeginInvoke(new Action(tv.ReloadData), true, false);
-				_ = (itemCheckHandlers?.InvokeEventHandlers(this, node.Handle.ToInt64(), node.Checked ? 1L : 0L));
+				//This is the AHK "Click" event: report the node that was actually clicked (e.Item),
+				//independent of the (not-yet-updated) selection, so a single click works.
+				if (e.Buttons == MouseButtons.Primary)
+				{
+					//Commit the clicked node as the selection before raising Click so the selection visual
+					//and ItemSelect happen before Click (matching AutoHotkey, and the Windows backend). This
+					//is a no-op when the click already updated the selection.
+					if (tv.SelectedItem != node)
+						tv.SelectedItem = node;
+
+					_ = (clickHandlers?.InvokeEventHandlers(this, node.Handle.ToInt64()));
+				}
 			}
 
 			internal void Lv_CellClick(object sender, GridCellMouseEventArgs e)

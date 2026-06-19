@@ -1554,8 +1554,13 @@ namespace Keysharp.Builtins
 				if (!eventHandlerActive)
 					return;
 
-				if (_control is KeysharpTreeView tv)
-					_ = clickHandlers.InvokeEventHandlers(this, GetSelection());
+				if (_control is KeysharpTreeView)
+				{
+					//Don't report Click here: WinForms raises the generic Click before the TreeView
+					//updates SelectedNode, so GetSelection() would return the previously selected item
+					//(forcing the user to click twice). The Click event is reported from Tv_NodeMouseClick
+					//instead, which receives the actually-clicked node directly.
+				}
 				else if (_control is KeysharpListView lv)
 				{
 					if (lv.SelectedIndices.Count > 0)
@@ -1704,8 +1709,20 @@ namespace Keysharp.Builtins
 
 			internal void Tv_NodeMouseClick(object sender, TreeNodeMouseClickEventArgs e)
 			{
-				if (eventHandlerActive && _control is KeysharpTreeView tv && e.Node == tv.SelectedNode)
-					_ = (selectedItemChangedHandlers?.InvokeEventHandlers(this, e.Node.Handle.ToInt64()));
+				//This is the AHK "Click" event: report the node that was actually clicked. e.Node is the
+				//clicked node regardless of the (not-yet-updated) selection, so a single click works.
+				if (eventHandlerActive && _control is KeysharpTreeView tv && e.Button == MouseButtons.Left && e.Node != null)
+				{
+					//WinForms raises NodeMouseClick before it commits the new selection (AfterSelect runs
+					//afterward), so the control would still be showing the previously selected node while
+					//this handler runs - causing a visible flicker (old node, then clicked node). Commit
+					//the clicked node first so the selection visual and ItemSelect happen before Click,
+					//matching AutoHotkey's mouse-down-selects-first ordering.
+					if (tv.SelectedNode != e.Node)
+						tv.SelectedNode = e.Node;
+
+					_ = (clickHandlers?.InvokeEventHandlers(this, e.Node.Handle.ToInt64()));
+				}
 			}
 
 			internal void Txt_TextChanged(object sender, EventArgs e)

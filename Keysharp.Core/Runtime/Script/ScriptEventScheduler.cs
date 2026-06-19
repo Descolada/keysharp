@@ -652,9 +652,17 @@ internal bool HasBlockedQueuedWork
 
 				var threads = script.Threads;
 
-				if ((!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
-						|| !threads.AnyThreadsAvailable()
-						|| !threads.IsInterruptible())
+				// The thread pool is exhausted or the current thread is uninterruptible: a GLOBAL condition that blocks
+				// every queued event equally (the thread-launch path reports the same via TryStartPseudoThread). YIELD the
+				// pump rather than dropping-and-continuing. Returning Dropped here made TryProcessNextQueuedEvent report
+				// Executed, so the pump kept looping while the timer thread refilled the queue — a livelock that pinned
+				// normalQueue, pegged the CPU, and starved the running pseudo-threads so their slots never freed.
+				if (!threads.AnyThreadsAvailable() || !threads.IsInterruptible())
+					return ScriptEventExecutionResult.GlobalBlocked;
+
+				// Timers are disabled (A_AllowTimers) but other, non-timer queued work may still run, so drop just this
+				// timer and let the pump continue. The timer thread reschedules it once timers are re-enabled.
+				if (!Keysharp.Builtins.Ks.A_AllowTimers.Ab() && script.totalExistingThreads > 0)
 				{
 					timers.ReleaseQueuedTimer(timer);
 					return ScriptEventExecutionResult.Dropped;

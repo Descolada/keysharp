@@ -420,15 +420,20 @@ namespace Keysharp.Builtins
 		public KeysharpLabel(int _addStyle = 0, int _addExStyle = 0, int _removeStyle = 0, int _removeExStyle = 0)
 		{
 			addStyle = _addStyle;
-			addExStyle = _addExStyle;
+			// AHK renders +BackgroundTrans statics as normal child windows that draw their text with a
+			// transparent background over the parent's painting (WM_CTLCOLORSTATIC + SetBkMode(TRANSPARENT)),
+			// and explicitly invalidates the parent region on each text change. The closest WinForms behaviour
+			// is a normal Label with a transparent BackColor and SupportsTransparentBackColor: the parent's
+			// background (and any controls behind it) is composited into the label on every paint, so a changed
+			// caption repaints cleanly without overlapping the old text, and the label still receives mouse
+			// clicks. So drop the WS_EX_TRANSPARENT (0x20) exstyle that +BackgroundTrans requests (it would make
+			// the control click-through and paint out of order, unlike AHK) and rely on the transparent BackColor.
+			addExStyle = _addExStyle & ~0x20;
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
 
-			if ((addExStyle & 0x20) == 0x20)
-			{
-				SetStyle(ControlStyles.Opaque, true);
-				SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
-			}
+			if ((_addExStyle & 0x20) == 0x20)
+				SetStyle(ControlStyles.SupportsTransparentBackColor, true);
 		}
 
 #if WINDOWS

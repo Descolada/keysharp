@@ -3265,9 +3265,12 @@ class AtSpi {
                 return
             this.RecurseTreeView(AtSpi.ElementFromHandle(this.Stored.mwId))
             this.TVContext.Opt("+Redraw")
-            for k, v in this.Stored.TreeView
-                if this.Stored.oContext.IsEqual(v)
+            for k, v in this.Stored.TreeView {
+                if this.Stored.oContext.IsEqual(v) {
                     this.TVContext.Modify(k, "Vis Select"), this.SBMain.SetText("  Path: " v.Path)
+                    break
+                }
+            }
         }
 
         RecurseTreeView(oContext, parent:=0, path:="", depth := 0) {

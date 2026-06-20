@@ -377,7 +377,12 @@ namespace System.Windows.Forms
 		{
 #if LINUX
 			control.ResumeLayout();
-			if (control is TreeGridView tgv)
+			if (control is KeysharpTreeView ktv)
+			{
+				ktv.ResumeReload();
+				ktv.ReloadData();
+			}
+			else if (control is TreeGridView tgv)
 				tgv.ReloadData();
 #elif WINDOWS
 			_ = WindowsAPI.SendMessage(control.Handle, WindowsAPI.WM_SETREDRAW, 1, 0);
@@ -636,6 +641,8 @@ namespace System.Windows.Forms
 		internal static void SuspendDrawing(this Control control)
 		{
 #if LINUX
+			if (control is KeysharpTreeView ktv)
+				ktv.SuspendReload();
 			control.SuspendLayout();
 #elif WINDOWS
 			_ = WindowsAPI.SendMessage(control.Handle, WindowsAPI.WM_SETREDRAW, 0, 0);

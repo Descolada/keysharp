@@ -2458,6 +2458,7 @@ namespace Keysharp.Builtins
 		private readonly int addStyle, removeStyle;
 		private readonly int addExStyle, removeExStyle;
 		private readonly Dictionary<ITreeGridItem, bool> expandStates = [];
+		private bool reloadSuspended;
 		private TreeNode selectedNode;
 		private GridColumn checkColumn;
 		private GridColumn imageColumn;
@@ -2604,6 +2605,25 @@ namespace Keysharp.Builtins
 		internal void MarkForExpansion(TreeNode node) => expandStates[node] = true;
 
 		internal void RemoveMarkForExpansion(TreeNode node) => _ = expandStates.Remove(node);
+
+		/// <summary>
+		/// Batches model updates: while suspended (via -Redraw), <see cref="ReloadDataIfActive"/> is a no-op so that
+		/// bulk Add/Delete operations don't rebuild the entire GTK tree model (and re-measure every row) on each call.
+		/// A single <see cref="TreeGridView.ReloadData"/> on +Redraw then refreshes the view once. This avoids O(N^2)
+		/// construction and the "gtk_tree_view_unref_tree_helper: assertion 'node != NULL' failed" warnings caused by
+		/// repeatedly resetting the model while rows are still referenced.
+		/// </summary>
+		internal bool ReloadSuspended => reloadSuspended;
+
+		internal void SuspendReload() => reloadSuspended = true;
+
+		internal void ResumeReload() => reloadSuspended = false;
+
+		internal void ReloadDataIfActive()
+		{
+			if (!reloadSuspended)
+				ReloadData();
+		}
 
 		internal void SelectNode(TreeNode node, bool ensureVisible)
 		{

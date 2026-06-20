@@ -493,7 +493,7 @@ namespace Keysharp.Builtins
 						else
 							node = nodes.Add(name);
 
-						tv.ReloadData();
+						tv.ReloadDataIfActive();
 						tv.DelayedExpandParent(node);
 						var id = node.Handle.ToInt64();
 						node.Name = id.ToString();
@@ -627,7 +627,7 @@ namespace Keysharp.Builtins
 							tv.Nodes.Clear();
 							tv.SelectedNode = null;
 							tv.TopNode = null;
-							tv.ReloadData();
+							tv.ReloadDataIfActive();
 							return 1L;
 						}
 						else if (TreeViewHelper.TV_FindNode(tv, id) is TreeNode node)
@@ -635,7 +635,7 @@ namespace Keysharp.Builtins
 							node.Remove();
 							if (ReferenceEquals(tv.SelectedNode, node))
 								tv.SelectedNode = null;
-							tv.ReloadData();
+							tv.ReloadDataIfActive();
 							return 1L;
 						}
 

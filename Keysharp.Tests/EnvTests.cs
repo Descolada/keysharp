@@ -39,46 +39,6 @@ namespace Keysharp.Tests
 			Assert.AreEqual("Asdf", clip);
 		}
 
-#if WINDOWS
-		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
-		[Apartment(ApartmentState.STA)]
-		public void ClipboardTextStress()
-		{
-			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, stress.";
-			int fails = 0;
-
-			// Background clipboard pressure to provoke the .NET "TryGetData ok-but-empty" race on an STA thread.
-			using var stop = new CancellationTokenSource();
-			var pressure = new Thread(() =>
-			{
-				while (!stop.IsCancellationRequested)
-				{
-					try { _ = System.Windows.Forms.Clipboard.TryGetData<string>(System.Windows.Forms.DataFormats.UnicodeText, out _); }
-					catch { }
-				}
-			});
-			pressure.SetApartmentState(ApartmentState.STA);
-			pressure.IsBackground = true;
-			pressure.Start();
-
-			for (int n = 0; n < 2000; n++)
-			{
-				Accessors.A_Clipboard = expected;
-				var actual = Accessors.A_Clipboard as string;
-				if (!string.Equals(actual, expected))
-				{
-					fails++;
-					TestContext.Progress.WriteLine($"[FAIL n={n}] actualLen={actual?.Length ?? -1}");
-					if (fails >= 8)
-						break;
-				}
-			}
-			stop.Cancel();
-			pressure.Join(1000);
-			TestContext.Progress.WriteLine($"stress total fails={fails}");
-		}
-#endif
-
 		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]

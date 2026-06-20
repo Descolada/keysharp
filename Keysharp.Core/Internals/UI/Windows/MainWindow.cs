@@ -27,6 +27,9 @@ namespace Keysharp.Internals.UI.Windows
 			SetStyle(ControlStyles.StandardClick, true);
 			SetStyle(ControlStyles.StandardDoubleClick, true);
 			SetStyle(ControlStyles.EnableNotifyMessage, true);
+			// The main window keeps a single, constant handle for its whole lifetime (ShowInTaskbar is already
+			// set to its final value by the designer, so nothing forces a handle recreation), which lots of other
+			// logic relies on (e.g. hotkeys). Registering the clipboard listener here against that handle is safe.
 			// Cross-platform counterpart lives in the Unix MainWindow, which subscribes to Eto's Clipboard.Changed
 			// and raises the same ClipboardUpdate event; this Win32 listener is the Windows-specific implementation.
 			clipSuccess = WindowsAPI.AddClipboardFormatListener(Handle);

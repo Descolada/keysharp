@@ -324,7 +324,10 @@ namespace Keysharp.Internals.UI.Windows
 			MainMenuStrip = mainMenu;
 			Margin = new System.Windows.Forms.Padding(2);
 			Name = "MainWindow";
-			ShowInTaskbar = false;
+			// Create the window already showing in the taskbar (the value AttachMainWindowChrome applies).
+			// Changing ShowInTaskbar after the handle exists forces a full handle recreation, which would
+			// orphan everything bound to the original handle (clipboard listener, allGuiHwnds key, hotkeys).
+			ShowInTaskbar = true;
 			StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
 			Text = "Keysharp";
 			FormClosing += MainWindow_FormClosing;

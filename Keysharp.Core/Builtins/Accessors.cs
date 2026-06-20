@@ -230,11 +230,14 @@ namespace Keysharp.Builtins
 						// present, retry the text read until it does.
 						for (var attempt = 0; hasText; attempt++)
 						{
+							// The OS stores clipboard text with CRLF line endings; normalize to `n on the way out
+							// so script-visible text uses the same line ending as everywhere else in Keysharp
+							// (Gui control text, file reads, etc.). The setter writes CRLF back for OS interop.
 							if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni) && !string.IsNullOrEmpty(uni))
-								return uni;
+								return Ks.NormalizeEol(uni);
 
 							if (Clipboard.TryGetData<string>(DataFormats.Text, out var text) && !string.IsNullOrEmpty(text))
-								return text;
+								return Ks.NormalizeEol(text);
 
 							if (attempt >= 3)
 								break;
@@ -252,7 +255,7 @@ namespace Keysharp.Builtins
 							return sym;
 
 						if (Clipboard.TryGetData<string>(DataFormats.OemText, out var oem))
-							return oem;
+							return Ks.NormalizeEol(oem);
 
 						if (Clipboard.TryGetData<string>(DataFormats.CommaSeparatedValue, out var csv))
 							return csv;
@@ -291,14 +294,33 @@ namespace Keysharp.Builtins
 
 					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
 					{
-						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
-
-						if (value == null || (value is string s && s?.Length == 0))
-							Clipboard.Clear();
-						else if (value is ClipboardAll arr)
+						if (value is ClipboardAll arr)
+						{
+							// RestoreClipboardAll opens/empties/sets/closes the clipboard itself.
+							_ = WindowsAPI.CloseClipboard();
 							Env.RestoreClipboardAll(arr, (long)arr.Size);
+						}
 						else
-							Clipboard.SetDataObject(value.ToString(), true);
+						{
+							// Set the clipboard with a single raw Win32 transaction (EmptyClipboard +
+							// SetClipboardData), which fires WM_CLIPBOARDUPDATE exactly once, matching AutoHotkey.
+							// Clipboard.SetDataObject(copy:true) would instead do OleSetClipboard followed by
+							// OleFlushClipboard, firing the clipboard-change notification twice per assignment.
+							_ = WindowsAPI.EmptyClipboard();
+
+							if (!(value == null || (value is string es && es.Length == 0)))
+							{
+								// Store with native CRLF line endings (like Gui control text is written) so the text
+								// pastes correctly into other Windows apps. The getter normalizes back to `n on read.
+								var hglobal = Marshal.StringToHGlobalUni(Ks.NormalizeEol(value, Environment.NewLine));
+
+								if (WindowsAPI.SetClipboardData(WindowsAPI.CF_UNICODETEXT, hglobal) == 0)
+									Marshal.FreeHGlobal(hglobal);//SetClipboardData failed, so ownership stays with us.
+								//On success the system takes ownership of hglobal and frees it; do not free it here.
+							}
+
+							_ = WindowsAPI.CloseClipboard();
+						}
 					}
 
 #endif

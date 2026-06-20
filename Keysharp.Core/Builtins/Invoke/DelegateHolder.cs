@@ -263,13 +263,17 @@ namespace Keysharp.Builtins
 			return result;
 		}
 
+		// A callback coerces its return value to an integer exactly as AutoHotkey's RegisterCallbackCStub
+		// does for an untyped callback: number_to_return = (UINT_PTR)TokenToInt64(result_token).
+		// TokenToInt64 returns an integer as-is, truncates a float toward zero, parses the numeric value
+		// of a string ("2" -> 2; non-numeric or "" -> 0), and yields 0 for an object or unset return.
+		// User code never returns a raw pointer type (e.g. StrPtr returns a long), so nint isn't handled.
 		internal static long ConvertResult(object val) => val switch
 		{
 			long l => l,
-			bool b => b ? 1L : 0L,
 			double d => (long)d,
-			string s => s.Length == 0 ? 0L : 0L,
-			_ => 0L
+			bool b => b ? 1L : 0L,
+			_ => val.Al()// string -> numeric value; object/unset -> 0
 		};
 
 		internal static void DisposeOwnedByScheduler(ScriptEventScheduler scheduler)

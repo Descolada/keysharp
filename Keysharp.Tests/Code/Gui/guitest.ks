@@ -2395,7 +2395,7 @@ SendTextToEdit(*) {
 ; │  Clear Edit Callback  │
 ; └───────────────────────┘
 ClearEdit(*) {
-	ControlSetText(, SecondEdit)
+	ControlSetText("", SecondEdit)
 }
 ; ┌──────────────────────┐
 ; │  RichEdit Callbacks  │
@@ -2703,7 +2703,7 @@ Finally, ControlSetText operates on the Object created from the Hwnd.
 }
 
 ClearGB3(*) {
-	ControlSetText(, gb3Edit)
+	ControlSetText("", gb3Edit)
 }
 
 StartEditToolTip(*) {

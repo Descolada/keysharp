@@ -215,13 +215,32 @@ namespace Keysharp.Builtins
 					// the Win32 single-owner lock. Linux/macOS clipboards have no equivalent locking model.
 					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
 					{
+						// Whether plain text is present, captured while we still hold the clipboard open, where
+						// the answer is stable because no other process can be mid-update. Used to scope the
+						// retry below so empty/non-text clipboards are never delayed.
+						var hasText = WindowsAPI.IsClipboardFormatAvailable(WindowsAPI.CF_UNICODETEXT)
+							|| WindowsAPI.IsClipboardFormatAvailable(WindowsAPI.CF_TEXT);
 						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
 
-						if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni))
-							return uni;
+						// Clipboard.TryGetData<string> (the typed clipboard API added in .NET 9) intermittently
+						// reports a present text format as empty (or absent) for a couple of tick right
+						// after the clipboard is set via an OLE-flushed SetDataObject, when another process (e.g.
+						// a clipboard manager/history service) touches the clipboard between our CloseClipboard
+						// above and the read. The value materialises on a re-read, so since we know text is
+						// present, retry the text read until it does.
+						for (var attempt = 0; hasText; attempt++)
+						{
+							if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni) && !string.IsNullOrEmpty(uni))
+								return uni;
 
-						if (Clipboard.TryGetData<string>(DataFormats.Text, out var text))
-							return text;
+							if (Clipboard.TryGetData<string>(DataFormats.Text, out var text) && !string.IsNullOrEmpty(text))
+								return text;
+
+							if (attempt >= 3)
+								break;
+
+							System.Threading.Thread.Sleep(1);
+						}
 
 						if (Clipboard.TryGetData<string>(DataFormats.Html, out var html))
 							return html;

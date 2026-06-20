@@ -1202,6 +1202,10 @@ namespace Keysharp.Internals.Platform.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool EmptyClipboard();
 
+		[LibraryImport(user32, EntryPoint = "IsClipboardFormatAvailable")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool IsClipboardFormatAvailable(uint format);
+
 		internal static bool OpenClipboard(long ms)
 		{
 			bool open;

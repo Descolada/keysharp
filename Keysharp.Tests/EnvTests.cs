@@ -39,6 +39,46 @@ namespace Keysharp.Tests
 			Assert.AreEqual("Asdf", clip);
 		}
 
+#if WINDOWS
+		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
+		[Apartment(ApartmentState.STA)]
+		public void ClipboardTextStress()
+		{
+			var expected = "Clipboard probe text:\nAlpha beta gamma\nUnicode: Eesti, stress.";
+			int fails = 0;
+
+			// Background clipboard pressure to provoke the .NET "TryGetData ok-but-empty" race on an STA thread.
+			using var stop = new CancellationTokenSource();
+			var pressure = new Thread(() =>
+			{
+				while (!stop.IsCancellationRequested)
+				{
+					try { _ = System.Windows.Forms.Clipboard.TryGetData<string>(System.Windows.Forms.DataFormats.UnicodeText, out _); }
+					catch { }
+				}
+			});
+			pressure.SetApartmentState(ApartmentState.STA);
+			pressure.IsBackground = true;
+			pressure.Start();
+
+			for (int n = 0; n < 2000; n++)
+			{
+				Accessors.A_Clipboard = expected;
+				var actual = Accessors.A_Clipboard as string;
+				if (!string.Equals(actual, expected))
+				{
+					fails++;
+					TestContext.Progress.WriteLine($"[FAIL n={n}] actualLen={actual?.Length ?? -1}");
+					if (fails >= 8)
+						break;
+				}
+			}
+			stop.Cancel();
+			pressure.Join(1000);
+			TestContext.Progress.WriteLine($"stress total fails={fails}");
+		}
+#endif
+
 		[Test, Category("Env"), Category("Clipboard"), NonParallelizable]
 #if WINDOWS
 		[Apartment(ApartmentState.STA)]
@@ -212,6 +252,13 @@ namespace Keysharp.Tests
 
 		private static void AssertClipWaitTimeoutAfterClear(int attempts = 3)
 		{
+			const double timeoutMs = 500;
+			// ClipWait measures its timeout with Environment.TickCount64, whose ~15.6 ms quantization means
+			// the observed wall-clock wait can fall a little short of the nominal timeout (it lands in roughly
+			// (timeout - 16, timeout]). Allow a tolerance so the check asserts "it waited, then timed out"
+			// rather than exact timing, which is inherently imprecise (and matches AutoHotkey's behavior).
+			const double toleranceMs = 50;
+
 			for (var attempt = 0; attempt < attempts; attempt++)
 			{
 #if WINDOWS
@@ -224,7 +271,7 @@ namespace Keysharp.Tests
 				var b = Env.ClipWait(0.5);
 				var ms = (DateTime.UtcNow - dt).TotalMilliseconds;
 
-				if (!b && ms >= 500 && ms <= 3000)
+				if (!b && ms >= timeoutMs - toleranceMs && ms <= 3000)
 					return;
 			}
 

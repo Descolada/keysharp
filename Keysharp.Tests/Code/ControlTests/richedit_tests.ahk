@@ -33,5 +33,5 @@ By default, the hard carriage return (Enter) between the previous line and this 
 ; │  Clear Edit Callback  │
 ; └───────────────────────┘
 ClearRichEdit() {
-    ControlSetText(, SecondRichEdit)
+    ControlSetText("", SecondRichEdit)
 }

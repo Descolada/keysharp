@@ -1112,7 +1112,7 @@ namespace Keysharp.Builtins
 				oldGch.Free();
 
 			script.StringsData.gcHandles[ptr] = gch;
-			return ptr;
+			return (long)ptr;
 		}
 
 		/// <summary>

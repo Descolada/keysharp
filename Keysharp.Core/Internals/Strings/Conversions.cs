@@ -385,6 +385,14 @@ namespace Keysharp.Internals.Strings
 				}
 			}
 
+			// When the requested family isn't installed on this system (e.g. "Comic Sans MS"
+			// on Linux), Eto's Font constructor throws ArgumentOutOfRangeException. Mirror
+			// AutoHotkey's behavior by still applying the size/style/decoration changes and
+			// falling back to the current font's family instead of discarding the call.
+			if (!string.IsNullOrEmpty(resolvedFamily)
+					&& !Eto.Platform.Instance.CreateShared<Fonts.IHandler>().FontFamilyAvailable(resolvedFamily))
+				resolvedFamily = standard.FamilyName;
+
 			try
 			{
 				return ConvertFont(new Font(resolvedFamily, size, display, decorations));

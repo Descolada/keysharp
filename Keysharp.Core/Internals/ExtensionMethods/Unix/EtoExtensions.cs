@@ -357,6 +357,7 @@ namespace Eto.Forms
                         Window window => window.Title ?? "",
                         TextBox textBox => textBox.Text ?? "",
                         TextArea textArea => textArea.Text ?? "",
+                        KeysharpLinkLabel linkLabel => linkLabel.Text ?? "",
                         Label label => label.Text ?? "",
                         Button button => button.Text ?? "",
                         CheckBox checkBox => checkBox.Text ?? "",
@@ -380,6 +381,9 @@ namespace Eto.Forms
                             break;
                         case TextArea textArea:
                             textArea.Text = value;
+                            break;
+                        case KeysharpLinkLabel linkLabel:
+                            linkLabel.Text = value;
                             break;
                         case Label label:
                             label.Text = value;

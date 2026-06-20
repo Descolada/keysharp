@@ -569,11 +569,54 @@ namespace Keysharp.Builtins
 		}
 	}
 
-	public class KeysharpLinkLabel : KeysharpLabel
+	/// <summary>
+	/// A custom-drawn link label. Eto's <see cref="Forms.Label"/> renders plain text with a single colour,
+	/// so to match the Windows backend (only the anchor text is coloured and underlined) the control is a
+	/// <see cref="Drawable"/> that paints each segment itself: normal text in <see cref="TextColor"/>, link
+	/// regions in <see cref="LinkColor"/> with an underline.
+	/// </summary>
+	public class KeysharpLinkLabel : Drawable
 	{
+		internal static readonly Color LinkColor = Color.FromArgb(0, 102, 204);
+
 		internal bool clickSet = false;
+		internal List<Tuple<int, int, Tuple<string, string>>> links;
 		private readonly int addStyle, removeStyle;
 		private readonly int addExStyle, removeExStyle;
+		private string text = "";
+		private Font font;
+		private (float left, float right)[] linkBounds;//Cached x-extent of each link, parallel to links.
+		private bool cursorOverLink;
+		private readonly bool transparent;//True when the native widget is windowless and the form shows through.
+
+		public bool AutoSize { get; set; }
+		public Color TextColor { get; set; } = SystemColors.ControlText;
+
+		public new string Text
+		{
+			get => text;
+			set
+			{
+				//Strip the <a href=...> markup so the label shows clean text and clicks open the parsed URL,
+				//rather than feeding the whole raw string to xdg-open (which would word-split it).
+				var parsed = GuiHelper.ParseLinkLabelText(value ?? "");
+				text = parsed.Item1;
+				links = parsed.Item2;
+				UpdateSize();
+				Invalidate();
+			}
+		}
+
+		public Font Font
+		{
+			get => font;
+			set
+			{
+				font = value;
+				UpdateSize();
+				Invalidate();
+			}
+		}
 
 		public KeysharpLinkLabel(string text, int _addStyle = 0, int _addExStyle = 0, int _removeStyle = 0, int _removeExStyle = 0)
 		{
@@ -581,20 +624,136 @@ namespace Keysharp.Builtins
 			addExStyle = _addExStyle;
 			removeStyle = _removeStyle;
 			removeExStyle = _removeExStyle;
+#if LINUX
+			//Make the underlying GTK EventBox windowless so the form shows through (true transparency, like a
+			//Label). Otherwise the drawing area paints its own window black where no text is drawn.
+			try
+			{
+				if (this.ToNative() is Gtk.EventBox eventBox)
+				{
+					eventBox.VisibleWindow = false;
+					transparent = true;
+				}
+			}
+			catch { }
+#endif
+			Paint += KeysharpLinkLabel_Paint;
+			MouseMove += KeysharpLinkLabel_MouseMove;
 			Text = text;
-			MouseDown += KeysharpLinkLabel_MouseDown;
 		}
 
-		internal static object OnLinkLabelClicked(object obj0, object obj1)
+		//The hand cursor should only appear over the blue link text, so track which region the mouse is over.
+		private void KeysharpLinkLabel_MouseMove(object sender, MouseEventArgs e)
 		{
-			if (obj0 is KeysharpLinkLabel ll)
-				OpenUrl(ll.Text);
-			return null;
+			var overLink = LinkIndexAt(e.Location) >= 0;
+
+			if (overLink != cursorOverLink)
+			{
+				cursorOverLink = overLink;
+				Cursor = overLink ? Cursors.Pointer : Cursors.Default;
+			}
 		}
 
-		private void KeysharpLinkLabel_MouseDown(object sender, MouseEventArgs e) => OpenUrl(Text);
+		private void KeysharpLinkLabel_Paint(object sender, PaintEventArgs e)
+		{
+			var f = font ?? MainWindow.OurDefaultFont;
 
-		private static void OpenUrl(string url)
+			//A windowless GTK widget already shows the form behind it, so only fill when opaque: either the
+			//control has an explicit background, or it owns its window (non-Linux) and would render black.
+			var bg = BackgroundColor;
+
+			if (bg.A > 0 || !transparent)
+			{
+				using var backgroundBrush = new SolidBrush(bg.A > 0 ? bg : SystemColors.ControlBackground);
+				e.Graphics.FillRectangle(backgroundBrush, new Rectangle(0, 0, Width, Height));
+			}
+
+			if (text.Length == 0)
+				return;
+
+			var pos = 0;
+			var x = 0f;
+
+			if (links != null)
+			{
+				foreach (var link in links)
+				{
+					var start = Math.Min(text.Length, link.Item1);
+					var stop = Math.Min(text.Length, start + link.Item2);
+
+					if (start > pos)
+						x = DrawSegment(e.Graphics, f, text.Substring(pos, start - pos), x, TextColor, false);
+
+					x = DrawSegment(e.Graphics, f, text.Substring(start, stop - start), x, LinkColor, true);
+					pos = stop;
+				}
+			}
+
+			if (pos < text.Length)
+				_ = DrawSegment(e.Graphics, f, text.Substring(pos), x, TextColor, false);
+		}
+
+		private static float DrawSegment(Graphics g, Font f, string segment, float x, Color color, bool underline)
+		{
+			if (segment.Length == 0)
+				return x;
+
+			var size = g.MeasureString(f, segment);
+			g.DrawText(f, color, x, 0, segment);
+
+			if (underline)
+				g.DrawLine(color, x, size.Height - 1, x + size.Width, size.Height - 1);
+
+			return x + size.Width;
+		}
+
+		private void UpdateSize()
+		{
+			try
+			{
+				using var bmp = new Bitmap(1, 1, PixelFormat.Format32bppRgba);
+				using var g = new Graphics(bmp);
+				var f = font ?? MainWindow.OurDefaultFont;
+				//Measure a single space for empty text so the control keeps a sensible line height.
+				var size = g.MeasureString(f, text.Length > 0 ? text : " ");
+				Size = new Size((int)Math.Ceiling(size.Width) + 1, (int)Math.Ceiling(size.Height));
+
+				if (links != null && links.Count > 0)
+				{
+					linkBounds = new (float, float)[links.Count];
+
+					for (var i = 0; i < links.Count; i++)
+					{
+						var start = Math.Min(text.Length, links[i].Item1);
+						var stop = Math.Min(text.Length, start + links[i].Item2);
+						linkBounds[i] = (g.MeasureString(f, text.Substring(0, start)).Width,
+										 g.MeasureString(f, text.Substring(0, stop)).Width);
+					}
+				}
+				else
+					linkBounds = null;
+			}
+			catch { }
+		}
+
+		/// <summary>
+		/// Returns the index of the link region under <paramref name="loc"/>, or -1 when the point is not over
+		/// any link. Used for both the click target and the hand cursor, so plain text (and the gaps between
+		/// links) is correctly treated as non-clickable.
+		/// </summary>
+		internal int LinkIndexAt(PointF? loc)
+		{
+			if (linkBounds == null || loc is not PointF p)
+				return -1;
+
+			for (var i = 0; i < linkBounds.Length; i++)
+				if (p.X >= linkBounds[i].left && p.X <= linkBounds[i].right)
+					return i;
+
+			return -1;
+		}
+
+		internal static void OpenUrl(string url)
 		{
 			if (string.IsNullOrWhiteSpace(url))
 				return;

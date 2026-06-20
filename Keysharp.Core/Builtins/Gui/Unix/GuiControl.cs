@@ -1952,6 +1952,21 @@ namespace Keysharp.Builtins
 					else
 						_ = clickHandlers.InvokeEventHandlers(this, 0L);
 				}
+				else if (_control is KeysharpLinkLabel ll)
+				{
+					var idx = ll.LinkIndexAt((e as MouseEventArgs)?.Location);
+
+					if (idx >= 0)
+					{
+						var id = ll.links[idx].Item3.Item1;
+						var url = ll.links[idx].Item3.Item2;
+
+						if (!ll.clickSet)
+							KeysharpLinkLabel.OpenUrl(url);
+						else
+							_ = clickHandlers.InvokeEventHandlers(this, id != "" ? id : idx + 1L, url);
+					}
+				}
 				//else if (_control is KeysharpButton)
 				//{
 				//  //mousecount ^= 1;//Button click events get fired twice, because we have double click and standard click enabled, so filter the second click here.

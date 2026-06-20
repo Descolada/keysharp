@@ -1541,10 +1541,7 @@ namespace Keysharp.Builtins
 				Reflections.SafeSetProperty(ctrl, "AutoSize", opts.autosize.Value);
 
 			if (text != null && ctrl is not KeysharpDateTimePicker && ctrl is not HotkeyBox
-#if WINDOWS
-			 && ctrl is not KeysharpLinkLabel
-#endif
-			 )
+			 && ctrl is not KeysharpLinkLabel)
 				ctrl.Text = text;
 
 			if (ctrl is not KeysharpStatusStrip)//Don't want status strip to have a margin, so it can be placed at the bottom of the form when autosize is true, and have it look exactly like it would if it were docked when autosize is false.

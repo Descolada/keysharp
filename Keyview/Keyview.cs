@@ -1061,6 +1061,9 @@ namespace Keyview
 		private bool searchIsOpen;
 		private string trimmedCode = "";
 		private Process scriptProcess;
+		// Shown in the output box (replacing the generated C#) the first time a running script emits output.
+		// The C# stays available via "Copy full code" because fullCode/trimmedCode are left untouched.
+		private const string ScriptOutputHeader = "─── Script output ───\n\n";
 		private string lastSearch = "";
 		private int lastSearchIndex;
 		private bool suppressUndo;
@@ -1071,6 +1074,10 @@ namespace Keyview
 		private bool suppressDocumentChange;
 		private bool highlighting;
 		private bool outputHighlighting;
+		// True while the output box is displaying a running script's output rather than generated C#.
+		// Cleared whenever the compiler writes C# back into the box, so a still-running (now stale)
+		// script can't clobber the freshly displayed code with its continued output.
+		private bool scriptOwnsOutput;
 		private int highlightBaseLength;
 		private bool closing;
 
@@ -2064,6 +2071,7 @@ namespace Keyview
 			if (outputHighlighting)
 				return; // ignore re-entrant updates (e.g. a Full-code toggle) while a pumped highlight runs
 
+			scriptOwnsOutput = false; // the compiler is reclaiming the output box from any running script
 			outputArea.Text = text;
 			outputHighlighting = true;
 			try
@@ -2173,10 +2181,24 @@ namespace Keyview
 
 				Application.Instance.AsyncInvoke(() =>
 				{
-					// The generated C# in the output box has no trailing newline, so start the first
-					// runtime message on its own line instead of right after the closing '}'.
-					outputArea.Append(runtimeOutputStarted ? $"{e.Data}\n" : $"\n{e.Data}\n", true);
-					runtimeOutputStarted = true;
+					if (!runtimeOutputStarted)
+					{
+						// Replace the generated C# with the script's runtime output so the two don't
+						// get mixed together. The C# remains available via "Copy full code". This
+						// take-over happens once per run, the first time the script emits output.
+						runtimeOutputStarted = true;
+						scriptOwnsOutput = true;
+						outputArea.Text = "";
+						outputArea.Append(ScriptOutputHeader, false);
+					}
+					else if (!scriptOwnsOutput)
+					{
+						// A recompile reclaimed the output box after this script took it over; don't
+						// clobber the freshly displayed C# with this (now stale) run's later output.
+						return;
+					}
+
+					outputArea.Append($"{e.Data}\n", true);
 				});
 			};
 			scriptProcess.Exited += (_, _) =>
@@ -2315,6 +2337,16 @@ namespace Keyview
 					setSuccess?.Invoke((DateTime.UtcNow - startTime).TotalSeconds);
 					setFullCode(code);
 
+					// Load the compiled assembly and re-enable the Run button as soon as the script is
+					// actually runnable, before the (potentially slow) trimming and C# syntax highlighting
+					// below. Otherwise the button stays greyed out for a second or two after the compile
+					// has really finished, just while the generated code is being highlighted.
+					_ = ms.Seek(0, SeekOrigin.Begin);
+					var arr = ms.ToArray();
+					CompilerHelper.compiledBytes = arr;
+					CompilerHelper.compiledasm = Assembly.Load(arr);
+					enableRunButton?.Invoke();
+
 					// Trimming the generated code is pure string work over the whole file; do it on a
 					// background thread so the UI thread is not blocked between compile and display.
 					var (displayCode, trimmedCode) = await Task.Run(() =>
@@ -2335,10 +2367,6 @@ namespace Keyview
 					setOutput?.Invoke(useFullCode() ? displayCode : trimmedCode);
 					afterOutput?.Invoke();
 					writeLastRun?.Invoke();
-					_ = ms.Seek(0, SeekOrigin.Begin);
-					var arr = ms.ToArray();
-					CompilerHelper.compiledBytes = arr;
-					CompilerHelper.compiledasm = Assembly.Load(arr);
 				}
 				else
 				{

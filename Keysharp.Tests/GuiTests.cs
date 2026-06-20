@@ -6,6 +6,14 @@ using AppKit = MonoMac.AppKit;
 
 namespace Keysharp.Tests
 {
+	// Run the whole fixture on a single STA thread (Windows). Otherwise MsgBox (no apartment) and Theme ([Apartment STA])
+	// land on different threads: MsgBox's message loop registers a SystemEvents (dark-mode/theming) subscription bound to
+	// its thread, then Theme's Application.SetColorMode -- raised from a *different* thread -- marshals a synchronous
+	// notification back to MsgBox's now-idle thread and deadlocks. Sharing one STA thread lets SetColorMode's own nested
+	// message pump service that callback instead of blocking.
+#if WINDOWS
+	[Apartment(ApartmentState.STA)]
+#endif
 	public class GuiTests : TestRunner
 	{
 		private const string MsgBoxTitle = "this is a sample title";
@@ -28,9 +36,6 @@ namespace Keysharp.Tests
 #endif
 
 		[Test, Category("Gui")]
-#if WINDOWS
-		[Apartment(ApartmentState.STA)]
-#endif
 		public void FileSelect()
 		{
 			if (Script.IsHeadless)
@@ -82,9 +87,6 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Gui")]
-#if WINDOWS
-		[Apartment(ApartmentState.STA)]
-#endif
 		public void Theme()
 		{
 #if WINDOWS

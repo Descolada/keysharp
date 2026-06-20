@@ -2440,7 +2440,7 @@ SecondRichEdit.RichText := RawRichEditVar
 ; │  Clear Edit Callback  │
 ; └───────────────────────┘
 ClearRichEdit(*) {
-	ControlSetText(, SecondRichEdit)
+	ControlSetText("", SecondRichEdit)
 }
 
 GetLineCount(*)
@@ -2988,8 +2988,7 @@ DllDeleteFromTaskbar(*)
 	Sleep 3000
 	DllCall(vtable(tbl.ptr,4), "ptr", tbl, "ptr", activeHwnd)  ; tbl.AddTab(activeHwnd)
 
-	; Non-wrapped interface pointers must be manually freed.
-	ObjRelease(tbl.ptr)
+	; tbl gets automatically garbage-collected
 }
 
 ComDeleteFromTaskbar(*)

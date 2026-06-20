@@ -136,6 +136,8 @@ namespace Keysharp.Runtime
 		private readonly HashSet<DelegateHolder> ownedDelegates = [];
 		private readonly LinkedList<ScriptQueueEntry> interactiveQueue = new();
 		private readonly LinkedList<ScriptQueueEntry> normalQueue = new();
+		// Reused by EnqueueDueTimers (only the owning thread calls it), so the per-pump due-check doesn't allocate.
+		private readonly List<Keysharp.Internals.Threading.ScriptTimerState> dueTimerBuffer = new();
 		private AutoResetEvent workerPumpSignal = new(false);
 		private int workerDisposed;
 		private int persistentRegistrationCount;
@@ -262,6 +264,18 @@ internal bool HasBlockedQueuedWork
 			return Enqueue(ScriptEventQueue.Normal, timer.Priority, queuedEvent.Execute);
 		}
 
+		// Runs the timer due-check on the owning thread and enqueues any due timers through the TimerQueuedEvent path.
+		// Called at the top of the pump and the worker loop so a timer fires inline when its scheduler next runs. The
+		// timer manager's thread only wakes the scheduler (WakeForTimerCheck); this is where "should it fire" is decided.
+		internal void EnqueueDueTimers()
+		{
+			if (IsDisposed)
+				return;
+
+			foreach (var timer in script.FlowData.timers.TakeDueTimers(this, dueTimerBuffer))
+				_ = EnqueueTimer(timer);
+		}
+
 		internal bool EnqueueThreadLaunch(long priority, bool skipUninterruptible, bool isCritical, Action action)
 			=> action != null
 				&& Enqueue(ScriptEventQueue.Normal, priority, () => TryExecuteThreadLaunch(priority, skipUninterruptible, isCritical, _ => action()));
@@ -351,6 +365,9 @@ internal bool HasBlockedQueuedWork
 
 			try
 			{
+				// Run the timer due-check first, so any timer that has come due is enqueued before we drain the queue.
+				EnqueueDueTimers();
+
 				while (true)
 				{
 					switch (TryProcessNextQueuedEvent(ref consecutiveInteractiveLocalBlocks, ref consecutiveNormalLocalBlocks, ref preferNormalOnce))
@@ -385,6 +402,10 @@ internal bool HasBlockedQueuedWork
 					_ = WaitForWorkerPumpSignal((int)ThreadVariables.DefaultUninterruptiblePeekFrequency);
 					continue;
 				}
+
+				// The timer waker only signals us (WakeForTimerCheck) when a timer is due; enqueue those due timers
+				// here so the gate below sees them as queued work and we pump them instead of going back to sleep.
+				EnqueueDueTimers();
 
 				if (!HasQueuedEvents())
 				{
@@ -427,14 +448,21 @@ internal bool HasBlockedQueuedWork
 			signal?.Dispose();
 		}
 
-		internal void SchedulePump()
+		internal void SchedulePump() => SchedulePump(requireQueued: true);
+
+		// Wakes this scheduler so its pump runs the timer due-check (EnqueueDueTimers), even when the queue is currently
+		// empty — the timer manager's waker calls this when a timer is due but not yet enqueued. Coalesced via
+		// pumpScheduled, so repeated wakes before the pump runs collapse into one post.
+		internal void WakeForTimerCheck() => SchedulePump(requireQueued: false);
+
+		private void SchedulePump(bool requireQueued)
 		{
 			if (IsDisposed)
 				return;
 
 			lock (gate)
 			{
-				if (!TryMarkPumpScheduledUnsafe())
+				if (!TryMarkPumpScheduledUnsafe(requireQueued))
 					return;
 			}
 
@@ -614,9 +642,10 @@ internal bool HasBlockedQueuedWork
 		private bool HasQueuedEventsUnsafe() => interactiveQueue.Count != 0 || normalQueue.Count != 0;
 		private bool HasBlockedQueuedWorkUnsafe() => blockedQueuedWork && HasQueuedEventsUnsafe();
 
-		private bool TryMarkPumpScheduledUnsafe()
+		private bool TryMarkPumpScheduledUnsafe(bool requireQueued = true)
 		{
-			if (!HasQueuedEventsUnsafe() || pumpScheduled || pumpDepth != 0)
+			// requireQueued:false is the timer-waker path — wake to run the due-check even with an empty queue.
+			if ((requireQueued && !HasQueuedEventsUnsafe()) || pumpScheduled || pumpDepth != 0)
 				return false;
 
 			pumpScheduled = true;

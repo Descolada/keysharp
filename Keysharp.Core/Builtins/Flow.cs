@@ -457,7 +457,9 @@ namespace Keysharp.Builtins
 	{
 		internal FlowData()
 		{
-			timers = new(timer => timer?.OwnerScheduler?.EnqueueTimer(timer) == true);
+			// The manager is a waker: it signals each due timer's owner scheduler (WakeForTimerCheck), whose pump runs
+			// the due-check (ScriptEventScheduler.EnqueueDueTimers -> EnqueueTimer).
+			timers = new();
 		}
 
 		/// <summary>

@@ -2494,7 +2494,6 @@ namespace Keysharp.Builtins
 			}
 
 			ResizeTabControls();
-			var status = form.GetControls().OfType<KeysharpStatusStrip>().ToArray();
 			(int, int) FixStatusStrip(KeysharpStatusStrip ss)
 			{
 				var maxx = 0;
@@ -2524,13 +2523,16 @@ namespace Keysharp.Builtins
 
 			if (auto || requestedSize.Width == int.MinValue || requestedSize.Height == int.MinValue)
 			{
+				// Only the autosize path needs the status strip; computing it unconditionally allocated a status-strip
+				// array on every Show, including hot repeated repositions that pass an explicit size.
+				var status = form.GetControls().OfType<KeysharpStatusStrip>().ToArray();
 				KeysharpStatusStrip ss = null;
 
-                if (status.Length > 0)
-                {
-                    ss = status[0];
-                    ssHeight = ss.GetSize().Height;
-                }
+				if (status.Length > 0)
+				{
+					ss = status[0];
+					ssHeight = ss.GetSize().Height;
+				}
 
 				(maxx, maxy) = FixStatusStrip(ss);
 			}
@@ -2556,10 +2558,14 @@ namespace Keysharp.Builtins
 				else
 					size.Height = (int)(maxy + ssHeight + MarginY);
 
+#if !WINDOWS
 				form.ClientSize = size;
+#endif
 			}
 
 #if WINDOWS
+			// Single ClientSize assignment for both the autosize and explicit-size branches. The explicit branch used
+			// to set it again above, resizing the form twice (two SetWindowPos round-trips) on every Show.
 			form.ClientSize = size;
 			var screen = Forms.Screen.PrimaryScreen.Bounds;
 #else
@@ -3137,11 +3143,14 @@ namespace Keysharp.Builtins
 
 		private void ResizeTabControls()
 		{
-			var dpiscale = DpiScale;
-			var tabControls = controls.Values.OfType<Gui.Control>().Where(gc => gc.Ctrl is KeysharpTabControl).ToHashSet();
+			if (controls.Count == 0)
+				return;
 
-			foreach (var tc in tabControls)
-				((KeysharpTabControl)tc.Ctrl).AdjustSize(dpiscale, tc.requestedSize);
+			var dpiscale = DpiScale;
+
+			foreach (var val in controls.Values)
+				if (val is Gui.Control gc && gc.Ctrl is KeysharpTabControl ktc)
+					ktc.AdjustSize(dpiscale, gc.requestedSize);
 		}
 
 		public object this[object controlname]

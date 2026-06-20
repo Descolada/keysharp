@@ -44,12 +44,9 @@ namespace Keysharp.Internals.Threading
 
 	internal sealed class ScriptTimerManager : IDisposable
 	{
-		internal delegate bool TimerDispatchCallback(ScriptTimerState timer);
-
 		private readonly object gate = new();
 		private readonly Dictionary<(IFuncObj Callback, ScriptEventScheduler OwnerScheduler), ScriptTimerState> timers = new(ScriptTimerKeyComparer.Instance);
 		private readonly AutoResetEvent wakeEvent = new(false);
-		private readonly TimerDispatchCallback dispatchCallback;
 		private Thread timerThread;
 		private bool disposed;
 
@@ -71,9 +68,8 @@ namespace Keysharp.Internals.Threading
 			}
 		}
 
-		internal ScriptTimerManager(TimerDispatchCallback dispatchCallback)
+		internal ScriptTimerManager()
 		{
-			this.dispatchCallback = dispatchCallback ?? throw new ArgumentNullException(nameof(dispatchCallback));
 		}
 
 		internal ScriptTimerState[] GetSnapshot()
@@ -337,12 +333,19 @@ namespace Keysharp.Internals.Threading
 			wakeEvent.Dispose();
 		}
 
+		// This thread is a WAKER: it does not decide which timers fire or enqueue anything. It finds the next due time
+		// and, when a timer is due, wakes that timer's owner scheduler via WakeForTimerCheck. The scheduler's pump then
+		// runs the due-check itself (EnqueueDueTimers -> EnqueueTimer). Timers that are already Queued or running are
+		// skipped here, so once the pump has enqueued a due timer this loop stops waking for it.
 		private void Run()
 		{
+			var dueOwners = new HashSet<ScriptEventScheduler>();
+
 			while (true)
 			{
-				var dueTimers = new List<ScriptTimerState>();
+				dueOwners.Clear();
 				var waitMs = Timeout.Infinite;
+				var anyDue = false;
 
 				lock (gate)
 				{
@@ -364,25 +367,25 @@ namespace Keysharp.Internals.Threading
 							continue;
 						}
 
-						timer.Queued = true;
-						dueTimers.Add(timer);
+						anyDue = true;
+
+						if (timer.OwnerScheduler != null)
+							_ = dueOwners.Add(timer.OwnerScheduler);
 					}
 
-					if (nextDueTick != long.MaxValue)
+					if (anyDue)
+						// The wake only triggers the pump; until its EnqueueDueTimers marks these Queued they stay due here,
+						// so re-evaluate after a short wait rather than busy-spinning. Once Queued they're skipped above.
+						waitMs = 1;
+					else if (nextDueTick != long.MaxValue)
 					{
 						var delay = nextDueTick - now;
 						waitMs = delay >= int.MaxValue ? int.MaxValue : Math.Max(1, (int)delay);
 					}
 				}
 
-				foreach (var timer in dueTimers)
-				{
-					if (!dispatchCallback(timer))
-					{
-						ClearQueueStateAfterFailedDispatch(timer);
-						waitMs = Math.Min(waitMs == Timeout.Infinite ? int.MaxValue : waitMs, 1);
-					}
-				}
+				foreach (var owner in dueOwners)
+					owner.WakeForTimerCheck();
 
 				try
 				{
@@ -408,21 +411,34 @@ namespace Keysharp.Internals.Threading
 			timerThread.Start();
 		}
 
-		private void ClearQueueStateAfterFailedDispatch(ScriptTimerState timer)
+		// The due-check ("should this timer fire"), run from the owner scheduler's pump (EnqueueDueTimers) on the owner
+		// thread. Marks this scheduler's due timers Queued and returns them so the caller enqueues them via EnqueueTimer.
+		// Reuses the caller's buffer to avoid per-pump allocation (only the owning thread calls this for a given scheduler).
+		internal List<ScriptTimerState> TakeDueTimers(ScriptEventScheduler scheduler, List<ScriptTimerState> buffer)
 		{
+			buffer.Clear();
+
 			lock (gate)
 			{
 				if (disposed)
-					return;
+					return buffer;
 
-				timer.Queued = false;
+				var now = Environment.TickCount64;
 
-				if (!timer.Enabled && timer.DeletePending && timer.RunningCount == 0)
+				foreach (var timer in timers.Values)
 				{
-					_ = timers.Remove((timer.Callback, timer.OwnerScheduler));
-					ClearTimerState(timer);
+					if (!timer.Enabled || timer.Queued || timer.RunningCount > 0)
+						continue;
+
+					if (!ReferenceEquals(timer.OwnerScheduler, scheduler) || now < timer.NextDueTick)
+						continue;
+
+					timer.Queued = true;
+					buffer.Add(timer);
+				}
 			}
-		}
+
+			return buffer;
 		}
 
 		private void Wake()

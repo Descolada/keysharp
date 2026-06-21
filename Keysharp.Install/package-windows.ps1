@@ -266,6 +266,22 @@ function Compress-WindowsPackage {
     Compress-Archive -Path (Join-Path $SourceRoot "*") -DestinationPath $DestinationPath -Force
 }
 
+function Open-MsiForUpdate {
+    # A just-built MSI is frequently held for a second or two by antivirus real-time scanning (or a lingering
+    # build handle), so OpenDatabase in transact (read/write) mode can fail with a sharing violation. Retry briefly.
+    param($Installer, [string] $MsiPath, [int] $Retries = 20, [int] $DelayMs = 500)
+
+    for ($i = 0; $i -lt $Retries; $i++) {
+        try {
+            return $Installer.OpenDatabase($MsiPath, 1)  # msiOpenDatabaseModeTransact
+        }
+        catch {
+            if ($i -eq ($Retries - 1)) { throw }
+            Start-Sleep -Milliseconds $DelayMs
+        }
+    }
+}
+
 function Add-CloseInstancesCustomAction {
     # Windows refuses to overwrite a running .exe or a loaded .dll, so an upgrade or uninstall performed while
     # any Keysharp process is running (a script launched through Keysharp.exe, the compile daemon, or Keyview)
@@ -369,7 +385,7 @@ End If
 '@
 
     $installer = New-Object -ComObject WindowsInstaller.Installer
-    $db = $installer.OpenDatabase($MsiPath, 1)  # msiOpenDatabaseModeTransact
+    $db = Open-MsiForUpdate $installer $MsiPath  # transact mode, retried (a just-built MSI is often briefly locked by AV)
     try {
         # Run on uninstall (REMOVE="ALL") and on upgrades that REMOVE an older product (the Upgrade table's
         # ActionProperty). Skip "detect only" rows (msidbUpgradeAttributesOnlyDetect = 0x2, e.g. the
@@ -432,7 +448,7 @@ function Move-RemoveExistingProductsEarly {
 
     Write-Host "Re-sequencing RemoveExistingProducts in $MsiPath..."
     $installer = New-Object -ComObject WindowsInstaller.Installer
-    $db = $installer.OpenDatabase($MsiPath, 1)  # msiOpenDatabaseModeTransact
+    $db = Open-MsiForUpdate $installer $MsiPath  # transact mode, retried (a just-built MSI is often briefly locked by AV)
     try {
         # Sequence is not a primary key of InstallExecuteSequence (Action is), so a plain UPDATE is allowed.
         $view = $db.OpenView('UPDATE `InstallExecuteSequence` SET `Sequence` = 1525 WHERE `Action` = ''RemoveExistingProducts''')

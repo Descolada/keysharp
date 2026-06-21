@@ -85,6 +85,14 @@ function Update-InstallerProjectVersion {
     $content = [regex]::Replace($content, '"ProductVersion" = "8:[^"]+"', """ProductVersion"" = ""8:$msiVersion""")
     $content = [regex]::Replace($content, '"ProductCode" = "8:\{[^}]+\}"', """ProductCode"" = ""8:{$([guid]::NewGuid().ToString().ToUpperInvariant())}""")
     $content = [regex]::Replace($content, '"PackageCode" = "8:\{[^}]+\}"', """PackageCode"" = ""8:{$([guid]::NewGuid().ToString().ToUpperInvariant())}""")
+
+    # The Keysharp/Keysharp.Core/Keyview product assemblies are packaged from their SourcePath, but the
+    # setup project also stores a cached fusion display name whose Version is the assembly version captured
+    # at authoring time. Left stale, a release built at a newer version registers a mismatched version string
+    # in the MsiAssemblyName table, so rewrite the Version token for exactly those three (matched by name;
+    # the framework/third-party entries keep their own, unrelated versions).
+    $content = [regex]::Replace($content, '("AssemblyAsmDisplayName" = "8:(?:Keysharp\.Core|Keysharp|Keyview), Version=)[^,]+', "`${1}$AssemblyVersion")
+
     Set-Content -LiteralPath $ProjectPath -Value $content -NoNewline
 }
 

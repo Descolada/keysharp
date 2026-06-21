@@ -574,7 +574,7 @@
             {
             "AssemblyRegister" = "3:1"
             "AssemblyIsInGAC" = "11:FALSE"
-            "AssemblyAsmDisplayName" = "8:Keysharp, Version=0.0.0.14, Culture=neutral, processorArchitecture=AMD64"
+            "AssemblyAsmDisplayName" = "8:Keysharp, Version=0.0.0.15, Culture=neutral, processorArchitecture=AMD64"
                 "ScatterAssemblies"
                 {
                     "_002487471F0C42FB931F7E7C53FBE8F5"
@@ -1403,7 +1403,7 @@
             {
             "AssemblyRegister" = "3:1"
             "AssemblyIsInGAC" = "11:FALSE"
-            "AssemblyAsmDisplayName" = "8:Keysharp.Core, Version=0.0.0.14, Culture=neutral, processorArchitecture=AMD64"
+            "AssemblyAsmDisplayName" = "8:Keysharp.Core, Version=0.0.0.15, Culture=neutral, processorArchitecture=AMD64"
                 "ScatterAssemblies"
                 {
                     "_A872A013F72A90A0CC4BDEFF87255827"
@@ -1598,7 +1598,7 @@
             {
             "AssemblyRegister" = "3:1"
             "AssemblyIsInGAC" = "11:FALSE"
-            "AssemblyAsmDisplayName" = "8:Keyview, Version=0.0.0.14, Culture=neutral, processorArchitecture=AMD64"
+            "AssemblyAsmDisplayName" = "8:Keyview, Version=0.0.0.15, Culture=neutral, processorArchitecture=AMD64"
                 "ScatterAssemblies"
                 {
                     "_E639AC3BD2C345DB88A0E7AFFF3E704C"
@@ -1972,7 +1972,7 @@
         "RemovePreviousVersions" = "11:TRUE"
         "DetectNewerInstalledVersion" = "11:TRUE"
         "InstallAllUsers" = "11:FALSE"
-        "ProductVersion" = "8:0.0.14"
+        "ProductVersion" = "8:0.0.15"
         "Manufacturer" = "8:Keysharp"
         "ARPHELPTELEPHONE" = "8:"
         "ARPHELPLINK" = "8:"

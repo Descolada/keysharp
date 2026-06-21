@@ -233,7 +233,7 @@ g2Btn3.OnEvent("Click", "Set_Edit_Style")
 g2Btn4.OnEvent("Click", "Reset_Edit_Style")
 
 
-iniLabel := MyGui.Add("Text", "xm y+5 cRed", "Click to read kstests.ini`nKey = PRIMATE2`nValue = BONOBO")
+iniLabel := MyGui.Add("Text", "xc+10 y+5 cRed", "Click to read kstests.ini`nKey = PRIMATE2`nValue = BONOBO")
 iniBtn1 := MyGui.Add("Button", "xc+220 yp", "Read INI")
 iniBtn1.OnEvent("Click", "ReadINI")
 iniText := MyGui.Add("Text", "w100 xc+150 y+10", "")
@@ -284,7 +284,7 @@ MyGui.UseGroup(gb1_TabTwo)
 ; ┌────────┐
 ; │  Edit  │
 ; └────────┘
-SecondEdit := MyGui.Add("Edit", "yc+20 w300 h200")
+SecondEdit := MyGui.Add("Edit", "xc+10 yc+20 w300 h200")
 SecondEditText := MyGui.Add("Text", "cBlue s10 w200", "ControlSetText Test")
 HwndSecondEdit := SecondEdit.Hwnd
 EditBtn1 := MyGui.Add("Button", "xp y+10", "Text -> Edit")
@@ -526,11 +526,11 @@ gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h875", "Tab Three - Grou
 MyGui.UseGroup(gb1_TabThree)
 
 ;Placeholder ThirdText1
-ThirdText1 := MyGui.Add("Text", "cBlue s10", "ListBox Test")
+ThirdText1 := MyGui.Add("Text", "xc+10 cBlue s10", "ListBox Test")
 ; ┌────────────────┐
 ; │  ListBox test  │
 ; └────────────────┘
-MyListBox := MyGui.Add("ListBox", "r5 w110", ["Red","Green","Blue","Black","White"])
+MyListBox := MyGui.Add("ListBox", "xc+10 r5 w110", ["Red","Green","Blue","Black","White"])
 MyListBox.OnEvent("Change", "ListBoxClicked")
 
 MyLbBtn1 := MyGui.Add("Button", "x+10 yp", "Delete White")
@@ -560,7 +560,10 @@ AddWhite(*) {
 ; ┌────────────────┐
 ; │  Multi-select  │
 ; └────────────────┘
-ThirdText2 := MyGui.Add("Text", "xc+10 y+65 cBlue s10", "ListBox Test (Multi-Select)")
+; No Y coordinate: this positions the label beneath all controls in the group (i.e. below the listbox
+; above it). Using y+ here would measure from the buttons beside the listbox, which sit at its top, so
+; the gap wouldn't account for the listbox height (which differs across platforms/fonts).
+ThirdText2 := MyGui.Add("Text", "xc+10 cBlue s10", "ListBox Test (Multi-Select)")
 MyMultiLB := MyGui.Add("ListBox", "+Multi r5 w110 xc+10 y+10", ["Reactionary Red","Garish Green","Beastly Blue","Banal Black","Washed-out White"])
 MyMultiLB.OnEvent("Change", "MultiLBClicked")
 
@@ -1010,9 +1013,13 @@ CZ_LbBtn21.OnEvent("Click", "GetFocusCtrl")
 #if WINDOWS
 CZ_LbBtn22 := MyGui.Add("Button", "xs y+4 w120 h25", "ControlSetExStyle")
 CZ_LbBtn22.OnEvent("Click", "ToggleEditExStyle")
-#endif
 
 CZ_LbBtn14 := MyGui.Add("Button", "x+8 yp w120 h25", "Edit Column #")
+#else
+; ControlSetExStyle is Windows-only and is omitted above, so start a new row here
+; instead of placing this button to the right of "Get Focus" (which would overflow the group).
+CZ_LbBtn14 := MyGui.Add("Button", "xs y+4 w120 h25", "Edit Column #")
+#endif
 CZ_LbBtn14.OnEvent("Click", "GetCol")
 
 CZ_LbBtn15 := MyGui.Add("Button", "xs y+4 w120 h25", "Edit Line #")

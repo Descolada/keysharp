@@ -53,20 +53,8 @@ namespace System.Windows.Forms
 #else
 			if (control.Loaded && control.Size is Size size && size != new Size(1, 1))
 				return control.Size;
-			Size prefSize;
-#if LINUX
-			control.ToNative().GetPreferredSize(out var minSize, out var nativePrefSize);
-			if (nativePrefSize.Width <= 1 && nativePrefSize.Height <= 1)
-			{
-				var fallbackPrefSize = control.GetPreferredSize();
-				prefSize = new Size(Convert.ToInt32(fallbackPrefSize.Width), Convert.ToInt32(fallbackPrefSize.Height));
-			}
-			else
-				prefSize = new Size(nativePrefSize.Width, nativePrefSize.Height);
-#else
 			var etoPrefSize = control.GetPreferredSize();
-			prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
-#endif
+			var prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
 			if (control.Properties.TryGetValue("AssignedSize", out var obj))
 			{
 				var existingSize = (Size)obj;
@@ -101,21 +89,19 @@ namespace System.Windows.Forms
 
 			if (needsPreferredSize)
 			{
-#if LINUX
-				control.ToNative().GetPreferredSize(out var minSize, out var nativePrefSize);
-				prefSize = nativePrefSize.Width > 0 || nativePrefSize.Height > 0
-					? new Size(nativePrefSize.Width, nativePrefSize.Height)
-					: new Size(1, 1);
-#else
 				var etoPrefSize = control.GetPreferredSize();
 				prefSize = new Size(Convert.ToInt32(etoPrefSize.Width), Convert.ToInt32(etoPrefSize.Height));
-#endif
 			}
 
 			var width = requestedSize.Width == -1 ? prefSize.Width : newSize.Width;
 			var height = requestedSize.Height == -1 ? prefSize.Height : newSize.Height;
 			var assignSize = new Size(width, height);
-			control.Size = assignSize;
+			// The control's own size must reflect exactly what was requested: -1 for any dimension the caller left
+			// unspecified. Keeping it -1 (rather than the resolved preferred size) leaves UserPreferredSize "auto",
+			// so the backend re-measures that dimension to fit content - e.g. a label created empty grows when its
+			// text is later set, instead of being pinned to its initial (zero-width) preferred size. The resolved
+			// concrete size is kept only in AssignedSize, which Keysharp uses for layout bookkeeping.
+			control.Size = requestedSize;
 			control.Properties["RequestedSize"] = requestedSize;
 			control.Properties["AssignedSize"] = assignSize;
 #endif

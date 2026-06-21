@@ -252,18 +252,8 @@ namespace Eto.Forms
             internal Size PreferredSize
             {
                 get {
-#if LINUX
-                    control.ToNative().GetPreferredSize(out var minSize, out var prefSize);
-                    if (prefSize.Width <= 1 && prefSize.Height <= 1)
-                    {
-                        var fallbackPref = control.GetPreferredSize();
-	                        return new Size(Convert.ToInt32(fallbackPref.Width), Convert.ToInt32(fallbackPref.Height));
-                    }
-                    return new Size(prefSize.Width, prefSize.Height);
-#else
                     var etoPref = control.GetPreferredSize();
-	                    return new Size(Convert.ToInt32(etoPref.Width), Convert.ToInt32(etoPref.Height));
-#endif
+                    return new Size(Convert.ToInt32(etoPref.Width), Convert.ToInt32(etoPref.Height));
                 }
             }
             internal Size ClientSize
@@ -318,9 +308,15 @@ namespace Eto.Forms
             {
                 get
                 {
+                    // Most controls expose a native Font property (via Eto's CommonControl), but containers
+                    // such as Window/Form do not. For those, fall back to the Properties bag so a font set on
+                    // the Gui (e.g. Gui.SetFont) is remembered and inherited by controls added afterwards.
                     var prop = control.GetType().GetProperty("Font");
-                    if (prop?.GetValue(control) is Font font)
+                    if (prop != null && prop.PropertyType == typeof(Font) && prop.CanRead && prop.GetValue(control) is Font font)
                         return font;
+
+                    if (control.Properties.TryGetValue("Font", out var stored) && stored is Font storedFont)
+                        return storedFont;
 
                     return MainWindow.OurDefaultFont;
                 }
@@ -329,6 +325,8 @@ namespace Eto.Forms
                     var prop = control.GetType().GetProperty("Font");
 			        if (prop != null && prop.PropertyType == typeof(Font) && prop.CanWrite)
 				        prop.SetValue(control, value);
+                    else
+                        control.Properties["Font"] = value;
                 }
             }
             internal DockStyle Dock

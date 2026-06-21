@@ -1846,6 +1846,10 @@ namespace Keysharp.Builtins
 								}
 								else if (!hasW && !hasH)
 								{
+									//No width was specified, so request auto width (-1) rather than pinning the label to
+									//its initial (possibly empty) content. SetSize keeps this as the control's
+									//UserPreferredSize, so the backend re-measures it to fit the text when it changes.
+									finalWidth = -1;
 									lbl.AutoSize = true;
 								}
 								goto heightdone;

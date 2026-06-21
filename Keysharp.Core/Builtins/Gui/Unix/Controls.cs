@@ -636,6 +636,10 @@ namespace Keysharp.Builtins
 				}
 			}
 			catch { }
+#elif OSX
+			//Eto's Mac Drawable is backed by an NSView that only paints a background when one is explicitly set,
+			//so it is transparent by default; treat it as such so the form shows through instead of a white fill.
+			transparent = true;
 #endif
 			Paint += KeysharpLinkLabel_Paint;
 			MouseMove += KeysharpLinkLabel_MouseMove;
@@ -761,10 +765,12 @@ namespace Keysharp.Builtins
 			if (!url.Contains("://"))
 				url = "https://" + url;
 
+			//UseShellExecute lets .NET pick the platform's default opener (open on macOS, xdg-open on Linux);
+			//passing the URL as FileName avoids hardcoding a launcher that may not exist on this platform.
 			var proc = new Process
 			{
 				EnableRaisingEvents = false,
-				StartInfo = new ProcessStartInfo("xdg-open", url)
+				StartInfo = new ProcessStartInfo(url)
 				{
 					UseShellExecute = true
 				}

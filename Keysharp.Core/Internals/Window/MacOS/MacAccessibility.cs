@@ -99,6 +99,9 @@ namespace Keysharp.Internals.Window.MacOS
 		private static partial int AXUIElementSetAttributeValue(nint element, nint attribute, nint value);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		private static partial int AXUIElementIsAttributeSettable(nint element, nint attribute, [MarshalAs(UnmanagedType.I1)] out bool settable);
+
+		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial int AXUIElementPerformAction(nint element, nint action);
 
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
@@ -425,7 +428,7 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				var ok = true;
 
-				if (setPosition)
+				if (setPosition && IsAttributeSettable(windowElement, attrPosition))
 				{
 					var point = new CGPointD { X = rect.X, Y = rect.Y };
 					var posValue = AXValueCreatePoint(kAXValueCGPointType, in point);
@@ -440,7 +443,10 @@ namespace Keysharp.Internals.Window.MacOS
 					}
 				}
 
-				if (setSize && rect.Width > 0 && rect.Height > 0)
+				// Some windows (e.g. macOS Calculator) are not resizable, so their AXSize
+				// attribute is not settable. Attempting to set it would fail; skip it instead
+				// of reporting an error so move-only and restore operations still succeed.
+				if (setSize && rect.Width > 0 && rect.Height > 0 && IsAttributeSettable(windowElement, attrSize))
 				{
 					var size = new CGSizeD { Width = rect.Width, Height = rect.Height };
 					var sizeValue = AXValueCreateSize(kAXValueCGSizeType, in size);
@@ -1125,6 +1131,11 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			value = 0;
 			return AXUIElementCopyAttributeValue(element, attr, out value) == kAXErrorSuccess && value != 0;
+		}
+
+		private static bool IsAttributeSettable(nint element, nint attr)
+		{
+			return AXUIElementIsAttributeSettable(element, attr, out var settable) == kAXErrorSuccess && settable;
 		}
 	}
 }

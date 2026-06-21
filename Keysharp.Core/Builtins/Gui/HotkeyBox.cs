@@ -16,6 +16,11 @@ namespace Keysharp.Builtins
 			key = mod = Keys.None;
 			Limit = Limits.None;
 			Text = "";
+#if OSX
+			// Capture Command-key combinations (e.g. Cmd+A) as KeyDown events before the macOS
+			// main menu swallows them as key equivalents (Select All, Copy, Cut, Paste, ...).
+			Properties.Set(Eto.Mac.Forms.MacFieldEditor.CaptureKeyEquivalentsProperty, true);
+#endif
 #if WINDOWS
 			Multiline = false;
 			ShortcutsEnabled = false;
@@ -80,7 +85,10 @@ namespace Keysharp.Builtins
 			return
 				keyCode == Keys.Shift || keyCode == Keys.LeftShift || keyCode == Keys.RightShift ||
 				keyCode == Keys.Control || keyCode == Keys.LeftControl || keyCode == Keys.RightControl ||
-				keyCode == Keys.Alt || keyCode == Keys.LeftAlt || keyCode == Keys.RightAlt;
+				keyCode == Keys.Alt || keyCode == Keys.LeftAlt || keyCode == Keys.RightAlt ||
+				// macOS Command (and Linux Super) maps to the Win modifier; Eto reports the
+				// key itself as Left/RightApplication with the Application modifier bit set.
+				keyCode == Keys.Application || keyCode == Keys.LeftApplication || keyCode == Keys.RightApplication;
 #endif
 		}
 
@@ -101,6 +109,11 @@ namespace Keysharp.Builtins
 
 				if ((mod & Keys.Alt) == Keys.Alt)
 					str += Keyword_ModifierAlt;
+
+#if !WINDOWS
+				if ((mod & Keys.Application) == Keys.Application)
+					str += Keyword_ModifierWin;
+#endif
 
 				if (key == Keys.None)
 					return mod == Keys.None ? "None" : str;
@@ -124,6 +137,9 @@ namespace Keysharp.Builtins
 								case Keyword_ModifierCtrl: mods |= Keys.Control; break;
 
 								case Keyword_ModifierShift: mods |= Keys.Shift; break;
+#if !WINDOWS
+								case Keyword_ModifierWin: mods |= Keys.Application; break;
+#endif
 
 								default:
 								{
@@ -174,6 +190,14 @@ namespace Keysharp.Builtins
 					_ = buf.Append(sep);
 				}
 
+#if !WINDOWS
+				if ((mod & Keys.Application) == Keys.Application)
+				{
+					_ = buf.Append("Win");
+					_ = buf.Append(sep);
+				}
+#endif
+
 				if (key != Keys.None)
 				{
 					_ = buf.Append(key.ToString());
@@ -211,6 +235,10 @@ namespace Keysharp.Builtins
 
 			if ((mod & Keys.Alt) == Keys.Alt &&
 				(key == Keys.Alt || key == Keys.LeftAlt || key == Keys.RightAlt))
+				key = Keys.None;
+
+			if ((mod & Keys.Application) == Keys.Application &&
+				(key == Keys.Application || key == Keys.LeftApplication || key == Keys.RightApplication))
 				key = Keys.None;
 #endif
 

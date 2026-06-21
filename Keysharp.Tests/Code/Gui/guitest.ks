@@ -526,7 +526,7 @@ gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h875", "Tab Three - Grou
 MyGui.UseGroup(gb1_TabThree)
 
 ;Placeholder ThirdText1
-ThirdText1 := MyGui.Add("Text", "xc+10 cBlue s10", "ListBox Test")
+ThirdText1 := MyGui.Add("Text", "xc+10 yc+20 cBlue s10", "ListBox Test")
 ; ┌────────────────┐
 ; │  ListBox test  │
 ; └────────────────┘
@@ -745,7 +745,7 @@ NudChange(*)
 ; └───────────────────────┘
 gb1 := MyGui.Add("GroupBox", "xc+10 yc+10 w330 h400", "Group One")
 MyGui.UseGroup(gb1)
-CpText := MyGui.Add("Text", , "gb1 - Image copying tests")
+CpText := MyGui.Add("Text", "xc+10 yc+20", "gb1 - Image copying tests")
 CpText.SetFont("s8 cBlue")
 MyRE := MyGui.Add("RichEdit", "xc+10 y+10 w300 h100")
 MySecondPic := LoadPicture(A_WorkingDir . A_DirSeparator . "Robin.png")
@@ -784,7 +784,7 @@ MyGui.UseGroup()
 Tab.UseTab("GroupBoxes")
 gb2 := MyGui.Add("GroupBox", "x+10 yc+10 w330 h400", "Group Two")
 MyGui.UseGroup(gb2)
-MyGui.Add("Text", "cBlue s8 w200", "Testing various Send() types")
+MyGui.Add("Text", "xc+10 yc+20 cBlue s8 w200", "Testing various Send() types")
 gb2Edit := MyGui.Add("Edit", "xc+10 y+5 w300 h250")
 gb2Btn1 := MyGui.Add("Button", "xc+10", "Notepad")
 gb2Btn1.OnEvent("Click", "SendToApp")
@@ -916,7 +916,7 @@ MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
 gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460 h875", "ControlZoo - Group One")
 MyGui.UseGroup(gb1_CZ)
-CZ_Text1 := MyGui.Add("Text", , "Control Functions testing")
+CZ_Text1 := MyGui.Add("Text", "xc+10 yc+20", "Control Functions testing")
 CZ_Text1.SetFont("s10 CBlue")
 CZ_Text2 := MyGui.Add("Text", "xc+10 y+10 w300 h30 Wordwrap Border", "For the controls on this tab, we'll add, delete, click, focus and perform other control functions.")
 CZ_Text2.SetFont("CTeal")

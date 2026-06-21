@@ -1912,10 +1912,29 @@ namespace Keysharp.Builtins
 			var xoffset = (double)lcLeft;
 			var yoffset = (double)lcTop;
 
+			//Absolute (Xn/Yn) and Margin (XM/YM) coordinates are measured from the control's "parent window".
+			//For Tab3 sub-controls that parent window is the tab dialog that fills the tab's display area
+			//(see the AHK docs, Tab Remarks -> Parent window), not the outer GUI window. So when the control
+			//lives inside a tab page, resolve these coordinates against the tab page's content origin rather
+			//than the form's top-left; otherwise the tab's content inset (which is larger on Mac/Linux than on
+			//Windows) would push such controls outside the tab area. pwx/pwy stay 0 when not inside a tab.
+			double pwx = 0.0, pwy = 0.0;
+
 			if (opts.xpos == GuiOptions.Positioning.Absolute || opts.ypos == GuiOptions.Positioning.Absolute
 				|| opts.xpos == GuiOptions.Positioning.Margin || opts.ypos == GuiOptions.Positioning.Margin)
 			{
 				Point p = LastContainer?.GetLocationRelativeToForm() ?? Point.Empty;
+
+				var parentWindow = LastContainer;
+				while (parentWindow != null && parentWindow is not TabPage)
+					parentWindow = parentWindow.GetLogicalParent();
+
+				if (parentWindow is TabPage)
+				{
+					Point pw = parentWindow.GetLocationRelativeToForm();
+					pwx = pw.X;
+					pwy = pw.Y;
+				}
 
 				if (opts.xpos == GuiOptions.Positioning.Absolute || opts.xpos == GuiOptions.Positioning.Margin)
 					xoffset = p.X;
@@ -1924,13 +1943,13 @@ namespace Keysharp.Builtins
 			}
 
 			if (opts.xpos == GuiOptions.Positioning.Absolute)
-				xoffset = opts.x * dpiscale - xoffset;
+				xoffset = (opts.x * dpiscale) + pwx - xoffset;
 			else if (opts.xpos == GuiOptions.Positioning.PreviousBottomRight)
 				xoffset += lcWidth + (opts.x * dpiscale);
 			else if (opts.xpos == GuiOptions.Positioning.PreviousTopLeft)
 				xoffset += opts.x * dpiscale;
 			else if (opts.xpos == GuiOptions.Positioning.Margin)
-				xoffset = form.Margin.Left + (opts.x * dpiscale) - xoffset;
+				xoffset = form.Margin.Left + (opts.x * dpiscale) + pwx - xoffset;
 			else if (opts.xpos == GuiOptions.Positioning.Section)
 				xoffset = (Section?.GetLocation().X ?? 0) + (opts.x * dpiscale);
 			else if (opts.xpos == GuiOptions.Positioning.Container)
@@ -1939,13 +1958,13 @@ namespace Keysharp.Builtins
 				xoffset = int.MinValue;
 
 			if (opts.ypos == GuiOptions.Positioning.Absolute)
-				yoffset = opts.y * dpiscale - yoffset;
+				yoffset = (opts.y * dpiscale) + pwy - yoffset;
 			else if (opts.ypos == GuiOptions.Positioning.PreviousBottomRight)
 				yoffset += lcHeight + (opts.y * dpiscale);
 			else if (opts.ypos == GuiOptions.Positioning.PreviousTopLeft)
 				yoffset += opts.y * dpiscale;
 			else if (opts.ypos == GuiOptions.Positioning.Margin)
-				yoffset = form.Margin.Top + (opts.y * dpiscale) - yoffset;
+				yoffset = form.Margin.Top + (opts.y * dpiscale) + pwy - yoffset;
 			else if (opts.ypos == GuiOptions.Positioning.Section)
 				yoffset = (Section?.GetLocation().Y ?? 0) + (opts.y * dpiscale);
 			else if (opts.ypos == GuiOptions.Positioning.Container)

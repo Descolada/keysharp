@@ -405,8 +405,11 @@ namespace Keysharp.Builtins
 				{
 					dtp.ValueChanged += Dtp_ValueChanged;
 				}
-				else if (_control is TextControl txt && _control is not KeysharpRadioButton)
+				else if (_control is TextControl txt && _control is not KeysharpRadioButton && _control is not KeysharpCheckBox)
 				{
+					//CheckBox/RadioButton derive from Eto's TextControl but their text is fixed, so TextChanged is
+					//meaningless for them - and some backends (e.g. Eto.Mac's CheckBoxHandler) don't implement it,
+					//which logs a "not supported" warning. Their state changes are delivered via the Click event.
 					txt.TextChanged += Txt_TextChanged;
 				}
 				else if (_control is KeysharpListBox lb)

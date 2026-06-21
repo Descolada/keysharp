@@ -575,7 +575,7 @@ MyDDL.OnEvent("Change", "DDLClicked")
 ; │  Combo Box  │
 ; └─────────────┘
 ThirdText4 := MyGui.Add("Text", "xc+10 cBlue s10", "ComboBox with 3 rows")
-MyCB := MyGui.Add("ComboBox", "xc+10 y+10 r3", ["Orange","Purple","Fuchsia","Lime","Aqua"])
+MyCB := MyGui.Add("ComboBox", "xc+10 y+10 r3", ["Orange","Purple","Fuchsia"])
 CB_Button := MyGui.Add("Button", "h25 w80 xc+10 y+10", "CB Selection")
 CB_AddBtn := MyGui.Add("Button", "h25 w80 xc+90 yp", "Add Yellow")
 CB_Button.OnEvent("Click", "CB_ButtonClicked")
@@ -1991,14 +1991,26 @@ Testing newlines with braces syntax
 	MsgBox(TheSendInputMsg, "SendInput")
 	WinActivate(MyGui)
 	ControlFocus(MySendEdit)
-	SendInput("{End}{Enter}")
-	SendInput("Really, Cheeta, you shouldn't have!{End}{Enter}Lord Greystoke`n")
+	; Keysharp sends keys literally on every platform. In macOS text controls the Home/End keys only
+	; scroll the view and do not move the caret, so the caret-moving equivalents are Cmd-based
+	; (# = Win/Cmd): Cmd+Up/Down = document start/end, Cmd+Left/Right = line start/end.
+#if OSX
+	docStart := "#{Up}"
+	docEnd   := "#{Down}"
+	lineEnd  := "#{Right}"
+#else
+	docStart := "^{Home}"
+	docEnd   := "^{End}"
+	lineEnd  := "{End}"
+#endif
+	SendInput(lineEnd "{Enter}")
+	SendInput("Really, Cheeta, you shouldn't have!" lineEnd "{Enter}Lord Greystoke`n")
 	Sleep(1000)
 	ControlFocus(MySendEdit)
-	SendInput("^{Home}")
+	SendInput(docStart)
 	SendInput("Now how did this get up here???`n")
-	SendInput("^{End}{Enter}")
-	SendInput("^{End}{Enter}")
+	SendInput(docEnd "{Enter}")
+	SendInput(docEnd "{Enter}")
 	SendInput("Testing newlines with braces syntax")
 
 }

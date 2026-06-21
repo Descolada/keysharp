@@ -15,11 +15,37 @@ namespace Keysharp.Tests
 		private void SimulateKeyPress(uint key)
 		{
 			s.HookThread.SimulateKeyPress(key);
+			PumpSchedulers();
+		}
+
+		private void PumpSchedulers()
+		{
 			mainContext?.DrainAll();
 			s.EventScheduler.PumpThreadQueuedEvents();
 			mainContext?.DrainAll();
 			s.UIEventScheduler.PumpThreadQueuedEvents();
 			mainContext?.DrainAll();
+		}
+
+		// The hotstring callback runs on a pseudo-thread, whose admission (IsInterruptible/AnyThreadsAvailable)
+		// can be momentarily blocked when the trigger key is pumped. When that happens the queued event is put
+		// back on the scheduler and must be pumped again once it becomes admissible. A real script keeps pumping
+		// via its message loop; this mirrors that (and the WaitWithUiPump pattern in RealThreadIntegrationTests)
+		// instead of blocking on the event, which would never reprocess a momentarily-blocked event.
+		private bool WaitForCallback(ManualResetEventSlim signal, int timeoutMs = 2000)
+		{
+			var deadline = Environment.TickCount64 + timeoutMs;
+
+			while (!signal.IsSet)
+			{
+				if (Environment.TickCount64 >= deadline)
+					return false;
+
+				PumpSchedulers();
+				_ = signal.Wait(1);
+			}
+
+			return true;
 		}
 
 		public static object Label_9F201721(params object[] args)
@@ -352,7 +378,7 @@ namespace Keysharp.Tests
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("t"));
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("w"));
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("Enter"));
-			Assert.IsTrue(btwTypedEvent.Wait(TimeSpan.FromSeconds(1)), "Timed out waiting for hotstring callback.");
+			Assert.IsTrue(WaitForCallback(btwTypedEvent), "Timed out waiting for hotstring callback.");
 			Assert.AreEqual(btwtyped, true);
 		}
 

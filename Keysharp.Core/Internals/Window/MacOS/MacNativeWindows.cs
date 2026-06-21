@@ -46,7 +46,14 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			get
 			{
-				var screen = Forms.Screen.PrimaryScreen.Bounds;
+				// PrimaryScreen is null in headless environments (e.g. CI runners with no display),
+				// where there is no overlay to skip anyway — treat "no screen" as "not an overlay".
+				var primary = Forms.Screen.PrimaryScreen;
+
+				if (primary == null)
+					return false;
+
+				var screen = primary.Bounds;
 				return screen.Width > 0 && screen.Height > 0
 					   && Bounds.Width >= screen.Width * 0.9
 					   && Bounds.Height >= screen.Height * 0.9;

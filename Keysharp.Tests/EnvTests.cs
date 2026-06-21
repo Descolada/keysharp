@@ -272,6 +272,7 @@ namespace Keysharp.Tests
 		[Test, Category("Env"), Category("UI"), NonParallelizable]
 		public void SysGet()
 		{
+			SkipIfUiInitializationBlocked("SysGet relies on Eto screen enumeration, which is unavailable when UI initialization is blocked (macOS testhost cannot drive AppKit).");
 			//Monitors
 			var val = Env.SysGet(80);
 			Assert.IsTrue(val.Ai(int.MinValue) >= 0);

@@ -45,7 +45,7 @@ namespace Keysharp.Builtins
 
 		public SplashDialog()
 		{
-			var baseFont = SystemFonts.Default(12);
+			var baseFont = SystemFonts.Default(Conversions.ScaleFontSize(12));
 			main = new Forms.Label
 			{
 				TextAlignment = TextAlignment.Center,

@@ -13,22 +13,21 @@ namespace Keysharp.Internals.UI.Unix
 		private readonly TabPage tpVars = new () { Text = "Vars" };
 		private readonly TabPage tpHotkeys = new () { Text = "Hotkeys" };
 		private readonly TabPage tpHistory = new () { Text = "History" };
-		private readonly TextArea txtDebug = new () { Font = SystemFonts.Default(10), Wrap = false };
-		private readonly TextArea txtVars = new () { Font = SystemFonts.Default(10), Wrap = false };
-		private readonly TextArea txtHotkeys = new () { Font = SystemFonts.Default(10), Wrap = false };
-		private readonly TextArea txtHistory = new () { Font = SystemFonts.Default(10), Wrap = false };
+		// Conversions.ScaleFontSize scales the base point size on macOS (no-op elsewhere) so these debug-window
+		// text areas match the other platforms visually. Safe here because instance initializers run at
+		// construction, after Eto's platform is up.
+		private readonly TextArea txtDebug = new () { Font = SystemFonts.Default(Conversions.ScaleFontSize(10F)), Wrap = false };
+		private readonly TextArea txtVars = new () { Font = SystemFonts.Default(Conversions.ScaleFontSize(10F)), Wrap = false };
+		private readonly TextArea txtHotkeys = new () { Font = SystemFonts.Default(Conversions.ScaleFontSize(10F)), Wrap = false };
+		private readonly TextArea txtHistory = new () { Font = SystemFonts.Default(Conversions.ScaleFontSize(10F)), Wrap = false };
 
 		private static Font ourDefaultFont;
 
 		// Lazily initialized: SystemFonts.Default() requires Eto's platform to already be detected/running,
 		// which is not the case at MainWindow's static-initialization time in headless/test contexts
 		// (referencing it eagerly as a static field initializer throws NullReferenceException there).
-		public static Font OurDefaultFont => ourDefaultFont ??=
-#if OSX
-			SystemFonts.Default(10F);
-#else
-			SystemFonts.Default(8F);
-#endif
+		// ScaleFontSize scales the 8pt base on macOS (~11pt) to match other platforms; no-op elsewhere.
+		public static Font OurDefaultFont => ourDefaultFont ??= SystemFonts.Default(Conversions.ScaleFontSize(8F));
 
 		internal static void AppendDebugOutput(string text, bool clear) => Internals.UI.DebugOutputBuffer.Append(text, clear);
 

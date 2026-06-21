@@ -90,6 +90,20 @@ namespace Keysharp.Internals.Strings
 #endif
 		}
 
+		// AHK font sizes follow the Windows convention (points at a 96 DPI baseline). macOS renders points at
+		// a 72 DPI baseline, so the same nominal size appears smaller; scale by 96/72 and round to the nearest
+		// whole point so macOS GUIs match the other platforms visually. No-op on Windows/Linux (96 DPI). This
+		// is the single point of font-size scaling: use it for every default/explicit point size so they stay
+		// consistent (default font, script-specified sizes, dialog and debug-window fonts).
+		internal static float ScaleFontSize(float size)
+		{
+#if OSX
+			return (float)Math.Round(size * (96f / 72f), MidpointRounding.AwayFromZero);
+#else
+			return size;
+#endif
+		}
+
 		/// <summary>
 		/// Parses a string as a boolean flag: "1"/"true"/"on" => true, "0"/"false"/"off" => false (words
 		/// case-insensitive). Returns null for null/empty or any unrecognized value, so callers can supply
@@ -350,7 +364,11 @@ namespace Keysharp.Internals.Strings
 
 				if (opt.Length > 0)
 				{
-					if (Options.TryParse(opt, "s", ref size)) { }
+					if (Options.TryParse(opt, "s", ref size))
+					{
+						// Convert the script's Windows-convention point size to this platform's equivalent.
+						size = ScaleFontSize(size);
+					}
 					else if (Options.TryParse(opt, "q", ref quality)) { }
 					else if (Options.TryParse(opt, "w", ref weight))
 					{

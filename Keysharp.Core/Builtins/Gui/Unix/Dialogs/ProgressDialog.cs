@@ -66,7 +66,7 @@ namespace Keysharp.Builtins
 
 		public ProgressDialog()
 		{
-			var baseFont = SystemFonts.Default(12);
+			var baseFont = SystemFonts.Default(Conversions.ScaleFontSize(12));
 			mainText = new Forms.Label
 			{
 				TextAlignment = TextAlignment.Center,

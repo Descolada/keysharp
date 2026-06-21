@@ -258,6 +258,34 @@ namespace Keysharp.Builtins
 				base.WndProc(ref m);
 		}
 
+		protected override void OnHandleCreated(EventArgs e)
+		{
+			base.OnHandleCreated(e);
+			// Defer the relayout until after creation/layout finishes so the control has its final size.
+			BeginInvoke(RelayoutNativeChildren);
+		}
+
+		protected override void OnSizeChanged(EventArgs e)
+		{
+			base.OnSizeChanged(e);
+			RelayoutNativeChildren();
+		}
+
+		// Some common controls (notably SysIPAddress32) lay out their internal child fields in response to
+		// WM_SETFONT rather than WM_SIZE. The order in which WinForms applies the font and the real bounds
+		// during creation can leave those children sized to a zero height, so the control renders blank even
+		// though it accepts input. Re-sending the current font forces the control to re-lay-out its children
+		// to the current size. Re-sending the existing font handle (rather than a fresh one) avoids any GDI
+		// font lifetime concerns, and is a no-op for custom classes that don't host child controls.
+		private void RelayoutNativeChildren()
+		{
+			if (!IsHandleCreated)
+				return;
+
+			var hFont = WindowsAPI.SendMessage(Handle, (uint)WindowsAPI.WM_GETFONT, (nint)0, (nint)0);
+			_ = WindowsAPI.SendMessage(Handle, (uint)WindowsAPI.WM_SETFONT, hFont, (nint)1);
+		}
+
 		[LibraryImport("comctl32.dll", EntryPoint = "InitCommonControlsEx", SetLastError = true)]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		private static partial bool InitCommonControlsEx(ref INITCOMMONCONTROLSEX icce);

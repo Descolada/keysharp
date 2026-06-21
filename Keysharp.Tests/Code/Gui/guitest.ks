@@ -182,7 +182,9 @@ CheckBoxOne.OnEvent("Click", "CheckBoxOneClicked")
 ; │  Notify User about Popup Menu  │
 ; └────────────────────────────────┘
 
-Menu_Label := MyGui.Add("Text", "w400 xc+10 y+10","Press Win-Z to see popup menu")
+; Give this header an explicit height: SetFont() enlarges the text to s14 after the control was already
+; auto-sized at the GUI's default (s8) font, so without a reserved height the next control would overlap it.
+Menu_Label := MyGui.Add("Text", "w400 h28 xc+10 y+10","Press Win-Z to see popup menu")
 Menu_Label.SetFont("cBlue s14")
 
 checkBtn := MyGui.Add("Button", "xc+10 y+3", "ControlSetChecked")
@@ -638,7 +640,9 @@ Pbtn2.OnEvent("Click", "Pbtn2Clicked")
 ; ┌─────────────┐
 ; │  Date Time  │
 ; └─────────────┘
-ThirdText7 := MyGui.Add("Text", "xc+10 y+15 cBlue s10", "DateTime Test")
+; y+ is measured from the previous control (the short "Value:" status text), but that text shares a row
+; with the taller Lower/Higher buttons, so the offset must clear the buttons' bottom edge rather than the text.
+ThirdText7 := MyGui.Add("Text", "xc+10 y+28 cBlue s10", "DateTime Test")
 MyDateTime := MyGui.Add("DateTime", "s8 xc+10 y+5 w200", "LongDate")
 
 ; ┌────────────┐

@@ -1881,6 +1881,13 @@ namespace Keysharp.Builtins
 						if (r > 0)
 						{
 							finalHeight = finalHeight - ctrl.ClientSize.Height + fontRows;
+#if LINUX
+							//Before the form is shown, ClientSize reports the still-unallocated 1x1 size, which makes the
+							//chrome term (finalHeight - ClientSize.Height) collapse. Single-line inputs then end up far
+							//shorter than GTK actually renders them, so the next y+n control overlaps them. Never lay a
+							//control out shorter than its natural (preferred) height.
+							finalHeight = Math.Max(finalHeight, ctrl.PreferredSize.Height);
+#endif
 #if OSX
 							if (ctrl is KeysharpTextBox { Multiline: false } || ctrl is KeysharpPasswordBox || ctrl is HotkeyBox)
 								finalHeight = Math.Max(finalHeight, (int)Math.Ceiling(fontpixels + (8 * dpiscale)));
@@ -1899,6 +1906,17 @@ namespace Keysharp.Builtins
 			}
 
 		heightdone:
+#if LINUX
+			//Several GTK widgets refuse to render below an intrinsic minimum (a single text row plus chrome):
+			//entries, spin buttons and date pickers. When a smaller height was requested explicitly - e.g. an
+			//UpDown given "h20" - the widget still draws taller, so the next y+n control would land on top of it.
+			//Lay such controls out at least as tall as they actually render. Multi-row/variable controls (lists,
+			//multiline text, containers) are excluded so an intentionally smaller explicit height is still honored.
+			if (finalHeight >= 0
+				&& (ctrl is KeysharpNumericUpDown || ctrl is KeysharpTextBox { Multiline: false }
+					|| ctrl is KeysharpPasswordBox || ctrl is HotkeyBox || ctrl is KeysharpDateTimePicker))
+				finalHeight = Math.Max(finalHeight, ctrl.PreferredSize.Height);
+#endif
 			ctrl.SetSize(new Size(finalWidth, finalHeight));
 
 			if (finalWidth < 0 || finalHeight < 0)

@@ -1583,18 +1583,34 @@ namespace Keysharp.Builtins
 			ApplyFormatting(richText);
 			richText.ContextMenu = BuildCopyContextMenu(richText);
 
-			// Handle Ctrl+C at the form level so it fires regardless of which control
-			// has focus (e.g. a button). If text is selected copy that; otherwise copy all.
-			KeyDown += (_, e) =>
+			// Handle Copy (CommonModifier+C) and Select All (CommonModifier+A) for the error text.
+			// CommonModifier is Cmd on macOS and Ctrl elsewhere. Attach to the form so it fires while a
+			// button has focus (the default), and to the rich text area directly because on macOS a
+			// focused NSTextView consumes key events instead of letting them bubble up to the form.
+			void HandleClipboardKeys(object sender, Eto.Forms.KeyEventArgs e)
 			{
-				if ((e.Modifiers & Eto.Forms.Keys.Control) == Eto.Forms.Keys.Control && e.Key == Eto.Forms.Keys.C)
+				var mod = Eto.Forms.Application.Instance.CommonModifier;
+				if ((e.Modifiers & mod) != mod)
+					return;
+
+				if (e.Key == Eto.Forms.Keys.C)
 				{
 					var text = GetSelectedOrAllText(richText);
 					if (!string.IsNullOrEmpty(text))
 						Eto.Forms.Clipboard.Instance.Text = text;
 					e.Handled = true;
 				}
-			};
+				else if (e.Key == Eto.Forms.Keys.A)
+				{
+					var allText = richText.Text ?? string.Empty;
+					if (allText.Length > 0)
+						richText.Selection = new Eto.Forms.Range<int>(0, allText.Length - 1);
+					e.Handled = true;
+				}
+			}
+
+			KeyDown += HandleClipboardKeys;
+			richText.KeyDown += HandleClipboardKeys;
 
 			var btnAbort = new Eto.Forms.Button { Text = "&Abort" };
 			var btnContinue = new Eto.Forms.Button { Text = "&Continue" };

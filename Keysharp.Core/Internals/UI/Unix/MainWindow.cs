@@ -91,8 +91,8 @@ namespace Keysharp.Internals.UI.Unix
 		private void BuildMenus()
 		{
 			var fileMenu = new ButtonMenuItem { Text = "&File" };
-			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.R };
-			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.E, Enabled = !A_IsCompiled };
+			var reloadScriptItem = new ButtonMenuItem { Text = "&Reload Script", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.R };
+			var editScriptItem = new ButtonMenuItem { Text = "&Edit Script", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.E, Enabled = !A_IsCompiled };
 			var windowSpyItem = new ButtonMenuItem { Text = "&Window Spy" };
 			suspendHotkeysMenuItem = new CheckMenuItem { Text = "&Suspend Hotkeys" };
 			var exitItem = new ButtonMenuItem { Text = "E&xit" };
@@ -123,9 +123,9 @@ namespace Keysharp.Internals.UI.Unix
 			fileMenu.Items.Add(exitItem);
 
 			var viewMenu = new ButtonMenuItem { Text = "&View" };
-			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.V };
-			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.H };
-			var historyItem = new ButtonMenuItem { Text = "&Key history and script info", Shortcut = Eto.Forms.Keys.Control | Eto.Forms.Keys.K };
+			var varsItem = new ButtonMenuItem { Text = "&Variables and their contents", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.V };
+			var hotkeysItem = new ButtonMenuItem { Text = "&Hotkeys and their methods", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.H };
+			var historyItem = new ButtonMenuItem { Text = "&Key history and script info", Shortcut = Eto.Forms.Application.Instance.CommonModifier | Eto.Forms.Keys.K };
 			var clearDebugItem = new ButtonMenuItem { Text = "&Clear debug log" };
 			var refreshItem = new ButtonMenuItem { Text = "&Refresh", Shortcut = Eto.Forms.Keys.F5 };
 

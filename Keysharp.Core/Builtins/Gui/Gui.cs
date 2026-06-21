@@ -2982,7 +2982,9 @@ namespace Keysharp.Builtins
 			if (e.KeyData == (Keys.Control | Keys.A))
 				e.SuppressKeyPress = true;
 #else
-			if (e.KeyData == (Forms.Keys.Control | Forms.Keys.A))
+			// CommonModifier is Cmd on macOS and Ctrl elsewhere, so -WantCtrlA suppresses the
+			// platform's native select-all shortcut.
+			if (e.KeyData == (Forms.Application.Instance.CommonModifier | Forms.Keys.A))
 				e.Handled = true;
 #endif
 		}

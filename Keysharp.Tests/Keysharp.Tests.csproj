@@ -11,6 +11,13 @@
 
 	<PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
 		<TargetFramework>net10.0</TargetFramework>
+		<!--
+			Auto-apply the macOS run settings so `dotnet test` excludes the Gui/Clipboard/UI categories
+			(they need AppKit on OS thread 1, which the test host cannot drive). Without this, those tests
+			run and fail. Note: a command-line category filter still overrides the NUnit Where clause, so the
+			per-test headless guards remain the backstop for filtered runs.
+		-->
+		<RunSettingsFilePath>$(MSBuildProjectDirectory)/keysharp.macos.runsettings</RunSettingsFilePath>
 	</PropertyGroup>
 
 	<PropertyGroup>

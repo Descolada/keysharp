@@ -561,7 +561,15 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				EnsureLegacyX11Sender();
 #endif
 
-				if (globalHook == null || !globalHook.IsRunning)
+				// libuiohook is a single-process-global hook: run()/hook_stop() share one CFRunLoop reference.
+				// The test host creates many Script instances (per test, plus the compiled programs the
+				// RunScript-based tests execute, plus RealThread workers), several of which start a hook; a new
+				// hook_run() begun before a prior one has stopped overwrites that shared state, and a later
+				// hook_stop then dereferences a stale run loop -> native SIGSEGV (not catchable, and unfixable by
+				// teardown since the corruption already happened). The tests inject input by invoking OnKeyPressed
+				// directly, so the native tap is never needed in the headless host; skip starting it and rely on
+				// the install sentinels set below (HasKbdHook only checks those).
+				if (!Script.IsUiInitializationBlocked && (globalHook == null || !globalHook.IsRunning))
 				{
 					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
 					StopGlobalHookCore(dispose: true); // clean restart if something half-exists

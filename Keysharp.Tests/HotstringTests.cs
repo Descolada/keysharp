@@ -377,8 +377,11 @@ namespace Keysharp.Tests
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("b"));
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("t"));
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("w"));
+
+			var bufferAfterBtw = hsm.CurrentInputBuffer;
 			SimulateKeyPress((uint)Keysharp.Builtins.Keyboard.GetKeyVK("Enter"));
-			Assert.IsTrue(WaitForCallback(btwTypedEvent), "Timed out waiting for hotstring callback.");
+			Assert.IsTrue(WaitForCallback(btwTypedEvent),
+				$"Timed out waiting for hotstring callback. inputBufferAfterBtw=[{bufferAfterBtw}] keybdHook={A_KeybdHookInstalled} uiInitBlocked={Script.IsUiInitializationBlocked}");
 			Assert.AreEqual(btwtyped, true);
 		}
 

@@ -294,7 +294,16 @@ namespace Keysharp.Internals.Input.Unix
 					return -1;
 				}
 
-				// No text and not a dead key (e.g. arrow/modifier): leave any pending dead key intact.
+				// No text and not a dead key. With no pending composition, report "not handled" so the
+				// caller falls back to the built-in US-ASCII map -- mirroring the X11 provider, which
+				// returns TranslateNotHandled when it cannot resolve a keysym. This keeps basic keys
+				// working when the active layout's UCKeyTranslate yields nothing (e.g. no usable Text
+				// Input Source on a headless CI host). A genuine no-text key (arrow/modifier) isn't in
+				// the US-ASCII table either, so the fallback still returns 0 for it.
+				if (liveDeadKeyState == 0 && pendingSpacing.Length == 0)
+					return KeyCodes.TranslateNotHandled;
+
+				// A pending dead-key composition is intact; report no-text without disturbing it.
 				return 0;
 			}
 		}

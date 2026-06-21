@@ -835,6 +835,7 @@ namespace Keysharp.Runtime
 			// Regular shortly after if a real window is already visible.
 			MacNativeWindows.SetActivationPolicy(accessory: true);
 			MacNativeWindows.RegisterWindowPolicyObservers();
+			MacNativeWindows.RegisterFrontmostAppObserver();
 			MacNativeWindows.RequestActivationPolicyUpdate();
 #endif
 

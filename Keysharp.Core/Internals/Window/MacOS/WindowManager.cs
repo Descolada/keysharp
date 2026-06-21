@@ -70,6 +70,11 @@ namespace Keysharp.Internals.Window.MacOS
 
 		public static nint GetForegroundWindowHandle() => ActiveWindow?.Handle ?? 0;
 
+		// Cheap, hook-thread-safe identity for the active typing context (the frontmost application),
+		// used by the keyboard hook for hotstring buffer reset instead of the expensive focused-window
+		// lookup that GetForegroundWindowHandle performs. See MacNativeWindows.ForegroundAppHandle.
+		public static nint GetForegroundAppHandle() => MacNativeWindows.ForegroundAppHandle;
+
 		public static bool IsWindow(nint handle)
 		{
 			if (handle == 0)

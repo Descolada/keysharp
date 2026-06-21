@@ -2767,7 +2767,17 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// v1.1.28.01: active_window is left as the active window; the above is not done because it disrupts
 			// hotstrings when the first keypress causes a change in focus, such as to enter editing mode in Excel.
 			// See Get_active_window_keybd_layout macro definition for related comments.
+#if OSX
+			// On macOS, resolving the focused window per keystroke is expensive (Accessibility
+			// round-trips, sometimes a full CGWindowList snapshot) and would touch AppKit from this
+			// background hook thread. For hotstring buffer reset we only need an identity that changes
+			// when the typing context changes, so use the frontmost application instead — its PID is
+			// tracked event-driven and cached, making this read effectively free. Tradeoff: switching
+			// between two windows of the same app won't reset the buffer.
+			var activeWindow = WindowManager.GetForegroundAppHandle();
+#else
 			var activeWindow = WindowManager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
+#endif
 			var activeWindowKeybdLayout = GetKeyboardLayout(0);
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;

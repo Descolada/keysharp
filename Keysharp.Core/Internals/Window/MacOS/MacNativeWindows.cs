@@ -352,6 +352,50 @@ namespace Keysharp.Internals.Window.MacOS
 			catch { }
 		}
 
+		// PID of the application currently receiving key events. Updated event-driven (see
+		// RegisterFrontmostAppObserver) so it can be read from the keyboard hook thread without any
+		// AppKit access or per-keystroke query. volatile because the writer is the main thread
+		// (notification delivery) and the reader is the hook's background thread.
+		private static volatile int frontmostAppPid;
+
+		// Retains the observer (and the delegate it wraps) for the process lifetime; without a live
+		// reference the notification center's dispatcher could be collected and stop firing.
+		private static NSObject frontmostAppObserver;
+
+		// Opaque identity used by the keyboard hook to decide when the typing context changed (so the
+		// hotstring buffer can be reset). This is the frontmost *application*, not the focused window:
+		// switching between two windows of the same app will not change it. App-level granularity is a
+		// deliberate tradeoff to avoid the expensive per-keystroke focused-window lookup on macOS.
+		internal static nint ForegroundAppHandle => (nint)frontmostAppPid;
+
+		// Starts tracking the frontmost application. NSWorkspace posts an activation notification each
+		// time the active app changes; we cache its PID so the hook can read it for free. Must be
+		// called on the main thread (the notification center delivers callbacks on the run loop the
+		// observer was registered with).
+		internal static void RegisterFrontmostAppObserver()
+		{
+			try
+			{
+				// Seed with the current frontmost app so the very first keystroke has a valid identity
+				// before any activation notification has fired.
+				UpdateFrontmostAppPid();
+
+				var wsnc = NSWorkspace.SharedWorkspace.NotificationCenter;
+				frontmostAppObserver = wsnc.AddObserver("NSWorkspaceDidActivateApplicationNotification", _ => UpdateFrontmostAppPid());
+			}
+			catch { }
+		}
+
+		private static void UpdateFrontmostAppPid()
+		{
+			try
+			{
+				var app = NSWorkspace.SharedWorkspace.FrontmostApplication;
+				frontmostAppPid = app != null ? app.ProcessIdentifier : 0;
+			}
+			catch { }
+		}
+
 		internal static bool ActivateAppByPid(int pid)
 		{
 			if (pid <= 0)

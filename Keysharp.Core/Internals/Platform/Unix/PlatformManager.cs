@@ -69,6 +69,43 @@ namespace Keysharp.Internals.Platform.Unix
 			return KeyCodes.GetCurrentKeymapHandle();
 		}
 
+		private static void DeriveModifierState(byte[] lpKeyState, out bool shift, out bool caps, out bool altGr)
+		{
+			shift =
+				(lpKeyState.Length > VirtualKeys.VK_SHIFT && (lpKeyState[VirtualKeys.VK_SHIFT] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_LSHIFT && (lpKeyState[VirtualKeys.VK_LSHIFT] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_RSHIFT && (lpKeyState[VirtualKeys.VK_RSHIFT] & 0x80) != 0);
+
+			caps = lpKeyState.Length > VirtualKeys.VK_CAPITAL && (lpKeyState[VirtualKeys.VK_CAPITAL] & 0x01) != 0;
+
+			altGr =
+				(lpKeyState.Length > VirtualKeys.VK_RMENU && (lpKeyState[VirtualKeys.VK_RMENU] & 0x80) != 0) ||
+				(lpKeyState.Length > VirtualKeys.VK_RCONTROL && (lpKeyState[VirtualKeys.VK_RCONTROL] & 0x80) != 0
+				 && lpKeyState.Length > VirtualKeys.VK_LMENU && (lpKeyState[VirtualKeys.VK_LMENU] & 0x80) != 0);
+		}
+
+		/// <summary>
+		/// Dead-key-aware counterpart to <see cref="ToUnicode"/>, used by the input-collection hook so
+		/// that dead keys compose on Linux/macOS the way they already do on Windows. Routes through the
+		/// active layout's stateful translator (which maintains dead-key composition state) and falls
+		/// back to the stateless <see cref="ToUnicode"/> if the provider can't translate the key.
+		/// Return convention matches Windows ToUnicode: &gt;0 chars, 0 no text, &lt;0 dead key.
+		/// </summary>
+		public static int ToUnicodeWithDeadKeys(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
+		{
+			if (pwszBuff == null || pwszBuff.Length == 0)
+				return 0;
+
+			DeriveModifierState(lpKeyState, out var shift, out var caps, out var altGr);
+			var n = KeyCodes.TranslateKeyWithDeadKeys(wVirtKey, shift, altGr, caps, pwszBuff.AsSpan());
+
+			if (n != KeyCodes.TranslateNotHandled)
+				return n;
+
+			// No layout-aware provider available: fall back to the stateless mapping (no dead keys).
+			return ToUnicode(wVirtKey, wScanCode, lpKeyState, pwszBuff, wFlags, dwhkl);
+		}
+
 		public static int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
 		{
 			// Best-effort VK?char mapping for Linux; limited to US-style keys.
@@ -76,17 +113,7 @@ namespace Keysharp.Internals.Platform.Unix
 			if (pwszBuff == null || pwszBuff.Length == 0)
 				return 0;
 
-			bool shift =
-				(lpKeyState.Length > VirtualKeys.VK_SHIFT && (lpKeyState[VirtualKeys.VK_SHIFT] & 0x80) != 0) ||
-				(lpKeyState.Length > VirtualKeys.VK_LSHIFT && (lpKeyState[VirtualKeys.VK_LSHIFT] & 0x80) != 0) ||
-				(lpKeyState.Length > VirtualKeys.VK_RSHIFT && (lpKeyState[VirtualKeys.VK_RSHIFT] & 0x80) != 0);
-
-			bool caps = lpKeyState.Length > VirtualKeys.VK_CAPITAL && (lpKeyState[VirtualKeys.VK_CAPITAL] & 0x01) != 0;
-
-			bool altGr =
-				(lpKeyState.Length > VirtualKeys.VK_RMENU && (lpKeyState[VirtualKeys.VK_RMENU] & 0x80) != 0) ||
-				(lpKeyState.Length > VirtualKeys.VK_RCONTROL && (lpKeyState[VirtualKeys.VK_RCONTROL] & 0x80) != 0
-				 && lpKeyState.Length > VirtualKeys.VK_LMENU && (lpKeyState[VirtualKeys.VK_LMENU] & 0x80) != 0);
+			DeriveModifierState(lpKeyState, out var shift, out var caps, out var altGr);
 
 			// Prefer the active OS keyboard layout (handles non-US layouts and non-ASCII
 			// characters such as "ä"); fall back to the hardcoded US table below if the

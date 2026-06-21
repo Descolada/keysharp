@@ -2792,79 +2792,28 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 			else if (transcribeKey && vk != VK_MENU)
 			{
+				// Unlike Windows, the Unix/macOS hooks read raw key events and translate them with our
+				// own keyboard-layout mapping, so there is no shared OS keyboard buffer to avoid disturbing.
+				// Dead-key composition state is therefore owned entirely by the layout provider (see
+				// ToUnicodeWithDeadKeys), making the Windows replay/flush/no-modify dance unnecessary: the
+				// provider buffers a dead key and composes it with the next key regardless of whether the
+				// dead key was suppressed from the active window.
 				var keyState = new byte[physicalKeyState.Length];
-				bool interfere = pendingDeadKeys.Count > 0 && pendingDeadKeyInvisible;
-
-				if (interfere)
-				{
-					// Either an invisible InputHook is in progress or there is a UWP app focused.  In either case, the dead key
-					// was only recorded by us and wasn't retained by the keyboard layout's internal state, so we need to "replay"
-					// the sequence to set things up for conversion of the new key.
-					for (int i = 0; i < pendingDeadKeys.Count; ++i)
-					{
-						var dead_key = pendingDeadKeys[i];
-						AdjustKeyState(keyState, dead_key.modLR);
-						keyState[VK_CAPITAL] = (byte)dead_key.caps;
-						System.Array.Clear(ch, 0, ch.Length);
-						_ = ToUnicode(dead_key.vk, dead_key.sc, keyState, ch, 0, activeWindowKeybdLayout);
-					}
-				}
-
-				// The documentation for ToAsciiEx is incomplete, but recent documentation for ToUnicodeEx shows the meaning of
-				// the flags: 0x1 = Alt+Numpad key combinations are not handled (but the flag doesn't prevent Alt-up itself from
-				// being processed), 0x2 = handle key break events (key-up).  We fake key-up to avoid changing the dead key state
-				// (it stands to reason that key-down normally causes a change in state, so the corresponding key-up wouldn't).
-				// We must avoid passing VK_MENU with KBDBREAK (0x8000) because that disrupts any ongoing Alt+Numpad entry.
-				// Note that Windows 10 v1607 supports flag 0x4 to avoid changing the keyboard state, but there seems to be no
-				// benefit; in particular, the Alt+Numpad state is still affected.
-				// Credit to Ilya Zakharevich for pointing out this method @ https://stackoverflow.com/a/78173420/894589
-				var flags = interfere ? 1u : 3u;
-				var scanCode = rawSC | (interfere ? 0u : 0x8000u);
-				// Provide the correct logical modifier and CapsLock state for any translation below.
+				// Provide the correct logical modifier and CapsLock state for the translation below.
 				AdjustKeyState(keyState, kbdMsSender.modifiersLRLogical);
 				keyState[VK_CAPITAL] = (byte)(IsKeyToggledOn(VK_CAPITAL) ? 1 : 0);
 				System.Array.Clear(ch, 0, ch.Length);
-				charCount = ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
+				charCount = ToUnicodeWithDeadKeys(vk, rawSC, keyState, ch, 0, activeWindowKeybdLayout);
 
-				if (charCount == 0 && (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0 && (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0u && !interfere)
+				if (charCount == 0 && (kbdMsSender.modifiersLRLogical & (MOD_LALT | MOD_RALT)) != 0 && (kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0u)
 				{
-					// Apparently, ToUnicodeEx ignores the Alt in Alt and Alt+Shift combinations only if the key-up bit is not set.
-					// For consistency with prior versions (and Win, but not Ctrl/Shift), let the Alt state be ignored under these
-					// conditions.  transcribe_key and modifier state checked above imply that the M option was used.
+					// Let the Alt state be ignored for Alt / Alt+Shift combinations (matches the M option
+					// behavior: e.g. Win+E or Alt+letter still transcribes to the base letter).
 					keyState[VK_MENU] = 0;
+					keyState[VK_LMENU] = 0;
+					keyState[VK_RMENU] = 0;
 					System.Array.Clear(ch, 0, ch.Length);
-					charCount = ToUnicode(vk, scanCode, keyState, ch, flags, activeWindowKeybdLayout);
-				}
-
-				if (charCount <= 0 && interfere) // A key with no text translation, or possibly a chained dead key (if < 0).
-				{
-					// Flush the dead key which was buffered either by the ToUnicodeEx call above or the dead key loop further up.
-					var ignored = new char[8];
-
-					// Michael S. Kaplan blogged that he would explain in a later post why he used VK_SPACE to clear the buffer,
-					// but then changed to using VK_DECIMAL and apparently never explained either choice.  Still, VK_DECIMAL
-					// seems like a safe choice for clearing the state; probably any key which produces text will work, but
-					// the loop is needed in case of an unconventional layout which makes VK_DECIMAL itself a dead key.
-					while (ToUnicode(VK_DECIMAL, 0, keyState, ignored, flags, activeWindowKeybdLayout) == -1) ;
-				}
-
-				if (charCount > 0)
-				{
-					state.used_dead_key_non_destructively = pendingDeadKeys.Count > 0 && !interfere;
-					pendingDeadKeys.Clear();
-					pendingDeadKeyInvisible = false;
-				}
-				else if (charCount < 0 && pendingDeadKeys.Count < 3)
-				{
-					// Record this dead key so that we can reproduce the sequence when needed.
-					var deadKey = new DeadKeyRecord()
-					{
-						vk = vk,
-						sc = rawSC,
-						modLR = kbdMsSender.modifiersLRLogical,
-						caps = keyState[VK_CAPITAL]
-					};
-					pendingDeadKeys.Add(deadKey);
+					charCount = ToUnicodeWithDeadKeys(vk, rawSC, keyState, ch, 0, activeWindowKeybdLayout);
 				}
 
 				if ((kbdMsSender.modifiersLRLogical & (MOD_LCONTROL | MOD_RCONTROL)) == 0) // i.e. must not replace '\r' with '\n' if it is the result of Ctrl+M.

@@ -32,6 +32,34 @@ namespace Keysharp.Internals.Input.Unix
 		private readonly Dictionary<uint, uint> keycodeToVkCache = new(256);
 		private readonly Dictionary<uint, List<uint>> vkToKeycodesCache = new(128);
 
+		// Pending dead-key composition for TranslateKeyWithDeadKeys: the combining mark used for
+		// NFC composition with the following base character, plus the spacing form emitted when the
+		// sequence does not compose (e.g. dead-grave then 'z' -> "`z").
+		private readonly List<(char combining, char spacing)> pendingDead = new(3);
+
+		// XKB dead keysyms -> (combining mark, spacing form). Covers the common Latin-script dead keys.
+		// The combining mark is used for NFC composition; the spacing form is the fallback emitted when
+		// the sequence does not compose.
+		private static readonly Dictionary<uint, (char combining, char spacing)> deadKeysyms = new()
+		{
+			[0xfe50] = ('\u0300', '`'),       // dead_grave
+			[0xfe51] = ('\u0301', '\u00B4'),  // dead_acute
+			[0xfe52] = ('\u0302', '^'),       // dead_circumflex
+			[0xfe53] = ('\u0303', '~'),       // dead_tilde
+			[0xfe54] = ('\u0304', '\u00AF'),  // dead_macron
+			[0xfe55] = ('\u0306', '\u02D8'),  // dead_breve
+			[0xfe56] = ('\u0307', '\u02D9'),  // dead_abovedot
+			[0xfe57] = ('\u0308', '\u00A8'),  // dead_diaeresis
+			[0xfe58] = ('\u030A', '\u02DA'),  // dead_abovering
+			[0xfe59] = ('\u030B', '\u02DD'),  // dead_doubleacute
+			[0xfe5a] = ('\u030C', '\u02C7'),  // dead_caron
+			[0xfe5b] = ('\u0327', '\u00B8'),  // dead_cedilla
+			[0xfe5c] = ('\u0328', '\u02DB'),  // dead_ogonek
+			[0xfe60] = ('\u0323', '.'),       // dead_belowdot
+			[0xfe61] = ('\u0309', '?'),       // dead_hook
+			[0xfe62] = ('\u031B', '\''),      // dead_horn
+		};
+
 		private static readonly Dictionary<string, uint> xkbName2Vk = new(StringComparer.Ordinal)
 		{
 			["TLDE"] = VK_OEM_3,
@@ -145,6 +173,159 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			return false;
+		}
+
+		public int TranslateKeyWithDeadKeys(uint vk, bool shift, bool altGr, bool capsLock, Span<char> buffer)
+		{
+			// Backspace cancels any pending dead key (AHK's {dead key}{BS} behavior): emit the dead
+			// key's spacing form(s) followed by '\b' so the caller collects then erases them.
+			if (vk == VK_BACK && pendingDead.Count > 0)
+			{
+				var bn = 0;
+
+				foreach (var d in pendingDead)
+					if (bn < buffer.Length)
+						buffer[bn++] = d.spacing;
+
+				if (bn < buffer.Length)
+					buffer[bn++] = '\b';
+
+				pendingDead.Clear();
+				return bn;
+			}
+
+			if (!TryGetKeysymForKeystroke(vk, shift, altGr, out var keysym))
+				return KeyCodes.TranslateNotHandled;
+
+			if (deadKeysyms.TryGetValue(keysym, out var dead)) // This key is a dead key.
+			{
+				if (pendingDead.Count < 3) // Match AHK's chained-dead-key limit.
+					pendingDead.Add(dead);
+
+				return -1;
+			}
+
+			uint cp = xkb_keysym_to_utf32(keysym);
+
+			if (cp == 0)
+				return 0; // No text (e.g. a function/navigation key); leave any pending dead key intact.
+
+			var baseRune = new Rune(cp);
+
+			// Caps Lock only toggles letter case (matches PlatformManager.ToUnicode).
+			if (capsLock && Rune.IsLetter(baseRune))
+			{
+				var upper = Rune.ToUpperInvariant(baseRune);
+				var lower = Rune.ToLowerInvariant(baseRune);
+				baseRune = baseRune == upper ? lower : upper;
+			}
+
+			if (pendingDead.Count == 0)
+				return WriteRune(baseRune, buffer);
+
+			// Compose the base character with the pending combining mark(s) via NFC.
+			var sb = new StringBuilder();
+			_ = sb.Append(baseRune.ToString());
+
+			foreach (var d in pendingDead)
+				_ = sb.Append(d.combining);
+
+			var composed = sb.ToString().Normalize(NormalizationForm.FormC);
+			int n;
+
+			if (IsFullyComposed(composed)) // e.g. dead-grave + 'e' -> "è".
+			{
+				n = CopyToBuffer(composed, buffer);
+			}
+			else // No composition (e.g. dead-grave + 'z'): emit spacing dead char(s) then the base char.
+			{
+				n = 0;
+
+				foreach (var d in pendingDead)
+					if (n < buffer.Length)
+						buffer[n++] = d.spacing;
+
+				n += WriteRune(baseRune, n < buffer.Length ? buffer[n..] : Span<char>.Empty);
+			}
+
+			pendingDead.Clear();
+			return n;
+		}
+
+		public void ResetDeadKeyState()
+		{
+			lock (initLock)
+				pendingDead.Clear();
+		}
+
+		private bool TryGetKeysymForKeystroke(uint vk, bool shift, bool altGr, out uint keysym)
+		{
+			keysym = 0;
+
+			if (!TryMapVkToXKeycode(vk, out var keycode, false))
+				return false;
+
+			if (!TryGetReadyKeymap(out var currentKeymap))
+				return false;
+
+			const uint layout = 0;
+			int levels = xkb_keymap_num_levels_for_key(currentKeymap, keycode, layout);
+
+			for (uint level = 0; level < (uint)levels; level++)
+			{
+				if (!TryResolveSupportedModsForLevel(keycode, layout, level, out var s, out var g))
+					continue;
+
+				if (s != shift || g != altGr)
+					continue;
+
+				int count = xkb_keymap_key_get_syms_by_level(currentKeymap, keycode, layout, level, out var symsPtr);
+
+				if (count <= 0 || symsPtr == IntPtr.Zero)
+					continue;
+
+				unsafe
+				{
+					keysym = ((uint*)symsPtr)[0];
+				}
+
+				return keysym != 0;
+			}
+
+			return false;
+		}
+
+		private static int WriteRune(Rune rune, Span<char> buffer)
+		{
+			if (buffer.IsEmpty)
+				return 0;
+
+			return rune.TryEncodeToUtf16(buffer, out var written) ? written : 0;
+		}
+
+		private static int CopyToBuffer(string s, Span<char> buffer)
+		{
+			var n = Math.Min(s.Length, buffer.Length);
+
+			for (var i = 0; i < n; i++)
+				buffer[i] = s[i];
+
+			return n;
+		}
+
+		private static bool IsFullyComposed(string s)
+		{
+			foreach (var ch in s)
+			{
+				var cat = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch);
+
+				if (cat is System.Globalization.UnicodeCategory.NonSpacingMark
+						or System.Globalization.UnicodeCategory.SpacingCombiningMark
+						or System.Globalization.UnicodeCategory.EnclosingMark)
+					return false;
+			}
+
+			return true;
 		}
 
 		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
@@ -491,6 +672,7 @@ namespace Keysharp.Internals.Input.Unix
 			cache.Clear();
 			keycodeToVkCache.Clear();
 			vkToKeycodesCache.Clear();
+			pendingDead.Clear();
 			ready = false;
 			initTried = false;
 			minKeycode = 0;

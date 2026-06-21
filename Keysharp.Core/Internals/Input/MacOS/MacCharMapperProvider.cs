@@ -17,8 +17,17 @@ namespace Keysharp.Internals.Input.Unix
 		// and passed directly as UCKeyTranslate's modifierKeyState parameter).
 		private const uint shiftKeyState = 0x02u; // shiftKey >> 8
 		private const uint optionKeyState = 0x08u; // optionKey >> 8
+		private const uint alphaLockKeyState = 0x04u; // alphaLock (caps lock) >> 8
 
 		private const ushort kUCKeyActionDown = 0;
+		private const ushort kVK_Space = 0x31;
+
+		// Dead-key composition state for TranslateKeyWithDeadKeys. UCKeyTranslate threads a
+		// deadKeyState cookie across calls; we keep the "live" cookie plus the spacing form(s)
+		// of any pending dead key(s) so a non-composing follow-up can emit e.g. "`z" rather
+		// than dropping the accent.
+		private uint liveDeadKeyState;
+		private readonly StringBuilder pendingSpacing = new();
 
 		private readonly Dictionary<uint, uint> vkToMacKeyCode = BuildVkToMacKeyCodeMap();
 
@@ -199,12 +208,136 @@ namespace Keysharp.Internals.Input.Unix
 			}
 		}
 
+		public int TranslateKeyWithDeadKeys(uint vk, bool shift, bool altGr, bool capsLock, Span<char> buffer)
+		{
+			lock (mapperLock)
+			{
+				if (!vkToMacKeyCode.TryGetValue(vk, out var keyCode))
+					return KeyCodes.TranslateNotHandled;
+
+				var layoutPtr = GetCurrentKeyboardLayoutPtr();
+
+				if (layoutPtr == nint.Zero)
+					return KeyCodes.TranslateNotHandled;
+
+				if (layoutPtr != lastLayoutPtr)
+				{
+					cache.Clear();
+					lastLayoutPtr = layoutPtr;
+					ResetDeadKeyStateCore();
+				}
+
+				uint modifiers = 0;
+
+				if (shift)
+					modifiers |= shiftKeyState;
+
+				if (altGr)
+					modifiers |= optionKeyState;
+
+				if (capsLock)
+					modifiers |= alphaLockKeyState;
+
+				// Backspace cancels any pending dead key (AHK's {dead key}{BS} behavior). Emit the
+				// dead key's spacing form followed by '\b' so the caller collects then erases it,
+				// yielding a net-zero change while clearing the pending composition.
+				if (vk == VK_BACK && (liveDeadKeyState != 0 || pendingSpacing.Length > 0))
+				{
+					var n = WritePendingSpacing(buffer);
+
+					if (n < buffer.Length)
+						buffer[n++] = '\b';
+
+					ResetDeadKeyStateCore();
+					return n;
+				}
+
+				var hadPendingDeadKey = liveDeadKeyState != 0;
+				uint ds = liveDeadKeyState;
+				var (len, str) = UCKeyTranslateRaw(layoutPtr, (ushort)keyCode, modifiers, ref ds);
+
+				if (len > 0)
+				{
+					if (hadPendingDeadKey)
+					{
+						// Determine whether the pending dead key actually combined with this key by
+						// comparing against a fresh (no dead key) translation of the same keystroke.
+						uint ds0 = 0;
+						var (len0, str0) = UCKeyTranslateRaw(layoutPtr, (ushort)keyCode, modifiers, ref ds0);
+
+						if (len0 == len && str0 == str) // No combination, e.g. dead-grave followed by 'z'.
+						{
+							var n = WritePendingSpacing(buffer);
+							n += CopyToBuffer(str0, buffer[n..]);
+							ResetDeadKeyStateCore();
+							return n;
+						}
+					}
+
+					// A normal character or a successful composition.
+					liveDeadKeyState = ds; // Usually 0 now; preserved in case of chained state.
+					pendingSpacing.Clear();
+					return CopyToBuffer(str, buffer);
+				}
+
+				if (ds != 0) // This key is itself a (possibly chained) dead key.
+				{
+					liveDeadKeyState = ds;
+
+					// Record its spacing form by translating Space against the new dead state (on a copy).
+					uint dsSpace = ds;
+					var (spLen, sp) = UCKeyTranslateRaw(layoutPtr, kVK_Space, 0, ref dsSpace);
+
+					if (spLen > 0)
+						_ = pendingSpacing.Append(sp);
+
+					return -1;
+				}
+
+				// No text and not a dead key (e.g. arrow/modifier): leave any pending dead key intact.
+				return 0;
+			}
+		}
+
+		public void ResetDeadKeyState()
+		{
+			lock (mapperLock)
+				ResetDeadKeyStateCore();
+		}
+
+		private void ResetDeadKeyStateCore()
+		{
+			liveDeadKeyState = 0;
+			_ = pendingSpacing.Clear();
+		}
+
+		private int WritePendingSpacing(Span<char> buffer)
+		{
+			var n = 0;
+
+			for (var i = 0; i < pendingSpacing.Length && n < buffer.Length; i++)
+				buffer[n++] = pendingSpacing[i];
+
+			return n;
+		}
+
+		private static int CopyToBuffer(string s, Span<char> buffer)
+		{
+			var n = Math.Min(s.Length, buffer.Length);
+
+			for (var i = 0; i < n; i++)
+				buffer[i] = s[i];
+
+			return n;
+		}
+
 		public void ConfigureLayout(string rules, string model, string layout, string variant, string options)
 		{
 			lock (mapperLock)
 			{
 				cache.Clear();
 				lastLayoutPtr = nint.Zero;
+				ResetDeadKeyStateCore();
 				ReleaseRetainedLayoutData();
 			}
 		}
@@ -257,6 +390,7 @@ namespace Keysharp.Internals.Input.Unix
 			{
 				cache.Clear();
 				lastLayoutPtr = nint.Zero;
+				ResetDeadKeyStateCore();
 				ReleaseRetainedLayoutData();
 
 				if (monitoringStarted)
@@ -451,6 +585,50 @@ namespace Keysharp.Internals.Input.Unix
 			var (success, result) = TryTranslateCore(layoutPtr, keyCode, modifierState);
 			rune = result;
 			return success;
+		}
+
+		/// <summary>
+		/// Low-level UCKeyTranslate wrapper that threads a dead-key state cookie. Returns the number
+		/// of UTF-16 chars produced (0 for a dead key or a key with no text) and the produced string.
+		/// On return, <paramref name="deadKeyState"/> is non-zero if a dead key is now buffered.
+		/// </summary>
+		private static unsafe (int len, string str) UCKeyTranslateRaw(nint layoutPtr, ushort keyCode, uint modifierState, ref uint deadKeyState)
+		{
+			if (layoutPtr == nint.Zero)
+				return (0, string.Empty);
+
+			const int bufferLen = 8;
+			var chars = stackalloc ushort[bufferLen];
+			uint ds = deadKeyState;
+
+			var status = UCKeyTranslate(
+				layoutPtr,
+				keyCode,
+				kUCKeyActionDown,
+				modifierState,
+				0,
+				0,
+				&ds,
+				bufferLen,
+				out var actualLength,
+				chars);
+
+			deadKeyState = ds;
+
+			if (status != 0)
+				return (0, string.Empty);
+
+			var len = (int)Math.Min(actualLength, bufferLen);
+
+			if (len <= 0)
+				return (0, string.Empty);
+
+			var translated = new string((char*)chars, 0, len);
+
+			if (translated.Length == 1 && translated[0] == '�')
+				return (0, string.Empty);
+
+			return (len, translated);
 		}
 
 		private static unsafe (bool success, Rune rune) TryTranslateCore(nint layoutPtr, ushort keyCode, uint modifierState)

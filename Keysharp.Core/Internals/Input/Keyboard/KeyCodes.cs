@@ -16,6 +16,9 @@ namespace Keysharp.Internals.Input.Keyboard
 	internal static partial class KeyCodes
 	{
 #if !WINDOWS
+		/// <summary>Sentinel returned by the dead-key translation path when the provider cannot map the key.</summary>
+		internal const int TranslateNotHandled = int.MinValue;
+
 		private static readonly object providerLock = new();
 		private static IKeyCodeMapperProvider provider;
 
@@ -53,6 +56,25 @@ namespace Keysharp.Internals.Input.Keyboard
 			EnsureProvider();
 			rune = default;
 			return provider != null && provider.TryMapKeystrokeToRune(vk, shift, altGr, out rune);
+		}
+
+		/// <summary>
+		/// Stateful, dead-key-aware translation of a keystroke into characters. Mirrors the Windows
+		/// ToUnicode return convention so the shared collection logic can treat all platforms alike:
+		/// &gt;0 = chars written; 0 = no text; &lt;0 = dead key buffered for the next keystroke;
+		/// <see cref="TranslateNotHandled"/> = provider can't translate (caller should fall back).
+		/// </summary>
+		public static int TranslateKeyWithDeadKeys(uint vk, bool shift, bool altGr, bool capsLock, Span<char> buffer)
+		{
+			EnsureProvider();
+			return provider != null ? provider.TranslateKeyWithDeadKeys(vk, shift, altGr, capsLock, buffer) : TranslateNotHandled;
+		}
+
+		/// <summary>Clears any buffered dead-key composition state (e.g. when input collection (re)starts).</summary>
+		public static void ResetDeadKeyState()
+		{
+			EnsureProvider();
+			provider?.ResetDeadKeyState();
 		}
 
 		public static void ConfigureLayout(string rules = null, string model = null, string layout = null, string variant = null, string options = null)
@@ -141,6 +163,19 @@ namespace Keysharp.Internals.Input.Keyboard
 			rune = default;
 			return false;
 		}
+
+		/// <summary>
+		/// Stateful, dead-key-aware translation. See <see cref="KeyCodes.TranslateKeyWithDeadKeys"/>
+		/// for the return convention. Providers without dead-key support leave this returning
+		/// <see cref="KeyCodes.TranslateNotHandled"/> so the caller falls back to a stateless path.
+		/// </summary>
+		int TranslateKeyWithDeadKeys(uint vk, bool shift, bool altGr, bool capsLock, Span<char> buffer)
+		{
+			return KeyCodes.TranslateNotHandled;
+		}
+
+		/// <summary>Clears any buffered dead-key composition state.</summary>
+		void ResetDeadKeyState() { }
 
 		nint GetCurrentKeymapHandle();
 #if LINUX

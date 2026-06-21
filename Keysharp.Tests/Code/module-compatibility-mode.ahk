@@ -276,7 +276,6 @@ export ReturnNoReturn21() {
 }
 export ReturnMaybeNoReturn21() {
 	return NoReturn21()?
-	return ""
 }
 export PropertyNoReturn21() {
 	c := Getter21()

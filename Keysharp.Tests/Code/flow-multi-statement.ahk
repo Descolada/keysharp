@@ -209,5 +209,5 @@ class Toggle {
 	{
 	}
 
-    __New(F, P, I:=0) => (this.TestFunc(F, !P ? (A.Has(F) && A.Delete(F))*0 : A.Has(F) && A[F] = P ? !A.Delete(F) : (I && F.Call(), A[F] := P)))
+    __New(F, P, I:=0) => (this.TestFunc(F, !P ? (Toggle.A.Has(F) && Toggle.A.Delete(F))*0 : Toggle.A.Has(F) && Toggle.A[F] = P ? !Toggle.A.Delete(F) : (I && F.Call(), Toggle.A[F] := P)))
 }

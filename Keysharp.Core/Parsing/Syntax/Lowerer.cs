@@ -91,6 +91,11 @@ namespace Keysharp.Parsing.Syntax
 		private string _warnVarUnset = "MsgBox", _warnUnreachable = "MsgBox", _warnLocalSameAsGlobal = null;
 		private string _warnDefaultMode = "MsgBox";
 		private bool _warnScopeIsGlobal;   // current VarUnset-analysis scope is the module top-level (else a function)
+		// Names provided at the module top-level. Keysharp resolves any bare name that isn't a local to a module-level
+		// global field (see LowerName's EnsureGlobalField fallback), so a top-level-assigned name is readable from EVERY
+		// nested scope — including class methods/properties, which do NOT inherit `outerProvided`. Threaded into every
+		// scope's `readable` set so a read of such a global isn't a false "never assigned" positive (null when VarUnset off).
+		private HashSet<string> _warnGlobalReadable;
 		private readonly List<(string mode, int line, string desc)> _warnings = new();
 		private int _hotCount;
 		private readonly HashSet<string> _exportedNames = new(System.StringComparer.OrdinalIgnoreCase);   // names marked `export`
@@ -1027,6 +1032,7 @@ namespace Keysharp.Parsing.Syntax
 		private void AnalyzeWarnings(List<Stmt> body)
 		{
 			if (_warnVarUnset == null && _warnUnreachable == null && _warnLocalSameAsGlobal == null) return;
+			_warnGlobalReadable = null;
 			var globals = _warnLocalSameAsGlobal != null ? new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) : null;
 			if (globals != null) { var acc = new List<string>(); var seen = new HashSet<string>(); foreach (var s in body) CollectAssignedStmt(s, acc, seen); globals.UnionWith(acc); }
 			AnalyzeScope(body, null, System.Array.Empty<string>(), globals, topLevel: true);
@@ -1055,9 +1061,18 @@ namespace Keysharp.Parsing.Syntax
 				var declaredGlobal = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 				if (body != null) foreach (var s in body) CollectProvided(s, provided, declaredGlobal);
 				if (arrow != null) CollectProvidedExpr(arrow, provided, declaredGlobal);
-				// Names readable here = this scope's provided + everything from enclosing scopes (closure capture).
+				// The top-level scope's names are the module globals; capture them so every nested scope can read them
+				// (Keysharp resolves any non-local bare name to a global field, so such a read is never "unset").
+				if (topLevel) _warnGlobalReadable = provided;
+				// Names readable here = this scope's provided + everything from enclosing scopes (closure capture) + the
+				// module globals (always reachable, even from class methods/properties that don't inherit outer locals).
 				var readable = provided;
-				if (outerProvided != null) { readable = new HashSet<string>(provided, System.StringComparer.OrdinalIgnoreCase); readable.UnionWith(outerProvided); }
+				if (outerProvided != null || (!topLevel && _warnGlobalReadable != null))
+				{
+					readable = new HashSet<string>(provided, System.StringComparer.OrdinalIgnoreCase);
+					if (outerProvided != null) readable.UnionWith(outerProvided);
+					if (!topLevel && _warnGlobalReadable != null) readable.UnionWith(_warnGlobalReadable);
+				}
 				if (_warnVarUnset != null && !assumeGlobal)
 				{
 					var warned = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);

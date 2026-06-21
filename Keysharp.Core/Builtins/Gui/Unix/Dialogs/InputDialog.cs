@@ -95,6 +95,10 @@ namespace Keysharp.Builtins
 				}
 			};
 
+			// macOS editing shortcuts (Cmd+C/A/V) in the input field need an Edit menu; dialogs don't
+			// inherit one reliably, so give this dialog its own standard menu.
+			GuiHelper.EnsureSystemMenu(this);
+
 			Shown += InputDialog_Shown;
 		}
 

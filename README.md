@@ -55,6 +55,7 @@ Prebuilt packages are on the [Releases](https://github.com/Descolada/keysharp/re
 - **Run:** `keysharp hello.ks`, or use `Keyview.app`. Keysharp requests **Input Monitoring**, **Accessibility**, and **Screen Recording** permissions as features need them — grant them in System Settings → Privacy & Security.
 - **Uninstall:** double-click `Uninstall.command` in the DMG, or run `sudo keysharp-uninstall` for a PKG install.
 - **VS Code:** answer "Yes" to the shim prompt during install, then use `~/.local/bin/AutoHotkey.exe` as the interpreter path.
+- **GUI editing shortcuts:** GUIs are automatically given a minimal macOS menu bar (an App menu plus the standard Edit menu), so ⌘C/⌘V/⌘X/⌘A/⌘Z work in their text controls. Add the `-AppMenu` option (e.g. `MyGui := Gui("-AppMenu")`) to opt out; it has no effect on Windows/Linux.
 
 > thqby's VS Code extension targets AutoHotkey on Windows: editing and running scripts work cross-platform, but Windows-specific debugging, help, and compiler integration do not. See the [full setup guide](docs/reference.md) for portable runs, permissions, and platform details.
 

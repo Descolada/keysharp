@@ -1583,34 +1583,9 @@ namespace Keysharp.Builtins
 			ApplyFormatting(richText);
 			richText.ContextMenu = BuildCopyContextMenu(richText);
 
-			// Handle Copy (CommonModifier+C) and Select All (CommonModifier+A) for the error text.
-			// CommonModifier is Cmd on macOS and Ctrl elsewhere. Attach to the form so it fires while a
-			// button has focus (the default), and to the rich text area directly because on macOS a
-			// focused NSTextView consumes key events instead of letting them bubble up to the form.
-			void HandleClipboardKeys(object sender, Eto.Forms.KeyEventArgs e)
-			{
-				var mod = Eto.Forms.Application.Instance.CommonModifier;
-				if ((e.Modifiers & mod) != mod)
-					return;
-
-				if (e.Key == Eto.Forms.Keys.C)
-				{
-					var text = GetSelectedOrAllText(richText);
-					if (!string.IsNullOrEmpty(text))
-						Eto.Forms.Clipboard.Instance.Text = text;
-					e.Handled = true;
-				}
-				else if (e.Key == Eto.Forms.Keys.A)
-				{
-					var allText = richText.Text ?? string.Empty;
-					if (allText.Length > 0)
-						richText.Selection = new Eto.Forms.Range<int>(0, allText.Length - 1);
-					e.Handled = true;
-				}
-			}
-
-			KeyDown += HandleClipboardKeys;
-			richText.KeyDown += HandleClipboardKeys;
+			// Keyboard Copy (Cmd/Ctrl+C) and Select All (Cmd/Ctrl+A) for the focused text come from the
+			// standard Edit menu on macOS (added via GuiHelper.EnsureSystemMenu in ShowDialog) and from GTK
+			// natively on Linux. The right-click context menu above also offers Copy/Select All.
 
 			var btnAbort = new Eto.Forms.Button { Text = "&Abort" };
 			var btnContinue = new Eto.Forms.Button { Text = "&Continue" };
@@ -1711,6 +1686,8 @@ namespace Keysharp.Builtins
 
 		internal void ShowDialog()
 		{
+			// macOS editing shortcuts (Cmd+C/A) need an Edit menu; dialogs don't inherit one reliably.
+			GuiHelper.EnsureSystemMenu(this);
 			ShowModal();
 		}
 

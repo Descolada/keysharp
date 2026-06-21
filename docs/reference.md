@@ -207,6 +207,20 @@ tccutil reset All org.keysharp.keyview
   ```
 * The signing and notarization steps are skipped by default (no developer account required). To enable ad-hoc signing for local testing: `ADHOC_SIGN=true bash ./Keysharp.Install/package-macos.sh`.
 
+### GUI menus and editing shortcuts
+
+Unlike Windows, macOS drives the standard text-editing shortcuts — Copy (⌘C), Cut (⌘X), Paste (⌘V), Select All (⌘A), Undo/Redo (⌘Z / ⇧⌘Z) — through the application's **Edit menu** rather than the text control itself. A window with no menu therefore has none of those shortcuts in its text fields.
+
+To keep scripts working unchanged, Keysharp automatically gives each GUI (and its dialogs) a minimal macOS menu bar — an App menu (with Quit) and the standard Edit menu — so these shortcuts work out of the box. The File, Window, and View menus that macOS apps usually add are omitted, since they aren't useful for most script GUIs. A GUI that defines its own menu via `Gui.MenuBar` still gets the Edit menu merged in, positioned ahead of the script's own menus, and the merge is preserved when the script changes its menu at runtime.
+
+Use the **`-AppMenu`** GUI option to opt out for a given window — for example a borderless or kiosk-style GUI that should contribute no menu bar:
+
+```ahk
+MyGui := Gui("-AppMenu")   ; no App/Edit menus; editing shortcuts will not work
+```
+
+`+AppMenu` (the default) restores it. The option has no effect on Windows (which has no application-level menu) and on Linux (whose toolkit handles editing shortcuts without one).
+
 ## Cross-Platform Capability Matrix
 
 This is a concise view of which AutoHotkey 2.1 features Keysharp implements. For full details and current notes, see [capabilities.md](capabilities.md).

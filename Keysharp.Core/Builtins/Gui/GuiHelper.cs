@@ -19,6 +19,21 @@ namespace Keysharp.Builtins
 			set => Script.TheScript.Threads.CurrentThread.dialogOwner = value;
 		}
 
+#if !WINDOWS
+		// macOS routes the standard text-editing shortcuts (Cmd+C/V/X/A/Z) through the application's
+		// Edit menu, so a top-level window with no menu has none of them in its text controls. Give
+		// menu-less windows a minimal menu bar with just the App (for Quit) and Edit menus -- the File,
+		// Window and View menus aren't useful for most script GUIs. macOS-only: on Linux/GTK the menu bar
+		// is in-window, so adding one unprompted would be intrusive (and editing shortcuts work without it).
+		internal static void EnsureSystemMenu(Eto.Forms.Window window)
+		{
+#if OSX
+			if (window != null && window.Menu == null)
+				window.Menu = new Eto.Forms.MenuBar { IncludeSystemItems = Eto.Forms.MenuBarSystemItems.Quit | Eto.Forms.MenuBarSystemItems.Edit };
+#endif
+		}
+#endif
+
 		public static object GuiCtrlFromHwnd(object obj)
 		{
 			if (Control.FromHandle(new nint(obj.Al())) is Control c)

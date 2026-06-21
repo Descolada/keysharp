@@ -58,6 +58,17 @@ namespace Keysharp.Builtins
 				}
 			},
 			{
+				// macOS: controls whether the standard application menu bar (App/Edit/Window — the source of
+				// Cmd+C/V/X/A/Z in text controls) is provided automatically. On by default; "-AppMenu" opts
+				// out. No effect on Windows (no app-level menu); on Linux it suppresses Eto's system items.
+				"AppMenu", (f, o) =>
+				{
+#if !WINDOWS
+					if (o is bool b) f.includeAppMenu = b;
+#endif
+				}
+			},
+			{
 				"Border", (f, o) =>
 				{
 					// FormBorderStyle conflates caption presence with border thickness, and there's no
@@ -265,6 +276,11 @@ namespace Keysharp.Builtins
 		private bool lastfound = false;
 		private bool owndialogs = false;
 		private bool resizable = false;
+#if !WINDOWS
+		// Whether this GUI provides the standard macOS application menu bar (App/Edit/Window), which is
+		// what makes Cmd+C/V/X/A/Z work in its text controls. Toggled by the "AppMenu" option; on by default.
+		private bool includeAppMenu = true;
+#endif
 		private bool showCalled = false;
 
 		public object BackColor
@@ -333,7 +349,13 @@ namespace Keysharp.Builtins
 				form.MainMenuStrip = menuBar.MenuStrip;
 #else
 				menuBar.MenuStrip.SyncEtoMenuBar();
+				// Merge only the App (Quit) and Edit menus into the script's menu so editing shortcuts work;
+				// -AppMenu opts out entirely. File/Window/View aren't useful for most script GUIs.
+				menuBar.MenuStrip.EtoMenuBar.IncludeSystemItems = includeAppMenu ? (Eto.Forms.MenuBarSystemItems.Quit | Eto.Forms.MenuBarSystemItems.Edit) : Eto.Forms.MenuBarSystemItems.None;
 				form.Menu = menuBar.MenuStrip.EtoMenuBar;
+				// form.Menu assignment ran Eto's one-time CreateSystemMenu (OnPreLoad); from now on
+				// SyncEtoMenuBar must re-merge the system menu itself after it rebuilds the items.
+				menuBar.MenuStrip.MarkSystemMenuLoaded();
 				form.MainMenuStrip = menuBar.MenuStrip;
 #endif
 			}
@@ -2611,6 +2633,13 @@ namespace Keysharp.Builtins
 
 			if (firstShow || requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue)
 				form.SetLocation(location);
+
+#if !WINDOWS
+			// Give menu-less GUIs the standard editing shortcuts on macOS (no-op on Linux), unless -AppMenu
+			// was used. GUIs that set their own menu get the Edit menu merged in by Eto's CreateSystemMenu.
+			if (firstShow && includeAppMenu)
+				GuiHelper.EnsureSystemMenu(form);
+#endif
 
 			if (hide)
 				form.Hide();

@@ -574,10 +574,30 @@ namespace Keysharp.Internals.Input.Keyboard
 						btv.configData.sendLevel = definition.inputLevel;
 						btv.hwndLastUsed = new nint(hwndCritFound);
 						btv.hotCriterion = definition.hotCriterion;// v2: Let the Hotkey command use the criterion of this hotstring by default.
-						definition.DoReplace(caseMode, endChar, triggerVk, skipChars);
 
 						if (string.IsNullOrEmpty(definition.replacement))
+						{
+							// Action (callback) hotstring: the backspacing in DoReplace is cosmetic and can fail
+							// independently of the user's callback (e.g. input injection is unavailable or denied,
+							// such as on a headless host). A failed send must not suppress the callback, which is
+							// the actual hotstring action.
+							try
+							{
+								definition.DoReplace(caseMode, endChar, triggerVk, skipChars);
+							}
+							catch (Exception ex)
+							{
+								_ = Keysharp.Internals.Flow.HandleCaughtException(ex);
+							}
+
 							_ = definition.funcObj.Call([definition.Name]);
+						}
+						else
+						{
+							// Auto-replace hotstring: the send IS the action, so let failures propagate to the
+							// outer handler.
+							definition.DoReplace(caseMode, endChar, triggerVk, skipChars);
+						}
 
 						callbackExecuted = true;
 					}

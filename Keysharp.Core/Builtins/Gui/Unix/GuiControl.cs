@@ -1979,11 +1979,15 @@ namespace Keysharp.Builtins
 
 			internal void _control_KeyDown(object sender, KeyEventArgs e)
 			{
-				if ((eventHandlerActive && e.Key == Forms.Keys.RightApplication || (e.Key == Forms.Keys.F10 && ((e.Modifiers & Forms.Keys.Shift) == Forms.Keys.Shift))) && GetCursorPos(out POINT pt))
+#if !OSX
+				// The Menu/context-menu key and Shift+F10 open the context menu on Windows and Linux.
+				// macOS has no such key (and uses Ctrl+click, handled in _control_MouseDown), so it is omitted there.
+				if ((eventHandlerActive && e.Key == Forms.Keys.ContextMenu || (e.Key == Forms.Keys.F10 && ((e.Modifiers & Forms.Keys.Shift) == Forms.Keys.Shift))) && GetCursorPos(out POINT pt))
 				{
 					var clientPt = ConvertToClientPoint(pt.X, pt.Y);
 					CallContextMenuChangeHandlers(true, clientPt.X, clientPt.Y);
 				}
+#endif
 			}
 
 			internal void _control_MouseDown(object sender, MouseEventArgs e)

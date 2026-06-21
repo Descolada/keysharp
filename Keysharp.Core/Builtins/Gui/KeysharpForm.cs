@@ -427,9 +427,14 @@ namespace Keysharp.Builtins
 			else if (e.KeyCode == Keys.Escape && Tag is WeakReference<Gui> wrg && wrg.TryGetTarget(out var g))
 				_ = escapeHandlers?.InvokeEventHandlers(g);
 #else
-			if ((e.Key == Forms.Keys.Application || (e.Key == Forms.Keys.F10 && ((e.Modifiers & Forms.Keys.Shift) == Forms.Keys.Shift))) && GetCursorPos(out POINT pt))
+#if !OSX
+			// The Menu/context-menu key and Shift+F10 open the context menu on Windows and Linux.
+			// macOS has no such key (and uses Ctrl+click, handled in Form_MouseDown), so it is omitted there.
+			if ((e.Key == Forms.Keys.ContextMenu || (e.Key == Forms.Keys.F10 && ((e.Modifiers & Forms.Keys.Shift) == Forms.Keys.Shift))) && GetCursorPos(out POINT pt))
 				CallContextMenuChangeHandlers(true, pt.X, pt.Y);
-			else if (e.Key == Forms.Keys.Escape && Tag is WeakReference<Gui> wrg && wrg.TryGetTarget(out var g))
+			else
+#endif
+			if (e.Key == Forms.Keys.Escape && Tag is WeakReference<Gui> wrg && wrg.TryGetTarget(out var g))
 				_ = escapeHandlers?.InvokeEventHandlers(g);
 #endif
 		}

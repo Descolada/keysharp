@@ -143,46 +143,6 @@ namespace Keysharp.Builtins
 			return OwnPropsEnumeration.CreateEnumerator(obj, props, vals);
 		}
 
-		public virtual void PrintProps(string name, Ks.StringBuffer sb, ref int tabLevel)
-		{
-			var fieldType = GetType().Name;
-			var opi = (IEnumerator<(object, object)>)OwnProps(true);
-			var indent = new string('\t', tabLevel);
-
-			if (name.Length == 0)
-				_ = sb.AppendLine($"{indent} ({fieldType})");
-			else
-				_ = sb.AppendLine($"{indent}{name}: ({fieldType})");
-
-			tabLevel++;
-			indent = new string('\t', tabLevel);
-
-			while (opi.MoveNext())
-			{
-				var (propName, val) = opi.Current;
-				fieldType = val != null ? val.GetType().Name : "";
-
-				if (val != this && val is KeysharpObject kso2)//Check against this to prevent stack overflow.
-				{
-					kso2.PrintProps(propName.ToString(), sb, ref tabLevel);
-				}
-				else if (val != null)
-				{
-					if (val is string vs)
-					{
-						var str = "\"" + vs + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
-						_ = sb.AppendLine($"{indent}{propName}: {str} ({fieldType})");
-					}
-					else
-						_ = sb.AppendLine($"{indent}{propName}: {val} ({fieldType})");
-				}
-				else
-					_ = sb.AppendLine($"{indent}{propName}: null");
-			}
-
-			tabLevel--;
-		}
-
 		[PublicHiddenFromUser]
 		public override Any Base
 		{

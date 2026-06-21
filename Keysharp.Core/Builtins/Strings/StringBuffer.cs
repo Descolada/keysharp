@@ -217,18 +217,6 @@ namespace Keysharp.Builtins
 					Capacity = exact ? requiredCapacity : Math.Max(requiredCapacity, _capacity * 2);
 			}
 
-			public override void PrintProps(string name, StringBuffer sbuf, ref int tabLevel)
-			{
-				var indent = new string('\t', tabLevel);
-				var fieldType = GetType().Name;
-				var str = ToString();
-
-				if (name.Length == 0)
-					_ = sbuf.AppendLine($"{indent}{str} ({fieldType})");
-				else
-					_ = sbuf.AppendLine($"{indent}{name}: {str} ({fieldType})");
-			}
-
 			/// <summary>
 			/// Reads the current buffer contents up to the null-terminator or current position (whichever is larger)
 			/// and returns as a managed string.

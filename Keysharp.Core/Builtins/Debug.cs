@@ -76,7 +76,6 @@ namespace Keysharp.Builtins
 		{
 			//var sw = new Stopwatch();
 			//sw.Start();
-			var tabLevel = 0;
 			var doInternal = obj.Ab(true);
 			var sb = new StringBuffer();
 			var script = Script.TheScript;
@@ -87,8 +86,7 @@ namespace Keysharp.Builtins
 			{
 					var mph = fieldKv.Value;
 					var val = mph.CallFunc(null, null);
-					var fieldType = val != null ? val.GetType().Name : mph.fi.FieldType.Name;
-					_ = Misc.PrintProps(val, fieldKv.Key, sb, ref tabLevel);
+					PropPrinter.Print(val, fieldKv.Key, sb);
 			}
 
 			foreach (var typeKv in script.ReflectionsData.staticFields.Where(tkv => tkv.Key.Name.StartsWith("program", StringComparison.OrdinalIgnoreCase)))
@@ -96,8 +94,7 @@ namespace Keysharp.Builtins
 				foreach (var fieldKv in typeKv.Value.OrderBy(f => f.Key))
 				{
 					var val = fieldKv.Value.GetValue(null);
-					var fieldType = val != null ? val.GetType().Name : fieldKv.Value.FieldType.Name;
-					_ = Misc.PrintProps(val, fieldKv.Key, sb, ref tabLevel);
+					PropPrinter.Print(val, fieldKv.Key, sb);
 				}
 			}
 
@@ -126,8 +123,7 @@ namespace Keysharp.Builtins
 						{
 							//OutputDebugLine($"GetVars(): getting prop: {prop.Name}");
 							var val = prop.GetValue(null);
-							var proptype = val != null ? val.GetType().Name : prop.PropertyType.Name;
-							_ = Misc.PrintProps(val, prop.Name, sb, ref tabLevel);
+							PropPrinter.Print(val, prop.Name, sb);
 						}
 						catch (Exception ex)
 						{

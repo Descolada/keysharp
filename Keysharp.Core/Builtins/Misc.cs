@@ -27,39 +27,5 @@ namespace Keysharp.Builtins
 			return new VarRef(getter, setter);
 		}
 
-		/// <summary>
-		/// Returns a string showing all of the properties of an object.
-		/// The string is also appended to sbuf.
-		/// The traversal is recursive through all of the object's properties.
-		/// </summary>
-		/// <param name="obj">The object whose properties will be listed.</param>
-		/// <param name="name">The name of the object.</param>
-		/// <param name="sbuf">The <see cref="StringBuffer"/> to place the property info in.</param>
-		/// <param name="tabLevel">The number of tabs to use for indenting the property tree.</param>
-		/// <returns>sbuf.ToString()</returns>
-		internal static string PrintProps(object obj, string name, Ks.StringBuffer sb, ref int tabLevel)
-		{
-			var indent = new string('\t', tabLevel);
-			var fieldType = obj != null ? obj.GetType().Name : "";
-
-			if (obj is KeysharpObject kso)
-			{
-				kso.PrintProps(name, sb, ref tabLevel);
-			}
-			else if (obj != null)
-			{
-				if (obj is string vs)
-				{
-					var str = "\"" + vs + "\"";//Can't use interpolated string here because the AStyle formatter misinterprets it.
-					_ = sb.AppendLine($"{indent}{name}: {str} ({fieldType})");
-				}
-				else
-					_ = sb.AppendLine($"{indent}{name}: {obj} ({fieldType})");
-			}
-			else
-				_ = sb.AppendLine($"{indent}{name}: null");
-
-			return sb.ToString();
-		}
 	}
 }

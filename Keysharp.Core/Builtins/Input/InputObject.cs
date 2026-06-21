@@ -265,9 +265,11 @@ namespace Keysharp.Builtins
 
 				for (var i = 0; i < input.keySC.Length; ++i)
 					input.keySC[i] = (input.keySC[i] & ~removeFlags) | addFlags;
-			}
 
-			input.SetKeyFlags(keys, false, removeFlags, addFlags);
+				// AHK returns here; falling through to SetKeyFlags would re-parse the literal "{All}".
+			}
+			else
+				input.SetKeyFlags(keys, false, removeFlags, addFlags);
 
 			if (input.InProgress())
 				Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
@@ -300,7 +302,9 @@ namespace Keysharp.Builtins
 			while (input.InProgress() && (DateTime.UtcNow - tickStart).TotalMilliseconds < ms)
 				_ = Flow.Sleep(20);
 
-			return DefaultObject;
+			// AHK's InputHook.Wait returns the EndReason (the documented return value).
+			string str = null;
+			return input.GetEndReason(ref str);
 		}
 
 		internal void ActivateCallbackPersistence() => SetCallbackPersistenceActive(true);

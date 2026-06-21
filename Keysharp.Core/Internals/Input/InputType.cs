@@ -55,24 +55,50 @@ namespace Keysharp.Internals.Input
 			scriptObject = io;
 			ParseOptions(options);
 			SetKeyFlags(endKeys);
-			var splits = matchList.Split(Comma);
+			SetMatchList(matchList);
+		}
 
-			for (var i = 0; i < splits.Length; i++)
+		// Faithful port of AHK input_type::SetMatchList: comma-separated phrases, where two
+		// consecutive commas are a single literal comma within a phrase, and empty phrases
+		// (e.g. from a leading/trailing/lone comma) are omitted.  The previous Split(',')
+		// approach broke both rules and, worse, produced a spurious "," phrase for every
+		// InputHook created without a match list.
+		internal void SetMatchList(string matchList)
+		{
+			match.Clear();
+
+			if (string.IsNullOrEmpty(matchList))
+				return;
+
+			var sb = new StringBuilder();
+
+			for (var i = 0; i < matchList.Length; i++)
 			{
-				var split = splits[i];
+				var ch = matchList[i];
 
-				if (split.Length > 0)
+				if (ch != ',') // Not a comma, so just copy it over.
 				{
-					match.Add(split);
+					_ = sb.Append(ch);
+					continue;
 				}
-				else if (match.Count > 1)//Empty entry, which means the preceding entry ended with a literal comma.
+
+				if (i + 1 < matchList.Length && matchList[i + 1] == ',') // Double comma becomes a single literal comma.
 				{
-					var s = match[match.Count - 1];
-					match[match.Count - 1] = s + ',';
+					_ = sb.Append(',');
+					++i; // Skip the second comma of the pair.
+					continue;
 				}
-				else
-					match.Add(",");
+
+				// Otherwise this is a delimiting comma; omit empty phrases.
+				if (sb.Length > 0)
+				{
+					match.Add(sb.ToString());
+					_ = sb.Clear();
+				}
 			}
+
+			if (sb.Length > 0) // Terminate the last item.
+				match.Add(sb.ToString());
 		}
 
 		internal void CollectChar(string ch, int charCount)
@@ -408,7 +434,9 @@ namespace Keysharp.Internals.Input
 						break;
 
 					case 'I':
-						minSendLevel = (options[i + 1] <= '9' && options[i + 1] >= '0') ? uint.Parse(options.AsSpan(i + 1).BeginNums()) : 1u;
+						// Guard against 'I' being the last character (AHK reads the C-string null terminator safely here).
+						minSendLevel = (i + 1 < options.Length && options[i + 1] >= '0' && options[i + 1] <= '9')
+									   ? uint.Parse(options.AsSpan(i + 1).BeginNums()) : 1u;
 						break;
 
 					case 'M':
@@ -417,8 +445,10 @@ namespace Keysharp.Internals.Input
 
 					case 'L':
 						// Use atoi() vs. ATOI() to avoid interpreting something like 0x01C as hex
-						// when in fact the C was meant to be an option letter:
-						bufferLengthMax = int.Parse(options.AsSpan(i + 1).BeginNums());
+						// when in fact the C was meant to be an option letter.  An empty numeric span
+						// (e.g. trailing 'L') maps to 0, mirroring AHK's _ttoi behavior instead of throwing.
+						var lnum = options.AsSpan(i + 1).BeginNums();
+						bufferLengthMax = lnum.Length > 0 ? int.Parse(lnum) : 0;
 
 						if (bufferLengthMax < 0)
 							bufferLengthMax = 0;
@@ -426,8 +456,8 @@ namespace Keysharp.Internals.Input
 						break;
 
 					case 'T':
-						var sub = options.AsSpan(i + 1);
-						timeout = (int)(double.Parse(sub.BeginNums(true)) * 1000);
+						var sub = options.AsSpan(i + 1).BeginNums(true);
+						timeout = sub.Length > 0 ? (int)(double.Parse(sub) * 1000) : 0;
 						break;
 
 					case 'V':

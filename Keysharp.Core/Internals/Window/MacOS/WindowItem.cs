@@ -234,10 +234,55 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
+		// Subset of Win32 window styles that have a clear NSWindow style-mask equivalent. macOS has no
+		// general window-style concept, so only these frame-related bits are translated; unrepresented
+		// bits read back as 0 and are left untouched when setting. Only windows owned by this process
+		// can be changed -- macOS exposes no API to restyle another application's window.
+		private const long WS_CAPTION = 0x00C00000;     // title bar (WS_BORDER | WS_DLGFRAME) -> Titled
+		private const long WS_SYSMENU = 0x00080000;     // window menu / close button          -> Closable
+		private const long WS_THICKFRAME = 0x00040000;  // sizing border                       -> Resizable
+		private const long WS_MINIMIZEBOX = 0x00020000; // minimize box                        -> Miniaturizable
+
 		internal override long Style
 		{
-			get => 0;
-			set => Ks.OutputDebugLine("Styles are not supported on macOS.");
+			get
+			{
+				if (TryGetNativeInfo(out var native)
+						&& native.OwnerPid == Environment.ProcessId
+						&& MacNativeWindows.TryGetOwnWindowFrameStyle(native.WindowNumber, out var titled, out var closable, out var resizable, out var miniaturizable))
+				{
+					long style = 0;
+
+					if (titled) style |= WS_CAPTION;
+					if (closable) style |= WS_SYSMENU;
+					if (resizable) style |= WS_THICKFRAME;
+					if (miniaturizable) style |= WS_MINIMIZEBOX;
+
+					return style;
+				}
+
+				return 0;
+			}
+			set
+			{
+				if (!TryGetNativeInfo(out var native))
+					return;
+
+				if (native.OwnerPid != Environment.ProcessId)
+				{
+					Ks.OutputDebugLine("Window styles are only supported for windows owned by this process on macOS.");
+					return;
+				}
+
+				if (MacNativeWindows.TrySetOwnWindowFrameStyle(native.WindowNumber,
+						(value & WS_CAPTION) == WS_CAPTION,
+						(value & WS_SYSMENU) != 0,
+						(value & WS_THICKFRAME) != 0,
+						(value & WS_MINIMIZEBOX) != 0))
+					InvalidateNativeInfoCache();
+				else
+					Ks.OutputDebugLine("Setting the window style failed for this macOS window.");
+			}
 		}
 
 		internal override List<string> Text

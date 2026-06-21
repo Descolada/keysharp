@@ -614,6 +614,60 @@ namespace Keysharp.Internals.Window.MacOS
 			return true;
 		}
 
+		// Reads the frame-style flags of one of our own windows. There is no equivalent for windows
+		// owned by other applications: the Accessibility API exposes no window style-mask attributes.
+		internal static bool TryGetOwnWindowFrameStyle(uint windowNumber, out bool titled, out bool closable, out bool resizable, out bool miniaturizable)
+		{
+			titled = closable = resizable = miniaturizable = false;
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			var mask = Application.Instance.Invoke(() => native.StyleMask);
+			titled = mask.HasFlag(NSWindowStyle.Titled);
+			closable = mask.HasFlag(NSWindowStyle.Closable);
+			resizable = mask.HasFlag(NSWindowStyle.Resizable);
+			miniaturizable = mask.HasFlag(NSWindowStyle.Miniaturizable);
+			return true;
+		}
+
+		// Sets the frame-style flags of one of our own windows, preserving any other style-mask bits
+		// (e.g. full-size content view). Changing the style mask clears the window title on macOS, so
+		// it is saved and restored. There is no equivalent for windows owned by other applications.
+		internal static bool TrySetOwnWindowFrameStyle(uint windowNumber, bool titled, bool closable, bool resizable, bool miniaturizable)
+		{
+			var native = FindOwnWindow(windowNumber);
+
+			if (native == null)
+				return false;
+
+			Application.Instance.Invoke(() =>
+			{
+				var mask = native.StyleMask;
+				SetStyleFlag(ref mask, NSWindowStyle.Titled, titled);
+				SetStyleFlag(ref mask, NSWindowStyle.Closable, closable);
+				SetStyleFlag(ref mask, NSWindowStyle.Resizable, resizable);
+				SetStyleFlag(ref mask, NSWindowStyle.Miniaturizable, miniaturizable);
+
+				if (mask == native.StyleMask)
+					return;
+
+				var title = native.Title;
+				native.StyleMask = mask;
+				native.Title = title;
+			});
+			return true;
+		}
+
+		private static void SetStyleFlag(ref NSWindowStyle mask, NSWindowStyle flag, bool on)
+		{
+			if (on)
+				mask |= flag;
+			else
+				mask &= ~flag;
+		}
+
 		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)
 		{
 			var options = includeSingleWindow

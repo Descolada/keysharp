@@ -47,9 +47,6 @@ namespace Keysharp.Main
 			// argument. Receive it via Eto's AppDelegate before the normal arg-parsing pipeline.
 			if (args.Length == 0)
 				args = WaitForMacOsDocumentOpen();
-#elif WINDOWS
-			if (TryEditWithKeyview(args, out var editResult))
-				return editResult;
 #endif
 
 			var command = Runner.Parse(args);
@@ -378,31 +375,6 @@ namespace Keysharp.Main
 
 #if WINDOWS
 
-		private static bool TryEditWithKeyview(string[] args, out int result)
-		{
-			result = 0;
-
-			if (args.Length < 2 || !args[0].TrimStart(Keywords.DashSlash).Equals("edit", StringComparison.OrdinalIgnoreCase))
-				return false;
-
-			var keyviewExe = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath), "Keyview.exe");
-
-			if (!File.Exists(keyviewExe))
-			{
-				Console.Error.WriteLine($"Keyview executable not found: {keyviewExe}");
-				result = 1;
-				return true;
-			}
-
-			_ = Process.Start(new ProcessStartInfo
-			{
-				FileName = keyviewExe,
-				ArgumentList = { args[1] },
-				UseShellExecute = false
-			});
-			return true;
-		}
-
 		private static int InstallToPath(string path)
 		{
 			var keyName = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
@@ -539,7 +511,33 @@ namespace Keysharp.Main
 			{
 				RegisterEditVerb(".ahk", editCommand, keyviewExe);
 				RegisterEditVerb(".ks", editCommand, keyviewExe);
+				RegisterKeyviewOpenWith(keyviewExe);
 			}
+		}
+
+		// Registers Keyview as an application Windows offers under "Open with" for script files, WITHOUT making
+		// it the default handler: .ks keeps its "Keysharp" ProgID (set above), so double-clicking still runs the
+		// script through Keysharp.exe. SupportedTypes scopes Keyview to the recommended list for these extensions,
+		// and the per-extension OpenWithList entries make it show deterministically.
+		private static void RegisterKeyviewOpenWith(string keyviewExe)
+		{
+			using (var app = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Applications\Keyview.exe"))
+				app.SetValue("FriendlyAppName", "Keyview");
+
+			using (var icon = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Applications\Keyview.exe\DefaultIcon"))
+				icon.SetValue("", $"\"{keyviewExe}\",0");
+
+			using (var open = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Applications\Keyview.exe\shell\open\command"))
+				open.SetValue("", $"\"{keyviewExe}\" \"%1\"");
+
+			using (var supported = Registry.LocalMachine.CreateSubKey(@"Software\Classes\Applications\Keyview.exe\SupportedTypes"))
+			{
+				supported.SetValue(".ahk", "");
+				supported.SetValue(".ks", "");
+			}
+
+			using (Registry.LocalMachine.CreateSubKey(@"Software\Classes\.ahk\OpenWithList\Keyview.exe")) { }
+			using (Registry.LocalMachine.CreateSubKey(@"Software\Classes\.ks\OpenWithList\Keyview.exe")) { }
 		}
 
 		private static void RegisterCompileVerb(string extension, string command, string exe)
@@ -572,6 +570,11 @@ namespace Keysharp.Main
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ks\shell\KeysharpCompile", false);
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ahk\shell\KeyviewEdit", false);
 			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\SystemFileAssociations\.ks\shell\KeyviewEdit", false);
+			// Keyview "Open with" registration. The .ks OpenWithList entry is removed with the .ks tree above; the
+			// .ahk entry and the shared Applications\Keyview.exe registration must be removed explicitly (.ahk keeps
+			// its own default ProgID, so we never delete the whole .ahk key).
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\Applications\Keyview.exe", false);
+			Registry.LocalMachine.DeleteSubKeyTree(@"Software\Classes\.ahk\OpenWithList\Keyview.exe", false);
 		}
 
 #endif

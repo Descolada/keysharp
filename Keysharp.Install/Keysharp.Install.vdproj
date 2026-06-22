@@ -1802,13 +1802,6 @@
                     "Arguments" = "8:\"%1\""
                     "Order" = "3:0"
                     }
-                    "{95C0C507-CBF0-42B8-B119-07219E384A4A}:_B47E2639A6DA4B6BB4898D19B457777A"
-                    {
-                    "Command" = "8:Edit with Keyview"
-                    "Verb" = "8:edit"
-                    "Arguments" = "8:--edit \"%1\""
-                    "Order" = "3:1"
-                    }
                 }
             }
             "{5EB83D71-FA18-4901-BE56-DE22E13CC478}:_E0F8A308C59843D4B1AEFD65E91912D5"

@@ -223,9 +223,18 @@ namespace Keysharp.Parsing.Syntax
 					var file = ResolveModuleFile(modName, m.Dir ?? _includeDir);
 					if (file == null) continue;
 					var fileDir = System.IO.Path.GetDirectoryName(file);
+					var fileName = System.IO.Path.GetFileName(file);
 					ProgramNode fileProg;
-					try { var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), fileDir); if (diags.Count > 0) continue; fileProg = p; }
-					catch { continue; }
+					try
+					{
+						var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), fileDir);
+						// A parse error in the imported module file is surfaced as the script's error (prefixed with the
+						// module file name), not swallowed — otherwise the user would only see a misleading "module not
+						// found" for a file that does exist. BuildMultiModule aborts as soon as a diagnostic is recorded.
+						if (diags.Count > 0) { foreach (var d in diags) Diag($"{fileName}:{d}"); continue; }
+						fileProg = p;
+					}
+					catch (System.Exception ex) { Diag($"#Import: failed to read module '{modName}' from {fileName}: {ex.Message}"); continue; }
 					// The file's own segments: its `__Main` (top-level) becomes the imported module `modName`; any inner
 					// `#Module`s keep their own names. Each remembers its source dir so ITS imports resolve from there.
 					var fileMods = PartitionModules(fileProg.Body);
@@ -452,6 +461,7 @@ namespace Keysharp.Parsing.Syntax
 			foreach (var m in mods) { m.Dir = _includeDir; ScanExports(m); }   // main-file modules resolve imports from A_ScriptDir
 			var byName = mods.ToDictionary(m => m.Name, m => m, System.StringComparer.OrdinalIgnoreCase);
 			LoadFileModules(mods, byName);   // pull in `#import "name"` modules defined in a separate <name>.ahk
+			if (Diagnostics.Count > 0) return null;   // an imported module file failed to parse — surface that, not a later "module not found"
 			var execOrder = ComputeExecOrder(mods, byName);
 
 			// A top-level `#Requires` (in __Main, before any #Module) sets the script-wide default that other modules
@@ -512,6 +522,11 @@ namespace Keysharp.Parsing.Syntax
 			{
 				var (modName, alias, named, quoted) = ParseImport(im.Args ?? "");
 				if (modName.Length == 0) continue;
+				if (!ModuleResolves(modName, byName))
+				{
+					Diag($"{im.Line}:{im.Column}: #Import: module not found: {modName}");
+					continue;
+				}
 				bool isAhk = modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase);
 				bool isScript = byName.ContainsKey(modName);
 
@@ -735,12 +750,31 @@ namespace Keysharp.Parsing.Syntax
 				? new[] { Attr("Keysharp.Runtime.CompatibilityMode", Str(_currentCompat.ToString())) }
 				: System.Array.Empty<AttributeListSyntax>();
 
+		// Whether an `#import` module name resolves: the built-in AHK/standard module, the self-module __Main, a built-in
+		// Module type (e.g. Ks), or — in the multi-module path — a script module defined in this file or pulled in from
+		// an #import file (byName, null in the single-module path). Anything else is unresolved and reported as an error,
+		// matching AutoHotkey (which raises a load-time error for a module that can't be found).
+		private static bool ModuleResolves(string modName, Dictionary<string, ModInfo> byName)
+		{
+			if (modName.Length == 0) return true;   // malformed; handled by the callers
+			if (modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase)
+				|| modName.Equals("__Main", System.StringComparison.OrdinalIgnoreCase)) return true;
+			if (byName != null && byName.ContainsKey(modName)) return true;
+			return Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var t)
+				&& typeof(Keysharp.Runtime.Module).IsAssignableFrom(t);
+		}
+
 		private void RegisterImport(DirectiveStmt d)
 		{
 			// The module name may be quoted or unquoted (`#import "Ks" {…}` and `#import Ks {…}` are both valid), and
 			// the brace list may be `{ * }` or named — ParseImport normalizes all of these.
 			var (modName, _, named, _) = ParseImport(d.Args ?? "");
 			if (modName.Length == 0) return;
+			if (!ModuleResolves(modName, null))
+			{
+				Diag($"{d.Line}:{d.Column}: #Import: module not found: {modName}");
+				return;
+			}
 			if (modName.Equals("__Main", System.StringComparison.OrdinalIgnoreCase) && named == null)
 			{
 				// `#import __Main` — self-import of the current module: the name resolves to a fresh Module instance

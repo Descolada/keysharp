@@ -77,6 +77,10 @@ jobs:
             platform: linux
             os: ubuntu-latest
             rid: linux-x64
+          - name: Linux arm64
+            platform: linux
+            os: ubuntu-24.04-arm
+            rid: linux-arm64
           - name: macOS arm64
             platform: macos
             os: macos-latest
@@ -304,10 +308,12 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber
+          # This job doesn't check out the repo, so gh can't infer the repository from a local git remote
+          # (it shells out to git and fails with "not a git repository"). Pass it explicitly instead.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            args=(release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes)
+            args=(release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes --repo "$GITHUB_REPOSITORY")
             if [ "$DRAFT" = "true" ]; then
               args+=(--draft)
             fi

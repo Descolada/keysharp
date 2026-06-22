@@ -64,6 +64,9 @@ namespace Keysharp.Main
 				switch (CompileClient.CompileViaServer(command.ScriptName, out var daemonBytes, out var daemonErr))
 				{
 					case CompileDaemonStatus.Compiled:
+						// The daemon compiled the source but this process runs it: point A_ScriptFullPath/A_ScriptDir at
+						// the source the user launched, not at a path baked in by the daemon.
+						CompilerHelper.runScriptPath = command.ScriptName;
 						return RunCompiledBytes(daemonBytes, command.ScriptArgs);
 
 					case CompileDaemonStatus.CompileFailed:
@@ -143,7 +146,7 @@ namespace Keysharp.Main
 			string compileResult;
 
 			using (var script = new Script())
-				(arr, compileResult) = ch.CompileCodeToByteArray(r.ScriptName, namenoext, exeDir, r.MinimalExe, false);
+				(arr, compileResult) = ch.CompileCodeToByteArray(r.ScriptName, namenoext, exeDir, r.MinimalExe, false, compileToFile: true);
 
 			if (arr == null)
 				return Runner.Message(compileResult, true);

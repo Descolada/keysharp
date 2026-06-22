@@ -122,6 +122,14 @@ using String = Keysharp.Builtins.String
 		public static Assembly compiledasm;
 		public static byte[] compiledBytes;
 
+		/// <summary>
+		/// The full path of the script the launcher is actually running, set before a compiled assembly's Main
+		/// executes so A_ScriptFullPath/A_ScriptDir/A_ScriptName reflect the runtime location rather than a
+		/// baked-in compile-time path (consumed by <see cref="Keysharp.Runtime.Script.SetName"/>). Left null for
+		/// a standalone exe (falls back to A_AhkPath) and for stdin (the compiled "*" marker is used instead).
+		/// </summary>
+		public static string runScriptPath;
+
 		public static readonly string[] requiredManagedDependencies = new[]
 		{
 			"Keysharp.Core.dll",
@@ -640,7 +648,7 @@ using String = Keysharp.Builtins.String
 			script.Threads.EnsureCurrentThreadVariables();
 		}
 
-		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null)
+		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null, bool compileToFile = false)
 		{
 			CompilationUnitSyntax unit = null;
 			var errors = new CompilerErrorCollection();
@@ -655,6 +663,10 @@ using String = Keysharp.Builtins.String
 				scriptPath = Path.GetFullPath(fileName);
 				scriptName = Path.GetFileName(scriptPath);
 				startupName = null;
+				// Default the runtime script path to this file, so a compile-and-run in the same process (the test
+				// runner, or any launcher that doesn't set it explicitly) reports the real path via SetName. Cross-
+				// process runs (daemon client, or launching a built .cks/.exe) override runScriptPath themselves.
+				runScriptPath = scriptPath;
 			}
 			else
 			{
@@ -689,7 +701,7 @@ using String = Keysharp.Builtins.String
 				else
 				{
 					var lowerer = new Keysharp.Parsing.Syntax.Lowerer();
-					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source);
+					unit = lowerer.Build(prog, buildName, scriptPath, startupName, includeDir, source, compileToFile);
 
 					if (unit == null || lowerer.Diagnostics.Count > 0)
 						foreach (var d in lowerer.Diagnostics)
@@ -784,13 +796,13 @@ using String = Keysharp.Builtins.String
 
 		internal string CreateEscapedIdentifier(string variable) => provider.CreateEscapedIdentifier(variable);
 
-		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false)
+		public (byte[], string) CompileCodeToByteArray(string fileName, string nameNoExt, string exeDir = null, bool minimalexeout = false, bool emitCode = false, bool compileToFile = false)
 		{
 			var asm = Assembly.GetExecutingAssembly();
 			exeDir ??= Path.GetFullPath(Path.GetDirectoryName(asm.Location.IsNullOrEmpty() ? Environment.ProcessPath : asm.Location));
 			var assemblyName = nameNoExt ?? "*";
 
-			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt);
+			var (unit, errs) = CreateCompilationUnitFromFile(fileName, nameNoExt, compileToFile);
 
 			if (errs.HasErrors || unit == null)
 			{

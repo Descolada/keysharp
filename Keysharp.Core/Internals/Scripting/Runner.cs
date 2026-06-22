@@ -342,6 +342,9 @@ namespace Keysharp.Internals.Scripting
 						return Message(new StreamReader(Path.Combine(command.ExeDir, "license.txt")).ReadToEnd(), false);
 
 					case CliCommandKind.RunAssembly:
+						// A precompiled assembly run from a file (or "*" from stdin): its own path is the running script,
+						// so A_ScriptFullPath/A_ScriptDir reflect where the .cks/.dll actually is, not where it was built.
+						CompilerHelper.runScriptPath = command.ScriptName;
 						runtimeEntryPoint = LoadAssemblyEntryPoint(command);
 						runtimeEntryArgs = [command.ScriptArgs];
 						goto InvokeRuntimeEntryPoint;
@@ -378,12 +381,16 @@ namespace Keysharp.Internals.Scripting
 
 		private static int CompileAndMaybeRun(CliCommand command)
 		{
+			// Tell the (about-to-run) compiled assembly where it is actually running from: the script file's full
+			// path, or null for stdin so the compiled "*" marker stands. Drives A_ScriptFullPath/A_ScriptDir.
+			CompilerHelper.runScriptPath = command.FromStdin ? null : command.ScriptName;
+
 			using var script = new Script();
 			script.ValidateThenExit = command.Validate;
 			script.ScriptArgs = command.ScriptArgs;
 			script.KeysharpArgs = command.KeysharpArgs;
 
-			var (arr, result) = ch.CompileCodeToByteArray(command.ScriptName, command.NameNoExt, command.ExeDir, false, command.Transpile);
+			var (arr, result) = ch.CompileCodeToByteArray(command.ScriptName, command.NameNoExt, command.ExeDir, false, command.Transpile, command.Kind == CliCommandKind.CompileAsm);
 
 			if (command.Transpile)
 			{

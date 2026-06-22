@@ -49,6 +49,8 @@ namespace Keysharp.Parsing.Syntax
 
 		private readonly string _includeDir;   // directory used to resolve relative #include paths (null => disabled)
 		private readonly HashSet<string> _included = new(System.StringComparer.OrdinalIgnoreCase);   // #include dedup
+		private int _includeDepth;             // current #include nesting depth (guards against circular #includeagain)
+		private const int MaxIncludeDepth = 100;
 
 		public Parser(List<Token> tokens, string includeDir = null) { _includeDir = includeDir; _t = Preprocess(tokens); }
 
@@ -592,6 +594,7 @@ namespace Keysharp.Parsing.Syntax
 			bool Emit() { foreach (var f in stack) if (!f.active) return false; return true; }
 
 			int i = 0;
+			var curDir = includeDir;   // base dir for THIS file's relative includes; `#Include <dir>` updates it
 			while (i < src.Count)
 			{
 				var t = src[i];
@@ -616,10 +619,20 @@ namespace Keysharp.Parsing.Syntax
 							if (j < src.Count && src[j].Kind == TokenKind.RParen) j++;
 						}
 					}
-					var included = ResolveAndLexInclude(fileToks, again, includeDir, out var includedDir);
-					// Recursively preprocess the included tokens against THEIR directory (so nested relative includes
-					// resolve correctly), then emit the result.
-					if (included != null && Emit()) outp.AddRange(Preprocess(included, includedDir));
+					var included = ResolveAndLexInclude(fileToks, again, curDir, t, out var includedDir, out var dirChange);
+					// `#Include <dir>` names a directory rather than a file: it changes the base directory for the rest
+					// of THIS file's relative includes and splices no content. Otherwise recursively preprocess the
+					// included tokens against THEIR directory (so nested relative includes resolve correctly) and emit.
+					if (dirChange != null) curDir = dirChange;
+					else if (included != null && Emit())
+					{
+						// Depth-guard the recursion so a circular #includeagain (which, unlike #include, never dedups)
+						// fails with a clean error instead of overflowing the stack and crashing the process.
+						if (++_includeDepth > MaxIncludeDepth)
+							throw new Keysharp.Builtins.ParseException($"{t.Line}:{t.Column}: Too many nested #include directives (possible circular #includeagain)");
+						outp.AddRange(Preprocess(included, includedDir));
+						_includeDepth--;
+					}
 					i = j;
 					continue;
 				}
@@ -651,11 +664,14 @@ namespace Keysharp.Parsing.Syntax
 			return outp.Count > 0 ? outp : src;   // never hand the parser an empty stream
 		}
 
-		// Reconstructs the include filename from its tokens, resolves it against the include dir, and returns the
-		// included file's tokens (minus EOF). Returns null on dedup/missing-file.
-		private List<Token> ResolveAndLexInclude(List<Token> fileToks, bool again, string baseDir, out string includedDir)
+		// Reconstructs the include filename from its tokens, expands %BuiltInVar% references, and resolves it against
+		// the include dir, returning the included file's tokens (minus EOF). Returns null with `dirChange` set for the
+		// `#Include <dir>` directory form, and null for a deduped or *i-ignored file. A missing file/dir WITHOUT the
+		// *i flag throws, so a broken #include fails loudly instead of silently doing nothing.
+		private List<Token> ResolveAndLexInclude(List<Token> fileToks, bool again, string baseDir, Token directive, out string includedDir, out string dirChange)
 		{
 			includedDir = baseDir;
+			dirChange = null;
 			if (fileToks.Count == 0) return null;
 			string file;
 			if (fileToks.Count == 1 && fileToks[0].Kind == TokenKind.String && fileToks[0].Text.Length >= 2)
@@ -664,18 +680,40 @@ namespace Keysharp.Parsing.Syntax
 			{
 				var sb = new System.Text.StringBuilder();
 				for (int k = 0; k < fileToks.Count; k++) { if (k > 0 && fileToks[k].LeadingWhitespace) sb.Append(' '); sb.Append(fileToks[k].Text); }
-				file = sb.ToString().Trim();
+				file = sb.ToString();
 			}
-			// %A_ScriptDir% is always the MAIN script dir; *i (ignore-if-missing) prefix; relative paths resolve against
-			// the INCLUDING file's directory (baseDir) so nested includes work.
-			file = System.Text.RegularExpressions.Regex.Replace(file, "%A_ScriptDir%", _includeDir, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-			file = file.TrimStart('*', 'i', 'I', ' ').Trim();
+			file = file.Trim();
+			// An optional leading "*i " flag means "ignore the file if it cannot be read" — only then is a missing
+			// include silent. Strip exactly the flag, never arbitrary leading i/I/* characters (which would corrupt a
+			// filename such as "IncludeFile.ks" -> "ncludeFile.ks").
+			bool ignoreMissing = false;
+			if (file.StartsWith("*i", System.StringComparison.OrdinalIgnoreCase)) { ignoreMissing = true; file = file.Substring(2).TrimStart(); }
 			string path;
-			try { path = System.IO.Path.GetFullPath(System.IO.Path.IsPathRooted(file) ? file : System.IO.Path.Combine(baseDir, file)); }
-			catch { return null; }
+			// Library form: `#include <Name>` searches the Lib folders for Name.ks/.ahk (no %var% expansion — AHK
+			// disallows variable references here). Everything else expands %BuiltInVar% and resolves against the
+			// including file's directory (baseDir) so nested relative includes work; %A_ScriptDir% is the MAIN dir.
+			if (file.Length >= 2 && file[0] == '<' && file[^1] == '>')
+			{
+				path = FindLibraryFile(file.Substring(1, file.Length - 2).Trim());
+				if (path == null)
+				{
+					if (ignoreMissing) return null;
+					throw new Keysharp.Builtins.ParseException($"{directive.Line}:{directive.Column}: #Include library not found: {file}");
+				}
+			}
+			else
+			{
+				// Built-in variables enclosed in percent signs are expanded (e.g. "%A_ScriptDir%\Lib"); a "%name%" that
+				// is not a recognized built-in is interpreted literally, matching AutoHotkey.
+				file = ExpandIncludeVars(file, directive);
+				try { path = System.IO.Path.GetFullPath(System.IO.Path.IsPathRooted(file) ? file : System.IO.Path.Combine(baseDir, file)); }
+				catch { if (ignoreMissing) return null; throw IncludeNotFound(directive, file); }
+				// Directory form: change the base dir used by the rest of this file's relative includes (no content spliced).
+				if (System.IO.Directory.Exists(path)) { dirChange = path; return null; }
+			}
 			if (!again && !_included.Add(path)) return null;   // already included (plain #include dedups)
 			else if (again) _included.Add(path);
-			if (!System.IO.File.Exists(path)) return null;
+			if (!System.IO.File.Exists(path)) { if (ignoreMissing) return null; throw IncludeNotFound(directive, path); }
 			includedDir = System.IO.Path.GetDirectoryName(path);   // nested includes in this file resolve against its dir
 			// The lexer stamps each token with this file's full path (per-file line numbers + diagnostics + A_LineFile),
 			// no post-pass needed. Diagnostics shorten it to the file name; A_LineFile needs the full path.
@@ -686,6 +724,100 @@ namespace Keysharp.Parsing.Syntax
 			if (toks.Count > 0 && toks[^1].Kind == TokenKind.EOF) toks.RemoveAt(toks.Count - 1);   // drop the included EOF
 			toks.Insert(0, new Token(TokenKind.Newline, "\n", 0, 0, 0, 0, true, path));   // keep line separation from the host
 			return toks;
+		}
+
+		// A "line:col: message" parse error for a #include whose target can't be found, attributed to the directive's
+		// position (ToCompilerError parses the line:col prefix so the user is pointed at the offending line).
+		private static Keysharp.Builtins.ParseException IncludeNotFound(Token directive, string target) =>
+			new($"{directive.Line}:{directive.Column}: #Include file not found: {target}");
+
+		// File extensions tried for a library include, Keysharp-native first then AHK-compatible.
+		private static readonly string[] libExts = { ".ks", ".ahk" };
+
+		// Resolves `#include <Name>` to a Lib-folder file, mirroring AutoHotkey's search order: local (A_ScriptDir\Lib),
+		// the user libs (Documents\Keysharp\Lib then Documents\AutoHotkey\Lib), then the standard lib next to the
+		// executable (<exe>\Lib). Each directory is tried for Name.ks/.ahk; if nothing matches and Name contains an
+		// underscore, the part before the FIRST underscore is tried too (so <lib_func> resolves to lib). Returns the
+		// full path of the first existing candidate, or null.
+		private string FindLibraryFile(string name)
+		{
+			if (string.IsNullOrEmpty(name))
+				return null;
+
+			var libDirs = new List<string>();
+
+			if (!string.IsNullOrEmpty(_includeDir))
+				libDirs.Add(System.IO.Path.Combine(_includeDir, "Lib"));
+
+			string docs = null, exeDir = null;
+			try { docs = Keysharp.Builtins.Accessors.A_MyDocuments; } catch { }
+			try { exeDir = System.IO.Path.GetDirectoryName(Keysharp.Builtins.Accessors.A_AhkPath); } catch { }
+
+			if (!string.IsNullOrEmpty(docs))
+			{
+				libDirs.Add(System.IO.Path.Combine(docs, "Keysharp", "Lib"));
+				libDirs.Add(System.IO.Path.Combine(docs, "AutoHotkey", "Lib"));
+			}
+
+			if (!string.IsNullOrEmpty(exeDir))
+				libDirs.Add(System.IO.Path.Combine(exeDir, "Lib"));
+
+			// AHK searches every Lib dir for the full name before falling back to the underscore-truncated name.
+			var candidates = new List<string> { name };
+			var us = name.IndexOf('_');
+
+			if (us > 0)
+				candidates.Add(name.Substring(0, us));
+
+			foreach (var candidate in candidates)
+				foreach (var dir in libDirs)
+					foreach (var ext in libExts)
+					{
+						string p;
+						try { p = System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, candidate + ext)); }
+						catch { continue; }   // invalid chars in the name -> not a match
+
+						if (System.IO.File.Exists(p))
+							return p;
+					}
+
+			return null;
+		}
+
+		// Built-in variables AutoHotkey permits inside an #include path (the compile-time set). Restricting to this
+		// list keeps parsing from invoking accessors with side effects or runtime-only state.
+		private static readonly HashSet<string> includePathVars = new(System.StringComparer.OrdinalIgnoreCase)
+		{
+			"A_AhkPath", "A_AppData", "A_AppDataCommon", "A_ComputerName", "A_ComSpec", "A_Desktop", "A_DesktopCommon",
+			"A_IsCompiled", "A_LineFile", "A_MyDocuments", "A_ProgramFiles", "A_Programs", "A_ProgramsCommon",
+			"A_ScriptDir", "A_ScriptFullPath", "A_ScriptName", "A_Space", "A_StartMenu", "A_StartMenuCommon",
+			"A_Startup", "A_StartupCommon", "A_Tab", "A_Temp", "A_UserName", "A_WinDir"
+		};
+
+		// Expands %BuiltInVar% references in an #include path. A_ScriptDir is the main-script dir; A_LineFile is the
+		// directive's own file. Delegates to the shared ExpandPathVars (also used by the #import search path).
+		private string ExpandIncludeVars(string s, Token directive) => ExpandPathVars(s, _includeDir, directive.File ?? _includeDir);
+
+		// Expands %BuiltInVar% references in a path string. A_ScriptDir/A_LineFile are supplied by the caller (the parse
+		// context); the rest come from the Accessors built-ins (restricted to includePathVars). An unrecognized %name%
+		// (or one that can't be resolved) is left verbatim, matching AutoHotkey's "interpreted literally" rule.
+		internal static string ExpandPathVars(string s, string scriptDir, string lineFile)
+		{
+			if (string.IsNullOrEmpty(s) || s.IndexOf('%') < 0) return s;
+			return System.Text.RegularExpressions.Regex.Replace(s, "%([A-Za-z_][A-Za-z0-9_]*)%", m =>
+			{
+				var name = m.Groups[1].Value;
+				if (!includePathVars.Contains(name)) return m.Value;
+				if (name.Equals("A_ScriptDir", System.StringComparison.OrdinalIgnoreCase)) return scriptDir ?? m.Value;
+				if (name.Equals("A_LineFile", System.StringComparison.OrdinalIgnoreCase)) return lineFile ?? m.Value;
+				try
+				{
+					var prop = typeof(Keysharp.Builtins.Accessors).GetProperty(name,
+						System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.IgnoreCase);
+					return prop?.GetValue(null)?.ToString() ?? m.Value;
+				}
+				catch { return m.Value; }
+			});
 		}
 
 		private static bool IsCondDirective(string name) =>

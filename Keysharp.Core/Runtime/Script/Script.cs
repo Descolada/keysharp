@@ -1005,7 +1005,10 @@ namespace Keysharp.Runtime
 
 		public void SetName(string path, string name = null)
         {
-			scriptPath = path ?? Accessors.A_AhkPath;
+			// path is "*" for a from-stdin compile and null for a compiled file (the compiler no longer bakes the
+			// absolute path in); in the latter case prefer the launcher-supplied runtime path so A_ScriptFullPath /
+			// A_ScriptDir reflect where this script is actually running, falling back to the host exe path.
+			scriptPath = path ?? CompilerHelper.runScriptPath ?? Accessors.A_AhkPath;
 
 			if (name != null)
 				scriptName = name;

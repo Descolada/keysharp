@@ -160,10 +160,12 @@ namespace Keysharp.Parsing.Syntax
 		private string[] _sourceLines;   // raw script lines, for embedding the offending line text in #Warn dialogs
 		private string _startupName;
 		private string _includeDir;   // directory for resolving file-based `#import "name"` module imports
+		private bool _compileToFile;   // emitting a distributable .cks/.exe: relativize #include paths in A_LineFile
 
-		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null, string source = null)
+		public CompilationUnitSyntax Build(ProgramNode prog, string name, string scriptPath = "*", string startupName = null, string includeDir = null, string source = null, bool compileToFile = false)
 		{
 			_scriptPath = scriptPath ?? "*";
+			_compileToFile = compileToFile;
 			_sourceLines = source?.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 			_startupName = startupName;
 			_includeDir = includeDir;
@@ -174,7 +176,7 @@ namespace Keysharp.Parsing.Syntax
 			{
 				if (_includeDir == null) return false;
 				var (modName, _, _, _) = ParseImport(im.Args ?? "");
-				return modName.Length > 0 && System.IO.File.Exists(System.IO.Path.Combine(_includeDir, modName + ".ahk"));
+				return modName.Length > 0 && ResolveModuleFile(modName, _includeDir) != null;
 			}
 			if (prog.Body.Any(s => s is DirectiveStmt d && d.Name.Equals("Module", System.StringComparison.OrdinalIgnoreCase))
 				|| prog.Body.Any(s => s is ExportStmt)
@@ -196,6 +198,7 @@ namespace Keysharp.Parsing.Syntax
 		private sealed class ModInfo
 		{
 			public string Name;
+			public string Dir;   // directory of the source file this module came from (for "importing file dir first")
 			public List<Stmt> Body = new();
 			public List<DirectiveStmt> Imports = new();
 			public Dictionary<string, ExportK> Exports = new(System.StringComparer.OrdinalIgnoreCase);
@@ -216,23 +219,87 @@ namespace Keysharp.Parsing.Syntax
 				{
 					var (modName, _, _, _) = ParseImport(im.Args ?? "");
 					if (modName.Length == 0 || byName.ContainsKey(modName) || modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase)) continue;
-					var file = System.IO.Path.Combine(_includeDir, modName + ".ahk");
-					if (!System.IO.File.Exists(file)) continue;
+					// Resolve via the AHK module search: the importing file's own directory first, then the search path.
+					var file = ResolveModuleFile(modName, m.Dir ?? _includeDir);
+					if (file == null) continue;
+					var fileDir = System.IO.Path.GetDirectoryName(file);
 					ProgramNode fileProg;
-					try { var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), System.IO.Path.GetDirectoryName(file)); if (diags.Count > 0) continue; fileProg = p; }
+					try { var (p, diags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(System.IO.File.ReadAllText(file), fileDir); if (diags.Count > 0) continue; fileProg = p; }
 					catch { continue; }
 					// The file's own segments: its `__Main` (top-level) becomes the imported module `modName`; any inner
-					// `#Module`s keep their own names.
+					// `#Module`s keep their own names. Each remembers its source dir so ITS imports resolve from there.
 					var fileMods = PartitionModules(fileProg.Body);
 					foreach (var fm in fileMods)
 					{
 						if (fm.Name == "__Main") fm.Name = modName;
 						if (byName.ContainsKey(fm.Name)) continue;
+						fm.Dir = fileDir;
 						ScanExports(fm);
 						mods.Add(fm); byName[fm.Name] = fm; queue.Enqueue(fm);
 					}
 				}
 			}
+		}
+
+		// File names tried for a module reference, Keysharp-native first then AHK-compatible.
+		private static readonly string[] moduleExts = { ".ks", ".ahk" };
+		private static readonly string[] moduleInitNames = { "__Init.ks", "__Init.ahk" };
+		private List<string> _moduleSearchPath;
+
+		// The #import search path, mirroring AutoHotkey's InitModuleSearchPath: the AhkImportPath environment variable
+		// (a ';'-delimited list) or, when unset, the default below. Built-in %vars% are expanded (environment variables
+		// are NOT, matching AHK); relative items resolve against A_ScriptDir; nonexistent directories are dropped. It is
+		// resolved once per build (so %A_LineFile% consistently refers to the main script).
+		private List<string> ModuleSearchPath()
+		{
+			if (_moduleSearchPath != null) return _moduleSearchPath;
+			_moduleSearchPath = new List<string>();
+			var spec = System.Environment.GetEnvironmentVariable("AhkImportPath");
+			if (string.IsNullOrEmpty(spec))
+				spec = ".;%A_MyDocuments%\\Keysharp;%A_MyDocuments%\\AutoHotkey;%A_AhkPath%\\..";
+			var baseDir = string.IsNullOrEmpty(_includeDir) ? System.IO.Directory.GetCurrentDirectory() : _includeDir;
+			foreach (var raw in spec.Split(';'))
+			{
+				var item = Parser.ExpandPathVars(raw.Trim(), _includeDir, _scriptPath).Trim();
+				if (item.Length == 0) continue;
+				string full;
+				try { full = System.IO.Path.GetFullPath(System.IO.Path.IsPathRooted(item) ? item : System.IO.Path.Combine(baseDir, item)); }
+				catch { continue; }
+				if (System.IO.Directory.Exists(full) && !_moduleSearchPath.Contains(full, System.StringComparer.OrdinalIgnoreCase))
+					_moduleSearchPath.Add(full);
+			}
+			return _moduleSearchPath;
+		}
+
+		// Resolves an `#import <name>` to a module file, mirroring AutoHotkey's FindModuleFileIndex: the importing file's
+		// own directory is searched first, then each directory of the module search path in order. Within a directory the
+		// candidates are tried as: <name> (an exact existing file), then <name>\__Init.ks/.ahk (when <name> is a
+		// directory), then <name>.ks/.ahk. Returns the full path of the first match, or null.
+		private string ResolveModuleFile(string modName, string localDir)
+		{
+			if (string.IsNullOrEmpty(modName)) return null;
+			var dirs = new List<string>();
+			if (!string.IsNullOrEmpty(localDir)) dirs.Add(localDir);
+			dirs.AddRange(ModuleSearchPath());
+			foreach (var dir in dirs)
+			{
+				string exact;
+				try { exact = System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, modName)); }
+				catch { continue; }   // invalid characters in the name -> skip this directory
+				if (System.IO.File.Exists(exact)) return exact;                       // <name> exact file
+				if (System.IO.Directory.Exists(exact))                                // <name>\__Init.ks/.ahk
+					foreach (var init in moduleInitNames)
+					{
+						var p = System.IO.Path.Combine(exact, init);
+						if (System.IO.File.Exists(p)) return p;
+					}
+				foreach (var ext in moduleExts)                                      // <name>.ks/.ahk
+				{
+					var p = exact + ext;
+					if (System.IO.File.Exists(p)) return p;
+				}
+			}
+			return null;
 		}
 
 		// Splits the program into module segments by `#Module Name` directives (segment 0 is `__Main`), pulling each
@@ -382,7 +449,7 @@ namespace Keysharp.Parsing.Syntax
 		private CompilationUnitSyntax BuildMultiModule(ProgramNode prog, string name)
 		{
 			var mods = PartitionModules(prog.Body);
-			foreach (var m in mods) ScanExports(m);
+			foreach (var m in mods) { m.Dir = _includeDir; ScanExports(m); }   // main-file modules resolve imports from A_ScriptDir
 			var byName = mods.ToDictionary(m => m.Name, m => m, System.StringComparer.OrdinalIgnoreCase);
 			LoadFileModules(mods, byName);   // pull in `#import "name"` modules defined in a separate <name>.ahk
 			var execOrder = ComputeExecOrder(mods, byName);
@@ -760,16 +827,25 @@ namespace Keysharp.Parsing.Syntax
 			(_locals != null && _locals.Contains(lower)) || (_statics != null && _statics.ContainsKey(lower))
 			|| (_forcedGlobals != null && _forcedGlobals.Contains(lower)) || _enclosingLocals.Contains(lower);
 
-		// The script's full path (for A_LineFile), matching A_ScriptFullPath; falls back to the raw path for `*`.
-		private string ScriptFullPath() =>
-			!string.IsNullOrEmpty(_scriptPath) && System.IO.File.Exists(_scriptPath)
-				? System.IO.Path.GetFullPath(_scriptPath) : _scriptPath ?? "";
+		// The baked A_LineFile value for an #included line. Running/transpiling keeps the include's full path;
+		// compiling to a distributable .cks/.exe relativizes it to the main script's directory (so a local
+		// "Lib\Foo.ks" stays "Lib\Foo.ks") and never bakes an absolute path - falling back to the bare file name
+		// when there is no main-script directory (a from-"*" compile) or the include resolves onto another root.
+		private string IncludeLineFile(string includeFull)
+		{
+			if (!_compileToFile)
+				return includeFull;
 
-		// A_LineFile is the full path of the file containing the line: an #included file's path (stamped on the node), or
-		// the main script path. This differs from A_ScriptFullPath only inside #included files — the canonical "am I the
-		// main script?" idiom `A_LineFile = A_ScriptFullPath` relies on it.
-		private string LineFilePath(NameExpr n) =>
-			!string.IsNullOrEmpty(n.File) ? n.File : ScriptFullPath();
+			if (_scriptPath != "*" && !string.IsNullOrEmpty(_includeDir))
+			{
+				var rel = System.IO.Path.GetRelativePath(_includeDir, includeFull);
+
+				if (!System.IO.Path.IsPathRooted(rel))
+					return rel;
+			}
+
+			return System.IO.Path.GetFileName(includeFull);
+		}
 
 		private ExpressionSyntax NameRef(string name)
 		{
@@ -1420,10 +1496,13 @@ namespace Keysharp.Parsing.Syntax
 						case "false": return Num("0");
 						case "unset": return Null;
 						case "super": return SuperTuple();
-						// A_LineNumber/A_LineFile are folded to compile-time literals (the source line / script path) —
-						// they have no runtime accessor and the canonical substitutes them the same way.
+						// A_LineNumber folds to a compile-time literal (the source line). A_LineFile inside an #included
+						// file is that file's path (a literal stamped on the node); for a main-script line it equals
+						// A_ScriptFullPath and is emitted as the runtime accessor, so it reflects where the script actually
+						// runs and never bakes the compile-time path into the assembly.
 						case "a_linenumber" when !IsDeclaredLocal("a_linenumber"): return Num(n.Line.ToString());
-						case "a_linefile" when !IsDeclaredLocal("a_linefile"): return Str(LineFilePath(n));
+						case "a_linefile" when !IsDeclaredLocal("a_linefile"):
+							return !string.IsNullOrEmpty(n.File) ? Str(IncludeLineFile(n.File)) : Access("Keysharp.Builtins.Accessors.A_ScriptFullPath");
 					}
 					return NameRef(n.Name);
 				case GroupExpr g: return SyntaxFactory.ParenthesizedExpression(LowerExpr(g.Inner));
@@ -3156,9 +3235,14 @@ namespace Keysharp.Parsing.Syntax
 
 		private MemberDeclarationSyntax BuildMain(string name)
 		{
-			// SetName(<full path or "*">[, <startup name>]); the 2nd arg only when a distinct name was given (matches the
-			// canonical), so A_ScriptName is the file name for a file and the given name for a from-string compile.
-			var setNameArgs = new List<ExpressionSyntax> { Str(_scriptPath) };
+			// SetName(<"*" for stdin, else null>[, <startup name>]); the 2nd arg only when a distinct name was given.
+			// We deliberately do NOT bake the absolute compile-time path: emitting null for a file lets SetName pick up
+			// the launcher-supplied runtime path (or the host exe), so A_ScriptFullPath/A_ScriptDir track where the
+			// script actually runs (correct for a relocated .cks) and no build path is embedded in the assembly.
+			var setNameArgs = new List<ExpressionSyntax>
+			{
+				_scriptPath == "*" ? Str("*") : SyntaxFactory.LiteralExpression(SyntaxKind.NullLiteralExpression)
+			};
 			var fileName = _scriptPath == "*" ? null : System.IO.Path.GetFileName(_scriptPath);
 			// For a real file, derive A_ScriptName from the path (don't override with the build name); for a from-string
 			// compile, the explicit startup name (or the build name) becomes A_ScriptName.

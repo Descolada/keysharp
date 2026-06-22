@@ -1340,7 +1340,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 				try
 				{
-					tv.eventInfo = HookEventInfo.Materialize(eventInfo);
+					tv.eventInfo = eventInfo;
 					var val = criterion.Call(hotkeyName);
 					var foundHwnd = hotExprLastFoundHwnd;
 
@@ -2168,7 +2168,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				try
 				{
 					var btv = thread.ThreadVariables;
-					btv.eventInfo = HookEventInfo.Materialize(eventInfo);
+					btv.eventInfo = eventInfo;
 
 					// This is stored as an attribute of the script (semi-globally) rather than passed
 					// as a parameter to ExecUntil (and from their on to any calls to SendKeys() that it

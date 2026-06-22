@@ -28,7 +28,6 @@ namespace Keysharp.Internals.Input.Hooks
 		private readonly ulong extraInfo;
 		private readonly object extra;
 		private readonly uint? deviceId;
-		private KeysharpObject materialized;
 
 		internal HookEventInfo(long timestamp, bool isInjected, ulong extraInfo, object extra, uint? deviceId)
 		{
@@ -40,16 +39,13 @@ namespace Keysharp.Internals.Input.Hooks
 		}
 
 		/// <summary>
-		/// Returns the script-visible object, building it lazily and caching a single instance. Non-holder
-		/// values (e.g. an already-materialized object, or a legacy integer A_EventInfo) pass through unchanged.
+		/// Builds the script-visible A_EventInfo object for this event. Used as the Func&lt;object&gt; factory
+		/// parked in A_EventInfo, so it runs only if the script actually reads the variable. A holder shared
+		/// across dispatch paths (e.g. a key-down and its paired key-up) may be built once per thread; that is
+		/// fine since each thread caches its own result and the values are equal.
 		/// </summary>
-		internal static object Materialize(object eventInfo) => eventInfo is HookEventInfo h ? h.Materialize() : eventInfo;
-
-		private KeysharpObject Materialize()
+		internal object BuildEventInfo()
 		{
-			if (materialized != null)
-				return materialized;
-
 			var obj = new KeysharpObject();
 			obj.DefinePropInternal("Timestamp", new OwnPropsDesc(obj, timestamp));
 			obj.DefinePropInternal("IsInjected", new OwnPropsDesc(obj, isInjected));
@@ -64,9 +60,7 @@ namespace Keysharp.Internals.Input.Hooks
 			if (extra != null)
 				obj.DefinePropInternal("Extra", new OwnPropsDesc(obj, extra));
 
-			// Multiple dispatch paths (e.g. a key-down and its paired key-up hotkey) can share one holder and
-			// race here; CompareExchange keeps every reader on the same instance and discards any redundant build.
-			return System.Threading.Interlocked.CompareExchange(ref materialized, obj, null) ?? obj;
+			return obj;
 		}
 	}
 
@@ -1121,7 +1115,7 @@ namespace Keysharp.Internals.Input.Hooks
 						_ = PostMessage(new KeysharpMsg()
 						{
 							message = (uint)UserMessages.AHK_INPUT_KEYUP,
-							eventInfo = HookEventInfo.Materialize(eventInfo),
+							eventInfo = eventInfo,
 							obj = input,
 							lParam = new nint(vk),
 							wParam = new nint(sc)
@@ -1229,7 +1223,7 @@ namespace Keysharp.Internals.Input.Hooks
 					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_KEYDOWN,
-						eventInfo = HookEventInfo.Materialize(eventInfo),
+						eventInfo = eventInfo,
 						obj = input,
 						lParam = new nint(vk),
 						wParam = new nint(sc)
@@ -1244,7 +1238,7 @@ namespace Keysharp.Internals.Input.Hooks
 					_ = PostMessage(new KeysharpMsg()
 					{
 						message = (uint)UserMessages.AHK_INPUT_CHAR,
-						eventInfo = HookEventInfo.Materialize(eventInfo),
+						eventInfo = eventInfo,
 						obj = input,
 						lParam = new nint(ch[0]),
 						wParam = ch.Length > 1 ? new nint(ch[1]) : 0
@@ -1799,8 +1793,10 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 		}
 
-		private static HookEventInfo CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
-			=> new (EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0, extraInfo, extra, deviceId);
+		// Returns a factory that builds the script-visible A_EventInfo object only if the script reads it. The
+		// factory flows untouched through the dispatch path and is resolved by ThreadAccessors.A_EventInfo.
+		private static Func<object> CreateEventInfo(HookEventArgs e, ulong extraInfo, uint eventFlags, object extra, uint? deviceId)
+			=> new HookEventInfo(EventTimestamp(e), e.IsEventSimulated || (eventFlags & HOOK_EVENT_INJECTED) != 0, extraInfo, extra, deviceId).BuildEventInfo;
 
 		private static long EventTimestamp(HookEventArgs e)
 		{
@@ -3613,7 +3609,7 @@ namespace Keysharp.Internals.Input.Hooks
 			// which only packs the variant index into wParam when mHotCriterion is set and HOT_IF_REQUIRES_EVAL.
 			hotkeyMsg = new HookHotkeyMsg
 			{
-				eventInfo = HookEventInfo.Materialize(eventInfo),
+				eventInfo = eventInfo,
 				extraInfo = extraInfo,
 				variant = variant.hotCriterion != null && !HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(variant.hotCriterion) ? variant : null,
 				criterionFoundHwnd = criterionFoundHwnd

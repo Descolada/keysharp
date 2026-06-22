@@ -97,21 +97,36 @@ namespace Keysharp.Builtins
 					callout = Functions.GetFuncObj(name, null);
 				}
 
-				int result = callout.Call(
-								 new RegExMatchInfo(pcre_callout.Match, exp),
-								 (long)pcre_callout.Number,
-								 pcre_callout.PatternPosition,
-								 haystack,
-								 needle).Ai();
+				// Expose A_EventInfo as a native PCRE1-layout pcre_callout_block so AHK-compatible callout
+				// scripts can read its fields via NumGet. The block is built lazily (only if the script reads
+				// A_EventInfo) and freed once the callout returns; the previous value is saved and restored.
+				var tv = Script.TheScript.Threads.CurrentThread;
+				var prevEventInfo = tv.eventInfo;
+				using var calloutBlock = new PcreCalloutBlock(pcre_callout, input);
+				tv.SetEventInfo(calloutBlock.Materialize);
 
-				if (result > 1)
-					result = 1;
-				else if (result < -1)
+				try
 				{
-					return (PcreCalloutResult)Errors.ErrorOccurred($"PCRE matching error", null, (long)result, PcreCalloutResult.Abort);
-				}
+					int result = callout.Call(
+									 new RegExMatchInfo(pcre_callout.Match, exp),
+									 (long)pcre_callout.Number,
+									 (long)pcre_callout.StartOffset + 1, // FoundPos: 1-based offset in haystack where the current match attempt started (AHK's cb->start_match + 1).
+									 haystack,
+									 needle).Ai();
 
-				return (PcreCalloutResult)result;
+					if (result > 1)
+						result = 1;
+					else if (result < -1)
+					{
+						return (PcreCalloutResult)Errors.ErrorOccurred($"PCRE matching error", null, (long)result, PcreCalloutResult.Abort);
+					}
+
+					return (PcreCalloutResult)result;
+				}
+				finally
+				{
+					tv.eventInfo = prevEventInfo;
+				}
 			}
 
 			try

@@ -51,7 +51,18 @@ Prebuilt packages are on the [Releases](https://github.com/Descolada/keysharp/re
 
 ### macOS
 
-- **Install:** open the **DMG** and double-click `Install.command` (copies the apps and optionally adds the `keysharp`/`keyview` terminal commands and VS Code shim), or run the **PKG** for a system-wide install. Because the apps are not notarized, first-launch each with **right-click → Open**.
+- **Install:** Keysharp is not signed or notarized, so macOS Gatekeeper blocks the download — the DMG may refuse to open and the apps may report that the file **"is damaged and can't be opened"** (it isn't). Clear the download's quarantine flag first, then install:
+
+  ```bash
+  # Use the actual file you downloaded (the .pkg works the same way).
+  xattr -dr com.apple.quarantine ~/Downloads/keysharp-*-osx-arm64.dmg
+  ```
+
+  Then open the **DMG** and double-click `Install.command` (copies the apps and optionally adds the `keysharp`/`keyview` terminal commands and VS Code shim), or run the **PKG** for a system-wide install. If an installed app still won't launch, clear it there too:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Keysharp.app /Applications/Keyview.app
+  ```
 - **Run:** `keysharp hello.ks`, or use `Keyview.app`. Keysharp requests **Input Monitoring**, **Accessibility**, and **Screen Recording** permissions as features need them — grant them in System Settings → Privacy & Security.
 - **Uninstall:** double-click `Uninstall.command` in the DMG, or run `sudo keysharp-uninstall` for a PKG install.
 - **VS Code:** answer "Yes" to the shim prompt during install, then use `~/.local/bin/AutoHotkey.exe` as the interpreter path.

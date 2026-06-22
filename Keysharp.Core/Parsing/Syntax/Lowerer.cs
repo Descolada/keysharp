@@ -2942,7 +2942,7 @@ namespace Keysharp.Parsing.Syntax
 			// to MainScript.ModuleData.Vars; the switch maps locals + statics by name directly.
 			var savedDeref = _inDerefFunc;
 			_inDerefFunc = (bodyBlock != null && bodyBlock.Body.Any(HasDerefStmt)) || (arrowBody != null && HasDerefExpr(arrowBody));
-			if (_inDerefFunc) { body.Add(BuildGetVar()); body.Add(BuildSetVar()); }
+			if (_inDerefFunc) body.AddRange(BuildDerefAccessors());
 
 			// A by-ref param is read/written through its VarRef's __Value. Only when the caller OMITS an optional `&p`
 			// does it arrive null (by-ref defaults are declared as null, see ParamDecls) — substitute a VarRef holding
@@ -2993,19 +2993,61 @@ namespace Keysharp.Parsing.Syntax
 			return SyntaxFactory.Block(body);
 		}
 
-		// object GetVar(object KS_name) { var KS_key = ForceString(KS_name).ToLowerInvariant();
-		//   if (KS_key == "<local>") return <local>; ... return MainScript.ModuleData.Vars[KS_name]; }
+		// The `%name%` deref accessors for a function whose body dereferences. The core is a pair of Try* local functions
+		// that switch on the (lowercased) name over this scope's locals/statics/closures — Roslyn lowers the constant
+		// string switch to a hash jump table, so resolution is O(1) instead of an if-chain. GetVar/SetVar are thin
+		// wrappers that fall back to the global ModuleData.Vars store when the name isn't a known local. The Try* core
+		// (locals-only, found/not-found) is the same entry point external callers will use to read a running function's
+		// variables (ListVars) and resolve its named closures by name (e.g. RegEx callouts).
+		private IEnumerable<StatementSyntax> BuildDerefAccessors()
+		{
+			yield return BuildTryGetVar();
+			yield return BuildGetVar();
+			yield return BuildTrySetVar();
+			yield return BuildSetVar();
+		}
+
+		// The (key -> read/write target) arms shared by the Try* switches, in NameRef's resolution priority order
+		// (locals, statics, this scope's closures, then captured enclosing locals/statics), deduped so the switch never
+		// emits a duplicate `case` label.
+		private List<(string key, ExpressionSyntax target)> DerefArms()
+		{
+			var arms = new List<(string, ExpressionSyntax)>();
+			var seen = new HashSet<string>(System.StringComparer.Ordinal);
+			void Arm(string key, ExpressionSyntax target) { if (seen.Add(key)) arms.Add((key, target)); }
+			foreach (var n in _locals) Arm(n, Id(NameMangler.Escape(n)));
+			foreach (var kv in _statics) Arm(kv.Key, Id(kv.Value));
+			// Named nested functions in this scope are local closure vars (not in _locals); exposing them here lets a
+			// dynamic `%name%` — and external callers resolving by name — reach the closure rather than a global.
+			foreach (var n in _scopeClosureNames) Arm(n, Id(NameMangler.Escape(n)));
+			// Captured enclosing-scope locals and statics, after this scope's own, so a nested closure's `%name%`
+			// reaches the enclosing function's variables, not just globals.
+			foreach (var n in _enclosingLocals) Arm(n, Id(NameMangler.Escape(n)));
+			foreach (var kv in _enclosingStatics) Arm(kv.Key, Id(kv.Value));
+			return arms;
+		}
+
+		// bool TryGetVar(object KS_name, out object KS_val) {
+		//   switch (ForceString(KS_name).ToLowerInvariant()) { case "<v>": KS_val = <v>; return true; ... default: KS_val = null; return false; } }
+		private StatementSyntax BuildTryGetVar()
+		{
+			var sections = new List<SwitchSectionSyntax>();
+			foreach (var (key, target) in DerefArms())
+				sections.Add(SwitchArm(key, ExprStmt(Assign(Id("KS_val"), target)), SyntaxFactory.ReturnStatement(BoolLit(true))));
+			sections.Add(DefaultArm(ExprStmt(Assign(Id("KS_val"), Null)), SyntaxFactory.ReturnStatement(BoolLit(false))));
+			var body = SyntaxFactory.Block(SyntaxFactory.SwitchStatement(LowerKey(), SyntaxFactory.List(sections)));
+			return TypedLocalFunc(BoolType, "TryGetVar", body, Param("KS_name", ObjType), OutParam("KS_val", ObjType));
+		}
+
+		// object GetVar(object KS_name) { if (TryGetVar(KS_name, out var KS_v)) return KS_v; return MainScript.ModuleData.Vars[KS_name]; }
 		private StatementSyntax BuildGetVar()
 		{
-			var stmts = new List<StatementSyntax> { LocalDeclVar("KS_key", LowerKey()) };
-			foreach (var n in _locals) stmts.Add(SyntaxFactory.IfStatement(Eq(Id("KS_key"), Str(n)), SyntaxFactory.ReturnStatement(Id(NameMangler.Escape(n)))));
-			foreach (var kv in _statics) stmts.Add(SyntaxFactory.IfStatement(Eq(Id("KS_key"), Str(kv.Key)), SyntaxFactory.ReturnStatement(Id(kv.Value))));
-			// Enclosing-scope locals (captured C# locals) and statics (module-level SL_ fields) — after this scope's own,
-			// so a nested closure's `%name%` reaches the enclosing function's variables, not just globals.
-			foreach (var n in _enclosingLocals) if (!_locals.Contains(n)) stmts.Add(SyntaxFactory.IfStatement(Eq(Id("KS_key"), Str(n)), SyntaxFactory.ReturnStatement(Id(NameMangler.Escape(n)))));
-			foreach (var kv in _enclosingStatics) if (!_statics.ContainsKey(kv.Key)) stmts.Add(SyntaxFactory.IfStatement(Eq(Id("KS_key"), Str(kv.Key)), SyntaxFactory.ReturnStatement(Id(kv.Value))));
-			stmts.Add(SyntaxFactory.ReturnStatement(VarsIndex(Id("KS_name"))));
-			return LocalFunc("GetVar", SyntaxFactory.Block(stmts), ("KS_name", ObjType));
+			var tryCall = SyntaxFactory.InvocationExpression(Id("TryGetVar"),
+				SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(new[] { Arg(Id("KS_name")), OutVar("KS_v") })));
+			var body = SyntaxFactory.Block(
+				SyntaxFactory.IfStatement(tryCall, SyntaxFactory.ReturnStatement(Id("KS_v"))),
+				SyntaxFactory.ReturnStatement(VarsIndex(Id("KS_name"))));
+			return TypedLocalFunc(ObjType, "GetVar", body, Param("KS_name", ObjType));
 		}
 
 		// MainScript.ModuleData.Vars[name] — the global dynamic-variable store. Read and write go through the same
@@ -3018,28 +3060,50 @@ namespace Keysharp.Parsing.Syntax
 		// as a sub-expression (e.g. inside MultiStatement(...) or `z := y%x%++`).
 		private static ExpressionSyntax VarsWrite(ExpressionSyntax name, ExpressionSyntax value) => Assign(VarsIndex(name), value);
 
-		// object SetVar(object KS_name, object KS_val) { var KS_key = ...;
-		//   if (KS_key == "<local>") { <local> = KS_val; return KS_val; } ... return SetObject(Vars, KS_name, KS_val); }
+		// bool TrySetVar(object KS_name, object KS_val) {
+		//   switch (ForceString(KS_name).ToLowerInvariant()) { case "<v>": <v> = KS_val; return true; ... default: return false; } }
+		private StatementSyntax BuildTrySetVar()
+		{
+			var sections = new List<SwitchSectionSyntax>();
+			foreach (var (key, target) in DerefArms())
+				sections.Add(SwitchArm(key, ExprStmt(Assign(target, Id("KS_val"))), SyntaxFactory.ReturnStatement(BoolLit(true))));
+			sections.Add(DefaultArm(SyntaxFactory.ReturnStatement(BoolLit(false))));
+			var body = SyntaxFactory.Block(SyntaxFactory.SwitchStatement(LowerKey(), SyntaxFactory.List(sections)));
+			return TypedLocalFunc(BoolType, "TrySetVar", body, Param("KS_name", ObjType), Param("KS_val", ObjType));
+		}
+
+		// object SetVar(object KS_name, object KS_val) { if (!TrySetVar(KS_name, KS_val)) MainScript.ModuleData.Vars[KS_name] = KS_val; return KS_val; }
 		private StatementSyntax BuildSetVar()
 		{
-			var stmts = new List<StatementSyntax> { LocalDeclVar("KS_key", LowerKey()) };
-			foreach (var n in _locals) stmts.Add(SetVarArm(Str(n), Id(NameMangler.Escape(n))));
-			foreach (var kv in _statics) stmts.Add(SetVarArm(Str(kv.Key), Id(kv.Value)));
-			foreach (var n in _enclosingLocals) if (!_locals.Contains(n)) stmts.Add(SetVarArm(Str(n), Id(NameMangler.Escape(n))));
-			foreach (var kv in _enclosingStatics) if (!_statics.ContainsKey(kv.Key)) stmts.Add(SetVarArm(Str(kv.Key), Id(kv.Value)));
-			stmts.Add(SyntaxFactory.ReturnStatement(VarsWrite(Id("KS_name"), Id("KS_val"))));
-			return LocalFunc("SetVar", SyntaxFactory.Block(stmts), ("KS_name", ObjType), ("KS_val", ObjType));
+			var notSet = SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, Inv(Id("TrySetVar"), Id("KS_name"), Id("KS_val")));
+			var body = SyntaxFactory.Block(
+				SyntaxFactory.IfStatement(notSet, ExprStmt(VarsWrite(Id("KS_name"), Id("KS_val")))),
+				SyntaxFactory.ReturnStatement(Id("KS_val")));
+			return TypedLocalFunc(ObjType, "SetVar", body, Param("KS_name", ObjType), Param("KS_val", ObjType));
 		}
 
 		private static ExpressionSyntax LowerKey() => Inv(Member(Op("ForceString", Id("KS_name")), "ToLowerInvariant"));
-		private static StatementSyntax SetVarArm(ExpressionSyntax key, ExpressionSyntax target) =>
-			SyntaxFactory.IfStatement(Eq(Id("KS_key"), key), SyntaxFactory.Block(ExprStmt(Assign(target, Id("KS_val"))), SyntaxFactory.ReturnStatement(Id("KS_val"))));
-		private static ExpressionSyntax Eq(ExpressionSyntax a, ExpressionSyntax b) => SyntaxFactory.BinaryExpression(SyntaxKind.EqualsExpression, a, b);
+		private static readonly TypeSyntax BoolType = SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.BoolKeyword));
 
-		private static StatementSyntax LocalFunc(string name, BlockSyntax body, params (string name, TypeSyntax type)[] ps) =>
-			SyntaxFactory.LocalFunctionStatement(ObjType, SyntaxFactory.Identifier(name))
-				.WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(
-					ps.Select(p => SyntaxFactory.Parameter(SyntaxFactory.Identifier(p.name)).WithType(p.type)))))
+		// switch arm `case "<key>": <body>` (the body terminates the section via return; AHK names never fall through).
+		private static SwitchSectionSyntax SwitchArm(string caseKey, params StatementSyntax[] body) =>
+			SyntaxFactory.SwitchSection(SyntaxFactory.SingletonList<SwitchLabelSyntax>(SyntaxFactory.CaseSwitchLabel(Str(caseKey))), SyntaxFactory.List(body));
+		private static SwitchSectionSyntax DefaultArm(params StatementSyntax[] body) =>
+			SyntaxFactory.SwitchSection(SyntaxFactory.SingletonList<SwitchLabelSyntax>(SyntaxFactory.DefaultSwitchLabel()), SyntaxFactory.List(body));
+		private static LiteralExpressionSyntax BoolLit(bool v) =>
+			SyntaxFactory.LiteralExpression(v ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression);
+
+		private static ParameterSyntax Param(string name, TypeSyntax type) =>
+			SyntaxFactory.Parameter(SyntaxFactory.Identifier(name)).WithType(type);
+		private static ParameterSyntax OutParam(string name, TypeSyntax type) =>
+			Param(name, type).WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.OutKeyword)));
+		// `out var <name>` call argument.
+		private static ArgumentSyntax OutVar(string name) =>
+			SyntaxFactory.Argument(null, SyntaxFactory.Token(SyntaxKind.OutKeyword),
+				SyntaxFactory.DeclarationExpression(SyntaxFactory.IdentifierName("var"), SyntaxFactory.SingleVariableDesignation(SyntaxFactory.Identifier(name))));
+		private static StatementSyntax TypedLocalFunc(TypeSyntax retType, string name, BlockSyntax body, params ParameterSyntax[] ps) =>
+			SyntaxFactory.LocalFunctionStatement(retType, SyntaxFactory.Identifier(name))
+				.WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(ps)))
 				.WithBody(body);
 
 		private static bool HasDerefStmt(Stmt s) => s switch

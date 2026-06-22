@@ -406,6 +406,16 @@ namespace Keysharp.Parsing.Lexing
 
 		private static bool IsModifierKeyChar(char c) => c is '#' or '!' or '^' or '+' or '<' or '>';
 
+		// True if every char in [from, to) is a hotkey modifier/prefix symbol (the set accepted by AHK's
+		// Hotkey::TextToModifiers). Used to tell a quote in key position (`'::`, `+"::`) from a string opener.
+		private bool IsHotkeyPrefixOnly(int from, int to)
+		{
+			for (int j = from; j < to; j++)
+				if (_s[j] is not ('#' or '!' or '^' or '+' or '<' or '>' or '*' or '~' or '$'))
+					return false;
+			return true;
+		}
+
 		// Resolves whether a hotstring with the given option text runs in execute mode (replacement is code): an explicit
 		// `X` (or `X0` to turn it off) overrides the `#Hotstring`-set default.
 		private bool HotstringExecutes(string opts)
@@ -493,7 +503,8 @@ namespace Keysharp.Parsing.Lexing
 
 		// Finds the offset of the hotkey/hotstring `::` separator on the current line, starting at `from`.
 		// Honors backtick escapes (`` `: `` is a literal colon, not part of a separator) when escapeAware.
-		// Stops (returns -1) at end of line, an opening quote, or a whitespace-preceded comment.
+		// Stops (returns -1) at end of line, a whitespace-preceded comment, or a string-opening quote
+		// (a quote in key position immediately followed by `::` is a single-char trigger, not a string).
 		private int FindSeparator(int from, bool escapeAware, bool allowEmpty)
 		{
 			bool escaped = false;
@@ -501,7 +512,16 @@ namespace Keysharp.Parsing.Lexing
 			{
 				char c = _s[i];
 				if (c == '\n' || c == '\r') return -1;
-				if (c == '"' || c == '\'') return -1;                 // triggers never contain quotes
+				if (c == '"' || c == '\'')
+				{
+					// A quote almost always means the line is an expression and any following `::` is string
+					// content, not a hotkey separator (e.g. `MsgBox("a::b")`, `x := "::"`). The exception is a
+					// quote used as a single-character key: it sits in key position (only modifier symbols
+					// precede it) and is immediately followed by the `::` separator, e.g. `'::;` or `+"::x`.
+					if (i + 2 < _n && _s[i + 1] == ':' && _s[i + 2] == ':' && IsHotkeyPrefixOnly(from, i))
+						return i + 1;
+					return -1;                                        // a real string opener: not a hotkey
+				}
 				if (!escaped && (c == ' ' || c == '\t') && i + 1 < _n && _s[i + 1] == ';') return -1; // comment
 				if (!escaped && c == ':' && i + 1 < _n && _s[i + 1] == ':')
 				{

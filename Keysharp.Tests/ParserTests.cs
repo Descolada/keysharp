@@ -133,6 +133,23 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Parser")]
+		public void QuoteKeyHotkeyIsNotAStringLiteral()
+		{
+			// A quote can itself be a (single-character) hotkey/remap source key. The trigger sits in key
+			// position (only modifier symbols precede it) and is immediately followed by `::`, so it must not
+			// be scanned as the start of a string literal. Mirrors AHK's hotkey-vs-statement disambiguation.
+			Assert.AreEqual("(remap '::;)", Ast("'::;"));            // the reported bug
+			Assert.AreEqual("(remap \"::;)", Ast("\"::;"));
+			Assert.AreEqual("(remap +'::;)", Ast("+'::;"));         // with a leading modifier symbol
+			Assert.AreEqual("(remap *\"::a)", Ast("*\"::a"));
+
+			// A genuine string opener (a quote not in key position, or not followed by `::`) stays a string,
+			// so `::` inside it is never mistaken for a hotkey separator.
+			Assert.AreEqual("(call testfunc \"::\")", Ast("testfunc \"::\""));
+			Assert.AreEqual("(== a \"::\")", Ast("a == \"::\""));
+		}
+
+		[Test, Category("Parser")]
 		public void Statements()
 		{
 			Assert.AreEqual("(if x (:= y 1) else (:= y 2))",

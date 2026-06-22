@@ -88,10 +88,10 @@ jobs:
 
     steps:
       - name: Checkout keysharp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -115,7 +115,7 @@ jobs:
       - name: Cache Eto (non-Windows)
         if: ${{ matrix.platform != 'windows' }}
         id: eto-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.workspace }}/Eto
           key: eto-${{ runner.os }}-${{ steps.eto-ref.outputs.sha }}
@@ -273,7 +273,7 @@ jobs:
           mv "dist/Keysharp-${RID}.dmg" "dist/release-assets/keysharp-${VERSION}-${RID}.dmg"
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-assets-${{ matrix.rid }}
           path: dist/release-assets/*
@@ -287,7 +287,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: release-assets-*
           path: dist/release-assets

@@ -1843,10 +1843,13 @@ namespace Keysharp.Builtins
 
 						if (r > 0)
 						{
-							finalHeight = finalHeight - ctrl.ClientSize.Height + fontRows;
+							//Total height = the control's chrome (border/non-client) + room for the requested text rows.
+							//Derive the chrome from the control's own outer height, keeping in mind that at this point 
+							//finalHeight is still the -1 sentinel.
+							finalHeight = ctrl.GetSize().Height - ctrl.ClientSize.Height + fontRows;
 #if LINUX
 							//Before the form is shown, ClientSize reports the still-unallocated 1x1 size, which makes the
-							//chrome term (finalHeight - ClientSize.Height) collapse. Single-line inputs then end up far
+							//chrome term (GetSize().Height - ClientSize.Height) collapse. Single-line inputs then end up far
 							//shorter than GTK actually renders them, so the next y+n control overlaps them. Never lay a
 							//control out shorter than its natural (preferred) height.
 							finalHeight = Math.Max(finalHeight, ctrl.PreferredSize.Height);

@@ -113,6 +113,11 @@ namespace Keysharp.Builtins
 				"DPIScale", (f, o) => { if (o is bool b) f.dpiscaling = b; }
 			},
 			{
+				// v2.1 option, accepted for compatibility. Per-monitor DPI re-layout is not implemented, but the
+				// option is recognized so scripts that use it are not rejected as invalid.
+				"DPIResize", (f, o) => { }
+			},
+			{
 				"LastFound", (f, o) =>
 				{
 					if (o is bool b)
@@ -2386,10 +2391,33 @@ namespace Keysharp.Builtins
 					{
 						func(this, add);
 					}
+					else if (!IsStyleNumberOption(str))//Raw style numbers (e.g. +0x40000, +E0x8) are applied at construction by the static Opt overload; reject anything else like AHK instead of silently ignoring it.
+					{
+						return Errors.ValueErrorOccurred("Invalid option.", split);
+					}
 				}
 			}
 
 			return DefaultObject;
+		}
+
+		// A bare number ("0x40000"/"262144") is a window style and a leading 'E' + number ("E0x8") an extended
+		// style; both are real Win32 style bits, applied at construction by the static Opt(...) overload. AHK
+		// validates these (extended style, then pure number) before rejecting any other token as an invalid option.
+		private static bool IsStyleNumberOption(string str)
+		{
+			var span = str.AsSpan();
+
+			if (span.Length > 1 && (span[0] is 'E' or 'e'))
+				span = span[1..];
+
+			if (span.IsEmpty)
+				return false;
+
+			if (span.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+				return long.TryParse(span[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _);
+
+			return long.TryParse(span, NumberStyles.Integer, CultureInfo.InvariantCulture, out _);
 		}
 
 		// Implements AutoHotkey's +/-MinSize and +/-MaxSize Gui options (isMin selects which limit):

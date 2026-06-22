@@ -11,6 +11,7 @@ namespace Keysharp.Internals.Strings
 		internal string tag = "";
 		internal PcreRegexSettings opts;
 		internal string[] groupNames;
+		internal bool hasCallout;//Whether the pattern uses callouts; if not, matching can skip the callback path.
 
 		internal RegexHolder(string hs, string n)
 		{
@@ -41,6 +42,7 @@ namespace Keysharp.Internals.Strings
 			pattern ??= n;
 			opts = settings;
 			pattern = TranslateCallouts(pattern);
+			hasCallout = (settings.Options & PcreOptions.AutoCallout) != 0 || pattern.IndexOf("(?C", StringComparison.Ordinal) >= 0;
 			regex = new PcreRegex(pattern, opts);
 			info = regex.PatternInfo;
 			groupNames = new string[info.CaptureCount + 1];

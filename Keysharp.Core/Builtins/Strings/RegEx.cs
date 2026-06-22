@@ -68,14 +68,31 @@ namespace Keysharp.Builtins
 			var index = startingPos.Ai(1);
 			IFuncObj callout = null;
 			RegexHolder exp;
+			var script = Script.TheScript;
+			var regdkt = script.RegExData.regdkt;
 
-			try
+			//Compiling (and JIT-compiling) a PCRE pattern is expensive, so cache the last 100 compiled
+			//patterns keyed by the needle, mirroring RegExMatchCs and AutoHotkey. The compiled RegexHolder
+			//is immutable and safe to share across calls/threads; matching happens outside the lock.
+			lock (script.RegExData.locker)//KeyedCollection is not threadsafe, and we need insertion order to evict the oldest.
 			{
-				exp = new RegexHolder(input, n);//This will not throw PCRE style errors like the documentation says.
-			}
-			catch (Exception ex)
-			{
-				return (long)Errors.ErrorOccurred("Regular expression compile error", "", ex.Message, DefaultErrorLong);
+				if (!regdkt.TryGetValue(n, out exp))
+				{
+					try
+					{
+						exp = new RegexHolder(input, n);//This will not throw PCRE style errors like the documentation says.
+					}
+					catch (Exception ex)
+					{
+						return (long)Errors.ErrorOccurred("Regular expression compile error", "", ex.Message, DefaultErrorLong);
+					}
+
+					exp.tag = n;
+					regdkt.Add(exp);
+
+					while (regdkt.Count > 100)
+						regdkt.RemoveAt(0);
+				}
 			}
 
 			if (index < 0)
@@ -131,7 +148,9 @@ namespace Keysharp.Builtins
 
 			try
 			{
-				var match = exp.regex.Match(input, index, MatchCalloutHandler);
+				//Only route through the managed callout callback (and allocate its closure) when the pattern
+				//actually has callouts; the common no-callout case uses PCRE.NET's faster handler-less overload.
+				var match = exp.hasCallout ? exp.regex.Match(input, index, MatchCalloutHandler) : exp.regex.Match(input, index);
 				long pos = match.Success ? match.Index + 1 : 0;
 				if (outputVar != null)
 				{
@@ -203,14 +222,28 @@ namespace Keysharp.Builtins
 			var index = startingPos.Ai(1);
 			int n = 0;
 			RegexHolder exp;
+			var regdkt = rd.regdkt;
 
-			try
+			//Cache compiled patterns (see RegExMatch) to avoid recompiling/JIT-compiling on every call.
+			lock (rd.locker)
 			{
-				exp = new RegexHolder(input, needle);//This will not throw PCRE style errors like the documentation says.
-			}
-			catch (Exception ex)
-			{
-				return (string)Errors.ErrorOccurred("Regular expression compile error", "", ex.Message, DefaultErrorString);
+				if (!regdkt.TryGetValue(needle, out exp))
+				{
+					try
+					{
+						exp = new RegexHolder(input, needle);//This will not throw PCRE style errors like the documentation says.
+					}
+					catch (Exception ex)
+					{
+						return (string)Errors.ErrorOccurred("Regular expression compile error", "", ex.Message, DefaultErrorString);
+					}
+
+					exp.tag = needle;
+					regdkt.Add(exp);
+
+					while (regdkt.Count > 100)
+						regdkt.RemoveAt(0);
+				}
 			}
 
 			if (l < 1)

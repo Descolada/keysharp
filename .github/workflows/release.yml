@@ -254,8 +254,13 @@ jobs:
           Keysharp.Install/package-linux.sh
           mkdir -p dist/release-assets
           mv "dist/keysharp-${RID}.tar.gz" "dist/release-assets/keysharp-${VERSION}-${RID}.tar.gz"
+          # The .deb keeps Debian's name_version_arch convention (e.g. keysharp_0.0.0.15_amd64.deb); rename the
+          # release asset to the RID form so it lines up with the tar.gz / .msi / .pkg assets. dpkg reads the arch
+          # from the control file, not the filename, so "apt install ./<file>.deb" still works.
           if compgen -G "dist/keysharp_${VERSION}_*.deb" > /dev/null; then
-            mv "dist/keysharp_${VERSION}_"*.deb "dist/release-assets/"
+            for deb in dist/keysharp_${VERSION}_*.deb; do
+              mv "$deb" "dist/release-assets/keysharp-${VERSION}-${RID}.deb"
+            done
           fi
 
       - name: Publish macOS package

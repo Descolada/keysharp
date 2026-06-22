@@ -46,6 +46,14 @@ namespace Keysharp.Builtins
 		internal nint owner = 0;
 		internal Size requestedSize = new(int.MinValue, int.MinValue);
 		internal Point requestedLocation = new(int.MinValue, int.MinValue);
+		// "+MinSize"/"+MaxSize" with no dimensions pins the limit to the window's size; if the window has not
+		// been shown yet, the size is captured at the first Gui.Show (see ApplyDeferredSizeLimits).
+		private bool pinMinSizeToShowSize, pinMaxSizeToShowSize;
+#if WINDOWS
+		private static readonly Size NoSizeLimit = new(0, 0);//WinForms: (0,0) = no limit; negative values throw.
+#else
+		private static readonly Size NoSizeLimit = new(-1, -1);//Eto: (-1,-1) is the autosize / no-limit sentinel.
+#endif
 
 		private static readonly Dictionary<string, Action<Gui, object>> showOptionsDkt = new (StringComparer.OrdinalIgnoreCase)
 		{
@@ -123,65 +131,15 @@ namespace Keysharp.Builtins
 			{
 				"MinSize", (f, o) =>
 				{
-					if (o is string s)
-					{
-						if (s?.Length == 0)
-						{
-							f.form.MinimumSize = new Size(-1, -1);
-						}
-						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
-						{
-							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MinimumSize = new Size((int)(f.DpiScale * width), f.form.MinimumSize.Height);
-						}
-						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
-						{
-							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MinimumSize = new Size(f.form.MinimumSize.Width, (int)(f.DpiScale * height));
-						}
-						else
-						{
-							var splits = s.Split('x', StringSplitOptions.RemoveEmptyEntries);
-
-							if (splits.Length == 2)
-							{
-								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MinimumSize = f.dpiscaling ? new Size((int)(f.DpiScale * width), (int)(f.DpiScale * height)) : new Size(width, height);
-							}
-						}
-					}
+					if (o is ValueTuple<bool, string> t)
+						f.SetSizeLimit(true, t.Item1, t.Item2);
 				}
 			},
 			{
 				"MaxSize", (f, o) =>
 				{
-					if (o is string s)
-					{
-						if (s?.Length == 0)
-						{
-							f.form.MaximumSize = new Size(-1, -1);
-						}
-						else if (s.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
-						{
-							if (int.TryParse(s.AsSpan(0, s.Length - 1), out var width))
-								f.form.MaximumSize = new Size((int)(f.DpiScale * width), f.form.MaximumSize.Height);
-						}
-						else if (s.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
-						{
-							if (int.TryParse(s.AsSpan(1), out var height))
-								f.form.MaximumSize = new Size(f.form.MaximumSize.Width, (int)(f.DpiScale * height));
-						}
-						else
-						{
-							var splits = s.Split('x', StringSplitOptions.RemoveEmptyEntries);
-
-							if (splits.Length == 2)
-							{
-								if (int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
-									f.form.MaximumSize = f.dpiscaling ? new Size((int)(f.DpiScale * width), (int)(f.DpiScale * height)) :new Size(width, height);
-							}
-						}
-					}
+					if (o is ValueTuple<bool, string> t)
+						f.SetSizeLimit(false, t.Item1, t.Item2);
 				}
 			},
 			{
@@ -2403,23 +2361,15 @@ namespace Keysharp.Builtins
 
 				if (str.Length > 0)
 				{
-					var val = "";
-
 					if (str.StartsWith("MinSize", StringComparison.OrdinalIgnoreCase))
 					{
-						if (add)
-							val = str.Substring(7);
-
 						if (showOptionsDkt.TryGetValue("MinSize", out var func))
-							func(this, val);
+							func(this, (add, add ? str.Substring(7) : ""));
 					}
 					else if (str.StartsWith("MaxSize", StringComparison.OrdinalIgnoreCase))
 					{
-						if (add)
-							val = str.Substring(7);
-
 						if (showOptionsDkt.TryGetValue("MaxSize", out var func))
-							func(this, val);
+							func(this, (add, add ? str.Substring(7) : ""));
 					}
 					else if (str.StartsWith("Owner", StringComparison.OrdinalIgnoreCase))
 					{
@@ -2440,6 +2390,84 @@ namespace Keysharp.Builtins
 			}
 
 			return DefaultObject;
+		}
+
+		// Implements AutoHotkey's +/-MinSize and +/-MaxSize Gui options (isMin selects which limit):
+		//   "+MinSize"/"+MaxSize" with no dimensions -> use the window's current size as the limit; if the window
+		//       has not been shown yet there is no real size, so defer to the size at the first Gui.Show.
+		//   "-MinSize"/"-MaxSize" -> remove the limit.
+		//   "+MinSize<w>x<h>" / "<w>x" / "x<h>" -> set the given DPI-scaled dimensions, leaving an omitted side as-is.
+		internal void SetSizeLimit(bool isMin, bool add, string spec)
+		{
+			// Compute the new limit (null = no change) and whether the limit should be pinned to the size at the
+			// first show, then apply both to the relevant property/field in a single branch below.
+			Size? limit = null;
+			var pinToShow = false;
+
+			if (!add)//"-MinSize"/"-MaxSize": clear the limit.
+			{
+				limit = NoSizeLimit;
+			}
+			else if (spec.Length == 0)//"+MinSize"/"+MaxSize": pin to the current size, or defer to the first show.
+			{
+				if (form.BeenShown)
+					limit = form.GetSize();
+				else
+					pinToShow = true;
+			}
+			else//Explicit dimensions. DpiScale already folds in the dpiscaling flag (1.0 when off).
+			{
+				var current = isMin ? form.MinimumSize : form.MaximumSize;
+
+				if (spec.EndsWith("x", StringComparison.OrdinalIgnoreCase))//Only width was specified.
+				{
+					if (int.TryParse(spec.AsSpan(0, spec.Length - 1), out var width))
+						limit = new Size((int)(DpiScale * width), current.Height);
+				}
+				else if (spec.StartsWith("x", StringComparison.OrdinalIgnoreCase))//Only height was specified.
+				{
+					if (int.TryParse(spec.AsSpan(1), out var height))
+						limit = new Size(current.Width, (int)(DpiScale * height));
+				}
+				else
+				{
+					var splits = spec.Split('x', StringSplitOptions.RemoveEmptyEntries);
+
+					if (splits.Length == 2 && int.TryParse(splits[0], out var width) && int.TryParse(splits[1], out var height))
+						limit = new Size((int)(DpiScale * width), (int)(DpiScale * height));
+				}
+			}
+
+			if (isMin)
+			{
+				pinMinSizeToShowSize = pinToShow;
+
+				if (limit is Size min)
+					form.MinimumSize = min;
+			}
+			else
+			{
+				pinMaxSizeToShowSize = pinToShow;
+
+				if (limit is Size max)
+					form.MaximumSize = max;
+			}
+		}
+
+		// Resolve any deferred "+MinSize"/"+MaxSize" (no dimensions) to the window's size once it is known (first show).
+		private void ApplyDeferredSizeLimits()
+		{
+			if (pinMinSizeToShowSize)
+			{
+				pinMinSizeToShowSize = false;
+				form.MinimumSize = form.GetSize();
+			}
+
+			if (pinMaxSizeToShowSize)
+			{
+				pinMaxSizeToShowSize = false;
+				form.MaximumSize = form.GetSize();
+			}
 		}
 
 		public object Restore()
@@ -2706,6 +2734,10 @@ namespace Keysharp.Builtins
 #if WINDOWS
 			form.Update();//Required for the very first state of the form to always be displayed.
 #endif
+			// Now that the window has a real size, resolve any deferred "+MinSize"/"+MaxSize" (no dimensions).
+			if (!hide)
+				ApplyDeferredSizeLimits();
+
 			return DefaultObject;
 		}
 

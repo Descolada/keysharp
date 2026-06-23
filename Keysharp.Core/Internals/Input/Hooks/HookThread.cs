@@ -3909,10 +3909,85 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 		}
 
-		//This is relied upon to be unsigned; e.g. many places omit a check for ID < 0.
-		internal abstract bool SystemHasAnotherKeybdHook();
+		// Whether some *other* process (i.e. another Keysharp script) currently has the keyboard/mouse hook
+		// installed. Used to decide when SendInput must fall back to another send mode, and exposed to the
+		// script via A_KeybdHookInstalled / A_MouseHookInstalled. The named mutexes are system-wide on
+		// Windows, Linux and macOS, so the same handle-existence check works on every platform.
+		internal virtual bool SystemHasAnotherKeybdHook() => SystemHasAnotherHook(ref keybdMutex, KeybdMutexName);
 
-		internal abstract bool SystemHasAnotherMouseHook();
+		internal virtual bool SystemHasAnotherMouseHook() => SystemHasAnotherHook(ref mouseMutex, MouseMutexName);
+
+		// Keeps keybdMutex/mouseMutex in sync with which hooks this process actually holds: while a hook is
+		// installed we keep an (unowned) handle to its named mutex open so that other scripts can detect us;
+		// when the hook is removed we close the handle so the OS can delete the object once nobody holds it.
+		// Skipped for temporary changes (e.g. the hook being briefly toggled) to avoid churn, mirroring the
+		// original AHK behavior.
+		protected void SyncHookMutexes(bool changeIsTemporary)
+		{
+			if (changeIsTemporary)
+				return;
+
+			SyncHookMutex(ref keybdMutex, KeybdMutexName, HasKbdHook());
+			SyncHookMutex(ref mouseMutex, MouseMutexName, HasMouseHook());
+		}
+
+		private static void SyncHookMutex(ref Mutex mutex, string name, bool shouldHold)
+		{
+			if (shouldHold)
+			{
+				if (mutex == null)
+				{
+					try
+					{
+						mutex = new Mutex(false, name, out _); // Create-or-open this mutex and have it be unowned.
+					}
+					catch (Exception ex)
+					{
+						// Named mutexes can be unavailable under some Unix configurations (e.g. an unwritable
+						// shared-memory dir). Degrade gracefully: SendInput etc. simply won't see other scripts.
+						_ = Ks.OutputDebugLine($"Hook mutex '{name}' could not be created: {ex.Message}");
+					}
+				}
+			}
+			else if (mutex != null)
+			{
+				mutex.Close();
+				mutex = null;
+			}
+		}
+
+		private static bool SystemHasAnotherHook(ref Mutex existingMutex, string name)
+		{
+			// Close our own handle first (if our hook is active) so the only thing that can keep the named
+			// mutex alive is a *different* process. Don't null it out: its non-null-ness is reused below as a
+			// flag meaning "we hold this hook ourselves and must re-open the handle afterwards".
+			existingMutex?.Close();
+
+			Mutex mutex;
+			bool createdNew;
+
+			try
+			{
+				mutex = new Mutex(false, name, out createdNew); // Create() vs. Open(): enough access to open the mutex if it exists.
+			}
+			catch (Exception ex)
+			{
+				_ = Ks.OutputDebugLine($"Hook mutex '{name}' could not be opened: {ex.Message}");
+				existingMutex = null; // Our previous handle is closed and we couldn't reopen it.
+				return false;
+			}
+
+			// createdNew == false means the named mutex already existed; since we just closed our own handle,
+			// the only way that can happen is if another process is holding it.
+			var anotherHookExists = !createdNew;
+
+			if (existingMutex != null) // It was open originally, so update the field to the newly opened handle.
+				existingMutex = mutex;
+			else
+				mutex.Close(); // Keep it closed so the system can delete the object when nobody holds it.
+
+			return anotherHookExists;
+		}
 
 		internal uint TextToSpecial(string text, ref KeyEventTypes eventType, ref uint modifiersLR, bool updatePersistent) =>
 		TextToSpecial(text.AsSpan(), ref eventType, ref modifiersLR, updatePersistent);

@@ -410,28 +410,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 			// In case mutex create/open/close can be a high-overhead operation, do it only when the hook isn't
 			// being quickly/temporarily removed then added back again.
-			if (!changeIsTemporary)
-			{
-				if (HasKbdHook() && ((int)hooksActiveOrig & (int)HookType.Keyboard) == 0) // The keyboard hook has been newly added.
-				{
-					keybdMutex = new Mutex(false, KeybdMutexName, out _); // Create-or-open this mutex and have it be unowned.
-				}
-				else if (!HasKbdHook() && ((int)hooksActiveOrig & (int)HookType.Keyboard) != 0)  // The keyboard hook has been newly removed.
-				{
-					keybdMutex?.Close();
-					keybdMutex = null;
-				}
-
-				if (HasMouseHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) == 0) // The mouse hook has been newly added.
-				{
-					mouseMutex = new Mutex(false, MouseMutexName); // Create-or-open this mutex and have it be unowned.
-				}
-				else if (!HasMouseHook() && ((int)hooksActiveOrig & (int)HookType.Mouse) != 0)  // The mouse hook has been newly removed.
-				{
-					mouseMutex?.Close();
-					mouseMutex = null;
-				}
-			}
+			SyncHookMutexes(changeIsTemporary);
 
 			// For maintainability, it seems best to display the MsgBox only at the very end.
 			if (problemActivatingHooks)
@@ -1087,10 +1066,6 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			return LowLevelCommon(hookEventDefault, vk, sc, sc, keyUp, lParam.dwExtraInfo, lParam.flags);
 		}
 
-		internal override bool SystemHasAnotherKeybdHook() => SystemHasAnotherHook(ref keybdMutex, KeybdMutexName);
-
-		internal override bool SystemHasAnotherMouseHook() => SystemHasAnotherHook(ref mouseMutex, MouseMutexName);
-
 		internal override void Unhook()
 		{
 			// PostQuitMessage() might be needed to prevent hang-on-exit.  Once this is done, no message boxes or
@@ -1302,23 +1277,6 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 		//{
 		//  _ = WindowsAPI.UnhookWindowsHookEx(mouseHook);
 		//}
-		private bool SystemHasAnotherHook(ref Mutex existingMutex, string name)
-		{
-			if (existingMutex != null)
-				existingMutex.Close(); // But don't set it to NULL because we need its value below as a flag.
-
-			var mutex = new Mutex(false, name, out var _); // Create() vs. Open() has enough access to open the mutex if it exists.
-			var last_error = GetLastError();
-
-			// Don't check g_KeybdHook because in the case of aChangeIsTemporary, it might be NULL even though
-			// we want a handle to the mutex maintained here.
-			if (existingMutex != null) // It was open originally, so update the handle the the newly opened one.
-				existingMutex = mutex;
-			else if (mutex != null) // Keep it closed because the system tracks how many handles there are, deleting the mutex when zero.
-				mutex.Close();  // This facilitates other instances of the program getting the proper last_error value.
-
-			return last_error == ERROR_ALREADY_EXISTS;
-		}
 	}
 
 	internal enum GuiEventKinds

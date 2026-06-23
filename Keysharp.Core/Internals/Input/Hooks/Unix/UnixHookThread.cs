@@ -425,6 +425,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				mouseHook = 0;
 				PlatformUngrabAll();
 			}
+
+			// Release the named hook mutexes now that no hooks are held (mirrors AddRemoveHooks; this path
+			// doesn't route through it). Done outside the lock since closing a Mutex never touches hookStateLock.
+			SyncHookMutexes(changeIsTemporary: false);
 		}
 
 		public override void SimulateKeyPress(uint key)
@@ -469,6 +473,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				requestGeneration = ++hookStateGeneration;
 
 			ChangeHookStateLinux(hooksToBeActive & (HookType.Keyboard | HookType.Mouse), changeIsTemporary, requestGeneration);
+
+			// Advertise the now-current hook state to other Keysharp scripts via the shared named mutexes
+			// (HasKbdHook()/HasMouseHook() read the sentinels ChangeHookStateLinux just updated). This is what
+			// lets SendInput fall back correctly and A_KeybdHookInstalled/A_MouseHookInstalled report bit 2.
+			SyncHookMutexes(changeIsTemporary);
 		}
 
 		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
@@ -2929,9 +2938,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 			return 0;
 		}
-
-		internal override bool SystemHasAnotherKeybdHook() => false;
-		internal override bool SystemHasAnotherMouseHook() => false;
 
 		private void ClearHotstringBuffer()
 		{

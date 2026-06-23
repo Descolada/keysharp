@@ -240,13 +240,18 @@ namespace Keysharp.Internals.UI.Unix
 		internal object ShowInternalVars(bool showTab)
 		{
 			callingInternalVars = true;//Gets called twice if called before first showing.
+			// Snapshot the running function's locals on THIS (script) thread before the async UI hop; the scope is
+			// [ThreadStatic], so the UI thread has its own (null) value and would otherwise see no executing-function scope.
+			var execScope = Script.executingUserFunc;
+			var execLocals = execScope?.Enumerate().ToList();
+			var execName = execScope?.Name;
 
 			if (!QueueUiUpdate(() =>
 			{
 				try
 				{
 					ShowIfNeeded();
-					SetTextInternal(Builtins.Debug.GetVars(), MainFocusedTab.Vars, showTab);
+					SetTextInternal(Builtins.Debug.GetVars(null, execLocals, execName), MainFocusedTab.Vars, showTab);
 				}
 				finally
 				{

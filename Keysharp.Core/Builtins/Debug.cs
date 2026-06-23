@@ -72,30 +72,30 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public static string GetVars(object obj = null)
+		public static string GetVars(object obj = null, List<KeyValuePair<string, object>> execLocals = null, string execName = null)
 		{
-			//var sw = new Stopwatch();
-			//sw.Start();
 			var doInternal = obj.Ab(true);
 			var sb = new StringBuffer();
 			var script = Script.TheScript;
 			var typesToProps = new SortedDictionary<string, List<PropertyInfo>>();
-			_ = sb.AppendLine($"**User defined**\n");
 
-			foreach (var fieldKv in script.Vars.globalVars.Where(kv => kv.Value?.fi != null))
+			// Locals of the function executing when ListVars was called (snapshot captured on the script thread; null
+			// when that function exposes no scope, or when ListVars was triggered from the UI rather than a script).
+			if (execLocals != null && execLocals.Count > 0)
 			{
-					var mph = fieldKv.Value;
-					var val = mph.CallFunc(null, null);
-					PropPrinter.Print(val, fieldKv.Key, sb);
+				_ = sb.AppendLine($"**Local variables for {execName}**\n");
+				foreach (var kv in execLocals.OrderBy(k => k.Key))
+					PropPrinter.Print(kv.Value, kv.Key, sb);
+				_ = sb.AppendLine("\n--------------------------------------------------\n");
 			}
 
-			foreach (var typeKv in script.ReflectionsData.staticFields.Where(tkv => tkv.Key.Name.StartsWith("program", StringComparison.OrdinalIgnoreCase)))
+			_ = sb.AppendLine($"**Global variables**\n");
+			foreach (var moduleKv in script.Vars.AllModuleVars)
 			{
-				foreach (var fieldKv in typeKv.Value.OrderBy(f => f.Key))
-				{
-					var val = fieldKv.Value.GetValue(null);
-					PropPrinter.Print(val, fieldKv.Key, sb);
-				}
+				_ = sb.AppendLine($"{Script.GetUserDeclaredName(moduleKv.Key) ?? moduleKv.Key.Name}:");
+				foreach (var fieldKv in moduleKv.Value.Where(kv => kv.Value?.fi != null).OrderBy(kv => kv.Key))
+					PropPrinter.Print(fieldKv.Value.CallFunc(null, null), fieldKv.Key, sb);
+				_ = sb.AppendLine();
 			}
 
 			_ = sb.AppendLine("\n--------------------------------------------------\n**Internal**\n");

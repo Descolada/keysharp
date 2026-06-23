@@ -172,15 +172,11 @@ namespace Keysharp.Parsing.Syntax
 			// Use the dedicated multi-module path when the file defines/uses modules: a `#Module`, an `export`, or a
 			// `#import "name"` that resolves to a separate <name>.ahk file. Otherwise the common single-module path is
 			// completely unaffected (a builtin `#import "Ks"` stays here).
-			bool IsFileImport(DirectiveStmt im)
-			{
-				if (_includeDir == null) return false;
-				var (modName, _, _, _) = ParseImport(im.Args ?? "");
-				return modName.Length > 0 && ResolveModuleFile(modName, _includeDir) != null;
-			}
+			bool IsFileImport(ImportDirective im) =>
+				_includeDir != null && im.Module.Length > 0 && ResolveModuleFile(im.Module, _includeDir) != null;
 			if (prog.Body.Any(s => s is DirectiveStmt d && d.Name.Equals("Module", System.StringComparison.OrdinalIgnoreCase))
 				|| prog.Body.Any(s => s is ExportStmt)
-				|| prog.Body.Any(s => s is DirectiveStmt im && im.Name.Equals("import", System.StringComparison.OrdinalIgnoreCase) && IsFileImport(im)))
+				|| prog.Body.Any(s => s is ImportDirective im && IsFileImport(im)))
 				return BuildMultiModule(prog, name);
 
 			// `export <decl>` outside a `#Module` file is just a normal top-level declaration.
@@ -200,7 +196,7 @@ namespace Keysharp.Parsing.Syntax
 			public string Name;
 			public string Dir;   // directory of the source file this module came from (for "importing file dir first")
 			public List<Stmt> Body = new();
-			public List<DirectiveStmt> Imports = new();
+			public List<ImportDirective> Imports = new();
 			public Dictionary<string, ExportK> Exports = new(System.StringComparer.OrdinalIgnoreCase);
 			public string DefaultName;          // user name of the `export default` member (or null)
 			public bool HasExplicitExports;
@@ -217,7 +213,7 @@ namespace Keysharp.Parsing.Syntax
 				var m = queue.Dequeue();
 				foreach (var im in m.Imports)
 				{
-					var (modName, _, _, _) = ParseImport(im.Args ?? "");
+					var modName = im.Module;
 					if (modName.Length == 0 || byName.ContainsKey(modName) || modName.Equals("AHK", System.StringComparison.OrdinalIgnoreCase)) continue;
 					// Resolve via the AHK module search: the importing file's own directory first, then the search path.
 					var file = ResolveModuleFile(modName, m.Dir ?? _includeDir);
@@ -325,7 +321,7 @@ namespace Keysharp.Parsing.Syntax
 					cur = new ModInfo { Name = (d.Args ?? "").Trim() };
 					mods.Add(cur);
 				}
-				else if (s is DirectiveStmt im && im.Name.Equals("import", System.StringComparison.OrdinalIgnoreCase))
+				else if (s is ImportDirective im)
 					cur.Imports.Add(im);
 				else { cur.Body.Add(s); CollectNestedImports(s, cur.Imports); }
 			}
@@ -334,11 +330,11 @@ namespace Keysharp.Parsing.Syntax
 
 		// AHK processes `#import` directives at load time regardless of nesting, so an import inside a block / if / loop
 		// (e.g. `if true { #import "M" { X as Y } }`) still binds at module scope. Recursively lift those out.
-		private static void CollectNestedImports(Stmt s, List<DirectiveStmt> into)
+		private static void CollectNestedImports(Stmt s, List<ImportDirective> into)
 		{
 			switch (s)
 			{
-				case DirectiveStmt d when d.Name.Equals("import", System.StringComparison.OrdinalIgnoreCase): into.Add(d); break;
+				case ImportDirective d: into.Add(d); break;
 				case Block b: foreach (var c in b.Body) CollectNestedImports(c, into); break;
 				case IfStmt i: CollectNestedImports(i.Then, into); if (i.Else != null) CollectNestedImports(i.Else, into); break;
 				case WhileStmt w: CollectNestedImports(w.Body, into); if (w.Else != null) CollectNestedImports(w.Else, into); break;
@@ -405,47 +401,7 @@ namespace Keysharp.Parsing.Syntax
 		private static IEnumerable<string> ImportTargets(ModInfo m)
 		{
 			foreach (var im in m.Imports)
-			{
-				var (mod, _, _, _) = ParseImport(im.Args ?? "");
-				if (mod.Length > 0) yield return mod;
-			}
-		}
-
-		// Parses a `#import` argument: `(moduleName, alias, namedList, quoted)`. namedList is null if no `{ … }` is
-		// present, otherwise the comma-separated names inside the braces (a single `*` for wildcard).
-		private static (string mod, string alias, string named, bool quoted) ParseImport(string args)
-		{
-			args = args.Trim();
-			bool quoted = false;
-			string mod;
-			int i = 0;
-			if (i < args.Length && (args[i] == '"' || args[i] == '\''))
-			{
-				quoted = true;
-				var q = args[i]; i++;
-				int s = i;
-				while (i < args.Length && args[i] != q) i++;
-				mod = args.Substring(s, i - s);
-				if (i < args.Length) i++;
-			}
-			else
-			{
-				int s = i;
-				while (i < args.Length && (char.IsLetterOrDigit(args[i]) || args[i] == '_')) i++;
-				mod = args.Substring(s, i - s);
-			}
-			var rest = args.Substring(i).Trim();
-			string alias = null, named = null;
-			var brace = rest.IndexOf('{');
-			if (brace >= 0)
-			{
-				var end = rest.IndexOf('}', brace);
-				named = rest.Substring(brace + 1, (end < 0 ? rest.Length : end) - brace - 1).Trim();
-				rest = rest.Substring(0, brace).Trim();
-			}
-			if (rest.StartsWith("as ", System.StringComparison.OrdinalIgnoreCase))
-				alias = rest.Substring(3).Trim();
-			return (mod, alias, named, quoted);
+				if (im.Module.Length > 0) yield return im.Module;
 		}
 
 		private void ClearPerModuleState()
@@ -520,7 +476,7 @@ namespace Keysharp.Parsing.Syntax
 			var wild = new Dictionary<string, (string mod, string key, ExportK kind)>(System.StringComparer.OrdinalIgnoreCase);
 			foreach (var im in m.Imports)
 			{
-				var (modName, alias, named, quoted) = ParseImport(im.Args ?? "");
+				var (modName, alias, named, quoted) = (im.Module, im.Alias, im.Named, im.Quoted);
 				if (modName.Length == 0) continue;
 				if (!ModuleResolves(modName, byName))
 				{
@@ -633,7 +589,7 @@ namespace Keysharp.Parsing.Syntax
 				else if (s is HotkeyDef { Func: { } hkf }) { _userFuncByLower[hkf.Name.ToLowerInvariant()] = hkf.Name; }
 				else if (s is HotstringDef { Func: { } hsf }) { _userFuncByLower[hsf.Name.ToLowerInvariant()] = hsf.Name; }
 				else if (s is ClassDecl cd) { RegisterClass(cd); }
-				else if (s is DirectiveStmt dir && dir.Name.Equals("import", System.StringComparison.OrdinalIgnoreCase)) RegisterImport(dir);
+				else if (s is ImportDirective dir) RegisterImport(dir);
 			}
 			foreach (var lower in _userFuncByLower.Keys.ToList())
 				EnsureGlobalField(lower);
@@ -764,11 +720,11 @@ namespace Keysharp.Parsing.Syntax
 				&& typeof(Keysharp.Runtime.Module).IsAssignableFrom(t);
 		}
 
-		private void RegisterImport(DirectiveStmt d)
+		private void RegisterImport(ImportDirective d)
 		{
 			// The module name may be quoted or unquoted (`#import "Ks" {…}` and `#import Ks {…}` are both valid), and
-			// the brace list may be `{ * }` or named — ParseImport normalizes all of these.
-			var (modName, _, named, _) = ParseImport(d.Args ?? "");
+			// the brace list may be `{ * }` or named — the parser normalizes all of these onto ImportDirective.
+			var (modName, named) = (d.Module, d.Named);
 			if (modName.Length == 0) return;
 			if (!ModuleResolves(modName, null))
 			{
@@ -1599,8 +1555,8 @@ namespace Keysharp.Parsing.Syntax
 						.WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(mapArgs.Select(Arg))));
 				case ObjectExpr o: return LowerObject(o);
 				case FatArrowExpr fa: return LowerFatArrow(fa);
-				case DerefExpr dr:   // %name% read -> GetVar(name) (in a deref fn) or ModuleData.Vars[name] (global)
-					return _inDerefFunc ? Inv(Id("GetVar"), LowerExpr(dr.Name)) : VarsIndex(LowerExpr(dr.Name));
+				case DerefExpr dr:   // %name% read -> DerefGet(name) (in a deref fn) or ModuleData.Vars[name] (global)
+					return _inDerefFunc ? DerefGet(LowerExpr(dr.Name)) : VarsIndex(LowerExpr(dr.Name));
 				case CallExpr c: return LowerCall(c, statement: false);
 				default: Diag($"expression not yet lowerable: {e.GetType().Name}"); return Str("");
 			}
@@ -1612,8 +1568,8 @@ namespace Keysharp.Parsing.Syntax
 				return MakeRefFor(new AssignExpr(a.Op, amp.Operand, a.Value));
 			if (a.Target is DerefExpr dt)   // %name% := v -> SetVar(name,v) (in a deref fn) or SetObject(Vars,name,v) (global)
 			{
-				ExpressionSyntax DerefRead(ExpressionSyntax nm) => _inDerefFunc ? Inv(Id("GetVar"), nm) : VarsIndex(nm);
-				ExpressionSyntax DerefWrite(ExpressionSyntax nm, ExpressionSyntax v) => _inDerefFunc ? Inv(Id("SetVar"), nm, v) : VarsWrite(nm, v);
+				ExpressionSyntax DerefRead(ExpressionSyntax nm) => _inDerefFunc ? DerefGet(nm) : VarsIndex(nm);
+				ExpressionSyntax DerefWrite(ExpressionSyntax nm, ExpressionSyntax v) => _inDerefFunc ? DerefSet(nm, v) : VarsWrite(nm, v);
 				if (a.Op == ":=")
 					return DerefWrite(LowerExpr(dt.Name), LowerExpr(a.Value));
 				// Compound `%name% op= v`: capture the (possibly side-effecting) name once, then write op(read, v) back.
@@ -1819,7 +1775,7 @@ namespace Keysharp.Parsing.Syntax
 				case DerefExpr dr:   // %n%++ : write back through the deref machinery
 					read = LowerExpr(dr);
 					var inc = Op(op, LowerExpr(dr), Num("1"));
-					write = _inDerefFunc ? Inv(Id("SetVar"), LowerExpr(dr.Name), inc) : VarsWrite(LowerExpr(dr.Name), inc);
+					write = _inDerefFunc ? DerefSet(LowerExpr(dr.Name), inc) : VarsWrite(LowerExpr(dr.Name), inc);
 					break;
 				default:
 					Diag($"'{u.Op}' on {u.Operand.GetType().Name} not yet lowerable"); return Str("");
@@ -2484,7 +2440,7 @@ namespace Keysharp.Parsing.Syntax
 			var savedStatic = _currentMethodStatic; _currentMethodStatic = m.Static;
 			var savedCompat = _currentCompat;
 			_currentCompat = ScanRequires(m.Body?.Body) ?? _currentCompat;   // a `#Requires` in the method body sets its mode
-			var body = LowerCallableBody(paramLowers, m.Body, m.ArrowBody, implName, ByRefSet(m.Params), m.Params);
+			var body = LowerCallableBody(paramLowers, m.Body, m.ArrowBody, implName, m.Name, ByRefSet(m.Params), m.Params);
 			_inMethod = saved; _currentMethodStatic = savedStatic;
 			var attrs = new List<AttributeListSyntax>();
 			// Preserve the exact source-case name whenever the emitted C# identifier differs from it (the mangler
@@ -2512,7 +2468,7 @@ namespace Keysharp.Parsing.Syntax
 			if (pr.HasGet)
 			{
 				var savedM = _inMethod; var savedS = _currentMethodStatic; _inMethod = true; _currentMethodStatic = pr.Static;
-				var body = LowerCallableBody(new HashSet<string>(idxLowers), pr.GetBody, pr.GetArrow, getterName, ByRefSet(pr.Params), pr.Params);
+				var body = LowerCallableBody(new HashSet<string>(idxLowers), pr.GetBody, pr.GetArrow, getterName, pr.Name, ByRefSet(pr.Params), pr.Params);
 				_inMethod = savedM; _currentMethodStatic = savedS;
 				var ps = SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(Prepend(ThisParam(), IdxParams().ToArray())));
 				result.Add(ObjMethod(getterName, ps, body, Attr("Keysharp.Runtime.UserDeclaredName", Str(pr.Name))));
@@ -2521,7 +2477,7 @@ namespace Keysharp.Parsing.Syntax
 			{
 				var setParams = new HashSet<string>(idxLowers) { "value" };
 				var savedM = _inMethod; var savedS = _currentMethodStatic; _inMethod = true; _currentMethodStatic = pr.Static;
-				var body = LowerCallableBody(setParams, pr.SetBody, pr.SetArrow, setterName, ByRefSet(pr.Params), pr.Params);
+				var body = LowerCallableBody(setParams, pr.SetBody, pr.SetArrow, setterName, pr.Name, ByRefSet(pr.Params), pr.Params);
 				_inMethod = savedM; _currentMethodStatic = savedS;
 				var idx = IdxParams();
 				// `value` is always the LAST setter param, so a trailing `params object[]` index param drops `params`
@@ -2559,7 +2515,7 @@ namespace Keysharp.Parsing.Syntax
 			System.Func<ExpressionSyntax> savedAlias = null;
 			bool hadAlias = aliasInBody && _inlineAliases.TryGetValue(selfName, out savedAlias);
 			if (aliasInBody) _inlineAliases[selfName] = () => FuncBind(implName);
-			var body = LowerCallableBody(paramLowers, fa.BlockBody, fa.BlockBody == null ? fa.Body : null, implName, ByRefSet(fa.Params), fa.Params, capturing: true);
+			var body = LowerCallableBody(paramLowers, fa.BlockBody, fa.BlockBody == null ? fa.Body : null, implName, fa.Name ?? "", ByRefSet(fa.Params), fa.Params, capturing: true);
 			if (aliasInBody) { if (hadAlias) _inlineAliases[selfName] = savedAlias; else _inlineAliases.Remove(selfName); }
 			bool captured = _capturedInScope; _capturedInScope = savedCaptured;
 			_pendingScopeFuncs.Add(SyntaxFactory.LocalFunctionStatement(ObjType, SyntaxFactory.Identifier(implName))
@@ -2581,7 +2537,7 @@ namespace Keysharp.Parsing.Syntax
 			var savedCaptured = _capturedInScope; _capturedInScope = false;
 			var savedCompat = _currentCompat;
 			_currentCompat = ScanRequires(fd.Body?.Body) ?? _currentCompat;   // nested-function `#Requires` (restored after)
-			var body = LowerCallableBody(paramLowers, fd.Body, fd.ArrowBody, implName, ByRefSet(fd.Params), fd.Params, capturing: true, staticNested: fd.Static);
+			var body = LowerCallableBody(paramLowers, fd.Body, fd.ArrowBody, implName, fd.Name, ByRefSet(fd.Params), fd.Params, capturing: true, staticNested: fd.Static);
 			_currentCompat = savedCompat;
 			bool captured = _capturedInScope; _capturedInScope = savedCaptured;
 			_pendingScopeFuncs.Add(SyntaxFactory.LocalFunctionStatement(ObjType, SyntaxFactory.Identifier(implName))
@@ -2610,7 +2566,7 @@ namespace Keysharp.Parsing.Syntax
 		private string EmitHotCallback(Block body, string name)
 		{
 			var ps = new List<Param> { new Param("thishotkey", null, false, false, false) };
-			var lowered = LowerCallableBody(new HashSet<string> { "thishotkey" }, body, null, name);
+			var lowered = LowerCallableBody(new HashSet<string> { "thishotkey" }, body, null, name, name);
 			_hotMembers.Add(ObjMethod(name, ParamDecls(ps, includeThis: false), lowered));
 			return name;
 		}
@@ -2797,7 +2753,7 @@ namespace Keysharp.Parsing.Syntax
 			_currentCompat = ScanRequires(f.Body?.Body) ?? _currentCompat;   // a `#Requires` in the body sets this function's mode
 			var paramLowers = f.Params.Select(p => p.Name.ToLowerInvariant()).ToHashSet();
 			var implName = NameMangler.FunctionMethod(f.Name);
-			var body = LowerCallableBody(paramLowers, f.Body, f.ArrowBody, implName, ByRefSet(f.Params), f.Params);
+			var body = LowerCallableBody(paramLowers, f.Body, f.ArrowBody, implName, f.Name, ByRefSet(f.Params), f.Params);
 			var attrs = new List<AttributeListSyntax> { Attr("Keysharp.Runtime.UserDeclaredName", Str(f.Name)) };
 			attrs.AddRange(CompatAttr());
 			var method = ObjMethod(implName, ParamDecls(f.Params, includeThis: false, wrapVariadics: true), body, attrs.ToArray());
@@ -2847,7 +2803,9 @@ namespace Keysharp.Parsing.Syntax
 			return SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(list));
 		}
 
-		private BlockSyntax LowerCallableBody(HashSet<string> paramLowers, Block bodyBlock, Expr arrowBody, string funcName, HashSet<string> byRefParams = null, List<Param> paramDefaults = null, bool capturing = false, bool staticNested = false)
+		// funcName is the mangled C# method name (used for static-local field mangling); userName is the user-declared
+		// name passed to Script.EnterScope for the ListVars header (empty for an anonymous lambda).
+		private BlockSyntax LowerCallableBody(HashSet<string> paramLowers, Block bodyBlock, Expr arrowBody, string funcName, string userName, HashSet<string> byRefParams = null, List<Param> paramDefaults = null, bool capturing = false, bool staticNested = false)
 		{
 			// A `static` nested function resolves sibling nested-function names (so `static f2() => f1()` works) but does
 			// NOT capture the enclosing function's variable locals/statics (AHK semantics) — split those two facets here.
@@ -2937,12 +2895,37 @@ namespace Keysharp.Parsing.Syntax
 							SyntaxFactory.ObjectCreationExpression(Ty("Keysharp.Builtins.Array"))
 								.WithArgumentList(SyntaxFactory.ArgumentList(SyntaxFactory.SingletonSeparatedList(Arg(Id(VariadicRawName(p.Name))))))));
 
-			// If the body dereferences (%name%), expose this scope through local GetVar/SetVar functions
-			// (zero-alloc: they're only called, never converted to delegates). Globals/statics fall back
-			// to MainScript.ModuleData.Vars; the switch maps locals + statics by name directly.
+			// If the body dereferences (%name%), route those reads/writes through this scope's reader/writer delegates
+			// (KS_readVar/KS_writeVar, declared in the prologue below); a name that isn't a local/static/closure falls
+			// back to MainScript.ModuleData.Vars. The same reader also backs external access (callouts, ListVars).
 			var savedDeref = _inDerefFunc;
-			_inDerefFunc = (bodyBlock != null && bodyBlock.Body.Any(HasDerefStmt)) || (arrowBody != null && HasDerefExpr(arrowBody));
-			if (_inDerefFunc) body.AddRange(BuildDerefAccessors());
+			_inDerefFunc = BodyHas(bodyBlock, arrowBody, IsDeref);
+			// A function that calls a scope-consuming builtin also publishes its scope, even when the body never uses
+			// %name%. RegExMatch/RegExReplace only need it when the function HAS closures a callout could resolve by name
+			// (`_scopeClosureNames` — own nested functions plus captured enclosing ones); with none, the callout resolves
+			// globally and the scope would be pointless. ListVars needs it regardless, to display the function's locals.
+			// (LowerCallableBody is never the global scope, where globals are already shown.) Such a function publishes
+			// only the reader — with no in-body %name% write it needs no writer.
+			bool callsScopeApi = BodyHas(bodyBlock, arrowBody, IsListVarsTrigger)
+				|| (_scopeClosureNames.Count > 0 && BodyHas(bodyBlock, arrowBody, IsRegexTrigger));
+			bool exposeScope = _inDerefFunc || callsScopeApi;
+			// A writer is only needed when the body assigns a dynamic name (`%n% := v`, `%n%++`, `&%n%`); a read-only
+			// scope (including the RegExMatch/ListVars triggers) is a single reader function.
+			// INVARIANT: IsDerefWrite (via BodyHas) must match EVERY place the deref lowering can emit a DerefSet —
+			// i.e. wherever a DerefExpr appears in a write/ref position under `_inDerefFunc` (see LowerAssign, the ++/--
+			// path, and MakeRefFor's DerefExpr case). If a reachable write is missed here, KS_writeVar is never
+			// declared yet the body references it → CS0103. So a new statement/expression form in BodyHas's walk must
+			// stay in lockstep with the lowering's traversal (that is why BodyHas includes SpecialLoopStmt).
+			bool needsWriter = exposeScope && BodyHas(bodyBlock, arrowBody, IsDerefWrite);
+			if (exposeScope)
+			{
+				// The reader (and writer, if any) lambdas, bound to typed delegates so the in-body %name% access and
+				// the scope external callers read share the one delegate, then publish the scope. FuncObj.Call
+				// clears/restores executingUserFunc around the call, so no matching teardown is emitted here.
+				body.Add(LocalDecl(Ty("Keysharp.Runtime.FuncScope.Reader"), "KS_readVar", BuildReaderLambda()));
+				if (needsWriter) body.Add(LocalDecl(Ty("Keysharp.Runtime.FuncScope.Writer"), "KS_writeVar", BuildWriterLambda()));
+				body.Add(ExprStmt(Inv(Access("Keysharp.Runtime.Script.EnterScope"), Id("KS_readVar"), ScopeNamesLambda(), Str(userName ?? ""))));
+			}
 
 			// A by-ref param is read/written through its VarRef's __Value. Only when the caller OMITS an optional `&p`
 			// does it arrive null (by-ref defaults are declared as null, see ParamDecls) — substitute a VarRef holding
@@ -2993,19 +2976,30 @@ namespace Keysharp.Parsing.Syntax
 			return SyntaxFactory.Block(body);
 		}
 
-		// The `%name%` deref accessors for a function whose body dereferences. The core is a pair of Try* local functions
-		// that switch on the (lowercased) name over this scope's locals/statics/closures — Roslyn lowers the constant
-		// string switch to a hash jump table, so resolution is O(1) instead of an if-chain. GetVar/SetVar are thin
-		// wrappers that fall back to the global ModuleData.Vars store when the name isn't a known local. The Try* core
-		// (locals-only, found/not-found) is the same entry point external callers will use to read a running function's
-		// variables (ListVars) and resolve its named closures by name (e.g. RegEx callouts).
-		private IEnumerable<StatementSyntax> BuildDerefAccessors()
-		{
-			yield return BuildTryGetVar();
-			yield return BuildGetVar();
-			yield return BuildTrySetVar();
-			yield return BuildSetVar();
-		}
+		// The reader and writer over this scope's variables, each a lambda (assigned to a FuncScope.Reader/Writer
+		// delegate in the prologue) whose body is a constant-string switch expression — one arm per variable; Roslyn
+		// lowers it to a hash jump table, so resolution is O(1). A name that isn't one of the function's variables
+		// yields Script.DerefMiss, the signal for the runtime (DerefGet/DerefSet, FuncScope) to fall back to the global
+		// store:
+		//   FuncScope.Reader KS_readVar  = KS_name           => key switch { "a" => a, ..., _ => Script.DerefMiss };
+		//   FuncScope.Writer KS_writeVar = (KS_name, KS_val) => key switch { "a" => a = KS_val, ..., _ => Script.DerefMiss };
+		// The writer is emitted only when the body writes a dynamic name, so a read-only scope is a single reader.
+		private ExpressionSyntax BuildReaderLambda() =>
+			SyntaxFactory.SimpleLambdaExpression(SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_name")), BuildScopeSwitch(t => t));
+		private ExpressionSyntax BuildWriterLambda() =>
+			SyntaxFactory.ParenthesizedLambdaExpression(
+				SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(new[] { SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_name")), SyntaxFactory.Parameter(SyntaxFactory.Identifier("KS_val")) })),
+				BuildScopeSwitch(t => Assign(t, Id("KS_val"))));
+
+		private ExpressionSyntax BuildScopeSwitch(Func<ExpressionSyntax, ExpressionSyntax> arm) =>
+			SyntaxFactory.SwitchExpression(LowerKey(), SyntaxFactory.SeparatedList(
+				DerefArms().Select(a => SyntaxFactory.SwitchExpressionArm(SyntaxFactory.ConstantPattern(Str(a.key)), arm(a.target)))
+					.Append(SyntaxFactory.SwitchExpressionArm(SyntaxFactory.DiscardPattern(), Access("Keysharp.Runtime.Script.DerefMiss")))));
+
+		// `%name%` read/write inside a deref function body, routed through the runtime so the call sites stay tiny;
+		// KS_readVar/KS_writeVar are this function's reader/writer delegates (the prologue lambdas).
+		private static ExpressionSyntax DerefGet(ExpressionSyntax name) => Op("DerefGet", Id("KS_readVar"), name);
+		private static ExpressionSyntax DerefSet(ExpressionSyntax name, ExpressionSyntax value) => Op("DerefSet", Id("KS_writeVar"), name, value);
 
 		// The (key -> read/write target) arms shared by the Try* switches, in NameRef's resolution priority order
 		// (locals, statics, this scope's closures, then captured enclosing locals/statics), deduped so the switch never
@@ -3027,29 +3021,6 @@ namespace Keysharp.Parsing.Syntax
 			return arms;
 		}
 
-		// bool TryGetVar(object KS_name, out object KS_val) {
-		//   switch (ForceString(KS_name).ToLowerInvariant()) { case "<v>": KS_val = <v>; return true; ... default: KS_val = null; return false; } }
-		private StatementSyntax BuildTryGetVar()
-		{
-			var sections = new List<SwitchSectionSyntax>();
-			foreach (var (key, target) in DerefArms())
-				sections.Add(SwitchArm(key, ExprStmt(Assign(Id("KS_val"), target)), SyntaxFactory.ReturnStatement(BoolLit(true))));
-			sections.Add(DefaultArm(ExprStmt(Assign(Id("KS_val"), Null)), SyntaxFactory.ReturnStatement(BoolLit(false))));
-			var body = SyntaxFactory.Block(SyntaxFactory.SwitchStatement(LowerKey(), SyntaxFactory.List(sections)));
-			return TypedLocalFunc(BoolType, "TryGetVar", body, Param("KS_name", ObjType), OutParam("KS_val", ObjType));
-		}
-
-		// object GetVar(object KS_name) { if (TryGetVar(KS_name, out var KS_v)) return KS_v; return MainScript.ModuleData.Vars[KS_name]; }
-		private StatementSyntax BuildGetVar()
-		{
-			var tryCall = SyntaxFactory.InvocationExpression(Id("TryGetVar"),
-				SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(new[] { Arg(Id("KS_name")), OutVar("KS_v") })));
-			var body = SyntaxFactory.Block(
-				SyntaxFactory.IfStatement(tryCall, SyntaxFactory.ReturnStatement(Id("KS_v"))),
-				SyntaxFactory.ReturnStatement(VarsIndex(Id("KS_name"))));
-			return TypedLocalFunc(ObjType, "GetVar", body, Param("KS_name", ObjType));
-		}
-
 		// MainScript.ModuleData.Vars[name] — the global dynamic-variable store. Read and write go through the same
 		// C# indexer so a deref write (`%n% := v`, `y%x%++`) and a later read see the same value (the field slot).
 		private static ExpressionSyntax VarsIndex(ExpressionSyntax name) =>
@@ -3060,85 +3031,87 @@ namespace Keysharp.Parsing.Syntax
 		// as a sub-expression (e.g. inside MultiStatement(...) or `z := y%x%++`).
 		private static ExpressionSyntax VarsWrite(ExpressionSyntax name, ExpressionSyntax value) => Assign(VarsIndex(name), value);
 
-		// bool TrySetVar(object KS_name, object KS_val) {
-		//   switch (ForceString(KS_name).ToLowerInvariant()) { case "<v>": <v> = KS_val; return true; ... default: return false; } }
-		private StatementSyntax BuildTrySetVar()
-		{
-			var sections = new List<SwitchSectionSyntax>();
-			foreach (var (key, target) in DerefArms())
-				sections.Add(SwitchArm(key, ExprStmt(Assign(target, Id("KS_val"))), SyntaxFactory.ReturnStatement(BoolLit(true))));
-			sections.Add(DefaultArm(SyntaxFactory.ReturnStatement(BoolLit(false))));
-			var body = SyntaxFactory.Block(SyntaxFactory.SwitchStatement(LowerKey(), SyntaxFactory.List(sections)));
-			return TypedLocalFunc(BoolType, "TrySetVar", body, Param("KS_name", ObjType), Param("KS_val", ObjType));
-		}
-
-		// object SetVar(object KS_name, object KS_val) { if (!TrySetVar(KS_name, KS_val)) MainScript.ModuleData.Vars[KS_name] = KS_val; return KS_val; }
-		private StatementSyntax BuildSetVar()
-		{
-			var notSet = SyntaxFactory.PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, Inv(Id("TrySetVar"), Id("KS_name"), Id("KS_val")));
-			var body = SyntaxFactory.Block(
-				SyntaxFactory.IfStatement(notSet, ExprStmt(VarsWrite(Id("KS_name"), Id("KS_val")))),
-				SyntaxFactory.ReturnStatement(Id("KS_val")));
-			return TypedLocalFunc(ObjType, "SetVar", body, Param("KS_name", ObjType), Param("KS_val", ObjType));
-		}
-
 		private static ExpressionSyntax LowerKey() => Inv(Member(Op("ForceString", Id("KS_name")), "ToLowerInvariant"));
-		private static readonly TypeSyntax BoolType = SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.BoolKeyword));
-
-		// switch arm `case "<key>": <body>` (the body terminates the section via return; AHK names never fall through).
-		private static SwitchSectionSyntax SwitchArm(string caseKey, params StatementSyntax[] body) =>
-			SyntaxFactory.SwitchSection(SyntaxFactory.SingletonList<SwitchLabelSyntax>(SyntaxFactory.CaseSwitchLabel(Str(caseKey))), SyntaxFactory.List(body));
-		private static SwitchSectionSyntax DefaultArm(params StatementSyntax[] body) =>
-			SyntaxFactory.SwitchSection(SyntaxFactory.SingletonList<SwitchLabelSyntax>(SyntaxFactory.DefaultSwitchLabel()), SyntaxFactory.List(body));
-		private static LiteralExpressionSyntax BoolLit(bool v) =>
-			SyntaxFactory.LiteralExpression(v ? SyntaxKind.TrueLiteralExpression : SyntaxKind.FalseLiteralExpression);
 
 		private static ParameterSyntax Param(string name, TypeSyntax type) =>
 			SyntaxFactory.Parameter(SyntaxFactory.Identifier(name)).WithType(type);
-		private static ParameterSyntax OutParam(string name, TypeSyntax type) =>
-			Param(name, type).WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.OutKeyword)));
-		// `out var <name>` call argument.
-		private static ArgumentSyntax OutVar(string name) =>
-			SyntaxFactory.Argument(null, SyntaxFactory.Token(SyntaxKind.OutKeyword),
-				SyntaxFactory.DeclarationExpression(SyntaxFactory.IdentifierName("var"), SyntaxFactory.SingleVariableDesignation(SyntaxFactory.Identifier(name))));
-		private static StatementSyntax TypedLocalFunc(TypeSyntax retType, string name, BlockSyntax body, params ParameterSyntax[] ps) =>
-			SyntaxFactory.LocalFunctionStatement(retType, SyntaxFactory.Identifier(name))
-				.WithParameterList(SyntaxFactory.ParameterList(SyntaxFactory.SeparatedList(ps)))
-				.WithBody(body);
 
-		private static bool HasDerefStmt(Stmt s) => s switch
+		// `() => new string[] { "<name>", ... }` over this scope's variable names — passed to Script.EnterScope so
+		// ListVars can enumerate the running function's locals. Non-capturing, so the C# compiler caches the delegate;
+		// the array is only built if something actually enumerates the scope.
+		private ExpressionSyntax ScopeNamesLambda() =>
+			SyntaxFactory.ParenthesizedLambdaExpression().WithExpressionBody(StrArrayCreation(DerefArms().Select(a => a.key)));
+
+		private static ExpressionSyntax StrArrayCreation(IEnumerable<string> values)
 		{
-			ExpressionStmt es => HasDerefExpr(es.Expr),
-			ReturnStmt r => r.Value != null && HasDerefExpr(r.Value),
-			Block b => b.Body.Any(HasDerefStmt),
-			IfStmt iff => HasDerefExpr(iff.Cond) || HasDerefStmt(iff.Then) || (iff.Else != null && HasDerefStmt(iff.Else)),
-			WhileStmt w => HasDerefExpr(w.Cond) || HasDerefStmt(w.Body),
-			LoopStmt lp => (lp.Count != null && HasDerefExpr(lp.Count)) || HasDerefStmt(lp.Body),
-			ForStmt fr => HasDerefExpr(fr.Enumerable) || HasDerefStmt(fr.Body),
-			SwitchStmt sw => HasDerefExpr(sw.Value) || sw.Cases.Any(c => c.Values.Any(HasDerefExpr) || c.Body.Any(HasDerefStmt)) || (sw.Default != null && sw.Default.Any(HasDerefStmt)),
-			TryStmt tr => HasDerefStmt(tr.Body) || tr.Catches.Any(cb => HasDerefStmt(cb.Body)) || (tr.Else != null && HasDerefStmt(tr.Else)) || (tr.Finally != null && HasDerefStmt(tr.Finally)),
-			ThrowStmt th => th.Value != null && HasDerefExpr(th.Value),
-			DeclStmt d => d.Items.Any(HasDerefExpr),
+			var arrType = SyntaxFactory.ArrayType(SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)))
+				.WithRankSpecifiers(SyntaxFactory.SingletonList(SyntaxFactory.ArrayRankSpecifier(
+					SyntaxFactory.SingletonSeparatedList<ExpressionSyntax>(SyntaxFactory.OmittedArraySizeExpression()))));
+			return SyntaxFactory.ArrayCreationExpression(arrType,
+				SyntaxFactory.InitializerExpression(SyntaxKind.ArrayInitializerExpression,
+					SyntaxFactory.SeparatedList(values.Select(v => (ExpressionSyntax)Str(v)))));
+		}
+
+		// Generic "does any node in this scope's OWN body satisfy <pred>?" walk, shared by the deref / scope-trigger /
+		// deref-write checks below. It walks control flow and the whole expression tree but NOT into nested
+		// functions/closures (no FatArrowExpr / FunctionDecl cases) — a nested construct belongs to that nested scope,
+		// which is analysed when it is lowered. <pred> is tested on every node; the switch only handles recursion.
+		private static bool BodyHas(Block body, Expr arrow, Func<Expr, bool> pred) =>
+			(body != null && body.Body.Any(s => AnyStmt(s, pred))) || AnyExpr(arrow, pred);
+
+		private static bool AnyStmt(Stmt s, Func<Expr, bool> pred) => s switch
+		{
+			ExpressionStmt es => AnyExpr(es.Expr, pred),
+			ReturnStmt r => AnyExpr(r.Value, pred),
+			Block b => b.Body.Any(x => AnyStmt(x, pred)),
+			IfStmt iff => AnyExpr(iff.Cond, pred) || AnyStmt(iff.Then, pred) || (iff.Else != null && AnyStmt(iff.Else, pred)),
+			// Each loop also lowers its trailing `Until` condition (WrapLoopBody) and `Else` body (LoopFinally), so a
+			// %name% / scope-trigger / deref-write confined to either must be seen here too — else _inDerefFunc /
+			// needsWriter would be wrong (mislowering, or a missing KS_writeVar → CS0103). AnyExpr tolerates nulls.
+			WhileStmt w => AnyExpr(w.Cond, pred) || AnyStmt(w.Body, pred) || AnyExpr(w.Until, pred) || (w.Else != null && AnyStmt(w.Else, pred)),
+			LoopStmt lp => AnyExpr(lp.Count, pred) || AnyStmt(lp.Body, pred) || AnyExpr(lp.Until, pred) || (lp.Else != null && AnyStmt(lp.Else, pred)),
+			ForStmt fr => AnyExpr(fr.Enumerable, pred) || AnyStmt(fr.Body, pred) || AnyExpr(fr.Until, pred) || (fr.Else != null && AnyStmt(fr.Else, pred)),
+			SpecialLoopStmt slp => (slp.Args != null && slp.Args.Any(a => AnyExpr(a, pred))) || AnyStmt(slp.Body, pred) || AnyExpr(slp.Until, pred) || (slp.Else != null && AnyStmt(slp.Else, pred)),
+			SwitchStmt sw => AnyExpr(sw.Value, pred) || sw.Cases.Any(c => c.Values.Any(v => AnyExpr(v, pred)) || c.Body.Any(x => AnyStmt(x, pred))) || (sw.Default != null && sw.Default.Any(x => AnyStmt(x, pred))),
+			TryStmt tr => AnyStmt(tr.Body, pred) || tr.Catches.Any(cb => AnyStmt(cb.Body, pred)) || (tr.Else != null && AnyStmt(tr.Else, pred)) || (tr.Finally != null && AnyStmt(tr.Finally, pred)),
+			ThrowStmt th => AnyExpr(th.Value, pred),
+			DeclStmt d => d.Items.Any(x => AnyExpr(x, pred)),
 			_ => false
 		};
 
-		private static bool HasDerefExpr(Expr e) => e switch
+		private static bool AnyExpr(Expr e, Func<Expr, bool> pred) => e != null && (pred(e) || e switch
 		{
-			DerefExpr => true,
-			BinaryExpr b => HasDerefExpr(b.Left) || HasDerefExpr(b.Right),
-			UnaryExpr u => HasDerefExpr(u.Operand),
-			AssignExpr a => HasDerefExpr(a.Target) || HasDerefExpr(a.Value),
-			TernaryExpr t => HasDerefExpr(t.Cond) || HasDerefExpr(t.Then) || HasDerefExpr(t.Else),
-			GroupExpr g => HasDerefExpr(g.Inner),
-			SequenceExpr seq => seq.Items.Any(HasDerefExpr),
-			CallExpr c => HasDerefExpr(c.Callee) || c.Args.Any(ar => ar.Value != null && HasDerefExpr(ar.Value)),
-			MemberExpr m => HasDerefExpr(m.Target),
-			DynMemberExpr dm => HasDerefExpr(dm.Target) || HasDerefExpr(dm.NameExpr),
-			IndexExpr ix => HasDerefExpr(ix.Target) || ix.Args.Any(ar => ar.Value != null && HasDerefExpr(ar.Value)),
-			ArrayExpr ar => ar.Elements.Any(el => el.Value != null && HasDerefExpr(el.Value)),
-			ObjectExpr o => o.Entries.Any(en => HasDerefExpr(en.Key) || HasDerefExpr(en.Value)),
+			BinaryExpr b => AnyExpr(b.Left, pred) || AnyExpr(b.Right, pred),
+			UnaryExpr u => AnyExpr(u.Operand, pred),
+			AssignExpr a => AnyExpr(a.Target, pred) || AnyExpr(a.Value, pred),
+			TernaryExpr t => AnyExpr(t.Cond, pred) || AnyExpr(t.Then, pred) || AnyExpr(t.Else, pred),
+			GroupExpr g => AnyExpr(g.Inner, pred),
+			SequenceExpr seq => seq.Items.Any(x => AnyExpr(x, pred)),
+			CallExpr c => AnyExpr(c.Callee, pred) || c.Args.Any(ar => AnyExpr(ar.Value, pred)),
+			MemberExpr m => AnyExpr(m.Target, pred),
+			DynMemberExpr dm => AnyExpr(dm.Target, pred) || AnyExpr(dm.NameExpr, pred),
+			IndexExpr ix => AnyExpr(ix.Target, pred) || ix.Args.Any(ar => AnyExpr(ar.Value, pred)),
+			ArrayExpr ar => ar.Elements.Any(el => AnyExpr(el.Value, pred)),
+			ObjectExpr o => o.Entries.Any(en => AnyExpr(en.Key, pred) || AnyExpr(en.Value, pred)),
 			_ => false
-		};
+		});
+
+		// A %name% dereference — in-body reads/writes route through the function's scope (DerefGet/DerefSet).
+		private static bool IsDeref(Expr e) => e is DerefExpr;
+
+		// Calls to builtins that consume the executing-function scope, even when the body never uses %name%.
+		// RegExMatch/RegExReplace: a callout can resolve this function's closures by name — but only worth a scope when
+		// the function actually has closures (gated at the call site). ListVars: display this function's locals.
+		private static readonly HashSet<string> RegexTriggerCallees = new(System.StringComparer.OrdinalIgnoreCase)
+		{ "RegExMatch", "RegExReplace" };
+		private static bool IsRegexTrigger(Expr e) => e is CallExpr c && c.Callee is NameExpr ne && RegexTriggerCallees.Contains(ne.Name);
+		private static bool IsListVarsTrigger(Expr e) => e is CallExpr c && c.Callee is NameExpr ne && ne.Name.Equals("ListVars", System.StringComparison.OrdinalIgnoreCase);
+
+		// An assignment to a dynamically-named variable (`%n% := v` / `%n% op= v`, `%n%++/--`, `&%n%`) — i.e. the scope
+		// needs a WRITER, not just a reader.
+		private static bool IsDerefWrite(Expr e) =>
+			(e is AssignExpr a && a.Target is DerefExpr)
+			|| (e is UnaryExpr u && (u.Op == "++" || u.Op == "--" || u.Op == "&") && u.Operand is DerefExpr);
 
 		private void PrescanDecls(Stmt s, HashSet<string> fg, HashSet<string> el, Dictionary<string, string> st, string funcName)
 		{
@@ -3555,9 +3528,9 @@ namespace Keysharp.Parsing.Syntax
 					var refArgs = new List<ExpressionSyntax> { LowerExpr(ie.Target), Str("__Ref"), Str("__Item") };
 					refArgs.AddRange(LowerArgs(ie.Args));
 					return Op("Invoke", refArgs.ToArray());
-				case DerefExpr dr:   // &%name% : ref to a dynamically-named variable, through GetVar/SetVar or ModuleData.Vars
+				case DerefExpr dr:   // &%name% : ref to a dynamically-named variable, through DerefGet/DerefSet or ModuleData.Vars
 					if (_inDerefFunc)
-						return MakeVarRefGS(Inv(Id("GetVar"), LowerExpr(dr.Name)), Inv(Id("SetVar"), LowerExpr(dr.Name), Id("KS_value")));
+						return MakeVarRefGS(DerefGet(LowerExpr(dr.Name)), DerefSet(LowerExpr(dr.Name), Id("KS_value")));
 					return MakeVarRefGS(VarsIndex(LowerExpr(dr.Name)), VarsWrite(LowerExpr(dr.Name), Id("KS_value")));
 				case GroupExpr g:
 					return MakeRefFor(g.Inner);

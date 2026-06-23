@@ -410,7 +410,7 @@ namespace Keysharp.Internals.Invoke
 		internal static MethodPropertyHolder FindMethod(string name, int paramCount)
 		{
 			var script = TheScript;
-			if (script.Vars.globalVars.TryGetValue(name, out var mph) && mph != null)
+			if (script.Vars.GlobalVars.TryGetValue(name, out var mph) && mph != null)
 			{
 				var val = mph.CallFunc(null, null);
 				if (val is FuncObj fo)

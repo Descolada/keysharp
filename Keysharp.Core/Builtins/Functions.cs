@@ -47,6 +47,16 @@ namespace Keysharp.Builtins
 			{
 				if (s.Length > 0)
 				{
+					// A currently-executing deref function exposes its locals/closures by name. Resolve a closure (a
+					// live FuncObj instance, possibly capturing locals) ahead of the module/global tables — these are
+					// per-invocation and must never be cached. Only for a bare name (no explicit object/module target).
+					if (eventObj == null)
+					{
+						var scope = Script.executingUserFunc;
+						if (scope != null && scope.TryGetVar(s, out var scopeVal) && scopeVal is IFuncObj scopeFo && scopeFo.IsValid)
+							return scopeFo;
+					}
+
 					if (moduleType != null)
 					{
 						var key = new ModuleFuncKey(s, moduleType, paramCount.Ai(-1));

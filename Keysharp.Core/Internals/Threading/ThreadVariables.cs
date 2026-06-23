@@ -90,6 +90,12 @@ namespace Keysharp.Internals.Threading
 		// rarely read, so parking a factory lets producers (hook events, PCRE callouts) skip constructing the
 		// value unless the script actually inspects it. Use SetEventInfo to park a lazy value.
 		internal object eventInfo;
+		// The executing-function scope (Script.executingUserFunc) that was current when this pseudo-thread was
+		// pushed, parked here by Threads.TryPushThreadVariables and restored by PopThreadVariables. The scope itself
+		// lives [ThreadStatic] on Script (off the hot call path — see Script.executingUserFunc); this is only the
+		// per-pseudo-thread save slot used at the interrupt boundary, so an interrupting thread (timer/hotkey) starts
+		// with no scope and the interrupted one is restored on return.
+		internal Keysharp.Runtime.FuncScope savedExecScope;
 		internal IFuncObj hotCriterion;
 		internal long hwndLastUsed = 0;
 		internal long lastFoundForm;
@@ -126,6 +132,7 @@ namespace Keysharp.Internals.Threading
 			defaultGui = null;
 			dialogOwner = null;
 			eventInfo = null;
+			savedExecScope = null;
 			hotCriterion = null;
 			hwndLastUsed = 0;
 			lastFoundForm = 0L;
@@ -149,6 +156,7 @@ namespace Keysharp.Internals.Threading
 			defaultGui = null;
 			dialogOwner = null;
 			eventInfo = null;
+			savedExecScope = null;
 			hotCriterion = null;
 			hwndLastUsed = 0;
 			lastFoundForm = 0;

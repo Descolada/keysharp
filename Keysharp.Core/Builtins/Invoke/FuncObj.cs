@@ -270,6 +270,16 @@ namespace Keysharp.Builtins
 			var previousModule = md != null ? md.Push(moduleType, out moduleChanged) : null;
 			var previousCompatibility = compatibilityVersion != null ? script.CurrentCompatibilityVersion : null;
 
+			// A user function (moduleType != null) brackets the executing-function scope on the call stack: clear on
+			// entry so a non-deref callee never inherits the caller's scope (a deref callee's prologue, Script.EnterScope,
+			// reinstalls its own), restore on return. Builtins take the fast path above and keep the caller's scope, so
+			// RegExMatch and its callouts resolve the calling function's closures by name. The scope is [ThreadStatic],
+			// so this is plain field access — no per-call CurrentThread lookup.
+			var enterUserScope = moduleType != null;
+			var previousScope = enterUserScope ? Script.executingUserFunc : null;
+			if (enterUserScope)
+				Script.executingUserFunc = null;
+
 			if (compatibilityVersion != null)
 				script.SetCurrentCompatibilityVersion(compatibilityVersion);
 
@@ -279,6 +289,9 @@ namespace Keysharp.Builtins
 			}
 			finally
 			{
+				if (enterUserScope)
+					Script.executingUserFunc = previousScope;
+
 				if (compatibilityVersion != null)
 					script.SetCurrentCompatibilityVersion(previousCompatibility);
 
@@ -303,6 +316,14 @@ namespace Keysharp.Builtins
 			var previousModule = md != null ? md.Push(moduleType, out moduleChanged) : null;
 			var previousCompatibility = compatibilityVersion != null ? script.CurrentCompatibilityVersion : null;
 
+			// See Call: bracket the executing-function scope for a user function (its prologue reinstalls one if it
+			// derefs); leave it intact for builtins so callouts can read the calling function's closures. [ThreadStatic]
+			// field access — no per-call CurrentThread lookup.
+			var enterUserScope = moduleType != null;
+			var previousScope = enterUserScope ? Script.executingUserFunc : null;
+			if (enterUserScope)
+				Script.executingUserFunc = null;
+
 			if (compatibilityVersion != null)
 				script.SetCurrentCompatibilityVersion(compatibilityVersion);
 
@@ -312,6 +333,9 @@ namespace Keysharp.Builtins
 			}
 			finally
 			{
+				if (enterUserScope)
+					Script.executingUserFunc = previousScope;
+
 				if (compatibilityVersion != null)
 					script.SetCurrentCompatibilityVersion(previousCompatibility);
 

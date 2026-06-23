@@ -266,7 +266,16 @@ namespace Keysharp.Parsing
 				node.ParameterList
 			);
 
-			Visit(node.Body);
+			if (node.Body != null)
+				Visit(node.Body);
+			else if (node.ExpressionBody != null)
+			{
+				// `<header> => expr;` — the header line added a trailing newline; continue it for the arrow body.
+				TrimTrailingNewLine();
+				_sb.Append(" => ");
+				Visit(node.ExpressionBody.Expression);
+				_sb.AppendLine(";");
+			}
 		}
 
 
@@ -921,6 +930,47 @@ namespace Keysharp.Parsing
 			_sb.AppendLine("}");
 		}
 
+		// <governing> switch
+		// {
+		//     <pattern> => <value>,
+		//     ...
+		// }
+		// The braces align with the construct that holds the switch expression (its current indent), arms one deeper.
+		public override void VisitSwitchExpression(SwitchExpressionSyntax node)
+		{
+			Visit(node.GoverningExpression);
+			TrimTrailingSpace();
+			_sb.AppendLine(" switch");
+			WriteIndent();
+			_sb.AppendLine("{");
+			_indent++;
+			var arms = node.Arms;
+			for (int i = 0; i < arms.Count; i++)
+			{
+				WriteIndent();
+				Visit(arms[i]);
+				TrimTrailingSpace();
+				_sb.AppendLine(i < arms.Count - 1 ? "," : string.Empty);
+			}
+			_indent--;
+			WriteIndent();
+			_sb.Append("}");
+		}
+
+		public override void VisitSwitchExpressionArm(SwitchExpressionArmSyntax node)
+		{
+			Visit(node.Pattern);
+			TrimTrailingSpace();
+			if (node.WhenClause != null)
+			{
+				_sb.Append(" when ");
+				Visit(node.WhenClause.Condition);
+				TrimTrailingSpace();
+			}
+			_sb.Append(" => ");
+			Visit(node.Expression);
+		}
+
 		public override void VisitSwitchSection(SwitchSectionSyntax node)
 		{
 			foreach (var label in node.Labels)
@@ -1367,7 +1417,8 @@ namespace Keysharp.Parsing
 				or BlockSyntax _
 					=> true,
 
-				LocalFunctionStatementSyntax _ => true,
+				// Block-bodied local functions get a trailing blank line (matching Roslyn); arrow-bodied ones end in `;`.
+			LocalFunctionStatementSyntax lf => lf.Body != null,
 
 				_ => false
 			};

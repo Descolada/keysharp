@@ -131,3 +131,34 @@ If (x == 1)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+x := 1
+y := "x"
+
+; Regression (Lowerer.AnyStmt): a %name% deref confined to a loop's ELSE clause must still bind to the
+; function's local scope. The lowering walks the Else body (LoopFinally), so scope detection (BodyHas) must
+; too — otherwise the write mislowers to the global store and the local is never set.
+loopelsederef()
+{
+	x := 2
+	y := "x"
+	loop 0          ; body runs zero times, so the else clause runs
+	{
+		x := 9
+	}
+	else
+	{
+		%y% := 123   ; deref-write appearing only inside the else
+	}
+	If (x == 123)   ; the write landed in the function's local x
+		FileAppend "pass", "*"
+	else
+		FileAppend "fail", "*"
+}
+
+loopelsederef()
+
+If (x == 1)         ; ...and did not leak to the global x
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"

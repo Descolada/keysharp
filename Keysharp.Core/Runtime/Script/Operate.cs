@@ -860,6 +860,45 @@ namespace Keysharp.Runtime
             variable = initFunc();
         }
 
+		// The scope of the user function currently executing on this thread, or null when none publishes one (a
+		// non-deref function, a builtin, or before any function runs). It is a pure call-stack concern: FuncObj.Call
+		// brackets it with a local (clear on entry, restore on return) — which nests exactly like a synchronous
+		// callout or a nested call — and the pseudo-thread push/pop (Threads.TryPushThreadVariables / PopThreadVariables)
+		// resets and restores it across an interrupt boundary. Held [ThreadStatic] rather than on ThreadVariables so the
+		// hot call path needs no CurrentThread lookup; null is the correct default for every thread. Read by RegEx-callout
+		// closure resolution (Functions.GetFuncObj) and ListVars (Debug.GetVars via MainWindow), always on the owning thread.
+		[ThreadStatic] internal static FuncScope executingUserFunc;
+
+		// Installs the executing-function scope for the current thread. Emitted into the prologue of any scope-publishing
+		// function so external code can resolve its locals/closures by name (and ListVars can show them). The Lowerer
+		// passes the function's user-declared name (the scope's only identity detail — used for the ListVars header),
+		// so EnterScope reads nothing from thread state. FuncObj.Call clears the scope on entry to and restores it on
+		// return from every user function, so no matching "leave" call is needed here.
+		public static void EnterScope(FuncScope.Reader reader, Func<string[]> namesFactory, string name) =>
+			executingUserFunc = new FuncScope(name, reader, namesFactory);
+
+		// Sentinel a scope reader/writer returns when the name isn't one of the function's variables (so DerefGet/
+		// DerefSet, and FuncScope, fall back to the module/global store). A private unique object — never a script value.
+		public static readonly object DerefMiss = new object();
+
+		// `%name%` read inside a deref function body: resolve through the function's reader, falling back to the
+		// module/global store when the name isn't one of the function's variables. `reader` is the cached per-function
+		// delegate (KS_r), so this also carries escaping `&%name%` references correctly.
+		public static object DerefGet(FuncScope.Reader reader, object name)
+		{
+			var v = reader(name);
+			return ReferenceEquals(v, DerefMiss) ? TheScript.ModuleData.Vars[name] : v;
+		}
+
+		// `%name% := value` inside a deref function body; mirrors DerefGet's fallback. Returns value so it composes
+		// as an expression (e.g. `x := (%name% := v)`).
+		public static object DerefSet(FuncScope.Writer writer, object name, object value)
+		{
+			if (ReferenceEquals(writer(name, value), DerefMiss))
+				TheScript.ModuleData.Vars[name] = value;
+			return value;
+		}
+
 
 		// Unary operators
 		public static object Plus(object right) => right;

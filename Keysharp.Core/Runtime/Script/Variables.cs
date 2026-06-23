@@ -14,9 +14,16 @@ namespace Keysharp.Runtime
 		private readonly Dictionary<string, Type> classTypesByName = new(StringComparer.OrdinalIgnoreCase);
         internal List<(string, bool)> preloadedDlls = [];
 		internal DateTime startTime = DateTime.UtcNow;
-		internal readonly Dictionary<string, MethodPropertyHolder> globalVars;
 		private readonly OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>> moduleVars;
-		private readonly List<Type> moduleTypes = new();
+		// Defensive fallback for a script with no modules at all (the generated program always has the main module,
+		// so this is effectively never used).
+		private Dictionary<string, MethodPropertyHolder> programVars;
+		// The variable store for the module currently executing on this thread (the main module when none is active,
+		// e.g. on the UI thread). Replaces the former standalone globalVars field, which was only ever an alias of
+		// the main module's store.
+		internal Dictionary<string, MethodPropertyHolder> GlobalVars => GetModuleVars(TheScript.CurrentModuleType);
+		// All modules and their global-variable stores, in declaration order, for ListVars.
+		internal IEnumerable<KeyValuePair<Type, Dictionary<string, MethodPropertyHolder>>> AllModuleVars => moduleVars;
 		private readonly Type defaultModuleType;
 		internal Type DefaultModuleType => defaultModuleType;
 
@@ -26,10 +33,6 @@ namespace Keysharp.Runtime
 			if (moduleVars.Count == 0)
 				return;
 			defaultModuleType = moduleVars.Keys.FirstOrDefault(t => t.Name.Equals(Keywords.MainModuleName, StringComparison.OrdinalIgnoreCase)) ?? moduleVars.First().Key;
-			if (defaultModuleType != null && moduleVars.TryGetValue(defaultModuleType, out var defaultVars))
-				globalVars = defaultVars;
-			else
-				globalVars = GatherTypeVariables(TheScript.ProgramType);
 		}
 
 		[Flags]
@@ -102,17 +105,6 @@ namespace Keysharp.Runtime
 		private static bool IsModuleType(Type type) =>
 			typeof(Module).IsAssignableFrom(type);
 
-		internal Type ResolveModuleType(Type type)
-		{
-			for (var cur = type; cur != null; cur = cur.DeclaringType)
-			{
-				if (IsModuleType(cur))
-					return cur;
-			}
-
-			return defaultModuleType;
-		}
-
 		private static OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>> GatherModuleVariables(Type programType)
 		{
 			var map = new OrderedDictionary<Type, Dictionary<string, MethodPropertyHolder>>();
@@ -128,8 +120,11 @@ namespace Keysharp.Runtime
 
 		internal Dictionary<string, MethodPropertyHolder> GetModuleVars(Type moduleType)
 		{
+			// A null module means "the global scope": resolve to the main module's store. Only a script with no
+			// modules at all (never in practice) has nothing to resolve to; gather from the program type then.
+			moduleType ??= defaultModuleType;
 			if (moduleType == null)
-				return globalVars;
+				return programVars ??= GatherTypeVariables(TheScript.ProgramType);
 
 			if (moduleVars.TryGetValue(moduleType, out var vars))
 				return vars;
@@ -308,10 +303,7 @@ namespace Keysharp.Runtime
 			return false;
 		}
 
-		public bool HasVariable(string key) =>
-			globalVars.ContainsKey(key)
-			|| Script.TheScript.ReflectionsData.flatPublicStaticProperties.ContainsKey(key)
-			|| Script.TheScript.ReflectionsData.flatPublicStaticMethods.ContainsKey(key);
+		public bool HasVariable(string key) => HasVariable(TheScript.CurrentModuleType, key);
 
 		public bool HasVariable(Type moduleType, string key)
 		{
@@ -321,21 +313,7 @@ namespace Keysharp.Runtime
 				|| Script.TheScript.ReflectionsData.flatPublicStaticMethods.ContainsKey(key);
 		}
 
-		public object GetVariable(string key)
-		{
-			if (globalVars.TryGetValue(key, out var mph))
-				return mph.CallFunc(null, null);
-
-			var rv = GetReservedVariable(key); // Try reserved variable first, to take precedence over IFuncObj
-			if (rv != null)
-				return rv;
-
-			if (TryGetClassValue(key, out var classValue))
-				return classValue;
-
-			return Functions.GetFuncObj(key, null);
-
-        }
+		public object GetVariable(string key) => GetVariable(TheScript.CurrentModuleType, key);
 
 		public object GetVariable(Type moduleType, string key, bool exportsOnly = false)
 		{
@@ -353,15 +331,7 @@ namespace Keysharp.Runtime
 			return Functions.Func(key, moduleType);
 		}
 
-		public object SetVariable(string key, object value)
-		{
-			if (globalVars.TryGetValue(key, out var mph))
-				SetMemberValue(mph, value);
-			else
-				_ = SetReservedVariable(key, value);
-
-			return value;
-		}
+		public object SetVariable(string key, object value) => SetVariable(TheScript.CurrentModuleType, key, value);
 
 		public object SetVariable(Type moduleType, string key, object value)
 		{
@@ -427,116 +397,5 @@ namespace Keysharp.Runtime
 			get => GetPropertyValueOrNull(key, "__Value") ?? GetVariable(key.ToString()) ?? "";
 			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1) ? Script.SetPropertyValue(kso, "__Value", value) : SetVariable(key.ToString(), value);
 		}
-
-			public class Dereference
-			{
-			private readonly Dictionary<string, object> locals = new(StringComparer.OrdinalIgnoreCase);
-			private readonly Dereference parent;
-			private eScope scope = eScope.Local;
-			private HashSet<string> globals;
-			private Dictionary<string, MethodPropertyHolder> statics = null;
-			private readonly Type moduleType;
-
-			public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, params object[] args)
-				: this(funcScope, funcName, parentType, funcGlobals, null, args)
-			{
-			}
-
-			public Dereference(eScope funcScope, string funcName, Type parentType, string[] funcGlobals, Dereference parentDereference, params object[] args)
-			{
-				scope = funcScope;
-				parent = parentDereference;
-				globals = funcGlobals == null ? null : new HashSet<string>(funcGlobals, StringComparer.OrdinalIgnoreCase);
-				statics = GatherTypeVariables(parentType, VariableType.Field | VariableType.SpecialName, funcName);
-				moduleType = Script.TheScript.Vars.ResolveModuleType(parentType);
-
-				for (int i = 0; i < args.Length; i += 2)
-				{
-					if (args[i] is string varName)
-					{
-						locals[varName] = args[i + 1];
-					}
-				}
-			}
-
-			private bool TryGetVariable(string name, out object value)
-			{
-				if (locals.TryGetValue(name, out var val))
-				{
-					value = GetPropertyValue(val, "__Value");
-					return true;
-				}
-
-				if (statics.TryGetValue(name, out var mph))
-				{
-					value = mph.CallFunc(null, null);
-					return true;
-				}
-
-				if ((scope == eScope.Global || (globals?.Contains(name) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, name))
-				{
-					value = Script.TheScript.Vars.GetVariable(moduleType, name);
-					return true;
-				}
-
-				if (parent != null && parent.TryGetVariable(name, out value))
-					return true;
-
-				value = null;
-				return false;
-			}
-
-			private bool TrySetExistingVariable(string name, object value)
-			{
-				if (locals.TryGetValue(name, out var val))
-				{
-					SetPropertyValue(val, "__Value", value);
-					return true;
-				}
-
-				if (statics.TryGetValue(name, out var mph))
-				{
-					SetMemberValue(mph, value);
-					return true;
-				}
-
-				if ((scope == eScope.Global || (globals?.Contains(name) ?? false)) && Script.TheScript.Vars.HasVariable(moduleType, name))
-				{
-					Script.TheScript.Vars.SetVariable(moduleType, name, value);
-					return true;
-				}
-
-				return parent != null && parent.TrySetExistingVariable(name, value);
-			}
-
-			public object this[object key]
-			{
-				get
-				{
-					if (key is KeysharpObject)
-						return GetPropertyValue(key, "__Value");
-
-					var name = key.ToString();
-					if (TryGetVariable(name, out var value))
-						return value;
-
-					return Script.TheScript.Vars.GetVariable(moduleType, name);
-				}
-				set
-				{
-					if (key is KeysharpObject)
-					{
-						SetPropertyValue(key, "__Value", value);
-						return;
-					}
-
-					var s = key.ToString();
-					if (TrySetExistingVariable(s, value))
-						return;
-
-					locals[s] = new VarRef(null);
-				}
-			}
-		}
-		}
+	}
 }

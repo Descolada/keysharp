@@ -17,17 +17,6 @@ namespace Keysharp.Internals.Threading
 			threadVars = new (size, () => new ThreadVariables());
 		}
 
-		internal ThreadVariables GetThreadVariables()
-		{
-			var p = threadVars.TryPeek();
-
-			if (p != null)
-				return p;
-
-			_ = Errors.ErrorOccurred("Severe threading error: Tried to get an existing thread variable object but there were none. This should never happen.", null, Keyword_ExitApp);
-			return default;
-		}
-
 		internal void PopThreadVariables(ThreadVariables threadVarsToPop, bool checkThread = true)
 		{
 			if (threadVarsToPop == null)

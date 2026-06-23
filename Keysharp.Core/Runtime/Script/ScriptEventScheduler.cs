@@ -436,6 +436,7 @@ internal bool HasBlockedQueuedWork
 			DisposeOwnedMessageHandlers();
 			DisposeOwnedGuiHandlers();
 			DisposeOwnedMenuHandlers();
+			DisposeOwnedWinEventHandlers();
 			DelegateHolder.DisposeOwnedByScheduler(this);
 			_ = Interlocked.Exchange(ref persistentRegistrationCount, 0);
 
@@ -910,6 +911,9 @@ internal bool HasBlockedQueuedWork
 					_ = script.GuiData.onMessageHandlers.TryRemove(kv.Key, out _);
 			}
 		}
+
+		private void DisposeOwnedWinEventHandlers()
+			=> _ = script.WinEventManagerIfExists?.RemoveOwned(this);
 
 		private void DisposeOwnedGuiHandlers()
 		{

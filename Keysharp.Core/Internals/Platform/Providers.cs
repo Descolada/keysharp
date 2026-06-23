@@ -79,4 +79,24 @@ namespace Keysharp.Internals.Platform
 	{
 		internal WindowManagerBase Manager { get; } = new WindowManager();
 	}
+
+	internal static class WindowEventBackendProvider
+	{
+		/// <summary>
+		/// Creates the native window-event backend for the current platform, or null if window events are not
+		/// supported in the current environment (in which case the hub simply never delivers anything).
+		/// </summary>
+		internal static IWindowEventBackend Create()
+		{
+#if WINDOWS
+			return new Keysharp.Internals.Window.Windows.WindowEventBackend();
+#elif LINUX
+			return new Keysharp.Internals.Window.Linux.WindowEventBackend();
+#elif OSX
+			return new Keysharp.Internals.Window.MacOS.WindowEventBackend();
+#else
+			return null;
+#endif
+		}
+	}
 }

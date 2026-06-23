@@ -548,6 +548,39 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		Wait([timeout]) ; Wait until the thread object which was passed to the constructor completes. Optionally return after a specified timeout period in milliseconds elapses.
 	}
 ```
+* New `WinEvent` class for subscribing to window events (active/foreground change, creation, destruction, move/resize, show, minimize, restore, and title change) across platforms, modeled on the popular AutoHotkey `WinEvent` library by Descolada.
+	+ It is part of the `Ks` module; import it with `#import "Ks" { WinEvent }`.
+	+ Each subscription is created by calling a `WinEvent` static method, which returns a subscription object whose callback fires until it is stopped. The argument order mirrors the reference library: `count` (default `-1` = unlimited) comes right after `winTitle`, with the rarely-used `winText`/`excludeTitle`/`excludeText` criteria last. The criteria use standard `WinTitle` matching, and `count` limits how many times the callback fires.
+	+ The callback receives `(hookObject, hwnd, dwmsEventTime)`.
+	+ The registration-time values of `DetectHiddenWindows`, `DetectHiddenText`, and the title-match mode are captured and used for matching (as in the reference library); `Create` and `Show` additionally force hidden detection on. `Active` also fires when the active window's title changes, and `Close` fires when a window is destroyed or — for a `DetectHiddenWindows`-off subscription — hidden or cloaked.
+	+ Subscriptions are auto-stopped on `__Delete`, but because garbage collection is unpredictable, call `Stop()` (or let the owning thread tear down) when you are done with one.
+```
+	class WinEvent
+	{
+		; Event subscriptions: (Callback, WinTitle, Count, WinText, ExcludeTitle, ExcludeText)
+		static Active(callback [, winTitle, count := -1, winText, excludeTitle, excludeText]) => WinEvent  ; The foreground/active window changed (or the active window's title changed).
+		static Create(callback [, winTitle, count, ...]) => WinEvent       ; A new top-level window was created.
+		static Close(callback [, winTitle, count, ...]) => WinEvent        ; A window was destroyed (or hidden/cloaked, if DetectHiddenWindows is off).
+		static Move(callback [, winTitle, count, ...]) => WinEvent         ; A window moved or resized (every event is delivered as-is, not coalesced).
+		static Show(callback [, winTitle, count, ...]) => WinEvent         ; A window became visible.
+		static Minimize(callback [, winTitle, count, ...]) => WinEvent     ; A window was minimized.
+		static Restore(callback [, winTitle, count, ...]) => WinEvent      ; A window was restored from the minimized state.
+		static TitleChange(callback [, winTitle, count, ...]) => WinEvent  ; A window's title changed.
+
+		; Global pause
+		static Pause(newState := 1) => Boolean  ; Pause (1), unpause (0) or toggle (-1) all hooks; returns the new paused state.
+		static IsPaused => Boolean              ; Get/set whether all hooks are paused.
+
+		; Per-hook
+		Stop()                       ; Cancel the subscription so the callback no longer fires.
+		Pause(newState := 1) => Boolean ; Pause (1), unpause (0) or toggle (-1) this hook; returns the new paused state.
+		IsPaused => Boolean          ; Get/set whether this hook is paused (paused hooks stay registered but don't fire).
+		IsActive => Boolean          ; Whether the subscription is still receiving events.
+		EventType => String          ; The event kind, e.g. "Active" or "Move".
+		Count => Integer             ; Remaining number of times the callback will fire (-1 = unlimited).
+	}
+```
+* Platform support for `WinEvent`: Windows uses `SetWinEventHook` and supports every event type. On Linux the events come from a GDK/X11 event filter on the UI thread (covering X11 and XWayland windows); native Wayland sources (GNOME/KWin/wlroots) are not yet wired, and `Restore`/`Close`-on-hide are not yet emitted. On macOS only active-application changes are currently reported (window-granular events via the accessibility APIs are planned).
 * `LockRun(lockobj, funcobj [, params*])` Call `funcobj` inside of a lock on `lockobj`, optionally passing `params` to it.
 	+ `lockobj` must be initialized to some value, such as an empty string.
 * New function `Mail(recipients, subject, message, options)` to send an email.

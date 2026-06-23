@@ -1975,6 +1975,13 @@ namespace Keysharp.Internals.Platform.Windows
 		[LibraryImport(user32, EntryPoint = "SetWindowsHookExW")]
 		internal static partial nint SetWindowsHookEx(int idHook, PlaybackProc lpfn, nint hMod, uint dwThreadId);
 
+		[LibraryImport(user32, EntryPoint = "SetWinEventHook")]
+		internal static partial nint SetWinEventHook(uint eventMin, uint eventMax, nint hmodWinEventProc, WinEventProc pfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+		[LibraryImport(user32, EntryPoint = "UnhookWinEvent")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool UnhookWinEvent(nint hWinEventHook);
+
 		//[DllImport(user32, CharSet = CharSet.Unicode)]
 		//internal static extern nint CallNextHookEx(nint hhk, int nCode, int wParam, [In] KBDLLHOOKSTRUCT lParam);
 		//[DllImport(user32, CharSet = CharSet.Unicode)]
@@ -2245,6 +2252,8 @@ namespace Keysharp.Internals.Platform.Windows
 		internal delegate nint LowLevelMouseProc(int nCode, nint wParam, ref MSDLLHOOKSTRUCT lParam);
 
 		internal delegate nint PlaybackProc(int nCode, nint wParam, ref EventMsg lParam);
+
+		internal delegate void WinEventProc(nint hWinEventHook, uint eventType, nint hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
 		[LibraryImport(user32, EntryPoint = "GetSystemMetrics")]
 		internal static partial int GetSystemMetrics(SystemMetric smIndex);

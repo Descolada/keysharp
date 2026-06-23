@@ -1,0 +1,88 @@
+namespace Keysharp.Internals.Window
+{
+	/// <summary>
+	/// The kinds of window events a backend can deliver. These are platform-neutral; each
+	/// <see cref="IWindowEventBackend"/> maps them onto the native signals of its OS/compositor.
+	/// </summary>
+	internal enum WindowEventType
+	{
+		/// <summary>A window became the active/foreground window.</summary>
+		Active,
+		/// <summary>A new top-level window was created.</summary>
+		Create,
+		/// <summary>A top-level window was destroyed (or hidden/cloaked for a DetectHiddenWindows-off consumer).</summary>
+		Close,
+		/// <summary>A window moved or resized.</summary>
+		Move,
+		/// <summary>A window became visible (mapped/shown).</summary>
+		Show,
+		/// <summary>A window was minimized/iconified.</summary>
+		Minimize,
+		/// <summary>A window was restored from the minimized state.</summary>
+		Restore,
+		/// <summary>A window's title changed.</summary>
+		TitleChange
+	}
+
+	/// <summary>
+	/// Bit flags mirroring <see cref="WindowEventType"/>, used to tell a backend which categories of native
+	/// hook are currently needed (so unused/expensive hooks are never installed).
+	/// </summary>
+	[Flags]
+	internal enum WindowEventMask
+	{
+		None        = 0,
+		Active      = 1 << 0,
+		Create      = 1 << 1,
+		Close       = 1 << 2,
+		Move        = 1 << 3,
+		Show        = 1 << 4,
+		Minimize    = 1 << 5,
+		Restore     = 1 << 6,
+		TitleChange = 1 << 7
+	}
+
+	internal static class WindowEventTypeExtensions
+	{
+		internal static WindowEventMask ToMask(this WindowEventType type) => type switch
+		{
+			WindowEventType.Active      => WindowEventMask.Active,
+			WindowEventType.Create      => WindowEventMask.Create,
+			WindowEventType.Close       => WindowEventMask.Close,
+			WindowEventType.Move        => WindowEventMask.Move,
+			WindowEventType.Show        => WindowEventMask.Show,
+			WindowEventType.Minimize    => WindowEventMask.Minimize,
+			WindowEventType.Restore     => WindowEventMask.Restore,
+			WindowEventType.TitleChange => WindowEventMask.TitleChange,
+			_ => WindowEventMask.None
+		};
+	}
+
+	/// <summary>
+	/// A normalized window event produced by an <see cref="IWindowEventBackend"/>. Carries only the handle,
+	/// type, and timestamp; a consumer that needs the window's geometry queries it on demand.
+	/// </summary>
+	internal readonly record struct WindowEventRaw(WindowEventType Type, nint Hwnd, long TimeMs);
+
+	/// <summary>
+	/// Platform abstraction for the native window-event source. Implementations install/uninstall the minimal
+	/// native hooks required for the requested event categories and raise normalized <see cref="WindowEventRaw"/>
+	/// values through <see cref="Sink"/>. This is the general abstraction; the per-platform
+	/// <c>WindowEventBackend</c> implements it and is driven directly by <see cref="WinEventManager"/>.
+	/// <para>
+	/// Threading: <see cref="Sink"/> may be invoked on any thread, and never calls script code itself — it only
+	/// produces <see cref="WindowEventRaw"/> values for the consumer to marshal.
+	/// </para>
+	/// </summary>
+	internal interface IWindowEventBackend : IDisposable
+	{
+		/// <summary>Receives each native event. Set by the consumer before the first <see cref="Start"/> call.</summary>
+		Action<WindowEventRaw> Sink { get; set; }
+
+		/// <summary>Ensure native hooks for every category in <paramref name="mask"/> are installed (idempotent).</summary>
+		void Start(WindowEventMask mask);
+
+		/// <summary>Uninstall native hooks for the categories in <paramref name="mask"/> (idempotent).</summary>
+		void Stop(WindowEventMask mask);
+	}
+}

@@ -255,6 +255,7 @@ namespace Keysharp.Runtime
 		private StringsData stringsData;
 		private ToolTipData toolTipData;
 		private WindowProvider windowProvider;
+		private WinEventManager winEventManager;
 		private int disposeStarted;
 
 		public static Keysharp.Runtime.Script TheScript { get; internal set; }
@@ -327,6 +328,12 @@ namespace Keysharp.Runtime
 		internal StringsData StringsData => stringsData ?? (stringsData = new ());
 		internal ToolTipData ToolTipData => toolTipData ?? (toolTipData = new ());
 		internal WindowProvider WindowProvider => windowProvider ?? (windowProvider = new ());
+
+		/// <summary>Lazily-created per-script engine for <c>Ks.WinEvent</c> subscriptions; owns the platform window-event backend.</summary>
+		internal WinEventManager WinEventManager => winEventManager ?? (winEventManager = new (this));
+
+		/// <summary>The WinEvent manager if one has been created, else null (used by cleanup paths that must not create it).</summary>
+		internal WinEventManager WinEventManagerIfExists => winEventManager;
 
 #if OSX
 		internal string ldLibraryPath = Environment.GetEnvironmentVariable("DYLD_LIBRARY_PATH") ?? "";
@@ -1132,6 +1139,7 @@ namespace Keysharp.Runtime
 				return;
 
 			HookThread?.Stop();
+			winEventManager?.Dispose();
 #if LINUX
 			Keysharp.Internals.Input.Linux.KeysharpInputdManager.DisconnectClients();
 #endif

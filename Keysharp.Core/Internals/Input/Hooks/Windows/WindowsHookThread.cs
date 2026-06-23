@@ -982,7 +982,14 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 					}
 				}
 
-				return (script.KeyboardData.blockMouseMove && !isArtificial) ? new nint(1) : CallNextHookEx(mouseHook, code, param, ref lParam);
+				var suppressMove = script.KeyboardData.blockMouseMove && !isArtificial;
+
+				// Notify any active InputHook(s) of movement; CollectMouseMove returns false to suppress
+				// (VisibleMouseMove:=false). Gated on script.input so idle scripts pay nothing here.
+				if (script.input != null && !CollectMouseMove(lParam.dwExtraInfo, lParam.pt.X, lParam.pt.Y, null))
+					suppressMove = true;
+
+				return suppressMove ? new nint(1) : CallNextHookEx(mouseHook, code, param, ref lParam);
 			}
 
 			// Above: In v1.0.43.11, a new mode was added to block mouse movement only since it's more flexible than

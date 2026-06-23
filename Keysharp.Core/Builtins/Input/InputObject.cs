@@ -8,9 +8,12 @@ namespace Keysharp.Builtins
 		private const int EndCallbackIndex = 1;
 		private const int KeyDownCallbackIndex = 2;
 		private const int KeyUpCallbackIndex = 3;
+		private const int MouseDownCallbackIndex = 4;
+		private const int MouseUpCallbackIndex = 5;
+		private const int MouseMoveCallbackIndex = 6;
 		internal InputType input;
 		private bool callbackPersistenceActive;
-		private readonly CallbackRegistration[] callbackSlots = [new(), new(), new(), new()];
+		private readonly CallbackRegistration[] callbackSlots = [new(), new(), new(), new(), new(), new(), new()];
 
 		public object BackspaceIsUndo
 		{
@@ -124,7 +127,7 @@ namespace Keysharp.Builtins
 		public object OnChar
 		{
 			get => GetCallback(CharCallbackIndex);
-			set => SetCallback(CharCallbackIndex, value);
+			set => SetKeyboardCallback(CharCallbackIndex, value);
 		}
 
 		public object OnEnd
@@ -136,13 +139,31 @@ namespace Keysharp.Builtins
 		public object OnKeyDown
 		{
 			get => GetCallback(KeyDownCallbackIndex);
-			set => SetCallback(KeyDownCallbackIndex, value);
+			set => SetKeyboardCallback(KeyDownCallbackIndex, value);
 		}
 
 		public object OnKeyUp
 		{
 			get => GetCallback(KeyUpCallbackIndex);
-			set => SetCallback(KeyUpCallbackIndex, value);
+			set => SetKeyboardCallback(KeyUpCallbackIndex, value);
+		}
+
+		public object OnMouseDown
+		{
+			get => GetCallback(MouseDownCallbackIndex);
+			set => SetMouseCallback(MouseDownCallbackIndex, value);
+		}
+
+		public object OnMouseMove
+		{
+			get => GetCallback(MouseMoveCallbackIndex);
+			set => SetMouseCallback(MouseMoveCallbackIndex, value);
+		}
+
+		public object OnMouseUp
+		{
+			get => GetCallback(MouseUpCallbackIndex);
+			set => SetMouseCallback(MouseUpCallbackIndex, value);
 		}
 
 		public object Timeout
@@ -164,6 +185,19 @@ namespace Keysharp.Builtins
 			set => input.transcribeModifiedKeys = value.Ab();
 		}
 
+		public object VisibleMouseMove
+		{
+			get => input.visibleMouseMove;
+			set
+			{
+				input.visibleMouseMove = value.Ab();
+
+				// Suppressing movement requires the mouse hook; install it if collection is already running.
+				if (input.InProgress() && input.MouseIsNeeded)
+					HotkeyDefinition.InstallMouseHook();
+			}
+		}
+
 		public object VisibleNonText
 		{
 			get => input.visibleNonText;
@@ -172,7 +206,13 @@ namespace Keysharp.Builtins
 				input.visibleNonText = value.Ab();
 
 				if (input.InProgress())
+				{
+					// Turning suppression on requires the keyboard hook if it wasn't already installed.
+					if (input.KeyboardIsNeeded)
+						HotkeyDefinition.InstallKeybdHook();
+
 					Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+				}
 			}
 		}
 
@@ -184,7 +224,12 @@ namespace Keysharp.Builtins
 				input.visibleText = value.Ab();
 
 				if (input.InProgress())
+				{
+					if (input.KeyboardIsNeeded)
+						HotkeyDefinition.InstallKeybdHook();
+
 					Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+				}
 			}
 		}
 
@@ -272,7 +317,17 @@ namespace Keysharp.Builtins
 				input.SetKeyFlags(keys, false, removeFlags, addFlags);
 
 			if (input.InProgress())
+			{
 				Script.TheScript.HookThread.RefreshPlatformKeyGrabs();
+
+				// Flagging a key after Start() may newly require a hook: a keyboard key/end key needs the
+				// keyboard hook, a mouse/wheel button (end key or +S) needs the mouse hook.
+				if (input.KeyboardIsNeeded)
+					HotkeyDefinition.InstallKeybdHook();
+
+				if (input.MouseIsNeeded)
+					HotkeyDefinition.InstallMouseHook();
+			}
 
 			return DefaultObject;
 		}
@@ -319,6 +374,9 @@ namespace Keysharp.Builtins
 				UserMessages.AHK_INPUT_END => EndCallbackIndex,
 				UserMessages.AHK_INPUT_KEYDOWN => KeyDownCallbackIndex,
 				UserMessages.AHK_INPUT_KEYUP => KeyUpCallbackIndex,
+				UserMessages.AHK_INPUT_MOUSEDOWN => MouseDownCallbackIndex,
+				UserMessages.AHK_INPUT_MOUSEUP => MouseUpCallbackIndex,
+				UserMessages.AHK_INPUT_MOUSEMOVE => MouseMoveCallbackIndex,
 				_ => -1
 			};
 
@@ -337,6 +395,26 @@ namespace Keysharp.Builtins
 		{
 			var callback = Functions.GetFuncObj(value, null, true);
 			callbackSlots[index].Set(callback, callback != null ? Script.TheScript?.EventScheduler : null, callbackPersistenceActive && callback != null);
+		}
+
+		// Same as SetCallback, but ensures the low-level mouse hook is running if the callback is
+		// assigned while collection is already in progress (Start() installs it up front otherwise).
+		private void SetMouseCallback(int index, object value)
+		{
+			SetCallback(index, value);
+
+			if (input.InProgress() && input.MouseIsNeeded)
+				HotkeyDefinition.InstallMouseHook();
+		}
+
+		// As SetCallback, but ensures the keyboard hook is running if an OnChar/OnKeyDown/OnKeyUp callback
+		// is assigned after Start() (the keyboard hook is otherwise only conditionally installed at Start).
+		private void SetKeyboardCallback(int index, object value)
+		{
+			SetCallback(index, value);
+
+			if (input.InProgress() && input.KeyboardIsNeeded)
+				HotkeyDefinition.InstallKeybdHook();
 		}
 
 		private void SetCallbackPersistenceActive(bool active)

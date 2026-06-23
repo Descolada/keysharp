@@ -9,9 +9,13 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 #if WINDOWS
 	using HookEventArgs = Keysharp.Internals.Input.Hooks.Windows.HookEventArgs;
 	using KeyboardHookEventArgs = Keysharp.Internals.Input.Hooks.Windows.KeyboardHookEventArgs;
+	using MouseHookEventArgs = Keysharp.Internals.Input.Hooks.Windows.MouseHookEventArgs;
+	using MouseWheelHookEventArgs = Keysharp.Internals.Input.Hooks.Windows.MouseWheelHookEventArgs;
 #else
 	using HookEventArgs = SharpHook.HookEventArgs;
 	using KeyboardHookEventArgs = SharpHook.KeyboardHookEventArgs;
+	using MouseHookEventArgs = SharpHook.MouseHookEventArgs;
+	using MouseWheelHookEventArgs = SharpHook.MouseWheelHookEventArgs;
 #endif
 
 namespace Keysharp.Internals.Input.Hooks
@@ -1270,6 +1274,117 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 
 			return true;
+		}
+
+		// Collects a mouse button (or wheel) event for any active InputHook(s). Mirrors the non-text
+		// path of CollectInputHook plus the DOWN_SUPPRESSED bookkeeping of CollectKeyUp, but dispatches
+		// the dedicated OnMouseDown/OnMouseUp callbacks. Mouse buttons are valid VKs (VK_LBUTTON, ...),
+		// so the existing keyVK[] suppression flags (KeyOpt +S/+V, VisibleNonText) apply unchanged.
+		// Returns true if the caller should treat the event as visible (non-suppressed).
+		internal bool CollectMouseInput(ulong extraInfo, uint vk, bool keyUp, int x, int y, object eventInfo)
+		{
+			var input = Script.TheScript.input;
+
+			for (; input != null; input = input.prev)
+			{
+				if (!(input.IsInteresting(extraInfo) && input.InProgress()))
+					continue;
+
+				var keyFlags = input.keyVK[vk];
+
+				// End-key support: a button flagged as an end key terminates the input (collect-until-click).
+				if (!keyUp && (keyFlags & END_KEY_ENABLED) != 0)
+				{
+					var endIfShiftDown = (keyFlags & END_KEY_WITH_SHIFT) != 0;
+					var endIfShiftNotDown = (keyFlags & END_KEY_WITHOUT_SHIFT) != 0;
+					var shiftIsDown = (kbdMsSender.modifiersLRLogical & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
+
+					if (shiftIsDown ? endIfShiftDown : endIfShiftNotDown)
+						input.EndByKey(vk, 0, false, shiftIsDown && !endIfShiftNotDown);
+				}
+
+				// Visibility / suppression mirrors keystrokes: explicit +S/+V wins, else VisibleNonText.
+				var visible = (keyFlags & INPUT_KEY_VISIBILITY_MASK) != 0
+							  ? (keyFlags & INPUT_KEY_VISIBLE) != 0
+							  : input.visibleNonText;
+
+				// Notify (decoupled from suppression, per design): fire whenever the relevant callback is set.
+				var msg = keyUp ? UserMessages.AHK_INPUT_MOUSEUP : UserMessages.AHK_INPUT_MOUSEDOWN;
+
+				if (input.scriptObject?.GetCallbackSlot(msg)?.Callback != null)
+				{
+					_ = PostMessage(new KeysharpMsg()
+					{
+						message = (uint)msg,
+						eventInfo = eventInfo,
+						obj = input,
+						wParam = new nint(vk),
+						mouseX = x,
+						mouseY = y
+					});
+				}
+
+				if (keyUp)
+				{
+					// Suppress the key-up if its key-down was suppressed, to avoid a stuck button.
+					if ((input.keyVK[vk] & INPUT_KEY_DOWN_SUPPRESSED) != 0)
+					{
+						input.keyVK[vk] &= ~INPUT_KEY_DOWN_SUPPRESSED;
+						break;
+					}
+				}
+				else if (!visible)
+					break;
+			}
+
+			if (input != null) // An input in the chain suppressed this event.
+			{
+				if (!keyUp)
+					input.keyVK[vk] |= INPUT_KEY_DOWN_SUPPRESSED;
+
+				return false;
+			}
+
+			return true;
+		}
+
+		// Notifies active InputHook(s) of cursor movement. Movement has no VK, so it carries no key
+		// flags; suppression is governed per-input by VisibleMouseMove. Returns true if movement
+		// should pass through to the system.
+		//
+		// Coordinate contract: x/y are forwarded verbatim from whatever the platform hook delivered;
+		// callers must NEVER query the cursor position (e.g. GetCursorPos) to fill them in, because a
+		// query is comparatively slow and can lag behind / disagree with the event being reported.
+		// As a result the meaning of x/y is platform-dependent: absolute screen coordinates on Windows,
+		// X11 and macOS, but on Linux via the inputd daemon they are RELATIVE movement deltas (inputd
+		// reports relative motion). Scripts that need cross-platform absolute coordinates should track
+		// the running position themselves rather than assume x/y are absolute.
+		internal bool CollectMouseMove(ulong extraInfo, int x, int y, object eventInfo)
+		{
+			var allow = true;
+
+			for (var input = Script.TheScript.input; input != null; input = input.prev)
+			{
+				if (!(input.IsInteresting(extraInfo) && input.InProgress()))
+					continue;
+
+				if (input.scriptObject?.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEMOVE)?.Callback != null)
+				{
+					_ = PostMessage(new KeysharpMsg()
+					{
+						message = (uint)UserMessages.AHK_INPUT_MOUSEMOVE,
+						eventInfo = eventInfo,
+						obj = input,
+						mouseX = x,
+						mouseY = y
+					});
+				}
+
+				if (!input.visibleMouseMove)
+					allow = false; // Keep iterating so every input still gets its OnMouseMove notification.
+			}
+
+			return allow;
 		}
 
 		internal abstract bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
@@ -3348,6 +3463,19 @@ namespace Keysharp.Internals.Input.Hooks
 			// booleans and instead do these conditions as separate IF statements.
 			if (!isKeyboardEvent)
 			{
+				// Feed mouse buttons/wheel to any active InputHook(s): fires OnMouseDown/OnMouseUp and
+				// applies the same per-key suppression as keystrokes (mouse buttons are real VKs).
+				if (vk != 0 && script.input != null)
+				{
+					int mx = 0, my = 0;
+
+					if (e is MouseHookEventArgs mhe) { mx = mhe.Data.X; my = mhe.Data.Y; }
+					else if (e is MouseWheelHookEventArgs mwe) { mx = mwe.Data.X; my = mwe.Data.Y; }
+
+					if (!CollectMouseInput(extraInfo, vk, keyUp, mx, my, eventInfo))
+						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, eventInfo: eventInfo);
+				}
+
 				// Since a mouse button that is physically down is not necessarily logically down -- such as
 				// when the mouse button is a suppressed hotkey -- only update the logical state (which is the
 				// state the OS believes the key to be in) when this event is non-supressed (i.e. allowed to
@@ -3815,6 +3943,53 @@ namespace Keysharp.Internals.Input.Hooks
 						var args = message == (uint)UserMessages.AHK_INPUT_CHAR
 							? new object[] { inputHook.scriptObject, new string(wParamVal == 0 ? [(char)lParamVal] : [(char)lParamVal, (char)wParamVal]) }
 							: [inputHook.scriptObject, lParamVal, wParamVal];
+						_ = Script.Invoke(callback, "Call", args);
+					}));
+				}
+
+				case (uint)UserMessages.AHK_INPUT_MOUSEDOWN:
+				case (uint)UserMessages.AHK_INPUT_MOUSEUP:
+				case (uint)UserMessages.AHK_INPUT_MOUSEMOVE:
+				{
+					if (msg.obj is not InputType mouseInputParam)
+						return false;
+
+					var callbackSlot = mouseInputParam.scriptObject?.GetCallbackSlot((UserMessages)msg.message);
+					if (callbackSlot?.Callback == null)
+						return true;
+
+					var targetScheduler = callbackSlot?.OwnerScheduler;
+
+					if (targetScheduler == null || targetScheduler.IsDisposed)
+						targetScheduler = script.UIEventScheduler;
+
+					var message = msg.message;
+					var vkVal = (uint)msg.wParam.ToInt64();
+					var mx = (long)msg.mouseX;
+					var my = (long)msg.mouseY;
+					var eventInfo = msg.eventInfo;
+
+					return targetScheduler.EnqueueThreadLaunch(0, false, false, () => _ = Keysharp.Internals.Flow.TryCatch(() =>
+					{
+						script.Threads.CurrentThread.eventInfo = eventInfo;
+						InputType inputHook;
+
+						for (inputHook = script.input; inputHook != null && inputHook != mouseInputParam; inputHook = inputHook.prev)
+						{
+						}
+
+						if (inputHook == null)
+							return;
+
+						var callback = inputHook.scriptObject.GetCallbackSlot((UserMessages)message)?.Callback;
+
+						if (callback == null)
+							return;
+
+						// OnMouseMove(ih, x, y); OnMouseDown/OnMouseUp(ih, button, x, y) with AHK button names.
+						var args = message == (uint)UserMessages.AHK_INPUT_MOUSEMOVE
+							? new object[] { inputHook.scriptObject, mx, my }
+							: [inputHook.scriptObject, VKtoKeyName(vkVal, true), mx, my];
 						_ = Script.Invoke(callback, "Call", args);
 					}));
 				}
@@ -4611,6 +4786,8 @@ namespace Keysharp.Internals.Input.Hooks
 		, AHK_INPUT_END, AHK_INPUT_KEYDOWN, AHK_INPUT_CHAR, AHK_INPUT_KEYUP
 		, AHK_HOOK_SET_KEYHISTORY
 		, AHK_START_LOOP
+		// Appended at the end so existing message numbers don't shift (see "never change numbers" note below).
+		, AHK_INPUT_MOUSEDOWN, AHK_INPUT_MOUSEUP, AHK_INPUT_MOUSEMOVE
 	}
 
 	// NOTE: TRY NEVER TO CHANGE the specific numbers of the above messages, since some users might be

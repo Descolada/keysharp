@@ -31,6 +31,13 @@ global gWindowHelperOriginalPos := Map()
 global gPixelAssetPath := A_ScriptDir "/Gui/killbill.png"
 global gStatus := Map()
 global gLogText := ""
+global gWinEventHooks := []
+global gWinEventCount := 0
+global gWinEventMoveCount := 0
+global gMouseHookObj := ""
+global gMouseDownCount := 0
+global gMouseUpCount := 0
+global gMouseMoveCount := 0
 
 BuildMainGui()
 RegisterInputProbes()
@@ -55,21 +62,21 @@ BuildMainGui() {
 	gTabs := gMain.AddTab3("x20 y52 w1120 h640", ["Overview", "Input", "Windows", "Pixel && Image", "Clipboard", "Sound"])
 
 	gTabs.UseTab("Overview")
-	gMain.AddText("x36 y86 w1040", "Use this suite on each target platform separately: Windows, Linux X11, Linux Wayland, and macOS. Record blocked-by-policy cases distinctly from true failures.")
-	gMain.AddText("x36 y108 w1040", "Recommended order: 1) run self-validating tests, 2) run external-window tests, 3) repeat after granting any required OS permissions.")
-	envInfo := gMain.AddEdit("x36 y138 w800 h140 ReadOnly -Wrap")
+	gMain.AddText("xc+16 yc+12 w1040", "Use this suite on each target platform separately: Windows, Linux X11, Linux Wayland, and macOS. Record blocked-by-policy cases distinctly from true failures.")
+	gMain.AddText("xc+16 y+6 w1040", "Recommended order: 1) run self-validating tests, 2) run external-window tests, 3) repeat after granting any required OS permissions.")
+	envInfo := gMain.AddEdit("xc+16 y+10 w800 h140 ReadOnly -Wrap")
 	gStatus["overview_env"] := envInfo
 
-	btnCreateHelpers := gMain.AddButton("x860 y138 w240 h30", "Show Helper Windows")
+	btnCreateHelpers := gMain.AddButton("x+24 yp w240 h30", "Show Helper Windows")
 	btnCreateHelpers.OnEvent("Click", (*) => ShowHelperWindows())
-	btnResetStatuses := gMain.AddButton("x860 y178 w240 h30", "Reset Status Text")
+	btnResetStatuses := gMain.AddButton("xp y+10 w240 h30", "Reset Status Text")
 	btnResetStatuses.OnEvent("Click", (*) => ResetStatuses())
-	btnClearLog := gMain.AddButton("x860 y218 w240 h30", "Clear Log")
+	btnClearLog := gMain.AddButton("xp y+10 w240 h30", "Clear Log")
 	btnClearLog.OnEvent("Click", (*) => ClearLog())
-	btnActiveInfo := gMain.AddButton("x860 y258 w240 h30", "Capture Active Window")
+	btnActiveInfo := gMain.AddButton("xp y+10 w240 h30", "Capture Active Window")
 	btnActiveInfo.OnEvent("Click", (*) => CaptureActiveWindow())
 
-	overviewNotes := gMain.AddEdit("x36 y300 w1064 h300 ReadOnly -Wrap")
+	overviewNotes := gMain.AddEdit("xc+16 y+20 w1064 h300 ReadOnly -Wrap")
 	overviewNotes.Value :=
 	(
 	"Suite conventions:`n"
@@ -86,106 +93,146 @@ BuildMainGui() {
 	)
 
 	gTabs.UseTab("Input")
-	gMain.AddText("x36 y86 w1040", "These tests are intended to be mostly self-validating. If the test updates the target edit or status line correctly, mark it as good. If focus or permissions interfere, note the behavior in the log.")
+	gMain.AddText("xc+16 yc+12 w1060", "These tests are intended to be mostly self-validating. If the test updates the target edit or status line correctly, mark it as good. If focus or permissions interfere, note the behavior in the log.")
 
-	sendGroup := gMain.AddGroupBox("x36 y116 w500 h430", "Send Variants")
-	gMain.AddText("x52 y146 w468", "Each button clears the target edit, focuses it, sends text, and validates the exact resulting text.")
-	gSendTarget := gMain.AddEdit("x52 y176 w468 h120 -Wrap")
-	btnSend := gMain.AddButton("x52 y312 w110 h28", "Run Send()")
+	sendGroup := gMain.AddGroupBox("xc+16 yc+50 w500 h430", "Send Variants")
+	gMain.UseGroup(sendGroup)
+	gMain.AddText("xc+16 yc+24 w468", "Each button clears the target edit, focuses it, sends text, and validates the exact resulting text.")
+	gSendTarget := gMain.AddEdit("xc+16 y+8 w468 h120 -Wrap")
+	btnSend := gMain.AddButton("xc+16 y+12 w110 h28", "Run Send()")
 	btnSend.OnEvent("Click", (*) => RunSendVariant("Send"))
-	btnSendText := gMain.AddButton("x172 y312 w110 h28", "Run SendText()")
+	btnSendText := gMain.AddButton("x+10 yp w110 h28", "Run SendText()")
 	btnSendText.OnEvent("Click", (*) => RunSendVariant("SendText"))
-	btnSendInput := gMain.AddButton("x292 y312 w110 h28", "Run SendInput()")
+	btnSendInput := gMain.AddButton("x+10 yp w110 h28", "Run SendInput()")
 	btnSendInput.OnEvent("Click", (*) => RunSendVariant("SendInput"))
-	btnSendPlay := gMain.AddButton("x412 y312 w110 h28", "Run SendPlay()")
+	btnSendPlay := gMain.AddButton("x+10 yp w110 h28", "Run SendPlay()")
 	btnSendPlay.OnEvent("Click", (*) => RunSendVariant("SendPlay"))
-	btnSendUnicode := gMain.AddButton("x52 y352 w150 h28", "Unicode SendText")
+	btnSendUnicode := gMain.AddButton("xc+16 y+10 w150 h28", "Unicode SendText")
 	btnSendUnicode.OnEvent("Click", (*) => RunSendScenario("SendText", "Mägi, Köln, São Paulo`n", "Unicode SendText"))
-	btnSendEmoji := gMain.AddButton("x214 y352 w150 h28", "Emoji SendText")
+	btnSendEmoji := gMain.AddButton("x+12 yp w150 h28", "Emoji SendText")
 	btnSendEmoji.OnEvent("Click", (*) => RunSendScenario("SendText", "Faces: 😀 😎 🚀`n", "Emoji SendText"))
-	btnSendMixed := gMain.AddButton("x376 y352 w146 h28", "Mixed Unicode")
+	btnSendMixed := gMain.AddButton("x+12 yp w146 h28", "Mixed Unicode")
 	btnSendMixed.OnEvent("Click", (*) => RunSendScenario("SendInput", "Mixed: ääkkönen, 日本語, 😀`n", "Mixed Unicode SendInput"))
-	gMain.AddText("x52 y390 w468 h34", "Extra coverage: Unicode, accented Latin text, CJK text, and emoji. These tests are useful for keyboard-layout and surrogate-pair issues.")
-	sendStatus := gMain.AddText("x52 y430 w468 h52", "Status: Not run")
+	gMain.AddText("xc+16 y+12 w468 h34", "Extra coverage: Unicode, accented Latin text, CJK text, and emoji. These tests are useful for keyboard-layout and surrogate-pair issues.")
+	sendStatus := gMain.AddText("xc+16 y+8 w468 h44", "Status: Not run")
 	gStatus["input_send"] := sendStatus
+	gMain.UseGroup()
+	gTabs.UseTab("Input")
 
-	hotkeyGroup := gMain.AddGroupBox("x560 y116 w540 h480", "Hotkey / Hotstring / InputHook")
-	gMain.AddText("x576 y146 w508 h34", "Hotkey probe: test several modifier combinations. Hotstring probe: run the 3-case matrix in the edit below. InputHook: click Start, type the expected text, then press Enter.")
-	gMain.AddText("x576 y182 w508 h40", "Hotstring matrix: 1) kssuite  2) ksend<Space>  3) prefixksword<Space>. These also verify documented A_EndChar behavior. Modifier mapping hint: Ctrl = ^, Alt/Option = !, Shift = +, Win/Cmd = #.")
-	btnResetHotkey := gMain.AddButton("x576 y232 w170 h28", "Reset Hotkey Counter")
+	hotkeyGroup := gMain.AddGroupBox("xc+540 yc+50 w540 h490", "Hotkey / Hotstring / InputHook")
+	gMain.UseGroup(hotkeyGroup)
+	gMain.AddText("xc+16 yc+24 w508 h34", "Hotkey probe: test several modifier combinations. Hotstring probe: run the 3-case matrix in the edit below. InputHook: click Start, type the expected text, then press Enter.")
+	gMain.AddText("xc+16 y+6 w508 h40", "Hotstring matrix: 1) kssuite  2) ksend<Space>  3) prefixksword<Space>. These also verify documented A_EndChar behavior. Modifier mapping hint: Ctrl = ^, Alt/Option = !, Shift = +, Win/Cmd = #.")
+	btnResetHotkey := gMain.AddButton("xc+16 y+10 w170 h28", "Reset Hotkey Counter")
 	btnResetHotkey.OnEvent("Click", (*) => ResetHotkeyProbe())
-	gMain.AddText("x756 y236 w328 h28", "Press: Ctrl+Alt+1, Win/Cmd+Ctrl+9, Win/Cmd+Alt+0")
-	hotkeyStatus := gMain.AddText("x576 y270 w508 h36", "Hotkey status: waiting for the matrix hotkeys")
+	gMain.AddText("x+12 yp w320 h28", "Press: Ctrl+Alt+1, Win/Cmd+Ctrl+9, Win/Cmd+Alt+0")
+	hotkeyStatus := gMain.AddText("xc+16 y+10 w508 h32", "Hotkey status: waiting for the matrix hotkeys")
 	gStatus["input_hotkey"] := hotkeyStatus
 
-	gHotstringTarget := gMain.AddEdit("x576 y314 w508 h108 -Wrap")
+	gHotstringTarget := gMain.AddEdit("xc+16 y+10 w508 h100 -Wrap")
 	gHotstringTarget.Value := HotstringProbeInstructions()
-	btnResetHotstring := gMain.AddButton("x576 y434 w170 h28", "Reset Hotstring Probe")
+	btnResetHotstring := gMain.AddButton("xc+16 y+10 w170 h28", "Reset Hotstring Probe")
 	btnResetHotstring.OnEvent("Click", (*) => ResetHotstringProbe())
-	btnValidateHotstring := gMain.AddButton("x756 y434 w170 h28", "Validate Hotstring")
+	btnValidateHotstring := gMain.AddButton("x+12 yp w170 h28", "Validate Hotstring")
 	btnValidateHotstring.OnEvent("Click", (*) => ValidateHotstringProbe())
-	hotstringStatus := gMain.AddText("x576 y470 w508 h28", "Hotstring status: waiting for the 3 probe cases")
+	hotstringStatus := gMain.AddText("xc+16 y+10 w508 h24", "Hotstring status: waiting for the 3 probe cases")
 	gStatus["input_hotstring"] := hotstringStatus
 
-	gMain.AddText("x576 y506 w64 h24", "Expected:")
-	gInputHookExpected := gMain.AddEdit("x646 y502 w120", "abc123")
-	btnStartInputHook := gMain.AddButton("x782 y502 w140 h28", "Start InputHook")
+	gMain.AddText("xc+16 y+12 w64 h24", "Expected:")
+	gInputHookExpected := gMain.AddEdit("x+6 yp-2 w120", "abc123")
+	btnStartInputHook := gMain.AddButton("x+16 yp-2 w140 h28", "Start InputHook")
 	btnStartInputHook.OnEvent("Click", (*) => StartInputHookProbe())
-	btnValidateInputHook := gMain.AddButton("x934 y502 w140 h28", "Validate Hook")
+	btnValidateInputHook := gMain.AddButton("x+12 yp w140 h28", "Validate Hook")
 	btnValidateInputHook.OnEvent("Click", (*) => ValidateInputHookProbe())
-	gInputHookActual := gMain.AddEdit("x576 y540 w508 h28 ReadOnly")
-	inputHookStatus := gMain.AddText("x576 y576 w508 h28", "InputHook status: idle")
+	gInputHookActual := gMain.AddEdit("xc+16 y+10 w508 h26 ReadOnly")
+	inputHookStatus := gMain.AddText("xc+16 y+8 w508 h24", "InputHook status: idle")
 	gStatus["input_hook"] := inputHookStatus
+	gMain.UseGroup()
+	gTabs.UseTab("Input")
+
+	mouseGroup := gMain.AddGroupBox("xc+16 yc+496 w500 h120", "Mouse InputHook (OnMouseDown / OnMouseUp / OnMouseMove)")
+	gMain.UseGroup(mouseGroup)
+	btnStartMouse := gMain.AddButton("xc+16 yc+24 w104 h26", "Start Mouse")
+	btnStartMouse.OnEvent("Click", (*) => StartMouseHookProbe())
+	btnStopMouse := gMain.AddButton("x+8 yp w70 h26", "Stop")
+	btnStopMouse.OnEvent("Click", (*) => StopMouseHookProbe())
+	btnBlockMove := gMain.AddButton("x+8 yp w120 h26", "Block Move (2s)")
+	btnBlockMove.OnEvent("Click", (*) => TestBlockMoveProbe())
+	btnBlockMButton := gMain.AddButton("x+8 yp w160 h26", "Toggle Block MButton")
+	btnBlockMButton.OnEvent("Click", (*) => ToggleBlockMButton())
+	mouseReadout := gMain.AddEdit("xc+16 y+10 w468 h22 ReadOnly -Wrap", "Start, then click / wheel / move the mouse to see the last event and live counts.")
+	gStatus["input_mouse_readout"] := mouseReadout
+	mouseStatus := gMain.AddText("xc+16 y+8 w468 h22", "Mouse hook: idle")
+	gStatus["input_mouse"] := mouseStatus
+	gMain.UseGroup()
 
 	gTabs.UseTab("Windows")
-	gMain.AddText("x36 y86 w1040", "The helper-window tests are self-validating. The external-window tools are intentionally semi-automated: point them at a real app and confirm the visible behavior.")
+	gMain.AddText("xc+16 yc+12 w1040", "The helper-window tests are self-validating. The external-window tools are intentionally semi-automated: point them at a real app and confirm the visible behavior.")
 
-	helperWinGroup := gMain.AddGroupBox("x36 y116 w500 h390", "Helper Window Automation")
-	gMain.AddText("x52 y146 w468 h34", "These buttons act on a dedicated helper window owned by the suite. Use them to validate WinExist, WinActivate, WinWaitActive, WinGetPos, and WinMove without external app noise.")
-	btnShowHelper := gMain.AddButton("x52 y196 w150 h28", "Show Helper")
+	helperWinGroup := gMain.AddGroupBox("xc+16 yc+50 w500 h390", "Helper Window Automation")
+	gMain.UseGroup(helperWinGroup)
+	gMain.AddText("xc+16 yc+24 w468 h34", "These buttons act on a dedicated helper window owned by the suite. Use them to validate WinExist, WinActivate, WinWaitActive, WinGetPos, and WinMove without external app noise.")
+	btnShowHelper := gMain.AddButton("xc+16 y+10 w150 h28", "Show Helper")
 	btnShowHelper.OnEvent("Click", (*) => EnsureWindowHelper(true))
-	btnRunHelperAutomation := gMain.AddButton("x214 y196 w220 h28", "Run Helper Win* Test")
+	btnRunHelperAutomation := gMain.AddButton("x+12 yp w220 h28", "Run Helper Win* Test")
 	btnRunHelperAutomation.OnEvent("Click", (*) => RunWindowHelperAutomation())
-	btnHideHelper := gMain.AddButton("x446 y196 w74 h28", "Hide")
+	btnHideHelper := gMain.AddButton("x+12 yp w74 h28", "Hide")
 	btnHideHelper.OnEvent("Click", (*) => HideWindowHelper())
-	helperStatus := gMain.AddText("x52 y242 w468 h96", "Helper status: Not run")
+	helperStatus := gMain.AddText("xc+16 y+12 w468 h96", "Helper status: Not run")
 	gStatus["window_helper"] := helperStatus
+	gMain.UseGroup()
+	gTabs.UseTab("Windows")
 
-	externalWinGroup := gMain.AddGroupBox("x560 y116 w540 h410", "External Window Tools")
-	gMain.AddText("x576 y146 w508 h34", "Use Capture Active Window to prefill the title field, or type your own title match. Activate and Move are semi-automated and should be confirmed by the tester.")
-	gWindowTitleEdit := gMain.AddEdit("x576 y188 w508", "")
-	btnCaptureActive := gMain.AddButton("x576 y228 w150 h28", "Capture Active")
+	externalWinGroup := gMain.AddGroupBox("xc+540 yc+50 w540 h410", "External Window Tools")
+	gMain.UseGroup(externalWinGroup)
+	gMain.AddText("xc+16 yc+24 w508 h34", "Use Capture Active Window to prefill the title field, or type your own title match. Activate and Move are semi-automated and should be confirmed by the tester.")
+	gWindowTitleEdit := gMain.AddEdit("xc+16 y+8 w508", "")
+	btnCaptureActive := gMain.AddButton("xc+16 y+10 w150 h28", "Capture Active")
 	btnCaptureActive.OnEvent("Click", (*) => CaptureActiveWindow())
-	btnActivateTarget := gMain.AddButton("x736 y228 w150 h28", "Activate Title")
+	btnActivateTarget := gMain.AddButton("x+10 yp w150 h28", "Activate Title")
 	btnActivateTarget.OnEvent("Click", (*) => ActivateExternalWindow())
-	btnMoveTarget := gMain.AddButton("x896 y228 w188 h28", "Move Title +40,+40")
+	btnMoveTarget := gMain.AddButton("x+10 yp w188 h28", "Move Title +40,+40")
 	btnMoveTarget.OnEvent("Click", (*) => MoveExternalWindow())
-	btnFromPoint := gMain.AddButton("x576 y266 w220 h28", "Use Window From Mouse Point")
+	btnFromPoint := gMain.AddButton("xc+16 y+10 w220 h28", "Use Window From Mouse Point")
 	btnFromPoint.OnEvent("Click", (*) => CaptureWindowFromPoint())
-	gMain.AddText("x808 y270 w276 h34", "Reads the window under the current mouse cursor and fills the target title.")
-	gWindowInfoEdit := gMain.AddEdit("x576 y308 w508 h140 ReadOnly -Wrap")
-	externalStatus := gMain.AddText("x576 y456 w508 h28", "External status: waiting for a target title")
+	gMain.AddText("x+12 yp w276 h34", "Reads the window under the current mouse cursor and fills the target title.")
+	gWindowInfoEdit := gMain.AddEdit("xc+16 y+10 w508 h140 ReadOnly -Wrap")
+	externalStatus := gMain.AddText("xc+16 y+8 w508 h28", "External status: waiting for a target title")
 	gStatus["window_external"] := externalStatus
+	gMain.UseGroup()
+	gTabs.UseTab("Windows")
+
+	winEventGroup := gMain.AddGroupBox("xc+16 yc+470 w1064 h140", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
+	gMain.UseGroup(winEventGroup)
+	gMain.AddText("xc+16 yc+24 w1032 h34", "Subscribes to Active / Create / Close / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows to generate events.")
+	btnStartWinEvent := gMain.AddButton("xc+16 y+10 w200 h28", "Start WinEvent Probe")
+	btnStartWinEvent.OnEvent("Click", (*) => StartWinEventProbe())
+	btnStopWinEvent := gMain.AddButton("x+10 yp w200 h28", "Stop WinEvent Probe")
+	btnStopWinEvent.OnEvent("Click", (*) => StopWinEventProbe())
+	winEventStatus := gMain.AddText("x+10 yp+4 w580 h24", "WinEvent: not started")
+	gStatus["window_winevent"] := winEventStatus
+	gMain.UseGroup()
 
 	gTabs.UseTab("Pixel && Image")
-	gMain.AddText("x36 y86 w1040", "The pixel helper is a borderless window with a solid background and an image fixture. Keep it fully visible and unobstructed when running these tests.")
+	gMain.AddText("xc+16 yc+12 w1040", "The pixel helper is a borderless window with a solid background and an image fixture. Keep it fully visible and unobstructed when running these tests.")
 
-	pixelGroup := gMain.AddGroupBox("x36 y116 w500 h380", "Pixel Helper")
-	gMain.AddText("x52 y146 w468 h34", "PixelGetColor samples a known region. PixelSearch looks for the sampled color. ImageSearch looks for killbill.png inside the helper.")
-	btnShowPixel := gMain.AddButton("x52 y196 w150 h28", "Show Pixel Helper")
+	pixelGroup := gMain.AddGroupBox("xc+16 yc+50 w500 h380", "Pixel Helper")
+	gMain.UseGroup(pixelGroup)
+	gMain.AddText("xc+16 yc+24 w468 h34", "PixelGetColor samples a known region. PixelSearch looks for the sampled color. ImageSearch looks for killbill.png inside the helper.")
+	btnShowPixel := gMain.AddButton("xc+16 y+10 w150 h28", "Show Pixel Helper")
 	btnShowPixel.OnEvent("Click", (*) => EnsurePixelHelper(true))
-	btnPixelGet := gMain.AddButton("x212 y196 w120 h28", "PixelGetColor")
+	btnPixelGet := gMain.AddButton("x+12 yp w120 h28", "PixelGetColor")
 	btnPixelGet.OnEvent("Click", (*) => RunPixelGetColorTest())
-	btnPixelSearch := gMain.AddButton("x344 y196 w120 h28", "PixelSearch")
+	btnPixelSearch := gMain.AddButton("x+12 yp w120 h28", "PixelSearch")
 	btnPixelSearch.OnEvent("Click", (*) => RunPixelSearchTest())
-	btnImageSearch := gMain.AddButton("x52 y234 w150 h28", "ImageSearch")
+	btnImageSearch := gMain.AddButton("xc+16 y+10 w150 h28", "ImageSearch")
 	btnImageSearch.OnEvent("Click", (*) => RunImageSearchTest())
-	pixelStatus := gMain.AddText("x52 y278 w468 h24", "Pixel status: Not run")
+	pixelStatus := gMain.AddText("xc+16 y+12 w468 h24", "Pixel status: Not run")
 	gStatus["pixel_color"] := pixelStatus
-	imageStatus := gMain.AddText("x52 y310 w468 h24", "Image status: Not run")
+	imageStatus := gMain.AddText("xc+16 y+8 w468 h24", "Image status: Not run")
 	gStatus["pixel_image"] := imageStatus
 
-	pixelNotes := gMain.AddEdit("x52 y350 w468 h112 ReadOnly -Wrap")
+	pixelNotes := gMain.AddEdit("xc+16 y+10 w468 h112 ReadOnly -Wrap")
 	pixelNotes.Value :=
 	(
 	"Expected behavior:`n"
@@ -194,27 +241,29 @@ BuildMainGui() {
 	"- ImageSearch should find killbill.png if the asset exists and the helper is visible.`n`n"
 	"If ImageSearch fails, confirm whether the helper was obscured, scaled, or on a different monitor."
 	)
+	gMain.UseGroup()
 
 	gTabs.UseTab("Clipboard")
-	gMain.AddText("x36 y86 w1040", "Clipboard tests are a mix of self-validating checks and manual confirmation. Use a real external app for the image paste step if you want a final interoperability check.")
+	gMain.AddText("xc+16 yc+12 w1040", "Clipboard tests are a mix of self-validating checks and manual confirmation. Use a real external app for the image paste step if you want a final interoperability check.")
 
-	clipGroup := gMain.AddGroupBox("x36 y116 w500 h390", "Clipboard Tests")
-	gMain.AddText("x52 y146 w468 h34", "Text round-trip and delayed ClipWait are self-validating. Clipboard change monitoring shows whether callbacks are fired. Image copy is manual after the copy step succeeds.")
-	gClipboardTextEdit := gMain.AddEdit("x52 y188 w468 h92", "Clipboard probe text:`nAlpha beta gamma`nUnicode: Eesti, 日本語, emoji-free.")
-	btnClipboardRoundTrip := gMain.AddButton("x52 y296 w150 h28", "Text Round Trip")
+	clipGroup := gMain.AddGroupBox("xc+16 yc+50 w500 h390", "Clipboard Tests")
+	gMain.UseGroup(clipGroup)
+	gMain.AddText("xc+16 yc+24 w468 h34", "Text round-trip and delayed ClipWait are self-validating. Clipboard change monitoring shows whether callbacks are fired. Image copy is manual after the copy step succeeds.")
+	gClipboardTextEdit := gMain.AddEdit("xc+16 y+8 w468 h92", "Clipboard probe text:`nAlpha beta gamma`nUnicode: Eesti, 日本語, emoji-free.")
+	btnClipboardRoundTrip := gMain.AddButton("xc+16 y+10 w150 h28", "Text Round Trip")
 	btnClipboardRoundTrip.OnEvent("Click", (*) => RunClipboardTextRoundTrip())
-	btnClipWait := gMain.AddButton("x212 y296 w150 h28", "Delayed ClipWait")
+	btnClipWait := gMain.AddButton("x+10 yp w150 h28", "Delayed ClipWait")
 	btnClipWait.OnEvent("Click", (*) => RunClipboardClipWaitTest())
-	btnClipboardImage := gMain.AddButton("x372 y296 w148 h28", "Copy Image Asset")
+	btnClipboardImage := gMain.AddButton("x+10 yp w148 h28", "Copy Image Asset")
 	btnClipboardImage.OnEvent("Click", (*) => RunClipboardImageCopy())
-	btnToggleMonitor := gMain.AddButton("x52 y336 w150 h28", "Toggle Change Monitor")
+	btnToggleMonitor := gMain.AddButton("xc+16 y+10 w150 h28", "Toggle Change Monitor")
 	btnToggleMonitor.OnEvent("Click", (*) => ToggleClipboardMonitor())
-	clipStatus := gMain.AddText("x212 y342 w308 h24", "Clipboard status: Not run")
+	clipStatus := gMain.AddText("x+12 yp+4 w300 h24", "Clipboard status: Not run")
 	gStatus["clipboard_main"] := clipStatus
-	clipMonitorStatus := gMain.AddText("x52 y378 w468 h24", "Clipboard monitor: disabled")
+	clipMonitorStatus := gMain.AddText("xc+16 y+10 w468 h24", "Clipboard monitor: disabled")
 	gStatus["clipboard_monitor"] := clipMonitorStatus
 
-	clipNotes := gMain.AddEdit("x52 y410 w468 h52 ReadOnly -Wrap")
+	clipNotes := gMain.AddEdit("xc+16 y+10 w468 h52 ReadOnly -Wrap")
 	clipNotes.Value :=
 	(
 		"Expected behavior:`n"
@@ -223,39 +272,45 @@ BuildMainGui() {
 		"- Copy Image Asset should place killbill.png on the clipboard if the asset exists.`n"
 		"- When the monitor is enabled, copying text in any app should increment the change counter."
 	)
+	gMain.UseGroup()
 
 	gTabs.UseTab("Sound")
-	gMain.AddText("x36 y86 w1040", "Use this tab to exercise sound device enumeration and default-device controls. On non-Windows platforms, differences in device backends or permissions should be logged as platform limitations rather than silent failures.")
+	gMain.AddText("xc+16 yc+12 w1040", "Use this tab to exercise sound device enumeration and default-device controls. On non-Windows platforms, differences in device backends or permissions should be logged as platform limitations rather than silent failures.")
 
-	soundGroup := gMain.AddGroupBox("x36 y116 w500 h410", "Sound Devices")
-	gMain.AddText("x52 y146 w468 h34", "Refresh lists the default device state and attempts to enumerate numbered devices until the API stops returning names.")
-	btnSoundRefresh := gMain.AddButton("x52 y188 w150 h28", "Refresh Sound")
+	soundGroup := gMain.AddGroupBox("xc+16 yc+50 w500 h410", "Sound Devices")
+	gMain.UseGroup(soundGroup)
+	gMain.AddText("xc+16 yc+24 w468 h34", "Refresh lists the default device state and attempts to enumerate numbered devices until the API stops returning names.")
+	btnSoundRefresh := gMain.AddButton("xc+16 y+10 w150 h28", "Refresh Sound")
 	btnSoundRefresh.OnEvent("Click", (*) => RefreshSoundStatus())
-	btnSoundBeep := gMain.AddButton("x214 y188 w150 h28", "Beep Test")
+	btnSoundBeep := gMain.AddButton("x+12 yp w150 h28", "Beep Test")
 	btnSoundBeep.OnEvent("Click", (*) => RunSoundBeepTest())
-	soundStatus := gMain.AddText("x52 y226 w468 h24", "Sound status: Not run")
+	soundStatus := gMain.AddText("xc+16 y+10 w468 h24", "Sound status: Not run")
 	gStatus["sound_main"] := soundStatus
-	gSoundInfoEdit := gMain.AddEdit("x52 y260 w468 h232 ReadOnly -Wrap")
+	gSoundInfoEdit := gMain.AddEdit("xc+16 y+8 w468 h232 ReadOnly -Wrap")
+	gMain.UseGroup()
+	gTabs.UseTab("Sound")
 
-	soundControlGroup := gMain.AddGroupBox("x560 y116 w540 h410", "Default Device Controls")
-	gMain.AddText("x576 y146 w508 h34", "These controls target the default playback device. Refresh after each action to verify mute and volume state.")
-	btnMute := gMain.AddButton("x576 y188 w150 h28", "Mute")
+	soundControlGroup := gMain.AddGroupBox("xc+540 yc+50 w540 h410", "Default Device Controls")
+	gMain.UseGroup(soundControlGroup)
+	gMain.AddText("xc+16 yc+24 w508 h34", "These controls target the default playback device. Refresh after each action to verify mute and volume state.")
+	btnMute := gMain.AddButton("xc+16 y+10 w150 h28", "Mute")
 	btnMute.OnEvent("Click", (*) => SetSoundMute(true))
-	btnUnmute := gMain.AddButton("x736 y188 w150 h28", "Unmute")
+	btnUnmute := gMain.AddButton("x+10 yp w150 h28", "Unmute")
 	btnUnmute.OnEvent("Click", (*) => SetSoundMute(false))
-	btnVol25 := gMain.AddButton("x896 y188 w60 h28", "25%")
+	btnVol25 := gMain.AddButton("x+10 yp w60 h28", "25%")
 	btnVol25.OnEvent("Click", (*) => SetSoundVolumeValue(25))
-	btnVol50 := gMain.AddButton("x964 y188 w60 h28", "50%")
+	btnVol50 := gMain.AddButton("x+8 yp w60 h28", "50%")
 	btnVol50.OnEvent("Click", (*) => SetSoundVolumeValue(50))
-	btnVol100 := gMain.AddButton("x1032 y188 w52 h28", "100%")
+	btnVol100 := gMain.AddButton("x+8 yp w52 h28", "100%")
 	btnVol100.OnEvent("Click", (*) => SetSoundVolumeValue(100))
-	gMain.AddText("x576 y232 w120 h24", "Set volume:")
-	gSoundVolumeEdit := gMain.AddEdit("x652 y228 w90", "50")
-	btnApplyVolume := gMain.AddButton("x756 y228 w130 h28", "Apply Volume")
+	gMain.AddText("xc+16 y+12 w120 h24", "Set volume:")
+	gSoundVolumeEdit := gMain.AddEdit("x+8 yp-2 w90", "50")
+	btnApplyVolume := gMain.AddButton("x+12 yp-2 w130 h28", "Apply Volume")
 	btnApplyVolume.OnEvent("Click", (*) => ApplySoundVolume())
-	gMain.AddText("x576 y272 w508 h78", "Expected behavior:`n- Mute and Unmute should toggle the default device state.`n- Set volume should change the reported percentage.`n- Device enumeration may vary by platform.")
-	soundControlStatus := gMain.AddText("x576 y360 w508 h28", "Sound control status: waiting")
+	gMain.AddText("xc+16 y+12 w508 h78", "Expected behavior:`n- Mute and Unmute should toggle the default device state.`n- Set volume should change the reported percentage.`n- Device enumeration may vary by platform.")
+	soundControlStatus := gMain.AddText("xc+16 y+10 w508 h28", "Sound control status: waiting")
 	gStatus["sound_control"] := soundControlStatus
+	gMain.UseGroup()
 
 	gTabs.UseTab()
 	gMain.AddText("x20 y706 w1120", "Activity Log")
@@ -316,6 +371,8 @@ ResetStatuses() {
 	SetStatus("input_hotkey", "Hotkey status: waiting for Ctrl+Alt+1")
 	SetStatus("input_hotstring", "Hotstring status: waiting for the 3 probe cases")
 	SetStatus("input_hook", "InputHook status: idle")
+	SetStatus("input_mouse", "Mouse hook: idle")
+	SetStatus("input_mouse_readout", "Start, then click / wheel / move the mouse to see the last event and live counts.")
 	SetStatus("window_helper", "Helper status: Not run")
 	SetStatus("window_external", "External status: waiting for a target title")
 	SetStatus("pixel_color", "Pixel status: Not run")
@@ -324,7 +381,79 @@ ResetStatuses() {
 	SetStatus("clipboard_monitor", "Clipboard monitor: " (gClipboardMonitorEnabled ? "enabled" : "disabled"))
 	SetStatus("sound_main", "Sound status: Not run")
 	SetStatus("sound_control", "Sound control status: waiting")
+	SetStatus("window_winevent", "WinEvent: not started")
 	AppendLog("Status text reset.")
+}
+
+; Single callback for every WinEvent subscription. The event kind is read from hook.EventType,
+; so one handler covers Active/Create/Close/Move/Minimize/Restore/TitleChange. Move fires very
+; frequently (once per drag step), so it is counted and surfaced in the status line rather than
+; written to the log, while every other event is logged with the affected window's title.
+OnWinEvent(hook, hwnd, dwmsEventTime) {
+	global gWinEventCount, gWinEventMoveCount
+
+	evType := hook.EventType
+
+	if (evType = "Move") {
+		gWinEventMoveCount++
+		SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventMoveCount " moves (last hwnd " Format("0x{:X}", hwnd) ")")
+		return
+	}
+
+	gWinEventCount++
+
+	; Look up the title by the *pure* window id (integer), not an "ahk_id <id>" string: the integer form
+	; matches regardless of A_DetectHiddenWindows, so hidden helper windows don't raise a "window not found"
+	; error. Even so, a window seen by Create/Close may already be gone by the time the callback runs, so the
+	; lookup is wrapped to keep the probe from ever throwing.
+	title := "<n/a>"
+	if (evType != "Close") {
+		try
+			title := WinGetTitle(hwnd)
+		catch
+			title := "<unavailable>"
+	}
+
+	AppendLog("WinEvent " evType ": hwnd=" Format("0x{:X}", hwnd) " title=" (title = "" ? "<none>" : title))
+	SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventMoveCount " moves (last " evType ")")
+}
+
+StartWinEventProbe() {
+	global gWinEventHooks, gWinEventCount, gWinEventMoveCount
+
+	StopWinEventProbe()
+	gWinEventCount := 0
+	gWinEventMoveCount := 0
+
+	try {
+		gWinEventHooks.Push(WinEvent.Active(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Create(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Close(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Move(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Minimize(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Restore(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.TitleChange(OnWinEvent))
+		SetStatus("window_winevent", "WinEvent: probe started — switch, open, close, and drag windows")
+		AppendLog("WinEvent probe started (" gWinEventHooks.Length " subscriptions). Activate, open, close, minimize, restore, and drag windows.")
+	} catch as err {
+		SetStatus("window_winevent", "WinEvent: BLOCKED/ERROR")
+		AppendLog("WinEvent probe failed: " err.Message)
+	}
+}
+
+StopWinEventProbe() {
+	global gWinEventHooks
+
+	if (gWinEventHooks.Length = 0)
+		return
+
+	for hook in gWinEventHooks {
+		try hook.Stop()
+	}
+
+	gWinEventHooks := []
+	SetStatus("window_winevent", "WinEvent: stopped")
+	AppendLog("WinEvent probe stopped.")
 }
 
 PrepareSendTarget() {
@@ -516,6 +645,113 @@ ValidateInputHookProbe() {
 		SetStatus("input_hook", "InputHook status: FAIL")
 		AppendLog("InputHook validation failed. Expected <" expected "> but saw <" gInputHookLastText "> with reason <" gInputHookLastReason ">.")
 	}
+}
+
+StartMouseHookProbe() {
+	global gMouseHookObj, gMouseDownCount, gMouseUpCount, gMouseMoveCount
+
+	try {
+		if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress)
+			gMouseHookObj.Stop()
+
+		gMouseDownCount := 0
+		gMouseUpCount := 0
+		gMouseMoveCount := 0
+		; "V" keeps keystrokes/clicks visible (non-suppressing) so the harness stays usable.
+		gMouseHookObj := InputHook("V")
+		gMouseHookObj.OnMouseDown := MouseHookDown
+		gMouseHookObj.OnMouseUp := MouseHookUp
+		gMouseHookObj.OnMouseMove := MouseHookMove
+		gMouseHookObj.Start()
+		UpdateMouseHookReadout("(waiting for mouse activity)")
+		SetStatus("input_mouse", "Mouse hook: capturing. Click, wheel, and move the mouse.")
+		AppendLog("Mouse InputHook started.")
+	} catch Error as err {
+		SetStatus("input_mouse", "Mouse hook: BLOCKED/ERROR")
+		AppendLog("Mouse InputHook start failed: " err.Message)
+	}
+}
+
+StopMouseHookProbe() {
+	global gMouseHookObj
+
+	if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		gMouseHookObj.VisibleMouseMove := true ; Make sure movement is restored on stop.
+		gMouseHookObj.Stop()
+	}
+
+	SetStatus("input_mouse", "Mouse hook: stopped")
+	AppendLog("Mouse InputHook stopped.")
+}
+
+MouseHookDown(hook, button, x, y) {
+	global gMouseDownCount
+
+	gMouseDownCount++
+	UpdateMouseHookReadout("Down " button " @ " x "," y)
+}
+
+MouseHookUp(hook, button, x, y) {
+	global gMouseUpCount
+
+	gMouseUpCount++
+	UpdateMouseHookReadout("Up " button " @ " x "," y)
+}
+
+MouseHookMove(hook, x, y) {
+	global gMouseMoveCount
+
+	gMouseMoveCount++
+
+	; Movement fires continuously; refresh the readout only periodically so the GUI stays responsive.
+	if (Mod(gMouseMoveCount, 10) = 0)
+		UpdateMouseHookReadout("Move @ " x "," y)
+}
+
+UpdateMouseHookReadout(lastEvent) {
+	global gMouseDownCount, gMouseUpCount, gMouseMoveCount
+
+	SetStatus("input_mouse_readout", "Last: " lastEvent "   |   Down=" gMouseDownCount " Up=" gMouseUpCount " Move=" gMouseMoveCount)
+}
+
+TestBlockMoveProbe() {
+	global gMouseHookObj
+
+	if !(IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		SetStatus("input_mouse", "Mouse hook: start it first")
+		return
+	}
+
+	gMouseHookObj.VisibleMouseMove := false
+	SetStatus("input_mouse", "Mouse hook: movement BLOCKED for 2s (cursor should freeze, then recover).")
+	AppendLog("Mouse movement suppression engaged (VisibleMouseMove:=false) for 2s.")
+	SetTimer(UnblockMoveProbe, -2000) ; Auto-revert so the tester is never locked out.
+}
+
+UnblockMoveProbe() {
+	global gMouseHookObj
+
+	if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress)
+		gMouseHookObj.VisibleMouseMove := true
+
+	SetStatus("input_mouse", "Mouse hook: movement restored")
+	AppendLog("Mouse movement suppression released (VisibleMouseMove:=true).")
+}
+
+ToggleBlockMButton() {
+	static blocked := false
+	global gMouseHookObj
+
+	if !(IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		SetStatus("input_mouse", "Mouse hook: start it first")
+		return
+	}
+
+	blocked := !blocked
+	; +S suppresses the middle button like a suppressed keystroke; +V makes it visible again.
+	gMouseHookObj.KeyOpt("{MButton}", blocked ? "+S" : "+V")
+	SetStatus("input_mouse", "Mouse hook: MButton " (blocked ? "SUPPRESSED (middle-click should do nothing)" : "visible"))
+	AppendLog("MButton suppression " (blocked ? "enabled" : "disabled") " via KeyOpt.")
 }
 
 EnsureWindowHelper(showWindow := true) {

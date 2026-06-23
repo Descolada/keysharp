@@ -1876,6 +1876,15 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				if (script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput)
 					e.SuppressEvent = true;
 			}
+
+			// TODO: unverified on this host (built/tested on Windows only). Notify any active InputHook(s)
+			// of movement; CollectMouseMove returns false to suppress when VisibleMouseMove is off.
+			// e.Data.X/Y are forwarded as-is from the hook event (see the coordinate contract on
+			// CollectMouseMove). We deliberately do not query the absolute cursor position here; on the
+			// inputd backend these are relative movement deltas, which is the intended forwarded value.
+			if (Script.TheScript.input != null
+					&& !CollectMouseMove(ComputeExtraInfo(0, e.IsEventSimulated), e.Data.X, e.Data.Y, null))
+				e.SuppressEvent = true;
 		}
 
 		private void OnMousePressed(object sender, MouseHookEventArgs e)

@@ -47,8 +47,64 @@ namespace Keysharp.Internals.Input
 		internal DateTime timeoutAt;
 		internal bool transcribeModifiedKeys;
 		internal bool visibleText, visibleNonText = true;
+		internal bool visibleMouseMove = true;
 
 		internal bool BeforeHotkeys => beforeHotkeys;
+
+		// True when this input needs the low-level mouse hook installed: a mouse callback is set,
+		// movement is being suppressed, or any mouse/wheel VK has been given Input key options
+		// (end-key, suppress, etc.) via KeyOpt/end keys.
+		internal bool MouseIsNeeded
+		{
+			get
+			{
+				if (!visibleMouseMove)
+					return true;
+
+				if (scriptObject != null
+						&& (scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEDOWN)?.Callback != null
+							|| scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEUP)?.Callback != null
+							|| scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEMOVE)?.Callback != null))
+					return true;
+
+				for (var v = 0u; v < keyVK.Length; ++v)
+					if ((MouseUtils.IsMouseVK(v) || MouseUtils.IsWheelVK(v))
+							&& (keyVK[v] & (HookThread.END_KEY_ENABLED | HookThread.INPUT_KEY_OPTION_MASK)) != 0)
+						return true;
+
+				return false;
+			}
+		}
+
+		// True when this input needs the low-level keyboard hook: a keyboard callback, a match list,
+		// keyboard text/non-text suppression, or any keyboard (non-mouse) end key / KeyOpt all require it.
+		// A bare input with none of these still needs it UNLESS it is purely a mouse observer
+		// (see MouseIsNeeded), because the default options suppress typed text, which needs the hook.
+		internal bool KeyboardIsNeeded
+		{
+			get
+			{
+				if (scriptObject != null
+						&& (scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_CHAR)?.Callback != null
+							|| scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_KEYDOWN)?.Callback != null
+							|| scriptObject.GetCallbackSlot(UserMessages.AHK_INPUT_KEYUP)?.Callback != null))
+					return true;
+
+				if (match.Count > 0 || !visibleText || !visibleNonText)
+					return true;
+
+				for (var s = 0u; s < keySC.Length; ++s)
+					if ((keySC[s] & (HookThread.END_KEY_ENABLED | HookThread.INPUT_KEY_OPTION_MASK)) != 0)
+						return true;
+
+				for (var v = 0u; v < keyVK.Length; ++v)
+					if (!MouseUtils.IsMouseVK(v) && !MouseUtils.IsWheelVK(v)
+							&& (keyVK[v] & (HookThread.END_KEY_ENABLED | HookThread.INPUT_KEY_OPTION_MASK)) != 0)
+						return true;
+
+				return !MouseIsNeeded;
+			}
+		}
 
 		internal InputType(InputObject io, string options, string endKeys, string matchList)
 		{
@@ -370,7 +426,12 @@ namespace Keysharp.Internals.Input
 			if (beforeHotkeys)
 				++script.inputBeforeHotkeysCount;
 
-			HotkeyDefinition.InstallKeybdHook(); // Install the hook (if needed).
+			if (KeyboardIsNeeded)
+				HotkeyDefinition.InstallKeybdHook(); // Keyboard hook only when collecting/suppressing keyboard.
+
+			if (MouseIsNeeded)
+				HotkeyDefinition.InstallMouseHook(); // Also install the mouse hook when collecting mouse events.
+
 			script.HookThread.RefreshPlatformKeyGrabs();
 		}
 

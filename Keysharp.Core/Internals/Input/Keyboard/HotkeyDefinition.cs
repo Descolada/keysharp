@@ -585,12 +585,28 @@ namespace Keysharp.Internals.Input.Keyboard
 			var ts = script.KeyboardData.toggleStates;
 			var hm = script.HotstringManager;
 
+			// An active InputHook requires whichever hook(s) it actually uses. An input that only collects
+			// mouse events must not force the keyboard hook (and vice versa), so the per-input
+			// KeyboardIsNeeded/MouseIsNeeded checks decide here too. Doing this in the full recompute (not just
+			// at InputStart) keeps the hooks correct across later recomputes (e.g. a Hotkey()/Hotstring()
+			// change) instead of re-installing or dropping a hook out from under a still-running input.
+			bool inputNeedsKeyboardHook = false, inputNeedsMouseHook = false;
+
+			for (var inp = script.input; inp != null; inp = inp.prev)
+			{
+				inputNeedsKeyboardHook |= inp.KeyboardIsNeeded;
+				inputNeedsMouseHook |= inp.MouseIsNeeded;
+
+				if (inputNeedsKeyboardHook && inputNeedsMouseHook)
+					break;
+			}
+
 			if (hm.enabledCount != 0
-					|| script.input != null // v1.0.91: Hook is needed for collecting input.
+					|| inputNeedsKeyboardHook // v1.0.91: Hook is needed for collecting input.
 					|| !(ts.forceNumLock == ToggleValueType.Neutral && ts.forceCapsLock == ToggleValueType.Neutral && ts.forceScrollLock == ToggleValueType.Neutral))
 				hkd.whichHookNeeded |= HookType.Keyboard;
 
-			if (kbd.blockMouseMove || ht.CursorClipActive || (hm.hsResetUponMouseClick && hm.enabledCount != 0))
+			if (kbd.blockMouseMove || ht.CursorClipActive || inputNeedsMouseHook || (hm.hsResetUponMouseClick && hm.enabledCount != 0))
 				hkd.whichHookNeeded |= HookType.Mouse;
 
 			//Regardless of the type of hook needed, including none, we always need to start the reader queue.

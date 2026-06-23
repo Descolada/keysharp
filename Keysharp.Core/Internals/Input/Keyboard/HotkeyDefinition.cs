@@ -1154,8 +1154,6 @@ namespace Keysharp.Internals.Input.Keyboard
 						case 'I':
 							if (variant != null && long.TryParse(options.AsSpan(i + 1), out var newInputLevel))
 							{
-								variant.maxThreads = newInputLevel;
-
 								if (KeyboardMouseSender.SendLevelIsValid(newInputLevel))
 								{
 									if (newInputLevel != 0 && !hk.keybdHookMandatory)

@@ -41,10 +41,25 @@ namespace Keysharp.Internals.Strings
 			settings.Options |= PcreOptions.Compiled;
 			pattern ??= n;
 			opts = settings;
-			pattern = TranslateCallouts(pattern);
-			hasCallout = (settings.Options & PcreOptions.AutoCallout) != 0 || pattern.IndexOf("(?C", StringComparison.Ordinal) >= 0;
-			regex = new PcreRegex(pattern, opts);
+
+			//Compile as-is first. AutoHotkey's unquoted callout names — (?CName), (?Cn:Name) — are invalid in
+			//PCRE2 and make compilation throw; only then do we rewrite them to the PCRE2 string form and retry.
+			//This keeps the rewriter off every normal pattern (it only ever sees patterns PCRE2 already rejected)
+			//and avoids scanning callout-free patterns entirely.
+			try
+			{
+				regex = new PcreRegex(pattern, opts);
+			}
+			catch (PcrePatternException) when (pattern.IndexOf("(?C", StringComparison.Ordinal) >= 0)
+			{
+				pattern = TranslateCallouts(pattern);
+				regex = new PcreRegex(pattern, opts);
+			}
+
 			info = regex.PatternInfo;
+			//Whether matching needs the (slower) callout callback path. Taken from the compiled pattern's callout
+			//list (authoritative — covers numeric, named and translated callouts) plus the auto-callout option.
+			hasCallout = (settings.Options & PcreOptions.AutoCallout) != 0 || info.Callouts.Any();
 			groupNames = new string[info.CaptureCount + 1];
 
 			foreach (var name in info.GroupNames)

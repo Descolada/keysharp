@@ -1341,7 +1341,7 @@ namespace Keysharp.Builtins
 		/// The value specified by #MaxThreadsBuffer.
 		/// Causes some or all hotkeys to buffer rather than ignore keypresses when their #MaxThreadsPerHotkey limit has been reached.
 		/// </summary>
-		public static object A_MaxThreadsBuffer { get; set; }
+		public static object A_MaxThreadsBuffer { get; set; } = 0L;
 
 		/// <summary>
 		/// The value specified by #MaxThreadsPerHotkey.

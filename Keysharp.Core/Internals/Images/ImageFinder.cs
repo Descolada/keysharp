@@ -18,7 +18,28 @@ namespace Keysharp.Internals.Images
 		/// <param name="source">Source Image where to search in</param>
 		internal ImageFinder(Bitmap source) => sourceImage = source;
 
-		internal Point? Find(Bitmap findImage, long trans = -1)
+		/// <summary>
+		/// Searches the source image for <paramref name="findImage"/> and returns the top-left
+		/// corner of a match, or null if none is found.
+		/// <paramref name="direction"/> (1-9) selects which match is returned first when several are
+		/// present (it does not change whether a match exists). The parenthesized sweep is the
+		/// inner/secondary axis, the trailing one the outer/primary:
+		/// <code>
+		///   1 ==> ( Left to Right ) Top to Bottom   (default)
+		///   2 ==> ( Right to Left ) Top to Bottom
+		///   3 ==> ( Left to Right ) Bottom to Top
+		///   4 ==> ( Right to Left ) Bottom to Top
+		///   5 ==> ( Top to Bottom ) Left to Right
+		///   6 ==> ( Bottom to Top ) Left to Right
+		///   7 ==> ( Top to Bottom ) Right to Left
+		///   8 ==> ( Bottom to Top ) Right to Left
+		///   9 ==> From the center outwards
+		/// </code>
+		/// No pixels are moved: the one row-major SIMD scan in <see cref="SearchForNeedle"/> reads
+		/// the source once, and the direction only changes which match it keeps (a ranking key). The
+		/// default (1) keeps the legacy early-exit; the others rank every match the scan finds.
+		/// </summary>
+		internal Point? Find(Bitmap findImage, long trans = -1, int direction = 1)
 		{
 			if (sourceImage == null || findImage == null)
 				throw new InvalidOperationException();
@@ -40,6 +61,13 @@ namespace Keysharp.Internals.Images
 				// only honors transparency via the explicit *TransN option.
 				var src = ToRgbArray(sourceImage);
 				var fnd = ToRgbArray(fndBmp);
+
+				// Decode the scan direction into a match-ranking rule. The default top-left order
+				// (no axis flipped, no center-seek) is the only one whose scan order already equals
+				// its ranking, so it alone can early-exit on the first match; every other direction
+				// ranks the matches the single scan finds, needing no extra pass or pixel copy.
+				var rank = DecodeDirection(direction);
+				var earlyExit = !rank.PrimaryIsCol && !rank.RowDesc && !rank.ColDesc && !rank.CenterSeek;
 
 				// 0 → trans pixel (matches any screen color), 0xFFFFFFFF → must compare.
 				uint[] fndMask = null;
@@ -121,7 +149,8 @@ namespace Keysharp.Internals.Images
 					fixed (int* rowOrderPtr = rowOrder)
 					{
 						return SearchForNeedle(srcPtr, srcW, srcH, fndPtr, maskPtr, fndW, fndH,
-											   anchor % fndW, anchor / fndW, probe, rowOrderPtr, Variation);
+											   anchor % fndW, anchor / fndW, probe, rowOrderPtr, Variation,
+											   rank, earlyExit);
 					}
 				}
 			}
@@ -136,6 +165,36 @@ namespace Keysharp.Internals.Images
 					fndBmp.Dispose();
 			}
 		}
+
+		/// <summary>
+		/// Describes how to rank candidate matches for a numpad scan direction, so the single
+		/// row-major SIMD scan can pick the directional "first" match without moving any pixels.
+		/// <see cref="PrimaryIsCol"/> chooses the dominant axis (false = row-major corners,
+		/// true = column-major edges); <see cref="RowDesc"/>/<see cref="ColDesc"/> flip each axis so
+		/// the smallest ranking key is the match nearest the requested start corner/edge. Direction
+		/// 5 sets <see cref="CenterSeek"/> instead, ranking by distance to the region center.
+		/// </summary>
+		private readonly record struct ScanRank(bool PrimaryIsCol, bool RowDesc, bool ColDesc, bool CenterSeek);
+
+		/// <summary>
+		/// Maps a scan direction (1-9) to its <see cref="ScanRank"/>. Each pair of booleans is
+		/// (primary axis, then its two sweep directions): directions 1-4 are row-major (rows are the
+		/// outer loop) and 5-8 are column-major. The default (1, the legacy row-major top-left order)
+		/// is the only direction whose scan order already equals its ranking, so it alone can
+		/// early-exit; the others rank every match the one SIMD scan finds.
+		/// </summary>
+		private static ScanRank DecodeDirection(int direction) => direction switch
+		{
+			2 => new ScanRank(false, false, true,  false),//(R→L) T→B: rows top→bottom, right→left
+			3 => new ScanRank(false, true,  false, false),//(L→R) B→T: rows bottom→top, left→right
+			4 => new ScanRank(false, true,  true,  false),//(R→L) B→T: rows bottom→top, right→left
+			5 => new ScanRank(true,  false, false, false),//(T→B) L→R: cols left→right, top→bottom
+			6 => new ScanRank(true,  true,  false, false),//(B→T) L→R: cols left→right, bottom→top
+			7 => new ScanRank(true,  false, true,  false),//(T→B) R→L: cols right→left, top→bottom
+			8 => new ScanRank(true,  true,  true,  false),//(B→T) R→L: cols right→left, bottom→top
+			9 => new ScanRank(false, false, false, true), //from the center outwards
+			_ => new ScanRank(false, false, false, false),//1 (L→R) T→B: legacy top-left, and fallback
+		};
 
 		/// <summary>
 		/// Copies a bitmap's pixels into a flat array of 0x00RRGGBB values (alpha stripped).
@@ -208,16 +267,20 @@ namespace Keysharp.Internals.Images
 		}
 
 		/// <summary>
-		/// Scans the haystack for the needle and returns the top-left corner of the first match
-		/// in row-major order (top to bottom, left to right), or null if not found.
-		/// Rows are scanned with SIMD for pixels matching the anchor needle pixel within the
-		/// given variation; the full needle is verified only at those candidate positions.
-		/// The scan order must remain sequential so the first match returned is deterministic.
+		/// Scans the haystack for the needle. Rows are scanned with SIMD for pixels matching the
+		/// anchor needle pixel within the given variation; the full needle is verified only at those
+		/// candidate positions. The scan is always row-major so no pixels are moved.
+		/// When <paramref name="earlyExit"/> is set (the default top-left direction) it returns the
+		/// first verified match — the legacy behaviour. Otherwise it visits every match and keeps the
+		/// one with the smallest ranking key from <paramref name="rank"/>, which encodes the numpad
+		/// direction's start corner/edge (or, for direction 5, distance to the region center).
+		/// Returns the chosen match's top-left corner, or null if none is found.
 		/// </summary>
 		private static unsafe Point? SearchForNeedle(
 			uint* src, int srcW, int srcH,
 			uint* fnd, uint* mask, int fndW, int fndH,
-			int anchorX, int anchorY, int probe, int* rowOrder, byte variation)
+			int anchorX, int anchorY, int probe, int* rowOrder, byte variation,
+			ScanRank rank, bool earlyExit)
 		{
 			var anchorRgb = fnd[anchorY * fndW + anchorX];
 			var probeX = probe >= 0 ? probe % fndW : 0;
@@ -226,6 +289,44 @@ namespace Keysharp.Internals.Images
 			var maxRow = srcH - fndH;
 			// Candidate columns are anchor positions; the needle's top-left is (col - anchorX, row).
 			var colEnd = srcW - fndW + anchorX;//Inclusive.
+			// Best match when ranking (non-default directions); bestKey tracks the smallest key.
+			int bestX = -1, bestY = -1;
+			var bestKey = long.MaxValue;
+			// Needle-center offset, used by the center-out (direction 5) ranking.
+			var seekCx = srcW / 2;
+			var seekCy = srcH / 2;
+
+			// Ranks a verified match: smaller is better. For linear directions the key is a
+			// lexicographic (primary, secondary) order with each axis flipped per the direction, so
+			// the minimum is the match nearest the start corner/edge. For center-out it is the
+			// squared distance from the needle's center to the region center (a small needle near
+			// the middle wins over a larger one straddling it). Multipliers (srcW/srcH) exceed the
+			// secondary axis's range, keeping the primary axis dominant.
+			long Key(int c0, int row)
+			{
+				if (rank.CenterSeek)
+				{
+					long dx = c0 + fndW / 2 - seekCx;
+					long dy = row + fndH / 2 - seekCy;
+					return dx * dx + dy * dy;
+				}
+
+				long rn = rank.RowDesc ? srcH - 1 - row : row;
+				long cn = rank.ColDesc ? srcW - 1 - c0 : c0;
+				return rank.PrimaryIsCol ? cn * srcH + rn : rn * srcW + cn;
+			}
+
+			void TrackBest(int c0, int row)
+			{
+				var key = Key(c0, row);
+
+				if (key < bestKey)
+				{
+					bestKey = key;
+					bestX = c0;
+					bestY = row;
+				}
+			}
 
 			for (var row = 0; row <= maxRow; row++)
 			{
@@ -272,7 +373,12 @@ namespace Keysharp.Internals.Images
 							}
 
 							if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
-								return new Point(c0, row);
+							{
+								if (earlyExit)
+									return new Point(c0, row);
+
+								TrackBest(c0, row);
+							}
 						}
 					}
 				}
@@ -297,11 +403,16 @@ namespace Keysharp.Internals.Images
 					}
 
 					if (VerifyMatch(src, srcW, fnd, mask, fndW, fndH, c0, row, rowOrder, variation))
-						return new Point(c0, row);
+					{
+						if (earlyExit)
+							return new Point(c0, row);
+
+						TrackBest(c0, row);
+					}
 				}
 			}
 
-			return null;
+			return bestX >= 0 ? new Point(bestX, bestY) : null;
 		}
 
 		/// <summary>

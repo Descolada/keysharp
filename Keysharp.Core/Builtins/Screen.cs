@@ -9,6 +9,7 @@ namespace Keysharp.Builtins
 		{
 			{ Keyword_Icon, IconRegex() },
 			{ Keyword_Trans, TransRegex() },
+			{ Keyword_Dir, DirectionRegex() },
 			{ Keyword_Variation, VariationRegex() },
 			{ "w", WidthRegex() },
 			{ "h", HeightRegex() }
@@ -59,6 +60,10 @@ namespace Keysharp.Builtins
 		///     Images that are not icons are loaded at their actual size. To shrink or enlarge the image while preserving its aspect ratio,<br/>
 		///     specify -1 for one of the dimensions and a positive number for the other.<br/>
 		///     For example, specifying *w200 *h-1 would make the image 200 pixels wide and cause its height to be set automatically.<br/>
+		/// *DirN: Sets the scan order, where N is a digit from 1 to 9 (the parenthesized sweep is the inner axis):<br/>
+		///     1=(Left to Right) Top to Bottom (default), 2=(Right to Left) Top to Bottom, 3=(Left to Right) Bottom to Top, 4=(Right to Left) Bottom to Top,<br/>
+		///     5=(Top to Bottom) Left to Right, 6=(Bottom to Top) Left to Right, 7=(Top to Bottom) Right to Left, 8=(Bottom to Top) Right to Left, 9=from the center outwards.<br/>
+		///     This only changes which match is returned first when several are present. For example, *Dir2 returns the top-right-most match.<br/>
 		/// </para>
 		/// </param>
 		/// <exception cref="OSError">An <see cref="OSError"/> exception is thrown if an internal function call fails.</exception>
@@ -99,9 +104,16 @@ namespace Keysharp.Builtins
 			int w = 0, h = 0;
 			long trans = -1;
 			byte variation = 0;
+			// Scan direction (see ImageFinder.Find). 1 = the legacy top-left, row-major scan,
+			// used when *Dir is absent or specifies an invalid value.
+			var direction = 1;
 
 			if (opts.TryGetValue(Keyword_Icon, out var iconopt) && iconopt != "")
 				iconnumber = ImageHelper.PrepareIconNumber(iconopt);
+
+			if (opts.TryGetValue(Keyword_Dir, out var diropt) && diropt != ""
+					&& int.TryParse(diropt, out var d) && d >= 1 && d <= 9)
+				direction = d;
 
 			if (opts.TryGetValue(Keyword_Variation, out var varopt) && varopt != "")
 				_ = byte.TryParse(varopt, out variation);
@@ -164,7 +176,7 @@ namespace Keysharp.Builtins
 
 				var searchImg = new ImageFinder(source) { Variation = variation };
 
-				location = searchImg.Find(bmp, trans);
+				location = searchImg.Find(bmp, trans, direction);
 			}
 			catch (Exception ex)
 			{
@@ -317,6 +329,9 @@ namespace Keysharp.Builtins
 				return 0L;
 			}
 		}
+
+		[GeneratedRegex(@"\*Dir([0-9]*)", RegexOptions.IgnoreCase)]
+		private static partial Regex DirectionRegex();
 
 		[GeneratedRegex(@"\*[hH]([-0-9]*)")]
 		private static partial Regex HeightRegex();

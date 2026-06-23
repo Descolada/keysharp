@@ -255,6 +255,7 @@ namespace Keysharp.Parsing
 		internal const string Keyword_Desc = "desc";
 		internal const string Keyword_Destroy = "destroy";
 		internal const string Keyword_Digit = "digit";
+		internal const string Keyword_Dir = "Dir";
 		internal const string Keyword_Disable = "disable";
 		internal const string Keyword_Disabled = "disabled";
 		internal const string Keyword_Down = "down";

@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 struct ksi_ipc_server {
@@ -192,6 +194,16 @@ int ksi_ipc_accept_client(ksi_ipc_server *server)
         return -1;
     }
 
+    /* Enlarge the send buffer so a brief consumer hiccup (a client thread
+     * descheduled during a burst of hook events, or JIT/GC right after
+     * autostart) does not immediately fill the socket and trip a teardown.
+     * write_exact still bounds how long it waits on a genuinely stuck peer. */
+    {
+        int send_buffer_bytes = 256 * 1024;
+        (void)setsockopt(client_fd, SOL_SOCKET, SO_SNDBUF,
+            &send_buffer_bytes, sizeof(send_buffer_bytes));
+    }
+
     /* Client sockets share long-lived broker threads. Non-blocking I/O makes
      * slow peers fail their own stream instead of holding device dispatch or
      * the IPC poller. */
@@ -251,33 +263,90 @@ static int read_exact(int fd, void *buffer, size_t length)
     return 1;
 }
 
+static uint64_t ipc_monotonic_ms(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+
+    return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+}
+
+/* Total time write_exact waits for a backpressured (non-blocking) peer to drain
+ * its receive buffer before giving up and tearing the stream down.  Small enough
+ * to bound how long one slow client can stall device dispatch on the calling
+ * thread, long enough to ride out a transient scheduler/GC hiccup in an
+ * otherwise-healthy client (e.g. JIT warmup right after autostart) instead of
+ * forcing a reconnect storm.  Only contends on the per-connection send mutex, so
+ * a slow client never blocks sends to other clients. */
+#define KSI_WRITE_DRAIN_BUDGET_MS 100
+
 static int write_exact(int fd, const void *buffer, size_t length)
 {
     const uint8_t *cursor = buffer;
     size_t remaining = length;
+    uint64_t drain_deadline_ms = 0u;
 
     while (remaining > 0) {
         ssize_t bytes_written = write(fd, cursor, remaining);
+
+        if (bytes_written > 0) {
+            cursor += bytes_written;
+            remaining -= (size_t)bytes_written;
+            continue;
+        }
 
         if (bytes_written == 0) {
             (void)shutdown(fd, SHUT_RDWR);
             return -1;
         }
 
-        if (bytes_written < 0) {
-            if (errno == EINTR) {
+        if (errno == EINTR) {
+            continue;
+        }
+
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            /* Peer is applying backpressure.  Wait briefly for its receive
+             * buffer to drain rather than dropping the connection on the first
+             * full-buffer hiccup. */
+            struct pollfd pfd;
+            uint64_t now_ms = ipc_monotonic_ms();
+            int poll_result;
+
+            if (drain_deadline_ms == 0u) {
+                drain_deadline_ms = now_ms + KSI_WRITE_DRAIN_BUDGET_MS;
+            }
+
+            if (now_ms >= drain_deadline_ms) {
+                (void)shutdown(fd, SHUT_RDWR);
+                return -1;
+            }
+
+            pfd.fd = fd;
+            pfd.events = POLLOUT;
+            pfd.revents = 0;
+            poll_result = poll(&pfd, 1, (int)(drain_deadline_ms - now_ms));
+
+            if (poll_result > 0 && (pfd.revents & POLLOUT) != 0) {
                 continue;
             }
 
-            /* A non-blocking daemon fd can be left with a partial frame when
-             * the peer applies backpressure. Tear down the stream so neither
-             * side tries to parse a truncated response as a later frame. */
+            if (poll_result < 0 && errno == EINTR) {
+                continue;
+            }
+
+            /* Timed out, peer hung up, or poll failed: a non-blocking fd can be
+             * left with a partial frame, so tear the stream down rather than let
+             * either side parse a truncated response as a later frame. */
             (void)shutdown(fd, SHUT_RDWR);
             return -1;
         }
 
-        cursor += bytes_written;
-        remaining -= (size_t)bytes_written;
+        /* A genuine write error; same partial-frame reasoning as above. */
+        (void)shutdown(fd, SHUT_RDWR);
+        return -1;
     }
 
     return 0;

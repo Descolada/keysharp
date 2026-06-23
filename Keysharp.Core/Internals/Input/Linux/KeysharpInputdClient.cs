@@ -180,6 +180,11 @@ namespace Keysharp.Internals.Input.Linux
 		private readonly Lock pendingHookEventsLock = new();
 		private readonly Lock sendLock = new();
 		private Timer leaseHeartbeatTimer;
+		// Consulted before each periodic lease heartbeat. While it returns false
+		// the heartbeat is skipped, so a wedged hook reader stops renewing the
+		// daemon's grab lease. Null renews unconditionally (the BlockInput path,
+		// which has no reader thread). volatile for the cross-thread timer read.
+		private volatile Func<bool> leaseLivenessProbe;
 			private ulong nextCorrelationId = 1;
 			private bool disposed;
 			private readonly int requestTimeoutMs;
@@ -588,6 +593,16 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		/// <summary>
+		/// Installs a liveness probe consulted before each periodic lease
+		/// heartbeat. While it returns false the heartbeat is skipped, so a wedged
+		/// hook reader stops renewing the daemon's grab lease and the dead-man's-
+		/// switch can release the grabbed devices. Pass null to renew
+		/// unconditionally (the default; used by BlockInput, which has no reader
+		/// thread). Safe to call before or after the lease has started.
+		/// </summary>
+		internal void SetLeaseLivenessProbe(Func<bool> probe) => leaseLivenessProbe = probe;
+
 		private void EnsureLeaseHeartbeat()
 		{
 			if (leaseHeartbeatTimer != null)
@@ -598,6 +613,18 @@ namespace Keysharp.Internals.Input.Linux
 				{
 					try
 					{
+						// The grab lease is a dead-man's-switch: only renew it while
+						// the owner is demonstrably alive. Hook connections install a
+						// liveness probe (SetLeaseLivenessProbe); if the reader wedges
+						// the probe returns false and we stop renewing so the daemon's
+						// lease can expire and release the grabbed devices. With no
+						// probe set (e.g. BlockInput, which has no reader) renewal is
+						// unconditional.
+						var probe = leaseLivenessProbe;
+
+						if (probe != null && !probe())
+							return;
+
 						// Correlation zero is a protocol 0.2 one-way lease renewal,
 						// so it cannot interfere with the hook reader's receive stream.
 						SendFrame(MessageType.Heartbeat, 0, ReadOnlySpan<byte>.Empty);

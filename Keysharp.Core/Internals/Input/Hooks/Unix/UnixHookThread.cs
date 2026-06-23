@@ -47,6 +47,16 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected bool UsingInputdHooks => usingInputdHooks;
 		private const int InputdCallbackGateWaitMs = 50;
 
+		// On an X11/XWayland session the inputd hook path takes an exclusive evdev grab
+		// whose replayed events only reach applications once the X server is up and has
+		// adopted inputd's uinput replay device. Installing hooks during the volatile
+		// early-login window (e.g. a desktop autostart entry) before X is reachable can
+		// grab the devices while the replay path has no consumer, locking out the
+		// keyboard and mouse with no automatic recovery. Wait out that window before
+		// grabbing. The normal case (X already up) and pure Wayland skip the wait.
+		private const int InputdGrabDisplayWaitMs = 5000;
+		private const int InputdGrabDisplayWaitPollMs = 100;
+
 		// Recovery bookkeeping for an unexpected loss of the inputd hook reader (daemon
 		// crash/restart). One recovery runs at a time; repeated rapid losses pin the
 		// X11 fallback so we don't thrash against a crash-looping daemon.
@@ -723,6 +733,22 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 
 #if LINUX
+		// Blocks briefly for the X server to become reachable before the inputd hook
+		// path takes its exclusive evdev grab, so the grab is never established while
+		// the replay path has no consumer (see InputdGrabDisplayWaitMs). Only waits on
+		// an X11/XWayland session where X isn't up yet; pure Wayland (no X expected) and
+		// the normal case (X already reachable) return immediately.
+		private static void WaitForDisplayServerBeforeGrab()
+		{
+			if (IsWaylandSession || IsX11Available)
+				return;
+
+			var deadline = Environment.TickCount64 + InputdGrabDisplayWaitMs;
+
+			while (Environment.TickCount64 < deadline && !IsX11Available)
+				Thread.Sleep(InputdGrabDisplayWaitPollMs);
+		}
+
 		private bool TryStartInputdHookCore(bool wantKeyboard, bool wantMouse, out string message)
 		{
 			message = string.Empty;
@@ -739,6 +765,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			if (keyboardRunning == wantKeyboard && mouseRunning == wantMouse)
 				return true;
+
+			// Don't take the exclusive evdev grab until the display server is ready to
+			// consume inputd's replayed events.
+			WaitForDisplayServerBeforeGrab();
 
 			StopInputdHookCore();
 
@@ -817,25 +847,76 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			inputdMouseHookTask = null;
 		}
 
+		// Tracks whether the inputd hook reader thread is making progress, so the
+		// lease heartbeat only renews the daemon's grab lease while the reader is
+		// genuinely alive. A reader healthily blocked waiting for the next event
+		// counts as alive; one wedged mid-processing past the grace window does
+		// not, letting the daemon's dead-man's-switch release the grabbed devices
+		// instead of leaving input frozen.
+		private sealed class HookReaderLiveness
+		{
+			// Must stay well under the daemon's 15s grab-lease timeout so the lease
+			// can still expire after a wedge. Generous because the daemon's
+			// per-event decision-timeout eviction is the primary fast recovery and
+			// this lease path is only the backstop.
+			private const long StallGraceMs = 10_000;
+
+			private long lastProgressTicks = Environment.TickCount64;
+			private volatile bool waitingForEvent = true;
+
+			// About to block waiting for the next event (healthy idle): alive for
+			// the whole wait, however long.
+			internal void MarkWaiting()
+			{
+				Volatile.Write(ref lastProgressTicks, Environment.TickCount64);
+				waitingForEvent = true;
+			}
+
+			// An event was received and processing begins: a wedge from here on
+			// eventually trips the stall grace.
+			internal void MarkProgress()
+			{
+				waitingForEvent = false;
+				Volatile.Write(ref lastProgressTicks, Environment.TickCount64);
+			}
+
+			internal bool IsAlive()
+				=> waitingForEvent
+					|| Environment.TickCount64 - Volatile.Read(ref lastProgressTicks) < StallGraceMs;
+		}
+
 		private void InputdHookLoop(KeysharpInputdClient client, CancellationToken token)
 		{
 			IsHookReaderThread = true;
 
+			// Drive the client's lease heartbeat off this reader's actual progress
+			// so a wedged reader stops renewing the daemon's grab lease (see
+			// HookReaderLiveness / KeysharpInputdClient.SetLeaseLivenessProbe).
+			var liveness = new HookReaderLiveness();
+			client.SetLeaseLivenessProbe(liveness.IsAlive);
+
 			try
 			{
-				InputdHookLoopCore(client, token);
+				InputdHookLoopCore(client, token, liveness);
 			}
 			finally
 			{
+				// Once the reader has exited, never renew the lease again — the
+				// connection is about to be disposed; let the lease lapse if that
+				// is somehow delayed.
+				client.SetLeaseLivenessProbe(static () => false);
 				IsHookReaderThread = false;
 			}
 		}
 
-		private void InputdHookLoopCore(KeysharpInputdClient client, CancellationToken token)
+		private void InputdHookLoopCore(KeysharpInputdClient client, CancellationToken token, HookReaderLiveness liveness)
 		{
 			while (!token.IsCancellationRequested)
 			{
 				KeysharpInputdClient.HookEvent hookEvent;
+
+				// Healthy idle: about to block waiting for the next event.
+				liveness.MarkWaiting();
 
 				try
 				{
@@ -855,6 +936,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 					return;
 				}
+
+				// An event arrived; processing begins. A wedge from here on trips
+				// the stall grace and stops lease renewal.
+				liveness.MarkProgress();
 
 				// Emergency panic-ungrab is checked here, before the shared callback gate, so it still
 				// fires when the main script thread is hung or has BlockInput active (a runaway script

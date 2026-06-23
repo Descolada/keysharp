@@ -694,6 +694,14 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             }
         }
 
+        /* Device hotplug (handled in process_fd via the udev monitor) can change
+         * which physical capabilities the backend can provide.  Refresh the
+         * snapshot so a keyboard/mouse that appears after startup — a Bluetooth
+         * device, or a device-enumeration race when the daemon was socket-
+         * activated early at login — enables hook/block-input capabilities
+         * without requiring a daemon restart. */
+        daemon_state->available_capabilities = daemon_available_capabilities(backend);
+
         apply_fail_open_if_requested(daemon_state);
         process_daemon_commands(daemon_state);
         expire_client_leases(daemon_state);

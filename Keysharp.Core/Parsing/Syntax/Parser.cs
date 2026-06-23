@@ -169,6 +169,20 @@ namespace Keysharp.Parsing.Syntax
 			  "break", "continue", "goto", "return", "local", "global", "static", "until" };
 		private bool IsStatementKeyword() => At(TokenKind.Identifier) && statementKeywords.Contains(Current.Text);
 
+		// Reserved words that cannot name a variable, function, or class (AHK "Reserved words"): the statement keywords
+		// plus `case`. `throw` is excluded because it doubles as a function, and `class` is excluded because it is a
+		// legal variable name (see the note above). Used where an identifier is consumed AS A NAME — member/method
+		// names are unaffected (`obj.return` stays valid), since those go through a different path.
+		private static readonly System.Collections.Generic.HashSet<string> reservedNames =
+			new(statementKeywords, System.StringComparer.OrdinalIgnoreCase) { "case" };
+
+		// Rejects a reserved word used where a name is expected (e.g. `x := return`, `a return` auto-concat, `class for`).
+		private void RejectReservedName(string name, Token at, string role)
+		{
+			if (reservedNames.Contains(name))
+				ErrorAt(at, $"'{name}' is a reserved word and cannot be used as {role}");
+		}
+
 		// A lex/parse error terminates parsing immediately by throwing (caught in ParseWithDiagnostics and surfaced as a
 		// single diagnostic), so error-recovery can't silently produce a wrong AST or cascade bogus follow-on errors.
 		private void Error(string msg) => ErrorAt(Current, msg);
@@ -1008,7 +1022,9 @@ namespace Keysharp.Parsing.Syntax
 		private Stmt ParseClass(bool isStruct = false)
 		{
 			Advance(); // class / struct
+			var nameTok = Current;
 			var name = ExpectIdentifier(isStruct ? "struct name" : "class name");
+			RejectReservedName(name, nameTok, isStruct ? "a struct name" : "a class name");
 			string baseName = null;
 			if (AtKeyword("extends"))
 			{
@@ -1246,7 +1262,9 @@ namespace Keysharp.Parsing.Syntax
 
 		private Stmt ParseFunctionDecl(bool isStatic = false)
 		{
+			var nameTok = Current;
 			var name = Advance().Text;
+			RejectReservedName(name, nameTok, "a function name");
 			var ps = ParseParamList();
 			SkipNewlines();
 			if (Match(TokenKind.FatArrow))
@@ -1274,7 +1292,9 @@ namespace Keysharp.Parsing.Syntax
 					SkipNewlines();
 					continue;
 				}
+				var nameTok = Current;
 				var name = ExpectIdentifier("parameter");
+				RejectReservedName(name, nameTok, "a parameter name");
 				var variadic = false; var optional = false; Expr def = null;
 				if (Match(TokenKind.Star)) variadic = true;
 				else if (Match(TokenKind.Question)) optional = true;
@@ -1541,6 +1561,10 @@ namespace Keysharp.Parsing.Syntax
 				case TokenKind.String: Advance(); return new LiteralExpr(LiteralKind.String, t.Text);
 				case TokenKind.Identifier:
 					Advance();
+					// A reserved word here is being used as a variable (a real one would have been dispatched as a
+					// statement, or is a member name handled elsewhere) — e.g. the `return` in `x := y() return z`,
+					// where auto-concat would otherwise swallow it as a variable. Reject it instead.
+					RejectReservedName(t.Text, t, "a variable name");
 					// `pre%mid%…` with no intervening whitespace is dynamic name-building, not a plain variable —
 					// but a '%' that closes the enclosing %…% is a delimiter, not the start of a new name.
 					if (!_inDerefInner && !Current.LeadingWhitespace && At(TokenKind.Percent))
@@ -1755,10 +1779,10 @@ namespace Keysharp.Parsing.Syntax
 			// by that name (resolved to the lambda itself in the lowerer).
 			string faName = null;
 			if (At(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LParen && !Peek(1).LeadingWhitespace)
-				faName = Advance().Text;
+			{ var fnTok = Current; faName = Advance().Text; RejectReservedName(faName, fnTok, "a function name"); }
 			List<Param> ps;
-			if (At(TokenKind.Identifier))
-				ps = new List<Param> { new Param(Advance().Text, null, false, false, false) };
+			if (At(TokenKind.Identifier))   // single bare-name parameter: `x => …`
+			{ var pTok = Current; RejectReservedName(pTok.Text, pTok, "a parameter name"); ps = new List<Param> { new Param(Advance().Text, null, false, false, false) }; }
 			else
 				ps = ParseParamList();
 			if (At(TokenKind.LBrace))   // anonymous block-bodied function `(params) { … }`

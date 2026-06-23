@@ -263,6 +263,25 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Parser")]
+		public void ReservedWordsRejectedAsNames()
+		{
+			// The reported case: two statements crammed on one line — `return` must not be swallowed as a variable
+			// by auto-concatenation, it's a reserved word.
+			AssertDiagnostic("Web := Clr.Load(\"x\") return Web.Url(str)\n", "reserved word");
+			AssertDiagnostic("x := return\n", "reserved word");
+			AssertDiagnostic("static y := 1 if z\n", "reserved word");
+			// Reserved words can't name functions, classes, or parameters either.
+			AssertDiagnostic("case() {\n}\n", "reserved word");
+			AssertDiagnostic("class while {\n}\n", "reserved word");
+			AssertDiagnostic("f(return) {\n}\n", "reserved word");
+			AssertDiagnostic("cb := loop => loop\n", "reserved word");          // single bare-name lambda param
+			// `throw` (usable as a function) and `class` (a legal variable name) are NOT rejected, nor are member names.
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("x := throw(err)\n"); Assert.IsEmpty(d); });
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("y := class\n"); Assert.IsEmpty(d); });
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("y := obj.return\n"); Assert.IsEmpty(d); });
+		}
+
+		[Test, Category("Parser")]
 		public void MalformedInputNeverThrows()
 		{
 			// A pile of broken constructs must still terminate with diagnostics rather than throwing.

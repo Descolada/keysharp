@@ -171,8 +171,10 @@ namespace Keysharp.Parsing.Syntax
 
 		// A lex/parse error terminates parsing immediately by throwing (caught in ParseWithDiagnostics and surfaced as a
 		// single diagnostic), so error-recovery can't silently produce a wrong AST or cascade bogus follow-on errors.
-		private void Error(string msg) => throw new Keysharp.Builtins.ParseException(
-			$"{(Current.File != null ? System.IO.Path.GetFileName(Current.File) + ":" : "")}{Current.Line}:{Current.Column}: {msg}");
+		private void Error(string msg) => ErrorAt(Current, msg);
+		// Same, but pointing at a specific (already-consumed) token rather than the current one.
+		private static void ErrorAt(Token t, string msg) => throw new Keysharp.Builtins.ParseException(
+			$"{(t.File != null ? System.IO.Path.GetFileName(t.File) + ":" : "")}{t.Line}:{t.Column}: {msg}");
 
 		// ---- program / statements ----
 
@@ -514,6 +516,7 @@ namespace Keysharp.Parsing.Syntax
 		{
 			Advance(); // #
 			var name = At(TokenKind.Identifier) ? Advance().Text : "";
+			var argToks = new List<Token>();
 			var sb = new System.Text.StringBuilder();
 			int brace = 0;   // a `{ … }` import list (e.g. #import "M" { a as b, … }) may span several lines
 			while ((brace > 0 || !At(TokenKind.Newline)) && !At(TokenKind.EOF))
@@ -522,10 +525,101 @@ namespace Keysharp.Parsing.Syntax
 				if (At(TokenKind.LBrace)) brace++;
 				else if (At(TokenKind.RBrace) && brace > 0) brace--;
 				if (Current.LeadingWhitespace && sb.Length > 0) sb.Append(' ');
+				argToks.Add(Current);
 				sb.Append(Advance().Text);
 			}
-			return new DirectiveStmt(name, sb.ToString());
+			var args = sb.ToString();
+			if (name.Equals("import", System.StringComparison.OrdinalIgnoreCase)) return ParseImportDirective(args, argToks);
+			ValidateDirectiveArgs(name, argToks);
+			return new DirectiveStmt(name, args);
 		}
+
+		// Each directive accepts a fixed number of comma-separated arguments (taken from the AHK v2 source's
+		// Script::IsDirective). The raw collector above happily swallows anything crammed onto the directive's line, so
+		// reject excess arguments that would otherwise be silently dropped — e.g. `#HotIf 1, 2`, where only a single
+		// expression is allowed (`#HotIf (1, 2)` passes one). `#import` has a richer shape and is parsed separately.
+		private void ValidateDirectiveArgs(string name, List<Token> toks)
+		{
+			int maxArgs = MaxDirectiveArgs(name);
+			if (maxArgs < 0 || toks.Count == 0) return;   // -1: the line is one literal value (path/message/options) — commas are literal
+
+			// The lexer captures a few directives' arguments verbatim as a single token (Lexer.RawArgDirectives), so for
+			// those any value-separating commas live inside the token text; all other directives are normally lexed and
+			// separate their arguments with standalone Comma tokens (commas nested in ()/[]/{} or strings don't count).
+			bool raw = Keysharp.Parsing.Lexing.Lexer.RawArgDirectives.Contains(name);
+			int depth = 0, args = 1;
+			bool excess = false;
+			Token offender = default;
+			foreach (var t in toks)
+			{
+				if (raw)
+				{ foreach (var c in t.Text) if (c == ',' && ++args > maxArgs) { excess = true; offender = t; break; } }
+				else switch (t.Kind)
+				{
+					case TokenKind.LParen: case TokenKind.LBracket: case TokenKind.LBrace: depth++; break;
+					case TokenKind.RParen: case TokenKind.RBracket: case TokenKind.RBrace: if (depth > 0) depth--; break;
+					case TokenKind.Comma when depth == 0: if (++args > maxArgs) { excess = true; offender = t; } break;
+				}
+				if (excess) break;
+			}
+			if (excess)
+				ErrorAt(offender, $"#{name} accepts {(maxArgs == 1 ? "a single argument" : "at most " + maxArgs + " arguments")} " +
+					"but received more (parenthesize a comma expression to pass it as one argument)");
+		}
+
+		// Parses `#import <module> [as <alias>] [{ name, … }]` into a structured node and rejects any trailing text —
+		// AHK's ParseImportDirective fails on a second module (`#import "A", "B"`), a `} as X` after the list, or any
+		// other leftover. This is the single authority on import-directive syntax; the lowerer consumes the fields.
+		private ImportDirective ParseImportDirective(string args, List<Token> toks)
+		{
+			int i = 0;
+			string module = "", alias = null, named = null;
+			bool quoted = false;
+			if (toks.Count == 0)
+				return new ImportDirective(args, module, alias, named, quoted);   // nameless `#import` — a no-op for the lowerer
+			if (toks[i].Kind == TokenKind.String) { quoted = true; module = Unquote(toks[i++].Text); }
+			else if (toks[i].Kind == TokenKind.Identifier) module = toks[i++].Text;
+			else ErrorAt(toks[i], $"expected a module name after #import but found '{toks[i].Text}'");
+			if (i < toks.Count && toks[i].Kind == TokenKind.Identifier && toks[i].Text.Equals("as", System.StringComparison.OrdinalIgnoreCase))
+			{
+				i++;
+				if (i < toks.Count && toks[i].Kind == TokenKind.Identifier) alias = toks[i++].Text;
+				else ErrorAt(i < toks.Count ? toks[i] : toks[^1], "expected an alias name after 'as' in #import");
+			}
+			if (i < toks.Count && toks[i].Kind == TokenKind.LBrace)   // `{ name, name as alias, * }` — captured raw, split by the lowerer
+			{
+				var nb = new System.Text.StringBuilder();
+				int depth = 0;
+				for (; i < toks.Count; i++)
+				{
+					var t = toks[i];
+					if (t.Kind == TokenKind.LBrace) { if (++depth == 1) continue; }
+					else if (t.Kind == TokenKind.RBrace && --depth == 0) { i++; break; }
+					if (nb.Length > 0 && t.LeadingWhitespace) nb.Append(' ');
+					nb.Append(t.Text);
+				}
+				named = nb.ToString().Trim();
+			}
+			if (i < toks.Count)
+				ErrorAt(toks[i], $"unexpected '{toks[i].Text}' after #import — a directive must be alone on its line");
+			return new ImportDirective(args, module, alias, named, quoted);
+		}
+
+		// Strips a matching pair of surrounding quotes (' or ") from a string-token's text.
+		private static string Unquote(string s) =>
+			s.Length >= 2 && (s[0] == '"' || s[0] == '\'') && s[^1] == s[0] ? s.Substring(1, s.Length - 2) : s;
+
+		// Maximum comma-separated arguments a directive accepts (at paren/bracket/brace depth 0). -1 means the rest of
+		// the line is a single literal value (a path, message, version, or option string) where commas are literal
+		// text, not argument separators. Values taken from the AHK v2 source (Script::IsDirective).
+		private static int MaxDirectiveArgs(string name) => name.ToUpperInvariant() switch
+		{
+			"WARN" => 2,   // #Warn [Type], [Mode]
+			"HOTIF" or "HOTIFTIMEOUT" or "INPUTLEVEL" or "CLIPBOARDTIMEOUT" or "MAXTHREADS"
+				or "MAXTHREADSPERHOTKEY" or "MAXTHREADSBUFFER" or "SUSPENDEXEMPT" or "USEHOOK"
+				or "SINGLEINSTANCE" or "STRUCTPACK" or "PERSISTENT" => 1,
+			_ => -1,
+		};
 
 		// export [default] <function | class | variable-assignment> — marks a module export.
 		private Stmt ParseExport()
@@ -970,14 +1064,21 @@ namespace Keysharp.Parsing.Syntax
 				}
 				else if (At(TokenKind.Identifier))
 				{
-					var fname = Advance().Text;
-					var indexParams = At(TokenKind.LBracket) ? ParseParamList(TokenKind.LBracket, TokenKind.RBracket) : new List<Param>();
-					var save = _pos;
-					SkipNewlines();
-					if (At(TokenKind.LBrace))   // property body, possibly with the brace on the next line
-						properties.Add(ParsePropertyBody(fname, indexParams, isStatic));
-					else
+					// A single line may declare several comma-separated fields that share its static/instance
+					// scope, e.g. `a := 1, b := 2`, `static x := 1, y := 2`, or `x : Int32, y : Int32`. A `{…}`
+					// property body or `=>` shorthand getter is a complete member on its own and never continues
+					// past a comma. A leading comma on the next line continues the run (as with comma statements).
+					while (true)
 					{
+						var fname = Advance().Text;
+						var indexParams = At(TokenKind.LBracket) ? ParseParamList(TokenKind.LBracket, TokenKind.RBracket) : new List<Param>();
+						var save = _pos;
+						SkipNewlines();
+						if (At(TokenKind.LBrace))   // property body, possibly with the brace on the next line
+						{
+							properties.Add(ParsePropertyBody(fname, indexParams, isStatic));
+							break;
+						}
 						_pos = save;   // field initializer / shorthand getter are on the same line
 						if (At(TokenKind.Dot) && indexParams.Count == 0)   // member-target init: `static Template.Framework := X`
 						{
@@ -987,7 +1088,10 @@ namespace Keysharp.Parsing.Syntax
 							(isStatic ? staticInits : instanceInits).Add(stmt);
 						}
 						else if (Match(TokenKind.FatArrow))
+						{
 							properties.Add(new ClassProperty(fname, indexParams, null, ParseExpression(1), null, null, isStatic));
+							break;
+						}
 						else if (At(TokenKind.Colon))   // typed struct field `name : Type [:= init]`
 						{
 							Advance();
@@ -1009,6 +1113,13 @@ namespace Keysharp.Parsing.Syntax
 							Expr init = Match(TokenKind.Assign) ? ParseExpression(1) : null;
 							fields.Add(new ClassField(fname, init, isStatic));
 						}
+						// Another comma-separated field may follow on this or the next line (a leading comma
+						// continues the declaration). Look past newlines for the comma, then for the next name.
+						var commaSave = _pos;
+						SkipNewlines();
+						if (!Match(TokenKind.Comma)) { _pos = commaSave; break; }
+						SkipNewlines();
+						if (!At(TokenKind.Identifier)) { _pos = commaSave; break; }
 					}
 				}
 				else

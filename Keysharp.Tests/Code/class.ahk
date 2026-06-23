@@ -93,7 +93,21 @@ if (classobj.ii == 16160)
 else
 	FileAppend "fail", "*"
 
-; Just parsing tests: 
+; Comma-separated field declarations that share a line (and its instance/static scope).
+class commafields
+{
+	a := 1, b := 2
+	static x := 10, y := 20
+}
+
+cf := commafields()
+
+if (cf.a == 1 && cf.b == 2 && commafields.x == 10 && commafields.y == 20)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+; Just parsing tests:
 ; 1. In C# a method can't be the same name as the enclosing type
 ; 2. Static variables need to be emitted using the final method name, otherwise we get two
 ;	 __new_a static variables

@@ -5,6 +5,10 @@ struct POINT {
     y : Int32
 }
 
+struct COMMA_POINT {
+    x : Int32, y : Int32
+}
+
 struct BOX {
     pt : POINT
 }
@@ -129,6 +133,13 @@ pt.y := 20
 
 if pt.x != 10 || pt.y != 20
     FileAppend "fail fields", "*"
+
+cpt := COMMA_POINT()
+cpt.x := 7
+cpt.y := 9
+
+if cpt.Size != 8 || cpt.x != 7 || cpt.y != 9
+    FileAppend "fail comma struct", "*"
 
 holder := BOX()
 holder.pt.x := 10

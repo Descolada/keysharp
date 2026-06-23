@@ -292,11 +292,25 @@ namespace Keysharp.Parsing.Syntax
 	internal sealed class LabelStmt : Stmt { public readonly string Name; public LabelStmt(string name) => Name = name; }
 
 	// A #directive line. Most are compile-time/no-op for the runtime; Args holds the raw trailing text.
-	internal sealed class DirectiveStmt : Stmt
+	internal class DirectiveStmt : Stmt
 	{
 		public readonly string Name;
 		public readonly string Args;
 		public DirectiveStmt(string name, string args) { Name = name; Args = args; }
+	}
+
+	// A `#import <module> [as <alias>] [{ names }]` directive, parsed into its parts by the parser (the single
+	// authority on import syntax) so the lowerer can consume the fields directly instead of re-parsing Args.
+	// `Module` is the name without quotes; `Named` is the raw text inside `{ … }` (null when no list, "*" for
+	// wildcard) — split into individual names by the lowerer where the binding semantics live.
+	internal sealed class ImportDirective : DirectiveStmt
+	{
+		public readonly string Module;
+		public readonly string Alias;
+		public readonly string Named;
+		public readonly bool Quoted;
+		public ImportDirective(string args, string module, string alias, string named, bool quoted)
+			: base("import", args) { Module = module; Alias = alias; Named = named; Quoted = quoted; }
 	}
 
 	internal sealed class DeclStmt : Stmt

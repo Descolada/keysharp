@@ -117,6 +117,20 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Parser")]
+		public void CommaSeparatedClassFields()
+		{
+			// Several field declarations may share a line (and its static/instance scope) via commas.
+			Assert.AreEqual("(class Test field a:=1 field b:=1 static-field x:=1 static-field y:=2)",
+				Ast("class Test {\n\ta := 1, b := 1\n\tstatic x := 1, y := 2\n}"));
+			// Typed struct fields comma-separate the same way.
+			Assert.AreEqual("(class POINT field x field y)",
+				Ast("struct POINT {\n\tx : Int32, y : Int32\n}"));
+			// A leading comma on the next line continues the declaration.
+			Assert.AreEqual("(class C field a:=1 field b:=2)",
+				Ast("class C {\n\ta := 1\n\t, b := 2\n}"));
+		}
+
+		[Test, Category("Parser")]
 		public void FatArrowLambdas()
 		{
 			Assert.AreEqual("(=> (x) (* x 2))", Ast("x => x * 2"));
@@ -205,6 +219,47 @@ namespace Keysharp.Tests
 			var (_, diags) = KP.Parser.ParseWithDiagnostics("x := (1 + 2\n");
 			Assert.IsTrue(diags.Count > 0);
 			Assert.IsTrue(System.Text.RegularExpressions.Regex.IsMatch(diags[0], @"^\d+:\d+: "), "diagnostic lacks line:col — " + diags[0]);
+		}
+
+		[Test, Category("Parser")]
+		public void ImportWithTrailingStatementsReported()
+		{
+			// A `#import <module> [as alias] [{ … }]` ends there. Tokens crammed onto the same line after it used to
+			// be silently swallowed into the directive (leaving the enclosing function empty / `return ""`).
+			AssertDiagnostic(
+				"EncodeDecodeURI(str){\n#import Ks { Clr } static Web := Clr.Load(\"x\") return Web.Url(str)\n}\n",
+				"after #import");
+			AssertDiagnostic("#import Ks return 1\n", "after #import");        // trailing tokens, no braces
+			AssertDiagnostic("#import \"A\", \"B\"\n", "after #import");       // two modules in one directive
+			AssertDiagnostic("#import \"D\" { x } as Y\n", "after #import");   // `as` after the named list
+		}
+
+		[Test, Category("Parser")]
+		public void ImportValidFormsParseCleanly()
+		{
+			foreach (var ok in new[]
+			{
+				"#import __Main\n", "#import Other as O\n", "#import \"Ks\" { * }\n",
+				"#import \"D\" { Named as DNamed }\n",
+				"#import \"Mixed\" {\n\ta as b,\n\tc\n}\n",   // multi-line named list
+			})
+				Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics(ok); Assert.IsEmpty(d, ok); });
+		}
+
+		[Test, Category("Parser")]
+		public void DirectiveArgCountEnforced()
+		{
+			// #HotIf takes a single expression; a top-level comma is two arguments…
+			AssertDiagnostic("#HotIf 1, 2\n", "#HotIf accepts a single argument");
+			// …but a parenthesized comma expression is a single argument.
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("#HotIf (1, 2)\nx::y\n#HotIf\n"); Assert.IsEmpty(d); });
+			// #Warn takes up to two (Type, Mode); a third is rejected.
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("#Warn VarUnset, Off\n"); Assert.IsEmpty(d); });
+			AssertDiagnostic("#Warn VarUnset, Off, Extra\n", "#Warn accepts at most 2 arguments");
+			// A single-value directive rejects an extra comma-separated value.
+			AssertDiagnostic("#MaxThreads 4, 8\n", "#MaxThreads accepts a single argument");
+			// Literal-value directives keep commas as text (e.g. #Hotstring end chars).
+			Assert.DoesNotThrow(() => { var (_, d) = KP.Parser.ParseWithDiagnostics("#Hotstring EndChars -,.?!\n"); Assert.IsEmpty(d); });
 		}
 
 		[Test, Category("Parser")]

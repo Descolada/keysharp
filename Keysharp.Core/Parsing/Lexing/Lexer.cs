@@ -428,7 +428,9 @@ namespace Keysharp.Parsing.Lexing
 
 		// Directives whose argument is free-form raw text (may contain quotes, `;`, brackets) — captured verbatim so it
 		// is not lexed as code. Token-needing directives (#if/#include/#import/#HotIf) are deliberately excluded.
-		private static readonly HashSet<string> RawArgDirectives = new(System.StringComparer.OrdinalIgnoreCase)
+		// Internal so the parser can tell which directives arrive as a single verbatim token (commas inside its text)
+		// versus normally-lexed tokens, when it validates per-directive argument counts.
+		internal static readonly HashSet<string> RawArgDirectives = new(System.StringComparer.OrdinalIgnoreCase)
 		{ "hotstring", "requires", "dllload", "singleinstance", "warn", "hookmutexname", "errorstdout" };
 
 		// If the current line is a raw-argument directive (`#Hotstring …`), emits `#`, the name identifier, and the rest

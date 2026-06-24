@@ -108,6 +108,17 @@ namespace Keysharp.Runtime
 	[AttributeUsage(AttributeTargets.Parameter)]
 	public sealed class ByRefAttribute : Attribute { }
 
+	/// <summary>
+	/// Marks a class member (method or property accessor) as belonging to the class's static object
+	/// rather than its prototype, independent of the emitted C# identifier. This is an alternative to the
+	/// <see cref="Keywords.ClassStaticPrefix"/> name prefix: a member carrying <c>[Static]</c> is registered
+	/// on the static object even when its C# name has no <c>static</c> prefix, so the prefix can be omitted
+	/// when there is no instance member of the same name to disambiguate from. Both signals are honored;
+	/// the prefix remains the sole mechanism the parser currently emits.
+	/// </summary>
+	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Property, Inherited = false)]
+	public sealed class StaticAttribute : Attribute { }
+
 	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 	public sealed class UserDeclaredNameAttribute : Attribute
 	{

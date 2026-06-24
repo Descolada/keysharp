@@ -1811,7 +1811,7 @@ LoadSC(*) {
 	Tab.UseTab("Send && Hotkey")
 	path := A_Desktop . A_DirSeparator . "MyScreenClip.png"
 	If (!FileExist(path)) {
-		ImageCapture(100, 100, 200, 200, path)
+		Image.FromRect(100, 100, 200, 200).Save(path)
 		Sleep(100)
 	}
 	MyThirdPic := LoadPicture(path)

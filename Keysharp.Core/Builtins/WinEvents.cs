@@ -34,42 +34,42 @@ namespace Keysharp.Builtins
 			// ---- event factories (Callback, WinTitle, Count, WinText, ExcludeTitle, ExcludeText) -------------
 
 			/// <summary>Fires when a window becomes the active/foreground window. Script: <c>WinEvent.Active(cb, …)</c>.</summary>
-			public static object staticActive(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Active(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Active, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window matching the criteria appears — created, shown, or its title changed so it
 			/// now matches. Fires once per matching window. Respects DetectHiddenWindows. Subsumes the old "Create"
 			/// event (which was just Exist with DetectHiddenWindows on). Script: <c>WinEvent.Exist(cb, …)</c>.</summary>
-			public static object staticExist(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Exist(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Exist, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window matching the criteria disappears — destroyed, hidden/cloaked, or its title
 			/// changed so it no longer matches. DetectHiddenWindows-aware and subsumes the old "Close" event: with
 			/// DetectHiddenWindows off a hidden window counts as gone (fires), with it on only destruction does.
 			/// Script: <c>WinEvent.NotExist(cb, …)</c>.</summary>
-			public static object staticNotExist(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object NotExist(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.NotExist, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window moves or resizes. Every move event is delivered as-is (not coalesced).
 			/// <c>A_EventInfo</c> holds the window's new position and size as an object <c>{ x, y, w, h }</c> (matching
 			/// <c>WinGetPos</c>), built on first access.</summary>
-			public static object staticMove(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Move(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Move, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window becomes visible (mapped/shown).</summary>
-			public static object staticShow(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Show(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Show, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window is minimized.</summary>
-			public static object staticMinimize(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Minimize(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Minimize, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window is restored from the minimized state.</summary>
-			public static object staticRestore(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object Restore(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Restore, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			/// <summary>Fires when a window's title changes.</summary>
-			public static object staticTitleChange(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
+			[Static] public static object TitleChange(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.TitleChange, callback, winTitle, winText, excludeTitle, excludeText, count);
 
 			// ---- global pause -------------------------------------------------------------------------------

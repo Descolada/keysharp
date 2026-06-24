@@ -49,6 +49,17 @@ namespace Keysharp.Builtins
 			return ((long)screen.Bounds.Width, (long)screen.Bounds.Height);
 		}
 
+		/// <summary>
+		/// Returns the bounding rectangle of monitor <paramref name="n"/> (the primary monitor when
+		/// <paramref name="n"/> is null/out of range), in screen coordinates.
+		/// </summary>
+		internal static (long Left, long Top, long Width, long Height) GetMonitorBounds(object n)
+		{
+			var (screen, _) = ResolveScreen(n);
+			var b = screen.Bounds;
+			return ((long)b.Left, (long)b.Top, (long)b.Width, (long)b.Height);
+		}
+
 		internal static (long Width, long Height) GetPrimaryWorkAreaSize()
 		{
 			var (screen, _) = ResolveScreen(null);

@@ -17,7 +17,9 @@ namespace Keysharp.Tests
 			_ = CoordMode("Pixel", "Screen");
 			var screenWidth = A_ScreenWidth.Ai();
 			var screenHeight = A_ScreenHeight.Ai();
-			var hbitmap = ImageCapture(100, 100, 500, 500);
+			var capture = KeysharpImage.FromRect(null, 100, 100, 500, 500) as KeysharpImage;
+			Assert.IsNotNull(capture, "Image.FromRect should return an Image.");
+			var hbitmap = capture.ToBitmap();
 			VarRef x = new(null), y = new(null);
 			_ = Builtins.Screen.ImageSearch(x, y, 0, 0, screenWidth, screenHeight, "HBITMAP:" + hbitmap);
 

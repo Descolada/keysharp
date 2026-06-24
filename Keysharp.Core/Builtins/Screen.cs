@@ -352,36 +352,6 @@ namespace Keysharp.Builtins
 	public partial class Ks
 	{
 		/// <summary>
-		/// Gets a screenclip from a specified region of the screen and return it as a <see cref="Bitmap"/>
-		/// </summary>
-		/// <param name="left">The x coordinate of the left side of the clip rectangle.</param>
-		/// <param name="top">The y coordinate of the top side of the clip rectangle.</param>
-		/// <param name="width">The width of the clip rectangle.</param>
-		/// <param name="height">The height of the clip rectangle.</param>
-		/// <param name="filename">An optional filename to save the clip to. Default: empty, no saving done.</param>
-		/// <returns>The clipped region as a <see cref="Bitmap"/>.</returns>
-		public static object ImageCapture(object left, object top, object width, object height, object filename = null)
-		{
-			var x = left.Ai();
-			var y = top.Ai();
-			var w = width.Ai();
-			var h = height.Ai();
-			var f = filename.As();
-
-			CoordToScreen(ref x, ref y, CoordMode.Pixel);
-
-			var bmp = GuiHelper.GetScreen(x, y, w, h);
-
-			if (f.Length > 0)
-				bmp?.Save(f);
-
-			if (bmp != null && ImageHandleManager.TryAddBitmap(bmp, ImageHandleKind.Bitmap, out var handle))
-				return handle.ToInt64();
-
-			return 0L;
-		}
-
-		/// <summary>
 		/// Confines the mouse cursor to a rectangular region of the screen. Subsequent physical
 		/// mouse movement is clamped to the rectangle until the clip is released. Calling
 		/// <see cref="ClipCursor"/> with no arguments releases any active clip.

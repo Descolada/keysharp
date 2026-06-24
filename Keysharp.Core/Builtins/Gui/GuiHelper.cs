@@ -212,6 +212,220 @@ namespace Keysharp.Builtins
 			return bmp;
 		}
 
+		/// <summary>
+		/// Captures the content of a single window directly from the OS, so it works even when the
+		/// window is occluded or partially off-screen (unlike a plain screen grab). Returns null when
+		/// the platform can't do a true window capture (X11/Wayland), so the caller can fall back to
+		/// grabbing the window's screen rectangle with <see cref="GetScreen"/>.
+		/// </summary>
+		/// <param name="handle">The native window handle: HWND on Windows, CGWindowID on macOS.</param>
+		/// <param name="mode">Windows capture technique (see Image.FromWindow): 0/1 = GetDC+BitBlt
+		/// (1 forces the window opaque first), 2/3 = PrintWindow (3 forces opaque first), 4 = PrintWindow
+		/// + PW_RENDERFULLCONTENT. Ignored on macOS/Linux.</param>
+		/// <returns>The captured bitmap (the whole window, title bar included) and its
+		/// physical-pixels-per-logical-unit scale, or (null, 1) when no true window capture is possible
+		/// (the caller then falls back to a screen-rectangle grab).</returns>
+		internal static (Bitmap bmp, double scale) CaptureWindowContent(nint handle, int mode)
+		{
+			if (handle == 0)
+				return (null, 1.0);
+
+			_ = Script.TheScript?.Permissions?.EnsureScreenCapture(operation: "window capture");
+
+			try
+			{
+#if WINDOWS
+				// Windows captures in device pixels (no Retina-style doubling), so scale 1.
+				return (CaptureWindowWin(handle, mode), 1.0);
+#elif OSX
+				var bmp = Keysharp.Internals.Window.MacOS.MacNativeWindows.TryCaptureWindow(unchecked((uint)handle.ToInt64()));
+
+				if (bmp == null)
+					return (null, 1.0);
+
+				// The window-server image is physical pixels; the window's logical (point) width comes
+				// from its bounds, so their ratio is the HiDPI scale.
+				double scale = 1.0;
+
+				if (Keysharp.Internals.Window.MacOS.MacNativeWindows.TryGetWindowInfo(handle, out var info) && info.Bounds.Width > 0)
+					scale = (double)bmp.Width / info.Bounds.Width;
+
+				return (bmp, scale);
+#else
+				// X11 needs XComposite redirection and Wayland forbids foreign-window capture; both
+				// fall back to a rectangle grab of the window's on-screen bounds in the caller.
+				return (null, 1.0);
+#endif
+			}
+			catch
+			{
+				return (null, 1.0);
+			}
+		}
+
+#if WINDOWS
+		// Captures the whole window (title bar and borders included) using the requested technique.
+		// mode 0/1 use GetWindowDC+BitBlt (1 forces the window opaque first), 2/3 use PrintWindow (3
+		// forces opaque first), 4 uses PrintWindow with the undocumented PW_RENDERFULLCONTENT flag.
+		private static Bitmap CaptureWindowWin(nint hwnd, int mode)
+		{
+			if (!WindowsAPI.GetWindowRect(hwnd, out var rc))
+				return null;
+
+			int w = rc.Right - rc.Left, h = rc.Bottom - rc.Top;
+
+			if (w <= 0 || h <= 0)
+				return null;
+
+			var usePrintWindow = mode >= 2;
+			var forceOpaque = (mode & 1) != 0;   // modes 1 and 3
+			var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+			LayeredWindowState saved = default;
+			var toggled = false;
+
+			if (forceOpaque)
+				toggled = TryForceWindowOpaque(hwnd, out saved);
+
+			try
+			{
+				using (var g = Graphics.FromImage(bmp))
+				{
+					var hdc = g.GetHdc();
+					bool ok;
+
+					try
+					{
+						if (usePrintWindow)
+						{
+							var flags = mode == 4 ? WindowsAPI.PW_RENDERFULLCONTENT : 0u;
+							ok = WindowsAPI.PrintWindow(hwnd, hdc, flags);
+						}
+						else
+						{
+							var srcDC = WindowsAPI.GetWindowDC(hwnd);   // whole-window DC
+
+							if (srcDC == 0)
+							{
+								ok = false;
+							}
+							else
+							{
+								ok = WindowsAPI.BitBlt(hdc, 0, 0, w, h, srcDC, 0, 0, WindowsAPI.SRCCOPY);
+								_ = WindowsAPI.ReleaseDC(hwnd, srcDC);
+							}
+						}
+					}
+					finally
+					{
+						g.ReleaseHdc(hdc);
+					}
+
+					if (!ok)
+					{
+						bmp.Dispose();
+						return null;
+					}
+				}
+			}
+			finally
+			{
+				if (toggled)
+					RestoreWindowOpacity(hwnd, saved);
+			}
+
+			// PrintWindow/BitBlt copy RGB through the HDC but never write the alpha channel, leaving a
+			// 32bpp ARGB bitmap fully transparent (it would save as a blank PNG). Force every pixel
+			// opaque. PrintWindow also sometimes returns true while rendering nothing (GPU-composited
+			// windows); FinalizeCapture reports whether any RGB content was actually present so the
+			// caller can fall back to a plain screen grab in that case.
+			if (!FinalizeCapture(bmp))
+			{
+				bmp.Dispose();
+				return null;
+			}
+
+			return bmp;
+		}
+
+		// Saved layered-window state so a temporarily-forced-opaque window can be restored exactly.
+		private struct LayeredWindowState
+		{
+			internal bool wasLayered;
+			internal uint crKey;
+			internal byte alpha;
+			internal uint flags;
+		}
+
+		// Forces the window fully opaque (so modes 1/3 capture a clean image of a layered/transparent
+		// window), remembering enough to restore it afterwards.
+		private static bool TryForceWindowOpaque(nint hwnd, out LayeredWindowState saved)
+		{
+			saved = default;
+			var ex = WindowsAPI.GetWindowLongPtr(hwnd, WindowsAPI.GWL_EXSTYLE).ToInt64();
+			saved.wasLayered = (ex & WindowsAPI.WS_EX_LAYERED) != 0;
+
+			if (saved.wasLayered)
+			{
+				if (!WindowsAPI.GetLayeredWindowAttributes(hwnd, out saved.crKey, out saved.alpha, out saved.flags))
+				{
+					saved.crKey = 0;
+					saved.alpha = 255;
+					saved.flags = (uint)WindowsAPI.LWA_ALPHA;
+				}
+			}
+			else
+			{
+				_ = WindowsAPI.SetWindowLongPtr(hwnd, WindowsAPI.GWL_EXSTYLE, new nint(ex | WindowsAPI.WS_EX_LAYERED));
+			}
+
+			_ = WindowsAPI.SetLayeredWindowAttributes(hwnd, 0, 255, (uint)WindowsAPI.LWA_ALPHA);
+			return true;
+		}
+
+		// Restores the layered state captured by TryForceWindowOpaque.
+		private static void RestoreWindowOpacity(nint hwnd, LayeredWindowState saved)
+		{
+			if (saved.wasLayered)
+			{
+				_ = WindowsAPI.SetLayeredWindowAttributes(hwnd, saved.crKey, saved.alpha, saved.flags);
+			}
+			else
+			{
+				var ex = WindowsAPI.GetWindowLongPtr(hwnd, WindowsAPI.GWL_EXSTYLE).ToInt64();
+				_ = WindowsAPI.SetWindowLongPtr(hwnd, WindowsAPI.GWL_EXSTYLE, new nint(ex & ~(long)WindowsAPI.WS_EX_LAYERED));
+			}
+		}
+
+		// Sets every pixel's alpha to opaque and returns true if any pixel had non-zero RGB content.
+		private static unsafe bool FinalizeCapture(Bitmap bmp)
+		{
+			var data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+			byte rgbAccum = 0;
+
+			try
+			{
+				var basePtr = (byte*)data.Scan0;
+
+				for (var y = 0; y < data.Height; y++)
+				{
+					var row = basePtr + (long)y * data.Stride;
+
+					for (var x = 0; x < data.Width; x++)
+					{
+						rgbAccum |= (byte)(row[x * 4 + 0] | row[x * 4 + 1] | row[x * 4 + 2]);
+						row[x * 4 + 3] = 0xFF;   // BGRA in memory: alpha is byte 3
+					}
+				}
+			}
+			finally
+			{
+				bmp.UnlockBits(data);
+			}
+
+			return rgbAccum != 0;
+		}
+#endif
+
 		internal static string GuiId(ref string command)
 		{
 			var id = DefaultGuiId;

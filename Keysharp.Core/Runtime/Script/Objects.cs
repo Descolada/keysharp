@@ -87,7 +87,9 @@ namespace Keysharp.Runtime
 
 					var methodName = method.Name;
 
-					bool isStatic = false;
+					// A member is static if it carries [Static] or if its C# name has the "static" prefix.
+					// The attribute lets the prefix be omitted when there is no instance member to disambiguate from.
+					bool isStatic = method.GetCustomAttribute<StaticAttribute>() != null;
 					if (methodName.StartsWith(Keywords.ClassStaticPrefix))
 					{
 						isStatic = true;
@@ -166,11 +168,13 @@ namespace Keysharp.Runtime
 						propertyName = "__Item";
 
 					OwnPropsDesc propertyMap = null;
-					if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
+					bool isStaticProp = prop.GetCustomAttribute<StaticAttribute>() != null;
+					if (isStaticProp || propertyName.StartsWith(Keywords.ClassStaticPrefix))
 					{
 						if (userDeclaredName == null)
 						{
-							propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
+							if (propertyName.StartsWith(Keywords.ClassStaticPrefix))
+								propertyName = propertyName.Substring(Keywords.ClassStaticPrefix.Length);
 
 							if (propertyName.StartsWith("get_") || propertyName.StartsWith("set_"))
 								propertyName = propertyName.Substring(4);

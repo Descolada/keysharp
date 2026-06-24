@@ -369,11 +369,11 @@ namespace Keysharp.Internals.Images
 			if (bpp == 4)
 				return bmp;
 
-			// Copy 3bpp (RGB, no alpha) → 4bpp (RGBA, A=255) without going through
-			// Cairo/Graphics.DrawImage. DrawImage routes through Cairo, which on
-			// colour-managed GNOME desktops silently applies sRGB→linear gamma to
-			// every pixel, producing different values than the raw Pixbuf read used
-			// for the 4bpp source. Direct byte copy keeps channels identical.
+			// Copy 3bpp (RGB, no alpha) → 4bpp (RGBA, A=255) with a direct byte copy rather than
+			// Cairo/Graphics.DrawImage. Going through DrawImage would premultiply and apply the
+			// selected interpolation filter, which can perturb exact pixel values relative to the raw
+			// Pixbuf read used for the 4bpp source path; a direct byte copy keeps channels identical so
+			// ImageFinder compares like with like.
 			var result = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppRgba);
 			using var src = bmp.Lock();
 			using var dst = result.Lock();
@@ -424,6 +424,206 @@ namespace Keysharp.Internals.Images
 #endif
 
 			return bmp;
+		}
+
+		/// <summary>
+		/// Creates a new zero-initialised (fully transparent) ARGB canvas of the given size.
+		/// Centralises the one pixel-format name that differs between the System.Drawing
+		/// (Windows) and Eto.Drawing (Mac/Linux) backends.
+		/// </summary>
+		internal static Bitmap NewArgbCanvas(int w, int h)
+		{
+#if WINDOWS
+			return new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppArgb);
+#else
+			return new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppRgba);
+#endif
+		}
+
+		/// <summary>
+		/// Returns a <see cref="Graphics"/> targeting <paramref name="bmp"/>. The only backend
+		/// divergence is how a Graphics is obtained (Graphics.FromImage vs the Eto constructor) and
+		/// the interpolation/anti-alias property names; the transform and DrawImage calls used by
+		/// callers are identical on both, and both compose transforms in prepend (GDI+) order.
+		/// </summary>
+		/// <param name="highQuality">High-quality bicubic + anti-alias (scale/rotate). When false,
+		/// nearest-neighbour with no anti-alias, for exact pixel-preserving ops such as flips.</param>
+		internal static Graphics MakeGraphics(Bitmap bmp, bool highQuality = true)
+		{
+#if WINDOWS
+			var g = Graphics.FromImage(bmp);
+			g.InterpolationMode = highQuality ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
+			g.SmoothingMode = highQuality ? SmoothingMode.AntiAlias : SmoothingMode.None;
+			g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+			return g;
+#else
+			var g = new Graphics(bmp);
+			g.ImageInterpolation = highQuality ? ImageInterpolation.High : ImageInterpolation.None;
+			g.AntiAlias = highQuality;
+			return g;
+#endif
+		}
+
+		// Builds a Color from a packed 0xAARRGGBB int. The 4-argument FromArgb overload orders its
+		// parameters differently in the two backends (alpha-first vs alpha-last), so it is wrapped here.
+		internal static Color ArgbToColor(int argb)
+		{
+			var a = (byte)((argb >> 24) & 0xFF);
+			var r = (byte)((argb >> 16) & 0xFF);
+			var g = (byte)((argb >> 8) & 0xFF);
+			var b = (byte)(argb & 0xFF);
+#if WINDOWS
+			return Color.FromArgb(a, r, g, b);
+#else
+			return Color.FromArgb(r, g, b, a);
+#endif
+		}
+
+		/// <summary>
+		/// Rotates <paramref name="bmp"/> clockwise by <paramref name="angleDegrees"/>, growing the
+		/// canvas so no content is clipped. <paramref name="bgArgb"/> is the fill behind the rotated
+		/// image as packed 0xAARRGGBB (0 = transparent). The original is left unchanged; a new bitmap
+		/// is returned.
+		/// </summary>
+		internal static Bitmap RotateBitmap(Bitmap bmp, double angleDegrees, int bgArgb = 0)
+		{
+			if (bmp == null)
+				return null;
+
+			var norm = ((angleDegrees % 360) + 360) % 360;
+
+			if (norm == 0)
+				return new Bitmap(bmp);
+
+			int srcW = bmp.Width, srcH = bmp.Height;
+			var rad = norm * Math.PI / 180.0;
+			var cos = Math.Abs(Math.Cos(rad));
+			var sin = Math.Abs(Math.Sin(rad));
+
+			// cos/sin of exact 90 degree multiples are tiny non-zero values (e.g. cos(90 deg) is
+			// ~6e-17, not 0), which would otherwise inflate an axis-aligned rotation by one pixel.
+			if (cos < 1e-9) cos = 0;
+			if (sin < 1e-9) sin = 0;
+
+			var dstW = (int)Math.Ceiling(srcW * cos + srcH * sin);
+			var dstH = (int)Math.Ceiling(srcW * sin + srcH * cos);
+			var dst = NewArgbCanvas(dstW, dstH);
+
+			using (var g = MakeGraphics(dst))
+			{
+				if (((bgArgb >> 24) & 0xFF) != 0)
+					g.Clear(ArgbToColor(bgArgb));
+
+				// Prepend order (both backends): translate to the new centre, rotate, translate back
+				// by the original centre, then draw the source at its native pixel size.
+				g.TranslateTransform(dstW / 2f, dstH / 2f);
+				g.RotateTransform((float)norm);
+				g.TranslateTransform(-srcW / 2f, -srcH / 2f);
+#if WINDOWS
+				// Explicit source-rectangle overload so the draw stays in source pixels regardless of the
+				// bitmap's DPI metadata (System.Drawing's DrawImage(image, RectangleF) would otherwise
+				// apply a DPI-ratio scale for a non-96-DPI loaded image).
+				g.DrawImage(bmp, new Rectangle(0, 0, srcW, srcH), 0, 0, srcW, srcH, GraphicsUnit.Pixel);
+#else
+				g.DrawImage(bmp, new RectangleF(0, 0, srcW, srcH));
+#endif
+			}
+
+			return dst;
+		}
+
+		/// <summary>
+		/// Mirrors <paramref name="bmp"/> horizontally (left-right) or vertically (top-bottom).
+		/// Returns a new bitmap; the original is unchanged.
+		/// </summary>
+		internal static Bitmap FlipBitmap(Bitmap bmp, bool horizontal)
+		{
+			if (bmp == null)
+				return null;
+
+			int w = bmp.Width, h = bmp.Height;
+			var dst = NewArgbCanvas(w, h);
+
+			using (var g = MakeGraphics(dst, highQuality: false))
+			{
+				// Prepend order: shift the far edge to the origin, then scale by -1 on the mirror axis.
+				g.TranslateTransform(horizontal ? w : 0, horizontal ? 0 : h);
+				g.ScaleTransform(horizontal ? -1f : 1f, horizontal ? 1f : -1f);
+#if WINDOWS
+				// Explicit source-rectangle overload — DPI-immune, exact pixel mirror (see RotateBitmap).
+				g.DrawImage(bmp, new Rectangle(0, 0, w, h), 0, 0, w, h, GraphicsUnit.Pixel);
+#else
+				g.DrawImage(bmp, new RectangleF(0, 0, w, h));
+#endif
+			}
+
+			return dst;
+		}
+
+		/// <summary>
+		/// Returns a new bitmap containing the (x, y, w, h) sub-region of <paramref name="bmp"/>,
+		/// clamped to its bounds.
+		/// </summary>
+		internal static Bitmap CropBitmap(Bitmap bmp, int x, int y, int w, int h)
+		{
+			if (bmp == null)
+				return null;
+
+			x = Math.Clamp(x, 0, bmp.Width);
+			y = Math.Clamp(y, 0, bmp.Height);
+			w = Math.Clamp(w, 0, bmp.Width - x);
+			h = Math.Clamp(h, 0, bmp.Height - y);
+
+			if (w <= 0 || h <= 0)
+				return NewArgbCanvas(w, h);
+
+			var rect = new Rectangle(x, y, w, h);
+#if WINDOWS
+			return bmp.Clone(rect, bmp.PixelFormat);
+#else
+			// Normalise to 4 channels first: an X11 screen capture is a 3-channel (no-alpha) Gdk.Pixbuf,
+			// and Eto's Clone builds a 4-channel destination, which gdk_pixbuf_copy_area rejects on the
+			// channel-count mismatch. EnsureOpaque32Bpp is a no-op for an already-32bpp bitmap.
+			var src = EnsureOpaque32Bpp(bmp);
+			var cropped = src.Clone(rect);
+
+			if (!ReferenceEquals(src, bmp))
+				src.Dispose();
+
+			return cropped;
+#endif
+		}
+
+		/// <summary>
+		/// Saves <paramref name="bmp"/> to <paramref name="path"/>, inferring the encoder from the
+		/// file extension (defaulting to PNG).
+		/// </summary>
+		internal static void SaveBitmap(Bitmap bmp, string path)
+		{
+			if (bmp == null || string.IsNullOrEmpty(path))
+				return;
+
+			// Choose the encoder explicitly from the extension on both backends (defaulting to PNG) so a
+			// path with an unknown or missing extension never throws a GDI+ "generic error".
+			bmp.Save(path, ImageFormatFromExtension(path));
+		}
+
+		private static ImageFormat ImageFormatFromExtension(string path)
+		{
+			switch (Path.GetExtension(path).ToLowerInvariant())
+			{
+				case ".jpg":
+				case ".jpeg": return ImageFormat.Jpeg;
+				case ".gif": return ImageFormat.Gif;
+				case ".tif":
+				case ".tiff": return ImageFormat.Tiff;
+#if WINDOWS
+				case ".bmp": return ImageFormat.Bmp;
+#else
+				case ".bmp": return ImageFormat.Bitmap;
+#endif
+				default: return ImageFormat.Png;
+			}
 		}
 
 		internal static Bitmap GetBitmapFromHBitmap(nint nativeHBitmap)

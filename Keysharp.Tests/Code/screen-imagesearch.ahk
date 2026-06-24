@@ -1,10 +1,10 @@
 #NoTrayIcon
 
-#import "Ks" { ImageCapture }
+#import "Ks" { Image }
 x :=
 y := 0
 CoordMode("Pixel", "Screen")
-hbitmap := ImageCapture(100, 100, 500, 500)
+hbitmap := Image.FromRect(100, 100, 500, 500).ToBitmap()
 
 l :=
 t :=

@@ -92,6 +92,16 @@ namespace Keysharp.Internals.Window.MacOS
 		private static partial nint CGWindowListCopyWindowInfo(uint option, uint relativeToWindow);
 
 		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+		private static partial nint CGWindowListCreateImage(CGRectNative screenBounds, uint listOption, uint windowID, uint imageOption);
+
+		// Crop to the window's actual bounds (drop the drop-shadow padding) when capturing.
+		private const uint kCGWindowImageBoundsIgnoreFraming = 1u;
+
+		// Passing a CGRect whose origin is infinite (CGRectNull) tells CGWindowListCreateImage to
+		// use the captured window's own bounds rather than a caller-supplied rectangle.
+		private static readonly CGRectNative CGRectNull = new () { X = double.PositiveInfinity, Y = double.PositiveInfinity, Width = 0, Height = 0 };
+
+		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CGRectMakeWithDictionaryRepresentation(nint dict, out CGRectNative rect);
 
@@ -853,6 +863,41 @@ namespace Keysharp.Internals.Window.MacOS
 
 			value = System.Text.Encoding.UTF8.GetString(buffer, 0, terminator);
 			return true;
+		}
+
+		/// <summary>
+		/// Captures the pixels of the window with the given CGWindowID directly from the window
+		/// server, so it works even when the window is occluded or partially off-screen. Returns a
+		/// physical-pixel bitmap (2x on Retina, matching <see cref="Keysharp.Builtins.GuiHelper.GetScreen"/>),
+		/// or null if the capture failed. The caller maps coordinates back to logical units via the scale.
+		/// </summary>
+		internal static Bitmap TryCaptureWindow(uint windowID)
+		{
+			if (windowID == 0)
+				return null;
+
+			try
+			{
+				var ptr = CGWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, windowID, kCGWindowImageBoundsIgnoreFraming);
+
+				if (ptr == nint.Zero)
+					return null;
+
+				// new CGImage(ptr) takes ownership of the +1 reference returned by the Create call
+				// and releases it on Dispose; NSImage retains its own reference to the pixel data,
+				// so disposing the CGImage afterwards is safe (mirrors Eto's ScreenHandler.GetImage).
+				using var cgimage = new MonoMac.CoreGraphics.CGImage(ptr);
+
+				if (cgimage.Width == 0 || cgimage.Height == 0)
+					return null;
+
+				var nsimage = new MonoMac.AppKit.NSImage(cgimage, new MonoMac.CoreGraphics.CGSize(cgimage.Width, cgimage.Height));
+				return new Bitmap(new Eto.Mac.Drawing.BitmapHandler(nsimage));
+			}
+			catch
+			{
+				return null;
+			}
 		}
 
 		private static nint CreateCFString(string value)

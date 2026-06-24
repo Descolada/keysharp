@@ -794,6 +794,11 @@ namespace Keysharp.Internals.Platform.Windows
 		[LibraryImport(user32, EntryPoint = "GetDC")]
 		internal static partial nint GetDC(nint hwnd);
 
+		// GetWindowDC returns a DC for the entire window (title bar and borders included), unlike GetDC
+		// which is the client area only.
+		[LibraryImport(user32, EntryPoint = "GetWindowDC")]
+		internal static partial nint GetWindowDC(nint hwnd);
+
 		[LibraryImport(user32, EntryPoint = "GetParent")]
 		internal static partial nint GetParent(nint hWnd);
 
@@ -922,6 +927,23 @@ namespace Keysharp.Internals.Platform.Windows
 		[LibraryImport(user32, EntryPoint = "GetClientRect")]
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool GetClientRect(nint hWnd, out RECT lpRect);
+
+		// PW_CLIENTONLY (0x1) renders only the client area (no title bar / borders); PW_RENDERFULLCONTENT
+		// (0x2) renders DirectComposition/hardware-accelerated content too, so the capture works for
+		// modern (UWP, Chromium, etc.) windows, not just GDI ones.
+		internal const uint PW_CLIENTONLY = 0x00000001;
+		internal const uint PW_RENDERFULLCONTENT = 0x00000002;
+
+		// SRCCOPY raster-op for BitBlt: copy the source rectangle directly to the destination.
+		internal const uint SRCCOPY = 0x00CC0020;
+
+		[LibraryImport(user32, EntryPoint = "PrintWindow")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool PrintWindow(nint hWnd, nint hdcBlt, uint nFlags);
+
+		[LibraryImport(gdi32, EntryPoint = "BitBlt")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static partial bool BitBlt(nint hdc, int x, int y, int cx, int cy, nint hdcSrc, int x1, int y1, uint rop);
 
 		[LibraryImport(user32, EntryPoint = "FillRect")]
 		internal static partial int FillRect(nint hDC, ref RECT lprc, nint hbr);

@@ -157,7 +157,7 @@ On first use, macOS will ask for several permissions:
 |---|---|
 | **Input Monitoring** | Hotkeys, hotstrings, and reading keyboard/mouse input |
 | **Accessibility** | Controlling and querying other application windows |
-| **Screen Recording** | `PixelGetColor`, `ImageSearch`, `ImageCapture` |
+| **Screen Recording** | `PixelGetColor`, `ImageSearch`, `Image` |
 
 Grant each permission in **System Settings → Privacy & Security** when prompted. Keysharp will wait up to 60 seconds for each permission to be granted before continuing, but usually the script will have to be restarted after granting capabilities. You can also request permissions explicitly at the top of a script:
 ```ahk
@@ -374,7 +374,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 		| `InputMonitoring` | `hook`, `inputhook` | Monitor keyboard and mouse input (required for hotkeys/hotstrings) |
 		| `InputInjection` | `synthinput`, `sendinput` | Synthesize keyboard and mouse input (`Send`, `Click`, etc.) |
 		| `BlockInput` | | Suppress input events |
-		| `ScreenCapture` | `capture`, `imagecapture` | Capture screen pixels (`PixelGetColor`, `ImageSearch`, `ImageCapture`) |
+		| `ScreenCapture` | `capture`, `imagecapture` | Capture screen pixels (`PixelGetColor`, `ImageSearch`, `Image`) |
 		| `AccessibilityAutomation` | `accessibility`, `automation` | Access UI accessibility trees (AT-SPI on Linux) |
 * For any `__Enum()` class method, it should have a parameter value of 2 when returning `Array` or `Map`, since their enumerators have two fields.
 * RegEx uses PCRE2 engine powered by the PCRE.NET library. There are a few limitations compared to the AutoHotkey implementation:
@@ -486,7 +486,7 @@ Despite our best efforts to remain compatible with the AHK v2 spec, there are di
 	caps := RequestCapabilities()
 	```
 	+ Prefer `#Requires capability` for scripts that need permissions from startup. Use `RequestCapabilities` directly when you need to check or request permissions at a specific point in script execution, or when you want to inspect the current status.
-* New function `ImageCapture(x, y, width, height [, filename]) => Bitmap` can be used to return a bitmap screenshot of an area of the screen and optionally save it to file.
+* New class `Image` provides cross-platform image capture and manipulation. Capture with `Image.FromDesktop()`, `Image.FromMonitor(n)`, `Image.FromRect(x, y, w, h)`, `Image.FromWindow(winTitle [, options])`, or load with `Image.FromFile(path)` / `Image.FromBitmap(handle)`. Queue chainable transforms (`Scale`, `Rotate`, `Flip`, `Crop`) that apply lazily, then output via `Save(filename)` or `ToBitmap()`, show it in a window with `Show([title])`, read/write pixels with `GetPixel`/`SetPixel`, or locate a sub-image with `Search`. `FromWindow` captures the whole window (title bar included) and accepts an `options` mode (matching OCR.ahk) selecting the Windows capture technique — `0`/`1` = GetDC + BitBlt, `2`/`3` = PrintWindow, `4` (default) = PrintWindow + PW_RENDERFULLCONTENT for hardware-accelerated windows (mode `5`, UWP capture, is not yet implemented); the mode is ignored on macOS/Linux. Replaces the earlier `ImageCapture` function — e.g. `Image.FromRect(x, y, w, h).Save(filename)` or `.ToBitmap()`.
 * New clipboard functions:
 	+ `CopyImageToClipboard(filename [,options])` is supported which copies an image to the clipboard.
 		+ Uses the same arguments as `LoadPicture()`.

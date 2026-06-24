@@ -11,8 +11,18 @@ namespace Keysharp.Internals.Window.Linux.X11
 		private const string libX11Name = "libX11.so.6";
 		private const string libXfixesName = "libXfixes.so.3";
 		private const string libXtstName = "libXtst.so.6";
+		private const string libXcompositeName = "libXcomposite.so.1";
 
 		internal const ulong CurrentTime = 0UL;  // Xlib constant
+
+		// XGetImage formats (Xutil.h) and the all-planes mask.
+		internal const int XYPixmap = 1;
+		internal const int ZPixmap = 2;
+		internal const ulong AllPlanes = ~0UL;
+
+		// XComposite update modes (composite.h).
+		internal const int CompositeRedirectAutomatic = 0;
+		internal const int CompositeRedirectManual = 1;
 
 		internal const int GrabModeAsync = 1;
 
@@ -72,6 +82,32 @@ namespace Keysharp.Internals.Window.Linux.X11
 
 		[DllImport(libX11Name)]
 		internal static extern int XDestroyImage(IntPtr ximage);
+
+		// Owner of a selection (used to detect a running compositing manager via _NET_WM_CM_Sn).
+		[DllImport(libX11Name)]
+		internal static extern long XGetSelectionOwner(nint display, nint selection);
+
+		// Frees a pixmap obtained from XCompositeNameWindowPixmap.
+		[DllImport(libX11Name)]
+		internal static extern int XFreePixmap(nint display, long pixmap);
+
+		// XComposite extension (libXcomposite). Used to capture a window's full contents even when it
+		// is occluded by other windows: redirect the window off-screen (or rely on the running
+		// compositor's redirection), name its backing pixmap, then XGetImage that pixmap.
+		[DllImport(libXcompositeName)]
+		internal static extern int XCompositeQueryExtension(nint display, out int eventBase, out int errorBase);
+
+		[DllImport(libXcompositeName)]
+		internal static extern int XCompositeQueryVersion(nint display, ref int majorVersion, ref int minorVersion);
+
+		[DllImport(libXcompositeName)]
+		internal static extern void XCompositeRedirectWindow(nint display, long window, int update);
+
+		[DllImport(libXcompositeName)]
+		internal static extern void XCompositeUnredirectWindow(nint display, long window, int update);
+
+		[DllImport(libXcompositeName)]
+		internal static extern long XCompositeNameWindowPixmap(nint display, long window);
 
 		[DllImport(libX11Name)]
 		internal static extern int XRaiseWindow(nint display, long window);

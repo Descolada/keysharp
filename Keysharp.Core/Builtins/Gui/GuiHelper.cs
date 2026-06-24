@@ -251,9 +251,13 @@ namespace Keysharp.Builtins
 					scale = (double)bmp.Width / info.Bounds.Width;
 
 				return (bmp, scale);
+#elif LINUX
+				// X11 (incl. Cinnamon) uses XGetImage + XComposite so occluded windows still capture;
+				// GNOME Wayland reads the window actor's buffer via the Keysharp Shell extension. KWin
+				// Wayland and wlroots have no wired foreign-window path yet and return null here, so the
+				// caller falls back to a rectangle grab of the window's on-screen bounds.
+				return Keysharp.Internals.Window.Linux.LinuxWindowCapture.TryCapture(handle);
 #else
-				// X11 needs XComposite redirection and Wayland forbids foreign-window capture; both
-				// fall back to a rectangle grab of the window's on-screen bounds in the caller.
 				return (null, 1.0);
 #endif
 			}

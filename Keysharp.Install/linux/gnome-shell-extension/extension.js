@@ -108,6 +108,17 @@ const DBUS_IFACE_XML = `
       <arg type="ay" direction="out" name="pngData"/>
     </method>
 
+    <!-- Capture a single window's full contents (handle = stable_sequence, as in
+         GetWindowList) and return raw PNG bytes. Reads the window actor's own
+         backing buffer via meta_window_actor_get_image, so the result is correct
+         even when the window is occluded by other windows. No flash, no file is
+         left behind. Returns an empty array on failure (e.g. unknown handle or a
+         minimized window with no live texture). -->
+    <method name="CaptureWindow">
+      <arg type="t"  direction="in"  name="handle"/>
+      <arg type="ay" direction="out" name="pngData"/>
+    </method>
+
     <!-- Emitted whenever the focused window changes. Carries the same
          JSON as GetActiveWindow. -->
     <signal name="ActiveWindowChanged">
@@ -407,6 +418,59 @@ export default class KeysharpExtension {
         } catch (e) {
             logError(e, 'Keysharp: CaptureArea failed');
             return new Uint8Array(0);
+        }
+    }
+
+    // Capture a single window's full contents and return PNG bytes. Unlike CaptureArea (which images
+    // the composited screen and so loses anything behind other windows), this reads the window actor's
+    // own backing buffer through meta_window_actor_get_image, so an occluded window still captures
+    // correctly. A minimized window has no live texture and yields an empty result (the C# caller then
+    // falls back to a rectangle grab).
+    CaptureWindow(handle) {
+        let file = null;
+        try {
+            const win = this._findWindow(handle);
+            if (!win)
+                return new Uint8Array(0);
+
+            const actor = win.get_compositor_private();
+            if (!actor || typeof actor.get_image !== 'function')
+                return new Uint8Array(0);
+
+            // clip = null → the whole actor. Returns a cairo ImageSurface of the window's buffer.
+            let surface = null;
+            try {
+                surface = actor.get_image(null);
+            } catch (e) {
+                logError(e, 'Keysharp: meta_window_actor_get_image failed');
+                return new Uint8Array(0);
+            }
+
+            if (!surface)
+                return new Uint8Array(0);
+
+            // GJS cairo can write a surface to a PNG *file* but not to a memory stream, so round-trip
+            // through a private temp file that we create, read and delete entirely within the shell.
+            const stream = Gio.File.new_tmp('keysharp-winshot-XXXXXX.png');
+            file = stream[0];
+            stream[1].close(null);
+            const path = file.get_path();
+
+            surface.flush();
+            surface.writeToPNG(path);
+
+            const [ok, bytes] = GLib.file_get_contents(path);
+            if (!ok || !bytes || bytes.length === 0)
+                return new Uint8Array(0);
+
+            return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        } catch (e) {
+            logError(e, 'Keysharp: CaptureWindow failed');
+            return new Uint8Array(0);
+        } finally {
+            if (file !== null) {
+                try { file.delete(null); } catch (_e) {}
+            }
         }
     }
 

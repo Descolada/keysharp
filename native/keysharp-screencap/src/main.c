@@ -79,6 +79,26 @@ static bool parse_int_arg(const char *text, int *value)
     return true;
 }
 
+static bool parse_uint64_arg(const char *text, uint64_t *value)
+{
+    char *end = NULL;
+    unsigned long long parsed;
+
+    if (text == NULL || value == NULL) {
+        return false;
+    }
+
+    errno = 0;
+    parsed = strtoull(text, &end, 10);
+
+    if (errno != 0 || end == text || *end != '\0') {
+        return false;
+    }
+
+    *value = (uint64_t)parsed;
+    return true;
+}
+
 static bool get_requester_credentials(pid_t pid, uid_t *uid, gid_t *gid)
 {
     char proc_path[64];
@@ -834,6 +854,80 @@ done:
     return io_ok;
 }
 
+/* Single GNOME window-capture request: calls the extension's CaptureWindow (which images the
+ * window actor's own buffer via meta_window_actor_get_image, so occluded windows still capture)
+ * and writes a status-prefixed KSSG1 (PNG) frame — the same wire format as the area path, so the
+ * C# reader is identical. handle is the window's stable_sequence. */
+static bool gnome_window_serve_one(int out_fd, uint64_t handle)
+{
+    GError *error = NULL;
+    GDBusConnection *connection = NULL;
+    GVariant *reply = NULL;
+    GVariant *png_variant = NULL;
+    const uint8_t *png_data = NULL;
+    gsize png_size = 0;
+    bool io_ok;
+
+    connection = get_session_bus();
+
+    if (connection == NULL) {
+        io_ok = write_serve_error(out_fd, "failed to connect to session bus");
+        goto done;
+    }
+
+    reply = g_dbus_connection_call_sync(
+        connection,
+        KSS_GNOME_DBUS_NAME,
+        KSS_GNOME_DBUS_PATH,
+        KSS_GNOME_DBUS_INTERFACE,
+        "CaptureWindow",
+        g_variant_new("(t)", handle),
+        G_VARIANT_TYPE("(ay)"),
+        G_DBUS_CALL_FLAGS_NONE,
+        KSS_CAPTURE_TIMEOUT_MS,
+        NULL,
+        &error);
+
+    if (reply == NULL) {
+        fprintf(stderr, "keysharp-screencap: GNOME CaptureWindow failed: %s\n",
+            error != NULL ? error->message : "unknown error");
+        io_ok = write_serve_error(out_fd, "GNOME CaptureWindow failed");
+        goto cleanup;
+    }
+
+    g_variant_get(reply, "(@ay)", &png_variant);
+    png_data = (const uint8_t *)g_variant_get_fixed_array(png_variant, &png_size, sizeof(uint8_t));
+
+    if (png_data == NULL || png_size == 0) {
+        /* Empty result: unknown handle, or a minimized window with no live texture. The C# side
+         * treats a failure here as "no true capture" and falls back to a rectangle grab. */
+        io_ok = write_serve_error(out_fd, "GNOME CaptureWindow returned empty data");
+        goto cleanup;
+    }
+
+    {
+        char magic[8] = { 'K', 'S', 'S', 'G', '1', '\0', '\0', '\0' };
+        uint64_t byte_count = (uint64_t)png_size;
+        io_ok = write_serve_status(out_fd, KSS_SERVE_STATUS_OK)
+            && write_exact(out_fd, magic, sizeof(magic), "KSSG1 magic")
+            && write_exact(out_fd, &byte_count, sizeof(byte_count), "KSSG1 byte count")
+            && write_exact(out_fd, png_data, png_size, "KSSG1 PNG data");
+    }
+
+cleanup:
+    if (png_variant != NULL)
+        g_variant_unref(png_variant);
+
+    if (reply != NULL)
+        g_variant_unref(reply);
+
+done:
+    if (error != NULL)
+        g_error_free(error);
+
+    return io_ok;
+}
+
 /* GNOME serve loop — identical request protocol to serve_loop but calls the GNOME
  * Shell extension instead of KWin, and emits KSSG1 (PNG) frames instead of KSSC1. */
 static int gnome_serve_loop(void)
@@ -871,6 +965,21 @@ static int gnome_serve_loop(void)
 
         if (strcmp(token, "ping") == 0) {
             (void)write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK);
+            continue;
+        }
+
+        if (strcmp(token, "window") == 0) {
+            uint64_t handle;
+
+            if (!parse_uint64_arg(strtok_r(NULL, " \t", &save), &handle)) {
+                (void)write_serve_error(STDOUT_FILENO, "bad window handle");
+                continue;
+            }
+
+            if (!gnome_window_serve_one(STDOUT_FILENO, handle)) {
+                return 1;
+            }
+
             continue;
         }
 

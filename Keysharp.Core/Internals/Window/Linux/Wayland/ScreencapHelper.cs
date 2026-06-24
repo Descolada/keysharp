@@ -421,6 +421,64 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		/// <summary>
+		/// Captures a single window's full contents via the GNOME Shell extension's CaptureWindow
+		/// (meta_window_actor_get_image) through keysharp-screencap --serve gnome. <paramref name="handle"/>
+		/// is the window's compositor stable-sequence. Returns null when the window can't be captured
+		/// (unknown handle, minimized, permission denied) so the caller falls back to a rectangle grab.
+		/// Occlusion-independent: the actor's own buffer is imaged, not the composited screen.
+		/// </summary>
+		internal static Bitmap CaptureGnomeWindow(ulong handle)
+		{
+			lock (gnomeSync)
+			{
+				if (gnomeSessionDenied)
+					return null;
+
+				var attempt = 0;
+
+				while (attempt < 2)
+				{
+					attempt++;
+					var firstStart = false;
+
+					if (gnomeHelper == null || gnomeHelper.HasExited)
+					{
+						ResetGnomeLocked();
+
+						if (!StartGnomeLocked(out var startError, out _))
+						{
+							DebugLine($"keysharp-screencap --serve gnome launch failed: {startError}");
+							return null;
+						}
+
+						firstStart = true;
+					}
+
+					try
+					{
+						var request = $"window {handle.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n";
+						var bytes = System.Text.Encoding.ASCII.GetBytes(request);
+						gnomeStdin.Write(bytes, 0, bytes.Length);
+						gnomeStdin.Flush();
+						return ReadGnomeResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
+					}
+					catch (Exception ex)
+					{
+						DebugLine($"keysharp-screencap --serve gnome window request failed: {ex.Message}");
+						CacheGnomeDeniedIfHelperExitedLocked();
+
+						// A per-request error (e.g. window not found) leaves the helper alive and ready;
+						// only tear it down if the process itself died, mirroring CaptureGnome.
+						if (gnomeHelper == null || gnomeHelper.HasExited)
+							ResetGnomeLocked();
+					}
+				}
+
+				return null;
+			}
+		}
+
 		/// <summary>Authorizes screen capture on GNOME by starting keysharp-screencap --serve gnome.</summary>
 		internal static PermissionResult AuthorizeGnome(string operation, bool forcePrompt = false)
 		{

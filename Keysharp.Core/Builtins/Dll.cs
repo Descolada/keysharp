@@ -39,15 +39,58 @@ namespace Keysharp.Builtins
 		/// An optimization is to keep a cache of these objects, keyed by the exact function name and argument types.<br/>
 		/// Doing this saves significant time when doing repeated calls to the same DLL function with the same argument types.
 		/// </summary>
-		internal static readonly Dictionary<string, nint> loadedDlls = new ()
+		internal static readonly Dictionary<string, nint> loadedDlls = BuildSystemLibraries();
+
+		/// <summary>
+		/// The standard set of system libraries scanned when <see cref="DllCall"/> is given a bare function name
+		/// (no library/path component), mirroring how Windows resolves bare names against user32/kernel32/comctl32/
+		/// gdi32. This is what lets <c>DllCall("getpid")</c> resolve a C-library symbol without naming a library.
+		/// On macOS every libc/libm/pthread symbol is vended by the <c>libSystem</c> umbrella; on Linux they live in
+		/// libc/libm. Built defensively (each library loaded via <see cref="NativeLibrary.TryLoad(string, out nint)"/>
+		/// inside a try) so a single missing library can never throw out of the static initializer and break every
+		/// subsequent <see cref="DllCall"/>.
+		/// </summary>
+		private static Dictionary<string, nint> BuildSystemLibraries()
 		{
+			var dlls = new Dictionary<string, nint>(StringComparer.OrdinalIgnoreCase);
+
+			void Add(string key, params string[] candidates)
+			{
+				foreach (var candidate in candidates)
+				{
+					try
+					{
+						if (NativeLibrary.TryLoad(candidate, out var handle) && handle != 0)
+						{
+							dlls[key] = handle;
+							return;
+						}
+					}
+					catch
+					{
+					}
+				}
+			}
+
 #if WINDOWS
-			{ "user32", NativeLibrary.Load("user32") },
-			{ "kernel32", NativeLibrary.Load("kernel32") },
-			{ "comctl32", NativeLibrary.Load("comctl32") },
-			{ "gdi32", NativeLibrary.Load("gdi32") }
+			Add("user32", "user32");
+			Add("kernel32", "kernel32");
+			Add("comctl32", "comctl32");
+			Add("gdi32", "gdi32");
+#elif OSX
+			// libSystem re-exports libc/libm/libpthread/dyld, so loading it alone resolves the entire standard C
+			// library. Expose it under both "libSystem" and "libc" so an explicit "libc\func" path resolves too.
+			Add("libSystem", "libSystem.dylib", "/usr/lib/libSystem.B.dylib", "libSystem.B.dylib");
+
+			if (dlls.TryGetValue("libSystem", out var libSystem))
+				dlls["libc"] = libSystem;
+#else
+			Add("libc", "libc.so.6", "libc.so", "libc");
+			Add("libm", "libm.so.6", "libm.so", "libm");
 #endif
-		};
+
+			return dlls;
+		}
 
 		/// <summary>
 		/// Calls a function inside a DLL, such as a standard Windows API function.
@@ -146,7 +189,7 @@ namespace Keysharp.Builtins
 					}
 #endif
 
-					return Errors.ErrorOccurred($"Unable to locate {LibraryExtension} with path {path}.");
+					return Errors.ErrorOccurred($"Unable to find function \"{name}\" in any of the standard system libraries; specify the library explicitly (e.g. \"mylib\\{name}\").");
 				}
 				else if (loadedDlls.Keys.FirstOrDefault(n => path.StartsWith(n, StringComparison.OrdinalIgnoreCase)) is string moduleName && moduleName != null)
 				{

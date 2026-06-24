@@ -1,5 +1,6 @@
 using Keysharp.Builtins;
 #if !WINDOWS
+using Keysharp.Internals.Platform.Windows;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using static Keysharp.Builtins.KeysharpListView;
 
@@ -759,9 +760,79 @@ namespace Keysharp.Internals.Platform.Unix
 
 		internal override void PostMessage(uint msg, nint wparam, nint lparam, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
+			_ = TryDispatchWindowMessage(msg, wparam, lparam, ctrl, title, text, excludeTitle, excludeText, true);
 		}
 
-		internal override long SendMessage(uint msg, object wparam, object lparam, object ctrl, object title, object text, object excludeTitle, object excludeText, int timeout) => 1;
+		internal override long SendMessage(uint msg, object wparam, object lparam, object ctrl, object title, object text, object excludeTitle, object excludeText, int timeout)
+		{
+			return TryDispatchWindowMessage(msg, wparam.Ai(), lparam.Ai(), ctrl, title, text, excludeTitle, excludeText, false) ? 1L : 0L;
+		}
+
+		private static bool TryDispatchWindowMessage(uint msg, nint wparam, nint lparam, object ctrl, object title, object text, object excludeTitle, object excludeText, bool post)
+		{
+			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText, false) is not ControlItem item)
+				return false;
+
+			var action = CreateWindowMessageAction(item.Control, msg, wparam, lparam);
+
+			if (action == null)
+				return false;
+
+			if (post)
+				Application.Instance.AsyncInvoke(action);
+			else
+				InvokeWindowMessageAction(action);
+
+			return true;
+		}
+
+		private static Action CreateWindowMessageAction(Control control, uint msg, nint wparam, nint lparam) =>
+			msg switch
+			{
+				(uint)WindowsAPI.WM_VSCROLL => CreateTextAreaScrollAction(control, wparam),
+				(uint)WindowsAPI.EM_SCROLLCARET => CreateTextAreaScrollCaretAction(control),
+				_ => null
+			};
+
+		private static Action CreateTextAreaScrollAction(Control control, nint wparam)
+		{
+			if (control is not TextArea area)
+				return null;
+
+			var cmd = unchecked((int)(wparam.ToInt64() & 0xFFFF));//WM_VSCROLL packs the scroll command in the low word.
+
+			return cmd switch
+			{
+				WindowsAPI.SB_TOP => area.ScrollToStart,
+				WindowsAPI.SB_BOTTOM => () => ScrollTextAreaToEnd(area),
+				_ => null
+			};
+		}
+
+		private static Action CreateTextAreaScrollCaretAction(Control control) =>
+			control is TextArea area ? () => ScrollTextAreaToOffset(area, area.CaretIndex) : null;
+
+		private static void InvokeWindowMessageAction(Action action)
+		{
+			var app = Application.Instance;
+
+			if (app.IsUIThread)
+				action();
+			else
+				app.Invoke(action);
+		}
+
+		private static void ScrollTextAreaToOffset(TextArea area, int offset)
+		{
+			//Eto's TextArea.ScrollTo scrolls to offset (range.Start + range.Length()), and Range<int>.Length()
+			//is inclusive (End - Start + 1). End = Start - 1 targets exactly Start, and maps to NSRange(Start, 0).
+			area.ScrollTo(new Range<int>(offset, offset - 1));
+		}
+
+		private static void ScrollTextAreaToEnd(TextArea area)
+		{
+			area.ScrollToEnd();
+		}
 
 		private static void DropdownHelper(bool val, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{
@@ -781,4 +852,3 @@ namespace Keysharp.Internals.Platform.Unix
 }
 
 #endif
-

@@ -69,22 +69,24 @@ namespace Keysharp.Builtins
 			[Static] public static object FromDesktop(object @this)
 			{
 				var (left, top, width, height) = Monitor.GetVirtualScreenBounds();
-				return CaptureRect((int)left, (int)top, (int)width, (int)height, mapCoords: false, "Capturing the desktop failed.");
+				return CaptureRect((int)left, (int)top, (int)width, (int)height, "Capturing the desktop failed.");
 			}
 
 			/// <summary>Captures a single monitor (the primary monitor if <paramref name="n"/> is omitted).</summary>
 			[Static] public static object FromMonitor(object @this, object n = null)
 			{
 				var (left, top, width, height) = Monitor.GetMonitorBounds(n);
-				return CaptureRect((int)left, (int)top, (int)width, (int)height, mapCoords: false, "Capturing the monitor failed.");
+				return CaptureRect((int)left, (int)top, (int)width, (int)height, "Capturing the monitor failed.");
 			}
 
 			/// <summary>
-			/// Captures a rectangle of the screen. Coordinates honor the current Pixel CoordMode, just
-			/// like the legacy <c>ImageCapture</c> function this replaces.
+			/// Captures a rectangle of the screen. Coordinates are always absolute screen coordinates;
+			/// unlike the screen-pixel functions (<c>PixelGetColor</c>, <c>ImageSearch</c>), this factory
+			/// deliberately ignores the Pixel CoordMode so it matches its sibling capture factories
+			/// (<c>FromDesktop</c>, <c>FromMonitor</c>, <c>FromWindow</c>), which are all absolute.
 			/// </summary>
 			[Static] public static object FromRect(object @this, object x, object y, object width, object height)
-				=> CaptureRect(x.Ai(), y.Ai(), width.Ai(), height.Ai(), mapCoords: true, "Capturing the screen rectangle failed.");
+				=> CaptureRect(x.Ai(), y.Ai(), width.Ai(), height.Ai(), "Capturing the screen rectangle failed.");
 
 			/// <summary>
 			/// Captures the whole window (title bar and borders included) matched by the usual WinTitle
@@ -295,9 +297,11 @@ namespace Keysharp.Builtins
 
 			/// <summary>Creates a simple GUI window containing this image (after applying any queued
 			/// transforms) and shows it (named to match <c>Gui.Show</c>). Returns the <c>Gui</c> so the
-			/// script can move, retitle, or close it. On a HiDPI capture the picture is shown at its
-			/// logical size, so it appears at its real on-screen size and stays crisp rather than
-			/// rendering double-size.</summary>
+			/// script can move, retitle, or close it. The picture is shown at the image's full pixel size
+			/// (the size reported in the caption); the window opens that big, or screen-sized if the image
+			/// is larger than the monitor (Windows will not make a window bigger than the screen). It is
+			/// resizable between a small lower bound and the image size, never past it into dead space, and
+			/// scrollbars appear whenever the window is smaller than the image so all of it stays reachable.</summary>
 			public object Show(object title = null)
 			{
 				var bmp = Materialize();
@@ -308,17 +312,33 @@ namespace Keysharp.Builtins
 				if (ToBitmap() is not long handle || handle == 0)
 					return Errors.ValueErrorOccurred("Could not prepare the image for display.");
 
-				// Show at logical size (physical pixels divided by the capture scale).
-				var dw = (long)Math.Round(bmp.Width / (scaleX > 0 ? scaleX : 1.0));
-				var dh = (long)Math.Round(bmp.Height / (scaleY > 0 ? scaleY : 1.0));
+				// Caption shows the image's true pixel size and capture scale as a percentage
+				// (e.g. "Image  3840 x 2160 @ 200%").
+				var baseTitle = title == null ? "Image" : title.As();
+				var caption = $"{baseTitle}  {bmp.Width} x {bmp.Height} @ {FormatScalePercent(scaleX, scaleY)}";
 
 				// Construct the Gui through the runtime's Class.Call (the path scripts use); calling the
-				// C# constructor directly binds to Gui's internal form-wrapping ctor and crashes.
+				// C# constructor directly binds to Gui's internal form-wrapping ctor and crashes. "+Resize"
+				// makes the window stretchable; "+AutoScroll" lets the whole image be reached by scrolling
+				// when the window is smaller than it. Windows refuses to make a window larger than the
+				// monitor (it clamps to the max tracking size), so a picture bigger than the screen cannot
+				// be shown by a window that fits it — scrolling bridges that gap.
 				if (Script.TheScript.Vars.Statics[typeof(Gui)] is not Class guiClass
-						|| guiClass.Call("", title == null ? "Image" : title.As()) is not Gui gui)
+						|| guiClass.Call("+Resize +AutoScroll", caption) is not Gui gui)
 					return Errors.ErrorOccurred("Could not create a window to display the image.");
 
-				_ = gui.Add("Picture", $"w{dw} h{dh}", "HBITMAP:" + handle);
+				// Size the picture to the image's full pixel dimensions (the caption size). A Picture from
+				// an "HBITMAP:" source is set to the loaded bitmap's pixel size directly, bypassing the GUI's
+				// DPI scaling, so passing the *pixel* width/height (not a DPI-logical size) is what makes the
+				// window open at the size the caption advertises. The control is fixed at this size and
+				// pinned top-left; scrolling reaches any part the window is too small to show.
+				_ = gui.Add("Picture", $"w{bmp.Width} h{bmp.Height}", "HBITMAP:" + handle);
+
+				// Cap the window at the size it first opens (the image, or the screen if the image is larger):
+				// "+MaxSize" with no dimensions defers the limit until first show, where the Gui pins it to
+				// that size, so the window can't be stretched past the image into dead space. "+MinSize"
+				// gives a small, DPI-scaled lower bound so it can't be shrunk away to nothing.
+				_ = gui.Opt("+MinSize120x90 +MaxSize");
 				_ = gui.Show();
 				return gui;
 			}
@@ -425,14 +445,11 @@ namespace Keysharp.Builtins
 
 			#region Internals
 
-			// Captures a screen rectangle and wraps it, recording the HiDPI capture scale. When
-			// mapCoords is true the rectangle is first translated through the active Pixel CoordMode
-			// (matching the legacy ImageCapture); desktop/monitor captures pass absolute coordinates.
-			private static object CaptureRect(int x, int y, int w, int h, bool mapCoords, string failMsg)
+			// Captures a screen rectangle and wraps it, recording the HiDPI capture scale. Coordinates
+			// are always absolute screen coordinates; the Pixel CoordMode is deliberately not applied
+			// (see FromRect) so every capture factory shares one coordinate convention.
+			private static object CaptureRect(int x, int y, int w, int h, string failMsg)
 			{
-				if (mapCoords)
-					CoordToScreen(ref x, ref y, CoordMode.Pixel);
-
 				var bmp = GuiHelper.GetScreen(x, y, w, h);
 
 				if (bmp == null)
@@ -540,6 +557,14 @@ namespace Keysharp.Builtins
 			{
 				cached?.Dispose();
 				cached = null;
+			}
+
+			// Formats the capture scale for the window title as a percentage: a single value when X and Y
+			// match (the usual case), otherwise "sx%/sy%". 1.0 -> "100%", 2.0 -> "200%", 1.5 -> "150%".
+			private static string FormatScalePercent(double sx, double sy)
+			{
+				static string P(double v) => $"{(long)Math.Round(v * 100)}%";
+				return sx == sy ? P(sx) : $"{P(sx)}/{P(sy)}";
 			}
 
 			// Parses a color argument into packed 0xAARRGGBB. "" / null is fully transparent (alpha 0);

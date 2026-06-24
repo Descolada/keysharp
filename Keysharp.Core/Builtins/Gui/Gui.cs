@@ -77,6 +77,33 @@ namespace Keysharp.Builtins
 				}
 			},
 			{
+				// Makes the window scroll when its contents are larger than its client area (e.g. a Picture
+				// bigger than the window). On Windows this is the form's AutoScroll property; Eto has no
+				// form-level equivalent, so the content layout is placed inside a Scrollable container.
+				// Best applied at construction, before controls are added.
+				"AutoScroll", (f, o) =>
+				{
+					if (o is bool b)
+					{
+#if WINDOWS
+						f.form.AutoScroll = b;
+#else
+						// EnsureLayoutContainer drills through the Scrollable (a Panel) into the inner
+						// PixelLayout, so controls still parent correctly once it is in place.
+						if (b)
+						{
+							if (f.form.Content is not Scrollable)
+								f.form.Content = new Scrollable { Content = f.form.Content ?? new PixelLayout(), Border = BorderType.None };
+						}
+						else if (f.form.Content is Scrollable sc)
+						{
+							f.form.Content = sc.Content;
+						}
+#endif
+					}
+				}
+			},
+			{
 				"Border", (f, o) =>
 				{
 					// FormBorderStyle conflates caption presence with border thickness, and there's no

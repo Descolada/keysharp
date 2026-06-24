@@ -3,7 +3,7 @@ using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace Keysharp.Tests
 {
-	public partial class Imagetests : TestRunner
+	public partial class ImageTests : TestRunner
 	{
 		// Paints a deterministic pattern (pixel (x,y) -> R=x, G=y, B=fixed) into a new PNG file and
 		// returns its path. Uses the same bitmap pipeline (NewArgbCanvas + SaveBitmap) the Image class
@@ -23,7 +23,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_FromFile_Dimensions()
+		public void ImageFromFileDimensions()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -41,7 +41,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Scale_IsLazyAndChains()
+		public void ImageScaleIsLazyAndChains()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -64,7 +64,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Crop_Dimensions()
+		public void ImageCropDimensions()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -82,7 +82,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Rotate90_SwapsDimensions()
+		public void ImageRotate90SwapsDimensions()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -100,7 +100,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Flip_MirrorsPixels()
+		public void ImageFlipMirrorsPixels()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -123,7 +123,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_GetSetPixel_RoundTrips()
+		public void ImageGetSetPixelRoundTrips()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -140,7 +140,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Save_RoundTripsDimensions()
+		public void ImageSaveRoundTripsDimensions()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -164,7 +164,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_Search_FindsSubImage()
+		public void ImageSearchFindsSubImage()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -196,7 +196,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_FromBitmap_RoundTrips()
+		public void ImageFromBitmapRoundTrips()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -215,7 +215,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_SetPixel_SurvivesLaterTransform()
+		public void ImageSetPixelSurvivesLaterTransform()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");
@@ -235,7 +235,7 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
-		public void Image_ScaleProperties_DefaultToOneForFiles()
+		public void ImageScalePropertiesDefaultToOneForFiles()
 		{
 			if (Script.IsHeadless)
 				Assert.Ignore("Image tests need an initialized graphics backend.");

@@ -564,6 +564,12 @@ static int set_device_grab(ksi_linux_tracked_device *device, bool enabled)
         refresh_indicator_state_from_device(device);
     }
 
+    /* NOTE: releasing keys replayed "down" on the uinput device when the keyboard is
+     * ungrabbed (so a held key can't be stranded on the virtual device) is handled at
+     * the daemon layer -- update_grab_state enqueues KSI_OUTPUT_ACTION_RELEASE_ALL on
+     * the keyboard-grab held->released edge, which runs on the output sequencer thread.
+     * Doing it here would race the sequencer's writes to uinput / synthesized_keys_down. */
+
     fprintf(stderr, "inputd: %s %s\n", enabled ? "grabbed" : "ungrabbed", device->path);
     return 0;
 }
@@ -1293,6 +1299,12 @@ static void queue_relative_motion(ksi_linux_tracked_device *device, const struct
     device->pending_rel_time_ms = event_time_ms(event);
     device->pending_rel_extra_info = extra_info;
     device->has_pending_rel = true;
+
+    /* A relative movement makes any cached absolute position stale: the cursor has moved but we
+     * have no absolute coordinate for its new location. Invalidate so GET_POINTER_POSITION reports
+     * "unknown" (valid = 0) rather than a stale absolute value -- callers must only trust the
+     * absolute position when the most recent movement was itself absolute. */
+    current_pointer_position.valid = 0u;
 }
 
 static void dispatch_relative_event(ksi_linux_tracked_device *device, const struct input_event *event, uint64_t extra_info)

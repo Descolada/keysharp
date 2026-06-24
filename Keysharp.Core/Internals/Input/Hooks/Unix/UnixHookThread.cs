@@ -969,7 +969,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					}
 					else
 					{
-						callbackStateLost = true;
+						// Transient contention: the OTHER lane is holding the shared callback
+						// state (e.g. one lane processing a burst of events), not a lost
+						// connection. The event is failed open below (block stays false -> Pass),
+						// which is the documented "fail open" intent above.
+						NoteInputdCallbackGateContention();
 					}
 				}
 				catch (Exception ex)
@@ -1012,10 +1016,27 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 				if (callbackStateLost)
 				{
-					HandleInputdHookReaderLoss("managed callback state was lost");
+					HandleInputdHookReaderLoss("hook event processing failed");
 					return;
 				}
 			}
+		}
+
+		// A single inputd reader lane couldn't take the shared callback gate within the
+		// per-event deadline (the other lane is busy). We fail that event open and keep
+		// the hooks up; surface it at most once every couple of seconds so a burst of
+		// events on one lane can't spam the debug console.
+		private long lastGateContentionLogTicks;
+
+		private void NoteInputdCallbackGateContention()
+		{
+			var now = Environment.TickCount64;
+
+			if (now - Volatile.Read(ref lastGateContentionLogTicks) < 2000)
+				return;
+
+			Volatile.Write(ref lastGateContentionLogTicks, now);
+			Ks.OutputDebugLine("keysharp-inputd: shared callback state busy; passed an event without processing (hooks remain active).");
 		}
 
 		// Called from the inputd hook reader thread as it exits due to a daemon
@@ -1291,7 +1312,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			if (!IsWaylandSession)
 			{
-				if (TryGetX11CursorPos(out _))
+				if (GetCursorPos(out _))
 				{
 					reason = "";
 					return true;
@@ -1311,30 +1332,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			reason = "";
 			return true;
-		}
-
-		protected override bool TryGetClipCursorPos(out POINT p)
-		{
-			p = default;
-
-			if (IsWaylandSession)
-			{
-				// Only a compositor-IPC backend (KWin, sway, hyprland, COSMIC, or GNOME via the
-				// extension) can report the global cursor position on Wayland. Compositors without
-				// one fall through to here and fail, which is exactly what we want.
-				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
-
-				if (backend != null && backend.TryGetCursorPos(out var bx, out var by))
-				{
-					p = new POINT(bx, by);
-					return true;
-				}
-
-				return false;
-			}
-
-			// X11: query the server directly for a pixel-accurate position.
-			return TryGetX11CursorPos(out p);
 		}
 
 		protected override void WarpCursor(int x, int y)
@@ -1365,7 +1362,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// Hot-path query used during clip enforcement. X11 is queried every event (cheap);
 		// Wayland queries are rate-limited to avoid flooding D-Bus. A throttled-out event returns
 		// false so the caller leaves the move alone until the next allowed query.
-		private bool TryGetClipCursorPosThrottled(out POINT p)
+		private bool TryGetCursorPosThrottled(out POINT p)
 		{
 			if (IsWaylandSession)
 			{
@@ -1380,7 +1377,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				lastClipQueryTicks = now;
 			}
 
-			return TryGetClipCursorPos(out p);
+			return GetCursorPos(out p);
 		}
 
 		// inputd delivers movement before replaying it through uinput, so the position observed by
@@ -1407,7 +1404,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					handledRequest = Volatile.Read(ref clipCorrectionRequest);
 					await Task.Delay(ClipCorrectionDelayMs).ConfigureAwait(false);
 
-					if (TryGetClipCursorPos(out var p))
+					if (GetCursorPos(out var p))
 					{
 						int x = p.X, y = p.Y;
 
@@ -1433,9 +1430,40 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				_ = Task.Run(RunCursorClipCorrectionAsync);
 		}
 
-		private static bool TryGetX11CursorPos(out POINT p)
+		// Cached virtual-desktop (X11 root) dimensions used to convert absolute-pointer coordinates
+		// ([0,65535]) into screen pixels. XGetGeometry is a server round-trip, so the result is cached
+		// and refreshed at most once per second (resolution changes are rare), keeping the
+		// high-frequency mouse-move path cheap. Touched only from the mouse hook reader thread.
+		private int absNormWidth;
+		private int absNormHeight;
+		private long absNormDimsTicks;
+
+		// Converts a daemon absolute-pointer coordinate (each axis normalised to [0,65535] across the
+		// whole virtual desktop, flagged KSI_MOUSEEVENTF_ABSOLUTE) into an X11 root pixel coordinate --
+		// the same space XQueryPointer reports for clicks, so moves and clicks agree. Leaves the value
+		// untouched if the desktop size can't be determined (e.g. no X11), so the raw normalised value
+		// is still forwarded rather than zeroed.
+		private void NormalizeAbsoluteToScreen(ref int x, ref int y)
 		{
-			p = default;
+			if (!TryGetVirtualDesktopSize(out var width, out var height) || width <= 0 || height <= 0)
+				return;
+
+			x = (int)((long)Math.Clamp(x, 0, 65535) * (width - 1) / 65535);
+			y = (int)((long)Math.Clamp(y, 0, 65535) * (height - 1) / 65535);
+		}
+
+		private bool TryGetVirtualDesktopSize(out int width, out int height)
+		{
+			var now = Environment.TickCount64;
+
+			if (absNormWidth > 0 && absNormHeight > 0 && now - absNormDimsTicks < 1000)
+			{
+				width = absNormWidth;
+				height = absNormHeight;
+				return true;
+			}
+
+			width = height = 0;
 
 			try
 			{
@@ -1446,18 +1474,21 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 				var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
 
-				if (Keysharp.Internals.Window.Linux.X11.Xlib.XQueryPointer(display.Handle, root,
-						out _, out _, out var rootX, out var rootY, out _, out _, out _))
-				{
-					p = new POINT(rootX, rootY);
-					return true;
-				}
+				// The default-screen root window spans the entire virtual desktop with origin (0,0),
+				// which is exactly the coordinate space XQueryPointer returns for the click path.
+				if (!Keysharp.Internals.Window.Linux.X11.Xlib.XGetGeometry(display.Handle, (long)root,
+						out _, out _, out _, out var w, out var h, out _, out _))
+					return false;
+
+				absNormWidth = width = w;
+				absNormHeight = height = h;
+				absNormDimsTicks = now;
+				return true;
 			}
 			catch
 			{
+				return false;
 			}
-
-			return false;
 		}
 
 		private bool ProcessInputdMouseHook(KeysharpInputdClient.MouseHookEvent ev)
@@ -1477,13 +1508,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			switch (ev.Message)
 			{
 				case 0x0200u:
+				{
 					// Confine the cursor to the active ClipCursor rectangle. ev.X/ev.Y are raw evdev
 					// values (deltas or device-range abs), not screen pixels, so query the real
 					// screen-space position to decide whether to clamp. The mouse device is grabbed,
 					// so this fires before the move reaches the compositor; the position read here is
 					// from the previous (already-clamped) event, which makes this a per-event
 					// warp-back that pins the cursor to the boundary while preserving acceleration.
-					if (!isInjected && CursorClipActive && TryGetClipCursorPosThrottled(out var clipPos))
+					if (!isInjected && CursorClipActive && TryGetCursorPosThrottled(out var clipPos))
 					{
 						int cx = clipPos.X, cy = clipPos.Y;
 
@@ -1494,7 +1526,34 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						}
 					}
 
-					return !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
+					var moveBlocked = !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
+
+					// Forward movement to any active InputHook(s) and honor VisibleMouseMove. The SharpHook
+					// fallback does this in OnMouseMoved; the inputd path is the live backend on this host,
+					// so without this call OnMouseMove never fires and VisibleMouseMove can't suppress. The
+					// coordinate meaning depends on the device (see linux_devices.c): an absolute pointer
+					// (VMware's virtual mouse, tablets, touchpads) sends each axis normalised to [0,65535]
+					// flagged ABSOLUTE, which we convert to real screen pixels so OnMouseMove matches the
+					// Windows hook; a relative mouse sends motion deltas, forwarded verbatim per the
+					// CollectMouseMove coordinate contract.
+					//
+					// Gate the whole thing on an actual move listener: this runs under the shared callback
+					// gate on every move, so under a high-frequency move stream we must not do the
+					// coordinate normalization or CollectMouseMove work when no InputHook cares (the
+					// common case).
+					if (AnyInputWantsMouseMove())
+					{
+						int moveX = ev.X, moveY = ev.Y;
+
+						if ((ev.MouseData & (uint)MOUSEEVENTF.ABSOLUTE) != 0)
+							NormalizeAbsoluteToScreen(ref moveX, ref moveY);
+
+						if (!CollectMouseMove(ev.ExtraInfo, moveX, moveY, null))
+							moveBlocked = true;
+					}
+
+					return moveBlocked;
+				}
 
 				case 0x020Au:
 					return ProcessInputdMouseWheelHook(ev, vertical: true, isInjected);
@@ -1503,16 +1562,34 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					return ProcessInputdMouseWheelHook(ev, vertical: false, isInjected);
 			}
 
+			// The daemon hardcodes ev.X/ev.Y to 0 for button events (dispatch_mouse_button_event in
+			// linux_devices.c -- evdev button events carry no position), so query the real screen cursor
+			// position to give clicks an absolute coordinate matching the Windows hook (lParam.pt). The
+			// query is reused below for clip enforcement. On Wayland without a compositor backend the
+			// query fails and X/Y fall back to ev.X/ev.Y (0).
+			//
+			// Only query when something will use the result: the clip rectangle is active, or an
+			// InputHook exists that may report the click position (OnMouseDown/OnMouseUp). On Wayland
+			// GetCursorPos is a compositor round-trip running on this gate-held hook path, so skip it for
+			// the common no-clip/no-hook case (and for injected events, which never warp or report here).
+			POINT clickPos = default;
+			var haveClickPos = !isInjected
+				&& (CursorClipActive || Script.TheScript.input != null)
+				&& GetCursorPos(out clickPos);
+
 			// Confine clicks too. Because the per-event move warp-back lags by one event, the cursor
 			// can sit just outside the rectangle when a button event arrives. inputd re-injects the
 			// button at the current cursor position, so pull the cursor back inside first; the click
-			// then lands within the clip region. Queried unthrottled since clicks are infrequent.
-			if (!isInjected && CursorClipActive && TryGetClipCursorPos(out var clickPos))
+			// then lands within the clip region.
+			if (!isInjected && CursorClipActive && haveClickPos)
 			{
 				int bx = clickPos.X, by = clickPos.Y;
 
 				if (ClampToCursorClip(ref bx, ref by))
+				{
 					WarpCursor(bx, by);
+					clickPos = new POINT(bx, by); // Report the clamped position the click actually lands at.
+				}
 			}
 
 			var keyUp = true;
@@ -1544,8 +1621,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				{
 					Button = KeyCodes.VkToMouseButton(vk),
 					Clicks = 1,
-					X = (short)ev.X,
-					Y = (short)ev.Y
+					X = haveClickPos ? (short)clickPos.X : (short)ev.X,
+					Y = haveClickPos ? (short)clickPos.Y : (short)ev.Y
 				}
 			};
 
@@ -1877,11 +1954,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					e.SuppressEvent = true;
 			}
 
-			// TODO: unverified on this host (built/tested on Windows only). Notify any active InputHook(s)
-			// of movement; CollectMouseMove returns false to suppress when VisibleMouseMove is off.
-			// e.Data.X/Y are forwarded as-is from the hook event (see the coordinate contract on
-			// CollectMouseMove). We deliberately do not query the absolute cursor position here; on the
-			// inputd backend these are relative movement deltas, which is the intended forwarded value.
+			// Notify any active InputHook(s) of movement; CollectMouseMove returns false to suppress when
+			// VisibleMouseMove is off. This is the SharpHook/libuiohook fallback path (used when the
+			// inputd daemon is unavailable), where e.Data.X/Y are absolute screen coordinates -- unlike
+			// the inputd path (ProcessInputdMouseHook), which forwards relative deltas for a relative
+			// mouse and screen-normalised coordinates for an absolute pointer.
 			if (Script.TheScript.input != null
 					&& !CollectMouseMove(ComputeExtraInfo(0, e.IsEventSimulated), e.Data.X, e.Data.Y, null))
 				e.SuppressEvent = true;

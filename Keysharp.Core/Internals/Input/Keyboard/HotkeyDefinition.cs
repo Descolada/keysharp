@@ -1336,6 +1336,12 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <param name="criterion"></param>
 		/// <param name="hotkeyName"></param>
 		/// <returns></returns>
+		// Upper bound (ms) on how long a #HotIf WinActive/WinExist criterion may block the inputd hook
+		// reader thread, kept well under the daemon's ~1s hook-decision deadline. Only applied when the
+		// criterion is evaluated on that thread (see HotCriterionAllowsFiring); script/UI threads use the
+		// full A_HotIfTimeout.
+		private const double HookThreadHotCriterionTimeoutMs = 500.0;
+
 		internal static long HotCriterionAllowsFiring(IFuncObj criterion, string hotkeyName, object eventInfo = null)
 		{
 			if (criterion == null)
@@ -1381,7 +1387,22 @@ namespace Keysharp.Internals.Input.Keyboard
 				}
 			});
 
-			if (!task.Wait(TimeSpan.FromMilliseconds(A_HotIfTimeout.Ad())))
+			var hotIfTimeoutMs = A_HotIfTimeout.Ad();
+
+			// On the inputd hook reader thread this criterion is evaluated synchronously while the
+			// shared callback gate is held and the daemon's ~1s hook-decision deadline is ticking, so a
+			// slow WinActive/WinExist (e.g. a cold window backend right after autostart, or a busy
+			// compositor) would stall this input lane for up to A_HotIfTimeout (default 1000ms) per key.
+			// Cap the wait well below the daemon deadline there. On timeout the criterion is treated as
+			// not-firing / pass-through -- identical to any other A_HotIfTimeout expiry -- and the
+			// background task is abandoned. We deliberately do NOT cache the active-window result: a
+			// stale answer could fire the wrong context hotkey. Off the hook thread (script/UI threads)
+			// the full A_HotIfTimeout still applies.
+			if (Keysharp.Internals.Input.Hooks.Unix.UnixHookThread.IsHookReaderThread
+					&& hotIfTimeoutMs > HookThreadHotCriterionTimeoutMs)
+				hotIfTimeoutMs = HookThreadHotCriterionTimeoutMs;
+
+			if (!task.Wait(TimeSpan.FromMilliseconds(hotIfTimeoutMs)))
 				return 0L;
 
 			if (error != null)

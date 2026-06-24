@@ -199,6 +199,13 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
+		protected override bool TrySendPlatformUnicodeText(UnixHookThread lht, string text, long extraInfo)
+		{
+			SendUnicodeTextViaX11(lht, text, extraInfo);
+
+			return true;
+		}
+
 		protected internal override bool TrySendPlatformSpecialCharKeyEvent(char ch, KeyEventTypes eventType, uint modifiersLR)
 		{
 			if (eventType == KeyEventTypes.KeyDownAndUp)
@@ -482,15 +489,18 @@ namespace Keysharp.Internals.Input.Linux
 						continue;
 					}
 
-					lastWasCR = false;
-
 					if (rune.Value == '\n')
 					{
+						// Collapse a CR/LF pair into a single Enter; only emit a Return for a
+						// standalone '\n'. (Must be checked before resetting lastWasCR below.)
 						if (!lastWasCR)
 							backend.KeyStroke(VK_RETURN, DateTime.UtcNow, extraInfo);
 
+						lastWasCR = false;
 						continue;
 					}
+
+					lastWasCR = false;
 
 					if (TryGetTextControlVk(rune, out var controlVk))
 					{

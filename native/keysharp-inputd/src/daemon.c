@@ -211,6 +211,10 @@ static void command_queue_drain_wake(const ksi_daemon_command_queue *q)
 typedef enum ksi_output_action_type {
     KSI_OUTPUT_ACTION_REPLAY = 0,
     KSI_OUTPUT_ACTION_SYNTH,
+    /* Release every key the backend has replayed/synthesized "down". Runs on the
+     * sequencer thread so it is serialized with REPLAY/SYNTH and never races them.
+     * Enqueued by update_grab_state when the keyboard grab is dropped. */
+    KSI_OUTPUT_ACTION_RELEASE_ALL,
 } ksi_output_action_type;
 
 typedef struct ksi_output_action {
@@ -338,6 +342,11 @@ typedef struct ksi_daemon_state {
      * cross-lane ordering. */
     ksi_hook_lane kbd_lane;
     ksi_hook_lane mouse_lane;
+    /* Tracks whether the keyboard is currently grabbed (per the last applied grab
+     * masks) so update_grab_state can enqueue a KSI_OUTPUT_ACTION_RELEASE_ALL exactly
+     * when the keyboard grab transitions from held to released -- the point at which a
+     * key replayed "down" on the uinput device would otherwise be stranded. */
+    bool keyboard_grab_active;
 } ksi_daemon_state;
 
 typedef struct ksi_binary_message_view {

@@ -523,10 +523,18 @@ build_deb() {
 echo "Publishing Keysharp and Keyview (CONFIG=${CONFIG}, RID=${RID})..."
 mkdir -p "${DIST_DIR}"
 rm -rf "${PUBLISH_DIR}/Keysharp" "${PUBLISH_DIR}/Keyview"
+# Eto is referenced via <ProjectReference> but is not a member of Keysharp.sln.
+# A solution build unsets the parent Configuration/Platform when building project
+# references, and an out-of-solution reference has no solution mapping, so Eto would
+# fall back to its default (Debug). A Debug Eto keeps its SourceLink "documents" key
+# on the raw local checkout path (csc /pathmap does not rewrite the SourceLink blob),
+# which trips verify_no_local_paths. Letting references inherit the parent config
+# builds Eto in Release, where DeterministicSourcePaths scrubs the path to /_/.
 dotnet publish "${ROOT}/Keysharp.sln" -c "${CONFIG}" -r "${RID}" \
   -p:KeysharpVersion="${VERSION}" \
   -p:Deterministic=true \
   -p:ContinuousIntegrationBuild=true \
+  -p:ShouldUnsetParentConfigurationAndPlatform=false \
   -p:PathMap="${PATH_MAP}"
 
 echo "Staging package at ${PKG_DIR}..."

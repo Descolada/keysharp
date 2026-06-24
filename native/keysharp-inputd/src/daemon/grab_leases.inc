@@ -451,6 +451,7 @@ static int update_grab_state(ksi_daemon_state *state)
 {
     uint32_t hook_mask = active_hook_subscription_mask(state);
     uint32_t block_mask = active_block_input_mask(state);
+    bool keyboard_grabbed;
     int result;
 
     if (state == NULL || state->backend == NULL) {
@@ -469,9 +470,40 @@ static int update_grab_state(ksi_daemon_state *state)
      * If a non-zero block mask somehow arrives on such a platform, fail so that
      * handle_set_block_input rolls back and reports an error rather than silently
      * accepting a mask that cannot be enforced. */
-    return state->backend->set_block_input_mask == NULL
+    result = state->backend->set_block_input_mask == NULL
         ? (block_mask == 0 ? 0 : -1)
         : state->backend->set_block_input_mask(block_mask);
+
+    if (result != 0) {
+        return result;
+    }
+
+    /* When the keyboard grab is released, any key the daemon replayed "down" on the
+     * uinput virtual device would be stranded there: the user's physical key-up lands
+     * on the now-ungrabbed real device and does not cancel the uinput key, so the
+     * compositor keeps seeing it held. Enqueue the release on the OUTPUT SEQUENCER
+     * thread (not here) so it is serialized with replay/synth -- no race on the synth
+     * state -- and the daemon main thread never blocks doing it. Fires only on the
+     * held->released edge so a steady grab does not repeatedly release. */
+    keyboard_grabbed = (hook_mask & KSI_CAP_HOOK_KEYBOARD) != 0
+        || (block_mask & KSI_BLOCK_INPUT_KEYBOARD) != 0;
+
+    if (state->keyboard_grab_active && !keyboard_grabbed) {
+        /* Only consume the held->released edge once the release is actually queued.
+         * If the enqueue fails (queue saturated / OOM), leave keyboard_grab_active set
+         * so the next update_grab_state call -- there are many callers and the queue
+         * drains continuously -- retries, rather than stranding a key "down" on uinput
+         * with no recovery until the next grab cycle. */
+        if (output_queue_push_release_all(&state->output_queue)) {
+            state->keyboard_grab_active = false;
+        } else {
+            fprintf(stderr, "inputd: failed to enqueue synthetic key release on keyboard ungrab; will retry\n");
+        }
+    } else {
+        state->keyboard_grab_active = keyboard_grabbed;
+    }
+
+    return 0;
 }
 
 static void clear_hook_state(ksi_daemon_state *state)

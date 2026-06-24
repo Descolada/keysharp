@@ -27,6 +27,21 @@ static uint64_t monotonic_ms(void)
  * a SYNTH pushed by a script mid-flight no longer waits for an in-progress
  * hook decision to finalize.  This matches the Windows behavior where
  * SendInput does not block on pending low-level hooks.
+ *
+ * KNOWN BOUND (single strict FIFO, no replay prioritization): physical-event
+ * REPLAY and held-key RELEASE_ALL share this one queue with client SYNTHESIZE_INPUT
+ * and are dispatched in arrival order. A client that floods Send can therefore push
+ * a large paced synth backlog (capped at KSI_MAX_CLIENT_OUTPUT_SYNTH_BYTES) ahead of
+ * the user's next physical keystroke, delaying its replay to uinput by up to the
+ * drain time of that backlog (worst case order ~tens of seconds for a maximal
+ * unicode-heavy backlog at the 0.35ms/16-event pacing rate). This is a BOUNDED,
+ * self-clearing latency, NOT a hang/deadlock: every emit is non-blocking (O_NONBLOCK
+ * uinput, EINTR-only retry) and pacing is a single bounded clock_nanosleep, and the
+ * EVIOCGRAB(off) that restores physical input on ungrab is synchronous and does not
+ * wait on this queue. It is accepted as a known limit (only a heavy/adversarial Send
+ * loop triggers it). If it ever needs eliminating, split this into a critical queue
+ * (REPLAY/RELEASE_ALL/MODIFY+emergency synth) drained to empty before each single
+ * client-synth action, with pacing only on the client-synth queue.
  * ----------------------------------------------------------------------- */
 
 static int output_queue_init(ksi_output_queue *q)
@@ -288,6 +303,42 @@ static bool output_queue_push_synth(
     return true;
 }
 
+/* Enqueue a "release all replayed/synthesized keys" action. Runs on the sequencer
+ * thread so the release is serialized with REPLAY/SYNTH writes (no race) and never
+ * stalls the caller (the daemon main thread, via update_grab_state). Admitted up to
+ * the critical cap: a dropped release would leave a key stranded "down". */
+static bool output_queue_push_release_all(ksi_output_queue *q)
+{
+    ksi_output_node *node;
+
+    if (q == NULL) {
+        return false;
+    }
+
+    node = malloc(sizeof(*node));
+
+    if (node == NULL) {
+        return false;
+    }
+
+    memset(&node->action, 0, sizeof(node->action));
+    node->action.type = KSI_OUTPUT_ACTION_RELEASE_ALL;
+
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->count >= KSI_MAX_OUTPUT_ACTIONS) {
+        pthread_mutex_unlock(&q->mutex);
+        free(node);
+        return false;
+    }
+
+    output_queue_push_node_locked(q, node);
+    pthread_mutex_unlock(&q->mutex);
+
+    output_queue_wake(q);
+    return true;
+}
+
 /* Sequencer thread.  Drains the output queue in arrival order and dispatches
  * each action to the platform backend (uinput).  Runs until
  * state->sequencer_running drops to zero AND the queue is empty, so any
@@ -331,6 +382,10 @@ static void *output_sequencer_thread_main(void *arg)
                 }
 
                 free(action.synth_inputs);
+            } else if (action.type == KSI_OUTPUT_ACTION_RELEASE_ALL) {
+                if (state->backend != NULL && state->backend->release_synthetic_keys != NULL) {
+                    state->backend->release_synthetic_keys();
+                }
             }
         }
 

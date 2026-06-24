@@ -45,6 +45,14 @@ static int uinput_fd = -1;
 /* Absolute pointer: ABS_X/Y with INPUT_PROP_POINTER for absolute MouseMove. */
 static int uinput_abs_fd = -1;
 
+/* All uinput writes and the synthesis state they touch (uinput_fd, synthesized_keys_down,
+ * suppress_replay_events, current_extra_info, the pacing counters) are accessed on a single
+ * thread -- the output sequencer, which drains replay, client synthesis AND the release-all
+ * action (KSI_OUTPUT_ACTION_RELEASE_ALL) in arrival order. The only other caller of
+ * ksi_linux_synth_release_all() is ksi_linux_synth_stop() during shutdown, which runs after
+ * the sequencer thread has been joined (daemon.c). So there is no concurrent access and no
+ * lock is needed here. (If a caller is ever added that touches this state off the sequencer
+ * thread while it is running, reintroduce serialization.) */
 static bool suppress_replay_events;
 static bool synthesized_keys_down[KEY_MAX + 1];
 static uint16_t pending_high_surrogate;

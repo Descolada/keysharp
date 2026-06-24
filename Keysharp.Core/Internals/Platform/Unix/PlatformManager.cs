@@ -385,14 +385,14 @@ namespace Keysharp.Internals.Platform.Unix
 		public static bool GetCursorPos(out POINT lpPoint)
 		{
 #if LINUX
-			// Preferred path on Wayland: a compositor-IPC backend (KWin via D-Bus, sway/hyprland
-			// via their JSON sockets, COSMIC via its Wayland extension). These are the only ways
-			// to get the global cursor position correctly — the core Wayland protocol forbids
-			// foreign clients from querying it. Compositors without IPC (labwc, GNOME, …) fall
-			// through to the inputd-scaled-abs and Forms.Mouse paths, which only work for
-			// absolute-positioning devices (tablets, touchpads), not regular mice.
 			if (IsWaylandSession)
 			{
+				// The core Wayland protocol forbids foreign clients from querying the global cursor
+				// position, so it is only available two ways: from a compositor-IPC backend (KWin via
+				// D-Bus, sway/hyprland via their JSON sockets, COSMIC via its Wayland extension), or --
+				// for an absolute-positioning device (tablet, touchpad, VMware's virtual mouse) -- from
+				// inputd's last absolute report. If neither is available (e.g. labwc/GNOME with a plain
+				// relative mouse) the position is genuinely unknowable, so fail instead of guessing.
 				var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
 
 				if (backend != null && backend.TryGetCursorPos(out var bx, out var by))
@@ -400,27 +400,71 @@ namespace Keysharp.Internals.Platform.Unix
 					lpPoint = new POINT(bx, by);
 					return true;
 				}
+
+				// TryGetPointerPosition fails when the last movement was relative (the daemon marks the
+				// absolute position invalid). Safe to reach from the inputd hook reader thread: the query
+				// channel only carries quick queries/synthesis (synthesis acks on enqueue) and hook
+				// callbacks run on the daemon's dedicated lanes, so a position query never blocks on hook
+				// processing.
+				if (KeysharpInputdManager.TryGetPointerPosition(
+						out var rawX,
+						out var rawY,
+						out var minX,
+						out var maxX,
+						out var minY,
+						out var maxY)
+					&& TryScalePointerAxis(rawX, minX, maxX, (int)A_ScreenWidth, out var x)
+					&& TryScalePointerAxis(rawY, minY, maxY, (int)A_ScreenHeight, out var y))
+				{
+					lpPoint = new POINT(x, y);
+					return true;
+				}
+
+				lpPoint = default;
+				return false;
 			}
 
-			if (IsWaylandSession
-				&& KeysharpInputdManager.TryGetPointerPosition(
-					out var rawX,
-					out var rawY,
-					out var minX,
-					out var maxX,
-					out var minY,
-					out var maxY)
-				&& TryScalePointerAxis(rawX, minX, maxX, (int)A_ScreenWidth, out var x)
-				&& TryScalePointerAxis(rawY, minY, maxY, (int)A_ScreenHeight, out var y))
-			{
-				lpPoint = new POINT(x, y);
-				return true;
-			}
-#endif
+			// X11: query the server directly. Pixel-accurate, and safe to call from any thread
+			// (including the inputd hook reader thread) because it uses the per-thread [ThreadStatic]
+			// XDisplay connection rather than the UI-thread-affine Eto/GTK Forms.Mouse.Position.
+			return TryGetX11CursorPos(out lpPoint);
+#else
 			var pos = Forms.Mouse.Position;
 			lpPoint = new POINT(Convert.ToInt32(pos.X), Convert.ToInt32(pos.Y));
 			return true;
+#endif
 		}
+
+#if LINUX
+		// Reads the pointer position straight from the X server (root-window coordinates = the virtual
+		// desktop, origin 0,0). Safe from any thread via the per-thread [ThreadStatic] XDisplay handle.
+		private static bool TryGetX11CursorPos(out POINT p)
+		{
+			p = default;
+
+			try
+			{
+				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
+
+				if (display == null || display.Handle == 0)
+					return false;
+
+				var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
+
+				if (Keysharp.Internals.Window.Linux.X11.Xlib.XQueryPointer(display.Handle, root,
+						out _, out _, out var rootX, out var rootY, out _, out _, out _))
+				{
+					p = new POINT(rootX, rootY);
+					return true;
+				}
+			}
+			catch
+			{
+			}
+
+			return false;
+		}
+#endif
 
 #if OSX
 		/// <summary>

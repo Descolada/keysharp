@@ -46,6 +46,10 @@ namespace Keysharp.Internals.Input.Unix
 		private readonly Lock inputGate = new();
 		private readonly Stack<InputArrayState> inputStack = new();
 
+		// Holds a UTF-16 high surrogate between the two SendUnicodeChar calls of an astral
+		// scalar (e.g. emoji) while sending in Event mode; see SendUnicodeChar.
+		private char pendingHighSurrogate;
+
 		internal UnixKeyboardMouseSender()
 		{
 		}
@@ -862,6 +866,76 @@ namespace Keysharp.Internals.Input.Unix
 		internal override void SendUnicodeChar(char ch, uint modifiers)
 		{
 			EnsureInputSendPermission("send keyboard text");
+
+			// UTF-16 surrogate pairs (astral scalars such as emoji) arrive as two separate calls.
+			// In Event mode each unit is injected immediately, but the macOS
+			// (CGEventKeyboardSetUnicodeString) and X11 (Unicode-keysym remap) paths cannot
+			// reassemble a lone surrogate the way Windows' KEYEVENTF_UNICODE can. So buffer the
+			// high surrogate and emit the combined scalar once its low surrogate arrives. (Input
+			// mode is unaffected: it records each unit as a TextEvent and they are re-joined into
+			// a single string before injection.)
+			if (sendMode == SendModes.Event)
+			{
+				if (char.IsHighSurrogate(ch))
+				{
+					FlushPendingHighSurrogate(); // emit a prior unpaired high surrogate, if any
+					pendingHighSurrogate = ch;
+					return;
+				}
+
+				if (pendingHighSurrogate != '\0')
+				{
+					var high = pendingHighSurrogate;
+					pendingHighSurrogate = '\0';
+
+					if (char.IsLowSurrogate(ch))
+					{
+						Span<char> pair = [high, ch];
+						SendUnicodeScalarImmediate(new string(pair));
+						return;
+					}
+
+					// Unpaired high surrogate not followed by a low one: emit it best-effort,
+					// then fall through to handle the current char normally.
+					SendUnicodeScalarImmediate(high.ToString());
+				}
+			}
+
+			SendUnicodeCharCore(ch, modifiers);
+		}
+
+		// Emits a complete Unicode scalar (1 or 2 UTF-16 units) immediately as text, used for
+		// astral characters combined from a surrogate pair. Such characters never map to a
+		// single keystroke, so the mapped-keystroke path is intentionally skipped.
+		private void SendUnicodeScalarImmediate(string text)
+		{
+			if (string.IsNullOrEmpty(text))
+				return;
+
+			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
+			var lht = Script.TheScript.HookThread as UnixHookThread;
+
+			if (lht == null)
+				return;
+
+			if (TrySendPlatformUnicodeText(lht, text, extraInfo))
+				return;
+
+			WithSendScope(lht, () => sim.SimulateTextEntry(text));
+		}
+
+		private void FlushPendingHighSurrogate()
+		{
+			if (pendingHighSurrogate == '\0')
+				return;
+
+			var high = pendingHighSurrogate;
+			pendingHighSurrogate = '\0';
+			SendUnicodeScalarImmediate(high.ToString());
+		}
+
+		private void SendUnicodeCharCore(char ch, uint modifiers)
+		{
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 			uint vk = 0;
 			var needShift = false;
@@ -984,6 +1058,10 @@ namespace Keysharp.Internals.Input.Unix
 			=> WithSendScope(lht, () => SendKeyEventDirect(eventType, vk, extraInfo));
 
 		protected virtual bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr) => false;
+
+		// Emits a complete Unicode scalar string via the platform's text path. Base returns false
+		// so the caller falls back to SharpHook's SimulateTextEntry (used on macOS).
+		protected virtual bool TrySendPlatformUnicodeText(UnixHookThread lht, string text, long extraInfo) => false;
 
 		protected virtual bool TryQueuePlatformMappedTextKey(char ch, uint modifiers, long extraInfo) => false;
 

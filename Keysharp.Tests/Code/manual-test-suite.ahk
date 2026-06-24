@@ -349,6 +349,9 @@ AppendLog(message) {
 	timeStamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
 	gLogText .= (gLogText = "" ? "" : "`r`n") "[" timeStamp "] " message
 	gLogEdit.Value := gLogText
+	; Setting .Value replaces the whole text and leaves the view at the top, so pin it to the newest
+	; line with WM_VSCROLL/SB_BOTTOM after the edit has processed its replaced text.
+	PostMessage(0x115, 7, 0, gLogEdit)
 }
 
 ClearLog() {

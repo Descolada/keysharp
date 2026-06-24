@@ -1352,13 +1352,15 @@ namespace Keysharp.Internals.Input.Hooks
 		// flags; suppression is governed per-input by VisibleMouseMove. Returns true if movement
 		// should pass through to the system.
 		//
-		// Coordinate contract: x/y are forwarded verbatim from whatever the platform hook delivered;
-		// callers must NEVER query the cursor position (e.g. GetCursorPos) to fill them in, because a
-		// query is comparatively slow and can lag behind / disagree with the event being reported.
-		// As a result the meaning of x/y is platform-dependent: absolute screen coordinates on Windows,
-		// X11 and macOS, but on Linux via the inputd daemon they are RELATIVE movement deltas (inputd
-		// reports relative motion). Scripts that need cross-platform absolute coordinates should track
-		// the running position themselves rather than assume x/y are absolute.
+		// Coordinate contract: callers must NEVER query the cursor position (e.g. GetCursorPos) to fill
+		// x/y in on this move hot path, because a query is comparatively slow and can lag behind /
+		// disagree with the event being reported. As a result the meaning of x/y is platform- and
+		// device-dependent: absolute screen coordinates on Windows, X11/SharpHook and macOS; on Linux
+		// via the inputd daemon they are absolute screen coordinates for an absolute pointer (VMware's
+		// virtual mouse, tablets, touchpads -- normalised arithmetically from the daemon's [0,65535], no
+		// query), but RELATIVE movement deltas for a relative mouse (the daemon reports relative motion).
+		// Scripts that need cross-platform absolute coordinates for a relative mouse should track the
+		// running position themselves rather than assume x/y are absolute.
 		internal bool CollectMouseMove(ulong extraInfo, int x, int y, object eventInfo)
 		{
 			var allow = true;
@@ -1385,6 +1387,28 @@ namespace Keysharp.Internals.Input.Hooks
 			}
 
 			return allow;
+		}
+
+		// Cheap pre-check for the Linux inputd mouse-move hot path: true only when some
+		// in-progress InputHook actually cares about movement -- it suppresses moves
+		// (VisibleMouseMove:=false) or has an OnMouseMove callback. Lets the inputd mouse
+		// reader skip coordinate normalization and the CollectMouseMove call (which run
+		// inside the shared callback gate) when nothing is listening, so a high-frequency
+		// move stream doesn't needlessly hold the gate. The scan is over active InputHooks
+		// (usually none or one), far cheaper than the work it guards.
+		internal bool AnyInputWantsMouseMove()
+		{
+			for (var input = Script.TheScript.input; input != null; input = input.prev)
+			{
+				if (!input.InProgress())
+					continue;
+
+				if (!input.visibleMouseMove
+						|| input.scriptObject?.GetCallbackSlot(UserMessages.AHK_INPUT_MOUSEMOVE)?.Callback != null)
+					return true;
+			}
+
+			return false;
 		}
 
 		internal abstract bool EarlyCollectInput(ulong extraInfo, uint rawSC, uint vk, uint sc, bool keyUp, bool isIgnored
@@ -1601,7 +1625,7 @@ namespace Keysharp.Internals.Input.Hooks
 			cursorClipBounds = new CursorClipBounds(left, top, right, bottom);
 
 			// Clamp the current position immediately so the cursor jumps inside on the call itself.
-			if (TryGetClipCursorPos(out var p))
+			if (GetCursorPos(out var p))
 			{
 				int x = p.X, y = p.Y;
 
@@ -1644,12 +1668,6 @@ namespace Keysharp.Internals.Input.Hooks
 
 		/// <summary>Moves the cursor to the given absolute screen coordinates.</summary>
 		protected virtual void WarpCursor(int x, int y) { }
-
-		/// <summary>
-		/// Reads the current cursor position for clip enforcement. Platforms whose default
-		/// GetCursorPos has an unreliable fallback override this to fail instead of guessing.
-		/// </summary>
-		protected virtual bool TryGetClipCursorPos(out POINT p) => GetCursorPos(out p);
 
 		#endregion
 

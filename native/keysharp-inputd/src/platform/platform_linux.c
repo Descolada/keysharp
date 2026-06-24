@@ -68,13 +68,17 @@ static int linux_replay_hook_event(uint32_t hook_type, const ksi_hook_event_payl
 
 static int linux_set_grab_hook_mask(uint32_t hook_mask)
 {
-    int result = ksi_linux_devices_set_grab_hook_mask(hook_mask);
+    /* Releasing keys that were replayed "down" when the keyboard is ungrabbed is no
+     * longer done here: it now runs on the output sequencer thread via a
+     * KSI_OUTPUT_ACTION_RELEASE_ALL action enqueued by update_grab_state when the
+     * keyboard grab is dropped. That keeps release serialized with replay/synth (no
+     * race) and off this (daemon-main-thread) call path (no stall). */
+    return ksi_linux_devices_set_grab_hook_mask(hook_mask);
+}
 
-    if (result == 0 && hook_mask == 0) {
-        ksi_linux_synth_release_all();
-    }
-
-    return result;
+static void linux_release_synthetic_keys(void)
+{
+    ksi_linux_synth_release_all();
 }
 
 static int linux_set_block_input_mask(uint32_t block_mask)
@@ -99,6 +103,7 @@ static const ksi_platform_backend linux_backend = {
     .set_grab_hook_mask = linux_set_grab_hook_mask,
     .set_block_input_mask = linux_set_block_input_mask,
     .set_hook_event_callback = linux_set_hook_event_callback,
+    .release_synthetic_keys = linux_release_synthetic_keys,
 };
 
 const ksi_platform_backend *ksi_platform_backend_get(void)

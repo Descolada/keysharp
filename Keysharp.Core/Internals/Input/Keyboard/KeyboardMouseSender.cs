@@ -2102,7 +2102,7 @@ namespace Keysharp.Internals.Input.Keyboard
 						// some controls (such as Scintilla) but has no effect in other common applications.
 						// \t has more utility if translated to VK_TAB.  SendKeySpecial('\t') has no effect in many
 						// common cases, and seems to only work in cases where {tab} would work just as well.
-						if (sub[keyIndex] == '\r' && sub[keyIndex + 1] == '\n') // Translate \r but ignore any trailing \n, since \r\n -> {Enter 2} is counter-intuitive.
+						if (sub[keyIndex] == '\r' && keyIndex + 1 < sub.Length && sub[keyIndex + 1] == '\n') // Translate \r but ignore any trailing \n, since \r\n -> {Enter 2} is counter-intuitive.
 							keyIndex++;
 
 						vk = sub[keyIndex] switch

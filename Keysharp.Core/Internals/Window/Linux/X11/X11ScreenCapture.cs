@@ -22,7 +22,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 	/// capture a <em>minimized</em> window — the server has dropped its pixmap — in which case the
 	/// caller falls back to a screen-rectangle grab.</para>
 	/// </summary>
-	internal static class X11Capture
+	internal static class X11ScreenCapture
 	{
 		// XImage field byte offsets on a 64-bit (LP64) build. Only the leading scalar fields and the
 		// data pointer are read; the trailing function table is ignored.

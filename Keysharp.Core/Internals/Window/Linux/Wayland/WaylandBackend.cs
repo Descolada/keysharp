@@ -713,6 +713,24 @@ function findWindow(id) {
 					return idsByHandle.TryGetValue(handle, out id);
 			}
 
+			/// <summary>
+			/// The KWin internalId UUID for a window handle, in the canonical <c>{…}</c> form that
+			/// org.kde.KWin.ScreenShot2.CaptureWindow expects (matching QUuid::toString()). False for
+			/// fallback (non-UUID "windowId:") ids or unknown handles — those have no capturable internalId.
+			/// </summary>
+			internal bool TryGetWindowUuid(nint handle, out string uuid)
+			{
+				uuid = null;
+
+				if (TryGetCompositorId(handle, out var id) && Guid.TryParse(id, out var guid))
+				{
+					uuid = guid.ToString("B");
+					return true;
+				}
+
+				return false;
+			}
+
 			private static bool JsonBool(JsonElement element, string property)
 				=> element.TryGetProperty(property, out var value) && JsonBool(value);
 

@@ -587,6 +587,135 @@ cleanup:
     return success;
 }
 
+/* Captures a single window via KWin ScreenShot2.CaptureWindow(handle) and writes the framed KSSC1
+ * response (header + raw pixels) to out_fd. `handle` is the window's KWin internalId UUID string
+ * (e.g. "{xxxxxxxx-....}"). Occlusion-independent: KWin re-renders the window off-screen. Mirrors
+ * capture_area_to_fd, differing only in the D-Bus method and its arguments. */
+static bool capture_window_to_fd(int out_fd, const char *handle)
+{
+    GError *error = NULL;
+    GDBusConnection *connection = NULL;
+    GUnixFDList *fd_list = NULL;
+    GVariantBuilder options;
+    GVariant *reply = NULL;
+    GVariant *results = NULL;
+    gchar *type = NULL;
+    guint32 result_width = 0;
+    guint32 result_height = 0;
+    guint32 stride = 0;
+    guint32 format = 0;
+    int image_fd = -1;
+    int fd_handle;
+    bool success = false;
+
+    image_fd = create_capture_file();
+
+    if (image_fd < 0) {
+        fprintf(stderr, "keysharp-screencap: failed to create capture file: %s\n", strerror(errno));
+        return false;
+    }
+
+    connection = get_session_bus();
+
+    if (connection == NULL) {
+        goto cleanup;
+    }
+
+    fd_list = g_unix_fd_list_new();
+    fd_handle = g_unix_fd_list_append(fd_list, image_fd, &error);
+
+    if (fd_handle < 0) {
+        fprintf(stderr, "keysharp-screencap: failed to append fd: %s\n",
+            error != NULL ? error->message : "unknown error");
+        goto cleanup;
+    }
+
+    g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
+    g_variant_builder_add(&options, "{sv}", "include-cursor", g_variant_new_boolean(FALSE));
+    g_variant_builder_add(&options, "{sv}", "native-resolution", g_variant_new_boolean(FALSE));
+
+    reply = g_dbus_connection_call_with_unix_fd_list_sync(
+        connection,
+        KSS_DBUS_NAME,
+        KSS_DBUS_PATH,
+        KSS_DBUS_INTERFACE,
+        "CaptureWindow",
+        g_variant_new("(sa{sv}h)", handle, &options, fd_handle),
+        G_VARIANT_TYPE("(a{sv})"),
+        G_DBUS_CALL_FLAGS_NONE,
+        KSS_CAPTURE_TIMEOUT_MS,
+        fd_list,
+        NULL,
+        NULL,
+        &error);
+
+    if (reply == NULL) {
+        fprintf(stderr, "keysharp-screencap: KWin CaptureWindow failed: %s\n",
+            error != NULL ? error->message : "unknown error");
+        goto cleanup;
+    }
+
+    g_variant_get(reply, "(@a{sv})", &results);
+
+    if (!g_variant_lookup(results, "type", "s", &type)) {
+        gchar *printed = g_variant_print(results, TRUE);
+        fprintf(stderr, "keysharp-screencap: KWin capture result missing type: %s\n",
+            printed != NULL ? printed : "(unprintable)");
+        g_free(printed);
+        goto cleanup;
+    }
+
+    if (strcmp(type, "raw") != 0) {
+        fprintf(stderr, "keysharp-screencap: unsupported KWin capture type '%s'\n", type);
+        goto cleanup;
+    }
+
+    if (!g_variant_lookup(results, "width", "u", &result_width)
+        || !g_variant_lookup(results, "height", "u", &result_height)
+        || !g_variant_lookup(results, "stride", "u", &stride)
+        || !g_variant_lookup(results, "format", "u", &format)) {
+        gchar *printed = g_variant_print(results, TRUE);
+        fprintf(stderr, "keysharp-screencap: KWin raw capture metadata incomplete: %s\n",
+            printed != NULL ? printed : "(unprintable)");
+        g_free(printed);
+        goto cleanup;
+    }
+
+    success = write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
+
+    if (!success) {
+        fprintf(stderr, "keysharp-screencap: failed to stream window capture (%ux%u stride=%u format=%u)\n",
+            result_width, result_height, stride, format);
+    }
+
+cleanup:
+    if (type != NULL) {
+        g_free(type);
+    }
+
+    if (results != NULL) {
+        g_variant_unref(results);
+    }
+
+    if (reply != NULL) {
+        g_variant_unref(reply);
+    }
+
+    if (fd_list != NULL) {
+        g_object_unref(fd_list);
+    }
+
+    if (error != NULL) {
+        g_error_free(error);
+    }
+
+    if (image_fd >= 0) {
+        close(image_fd);
+    }
+
+    return success;
+}
+
 static bool gnome_capture_area_to_fd(int out_fd, int x, int y, int width, int height);
 
 static bool is_dbus_name_available(GDBusConnection *connection, const char *name)
@@ -1049,6 +1178,25 @@ static int serve_loop(void)
 
         if (strcmp(token, "ping") == 0) {
             (void)write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK);
+            continue;
+        }
+
+        if (strcmp(token, "window") == 0) {
+            char *handle = strtok_r(NULL, " \t", &save);
+
+            if (handle == NULL || handle[0] == '\0') {
+                (void)write_serve_error(STDOUT_FILENO, "bad window handle");
+                continue;
+            }
+
+            if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
+                return 1;
+            }
+
+            if (!capture_window_to_fd(STDOUT_FILENO, handle)) {
+                return 1;
+            }
+
             continue;
         }
 

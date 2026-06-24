@@ -11,14 +11,15 @@ using Eto.Drawing;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// Long-lived subprocess driver for <c>keysharp-screencap</c>, covering both KWin and GNOME
-	/// Wayland capture paths, plus the row-major SIMD converters for KWin's raw QImage formats.
+	/// Driver for the <c>keysharp-screencap</c> helper, covering both the KWin and GNOME Wayland capture
+	/// paths plus the row-major SIMD converters for KWin's raw QImage formats.
 	///
-	/// KWin path: <c>--serve kwin</c> mode, KSSC1-framed raw pixels (KWin ScreenShot2 D-Bus is
-	/// restricted to desktop-file-whitelisted binaries; the managed process cannot be listed).
-	/// GNOME path: <c>--serve gnome</c> mode, KSSG1-framed PNG bytes (extension's CaptureArea
-	/// D-Bus method, callable only from the trusted root-owned setuid screencap binary).
-	/// Both paths share per-capture trust prompting and a single long-lived helper process.
+	/// <para>The KWin and GNOME paths are the same long-lived stdin/stdout subprocess protocol and differ
+	/// only in two ways: the <c>--serve</c> mode argument, and the response frame format (KWin returns
+	/// KSSC1-framed raw pixels because its ScreenShot2 D-Bus is restricted to desktop-file-whitelisted
+	/// binaries; GNOME returns KSSG1-framed PNG from the Shell extension, callable only from the trusted
+	/// root-owned setuid helper). Both therefore share a single <see cref="HelperSession"/> driver and
+	/// differ only by the mode string and the frame reader passed to it.</para>
 	/// </summary>
 	internal static class ScreencapHelper
 	{
@@ -28,27 +29,74 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const int HelperStatusOk = 0;
 		private const int HelperStatusError = 1;
 
-			// Single-process serialization: KWin's screenshot API is request/response over one
-			// stdin+stdout pair, so concurrent Keysharp threads asking to capture must queue.
-			// A typical capture is ~10–50ms held; if multi-thread screen capture ever becomes a
-			// bottleneck the helper would need to support pipelined requests or multiple instances.
-			private static readonly object sync = new();
-			private static Process helper;
-			private static Stream stdin;
-			private static Stream stdout;
-			private static bool exitHookInstalled;
-			private static bool sessionDenied;
-			private static string sessionDeniedMessage = "Screen capture permission denied.";
+		// One driver per compositor backend; only the one matching the running compositor is ever started.
+		// They are identical except for the serve mode and the response frame format.
+		private static readonly HelperSession kwin = new("kwin", ReadKsscFrame);
+		private static readonly HelperSession gnome = new("gnome", ReadKssgFrame);
 
-			// GNOME serve-mode state — mirrors the KWin state above but uses --serve gnome.
-			private static readonly object gnomeSync = new();
-			private static Process gnomeHelper;
-			private static Stream gnomeStdin;
-			private static Stream gnomeStdout;
-			private static bool gnomeSessionDenied;
-			private static string gnomeSessionDeniedMessage = "Screen capture permission denied.";
+		internal static Bitmap Capture(int x, int y, int w, int h)
+			=> kwin.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
 
-			internal static Bitmap Capture(int x, int y, int w, int h)
+		internal static PermissionResult Authorize(string operation, bool forcePrompt = false)
+			=> kwin.Authorize(forcePrompt);
+
+		/// <summary>
+		/// Captures a single window's full contents via KWin's <c>org.kde.KWin.ScreenShot2.CaptureWindow</c>
+		/// — occlusion-independent, as KWin re-renders the window off-screen. <paramref name="uuid"/> is the
+		/// window's KWin internalId in canonical <c>{…}</c> form. Returns null when the window can't be
+		/// captured (unknown id, permission denied) so the caller can fall back to a rectangle grab.
+		/// </summary>
+		internal static Bitmap CaptureKWinWindow(string uuid)
+			=> kwin.Request($"window {uuid}");
+
+		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-screencap --serve gnome.</summary>
+		internal static Bitmap CaptureGnome(int x, int y, int w, int h)
+			=> gnome.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
+
+		/// <summary>
+		/// Captures a single window's full contents via the GNOME Shell extension's CaptureWindow
+		/// (meta_window_actor_get_image) — occlusion-independent, as it images the window actor's own
+		/// buffer rather than the composited screen. <paramref name="handle"/> is the window's compositor
+		/// stable-sequence. Returns null when the window can't be captured (unknown handle, minimized,
+		/// permission denied) so the caller can fall back to a rectangle grab.
+		/// </summary>
+		internal static Bitmap CaptureGnomeWindow(ulong handle)
+			=> gnome.Request($"window {handle.ToString(CultureInfo.InvariantCulture)}");
+
+		/// <summary>Authorizes screen capture on GNOME by starting keysharp-screencap --serve gnome.</summary>
+		internal static PermissionResult AuthorizeGnome(string operation, bool forcePrompt = false)
+			=> gnome.Authorize(forcePrompt);
+
+		private static string Coord(int v) => v.ToString(CultureInfo.InvariantCulture);
+
+		/// <summary>
+		/// One long-lived <c>keysharp-screencap --serve &lt;mode&gt;</c> subprocess. KWin's screenshot API
+		/// is request/response over a single stdin+stdout pair, so concurrent Keysharp threads queue on
+		/// <see cref="sync"/>; a typical capture holds it ~10–50ms. If multi-thread capture ever becomes a
+		/// bottleneck the helper would need pipelined requests or multiple instances.
+		/// </summary>
+		private sealed class HelperSession
+		{
+			private readonly string mode;                     // "kwin" | "gnome"
+			private readonly Func<Stream, Bitmap> readFrame;  // KSSC1 raw (KWin) | KSSG1 PNG (GNOME)
+			private readonly object sync = new();
+			private Process helper;
+			private Stream stdin;
+			private Stream stdout;
+			private bool exitHookInstalled;
+			private bool sessionDenied;
+			private string sessionDeniedMessage = "Screen capture permission denied.";
+
+			internal HelperSession(string mode, Func<Stream, Bitmap> readFrame)
+			{
+				this.mode = mode;
+				this.readFrame = readFrame;
+			}
+
+			// Sends one request line ("area X Y W H" or "window H") and returns the captured frame,
+			// (re)starting the helper as needed. Returns null when capture is impossible (denied, helper
+			// unavailable, or a per-request error such as an unknown window) so callers fall back.
+			internal Bitmap Request(string command)
 			{
 				lock (sync)
 				{
@@ -68,7 +116,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 							if (!StartLocked(out var startError, out _))
 							{
-								DebugLine($"keysharp-screencap launch failed: {startError}");
+								DebugLine($"keysharp-screencap --serve {mode} launch failed: {startError}");
 								return null;
 							}
 
@@ -77,16 +125,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 						try
 						{
-							SendRequestLocked($"area {x.ToString(CultureInfo.InvariantCulture)} {y.ToString(CultureInfo.InvariantCulture)} {w.ToString(CultureInfo.InvariantCulture)} {h.ToString(CultureInfo.InvariantCulture)}\n");
+							var bytes = Encoding.ASCII.GetBytes(command + "\n");
+							stdin.Write(bytes, 0, bytes.Length);
+							stdin.Flush();
 							return ReadResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
 						}
 						catch (Exception ex)
 						{
-							DebugLine($"keysharp-screencap request failed: {ex.Message}");
+							DebugLine($"keysharp-screencap --serve {mode} request failed: {ex.Message}");
 							CacheDeniedIfHelperExitedLocked();
-							ResetLocked();
-							// Retry once on protocol/IO failure — covers the case where the helper
-							// died between captures (e.g. session bus went away).
+
+							// A per-request error (e.g. window not found) leaves the helper alive and ready;
+							// only tear it down if the process itself died, then retry once.
+							if (helper == null || helper.HasExited)
+								ResetLocked();
 						}
 					}
 
@@ -94,7 +146,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 			}
 
-			internal static PermissionResult Authorize(string operation, bool forcePrompt = false)
+			internal PermissionResult Authorize(bool forcePrompt)
 			{
 				lock (sync)
 				{
@@ -117,102 +169,100 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 			}
 
-		private static bool StartLocked(out string error, out PermissionStatus status, bool forcePrompt = false)
-		{
-			error = null;
-			status = PermissionStatus.Unsupported;
-			var path = ResolveHelper();
-
-			if (path == null)
+			private bool StartLocked(out string error, out PermissionStatus status, bool forcePrompt = false)
 			{
-				error = "no keysharp-screencap binary found";
-				return false;
-			}
+				error = null;
+				status = PermissionStatus.Unsupported;
+				var path = ResolveHelper();
 
-			try
-			{
-				var p = new Process
+				if (path == null)
 				{
-					StartInfo = new ProcessStartInfo
-					{
-						FileName = path,
-						UseShellExecute = false,
-						RedirectStandardInput = true,
-						RedirectStandardOutput = true,
-						RedirectStandardError = true,
-					}
-				};
-				p.StartInfo.ArgumentList.Add("--serve");
-				p.StartInfo.ArgumentList.Add("kwin");
-
-				if (forcePrompt)
-					p.StartInfo.ArgumentList.Add("--force-prompt");
-
-				// Drain stderr asynchronously so the helper never blocks on a full stderr pipe.
-				p.ErrorDataReceived += (_, e) =>
-				{
-					if (!string.IsNullOrEmpty(e.Data))
-						DebugLine($"keysharp-screencap: {e.Data}");
-				};
-
-				if (!p.Start())
-				{
-					error = "Process.Start returned false";
+					error = "no keysharp-screencap binary found";
 					return false;
 				}
 
-				p.BeginErrorReadLine();
-				var nextStdin = p.StandardInput.BaseStream;
-				var nextStdout = p.StandardOutput.BaseStream;
-				helper = p;
-				stdin = nextStdin;
-				stdout = nextStdout;
-				ReadStartupStatus(nextStdout, AuthorizationTimeoutMs);
-				InstallExitHook();
-				return true;
-			}
-			catch (HelperStartException ex)
-			{
-				error = ex.Message;
-				status = ex.Status;
-
-				if (status == PermissionStatus.Denied)
+				try
 				{
-					sessionDenied = true;
-					sessionDeniedMessage = error;
+					var p = new Process
+					{
+						StartInfo = new ProcessStartInfo
+						{
+							FileName = path,
+							UseShellExecute = false,
+							RedirectStandardInput = true,
+							RedirectStandardOutput = true,
+							RedirectStandardError = true,
+						}
+					};
+					p.StartInfo.ArgumentList.Add("--serve");
+					p.StartInfo.ArgumentList.Add(mode);
+
+					if (forcePrompt)
+						p.StartInfo.ArgumentList.Add("--force-prompt");
+
+					// Drain stderr asynchronously so the helper never blocks on a full stderr pipe.
+					p.ErrorDataReceived += (_, e) =>
+					{
+						if (!string.IsNullOrEmpty(e.Data))
+							DebugLine($"keysharp-screencap: {e.Data}");
+					};
+
+					if (!p.Start())
+					{
+						error = "Process.Start returned false";
+						return false;
+					}
+
+					p.BeginErrorReadLine();
+					helper = p;
+					stdin = p.StandardInput.BaseStream;
+					stdout = p.StandardOutput.BaseStream;
+					ReadStartupStatus(stdout, AuthorizationTimeoutMs);
+					InstallExitHook();
+					return true;
 				}
+				catch (HelperStartException ex)
+				{
+					error = ex.Message;
+					status = ex.Status;
 
-				ResetLocked();
-				return false;
-			}
-			catch (Exception ex)
-			{
-				error = ex.Message;
-				status = PermissionStatus.Unsupported;
-				ResetLocked();
-				return false;
-			}
-		}
+					if (status == PermissionStatus.Denied)
+					{
+						sessionDenied = true;
+						sessionDeniedMessage = error;
+					}
 
-		private static void InstallExitHook()
-		{
-			if (exitHookInstalled)
-				return;
-
-			exitHookInstalled = true;
-			// Best-effort cleanup on managed-process exit: if the runtime triggers ProcessExit
-			// mid-capture, the handler will block briefly on `sync` (the CLR allows ~2s for these
-			// before aborting), then Kill is best-effort anyway. If the managed process is
-			// SIGKILL'd, this handler never runs — instead the helper's read() returns EOF when
-			// the kernel closes our stdin pipe, and the helper exits via serve_loop.
-			AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-			{
-				lock (sync)
 					ResetLocked();
-			};
-		}
+					return false;
+				}
+				catch (Exception ex)
+				{
+					error = ex.Message;
+					status = PermissionStatus.Unsupported;
+					ResetLocked();
+					return false;
+				}
+			}
 
-			private static void ResetLocked()
+			private void InstallExitHook()
+			{
+				if (exitHookInstalled)
+					return;
+
+				exitHookInstalled = true;
+				// Best-effort cleanup on managed-process exit: if the runtime triggers ProcessExit
+				// mid-capture, the handler will block briefly on `sync` (the CLR allows ~2s for these
+				// before aborting), then Kill is best-effort anyway. If the managed process is
+				// SIGKILL'd, this handler never runs — instead the helper's read() returns EOF when
+				// the kernel closes our stdin pipe, and the helper exits via its serve loop.
+				AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+				{
+					lock (sync)
+						ResetLocked();
+				};
+			}
+
+			private void ResetLocked()
 			{
 				try { stdin?.Dispose(); } catch { }
 				try { stdout?.Dispose(); } catch { }
@@ -228,7 +278,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				stdout = null;
 			}
 
-			private static void CacheDeniedIfHelperExitedLocked()
+			private void CacheDeniedIfHelperExitedLocked()
 			{
 				try
 				{
@@ -243,11 +293,31 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 			}
 
-		private static void SendRequestLocked(string request)
-		{
-			var bytes = Encoding.ASCII.GetBytes(request);
-			stdin.Write(bytes, 0, bytes.Length);
-			stdin.Flush();
+			private Bitmap ReadResponseLocked(int timeoutMs)
+			{
+				// All reads happen on a worker because Stream.Read on a redirected pipe doesn't
+				// honour cancellation; we time out by waiting on the task.
+				var task = Task.Run(() =>
+				{
+					var statusByte = stdout.ReadByte();
+
+					if (statusByte < 0)
+						throw new IOException("helper closed stdout before responding");
+
+					if (statusByte != 0)
+						throw new IOException("helper error: " + ReadErrorMessage(stdout));
+
+					return readFrame(stdout);
+				});
+
+				if (!task.Wait(timeoutMs))
+				{
+					ResetLocked();
+					throw new TimeoutException($"keysharp-screencap --serve {mode} response timed out after {timeoutMs}ms");
+				}
+
+				return task.GetAwaiter().GetResult();
+			}
 		}
 
 		private static void ReadStartupStatus(Stream s, int timeoutMs)
@@ -278,34 +348,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			task.GetAwaiter().GetResult();
 		}
 
-		private static Bitmap ReadResponseLocked(int timeoutMs)
-		{
-			// All reads happen on a worker because Stream.Read on a redirected pipe doesn't
-			// honour cancellation; we time out by waiting on the task.
-			var task = Task.Run(() =>
-			{
-				var status = stdout.ReadByte();
-
-				if (status < 0)
-					throw new IOException("helper closed stdout before responding");
-
-				if (status != 0)
-				{
-					throw new IOException("helper error: " + ReadErrorMessage(stdout));
-				}
-
-				return ReadKsscFrame(stdout);
-			});
-
-			if (!task.Wait(timeoutMs))
-			{
-				ResetLocked();
-				throw new TimeoutException($"keysharp-screencap response timed out after {timeoutMs}ms");
-			}
-
-			return task.GetAwaiter().GetResult();
-		}
-
 		private static string ReadErrorMessage(Stream s)
 		{
 			var lenBuf = new byte[4];
@@ -333,6 +375,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		// KWin frame: KSSC1 magic + width + height + stride + format + uint64 byteCount + raw pixels.
 		private static Bitmap ReadKsscFrame(Stream s)
 		{
 			var header = new byte[8 + 4 + 4 + 4 + 4 + 8];  // magic + w + h + stride + format + byteCount
@@ -368,274 +411,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-screencap --serve gnome.</summary>
-		internal static Bitmap CaptureGnome(int x, int y, int w, int h)
-		{
-			lock (gnomeSync)
-			{
-				if (gnomeSessionDenied)
-					return null;
-
-				var attempt = 0;
-
-				while (attempt < 2)
-				{
-					attempt++;
-					var firstStart = false;
-
-					if (gnomeHelper == null || gnomeHelper.HasExited)
-					{
-						ResetGnomeLocked();
-
-						if (!StartGnomeLocked(out var startError, out _))
-						{
-							DebugLine($"keysharp-screencap --serve gnome launch failed: {startError}");
-							return null;
-						}
-
-						firstStart = true;
-					}
-
-					try
-					{
-						var request = $"area {x.ToString(System.Globalization.CultureInfo.InvariantCulture)} {y.ToString(System.Globalization.CultureInfo.InvariantCulture)} {w.ToString(System.Globalization.CultureInfo.InvariantCulture)} {h.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n";
-						var bytes = System.Text.Encoding.ASCII.GetBytes(request);
-						gnomeStdin.Write(bytes, 0, bytes.Length);
-						gnomeStdin.Flush();
-						return ReadGnomeResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
-					}
-					catch (Exception ex)
-					{
-						DebugLine($"keysharp-screencap --serve gnome request failed: {ex.Message}");
-						CacheGnomeDeniedIfHelperExitedLocked();
-
-						// Only tear down the helper if the process itself died. A transient D-Bus
-						// error inside gnome_serve_one leaves the helper alive and ready — killing
-						// it here would force a restart (and a new trust prompt) unnecessarily.
-						if (gnomeHelper == null || gnomeHelper.HasExited)
-							ResetGnomeLocked();
-					}
-				}
-
-				return null;
-			}
-		}
-
-		/// <summary>
-		/// Captures a single window's full contents via the GNOME Shell extension's CaptureWindow
-		/// (meta_window_actor_get_image) through keysharp-screencap --serve gnome. <paramref name="handle"/>
-		/// is the window's compositor stable-sequence. Returns null when the window can't be captured
-		/// (unknown handle, minimized, permission denied) so the caller falls back to a rectangle grab.
-		/// Occlusion-independent: the actor's own buffer is imaged, not the composited screen.
-		/// </summary>
-		internal static Bitmap CaptureGnomeWindow(ulong handle)
-		{
-			lock (gnomeSync)
-			{
-				if (gnomeSessionDenied)
-					return null;
-
-				var attempt = 0;
-
-				while (attempt < 2)
-				{
-					attempt++;
-					var firstStart = false;
-
-					if (gnomeHelper == null || gnomeHelper.HasExited)
-					{
-						ResetGnomeLocked();
-
-						if (!StartGnomeLocked(out var startError, out _))
-						{
-							DebugLine($"keysharp-screencap --serve gnome launch failed: {startError}");
-							return null;
-						}
-
-						firstStart = true;
-					}
-
-					try
-					{
-						var request = $"window {handle.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n";
-						var bytes = System.Text.Encoding.ASCII.GetBytes(request);
-						gnomeStdin.Write(bytes, 0, bytes.Length);
-						gnomeStdin.Flush();
-						return ReadGnomeResponseLocked(firstStart ? FirstRequestTimeoutMs : RequestTimeoutMs);
-					}
-					catch (Exception ex)
-					{
-						DebugLine($"keysharp-screencap --serve gnome window request failed: {ex.Message}");
-						CacheGnomeDeniedIfHelperExitedLocked();
-
-						// A per-request error (e.g. window not found) leaves the helper alive and ready;
-						// only tear it down if the process itself died, mirroring CaptureGnome.
-						if (gnomeHelper == null || gnomeHelper.HasExited)
-							ResetGnomeLocked();
-					}
-				}
-
-				return null;
-			}
-		}
-
-		/// <summary>Authorizes screen capture on GNOME by starting keysharp-screencap --serve gnome.</summary>
-		internal static PermissionResult AuthorizeGnome(string operation, bool forcePrompt = false)
-		{
-			lock (gnomeSync)
-			{
-				if (forcePrompt)
-				{
-					gnomeSessionDenied = false;
-					gnomeSessionDeniedMessage = string.Empty;
-					ResetGnomeLocked();
-				}
-				else if (gnomeSessionDenied)
-					return new PermissionResult(PermissionStatus.Denied, gnomeSessionDeniedMessage);
-
-				if (gnomeHelper != null && !gnomeHelper.HasExited)
-					return new PermissionResult(PermissionStatus.Granted);
-
-				if (StartGnomeLocked(out var error, out var status, forcePrompt))
-					return new PermissionResult(PermissionStatus.Granted);
-
-				return new PermissionResult(status, error);
-			}
-		}
-
-		private static bool StartGnomeLocked(out string error, out PermissionStatus status, bool forcePrompt = false)
-		{
-			error = null;
-			status = PermissionStatus.Unsupported;
-			var path = ResolveHelper();
-
-			if (path == null)
-			{
-				error = "no keysharp-screencap binary found";
-				return false;
-			}
-
-			try
-			{
-				var p = new Process
-				{
-					StartInfo = new ProcessStartInfo
-					{
-						FileName = path,
-						UseShellExecute = false,
-						RedirectStandardInput = true,
-						RedirectStandardOutput = true,
-						RedirectStandardError = true,
-					}
-				};
-				p.StartInfo.ArgumentList.Add("--serve");
-				p.StartInfo.ArgumentList.Add("gnome");
-
-				if (forcePrompt)
-					p.StartInfo.ArgumentList.Add("--force-prompt");
-
-				p.ErrorDataReceived += (_, e) =>
-				{
-					if (!string.IsNullOrEmpty(e.Data))
-						DebugLine($"keysharp-screencap: {e.Data}");
-				};
-
-				if (!p.Start())
-				{
-					error = "Process.Start returned false";
-					return false;
-				}
-
-				p.BeginErrorReadLine();
-				gnomeHelper = p;
-				gnomeStdin = p.StandardInput.BaseStream;
-				gnomeStdout = p.StandardOutput.BaseStream;
-				ReadStartupStatus(gnomeStdout, AuthorizationTimeoutMs);
-
-				AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-				{
-					lock (gnomeSync)
-						ResetGnomeLocked();
-				};
-
-				return true;
-			}
-			catch (HelperStartException ex)
-			{
-				error = ex.Message;
-				status = ex.Status;
-
-				if (status == PermissionStatus.Denied)
-				{
-					gnomeSessionDenied = true;
-					gnomeSessionDeniedMessage = error;
-				}
-
-				ResetGnomeLocked();
-				return false;
-			}
-			catch (Exception ex)
-			{
-				error = ex.Message;
-				status = PermissionStatus.Unsupported;
-				ResetGnomeLocked();
-				return false;
-			}
-		}
-
-		private static void ResetGnomeLocked()
-		{
-			try { gnomeStdin?.Dispose(); } catch { }
-			try { gnomeStdout?.Dispose(); } catch { }
-
-			if (gnomeHelper != null && !gnomeHelper.HasExited)
-			{
-				try { gnomeHelper.Kill(entireProcessTree: true); } catch { }
-			}
-
-			try { gnomeHelper?.Dispose(); } catch { }
-			gnomeHelper = null;
-			gnomeStdin = null;
-			gnomeStdout = null;
-		}
-
-		private static void CacheGnomeDeniedIfHelperExitedLocked()
-		{
-			try
-			{
-				if (gnomeHelper is { HasExited: true, ExitCode: 3 })
-				{
-					gnomeSessionDenied = true;
-					gnomeSessionDeniedMessage = "Screen capture permission denied.";
-				}
-			}
-			catch { }
-		}
-
-		private static Bitmap ReadGnomeResponseLocked(int timeoutMs)
-		{
-			var task = Task.Run(() =>
-			{
-				var status = gnomeStdout.ReadByte();
-
-				if (status < 0)
-					throw new IOException("helper closed stdout before responding");
-
-				if (status != 0)
-					throw new IOException("helper error: " + ReadErrorMessage(gnomeStdout));
-
-				return ReadKssgFrame(gnomeStdout);
-			});
-
-			if (!task.Wait(timeoutMs))
-			{
-				ResetGnomeLocked();
-				throw new TimeoutException($"keysharp-screencap --serve gnome response timed out after {timeoutMs}ms");
-			}
-
-			return task.GetAwaiter().GetResult();
-		}
-
+		// GNOME frame: KSSG1 magic + uint64 PNG byte count + PNG data.
 		private static Bitmap ReadKssgFrame(Stream s)
 		{
 			var header = new byte[8 + 8];  // magic (8) + uint64 byteCount (8)

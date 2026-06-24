@@ -91,6 +91,17 @@ namespace Keysharp.Internals.Platform
 #if WINDOWS
 			return new Keysharp.Internals.Window.Windows.WindowEventBackend();
 #elif LINUX
+			// On a Wayland session, prefer the compositor-native backend (it sees both native Wayland and XWayland
+			// windows). It is used only when the active compositor can actually push window events; otherwise fall
+			// through to the X11 backend, which still works for XWayland windows under the forced GDK_BACKEND=x11.
+			if (Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession)
+			{
+				var wayland = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
+
+				if (wayland != null && wayland.SupportsWindowEvents)
+					return new Keysharp.Internals.Window.Linux.Wayland.WaylandWindowEventBackend(wayland);
+			}
+
 			return new Keysharp.Internals.Window.Linux.WindowEventBackend();
 #elif OSX
 			return new Keysharp.Internals.Window.MacOS.WindowEventBackend();

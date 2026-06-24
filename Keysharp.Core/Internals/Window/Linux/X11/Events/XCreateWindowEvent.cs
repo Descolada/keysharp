@@ -10,8 +10,8 @@ namespace Keysharp.Internals.Window.Linux.X11
 		internal bool send_event;
 		internal nint display;
 		internal nint parent;
-		internal uint window;
-		internal int x;
+		internal nint window;   // Window/XID is 8 bytes on 64-bit; a 4-byte uint here shifts every following
+		internal int x;         // field (notably override_redirect) by 4 bytes, making them unreadable.
 		internal int y;
 		internal int width;
 		internal int height;

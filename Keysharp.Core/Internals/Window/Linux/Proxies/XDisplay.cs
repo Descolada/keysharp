@@ -20,7 +20,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 		internal nint WM_DELETE_WINDOW;
 		internal nint WM_TAKE_FOCUS;
 		//internal nint _NET_SUPPORTED;
-		//internal nint _NET_CLIENT_LIST;
+		internal nint _NET_CLIENT_LIST;
 		//internal nint _NET_NUMBER_OF_DESKTOPS;
 		internal nint _NET_DESKTOP_GEOMETRY;
 		//internal nint _NET_DESKTOP_VIEWPORT;
@@ -313,7 +313,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 				"WM_DELETE_WINDOW",
 				"WM_TAKE_FOCUS",
 				//"_NET_SUPPORTED",
-				//"_NET_CLIENT_LIST",
+				"_NET_CLIENT_LIST",
 				//"_NET_NUMBER_OF_DESKTOPS",
 				"_NET_DESKTOP_GEOMETRY",
 				//"_NET_DESKTOP_VIEWPORT",
@@ -387,7 +387,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 			WM_DELETE_WINDOW = atoms[off++];
 			WM_TAKE_FOCUS = atoms[off++];
 			//_NET_SUPPORTED = atoms [off++];
-			//_NET_CLIENT_LIST = atoms [off++];
+			_NET_CLIENT_LIST = atoms[off++];
 			//_NET_NUMBER_OF_DESKTOPS = atoms [off++];
 			_NET_DESKTOP_GEOMETRY = atoms[off++];
 			//_NET_DESKTOP_VIEWPORT = atoms [off++];

@@ -8,7 +8,10 @@ namespace Keysharp.Builtins
 		/// Cross-platform window-event subscriptions, modeled on Descolada's AHK <c>WinEvent</c> library.
 		/// Each factory (<see cref="staticActive"/>, <see cref="staticCreate"/>, <see cref="staticMove"/>, …)
 		/// registers a callback that fires when a matching window event occurs and returns a subscription object
-		/// whose <see cref="Stop"/> method cancels it. The callback receives <c>(hook, hwnd, dwmsEventTime)</c>.
+		/// whose <see cref="Stop"/> method cancels it. Every callback has the same shape:
+		/// <c>(hook, hwnd, dwmsEventTime)</c>. Event-specific extras are exposed via <c>A_EventInfo</c> — for
+		/// <c>Move</c> that's an object with <c>{ x, y, w, h }</c> (the window's position and size, matching
+		/// <c>WinGetPos</c>), resolved lazily on first read.
 		/// <para>
 		/// Use as: <c>#import "Ks" { WinEvent }</c> then <c>hook := WinEvent.Active(MyCallback, "ahk_exe notepad.exe")</c>.
 		/// The argument order mirrors the reference library: <c>(Callback, WinTitle, Count, WinText, ExcludeTitle,
@@ -37,7 +40,9 @@ namespace Keysharp.Builtins
 			public static object staticClose(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Close, callback, winTitle, winText, excludeTitle, excludeText, count);
 
-			/// <summary>Fires when a window moves or resizes. Every move event is delivered as-is (not coalesced).</summary>
+			/// <summary>Fires when a window moves or resizes. Every move event is delivered as-is (not coalesced).
+			/// <c>A_EventInfo</c> holds the window's new position and size as an object <c>{ x, y, w, h }</c> (matching
+			/// <c>WinGetPos</c>), built on first access.</summary>
 			public static object staticMove(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Move, callback, winTitle, winText, excludeTitle, excludeText, count);
 

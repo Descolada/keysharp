@@ -245,6 +245,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			   || EnvContains("DESKTOP_SESSION", "cinnamon")
 			   || EnvContains("XDG_SESSION_DESKTOP", "cinnamon");
 
+		// Cinnamon's bridge has no push channel, so window events come from the generic polling source
+		// (diffs successive TryListWindows/TryGetActiveWindow snapshots).
+		public bool SupportsWindowEvents => true;
+
+		public IDisposable SubscribeWindowEvents(Action<WaylandWindowEvent> sink)
+			=> sink == null ? null : new WaylandPollingEventSource(this, sink);
+
 		public bool TryGetCursorPos(out int x, out int y)
 			=> CinnamonShellBridge.QueryCursorPosition(out x, out y);
 

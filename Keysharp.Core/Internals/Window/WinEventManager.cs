@@ -19,6 +19,8 @@ namespace Keysharp.Internals.Window
 		internal readonly CallbackRegistration registration;
 		internal object scriptObject;                         // the Ks.WinEvent wrapper (callback arg 1)
 		internal volatile bool paused;                        // a paused hook stays registered but doesn't fire
+		internal nint activeReported;                         // Active subs: hwnd last reported active, so a
+		                                                      // title-change re-fire of the same window doesn't duplicate
 
 		// A Close event arrives after the window is gone, so it can't be matched (or even confirmed top-level)
 		// at that point. Mirroring Descolada's WinEvent.MatchingWinList, we track the set of top-level windows
@@ -309,10 +311,37 @@ namespace Keysharp.Internals.Window
 				return;
 			}
 
+			if (raw.Type == WindowEventType.Active)
+			{
+				// Record which window each Active subscription reported, and reset it on every activation so
+				// re-activating the same window still fires while a mere title-change of the already-reported
+				// active window (handled in DispatchActiveOnTitleChange) does not duplicate.
+				foreach (var reg in snapshot)
+				{
+					if (!reg.active)
+						continue;
+
+					var matched = Matches(reg, raw.Hwnd);
+					reg.activeReported = matched ? raw.Hwnd : 0;
+
+					if (matched)
+						FireOnce(reg, raw.Hwnd, raw.TimeMs);
+				}
+
+				return;
+			}
+
+			// Resolve Move geometry eagerly, once per event, so A_EventInfo reflects the window's position at event
+			// time — not wherever it has drifted to by the time the callback happens to read A_EventInfo (events are
+			// queued, so a deferred query would be stale during drags/backlogs). The Wayland backends carry the
+			// bounds on the event; X11/Windows do a cheap local query here. Only the script-object construction is
+			// deferred (BuildMoveEventInfo via SetEventInfo).
+			Rectangle? moveBounds = raw.Type == WindowEventType.Move ? raw.Bounds ?? QueryBounds(raw.Hwnd) : null;
+
 			foreach (var reg in snapshot)
 			{
 				if (reg.active && Matches(reg, raw.Hwnd))
-					FireOnce(reg, raw.Hwnd, raw.TimeMs);
+					FireOnce(reg, raw.Hwnd, raw.TimeMs, moveBounds);
 			}
 		}
 
@@ -369,8 +398,17 @@ namespace Keysharp.Internals.Window
 			}
 
 			foreach (var reg in activeSubs)
-				if (reg.active && Matches(reg, hwnd))
+			{
+				// Only criteria subscriptions need the title-change re-fire — it exists to catch a window that
+				// became active before its title (hence its match) was set. A match-any Active subscription
+				// already fired on the activation itself, so re-firing on its title changes is pure duplication.
+				// activeReported then dedupes the case where the activation already matched and fired.
+				if (reg.active && reg.criteria != null && reg.activeReported != hwnd && Matches(reg, hwnd))
+				{
+					reg.activeReported = hwnd;
 					FireOnce(reg, hwnd, timeMs);
+				}
+			}
 		}
 
 		private static bool Matches(WinEventRegistration reg, nint hwnd)
@@ -461,7 +499,7 @@ namespace Keysharp.Internals.Window
 
 		// ---- dispatch -----------------------------------------------------------------------
 
-		private void FireOnce(WinEventRegistration reg, nint hwnd, long timeMs)
+		private void FireOnce(WinEventRegistration reg, nint hwnd, long timeMs, Rectangle? moveBounds = null)
 		{
 			// A paused hook (or globally paused manager) stays registered and keeps its matching-window set
 			// current, but doesn't fire or consume its remaining-count budget.
@@ -476,14 +514,49 @@ namespace Keysharp.Internals.Window
 			if (scheduler == null || scheduler.IsDisposed)
 				return;
 
+			// Every event uses the same callback shape: (hook, hwnd, dwmsEventTime). Event-specific extras live in
+			// A_EventInfo instead — for Move, an object with { x, y, w, h } (the window's position/size, matching
+			// WinGetPos). The geometry was captured eagerly by the caller (moveBounds); only building the
+			// script object is deferred (see RunOnSchedulerThread), so no allocation happens unless A_EventInfo is read.
 			object[] args = [reg.scriptObject, hwnd.ToInt64(), timeMs];
-			_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunOnSchedulerThread(scheduler, reg, hwnd, timeMs, args));
+			_ = scheduler.Enqueue(ScriptEventQueue.Normal, 0, () => RunOnSchedulerThread(scheduler, reg, hwnd, timeMs, args, moveBounds));
 
 			if (reg.IsExhausted)
 				Unregister(reg);
 		}
 
-		private ScriptEventExecutionResult RunOnSchedulerThread(ScriptEventScheduler scheduler, WinEventRegistration reg, nint hwnd, long timeMs, object[] args)
+		/// <summary>The window's screen bounds (matching WinGetPos), or empty if it can't be resolved.</summary>
+		private static Rectangle QueryBounds(nint hwnd)
+		{
+			try
+			{
+				var win = WindowManager.CreateWindow(hwnd);
+
+				if (win != null && win.IsSpecified)
+					return win.Bounds;
+			}
+			catch
+			{
+			}
+
+			return Rectangle.Empty;
+		}
+
+		/// <summary>Builds the A_EventInfo object for a Move event — <c>{ x, y, w, h }</c> in WinGetPos coordinates —
+		/// from the already-captured event-time bounds. Invoked lazily (only if the callback reads A_EventInfo); the
+		/// query that produced <paramref name="moveBounds"/> happened eagerly at event time, so this just allocates.</summary>
+		private static object BuildMoveEventInfo(Rectangle? moveBounds)
+		{
+			var r = moveBounds ?? Rectangle.Empty;
+			var info = new KeysharpObject();
+			info.DefinePropInternal("x", new OwnPropsDesc(info, (long)r.X));
+			info.DefinePropInternal("y", new OwnPropsDesc(info, (long)r.Y));
+			info.DefinePropInternal("w", new OwnPropsDesc(info, (long)r.Width));
+			info.DefinePropInternal("h", new OwnPropsDesc(info, (long)r.Height));
+			return info;
+		}
+
+		private ScriptEventExecutionResult RunOnSchedulerThread(ScriptEventScheduler scheduler, WinEventRegistration reg, nint hwnd, long timeMs, object[] args, Rectangle? moveBounds)
 		{
 			// No reg.active re-check here: TryConsumeFire (at enqueue time) is the authoritative gate. Re-checking
 			// would drop callbacks that were already consumed/queued when the subscription auto-stops on its last
@@ -496,7 +569,14 @@ namespace Keysharp.Internals.Window
 			try
 			{
 				var tv = thread.ThreadVariables;
-				tv.eventInfo = timeMs;
+
+				// Move exposes the window geometry via A_EventInfo (lazily); all other events keep the event time
+				// there, as before.
+				if (reg.type == WindowEventType.Move)
+					tv.SetEventInfo(() => BuildMoveEventInfo(moveBounds));
+				else
+					tv.eventInfo = timeMs;
+
 				tv.hwndLastUsed = hwnd.ToInt64();
 				_ = reg.callback.Call(args);
 			}

@@ -24,6 +24,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	public interface IKWinBridge : IDBusObject
 	{
 		Task ReportJsonAsync(string requestId, string json);
+
+		/// <summary>Called repeatedly by a persistent event script: <paramref name="token"/> identifies the
+		/// subscription, <paramref name="eventType"/> is "create"/"close"/"active"/"title"/"minimize"/"restore"/
+		/// "move", and <paramref name="json"/> is the affected window's info (at least an "id").</summary>
+		Task ReportEventAsync(string token, string eventType, string json);
 	}
 
 	/// <summary>
@@ -146,6 +151,97 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					try { File.Delete(scriptPath); }
 					catch { }
 				}
+			}
+		}
+
+		/// <summary>
+		/// Loads a <em>persistent</em> KWin script that connects to compositor signals and pushes events back via
+		/// <c>ReportEvent</c>. Unlike <see cref="RunJsonQueryAsync"/> the script is left loaded; the returned
+		/// <see cref="IDisposable"/> unloads it and unregisters the handler. <paramref name="onEvent"/> is invoked
+		/// (on a D-Bus thread) as <c>(eventType, json)</c> for each event. Returns null if KWin is unreachable.
+		/// </summary>
+		internal static async Task<IDisposable> StartEventScriptAsync(string token, string scriptBody, Action<string, string> onEvent)
+		{
+			if (!await EnsureConnectedAsync().ConfigureAwait(false))
+				return null;
+
+			var pluginName = $"keysharp_events_{token}";
+			string scriptPath = null;
+
+			bridgeService.RegisterEventHandler(token, onEvent);
+
+			try
+			{
+				scriptPath = WriteEventScript(token, pluginName, scriptBody);
+				int scriptId;
+
+				try
+				{
+					scriptId = await scriptingProxy.loadScriptAsync(scriptPath, pluginName).ConfigureAwait(false);
+				}
+				catch
+				{
+					bridgeService.UnregisterEventHandler(token);
+					SafeDelete(scriptPath);
+					return null;
+				}
+
+				if (!await TryRunScriptAsync(scriptId).ConfigureAwait(false))
+				{
+					await TryUnloadScript(pluginName).ConfigureAwait(false);
+					bridgeService.UnregisterEventHandler(token);
+					SafeDelete(scriptPath);
+					return null;
+				}
+
+				return new EventSubscription(token, pluginName, scriptPath);
+			}
+			catch
+			{
+				bridgeService.UnregisterEventHandler(token);
+				SafeDelete(scriptPath);
+				return null;
+			}
+		}
+
+		private static void SafeDelete(string path)
+		{
+			if (path == null)
+				return;
+
+			try { File.Delete(path); }
+			catch { }
+		}
+
+		/// <summary>Handle returned by <see cref="StartEventScriptAsync"/>; unloads the persistent script and
+		/// unregisters its handler on dispose (idempotent, best-effort).</summary>
+		private sealed class EventSubscription : IDisposable
+		{
+			private readonly string token;
+			private readonly string pluginName;
+			private readonly string scriptPath;
+			private int disposed;
+
+			internal EventSubscription(string token, string pluginName, string scriptPath)
+			{
+				this.token = token;
+				this.pluginName = pluginName;
+				this.scriptPath = scriptPath;
+			}
+
+			public void Dispose()
+			{
+				if (Interlocked.Exchange(ref disposed, 1) != 0)
+					return;
+
+				bridgeService?.UnregisterEventHandler(token);
+
+				// Fire-and-forget the unload; we don't want Dispose to block on a D-Bus round-trip.
+				_ = Task.Run(async () =>
+				{
+					await TryUnloadScript(pluginName).ConfigureAwait(false);
+					SafeDelete(scriptPath);
+				});
 			}
 		}
 
@@ -296,6 +392,29 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return path;
 		}
 
+		// Persistent event script: exposes emit(type, value) which pushes (token, type, JSON) to ReportEvent.
+		// Unlike WriteScript there is no per-call request id and the body is expected to install signal handlers
+		// (it keeps running until the plugin is unloaded).
+		private static string WriteEventScript(string token, string pluginName, string scriptBody)
+		{
+			var serviceName = bridgeServiceName;
+			var script =
+				"(function() {\n"
+				+ $"  var __keysharpToken = \"{token}\";\n"
+				+ "  function emit(type, value) {\n"
+				+ "    try {\n"
+				+ $"      callDBus(\"{serviceName}\", \"{BridgeObjectPath}\", \"org.keysharp.KWinBridge\", \"ReportEvent\", __keysharpToken, String(type), JSON.stringify(value));\n"
+				+ "    } catch (e) {}\n"
+				+ "  }\n"
+				+ "  try {\n"
+				+ scriptBody
+				+ "\n  } catch (e) {}\n"
+				+ "})();\n";
+			var path = Path.Combine(Path.GetTempPath(), $"{pluginName}.js");
+			File.WriteAllText(path, script);
+			return path;
+		}
+
 		private static string SanitizePrefix(string prefix)
 		{
 			if (prefix.IsNullOrEmpty())
@@ -333,6 +452,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			private readonly object pendingLock = new();
 			private readonly Dictionary<string, TaskCompletionSource<(bool, string)>> pending = new();
+			private readonly ConcurrentDictionary<string, Action<string, string>> eventHandlers = new();
 
 			public ObjectPath ObjectPath => BridgeObjectPath;
 
@@ -349,6 +469,21 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				tcs?.TrySetResult((true, json));
 				return Task.CompletedTask;
 			}
+
+			public Task ReportEventAsync(string token, string eventType, string json)
+			{
+				if (eventHandlers.TryGetValue(token, out var handler))
+				{
+					try { handler(eventType, json); }
+					catch { }   // never let a consumer fault break the D-Bus dispatch loop
+				}
+
+				return Task.CompletedTask;
+			}
+
+			internal void RegisterEventHandler(string token, Action<string, string> handler) => eventHandlers[token] = handler;
+
+			internal void UnregisterEventHandler(string token) => eventHandlers.TryRemove(token, out _);
 
 			internal Task<(bool Ok, string Json)> WaitForJsonAsync(string requestId, int timeoutMs)
 			{

@@ -338,6 +338,118 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					+ "report({ ok: true });\n", "close");
 			}
 
+			public bool SupportsWindowEvents => true;
+
+			public IDisposable SubscribeWindowEvents(Action<WaylandWindowEvent> sink)
+			{
+				if (sink == null)
+					return null;
+
+				var token = Guid.NewGuid().ToString("N");
+				var script = WindowHelpers + "\n" + EventScriptBody;
+
+				void OnEvent(string type, string json)
+				{
+					var kind = MapEventKind(type);
+
+					if (kind == null || json.IsNullOrEmpty())
+						return;
+
+					try
+					{
+						using var doc = JsonDocument.Parse(json);
+
+						if (TryParseWindow(doc.RootElement, out var info) && info.Handle != 0)
+							sink(new WaylandWindowEvent(kind.Value, info.Handle) { Bounds = info.FrameGeometry });
+					}
+					catch
+					{
+					}
+				}
+
+				IDisposable sub = null;
+
+				try
+				{
+					sub = Task.Run(() => KWinDBusBridge.StartEventScriptAsync(token, script, OnEvent)).GetAwaiter().GetResult();
+				}
+				catch
+				{
+				}
+
+				// If the persistent script couldn't be loaded (KWin scripting unavailable), degrade to polling
+				// rather than silently delivering nothing.
+				return sub ?? new WaylandPollingEventSource(this, sink);
+			}
+
+			private static WaylandWindowEventKind? MapEventKind(string type) => type switch
+			{
+				"create"   => WaylandWindowEventKind.Created,
+				"close"    => WaylandWindowEventKind.Closed,
+				"active"   => WaylandWindowEventKind.Activated,
+				"title"    => WaylandWindowEventKind.TitleChanged,
+				"minimize" => WaylandWindowEventKind.Minimized,
+				"restore"  => WaylandWindowEventKind.Restored,
+				"move"     => WaylandWindowEventKind.MoveResized,
+				_          => null
+			};
+
+			// Persistent KWin script body (prefixed with WindowHelpers): connects workspace + per-window signals and
+			// pushes events via the harness-provided emit(type, value). Existing windows get their per-window signals
+			// hooked without re-emitting "create" (they already exist). KWin 6 signal names are tried first, then the
+			// KWin 5 client* equivalents.
+			private const string EventScriptBody = """
+function connectFirst(names, handler) {
+  for (var i = 0; i < names.length; ++i) {
+    try {
+      var sig = workspace[names[i]];
+      if (sig && typeof sig.connect === "function") { sig.connect(handler); return true; }
+    } catch (e) {}
+  }
+  return false;
+}
+function tryConnect(obj, name, handler) {
+  try {
+    var sig = obj[name];
+    if (sig && typeof sig.connect === "function") { sig.connect(handler); return true; }
+  } catch (e) {}
+  return false;
+}
+function trackWindow(w) {
+  if (!w) return;
+  tryConnect(w, "captionChanged", function() { var info = windowInfo(w, true); if (info) emit("title", info); });
+  tryConnect(w, "minimizedChanged", function() {
+    var info = windowInfo(w, true);
+    if (info) emit(safeBool(w.minimized) ? "minimize" : "restore", info);
+  });
+  if (!tryConnect(w, "frameGeometryChanged", function() { var info = windowInfo(w, true); if (info) emit("move", info); }))
+    tryConnect(w, "geometryChanged", function() { var info = windowInfo(w, true); if (info) emit("move", info); });
+}
+function onAdded(w) {
+  var info = windowInfo(w);
+  if (!info) return;
+  trackWindow(w);
+  emit("create", info);
+}
+function onRemoved(w) {
+  if (!w) return;
+  var id = windowId(w);
+  if (id) emit("close", { id: id });
+}
+function onActivated(w) {
+  if (!w) return;
+  var info = windowInfo(w, true);
+  if (info) emit("active", info);
+}
+connectFirst(["windowAdded", "clientAdded"], onAdded);
+connectFirst(["windowRemoved", "clientRemoved"], onRemoved);
+connectFirst(["windowActivated", "clientActivated"], onActivated);
+var __order = windowListCompat();
+for (var __i = 0; __i < __order.length; ++__i) {
+  if (windowInfo(__order[__i])) trackWindow(__order[__i]);
+}
+""";
+
 			private static string BuildListScript(bool includeHidden)
 				=> WindowHelpers
 				   + "var result = [];\n"
@@ -802,6 +914,48 @@ function findWindow(id) {
 
 				return GnomeShellBridge.SendCloseWindow(seq);
 			}
+
+			public bool SupportsWindowEvents => true;
+
+			public IDisposable SubscribeWindowEvents(Action<WaylandWindowEvent> sink)
+			{
+				if (sink == null)
+					return null;
+
+				void OnEvent(string type, string json)
+				{
+					var kind = MapEventKind(type);
+
+					if (kind == null || json.IsNullOrEmpty())
+						return;
+
+					try
+					{
+						using var doc = JsonDocument.Parse(json);
+
+						if (TryParseWindow(doc.RootElement, out var info) && info.Handle != 0)
+							sink(new WaylandWindowEvent(kind.Value, info.Handle) { Bounds = info.FrameGeometry });
+					}
+					catch
+					{
+					}
+				}
+
+				// Fall back to polling if the extension's signal isn't available (extension missing/old).
+				return GnomeShellBridge.WatchWindowEvent(OnEvent) ?? new WaylandPollingEventSource(this, sink);
+			}
+
+			private static WaylandWindowEventKind? MapEventKind(string type) => type switch
+			{
+				"create"   => WaylandWindowEventKind.Created,
+				"close"    => WaylandWindowEventKind.Closed,
+				"active"   => WaylandWindowEventKind.Activated,
+				"title"    => WaylandWindowEventKind.TitleChanged,
+				"minimize" => WaylandWindowEventKind.Minimized,
+				"restore"  => WaylandWindowEventKind.Restored,
+				"move"     => WaylandWindowEventKind.MoveResized,
+				_          => null
+			};
 
 			public bool TrySendMouseMoveAbsolute(int x, int y)
 				=> GnomeShellBridge.SendMouseMoveAbsolute(x, y);

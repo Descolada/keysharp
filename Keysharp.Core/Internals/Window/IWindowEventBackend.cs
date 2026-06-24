@@ -59,10 +59,15 @@ namespace Keysharp.Internals.Window
 	}
 
 	/// <summary>
-	/// A normalized window event produced by an <see cref="IWindowEventBackend"/>. Carries only the handle,
-	/// type, and timestamp; a consumer that needs the window's geometry queries it on demand.
+	/// A normalized window event produced by an <see cref="IWindowEventBackend"/>. Carries the handle, type, and
+	/// timestamp, plus — for Move events — the window's screen bounds when the backend can supply them without an
+	/// extra round-trip (Wayland compositors already have them). <see cref="Bounds"/> is null otherwise, and the
+	/// consumer queries the window's geometry on demand (cheap on X11/Windows).
 	/// </summary>
-	internal readonly record struct WindowEventRaw(WindowEventType Type, nint Hwnd, long TimeMs);
+	internal readonly record struct WindowEventRaw(WindowEventType Type, nint Hwnd, long TimeMs)
+	{
+		internal Rectangle? Bounds { get; init; }
+	}
 
 	/// <summary>
 	/// Platform abstraction for the native window-event source. Implementations install/uninstall the minimal

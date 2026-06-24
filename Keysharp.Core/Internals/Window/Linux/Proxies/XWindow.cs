@@ -9,14 +9,64 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 	{
 		private XWindowAttributes _attributes;
 
+		/// <summary>
+		/// The window's attributes. Querying a window that has already been destroyed (a routine race when
+		/// watching window events: a transient window can vanish between being noticed and being queried)
+		/// makes the X server emit a BadWindow error. That error is asynchronous and, with no handler
+		/// installed, the default Xlib handler prints and <c>exit()</c>s the process. So the query is wrapped
+		/// in a silent error handler and a failed read returns a zeroed <see cref="XWindowAttributes"/>
+		/// (<c>map_state == IsUnmapped</c>, zero geometry) rather than throwing — callers treat a vanished
+		/// window as not-viewable/empty, which is the desired behaviour. Use <see cref="TryGetAttributes"/>
+		/// when the caller needs to distinguish "gone" from "present".
+		/// </summary>
 		internal XWindowAttributes Attributes
 		{
 			get
 			{
-				if (Xlib.XGetWindowAttributes(XDisplay.Handle, ID, ref _attributes) == 0)
-					throw new XWindowException();
-
+				_ = TryGetAttributes(out _attributes);
 				return _attributes;
+			}
+		}
+
+		/// <summary>
+		/// Reads the window's attributes, returning false (and a zeroed struct) if the window no longer exists
+		/// or the read otherwise fails. Suppresses the BadWindow so it never reaches the noisy global handler
+		/// or aborts the process.
+		/// </summary>
+		internal bool TryGetAttributes(out XWindowAttributes attributes)
+		{
+			attributes = default;
+
+			if (XDisplay == null || XDisplay.Handle == 0 || ID == 0)
+				return false;
+
+			var attr = new XWindowAttributes();
+			var success = true;
+
+			lock (WindowManager.xLibLock)
+			{
+				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				{
+					success = false;
+					return 0;
+				});
+
+				try
+				{
+					var result = Xlib.XGetWindowAttributes(XDisplay.Handle, ID, ref attr) != 0;
+					_ = Xlib.XSync(XDisplay.Handle, false);
+
+					if (!success || !result)
+						return false;
+
+					attributes = attr;
+					_attributes = attr;
+					return true;
+				}
+				finally
+				{
+					_ = Xlib.XSetErrorHandler(oldHandler);
+				}
 			}
 		}
 

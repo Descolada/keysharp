@@ -65,6 +65,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		Task<IDisposable> WatchActiveWindowChangedAsync(
 			Action<string> handler, Action<Exception> onError = null);
+
+		/// <summary>
+		/// Generic window-event stream. The handler receives (type, json) where type is one of
+		/// create/close/active/title/minimize/restore/move and json is the affected window's info.
+		/// </summary>
+		Task<IDisposable> WatchWindowEventAsync(
+			Action<(string type, string json)> handler, Action<Exception> onError = null);
 	}
 
 #pragma warning restore IDE1006
@@ -175,6 +182,23 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				return Task.Run(() => p.WatchActiveWindowChangedAsync(handler)).GetAwaiter().GetResult();
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		internal static IDisposable WatchWindowEvent(Action<string, string> handler)
+		{
+			try
+			{
+				var p = EnsureProxy();
+
+				if (p == null)
+					return null;
+
+				return Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json))).GetAwaiter().GetResult();
 			}
 			catch
 			{

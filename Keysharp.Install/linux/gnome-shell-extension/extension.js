@@ -114,6 +114,15 @@ const DBUS_IFACE_XML = `
       <arg type="s" name="json"/>
     </signal>
 
+    <!-- Generic window-event stream consumed by Keysharp's WinEvent.
+         type is one of: create, close, active, title, minimize, restore, move.
+         json is the affected window's info (the same shape as GetActiveWindow's
+         window object); for "close" it carries at least { id }. -->
+    <signal name="WindowEvent">
+      <arg type="s" name="type"/>
+      <arg type="s" name="json"/>
+    </signal>
+
   </interface>
 </node>`;
 
@@ -127,10 +136,11 @@ const INT32_MIN = -2147483648;
 
 export default class KeysharpExtension {
     constructor() {
-        this._dbusImpl  = null;
-        this._busNameId = 0;
-        this._vPointer  = null;
-        this._focusId   = null;
+        this._dbusImpl     = null;
+        this._busNameId    = 0;
+        this._vPointer     = null;
+        this._focusId      = null;
+        this._winCreatedId = null;
     }
 
     enable() {
@@ -157,13 +167,44 @@ export default class KeysharpExtension {
             null,   // name_acquired_closure
             null);  // name_lost_closure
 
-        // Emit ActiveWindowChanged whenever the compositor focus changes.
+        // Emit ActiveWindowChanged (back-compat) and the generic WindowEvent('active')
+        // whenever the compositor focus changes.
         this._focusId = global.display.connect('notify::focus-window', () => {
             this._emitActiveWindowChanged();
+            const win = global.display.get_focus_window();
+            if (win && this._isTrackedWindow(win))
+                this._emitWindowEvent('active', win);
         });
+
+        // Emit WindowEvent('create') for newly mapped windows and hook their per-window
+        // signals (title/minimize/move/close).
+        this._winCreatedId = global.display.connect('window-created', (_disp, win) => {
+            if (!win || !this._isTrackedWindow(win))
+                return;
+            this._hookWindow(win);
+            this._emitWindowEvent('create', win);
+        });
+
+        // Hook windows that already exist at enable time, without re-emitting create.
+        for (const actor of global.get_window_actors()) {
+            const win = actor.get_meta_window();
+            if (win && this._isTrackedWindow(win))
+                this._hookWindow(win);
+        }
     }
 
     disable() {
+        if (this._winCreatedId !== null) {
+            global.display.disconnect(this._winCreatedId);
+            this._winCreatedId = null;
+        }
+
+        for (const actor of global.get_window_actors()) {
+            const win = actor.get_meta_window();
+            if (win)
+                this._unhookWindow(win);
+        }
+
         if (this._focusId !== null) {
             global.display.disconnect(this._focusId);
             this._focusId = null;
@@ -383,6 +424,64 @@ export default class KeysharpExtension {
         } catch (_e) {
             // best-effort; never throw inside a signal handler
         }
+    }
+
+    // Emit a generic WindowEvent for the given window, resolving its full info JSON
+    // (falling back to a bare { id } if the window is mid-teardown).
+    _emitWindowEvent(type, win) {
+        if (!win) return;
+        let json;
+        try {
+            json = JSON.stringify(this._windowInfo(win));
+        } catch (_e) {
+            try { json = JSON.stringify({id: String(win.get_stable_sequence())}); }
+            catch (_e2) { return; }
+        }
+        this._emitWindowEventRaw(type, json);
+    }
+
+    _emitWindowEventRaw(type, json) {
+        if (!this._dbusImpl) return;
+        try {
+            this._dbusImpl.emit_signal(
+                'WindowEvent',
+                new GLib.Variant('(ss)', [type, json]));
+        } catch (_e) {
+            // best-effort; never throw inside a signal handler
+        }
+    }
+
+    // Connect per-window signals once. Handler ids are stashed on the window so they
+    // can be disconnected in _unhookWindow / on 'unmanaged'.
+    _hookWindow(win) {
+        if (!win || win._keysharpHooked)
+            return;
+        win._keysharpHooked = true;
+
+        const ids = [];
+        ids.push(win.connect('notify::title', () => this._emitWindowEvent('title', win)));
+        ids.push(win.connect('notify::minimized',
+            () => this._emitWindowEvent(win.minimized ? 'minimize' : 'restore', win)));
+        ids.push(win.connect('position-changed', () => this._emitWindowEvent('move', win)));
+        ids.push(win.connect('size-changed',     () => this._emitWindowEvent('move', win)));
+        ids.push(win.connect('unmanaged', () => {
+            try {
+                this._emitWindowEventRaw('close',
+                    JSON.stringify({id: String(win.get_stable_sequence())}));
+            } catch (_e) {}
+            this._unhookWindow(win);
+        }));
+        win._keysharpHandlerIds = ids;
+    }
+
+    _unhookWindow(win) {
+        if (!win || !win._keysharpHooked)
+            return;
+        for (const id of (win._keysharpHandlerIds || [])) {
+            try { win.disconnect(id); } catch (_e) {}
+        }
+        win._keysharpHandlerIds = null;
+        win._keysharpHooked = false;
     }
 
     _isTrackedWindow(win) {

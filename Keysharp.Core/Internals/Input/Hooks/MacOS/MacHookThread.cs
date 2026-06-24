@@ -53,13 +53,23 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 			return active;
 		}
 
-		// Pull an initially-outside cursor into the clip rectangle. Subsequent out-of-bounds
-		// physical moves are suppressed by SharpHook and do not require warping.
+		// Pull an initially-outside cursor into the clip rectangle. Re-associating cancels the post-warp
+		// event-suppression interval so the cursor tracks the mouse again inside the rectangle.
 		protected override void WarpCursor(int x, int y)
 		{
 			_ = CGWarpMouseCursorPosition(new CGPoint(x, y));
 			_ = CGAssociateMouseAndMouseCursorPosition(1);
 		}
+
+		// Freeze/unfreeze physical cursor movement for BlockInput's mouse-move block and an InputHook with
+		// VisibleMouseMove := false. libuiohook taps at kCGSessionEventTap, which is downstream of the OS
+		// cursor mover, so setting SuppressEvent on a move only hides it from applications -- the visible
+		// cursor has already moved. Disassociating the cursor from the mouse is what actually stops it;
+		// move events keep flowing to the tap (so callbacks still fire and we can re-associate on release).
+		// macOS restores the association automatically when the process exits, and DeregisterHooks resets
+		// it, so a decoupled cursor can't outlive the script.
+		protected override void OnMoveSuppressionChanged(bool active)
+			=> CGAssociateMouseAndMouseCursorPosition(active ? 0 : 1);
 
 		protected override bool UseSyntheticEventQueue => false;
 

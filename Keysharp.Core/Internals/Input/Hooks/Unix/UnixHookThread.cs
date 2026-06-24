@@ -601,6 +601,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					globalHook.MousePressed += OnMousePressed;
 					globalHook.MouseReleased += OnMouseReleased;
 					globalHook.MouseMoved += OnMouseMoved;
+					// libuiohook reports moving with a button held as a separate "dragged" event. A drag is
+					// still cursor movement, so route it through the same handler -- otherwise OnMouseMove
+					// callbacks, VisibleMouseMove/BlockInput suppression and ClipCursor all miss drags on the
+					// SharpHook backend (macOS, and the Linux X11/SharpHook fallback). The Linux inputd path
+					// is unaffected: it reads movement at the evdev level, which has no move/drag distinction.
+					globalHook.MouseDragged += OnMouseMoved;
 					globalHook.MouseWheel += OnMouseWheel;
 
 					// Start hook thread
@@ -665,6 +671,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				// When permanently disposing, clear state like before.
 				ResetTrackedInputState(clearSyntheticQueue: true);
 				ResetIndicatorSnapshot();
+
+				// Release any active cursor freeze (macOS decouple) now that the hook is gone, so a
+				// blocked cursor can't be left stuck when the hook is removed without a final move event.
+				SetMoveSuppression(false);
 			}
 			// If dispose==false: we intentionally keep the hook alive and keep current
 			// state around; the processing gate is controlled by keyboardEnabled/mouseEnabled.
@@ -1925,20 +1935,47 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				e.SuppressEvent = true;
 		}
 
+		// Whether physical mouse movement is currently being suppressed (BlockInput mouse-move / blockInput,
+		// or an InputHook with VisibleMouseMove := false). Toggling it lets a platform actively stop the
+		// cursor when suppressing the move event alone doesn't (macOS -- see OnMoveSuppressionChanged).
+		// Touched only on the single SharpHook hook thread, so no synchronization is needed.
+		private bool moveSuppressionActive;
+
+		// Called when physical move suppression turns on/off. macOS decouples the cursor from the mouse so
+		// it actually stops moving (its session-level event tap can't stop the OS-driven cursor); the base
+		// is a no-op (Windows uses its own hook thread, the X11 hook can't suppress moves, and the Linux
+		// inputd path blocks at the device level before reaching here).
+		protected virtual void OnMoveSuppressionChanged(bool active) { }
+
+		private void SetMoveSuppression(bool active)
+		{
+			if (active == moveSuppressionActive)
+				return;
+
+			moveSuppressionActive = active;
+			OnMoveSuppressionChanged(active);
+		}
+
 		private void OnMouseMoved(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
 
 			lastHookEventWasKeyboard = false;
+			var suppress = false;
+
 			if (!e.IsEventSimulated)
 			{
 				var script = Script.TheScript;
 				script.timeLastInputPhysical = script.timeLastInputMouse = DateTime.UtcNow;
 
-				// Confine the cursor to the active ClipCursor rectangle. SharpHook can suppress
-				// macOS movement before it takes effect, so no warp is needed for rejected moves.
-				// WarpCursor is still used by SetCursorClip to pull an initially-outside cursor in.
+				// Confine the cursor to the active ClipCursor rectangle. Suppressing the move only hides it
+				// from applications -- on macOS libuiohook's session-level tap can't stop the OS-driven
+				// cursor (same limitation as VisibleMouseMove), so warp it back to the clamped edge. Unlike
+				// the whole-screen freeze, clipping must keep the cursor tracking inside the rectangle, so
+				// WarpCursor (which re-associates) is correct here rather than decoupling. This block is
+				// reachable only on macOS in practice: on Linux the inputd path enforces the clip in
+				// ProcessInputdMouseHook, and the X11/SharpHook fallback can't clip at all (CanClipCursor).
 				if (CursorClipActive)
 				{
 					int cx = e.Data.X, cy = e.Data.Y;
@@ -1946,12 +1983,16 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					if (ClampToCursorClip(ref cx, ref cy))
 					{
 						e.SuppressEvent = true;
+						WarpCursor(cx, cy);
 						return;
 					}
 				}
 
 				if (script.KeyboardData.blockMouseMove || script.KeyboardData.blockInput)
+				{
 					e.SuppressEvent = true;
+					suppress = true;
+				}
 			}
 
 			// Notify any active InputHook(s) of movement; CollectMouseMove returns false to suppress when
@@ -1961,7 +2002,15 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// mouse and screen-normalised coordinates for an absolute pointer.
 			if (Script.TheScript.input != null
 					&& !CollectMouseMove(ComputeExtraInfo(0, e.IsEventSimulated), e.Data.X, e.Data.Y, null))
+			{
 				e.SuppressEvent = true;
+				suppress = true;
+			}
+
+			// Track the suppression state off physical events only (a simulated move shouldn't flip it),
+			// so the platform can freeze/release the cursor on the on/off transition.
+			if (!e.IsEventSimulated)
+				SetMoveSuppression(suppress);
 		}
 
 		private void OnMousePressed(object sender, MouseHookEventArgs e)

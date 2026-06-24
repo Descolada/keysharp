@@ -14,6 +14,8 @@ namespace Keysharp.Parsing
 
 #if WINDOWS
 		public const string LibraryExtension = ".dll";
+#elif OSX
+		public const string LibraryExtension = ".dylib";
 #else
 		public const string LibraryExtension = ".so";
 #endif

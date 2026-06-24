@@ -1,106 +1,54 @@
 #if OSX
-using Keysharp.Builtins;
-using MonoMac.AppKit;
-using MonoMac.Foundation;
-
 namespace Keysharp.Internals.Window.MacOS
 {
 	/// <summary>
-	/// macOS <see cref="IWindowEventBackend"/>. The active-application stream is sourced from
-	/// <c>NSWorkspace</c>'s activation notification (the same mechanism the keyboard hook already uses for
-	/// hotstring-buffer resets — see <c>MacNativeWindows.RegisterFrontmostAppObserver</c>), so on macOS the
-	/// <see cref="WindowEventType.Active"/> handle is the frontmost <em>application</em>'s pid. Per-window
-	/// granularity, and the Create/Close/Move/Show/Minimize/Restore/TitleChange categories, require
-	/// <c>AXObserver</c> notifications (Accessibility-permission gated) and are left as TODO; because the
-	/// backend is decoupled from <c>Ks.WinEvent</c> via <see cref="WindowEventHub"/>, they can be added here
-	/// without touching the WinEvent feature.
+	/// macOS <see cref="IWindowEventBackend"/>. macOS has no single global window-event hook, so the actual work is
+	/// done by <see cref="MacAccessibility"/>'s per-application <c>AXObserver</c> stream (see
+	/// <c>MacWindowEventObserver.cs</c>), which reports every <see cref="WindowEventType"/> — Active (app switches
+	/// and focused-window changes), Create, Close, Move, Show, Minimize, Restore and TitleChange — as CGWindowID
+	/// handles. Because that stream is a single shared AX/run-loop installation rather than per-category hooks, this
+	/// backend treats the mask as all-or-nothing: it spins the stream up when the first category is requested and
+	/// tears it down when the last one is removed. The full Accessibility permission is required; without it the
+	/// observer stream logs guidance and stays empty.
 	/// </summary>
 	internal sealed class WindowEventBackend : IWindowEventBackend
 	{
-		private NSObject activeAppObserver;     // retained so the notification dispatcher stays alive
+		private WindowEventMask installed = WindowEventMask.None;
 		private bool disposed;
 
 		public Action<WindowEventRaw> Sink { get; set; }
 
-		// NSWorkspace observer registration must happen on the main thread, but it is posted asynchronously
-		// (not InvokeOnUIThread) because Start/Stop run under the hub's lock; a synchronous main-thread round
-		// trip there could deadlock against the observer callback, which also runs on the main thread and
-		// re-enters the hub. The notification dispatcher delivers on whichever run loop registered the observer.
+		// Start/Stop run under WinEventManager's lock; the observer install/teardown itself is posted to the main
+		// thread (AX observer and NSWorkspace registration must happen there, and a synchronous round trip under the
+		// lock could deadlock against the main-thread callback, which re-enters the manager).
 		public void Start(WindowEventMask mask)
 		{
-			if (disposed || (mask & WindowEventMask.Active) == 0)
+			if (disposed || mask == WindowEventMask.None)
 				return;
 
-			Script.PostToUIThread(StartActiveObserver);
+			var wasEmpty = installed == WindowEventMask.None;
+			installed |= mask;
+
+			if (wasEmpty && installed != WindowEventMask.None)
+			{
+				var sink = Sink;
+				Script.PostToUIThread(() => MacAccessibility.StartWindowEvents(sink));
+			}
 		}
 
 		public void Stop(WindowEventMask mask)
 		{
-			if ((mask & WindowEventMask.Active) == 0)
-				return;
+			installed &= ~mask;
 
-			Script.PostToUIThread(StopActiveObserver);
+			if (installed == WindowEventMask.None)
+				Script.PostToUIThread(MacAccessibility.StopWindowEvents);
 		}
 
 		public void Dispose()
 		{
 			disposed = true;
-			Script.PostToUIThread(StopActiveObserver);
-		}
-
-		private void StartActiveObserver()
-		{
-			if (activeAppObserver != null)
-				return;
-
-			try
-			{
-				var wsnc = NSWorkspace.SharedWorkspace.NotificationCenter;
-				activeAppObserver = wsnc.AddObserver("NSWorkspaceDidActivateApplicationNotification", _ => OnActiveAppChanged());
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"macOS active-app observer registration failed: {ex.Message}");
-			}
-		}
-
-		private void StopActiveObserver()
-		{
-			if (activeAppObserver == null)
-				return;
-
-			try
-			{
-				NSWorkspace.SharedWorkspace.NotificationCenter.RemoveObserver(activeAppObserver);
-			}
-			catch
-			{
-			}
-			finally
-			{
-				activeAppObserver = null;
-			}
-		}
-
-		private void OnActiveAppChanged()
-		{
-			var sink = Sink;
-
-			if (sink == null)
-				return;
-
-			try
-			{
-				var app = NSWorkspace.SharedWorkspace.FrontmostApplication;
-				var pid = app != null ? app.ProcessIdentifier : 0;
-
-				if (pid != 0)
-					sink(new WindowEventRaw(WindowEventType.Active, (nint)pid, Environment.TickCount64));
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"macOS active-app notification failed: {ex.Message}");
-			}
+			installed = WindowEventMask.None;
+			Script.PostToUIThread(MacAccessibility.StopWindowEvents);
 		}
 	}
 }

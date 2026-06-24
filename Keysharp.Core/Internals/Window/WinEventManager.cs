@@ -22,19 +22,23 @@ namespace Keysharp.Internals.Window
 		internal nint activeReported;                         // Active subs: hwnd last reported active, so a
 		                                                      // title-change re-fire of the same window doesn't duplicate
 
-		// A Close event arrives after the window is gone, so it can't be matched (or even confirmed top-level)
-		// at that point. Mirroring Descolada's WinEvent.MatchingWinList, we track the set of top-level windows
-		// that currently satisfy this subscription while they are alive (seeded at registration, kept current by
-		// top-level Create/Show/TitleChange events); Close then fires only for a window in this set. Allocated
-		// for every Close subscription (both criteria-filtered and match-any).
+		// Membership-tracking subscriptions (Exist, NotExist) keep the set of top-level windows that currently
+		// satisfy this subscription. Mirroring Descolada's WinEvent.MatchingWinList, the set is seeded at registration
+		// and kept current as windows enter/leave (Create/Show/Restore/TitleChange add; Close/Minimize/TitleChange
+		// remove). Exist fires when a window enters the set, NotExist when one leaves (both respecting
+		// DetectHiddenWindows), so the set lets each fire on genuine transitions rather than the raw lifecycle event.
 		internal readonly HashSet<nint> matchingWindows;
 		internal readonly Lock matchGate;
 
 		private long remaining;                               // -1 => unlimited
 		internal volatile bool active;
 
-		/// <summary>True for a Close subscription (which tracks its matching top-level windows).</summary>
-		internal bool IsClose => matchingWindows != null;
+		/// <summary>True for an Exist subscription (fires when a matching window appears).</summary>
+		internal bool IsExist => type == WindowEventType.Exist;
+		/// <summary>True for a NotExist subscription (fires when a matching window disappears).</summary>
+		internal bool IsNotExist => type == WindowEventType.NotExist;
+		/// <summary>True for any subscription that maintains a matching-window set (Exist/NotExist).</summary>
+		internal bool TracksMembership => matchingWindows != null;
 
 		internal WinEventRegistration(WindowEventType type, SearchCriteria criteria, IFuncObj callback, long count, ScriptEventScheduler ownerScheduler)
 		{
@@ -46,17 +50,17 @@ namespace Keysharp.Internals.Window
 			active = true;
 			registration = new CallbackRegistration(callback, ownerScheduler, true);
 
-			if (type == WindowEventType.Close)
+			if (type is WindowEventType.Exist or WindowEventType.NotExist)
 			{
 				matchingWindows = new HashSet<nint>();
 				matchGate = new Lock();
 			}
 
 			// Snapshot the window-search context from the registering thread, mirroring Descolada's WinEvent
-			// (which captures A_DetectHiddenWindows/Text and the title-match mode at registration). Create and
-			// Show additionally force hidden detection on, because a freshly created/shown window is often still
-			// hidden for a short time. All other event types respect the thread's DetectHiddenWindows setting.
-			var forceHidden = type is WindowEventType.Create or WindowEventType.Show;
+			// (which captures A_DetectHiddenWindows/Text and the title-match mode at registration). Show forces
+			// hidden detection on, because a freshly shown window is often still hidden for a short time. All other
+			// event types respect the thread's DetectHiddenWindows setting.
+			var forceHidden = type is WindowEventType.Show;
 			detectHidden = forceHidden || ThreadAccessors.A_DetectHiddenWindows;
 			inheritedOptions = new WindowSearchOptions
 			{
@@ -144,8 +148,11 @@ namespace Keysharp.Internals.Window
 
 				list.Add(reg);
 
-				if (reg.IsClose)
-					SeedCloseMatches(reg);
+				// Seed the matching-window set so a Close fires for windows that existed before the subscription,
+				// and so Exist/NotExist only fire on genuine transitions (not for windows already matching at
+				// registration). Mirrors Descolada's WinEvent seeding its MatchingWinList up front.
+				if (reg.TracksMembership)
+					SeedMatches(reg);
 
 				SyncBackendMask();
 			}
@@ -209,15 +216,14 @@ namespace Keysharp.Internals.Window
 			foreach (var type in buckets.Keys)
 				desired |= type.ToMask();
 
-			// A Close subscription must observe window appearance so it can keep its matching-window set current
-			// (a window must be tracked while alive to fire Close once it is gone). Criteria-filtered Close also
-			// needs TitleChange, since a title change can make a window start/stop matching the criteria.
-			if (buckets.TryGetValue(WindowEventType.Close, out var closeList) && closeList.Count > 0)
+			// Exist/NotExist are membership transitions derived from the lifecycle events, so they need every event
+			// that can move a window into or out of the matching set: appear (Create/Show/Restore), disappear
+			// (Close/Minimize) and re-match (TitleChange).
+			if ((buckets.TryGetValue(WindowEventType.Exist, out var existList) && existList.Count > 0)
+				|| (buckets.TryGetValue(WindowEventType.NotExist, out var notExistList) && notExistList.Count > 0))
 			{
-				desired |= WindowEventMask.Create | WindowEventMask.Show;
-
-				if (closeList.Any(r => r.criteria != null))
-					desired |= WindowEventMask.TitleChange;
+				desired |= WindowEventMask.Create | WindowEventMask.Show | WindowEventMask.Restore
+						   | WindowEventMask.Close | WindowEventMask.Minimize | WindowEventMask.TitleChange;
 			}
 
 			// Active also fires on the active window's title change, so observe TitleChange when any Active sub exists.
@@ -281,11 +287,14 @@ namespace Keysharp.Internals.Window
 			if (disposed)
 				return;
 
-			// Keep Close subscriptions' matching-window sets current as windows appear or change identity. This
-			// runs even when there are no subscribers for raw.Type itself (e.g. a Create event observed only to
-			// maintain a Close subscription).
-			if (raw.Type is WindowEventType.Create or WindowEventType.Show or WindowEventType.TitleChange)
-				UpdateCloseMatches(raw.Hwnd);
+			// Drive Exist/NotExist membership transitions. Any lifecycle event that can move a window into or out of
+			// the matching set is a trigger: appear (Create/Show/Restore), disappear (Close/Minimize) or re-match
+			// (TitleChange). A confirmed destruction forces the window out regardless of DetectHiddenWindows (and
+			// ahead of any window-server list lag); a hide arrives as a Close too but only leaves the set when the
+			// criteria stop matching under the subscription's DetectHiddenWindows.
+			if (raw.Type is WindowEventType.Create or WindowEventType.Show or WindowEventType.Restore
+				or WindowEventType.TitleChange or WindowEventType.Close or WindowEventType.Minimize)
+				UpdateMembership(raw.Hwnd, raw.TimeMs, raw.Type == WindowEventType.Close && raw.DestroyConfirmed);
 
 			// Like the reference, Active also re-fires when the active window's title changes (so criteria that
 			// only become true after the title is set are still caught).
@@ -300,15 +309,6 @@ namespace Keysharp.Internals.Window
 					return;
 
 				snapshot = list.ToArray();
-			}
-
-			if (raw.Type == WindowEventType.Close)
-			{
-				foreach (var reg in snapshot)
-					if (reg.active)
-						HandleClose(reg, raw.Hwnd, raw.TimeMs);
-
-				return;
 			}
 
 			if (raw.Type == WindowEventType.Active)
@@ -343,42 +343,6 @@ namespace Keysharp.Internals.Window
 				if (reg.active && Matches(reg, raw.Hwnd))
 					FireOnce(reg, raw.Hwnd, raw.TimeMs, moveBounds);
 			}
-		}
-
-		/// <summary>Handles a destroy/hide/cloak event for one Close subscription: fires only for a window we were
-		/// tracking that no longer exists from this hook's DetectHiddenWindows perspective (so a hidden window
-		/// fires Close when DHW is off, but not when DHW is on — matching WinExist semantics), and updates tracking.</summary>
-		private void HandleClose(WinEventRegistration reg, nint hwnd, long timeMs)
-		{
-			bool tracked;
-
-			lock (reg.matchGate)
-				tracked = reg.matchingWindows.Contains(hwnd);
-
-			if (!tracked)
-				return;     // never matched/tracked (e.g. a child control hide) — nothing to do
-
-			if (WindowExists(hwnd, reg.detectHidden))
-				return;     // still exists (e.g. merely hidden with DetectHiddenWindows on) — keep tracking, don't fire
-
-			FireOnce(reg, hwnd, timeMs);
-
-			lock (reg.matchGate)
-				_ = reg.matchingWindows.Remove(hwnd);
-		}
-
-		/// <summary>Whether the window still exists from a hook's DetectHiddenWindows perspective: a valid handle is
-		/// enough when DHW is on; when off it must also be visible.</summary>
-		private static bool WindowExists(nint hwnd, bool detectHidden)
-		{
-			if (!WindowManager.IsWindow(hwnd))
-				return false;
-
-			if (detectHidden)
-				return true;
-
-			var win = WindowManager.CreateWindow(hwnd);
-			return win != null && win.IsSpecified && win.Visible;
 		}
 
 		/// <summary>Fires Active subscriptions for the active window when its title changes.</summary>
@@ -431,68 +395,103 @@ namespace Keysharp.Internals.Window
 			return win != null && win.Equals(reg.criteria, reg.inheritedOptions);
 		}
 
-		/// <summary>Re-evaluates a now-top-level window against every Close subscription and adds/removes it from
-		/// that subscription's matching-window set. Called when a window appears (Create/Show) or, for criteria
-		/// subscriptions, when its title changes. <paramref name="hwnd"/> is already known to be top-level because
-		/// the backend only emits these events for top-level windows.</summary>
-		private void UpdateCloseMatches(nint hwnd)
+		/// <summary>Whether <paramref name="hwnd"/> currently satisfies a membership subscription (Exist/NotExist):
+		/// the window must actually exist and match the criteria, honoring DetectHiddenWindows. Unlike
+		/// <see cref="Matches"/> (used for fire-and-forget events, where the hwnd is known live), this verifies
+		/// existence — a match-any subscription must not treat an already-destroyed handle as still matching.</summary>
+		private static bool CurrentlyMatches(WinEventRegistration reg, nint hwnd)
+		{
+			if (hwnd == 0)
+				return false;
+
+			if (reg.criteria == null)
+			{
+				if (!WindowManager.IsWindow(hwnd))
+					return false;                             // gone — no longer a member
+
+				if (reg.detectHidden)
+					return true;
+
+				var w = WindowManager.CreateWindow(hwnd);
+				return w != null && w.IsSpecified && w.Visible;
+			}
+
+			// Criteria matching reads the window's properties, which a destroyed window no longer has, so a genuine
+			// destruction naturally fails the match (the criteria path also applies the captured DetectHiddenWindows).
+			var win = WindowManager.CreateWindow(hwnd);
+			return win != null && win.IsSpecified && win.Equals(reg.criteria, reg.inheritedOptions);
+		}
+
+		/// <summary>Re-evaluates a window's membership against every Exist/NotExist subscription and fires the
+		/// transitions: Exist when a window enters a subscription's matching set, NotExist when one leaves it.
+		/// <paramref name="windowGone"/> forces the window out (a confirmed destruction) regardless of
+		/// DetectHiddenWindows and ahead of any window-server list lag.</summary>
+		private void UpdateMembership(nint hwnd, long timeMs, bool windowGone)
 		{
 			if (hwnd == 0)
 				return;
 
-			WinEventRegistration[] closeSubs;
+			WinEventRegistration[] subs;
 
 			lock (gate)
 			{
-				if (!buckets.TryGetValue(WindowEventType.Close, out var list) || list.Count == 0)
+				var hasExist = buckets.TryGetValue(WindowEventType.Exist, out var existList) && existList.Count > 0;
+				var hasNotExist = buckets.TryGetValue(WindowEventType.NotExist, out var notExistList) && notExistList.Count > 0;
+
+				if (!hasExist && !hasNotExist)
 					return;
 
-				closeSubs = list.ToArray();
+				subs = (hasExist ? existList : Enumerable.Empty<WinEventRegistration>())
+					   .Concat(hasNotExist ? notExistList : Enumerable.Empty<WinEventRegistration>())
+					   .ToArray();
 			}
 
-			var win = WindowManager.CreateWindow(hwnd);
-
-			if (win == null || !win.IsSpecified)
-				return;
-
-			foreach (var reg in closeSubs)
+			foreach (var reg in subs)
 			{
-				var matches = CloseTracks(reg, win);
+				if (!reg.active)
+					continue;
+
+				var matches = !windowGone && CurrentlyMatches(reg, hwnd);
+
+				// Test-and-set the membership atomically: HashSet.Add/Remove return whether the set actually changed,
+				// so the fire decision is driven by the real transition under a single lock. (Snapshotting Contains
+				// and then mutating under a second lock would let two threads both observe the same pre-state and
+				// double-fire one transition — the matching set exists precisely to make each transition fire once.)
+				bool changed;
 
 				lock (reg.matchGate)
-				{
-					if (matches)
-						_ = reg.matchingWindows.Add(hwnd);
-					else
-						_ = reg.matchingWindows.Remove(hwnd);
-				}
+					changed = matches ? reg.matchingWindows.Add(hwnd) : reg.matchingWindows.Remove(hwnd);
+
+				if (changed && ((matches && reg.IsExist) || (!matches && reg.IsNotExist)))
+					FireOnce(reg, hwnd, timeMs);
 			}
 		}
 
-		/// <summary>Seeds a Close subscription with the windows that already satisfy it, so windows that existed
-		/// before the subscription was created still fire Close. Called under <see cref="gate"/>.</summary>
-		private static void SeedCloseMatches(WinEventRegistration reg)
+		/// <summary>Seeds a membership subscription (Exist/NotExist) with the windows that already satisfy it, so
+		/// Exist/NotExist only fire on genuine later transitions (not for windows already present at registration).
+		/// Called under <see cref="gate"/>.</summary>
+		private static void SeedMatches(WinEventRegistration reg)
 		{
 			try
 			{
 				// EnumerateWindows already yields top-level windows respecting the captured DetectHiddenWindows.
 				foreach (var win in WindowManager.EnumerateWindows(reg.detectHidden))
 				{
-					if (win.IsSpecified && CloseTracks(reg, win))
+					if (win.IsSpecified && SubscriptionMatches(reg, win))
 						lock (reg.matchGate)
 							_ = reg.matchingWindows.Add(win.Handle);
 				}
 			}
 			catch (Exception ex)
 			{
-				Ks.OutputDebugLine($"WinEvent Close seed failed: {ex.Message}");
+				Ks.OutputDebugLine($"WinEvent match seed failed: {ex.Message}");
 			}
 		}
 
-		/// <summary>Whether <paramref name="win"/> (a top-level window) should be tracked by Close subscription
+		/// <summary>Whether <paramref name="win"/> (a live top-level window) satisfies membership subscription
 		/// <paramref name="reg"/>: criteria subscriptions match the criteria; match-any subscriptions track any
 		/// top-level window, respecting the captured DetectHiddenWindows setting.</summary>
-		private static bool CloseTracks(WinEventRegistration reg, WindowItemBase win)
+		private static bool SubscriptionMatches(WinEventRegistration reg, WindowItemBase win)
 			=> reg.criteria != null
 				? win.Equals(reg.criteria, reg.inheritedOptions)
 				: reg.detectHidden || win.Visible;

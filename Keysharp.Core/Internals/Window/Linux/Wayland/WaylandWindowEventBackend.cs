@@ -216,7 +216,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			var (type, bit) = Map(ev.Kind);
 
 			if (bit != WindowEventMask.None && (mask & bit) != 0)
-				sink(new WindowEventRaw(type, ev.Handle, NowMs()) { Bounds = ev.Bounds });
+				// A compositor "toplevel closed" is an authoritative removal (like macOS AXUIElementDestroyed), so
+				// mark Close confirmed — the manager then drops the window from every Exist/NotExist set without
+				// re-checking a window list that may still momentarily resolve it.
+				sink(new WindowEventRaw(type, ev.Handle, NowMs()) { Bounds = ev.Bounds, DestroyConfirmed = type == WindowEventType.Close });
 		}
 
 		private static (WindowEventType type, WindowEventMask bit) Map(WaylandWindowEventKind kind) => kind switch

@@ -476,6 +476,16 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
+		// Whether this window is one of our own that is currently ordered out of the window server via
+		// TryHideOwnWindow(). Ordering a window out makes its AX element report as destroyed even though the window
+		// still exists (and can be re-shown), so the WinEvent backend uses this to tell a real destruction from a
+		// hide when deciding whether its Close event is authoritative.
+		internal static bool IsHiddenOwnWindow(uint windowNumber)
+		{
+			lock (hiddenOwnWindowsLock)
+				return hiddenOwnWindowInfo.ContainsKey(windowNumber);
+		}
+
 		// Restores a window previously hidden via TryHideOwnWindow().
 		internal static bool TryShowOwnWindow(uint windowNumber)
 		{

@@ -260,7 +260,10 @@ namespace Keysharp.Internals.Window.Linux
 						var e = Marshal.PtrToStructure<XDestroyWindowEvent>(xeventPtr);
 
 						if (e.xevent == rootXid)
-							sink(new WindowEventRaw(WindowEventType.Close, (nint)e.window, NowMs()));
+							// A DestroyNotify is an authoritative "window is gone", so mark it confirmed: the manager
+							// then drops it from every Exist/NotExist matching set without re-checking a window list
+							// that may still briefly resolve the just-destroyed X window.
+							sink(new WindowEventRaw(WindowEventType.Close, (nint)e.window, NowMs()) { DestroyConfirmed = true });
 					}
 
 					break;
@@ -396,7 +399,10 @@ namespace Keysharp.Internals.Window.Linux
 
 			if ((mask & WindowEventMask.Close) != 0)
 				foreach (var w in removed)
-					sink(new WindowEventRaw(WindowEventType.Close, w, NowMs()));
+					// Removal from _NET_CLIENT_LIST is the window manager's authoritative "no longer a managed
+					// top-level window", so mark it confirmed (the manager then drops it from every Exist/NotExist
+					// set without re-checking, avoiding a race where the X window briefly outlives the list change).
+					sink(new WindowEventRaw(WindowEventType.Close, w, NowMs()) { DestroyConfirmed = true });
 		}
 
 		/// <summary>Translates a <c>_NET_WM_STATE</c> change into Minimize/Restore by tracking whether

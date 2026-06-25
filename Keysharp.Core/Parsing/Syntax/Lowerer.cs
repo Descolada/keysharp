@@ -520,8 +520,12 @@ namespace Keysharp.Parsing.Syntax
 						wild.Remove(impAlias);                         // an explicit import overrides a wildcard one
 						if (isScript && byName[modName].Exports.TryGetValue(impName, out var k))
 							BindNamedImport(modName, impName, impAlias, k, props);
+						else if (!isScript && !isAhk
+								&& Script.TheScript.ReflectionsData.stringToTypes.TryGetValue(modName, out var bmt)
+								&& !BuiltinModuleHasMember(bmt, impName))   // built-in module with no such member — reject like AutoHotkey's load-time error
+							Diag($"{im.Line}:{im.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
 						else
-							RegisterImportField(impAlias, ModuleMemberField(modName, impName));   // best-effort
+							RegisterImportField(impAlias, ModuleMemberField(modName, impName));   // best-effort (script modules bind non-exported declarations too)
 					}
 				}
 				// A bare `#import Mod` (no alias, no braces) adds the module NAME as the module object — but a quoted
@@ -750,12 +754,22 @@ namespace Keysharp.Parsing.Syntax
 			}
 			foreach (var raw in names.Split(','))
 			{
-				var name = raw.Trim();
-				if (name.Length == 0) continue;
-				var lower = name.ToLowerInvariant();
+				var part = raw.Trim();
+				if (part.Length == 0 || part == "*") continue;   // `*` is the wildcard branch above; ignore it inside a mixed list
+				string impName = part, impAlias = part;
+				var asIdx = part.IndexOf(" as ", System.StringComparison.OrdinalIgnoreCase);
+				if (asIdx >= 0) { impName = part.Substring(0, asIdx).Trim(); impAlias = part.Substring(asIdx + 4).Trim(); }
+				var lower = impAlias.ToLowerInvariant();
 				if (_fields.ContainsKey(lower)) continue;
-				var init = BindModuleMember(modType, name);
-				if (init == null) continue;
+				var init = BindModuleMember(modType, impName);
+				if (init == null)
+				{
+					// Not bindable as an import here. Only an error if the module truly has no such member;
+					// otherwise leave the name to normal global resolution, as before this validation existed.
+					if (!BuiltinModuleHasMember(modType, impName))
+						Diag($"{d.Line}:{d.Column}: #Import: module '{modName}' has no exported member named '{impName}'");
+					continue;
+				}
 				_fields[lower] = NameMangler.Escape(lower);
 				_fieldDecls.Add(ObjField(NameMangler.Escape(lower), init));
 			}
@@ -765,13 +779,35 @@ namespace Keysharp.Parsing.Syntax
 		private ExpressionSyntax BindModuleMember(Type modType, string name)
 		{
 			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
-			var method = modType.GetMethods(flags).FirstOrDefault(mi => !mi.IsSpecialName && mi.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase));
+			// Match on the AHK-visible name (a [UserDeclaredName], e.g. `Image` for the CLR type KeysharpImage)
+			// as well as the raw CLR name — mirroring how Reflections keys every other built-in member. Without
+			// the user-declared name, a member exposed under a different script name (Image, …) would not resolve.
+			bool Matches(System.Reflection.MemberInfo m) =>
+				(Script.GetUserDeclaredName(m) ?? m.Name).Equals(name, System.StringComparison.OrdinalIgnoreCase)
+				|| m.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase);
+			var method = modType.GetMethods(flags).FirstOrDefault(mi => !mi.IsSpecialName && Matches(mi));
 			if (method != null) return FuncBind(method.DeclaringType.FullName.Replace('+', '.') + "." + method.Name);
-			var nested = modType.GetNestedTypes(System.Reflection.BindingFlags.Public).FirstOrDefault(t => t.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase));
+			var nested = modType.GetNestedTypes(System.Reflection.BindingFlags.Public).FirstOrDefault(Matches);
 			if (nested != null) return TypeSingleton(nested.FullName.Replace('+', '.'));
-			var prop = modType.GetProperties(flags).FirstOrDefault(p => p.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase));
+			var prop = modType.GetProperties(flags).FirstOrDefault(Matches);
 			if (prop != null) return Access(prop.DeclaringType.FullName.Replace('+', '.') + "." + prop.Name);
 			return null;
+		}
+
+		// Whether a built-in module type exposes `name` as ANY public static member — method, nested type,
+		// property or field — under its AHK-visible (UserDeclaredName) or CLR name. Deliberately broader than
+		// what BindModuleMember can bind, so import validation only rejects a name the module genuinely does not
+		// define (a member it can't bind here still resolves through normal global lookup, as it did before).
+		private static bool BuiltinModuleHasMember(Type modType, string name)
+		{
+			const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.FlattenHierarchy;
+			bool M(System.Reflection.MemberInfo m) =>
+				(Script.GetUserDeclaredName(m) ?? m.Name).Equals(name, System.StringComparison.OrdinalIgnoreCase)
+				|| m.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase);
+			return modType.GetMethods(flags).Any(mi => !mi.IsSpecialName && M(mi))
+				|| modType.GetNestedTypes(System.Reflection.BindingFlags.Public).Any(M)
+				|| modType.GetProperties(flags).Any(M)
+				|| modType.GetFields(flags).Any(M);
 		}
 
 		// A type from `stringToTypes` is an AHK-visible class only if it derives from `Keysharp.Builtins.Any`

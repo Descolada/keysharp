@@ -235,6 +235,7 @@ namespace Keysharp.Internals.Platform.Windows
 		internal const int HOTKEYF_ALT = 0x04;
 
 		internal const int WS_EX_LAYERED = 0x80000;
+		internal const int WS_EX_TRANSPARENT = 0x20;
 		internal const int WS_EX_TOPMOST = 8;
 		internal const int WS_EX_NOACTIVATE = 0x08000000;
 		internal const int WS_EX_TOOLWINDOW = 0x00000080;

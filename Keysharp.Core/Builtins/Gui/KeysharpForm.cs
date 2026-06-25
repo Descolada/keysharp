@@ -16,6 +16,7 @@ namespace Keysharp.Builtins
 		private readonly int addStyle, addExStyle, removeStyle, removeExStyle;
 		internal bool beenShown = false;
 		internal bool beenConstructed = false;
+		internal bool clickThrough;
 		private bool closingFromDestroy;
 		private nint originalWndProcPtr;
 		internal bool BeenShown => beenShown;
@@ -319,8 +320,53 @@ namespace Keysharp.Builtins
 				beenShown = true;
 #if !WINDOWS
 				_ = this.Handle;
+				// The GTK input shape needs a realized GdkWindow, which only exists once the window has
+				// been shown, so (re)apply any requested click-through here.
+				if (clickThrough)
+					Eto.Forms.EtoExtensions.SetFormClickThrough(this, true);
 #endif
 			};
+		}
+
+		// Makes the whole window transparent to mouse input so clicks pass through to whatever is beneath
+		// it. Combine with a transparent background (e.g. WinSetTransColor on Windows) for a visible but
+		// non-interactive overlay such as a region highlight. Exposed to scripts as the Gui
+		// "+ClickThrough" / "-ClickThrough" option.
+		internal void SetClickThrough(bool enable)
+		{
+			clickThrough = enable;
+#if WINDOWS
+			if (!IsHandleCreated)
+				_ = Handle;
+
+			var ex = WindowsAPI.GetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE).ToInt64();
+
+			if (enable)
+			{
+				// WS_EX_LAYERED keeps the window composited so the DWM hit-tests transparent pixels
+				// correctly; WS_EX_TRANSPARENT passes the mouse through. Together they are the standard
+				// click-through overlay recipe.
+				var wasLayered = (ex & WindowsAPI.WS_EX_LAYERED) != 0;
+				_ = WindowsAPI.SetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE,
+						new nint(ex | WindowsAPI.WS_EX_LAYERED | WindowsAPI.WS_EX_TRANSPARENT));
+
+				// Turning on WS_EX_LAYERED for a window with no layered attributes leaves it blank, so seed
+				// it fully opaque; a later WinSetTransColor/WinSetTransparent overrides this.
+				if (!wasLayered)
+					_ = WindowsAPI.SetLayeredWindowAttributes(Handle, 0, 255, (uint)WindowsAPI.LWA_ALPHA);
+			}
+			else
+			{
+				// Only drop WS_EX_TRANSPARENT; leave WS_EX_LAYERED intact so any transparency applied via
+				// WinSetTransColor/WinSetTransparent keeps working.
+				_ = WindowsAPI.SetWindowLongPtr(Handle, WindowsAPI.GWL_EXSTYLE,
+						new nint(ex & ~(long)WindowsAPI.WS_EX_TRANSPARENT));
+			}
+#else
+			// Eto exposes no cross-platform click-through option, so reach the native window. The GTK
+			// input shape only exists once the window is realized, so this is also reapplied from Shown.
+			Eto.Forms.EtoExtensions.SetFormClickThrough(this, enable);
+#endif
 		}
 
 		internal bool RemoveOwnedHandlers(ScriptEventScheduler scheduler)

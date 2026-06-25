@@ -160,6 +160,40 @@ namespace Eto.Forms
         private static extern IntPtr gdk_x11_window_get_xid(IntPtr window);
 #endif
 
+        // Makes a window transparent to mouse input (clicks pass through to whatever is beneath it).
+        // Eto has no cross-platform option for this, so the native window is reached per backend:
+        //   - macOS:     NSWindow.IgnoresMouseEvents
+        //   - Linux/GTK: an empty GDK input-shape region (passing null restores normal input handling)
+        // Called by KeysharpForm.SetClickThrough, and reapplied from the form's Shown handler because the
+        // GTK input shape needs a realized GdkWindow. Unverified on Linux/macOS hosts.
+        internal static void SetFormClickThrough(Form form, bool enable)
+        {
+            if (form == null)
+                return;
+
+            try
+            {
+#if OSX
+                if (form.ControlObject is MonoMac.AppKit.NSWindow nsw)
+                    Application.Instance.Invoke(() => nsw.IgnoresMouseEvents = enable);
+#elif LINUX
+                if (form.ToNative() is Gtk.Window gtkWin && gtkWin.Window is Gdk.Window gdkWin)
+                {
+                    if (enable)
+                    {
+                        using var empty = new Cairo.Region();
+                        gdkWin.InputShapeCombineRegion(empty, 0, 0);
+                    }
+                    else
+                        gdkWin.InputShapeCombineRegion(null, 0, 0);
+                }
+#endif
+            }
+            catch
+            {
+            }
+        }
+
         extension(Eto.Widget widget)
         {
             internal nint Handle {

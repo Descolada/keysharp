@@ -134,6 +134,13 @@ namespace Keysharp.Builtins
 				}
 			},
 			{
+				// Makes the whole window transparent to mouse input — clicks pass through to whatever is
+				// beneath it. On Windows this adds WS_EX_LAYERED|WS_EX_TRANSPARENT; on Linux it sets an
+				// empty GTK input-shape region; on macOS it sets NSWindow.IgnoresMouseEvents. Pair with a
+				// transparent background (e.g. WinSetTransColor) for a hollow, click-through overlay.
+				"ClickThrough", (f, o) => { if (o is bool b) f.form.SetClickThrough(b); }
+			},
+			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
 			{

@@ -235,7 +235,7 @@ class OCR {
 
             strips := []
             Loop 4
-                strips.Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000"))
+                strips.Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
             Loop 4 {
                 i := A_Index
                 x1 := (i = 2 ? x + w : x - d)
@@ -731,13 +731,6 @@ class OCR {
         __LibHandle := 0        ; retained module handle (keeps the library pinned across calls)
         __DefaultDataPath := "" ; directory derived from the resolved library, used to find tessdata
 
-#if WINDOWS
-        SymDelim := "\"
-#endif
-#if !WINDOWS
-        SymDelim := "/"
-#endif
-
         __New(library := "", datapath := "") {
             if (library != "")
                 this.Library := library
@@ -796,7 +789,7 @@ class OCR {
             this.__EnsureLoaded()
             local dir := this.__TessdataDir(), langs := []
             if (dir != "")
-                Loop Files, dir this.SymDelim "*.traineddata"
+                Loop Files, dir "/" "*.traineddata"
                     langs.Push(StrReplace(A_LoopFileName, ".traineddata", ""))
             return langs
         }
@@ -807,12 +800,12 @@ class OCR {
             if (this.DataPath != "")
                 cands.Push(this.DataPath)
             if (this.__DefaultDataPath != "") {
-                cands.Push(this.__DefaultDataPath this.SymDelim "tessdata")
+                cands.Push(this.__DefaultDataPath "/" "tessdata")
                 cands.Push(this.__DefaultDataPath)
             }
             for d in cands
                 if (d != "")
-                    Loop Files, d this.SymDelim "*.traineddata"
+                    Loop Files, d "/" "*.traineddata"
                         return d   ; first candidate that contains at least one traineddata file
             return ""
         }
@@ -855,8 +848,8 @@ class OCR {
             return lines
         }
 
-        ; Builds the "lib<delim>function" string for DllCall.
-        __Sym(func) => this.__LibName this.SymDelim func
+        ; Builds the "lib/function" string for DllCall (DllCall accepts "/" as the separator on every platform).
+        __Sym(func) => this.__LibName "/" func
 
         ; UTF-8-encodes a string into a NUL-terminated Buffer for passing to a char* API. Tesseract's
         ; datapath/language are UTF-8; DllCall's "AStr" would encode as ASCII (mangling any non-ASCII
@@ -879,7 +872,7 @@ class OCR {
                 if !handle
                     continue
                 ok := false
-                try ok := DllCall(cand this.SymDelim "TessVersion", "Cdecl Ptr") != 0
+                try ok := DllCall(cand "/" "TessVersion", "Cdecl Ptr") != 0
                 if ok {
                     this.__LibHandle := handle
                     this.__LibName := cand
@@ -901,7 +894,7 @@ class OCR {
             if (datapath != "")
                 candidates.Push(datapath)
             else if (this.__DefaultDataPath != "") {
-                candidates.Push(this.__DefaultDataPath this.SymDelim "tessdata")
+                candidates.Push(this.__DefaultDataPath "/" "tessdata")
                 candidates.Push(this.__DefaultDataPath)
             }
             candidates.Push("")   ; "" -> NULL: fall back to TESSDATA_PREFIX / built-in default
@@ -930,20 +923,20 @@ class OCR {
             ; from the library's own folder. The returned handle is retained for the process lifetime,
             ; keeping the module pinned (DllCall reloads+frees by name each call; the retained ref
             ; prevents an unload that would dangle the TessBaseAPI handle).
-            local h := DllCall("kernel32\LoadLibraryExW", "WStr", path, "Ptr", 0, "UInt", 0x8, "Ptr")
+            local h := DllCall("kernel32/LoadLibraryExW", "WStr", path, "Ptr", 0, "UInt", 0x8, "Ptr")
             if !h
-                h := DllCall("kernel32\LoadLibraryW", "WStr", path, "Ptr")
+                h := DllCall("kernel32/LoadLibraryW", "WStr", path, "Ptr")
             return h
         }
-        __PlatformFree(handle) => DllCall("kernel32\FreeLibrary", "Ptr", handle)
+        __PlatformFree(handle) => DllCall("kernel32/FreeLibrary", "Ptr", handle)
 
         __LibraryCandidates() {
             local c := []
             if (this.Library != "")
                 c.Push(this.Library)
-            c.Push(A_ProgramFiles "\Tesseract-OCR\libtesseract-5.dll")
-            c.Push("C:\Program Files\Tesseract-OCR\libtesseract-5.dll")
-            c.Push("C:\Program Files (x86)\Tesseract-OCR\libtesseract-5.dll")
+            c.Push(A_ProgramFiles "/Tesseract-OCR/libtesseract-5.dll")
+            c.Push("C:/Program Files/Tesseract-OCR/libtesseract-5.dll")
+            c.Push("C:/Program Files (x86)/Tesseract-OCR/libtesseract-5.dll")
             c.Push("libtesseract-5.dll", "libtesseract-5")
             return c
         }
@@ -954,7 +947,7 @@ class OCR {
         __PlatformFree(handle) {
             local dl
             for dl in this.__DlLibs()
-                try return DllCall(dl this.SymDelim "dlclose", "Ptr", handle, "Cdecl Int")
+                try return DllCall(dl "/" "dlclose", "Ptr", handle, "Cdecl Int")
             return 0
         }
         __Dlopen(path) {
@@ -962,7 +955,7 @@ class OCR {
             ; RTLD_NOW (0x2) | RTLD_GLOBAL (0x100)
             for dl in this.__DlLibs() {
                 try {
-                    h := DllCall(dl this.SymDelim "dlopen", "AStr", path, "Int", 0x102, "Cdecl Ptr")
+                    h := DllCall(dl "/" "dlopen", "AStr", path, "Int", 0x102, "Cdecl Ptr")
                     if h
                         return h
                 }

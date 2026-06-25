@@ -1029,8 +1029,8 @@ namespace Keyview
 		private readonly Button copyFullCodeButton = new () { Text = "Copy full code" };
 		private readonly Button runScriptButton = new () { Text = "▶ Run script (F9)" };
 		private readonly Button compileScriptButton = new () { Text = "Compile .cks" };
-		private readonly Label codeStatusLabel = new () { Text = "" };
-		private readonly Label documentStatusLabel = new () { Text = "" };
+		private readonly Label codeStatusLabel = new () { Text = "", Wrap = WrapMode.None };
+		private readonly Label documentStatusLabel = new () { Text = "", Wrap = WrapMode.None };
 		private readonly Panel searchPanel = new ();
 		private readonly ButtonMenuItem undoMenuItem = new () { Text = "&Undo" };
 		private readonly ButtonMenuItem redoMenuItem = new () { Text = "&Redo" };
@@ -1335,7 +1335,7 @@ namespace Keyview
 				{
 					documentStatusLabel,
 					new StackLayoutItem(new Panel()) { Expand = true },
-					new Label { Text = "Code compile:" },
+					new Label { Text = "Code compile:", Wrap = WrapMode.None },
 					codeStatusLabel,
 					fullCodeCheck,
 					copyFullCodeButton,

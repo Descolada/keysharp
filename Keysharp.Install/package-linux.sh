@@ -96,11 +96,20 @@ build_native_helpers() {
 
 relocate_library_scripts() {
   # The .cks (compiled) form stays in Scripts so the tray menu can launch it as
-  # an inspector, while the .ks (source) form moves to lib/ so #include <AtSpi>
-  # resolves it as the standard library copy.
+  # an inspector, while the .ks (source) form moves to Lib/ so #include <AtSpi>
+  # resolves it as the standard library copy. The folder is capital "Lib" to match
+  # the include resolver (it searches "<exeDir>/Lib"); the case matters on Linux's
+  # case-sensitive filesystem.
   if [[ -f "${APP_DIR}/Scripts/AtSpi.ks" ]]; then
-    mkdir -p "${APP_DIR}/lib"
-    mv "${APP_DIR}/Scripts/AtSpi.ks" "${APP_DIR}/lib/AtSpi.ks"
+    mkdir -p "${APP_DIR}/Lib"
+    mv "${APP_DIR}/Scripts/AtSpi.ks" "${APP_DIR}/Lib/AtSpi.ks"
+  fi
+
+  # OCR.ks is a pure library (no inspector/entry point and no .cks), so it moves
+  # to Lib/ entirely so #include <OCR> resolves it; nothing stays in Scripts.
+  if [[ -f "${APP_DIR}/Scripts/OCR.ks" ]]; then
+    mkdir -p "${APP_DIR}/Lib"
+    mv "${APP_DIR}/Scripts/OCR.ks" "${APP_DIR}/Lib/OCR.ks"
   fi
 }
 

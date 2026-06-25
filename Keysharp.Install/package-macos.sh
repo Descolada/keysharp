@@ -374,12 +374,19 @@ relocate_library_scripts() {
   local app="$1"
 
   # The .cks (compiled) form stays in Scripts so the tray menu can launch it as
-  # an inspector, while the .ks (source) form moves to lib/ so #include <Ax>
-  # resolves it as the standard library copy.
+  # an inspector, while the .ks (source) form moves to Lib/ so #include <Ax>
+  # resolves it as the standard library copy. The folder is capital "Lib" to match
+  # the include resolver (it searches "<exeDir>/Lib").
   for dir in "${app}/Contents/MacOS" "${app}/Contents/Resources"; do
     if [[ -f "${dir}/Scripts/Ax.ks" ]]; then
-      mkdir -p "${dir}/lib"
-      mv "${dir}/Scripts/Ax.ks" "${dir}/lib/Ax.ks"
+      mkdir -p "${dir}/Lib"
+      mv "${dir}/Scripts/Ax.ks" "${dir}/Lib/Ax.ks"
+    fi
+    # OCR.ks is a pure library (no inspector/entry point and no .cks), so it moves
+    # to Lib/ entirely so #include <OCR> resolves it; nothing stays in Scripts.
+    if [[ -f "${dir}/Scripts/OCR.ks" ]]; then
+      mkdir -p "${dir}/Lib"
+      mv "${dir}/Scripts/OCR.ks" "${dir}/Lib/OCR.ks"
     fi
   done
 }

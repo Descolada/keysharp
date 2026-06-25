@@ -252,6 +252,23 @@ function Normalize-NativeAssets {
 	Remove-Item -Path $tempNativeDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Relocate-LibraryScripts {
+    param([string] $AppRoot)
+
+    # OCR.ks is a pure "#include <OCR>" library (no entry point, no .cks), so it ships in Lib\ rather than
+    # Scripts\ so the library-include resolver finds it. WindowSpy.ks/.cks stay in Scripts\ (an app, not a
+    # library). This must run before the MSI build: the vdproj references app\Lib\OCR.ks, and the zip is
+    # produced from this same staged tree.
+    $scriptsOcr = Join-Path $AppRoot "Scripts\OCR.ks"
+    if (Test-Path $scriptsOcr) {
+        $libDir = Join-Path $AppRoot "Lib"
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+        Move-Item -Path $scriptsOcr -Destination (Join-Path $libDir "OCR.ks") -Force
+    }
+    # Defensive: OCR is never precompiled, so a stray OCR.cks must not ship.
+    Remove-Item -Path (Join-Path $AppRoot "Scripts\OCR.cks") -Force -ErrorAction SilentlyContinue
+}
+
 function Compress-WindowsPackage {
     param(
         [string] $SourceRoot,
@@ -496,6 +513,7 @@ try {
     Copy-DirectoryContents (Join-Path $publishRoot "Keyview") $appDir
     Copy-DirectoryContents (Join-Path $publishRoot "Keysharp") $appDir
     Normalize-NativeAssets $appDir
+    Relocate-LibraryScripts $appDir
 
     $localPathPatterns = @($root)
     if ($env:USERPROFILE) {

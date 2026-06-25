@@ -1051,6 +1051,26 @@
             "IsDependency" = "11:FALSE"
             "IsolateTo" = "8:"
             }
+            "{1FB2D0AE-D3B9-43D4-B9DD-F88EC61E35DE}:_D9C3F5E4EBF26C8DAB3F4E5D6C7B8A9A"
+            {
+            "SourcePath" = "8:..\\dist\\staging\\win-x64\\Keysharp-win-x64\\app\\Lib\\OCR.ks"
+            "TargetName" = "8:OCR.ks"
+            "Tag" = "8:"
+            "Folder" = "8:_B7A1F3E2C9D04A6B8F1E2D3C4B5A6978"
+            "Condition" = "8:"
+            "Transitive" = "11:FALSE"
+            "Vital" = "11:TRUE"
+            "ReadOnly" = "11:TRUE"
+            "Hidden" = "11:FALSE"
+            "System" = "11:FALSE"
+            "Permanent" = "11:FALSE"
+            "SharedLegacy" = "11:FALSE"
+            "PackageAs" = "3:1"
+            "Register" = "3:1"
+            "Exclude" = "11:FALSE"
+            "IsDependency" = "11:FALSE"
+            "IsolateTo" = "8:"
+            }
             "{9F6F8455-1EF1-4B85-886A-4223BCC8E7F7}:_5B0351C08F088E7E4A664351DF999C1A"
             {
             "AssemblyRegister" = "3:1"
@@ -1902,6 +1922,17 @@
                     "Condition" = "8:"
                     "Transitive" = "11:FALSE"
                     "Property" = "8:_710D47157EDB404E84EF1A1E14E8A28E"
+                        "Folders"
+                        {
+                        }
+                    }
+                    "{9EF0B969-E518-4E46-987F-47570745A589}:_B7A1F3E2C9D04A6B8F1E2D3C4B5A6978"
+                    {
+                    "Name" = "8:Lib"
+                    "AlwaysCreate" = "11:FALSE"
+                    "Condition" = "8:"
+                    "Transitive" = "11:FALSE"
+                    "Property" = "8:_C8B2E4F3DAE15B7C9A2F3E4D5C6B7A89"
                         "Folders"
                         {
                         }

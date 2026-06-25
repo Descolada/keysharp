@@ -79,6 +79,10 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
+		<Content Include="Scripts\OCR.ks">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 		<Content Include="Scripts\AtSpi.ks" Condition="$([MSBuild]::IsOSPlatform('Linux'))">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -136,6 +140,9 @@
 			<_KsHost Condition="!$([MSBuild]::IsOSPlatform('Windows'))">$(PublishDir)Keysharp</_KsHost>
 		</PropertyGroup>
 		<ItemGroup>
+			<!-- Only launchable inspector scripts are precompiled. OCR.ks is deliberately NOT here: it is a
+			     pure #include <OCR> library (no entry point), so it has no .cks and the packagers relocate it
+			     into the Lib folder rather than leaving it in Scripts. -->
 			<_BundledScript Include="$(PublishDir)Scripts\WindowSpy.ks" Condition="Exists('$(PublishDir)Scripts\WindowSpy.ks')" />
 			<_BundledScript Include="$(PublishDir)Scripts\AtSpi.ks" Condition="Exists('$(PublishDir)Scripts\AtSpi.ks')" />
 			<_BundledScript Include="$(PublishDir)Scripts\Ax.ks" Condition="Exists('$(PublishDir)Scripts\Ax.ks')" />

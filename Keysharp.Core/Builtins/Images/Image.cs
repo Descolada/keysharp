@@ -441,9 +441,137 @@ namespace Keysharp.Builtins
 				}
 			}
 
+			/// <summary>
+			/// Materializes the image and copies its pixels into a freshly allocated <see cref="Buffer"/>,
+			/// tightly packed and top-down (row stride = <c>Width * bytesPerPixel</c>), ready to hand to a
+			/// native imaging/OCR library through DllCall (e.g. Tesseract's <c>SetImage</c>).
+			/// <paramref name="bytesPerPixel"/> selects the layout:
+			/// <list type="bullet">
+			///   <item><c>1</c> (default): 8-bit grayscale, one luminance byte per pixel
+			///   (<c>0.30 R + 0.59 G + 0.11 B</c>). Unambiguous across byte orders — this is what
+			///   Tesseract expects for <c>bytes_per_pixel = 1</c>, and what OCR engines threshold anyway.</item>
+			///   <item><c>4</c>: 32-bit color in R, G, B, A byte order (the layout Leptonica/Tesseract use
+			///   for <c>bytes_per_pixel = 4</c>), preserving color and alpha.</item>
+			/// </list>
+			/// The returned Buffer owns its memory; keep a reference to it for as long as the native side
+			/// reads from <c>buf.Ptr</c>. The pixel dimensions are this image's <see cref="Width"/>/<see cref="Height"/>.
+			/// </summary>
+			public object GetPixelData(object bytesPerPixel = null)
+			{
+				var bpp = (int)(bytesPerPixel == null ? 1L : bytesPerPixel.Al());
+
+				if (bpp != 1 && bpp != 4)
+					return Errors.ValueErrorOccurred("GetPixelData supports only 1 (grayscale) or 4 (RGBA) bytes per pixel.");
+
+				var bmp = Materialize();
+
+				if (bmp == null)
+					return Errors.ValueErrorOccurred("There is no image to read.");
+
+				int w = bmp.Width, h = bmp.Height;
+				var argb = ReadArgb(bmp);
+				var buf = new Buffer((long)w * h * bpp);
+
+				unsafe
+				{
+					var dst = (byte*)buf.Ptr;
+
+					if (bpp == 1)
+					{
+						for (var i = 0; i < argb.Length; i++)
+						{
+							var p = argb[i];
+							uint r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+							dst[i] = (byte)((r * 77 + g * 150 + b * 29) >> 8);
+						}
+					}
+					else
+					{
+						for (var i = 0; i < argb.Length; i++)
+						{
+							var p = argb[i];
+							var o = i * 4;
+							dst[o]     = (byte)((p >> 16) & 0xFF); // R
+							dst[o + 1] = (byte)((p >> 8) & 0xFF);  // G
+							dst[o + 2] = (byte)(p & 0xFF);         // B
+							dst[o + 3] = (byte)((p >> 24) & 0xFF); // A
+						}
+					}
+				}
+
+				return buf;
+			}
+
 			#endregion
 
 			#region Internals
+
+			// Copies a bitmap's pixels into a flat, top-down array of 0xAARRGGBB values. Mirrors the
+			// cross-platform lock pattern used by ImageFinder so the two stay consistent.
+			private static uint[] ReadArgb(Bitmap bmp)
+			{
+				int w = bmp.Width, h = bmp.Height;
+				var pixels = new uint[w * h];
+#if WINDOWS
+				var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+
+				try
+				{
+					unsafe
+					{
+						var basePtr = (byte*)data.Scan0;
+
+						for (var y = 0; y < h; y++)
+						{
+							// Format32bppArgb stores BGRA in memory, so a little-endian uint read yields 0xAARRGGBB.
+							var row = (uint*)(basePtr + (nint)y * data.Stride);
+							var dst = y * w;
+
+							for (var x = 0; x < w; x++)
+								pixels[dst + x] = row[x];
+						}
+					}
+				}
+				finally
+				{
+					bmp.UnlockBits(data);
+				}
+
+#else
+				// Force 32bpp first so the 4-byte reads are valid (Pixbuf is 3bpp for 24-bit images) and
+				// so premultiplied backends see A=255, making the translate lossless.
+				var bmp32 = ImageHelper.EnsureOpaque32Bpp(bmp);
+
+				try
+				{
+					using var data = bmp32.Lock();
+
+					unsafe
+					{
+						var basePtr = (byte*)data.Data;
+						var stride = data.ScanWidth;
+						var srcBpp = data.BytesPerPixel;
+
+						for (var y = 0; y < h; y++)
+						{
+							var row = basePtr + (long)y * stride;
+							var dst = y * w;
+
+							// TranslateDataToArgb handles the backend's channel order (Gtk RGBA vs Cocoa BGRA).
+							for (var x = 0; x < w; x++)
+								pixels[dst + x] = (uint)data.TranslateDataToArgb(*(int*)(row + x * srcBpp));
+						}
+					}
+				}
+				finally
+				{
+					if (!ReferenceEquals(bmp32, bmp))
+						bmp32.Dispose();
+				}
+
+#endif
+				return pixels;
+			}
 
 			// Captures a screen rectangle and wraps it, recording the HiDPI capture scale. Coordinates
 			// are always absolute screen coordinates; the Pixel CoordMode is deliberately not applied

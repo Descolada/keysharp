@@ -59,7 +59,6 @@ class AtSpi {
     static LibAtSpi  := "libatspi"
     static LibGlib   := "libglib-2.0.so.0"
     static LibGObj   := "libgobject-2.0.so.0"
-    static SymDelim  := "/"
     /**
      * Maximum depth for recursive viewer/tree operations.
      */
@@ -2947,7 +2946,7 @@ class AtSpi {
             if !IsSet(loc) || !IsObject(loc) || loc.w < 1 || loc.h < 1 || loc.x == -2147483648 || loc.y == -2147483648
                 return this
             Loop 4
-                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000"))
+                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
             Loop 4 {
                 i := A_Index
                 x1 := (i=2 ? loc.x+loc.w : loc.x-d)

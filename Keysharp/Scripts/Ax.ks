@@ -68,7 +68,6 @@ class Ax {
     static LibCF := "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
     static LibCG := "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
     static LibSystem := "/usr/lib/libSystem.B.dylib"
-    static SymDelim := "/"
 
     static kCFStringEncodingUTF8 := 0x08000100
     static kCFNumberSInt32Type := 3
@@ -538,7 +537,7 @@ class Ax {
     static __ObserverId := 0
     static __ObserverCallbackPtr := 0
 
-    static __Sym(lib, sym) => lib . this.SymDelim . sym
+    static __Sym(lib, sym) => lib . "/" . sym
 
     static __Dlopen(lib) {
         if this.__DlopenCache.Has(lib)
@@ -2413,7 +2412,7 @@ class Ax {
                 return this
             try {
                 Loop 4
-                    Ax.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000"))
+                    Ax.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
                 Loop 4 {
                     i := A_Index
                     x1 := (i=2 ? loc.x+loc.w : loc.x-d)

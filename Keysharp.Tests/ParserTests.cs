@@ -28,6 +28,36 @@ namespace Keysharp.Tests
 			Assert.AreEqual("(- (+ 2 3) 4)", Ast("2 + 3 - 4"));   // additive is left-assoc
 		}
 
+		// #include is processed for in-memory source only when an include base directory is supplied. Keyview
+		// compiles the live editor text (no script path), so it now passes the open document's directory; without
+		// it (includeDir == null) include resolution is disabled and the included content is silently absent.
+		[Test, Category("Directives")]
+		public void IncludeProcessedForInMemorySourceWhenIncludeDirProvided()
+		{
+			var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks_inc_test_" + System.Guid.NewGuid().ToString("N"));
+			_ = System.IO.Directory.CreateDirectory(dir);
+
+			try
+			{
+				var incPath = System.IO.Path.Combine(dir, "IncMe.ks");
+				System.IO.File.WriteAllText(incPath, "class IncMe {\n}\n");
+				var source = $"#include \"{incPath}\"\nx := 1\n";
+
+				var pWith = new KP.Parser(KL.Lexer.Tokenize(source), dir);
+				var astWith = KP.AstPrinter.Print(pWith.ParseProgram());
+				Assert.IsTrue(pWith.Diagnostics.Count == 0, "unexpected diagnostics: " + string.Join("; ", pWith.Diagnostics));
+				Assert.IsTrue(astWith.Contains("IncMe"), "included class should be present when includeDir is supplied");
+
+				var pNone = new KP.Parser(KL.Lexer.Tokenize(source), null);
+				var astNone = KP.AstPrinter.Print(pNone.ParseProgram());
+				Assert.IsFalse(astNone.Contains("IncMe"), "include should be skipped when includeDir is null");
+			}
+			finally
+			{
+				try { System.IO.Directory.Delete(dir, true); } catch { }
+			}
+		}
+
 		[Test, Category("Parser")]
 		public void PowerIsRightAssociativeAndBindsTighterThanUnaryMinus()
 		{

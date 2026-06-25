@@ -970,7 +970,9 @@ namespace Keysharp.Parsing.Syntax
 		{
 			Advance(); // throw
 			if (At(TokenKind.Newline) || At(TokenKind.EOF) || At(TokenKind.RBrace)) return new ThrowStmt(null);
-			return new ThrowStmt(ParseExpression(1));
+			var tvalue = ParseExpression(1);
+			RejectMultiParam("Throw");
+			return new ThrowStmt(tvalue);
 		}
 
 		private Stmt ParseReturn()
@@ -978,7 +980,19 @@ namespace Keysharp.Parsing.Syntax
 			Advance();
 			if (At(TokenKind.Newline) || At(TokenKind.EOF) || At(TokenKind.RBrace))
 				return new ReturnStmt(null);
-			return new ReturnStmt(ParseExpression(1));
+			var rvalue = ParseExpression(1);
+			RejectMultiParam("Return");
+			return new ReturnStmt(rvalue);
+		}
+
+		// `return a, b` / `throw a, b` is invalid — both accept a single expression. AHK rejects it with
+		// "Return/Throw accepts at most 1 parameter."; without this guard the trailing comma is silently
+		// re-parsed as a following statement, which (when the file is #included) swallows the code after it.
+		// Parenthesize to pass a comma expression as one value: `return (a, b)`.
+		private void RejectMultiParam(string keyword)
+		{
+			if (At(TokenKind.Comma))
+				Error($"\"{keyword}\" accepts at most 1 parameter.");
 		}
 
 		// Optional `break`/`continue` target on the same line: a loop level (number) or a source label name.

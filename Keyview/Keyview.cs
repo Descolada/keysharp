@@ -770,6 +770,7 @@ namespace Keyview
 				{
 					await KeyviewCompilerRunner.RunCompile(
 						txtIn.Text,
+						KeyviewCompilerRunner.IncludeDirFor(document),
 						ch,
 						code => fullCode = code,
 						code => trimmedCode = code,
@@ -2105,6 +2106,7 @@ namespace Keyview
 				{
 					await KeyviewCompilerRunner.RunCompile(
 						inputArea.Text,
+						KeyviewCompilerRunner.IncludeDirFor(document),
 						ch,
 						code => fullCode = code,
 						code => trimmedCode = code,
@@ -2266,8 +2268,16 @@ namespace Keyview
 
 	internal static class KeyviewCompilerRunner
 	{
+		// The base directory for resolving #include directives when compiling the live editor text (which has no
+		// script path of its own). Uses the open document's folder so relative, absolute and library (<Name>)
+		// includes all resolve as they would when the file is run directly; a never-saved scratch buffer falls
+		// back to the current working directory so includes (at least absolute ones) still work.
+		internal static string IncludeDirFor(KeyviewDocumentState document)
+			=> document.IsScratch ? Directory.GetCurrentDirectory() : Path.GetDirectoryName(document.CurrentFilePath);
+
 		internal static async Task RunCompile(
 			string inputText,
+			string includeDir,
 			CompilerHelper compiler,
 			Action<string> setFullCode,
 			Action<string> setTrimmedCode,
@@ -2297,7 +2307,7 @@ namespace Keyview
 				setStart?.Invoke();
 				setStatus?.Invoke("Creating DOM from script...");
 				refreshStatus?.Invoke();
-				var (unit, domerrs) = await Task.Run(() => compiler.CreateCompilationUnitFromFile(inputText)).ConfigureAwait(true);
+				var (unit, domerrs) = await Task.Run(() => compiler.CreateCompilationUnitFromFile(inputText, includeDirOverride: includeDir)).ConfigureAwait(true);
 
 				if (domerrs.HasErrors)
 				{

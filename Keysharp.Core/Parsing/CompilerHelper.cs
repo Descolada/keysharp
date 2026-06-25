@@ -648,7 +648,7 @@ using String = Keysharp.Builtins.String
 			script.Threads.EnsureCurrentThreadVariables();
 		}
 
-		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null, bool compileToFile = false)
+		public (CompilationUnitSyntax, CompilerErrorCollection) CreateCompilationUnitFromFile(string fileName, string name = null, bool compileToFile = false, string includeDirOverride = null)
 		{
 			CompilationUnitSyntax unit = null;
 			var errors = new CompilerErrorCollection();
@@ -688,7 +688,11 @@ using String = Keysharp.Builtins.String
 			try
 			{
 				var source = isFile ? File.ReadAllText(fileName, enc) : fileName;
-				var includeDir = isFile ? Path.GetDirectoryName(scriptPath) : null;
+				// For a real file the include base is its own directory. For in-memory source (e.g. Keyview
+				// compiling live editor text), there is no script path, so a caller can supply the directory of
+				// the document being edited via includeDirOverride; without it, #include resolution stays
+				// disabled (null) as before.
+				var includeDir = isFile ? Path.GetDirectoryName(scriptPath) : includeDirOverride;
 				var buildName = name ?? (isFile ? Path.GetFileNameWithoutExtension(scriptName) : "*");
 
 				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir);

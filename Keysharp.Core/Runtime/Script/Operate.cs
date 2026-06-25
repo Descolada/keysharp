@@ -884,16 +884,26 @@ namespace Keysharp.Runtime
 		// `%name%` read inside a deref function body: resolve through the function's reader, falling back to the
 		// module/global store when the name isn't one of the function's variables. `reader` is the cached per-function
 		// delegate (KS_r), so this also carries escaping `&%name%` references correctly.
+		// A VarRef operand (`r := &x` then `%r%`) dereferences the ref directly, per AHK v2 semantics.
 		public static object DerefGet(FuncScope.Reader reader, object name)
 		{
+			if (name is VarRef vr)
+				return vr.__Value;
+
 			var v = reader(name);
 			return ReferenceEquals(v, DerefMiss) ? TheScript.ModuleData.Vars[name] : v;
 		}
 
 		// `%name% := value` inside a deref function body; mirrors DerefGet's fallback. Returns value so it composes
-		// as an expression (e.g. `x := (%name% := v)`).
+		// as an expression (e.g. `x := (%name% := v)`). A VarRef operand writes through the ref (`%r% := v`).
 		public static object DerefSet(FuncScope.Writer writer, object name, object value)
 		{
+			if (name is VarRef vr)
+			{
+				vr.__Value = value;
+				return value;
+			}
+
 			if (ReferenceEquals(writer(name, value), DerefMiss))
 				TheScript.ModuleData.Vars[name] = value;
 			return value;

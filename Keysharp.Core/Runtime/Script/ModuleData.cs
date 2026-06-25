@@ -69,9 +69,13 @@ namespace Keysharp.Runtime
 		public object this[object key]
 		{
 			get => GetPropertyValueOrNull(key, "__Value") ?? Script.TheScript.Vars.GetVariable(moduleType, key.ToString()) ?? "";
-			set => _ = (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1)
-				? Script.SetPropertyValue(kso, "__Value", value)
-				: Script.TheScript.Vars.SetVariable(moduleType, key.ToString(), value);
+			// A VarRef (or any object exposing a settable __Value) is written through, symmetrically with the
+			// get above. VarRef derives from Any (not KeysharpObject), so it must be matched directly here.
+			set => _ = key is VarRef vr
+				? (vr.__Value = value)
+				: (key is KeysharpObject kso && Functions.HasProp(kso, "__Value") == 1)
+					? Script.SetPropertyValue(kso, "__Value", value)
+					: Script.TheScript.Vars.SetVariable(moduleType, key.ToString(), value);
 		}
 
 		public bool HasVariable(object key) => Script.TheScript.Vars.HasVariable(moduleType, key.ToString());

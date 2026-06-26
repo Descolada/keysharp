@@ -853,6 +853,9 @@ class OCR {
         __LibName := ""         ; resolved library path/name used as the DllCall prefix
         __LibHandle := 0        ; retained module handle (keeps the library pinned across calls)
         __DefaultDataPath := "" ; directory derived from the resolved library, used to find tessdata
+        __ApiHandle := 0        ; cached, initialized TessBaseAPI handle reused across Recognize calls (0 = none)
+        __ApiLang := ""         ; language the cached handle was initialized for
+        __ApiData := ""         ; datapath the cached handle was initialized for
 
         __New(library := "", datapath := "") {
             if (library != "")
@@ -881,23 +884,52 @@ class OCR {
             ; 8-bit grayscale, tightly packed and top-down: exactly what Tesseract wants for
             ; bytes_per_pixel=1. The buffer stays in scope until SetImage has copied it.
             buf := image.GetPixelData(1)
-            this.__EnsureLoaded()
-            handle := DllCall(this.__Sym("TessBaseAPICreate"), "Cdecl Ptr")
-            if !handle
-                throw Error("Failed to create a Tesseract engine instance.", -1)
+            handle := this.__GetApi(datapath, lang)   ; cached + already initialized for (lang, datapath)
             try {
-                this.__InitLanguage(handle, datapath, lang)
                 DllCall(this.__Sym("TessBaseAPISetImage"), "Ptr", handle, "Ptr", buf.Ptr, "Int", w, "Int", h, "Int", 1, "Int", w, "Cdecl")
                 DllCall(this.__Sym("TessBaseAPISetSourceResolution"), "Ptr", handle, "Int", this.SourceResolution, "Cdecl")
                 if (DllCall(this.__Sym("TessBaseAPIRecognize"), "Ptr", handle, "Ptr", 0, "Cdecl Int") != 0)
                     throw Error("Tesseract failed to recognize the image.", -1)
                 lines := this.__BuildLines(handle)
             } finally {
-                DllCall(this.__Sym("TessBaseAPIEnd"), "Ptr", handle, "Cdecl")
-                DllCall(this.__Sym("TessBaseAPIDelete"), "Ptr", handle, "Cdecl")
+                ; Release this image's pixels/results but KEEP the initialized engine for the next call:
+                ; re-initializing per image (TessBaseAPIInit3 reloads the language model from disk) was the
+                ; dominant per-call cost in a highlight->OCR loop.
+                DllCall(this.__Sym("TessBaseAPIClear"), "Ptr", handle, "Cdecl")
             }
             return lines
         }
+
+        ; Returns a Tesseract API handle initialized for (lang, datapath), creating it on first use and
+        ; re-initializing only when the language or datapath changes. Retained across calls so the expensive
+        ; language-model load (TessBaseAPIInit3) happens once instead of per image. The library itself is
+        ; loaded and pinned by __EnsureLoaded.
+        __GetApi(datapath, lang) {
+            local handle
+            this.__EnsureLoaded()
+            if (this.__ApiHandle && this.__ApiLang == lang && this.__ApiData == datapath)
+                return this.__ApiHandle
+            this.__FreeApi()   ; tear down a handle initialized for a different language/datapath
+            handle := DllCall(this.__Sym("TessBaseAPICreate"), "Cdecl Ptr")
+            if !handle
+                throw Error("Failed to create a Tesseract engine instance.", -1)
+            this.__InitLanguage(handle, datapath, lang)
+            this.__ApiHandle := handle, this.__ApiLang := lang, this.__ApiData := datapath
+            return handle
+        }
+
+        ; Ends and deletes the cached engine handle, if any. Called when the language/datapath changes and
+        ; from __Delete; safe to call when no handle exists.
+        __FreeApi() {
+            if (this.__ApiHandle) {
+                try DllCall(this.__Sym("TessBaseAPIEnd"), "Ptr", this.__ApiHandle, "Cdecl")
+                try DllCall(this.__Sym("TessBaseAPIDelete"), "Ptr", this.__ApiHandle, "Cdecl")
+                this.__ApiHandle := 0, this.__ApiLang := "", this.__ApiData := ""
+            }
+        }
+
+        ; Frees the retained Tesseract engine when this object is collected/destroyed.
+        __Delete() => this.__FreeApi()
 
         ; Returns the Tesseract version string (also a quick way to confirm the library loaded).
         GetVersion() {

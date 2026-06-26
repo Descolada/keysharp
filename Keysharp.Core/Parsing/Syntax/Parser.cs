@@ -140,8 +140,10 @@ namespace Keysharp.Parsing.Syntax
 			{
 				if (!first && Current.LeadingWhitespace) break;   // only adjacent parts continue the name
 				Expr part;
-				if (At(TokenKind.Percent))
-				{   // inside %…% a bare '%' is the closing delimiter, not modulo — guard with _inDerefInner.
+				if (At(TokenKind.Percent) && !_inDerefInner)
+				{   // a bare '%' opens a deref part — but ONLY at the top level. When we are already parsing the inner
+					// expr of an enclosing %…% (e.g. the `a.b` in `obj.%a.b%`), a '%' is that deref's CLOSING delimiter,
+					// not the start of a nested one, so we must leave it for the caller (mirrors ParsePrimary line ~1584).
 					Advance();
 					var savedDeref = _inDerefInner; _inDerefInner = true;
 					part = ParseExpression(1);
@@ -153,7 +155,7 @@ namespace Keysharp.Parsing.Syntax
 				else break;
 				nameExpr = nameExpr == null ? part : new BinaryExpr(".", nameExpr, part);
 				first = false;
-				if (Current.LeadingWhitespace || !(At(TokenKind.Identifier) || At(TokenKind.Number) || At(TokenKind.Percent))) break;
+				if (Current.LeadingWhitespace || !(At(TokenKind.Identifier) || At(TokenKind.Number) || (At(TokenKind.Percent) && !_inDerefInner))) break;
 			}
 			if (nameExpr == null) { Error($"expected a member name in member access but found {Got()}"); return new MemberExpr(target, "«error»", nullConditional); }
 			return dynamic ? new DynMemberExpr(target, nameExpr, nullConditional) : new MemberExpr(target, firstStatic, nullConditional);

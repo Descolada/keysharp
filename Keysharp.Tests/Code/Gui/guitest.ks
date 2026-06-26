@@ -1,4 +1,6 @@
 #import "Ks" { * }
+; OCR library (cross-platform). Relative path from Code/Gui to Keysharp/Scripts.
+#include ../../../Keysharp/Scripts/OCR.ks
 If (FileExist(A_Desktop . "/MyScreenClip.png"))
 	FileDelete(A_Desktop . "/MyScreenClip.png")
 
@@ -16,6 +18,37 @@ Gui2 := ""
 ; └───────────┘
 
 global gb3Hwnd, gui2StyleButtonHwnd
+
+; --- Globals for the merged manual-suite probes (input / window-capture / clipboard / OCR / WinEvent + shared log) ---
+global gLogEdit := ""
+global gLogText := ""
+global gStatus := Map()
+global gSendTarget := ""
+global gHotstringTarget := ""
+global gInputHookExpected := ""
+global gInputHookActual := ""
+global gWindowTitleEdit := ""
+global gWindowInfoEdit := ""
+global gClipboardTextEdit := ""
+global gOcrResultEdit := ""
+global gClipboardMonitorEnabled := false
+global gClipboardChangeCount := 0
+global gClipboardClipWaitRunning := false
+global gClipboardDelayedPayload := ""
+global gHotkeyHitCount := 0
+global gHotstringHitCount := 0
+global gInputHookObj := ""
+global gInputHookLastText := ""
+global gInputHookLastReason := ""
+global gWinEventHooks := []
+global gWinEventCount := 0
+global gWinEventMoveCount := 0
+global gMouseHookObj := ""
+global gMouseDownCount := 0
+global gMouseUpCount := 0
+global gMouseMoveCount := 0
+global gPixelAssetPath := A_ScriptDir "/killbill.png"
+global pixelSwatch := ""
 
 winposx := ""
 winposy := ""
@@ -82,9 +115,9 @@ MySB := MyGui.Add("StatusBar", "h36", "                       ")
 ; │  Start TAB  │
 ; └─────────────┘
 
-Tab := MyGui.Add("Tab3", , ["First","Second","Third", "GroupBoxes", "ControlZoo", "Send && Hotkey", "Dll && COM", "Sound"])
+Tab := MyGui.Add("Tab3", , ["Lists, Menus & Styles", "Edits & Messages", "Pickers & Sliders", "ControlZoo", "Send && Hotkey", "Dll && COM", "Image", "Windows", "Clipboard", "Sound"])
 
-Tab.UseTab("First")
+Tab.UseTab("Lists, Menus & Styles")
 
 ; ┌──────────────────────┐
 ; │  Create the window:  │
@@ -121,7 +154,7 @@ bgBtn2.OnEvent("Click", "RestoreBG")
 ; │  GroupBox test  │
 ; └─────────────────┘
 
-gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325 h815", "Tab One - Group One") ;
+gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325 h420", "Tab One - Group One") ;
 MyGui.UseGroup(gb1_TabOne)
 
 ; ┌──────────────────────────────────┐
@@ -131,7 +164,7 @@ MyGui.UseGroup(gb1_TabOne)
 LV_Label := MyGui.Add("Text", "w300 h20 xc+10 y+20","Create listview with tooltip - double-click row")
 LV_Label.SetFont("cBlue s10")
 ; Create the ListView with two columns, Name and Size:
-LV := MyGui.Add("ListView", "r15 w300 xc+10 y+5 BackgroundTeal", ["Name","Size (KB)"])
+LV := MyGui.Add("ListView", "r9 w300 xc+10 y+5 BackgroundTeal", ["Name","Size (KB)"])
 
 ; ┌────────────────────────────────────────────────────────────┐
 ; │  Notify the script whenever the user double clicks a row:  │
@@ -202,8 +235,8 @@ sysMenuMinimizeBtn.OnEvent("Click", "MinimizeBySystemMenu")
 #endif
 
 MyGui.UseGroup()
-Tab.UseTab("First")
-gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325 h815", "Tab One - Group Two") ;
+Tab.UseTab("Lists, Menus & Styles")
+gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325 h290", "Tab One - Group Two") ;
 MyGui.UseGroup(gb2_TabOne)
 ; ┌───────────────────────────────┐
 ; │  Tab One, Group Two controls  │
@@ -223,7 +256,7 @@ g2Btn2.OnEvent("Click", "Reset_Style")
 g2Label3 := MyGui.Add("Text", "xc+10 w200 cBlue S10", "Click buttons to alter Edit style")
 g2Label4 := MyGui.Add("Text", "xc+10", "Uppercase - restrict or reset")
 
-MyEdit2 := MyGui.Add("Edit", "xc+10 w300 h100")
+MyEdit2 := MyGui.Add("Edit", "xc+10 w300 h55")
 HwndMyEdit := MyEdit2.Hwnd
 
 g2Btn3 := MyGui.Add("Button", "xc+10 y+10", "Uppercase")
@@ -235,58 +268,27 @@ g2Btn3.OnEvent("Click", "Set_Edit_Style")
 g2Btn4.OnEvent("Click", "Reset_Edit_Style")
 
 
-iniLabel := MyGui.Add("Text", "xc+10 y+5 cRed", "Click to read kstests.ini`nKey = PRIMATE2`nValue = BONOBO")
-iniBtn1 := MyGui.Add("Button", "xc+220 yp", "Read INI")
-iniBtn1.OnEvent("Click", "ReadINI")
-iniText := MyGui.Add("Text", "w100 xc+150 y+10", "")
-iniEdit := MyGui.Add("Edit", "xc+10 y+10 w300 h180")
-
-kstests := "." . A_DirSeparator . "kstests.ini"
-
-ReadINI(*) {
-	Val := IniRead(kstests, "section2", "PRIMATE2")
-	iniText.SetFont("s10 cBlue")
-	IniFileText := FileRead(kstests)
-	ControlSetText(Val, iniText)
-	;ControlSetText("Testing", iniText)
-	ControlSetText(IniFileText, iniEdit)
-	;ControlSetText("Still Testing", iniEdit)
-}
-
-iniWriteBtn := MyGui.Add("Button", "xc+10 y+10", "Write INI")
-iniWriteBtn.OnEvent("Click", "WriteINI")
-writeLabel := MyGui.Add("Text", "xc+100 yp cGreen", "Write and Re-Write`nChange case`nThen change back")
-iniWriteEdit := MyGui.Add("Edit", "xc+10 y+10 w300 h180")
+; (IniRead/IniWrite are exercised by the NUnit unit tests; this manual harness does not duplicate them.)
 
 MyGui.UseGroup()
-
-WriteINI(*) {
-	IniWrite("BonoboBozo has been captured", kstests, "SECTION42", "PRIMATEZ_ON_LOOSE")
-	IniFileText2 := FileRead(kstests)
-	ControlSetText(IniFileText2, iniWriteEdit)
-	Sleep(2000)
-	IniWrite("BONOBOBOZO has escaped", kstests, "SECTION42", "PRIMATEZ_ON_LOOSE")
-	IniFileText2 := FileRead(kstests)
-	ControlSetText(IniFileText2, iniWriteEdit)
-}
 
 
 ;;;;;;;;;
 ; ┌──────────────────────┐
 ; │  Second Tab section  │
 ; └──────────────────────┘
-Tab.UseTab("Second")
+Tab.UseTab("Edits & Messages")
 
 ; ┌─────────────────────────────┐
 ; │  Add group boxes - 8/23/22  │
 ; └─────────────────────────────┘
-gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h850", "Tab Two - Group One") ;
+gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h510", "Tab Two - Group One") ;
 MyGui.UseGroup(gb1_TabTwo)
 
 ; ┌────────┐
 ; │  Edit  │
 ; └────────┘
-SecondEdit := MyGui.Add("Edit", "xc+10 yc+20 w300 h200")
+SecondEdit := MyGui.Add("Edit", "xc+10 yc+20 w300 h110")
 SecondEditText := MyGui.Add("Text", "cBlue s10 w200", "ControlSetText Test")
 HwndSecondEdit := SecondEdit.Hwnd
 EditBtn1 := MyGui.Add("Button", "xp y+10", "Text -> Edit")
@@ -299,7 +301,7 @@ EditHwndBtn.OnEvent("Click", "ShowEditHwnd")
 ; ┌────────────┐
 ; │  RichEdit  │
 ; └────────────┘
-SecondRichEdit := MyGui.Add("RichEdit", "xc+10 w250 h150", "Try pasting rich text and/or images here!")
+SecondRichEdit := MyGui.Add("RichEdit", "xc+10 w250 h90", "Try pasting rich text and/or images here!")
 SecondRichEditText := MyGui.Add("Text", "cBlue s10 w200", "ControlSetText Test (RichEdit)")
 RichEditBtn1 := MyGui.Add("Button", "xc+10 y+10", "Send Text to RichEdit")
 RichEditBtn1.OnEvent("Click", "SendTextToRichEdit")
@@ -332,19 +334,13 @@ CoordText.SetFont("bold s16")
 SetTimer("UpdateOSD", 200)
 UpdateOSD()  ; Make the first update immediate rather than waiting for the timer.
 
-; ┌──────────────────────────────┐
-; │  Insert Image for searching  │
-; └──────────────────────────────┘
-
-SrchPic := MyGui.Add("Picture", "xc+10 y+10 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
-SrchPicText := MyGui.Add("Text", "xc+10 y+15 w200", "^ Use top menu to find me!")
-SrchPicText.SetFont("s10 cBlue")
+; (The ImageSearch killbill fixture is on the Image tab — see imgSearchBtn / the killbill picture in imgGroup.)
 ; ┌────────────────────────┐
 ; │  End of Tab 2 Group 1  │
 ; └────────────────────────┘
 MyGui.UseGroup()
-Tab.UseTab("Second")
-gb2_TabTwo := MyGui.Add("GroupBox", "xc+350 yc+10 w400 h600", "Tab Two - Group Two")
+Tab.UseTab("Edits & Messages")
+gb2_TabTwo := MyGui.Add("GroupBox", "xc+350 yc+10 w400 h460", "Tab Two - Group Two")
 MyGui.UseGroup(gb2_TabTwo)
 
 ; ┌─────────┐
@@ -429,102 +425,24 @@ ShowE3Hwnd(*)
 	ControlFocus(e3.Hwnd)
 }
 
-; ┌────────────┐
-; │  Move GUI  │
-; └────────────┘
-
-MoveText := MyGui.Add("Text", "xc+10 y+10 Autosize", "Move window with this caption, or blank to move this window")
-MoveText.SetFont("s10 cBlue")
-MoveEdit := MyGui.Add("Edit", "w200 xp y+10", "")
-#if LINUX
-	MoveEdit.Text := "About Calculator"
-#elif OSX
-	MoveEdit.Text := "Calculator"
-#endif
-MoveButton := MyGui.Add("Button", , "Move GUI")
-MoveButton.OnEvent("Focus", "ChangeMoveBtnColor")
-MoveButton.OnEvent("Click", "MoveGui")
-MoveButtonBack := MyGui.Add("Button", "xc+120 yp", "Move GUI Back")
-MoveButtonBack.OnEvent("Focus", "ChangeMoveBtnBackColor")
-MoveButtonBack.OnEvent("Click", "MoveGuiBack")
-
-ChangeMoveBtnColor(*) {
-	MoveButton.SetFont("cRed")
-	MoveButtonBack.SetFont("cBlack")
-}
-
-ChangeMoveBtnBackColor(*) {
-	MoveButton.SetFont("cBlack")
-	MoveButtonBack.SetFont("cRed")
-}
-
-#if WINDOWS
-; ┌───────────────────────┐
-; │  SendMessage Section  │
-; └───────────────────────┘
-
-TitleInfo := MyGui.Add("Text", "xc+10 y+10", "Buttons below will alter GUI title with SendMessage")
-TitleInfo.SetFont("cBlue s8")
-SendBtn1 := MyGui.Add("Button", "xc+10 y+10", "Change Title")
-SendBtn1.OnEvent("Click", "ChangeTitle")
-SendBtn2 := MyGui.Add("Button", "xc+120 yp", "Restore Title")
-SendBtn2.OnEvent("Click", "RestoreTitle")
-
-ChangeTitle(*) {
-	Title := "KEYSHARP'S BRAND SPANKING NEW TITLE"
-	SendMessage(0x000C, 0, Title)  ; 0X000C is WM_SETTEXT
-}
-
-RestoreTitle(*) {
-	Title := "KEYSHARP TESTS"
-	SendMessage(0x000C, 0, Title)  ; 0X000C is WM_SETTEXT
-}
-
-; ┌───────────────────────┐
-; │  PostMessage Section  │
-; └───────────────────────┘
-
-PostInfo := MyGui.Add("Text", "xc+10 y+10", "Run Notepad - Use PostMessage to show 'About'")
-PostInfo.SetFont("cBlue s8")
-PostBtn1 := MyGui.Add("Button", "xc+10 y+10", "Show Notepad 'About'")
-PostBtn1.OnEvent("Click", "AboutNotepad")
-
-AboutNotepad(*) {
-	SetTitleMatchMode(2)
-	Run("Notepad.exe")
-	Sleep(1000)
-	PostMessage(0x0111, 65, 0, , "Untitled - Notepad")
-	Sleep(2000)
-	WinKill("ahk_exe Notepad.exe")
-}
-#endif
+; (The Move-GUI / Change-Title / Run-Notepad window tests are on the Windows tab, since they manipulate whole windows.)
 
 MyGui.UseGroup()
-Tab.UseTab("Second")
+Tab.UseTab("Edits & Messages")
 
-; ┌───────────────┐
-; │  Add Picture  │
-; └───────────────┘
-MyPictureBtn := MyGui.Add("Button", "cBlue s10 xp y+10", "Display a picture")
-MyPictureBtn.OnEvent("Click", "LoadPic")
-SlugLine := MyGui.Add("Text", "cBlue s10 w200 xp y810", "Pictures will display above")
-
-#if WINDOWS
-DestroyPictureBtn := MyGui.Add("Button", "cBlue s10 xp y+10", "Destroy picture control")
-DestroyPictureBtn.OnEvent("Click", "DestroyPic")
-#endif
+; (The Picture display/destroy buttons are on the Image tab — see imgDisplayBtn / imgDestroyBtn.)
 
 ;;;;;;;;;;
 ; ┌─────────────────────┐
 ; │  Third Tab section  │
 ; └─────────────────────┘
 
-Tab.UseTab("Third")
+Tab.UseTab("Pickers & Sliders")
 ; ┌──────────────────┐
 ; │  Add a groupbox  │
 ; └──────────────────┘
 
-gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h875", "Tab Three - Group One")
+gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h470", "Tab Three - Group One")
 MyGui.UseGroup(gb1_TabThree)
 
 ;Placeholder ThirdText1
@@ -532,7 +450,7 @@ ThirdText1 := MyGui.Add("Text", "xc+10 yc+20 cBlue s10", "ListBox Test")
 ; ┌────────────────┐
 ; │  ListBox test  │
 ; └────────────────┘
-MyListBox := MyGui.Add("ListBox", "xc+10 r5 w110", ["Red","Green","Blue","Black","White"])
+MyListBox := MyGui.Add("ListBox", "xc+10 r4 w110", ["Red","Green","Blue","Black","White"])
 MyListBox.OnEvent("Change", "ListBoxClicked")
 
 MyLbBtn1 := MyGui.Add("Button", "x+10 yp", "Delete White")
@@ -566,14 +484,14 @@ AddWhite(*) {
 ; above it). Using y+ here would measure from the buttons beside the listbox, which sit at its top, so
 ; the gap wouldn't account for the listbox height (which differs across platforms/fonts).
 ThirdText2 := MyGui.Add("Text", "xc+10 cBlue s10", "ListBox Test (Multi-Select)")
-MyMultiLB := MyGui.Add("ListBox", "+Multi r5 w110 xc+10 y+10", ["Reactionary Red","Garish Green","Beastly Blue","Banal Black","Washed-out White"])
+MyMultiLB := MyGui.Add("ListBox", "+Multi r3 w110 xc+10 y+10", ["Reactionary Red","Garish Green","Beastly Blue","Banal Black","Washed-out White"])
 MyMultiLB.OnEvent("Change", "MultiLBClicked")
 
 ; ┌─────────────┐
 ; │  Drop-Down  │
 ; └─────────────┘
 ThirdText3 := MyGui.Add("Text", "xc+10 y+10 cBlue s10", "Drop-down List with 5 rows")
-MyDDL := MyGui.Add("DropDownList", "xc+10 y+10 r4", ["Orange","Purple","Fuchsia","Lime","Aqua"])
+MyDDL := MyGui.Add("DropDownList", "xc+10 y+10 r3", ["Orange","Purple","Fuchsia","Lime","Aqua"])
 MyDDL.OnEvent("Change", "DDLClicked")
 
 ; ┌─────────────┐
@@ -642,24 +560,15 @@ Pbtn2.OnEvent("Click", "Pbtn2Clicked")
 ; └─────────────┘
 ; y+ is measured from the previous control (the short "Value:" status text), but that text shares a row
 ; with the taller Lower/Higher buttons, so the offset must clear the buttons' bottom edge rather than the text.
-ThirdText7 := MyGui.Add("Text", "xc+10 y+28 cBlue s10", "DateTime Test")
-MyDateTime := MyGui.Add("DateTime", "s8 xc+10 y+5 w200", "LongDate")
-
-; ┌────────────┐
-; │  MonthCal  │
-; └────────────┘
-ThirdText8 := MyGui.Add("Text", "xc+10 y+5 cBlue s10", "MonthCal Test")
-MyMonthCal := MyGui.Add("MonthCal")
-MC_Btn := MyGui.Add("Button", "s8 xc+10 y+5", "Change Cal Colors (not implemented)")
-MC_Btn.OnEvent("Click", "MC_Colors")
+; (DateTime + MonthCal are in the "Tab Three - Dates" group on the right of this tab — see gb3_TabThree.)
 
 ; ┌───────────────────────────┐
 ; │  End Tab Three Group One  │
 ; └───────────────────────────┘
 
 MyGui.UseGroup()
-Tab.UseTab("Third")
-gb2_TabThree := MyGui.Add("GroupBox", "xc+350 yc+10 w325 h875", "Tab Three - Group Two")
+Tab.UseTab("Pickers & Sliders")
+gb2_TabThree := MyGui.Add("GroupBox", "xc+350 yc+10 w325 h470", "Tab Three - Group Two")
 MyGui.UseGroup(gb2_TabThree)
 ; ┌────────────────┐
 ; │  Sliding text  │
@@ -736,42 +645,38 @@ NudChange(*)
 	; │  Groupbox Tab Section  │
 	; └────────────────────────┘
 
-	Tab.UseTab("GroupBoxes")
+; ── Tab Three - Dates: DateTime + MonthCal in their own right-hand group ──
+Tab.UseTab("Pickers & Sliders")
+gb3_TabThree := MyGui.Add("GroupBox", "xc+690 yc+10 w330 h320", "Tab Three - Dates")
+MyGui.UseGroup(gb3_TabThree)
+ThirdText7 := MyGui.Add("Text", "xc+16 yc+24 cBlue s10", "DateTime Test")
+MyDateTime := MyGui.Add("DateTime", "s8 xc+16 y+8 w200", "LongDate")
+ThirdText8 := MyGui.Add("Text", "xc+16 y+12 cBlue s10", "MonthCal Test")
+MyMonthCal := MyGui.Add("MonthCal", "xc+16 y+5")
+MC_Btn := MyGui.Add("Button", "s8 xc+16 y+8", "Change Cal Colors (not implemented)")
+MC_Btn.OnEvent("Click", "MC_Colors")
+MyGui.UseGroup()
 
-	; ┌────────────────────────────────────────────────────┐
-	; │  Note that you must use 'Tab.UseTab("GroupBoxes")  │
-	; │  after a call to MyGui.UseGroup()                  │
-	; │  if you use GroupBoxes with Tabs.                  │
-	; └────────────────────────────────────────────────────┘
-
-; ┌───────────────────────┐
-; │  Image copying tests  │
-; └───────────────────────┘
-gb1 := MyGui.Add("GroupBox", "xc+10 yc+10 w330 h400", "Group One")
-MyGui.UseGroup(gb1)
-CpText := MyGui.Add("Text", "xc+10 yc+20", "gb1 - Image copying tests")
-CpText.SetFont("s8 cBlue")
-MyRE := MyGui.Add("RichEdit", "xc+10 y+10 w300 h100")
-MySecondPic := LoadPicture(A_WorkingDir . A_DirSeparator . "Robin.png")
-CopyImageToClipboard("HBITMAP:" MySecondPic)
-ShowBtn := MyGui.Add("Button", "xc+10 y+10", "Paste Pic")
-ShowBtn.OnEvent("Click", "PastePic")
+	; Image-copy (Paste Pic / Paste from File) and send-to-control-edit tests, grouped on the ControlZoo tab.
+	Tab.UseTab("ControlZoo")
+	gb3_CZ := MyGui.Add("GroupBox", "xc+880 yc+10 w350 h450", "Image Copy & Send-to-Control")
+	MyGui.UseGroup(gb3_CZ)
+	CpText := MyGui.Add("Text", "xc+16 yc+24 w310", "Image copy — Paste Pic / Paste from file share this edit:")
+	CpText.SetFont("s8 cBlue")
+	MyRE := MyGui.Add("RichEdit", "xc+16 y+8 w310 h120")
+	MySecondPic := LoadPicture(A_WorkingDir . A_DirSeparator . "Robin.png")
+	CopyImageToClipboard("HBITMAP:" MySecondPic)
+	ShowBtn := MyGui.Add("Button", "xc+16 y+8 w110", "Paste Pic")
+	ShowBtn.OnEvent("Click", "PastePic")
+	ShowBtn2 := MyGui.Add("Button", "x+10 yp w130", "Paste from file")
+	ShowBtn2.OnEvent("Click", "CopyPicFromFile")
 
 PastePic(*) {
 	ControlFocus(MyRE)
 	Send("^v")
 }
 
-; ┌──────────────────────────────┐
-; │  Now load a pic from a file  │
-; └──────────────────────────────┘
-
-LpText := MyGui.Add("Text", "xc+10 y+10", "Now copy a pic from a file.")
-LpText.SetFont("s8 cBlue")
-MyRE2 := MyGui.Add("RichEdit", "xc+10 y+10 w300 h100")
-ShowBtn2 := MyGui.Add("Button", "xc+10 y+10", "Paste from file")
-ShowBtn2.OnEvent("Click", "CopyPicFromFile")
-
+; Both image-copy buttons share the single MyRE edit above.
 CopyPicFromFile(*) {
 	SelectedFile := FileSelect("3", A_AppData . A_DirSeparator . "Pictures")
 
@@ -779,96 +684,21 @@ CopyPicFromFile(*) {
 	{
 		CopyImageToClipboard(SelectedFile)
 		Sleep(100)
-		ControlFocus(MyRE2)
+		ControlFocus(MyRE)
 		Send("^v")
 	}
 }
-
-MyGui.UseGroup()
-Tab.UseTab("GroupBoxes")
-gb2 := MyGui.Add("GroupBox", "x+10 yc+10 w330 h400", "Group Two")
-MyGui.UseGroup(gb2)
-MyGui.Add("Text", "xc+10 yc+20 cBlue s8 w200", "Testing various Send() types")
-gb2Edit := MyGui.Add("Edit", "xc+10 y+5 w300 h250")
-gb2Btn1 := MyGui.Add("Button", "xc+10", "Notepad")
-gb2Btn1.OnEvent("Click", "SendToApp")
-gb2Btn2 := MyGui.Add("Button", "xc+95 yp", "This Edit")
-gb2Btn2.OnEvent("Click", "SendToGui")
-
-
-;MyGui.Add("Text", , "Testing placement")
-
-SendToApp(*) {
-#if WINDOWS
-	Run("Notepad.exe")
-	WinWaitActive("ahk_exe Notepad.exe")
-	SendInput("Sincerely,{enter}John Smith")
-	Send("`n")
-	Send("Another line.`n")
-	Send("{Raw}``100`%`n")
-	Send("{Blind}{Text}You should see '{Blind}{Text}' after the ellipses ... {Blind}{Text}`n")
-	; Line above produces [You should see '' after the ellipses ...]
-	Send("{Blind}You should see nothing after the ellipses ... {Blind}")
-	Send("`n")
-	Send("{Text}You should see the Blind mode syntax in single quotes after the ellipses ... '{Blind}'")
-	Sleep(500)
-	MsgBox("End of Notepad test", "Test finished", "T2")
-	Send("{Alt}Fx")
-	Sleep(100)
-	Send("{Tab}{Enter}")
-#endif
-}
-
-SendToGui(*) {
-#if WINDOWS
-	WinActivate(MyGui)
-	ControlFocus(gb2Edit)
-	SendInput("Sincerely,{enter}John Smith")
-	Send("`n")
-	Send("Another line.`n")
-	Send("{Raw}``100`%`n")
-	Send("{Blind}{Text}You should see '{Blind}{Text}' after the ellipses ... {Blind}{Text}`n")
-	Send("{Blind}You should see nothing after the ellipses ... {Blind}")
-	Send("`n")
-	Send("{Text}You should see the Blind mode syntax in single quotes after the ellipses ... '{Blind}'")
-#endif
-}
-
-MyGui.UseGroup()
-Tab.UseTab("GroupBoxes")
-gb3 := MyGui.Add("GroupBox", "x+10 yc+10 w330 h400", "Group Three")
-MyGui.UseGroup(gb3)
-MyGui.Add("Text", "xc+10 yc+20 w400", "Testing gb3")
-gb3Edit := MyGui.Add("Edit", "w300 h300")
-gb3Hwnd := gb3Edit.Hwnd
-gb3Edit.OnEvent("Focus", "StartEditTooltip")
-gb3Edit.OnEvent("LoseFocus", "StopToolTip")
-;gb3Btn1 := MyGui.Add("Button", "s14 cLime", "Send to GB3")
-;gb3Btn1.OnEvent("Click", "SendToGB3")
-
-
-MyGui.UseGroup()
-Tab.UseTab("GroupBoxes")
-gb4 := MyGui.Add("GroupBox", "x+10 yc+10 w330 h400", "Group Four")
-MyGui.UseGroup(gb4)
-MyGui.Add("Text", "xc+10 yc+20", "Testing gb4")
-gb4Btn1 := MyGui.Add("Button", "s14 cLime", "Send to GB3")
-gb4Btn1.OnEvent("Click", "SendToGB3")
-gb4Btn2 := MyGui.Add("Button", "s14 cLime x+5 yp", "Clear GB3")
-gb4Btn2.OnEvent("Click", "ClearGB3")
-MyGui.UseGroup()
-Tab.UseTab("GroupBoxes")
-MyGui.AddText("s14 xm y+10 cBlue", "This should be below.")
-
-; Add some radio groups and also add a dummy GroupBox next to it to ensure they both show.
-; This test whether starting/stopping groups is done properly.
-
-dummyEdit := MyGui.AddEdit("xc+10 w216")
-MyGui.AddRadio("x12 y+5 Checked", "RB11")
-MyGui.AddRadio("x+7", "RB12")
-MyGui.AddRadio("x+69 Checked Group", "RB21")
-MyGui.AddRadio("x+7", "RB22")
-MyGui.AddGroupBox("x+40 y+0 w200 h200 Section", "THIS SHOULD BE VISIBLE")
+	gb3Label := MyGui.Add("Text", "xc+16 y+14 w310", "Send text to this edit (buttons below):")
+	gb3Label.SetFont("s8 cBlue")
+	gb3Edit := MyGui.Add("Edit", "xc+16 y+8 w310 h130")
+	gb3Hwnd := gb3Edit.Hwnd
+	gb3Edit.OnEvent("Focus", "StartEditTooltip")
+	gb3Edit.OnEvent("LoseFocus", "StopToolTip")
+	gb4Btn1 := MyGui.Add("Button", "xc+16 y+8 w110 cLime", "Send to GB3")
+	gb4Btn1.OnEvent("Click", "SendToGB3")
+	gb4Btn2 := MyGui.Add("Button", "x+10 yp w110 cLime", "Clear GB3")
+	gb4Btn2.OnEvent("Click", "ClearGB3")
+	MyGui.UseGroup()
 
 ; ┌────────────────┐
 ; │  MENU SECTION  │
@@ -918,7 +748,7 @@ MenuHandler(Item, *) {
 
 MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
-gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460 h875", "ControlZoo - Group One")
+gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460 h535", "ControlZoo - Group One")
 MyGui.UseGroup(gb1_CZ)
 CZ_Text1 := MyGui.Add("Text", "xc+10 yc+20", "Control Functions testing")
 CZ_Text1.SetFont("s10 CBlue")
@@ -928,43 +758,43 @@ CZ_Text2.SetFont("CTeal")
 CZ_Text2a := MyGui.Add("Text", "xc+10 y+5", "ListBox control testing")
 CZ_Text2a.SetFont("s8 CBlue")
 
-CZ_ListBox := MyGui.Add("ListBox", "xc+10 h300 w160 Section", ["Red","Green","Blue","Black","White", "Maroon"
+CZ_ListBox := MyGui.Add("ListBox", "xc+10 h120 w160 Section", ["Red","Green","Blue","Black","White", "Maroon"
 	, "Purple", "Color de gos com fuig", "Weiß", "Amarillo", "красный"
 	, "朱红"])
 
 CZ_Text3 := MyGui.Add("Text", "xc+10 y+5", "Edit control testing")
 CZ_Text3.SetFont("s8 CBlue")
 
-CZ_Edit1 := MyGui.Add("Edit", "xc+10 y+5 w160 h100")
+CZ_Edit1 := MyGui.Add("Edit", "xc+10 y+5 w160 h60")
 ;CZ_Edit1.SetCue("Multi-line edit control cue text")
 
-CZ_SeparatorText1 := MyGui.Add("Text", "xc+10 y+8 w320", "ListView content tests")
+CZ_SeparatorText1 := MyGui.Add("Text", "xc+10 y+8 w160", "ListView content tests")
 CZ_SeparatorText1.SetFont("s8 CBlue")
 
-LV2 := MyGui.Add("ListView", "r5 w300 xc+10 y+5", ["Name","Size (KB)"])
+LV2 := MyGui.Add("ListView", "r4 w160 xc+10 y+5", ["Name","KB"])
 
 Loop Files A_MyDocuments . A_DirSeparator . "*.*"
 	LV2.Add(, A_LoopFileName, A_LoopFileSizeKB)
 
-LV2_Btn1 := MyGui.Add("Button", "xc+10 y+5 w72 h25" ,"Selected")
+LV2_Btn1 := MyGui.Add("Button", "xc+10 y+5 w76 h24" ,"Selected")
 LV2_Btn1.OnEvent("Click", "LV_Selected")
 
-LV2_Btn2 := MyGui.Add("Button", "xc+85 yp w72 h25" ,"Focused")
+LV2_Btn2 := MyGui.Add("Button", "x+4 yp w76 h24" ,"Focused")
 LV2_Btn2.OnEvent("Click", "LV_Focused")
 
-LV2_Btn3 := MyGui.Add("Button", "xc+160 yp wp+10 hp+10", "Column 1")
+LV2_Btn3 := MyGui.Add("Button", "xc+10 y+4 w76 h24", "Column 1")
 LV2_Btn3.OnEvent("Click", "LV_Col1")
 
-LV2_Btn4 := MyGui.Add("Button", "x+3 yp wp+10 hp+10", "Count")
+LV2_Btn4 := MyGui.Add("Button", "x+4 yp w76 h24", "Count")
 LV2_Btn4.OnEvent("Click", "LV_Count")
 
-LV2_Btn5 := MyGui.Add("Button", "xc+10 yp+45 w100 h25", "Count Selected")
+LV2_Btn5 := MyGui.Add("Button", "xc+10 y+4 w156 h24", "Count Selected")
 LV2_Btn5.OnEvent("Click", "LV_CountSelected")
 
-LV2_Btn6 := MyGui.Add("Button", "xc+113 yp w100 h25", "Row Focused")
+LV2_Btn6 := MyGui.Add("Button", "xc+10 y+4 w156 h24", "Row Focused")
 LV2_Btn6.OnEvent("Click", "LV_CountFocused")
 
-LV2_Btn7 := MyGui.Add("Button", "xc+216 yp w100 h25", "Count Columns")
+LV2_Btn7 := MyGui.Add("Button", "xc+10 y+4 w156 h24", "Count Columns")
 LV2_Btn7.OnEvent("Click", "LV_CountCol")
 
 
@@ -1099,7 +929,7 @@ IPCtrlGetAddress(GuiCtrl)
 
 MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
-gb2_CZ := MyGui.Add("GroupBox", "x+10 yc+10 w370 h875", "ControlZoo - Group Two")
+gb2_CZ := MyGui.Add("GroupBox", "x+10 yc+10 w370 h535", "ControlZoo - Group Two")
 MyGui.UseGroup(gb2_CZ)
 
 ;Reserved4 := MyGui.Add("Text", "xc+10 yc+20 w325", "Reserved for Future Testing")
@@ -1139,40 +969,38 @@ gb2_CZ_Text2.SetFont("s8 cBlue")
 MyColorLabel := MyGui.Add("Text", "xc+10 y+10 w200", "Empty text below:")
 MyColorText := MyGui.Add("Text", "w200 xc+10 y+10", "")
 
-SecondGuiButton := MyGui.Add("Button", "xc+10 y+35", "Control Tests Redux")
+; "Control Tests Redux" buttons laid out in two columns so none clip off the bottom of the group.
+SecondGuiButton := MyGui.Add("Button", "xc+10 y+15 w160 h26 Section", "Control Tests Redux")
 SecondGuiButton.OnEvent("Click", "SecondGUI")
-FindEdit := MyGui.Add("Button", "xc+10 y+5", "Get Edit Hwnd")
+FindEdit := MyGui.Add("Button", "xc+10 y+5 w160 h26", "Get Edit Hwnd")
 FindEdit.OnEvent("Click", "FindSecondGuiEdit")
 
-ThirdGuiButton := MyGui.Add("Button", "xc+10 y+5", "'Find By' Tests")
+ThirdGuiButton := MyGui.Add("Button", "xc+10 y+5 w160 h26", "'Find By' Tests")
 ThirdGuiButton.OnEvent("Click", "ThirdGUI")
 
-MouseMoveButton := MyGui.Add("Button", "xc+10 y+5", "Mouse-moving tests")
+MouseMoveButton := MyGui.Add("Button", "xc+10 y+5 w160 h26", "Mouse-moving tests")
 MouseMoveButton.OnEvent("Click", "MoveTheMouse")
 
 #if WINDOWS
-AddMsgMonitorButton := MyGui.Add("Button", "xc+10 y+5", "Add msg mon for clicking in edit ctrl testing")
+AddMsgMonitorButton := MyGui.Add("Button", "xc+10 y+5 w160 h26", "Add msg mon (edit clicks)")
 AddMsgMonitorButton.OnEvent("Click", "AddMsgMonitor")
 
-RemoveMsgMonitorButton := MyGui.Add("Button", "xc+10 y+5", "Remove msg mon")
+RemoveMsgMonitorButton := MyGui.Add("Button", "xc+10 y+5 w160 h26", "Remove msg mon")
 RemoveMsgMonitorButton.OnEvent("Click", "RemoveMsgMonitor")
 #endif
 
-MinimizeAllButton := MyGui.Add("Button", "xc+10 y+5", "Minimize all")
+; Second column (starts level with "Control Tests Redux")
+MinimizeAllButton := MyGui.Add("Button", "xs+170 ys w160 h26", "Minimize all")
 MinimizeAllButton.OnEvent("Click", "MinimizeAll")
-UndoMinimizeAllButton := MyGui.Add("Button", "xc+10 y+5", "Undo minimize all")
+UndoMinimizeAllButton := MyGui.Add("Button", "xs+170 y+5 w160 h26", "Undo minimize all")
 UndoMinimizeAllButton.OnEvent("Click", "UndoMinimizeAll")
-MaximizeAllButton := MyGui.Add("Button", "xc+10 y+5", "Maximize all")
+MaximizeAllButton := MyGui.Add("Button", "xs+170 y+5 w160 h26", "Maximize all")
 MaximizeAllButton.OnEvent("Click", "MaximizeAll")
-MoveAllButton := MyGui.Add("Button", "xc+10 y+5", "Move me")
+MoveAllButton := MyGui.Add("Button", "xs+170 y+5 w160 h26", "Move me")
 MoveAllButton.OnEvent("Click", "MoveButton")
-
-
-CandyProgressButton := MyGui.Add("Button", "y+5", "Candy progress") ; x deliberately omitted to ensure default positioning works when only one dimension is specified.
+CandyProgressButton := MyGui.Add("Button", "xs+170 y+5 w160 h26", "Candy progress")
 CandyProgressButton.OnEvent("Click", "CandyProgress")
-
-
-TestTypesButton := MyGui.Add("Button", "xc+10", "Test types") ; Same, but for y.
+TestTypesButton := MyGui.Add("Button", "xs+170 y+5 w160 h26", "Test types")
 TestTypesButton.OnEvent("Click", "TestTypes")
 
 MinimizeAll(*)
@@ -1205,7 +1033,7 @@ candygui := Gui("-DPIScale +E0x02080000", "Candy Progress")
 candygui.OnEvent("Close", "CloseCandy")
 candygui.BackColor := "FFCC00"
 
-CandyProgress := candygui.Add("Progress", "xc+15 yc+30 w436 h36 Smooth BackgroundSilver")
+CandyProgressBar := candygui.Add("Progress", "xc+15 yc+30 w436 h36 Smooth BackgroundSilver")
 
 ; These currently don't work on linux.
 Icon1 := candygui.Add("Picture", "xc+15  yc+30 w18  h36 BackgroundTrans", "Icon1.png")
@@ -1242,16 +1070,16 @@ CandyTimer(*)
 	global
 
 	if (candyvalue >= 33) and (candyvalue <= 66) { ; These color changes don't seem to work.
-		CandyProgress.Opt("cPurple")
+		CandyProgressBar.Opt("cPurple")
 	}
 	else if (candyvalue >= 66) {
-		CandyProgress.Opt("cAqua")
+		CandyProgressBar.Opt("cAqua")
 	}
 	else {
-		CandyProgress.Opt("cBlack")
+		CandyProgressBar.Opt("cBlack")
 	}
 
-	CandyProgress.Value := candyvalue
+	CandyProgressBar.Value := candyvalue
 	CandyText.Text := candyvalue . "%"
 	candyvalue := candyvalue + 1
 	if (candyvalue > 100)
@@ -1783,6 +1611,48 @@ GetPix(*) {
 	MyColorText.SetFont(ColorString)
 }
 
+; PixelGetColor / PixelSearch against the on-tab colour swatch (Image tab). No helper window: the swatch's
+; own control Hwnd gives the screen bounds, so PixelGetColor reads its centre and PixelSearch re-finds that
+; exact colour inside those bounds — self-consistent regardless of the rendered shade.
+RunPixelGetColorTest() {
+	global pixelSwatch
+
+	try {
+		CoordMode("Pixel", "Screen")   ; WinGetPos returns screen coords, so read pixels in screen space too
+		WinGetPos(&sx, &sy, &sw, &sh, "ahk_id " pixelSwatch.Hwnd)
+		cx := sx + sw // 2
+		cy := sy + sh // 2
+		color := PixelGetColor(cx, cy)
+		SetStatus("pixel_main", "Pixel status: PASS - PixelGetColor read " color " at swatch centre (" cx "," cy ")")
+		AppendLog("PixelGetColor sampled (" cx "," cy ") -> " color)
+	} catch as err {
+		SetStatus("pixel_main", "Pixel status: FAIL - PixelGetColor: " err.Message)
+		AppendLog("PixelGetColor test failed: " err.Message)
+	}
+}
+
+RunPixelSearchTest() {
+	global pixelSwatch
+
+	try {
+		CoordMode("Pixel", "Screen")   ; WinGetPos returns screen coords, so search pixels in screen space too
+		WinGetPos(&sx, &sy, &sw, &sh, "ahk_id " pixelSwatch.Hwnd)
+		cx := sx + sw // 2
+		cy := sy + sh // 2
+		color := PixelGetColor(cx, cy)
+		if PixelSearch(&fx, &fy, sx, sy, sx + sw - 1, sy + sh - 1, color, 4) {
+			SetStatus("pixel_main", "Pixel status: PASS - PixelSearch found " color " at " fx "," fy)
+			AppendLog("PixelSearch found colour " color " at " fx "," fy " within the swatch bounds.")
+		} else {
+			SetStatus("pixel_main", "Pixel status: FAIL - PixelSearch did not find " color " in the swatch bounds")
+			AppendLog("PixelSearch did not find colour " color " in the swatch bounds.")
+		}
+	} catch as err {
+		SetStatus("pixel_main", "Pixel status: FAIL - PixelSearch: " err.Message)
+		AppendLog("PixelSearch test failed: " err.Message)
+	}
+}
+
 Click_LB_Items(*)
 {
 	global CZ_ListBox
@@ -1808,7 +1678,7 @@ Click_CB_Hide_Dropdown(*)
 }
 
 LoadSC(*) {
-	Tab.UseTab("Send && Hotkey")
+	Tab.UseTab("Image")
 	path := A_Desktop . A_DirSeparator . "MyScreenClip.png"
 	If (!FileExist(path)) {
 		Image.FromRect(100, 100, 200, 200).Save(path)
@@ -1816,7 +1686,7 @@ LoadSC(*) {
 	}
 	MyThirdPic := LoadPicture(path)
 
-	MyLoadedPic := MyGui.Add("Picture", "xc+450 yc+700 w170 h170", "HBITMAP:" MyThirdPic)
+	MyLoadedPic := MyGui.Add("Picture", "xc+90 yc+158 w160 h160 border", "HBITMAP:" MyThirdPic)
 	Sleep(2000)
 
 #if WINDOWS
@@ -1836,354 +1706,99 @@ LoadSC(*) {
 
 
 MyGui.UseGroup()
-Tab.UseTab("Send && Hotkey")
-SectionTopText := MyGui.Add("Text", "xc+10 yc+20 w600", "This section is for testing the various Send() variants and the Hotkey method.")
-SectionTopText.SetFont("cBlue s12")
-MySendEdit := MyGui.Add("Edit", "xc+10 y+10 w700 h250", "The buttons below this Edit will use various Send() variants.`n")
-BtnSend := MyGui.Add("Button", "xc+10 y+10 w80", "Send()")
-BtnSendText := MyGui.Add("Button", "xp+85 yp w80", "SendText()")
-BtnSendInput := MyGui.Add("Button", "xp+85 yp w80", "SendInput()")
-BtnSendPlay := MyGui.Add("Button", "xp+85 yp w80", "SendPlay()")
-BtnSendEvent := MyGui.Add("Button", "xp+85 yp w80", "SendEvent()")
-BtnControlSend := MyGui.Add("Button", "xp+85 yp w95", "ControlSend()")
-BtnControlSendText := MyGui.Add("Button", "xp+100 yp w120", "ControlSendText()")
-
-; Added 3/24/23, taken from line 871 roughly
-MyScLabel := MyGui.Add("Text", "xc+10 y+10 w300", "Get screenclip at 100, 100, 200, 200`nSave to 'MyScreenClip.png' on Desktop`& display for 2 seconds.")
-MyScLabel.SetFont("s8 cBlue")
-MyScBtn := MyGui.Add("Button", "w200 h25 xc+10 y+10", "Press to get screenclip").OnEvent("Click", "LoadSC")
-; End of moving it
-
-BtnSend.OnEvent("Click", "BtnSendFunc")
-BtnSendText.OnEvent("Click", "BtnSendTextFunc")
-BtnSendInput.OnEvent("Click", "BtnSendInputFunc")
-BtnSendPlay.OnEvent("Click", "BtnSendPlayFunc")
-BtnSendEvent.OnEvent("Click", "BtnSendEventFunc")
-BtnControlSend.OnEvent("Click", "BtnControlSendFunc")
-BtnControlSendText.OnEvent("Click", "BtnControlSendTextFunc")
+; The Send & Hotkey tab's manual tests: SendEvent/ControlSend/ControlSendText sit in the Send Variants group,
+; and the Hotkey() registration tests (RCtrl+RShift -> AltTab + toggle, .INI hotkey + toggle, F3 Explorer
+; selection) are in the "Manual Hotkey() registration" group. Their handler functions follow below.
 
 ; ┌────────────────────────────────────┐
 ; │  Send and Hotkey button functions  │
 ; └────────────────────────────────────┘
 
-BtnSendFunc(*) {
-	TheSendMsg := "
-(
-From the AHK docs:
-
-"Sends simulated keystrokes and mouse clicks to the active window."
-
-When you dismiss this button,
-Keysharp will send 'Sincerely, John Smith'
-(no quotes) to the Edit, then add a newline.
-)"
-
-	MsgBox(TheSendMsg, "Send")
-	WinActivate(MyGui)
-	ControlFocus(MySendEdit)
-	Send("{Ctrl}{End}{Enter}")
-	Send("Sincerely, John Smith`n")
-}
-
-
-BtnSendTextFunc(*) {
-
-	TheSendTextMsg := "
-(
-From the AHK docs:
-
-SendText: Similar to Send, except that all characters
-in Keys are interpreted and sent literally.
-See Text mode for details.
-
-The Text mode can be either enabled with {Text}, SendText or ControlSendText,
-which is similar to the Raw mode, except that no attempt is made to translate
-characters (other than ``r, ``n, ``t and ``b) to keycodes;
-instead, the fallback method is used for all of the remaining characters.
-
-For SendEvent, SendInput and ControlSend, this improves reliability
-because the characters are much less dependent on correct modifier state.
-
-This mode can be combined with the Blind mode to avoid releasing any modifier keys:
-
-		Send "{Blind}{Text}your text".
-
-However, some applications require that the modifier keys be released.
-
-``n, ``r and ``r``n are all translated to a single Enter, unlike the default behavior and Raw mode,
-which translate ``r``n to two Enter. ``t is translated to Tab and ``b to Backspace,
-but all other characters are sent without translation.
-
-Like the Blind mode, the Text mode ignores SetStoreCapsLockMode (that is, the state of CapsLock is not changed)
-and does not wait for Win to be released. This is because the Text mode
-typically does not depend on the state of CapsLock and cannot trigger the system Win+L hotkey.
-However, this only applies when Keys begins with {Text} or {Blind}{Text}.
-
-		When you dismiss this button,
-		Keysharp will open Notepad, wait a bit and
-		then send some text. You should see this:
-
-I want to send some {Blind}{Text} with SendText followed by a newline.
-
-and then a newline.
-
-Then, you should see:
-
-You should see the Blind mode syntax after the ellipses ... '{Blind}'
-)"
-
-
-MsgBox(TheSendTextMsg, "SendText")
-
-TheSendText := "I want to send some {Blind}{Text} with SendText followed by a newline.`r`n"
-#if WINDOWS
-	Run("Notepad.exe")
-	WinWaitActive("ahk_exe Notepad.exe")
-#else
-	ControlFocus(MySendEdit)
-#endif
-Sleep(500)
-SendText(TheSendText)
-Sleep(500)
-Send("{Text}You should see the Blind mode syntax after the ellipses ... '{Blind}'")
-#if WINDOWS
-	Sleep(2000)
-	Send("!fx{Tab}{Enter}") ; In Notepad, File -> Close -> select No (to saving) -> Close
-#endif
-}
-
-BtnSendInputFunc(*) {
-
-	TheSendInputMsg := "
-(
-From the AHK docs:
-
-SendInput is generally the preferred method to send keystrokes and mouse clicks because of its superior speed and reliability.
-Under most conditions, SendInput is nearly instantaneous, even when sending long strings. Since SendInput is so fast,
-it is also more reliable because there is less opportunity for some other window to pop up unexpectedly and intercept the keystrokes.
-Reliability is further improved by the fact that anything the user types during a SendInput is postponed until afterward.
-
-Unlike the other sending modes, the operating system limits SendInput to about 5000 characters
-(this may vary depending on the operating system's version and performance settings).
-Characters and events beyond this limit are not sent.
-
-	Note: SendInput ignores SetKeyDelay because the operating system does not support a delay in this mode.
-	However, when SendInput reverts to SendEvent under the conditions described below, it uses SetKeyDelay -1, 0
-	(unless SendEvent's KeyDelay is -1,-1, in which case -1,-1 is used).
-	When SendInput reverts to SendPlay, it uses SendPlay's KeyDelay.
-
-If a script other than the one executing SendInput has a low-level keyboard hook installed, SendInput automatically reverts
-to SendEvent (or SendPlay if SendMode "InputThenPlay" is in effect).
-This is done because the presence of an external hook disables all of SendInput's advantages,
-making it inferior to both SendPlay and SendEvent. However, since SendInput is unable to detect
-a low-level hook in programs other than AutoHotkey v1.0.43+,
-it will not revert in these cases, making it less reliable than SendPlay/Event.
-
-When SendInput sends mouse clicks by means such as {Click}, and CoordMode "Mouse", "Window"
-or CoordMode "Mouse", "Client" is in effect, every click will be relative to the window
-that was active at the start of the send. Therefore, if SendInput intentionally activates another window
-(by means such as alt-tab), the coordinates of subsequent clicks within the same function
-will be wrong if they were intended to be relative to the new window rather than the old one.
-
-		When you dismiss this button,
-		Keysharp will send some text to the Edit. You should see this:
-
-Now how did this get up here???
-The buttons below this Edit will use various Send() variants.
-
-Really, Cheeta, you shouldn't have
-Lord Greystoke
-
-
-Testing newlines with braces syntax
-
-)"
-
-	MsgBox(TheSendInputMsg, "SendInput")
-	WinActivate(MyGui)
-	ControlFocus(MySendEdit)
-	; Keysharp sends keys literally on every platform. In macOS text controls the Home/End keys only
-	; scroll the view and do not move the caret, so the caret-moving equivalents are Cmd-based
-	; (# = Win/Cmd): Cmd+Up/Down = document start/end, Cmd+Left/Right = line start/end.
-#if OSX
-	docStart := "#{Up}"
-	docEnd   := "#{Down}"
-	lineEnd  := "#{Right}"
-#else
-	docStart := "^{Home}"
-	docEnd   := "^{End}"
-	lineEnd  := "{End}"
-#endif
-	SendInput(lineEnd "{Enter}")
-	SendInput("Really, Cheeta, you shouldn't have!" lineEnd "{Enter}Lord Greystoke`n")
-	Sleep(1000)
-	ControlFocus(MySendEdit)
-	SendInput(docStart)
-	SendInput("Now how did this get up here???`n")
-	SendInput(docEnd "{Enter}")
-	SendInput(docEnd "{Enter}")
-	SendInput("Testing newlines with braces syntax")
-
-}
-
-BtnSendPlayFunc(*) {
-	TheSendPlayMsg := "
-(
-Warning: SendPlay may have no effect at all if UAC is enabled, even if the script is running as an administrator. For more information, refer to the FAQ.
-
-SendPlay's biggest advantage is its ability to "play back" keystrokes and mouse clicks in a broader variety of games than the other modes. For example, a particular game may accept hotstrings only when they have the SendPlay option.
-
-Of the three sending modes, SendPlay is the most unusual because it does not simulate keystrokes and mouse clicks per se. Instead, it creates a series of events (messages) that flow directly to the active window (similar to ControlSend, but at a lower level). Consequently, SendPlay does not trigger hotkeys or hotstrings.
-
-Like SendInput, SendPlay's keystrokes do not get interspersed with keystrokes typed by the user. Thus, if the user happens to type something during a SendPlay, those keystrokes are postponed until afterward.
-
-Although SendPlay is considerably slower than SendInput, it is usually faster than the traditional SendEvent mode (even when KeyDelay is -1).
-
-Both Win (LWin and RWin) are automatically blocked during a SendPlay if the keyboard hook is installed. This prevents the Start Menu from appearing if the user accidentally presses Win during the send. By contrast, keys other than LWin and RWin do not need to be blocked because the operating system automatically postpones them until after the SendPlay (via buffering).
-
-SendPlay does not use the standard settings of SetKeyDelay and SetMouseDelay. Instead, it defaults to no delay at all, which can be changed as shown in the following examples:
-
-SetKeyDelay 0, 10, "Play"  ; Note that both 0 and -1 are the same in SendPlay mode.
-SetMouseDelay 10, "Play"
-
-SendPlay is unable to turn on or off CapsLock, NumLock, or ScrollLock. Similarly, it is unable to change a key's state as seen by GetKeyState unless the keystrokes are sent to one of the script's own windows. Even then, any changes to the left/right modifier keys (e.g. RControl) can be detected only via their neutral counterparts (e.g. Control). Also, SendPlay has other limitations described on the SendMode page.
-
-Unlike SendInput and SendEvent, the user may interrupt a SendPlay by pressing Ctrl+Alt+Del or Ctrl+Esc. When this happens, the remaining keystrokes are not sent but the script continues executing as though the SendPlay had completed normally.
-
-Although SendPlay can send LWin and RWin events, they are sent directly to the active window rather than performing their native operating system function. To work around this, use SendEvent. For example, SendEvent "#r" would show the Start Menu's Run dialog.
-)"
-	MsgBox(TheSendPlayMsg, "SendPlay")
-	SendPlay("#r")
-	MsgBox("Just sent '#r' with SendPlay, which should not work.`nNow I'll use SendEvent(), which should.`nI'll wait five seconds, then send Alt-F4 to kill the run dialog.", "SendPlay Testing", "T5")
-	SendEvent("#r")
-	Sleep(5000)
-	SendEvent("!{F4}")
-}
-
+; SendEvent / ControlSend / ControlSendText now self-validate like the other Send buttons: clear the target
+; edit, send a known string, then compare the resulting text (no MsgBox of what it "should" be).
 BtnSendEventFunc(*) {
-	TheSendEventMsg := "
-(
-From the AHK docs:
+	global gSendTarget
 
-"SendEvent: SendEvent sends keystrokes using the Windows keybd_event function.
-(search MSDN for details)
-The rate at which keystrokes are sent is determined by SetKeyDelay.
-SendMode can be used to make Send synonymous with SendEvent or SendPlay."
-
-When you dismiss this button,
-Keysharp will send Win-R.
-The 'Run' dialog will open.
-)"
-	MsgBox(TheSendEventMsg, "SendEvent button")
-	SendEvent("#r")
+	expected := "Typed via SendEvent"
+	try {
+		PrepareSendTarget()
+		SendEvent("{Text}" expected)
+		Sleep(250)
+		actual := gSendTarget.Value
+		if (actual = expected) {
+			SetStatus("input_send", "SendEvent status: PASS")
+			AppendLog("SendEvent typed the expected text into the suite-owned edit.")
+		} else {
+			SetStatus("input_send", "SendEvent status: FAIL")
+			AppendLog("SendEvent mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", "SendEvent status: BLOCKED/ERROR")
+		AppendLog("SendEvent threw: " err.Message)
+	}
 }
 
 BtnControlSendFunc(*) {
-	MsgBox("This will send text to the Send/Hotkey edit with ControlSend().", "ControlSend")
-	WinActivate(MyGui)
-	ControlFocus(MySendEdit)
-	ControlSend("{Ctrl}{End}{Enter}", MySendEdit, MyGui)
-	ControlSend("This line was sent with ControlSend().`n", MySendEdit, MyGui)
+	global gSendTarget
+
+	expected := "Typed via ControlSend"
+	try {
+		PrepareSendTarget()
+		ControlSend("{Text}" expected, gSendTarget, MyGui)
+		Sleep(250)
+		actual := gSendTarget.Value
+		if (actual = expected) {
+			SetStatus("input_send", "ControlSend status: PASS")
+			AppendLog("ControlSend produced the expected text in the suite-owned edit.")
+		} else {
+			SetStatus("input_send", "ControlSend status: FAIL")
+			AppendLog("ControlSend mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", "ControlSend status: BLOCKED/ERROR")
+		AppendLog("ControlSend threw: " err.Message)
+	}
 }
 
 BtnControlSendTextFunc(*) {
-	MsgBox("This will send literal text to the Send/Hotkey edit with ControlSendText().", "ControlSendText")
-	WinActivate(MyGui)
-	ControlFocus(MySendEdit)
-	ControlSend("{Ctrl}{End}{Enter}", MySendEdit, MyGui)
-	ControlSendText("Literal braces from ControlSendText: {Blind}{Text}`n", MySendEdit, MyGui)
+	global gSendTarget
+
+	; ControlSendText is literal, so the braces must appear verbatim (not be interpreted).
+	expected := "Literal {Blind}{Text} via ControlSendText"
+	try {
+		PrepareSendTarget()
+		ControlSendText(expected, gSendTarget, MyGui)
+		Sleep(250)
+		actual := gSendTarget.Value
+		if (actual = expected) {
+			SetStatus("input_send", "ControlSendText status: PASS")
+			AppendLog("ControlSendText produced the expected literal text in the suite-owned edit.")
+		} else {
+			SetStatus("input_send", "ControlSendText status: FAIL")
+			AppendLog("ControlSendText mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", "ControlSendText status: BLOCKED/ERROR")
+		AppendLog("ControlSendText threw: " err.Message)
+	}
 }
 
 ; ┌─────────────────────────┐
 ; │  HOTKEY() TEST SECTION  │
 ; └─────────────────────────┘
 
-MyGui.Add("Text", "xc+0 y+20 w700", "_____________________________________________________________________________________________________________")
-HotkeySectionTopText := MyGui.Add("Text", "xc+10 y+5 w600", "HOTKEY TESTS`nHold F1 to slow mouse (not touchpad), release to restore.")
-HotkeySectionTopText.SetFont("cBlue s14")
-FuncBtnOne := MyGui.Add("Button", "xc+10 y+5", "FuncObj Bind Tests")
-FuncBtnOne.OnEvent("Click", "DoTricks")
-
-FuncBtnTwo := MyGui.Add("Button", "xc+130 yp", "RCtrl+RShift -> AltTab")
-FuncBtnTwo.OnEvent("Click", "StupidTrickTwo")
-
-FuncBtnThree := MyGui.Add("Button", "xc+265 yp", "RCtrl+RShift -> AltTab`nHotkey Off")
-FuncBtnThree.OnEvent("Click", "StupidTrickThree")
-
-FuncBtnFour := MyGui.Add("Button", "xc+400 yp", "RCtrl+RShift -> AltTab`nwith FuncObj")
-FuncBtnFour.OnEvent("Click", "FuncObjTest")
-
-FuncBtnFive := MyGui.Add("Button", "xc+535 yp w150", "Toggle RCtrl+RShift ->`nAltTab Hotkey On or Off")
-FuncBtnFive.OnEvent("Click", "ToggleHotkey")
-
-FuncBtnSix := MyGui.Add("Button", "xc+10 y+10 w150", "From .INI`nRCtrl+LShift -> AltTab")
-FuncBtnSix.OnEvent("Click", "GrabFromIni")
-
-FuncBtnSeven := MyGui.Add("Button", "xc+160 yp w150", "Toggle Hotkey from .INI")
-FuncBtnSeven.OnEvent("Click", "ToggleFromIni")
-
-#if WINDOWS
-	F3HotkeyText := MyGui.Add("Text", "xc+10 y+30 w250", "Select files in explorer, press F3 to see names")
-	F3HotkeyText.SetFont("cBlue s12")
-#endif
+; (The Hotkey() registration buttons are in the "Manual Hotkey() registration" group on the Send & Hotkey tab.)
 
 ; ┌────────────────────┐
 ; │  Hotkey functions  │
 ; └────────────────────┘
-boundText := ""
-
-RealFn(a, b, c:="c") {
-	global boundText
-	MsgBox(boundText . "`n" . a . ", " . b, "A bound function test")
-}
-
-DoTricks(*) {
-	global boundText
-	RealFn := Func("RealFn")
-
-	fn := RealFn.Bind(1)  ; Bind first parameter only
-	boundText := "Bind 1 to first param, call (2), shows 1, 2"
-	fn(2)      ; Shows "1, 2"
-	boundText := "Bind 1 to first param, call (3), shows 1, 3"
-	fn.Call(3) ; Shows "1, 3"
-
-	fn := RealFn.Bind( , 1)  ; Bind second parameter only
-	boundText := "Bind 1 to second param, call (2), shows 2, 1"
-	fn(2)      ; Shows "2, 1"
-	boundText := "Bind 1 to second param, call (3), shows 3, 1"
-	fn.Call(3) ; Shows "3, 1"
-	boundText := "Chained bind, call (), shows 1, 2"
-	fn := RealFn.Bind(1).Bind(2)
-	fn.Call()
-	;fn(, 4)    ; Error: 'a' was omitted
-}
+; (Func.Bind / FuncObj binding is covered by unit tests; only manual hotkey tests live here.)
 
 StupidTrickTwo(*) {
 	Hotkey("RCtrl & RShift", "AltTab")
 }
 
-StupidTrickThree(*) {
-	Try
-	{
-			Hotkey("RCtrl & RShift", "Off")
-			MsgBox("Hotkey RCtrl & RShift -> AltTab is Off", "Hotkey Off", "T2")
-	}
-	Catch
-	{
-		MsgBox("Set the Hotkey first!")
-	}
-}
-
-RealFn2(TheMessage) {
-	Hotkey("RCtrl & RShift", TheMessage)
-	MsgBox(TheMessage)
-}
-
-FuncObjTest(*) {
-	RealFn2 := Func("RealFn2")
-	fn2 := RealFn2.Bind("AltTab")
-	fn2()
-}
+; (The AltTab + Toggle buttons cover hotkey on/off; FuncObj binding is covered by unit tests.)
 
 ToggleHotkey(*) {
 	Try
@@ -2409,9 +2024,17 @@ By default, the hard carriage return (Enter) between the previous line and this 
 )"
 
 SendTextToEdit(*) {
-	;MsgBox(EditVar)
 	global EditVar
 	ControlSetText(EditVar, SecondEdit)
+	Sleep(50)
+
+	if (NormalizeNewlines(SecondEdit.Value) = NormalizeNewlines(EditVar)) {
+		SetStatus("edits_settext", "ControlSetText -> Edit status: PASS")
+		AppendLog("ControlSetText round-tripped the multi-line text into the edit.")
+	} else {
+		SetStatus("edits_settext", "ControlSetText -> Edit status: FAIL")
+		AppendLog("ControlSetText mismatch: the edit content did not match the source text.")
+	}
 }
 
 ; ┌───────────────────────┐
@@ -2468,7 +2091,18 @@ ClearRichEdit(*) {
 
 GetLineCount(*)
 {
-	MsgBox("Regular edit line count: " . EditGetLineCount(SecondEdit, MyGui) . "`nRich edit line count: " . EditGetLineCount(SecondRichEdit, MyGui))
+	; Populate the edit with a known, non-wrapping 3-line probe and confirm EditGetLineCount agrees.
+	ControlSetText("Line one`r`nLine two`r`nLine three", SecondEdit)
+	Sleep(50)
+	count := EditGetLineCount(SecondEdit, MyGui)
+
+	if (count = 3) {
+		SetStatus("edits_linecount", "EditGetLineCount status: PASS (" count " lines)")
+		AppendLog("EditGetLineCount returned 3 for the 3-line probe text.")
+	} else {
+		SetStatus("edits_linecount", "EditGetLineCount status: FAIL (got " count ", expected 3)")
+		AppendLog("EditGetLineCount returned " count " for the 3-line probe text.")
+	}
 }
 
 ; ┌───────────┐
@@ -2521,20 +2155,20 @@ Icon3 := "HBITMAP:*" svgToHBITMAP(A_WorkingDir . A_DirSeparator . "check-mark.sv
 LoadPic(*) {
 	global
 	local x, y, w, h
-	Tab.UseTab("Second")
+	Tab.UseTab("Image")
 
 	if (MyFirstPic = "")
-		MyFirstPic := MyGui.Add("Picture", "xc+400 yc+650 w100 h-1 border", Monkey)
+		MyFirstPic := MyGui.Add("Picture", "xc+10 yc+410 w100 h-1 border", Monkey)
 	else
 		MyFirstPic.Value := Monkey
 #if WINDOWS
 	if (MySecondPic = "")
-		MySecondPic := MyGui.Add("Picture", "xc+520 yc+650 w100 h-1 border", Icon2)
+		MySecondPic := MyGui.Add("Picture", "xc+120 yc+410 w100 h-1 border", Icon2)
 	else
 		MySecondPic.Value := Icon2
 
 	if (MyThirdPic = "")
-		MyThirdPic := MyGui.Add("Picture", "xc+640 yc+650 w100 h-1 border", Icon3)
+		MyThirdPic := MyGui.Add("Picture", "xc+230 yc+410 w100 h-1 border", Icon3)
 	else
 		MyThirdPic.Value := Icon3
 #endif
@@ -2608,7 +2242,12 @@ svgToHBITMAP(svgPath,width,height) {
 	NumPut("float",height,D2D1_SIZE_F,0x4)
 	ComCall(115,ID2D1RenderTarget,"Ptr",IStream,"Uint64",NumGet(D2D1_SIZE_F,"Uint64"),"Ptr*",&ID2D1SvgDocument:=0) ;HRESULT ID2D1DeviceContext5::CreateSvgDocument(IStream *inputXmlStream,D2D1_SIZE_F viewportSize,ID2D1SvgDocument **svgDocument)
 
+	; Clear the render target to opaque white first — the SVG path uses the default black fill, so on the
+	; transparent (zero-initialized) WIC bitmap it would otherwise come out as an all-black box.
+	clearColor := Buffer(16)
+	NumPut("float",1.0,"float",1.0,"float",1.0,"float",1.0,clearColor)
 	ComCall(48,ID2D1RenderTarget,"int") ;void ID2D1RenderTarget::BeginDraw()
+	ComCall(47,ID2D1RenderTarget,"Ptr",clearColor) ;void ID2D1RenderTarget::Clear(const D2D1_COLOR_F *clearColor)
 	ComCall(116,ID2D1RenderTarget,"Ptr",ID2D1SvgDocument,"int") ;void ID2D1DeviceContext5::DrawSvgDocument(ID2D1SvgDocument *svgDocument)
 	ComCall(49,ID2D1RenderTarget,"Ptr",0,"Ptr",0) ;HRESULT ID2D1RenderTarget::EndDraw(D2D1_TAG *tag1,D2D1_TAG *tag2)
 
@@ -2631,6 +2270,7 @@ ListBoxClicked(*) {
 	;MySB.SetIcon("Shell32.dll", 2)
 	; MsgBox("Icon lives at " . A_KeysharpCorePath)
 	MySB.SetIcon(A_KeysharpCorePath, "Keysharp.ico")
+	MySB.SetFont("Norm cBlack")   ; clear any leftover green/red bold from a PASS/FAIL verdict
 	MySB.SetText(MyListBox.Text . " selected in ListBox")
 }
 
@@ -2758,27 +2398,37 @@ Reset_Style(*) {
 
 Set_Edit_Style(*)
 {
-	;MsgBox(HwndMyEdit, "This is the ID")
 #if WINDOWS
-	ControlSetStyle("+0x8", HwndMyEdit)
+	ControlSetStyle("+0x8", HwndMyEdit)   ; 0x8 = ES_UPPERCASE
+	ControlFocus(HwndMyEdit)
+
+	if (ControlGetStyle(HwndMyEdit) & 0x8) {
+		SetStatus("edits_style", "Uppercase ControlSetStyle status: PASS (ES_UPPERCASE set; type to see uppercasing)")
+		AppendLog("ControlSetStyle applied ES_UPPERCASE to the edit.")
+	} else {
+		SetStatus("edits_style", "Uppercase ControlSetStyle status: FAIL")
+		AppendLog("ControlSetStyle did not set ES_UPPERCASE on the edit.")
+	}
 #else
 	MyEdit2.Opt("+Uppercase")
 	HwndMyEdit := MyEdit2.Hwnd
-#endif
 	ControlFocus(HwndMyEdit)
+#endif
 }
 
 Reset_Edit_Style(*)
 {
 #if WINDOWS
-	Str := ControlGetStyle(HwndMyEdit)
-	MsgBox(Format("0x{1:x}", Str), "Style of Edit1 Before Reset")
-
 	ControlSetStyle("-0x8", HwndMyEdit)
 	ControlFocus(HwndMyEdit)
 
-	Str := ControlGetStyle(HwndMyEdit)
-	MsgBox(Format("0x{1:x}", Str), "Style of Edit1 After Reset")
+	if !(ControlGetStyle(HwndMyEdit) & 0x8) {
+		SetStatus("edits_style", "Reset edit style status: PASS (ES_UPPERCASE cleared)")
+		AppendLog("ControlSetStyle cleared ES_UPPERCASE from the edit.")
+	} else {
+		SetStatus("edits_style", "Reset edit style status: FAIL")
+		AppendLog("ControlSetStyle did not clear ES_UPPERCASE from the edit.")
+	}
 #else
 	MyEdit2.Opt("-Uppercase")
 	HwndMyEdit := MyEdit2.Hwnd
@@ -2791,22 +2441,14 @@ Reset_Edit_Style(*)
 ; └──────────────────────┘
 
 MoveGui(*) {
-	global winposx, winposy, winposw, winposh, gb2_TabTwo
-	Tab.UseTab("Second")
-	MyGui.UseGroup(gb2_TabTwo)
-	guiToUse := MoveEdit.Text != "" ? MoveEdit.Text : MyGui ; Either search for the text the user entered, or just use this Gui directly.
-	WinGetPos(&winposx, &winposy, &winposw, &winposh, guiToUse)
-	WinMove(100, 100, , , guiToUse)
-	; MyGui.Move(100, 100, 200, 200)
+	global winposx, winposy, winposw, winposh
+	WinGetPos(&winposx, &winposy, &winposw, &winposh, MyGui)
+	WinMove(100, 100, , , MyGui)
 }
 
 MoveGuiBack(*) {
-	global winposx, winposy, winposw, winposh, gb2_TabTwo
-	Tab.UseTab("Second")
-	MyGui.UseGroup(gb2_TabTwo)
-	guiToUse := MoveEdit.Text != "" ? MoveEdit.Text : MyGui
-	WinMove(winposx, winposy, winposw, winposh, guiToUse)
-	; MyGui.Move(winposx, winposy, winposw, winposh)
+	global winposx, winposy, winposw, winposh
+	WinMove(winposx, winposy, winposw, winposh, MyGui)
 }
 
 ; ┌──────────────────────────┐
@@ -2814,24 +2456,21 @@ MoveGuiBack(*) {
 ; └──────────────────────────┘
 
 ImgSrch(*) {
-CoordMode("Pixel", )  ; Interprets the coordinates below as relative to the screen rather than the active window.
+	CoordMode("Pixel", "Screen")  ; report screen coordinates and match the on-screen killbill fixture
 
-	try
-	{
-	resultX :=
-	resultY := 0
-	ImageSearch(&resultX, &resultY, 0, 0, A_ScreenWidth, A_ScreenHeight, "killbill.png")
-
-	If (resultX != "")
-		MsgBox("Found at x: " resultX " y: " resultY, "Image Search")
-	Else
-		MsgBox("Image not found!", "FAILURE")
-	}
-
-	catch as e  ; Handles the first error thrown by the block above.
-	{
-		MsgBox("An error was thrown!`nSpecifically: " e.Message)
-		Exit
+	try {
+		resultX := ""
+		resultY := 0
+		if ImageSearch(&resultX, &resultY, 0, 0, A_ScreenWidth, A_ScreenHeight, "killbill.png") {
+			SetStatus("image_main", "Image status: PASS - found killbill.png at " resultX "," resultY)
+			AppendLog("ImageSearch found killbill.png at " resultX "," resultY ".")
+		} else {
+			SetStatus("image_main", "Image status: FAIL - killbill.png not found on screen")
+			AppendLog("ImageSearch did not find killbill.png on screen.")
+		}
+	} catch as e {
+		SetStatus("image_main", "Image status: FAIL - ImageSearch error: " e.Message)
+		AppendLog("ImageSearch threw: " e.Message)
 	}
 }
 
@@ -3319,4 +2958,1117 @@ DoWav(*)
 	SoundPlay(wavTxt.Text, 1)
 }
 
+; ── Image tab: OCR probe alongside the image / pixel controls. ──
+Tab.UseTab("Image")
+imgGroup := MyGui.AddGroupBox("xc+10 yc+10 w500 h390", "Images (Picture / ImageSearch / ScreenClip)")
+MyGui.UseGroup(imgGroup)
+MyGui.AddText("xc+16 yc+24 w468 h44", "Display loads monkey/icon/svg Picture controls then destroys them; ImageSearch finds killbill.png on screen; ScreenClip captures a region and shows it. Pictures render on this tab.")
+imgDisplayBtn := MyGui.AddButton("xc+16 y+10 w150 h28", "Display Pictures")
+imgDisplayBtn.OnEvent("Click", "LoadPic")
+imgDestroyBtn := MyGui.AddButton("x+10 yp w150 h28", "Destroy Pictures")
+imgDestroyBtn.OnEvent("Click", "DestroyPic")
+imgSearchBtn := MyGui.AddButton("xc+16 y+10 w180 h28", "Image Search (killbill)")
+imgSearchBtn.OnEvent("Click", "ImgSrch")
+imgScreenClipBtn := MyGui.AddButton("x+10 yp w120 h28", "Screen Clip")
+imgScreenClipBtn.OnEvent("Click", "LoadSC")
+MyGui.AddText("xc+16 y+12 w468", "ImageSearch fixture (killbill.png, native size) — Image Search finds this on screen:")
+MyGui.Add("Picture", "xc+16 y+6 w-1 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
+imgSearchStatus := MyGui.AddText("xc+16 yc+330 w468 h40", "Image status: Not run")
+gStatus["image_main"] := imgSearchStatus
+MyGui.UseGroup()
+Tab.UseTab("Image")
+ocrGroup := MyGui.AddGroupBox("xc+540 yc+10 w540 h390", "OCR (OCR.ks: FindString / Filter / Crop)")
+MyGui.UseGroup(ocrGroup)
+MyGui.AddText("xc+16 yc+24 w508 h44", "Builds a window with known text, OCRs it via OCR.FromWindow, then exercises FindString / FindStrings / Filter / Crop / WordsBoundingRect / Cluster. Requires Tesseract (auto-detected; set OCR.Engine.Library if not).")
+btnOcrRun := MyGui.AddButton("xc+16 y+10 w150 h28", "Run OCR Test")
+btnOcrRun.OnEvent("Click", (*) => RunOcrTest())
+ocrStatus := MyGui.AddText("x+12 yp+4 w340 h24", "OCR status: Not run")
+gStatus["ocr_main"] := ocrStatus
+gOcrResultEdit := MyGui.AddEdit("xc+16 y+10 w508 h244 ReadOnly -Wrap")
+MyGui.UseGroup()
+Tab.UseTab()
+
+; Pixel tests (PixelGetColor / PixelSearch) — sample the on-tab colour swatch, no helper window needed.
+Tab.UseTab("Image")
+pixelGroup := MyGui.AddGroupBox("xc+540 yc+410 w540 h150", "Pixel (PixelGetColor / PixelSearch)")
+MyGui.UseGroup(pixelGroup)
+MyGui.AddText("xc+16 yc+24 w508 h28", "Samples the colour swatch on the right (no helper window). PixelGetColor reads its centre; PixelSearch locates that colour within the swatch's screen bounds.")
+btnPixelGet := MyGui.AddButton("xc+16 y+10 w130 h30", "PixelGetColor")
+btnPixelGet.OnEvent("Click", (*) => RunPixelGetColorTest())
+btnPixelSearch := MyGui.AddButton("x+10 yp w130 h30", "PixelSearch")
+btnPixelSearch.OnEvent("Click", (*) => RunPixelSearchTest())
+pixelSwatch := MyGui.Add("Text", "x+18 yp-4 w130 h38 Border BackgroundCC5533", "")
+pixelStatus := MyGui.AddText("xc+16 y+12 w508 h40", "Pixel status: Not run")
+gStatus["pixel_main"] := pixelStatus
+MyGui.UseGroup()
+Tab.UseTab()
+
+; ── Windows tab: window capture (Ks Image.FromWindow) + WinEvent probes (guitest's window move/min/max tests move here too) ──
+Tab.UseTab("Windows")
+externalWinGroup := MyGui.AddGroupBox("xc+16 yc+10 w540 h410", "Window Capture / Activate / Move")
+MyGui.UseGroup(externalWinGroup)
+MyGui.AddText("xc+16 yc+24 w508 h34", "Use Capture Active Window to prefill the title field, or type your own title match. Activate and Move are semi-automated and should be confirmed by the tester.")
+gWindowTitleEdit := MyGui.AddEdit("xc+16 y+8 w508", "")
+btnCaptureActive := MyGui.AddButton("xc+16 y+10 w150 h28", "Capture Active")
+btnCaptureActive.OnEvent("Click", (*) => CaptureActiveWindow())
+btnActivateTarget := MyGui.AddButton("x+10 yp w150 h28", "Activate Title")
+btnActivateTarget.OnEvent("Click", (*) => ActivateExternalWindow())
+btnMoveTarget := MyGui.AddButton("x+10 yp w188 h28", "Move Title +40,+40")
+btnMoveTarget.OnEvent("Click", (*) => MoveExternalWindow())
+btnFromPoint := MyGui.AddButton("xc+16 y+10 w220 h28", "Use Window From Mouse Point")
+btnFromPoint.OnEvent("Click", (*) => CaptureWindowFromPoint())
+MyGui.AddText("x+12 yp w276 h34", "Reads the window under the current mouse cursor and fills the target title.")
+gWindowInfoEdit := MyGui.AddEdit("xc+16 y+10 w508 h140 ReadOnly -Wrap")
+externalStatus := MyGui.AddText("xc+16 y+8 w508 h28", "External status: waiting for a target title")
+gStatus["window_external"] := externalStatus
+MyGui.UseGroup()
+Tab.UseTab("Windows")
+winEventGroup := MyGui.AddGroupBox("xc+570 yc+10 w560 h410", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
+MyGui.UseGroup(winEventGroup)
+MyGui.AddText("xc+16 yc+24 w528 h54", "Subscribes to Active / Exist / NotExist / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows.")
+btnStartWinEvent := MyGui.AddButton("xc+16 y+10 w200 h28", "Start WinEvent Probe")
+btnStartWinEvent.OnEvent("Click", (*) => StartWinEventProbe())
+btnStopWinEvent := MyGui.AddButton("x+10 yp w200 h28", "Stop WinEvent Probe")
+btnStopWinEvent.OnEvent("Click", (*) => StopWinEventProbe())
+winEventStatus := MyGui.AddText("xc+16 y+10 w528 h24", "WinEvent: not started")
+gStatus["window_winevent"] := winEventStatus
+MyGui.UseGroup()
+Tab.UseTab()
+
+; This-window tests (they manipulate whole windows). "Move GUI" moves THIS window only; arbitrary-title
+; moves live in the Window Capture / Activate / Move group above.
+Tab.UseTab("Windows")
+guiSelfGroup := MyGui.AddGroupBox("xc+16 yc+430 w1114 h120", "This-window tests (Move / Title / Notepad)")
+MyGui.UseGroup(guiSelfGroup)
+MoveText := MyGui.AddText("xc+16 yc+24 w380 h20", "Move this window to (100,100), then restore it (button colour tracks focus):")
+MoveText.SetFont("s9 cBlue")
+MoveButton := MyGui.AddButton("xc+16 y+6 w120 h26", "Move GUI")
+MoveButton.OnEvent("Focus", "ChangeMoveBtnColor")
+MoveButton.OnEvent("Click", "MoveGui")
+MoveButtonBack := MyGui.AddButton("x+8 yp w120 h26", "Move GUI Back")
+MoveButtonBack.OnEvent("Focus", "ChangeMoveBtnBackColor")
+MoveButtonBack.OnEvent("Click", "MoveGuiBack")
+#if WINDOWS
+TitleInfo := MyGui.AddText("xc+420 yc+24 w340 h20", "Alter this window's title via SendMessage (WM_SETTEXT):")
+TitleInfo.SetFont("cBlue s9")
+SendBtn1 := MyGui.AddButton("xc+420 y+6 w120 h26", "Change Title")
+SendBtn1.OnEvent("Click", "ChangeTitle")
+SendBtn2 := MyGui.AddButton("x+8 yp w120 h26", "Restore Title")
+SendBtn2.OnEvent("Click", "RestoreTitle")
+PostInfo := MyGui.AddText("xc+800 yc+24 w300 h20", "Launch Notepad, PostMessage its About box, then close it:")
+PostInfo.SetFont("cBlue s9")
+PostBtn1 := MyGui.AddButton("xc+800 y+6 w190 h26", "Show Notepad 'About'")
+PostBtn1.OnEvent("Click", "AboutNotepad")
+#endif
+MyGui.UseGroup()
+Tab.UseTab()
+
+ChangeMoveBtnColor(*) {
+	MoveButton.SetFont("cRed")
+	MoveButtonBack.SetFont("cBlack")
+}
+
+ChangeMoveBtnBackColor(*) {
+	MoveButton.SetFont("cBlack")
+	MoveButtonBack.SetFont("cRed")
+}
+
+#if WINDOWS
+ChangeTitle(*) {
+	Title := "KEYSHARP'S BRAND SPANKING NEW TITLE"
+	SendMessage(0x000C, 0, Title)  ; 0X000C is WM_SETTEXT
+}
+
+RestoreTitle(*) {
+	Title := "KEYSHARP TESTS"
+	SendMessage(0x000C, 0, Title)  ; 0X000C is WM_SETTEXT
+}
+
+AboutNotepad(*) {
+	SetTitleMatchMode(2)
+	Run("Notepad.exe")
+	Sleep(1000)
+	PostMessage(0x0111, 65, 0, , "Untitled - Notepad")
+	Sleep(2000)
+	WinKill("ahk_exe Notepad.exe")
+}
+#endif
+
+; ── Clipboard tab ──
+Tab.UseTab("Clipboard")
+clipGroup := MyGui.AddGroupBox("xc+16 yc+10 w560 h320", "Clipboard Tests")
+MyGui.UseGroup(clipGroup)
+MyGui.AddText("xc+16 yc+24 w528 h34", "Text round-trip and delayed ClipWait are self-validating. Clipboard change monitoring shows whether callbacks are fired. Image copy is manual after the copy step succeeds.")
+gClipboardTextEdit := MyGui.AddEdit("xc+16 y+8 w528 h92", "Clipboard probe text:`nAlpha beta gamma`nUnicode: Eesti, 日本語, emoji-free.")
+btnClipboardRoundTrip := MyGui.AddButton("xc+16 y+10 w150 h28", "Text Round Trip")
+btnClipboardRoundTrip.OnEvent("Click", (*) => RunClipboardTextRoundTrip())
+btnClipWait := MyGui.AddButton("x+10 yp w150 h28", "Delayed ClipWait")
+btnClipWait.OnEvent("Click", (*) => RunClipboardClipWaitTest())
+btnClipboardImage := MyGui.AddButton("x+10 yp w148 h28", "Copy Image Asset")
+btnClipboardImage.OnEvent("Click", (*) => RunClipboardImageCopy())
+btnToggleMonitor := MyGui.AddButton("xc+16 y+10 w150 h28", "Toggle Change Monitor")
+btnToggleMonitor.OnEvent("Click", (*) => ToggleClipboardMonitor())
+; (Pass/fail for the clipboard tests is shown in the status bar.)
+clipMonitorStatus := MyGui.AddText("xc+16 y+10 w528 h24", "Clipboard monitor: disabled")
+gStatus["clipboard_monitor"] := clipMonitorStatus
+MyGui.UseGroup()
+Tab.UseTab()
+
+Tab.UseTab("Send && Hotkey")
+sendGroup := MyGui.AddGroupBox("xc+10 yc+10 w500 h430", "Send Variants")
+MyGui.UseGroup(sendGroup)
+MyGui.AddText("xc+16 yc+24 w468", "Each button clears the target edit, focuses it, sends text, and validates the exact resulting text.")
+gSendTarget := MyGui.AddEdit("xc+16 y+8 w468 h90 -Wrap")
+btnSendV := MyGui.AddButton("xc+16 y+10 w110 h28", "Send()")
+btnSendV.OnEvent("Click", (*) => RunSendVariant("Send"))
+btnSendTextV := MyGui.AddButton("x+8 yp w110 h28", "SendText()")
+btnSendTextV.OnEvent("Click", (*) => RunSendVariant("SendText"))
+btnSendInputV := MyGui.AddButton("x+8 yp w110 h28", "SendInput()")
+btnSendInputV.OnEvent("Click", (*) => RunSendVariant("SendInput"))
+btnSendPlayV := MyGui.AddButton("x+8 yp w110 h28", "SendPlay()")
+btnSendPlayV.OnEvent("Click", (*) => RunSendVariant("SendPlay"))
+; SendEvent / ControlSend / ControlSendText — manual send tests grouped with the other Send buttons (they target gSendTarget too)
+BtnSendEvent := MyGui.AddButton("xc+16 y+8 w110 h28", "SendEvent()")
+BtnSendEvent.OnEvent("Click", "BtnSendEventFunc")
+BtnControlSend := MyGui.AddButton("x+8 yp w110 h28", "ControlSend()")
+BtnControlSend.OnEvent("Click", "BtnControlSendFunc")
+BtnControlSendText := MyGui.AddButton("x+8 yp w130 h28", "ControlSendText()")
+BtnControlSendText.OnEvent("Click", "BtnControlSendTextFunc")
+btnSendUnicode := MyGui.AddButton("xc+16 y+10 w150 h28", "Unicode SendText")
+btnSendUnicode.OnEvent("Click", (*) => RunSendScenario("SendText", "Mägi, Köln, São Paulo`n", "Unicode SendText"))
+btnSendEmoji := MyGui.AddButton("x+12 yp w150 h28", "Emoji SendText")
+btnSendEmoji.OnEvent("Click", (*) => RunSendScenario("SendText", "Faces: 😀 😎 🚀`n", "Emoji SendText"))
+btnSendMixed := MyGui.AddButton("x+12 yp w146 h28", "Mixed Unicode")
+btnSendMixed.OnEvent("Click", (*) => RunSendScenario("SendInput", "Mixed: ääkkönen, 日本語, 😀`n", "Mixed Unicode SendInput"))
+btnSendCaret := MyGui.AddButton("xc+16 y+10 w280 h28", "SendInput caret→start")
+btnSendCaret.OnEvent("Click", (*) => RunSendCaretTest())
+btnSendRaw := MyGui.AddButton("x+10 yp w160 h28", "Send {Raw}")
+btnSendRaw.OnEvent("Click", (*) => RunSendRawTest())
+MyGui.AddText("xc+16 y+10 w468 h30", "Extra coverage: Unicode, accented Latin text, CJK text, and emoji. Useful for keyboard-layout and surrogate-pair issues.")
+; (Pass/fail for the Send tests is shown in the status bar.)
+MyGui.UseGroup()
+Tab.UseTab("Send && Hotkey")
+hotkeyGroup := MyGui.AddGroupBox("xc+530 yc+10 w540 h430", "Hotkey / Hotstring / InputHook")
+MyGui.UseGroup(hotkeyGroup)
+MyGui.AddText("xc+16 yc+24 w508 h34", "Hotkey probe: test several modifier combinations. Hotstring probe: run the 3-case matrix in the edit below. InputHook: click Start, type the expected text, then press Enter.")
+MyGui.AddText("xc+16 y+6 w508 h40", "Hotstring matrix: 1) kssuite  2) ksend<Space>  3) prefixksword<Space>. These also verify documented A_EndChar behavior. Modifier mapping hint: Ctrl = ^, Alt/Option = !, Shift = +, Win/Cmd = #.")
+btnResetHotkey := MyGui.AddButton("xc+16 y+10 w170 h28", "Reset Hotkey Counter")
+btnResetHotkey.OnEvent("Click", (*) => ResetHotkeyProbe())
+MyGui.AddText("x+12 yp w320 h28", "Press: Ctrl+Alt+1, Win/Cmd+Ctrl+9, Win/Cmd+Alt+0")
+hotkeyStatus := MyGui.AddText("xc+16 y+10 w508 h32", "Hotkey status: waiting for the matrix hotkeys")
+gStatus["input_hotkey"] := hotkeyStatus
+gHotstringTarget := MyGui.AddEdit("xc+16 y+10 w508 h74 -Wrap")
+gHotstringTarget.Value := HotstringProbeInstructions()
+btnResetHotstring := MyGui.AddButton("xc+16 y+6 w170 h28", "Reset Hotstring Probe")
+btnResetHotstring.OnEvent("Click", (*) => ResetHotstringProbe())
+btnValidateHotstring := MyGui.AddButton("x+12 yp w170 h28", "Validate Hotstring")
+btnValidateHotstring.OnEvent("Click", (*) => ValidateHotstringProbe())
+hotstringStatus := MyGui.AddText("xc+16 y+6 w508 h24", "Hotstring status: waiting for the 3 probe cases")
+gStatus["input_hotstring"] := hotstringStatus
+MyGui.AddText("xc+16 y+12 w64 h24", "Expected:")
+gInputHookExpected := MyGui.AddEdit("x+6 yp-2 w120", "abc123")
+btnStartInputHook := MyGui.AddButton("x+16 yp-2 w140 h28", "Start InputHook")
+btnStartInputHook.OnEvent("Click", (*) => StartInputHookProbe())
+btnValidateInputHook := MyGui.AddButton("x+12 yp w140 h28", "Validate Hook")
+btnValidateInputHook.OnEvent("Click", (*) => ValidateInputHookProbe())
+gInputHookActual := MyGui.AddEdit("xc+16 y+6 w508 h26 ReadOnly")
+inputHookStatus := MyGui.AddText("xc+16 y+6 w508 h24", "InputHook status: idle")
+gStatus["input_hook"] := inputHookStatus
+MyGui.UseGroup()
+Tab.UseTab("Send && Hotkey")
+mouseGroup := MyGui.AddGroupBox("xc+10 yc+450 w500 h120", "Mouse InputHook (OnMouseDown / OnMouseUp / OnMouseMove)")
+MyGui.UseGroup(mouseGroup)
+btnStartMouse := MyGui.AddButton("xc+16 yc+24 w104 h26", "Start Mouse")
+btnStartMouse.OnEvent("Click", (*) => StartMouseHookProbe())
+btnStopMouse := MyGui.AddButton("x+8 yp w70 h26", "Stop")
+btnStopMouse.OnEvent("Click", (*) => StopMouseHookProbe())
+btnBlockMove := MyGui.AddButton("x+8 yp w120 h26", "Block Move (2s)")
+btnBlockMove.OnEvent("Click", (*) => TestBlockMoveProbe())
+btnBlockMButton := MyGui.AddButton("x+8 yp w160 h26", "Toggle Block MButton")
+btnBlockMButton.OnEvent("Click", (*) => ToggleBlockMButton())
+mouseReadout := MyGui.AddEdit("xc+16 y+10 w468 h22 ReadOnly -Wrap", "Start, then click / wheel / move the mouse to see the last event and live counts.")
+gStatus["input_mouse_readout"] := mouseReadout
+mouseStatus := MyGui.AddText("xc+16 y+8 w468 h22", "Mouse hook: idle")
+gStatus["input_mouse"] := mouseStatus
+MyGui.UseGroup()
+
+Tab.UseTab("Send && Hotkey")
+manualGroup := MyGui.AddGroupBox("xc+530 yc+450 w540 h120", "Manual Hotkey() registration")
+MyGui.UseGroup(manualGroup)
+FuncBtnTwo := MyGui.AddButton("xc+16 yc+24 w150 h26", "RCtrl+RShift->AltTab")
+FuncBtnTwo.OnEvent("Click", "StupidTrickTwo")
+FuncBtnFive := MyGui.AddButton("x+8 yp w110 h26", "Toggle AltTab")
+FuncBtnFive.OnEvent("Click", "ToggleHotkey")
+FuncBtnSix := MyGui.AddButton("x+8 yp w180 h26", "RCtrl+LShift->AltTab(.INI)")
+FuncBtnSix.OnEvent("Click", "GrabFromIni")
+FuncBtnSeven := MyGui.AddButton("xc+16 y+8 w110 h26", "Toggle .INI")
+FuncBtnSeven.OnEvent("Click", "ToggleFromIni")
+MyGui.AddText("xc+16 y+10 w510", "Manual only: hold F1 = slow mouse; in Explorer select files + press F3 to list their names.")
+MyGui.UseGroup()
+Tab.UseTab()
+
+; --- Shared activity log, placed directly UNDER the Tab control (computed from its actual bottom so it
+;     never overlaps the tab regardless of how tall the tallest tab's content is) ---
+Tab.UseTab()
+Tab.GetPos(&_tabX, &_tabY, &_tabW, &_tabH)
+gLogEdit := MyGui.Add("Edit", "x" _tabX " y" (_tabY + _tabH + 6) " w" _tabW " h74 ReadOnly -Wrap")
+clearLogBtn := MyGui.Add("Button", "x" _tabX " y+4 w120 h26", "Clear Log")
+clearLogBtn.OnEvent("Click", (*) => ClearLog())
+RegisterInputProbes()
+AppendLog("Manual suite ready.")
 MyGui.Show("Autosize")
+
+; ============================================================================
+; Functional input / window-capture / clipboard / OCR / WinEvent probes, plus the shared activity log and
+; status helpers (AppendLog, SetStatus, ClearLog, ResetStatuses). The GUI groups that drive these live on the
+; Image / Send && Hotkey / Windows / Clipboard / Sound tabs above; the pixel/image/window probes use guitest's
+; own killbill ImageSearch and window-move fixtures rather than a dedicated helper window.
+; ============================================================================
+
+RegisterInputProbes() {
+	Hotkey("^!1", (*) => HotkeyProbe("^!1 / Ctrl+Alt+1"))
+	Hotkey("#^9", (*) => HotkeyProbe("#^9 / Win-or-Cmd+Ctrl+9"))
+	Hotkey("#!0", (*) => HotkeyProbe("#!0 / Win-or-Cmd+Alt+0"))
+}
+
+AppendLog(message) {
+	global gLogEdit, gLogText
+
+	timeStamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+	gLogText .= (gLogText = "" ? "" : "`r`n") "[" timeStamp "] " message
+	gLogEdit.Value := gLogText
+	; Setting .Value replaces the whole text and leaves the view at the top, so pin it to the newest
+	; line with WM_VSCROLL/SB_BOTTOM after the edit has processed its replaced text.
+	PostMessage(0x115, 7, 0, gLogEdit)
+}
+
+ClearLog() {
+	global gLogText, gLogEdit
+
+	gLogText := ""
+	gLogEdit.Value := ""
+	AppendLog("Log cleared.")
+}
+
+SetStatus(key, text) {
+	global gStatus
+
+	if gStatus.Has(key)
+		gStatus[key].Value := text
+
+	; Mirror a definitive verdict to the status bar: green PASS / red FAIL.
+	UpdateResultStatusBar(text)
+}
+
+; Shows the latest pass/fail verdict in the status bar (like the Pickers & Sliders listbox update keeps the
+; Keysharp logo). "PASS if ..." / "CHECK ..." are advisory, not verdicts, so they leave the bar unchanged.
+UpdateResultStatusBar(text) {
+	global MySB
+
+	up := StrUpper(text)
+	if InStr(up, "FAIL") {
+		MySB.SetIcon(A_KeysharpCorePath, "Keysharp.ico")
+		MySB.SetFont("Bold cRed")
+		MySB.SetText("FAIL  -  " text)
+	} else if (InStr(up, "PASS") && !InStr(up, "PASS IF")) {
+		MySB.SetIcon(A_KeysharpCorePath, "Keysharp.ico")
+		MySB.SetFont("Bold cGreen")
+		MySB.SetText("PASS  -  " text)
+	}
+}
+
+ResetStatuses() {
+	SetStatus("input_send", "Status: Not run")
+	SetStatus("input_hotkey", "Hotkey status: waiting for Ctrl+Alt+1")
+	SetStatus("input_hotstring", "Hotstring status: waiting for the 3 probe cases")
+	SetStatus("input_hook", "InputHook status: idle")
+	SetStatus("input_mouse", "Mouse hook: idle")
+	SetStatus("input_mouse_readout", "Start, then click / wheel / move the mouse to see the last event and live counts.")
+	SetStatus("window_helper", "Helper status: Not run")
+	SetStatus("window_external", "External status: waiting for a target title")
+	SetStatus("pixel_color", "Pixel status: Not run")
+	SetStatus("pixel_image", "Image status: Not run")
+	SetStatus("clipboard_main", "Clipboard status: Not run")
+	SetStatus("clipboard_monitor", "Clipboard monitor: " (gClipboardMonitorEnabled ? "enabled" : "disabled"))
+	SetStatus("sound_main", "Sound status: Not run")
+	SetStatus("sound_control", "Sound control status: waiting")
+	SetStatus("window_winevent", "WinEvent: not started")
+	AppendLog("Status text reset.")
+}
+
+; Single callback for every WinEvent subscription. The event kind is read from hook.EventType,
+; so one handler covers Active/Exist/NotExist/Move/Minimize/Restore/TitleChange. Move fires very
+; frequently (once per drag step), so it is counted and surfaced in the status line rather than
+; written to the log, while every other event is logged with the affected window's title.
+OnWinEvent(hook, hwnd, dwmsEventTime) {
+	global gWinEventCount, gWinEventMoveCount
+
+	evType := hook.EventType
+
+	if (evType = "Move") {
+		gWinEventMoveCount++
+		SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventMoveCount " moves (last hwnd " Format("0x{:X}", hwnd) ")")
+		return
+	}
+
+	gWinEventCount++
+
+	; Look up the title by the *pure* window id (integer), not an "ahk_id <id>" string: the integer form
+	; matches regardless of A_DetectHiddenWindows, so hidden helper windows don't raise a "window not found"
+	; error. Even so, a window seen by NotExist is gone by the time the callback runs, so its title lookup is
+	; skipped, and every lookup is wrapped to keep the probe from ever throwing.
+	title := "<n/a>"
+	if (evType != "NotExist") {
+		try
+			title := WinGetTitle(hwnd)
+		catch
+			title := "<unavailable>"
+	}
+
+	AppendLog("WinEvent " evType ": hwnd=" Format("0x{:X}", hwnd) " title=" (title = "" ? "<none>" : title))
+	SetStatus("window_winevent", "WinEvent: " gWinEventCount " events, " gWinEventMoveCount " moves (last " evType ")")
+}
+
+StartWinEventProbe() {
+	global gWinEventHooks, gWinEventCount, gWinEventMoveCount
+
+	StopWinEventProbe()
+	gWinEventCount := 0
+	gWinEventMoveCount := 0
+
+	try {
+		gWinEventHooks.Push(WinEvent.Active(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Exist(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.NotExist(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Move(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Minimize(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Restore(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.TitleChange(OnWinEvent))
+		SetStatus("window_winevent", "WinEvent: probe started — switch, open, close, and drag windows")
+		AppendLog("WinEvent probe started (" gWinEventHooks.Length " subscriptions). Activate, open, close, minimize, restore, and drag windows.")
+	} catch as err {
+		SetStatus("window_winevent", "WinEvent: BLOCKED/ERROR")
+		AppendLog("WinEvent probe failed: " err.Message)
+	}
+}
+
+StopWinEventProbe() {
+	global gWinEventHooks
+
+	if (gWinEventHooks.Length = 0)
+		return
+
+	for hook in gWinEventHooks {
+		try hook.Stop()
+	}
+
+	gWinEventHooks := []
+	SetStatus("window_winevent", "WinEvent: stopped")
+	AppendLog("WinEvent probe stopped.")
+}
+
+; Self-contained OCR probe: builds a window with known text, OCRs it via OCR.FromWindow (PrintWindow
+; capture, 2x upscale), then exercises every result helper the OCR.ks refactor touched and writes a
+; report to the OCR result edit. Requires Tesseract; a load failure is reported, not thrown.
+RunOcrTest() {
+	global gOcrResultEdit
+
+	SetStatus("ocr_main", "OCR status: running...")
+
+	; Known, OCR-friendly content: black monospaced text on white.
+	g := Gui("+AlwaysOnTop", "OCR Probe Window")
+	g.BackColor := "White"
+	g.SetFont("s28 cBlack", "Consolas")
+	g.AddText("x20 y20",  "Save Document")
+	g.AddText("x20 y80",  "Open File Now")
+	g.AddText("x20 y140", "Save Changes")
+	g.Show("w440 h220")
+	Sleep(400)   ; let it paint (PrintWindow capture does not need it focused)
+
+	try
+		res := OCR.FromWindow("ahk_id " g.Hwnd, {scale: 2})
+	catch as err {
+		g.Destroy()
+		SetStatus("ocr_main", "OCR status: BLOCKED/ERROR")
+		gOcrResultEdit.Value := "OCR failed to run: " err.Message "`r`n`r`nIs Tesseract installed? Set OCR.Engine.Library to its shared library if it is not auto-detected."
+		AppendLog("OCR probe failed: " err.Message)
+		return
+	}
+
+	report := []
+	report.Push("=== Recognized text ===")
+	report.Push(res.Text)
+	report.Push("Lines: " res.Lines.Length "   Words: " res.Words.Length)
+	report.Push("")
+	report.Push("=== Words (text @ x,y wxh  conf | BoundingRect.x) ===")
+	for w in res.Words
+		report.Push(Format("  '{1}' @ {2},{3} {4}x{5}  conf={6}  br.x={7}", w.Text, w.x, w.y, w.w, w.h, w.Conf, w.BoundingRect.x))
+
+	report.Push("")
+	report.Push("=== FindString('Open') ===")
+	try {
+		m := res.FindString("Open")
+		report.Push(Format("  found '{1}' at {2},{3} ({4}x{5})", m.Text, m.x, m.y, m.w, m.h))
+	} catch as err
+		report.Push("  FindString('Open') threw: " err.Message "  (likely an OCR misread, not a code bug)")
+
+	report.Push("=== FindStrings('Save') (expect 2) ===")
+	try {
+		saves := res.FindStrings("Save")
+		report.Push("  occurrences: " saves.Length)
+		for i, s in saves
+			report.Push(Format("    #{1}: '{2}' at {3},{4}", i, s.Text, s.x, s.y))
+	} catch as err
+		report.Push("  FindStrings('Save') threw: " err.Message)
+
+	report.Push("")
+	report.Push("=== Filter: words with >= 5 chars (expect Document, Changes) ===")
+	try {
+		long := res.Filter((wd) => StrLen(wd.Text) >= 5)
+		report.Push("  text:  " StrReplace(long.Text, "`n", " | ") "   (" long.Words.Length " words)")
+	} catch as err
+		report.Push("  Filter threw: " err.Message)
+
+	WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " g.Hwnd)
+	report.Push("")
+	report.Push("=== Crop: top half of the window ===")
+	try {
+		top := res.Crop(wx, wy, wx + ww, wy + wh // 2)
+		report.Push("  text:  " StrReplace(top.Text, "`n", " | "))
+	} catch as err
+		report.Push("  Crop threw: " err.Message)
+
+	if res.Words.Length {
+		br := OCR.WordsBoundingRect(res.Words*)
+		report.Push("")
+		report.Push("=== WordsBoundingRect (all words) ===")
+		report.Push(Format("  x={1} y={2} w={3} h={4} x2={5} y2={6}", br.x, br.y, br.w, br.h, br.x2, br.y2))
+		try {
+			clusters := OCR.Cluster(res.Words)
+			report.Push("=== Cluster -> " clusters.Length " cluster(s) ===")
+			for c in clusters
+				report.Push("  '" c.Text "'")
+		} catch as err
+			report.Push("  Cluster threw: " err.Message)
+	}
+
+	; Visual: box the first word over the live window briefly, then auto-clear.
+	if res.Words.Length
+		try res.Words[1].Highlight(700)
+
+	g.Destroy()
+
+	ok := InStr(res.Text, "Save") && InStr(res.Text, "Open") && InStr(res.Text, "Document")
+	SetStatus("ocr_main", "OCR status: " (ok ? "PASS - methods ran, expected words present" : "CHECK - inspect text below"))
+
+	output := ""
+	for ln in report
+		output .= ln "`r`n"
+	gOcrResultEdit.Value := output
+	AppendLog("OCR probe " (ok ? "passed" : "ran (CHECK)") ": " res.Lines.Length " lines, " res.Words.Length " words.")
+}
+
+PrepareSendTarget() {
+	global MyGui, gSendTarget
+
+	gSendTarget.Value := ""
+	WinActivate("ahk_id " MyGui.Hwnd)
+	Sleep(120)
+	gSendTarget.Focus()
+	Sleep(120)
+}
+
+; SendInput must move the caret to the BEGINNING of the edit and insert there: type a line, send
+; caret-to-start, prepend another line, then validate the exact result.
+RunSendCaretTest() {
+	global gSendTarget
+#if OSX
+	docStart := "#{Up}"   ; Cmd+Up = document start (Home only scrolls in macOS text controls)
+#else
+	docStart := "^{Home}" ; Ctrl+Home = document start
+#endif
+	try {
+		PrepareSendTarget()
+		SendInput("Second line")
+		Sleep(150)
+		SendInput(docStart "First line`n")
+		Sleep(200)
+		actual := NormalizeNewlines(gSendTarget.Value)
+		expected := NormalizeNewlines("First line`nSecond line")
+		if (actual = expected) {
+			SetStatus("input_send", "SendInput caret->start: PASS")
+			AppendLog("SendInput moved the caret to the start and prepended the line as expected.")
+		} else {
+			SetStatus("input_send", "SendInput caret->start: FAIL")
+			AppendLog("SendInput caret-to-start mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", "SendInput caret->start: BLOCKED/ERROR")
+		AppendLog("SendInput caret-to-start threw: " err.Message)
+	}
+}
+
+RunSendVariant(mode) {
+	global gSendTarget
+
+	expected := "Alpha 123`nLiteral braces {Blind}{Text}`n"
+
+	try {
+		PrepareSendTarget()
+
+		switch mode {
+			case "Send":
+				Send("{Text}Alpha 123`nLiteral braces {Blind}{Text}`n")
+			case "SendText":
+				SendText("Alpha 123`r`nLiteral braces {Blind}{Text}`r`n")
+			case "SendInput":
+				SendInput("{Text}Alpha 123`nLiteral braces {Blind}{Text}`n")
+			case "SendPlay":
+				SendPlay("{Text}Alpha 123`nLiteral braces {Blind}{Text}`n")
+			default:
+				throw Error("Unknown send mode: " mode)
+		}
+
+		Sleep(250)
+		actual := NormalizeNewlines(gSendTarget.Value)
+
+		if (actual = NormalizeNewlines(expected)) {
+			SetStatus("input_send", mode " status: PASS")
+			AppendLog(mode " produced the expected text in the suite-owned edit.")
+		} else {
+			SetStatus("input_send", mode " status: FAIL")
+			AppendLog(mode " mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", mode " status: BLOCKED/ERROR")
+		AppendLog(mode " threw an error: " err.Message)
+	}
+}
+
+RunSendScenario(mode, expected, label := "") {
+	global gSendTarget
+
+	try {
+		PrepareSendTarget()
+
+		switch mode {
+			case "Send":
+				Send("{Text}" expected)
+			case "SendText":
+				SendText(expected)
+			case "SendInput":
+				SendInput("{Text}" expected)
+			case "SendPlay":
+				SendPlay("{Text}" expected)
+			default:
+				throw Error("Unknown send mode: " mode)
+		}
+
+		Sleep(250)
+		actual := NormalizeNewlines(gSendTarget.Value)
+		expectedNorm := NormalizeNewlines(expected)
+		labelText := label != "" ? label : mode
+
+		if (actual = expectedNorm) {
+			SetStatus("input_send", labelText " status: PASS")
+			AppendLog(labelText " produced the expected text in the suite-owned edit.")
+		} else {
+			SetStatus("input_send", labelText " status: FAIL")
+			AppendLog(labelText " mismatch. Expected <" expectedNorm "> but saw <" actual ">.")
+		}
+	} catch as err {
+		labelText := label != "" ? label : mode
+		SetStatus("input_send", labelText " status: BLOCKED/ERROR")
+		AppendLog(labelText " threw an error: " err.Message)
+	}
+}
+
+; {Raw} mode must send braces and the ^ ! + # modifier symbols as literal characters rather than
+; interpreting them. (This is the Send-mode coverage that used to live in the GroupBoxes tab.)
+RunSendRawTest() {
+	global gSendTarget
+
+	expected := "Raw mode keeps {braces} and ^!+# literal"
+	try {
+		PrepareSendTarget()
+		Send("{Raw}" expected)
+		Sleep(250)
+		actual := gSendTarget.Value
+
+		if (actual = expected) {
+			SetStatus("input_send", "Send {Raw} status: PASS")
+			AppendLog("Send {Raw} sent the braces and modifier symbols literally.")
+		} else {
+			SetStatus("input_send", "Send {Raw} status: FAIL")
+			AppendLog("Send {Raw} mismatch. Expected <" expected "> but saw <" actual ">.")
+		}
+	} catch as err {
+		SetStatus("input_send", "Send {Raw} status: BLOCKED/ERROR")
+		AppendLog("Send {Raw} threw an error: " err.Message)
+	}
+}
+
+NormalizeNewlines(text) {
+	text := StrReplace(text, "`r`n", "`n")
+	text := StrReplace(text, "`r", "`n")
+	return text
+}
+
+HotkeyProbe(label, *) {
+	global gHotkeyHitCount
+
+	gHotkeyHitCount += 1
+	SetStatus("input_hotkey", "Hotkey status: PASS via " label " (" gHotkeyHitCount " hit" (gHotkeyHitCount = 1 ? "" : "s") ")")
+	AppendLog("Hotkey probe fired via " label ". Total hits: " gHotkeyHitCount ".")
+}
+
+ResetHotkeyProbe() {
+	global gHotkeyHitCount
+
+	gHotkeyHitCount := 0
+	SetStatus("input_hotkey", "Hotkey status: waiting for the matrix hotkeys")
+	AppendLog("Hotkey counter reset.")
+}
+
+ResetHotstringProbe() {
+	global gHotstringHitCount, gHotstringTarget
+
+	gHotstringHitCount := 0
+	gHotstringTarget.Value := HotstringProbeInstructions()
+	SetStatus("input_hotstring", "Hotstring status: waiting for the 3 probe cases")
+	AppendLog("Hotstring probe reset.")
+}
+
+ValidateHotstringProbe() {
+	global gHotstringTarget
+
+	missing := []
+
+	for _, probe in ["KEYSHARP-SUITE [A_EndChar=<blank>]", "ENDCHAR-OK [A_EndChar=Space]", "INSIDE-WORD-OK [A_EndChar=Space]"] {
+		if !InStr(gHotstringTarget.Value, probe)
+			missing.Push(probe)
+	}
+
+	if missing.Length = 0 {
+		SetStatus("input_hotstring", "Hotstring status: PASS (3/3 cases)")
+		AppendLog("Hotstring validation passed for kssuite, ksend<Space>, and prefixksword<Space>.")
+	} else {
+		SetStatus("input_hotstring", "Hotstring status: FAIL")
+		AppendLog("Hotstring validation failed. Missing: " JoinProbeNames(missing) ". Current edit content: " gHotstringTarget.Value)
+	}
+}
+
+HotstringProbeInstructions() {
+	return "Run these in order on separate lines:`n1. kssuite`n2. ksend<Space>`n3. prefixksword<Space>`n`nExpected markers:`nKEYSHARP-SUITE [A_EndChar=<blank>]`nENDCHAR-OK [A_EndChar=Space]`nINSIDE-WORD-OK [A_EndChar=Space]"
+}
+
+JoinProbeNames(items) {
+	text := ""
+
+	for index, item in items
+		text .= (index = 1 ? "" : ", ") item
+
+	return text
+}
+
+StartInputHookProbe() {
+	global gInputHookObj, gInputHookLastText, gInputHookLastReason, gInputHookActual
+
+	try {
+		gInputHookLastText := ""
+		gInputHookLastReason := ""
+		gInputHookActual.Value := ""
+		gInputHookObj := InputHook("V")
+		gInputHookObj.KeyOpt("{Enter}", "E")
+		gInputHookObj.OnEnd := InputHookEnded
+		gInputHookObj.Start()
+		SetStatus("input_hook", "InputHook status: capturing, type the expected text then press Enter")
+		AppendLog("InputHook started.")
+	} catch as err {
+		SetStatus("input_hook", "InputHook status: BLOCKED/ERROR")
+		AppendLog("InputHook start failed: " err.Message)
+	}
+}
+
+InputHookEnded(hook) {
+	global gInputHookLastText, gInputHookLastReason, gInputHookActual
+
+	gInputHookLastText := hook.Input
+	gInputHookLastReason := hook.EndReason
+	gInputHookActual.Value := gInputHookLastText
+	SetStatus("input_hook", "InputHook status: ended with reason " gInputHookLastReason)
+	AppendLog("InputHook ended. Reason=" gInputHookLastReason ", Input=" gInputHookLastText)
+}
+
+ValidateInputHookProbe() {
+	global gInputHookExpected, gInputHookLastText, gInputHookLastReason
+
+	expected := gInputHookExpected.Value
+
+	if (gInputHookLastText = expected && gInputHookLastReason != "") {
+		SetStatus("input_hook", "InputHook status: PASS")
+		AppendLog("InputHook validation passed.")
+	} else {
+		SetStatus("input_hook", "InputHook status: FAIL")
+		AppendLog("InputHook validation failed. Expected <" expected "> but saw <" gInputHookLastText "> with reason <" gInputHookLastReason ">.")
+	}
+}
+
+StartMouseHookProbe() {
+	global gMouseHookObj, gMouseDownCount, gMouseUpCount, gMouseMoveCount
+
+	try {
+		if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress)
+			gMouseHookObj.Stop()
+
+		gMouseDownCount := 0
+		gMouseUpCount := 0
+		gMouseMoveCount := 0
+		; "V" keeps keystrokes/clicks visible (non-suppressing) so the harness stays usable.
+		gMouseHookObj := InputHook("V")
+		gMouseHookObj.OnMouseDown := MouseHookDown
+		gMouseHookObj.OnMouseUp := MouseHookUp
+		gMouseHookObj.OnMouseMove := MouseHookMove
+		gMouseHookObj.Start()
+		UpdateMouseHookReadout("(waiting for mouse activity)")
+		SetStatus("input_mouse", "Mouse hook: capturing. Click, wheel, and move the mouse.")
+		AppendLog("Mouse InputHook started.")
+	} catch Error as err {
+		SetStatus("input_mouse", "Mouse hook: BLOCKED/ERROR")
+		AppendLog("Mouse InputHook start failed: " err.Message)
+	}
+}
+
+StopMouseHookProbe() {
+	global gMouseHookObj
+
+	if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		gMouseHookObj.VisibleMouseMove := true ; Make sure movement is restored on stop.
+		gMouseHookObj.Stop()
+	}
+
+	SetStatus("input_mouse", "Mouse hook: stopped")
+	AppendLog("Mouse InputHook stopped.")
+}
+
+MouseHookDown(hook, button, x, y) {
+	global gMouseDownCount
+
+	gMouseDownCount++
+	UpdateMouseHookReadout("Down " button " @ " x "," y)
+}
+
+MouseHookUp(hook, button, x, y) {
+	global gMouseUpCount
+
+	gMouseUpCount++
+	UpdateMouseHookReadout("Up " button " @ " x "," y)
+}
+
+MouseHookMove(hook, x, y) {
+	global gMouseMoveCount
+
+	gMouseMoveCount++
+
+	; Movement fires continuously; refresh the readout only periodically so the GUI stays responsive.
+	if (Mod(gMouseMoveCount, 10) = 0)
+		UpdateMouseHookReadout("Move @ " x "," y)
+}
+
+UpdateMouseHookReadout(lastEvent) {
+	global gMouseDownCount, gMouseUpCount, gMouseMoveCount
+
+	SetStatus("input_mouse_readout", "Last: " lastEvent "   |   Down=" gMouseDownCount " Up=" gMouseUpCount " Move=" gMouseMoveCount)
+}
+
+TestBlockMoveProbe() {
+	global gMouseHookObj
+
+	if !(IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		SetStatus("input_mouse", "Mouse hook: start it first")
+		return
+	}
+
+	gMouseHookObj.VisibleMouseMove := false
+	SetStatus("input_mouse", "Mouse hook: movement BLOCKED for 2s (cursor should freeze, then recover).")
+	AppendLog("Mouse movement suppression engaged (VisibleMouseMove:=false) for 2s.")
+	SetTimer(UnblockMoveProbe, -2000) ; Auto-revert so the tester is never locked out.
+}
+
+UnblockMoveProbe() {
+	global gMouseHookObj
+
+	if (IsObject(gMouseHookObj) && gMouseHookObj.InProgress)
+		gMouseHookObj.VisibleMouseMove := true
+
+	SetStatus("input_mouse", "Mouse hook: movement restored")
+	AppendLog("Mouse movement suppression released (VisibleMouseMove:=true).")
+}
+
+ToggleBlockMButton() {
+	static blocked := false
+	global gMouseHookObj
+
+	if !(IsObject(gMouseHookObj) && gMouseHookObj.InProgress) {
+		SetStatus("input_mouse", "Mouse hook: start it first")
+		return
+	}
+
+	blocked := !blocked
+	; +S suppresses the middle button like a suppressed keystroke; +V makes it visible again.
+	gMouseHookObj.KeyOpt("{MButton}", blocked ? "+S" : "+V")
+	SetStatus("input_mouse", "Mouse hook: MButton " (blocked ? "SUPPRESSED (middle-click should do nothing)" : "visible"))
+	AppendLog("MButton suppression " (blocked ? "enabled" : "disabled") " via KeyOpt.")
+}
+CaptureActiveWindow() {
+	global gWindowTitleEdit, gWindowInfoEdit
+
+	try {
+		hwnd := WinExist("A")
+		title := WinGetTitle("ahk_id " hwnd)
+		className := WinGetClass("ahk_id " hwnd)
+		WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+		gWindowTitleEdit.Value := title
+		gWindowInfoEdit.Value := "Title: " title "`r`nClass: " className "`r`nHwnd: " hwnd "`r`nPos: " x "," y "  Size: " w "x" h
+		SetStatus("window_external", "External status: captured active window")
+		AppendLog("Captured active window: " title " [" className "]")
+	} catch as err {
+		SetStatus("window_external", "External status: BLOCKED/ERROR")
+		AppendLog("Capture active window failed: " err.Message)
+	}
+}
+
+CaptureWindowFromPoint() {
+	global gWindowTitleEdit, gWindowInfoEdit
+
+	try {
+		CoordMode "Mouse", "Screen"
+		MouseGetPos(&mx, &my)
+		hwnd := WinFromPoint(mx, my)
+
+		if !hwnd
+			throw Error("WinFromPoint returned no hwnd for " mx "," my ".")
+
+		title := WinGetTitle("ahk_id " hwnd)
+		className := WinGetClass("ahk_id " hwnd)
+		WinGetPos(&x, &y, &w, &h, "ahk_id " hwnd)
+		gWindowTitleEdit.Value := title
+		gWindowInfoEdit.Value := "From point: " mx "," my "`r`nTitle: " title "`r`nClass: " className "`r`nHwnd: " hwnd "`r`nPos: " x "," y "  Size: " w "x" h
+		SetStatus("window_external", "External status: captured window from mouse point")
+		AppendLog("CaptureWindowFromPoint found hwnd " hwnd " with title <" title "> at mouse point " mx "," my ".")
+	} catch as err {
+		SetStatus("window_external", "External status: BLOCKED/ERROR")
+		AppendLog("CaptureWindowFromPoint failed: " err.Message)
+	}
+}
+
+ActivateExternalWindow() {
+	global gWindowTitleEdit
+
+	title := Trim(gWindowTitleEdit.Value)
+
+	if (title = "") {
+		SetStatus("window_external", "External status: enter or capture a title first")
+		return
+	}
+
+	try {
+		WinActivate(title)
+		WinWaitActive(title, , 2)
+		SetStatus("window_external", "External status: PASS if the requested window came to front")
+		AppendLog("ActivateExternalWindow ran against title match <" title ">.")
+	} catch as err {
+		SetStatus("window_external", "External status: BLOCKED/ERROR")
+		AppendLog("ActivateExternalWindow failed for <" title ">: " err.Message)
+	}
+}
+
+MoveExternalWindow() {
+	global gWindowTitleEdit, gWindowInfoEdit
+
+	title := Trim(gWindowTitleEdit.Value)
+
+	if (title = "") {
+		SetStatus("window_external", "External status: enter or capture a title first")
+		return
+	}
+
+	try {
+		WinGetPos(&x1, &y1, &w1, &h1, title)
+		WinMove(x1 + 40, y1 + 40, w1, h1, title)
+		Sleep(200)
+		WinGetPos(&x2, &y2, &w2, &h2, title)
+		gWindowInfoEdit.Value := "Before: " x1 "," y1 "  " w1 "x" h1 "`r`nAfter:  " x2 "," y2 "  " w2 "x" h2
+		SetStatus("window_external", "External status: PASS if the target moved by +40,+40")
+		AppendLog("MoveExternalWindow ran against title match <" title ">. Before=" x1 "," y1 " After=" x2 "," y2 ".")
+	} catch as err {
+		SetStatus("window_external", "External status: BLOCKED/ERROR")
+		AppendLog("MoveExternalWindow failed for <" title ">: " err.Message)
+	}
+}
+
+RunClipboardTextRoundTrip() {
+	global gClipboardTextEdit
+
+	try {
+		SetTimer(PopulateClipboardTimer, 0)
+		expected := gClipboardTextEdit.Value
+		A_Clipboard := expected
+		if !WaitForClipboardValue(expected, 2000)
+			throw Error("Clipboard did not round-trip to the expected text within 2 seconds.")
+
+		if (A_Clipboard = expected) {
+			SetStatus("clipboard_main", "Clipboard status: PASS")
+			AppendLog("Clipboard text round-trip passed.")
+		} else {
+			SetStatus("clipboard_main", "Clipboard status: FAIL")
+			AppendLog("Clipboard text mismatch. Expected <" expected "> but saw <" A_Clipboard ">.")
+		}
+	} catch as err {
+		SetStatus("clipboard_main", "Clipboard status: BLOCKED/ERROR")
+		AppendLog("Clipboard text round-trip failed: " err.Message)
+	}
+}
+
+RunClipboardClipWaitTest() {
+	global gClipboardClipWaitRunning, gClipboardDelayedPayload
+
+	if gClipboardClipWaitRunning {
+		SetStatus("clipboard_main", "Clipboard status: waiting for the previous ClipWait run")
+		AppendLog("Delayed ClipWait ignored because a prior run is still active.")
+		return
+	}
+
+	gClipboardClipWaitRunning := true
+
+	try {
+		SetTimer(PopulateClipboardTimer, 0)
+		gClipboardDelayedPayload := "Delayed clipboard payload [" A_TickCount "]"
+		SetTimer(PopulateClipboardTimer, -500)
+		if !WaitForClipboardValue(gClipboardDelayedPayload, 2000)
+			throw Error("Clipboard did not reach the delayed payload within 2 seconds.")
+
+		if (A_Clipboard = gClipboardDelayedPayload) {
+			SetStatus("clipboard_main", "Clipboard status: PASS (ClipWait)")
+			AppendLog("Delayed ClipWait test passed.")
+		} else {
+			SetStatus("clipboard_main", "Clipboard status: FAIL (ClipWait)")
+			AppendLog("Delayed ClipWait test failed. Clipboard now contains <" A_Clipboard ">.")
+		}
+	} catch as err {
+		SetStatus("clipboard_main", "Clipboard status: BLOCKED/ERROR")
+		AppendLog("Delayed ClipWait test failed: " err.Message)
+	} finally {
+		SetTimer(PopulateClipboardTimer, 0)
+		gClipboardDelayedPayload := ""
+		gClipboardClipWaitRunning := false
+	}
+}
+
+PopulateClipboardTimer() {
+	global gClipboardDelayedPayload
+	A_Clipboard := gClipboardDelayedPayload
+}
+
+WaitForClipboardValue(expected, timeoutMs, pollMs := 50) {
+	deadline := A_TickCount + timeoutMs
+
+	while (A_TickCount < deadline) {
+		if (A_Clipboard = expected)
+			return true
+
+		Sleep(Min(pollMs, Max(1, deadline - A_TickCount)))
+	}
+
+	return A_Clipboard = expected
+}
+
+RunClipboardImageCopy() {
+	global gPixelAssetPath
+
+	if !FileExist(gPixelAssetPath) {
+		SetStatus("clipboard_main", "Clipboard status: BLOCKED - killbill.png not found")
+		AppendLog("Clipboard image copy skipped because the fixture does not exist: " gPixelAssetPath)
+		return
+	}
+
+	try {
+		CopyImageToClipboard(gPixelAssetPath)
+		ClipWait(2, true)
+		SetStatus("clipboard_main", "Clipboard status: PASS if you can now paste the image into another app")
+		AppendLog("Image copied to clipboard from " gPixelAssetPath ".")
+	} catch as err {
+		SetStatus("clipboard_main", "Clipboard status: BLOCKED/ERROR")
+		AppendLog("Clipboard image copy failed: " err.Message)
+	}
+}
+
+ToggleClipboardMonitor() {
+	global gClipboardMonitorEnabled
+
+	try {
+		if gClipboardMonitorEnabled {
+			OnClipboardChange(ClipboardChanged, 0)
+			gClipboardMonitorEnabled := false
+			SetStatus("clipboard_monitor", "Clipboard monitor: disabled")
+			AppendLog("Clipboard change monitor disabled.")
+		} else {
+			OnClipboardChange(ClipboardChanged, 1)
+			gClipboardMonitorEnabled := true
+			SetStatus("clipboard_monitor", "Clipboard monitor: enabled (changes seen: " gClipboardChangeCount ")")
+			AppendLog("Clipboard change monitor enabled.")
+		}
+	} catch as err {
+		SetStatus("clipboard_monitor", "Clipboard monitor: BLOCKED/ERROR")
+		AppendLog("Toggling clipboard monitor failed: " err.Message)
+	}
+}
+
+ClipboardChanged(*) {
+	global gClipboardChangeCount, gClipboardMonitorEnabled
+
+	gClipboardChangeCount += 1
+	if gClipboardMonitorEnabled
+		SetStatus("clipboard_monitor", "Clipboard monitor: enabled (changes seen: " gClipboardChangeCount ")")
+	AppendLog("Clipboard change callback fired. Count=" gClipboardChangeCount ".")
+}
+
+HotstringProbe(trigger, output) {
+	global gHotstringHitCount
+
+	gHotstringHitCount += 1
+	SetStatus("input_hotstring", "Hotstring status: triggered via " trigger " (" gHotstringHitCount " hit" (gHotstringHitCount = 1 ? "" : "s") ")")
+	AppendLog("Hotstring probe fired via " trigger ".")
+	SendText(output " [A_EndChar=" DescribeEndChar(A_EndChar) "]")
+}
+
+DescribeEndChar(endChar) {
+	if (endChar = "")
+		return "<blank>"
+
+	if (endChar = " ")
+		return "Space"
+
+	if (endChar = "`t")
+		return "Tab"
+
+	if (endChar = "`n" || endChar = "`r")
+		return "Enter"
+
+	return endChar
+}
+
+:*:kssuite::
+{
+	HotstringProbe("kssuite", "KEYSHARP-SUITE")
+}
+
+::ksend::
+{
+	HotstringProbe("ksend", "ENDCHAR-OK")
+}
+
+:?:ksword::
+{
+	HotstringProbe("ksword", "INSIDE-WORD-OK")
+}

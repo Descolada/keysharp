@@ -8320,7 +8320,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "Keysharp-specific Ks class for cross-platform window-event subscriptions (modeled on Descolada's WinEvent library). Import with #import \"Ks\" { WinEvent }. Windows uses SetWinEventHook; Linux hooks GDK's X11 event loop on the UI thread (covers X11 and XWayland; native Wayland sources are not yet wired); macOS currently reports active-application changes only.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8331,7 +8331,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "partial",
                      "notes":  "Subscribes to active/foreground window changes; also fires when the active window's title changes (so late-matching criteria are caught). Callback receives (hook, hwnd, dwmsEventTime).",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8342,7 +8342,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS requires AXObserver wiring (not yet implemented).",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8353,7 +8353,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8364,7 +8364,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to window move/resize. Every event is delivered as-is (not coalesced).",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8375,7 +8375,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to window minimize/iconify.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8386,7 +8386,7 @@
                      "linux_wayland":  "planned",
                      "macos":  "planned",
                      "notes":  "Subscribes to window restore from minimized. Not yet emitted by the X11 backend.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8397,7 +8397,7 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to window title changes.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8408,7 +8408,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "Cancels the subscription. Also runs on __Delete, but GC timing is unpredictable so call it (or let the owning thread tear down) explicitly.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8419,7 +8419,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "Whether the subscription is still receiving events.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8430,7 +8430,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "The event kind this subscription listens for, e.g. \"Active\" or \"Move\".",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8441,7 +8441,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "Remaining number of times the callback will fire (-1 = unlimited).",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8452,7 +8452,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "Pauses (1), unpauses (0) or toggles (-1) a single hook (instance) or all hooks (static). A paused hook stays registered but does not fire. Returns the resulting paused state.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",
@@ -8463,7 +8463,7 @@
                      "linux_wayland":  "full",
                      "macos":  "full",
                      "notes":  "Gets or sets whether a single hook (instance) or all hooks (static) are paused.",
-                     "tested-by":  "manual-test-suite.ahk"
+                     "tested-by":  "guitest.ks"
                  },
                  {
                      "category":  "Automation",

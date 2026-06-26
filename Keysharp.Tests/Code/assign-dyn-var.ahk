@@ -273,3 +273,23 @@ if (b == 456)
 	FileAppend "pass", "*"
 else
 	FileAppend "fail", "*"
+
+; A %…% dynamic member name whose inner expression itself contains a member access (obj.%a.b%),
+; including the call form obj.%a.b%(args). Regression: the inner '.' parse used to mistake the
+; closing '%' for the start of a new deref and fail with "expected '%' in dynamic member name".
+if (DynMem.%DynMem.key% == 42)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+if (DynMem.%DynMem.fnName%(21) == 42)
+	FileAppend "pass", "*"
+else
+	FileAppend "fail", "*"
+
+class DynMem {
+	static key := "Val"
+	static Val := 42
+	static fnName := "Twice"
+	static Twice(t) => t * 2
+}

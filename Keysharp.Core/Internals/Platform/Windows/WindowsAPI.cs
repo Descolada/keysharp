@@ -1542,6 +1542,9 @@ namespace Keysharp.Internals.Platform.Windows
 		[LibraryImport(gdi32, EntryPoint = "CreateRectRgn")]
 		internal static partial nint CreateRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect);
 
+		[LibraryImport(gdi32, EntryPoint = "CombineRgn")]
+		internal static partial int CombineRgn(nint hrgnDest, nint hrgnSrc1, nint hrgnSrc2, int fnCombineMode);
+
 		[LibraryImport(gdi32, EntryPoint = "CreatePolygonRgn")]
 		internal static partial nint CreatePolygonRgn(POINT[] lppt, int cPoints, int fnPolyFillMode);
 

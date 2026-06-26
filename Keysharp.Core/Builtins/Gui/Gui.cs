@@ -144,7 +144,17 @@ namespace Keysharp.Builtins
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
 			},
 			{
-				"DPIScale", (f, o) => { if (o is bool b) f.dpiscaling = b; }
+				// -DPIScale means the script supplies raw pixels and wants no scaling. On Windows the form must
+				// therefore also drop WinForms' own AutoScaleMode.Dpi: otherwise at HiDPI (e.g. 200%) WinForms
+				// still scales the form's client/child controls while the script positions in raw pixels — the
+				// two fight, and on resize part of the client is left unpainted (a black/white or opaque region,
+				// e.g. the middle of a +ClickThrough overlay). AutoScaleMode.None maps raw pixels 1:1 to the
+				// (DPI-aware) window. +DPIScale keeps the default AutoScaleMode.Dpi.
+				"DPIScale", (f, o) => { if (o is bool b) { f.dpiscaling = b;
+#if WINDOWS
+						f.form.AutoScaleMode = b ? AutoScaleMode.Dpi : AutoScaleMode.None;
+#endif
+					} }
 			},
 			{
 				// v2.1 option, accepted for compatibility. Per-monitor DPI re-layout is not implemented, but the

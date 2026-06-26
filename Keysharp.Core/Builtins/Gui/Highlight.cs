@@ -94,6 +94,9 @@ namespace Keysharp.Builtins
 			/// <summary>Whether the overlay is currently on screen.</summary>
 			public object Visible => shown;
 
+			/// <summary>Native handle of the overlay window (0 before the first Show or after Destroy).</summary>
+			public object Hwnd => gui != null ? gui.Hwnd : 0L;
+
 			#endregion
 
 			#region Methods
@@ -191,7 +194,9 @@ namespace Keysharp.Builtins
 						Build();
 
 					// Reshape the four edges in place on a size/thickness change.
-					if (bw != builtW || bh != builtH || d != builtD)
+					bool resized = bw != builtW || bh != builtH || d != builtD;
+
+					if (resized)
 						ReshapeEdges(bw, bh, d);
 
 					builtW = bw;
@@ -207,6 +212,16 @@ namespace Keysharp.Builtins
 						_ = gui.Show($"NA x{bx} y{by} w{bw} h{bh}");
 						shown = true;
 					}
+
+#if WINDOWS
+					// Carve the interior out of the window (after it has its final size) so the middle is a real
+					// hole — physically not part of the window, hence never painted and never hit-tested. This makes
+					// the inside reliably transparent and click-through regardless of layered-window/color-key repaint
+					// quirks, double-buffering, or HiDPI scaling, any of which could otherwise leave it opaque
+					// (black/white) after a resize. Only the d-thick border ring (the edge controls) remains.
+					if (resized)
+						ApplyFrameRegion(bw, bh, d);
+#endif
 
 					// Color the edges AFTER the window is shown: a control's BackColor only repaints once its parent
 					// window is visible, so coloring before the show above would leave the first frame uncolored.
@@ -224,10 +239,11 @@ namespace Keysharp.Builtins
 			private void Build()
 			{
 				const string opts = "+AlwaysOnTop -Caption +ToolWindow -DPIScale +ClickThrough";
-				// TODO(HiDPI Windows): verify the four edge controls aren't rescaled by the form's AutoScaleMode.Dpi
-				// on a 150%/200% monitor (-DPIScale fixes the window's coordinate math but not WinForms' per-monitor
-				// child-control scaling). If they drift, fix at the -DPIScale/KeysharpForm layer (AutoScaleMode.None)
-				// so every -DPIScale Gui benefits, not just here. Eto/macOS are unaffected.
+				// HiDPI Windows: -DPIScale now also forces the form to AutoScaleMode.None (see the "DPIScale" Gui
+				// option handler), so WinForms no longer rescales this overlay's client/edge controls at 150%/200%.
+				// Without that, raw-pixel positioning fought WinForms' 2x scaling and a resize left the middle
+				// unpainted (black/white/opaque, breaking click-through). The fix lives at the -DPIScale layer so
+				// every -DPIScale Gui benefits, not just here. Eto/macOS are unaffected.
 				// Pass an explicit object[] so this binds to Gui(params object[]) — which runs __Init/__New and
 				// builds a real window. A single bare arg (new Gui(opts)) would instead resolve to the internal
 				// Gui(object, object, object, object) main-window-wrapper ctor and create a broken, form-less Gui.
@@ -295,6 +311,32 @@ namespace Keysharp.Builtins
 				left.BackColor = c;
 				right.BackColor = c;
 			}
+
+#if WINDOWS
+			// Sets the window region to the d-thick border ring (outer rect minus interior), turning the middle into
+			// a true hole. Re-applied on every resize because the region is in window pixels. SetWindowRgn takes
+			// ownership of the region handle (and frees the previous one), so the combined region is not deleted here;
+			// only the temporary interior region is. A degenerate size (no room for a hole) clears the region.
+			private void ApplyFrameRegion(int bw, int bh, int d)
+			{
+				var hwnd = gui != null ? gui.form.Handle : 0;
+
+				if (hwnd == 0)
+					return;
+
+				if (d <= 0 || bw <= 2 * d || bh <= 2 * d)
+				{
+					_ = WindowsAPI.SetWindowRgn(hwnd, 0, true);   // whole window, no hole
+					return;
+				}
+
+				var outer = WindowsAPI.CreateRectRgn(0, 0, bw, bh);
+				var inner = WindowsAPI.CreateRectRgn(d, d, bw - d, bh - d);
+				_ = WindowsAPI.CombineRgn(outer, outer, inner, 4 /* RGN_DIFF */);
+				_ = WindowsAPI.DeleteObject(inner);
+				_ = WindowsAPI.SetWindowRgn(hwnd, outer, true);
+			}
+#endif
 
 			// Normalizes a color (a name like "Red", a 0xRRGGBB integer, or a "#RRGGBB"/"0xRRGGBB"/bare-hex string)
 			// to the canonical 6-hex-digit string, matching how Gui.BackColor reports colors (Color := "Red" reads

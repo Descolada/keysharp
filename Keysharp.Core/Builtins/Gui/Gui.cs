@@ -286,19 +286,54 @@ namespace Keysharp.Builtins
 
 			set
 			{
+				Color c;
+
 				if (value is string s)
 				{
-					if (Conversions.TryParseColor(s, out var c))
+					if (!Conversions.TryParseColor(s, out c))
 					{
-						form.BackColor = c;
+						_ = Errors.ValueErrorOccurred($"Invalid background color {value}");
 						return;
 					}
 				}
-				else if (value is long ll) {
-					form.BackColor = Color.FromArgb((int)(ll | 0xFF000000));
+				else if (value is long ll)
+				{
+					// Preserve an explicit alpha byte so a script can request a translucent window numerically
+					// (e.g. 0x80FF0000 = 50%-opacity red); a bare 0xRRGGBB (alpha byte 0) stays fully opaque as
+					// before. For a fully transparent (alpha 0) background use the "Transparent" string or an
+					// 8-digit hex string like "0x00RRGGBB", since 0 in the alpha byte is indistinguishable from a
+					// plain RGB value here.
+					c = Color.FromArgb((ll & 0xFF000000L) != 0 ? (int)ll : (int)(ll | 0xFF000000L));
+				}
+				else
+				{
+					_ = Errors.ValueErrorOccurred($"Invalid background color {value}");
 					return;
 				}
-				_ = Errors.ValueErrorOccurred($"Invalid background color {value}");
+
+#if WINDOWS
+				// WinForms has no per-pixel window alpha, so emulate a transparent background with a colour key:
+				// paint the form in the opaque colour and make that colour transparent (and click-through). Set
+				// before Show. An opaque colour clears any prior key so the window is solid again.
+				if (c.A < 255)
+				{
+					var key = Color.FromArgb(255, c.R, c.G, c.B);
+					form.BackColor = key;
+					form.TransparencyKey = key;
+				}
+				else
+				{
+					if (form.TransparencyKey != Color.Empty)
+						form.TransparencyKey = Color.Empty;
+
+					form.BackColor = c;
+				}
+#else
+				// Eto: a background whose alpha < 1 switches the window to an RGBA visual (true per-pixel
+				// transparency) on a composited desktop. Must be set before Show() so the visual is chosen at
+				// realize time.
+				form.BackColor = c;
+#endif
 			}
 		}
 

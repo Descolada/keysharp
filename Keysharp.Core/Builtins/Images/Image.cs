@@ -37,6 +37,11 @@ namespace Keysharp.Builtins
 			// the class never silently rescales.
 			private double scaleX = 1.0, scaleY = 1.0;
 
+			// Screen-absolute position of this image's top-left at capture time (0,0 for file/bitmap images
+			// that have no on-screen origin). Lets a consumer such as OCR map coordinates measured inside the
+			// image back to screen coordinates without the caller having to pass the capture rectangle again.
+			private int originX, originY;
+
 			private bool disposed;
 
 			public KeysharpImage(params object[] args) : base(args) { }
@@ -101,7 +106,9 @@ namespace Keysharp.Builtins
 			/// BitBlt; 1 = same, with window transparency turned off first; 2 = PrintWindow; 3 = same,
 			/// transparency off first; 4 (default) = PrintWindow with the undocumented PW_RENDERFULLCONTENT
 			/// flag (captures hardware-accelerated windows); 5 = UWP Direct3D capture (not yet implemented).
-			/// The mode is ignored on macOS/Linux.</para>
+			/// The mode is ignored on macOS/Linux. The <c>decorations</c> property (default false) controls
+			/// whether the title bar/borders are captured; it is honored only on KWin Wayland (false = client
+			/// area only, true = full window) and ignored elsewhere, where each backend captures a fixed extent.</para>
 			/// </summary>
 			[Static] public static object FromWindow(object @this, object winTitle = null, object options = null, object winText = null, object excludeTitle = null, object excludeText = null)
 			{
@@ -115,13 +122,77 @@ namespace Keysharp.Builtins
 				if (win is not WindowItemBase w)
 					return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText);
 
-				var (bmp, scale) = GuiHelper.CaptureWindowContent(w.Handle, mode);
+				// Whether to capture the title bar/borders. The default (false) captures only the client area
+				// where the backend supports it (KWin); excluding decorations avoids the shadow-padded buffer whose
+				// margin can't be mapped back to screen reliably. Honored only on KWin; on Windows/macOS/GNOME/X11
+				// each backend captures a fixed extent and the flag is ignored.
+				var includeDeco = ParseIncludeDecoration(options);
+
+				// The window's screen-absolute frame rectangle. Its top-left is the on-screen origin recorded on
+				// the Image so OCR (and any other consumer) can map image coordinates back to the screen.
+				var bounds = w.Bounds;
+				var (bmp, scale) = GuiHelper.CaptureWindowContent(w.Handle, mode, includeDeco);
 
 				if (bmp != null)
-					return Wrap(bmp, scale, scale);
+				{
+					// Origin of the captured pixels in screen coordinates — where the image's top-left sits on screen.
+					int ox = bounds.X, oy = bounds.Y;
 
-				// No platform window capture (Linux, or the capture failed): grab the window's rectangle.
-				var bounds = w.Bounds;
+					// How far the capture extends beyond the window frame per side, in physical pixels, assuming a
+					// SYMMETRIC margin (KWin's include-decoration buffer and the GNOME window actor both pad the frame
+					// symmetrically with the drop shadow). >0 means decorations/shadow were captured around the frame.
+					double shadowXpx = (bmp.Width - bounds.Width * scale) / 2.0;
+					double shadowYpx = (bmp.Height - bounds.Height * scale) / 2.0;
+					bool capturedBeyondFrame = shadowXpx > 0.5 || shadowYpx > 0.5;
+
+					// Decorations are in the captured pixels when we asked for them (and the backend honored it) or
+					// when the backend includes them regardless of the flag — GNOME always images the whole actor, so
+					// capturedBeyondFrame catches that even though includeDeco is false (otherwise the client branch
+					// below would wrongly map the origin to the client top-left).
+					if (includeDeco || capturedBeyondFrame)
+					{
+						// Frame- or buffer-aligned capture. Windows' PrintWindow and macOS' capture return exactly the
+						// frame (shadow margin ~0), so the frame origin is right (default above). KWin include-decoration
+						// and the GNOME actor return the frame padded by the symmetric shadow margin; offset the origin to
+						// the buffer's top-left derived from that margin. The shadow is transparent and harmless to OCR.
+						// The captured image IS the buffer, so its size vs the frame gives the margin directly.
+						if (capturedBeyondFrame)
+						{
+							ox = bounds.X - (int)Math.Round(shadowXpx / scale);
+							oy = bounds.Y - (int)Math.Round(shadowYpx / scale);
+						}
+					}
+#if LINUX
+					else
+					{
+						// Client-area capture (X11 XGetImage, or KWin Wayland without decorations): the captured pixels are
+						// already the client area natively (no crop), beginning at the CLIENT top-left and smaller than the
+						// frame. Prefer the compositor's reported client position (now derived from clientPos/clientSize
+						// when KWin doesn't expose clientGeometry); if it's still unreliable (equals the frame), derive the
+						// insets from the capture: the client image is smaller than the frame by the borders, so
+						// side = (frameW - capW)/2 and titleTop = (frameH - capH) - side.
+						var clientPt = w.ClientToScreen();
+						double capW = scale != 0 ? bmp.Width / scale : bmp.Width;
+						double capH = scale != 0 ? bmp.Height / scale : bmp.Height;
+						bool clientUnreliable = clientPt.X == bounds.X && clientPt.Y == bounds.Y && capH < bounds.Height - 1;
+
+						if (clientUnreliable)
+						{
+							int side = (int)Math.Max(0, Math.Round((bounds.Width - capW) / 2));
+							int titleTop = (int)Math.Max(0, Math.Round(bounds.Height - capH - side));
+							(ox, oy) = (bounds.X + side, bounds.Y + titleTop);
+						}
+						else if (clientPt.X >= bounds.X && clientPt.Y >= bounds.Y && (clientPt.X != 0 || clientPt.Y != 0))
+						{
+							(ox, oy) = (clientPt.X, clientPt.Y);
+						}
+					}
+#endif
+					return Wrap(bmp, scale, scale, originX: ox, originY: oy);
+				}
+
+				// No platform window capture: grab the window's on-screen rectangle. That grab is frame-aligned
+				// (it includes the title bar), so the frame origin is correct for this path.
 				bmp = GuiHelper.GetScreen(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
 				if (bmp == null)
@@ -129,7 +200,7 @@ namespace Keysharp.Builtins
 
 				double sx = bounds.Width > 0 ? (double)bmp.Width / bounds.Width : 1.0;
 				double sy = bounds.Height > 0 ? (double)bmp.Height / bounds.Height : 1.0;
-				return Wrap(bmp, sx, sy);
+				return Wrap(bmp, sx, sy, originX: bounds.X, originY: bounds.Y);
 			}
 
 			// Parses the window-capture mode (0-5) from an options argument: a bare integer, or an object
@@ -144,6 +215,19 @@ namespace Keysharp.Builtins
 
 				var m = Script.GetPropertyValueOrNull(options, "mode");
 				return m == null ? 4 : (int)Math.Clamp(m.Al(4), 0, 5);
+			}
+
+			// Whether the capture should include the window's title bar/borders, read from an options object's
+			// `decorations` property (e.g. Image.FromWindow("A", {decorations: true})). Defaults to false (client
+			// area only): on KWin a decoration-inclusive capture returns the window's shadow-padded buffer, and the
+			// shadow margin can't be mapped back to screen reliably. A bare integer or no options keeps the default.
+			private static bool ParseIncludeDecoration(object options)
+			{
+				if (options == null || options is long or int or double)
+					return false;
+
+				var d = Script.GetPropertyValueOrNull(options, "decorations");
+				return d != null && d.Ab();
 			}
 
 			/// <summary>
@@ -204,6 +288,12 @@ namespace Keysharp.Builtins
 					var nh = Math.Max(1, (int)Math.Round(b.Height * sy));
 					return ImageHelper.ResizeBitmap(b, nw, nh, exactPixels: true);
 				});
+				// Scaling multiplies the pixels-per-logical-unit density: after Scale(2) there are twice as
+				// many image pixels per logical unit. Folding the factor into scaleX/scaleY keeps the
+				// image->logical mapping (e.g. OCR dividing word coordinates by ScaleX) correct, so callers
+				// can upscale for accuracy without their coordinates drifting.
+				scaleX *= sx;
+				scaleY *= sy;
 				Invalidate();
 				return this;
 			}
@@ -239,8 +329,35 @@ namespace Keysharp.Builtins
 					return Errors.ValueErrorOccurred("Crop width and height must be positive.");
 
 				pending.Add(b => ImageHelper.CropBitmap(b, cx, cy, cw, ch));
+				// Cropping moves the image's top-left to (cx, cy) in image pixels, so its on-screen origin
+				// shifts by that offset converted to logical units. Keeping originX/originY in step lets a
+				// consumer such as OCR map coordinates from the cropped image back to the original screen
+				// position. (CropBitmap clamps a negative start to 0, so clamp here to match.)
+				originX += (int)Math.Round(Math.Max(0, cx) / scaleX);
+				originY += (int)Math.Round(Math.Max(0, cy) / scaleY);
 				Invalidate();
 				return this;
+			}
+
+			/// <summary>
+			/// Returns an independent copy of this image with its queued transforms already applied, carrying
+			/// over the scale and screen-origin metadata. Edits or further transforms on the copy do not affect
+			/// the original — used when a consumer (e.g. OCR) needs to transform an image the caller still owns.
+			/// </summary>
+			public object Copy()
+			{
+				if (disposed || baseBitmap == null)
+					return Errors.ValueErrorOccurred("There is no image to copy.");
+
+				// With queued transforms, Materialize() must run them first; the copy then protects the original's
+				// bitmap from edits on the copy. With none, copy baseBitmap directly: going through Materialize()
+				// would build (and cache) one full copy and Copy() a second — two copies for an identical result.
+				var src = pending.Count == 0 ? baseBitmap : Materialize();
+
+				if (src == null)
+					return Errors.ValueErrorOccurred("There is no image to copy.");
+
+				return new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY };
 			}
 
 			#endregion
@@ -301,13 +418,23 @@ namespace Keysharp.Builtins
 			/// (the size reported in the caption); the window opens that big, or screen-sized if the image
 			/// is larger than the monitor (Windows will not make a window bigger than the screen). It is
 			/// resizable between a small lower bound and the image size, never past it into dead space, and
-			/// scrollbars appear whenever the window is smaller than the image so all of it stays reachable.</summary>
-			public object Show(object title = null)
+			/// scrollbars appear whenever the window is smaller than the image so all of it stays reachable.
+			///
+			/// <para>When <paramref name="wait"/> is true the call blocks until the user closes the window
+			/// (a Keysharp convenience beyond AHK's Image): handy because OCR results normally flash by, so you
+			/// can eyeball the captured image first. The wait pumps the message loop, so timers, hotkeys and the
+			/// window itself stay responsive; the preview window is destroyed once dismissed.</para></summary>
+			public object Show(object title = null, object wait = null)
 			{
 				var bmp = Materialize();
 
 				if (bmp == null)
 					return Errors.ValueErrorOccurred("There is no image to display.");
+
+				// Snapshot the dimensions from this one materialized bitmap so the caption and the Picture size are
+				// provably the same source as the displayed pixels: ToBitmap() below re-materializes, but with no
+				// Invalidate() in between it returns the same cached bitmap, so imgW/imgH match the shown handle.
+				int imgW = bmp.Width, imgH = bmp.Height;
 
 				if (ToBitmap() is not long handle || handle == 0)
 					return Errors.ValueErrorOccurred("Could not prepare the image for display.");
@@ -315,7 +442,7 @@ namespace Keysharp.Builtins
 				// Caption shows the image's true pixel size and capture scale as a percentage
 				// (e.g. "Image  3840 x 2160 @ 200%").
 				var baseTitle = title == null ? "Image" : title.As();
-				var caption = $"{baseTitle}  {bmp.Width} x {bmp.Height} @ {FormatScalePercent(scaleX, scaleY)}";
+				var caption = $"{baseTitle}  {imgW} x {imgH} @ {FormatScalePercent(scaleX, scaleY)}";
 
 				// Construct the Gui through the runtime's Class.Call (the path scripts use); calling the
 				// C# constructor directly binds to Gui's internal form-wrapping ctor and crashes. "+Resize"
@@ -332,13 +459,36 @@ namespace Keysharp.Builtins
 				// DPI scaling, so passing the *pixel* width/height (not a DPI-logical size) is what makes the
 				// window open at the size the caption advertises. The control is fixed at this size and
 				// pinned top-left; scrolling reaches any part the window is too small to show.
-				_ = gui.Add("Picture", $"w{bmp.Width} h{bmp.Height}", "HBITMAP:" + handle);
+				_ = gui.Add("Picture", $"w{imgW} h{imgH}", "HBITMAP:" + handle);
 
 				// Cap the window at the size it first opens (the image, or the screen if the image is larger):
 				// "+MaxSize" with no dimensions defers the limit until first show, where the Gui pins it to
 				// that size, so the window can't be stretched past the image into dead space. "+MinSize"
 				// gives a small, DPI-scaled lower bound so it can't be shrunk away to nothing.
 				_ = gui.Opt("+MinSize120x90 +MaxSize");
+
+				if (wait != null && wait.Ab())
+				{
+					// Block until the user dismisses the window. Hook the form's close directly rather than
+					// WinWaitClose(gui.Hwnd): an AHK GUI HIDES rather than destroys on close, so WinWaitClose
+					// would hinge on window-search-by-handle plus the script's DetectHiddenWindows state to
+					// decide "gone" — both fragile here (and window-id matching is unreliable on Wayland). The
+					// Closing event is a direct, per-window signal with none of those dependencies. A plain
+					// captured bool is enough: the event and the pump both run on the UI thread, and
+					// WaitWithMessagePump re-invokes the predicate each iteration so the read is never hoisted.
+					// Subscribe before Show so a near-instant close can't be missed.
+					var closing = false;
+#if WINDOWS
+					gui.form.FormClosing += (s, e) => closing = true;
+#else
+					gui.form.Closing += (s, e) => closing = true;
+#endif
+					_ = gui.Show();
+					Keysharp.Internals.Flow.WaitWithMessagePump(() => !closing);
+					_ = gui.Destroy();
+					return gui;
+				}
+
 				_ = gui.Show();
 				return gui;
 			}
@@ -360,6 +510,14 @@ namespace Keysharp.Builtins
 
 			/// <summary>Physical pixels per logical unit along Y. See <see cref="ScaleX"/>.</summary>
 			public double ScaleY => scaleY;
+
+			/// <summary>Screen-absolute X coordinate of this image's top-left at capture time (0 for file/bitmap
+			/// images, which have no on-screen origin). OCR uses it as the default x offset so highlights and
+			/// clicks land on the screen position the words actually occupy.</summary>
+			public long X => originX;
+
+			/// <summary>Screen-absolute Y coordinate of this image's top-left at capture time. See <see cref="X"/>.</summary>
+			public long Y => originY;
 
 			/// <summary>Returns the color of the pixel at (x, y) as a 0xRRGGBB integer.</summary>
 			public object GetPixel(object x, object y)
@@ -469,34 +627,11 @@ namespace Keysharp.Builtins
 					return Errors.ValueErrorOccurred("There is no image to read.");
 
 				int w = bmp.Width, h = bmp.Height;
-				var argb = ReadArgb(bmp);
 				var buf = new Buffer((long)w * h * bpp);
 
 				unsafe
 				{
-					var dst = (byte*)buf.Ptr;
-
-					if (bpp == 1)
-					{
-						for (var i = 0; i < argb.Length; i++)
-						{
-							var p = argb[i];
-							uint r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
-							dst[i] = (byte)((r * 77 + g * 150 + b * 29) >> 8);
-						}
-					}
-					else
-					{
-						for (var i = 0; i < argb.Length; i++)
-						{
-							var p = argb[i];
-							var o = i * 4;
-							dst[o]     = (byte)((p >> 16) & 0xFF); // R
-							dst[o + 1] = (byte)((p >> 8) & 0xFF);  // G
-							dst[o + 2] = (byte)(p & 0xFF);         // B
-							dst[o + 3] = (byte)((p >> 24) & 0xFF); // A
-						}
-					}
+					WritePixelData(bmp, (byte*)buf.Ptr, bpp);
 				}
 
 				return buf;
@@ -506,30 +641,28 @@ namespace Keysharp.Builtins
 
 			#region Internals
 
-			// Copies a bitmap's pixels into a flat, top-down array of 0xAARRGGBB values. Mirrors the
-			// cross-platform lock pattern used by ImageFinder so the two stay consistent.
-			private static uint[] ReadArgb(Bitmap bmp)
+			// Reads a bitmap's pixels straight into dst in the requested layout (bpp 1 = 8-bit grayscale,
+			// 4 = 32-bit RGBA), converting each pixel in a single pass with no intermediate ARGB array.
+			// dst must point at w*h*bpp writable bytes. The cross-platform lock/translate scaffolding
+			// mirrors ImageFinder so the two stay consistent across backends.
+			private static unsafe void WritePixelData(Bitmap bmp, byte* dst, int bpp)
 			{
 				int w = bmp.Width, h = bmp.Height;
-				var pixels = new uint[w * h];
 #if WINDOWS
 				var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
 				try
 				{
-					unsafe
+					// Format32bppArgb stores BGRA in memory, so a little-endian uint read yields 0xAARRGGBB.
+					var basePtr = (byte*)data.Scan0;
+
+					for (var y = 0; y < h; y++)
 					{
-						var basePtr = (byte*)data.Scan0;
+						var row = (uint*)(basePtr + (nint)y * data.Stride);
+						var dstRow = y * w;
 
-						for (var y = 0; y < h; y++)
-						{
-							// Format32bppArgb stores BGRA in memory, so a little-endian uint read yields 0xAARRGGBB.
-							var row = (uint*)(basePtr + (nint)y * data.Stride);
-							var dst = y * w;
-
-							for (var x = 0; x < w; x++)
-								pixels[dst + x] = row[x];
-						}
+						for (var x = 0; x < w; x++)
+							EmitPixel(dst, dstRow + x, row[x], bpp);
 					}
 				}
 				finally
@@ -538,28 +671,37 @@ namespace Keysharp.Builtins
 				}
 
 #else
-				// Force 32bpp first so the 4-byte reads are valid (Pixbuf is 3bpp for 24-bit images) and
-				// so premultiplied backends see A=255, making the translate lossless.
+				// Force 32bpp first so the 4-byte reads are valid (Pixbuf is 3bpp for 24-bit images). A 3bpp
+				// source becomes opaque RGBA; an already-4bpp bitmap (possibly premultiplied, with real alpha)
+				// passes through unchanged, so the per-pixel translate below still handles its premultiplication.
 				var bmp32 = ImageHelper.EnsureOpaque32Bpp(bmp);
 
 				try
 				{
 					using var data = bmp32.Lock();
+					var basePtr = (byte*)data.Data;
+					var stride = data.ScanWidth;
+					var srcBpp = data.BytesPerPixel;
 
-					unsafe
+					// TranslateDataToArgb is a per-pixel virtual call reordering the backend's channel layout
+					// (Gtk RGBA vs Cocoa BGRA) AND un-premultiplying alpha. Skip it only when it is a genuine
+					// no-op. Probe once with a partially-transparent marker whose four bytes are all distinct: any
+					// channel swap changes it, and any un-premultiplication changes the RGB of a non-opaque pixel,
+					// so an unchanged result proves the stored layout already IS straight 0xAARRGGBB and the
+					// per-pixel call is redundant. An A=255 marker would hide premultiplication — and a 4bpp bitmap
+					// with real alpha reaches here un-forced, since EnsureOpaque32Bpp only converts 3bpp storage.
+					const int marker = unchecked((int)0x80112233);
+					var identity = srcBpp == 4 && data.TranslateDataToArgb(marker) == marker;
+
+					for (var y = 0; y < h; y++)
 					{
-						var basePtr = (byte*)data.Data;
-						var stride = data.ScanWidth;
-						var srcBpp = data.BytesPerPixel;
+						var row = basePtr + (long)y * stride;
+						var dstRow = y * w;
 
-						for (var y = 0; y < h; y++)
+						for (var x = 0; x < w; x++)
 						{
-							var row = basePtr + (long)y * stride;
-							var dst = y * w;
-
-							// TranslateDataToArgb handles the backend's channel order (Gtk RGBA vs Cocoa BGRA).
-							for (var x = 0; x < w; x++)
-								pixels[dst + x] = (uint)data.TranslateDataToArgb(*(int*)(row + x * srcBpp));
+							var raw = *(int*)(row + x * srcBpp);
+							EmitPixel(dst, dstRow + x, (uint)(identity ? raw : data.TranslateDataToArgb(raw)), bpp);
 						}
 					}
 				}
@@ -570,7 +712,28 @@ namespace Keysharp.Builtins
 				}
 
 #endif
-				return pixels;
+			}
+
+			// Writes one 0xAARRGGBB pixel into dst at pixel index idx in the bpp layout: grayscale uses the
+			// integer luminance 0.30R+0.59G+0.11B; RGBA writes R,G,B,A in that byte order. Aggressively inlined
+			// to remove the call overhead; the bpp test then runs inline per pixel but is perfectly predicted
+			// (constant for the whole call), so it costs effectively nothing.
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			private static unsafe void EmitPixel(byte* dst, int idx, uint p, int bpp)
+			{
+				if (bpp == 1)
+				{
+					uint r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+					dst[idx] = (byte)((r * 77 + g * 150 + b * 29) >> 8);
+				}
+				else
+				{
+					var o = idx * 4;
+					dst[o]     = (byte)((p >> 16) & 0xFF); // R
+					dst[o + 1] = (byte)((p >> 8) & 0xFF);  // G
+					dst[o + 2] = (byte)(p & 0xFF);         // B
+					dst[o + 3] = (byte)((p >> 24) & 0xFF); // A
+				}
 			}
 
 			// Captures a screen rectangle and wraps it, recording the HiDPI capture scale. Coordinates
@@ -585,15 +748,15 @@ namespace Keysharp.Builtins
 
 				double sx = w > 0 ? (double)bmp.Width / w : 1.0;
 				double sy = h > 0 ? (double)bmp.Height / h : 1.0;
-				return Wrap(bmp, sx, sy);
+				return Wrap(bmp, sx, sy, originX: x, originY: y);
 			}
 
-			private static object Wrap(Bitmap bmp, double sx = 1.0, double sy = 1.0, string failMsg = null)
+			private static object Wrap(Bitmap bmp, double sx = 1.0, double sy = 1.0, string failMsg = null, int originX = 0, int originY = 0)
 			{
 				if (bmp == null)
 					return Errors.ValueErrorOccurred(failMsg ?? "Failed to create the image.");
 
-				return new KeysharpImage { baseBitmap = bmp, scaleX = sx, scaleY = sy };
+				return new KeysharpImage { baseBitmap = bmp, scaleX = sx, scaleY = sy, originX = originX, originY = originY };
 			}
 
 			// Resolves an arbitrary script source to a freshly-owned bitmap plus its capture scale.

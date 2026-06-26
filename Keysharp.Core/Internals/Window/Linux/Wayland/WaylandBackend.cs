@@ -565,7 +565,18 @@ function windowInfo(w, includeSpecial) {
     var id = windowId(w);
     if (!id) return null;
     var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
-    var client = readRect(safeRead(w, "clientGeometry", safeRead(w, "geometry", null)));
+    // clientGeometry isn't exposed to scripts on every KWin build; when absent it would collapse to the frame.
+    // Try it first, then the clientPos (inset relative to the frame) + clientSize pair, then fall back to frame.
+    var client = readRect(safeRead(w, "clientGeometry", null));
+    if (!client || client.width === 0) {
+      var cp = safeRead(w, "clientPos", null);
+      var cs = safeRead(w, "clientSize", null);
+      if (cp && cs && (cs.width || 0) > 0)
+        client = { x: frame.x + Math.round(cp.x || 0), y: frame.y + Math.round(cp.y || 0),
+                   width: Math.round(cs.width || 0), height: Math.round(cs.height || 0) };
+      else
+        client = frame;
+    }
     return {
       id: id,
       title: safeString(safeRead(w, "caption", "")),
@@ -1060,6 +1071,14 @@ function findWindow(id) {
 				seq = 0;
 				return false;
 			}
+
+			/// <summary>
+			/// The bare compositor stable_sequence for a window handle, stripping the GnomeBit marker that
+			/// <see cref="SeqToHandle"/> applies. The extension matches windows by raw stable_sequence, so
+			/// the marker must be removed before capture. False for non-GNOME handles. Mirrors
+			/// <see cref="KWinBackend.TryGetWindowUuid"/>.
+			/// </summary>
+			internal bool TryGetWindowSeq(nint handle, out ulong seq) => TryHandleToSeq(handle, out seq);
 
 			private static bool JsonBool(JsonElement element, string property)
 				=> element.TryGetProperty(property, out var value) && JsonBoolValue(value);

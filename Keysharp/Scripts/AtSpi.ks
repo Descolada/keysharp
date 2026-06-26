@@ -29,7 +29,7 @@
 
 #Requires capability AccessibilityAutomation, InputMonitoring
 
-#import KS { WinFromPoint }
+#import KS { WinFromPoint, Highlight }
 
 #DllLoad libatspi
 #DllLoad libglib-2.0.so.0
@@ -465,7 +465,7 @@ class AtSpi {
         base:this.Enumeration.Prototype
     }
 
-    static __HighlightGuis := Map()
+    static __Highlights := Map()
 
     static _inited := false
     static __Sym(lib, sym) => lib . "/" . sym
@@ -509,11 +509,9 @@ class AtSpi {
      * Removes all highlights created by Accessible.Highlight().
      */
     static ClearAllHighlights() {
-        for _, p in AtSpi.__HighlightGuis {
-            for __, r in p
-                r.Destroy()
-        }
-        AtSpi.__HighlightGuis := Map()
+        for _, hl in AtSpi.__Highlights
+            try hl.Destroy()
+        AtSpi.__Highlights := Map()
     }
 
     static __ReadGArrayStrings(pArray) {
@@ -2933,29 +2931,23 @@ class AtSpi {
          * @returns {AtSpi.Accessible}
          */
         Highlight(showTime:=unset, color:="Red", d:=2) {
-            if !AtSpi.__HighlightGuis.Has(this)
-                AtSpi.__HighlightGuis[this] := []
-            if (!IsSet(showTime) && AtSpi.__HighlightGuis[this].Length) || (IsSet(showTime) && showTime = "clear") {
-                for _, r in AtSpi.__HighlightGuis[this]
-                    r.Destroy()
-                AtSpi.__HighlightGuis[this] := []
+            if (!IsSet(showTime) && AtSpi.__Highlights.Has(this)) || (IsSet(showTime) && showTime = "clear") {
+                if AtSpi.__Highlights.Has(this) {
+                    try AtSpi.__Highlights[this].Destroy()
+                    AtSpi.__Highlights.Delete(this)
+                }
                 return this
             } else if !IsSet(showTime)
                 showTime := 2000
             try loc := this.Location
             if !IsSet(loc) || !IsObject(loc) || loc.w < 1 || loc.h < 1 || loc.x == -2147483648 || loc.y == -2147483648
                 return this
-            Loop 4
-                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
-            Loop 4 {
-                i := A_Index
-                x1 := (i=2 ? loc.x+loc.w : loc.x-d)
-                y1 := (i=3 ? loc.y+loc.h : loc.y-d)
-                w1 := (i=1 or i=3 ? loc.w+2*d : d)
-                h1 := (i=2 or i=4 ? loc.h+2*d : d)
-                AtSpi.__HighlightGuis[this][i].BackColor := color
-                AtSpi.__HighlightGuis[this][i].Show("NA x" . x1 . " y" . y1 . " w" . w1 . " h" . h1)
-            }
+            ; One reusable KS.Highlight overlay per element (single click-through border window), keyed by
+            ; `this`. Replaces the previous four-window-per-highlight approach, which on Wayland/KWin spawned a
+            ; burst of windows that could destabilize the compositor.
+            hl := AtSpi.__Highlights.Has(this) ? AtSpi.__Highlights[this] : (AtSpi.__Highlights[this] := Highlight())
+            hl.Color := color, hl.Thickness := d
+            hl.Show(loc.x, loc.y, loc.w, loc.h)
             if showTime > 0 {
                 Sleep(showTime)
                 this.Highlight()

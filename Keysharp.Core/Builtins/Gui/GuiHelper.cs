@@ -180,12 +180,6 @@ namespace Keysharp.Builtins
 					g.CopyFromScreen(x, y, 0, 0, new Size(w, h), CopyPixelOperation.SourceCopy);
 				}
 #else
-				var format = Forms.Screen.PrimaryScreen.BitsPerPixel switch
-				{
-					24 => PixelFormat.Format24bppRgb,
-					32 => PixelFormat.Format32bppRgb,
-					_ => PixelFormat.Format32bppRgb,
-				};
 #if LINUX
 				// Compositor-native Wayland capture (else Eto root grab) lives in LinuxScreenCapture.
 				bmp = Keysharp.Internals.Window.Linux.LinuxScreenCapture.GetScreen(x, y, w, h);
@@ -215,10 +209,13 @@ namespace Keysharp.Builtins
 		/// <param name="mode">Windows capture technique (see Image.FromWindow): 0/1 = GetDC+BitBlt
 		/// (1 forces the window opaque first), 2/3 = PrintWindow (3 forces opaque first), 4 = PrintWindow
 		/// + PW_RENDERFULLCONTENT. Ignored on macOS/Linux.</param>
-		/// <returns>The captured bitmap (the whole window, title bar included) and its
+		/// <param name="includeDecoration">Whether to capture the title bar/borders. Honored only by the KWin
+		/// Wayland backend (false = client area only); ignored elsewhere, which capture a fixed extent.</param>
+		/// <returns>The captured bitmap (the whole window including the title bar, except a client-area-only
+		/// KWin capture when <paramref name="includeDecoration"/> is false) and its
 		/// physical-pixels-per-logical-unit scale, or (null, 1) when no true window capture is possible
 		/// (the caller then falls back to a screen-rectangle grab).</returns>
-		internal static (Bitmap bmp, double scale) CaptureWindowContent(nint handle, int mode)
+		internal static (Bitmap bmp, double scale) CaptureWindowContent(nint handle, int mode, bool includeDecoration)
 		{
 			if (handle == 0)
 				return (null, 1.0);
@@ -249,7 +246,7 @@ namespace Keysharp.Builtins
 				// XComposite so occluded windows still capture; GNOME Wayland reads the window actor's buffer
 				// via the Keysharp Shell extension; KWin/wlroots return null here so the caller falls back to
 				// a rectangle grab of the window's on-screen bounds.
-				return Keysharp.Internals.Window.Linux.LinuxScreenCapture.CaptureWindow(handle);
+				return Keysharp.Internals.Window.Linux.LinuxScreenCapture.CaptureWindow(handle, includeDecoration);
 #else
 				return (null, 1.0);
 #endif

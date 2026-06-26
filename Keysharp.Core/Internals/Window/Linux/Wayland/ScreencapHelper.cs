@@ -41,13 +41,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			=> kwin.Authorize(forcePrompt);
 
 		/// <summary>
-		/// Captures a single window's full contents via KWin's <c>org.kde.KWin.ScreenShot2.CaptureWindow</c>
-		/// — occlusion-independent, as KWin re-renders the window off-screen. <paramref name="uuid"/> is the
-		/// window's KWin internalId in canonical <c>{…}</c> form. Returns null when the window can't be
-		/// captured (unknown id, permission denied) so the caller can fall back to a rectangle grab.
+		/// Captures a single window via KWin's <c>org.kde.KWin.ScreenShot2.CaptureWindow</c> — occlusion-
+		/// independent, as KWin re-renders the window off-screen. <paramref name="uuid"/> is the window's KWin
+		/// internalId in canonical <c>{…}</c> form. <paramref name="includeDecoration"/> selects the full window
+		/// (title bar + borders) when true, or the client area only when false. Returns null when the window
+		/// can't be captured (unknown id, permission denied) so the caller can fall back to a rectangle grab.
 		/// </summary>
-		internal static Bitmap CaptureKWinWindow(string uuid)
-			=> kwin.Request($"window {uuid}");
+		internal static Bitmap CaptureKWinWindow(string uuid, bool includeDecoration)
+			=> kwin.Request($"window {uuid} {(includeDecoration ? "1" : "0")}");
 
 		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-screencap --serve gnome.</summary>
 		internal static Bitmap CaptureGnome(int x, int y, int w, int h)
@@ -93,9 +94,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				this.readFrame = readFrame;
 			}
 
-			// Sends one request line ("area X Y W H" or "window H") and returns the captured frame,
-			// (re)starting the helper as needed. Returns null when capture is impossible (denied, helper
-			// unavailable, or a per-request error such as an unknown window) so callers fall back.
+			// Sends one request line and returns the captured frame, (re)starting the helper as needed. The
+			// grammar is "area X Y W H", "window {uuid} {0|1}" on KWin (the trailing flag = include decoration),
+			// or "window {seq}" on GNOME. Returns null when capture is impossible (denied, helper unavailable,
+			// or a per-request error such as an unknown window) so callers fall back.
 			internal Bitmap Request(string command)
 			{
 				lock (sync)

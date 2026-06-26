@@ -82,6 +82,145 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
+		public void ImageScaleFoldsIntoScaleX()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var path = MakeImageFile(20, 10);
+
+			try
+			{
+				// Scaling multiplies the pixels-per-logical-unit density so consumers (e.g. OCR) can divide
+				// image coordinates by ScaleX/ScaleY to recover logical units after an upscale.
+				var img = KeysharpImage.FromFile(null,path) as KeysharpImage;
+				Assert.AreEqual(1.0, img.ScaleX);
+				Assert.AreEqual(1.0, img.ScaleY);
+				_ = img.Scale(2);
+				Assert.AreEqual(2.0, img.ScaleX);
+				Assert.AreEqual(2.0, img.ScaleY);
+				// A second, anisotropic scale stacks multiplicatively on each axis.
+				_ = img.Scale(0.5, 1);
+				Assert.AreEqual(1.0, img.ScaleX);
+				Assert.AreEqual(2.0, img.ScaleY);
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageCropShiftsOrigin()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var path = MakeImageFile(20, 10);
+
+			try
+			{
+				// Cropping moves the image's top-left, so its screen origin shifts by the crop offset (in
+				// logical units). At ScaleX/Y == 1 the shift equals the crop offset directly.
+				var img = KeysharpImage.FromFile(null,path) as KeysharpImage;
+				Assert.AreEqual(0L, img.X);
+				Assert.AreEqual(0L, img.Y);
+				_ = img.Crop(5, 2, 8, 4);
+				Assert.AreEqual(5L, img.X);
+				Assert.AreEqual(2L, img.Y);
+
+				// Cropping AFTER a scale must divide the crop offset (in image pixels) by the now-2x
+				// ScaleX/ScaleY to get logical units — the path a ScaleX==1 crop never exercises.
+				var scaled = KeysharpImage.FromFile(null,path) as KeysharpImage;
+				_ = scaled.Scale(2);
+				_ = scaled.Crop(4, 2, 6, 4);
+				Assert.AreEqual(2L, scaled.X);   // 4 image px / ScaleX 2 = 2 logical
+				Assert.AreEqual(1L, scaled.Y);   // 2 image px / ScaleY 2 = 1 logical
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageCopyIsIndependent()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var path = MakeImageFile(20, 10);
+
+			try
+			{
+				// Copy() carries over pixels + scale/origin metadata, but later transforms on the copy must
+				// not touch the original (the contract OCR relies on when it transforms a caller's image).
+				var img = KeysharpImage.FromFile(null,path) as KeysharpImage;
+				var copy = img.Copy() as KeysharpImage;
+				Assert.IsNotNull(copy);
+				Assert.AreEqual(20L, copy.Width);
+				Assert.AreEqual(1.0, copy.ScaleX);
+				// Same crop-then-scale order OCR.__ApplyTransforms uses: crop shifts the origin by 2 (at
+				// ScaleX 1), then the scale folds into ScaleX and grows the width.
+				_ = copy.Crop(2, 1, 10, 5);
+				_ = copy.Scale(2);
+				// Copy reflects the transforms...
+				Assert.AreEqual(2.0, copy.ScaleX);
+				Assert.AreEqual(2L, copy.X);
+				Assert.AreEqual(20L, copy.Width);
+				// ...the original is untouched.
+				Assert.AreEqual(20L, img.Width);
+				Assert.AreEqual(10L, img.Height);
+				Assert.AreEqual(1.0, img.ScaleX);
+				Assert.AreEqual(0L, img.X);
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageGetPixelDataLayout()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// MakeImageFile paints pixel (x,y) -> R=x, G=y, B=blue. Use a tiny known canvas and verify the
+			// two GetPixelData layouts byte-for-byte: 4 = R,G,B,A in that order; 1 = integer luminance
+			// (r*77 + g*150 + b*29) >> 8. This is the substrate OCR feeds on (GetPixelData(1)) and is exactly
+			// the channel-order/luminance code that silently breaks across image backends. Buffer's indexer
+			// is 1-based, so byte n of pixel `pix` (0-based) in a `bpp`-byte layout is buf[pix*bpp + n + 1].
+			const int blue = 0x40;
+			var path = MakeImageFile(4, 3, blue);
+
+			try
+			{
+				var img = KeysharpImage.FromFile(null, path) as KeysharpImage;
+
+				// 4bpp: R,G,B,A. Check the first pixel (0,0) and the last (3,2).
+				var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+				Assert.IsNotNull(rgba);
+				Assert.AreEqual(4L * 3 * 4, rgba.Size);
+				// pixel (0,0) -> R=0, G=0, B=blue, A=255
+				Assert.AreEqual(0L, rgba[1]);
+				Assert.AreEqual(0L, rgba[2]);
+				Assert.AreEqual((long)blue, rgba[3]);
+				Assert.AreEqual(255L, rgba[4]);
+				// pixel (3,2): pix index = 2*4 + 3 = 11, byte base = 11*4 = 44 -> R=3, G=2, B=blue, A=255
+				Assert.AreEqual(3L, rgba[45]);
+				Assert.AreEqual(2L, rgba[46]);
+				Assert.AreEqual((long)blue, rgba[47]);
+				Assert.AreEqual(255L, rgba[48]);
+
+				// 1bpp grayscale luminance.
+				var gray = img.GetPixelData(1L) as Keysharp.Builtins.Buffer;
+				Assert.IsNotNull(gray);
+				Assert.AreEqual(4L * 3, gray.Size);
+				// (0,0): (0*77 + 0*150 + 64*29) >> 8 = 1856 >> 8 = 7
+				Assert.AreEqual(7L, gray[1]);
+				// (3,2): (3*77 + 2*150 + 64*29) >> 8 = 2387 >> 8 = 9 (pix index 11 -> buf[12])
+				Assert.AreEqual(9L, gray[12]);
+
+				// Only 1 and 4 are valid layouts; anything else is a ValueError.
+				Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.GetPixelData(2L));
+				Assert.Throws<Keysharp.Builtins.KeysharpException>(() => img.GetPixelData(3L));
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
 		public void ImageRotate90SwapsDimensions()
 		{
 			if (Script.IsHeadless)

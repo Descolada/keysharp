@@ -200,7 +200,11 @@ namespace Eto.Forms
                 get
                 {
 #if LINUX
-                    if (widget is Form form)
+                    // X11 only: on Wayland the GdkWindow is not a GdkX11Window, so gdk_x11_window_get_xid
+                    // asserts (a Gdk-CRITICAL per call) and returns 0 anyway. Skipping it on Wayland avoids
+                    // that wasted native call + log spam — which, called per window operation, is a real cost
+                    // when many overlay windows (e.g. OCR highlights) are created in a tight loop.
+                    if (!Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession && widget is Form form)
                     {
                         var native = form.ToNative() as Gtk.Window;
                         var gdkWin = native?.Window;

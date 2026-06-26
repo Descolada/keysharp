@@ -38,6 +38,7 @@
 */
 
 #Requires capability AccessibilityAutomation, InputMonitoring
+#import KS { Highlight }
 
 #DllLoad /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices
 #DllLoad /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
@@ -532,7 +533,7 @@ class Ax {
     static __TypeIdCache := Map()
     static __DlopenCache := Map()
     static __DataSymbolCache := Map()
-    static __HighlightGuis := Map()
+    static __Highlights := Map()
     static __Observers := Map()
     static __ObserverId := 0
     static __ObserverCallbackPtr := 0
@@ -1289,11 +1290,9 @@ class Ax {
     }
 
     static ClearAllHighlights() {
-        for _, p in this.__HighlightGuis {
-            for _, r in p
-                try r.Destroy()
-        }
-        this.__HighlightGuis := Map()
+        for _, hl in this.__Highlights
+            try hl.Destroy()
+        this.__Highlights := Map()
     }
 
     static Observe(element, notifications, callback) {
@@ -2398,36 +2397,28 @@ class Ax {
         DumpAll(delimiter := " ", depth := -1) => this.Dump(5, delimiter, depth)
 
         Highlight(showTime := unset, color := "Red", d := 2) {
-            if !Ax.__HighlightGuis.Has(this)
-                Ax.__HighlightGuis[this] := []
-            if (!IsSet(showTime) && Ax.__HighlightGuis[this].Length) || (IsSet(showTime) && showTime = "clear") {
-                for _, r in Ax.__HighlightGuis[this]
-                    try r.Destroy()
-                Ax.__HighlightGuis[this] := []
+            if (!IsSet(showTime) && Ax.__Highlights.Has(this)) || (IsSet(showTime) && showTime = "clear") {
+                if Ax.__Highlights.Has(this) {
+                    try Ax.__Highlights[this].Destroy()
+                    Ax.__Highlights.Delete(this)
+                }
                 return this
             } else if !IsSet(showTime)
                 showTime := 2000
             try loc := this.Location
             if !IsSet(loc) || !IsObject(loc) || loc.w < 1 || loc.h < 1
                 return this
-            try {
-                Loop 4
-                    Ax.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
-                Loop 4 {
-                    i := A_Index
-                    x1 := (i=2 ? loc.x+loc.w : loc.x-d)
-                    y1 := (i=3 ? loc.y+loc.h : loc.y-d)
-                    w1 := (i=1 or i=3 ? loc.w+2*d : d)
-                    h1 := (i=2 or i=4 ? loc.h+2*d : d)
-                    Ax.__HighlightGuis[this][i].BackColor := color
-                    Ax.__HighlightGuis[this][i].Show("NA x" . x1 . " y" . y1 . " w" . w1 . " h" . h1)
-                }
-                if showTime > 0 {
-                    Sleep(showTime)
-                    this.Highlight()
-                } else if showTime < 0
-                    SetTimer(ObjBindMethod(this, "Highlight", "clear"), -Abs(showTime))
-            }
+            ; One reusable KS.Highlight overlay per element (single click-through border window), keyed by
+            ; `this`. Replaces the previous four-window-per-highlight approach, which on Wayland/KWin spawned a
+            ; burst of windows that could destabilize the compositor.
+            hl := Ax.__Highlights.Has(this) ? Ax.__Highlights[this] : (Ax.__Highlights[this] := Highlight())
+            hl.Color := color, hl.Thickness := d
+            hl.Show(loc.x, loc.y, loc.w, loc.h)
+            if showTime > 0 {
+                Sleep(showTime)
+                this.Highlight()
+            } else if showTime < 0
+                SetTimer(ObjBindMethod(this, "Highlight", "clear"), -Abs(showTime))
             return this
         }
         ClearHighlight() => this.Highlight("clear")

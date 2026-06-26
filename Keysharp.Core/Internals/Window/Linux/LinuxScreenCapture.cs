@@ -48,19 +48,23 @@ namespace Keysharp.Internals.Window.Linux
 		/// X11, or the compositor window id (GNOME stable-sequence) on Wayland.</param>
 		/// <returns>The captured bitmap (physical pixels) and its physical-pixels-per-logical-unit scale,
 		/// or (null, 1.0) when no true window capture is available for this session.</returns>
-		internal static (Bitmap bmp, double scale) CaptureWindow(nint handle)
+		internal static (Bitmap bmp, double scale) CaptureWindow(nint handle, bool includeDecoration)
 		{
 			if (handle == 0)
 				return (null, 1.0);
 
+			// X11: XGetImage images the client window, so decorations are never included (the flag is moot here).
 			if (!PlatformManager.IsWaylandSession)
 				return (X11ScreenCapture.TryCaptureWindow(handle.ToInt64()), 1.0);
 
 			var backend = WaylandBackend.Current;
 
-			// GNOME: occlusion-independent — the extension images the window actor's backing buffer.
-			if (backend is WaylandBackend.GnomeBackend)
-				return (ScreencapHelper.CaptureGnomeWindow((ulong)handle.ToInt64()), 1.0);
+			// GNOME: occlusion-independent — the extension images the window actor's backing buffer. The actor
+			// includes the window's own decorations; there is no per-call toggle, so includeDecoration is ignored.
+			// The extension matches by raw stable_sequence, so strip the GnomeBit marker first (the handle is the
+			// marker-encoded form from SeqToHandle); passing it unmasked never matches and silently falls back.
+			if (backend is WaylandBackend.GnomeBackend gnome && gnome.TryGetWindowSeq(handle, out var seq))
+				return (ScreencapHelper.CaptureGnomeWindow(seq), 1.0);
 
 			// KWin: occlusion-independent via org.kde.KWin.ScreenShot2.CaptureWindow, which re-renders the
 			// window off-screen. The KWin backend already tracks each window's internalId UUID, and the
@@ -68,7 +72,7 @@ namespace Keysharp.Internals.Window.Linux
 			// real internalId (the "windowId:" fallback, e.g. some Xwayland clients) fall through to the
 			// rectangle grab.
 			if (backend is WaylandBackend.KWinBackend kwin && kwin.TryGetWindowUuid(handle, out var uuid))
-				return (ScreencapHelper.CaptureKWinWindow(uuid), 1.0);
+				return (ScreencapHelper.CaptureKWinWindow(uuid, includeDecoration), 1.0);
 
 			// wlr-screencopy captures whole outputs, not individual windows.
 			return (null, 1.0);

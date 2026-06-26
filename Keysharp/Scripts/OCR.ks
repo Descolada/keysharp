@@ -42,11 +42,19 @@
 
     Basic usage:
         #include <OCR>
-        result := OCR(Image.FromRect(100, 100, 400, 200), {x: 100, y: 100})
+        result := OCR.FromRect(100, 100, 400, 200)   ; or OCR(Image.FromRect(...)) for an explicit Image
         MsgBox(result.Text)
         for word in result.Words
             word.Highlight(-1)
         result.FindString("Save").Click()
+
+    Capture factories (thin wrappers over the matching Image.From* factory + OCR()):
+        OCR.FromFile(FileName, Options?)
+        OCR.FromBitmap(Bitmap, Options?)
+        OCR.FromRect(X, Y, W, H, Options?)
+        OCR.FromDesktop(Options?)
+        OCR.FromMonitor(Monitor?, Options?)
+        OCR.FromWindow(WinTitle?, Options?, WinText?, ExcludeTitle?, ExcludeText?)
 
     OCR(Bitmap, Options?) returns an OCR.Result:
         result.Text         => all recognized text
@@ -63,16 +71,23 @@
         OCR.WordsBoundingRect(words*), OCR.ClearAllHighlights(), OCR.Cluster(...),
         OCR.SortArray/ReverseArray/UniqueArray/FlattenArray.
 
-    Options object for OCR(Bitmap, Options) (all optional): {lang, datapath, x, y}
+    Options object for OCR(Bitmap, Options) (all optional): {lang, datapath, x, y, w, h, scale, rotate, flip}
         lang, datapath : forwarded to the engine.
-        x, y           : screen offset added to result coordinates (use the capture rectangle's
-                         top-left so Highlight/Click land on screen). Coordinates are also divided by
-                         the image's capture scale, so on a HiDPI display they map back to logical units.
+        x, y, w, h     : crop rectangle in image pixels, applied before scaling (missing x/y default to 0;
+                         missing w/h extend to the image edge).
+        scale          : zoom factor applied after cropping (e.g. 2 upscales 2x) — improves recognition of
+                         small text. Result coordinates are divided back by the factor.
+        rotate         : clockwise degrees (90/180/270) applied to the pixels.
+        flip           : "x" mirrors across the x-axis (vertical), "y" across the y-axis (horizontal).
+      Result coordinates are reported in screen units: the capture origin (Image.X/Y, adjusted for any
+      crop) is added and the capture/scale factor divided out, so Highlight/Click land on screen with no
+      extra arguments. Note: rotate/flip transform the pixels but coordinates are NOT mapped back through
+      them, so after a rotate/flip the coordinates are in the transformed image's space.
 */
 
 #Requires AutoHotkey v2
 
-#import KS { Image }
+#import KS { Image, Highlight }
 
 class OCR {
     static Version => "1.0.0"
@@ -81,12 +96,12 @@ class OCR {
     static Language := "eng"   ; default OCR language, forwarded to the engine (override per call via Options.lang)
     static Engine := ""        ; active recognition engine ("" = lazily create an OCR.TesseractEngine)
 
-    static __HighlightGuis := Map()   ; object -> array of border Gui strips
+    static __Highlights := Map()   ; object -> its KS.Highlight border-overlay
 
     /**
      * Recognizes text in an image and returns an OCR.Result.
      * @param Bitmap A KS Image object, or anything Image.FromBitmap accepts (a bitmap handle / file).
-     * @param Options Optional {lang, datapath, x, y}. See file header.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
      * @returns {OCR.Result}
      */
     static Call(Bitmap, Options := 0) {
@@ -95,14 +110,126 @@ class OCR {
         local img := (Bitmap is Image) ? Bitmap : Image.FromBitmap(Bitmap)
         local lang := OCR.__GetOpt(Options, "lang", OCR.__GetOpt(Options, "language", OCR.Language))
         local datapath := OCR.__GetOpt(Options, "datapath", "")
-        local ox := OCR.__GetOpt(Options, "x", 0), oy := OCR.__GetOpt(Options, "y", 0)
+
+        ; Optional pre-processing (crop / scale / rotate / flip). The transforms update the Image's scale
+        ; and origin metadata, so the screen offset below is simply where the (possibly cropped) image now
+        ; sits: Image.X/Y. Image.FromWindow/FromRect/FromDesktop/FromMonitor record their top-left;
+        ; file/handle images report 0. Highlight/Click then land on screen with no extra arguments.
+        img := OCR.__ApplyTransforms(img, Options)
 
         local rawLines := OCR.__GetEngine().Recognize(img, {lang: lang, datapath: datapath})
         local result := OCR.__BuildResult(rawLines)
         result.DefineProp("ImageWidth", {value: img.Width})
         result.DefineProp("ImageHeight", {value: img.Height})
-        OCR.__FinalizeResult(result, img.ScaleX, img.ScaleY, ox, oy)
+        OCR.__FinalizeResult(result, img.ScaleX, img.ScaleY, img.X, img.Y)
         return result
+    }
+
+    /**
+     * Applies the optional image pre-processing carried in Options, returning the image to OCR. When any
+     * transform is requested the work is done on an independent Image.Copy() so the caller's Image is never
+     * mutated; with no transforms the original image is returned untouched. Order matches OCR.ahk:
+     * crop -> scale -> rotate -> flip.
+     *
+     * Options (all optional):
+     *   x, y, w, h  Crop rectangle in image pixels, applied first. Missing x/y default to 0; missing w/h
+     *               extend to the image edge. Result coordinates are mapped back through the crop offset.
+     *   scale       Zoom factor (e.g. 2 upscales 2x). Improves recognition of small text; result
+     *               coordinates are divided back by the factor so they still map to screen.
+     *   rotate      Clockwise degrees (e.g. 90/180/270). Applied to the pixels; coordinates are NOT
+     *               un-rotated, so after a rotate they are in the rotated image's space.
+     *   flip        "x" mirrors across the x-axis (vertical flip); "y" mirrors across the y-axis
+     *               (horizontal flip). Like rotate, coordinates are not mirrored back.
+     */
+    static __ApplyTransforms(img, Options) {
+        local cx, cy, cw, ch, scale, rot, fl, hasCrop
+        if !IsObject(Options)
+            return img
+        hasCrop := OCR.__HasOpt(Options, "x") || OCR.__HasOpt(Options, "y") || OCR.__HasOpt(Options, "w") || OCR.__HasOpt(Options, "h")
+        scale := OCR.__GetOpt(Options, "scale", 1)
+        rot := OCR.__GetOpt(Options, "rotate", 0)
+        fl := OCR.__GetOpt(Options, "flip", 0)
+        if !(hasCrop || scale != 1 || rot != 0 || (fl != 0 && fl != ""))
+            return img
+        ; Copy first: the Image transforms below mutate the instance, and the caller may keep using theirs.
+        img := img.Copy()
+        if hasCrop {
+            cx := OCR.__GetOpt(Options, "x", 0), cy := OCR.__GetOpt(Options, "y", 0)
+            cw := OCR.__GetOpt(Options, "w", img.Width - cx), ch := OCR.__GetOpt(Options, "h", img.Height - cy)
+            img.Crop(cx, cy, cw, ch)
+        }
+        if (scale != 1)
+            img.Scale(scale)
+        if (rot != 0)
+            img.Rotate(rot)
+        if (fl != 0 && fl != "")
+            img.Flip(fl = "y")   ; "y" -> mirror across the y-axis (horizontal); anything else -> across the x-axis (vertical)
+        return img
+    }
+
+    ;; ---------------------------------------------------------------------------------------------
+    ;; Capture factories: thin wrappers over the matching Image.From* factory + OCR(), so you can
+    ;; write OCR.FromWindow("A") instead of OCR(Image.FromWindow("A")). Each captures via the KS Image
+    ;; class (which records the capture origin and scale on the Image), then OCRs it. The Options
+    ;; object is forwarded to OCR() unchanged — see Call/header for its fields ({lang, datapath, x, y, w, h,
+    ;; scale, rotate, flip}).
+    ;; ---------------------------------------------------------------------------------------------
+
+    /**
+     * OCRs an image file (anything Image.FromFile accepts).
+     * @param FileName Path to the image.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
+     * @returns {OCR.Result}
+     */
+    static FromFile(FileName, Options := 0) => OCR(Image.FromFile(FileName), Options)
+
+    /**
+     * OCRs an existing bitmap (another KS Image, or a native bitmap handle).
+     * @param Bitmap The bitmap source.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
+     * @returns {OCR.Result}
+     */
+    static FromBitmap(Bitmap, Options := 0) => OCR(Image.FromBitmap(Bitmap), Options)
+
+    /**
+     * Captures a rectangle of the screen (absolute screen coordinates) and OCRs it. The capture's
+     * top-left becomes the result's screen offset, so Highlight/Click land on screen with no extra args.
+     * @param X,Y,W,H The screen rectangle.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
+     * @returns {OCR.Result}
+     */
+    static FromRect(X, Y, W, H, Options := 0) => OCR(Image.FromRect(X, Y, W, H), Options)
+
+    /**
+     * Captures the whole virtual desktop (the union of all monitors) and OCRs it.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
+     * @returns {OCR.Result}
+     */
+    static FromDesktop(Options := 0) => OCR(Image.FromDesktop(), Options)
+
+    /**
+     * Captures a single monitor (the primary monitor if Monitor is omitted) and OCRs it.
+     * @param Monitor The 1-based monitor number, or unset for the primary monitor.
+     * @param Options Optional {lang, datapath, x, y, w, h, scale, rotate, flip}. See file header.
+     * @returns {OCR.Result}
+     */
+    static FromMonitor(Monitor?, Options := 0) => OCR(IsSet(Monitor) ? Image.FromMonitor(Monitor) : Image.FromMonitor(), Options)
+
+    /**
+     * Captures the window matched by the usual WinTitle criteria and OCRs it. The captured pixels'
+     * on-screen origin becomes the result's screen offset, so Highlight/Click land on screen.
+     * @param WinTitle,WinText,ExcludeTitle,ExcludeText Standard window-matching criteria.
+     * @param Options Optional. Forwarded to OCR() ({lang, datapath, x, y, w, h, scale, rotate, flip}); its
+     *   `mode`/`decorations` properties also select the Image.FromWindow capture technique (see Image.FromWindow).
+     * @returns {OCR.Result}
+     */
+    static FromWindow(WinTitle := "", Options := 0, WinText := "", ExcludeTitle := "", ExcludeText := "") {
+        ; Only forward Options as Image's capture-options when it's an object (so its mode/decorations are
+        ; honored). A bare default 0 would be read by Image.FromWindow as capture mode 0, overriding its
+        ; default mode 4 — so in that case let Image.FromWindow pick its own default.
+        local img := IsObject(Options) ? Image.FromWindow(WinTitle, Options, WinText, ExcludeTitle, ExcludeText)
+                                       : Image.FromWindow(WinTitle, , WinText, ExcludeTitle, ExcludeText)
+        return OCR(img, Options)
     }
 
     ; Returns the active engine, creating the default Tesseract engine on first use.
@@ -126,11 +253,10 @@ class OCR {
 
     ; Removes all highlights created by Highlight().
     static ClearAllHighlights() {
-        local key, strips, g
-        for key, strips in OCR.__HighlightGuis
-            for g in strips
-                try g.Destroy()
-        OCR.__HighlightGuis := Map()
+        local hl
+        for _, hl in OCR.__Highlights
+            try hl.Destroy()
+        OCR.__Highlights := Map()
         return OCR
     }
 
@@ -187,7 +313,8 @@ class OCR {
         }
 
         /**
-         * Highlights the object on the screen with a colored border made of four thin GUI strips.
+         * Highlights the object on the screen with a colored border drawn as four edges on a single
+         * transparent, click-through overlay window.
          * @param showTime Default 2000ms.
          *   Unset       - if already highlighted, removes it; otherwise highlights for 2 seconds.
          *   0           - indefinite highlight.
@@ -200,26 +327,24 @@ class OCR {
          * @returns {this}
          */
         Highlight(showTime?, color := "Red", d := 2) {
-            local x, y, w, h, i, x1, y1, w1, h1, g, strips
+            local x, y, w, h, hl
             if IsSet(showTime) {
                 if (showTime = "clearall") {
                     OCR.ClearAllHighlights()
                     return this
                 }
                 if (showTime = "clear") {
-                    if OCR.__HighlightGuis.Has(this) {
-                        for g in OCR.__HighlightGuis[this]
-                            try g.Destroy()
-                        OCR.__HighlightGuis.Delete(this)
+                    if OCR.__Highlights.Has(this) {
+                        try OCR.__Highlights[this].Destroy()
+                        OCR.__Highlights.Delete(this)
                     }
                     return this
                 }
             }
             if !IsSet(showTime) {
-                if OCR.__HighlightGuis.Has(this) {
-                    for g in OCR.__HighlightGuis[this]
-                        try g.Destroy()
-                    OCR.__HighlightGuis.Delete(this)
+                if OCR.__Highlights.Has(this) {
+                    try OCR.__Highlights[this].Destroy()
+                    OCR.__Highlights.Delete(this)
                     return this
                 }
                 showTime := 2000
@@ -233,19 +358,12 @@ class OCR {
             if (w < 1 || h < 1)
                 return this
 
-            strips := []
-            Loop 4
-                strips.Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
-            Loop 4 {
-                i := A_Index
-                x1 := (i = 2 ? x + w : x - d)
-                y1 := (i = 3 ? y + h : y - d)
-                w1 := (i = 1 or i = 3 ? w + 2 * d : d)
-                h1 := (i = 2 or i = 4 ? h + 2 * d : d)
-                strips[i].BackColor := color
-                strips[i].Show("NA x" x1 " y" y1 " w" w1 " h" h1)
-            }
-            OCR.__HighlightGuis[this] := strips
+            ; Draw via the built-in KS.Highlight overlay (a single transparent, click-through border window
+            ; reused across moves), keyed by `this` so each element keeps its own. This centralizes the overlay
+            ; (and its Wayland/KWin handling) instead of building a Gui here.
+            hl := OCR.__Highlights.Has(this) ? OCR.__Highlights[this] : (OCR.__Highlights[this] := Highlight())
+            hl.Color := color, hl.Thickness := d
+            hl.Show(x, y, w, h)
 
             if (showTime > 0) {
                 Sleep(showTime)
@@ -684,7 +802,11 @@ class OCR {
     }
 
     ; Normalizes word coordinates (physical image pixels -> logical units + screen offset), then
-    ; computes line/result bounding rects from the final word coordinates.
+    ; computes line/result bounding rects from the final word coordinates. sx/sy are the image's per-axis
+    ; ScaleX/ScaleY; this divide assumes those axes still align with the image, which holds for OCR's own
+    ; `scale` Option (always a single isotropic factor). A manual anisotropic Image.Scale(sx, sy) followed
+    ; by a 90/270 Image.Rotate would swap the pixel axes but not ScaleX/ScaleY, so the divide would use the
+    ; wrong factor per axis — combine anisotropic scaling with rotate only on an image not fed back to OCR.
     static __FinalizeResult(result, sx, sy, ox, oy) {
         local word, line
         if (sx != 1 || sy != 1 || ox != 0 || oy != 0)
@@ -711,8 +833,9 @@ class OCR {
         return obj
     }
 
-    ; Whether an options object carries a given named property.
-    static __HasOpt(obj, name) => IsObject(obj) && (Type(obj) = "Object") && obj.HasProp(name)
+    ; Whether an options object carries a given named property. Accepts any object (IsObject), matching how
+    ; Image.FromWindow detects an options object, so both paths honor the same argument consistently.
+    static __HasOpt(obj, name) => IsObject(obj) && obj.HasProp(name)
 
     ; Returns obj.%name% if present, otherwise the supplied default.
     static __GetOpt(obj, name, default) => OCR.__HasOpt(obj, name) ? obj.%name% : default

@@ -457,6 +457,11 @@ static GDBusConnection *get_session_bus(void)
     return g_serve_connection;
 }
 
+/* Defined further down; forward-declared so the KWin capture functions below can own the status byte
+ * (write OK + frame on success, or a recoverable error frame on failure) like the GNOME serve path. */
+static bool write_serve_status(int out_fd, uint8_t status);
+static bool write_serve_error(int out_fd, const char *message);
+
 /* Captures the requested area via KWin ScreenShot2 and writes the framed response
  * (KSSC1 header + raw pixels) to out_fd. Reuses the cached session-bus connection,
  * so per-call cost is the D-Bus round trip plus a single memfd→out_fd copy. */
@@ -475,18 +480,21 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
     guint32 format = 0;
     int image_fd = -1;
     int fd_handle;
-    bool success = false;
+    bool captured = false;
+    const char *errmsg = "KWin CaptureArea failed";
+    bool io_ok;
 
     image_fd = create_capture_file();
 
     if (image_fd < 0) {
         fprintf(stderr, "keysharp-screencap: failed to create capture file: %s\n", strerror(errno));
-        return false;
+        return write_serve_error(out_fd, "failed to create capture file");
     }
 
     connection = get_session_bus();
 
     if (connection == NULL) {
+        errmsg = "failed to connect to session bus";
         goto cleanup;
     }
 
@@ -550,12 +558,7 @@ static bool capture_area_to_fd(int out_fd, int x, int y, int width, int height)
         goto cleanup;
     }
 
-    success = write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
-
-    if (!success) {
-        fprintf(stderr, "keysharp-screencap: failed to stream capture (%ux%u stride=%u format=%u)\n",
-            result_width, result_height, stride, format);
-    }
+    captured = true;
 
 cleanup:
     if (type != NULL) {
@@ -580,18 +583,33 @@ cleanup:
         g_error_free(error);
     }
 
+    /* Own the status byte here (like the GNOME serve path) rather than letting serve_loop pre-send OK:
+     * a D-Bus/metadata failure above wrote nothing to out_fd, so report it as a recoverable per-request
+     * error and keep the long-lived helper alive. Only commit OK once we are about to stream the frame. */
+    if (captured) {
+        io_ok = write_serve_status(out_fd, KSS_SERVE_STATUS_OK)
+            && write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
+
+        if (!io_ok) {
+            fprintf(stderr, "keysharp-screencap: failed to stream capture (%ux%u stride=%u format=%u)\n",
+                result_width, result_height, stride, format);
+        }
+    } else {
+        io_ok = write_serve_error(out_fd, errmsg);
+    }
+
     if (image_fd >= 0) {
         close(image_fd);
     }
 
-    return success;
+    return io_ok;
 }
 
 /* Captures a single window via KWin ScreenShot2.CaptureWindow(handle) and writes the framed KSSC1
  * response (header + raw pixels) to out_fd. `handle` is the window's KWin internalId UUID string
  * (e.g. "{xxxxxxxx-....}"). Occlusion-independent: KWin re-renders the window off-screen. Mirrors
  * capture_area_to_fd, differing only in the D-Bus method and its arguments. */
-static bool capture_window_to_fd(int out_fd, const char *handle)
+static bool capture_window_to_fd(int out_fd, const char *handle, bool include_decoration)
 {
     GError *error = NULL;
     GDBusConnection *connection = NULL;
@@ -606,18 +624,21 @@ static bool capture_window_to_fd(int out_fd, const char *handle)
     guint32 format = 0;
     int image_fd = -1;
     int fd_handle;
-    bool success = false;
+    bool captured = false;
+    const char *errmsg = "KWin CaptureWindow failed";
+    bool io_ok;
 
     image_fd = create_capture_file();
 
     if (image_fd < 0) {
         fprintf(stderr, "keysharp-screencap: failed to create capture file: %s\n", strerror(errno));
-        return false;
+        return write_serve_error(out_fd, "failed to create capture file");
     }
 
     connection = get_session_bus();
 
     if (connection == NULL) {
+        errmsg = "failed to connect to session bus";
         goto cleanup;
     }
 
@@ -633,6 +654,11 @@ static bool capture_window_to_fd(int out_fd, const char *handle)
     g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
     g_variant_builder_add(&options, "{sv}", "include-cursor", g_variant_new_boolean(FALSE));
     g_variant_builder_add(&options, "{sv}", "native-resolution", g_variant_new_boolean(FALSE));
+    /* Title bar + borders. Including them makes the captured image frame-aligned (its top-left is the
+     * window's outer top-left), matching how Windows/macOS capture a whole window, and lets the caller
+     * map result coordinates back to screen with the frame origin. KWin defaults this to FALSE (client
+     * area only), which would shift those coordinates up-left by the decoration size. */
+    g_variant_builder_add(&options, "{sv}", "include-decoration", g_variant_new_boolean(include_decoration ? TRUE : FALSE));
 
     reply = g_dbus_connection_call_with_unix_fd_list_sync(
         connection,
@@ -681,12 +707,7 @@ static bool capture_window_to_fd(int out_fd, const char *handle)
         goto cleanup;
     }
 
-    success = write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
-
-    if (!success) {
-        fprintf(stderr, "keysharp-screencap: failed to stream window capture (%ux%u stride=%u format=%u)\n",
-            result_width, result_height, stride, format);
-    }
+    captured = true;
 
 cleanup:
     if (type != NULL) {
@@ -709,11 +730,26 @@ cleanup:
         g_error_free(error);
     }
 
+    /* Own the status byte here (like the GNOME serve path): an early D-Bus/metadata failure wrote nothing
+     * to out_fd, so report it as a recoverable per-request error and keep the helper alive. A window that
+     * vanished mid-capture no longer tears the helper down (and forces a costly restart). */
+    if (captured) {
+        io_ok = write_serve_status(out_fd, KSS_SERVE_STATUS_OK)
+            && write_capture_response(out_fd, image_fd, result_width, result_height, stride, format);
+
+        if (!io_ok) {
+            fprintf(stderr, "keysharp-screencap: failed to stream window capture (%ux%u stride=%u format=%u)\n",
+                result_width, result_height, stride, format);
+        }
+    } else {
+        io_ok = write_serve_error(out_fd, errmsg);
+    }
+
     if (image_fd >= 0) {
         close(image_fd);
     }
 
-    return success;
+    return io_ok;
 }
 
 static bool gnome_capture_area_to_fd(int out_fd, int x, int y, int width, int height);
@@ -1183,17 +1219,23 @@ static int serve_loop(void)
 
         if (strcmp(token, "window") == 0) {
             char *handle = strtok_r(NULL, " \t", &save);
+            char *deco_token;
+            bool include_decoration;
 
             if (handle == NULL || handle[0] == '\0') {
                 (void)write_serve_error(STDOUT_FILENO, "bad window handle");
                 continue;
             }
 
-            if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
-                return 1;
-            }
+            /* Optional trailing flag: "0" excludes the title bar/borders, anything else (or absent)
+             * includes them. Default-on keeps results frame-aligned for callers that don't pass it. */
+            deco_token = strtok_r(NULL, " \t", &save);
+            include_decoration = (deco_token == NULL) || (deco_token[0] != '0');
 
-            if (!capture_window_to_fd(STDOUT_FILENO, handle)) {
+            /* capture_window_to_fd owns the status byte: OK + frame on success, or a recoverable error
+             * frame on capture failure, returning false only on a fatal stdout I/O error (parent gone).
+             * So a per-capture failure (e.g. the window vanished) no longer tears down the helper. */
+            if (!capture_window_to_fd(STDOUT_FILENO, handle, include_decoration)) {
                 return 1;
             }
 
@@ -1215,14 +1257,9 @@ static int serve_loop(void)
             continue;
         }
 
-        if (!write_serve_status(STDOUT_FILENO, KSS_SERVE_STATUS_OK)) {
-            return 1;
-        }
-
+        /* capture_area_to_fd owns the status byte (OK + frame, or a recoverable error frame), returning
+         * false only on a fatal stdout I/O error, so a failed capture keeps the helper alive. */
         if (!capture_area_to_fd(STDOUT_FILENO, x, y, width, height)) {
-            /* Header byte already sent. Truncated response on the wire means the
-             * parent will fail to parse and recover (or kill us). Without an escape
-             * mechanism we have to rely on the parent's read-side framing here. */
             return 1;
         }
     }

@@ -139,6 +139,19 @@ namespace Keysharp.Builtins
 				string name;
 				var z = path.LastIndexOfAny(['\\', '/']);
 				var procAddressCache = TheScript.DllData.procAddressCache;
+#if WINDOWS
+				// A LoadLibrary-family Win32 function takes a DLL path as its first argument, bound straight for
+				// the OS module loader, which only accepts '\' separators (see NormalizeLoaderPath). Keysharp
+				// encourages '/' as a cross-platform separator, so normalize that argument just-in-time. The
+				// function name is whatever follows the last separator (or the whole string for a bare name).
+				{
+					var fnSpan = z == -1 ? path.AsSpan() : path.AsSpan(z + 1);
+
+					if (parameters.Length >= 2 && parameters[1] is string libArg
+							&& fnSpan.StartsWith("LoadLibrary", StringComparison.OrdinalIgnoreCase))
+						parameters[1] = NormalizeLoaderPath(libArg);
+				}
+#endif
 
 				if (z == -1)
 				{
@@ -242,6 +255,7 @@ namespace Keysharp.Builtins
 					)
 						path += LibraryExtension;
 
+					path = NormalizeLoaderPath(path);
 					NativeLibrary.TryLoad(path, out handle);
 #if WINDOWS
 					if (handle != 0 && !NativeLibrary.TryGetExport(handle, name, out address))
@@ -284,6 +298,22 @@ namespace Keysharp.Builtins
 				if (handle != 0)
 					NativeLibrary.Free(handle);
 			}
+		}
+
+		/// <summary>
+		/// Normalizes a path that is about to be handed to the native module loader. On Windows the loader
+		/// (LoadLibrary/LoadLibraryEx, and its LOAD_WITH_ALTERED_SEARCH_PATH search for a DLL's sibling
+		/// dependencies) only accepts '\' separators — a '/' yields ERROR_MOD_NOT_FOUND — so any '/' is
+		/// converted to '\'. A new string is allocated only when a '/' is actually present; otherwise the
+		/// original instance is returned unchanged. A no-op on non-Windows platforms, where '/' is correct.
+		/// </summary>
+		internal static string NormalizeLoaderPath(string path)
+		{
+#if WINDOWS
+			return path != null && path.IndexOf('/') >= 0 ? path.Replace('/', '\\') : path;
+#else
+			return path;
+#endif
 		}
 
 		/// <summary>

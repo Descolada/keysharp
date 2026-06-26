@@ -15,7 +15,9 @@ namespace Keysharp.Internals.Platform.Windows
 
 		public static nint GetKeyboardLayout(uint idThread)=> WindowsAPI.GetKeyboardLayout(idThread);
 
-		public static nint LoadLibrary(string path) => WindowsAPI.LoadLibrary(path);
+		// The Win32 loader only accepts '\' path separators (a '/' yields ERROR_MOD_NOT_FOUND, including when
+		// resolving a DLL's sibling dependencies), so normalize any '/' first. Allocates only when one is present.
+		public static nint LoadLibrary(string path) => WindowsAPI.LoadLibrary(path != null && path.IndexOf('/') >= 0 ? path.Replace('/', '\\') : path);
 
 		public static bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam) => WindowsAPI.PostMessage(hWnd, WindowsAPI.WM_HOTKEY, wParam, lParam);
 

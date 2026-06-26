@@ -56,10 +56,6 @@ namespace Keysharp.Builtins
 			[Static] public static object Move(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Move, callback, winTitle, winText, excludeTitle, excludeText, count);
 
-			/// <summary>Fires when a window becomes visible (mapped/shown).</summary>
-			[Static] public static object Show(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
-				=> Subscribe(WindowEventType.Show, callback, winTitle, winText, excludeTitle, excludeText, count);
-
 			/// <summary>Fires when a window is minimized.</summary>
 			[Static] public static object Minimize(object @this, object callback, object winTitle = null, object count = null, object winText = null, object excludeTitle = null, object excludeText = null)
 				=> Subscribe(WindowEventType.Minimize, callback, winTitle, winText, excludeTitle, excludeText, count);

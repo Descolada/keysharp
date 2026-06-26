@@ -27,6 +27,9 @@ namespace Keysharp.Builtins
 		/// hl.Color := "Lime"                   ; recolor in place
 		/// hl.Hide()                            ; keep the window for the next Show
 		/// hl.Destroy()                         ; free it
+		///
+		/// h := Highlight()                     ; or construct empty and supply geometry/style at Show time
+		/// h.Show(100, 100, 200, 200)
 		/// </code>
 		/// </summary>
 		[UserDeclaredName("Highlight")]
@@ -117,9 +120,26 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
-			/// <summary>Repositions/resizes the overlay in place (no window recreation). Equivalent to Show with
-			/// geometry; all args optional, so Move(, , w, h) resizes only and Move() just refreshes.</summary>
-			public object Move(object x = null, object y = null, object w = null, object h = null) => Show(x, y, w, h);
+			/// <summary>Repositions/resizes the overlay in place — and only that. Unlike <c>Show</c>, <c>Move</c>
+			/// never creates, shows or hides the window and never changes visibility: it updates the stored
+			/// rectangle, and if the overlay is currently on screen it repositions it (reshaping the border edges
+			/// when the size changes). On a hidden or not-yet-shown overlay it just records the new geometry for the
+			/// next <c>Show</c>. All args optional, so <c>Move(, , w, h)</c> resizes only.</summary>
+			public object Move(object x = null, object y = null, object w = null, object h = null)
+			{
+				if (x != null) rx = x.Ai();
+				if (y != null) ry = y.Ai();
+				if (w != null) rw = w.Ai();
+				if (h != null) rh = h.Ai();
+
+				// Touch the window only when it is actually on screen. Refresh's `shown` branch repositions/resizes
+				// (and reshapes the edges on a size change) in place without re-showing, and `visible` is left
+				// untouched, so Move can never un-hide a hidden overlay or spin one up from nothing.
+				if (shown)
+					Refresh();
+
+				return this;
+			}
 
 			/// <summary>Hides the overlay but keeps the window alive for the next Show.</summary>
 			public object Hide()

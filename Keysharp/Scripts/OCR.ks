@@ -119,8 +119,8 @@ class OCR {
 
         local rawLines := OCR.__GetEngine().Recognize(img, {lang: lang, datapath: datapath})
         local result := OCR.__BuildResult(rawLines)
-        result.DefineProp("ImageWidth", {value: img.Width})
-        result.DefineProp("ImageHeight", {value: img.Height})
+        result.ImageWidth := img.Width
+        result.ImageHeight := img.Height
         OCR.__FinalizeResult(result, img.ScaleX, img.ScaleY, img.X, img.Y)
         return result
     }
@@ -499,17 +499,17 @@ class OCR {
                 startingWord := startingWord * 2 + fullFirst - 1
 
                 foundNeedle := "", foundWords := [], foundLines := [], line := OCR.Line()
-                line.DefineProp("Words", {value: []}), line.DefineProp("Text", {value: ""})
+                line.Words := [], line.Text := ""
                 Loop tokenizedNeedle.Length {
                     word := tokenizedHaystack[startingWord + A_Index]
                     if (word == "`n") {
                         foundNeedle .= line.Text
-                        line.DefineProp("Text", {value: RTrim(line.Text)})
+                        line.Text := RTrim(line.Text)
                         if line.Words.Length
                             OCR.__SetRect(line, OCR.WordsBoundingRect(line.Words*))
                         foundLines.Push(line)
                         line := OCR.Line()
-                        line.DefineProp("Words", {value: []}), line.DefineProp("Text", {value: ""})
+                        line.Words := [], line.Text := ""
                     }
                     if !IsObject(word)
                         continue
@@ -517,22 +517,22 @@ class OCR {
                         counter--
                         continue 2
                     }
-                    line.Words.Push(word), line.DefineProp("Text", {value: line.Text word.Text " "})
+                    line.Words.Push(word), line.Text := line.Text word.Text " "
                 }
                 if (line.Text != "") {
                     foundNeedle .= line.Text
-                    line.DefineProp("Text", {value: RTrim(line.Text)})
+                    line.Text := RTrim(line.Text)
                     if line.Words.Length
                         OCR.__SetRect(line, OCR.WordsBoundingRect(line.Words*))
                     foundLines.Push(line)
                 }
 
                 result := OCR.Result()
-                result.DefineProp("ImageWidth", {value: this.ImageWidth})
-                result.DefineProp("ImageHeight", {value: this.ImageHeight})
-                result.DefineProp("Lines", {value: foundLines})
-                result.DefineProp("Words", {value: foundWords := this.__CollectWords(foundLines)})
-                result.DefineProp("Text", {value: foundNeedle})
+                result.ImageWidth := this.ImageWidth
+                result.ImageHeight := this.ImageHeight
+                result.Lines := foundLines
+                result.Words := foundWords := this.__CollectWords(foundLines)
+                result.Text := foundNeedle
                 if foundWords.Length
                     OCR.__SetRect(result, OCR.WordsBoundingRect(foundWords*))
                 else
@@ -562,20 +562,20 @@ class OCR {
                         croppedWords.Push(word), allWords.Push(word), lineText .= word.Text " "
                 if croppedWords.Length {
                     nl := OCR.Line()
-                    nl.DefineProp("Words", {value: croppedWords})
-                    nl.DefineProp("Text", {value: Trim(lineText)})
+                    nl.Words := croppedWords
+                    nl.Text := Trim(lineText)
                     OCR.__SetRect(nl, OCR.WordsBoundingRect(croppedWords*))
                     croppedLines.Push(nl)
                 }
             }
             result := OCR.Result()
-            result.DefineProp("ImageWidth", {value: this.ImageWidth})
-            result.DefineProp("ImageHeight", {value: this.ImageHeight})
-            result.DefineProp("Lines", {value: croppedLines})
-            result.DefineProp("Words", {value: allWords})
+            result.ImageWidth := this.ImageWidth
+            result.ImageHeight := this.ImageHeight
+            result.Lines := croppedLines
+            result.Words := allWords
             for line in croppedLines
                 txt .= line.Text "`n"
-            result.DefineProp("Text", {value: RTrim(txt, "`n")})
+            result.Text := RTrim(txt, "`n")
             if allWords.Length
                 OCR.__SetRect(result, OCR.WordsBoundingRect(allWords*))
             else
@@ -646,12 +646,12 @@ class OCR {
         for cluster in C {
             OCR.SortArray(cluster, , "x")
             br := OCR.Common()
-            br.DefineProp("BoundingRect", {value: OCR.WordsBoundingRect(cluster*)})
-            br.DefineProp("Words", {value: cluster})
+            br.BoundingRect := OCR.WordsBoundingRect(cluster*)
+            br.Words := cluster
             t := ""
             for word in cluster
                 t .= word.Text " "
-            br.DefineProp("Text", {value: RTrim(t)})
+            br.Text := RTrim(t)
             clusters.Push(br)
         }
         OCR.SortArray(clusters, , "y")
@@ -779,25 +779,25 @@ class OCR {
             words := [], text := ""
             for rw in rawWords {
                 word := OCR.Word()
-                word.DefineProp("Text", {value: rw.Text})
+                word.Text := rw.Text
                 OCR.__SetRect(word, rw.x, rw.y, rw.w, rw.h)
                 ; Conf is 0-100 recognition confidence (Tesseract); "" for engines that don't report it.
-                word.DefineProp("Conf", {value: rw.HasProp("Conf") ? rw.Conf : ""})
+                word.Conf := rw.HasProp("Conf") ? rw.Conf : ""
                 words.Push(word), allWords.Push(word)
                 text .= rw.Text " "
             }
             text := RTrim(text)
             line := OCR.Line()
-            line.DefineProp("Words", {value: words})
-            line.DefineProp("Text", {value: text})
+            line.Words := words
+            line.Text := text
             lineObjs.Push(line)
             fullText .= text "`n"
         }
 
         result := OCR.Result()
-        result.DefineProp("Lines", {value: lineObjs})
-        result.DefineProp("Words", {value: allWords})
-        result.DefineProp("Text", {value: RTrim(fullText, "`n")})
+        result.Lines := lineObjs
+        result.Words := allWords
+        result.Text := RTrim(fullText, "`n")
         return result
     }
 
@@ -825,11 +825,9 @@ class OCR {
             rect := x
             x := rect.x, y := rect.y, w := rect.w, h := rect.h
         }
-        obj.DefineProp("x", {value: x})
-        obj.DefineProp("y", {value: y})
-        obj.DefineProp("w", {value: w})
-        obj.DefineProp("h", {value: h})
-        obj.DefineProp("BoundingRect", {value: {x: x, y: y, w: w, h: h}})
+        ; Store the geometry as a single BoundingRect value property: OCR.Common's x/y/w/h getters read straight
+        ; from it, so there is no need to (redundantly) define x/y/w/h as their own per-object value properties.
+        obj.BoundingRect := {x: x, y: y, w: w, h: h}
         return obj
     }
 

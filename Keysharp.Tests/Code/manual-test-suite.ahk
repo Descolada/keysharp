@@ -204,7 +204,7 @@ BuildMainGui() {
 
 	winEventGroup := gMain.AddGroupBox("xc+16 yc+470 w1064 h140", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
 	gMain.UseGroup(winEventGroup)
-	gMain.AddText("xc+16 yc+24 w1032 h34", "Subscribes to Active / Create / Close / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows to generate events.")
+	gMain.AddText("xc+16 yc+24 w1032 h34", "Subscribes to Active / Exist / NotExist / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows to generate events.")
 	btnStartWinEvent := gMain.AddButton("xc+16 y+10 w200 h28", "Start WinEvent Probe")
 	btnStartWinEvent.OnEvent("Click", (*) => StartWinEventProbe())
 	btnStopWinEvent := gMain.AddButton("x+10 yp w200 h28", "Stop WinEvent Probe")
@@ -389,7 +389,7 @@ ResetStatuses() {
 }
 
 ; Single callback for every WinEvent subscription. The event kind is read from hook.EventType,
-; so one handler covers Active/Create/Close/Move/Minimize/Restore/TitleChange. Move fires very
+; so one handler covers Active/Exist/NotExist/Move/Minimize/Restore/TitleChange. Move fires very
 ; frequently (once per drag step), so it is counted and surfaced in the status line rather than
 ; written to the log, while every other event is logged with the affected window's title.
 OnWinEvent(hook, hwnd, dwmsEventTime) {
@@ -407,10 +407,10 @@ OnWinEvent(hook, hwnd, dwmsEventTime) {
 
 	; Look up the title by the *pure* window id (integer), not an "ahk_id <id>" string: the integer form
 	; matches regardless of A_DetectHiddenWindows, so hidden helper windows don't raise a "window not found"
-	; error. Even so, a window seen by Create/Close may already be gone by the time the callback runs, so the
-	; lookup is wrapped to keep the probe from ever throwing.
+	; error. Even so, a window seen by NotExist is gone by the time the callback runs, so its title lookup is
+	; skipped, and every lookup is wrapped to keep the probe from ever throwing.
 	title := "<n/a>"
-	if (evType != "Close") {
+	if (evType != "NotExist") {
 		try
 			title := WinGetTitle(hwnd)
 		catch
@@ -430,8 +430,8 @@ StartWinEventProbe() {
 
 	try {
 		gWinEventHooks.Push(WinEvent.Active(OnWinEvent))
-		gWinEventHooks.Push(WinEvent.Create(OnWinEvent))
-		gWinEventHooks.Push(WinEvent.Close(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.Exist(OnWinEvent))
+		gWinEventHooks.Push(WinEvent.NotExist(OnWinEvent))
 		gWinEventHooks.Push(WinEvent.Move(OnWinEvent))
 		gWinEventHooks.Push(WinEvent.Minimize(OnWinEvent))
 		gWinEventHooks.Push(WinEvent.Restore(OnWinEvent))

@@ -8335,24 +8335,24 @@
                  },
                  {
                      "category":  "Automation",
-                     "feature":  "WinEvent.Create()",
-                     "syntax":  "WinEvent.Create(cb, winTitle?, count?, winText?, exclTitle?, exclText?)",
+                     "feature":  "WinEvent.Exist()",
+                     "syntax":  "WinEvent.Exist(cb, winTitle?, count?, winText?, exclTitle?, exclText?)",
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "planned",
-                     "notes":  "Subscribes to top-level window creation. macOS requires AXObserver wiring (not yet implemented).",
+                     "notes":  "Subscribes to a matching window appearing (created, shown, or its title changed so it now matches); fires once per matching window and respects DetectHiddenWindows. Subsumes the reference library's Create. macOS requires AXObserver wiring (not yet implemented).",
                      "tested-by":  "manual-test-suite.ahk"
                  },
                  {
                      "category":  "Automation",
-                     "feature":  "WinEvent.Close()",
-                     "syntax":  "WinEvent.Close(cb, winTitle?, count?, winText?, exclTitle?, exclText?)",
+                     "feature":  "WinEvent.NotExist()",
+                     "syntax":  "WinEvent.NotExist(cb, winTitle?, count?, winText?, exclTitle?, exclText?)",
                      "windows":  "full",
                      "linux_x11":  "partial",
                      "linux_wayland":  "partial",
                      "macos":  "planned",
-                     "notes":  "Subscribes to window destruction, or (for a DetectHiddenWindows-off subscription) hiding/cloaking. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window is gone by the time the event arrives.",
+                     "notes":  "Subscribes to a matching window disappearing (destroyed, hidden/cloaked, or its title changed so it no longer matches). Subsumes the reference library's Close. Tracks the set of matching top-level windows while they are alive (mirroring the reference library) so it fires reliably even though the window may be gone by the time the event arrives.",
                      "tested-by":  "manual-test-suite.ahk"
                  },
                  {
@@ -8364,17 +8364,6 @@
                      "linux_wayland":  "partial",
                      "macos":  "planned",
                      "notes":  "Subscribes to window move/resize. Every event is delivered as-is (not coalesced).",
-                     "tested-by":  "manual-test-suite.ahk"
-                 },
-                 {
-                     "category":  "Automation",
-                     "feature":  "WinEvent.Show()",
-                     "syntax":  "WinEvent.Show(cb, winTitle?, count?, winText?, exclTitle?, exclText?)",
-                     "windows":  "full",
-                     "linux_x11":  "partial",
-                     "linux_wayland":  "partial",
-                     "macos":  "planned",
-                     "notes":  "Subscribes to a window becoming visible (mapped/shown).",
                      "tested-by":  "manual-test-suite.ahk"
                  },
                  {

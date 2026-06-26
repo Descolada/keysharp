@@ -349,10 +349,9 @@ namespace Keysharp.Builtins
 				if (disposed || baseBitmap == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
 
-				// With queued transforms, Materialize() must run them first; the copy then protects the original's
-				// bitmap from edits on the copy. With none, copy baseBitmap directly: going through Materialize()
-				// would build (and cache) one full copy and Copy() a second — two copies for an identical result.
-				var src = pending.Count == 0 ? baseBitmap : Materialize();
+				// Materialize() applies any queued transforms; with none it returns the base bitmap directly (no
+				// clone), so Copy() makes exactly one independent copy of the result either way.
+				var src = Materialize();
 
 				if (src == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
@@ -549,15 +548,17 @@ namespace Keysharp.Builtins
 					return Errors.ValueErrorOccurred($"Pixel ({px}, {py}) is out of range.");
 
 				bmp.SetPixel(px, py, ImageHelper.ArgbToColor(ParseColorArg(color)));
-				// Bake the edited render in as the new base (clearing the now-applied transforms) so the
-				// pixel survives any later transform, which would otherwise Invalidate() and rebuild from
-				// the original base. `cached` is always a distinct copy of `baseBitmap` after Materialize.
-				if (!ReferenceEquals(cached, baseBitmap))
+				// Persist the edit. With queued transforms `bmp` is the materialized copy (cached): bake it in as
+				// the new base and drop the now-applied transforms so the pixel survives a later Invalidate(). With
+				// no transforms `bmp` IS the base and was edited in place, so there is nothing to bake.
+				if (!ReferenceEquals(bmp, baseBitmap))
+				{
 					baseBitmap?.Dispose();
+					baseBitmap = bmp;   // == cached
+					cached = null;
+					pending.Clear();
+				}
 
-				baseBitmap = cached;
-				cached = null;
-				pending.Clear();
 				return this;
 			}
 
@@ -808,7 +809,12 @@ namespace Keysharp.Builtins
 				return (bmp, true);
 			}
 
-			// Applies base + queued transforms, caching the result until the next Invalidate().
+			// Applies base + queued transforms, caching the result until the next Invalidate(). With no queued
+			// transforms the base bitmap IS the image, so it is handed back directly (no clone) — callers treat
+			// the result as read-only (SetPixel mutates it in place by design). Otherwise the transforms run
+			// starting from the base itself: each returns a NEW bitmap (or the same instance for a no-op) and
+			// never mutates its input, so the base needs no protective up-front copy. `current` is only ever
+			// disposed once it is a transform-produced bitmap, never while it is still the base.
 			private Bitmap Materialize()
 			{
 				if (disposed || baseBitmap == null)
@@ -817,7 +823,10 @@ namespace Keysharp.Builtins
 				if (cached != null)
 					return cached;
 
-				var current = new Bitmap(baseBitmap);
+				if (pending.Count == 0)
+					return baseBitmap;
+
+				var current = baseBitmap;
 
 				try
 				{
@@ -828,17 +837,26 @@ namespace Keysharp.Builtins
 						if (next == null || ReferenceEquals(next, current))
 							continue;
 
-						current.Dispose();
+						if (!ReferenceEquals(current, baseBitmap))
+							current.Dispose();
+
 						current = next;
 					}
 				}
 				catch
 				{
-					// A transform threw partway through; don't leak the work-in-progress bitmap, and
-					// leave `cached` null so a later call can retry cleanly.
-					current?.Dispose();
+					// A transform threw partway through; don't leak the work-in-progress bitmap (but never the
+					// base), and leave `cached` null so a later call can retry cleanly.
+					if (!ReferenceEquals(current, baseBitmap))
+						current?.Dispose();
+
 					throw;
 				}
+
+				// Every queued transform was a no-op on this base: hand back a distinct, owned copy so `cached`
+				// stays disposable independently of the base (Invalidate/SetPixel rely on that).
+				if (ReferenceEquals(current, baseBitmap))
+					current = new Bitmap(baseBitmap);
 
 				cached = current;
 				return cached;

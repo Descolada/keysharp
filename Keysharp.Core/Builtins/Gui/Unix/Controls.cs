@@ -861,6 +861,29 @@ namespace Keysharp.Builtins
 			SelectedIndices.Clear();
 			SelectedIndex = -1;
 		}
+
+		// The underlying Eto ListBox only tracks selection through its base SelectedIndex.
+		// Mirror that into SelectedIndices/SelectedItems (the collections that the Text and
+		// Value properties read from) whenever the user changes the selection in the UI, or
+		// when an initial selection is applied via the Choose option. This runs before the
+		// SelectedIndexChanged event reaches subscribers, so Change-event callbacks observe
+		// the up-to-date selection. Programmatic selection via SetSelected/SelectedItem
+		// updates those collections directly and leaves the base index untouched, so it does
+		// not trigger this and is not clobbered.
+		protected override void OnSelectedIndexChanged(EventArgs e)
+		{
+			var index = SelectedIndex;
+			SelectedIndices.Clear();
+			SelectedItems.Clear();
+
+			if (index >= 0 && index < Items.Count)
+			{
+				SelectedIndices.Add(index);
+				SelectedItems.Add(Items[index]);
+			}
+
+			base.OnSelectedIndexChanged(e);
+		}
 	}
 
 	public class KeysharpListView : GridView
@@ -1997,11 +2020,14 @@ namespace Keysharp.Builtins
 		private Control BuildPartControl(KeysharpToolStripStatusLabel item, int index)
 		{
 			var back = item.BackColor.A > 0 ? item.BackColor : BackgroundColor;
-			Control textLayout = BuildTextLayout(item.Text ?? string.Empty, item.Font ?? this.Font, back);
+			Control textLayout = BuildTextLayout(item.Text ?? string.Empty, item.Font ?? this.Font, back, this.ForeColor);
 
 			if (item.Image != null)
 			{
-				var imgView = new ImageView { Image = item.Image, BackgroundColor = back };
+				// Scale the icon down to fit the status bar height (minus padding) instead of letting the
+				// ImageView render the bitmap at its full native size, which overflows the bar on Linux.
+				var iconSize = Math.Max(16, this.Height - 12);
+				var imgView = new ImageView { Image = item.Image, BackgroundColor = back, Size = new Size(iconSize, iconSize) };
 				textLayout = new StackLayout
 				{
 					Orientation = Orientation.Horizontal,
@@ -2025,16 +2051,26 @@ namespace Keysharp.Builtins
 			return panel;
 		}
 
-		private static Control BuildTextLayout(string text, Font font, Color back)
+		private static Control BuildTextLayout(string text, Font font, Color back, Color fore)
 		{
 			var segments = text.Split('\t');
 			var left = segments.Length > 0 ? segments[0] : string.Empty;
 			var center = segments.Length > 1 ? segments[1] : string.Empty;
 			var right = segments.Length > 2 ? segments[2] : string.Empty;
 
+			// SetFont on a status bar parses "cRed"/"cGreen" into the strip's ForeColor, but the part labels
+			// are rebuilt here from scratch, so carry that color through as the label TextColor (otherwise the
+			// PASS/FAIL verdict text stays the default color on Linux).
 			var leftLabel = new Forms.Label { Text = left, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Left, VerticalAlignment = Forms.VerticalAlignment.Center };
 			var centerLabel = new Forms.Label { Text = center, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Center, VerticalAlignment = Forms.VerticalAlignment.Center };
 			var rightLabel = new Forms.Label { Text = right, Font = font, BackgroundColor = back, TextAlignment = Forms.TextAlignment.Right, VerticalAlignment = Forms.VerticalAlignment.Center };
+
+			if (fore.A > 0)
+			{
+				leftLabel.TextColor = fore;
+				centerLabel.TextColor = fore;
+				rightLabel.TextColor = fore;
+			}
 
 			var row = new TableRow(
 				new TableCell(leftLabel, true),
@@ -2076,7 +2112,11 @@ namespace Keysharp.Builtins
 			// Eto's macOS tab handler displays the raw text, while GTK already converts escaped mnemonics.
 			return (text ?? "").Replace("&&", "&");
 #else
-			return text ?? "";
+			// GTK treats a single "&" in a tab label as a mnemonic marker and swallows it, so "Edits & Messages"
+			// would show as "Edits  Messages". AHK/WinForms instead show the ampersand literally. Normalize every
+			// ampersand (single or already-escaped "&&") to an escaped "&&" so the GTK mnemonic pass collapses it
+			// back to a single literal "&" - matching Windows and keeping the text matchable by UseTab/FindTab.
+			return (text ?? "").Replace("&&", "&").Replace("&", "&&");
 #endif
 		}
 

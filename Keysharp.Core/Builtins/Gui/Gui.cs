@@ -2249,6 +2249,16 @@ namespace Keysharp.Builtins
 				}
 			}
 
+			//If this control landed inside a container that auto-sizes a dimension, grow it to fit the content.
+			for (var anc = ctrl.GetLogicalParent(); anc != null; anc = anc.GetLogicalParent())
+			{
+				if (anc is KeysharpGroupBox)
+				{
+					FitContainerToContent(anc);
+					break;
+				}
+			}
+
 			if (form.BeenShown)//See above for a description of this logic.
 			{
 				//If it's been shown and is contained anywhere within the hierarchy of a TabControl, then resize
@@ -2947,6 +2957,83 @@ namespace Keysharp.Builtins
 				LastContainer = form;
 
 			return DefaultObject;
+		}
+
+		/// <summary>
+		/// Grows a container so that any dimension it was not given an explicit size for encloses the controls
+		/// placed inside it. The "was it explicit" test reuses the holder's <c>requestedSize</c> (int.MinValue
+		/// marks a dimension the script left unspecified); a dimension that was specified is left untouched, and
+		/// an empty container keeps the default size computed when it was added. Generic over container type so
+		/// it applies to any enter/exit-able container (today GroupBox; the chrome term is the only per-type bit).
+		/// </summary>
+		private void FitContainerToContent(Forms.Control container)
+		{
+			bool autoWidth, autoHeight;
+
+			if (controls.TryGetValue(container.Handle.ToInt64(), out var holderObj) && holderObj is Gui.Control holder)
+			{
+				autoWidth = holder.requestedSize.Width == int.MinValue;
+				autoHeight = holder.requestedSize.Height == int.MinValue;
+			}
+			else//Internal container with no holder (e.g. a radio-group panel) always tracks its content.
+			{
+				autoWidth = autoHeight = true;
+			}
+
+			if (!autoWidth && !autoHeight)
+				return;
+
+			var layout = container.GetLayoutContainer();
+
+			if (layout == null)
+				return;
+
+			int maxRight = 0, maxBottom = 0;
+			var hasContent = false;
+
+			foreach (Forms.Control c in layout.Controls)
+			{
+				if (c is KeysharpStatusStrip)
+					continue;
+
+				var loc = c.GetLocation();
+				var sz = c.GetSize();
+				maxRight = Math.Max(maxRight, loc.X + sz.Width);
+				maxBottom = Math.Max(maxBottom, loc.Y + sz.Height);
+				hasContent = true;
+			}
+
+			if (!hasContent)
+				return;//Nothing inside yet - leave the default size in place.
+
+			var cur = container.GetSize();
+			int padW, padH;
+
+			if (container is KeysharpGroupBox gb)
+			{
+#if WINDOWS
+				//Children are laid out in the group's client area; pad by the non-client chrome (border) plus a
+				//small inner margin so the bottom-most/right-most control isn't flush against the frame.
+				padW = Math.Max(0, cur.Width - gb.ClientSize.Width) + gb.Margin.Right + 4;
+				padH = Math.Max(0, cur.Height - gb.ClientSize.Height) + gb.Margin.Bottom + 6;
+#else
+				//On GTK the title label sits above the content area (roughly a text line of chrome); widths only
+				//need the frame's side insets.
+				padW = 14;
+				padH = (int)Math.Ceiling(GetFontPixels(gb.Font)) + 16;
+#endif
+			}
+			else//Borderless container: just clear its margin past the content.
+			{
+				padW = container.Margin.Right;
+				padH = container.Margin.Bottom;
+			}
+
+			var newW = autoWidth ? maxRight + padW : cur.Width;
+			var newH = autoHeight ? maxBottom + padH : cur.Height;
+
+			if (newW != cur.Width || newH != cur.Height)
+				container.SetSize(new Size(newW, newH));
 		}
 
 		IEnumerator IEnumerable.GetEnumerator() => CreateEnumerator(2);

@@ -115,7 +115,7 @@ MySB := MyGui.Add("StatusBar", "h36", "                       ")
 ; │  Start TAB  │
 ; └─────────────┘
 
-Tab := MyGui.Add("Tab3", , ["Lists, Menus & Styles", "Edits & Messages", "Pickers & Sliders", "ControlZoo", "Send && Hotkey", "Dll && COM", "Image", "Windows", "Clipboard", "Sound"])
+Tab := MyGui.Add("Tab3", , ["Lists, Menus && Styles", "Edits && Messages", "Pickers && Sliders", "ControlZoo", "Send && Hotkey", "Dll && COM", "Image", "Windows", "Clipboard", "Sound"])
 
 Tab.UseTab("Lists, Menus & Styles")
 
@@ -154,7 +154,7 @@ bgBtn2.OnEvent("Click", "RestoreBG")
 ; │  GroupBox test  │
 ; └─────────────────┘
 
-gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325 h420", "Tab One - Group One") ;
+gb1_TabOne := MyGui.Add("GroupBox", "xc+10 y+10 w325", "Tab One - Group One") ;
 MyGui.UseGroup(gb1_TabOne)
 
 ; ┌──────────────────────────────────┐
@@ -236,7 +236,7 @@ sysMenuMinimizeBtn.OnEvent("Click", "MinimizeBySystemMenu")
 
 MyGui.UseGroup()
 Tab.UseTab("Lists, Menus & Styles")
-gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325 h290", "Tab One - Group Two") ;
+gb2_TabOne := MyGui.Add("GroupBox", "xc+350 yp w325", "Tab One - Group Two") ;
 MyGui.UseGroup(gb2_TabOne)
 ; ┌───────────────────────────────┐
 ; │  Tab One, Group Two controls  │
@@ -282,7 +282,7 @@ Tab.UseTab("Edits & Messages")
 ; ┌─────────────────────────────┐
 ; │  Add group boxes - 8/23/22  │
 ; └─────────────────────────────┘
-gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h510", "Tab Two - Group One") ;
+gb1_TabTwo := MyGui.Add("GroupBox", "xc+10 yc+10 w325", "Tab Two - Group One") ;
 MyGui.UseGroup(gb1_TabTwo)
 
 ; ┌────────┐
@@ -340,7 +340,7 @@ UpdateOSD()  ; Make the first update immediate rather than waiting for the timer
 ; └────────────────────────┘
 MyGui.UseGroup()
 Tab.UseTab("Edits & Messages")
-gb2_TabTwo := MyGui.Add("GroupBox", "xc+350 yc+10 w400 h460", "Tab Two - Group Two")
+gb2_TabTwo := MyGui.Add("GroupBox", "xc+350 yc+10 w400", "Tab Two - Group Two")
 MyGui.UseGroup(gb2_TabTwo)
 
 ; ┌─────────┐
@@ -442,7 +442,7 @@ Tab.UseTab("Pickers & Sliders")
 ; │  Add a groupbox  │
 ; └──────────────────┘
 
-gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325 h470", "Tab Three - Group One")
+gb1_TabThree := MyGui.Add("GroupBox", "xc+10 yc+10 w325", "Tab Three - Group One")
 MyGui.UseGroup(gb1_TabThree)
 
 ;Placeholder ThirdText1
@@ -568,7 +568,7 @@ Pbtn2.OnEvent("Click", "Pbtn2Clicked")
 
 MyGui.UseGroup()
 Tab.UseTab("Pickers & Sliders")
-gb2_TabThree := MyGui.Add("GroupBox", "xc+350 yc+10 w325 h470", "Tab Three - Group Two")
+gb2_TabThree := MyGui.Add("GroupBox", "xc+350 yc+10 w325", "Tab Three - Group Two")
 MyGui.UseGroup(gb2_TabThree)
 ; ┌────────────────┐
 ; │  Sliding text  │
@@ -618,21 +618,22 @@ UpdateHK(*) {
 	ControlSetText(MyHotkey.Value, MyHkText)
 }
 
-MyGui.Add("Text", "x+5 y+5", "_____________________________")
+FakeSep2 := MyGui.Add("Text", "xc+10 y+5", "__________________________________________________")
+FakeSep2.SetFont("cTeal Bold")
 
-MyGui.Add("Text", "xc+5 y+5", "UpDown: Range 1-10, \ninc 1 (mouse 8), def 5.")
-nud := MyGui.Add("UpDown", "xc+5 y+5 h25 vMyNud Range1-10", 5)
+MyGui.Add("Text", "xc+10 y+5", "UpDown: Range 1-10, `ninc 1 (mouse 8), def 5.")
+nud := MyGui.Add("UpDown", "xc+10 y+5 h25 vMyNud Range1-10", 5)
 nud.OnEvent("Change", "NudChange")
 
-MyGui.Add("Text", "xc+5 y+5", "UpDown: Range -2000-2000, def 0,`ninc 100 (mouse 800), no separator.")
-nud2 := MyGui.Add("UpDown", "xc+5 y+5 h20 vMyNud2 Range-2000-2000 Increment100 0x80", 0)
+MyGui.Add("Text", "xc+10 y+5", "UpDown: Range -2000-2000, def 0,`ninc 100 (mouse 800), no separator.")
+nud2 := MyGui.Add("UpDown", "xc+10 y+5 h20 vMyNud2 Range-2000-2000 Increment100 0x80", 0)
 nud2.OnEvent("Change", "NudChange")
 
-MyGui.Add("Text", "xc+5 y+5", "UpDown: Range -1000-1000, def 0,`ninc 10 (mouse 80), hex.")
-nud3 := MyGui.Add("UpDown", "xc+5 y+5 h20 vMyNud2 Range-1000-1000 Increment10 hex 0x80", 0)
+MyGui.Add("Text", "xc+10 y+5", "UpDown: Range -1000-1000, def 0,`ninc 10 (mouse 80), hex.")
+nud3 := MyGui.Add("UpDown", "xc+10 y+5 h20 vMyNud2 Range-1000-1000 Increment10 hex 0x80", 0)
 nud3.OnEvent("Change", "NudChange")
 
-nudTxt := MyGui.Add("Text", "xc+5 y+5 w200", "Nud values:")
+nudTxt := MyGui.Add("Text", "xc+10 y+5 w200", "Nud values:")
 
 MyGui.UseGroup()
 
@@ -647,7 +648,7 @@ NudChange(*)
 
 ; ── Tab Three - Dates: DateTime + MonthCal in their own right-hand group ──
 Tab.UseTab("Pickers & Sliders")
-gb3_TabThree := MyGui.Add("GroupBox", "xc+690 yc+10 w330 h320", "Tab Three - Dates")
+gb3_TabThree := MyGui.Add("GroupBox", "xc+690 yc+10 w330", "Tab Three - Dates")
 MyGui.UseGroup(gb3_TabThree)
 ThirdText7 := MyGui.Add("Text", "xc+16 yc+24 cBlue s10", "DateTime Test")
 MyDateTime := MyGui.Add("DateTime", "s8 xc+16 y+8 w200", "LongDate")
@@ -659,7 +660,7 @@ MyGui.UseGroup()
 
 	; Image-copy (Paste Pic / Paste from File) and send-to-control-edit tests, grouped on the ControlZoo tab.
 	Tab.UseTab("ControlZoo")
-	gb3_CZ := MyGui.Add("GroupBox", "xc+880 yc+10 w350 h450", "Image Copy & Send-to-Control")
+	gb3_CZ := MyGui.Add("GroupBox", "xc+880 yc+10 w350", "Image Copy & Send-to-Control")
 	MyGui.UseGroup(gb3_CZ)
 	CpText := MyGui.Add("Text", "xc+16 yc+24 w310", "Image copy — Paste Pic / Paste from file share this edit:")
 	CpText.SetFont("s8 cBlue")
@@ -748,7 +749,7 @@ MenuHandler(Item, *) {
 
 MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
-gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460 h535", "ControlZoo - Group One")
+gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460", "ControlZoo - Group One")
 MyGui.UseGroup(gb1_CZ)
 CZ_Text1 := MyGui.Add("Text", "xc+10 yc+20", "Control Functions testing")
 CZ_Text1.SetFont("s10 CBlue")
@@ -929,7 +930,7 @@ IPCtrlGetAddress(GuiCtrl)
 
 MyGui.UseGroup()
 Tab.UseTab("ControlZoo")
-gb2_CZ := MyGui.Add("GroupBox", "x+10 yc+10 w370 h535", "ControlZoo - Group Two")
+gb2_CZ := MyGui.Add("GroupBox", "x+10 yc+10 w370", "ControlZoo - Group Two")
 MyGui.UseGroup(gb2_CZ)
 
 ;Reserved4 := MyGui.Add("Text", "xc+10 yc+20 w325", "Reserved for Future Testing")
@@ -1686,7 +1687,9 @@ LoadSC(*) {
 	}
 	MyThirdPic := LoadPicture(path)
 
-	MyLoadedPic := MyGui.Add("Picture", "xc+90 yc+158 w160 h160 border", "HBITMAP:" MyThirdPic)
+	; Show the clip at its native captured size. Passing "w160 h160" would scale the 200x200 capture down to
+	; 160x160 (AHK sizes a Picture to its explicit width/height); omit them so the clip displays 1:1.
+	MyLoadedPic := MyGui.Add("Picture", "xc+90 yc+158 border", "HBITMAP:" MyThirdPic)
 	Sleep(2000)
 
 #if WINDOWS
@@ -2960,7 +2963,7 @@ DoWav(*)
 
 ; ── Image tab: OCR probe alongside the image / pixel controls. ──
 Tab.UseTab("Image")
-imgGroup := MyGui.AddGroupBox("xc+10 yc+10 w500 h390", "Images (Picture / ImageSearch / ScreenClip)")
+imgGroup := MyGui.AddGroupBox("xc+10 yc+10 w500", "Images (Picture / ImageSearch / ScreenClip)")
 MyGui.UseGroup(imgGroup)
 MyGui.AddText("xc+16 yc+24 w468 h44", "Display loads monkey/icon/svg Picture controls then destroys them; ImageSearch finds killbill.png on screen; ScreenClip captures a region and shows it. Pictures render on this tab.")
 imgDisplayBtn := MyGui.AddButton("xc+16 y+10 w150 h28", "Display Pictures")
@@ -2977,7 +2980,7 @@ imgSearchStatus := MyGui.AddText("xc+16 yc+330 w468 h40", "Image status: Not run
 gStatus["image_main"] := imgSearchStatus
 MyGui.UseGroup()
 Tab.UseTab("Image")
-ocrGroup := MyGui.AddGroupBox("xc+540 yc+10 w540 h390", "OCR (OCR.ks: FindString / Filter / Crop)")
+ocrGroup := MyGui.AddGroupBox("xc+540 yc+10 w540", "OCR (OCR.ks: FindString / Filter / Crop)")
 MyGui.UseGroup(ocrGroup)
 MyGui.AddText("xc+16 yc+24 w508 h44", "Builds a window with known text, OCRs it via OCR.FromWindow, then exercises FindString / FindStrings / Filter / Crop / WordsBoundingRect / Cluster. Requires Tesseract (auto-detected; set OCR.Engine.Library if not).")
 btnOcrRun := MyGui.AddButton("xc+16 y+10 w150 h28", "Run OCR Test")
@@ -2990,7 +2993,9 @@ Tab.UseTab()
 
 ; Pixel tests (PixelGetColor / PixelSearch) — sample the on-tab colour swatch, no helper window needed.
 Tab.UseTab("Image")
-pixelGroup := MyGui.AddGroupBox("xc+540 yc+410 w540 h150", "Pixel (PixelGetColor / PixelSearch)")
+; Placed below the OCR group: "y+10" references the previous control, which after re-selecting the Image
+; tab is the last group added to it (ocrGroup). No need to measure ocrGroup's (auto) height explicitly.
+pixelGroup := MyGui.AddGroupBox("xc+540 y+10 w540", "Pixel (PixelGetColor / PixelSearch)")
 MyGui.UseGroup(pixelGroup)
 MyGui.AddText("xc+16 yc+24 w508 h28", "Samples the colour swatch on the right (no helper window). PixelGetColor reads its centre; PixelSearch locates that colour within the swatch's screen bounds.")
 btnPixelGet := MyGui.AddButton("xc+16 y+10 w130 h30", "PixelGetColor")
@@ -3005,7 +3010,7 @@ Tab.UseTab()
 
 ; ── Windows tab: window capture (Ks Image.FromWindow) + WinEvent probes (guitest's window move/min/max tests move here too) ──
 Tab.UseTab("Windows")
-externalWinGroup := MyGui.AddGroupBox("xc+16 yc+10 w540 h410", "Window Capture / Activate / Move")
+externalWinGroup := MyGui.AddGroupBox("xc+16 yc+10 w540", "Window Capture / Activate / Move")
 MyGui.UseGroup(externalWinGroup)
 MyGui.AddText("xc+16 yc+24 w508 h34", "Use Capture Active Window to prefill the title field, or type your own title match. Activate and Move are semi-automated and should be confirmed by the tester.")
 gWindowTitleEdit := MyGui.AddEdit("xc+16 y+8 w508", "")
@@ -3023,7 +3028,7 @@ externalStatus := MyGui.AddText("xc+16 y+8 w508 h28", "External status: waiting 
 gStatus["window_external"] := externalStatus
 MyGui.UseGroup()
 Tab.UseTab("Windows")
-winEventGroup := MyGui.AddGroupBox("xc+570 yc+10 w560 h410", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
+winEventGroup := MyGui.AddGroupBox("xc+570 yc+10 w560", "WinEvent (Ks.WinEvent) Window Event Subscriptions")
 MyGui.UseGroup(winEventGroup)
 MyGui.AddText("xc+16 yc+24 w528 h54", "Subscribes to Active / Exist / NotExist / Move / Minimize / Restore / TitleChange through Ks.WinEvent and logs them. Move events are counted (not logged) to avoid flooding. After starting, switch, open, close, minimize, restore, and drag windows.")
 btnStartWinEvent := MyGui.AddButton("xc+16 y+10 w200 h28", "Start WinEvent Probe")
@@ -3038,7 +3043,10 @@ Tab.UseTab()
 ; This-window tests (they manipulate whole windows). "Move GUI" moves THIS window only; arbitrary-title
 ; moves live in the Window Capture / Activate / Move group above.
 Tab.UseTab("Windows")
-guiSelfGroup := MyGui.AddGroupBox("xc+16 yc+430 w1114 h120", "This-window tests (Move / Title / Notepad)")
+; Span below the taller of the two (now auto-height) groups on the first row.
+externalWinGroup.GetPos(&_ewX, &_ewY, &_ewW, &_ewH)
+winEventGroup.GetPos(&_weX, &_weY, &_weW, &_weH)
+guiSelfGroup := MyGui.AddGroupBox("xc+16 yc+" (10 + Max(_ewH, _weH) + 10) " w1114", "This-window tests (Move / Title / Notepad)")
 MyGui.UseGroup(guiSelfGroup)
 MoveText := MyGui.AddText("xc+16 yc+24 w380 h20", "Move this window to (100,100), then restore it (button colour tracks focus):")
 MoveText.SetFont("s9 cBlue")
@@ -3096,7 +3104,7 @@ AboutNotepad(*) {
 
 ; ── Clipboard tab ──
 Tab.UseTab("Clipboard")
-clipGroup := MyGui.AddGroupBox("xc+16 yc+10 w560 h320", "Clipboard Tests")
+clipGroup := MyGui.AddGroupBox("xc+16 yc+10 w560", "Clipboard Tests")
 MyGui.UseGroup(clipGroup)
 MyGui.AddText("xc+16 yc+24 w528 h34", "Text round-trip and delayed ClipWait are self-validating. Clipboard change monitoring shows whether callbacks are fired. Image copy is manual after the copy step succeeds.")
 gClipboardTextEdit := MyGui.AddEdit("xc+16 y+8 w528 h92", "Clipboard probe text:`nAlpha beta gamma`nUnicode: Eesti, 日本語, emoji-free.")
@@ -3115,7 +3123,7 @@ MyGui.UseGroup()
 Tab.UseTab()
 
 Tab.UseTab("Send && Hotkey")
-sendGroup := MyGui.AddGroupBox("xc+10 yc+10 w500 h430", "Send Variants")
+sendGroup := MyGui.AddGroupBox("xc+10 yc+10 w500", "Send Variants")
 MyGui.UseGroup(sendGroup)
 MyGui.AddText("xc+16 yc+24 w468", "Each button clears the target edit, focuses it, sends text, and validates the exact resulting text.")
 gSendTarget := MyGui.AddEdit("xc+16 y+8 w468 h90 -Wrap")
@@ -3148,7 +3156,7 @@ MyGui.AddText("xc+16 y+10 w468 h30", "Extra coverage: Unicode, accented Latin te
 ; (Pass/fail for the Send tests is shown in the status bar.)
 MyGui.UseGroup()
 Tab.UseTab("Send && Hotkey")
-hotkeyGroup := MyGui.AddGroupBox("xc+530 yc+10 w540 h430", "Hotkey / Hotstring / InputHook")
+hotkeyGroup := MyGui.AddGroupBox("xc+530 yc+10 w540", "Hotkey / Hotstring / InputHook")
 MyGui.UseGroup(hotkeyGroup)
 MyGui.AddText("xc+16 yc+24 w508 h34", "Hotkey probe: test several modifier combinations. Hotstring probe: run the 3-case matrix in the edit below. InputHook: click Start, type the expected text, then press Enter.")
 MyGui.AddText("xc+16 y+6 w508 h40", "Hotstring matrix: 1) kssuite  2) ksend<Space>  3) prefixksword<Space>. These also verify documented A_EndChar behavior. Modifier mapping hint: Ctrl = ^, Alt/Option = !, Shift = +, Win/Cmd = #.")
@@ -3176,7 +3184,9 @@ inputHookStatus := MyGui.AddText("xc+16 y+6 w508 h24", "InputHook status: idle")
 gStatus["input_hook"] := inputHookStatus
 MyGui.UseGroup()
 Tab.UseTab("Send && Hotkey")
-mouseGroup := MyGui.AddGroupBox("xc+10 yc+450 w500 h120", "Mouse InputHook (OnMouseDown / OnMouseUp / OnMouseMove)")
+; Sit below the (now auto-height) Send Variants group.
+sendGroup.GetPos(&_sgX, &_sgY, &_sgW, &_sgH)
+mouseGroup := MyGui.AddGroupBox("xc+10 yc+" (10 + _sgH + 10) " w500", "Mouse InputHook (OnMouseDown / OnMouseUp / OnMouseMove)")
 MyGui.UseGroup(mouseGroup)
 btnStartMouse := MyGui.AddButton("xc+16 yc+24 w104 h26", "Start Mouse")
 btnStartMouse.OnEvent("Click", (*) => StartMouseHookProbe())
@@ -3193,7 +3203,9 @@ gStatus["input_mouse"] := mouseStatus
 MyGui.UseGroup()
 
 Tab.UseTab("Send && Hotkey")
-manualGroup := MyGui.AddGroupBox("xc+530 yc+450 w540 h120", "Manual Hotkey() registration")
+; Sit below the (now auto-height) Hotkey / Hotstring / InputHook group.
+hotkeyGroup.GetPos(&_hgX, &_hgY, &_hgW, &_hgH)
+manualGroup := MyGui.AddGroupBox("xc+530 yc+" (10 + _hgH + 10) " w540", "Manual Hotkey() registration")
 MyGui.UseGroup(manualGroup)
 FuncBtnTwo := MyGui.AddButton("xc+16 yc+24 w150 h26", "RCtrl+RShift->AltTab")
 FuncBtnTwo.OnEvent("Click", "StupidTrickTwo")
@@ -3208,11 +3220,18 @@ MyGui.UseGroup()
 Tab.UseTab()
 
 ; --- Shared activity log, placed directly UNDER the Tab control (computed from its actual bottom so it
-;     never overlaps the tab regardless of how tall the tallest tab's content is) ---
+;     never overlaps the tab regardless of how tall the tallest tab's content is). The log spans the tab's
+;     width and "Clear Log" sits at the right end of the same row (rather than on its own row below) so the
+;     whole strip stays compact. ---
 Tab.UseTab()
 Tab.GetPos(&_tabX, &_tabY, &_tabW, &_tabH)
-gLogEdit := MyGui.Add("Edit", "x" _tabX " y" (_tabY + _tabH + 6) " w" _tabW " h74 ReadOnly -Wrap")
-clearLogBtn := MyGui.Add("Button", "x" _tabX " y+4 w120 h26", "Clear Log")
+; The tab sits at the GUI's left margin, so anchor the log strip to that same margin (xm) rather than the
+; tab's reported X - on Linux the tab control's frame is drawn a little inside its reported bounds, so reusing
+; _tabX would shove the log a dozen-or-so pixels to the right of the tab. Drop it a bit further below the tab
+; (the GTK frame extends past the reported bottom) so there's a visible gap instead of touching the border.
+clearLogBtnW := 110
+gLogEdit := MyGui.Add("Edit", "xm y" (_tabY + _tabH + 16) " w" (_tabW - clearLogBtnW - 6) " h64 ReadOnly -Wrap")
+clearLogBtn := MyGui.Add("Button", "x+6 yp w" clearLogBtnW " h28", "Clear Log")
 clearLogBtn.OnEvent("Click", (*) => ClearLog())
 RegisterInputProbes()
 AppendLog("Manual suite ready.")

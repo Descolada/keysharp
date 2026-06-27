@@ -695,7 +695,7 @@ using String = Keysharp.Builtins.String
 				var includeDir = isFile ? Path.GetDirectoryName(scriptPath) : includeDirOverride;
 				var buildName = name ?? (isFile ? Path.GetFileNameWithoutExtension(scriptName) : "*");
 
-				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir);
+				var (prog, parseDiags) = Keysharp.Parsing.Syntax.Parser.ParseWithDiagnostics(source, includeDir, isFile ? scriptPath : null);
 
 				if (parseDiags.Count > 0)
 				{
@@ -724,13 +724,21 @@ using String = Keysharp.Builtins.String
 			return (unit, errors);
 		}
 
-		// New-pipeline diagnostics are "line:col: message" strings (lex + parse + lowering). Turn one into a
-		// CompilerError so the existing error-reporting path can surface line/column to the user.
+		// New-pipeline diagnostics are "line:col: message" strings (lex + parse + lowering). Tokens that originate in a
+		// specific file (an #included file, or the named main script) prefix it as "name:line:col: message". Either way,
+		// pull out line/col so the existing error-reporting path can surface them; when the embedded name differs from
+		// `file` (i.e. an #included file) keep it in the message so the user can tell which file the error is in.
 		private static CompilerError ToCompilerError(string diagnostic, string file)
 		{
-			var m = System.Text.RegularExpressions.Regex.Match(diagnostic ?? "", @"^(\d+):(\d+):\s*(.*)$");
+			var m = System.Text.RegularExpressions.Regex.Match(diagnostic ?? "", @"^(?:([^:\r\n]+):)?(\d+):(\d+):\s*(.*)$");
 			if (m.Success)
-				return new CompilerError(file, int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), "0", m.Groups[3].Value);
+			{
+				var srcFile = m.Groups[1].Success ? m.Groups[1].Value : null;
+				var text = m.Groups[4].Value;
+				if (srcFile != null && !string.Equals(srcFile, System.IO.Path.GetFileName(file), StringComparison.OrdinalIgnoreCase))
+					text = $"{srcFile}: {text}";
+				return new CompilerError(file, int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value), "0", text);
+			}
 			return new CompilerError { ErrorText = diagnostic ?? "", FileName = file };
 		}
 

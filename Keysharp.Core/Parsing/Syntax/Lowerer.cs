@@ -118,6 +118,10 @@ namespace Keysharp.Parsing.Syntax
 		// Set by NameRef when it resolves a captured enclosing local or `this`; read (scoped) by LowerFatArrow to pick
 		// Closure (capturing → `is Closure` true) vs Func (non-capturing) binding.
 		private bool _capturedInScope;
+		// True while lowering a `static` nested function: it can READ the enclosing scope's statics (module-level SL_
+		// fields, shared across calls) but those references are not per-call state, so they must NOT mark the function
+		// as a capturing closure — a static nested function stays a plain Func (AHK semantics).
+		private bool _inStaticNested;
 		private HashSet<string> _forcedGlobals;
 		private Dictionary<string, string> _statics;
 		private HashSet<string> _byRefParams;   // &name params: reads/writes route through the VarRef's __Value
@@ -887,8 +891,10 @@ namespace Keysharp.Parsing.Syntax
 			if (_scopeClosureNames.Contains(lower)) return Id(NameMangler.Escape(lower));
 			// A captured enclosing-scope local: the same C# local the surrounding scope declared (C# closes over it).
 			if (_enclosingLocals.Contains(lower)) { _capturedInScope = true; return Id(NameMangler.Escape(lower)); }
-			// An enclosing-scope static is a module-level SL_ field reachable directly from a nested closure.
-			if (_enclosingStatics.TryGetValue(lower, out var esf)) { _capturedInScope = true; return Id(esf); }
+			// An enclosing-scope static is a module-level SL_ field reachable directly from a nested function. It is shared
+			// state, not a per-call capture, so a `static` nested function reading it stays a plain Func; a non-static
+			// closure keeps marking the scope captured (unchanged) so its Closure typing is preserved.
+			if (_enclosingStatics.TryGetValue(lower, out var esf)) { if (!_inStaticNested) _capturedInScope = true; return Id(esf); }
 			if (_inlineAliases.TryGetValue(lower, out var alias)) return alias();
 			// Built-in variables (A_Index, A_Clipboard, A_TickCount, …) resolve to their accessor property.
 			if (Script.TheScript.ReflectionsData.flatPublicStaticProperties.TryGetValue(lower, out var prop))
@@ -2843,8 +2849,9 @@ namespace Keysharp.Parsing.Syntax
 		// name passed to Script.EnterScope for the ListVars header (empty for an anonymous lambda).
 		private BlockSyntax LowerCallableBody(HashSet<string> paramLowers, Block bodyBlock, Expr arrowBody, string funcName, string userName, HashSet<string> byRefParams = null, List<Param> paramDefaults = null, bool capturing = false, bool staticNested = false)
 		{
-			// A `static` nested function resolves sibling nested-function names (so `static f2() => f1()` works) but does
-			// NOT capture the enclosing function's variable locals/statics (AHK semantics) — split those two facets here.
+			// A `static` nested function resolves sibling nested-function names (so `static f2() => f1()` works) and can
+			// still access the enclosing function's STATIC variables (shared across calls), but does NOT capture the
+			// enclosing function's non-static LOCALS (AHK semantics) — varCapture covers only the local capture.
 			bool varCapture = capturing && !staticNested;
 			var savedByRef = _byRefParams;
 			_byRefParams = byRefParams;
@@ -2868,11 +2875,15 @@ namespace Keysharp.Parsing.Syntax
 			_enclosingLocals = !varCapture ? new HashSet<string>()
 				: savedLocals == null ? savedEnclosing
 				: new HashSet<string>(savedEnclosing.Concat(savedLocals));
-			// A capturing closure also sees the enclosing scope's statics (module-level SL_ fields) for derefs.
+			// Any nested function (static or not) sees the enclosing scope's statics (module-level SL_ fields) for both
+			// derefs and bare references — they're shared across calls, not per-call locals, so a `static` nested function
+			// keeps access to them even though it forgoes the enclosing non-static locals above.
 			var savedEnclosingStatics = _enclosingStatics;
-			_enclosingStatics = !varCapture ? new Dictionary<string, string>(System.StringComparer.Ordinal)
+			_enclosingStatics = !capturing ? new Dictionary<string, string>(System.StringComparer.Ordinal)
 				: new Dictionary<string, string>(savedEnclosingStatics.Concat(savedStatics ?? Enumerable.Empty<KeyValuePair<string, string>>())
 					.GroupBy(kv => kv.Key).ToDictionary(g => g.Key, g => g.Last().Value), System.StringComparer.Ordinal);
+			var savedInStaticNested = _inStaticNested;
+			_inStaticNested = staticNested;
 			// A bare `global` declaration switches the function to assume-global: assigned variables default
 			// to global storage unless explicitly declared local/static.
 			bool assumeGlobal = bodyBlock != null && bodyBlock.Body.Any(st => st is DeclStmt d && d.Keyword == "global" && d.Items.Count == 0);
@@ -3009,6 +3020,7 @@ namespace Keysharp.Parsing.Syntax
 			_scopeClosureNames = savedScopeClosureNames;
 			_scopeTemps = savedTemps; _pendingScopeFuncs = savedScopeFuncs; _enclosingLocals = savedEnclosing;
 			_pendingScopeClosureInits = savedClosureInits; _enclosingStatics = savedEnclosingStatics;
+			_inStaticNested = savedInStaticNested;
 			return SyntaxFactory.Block(body);
 		}
 

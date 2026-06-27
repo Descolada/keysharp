@@ -54,15 +54,17 @@ namespace Keysharp.Parsing.Syntax
 
 		public Parser(List<Token> tokens, string includeDir = null) { _includeDir = includeDir; _t = Preprocess(tokens); }
 
-		public static ProgramNode Parse(string source, string includeDir = null) => ParseWithDiagnostics(source, includeDir).program;
+		public static ProgramNode Parse(string source, string includeDir = null, string scriptFile = null) => ParseWithDiagnostics(source, includeDir, scriptFile).program;
 
 		// Tokenizes + parses, returning the AST together with all lex + parse diagnostics (line:col: message).
-		public static (ProgramNode program, List<string> diagnostics) ParseWithDiagnostics(string source, string includeDir = null)
+		// scriptFile is the main script's full path (when known): it stamps the top-level tokens so %A_LineFile% in an
+		// #include resolves to the real file (not just its directory) and main-file diagnostics name the file.
+		public static (ProgramNode program, List<string> diagnostics) ParseWithDiagnostics(string source, string includeDir = null, string scriptFile = null)
 		{
 			var diags = new List<string>();
 			try
 			{
-				var lexer = new Lexer(source);
+				var lexer = new Lexer(source, scriptFile);
 				var tokens = lexer.Tokenize();
 				// A lex error (e.g. an unterminated string) terminates immediately — before parsing — with the first one.
 				if (lexer.Diagnostics.Count > 0) throw new Keysharp.Builtins.ParseException(lexer.Diagnostics[0]);

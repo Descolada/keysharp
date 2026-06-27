@@ -779,7 +779,14 @@ namespace Keysharp.Internals.Platform.Unix
 				return false;
 
 			if (post)
+#if LINUX
+				//AsyncInvoke (GtkSharp's Application.Invoke) runs at a higher priority than GTK's
+				//layout finalization, so it can fire before freshly-changed text is laid out (e.g. a
+				//scroll-to-end would land one line short). A default-priority idle runs after layout.
+				_ = GLib.Idle.Add(() => { action(); return false; });
+#else
 				Application.Instance.AsyncInvoke(action);
+#endif
 			else
 				InvokeWindowMessageAction(action);
 

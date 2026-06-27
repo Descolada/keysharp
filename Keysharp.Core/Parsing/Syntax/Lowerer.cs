@@ -32,10 +32,19 @@ namespace Keysharp.Parsing.Syntax
 		// Names resolved INLINE to a fresh expression each reference (e.g. `#import __Main` self-import → `new __Main()`).
 		private readonly Dictionary<string, System.Func<ExpressionSyntax>> _inlineAliases = new(System.StringComparer.Ordinal);
 		private readonly List<MemberDeclarationSyntax> _fieldDecls = new();
+		// Where a static-LOCAL variable's backing field is emitted: a function's static-locals live in the C# type that
+		// holds the function's impl, so a method's `static x` goes in its CLASS (not flat in __Main, where two same-named
+		// methods in different classes would collide). Defaults to _fieldDecls (module class); LowerClass redirects it to
+		// the class's own field list while lowering that class's members. `_staticFieldDeclIdx` indexes into THIS list.
+		private List<MemberDeclarationSyntax> _staticFieldSink;
 		private readonly Dictionary<string, string> _userFuncByLower = new(System.StringComparer.Ordinal);
 		private readonly Dictionary<string, string> _userClassByLower = new(System.StringComparer.Ordinal);
 		private bool _inMethod;
 		private string _currentClassBase;   // base type name of the class being lowered (for `super`)
+		// Dotted C# path of the class currently being lowered (e.g. "Outer.Inner"), or null at module scope. Used to make
+		// a class method's static-local one-time-init guard key unique per declaring type (the C# field can repeat across
+		// classes now that it lives in its own class), so two same-named methods' statics don't share an init guard.
+		private string _currentClassPath;
 		private string _structTypeName;     // C# type name of the struct being lowered (for typed-field DefineProp)
 		private bool _currentMethodStatic;   // the method being lowered is static (super -> Statics vs Prototypes)
 		private int _flowCounter;
@@ -170,6 +179,7 @@ namespace Keysharp.Parsing.Syntax
 		{
 			_scriptPath = scriptPath ?? "*";
 			_compileToFile = compileToFile;
+			_staticFieldSink = _fieldDecls;   // module scope by default (the single-module path skips ClearPerModuleState)
 			_sourceLines = source?.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 			_startupName = startupName;
 			_includeDir = includeDir;
@@ -411,6 +421,8 @@ namespace Keysharp.Parsing.Syntax
 		private void ClearPerModuleState()
 		{
 			_fields.Clear(); _fieldDecls.Clear(); _staticFieldDeclIdx.Clear(); _userFuncByLower.Clear(); _userClassByLower.Clear();
+			_staticFieldSink = _fieldDecls;   // module scope until a class redirects it
+
 			_inlineAliases.Clear(); _wildcardModules.Clear(); _classFieldIds.Clear(); _emittedFuncImpls.Clear();
 			_exportedNames.Clear(); _pendingLambdas.Clear(); _scopeTemps.Clear(); _tempCounter = 0;
 		}
@@ -1336,13 +1348,23 @@ namespace Keysharp.Parsing.Syntax
 					if (!(a.Op == ":=" && a.Target is NameExpr)) CheckReadsExpr(a.Target, provided, warned);
 					CheckReadsExpr(a.Value, provided, warned);
 					break;
-				case UnaryExpr u: if (u.Op != "&") CheckReadsExpr(u.Operand, provided, warned); break;   // &var is a provide, not a read
+				case UnaryExpr u:
+					if (u.Op == "&") break;                            // &var is a provide, not a read
+					if (u.Op == "?" && u.Operand is NameExpr) break;   // `var?` (maybe) is a guarded read — never warns
+					CheckReadsExpr(u.Operand, provided, warned);
+					break;
 				case CallExpr c:
 					var isIsSet = c.Callee is NameExpr cn && cn.Name.Equals("IsSet", System.StringComparison.OrdinalIgnoreCase) && c.Args.Count == 1 && c.Args[0].Value is NameExpr;
 					CheckReadsExpr(c.Callee, provided, warned);
 					if (!isIsSet) foreach (var ar in c.Args) if (ar.Value != null) CheckReadsExpr(ar.Value, provided, warned);
 					break;
-				case BinaryExpr b: CheckReadsExpr(b.Left, provided, warned); CheckReadsExpr(b.Right, provided, warned); break;
+				case BinaryExpr b:
+					// `a ?? b`: the left operand is a maybe-unset (guarded) read — a bare unset variable there is
+					// intentional (it falls back to the right), so AHK does not warn (like IsSet()). Still check the right
+					// operand, and sub-reads of a non-bare left (e.g. `obj.p ?? x` still needs `obj` to be set).
+					if (!(b.Op == "??" && b.Left is NameExpr)) CheckReadsExpr(b.Left, provided, warned);
+					CheckReadsExpr(b.Right, provided, warned);
+					break;
 				case TernaryExpr t: CheckReadsExpr(t.Cond, provided, warned); CheckReadsExpr(t.Then, provided, warned); CheckReadsExpr(t.Else, provided, warned); break;
 				case GroupExpr g: CheckReadsExpr(g.Inner, provided, warned); break;
 				case SequenceExpr sq: foreach (var it in sq.Items) CheckReadsExpr(it, provided, warned); break;
@@ -1711,9 +1733,10 @@ namespace Keysharp.Parsing.Syntax
 					{
 						var lowered = LowerExpr(value);
 						// A constant initializer (e.g. `static a := 1 + 2` → 3L) has no side effects, so initialize the
-						// backing field directly (`SL_… = 3L`) instead of a lazy InitStaticVariable.
+						// backing field directly (`SL_… = 3L`) instead of a lazy InitStaticVariable. The field was added to
+						// the current `_staticFieldSink` (same scope as this rewrite), so `fi` indexes into it.
 						if (lowered is LiteralExpressionSyntax && _staticFieldDeclIdx.TryGetValue(field, out var fi))
-							_fieldDecls[fi] = ObjField(field, lowered);
+							_staticFieldSink[fi] = ObjField(field, lowered);
 						else
 							stmts.Add(ExprStmt(InitStatic(field, lowered)));
 					}
@@ -2349,6 +2372,14 @@ namespace Keysharp.Parsing.Syntax
 			var savedBase = _currentClassBase; _currentClassBase = baseType;
 			var savedCompat = _currentCompat;
 			_currentCompat = (c.Requires != null ? MapRequires(c.Requires) : null) ?? _currentCompat;   // class-level `#Requires`
+			// Static-locals of this class's methods/properties belong to THIS type, not the module class — redirect the
+			// sink so their backing fields are emitted as members of this class (a nested LowerClass redirects again to
+			// its own list and restores to ours). This both scopes them correctly and avoids cross-class name collisions.
+			var savedSink = _staticFieldSink;
+			var classStaticFields = new List<MemberDeclarationSyntax>();
+			_staticFieldSink = classStaticFields;
+			var savedPath = _currentClassPath;
+			_currentClassPath = _currentClassPath == null ? typeName : _currentClassPath + "." + typeName;
 			var members = new List<MemberDeclarationSyntax> { ClassCtor(typeName) };
 			foreach (var m in c.Methods) members.Add(LowerMethod(m, typeName));
 			foreach (var pr in c.Properties) members.AddRange(LowerProperty(pr));
@@ -2366,6 +2397,11 @@ namespace Keysharp.Parsing.Syntax
 			var staticPre = typedFields.Select(StructFieldDefineProp).Where(s => s != null).ToList();
 			if (statFields.Count > 0 || staticPre.Count > 0 || c.StaticInit.Count > 0)
 				members.Add(InitMethod(NameMangler.StaticInit(), null, statFields, staticPre, c.StaticInit, staticCtx: true));
+
+			// Emit this class's collected static-local backing fields as its own members, then restore the sink/path.
+			members.AddRange(classStaticFields);
+			_staticFieldSink = savedSink;
+			_currentClassPath = savedPath;
 
 			var decl = SyntaxFactory.ClassDeclaration(typeName)
 				.AddModifiers(PublicTok)
@@ -2911,8 +2947,8 @@ namespace Keysharp.Parsing.Syntax
 					{
 						var field = NameMangler.StaticLocalField(funcName, n);
 						statics[n] = field;
-						_staticFieldDeclIdx[field] = _fieldDecls.Count;
-						_fieldDecls.Add(ObjField(field, Null));
+						_staticFieldDeclIdx[field] = _staticFieldSink.Count;
+						_staticFieldSink.Add(ObjField(field, Null));
 					}
 			_locals = new HashSet<string>(paramLowers);
 			if (!assumeGlobal)
@@ -3180,8 +3216,8 @@ namespace Keysharp.Parsing.Syntax
 								{
 									var field = NameMangler.StaticLocalField(funcName, lower);
 									st[lower] = field;
-									_staticFieldDeclIdx[field] = _fieldDecls.Count;
-									_fieldDecls.Add(ObjField(field, Null));
+									_staticFieldDeclIdx[field] = _staticFieldSink.Count;
+									_staticFieldSink.Add(ObjField(field, Null));
 								}
 								break;
 						}
@@ -3589,15 +3625,21 @@ namespace Keysharp.Parsing.Syntax
 			}
 		}
 
-		// Keysharp.Runtime.Script.InitStaticVariable(ref <field>, "__Main_<field>", () => <init>)
-		private static ExpressionSyntax InitStatic(string field, ExpressionSyntax init) =>
-			SyntaxFactory.InvocationExpression(Access("Keysharp.Runtime.Script.InitStaticVariable"),
+		// Keysharp.Runtime.Script.InitStaticVariable(ref <field>, "<scope>_<field>", () => <init>) — the second arg is a
+		// GLOBAL one-time-init guard key, so it must be unique per field LOCATION. The field name alone isn't: a class
+		// method's SL_ field now lives in its class and can repeat across classes, so qualify the key with the declaring
+		// type (module class, plus the nested class path for a class member). Module-level statics keep "__Main_<field>".
+		private ExpressionSyntax InitStatic(string field, ExpressionSyntax init)
+		{
+			var scope = _currentClassPath == null ? _currentModuleClass : _currentModuleClass + "." + _currentClassPath;
+			return SyntaxFactory.InvocationExpression(Access("Keysharp.Runtime.Script.InitStaticVariable"),
 				SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(new[]
 				{
 					SyntaxFactory.Argument(Id(field)).WithRefKindKeyword(SyntaxFactory.Token(SyntaxKind.RefKeyword)),
-					Arg(Str("__Main_" + field)),
+					Arg(Str(scope + "_" + field)),
 					Arg(SyntaxFactory.ParenthesizedLambdaExpression().WithExpressionBody(init)),
 				})));
+		}
 
 		private static FieldDeclarationSyntax ObjField(string name, ExpressionSyntax init) =>
 			SyntaxFactory.FieldDeclaration(SyntaxFactory.VariableDeclaration(ObjType).AddVariables(

@@ -948,12 +948,20 @@ namespace Keysharp.Internals.Window.Linux
 		{
 			if (IsSpecified)
 			{
-				int x = 0, y = 0;
-
+				// For our own toolkit windows, return the CLIENT area's screen position via the toolkit's own
+				// mapping. For a Window this is the content area (i.e. excluding the title bar and borders); it
+				// walks the container hierarchy and handles DPI, and stays in the same logical coordinate space
+				// as the GUI so overlays such as Highlight line up. Mirrors ControlItem.ClientToScreen. (Reading
+				// the WinForms-shim ClientRectangle here was wrong - it carries no on-screen origin - and the raw
+				// XTranslate of the window's own (0,0) only matches the content top under server-side decorations.)
 				if (Control.FromHandle((nint)xwindow.ID) is Control ctrl)
-					_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, ctrl.ClientRectangle.X, ctrl.ClientRectangle.Y, out x, out y, out var dummy);
-				else
-					_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out x, out y, out var dummy);
+				{
+					var sp = ctrl.PointToScreen(Point.Empty);
+					return new Keysharp.Internals.Window.POINT(Convert.ToInt32(sp.X), Convert.ToInt32(sp.Y));
+				}
+
+				// Foreign (non-toolkit) windows: translate the window's own origin (0,0) to root coordinates.
+				_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out var x, out var y, out var dummy);
 
 				var pt = new Keysharp.Internals.Window.POINT(x, y);
 #if DPI

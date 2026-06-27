@@ -73,20 +73,13 @@ namespace Keysharp.Builtins
 			{
 				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
 				{
+					// Both ClientBounds and Bounds are already screen-relative rectangles (ClientBounds takes its
+					// origin from ClientToScreen()), so report them directly. The previous code added
+					// ClientToScreen() on top of ClientBounds.Left/Top for the client case, double-counting the
+					// window's on-screen position.
 					var rect = client ? win.ClientBounds : win.Bounds;
-
-					if (client)
-					{
-						var pt = win.ClientToScreen();
-						outX = (long)(rect.Left + pt.X);
-						outY = (long)(rect.Top + pt.Y);
-					}
-					else
-					{
-						outX = (long)rect.Left;
-						outY = (long)rect.Top;
-					}
-
+					outX = (long)rect.Left;
+					outY = (long)rect.Top;
 					outWidth  = (long)rect.Width;
 					outHeight = (long)rect.Height;
 				}

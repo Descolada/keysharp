@@ -382,7 +382,11 @@ namespace Eto.Forms
 			internal IEnumerable<Control> Controls => control is Container c ? c.Controls : control.VisualControls;
 
 
-            internal Rectangle ClientRectangle => control.Bounds;
+            // Mirror WinForms Control.ClientRectangle: the client area expressed in CLIENT coordinates, so its
+            // origin is always (0,0) (NOT the control's position within its container, which is what Bounds
+            // gives). Consumers that need the client area's on-screen position must map it via PointToScreen
+            // rather than reading it from here. Size matches Bounds.Size (Eto controls have no separate chrome).
+            internal Rectangle ClientRectangle => new Rectangle(Point.Empty, control.Size);
             internal Form FindForm() => (Form)control.ParentWindow;
             internal string Text
             {

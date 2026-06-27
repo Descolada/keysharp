@@ -368,11 +368,26 @@ namespace Keysharp.Builtins
 
 			internal static void GetPosHelper(Forms.Control control, bool scaling, bool client, [ByRef] object outX, [ByRef] object outY, [ByRef] object outWidth, [ByRef] object outHeight)
 			{
-				var rect = client ? control.ClientRectangle : control.GetBounds();
-				if (!client && control?.Parent != null)
+				Rectangle rect;
+				if (client)
 				{
-					Point p = control.Parent.GetLocationRelativeToForm();
-					rect.X += p.X; rect.Y += p.Y;
+					// Resolve the client area on-screen via the toolkit: PointToScreen maps the client origin
+					// (for a window that's the content area, below the title bar/borders), and a Container exposes
+					// its true client/content size (excluding chrome) via the native ClientSize - which the shim's
+					// ClientRectangle/ClientSize deliberately do not report, as the layout engine relies on those
+					// equalling the outer size. Non-container controls have no chrome, so their size is the client.
+					var sp = control.PointToScreen(Point.Empty);
+					var cs = control is Eto.Forms.Container cont ? cont.ClientSize : control.GetSize();
+					rect = new Rectangle((int)Math.Round(sp.X), (int)Math.Round(sp.Y), cs.Width, cs.Height);
+				}
+				else
+				{
+					rect = control.GetBounds();
+					if (control?.Parent != null)
+					{
+						Point p = control.Parent.GetLocationRelativeToForm();
+						rect.X += p.X; rect.Y += p.Y;
+					}
 				}
 
 				if (!scaling)

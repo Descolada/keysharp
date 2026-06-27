@@ -3918,8 +3918,19 @@ MoveExternalWindow() {
 		Sleep(200)
 		WinGetPos(&x2, &y2, &w2, &h2, title)
 		gWindowInfoEdit.Value := "Before: " x1 "," y1 "  " w1 "x" h1 "`r`nAfter:  " x2 "," y2 "  " w2 "x" h2
-		SetStatus("window_external", "External status: PASS if the target moved by +40,+40")
-		AppendLog("MoveExternalWindow ran against title match <" title ">. Before=" x1 "," y1 " After=" x2 "," y2 ".")
+
+		; Auto-verify: the window should have moved by exactly +40,+40. Allow a couple of
+		; pixels of slack for window-manager frame rounding, but still catch a missed move
+		; or a move along the wrong axis.
+		dx := x2 - x1, dy := y2 - y1
+		tol := 2
+		if (Abs(dx - 40) <= tol && Abs(dy - 40) <= tol) {
+			SetStatus("window_external", "External status: PASS (moved by " dx "," dy ")")
+			AppendLog("MoveExternalWindow PASS for <" title ">. Before=" x1 "," y1 " After=" x2 "," y2 " delta=" dx "," dy ".")
+		} else {
+			SetStatus("window_external", "External status: FAIL (expected +40,+40 but moved " dx "," dy ")")
+			AppendLog("MoveExternalWindow FAIL for <" title ">. Before=" x1 "," y1 " After=" x2 "," y2 " delta=" dx "," dy " (expected 40,40).")
+		}
 	} catch as err {
 		SetStatus("window_external", "External status: BLOCKED/ERROR")
 		AppendLog("MoveExternalWindow failed for <" title ">: " err.Message)

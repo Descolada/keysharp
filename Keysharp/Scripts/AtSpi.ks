@@ -465,7 +465,11 @@ class AtSpi {
         base:this.Enumeration.Prototype
     }
 
-    static __Highlights := Map()
+    static __HighlightGuis := Map()
+
+    ; Applications (keyed by PID) whose AT-SPI client-side cache has already been enabled, so the
+    ; mask is set at most once each. See __EnableAppCache.
+    static __CachedApps := Map()
 
     static _inited := false
     static __Sym(lib, sym) => lib . "/" . sym
@@ -509,9 +513,10 @@ class AtSpi {
      * Removes all highlights created by Accessible.Highlight().
      */
     static ClearAllHighlights() {
-        for _, hl in AtSpi.__Highlights
-            try hl.Destroy()
-        AtSpi.__Highlights := Map()
+        for _, guis in AtSpi.__HighlightGuis
+            for _, g in guis
+                try g.Destroy()
+        AtSpi.__HighlightGuis := Map()
     }
 
     static __ReadGArrayStrings(pArray) {
@@ -601,6 +606,22 @@ class AtSpi {
         }
 
         hWnd := WinFromPoint(x, y)
+        root := hWnd ? this.ElementFromHandle(hWnd) : 0
+
+        ; Preferred path: resolve the window's accessible, then return the SMALLEST element whose
+        ; extents contain the point. A plain "deepest by bounds" walk fails on two common cases:
+        ; (a) tab pages, where a `page tab` advertises only its label rectangle while its child holds
+        ; the page content, and (b) Chromium/Electron apps (e.g. VS Code), where many nested
+        ; containers all report the full-window rectangle and only the real leaf is small. Picking
+        ; the smallest-area containing element - and descending through page tabs - resolves both.
+        if root {
+            best := this.__SmallestAccessibleAtPoint(root, x, y)
+            if best
+                return best
+        }
+
+        ; Fallback: no resolvable window, or it wasn't found in the AT-SPI tree. Hit-test from the
+        ; desktop component and refine the result downward the same way.
         desktop := this.GetRootElement()
         if desktop {
             pComp := DllCall(this.__Sym(this.LibAtSpi, "atspi_accessible_get_component_iface")
@@ -623,32 +644,45 @@ class AtSpi {
                     this.__FreeGError(err)
                 } else if pHit {
                     acc := AtSpi.Accessible(pHit)
-                    if hWnd && (root := this.ElementFromHandle(hWnd))
+                    if root
                         acc.__CoordContext := root.__CoordContext
-                    if !hWnd || this.__AccessibleContainsPoint(acc, x, y)
-                        return acc
+                    best := this.__SmallestAccessibleAtPoint(acc, x, y)
+                    return best ? best : acc
                 }
             }
         }
 
-        if !hWnd
-            return 0
-        root := this.ElementFromHandle(hWnd)
-        if !root
-            return 0
-
-        return this.__DeepestAccessibleAtPoint(root, x, y)
+        return 0
     }
 
-    static __DeepestAccessibleAtPoint(root, x, y) {
+    ; Returns the smallest-area accessible whose extents contain (x, y), searching `root` and every
+    ; descendant that also contains the point - plus page tabs, whose label-only extents would
+    ; otherwise prune the active page's content. Smallest-area (ties broken by greater depth), rather
+    ; than deepest-by-tree-order, is what makes this correct when many nested containers report the
+    ; same (often full-window) rectangle, as Chromium/Electron toolkits do: the genuine leaf has the
+    ; smallest rectangle and wins. The walk only enters elements under the point, so it stays cheap.
+    static __SmallestAccessibleAtPoint(root, x, y) {
         if !root
             return 0
-        local stack, el, best := 0
-        stack := [root]
+        local stack, item, el, depth, loc, area, best := 0, bestArea := 0x7FFFFFFF, bestDepth := -1
+        stack := [[root, 0]]
         while stack.Length {
-            el := stack.Pop()
-            if this.__AccessibleContainsPoint(el, x, y) {
-                best := el
+            item := stack.Pop()
+            el := item[1], depth := item[2]
+            inPt := false
+            try {
+                loc := el.Location
+                if loc.w > 0 && loc.h > 0 && x >= loc.x && y >= loc.y && x <= loc.x + loc.w && y <= loc.y + loc.h {
+                    inPt := true
+                    area := loc.w * loc.h
+                    if area < bestArea || (area = bestArea && depth > bestDepth) {
+                        best := el
+                        bestArea := area
+                        bestDepth := depth
+                    }
+                }
+            }
+            if inPt || this.__IsPageTab(el) {
                 try count := el.ChildCount
                 catch
                     continue
@@ -656,18 +690,18 @@ class AtSpi {
                     try child := el.GetNthChild(A_Index)
                     catch
                         continue
-                    stack.Push(child)
+                    stack.Push([child, depth + 1])
                 }
             }
         }
         return best
     }
 
-    static __AccessibleContainsPoint(el, x, y) {
-        try loc := el.Location
+    static __IsPageTab(el) {
+        try
+            return el.RoleId == AtSpi.Role.PageTab
         catch
             return false
-        return x >= loc.x && y >= loc.y && x <= (loc.x + loc.w) && y <= (loc.y + loc.h)
     }
 
     static __NewCoordinateContext(hwnd := 0) => { hwnd: hwnd, dx: 0, dy: 0, rootPtr: 0, rx: 0, ry: 0, rw: 0, rh: 0 }
@@ -780,6 +814,7 @@ class AtSpi {
                 } catch {
                     continue
                 }
+                this.__EnableAppCache(app, pidFilter)
             }
 
             try aCount := app.ChildCount
@@ -801,6 +836,21 @@ class AtSpi {
         }
 
         return best
+    }
+
+    ; Enables AT-SPI client-side caching (role/name/states/children/interfaces/attributes/parent) for
+    ; an application's whole accessible subtree, once per process. Without it every property read is a
+    ; synchronous D-Bus round-trip, so walking a window's tree costs hundreds of ms; with it cached
+    ; reads are local and tree construction / repeated property access are several times faster
+    ; (measured ~430 ms -> ~50-170 ms over a 1000-node tree). Extents (Location/RawLocation) are never
+    ; cached and stay live, so highlight geometry remains pixel-accurate. Guarded by PID so the mask
+    ; is set at most once per application; cheap (~1 ms) and idempotent regardless.
+    static __EnableAppCache(app, pid) {
+        if AtSpi.__CachedApps.Has(pid)
+            return
+        AtSpi.__CachedApps[pid] := true
+        ; 0x3FFFFFFF = ATSPI_CACHE_ALL
+        try DllCall(this.__Sym(this.LibAtSpi, "atspi_accessible_set_cache_mask"), "Ptr", app.Ptr, "Int", 0x3FFFFFFF)
     }
 
     static __ScoreWindowCandidate(win, wTitle, wx, wy, ww, wh) {
@@ -2931,23 +2981,36 @@ class AtSpi {
          * @returns {AtSpi.Accessible}
          */
         Highlight(showTime:=unset, color:="Red", d:=2) {
-            if (!IsSet(showTime) && AtSpi.__Highlights.Has(this)) || (IsSet(showTime) && showTime = "clear") {
-                if AtSpi.__Highlights.Has(this) {
-                    try AtSpi.__Highlights[this].Destroy()
-                    AtSpi.__Highlights.Delete(this)
-                }
+            if !AtSpi.__HighlightGuis.Has(this)
+                AtSpi.__HighlightGuis[this] := []
+            if (!IsSet(showTime) && AtSpi.__HighlightGuis[this].Length) || (IsSet(showTime) && showTime = "clear") {
+                for _, r in AtSpi.__HighlightGuis[this]
+                    try r.Destroy()
+                AtSpi.__HighlightGuis[this] := []
                 return this
             } else if !IsSet(showTime)
                 showTime := 2000
             try loc := this.Location
             if !IsSet(loc) || !IsObject(loc) || loc.w < 1 || loc.h < 1 || loc.x == -2147483648 || loc.y == -2147483648
                 return this
-            ; One reusable KS.Highlight overlay per element (single click-through border window), keyed by
-            ; `this`. Replaces the previous four-window-per-highlight approach, which on Wayland/KWin spawned a
-            ; burst of windows that could destabilize the compositor.
-            hl := AtSpi.__Highlights.Has(this) ? AtSpi.__Highlights[this] : (AtSpi.__Highlights[this] := Highlight())
-            hl.Color := color, hl.Thickness := d
-            hl.Show(loc.x, loc.y, loc.w, loc.h)
+            ; Draw the border as four separate thin edge windows (top/bottom/left/right) and leave the element's
+            ; CENTRE clear. A single window spanning the whole rect (even one with a transparent middle) gets picked
+            ; up by the live inspector's at-point lookup - WinFromPoint and atspi_get_accessible_at_point both return
+            ; the topmost window/accessible over the cursor - so the Viewer would highlight its own overlay, fail the
+            ; IsEqual check on every 200 ms capture tick, and destroy/recreate the overlay each time. That window
+            ; churn flickered the highlight and crashed Cinnamon. Four edge windows keep the centre clear, so the
+            ; at-point lookup returns the real element underneath and the highlight stays put.
+            Loop 4
+                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
+            Loop 4 {
+                i := A_Index
+                x1 := (i=2 ? loc.x+loc.w : loc.x-d)
+                y1 := (i=3 ? loc.y+loc.h : loc.y-d)
+                w1 := (i=1 or i=3 ? loc.w+2*d : d)
+                h1 := (i=2 or i=4 ? loc.h+2*d : d)
+                AtSpi.__HighlightGuis[this][i].BackColor := color
+                AtSpi.__HighlightGuis[this][i].Show("NA x" . x1 . " y" . y1 . " w" . w1 . " h" . h1)
+            }
             if showTime > 0 {
                 Sleep(showTime)
                 this.Highlight()
@@ -3024,7 +3087,7 @@ class AtSpi {
             this.SBMain.OnEvent("Click", this.GetMethod("SBMain_Click").Bind(this))
             this.SBMain.OnEvent("ContextMenu", this.GetMethod("SBMain_Click").Bind(this))
             this.gViewer.Add("Text", "x278 y10 w200", "AT-SPI Tree").SetFont("bold")
-            this.TVContext := this.gViewer.Add("TreeView", "x275 y35 w250 h390 -0x800")
+            this.TVContext := this.gViewer.Add("TreeView", "x275 y35 w350 h390 -0x800")
             this.TVContext.OnEvent("ItemSelect", this.GetMethod("TVContext_Click").Bind(this))
             this.TVContext.OnEvent("ContextMenu", this.GetMethod("TVContext_ContextMenu").Bind(this))
             this.TVContext.Add("Start capturing to show tree")

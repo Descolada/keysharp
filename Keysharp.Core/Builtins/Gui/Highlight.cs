@@ -97,8 +97,15 @@ namespace Keysharp.Builtins
 			/// <summary>Whether the overlay is currently on screen.</summary>
 			public object Visible => shown;
 
-			/// <summary>Native handle of the overlay window (0 before the first Show or after Destroy).</summary>
-			public object Hwnd => gui != null ? gui.Hwnd : 0L;
+			/// <summary>Native handle of the overlay window. Accessing it forces the window into existence (built
+			/// off-screen, not shown, on first use or after a Destroy), so it always returns a real handle — never 0.</summary>
+			public object Hwnd => EnsureBuilt().Hwnd;
+
+			/// <summary>The underlying overlay <c>Gui</c> — an escape hatch for advanced callers (option-string
+			/// <c>Show</c>, event wiring, reading window state, etc.). Like <c>Hwnd</c>, accessing it forces the
+			/// window into existence (built off-screen, not shown, on first use or after a Destroy), so it never
+			/// hands back an empty/uninitialized window.</summary>
+			public Gui Gui => EnsureBuilt();
 
 			#endregion
 
@@ -250,6 +257,20 @@ namespace Keysharp.Builtins
 
 					builtColor = c;
 				});
+			}
+
+			// Forces the overlay window into existence WITHOUT showing it: builds it off-screen on first use (or
+			// after a Destroy) and returns it. Hwnd/Gui access route through here so a caller can obtain a real
+			// handle or the underlying Gui before the first Show. Marshaled to the UI thread because Build
+			// constructs a Gui; a no-op once the window already exists.
+			private Gui EnsureBuilt()
+			{
+				// Fast path avoids marshaling once built; the re-check on the UI thread (matching Refresh) keeps a
+				// race between two accesses from building — and leaking — two windows.
+				if (gui == null)
+					Script.InvokeOnUIThread(() => { if (gui == null) Build(); });
+
+				return gui;
 			}
 
 			// Creates the transparent, click-through overlay window with the border drawn as four colored edge

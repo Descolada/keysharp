@@ -777,6 +777,32 @@ namespace System.Windows.Forms
 #endif
 		}
 
+		/// <summary>
+		/// Returns the control's client area as a screen-relative <see cref="Rectangle"/>: the on-screen
+		/// position of the client origin (for a window, the content area below the title bar/borders) plus the
+		/// client size. Mirrors AHK's GetClientPos (GetClientRect followed by MapWindowPoints to the screen).
+		/// </summary>
+		/// <param name="control">The <see cref="Control"/> whose client-area screen rectangle to return.</param>
+		internal static Rectangle GetClientScreenRect(this Forms.Control control)
+		{
+#if WINDOWS
+			// PointToScreen maps the client origin to the screen; ClientSize is the client area (excluding
+			// chrome). Both are already in logical (int) coordinates, so use them directly.
+			var sp = control.PointToScreen(Point.Empty);
+			var cs = control.ClientSize;
+			return new Rectangle(sp.X, sp.Y, cs.Width, cs.Height);
+#else
+			// PointToScreen maps the client origin, and a Container exposes its true client/content size
+			// (excluding chrome) via the native ClientSize - which the shim's ClientRectangle/ClientSize
+			// deliberately do not report, as the layout engine relies on those equalling the outer size.
+			// Non-container controls have no chrome, so their size is the client. PointToScreen returns
+			// floats here, so round to int.
+			var sp = control.PointToScreen(Point.Empty);
+			var cs = control is Container cont ? cont.ClientSize : control.GetSize();
+			return new Rectangle((int)Math.Round(sp.X), (int)Math.Round(sp.Y), cs.Width, cs.Height);
+#endif
+		}
+
 #if WINDOWS
 		internal static int Count(this System.Windows.Forms.Control.ControlCollection collection) => collection.Count;
 

@@ -121,11 +121,15 @@ namespace Keysharp.Internals.Window.Windows
 				if (!IsSpecified || !WindowsAPI.GetClientRect(Handle, out var rect))
 					return Rectangle.Empty;
 
+				// GetClientRect reports the client area in client coordinates (origin 0,0), so map the origin to
+				// the screen via ClientToScreen() to make this a screen-relative rectangle (matching the other
+				// platforms, e.g. Linux). ClientToScreen() already applies DPI scaling to the origin.
+				var pt = ClientToScreen();
 #if DPI
 				var scale = 1.0 / Accessors.A_ScaledScreenDPI;
-				return new Rectangle((int)(scale * rect.Left), (int)(scale * rect.Top), (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
+				return new Rectangle(pt.X, pt.Y, (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
 #else
-				return new Rectangle(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
+				return new Rectangle(pt.X, pt.Y, rect.Right - rect.Left, rect.Bottom - rect.Top);
 #endif
 			}
 		}

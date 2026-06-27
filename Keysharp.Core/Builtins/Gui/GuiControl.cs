@@ -371,14 +371,9 @@ namespace Keysharp.Builtins
 				Rectangle rect;
 				if (client)
 				{
-					// Resolve the client area on-screen via the toolkit: PointToScreen maps the client origin
-					// (for a window that's the content area, below the title bar/borders), and a Container exposes
-					// its true client/content size (excluding chrome) via the native ClientSize - which the shim's
-					// ClientRectangle/ClientSize deliberately do not report, as the layout engine relies on those
-					// equalling the outer size. Non-container controls have no chrome, so their size is the client.
-					var sp = control.PointToScreen(Point.Empty);
-					var cs = control is Eto.Forms.Container cont ? cont.ClientSize : control.GetSize();
-					rect = new Rectangle((int)Math.Round(sp.X), (int)Math.Round(sp.Y), cs.Width, cs.Height);
+					// The client area's on-screen rectangle (client origin mapped to the screen, plus the client
+					// size). Mirrors AHK's GetClientPos. The per-toolkit mapping lives in GetClientScreenRect.
+					rect = control.GetClientScreenRect();
 				}
 				else
 				{

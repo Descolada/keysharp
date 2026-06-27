@@ -928,12 +928,36 @@ namespace Keysharp.Builtins
 					return Errors.ErrorOccurred(result);
 			}
 
+			// Relaunch a Keysharp host that understands "--script --assembly *" (it reads the assembly
+			// bytes piped below). Environment.ProcessPath is only our app when published; under the dotnet
+			// host (e.g. "dotnet Keysharp.dll" while debugging from an IDE) it is "dotnet", and handing
+			// Keysharp's args to dotnet makes it exit without reading stdin -- so the pipe write below
+			// would time out. Prefer the native apphost that sits beside the entry assembly; fall back to
+			// "dotnet <entry.dll>", and finally to ProcessPath (single-file publish has no separate dll).
+			string launcher = obj3?.As();
+			var launcherArgs = "--script --assembly *";
+
+			if (string.IsNullOrEmpty(launcher))
+			{
+				var entryAsm = Assembly.GetEntryAssembly()?.Location;
+				var entryDir = string.IsNullOrEmpty(entryAsm) ? null : Path.GetDirectoryName(entryAsm);
+				var appHost = entryDir == null ? null
+							  : Path.Combine(entryDir, Path.GetFileNameWithoutExtension(entryAsm) + (OperatingSystem.IsWindows() ? ".exe" : ""));
+
+				if (appHost != null && File.Exists(appHost))
+					launcher = appHost;
+				else if (entryDir != null && string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+					(launcher, launcherArgs) = (Environment.ProcessPath, $"\"{entryAsm}\" {launcherArgs}");
+				else
+					launcher = Environment.ProcessPath;
+			}
+
 			var scriptProcess = new Process
 			{
 				StartInfo = new ProcessStartInfo
 				{
-					FileName = obj3 == null ? Path.GetFileName(Environment.ProcessPath) : obj3.As(),
-					Arguments = "--script --assembly *",
+					FileName = launcher,
+					Arguments = launcherArgs,
 					RedirectStandardInput = true,
 					RedirectStandardOutput = true,
 					UseShellExecute = false,

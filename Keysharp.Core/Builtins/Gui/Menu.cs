@@ -205,15 +205,39 @@ namespace Keysharp.Builtins
 			if (menu.Items.Cast<ToolStripItem>().Any(tsi => tsi.Visible))
 				_ = menu.Items.Add(new ToolStripSeparator());
 
+			// Resolve a bundled helper script (WindowSpy/AtSpi/Ax) from its "Scripts" folder.
+			// Normally that folder sits beside the running executable, but A_KeysharpPath is the
+			// process host -- which is the dotnet host (e.g. /usr/lib/dotnet/dotnet) when Keysharp
+			// is launched via "dotnet" while debugging from an IDE. In that case fall back to the
+			// directory of Keysharp.Core.dll, where the Scripts folder is also copied in build output.
+			static string ResolveBundledScript(string name)
+			{
+				foreach (var baseDir in new[] { Path.GetDirectoryName(A_KeysharpPath), Path.GetDirectoryName(Ks.A_KeysharpCorePath) })
+				{
+					if (string.IsNullOrEmpty(baseDir))
+						continue;
+
+					var compiled = Path.Combine(baseDir, "Scripts", name + ".cks");//Prefer the precompiled .cks for faster startup.
+
+					if (File.Exists(compiled))
+						return compiled;
+
+					var source = Path.Combine(baseDir, "Scripts", name + ".ks");
+
+					if (File.Exists(source))
+						return source;
+				}
+
+				return null;
+			}
+
 			var windowSpyFunc = (params object[] args) =>
 			{
-				var dir = Path.GetDirectoryName(A_KeysharpPath);
-				var spyCompiled = Path.Combine(dir, "Scripts", "WindowSpy.cks");
-				var spy = File.Exists(spyCompiled) ? spyCompiled : Path.Combine(dir, "Scripts", "WindowSpy.ks");//Prefer the precompiled .cks for faster startup.
+				var spy = ResolveBundledScript("WindowSpy");
 
-				if (!File.Exists(spy))
+				if (spy == null)
 				{
-					_ = Dialogs.MsgBox($"Window Spy script not found:\n{spy}", "Keysharp", "Icon!");
+					_ = Dialogs.MsgBox($"Window Spy script not found in a Scripts folder beside:\n{A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
 					return DefaultObject;
 				}
 
@@ -229,13 +253,11 @@ namespace Keysharp.Builtins
 #endif
 			var accessibilitySpyFunc = (params object[] args) =>
 			{
-				var dir = Path.GetDirectoryName(A_KeysharpPath);
-				var spyCompiled = Path.Combine(dir, "Scripts", accessibilitySpyName + ".cks");
-				var spy = File.Exists(spyCompiled) ? spyCompiled : Path.Combine(dir, "Scripts", accessibilitySpyName + ".ks");
+				var spy = ResolveBundledScript(accessibilitySpyName);
 
-				if (!File.Exists(spy))
+				if (spy == null)
 				{
-					_ = Dialogs.MsgBox($"{accessibilitySpyName} accessibility inspector script not found:\n{spy}", "Keysharp", "Icon!");
+					_ = Dialogs.MsgBox($"{accessibilitySpyName} accessibility inspector script not found in a Scripts folder beside:\n{A_KeysharpPath}\nor\n{Ks.A_KeysharpCorePath}", "Keysharp", "Icon!");
 					return DefaultObject;
 				}
 

@@ -1041,6 +1041,7 @@ namespace Keyview
 #endif
 		private readonly ButtonMenuItem compileMenuItem = new () { Text = "&Compile .cks" };
 		private Splitter editorSplitter;
+		private StackLayout statusRightCluster;
 		private readonly UITimer timer = new ();
 		private readonly CompilerHelper ch = new ();
 		private readonly char[] trimend = ['\n', '\r'];
@@ -1111,6 +1112,8 @@ namespace Keyview
 				FitToScreen();
 				if (editorSplitter != null)
 					editorSplitter.Position = Math.Max(200, ClientSize.Width / 2);
+				// Defer until after the first layout pass so the cluster reports its real width.
+				Application.Instance.AsyncInvoke(LockStatusBarMinimums);
 			};
 
 			Closing += (_, e) =>
@@ -1309,7 +1312,16 @@ namespace Keyview
 			runScriptButton.Click += (_, _) => RunStopScript();
 			runScriptButton.Enabled = false;
 			compileScriptButton.Click += (_, _) => CompileDocument();
-			documentStatusLabel.Width = 500;
+			// No fixed width: the filename label is the only flexible item in the status bar and is
+			// allowed to shrink down to the window minimum. See InitializeLayout and
+			// LockStatusBarMinimums for how the right-hand controls are kept at their natural size.
+#if LINUX
+			// Eto's GTK label paints its full text past its allocation instead of clipping, so a long
+			// path would draw over the controls to its right as the window narrows. Ellipsizing makes
+			// the native label truncate cleanly (with …) within whatever width it is given.
+			if (documentStatusLabel.ControlObject is Gtk.Label nativeStatusLabel)
+				nativeStatusLabel.Ellipsize = Pango.EllipsizeMode.Middle;
+#endif
 			codeStatusLabel.Text = "";
 		}
 
@@ -1327,20 +1339,35 @@ namespace Keyview
 				Panel2 = new Panel { Content = outputArea }
 			};
 
-			var statusRow = new StackLayout
+			// The compile status and action buttons live in their own cluster so they can be pinned to
+			// their natural width (see LockStatusBarMinimums). That keeps them from compacting or
+			// disappearing as the window narrows.
+			statusRightCluster = new StackLayout
 			{
 				Orientation = Orientation.Horizontal,
 				Spacing = 8,
 				Items =
 				{
-					documentStatusLabel,
-					new StackLayoutItem(new Panel()) { Expand = true },
 					new Label { Text = "Code compile:", Wrap = WrapMode.None },
 					codeStatusLabel,
 					fullCodeCheck,
 					copyFullCodeButton,
 					compileScriptButton,
 					runScriptButton
+				}
+			};
+
+			// The filename label is the lone Expand item, so all the slack (and all the shrink) is
+			// applied to it: it grows to fill and clips its text as the window narrows, while the
+			// cluster on the right stays put.
+			var statusRow = new StackLayout
+			{
+				Orientation = Orientation.Horizontal,
+				Spacing = 8,
+				Items =
+				{
+					new StackLayoutItem(documentStatusLabel) { Expand = true },
+					statusRightCluster
 				}
 			};
 
@@ -1439,6 +1466,35 @@ namespace Keyview
 			Location = new Point(
 				(int)area.X + Math.Max(0, (int)(area.Width - Size.Width) / 2),
 				(int)area.Y + Math.Max(0, (int)(area.Height - Size.Height) / 2));
+		}
+
+		// Width below which the file-name label has shrunk as far as we let it; this is what defines
+		// Keyview's minimum width.
+		private const int FilenameLabelFloor = 80;
+
+		// Pins the status bar's right-hand cluster to its natural width and locks the window's minimum
+		// size, so narrowing the window shrinks only the file-name label (clipping its text) until it
+		// reaches FilenameLabelFloor, at which point the window can shrink no further. Without this the
+		// labels collapse to nothing (Eto reports a 0 minimum width for labels) and the buttons clip.
+		private void LockStatusBarMinimums()
+		{
+			if (statusRightCluster == null)
+				return;
+
+			var clusterWidth = statusRightCluster.Width;
+			if (clusterWidth <= 0)
+				return;
+
+			// Give the cluster a hard minimum equal to its natural width so its labels and buttons never
+			// compact. It can still grow past this (stealing space from the file-name label) when, say,
+			// the compile-status text lengthens.
+			statusRightCluster.MinimumSize = new Eto.Drawing.Size(clusterWidth, 0);
+
+			const int rowSpacing = 8;       // StackLayout spacing between the label and the cluster
+			const int containerPadding = 16; // statusContainer left + right padding (8 + 8)
+			const int editorMinWidth = 402;  // editorSplitter Panel1/Panel2 minimums (200 + 200) + handle
+			var statusMinWidth = clusterWidth + rowSpacing + FilenameLabelFloor + containerPadding;
+			MinimumSize = new Eto.Drawing.Size(Math.Max(statusMinWidth, editorMinWidth), 200);
 		}
 
 		private void InputArea_TextChanged(object sender, EventArgs e)

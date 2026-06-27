@@ -329,8 +329,11 @@ P2C2C1 := TV.Add("Child 2's first child", P2C2)
 ; │  Text to show Mouse Pos  │
 ; └──────────────────────────┘
 MousePosText := MyGui.Add("Text", "xc+10 y+10 cBlue s10 w200", "Uses SetTimer to show mouse position")
-CoordText := MyGui.Add("Text", "xc+10 y+10 cLime", "")
-CoordText.SetFont("bold s16")
+; The size/weight are set directly in the Add options (s16 bold) so the control is created at its final font
+; and autosizes to the real 16pt line height on every platform; the enclosing groupbox (which autosizes to
+; its children) then reserves enough room. Enlarging the font afterwards via SetFont would be too late - the
+; groupbox captures the control's smaller default-font height before the change takes effect.
+CoordText := MyGui.Add("Text", "xc+10 y+10 cLime s16 bold", "")
 SetTimer("UpdateOSD", 200)
 UpdateOSD()  ; Make the first update immediate rather than waiting for the timer.
 
@@ -753,7 +756,7 @@ gb1_CZ := MyGui.Add("GroupBox", "xc+10 yc+10 w460", "ControlZoo - Group One")
 MyGui.UseGroup(gb1_CZ)
 CZ_Text1 := MyGui.Add("Text", "xc+10 yc+20", "Control Functions testing")
 CZ_Text1.SetFont("s10 CBlue")
-CZ_Text2 := MyGui.Add("Text", "xc+10 y+10 w300 h30 Wordwrap Border", "For the controls on this tab, we'll add, delete, click, focus and perform other control functions.")
+CZ_Text2 := MyGui.Add("Text", "xc+10 y+10 w300 h30 Wrap Border", "For the controls on this tab, we'll add, delete, click, focus and perform other control functions.")
 CZ_Text2.SetFont("CTeal")
 
 CZ_Text2a := MyGui.Add("Text", "xc+10 y+5", "ListBox control testing")

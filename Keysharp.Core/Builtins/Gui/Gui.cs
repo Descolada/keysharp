@@ -1636,6 +1636,12 @@ namespace Keysharp.Builtins
 
 			SetContentAlignment(ctrl, opts);
 
+			// Apply per-control font overrides (sN / bold / italic / strike / underline / norm parsed from the
+			// options string) on top of the inherited GUI font. Done before the control is attached and sized so
+			// the PreferredSize/autosize logic below reflects the final font.
+			if (!string.IsNullOrEmpty(opts.fontstyles))
+				ctrl.Font = Conversions.ParseFont(form.Font, opts.fontstyles);
+
 				var prevParent = LastContainer;
 
 			if (opts.altsubmit.HasValue)
@@ -3260,6 +3266,17 @@ namespace Keysharp.Builtins
 					else if (Options.TryParseString(opt, "Icon", ref tempstr)) { options.iconnumber = ImageHelper.PrepareIconNumber(tempstr); }
 					//Other.
 					else if (Options.TryParse(opt, "c", ref tempcolor)) { options.c = tempcolor; }
+					//Font style options. These mirror the subset of Gui.SetFont() options that don't need a font
+					//family name (which can't be parsed unambiguously from a space-delimited option string, e.g.
+					//"MS Sans Serif"). The tokens are accumulated and applied to the control's font in Add() via
+					//Conversions.ParseFont(). "s" is only matched when followed by a number, so it doesn't clash
+					//with word options such as Section/Sort/Smooth.
+					else if (Options.TryParse(opt, "s", ref temp)) { options.fontstyles += " " + opt.ToString(); }
+					else if (opt.Equals(Keyword_Bold, StringComparison.OrdinalIgnoreCase)
+						  || opt.Equals(Keyword_Italic, StringComparison.OrdinalIgnoreCase)
+						  || opt.Equals(Keyword_Strike, StringComparison.OrdinalIgnoreCase)
+						  || opt.Equals(Keyword_Underline, StringComparison.OrdinalIgnoreCase)
+						  || opt.Equals(Keyword_Norm, StringComparison.OrdinalIgnoreCase)) { options.fontstyles += " " + opt.ToString(); }
 					else if (opt == "4") { options.opt4 = true; }
 					else if (opt == "8") { options.opt8 = true; }
 					else if (opt == "16") { options.opt16 = true; }
@@ -3272,6 +3289,9 @@ namespace Keysharp.Builtins
 					else if (Options.TryParse(opt, "-", ref options.remstyle)) { }
 					else if (Options.TryParse(opt, "+", ref options.addstyle)) { }
 					else if (Options.TryParse(opt, "", ref options.addstyle)) { }
+					//Anything left is a raw token that isn't a recognized option and isn't a numeric style: reject
+					//it like Gui window options do, instead of silently ignoring it.
+					else { _ = Errors.ValueErrorOccurred("Invalid option.", opt.ToString()); }
 				}
 			}
 
@@ -3578,6 +3598,10 @@ namespace Keysharp.Builtins
 			internal bool? buttons;
 
 			internal Color? c;
+
+			//Font style options (sN/bold/italic/strike/underline/norm) accumulated from the options string,
+			//applied to the control's font in Add(). A font family name is intentionally not supported here.
+			internal string fontstyles = "";
 
 			//Checkbox.
 			internal bool check3 = false;

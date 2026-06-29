@@ -214,12 +214,14 @@ has_dotnet10() {
 }
 
 install_deps() {
-  # Eto.Forms Gtk backend requires GTK3; libnotify is used for notifications; AT-SPI2 supports accessibility hooks.
-  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libglib2.0-0 libnotify4 libatspi2.0-0 at-spi2-core pulseaudio-utils libudev1 libevdev2 systemd kmod)
-  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 glib2 libnotify at-spi2-core systemd-libs libevdev systemd kmod)
-  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 glib2 libnotify at-spi2-core systemd-libs libevdev systemd kmod)
-  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 glib2 libnotify4 at-spi2-core libudev1 libevdev2 systemd kmod)
-  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 glib2 libnotify at-spi2-core systemd libevdev kmod)
+  # Eto.Forms Gtk backend requires GTK3; libnotify is used for notifications; AT-SPI2 supports accessibility hooks;
+  # zenity provides the keysharp-inputd input-access trust prompt (a GTK dialog, so lightweight given GTK3 is
+  # already required, and it runs on any desktop including KDE -- avoiding kdialog's heavy KDE Frameworks pull).
+  local packages_apt=(libx11-6 libxtst6 libxinerama1 libxt6 libx11-xcb1 libxkbcommon-x11-0 libxcb-xtest0 libgtk-3-0 libglib2.0-0 libnotify4 zenity libatspi2.0-0 at-spi2-core pulseaudio-utils libudev1 libevdev2 systemd kmod)
+  local packages_dnf=(libX11 libXtst libXinerama libXt libxkbcommon-x11 libxcb libX11-xcb gtk3 glib2 libnotify zenity at-spi2-core systemd-libs libevdev systemd kmod)
+  local packages_yum=(libX11 libXtst libXinerama libXt libxcb xorg-x11-xkb-utils gtk3 glib2 libnotify zenity at-spi2-core systemd-libs libevdev systemd kmod)
+  local packages_zypper=(libX11-6 libXtst6 libXinerama1 libXt6 libxkbcommon-x11-0 libxcb1 gtk3 glib2 libnotify4 zenity at-spi2-core libudev1 libevdev2 systemd kmod)
+  local packages_pacman=(libx11 libxtst libxinerama libxt libxkbcommon-x11 libxcb gtk3 glib2 libnotify zenity at-spi2-core systemd libevdev kmod)
 
   if ! has_dotnet10; then
     packages_apt+=("${DOTNET_PACKAGE}")

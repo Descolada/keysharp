@@ -201,6 +201,45 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				SurfaceDestroy(surface);
 			}
 		}
+
+		/// <summary>
+		/// Renders a hollow rectangle border (a <paramref name="thickness"/>-pixel ring in the given colour,
+		/// fully transparent inside) into <paramref name="bufferData"/>, for a click-through Highlight overlay
+		/// drawn on a layer surface. ARGB32 / premultiplied, directly compatible with WL_SHM_FORMAT_ARGB8888.
+		/// </summary>
+		internal static void RenderBorder(nint bufferData, int width, int height, int stride,
+			int thickness, double r, double g, double b)
+		{
+			var surface = ImageSurfaceCreateForData(bufferData, CairoFormatArgb32, width, height, stride);
+			var cr = Create(surface);
+
+			try
+			{
+				// SOURCE writes pixels verbatim, so the centre stays fully transparent (a visual hole) and
+				// the ring is laid down opaque.
+				SetOperator(cr, CairoOperatorSource);
+				SetSourceRgba(cr, 0, 0, 0, 0);
+				Paint(cr);
+
+				if (thickness > 0 && width > 0 && height > 0)
+				{
+					var d = Math.Min(thickness, Math.Min(width, height));
+					SetSourceRgba(cr, r, g, b, 1.0);
+					Rectangle(cr, 0, 0, width, d);                 // top
+					Rectangle(cr, 0, height - d, width, d);        // bottom
+					Rectangle(cr, 0, d, d, Math.Max(0, height - 2 * d));            // left
+					Rectangle(cr, width - d, d, d, Math.Max(0, height - 2 * d));    // right
+					Fill(cr);
+				}
+
+				SurfaceFlush(surface);
+			}
+			finally
+			{
+				Destroy(cr);
+				SurfaceDestroy(surface);
+			}
+		}
 	}
 }
 #endif

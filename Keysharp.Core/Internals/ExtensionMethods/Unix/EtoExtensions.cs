@@ -158,7 +158,56 @@ namespace Eto.Forms
         // P/Invoke for X11 window id
         [DllImport("libgdk-3.so.0")]
         private static extern IntPtr gdk_x11_window_get_xid(IntPtr window);
+
+        // Click-through uses GDK's backend-agnostic input-shape API together with a real cairo region
+        // (the known-good hudkit-wayland recipe). gdk_window_input_shape_combine_region routes itself to the
+        // X11 SHAPE input region or to the wl_surface input region depending on the active GDK backend, so a
+        // single path works on both X11 and Wayland — and it avoids GtkSharp's Cairo.Region wrapper, which
+        // did not produce a working empty region for us.
+        [DllImport("libcairo.so.2")]
+        private static extern IntPtr cairo_region_create();
+        [DllImport("libcairo.so.2")]
+        private static extern void cairo_region_destroy(IntPtr region);
+        [DllImport("libgdk-3.so.0")]
+        private static extern void gdk_window_input_shape_combine_region(IntPtr window, IntPtr shapeRegion, int offsetX, int offsetY);
+
+        // Sets the xdg-toplevel app_id of a window on the Wayland backend. Re-sends to the live toplevel
+        // when called after the window is mapped (GTK keeps impl->application_id and forwards it), so the
+        // compositor re-resolves the matching desktop file.
+        [DllImport("libgdk-3.so.0")]
+        private static extern void gdk_wayland_window_set_application_id(IntPtr window, [MarshalAs(UnmanagedType.LPUTF8Str)] string appId);
 #endif
+
+        // On Wayland a compositor (e.g. KWin) derives a window's titlebar/taskbar icon from its xdg-toplevel
+        // app_id, which it matches to an installed "<app_id>.desktop" file and renders that entry's themed
+        // Icon=. GTK3 exposes no per-window icon protocol on Wayland, so the pixbuf we set via Window.Icon is
+        // ignored there (that path only feeds X11's _NET_WM_ICON). GTK's default app_id is the entry-assembly
+        // name ("Keyview"/"Keysharp"), which does not match the lower-case installed desktop files, so the
+        // compositor shows a generic icon. Overriding the app_id to the desktop-file base name restores the
+        // logo. No-op on X11, where the pixbuf icon already works.
+        // Returns true if the app_id was applied; false if it couldn't be (not Wayland, or the GdkWindow
+        // isn't realized yet — on Wayland that is common at Shown, so the caller should retry once the map
+        // has settled, e.g. via AsyncInvoke).
+        internal static bool SetWaylandAppId(Form form, string appId)
+        {
+            if (form == null || string.IsNullOrEmpty(appId) || !Keysharp.Internals.Platform.Desktop.IsWaylandSession)
+                return false;
+
+#if LINUX
+            try
+            {
+                if (form.ToNative() is Gtk.Window gtkWin && gtkWin.Window is Gdk.Window gdkWin)
+                {
+                    gdk_wayland_window_set_application_id(gdkWin.Handle, appId);
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+#endif
+            return false;
+        }
 
         // Makes a window transparent to mouse input (clicks pass through to whatever is beneath it).
         // Eto has no cross-platform option for this, so the native window is reached per backend:
@@ -181,11 +230,21 @@ namespace Eto.Forms
                 {
                     if (enable)
                     {
-                        using var empty = new Cairo.Region();
-                        gdkWin.InputShapeCombineRegion(empty, 0, 0);
+                        // An empty input region means the window receives no pointer input, so clicks fall
+                        // straight through to whatever is beneath it.
+                        var region = cairo_region_create();
+                        gdk_window_input_shape_combine_region(gdkWin.Handle, region, 0, 0);
+                        cairo_region_destroy(region);
                     }
                     else
-                        gdkWin.InputShapeCombineRegion(null, 0, 0);
+                    {
+                        // A null region restores the default: the whole window receives input again.
+                        gdk_window_input_shape_combine_region(gdkWin.Handle, IntPtr.Zero, 0, 0);
+                    }
+
+                    // On the Wayland backend GTK pushes the input region to the wl_surface only on the next
+                    // frame (on X11 it applies immediately), so force a redraw to make it take effect.
+                    gtkWin.QueueDraw();
                 }
 #endif
             }

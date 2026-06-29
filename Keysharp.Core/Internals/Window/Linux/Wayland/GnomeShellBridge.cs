@@ -27,6 +27,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Global pointer position in compositor coordinates.</summary>
 		Task<(int X, int Y)> GetCursorPositionAsync();
 
+		/// <summary>Work area (monitor minus panels/struts) of the primary monitor, in screen coordinates.</summary>
+		Task<(int X, int Y, int Width, int Height)> GetWorkAreaAsync();
+
 		/// <summary>Window handle is the stable_sequence uint32 of Meta.Window.</summary>
 		Task FocusWindowAsync(ulong handle);
 
@@ -42,7 +45,21 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Keep the window above all others (true) or clear keep-above (false).</summary>
 		Task SetWindowAboveAsync(ulong handle, bool above);
 
+		/// <summary>Show (true) or hide (false) the window's titlebar/decorations.</summary>
+		Task SetWindowDecoratedAsync(ulong handle, bool decorated);
+
 		Task CloseWindowAsync(ulong handle);
+
+		/// <summary>
+		/// Draw or update a click-through rectangle-outline overlay (GNOME's stand-in for the
+		/// wlr-layer-shell highlight Keysharp uses on KWin/wlroots). id identifies the overlay so it can
+		/// be moved/resized or hidden; geometry is in screen coordinates; color is an "RRGGBB" hex string;
+		/// thickness is the outline width in pixels.
+		/// </summary>
+		Task ShowHighlightAsync(uint id, int x, int y, int width, int height, string color, int thickness);
+
+		/// <summary>Remove the overlay previously created with the given id.</summary>
+		Task HideHighlightAsync(uint id);
 
 		Task SendMouseMoveAbsoluteAsync(int x, int y);
 		Task SendMouseMoveRelativeAsync(int dx, int dy);
@@ -118,6 +135,32 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		internal static bool QueryWorkArea(out Rectangle area)
+		{
+			area = Rectangle.Empty;
+
+			try
+			{
+				var p = EnsureProxy();
+
+				if (p == null)
+					return false;
+
+				using var cts = new CancellationTokenSource(TimeoutMs);
+				var (x, y, w, h) = Task.Run(() => p.GetWorkAreaAsync(), cts.Token).GetAwaiter().GetResult();
+
+				if (w <= 0 || h <= 0)
+					return false;
+
+				area = new Rectangle(x, y, w, h);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
 		internal static string QueryWindowList(bool includeHidden)
 			=> Run(p => p.GetWindowListAsync(includeHidden));
 
@@ -136,8 +179,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool SendSetWindowAbove(ulong handle, bool above)
 			=> RunCommand(p => p.SetWindowAboveAsync(handle, above));
 
+		internal static bool SendSetWindowDecorated(ulong handle, bool decorated)
+			=> RunCommand(p => p.SetWindowDecoratedAsync(handle, decorated));
+
 		internal static bool SendCloseWindow(ulong handle)
 			=> RunCommand(p => p.CloseWindowAsync(handle));
+
+		internal static bool SendShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
+			=> RunCommand(p => p.ShowHighlightAsync(id, x, y, width, height, color, thickness));
+
+		internal static bool SendHideHighlight(uint id)
+			=> RunCommand(p => p.HideHighlightAsync(id));
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
 			=> RunCommand(p => p.SendMouseMoveAbsoluteAsync(x, y));

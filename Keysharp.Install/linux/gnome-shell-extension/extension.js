@@ -13,6 +13,7 @@ import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Clutter from 'gi://Clutter';
 import Shell from 'gi://Shell';
+import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const SERVICE_NAME = 'io.github.keysharp.GnomeShell';
@@ -42,6 +43,14 @@ const DBUS_IFACE_XML = `
       <arg type="i" direction="out" name="y"/>
     </method>
 
+    <!-- Work area (primary monitor minus panels/struts), in screen coordinates. -->
+    <method name="GetWorkArea">
+      <arg type="i" direction="out" name="x"/>
+      <arg type="i" direction="out" name="y"/>
+      <arg type="i" direction="out" name="width"/>
+      <arg type="i" direction="out" name="height"/>
+    </method>
+
     <!-- Window handle is the stable_sequence uint32 of Meta.Window. -->
     <method name="FocusWindow">
       <arg type="t" direction="in" name="handle"/>
@@ -67,6 +76,13 @@ const DBUS_IFACE_XML = `
     <method name="SetWindowAbove">
       <arg type="t" direction="in" name="handle"/>
       <arg type="b" direction="in" name="above"/>
+    </method>
+
+    <!-- decorated: true = show the titlebar/frame, false = hide it (the GNOME counterpart of KWin's
+         noBorder, used by borderless overlays and WinSetStyle -WS_CAPTION). -->
+    <method name="SetWindowDecorated">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="in" name="decorated"/>
     </method>
 
     <method name="CloseWindow">
@@ -119,6 +135,27 @@ const DBUS_IFACE_XML = `
       <arg type="ay" direction="out" name="pngData"/>
     </method>
 
+    <!-- Draw (or update) a click-through rectangle-outline overlay on the compositor stage — the
+         GNOME counterpart of the wlr-layer-shell highlight Keysharp uses on KWin/wlroots (GNOME has
+         no layer-shell, so the overlay has to live inside the shell process). id is a caller-chosen
+         token so the same overlay can be moved/resized or hidden later; x/y/width/height are in global
+         compositor coordinates; color is an "RRGGBB" hex string; thickness is the outline width in px.
+         The overlay is non-reactive and excluded from the shell input region, so it never eats clicks. -->
+    <method name="ShowHighlight">
+      <arg type="u" direction="in" name="id"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="s" direction="in" name="color"/>
+      <arg type="i" direction="in" name="thickness"/>
+    </method>
+
+    <!-- Remove the overlay previously created with the given id. Unknown ids are ignored. -->
+    <method name="HideHighlight">
+      <arg type="u" direction="in" name="id"/>
+    </method>
+
     <!-- Emitted whenever the focused window changes. Carries the same
          JSON as GetActiveWindow. -->
     <signal name="ActiveWindowChanged">
@@ -152,6 +189,8 @@ export default class KeysharpExtension {
         this._vPointer     = null;
         this._focusId      = null;
         this._winCreatedId = null;
+        // id (uint) -> array of edge actors making up one highlight overlay.
+        this._highlights   = new Map();
     }
 
     enable() {
@@ -205,6 +244,10 @@ export default class KeysharpExtension {
     }
 
     disable() {
+        // Tear down any overlays still on screen.
+        for (const id of [...this._highlights.keys()])
+            this._removeHighlight(id);
+
         if (this._winCreatedId !== null) {
             global.display.disconnect(this._winCreatedId);
             this._winCreatedId = null;
@@ -278,6 +321,14 @@ export default class KeysharpExtension {
         return [Math.round(x), Math.round(y)];
     }
 
+    GetWorkArea() {
+        // Work area of the primary monitor, with panels/struts already subtracted by Mutter — the
+        // panel-excluded usable area a foreign Wayland client cannot compute for itself.
+        const idx = Main.layoutManager.primaryIndex;
+        const wa = Main.layoutManager.getWorkAreaForMonitor(idx);
+        return [Math.round(wa.x), Math.round(wa.y), Math.round(wa.width), Math.round(wa.height)];
+    }
+
     FocusWindow(handle) {
         const win = this._findWindow(handle);
         if (!win) return;
@@ -336,6 +387,41 @@ export default class KeysharpExtension {
         const win = this._findWindow(handle);
         if (win)
             win.delete(global.get_current_time());
+    }
+
+    // Hide/show a window's titlebar — the GNOME counterpart of KWin's noBorder.
+    //
+    // Mutter does not server-side-decorate Wayland clients (unlike KWin), so a borderless overlay made
+    // with GTK decorated=false already has no titlebar here and this is a no-op for it. There is also no
+    // public Mutter API to toggle decorations for a Wayland client (its decorations are client-side, drawn
+    // by the app itself), so the only case we can act on is an XWayland (X11) window, whose Motif decoration
+    // hint Mutter honours. We set that hint via xprop when available; otherwise we return gracefully so the
+    // caller treats it as best-effort.
+    SetWindowDecorated(handle, decorated) {
+        const win = this._findWindow(handle);
+        if (!win)
+            return;
+
+        try {
+            const isX11 = (typeof win.get_client_type === 'function')
+                ? (win.get_client_type() === Meta.WindowClientType.X11)
+                : (typeof win.get_xwindow === 'function' && win.get_xwindow() !== 0);
+
+            if (!isX11 || typeof win.get_xwindow !== 'function')
+                return; // Wayland client: decorations are client-side; nothing the compositor can remove.
+
+            const xid = win.get_xwindow();
+            if (!xid)
+                return;
+
+            // _MOTIF_WM_HINTS: flags=2 (MWM_HINTS_DECORATIONS), decorations field 0 = none / 1 = all.
+            const decor = decorated ? 1 : 0;
+            GLib.spawn_command_line_async(
+                `xprop -id ${xid} -f _MOTIF_WM_HINTS 32c ` +
+                `-set _MOTIF_WM_HINTS "2, 0, ${decor}, 0, 0"`);
+        } catch (e) {
+            logError(e, 'Keysharp: SetWindowDecorated failed');
+        }
     }
 
     SendMouseMoveAbsolute(x, y) {
@@ -474,9 +560,68 @@ export default class KeysharpExtension {
         }
     }
 
+    // Draw or update a click-through rectangle-outline overlay. GNOME has no wlr-layer-shell, so
+    // instead of a layer surface we add four edge actors to the shell's top chrome. Two things make
+    // them click-through: reactive:false (they never grab events) and addTopChrome(..., {
+    // affectsInputRegion: false }) (they are excluded from the shell's input region, so clicks fall
+    // through to the window beneath — the compositor-side equivalent of the layer surface's empty
+    // input region on KWin). Four edges (rather than one filled rect) keep the centre visually clear.
+    ShowHighlight(id, x, y, width, height, color, thickness) {
+        try {
+            this._removeHighlight(id);
+
+            if (width < 1 || height < 1)
+                return;
+
+            const t   = Math.max(1, thickness);
+            const css = `background-color: #${color};`;
+
+            const rects = [
+                [x,             y,              width,             t],                          // top
+                [x,             y + height - t, width,             t],                          // bottom
+                [x,             y + t,          t,                 Math.max(0, height - 2 * t)],// left
+                [x + width - t, y + t,          t,                 Math.max(0, height - 2 * t)],// right
+            ];
+
+            const edges = [];
+
+            for (const [ex, ey, ew, eh] of rects) {
+                if (ew < 1 || eh < 1)
+                    continue;
+
+                const a = new St.Widget({ reactive: false, style: css });
+                a.set_position(ex, ey);
+                a.set_size(ew, eh);
+                Main.layoutManager.addTopChrome(a, { affectsInputRegion: false });
+                edges.push(a);
+            }
+
+            this._highlights.set(id, edges);
+        } catch (e) {
+            logError(e, 'Keysharp: ShowHighlight failed');
+        }
+    }
+
+    HideHighlight(id) {
+        this._removeHighlight(id);
+    }
+
     // ----------------------------------------------------------------
     // Private helpers
     // ----------------------------------------------------------------
+
+    _removeHighlight(id) {
+        const edges = this._highlights.get(id);
+        if (!edges)
+            return;
+
+        for (const a of edges) {
+            try { Main.layoutManager.removeChrome(a); } catch (_e) {}
+            try { a.destroy(); } catch (_e) {}
+        }
+
+        this._highlights.delete(id);
+    }
 
     _emitActiveWindowChanged() {
         if (!this._dbusImpl) return;
@@ -583,6 +728,8 @@ export default class KeysharpExtension {
             minimized: !!win.minimized,
             maximized,
             visible:   !win.minimized,
+            alwaysOnTop: !!win.is_above(),
+            decorated:   !!win.decorated,
         };
     }
 

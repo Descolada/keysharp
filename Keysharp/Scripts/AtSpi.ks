@@ -3001,7 +3001,9 @@ class AtSpi {
             ; churn flickered the highlight and crashed Cinnamon. Four edge windows keep the centre clear, so the
             ; at-point lookup returns the real element underneath and the highlight stays put.
             Loop 4
-                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale +E0x08000000 +ClickThrough"))
+                ; +ClickThrough precedes -Caption so the window is flagged non-CSD before the Wayland titlebar
+                ; trick would run (a CSD window's input region gets clobbered by GTK, breaking click-through).
+                AtSpi.__HighlightGuis[this].Push(Gui("+AlwaysOnTop +ClickThrough -Caption +ToolWindow -DPIScale +E0x08000000"))
             Loop 4 {
                 i := A_Index
                 x1 := (i=2 ? loc.x+loc.w : loc.x-d)

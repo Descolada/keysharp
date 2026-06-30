@@ -91,9 +91,15 @@ namespace Keysharp.Internals
 		Keysharp.Internals.Window.POINT ClientToScreen(nint h);
 	}
 
-	/// <summary>Foreign window MUTATE surface (by handle). Unsupported per-window ops return false so the
-	/// caller can raise/fallback. Implementations should return true only when the requested operation was
-	/// supported and either succeeded or already produced the native/runtime error they want the caller to see.</summary>
+	/// <summary>Foreign window MUTATE surface (by handle).</summary>
+	/// <remarks>
+	/// <para><c>Try*</c> methods on this surface use <c>false</c> as a capability result: the operation is not
+	/// implemented, is not exposed by the current platform/compositor, or no backend-specific fallback exists.</para>
+	/// <para>If an implementation actually attempts a supported native operation and that operation fails, it should
+	/// preserve the existing native/runtime error behavior instead of converting the failure to <c>false</c>. The
+	/// user-facing window built-ins translate unsupported <c>false</c> results into <c>OSError</c>; internal
+	/// best-effort callers may ignore them.</para>
+	/// </remarks>
 	internal interface IWindowControl
 	{
 		bool TrySetAlwaysOnTop(nint h, bool onTop);

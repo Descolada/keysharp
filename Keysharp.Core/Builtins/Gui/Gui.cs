@@ -403,9 +403,19 @@ namespace Keysharp.Builtins
 				form.MainMenuStrip = menuBar.MenuStrip;
 #else
 				menuBar.MenuStrip.SyncEtoMenuBar();
-				// Merge only the App (Quit) and Edit menus into the script's menu so editing shortcuts work;
-				// -AppMenu opts out entirely. File/Window/View aren't useful for most script GUIs.
-				menuBar.MenuStrip.EtoMenuBar.IncludeSystemItems = includeAppMenu ? (Eto.Forms.MenuBarSystemItems.Quit | Eto.Forms.MenuBarSystemItems.Edit) : Eto.Forms.MenuBarSystemItems.None;
+				var systemItems = Eto.Forms.MenuBarSystemItems.None;
+
+				if (includeAppMenu)
+				{
+					systemItems = Eto.Forms.MenuBarSystemItems.Quit;
+
+					// Eto versions differ: some expose Edit separately, while this fork folds it into Common.
+					systemItems |= Enum.TryParse("Edit", out Eto.Forms.MenuBarSystemItems editItems)
+						? editItems
+						: Eto.Forms.MenuBarSystemItems.Common;
+				}
+
+				menuBar.MenuStrip.EtoMenuBar.IncludeSystemItems = systemItems;
 				form.Menu = menuBar.MenuStrip.EtoMenuBar;
 				// form.Menu assignment ran Eto's one-time CreateSystemMenu (OnPreLoad); from now on
 				// SyncEtoMenuBar must re-merge the system menu itself after it rebuilds the items.

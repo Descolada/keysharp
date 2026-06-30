@@ -8,7 +8,17 @@ namespace Keysharp.Builtins
 
 		public static object WinMaximizeAll()
 		{
-			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Maximized); });
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var window in WindowQuery.AllWindows)
+					if (!Platform.Window.TrySetState(window.Handle, FormWindowState.Maximized))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinMaximizeAll));
+
 			return DefaultObject;
 		}
 
@@ -475,7 +485,10 @@ namespace Keysharp.Builtins
 		{
 			EnsureWindowAutomationPermission("WinActivate");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
-				Platform.Window.TryActivate(win.Handle);
+			{
+				if (!Platform.Window.TryActivate(win.Handle))
+					return WindowOperationUnsupported(nameof(WinActivate));
+			}
 
 			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
@@ -488,7 +501,10 @@ namespace Keysharp.Builtins
 		{
 			EnsureWindowAutomationPermission("WinActivateBottom");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowInfoBase win)
-				Platform.Window.TryActivate(win.Handle);
+			{
+				if (!Platform.Window.TryActivate(win.Handle))
+					return WindowOperationUnsupported(nameof(WinActivateBottom));
+			}
 
 			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
@@ -533,15 +549,24 @@ namespace Keysharp.Builtins
 			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText);
 
+			var unsupported = false;
+
 			foreach (var win in windows)
 			{
-				_ = Platform.Window.TryClose(win.Handle);
+				if (!Platform.Window.TryClose(win.Handle))
+				{
+					unsupported = true;
+					continue;
+				}
 
 				if (seconds != double.MinValue)
 					_ = win.WaitClose(seconds == 0 ? 0.5 : seconds);
 			}
 
 			WindowInfoBase.DoWinDelay();
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinClose));
+
 			return DefaultObject;
 		}
 
@@ -770,11 +795,19 @@ namespace Keysharp.Builtins
 									 object excludeTitle = null,
 									 object excludeText = null)
 		{
+			var unsupported = false;
 			DoDelayedAction(() =>
 			{
 				var matches = SearchWindows(winTitle, winText, excludeTitle, excludeText);
-				matches.ForEach(win => Platform.Window.TryHide(win.Handle));
+
+				foreach (var win in matches)
+					if (!Platform.Window.TryHide(win.Handle))
+						unsupported = true;
 			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinHide));
+
 			return DefaultObject;
 		}
 
@@ -792,15 +825,24 @@ namespace Keysharp.Builtins
 			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText, DefaultErrorLong);
 
+			var unsupported = false;
+
 			foreach (var win in windows)
 			{
-				_ = Platform.Window.TryKill(win.Handle);
+				if (!Platform.Window.TryKill(win.Handle))
+				{
+					unsupported = true;
+					continue;
+				}
 
 				if (seconds != double.MinValue)
 					_ = win.WaitClose(seconds == 0 ? 0.5 : seconds);
 			}
 
 			WindowInfoBase.DoWinDelay();
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinKill));
+
 			return DefaultObject;
 		}
 
@@ -809,7 +851,17 @@ namespace Keysharp.Builtins
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Maximized)));
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var win in SearchWindows(winTitle, winText, excludeTitle, excludeText))
+					if (!Platform.Window.TrySetState(win.Handle, FormWindowState.Maximized))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinMaximize));
+
 			return DefaultObject;
 		}
 
@@ -818,19 +870,49 @@ namespace Keysharp.Builtins
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Minimized)));
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var win in SearchWindows(winTitle, winText, excludeTitle, excludeText))
+					if (!Platform.Window.TrySetState(win.Handle, FormWindowState.Minimized))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinMinimize));
+
 			return DefaultObject;
 		}
 
 		public static object WinMinimizeAll()
 		{
-			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Minimized); });
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var window in WindowQuery.AllWindows)
+					if (!Platform.Window.TrySetState(window.Handle, FormWindowState.Minimized))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinMinimizeAll));
+
 			return DefaultObject;
 		}
 
 		public static object WinMinimizeAllUndo(params object[] obj)
 		{
-			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Normal); });
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var window in WindowQuery.AllWindows)
+					if (!Platform.Window.TrySetState(window.Handle, FormWindowState.Normal))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinMinimizeAllUndo));
+
 			return DefaultObject;
 		}
 
@@ -859,7 +941,7 @@ namespace Keysharp.Builtins
 					var setSize = w != int.MinValue || h != int.MinValue;
 
 					if (!Platform.Window.TryMoveResize(win.Handle, new Rectangle(_x, _y, w, h), setPos, setSize))
-						_ = Errors.OSErrorOccurred("Moving/resizing this window is not supported on the current platform/compositor.");
+						return WindowOperationUnsupported(nameof(WinMove));
 
 					WindowInfoBase.DoWinDelay();
 				}
@@ -873,7 +955,12 @@ namespace Keysharp.Builtins
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Bottom); });
+			DoAction(() =>
+			{
+				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win
+					&& !Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Bottom))
+					_ = WindowOperationUnsupported(nameof(WinMoveBottom));
+			});
 			return DefaultObject;
 		}
 
@@ -882,7 +969,12 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Top); });
+			DoAction(() =>
+			{
+				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win
+					&& !Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Top))
+					_ = WindowOperationUnsupported(nameof(WinMoveTop));
+			});
 			return DefaultObject;
 		}
 
@@ -891,7 +983,12 @@ namespace Keysharp.Builtins
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) _ = Platform.Window.TryRedraw(win.Handle); });
+			DoAction(() =>
+			{
+				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win
+					&& !Platform.Window.TryRedraw(win.Handle))
+					_ = WindowOperationUnsupported(nameof(WinRedraw));
+			});
 			return DefaultObject;
 		}
 
@@ -900,7 +997,17 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Normal)));
+			var unsupported = false;
+			DoDelayedAction(() =>
+			{
+				foreach (var win in SearchWindows(winTitle, winText, excludeTitle, excludeText))
+					if (!Platform.Window.TrySetState(win.Handle, FormWindowState.Normal))
+						unsupported = true;
+			});
+
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinRestore));
+
 			return DefaultObject;
 		}
 
@@ -910,7 +1017,7 @@ namespace Keysharp.Builtins
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			WinSetToggleX((win, b) => Platform.Window.TrySetAlwaysOnTop(win.Handle, b), win => win.AlwaysOnTop, newSetting, winTitle, winText, excludeTitle, excludeText);
+			WinSetToggleX((win, b) => Platform.Window.TrySetAlwaysOnTop(win.Handle, b), win => win.AlwaysOnTop, newSetting, nameof(WinSetAlwaysOnTop), winTitle, winText, excludeTitle, excludeText);
 			return DefaultObject;
 		}
 
@@ -920,7 +1027,7 @@ namespace Keysharp.Builtins
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			WinSetToggleX((win, b) => Platform.Window.TrySetEnabled(win.Handle, b), win => win.Enabled, newSetting, winTitle, winText, excludeTitle, excludeText);
+			WinSetToggleX((win, b) => Platform.Window.TrySetEnabled(win.Handle, b), win => win.Enabled, newSetting, nameof(WinSetEnabled), winTitle, winText, excludeTitle, excludeText);
 			return DefaultObject;
 		}
 
@@ -1045,7 +1152,10 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTitle");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				_ = Platform.Window.TrySetTitle(win.Handle, newTitle.As());   // No A_WinDelay: AHK's WinSetTitle does not call DoWinDelay.
+				if (!Platform.Window.TrySetTitle(win.Handle, newTitle.As()))
+					return WindowOperationUnsupported(nameof(WinSetTitle));
+
+				// No A_WinDelay: AHK's WinSetTitle does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1060,7 +1170,10 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTransColor");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				_ = Platform.Window.TrySetTransparentColor(win.Handle, color);   // No A_WinDelay: AHK's WinSetTransColor does not call DoWinDelay.
+				if (!Platform.Window.TrySetTransparentColor(win.Handle, color))
+					return WindowOperationUnsupported(nameof(WinSetTransColor));
+
+				// No A_WinDelay: AHK's WinSetTransColor does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1075,7 +1188,10 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetTransparent");
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				_ = Platform.Window.TrySetTransparency(win.Handle, n);   // No A_WinDelay: AHK's WinSetTransparent does not call DoWinDelay.
+				if (!Platform.Window.TrySetTransparency(win.Handle, n))
+					return WindowOperationUnsupported(nameof(WinSetTransparent));
+
+				// No A_WinDelay: AHK's WinSetTransparent does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1089,16 +1205,22 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinShow");
 			var tv = Script.TheScript.Threads.CurrentThread.configData;
 			var prev = tv.detectHiddenWindows;
+			var unsupported = false;
 			tv.detectHiddenWindows = true;
 			try
 			{
-				SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TryShow(win.Handle));
+				foreach (var win in SearchWindows(winTitle, winText, excludeTitle, excludeText))
+					if (!Platform.Window.TryShow(win.Handle))
+						unsupported = true;
 			}
 			finally
 			{
 				tv.detectHiddenWindows = prev;
 			}
 			WindowInfoBase.DoWinDelay();
+			if (unsupported)
+				return WindowOperationUnsupported(nameof(WinShow));
+
 			return DefaultObject;
 		}
 
@@ -1151,7 +1273,7 @@ namespace Keysharp.Builtins
 				{
 					var lastFound = WindowQuery.LastFound;
 
-					if (lastFound != null && lastFound.IsSpecified && lastFound.Active)
+					if (lastFound != null && lastFound.IsSpecified && Platform.Window.GetActive(lastFound.Handle))
 						win = lastFound;
 				}
 				else
@@ -1222,10 +1344,7 @@ namespace Keysharp.Builtins
 				{
 					while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
 					{
-						// Re-resolve LastFound each poll (as WinWaitActive does) so a Wayland-backend window's
-						// cached snapshot is refreshed; reading the originally-held item would observe a frozen
-						// Active forever and never see the deactivation.
-						if (WindowQuery.LastFound is not WindowInfoBase cur || !cur.IsSpecified || !cur.Active)
+						if (WindowQuery.LastFound is not WindowInfoBase cur || !cur.IsSpecified || !Platform.Window.GetActive(cur.Handle))
 						{
 							b = true;
 							break;

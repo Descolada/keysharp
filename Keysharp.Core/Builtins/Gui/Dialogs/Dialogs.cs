@@ -94,7 +94,7 @@ namespace Keysharp.Builtins
 				}
 			}
 
-			_ = WindowInfo.SetForegroundWindowEx(WindowQuery.CreateWindow(dialogHwnd));
+			_ = Platform.Window.TryActivate(dialogHwnd);
 			CompletePendingWindowsMsgBoxShow(request);
 
 			return dialogHwnd;

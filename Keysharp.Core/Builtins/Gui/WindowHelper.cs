@@ -7,6 +7,22 @@ namespace Keysharp.Builtins
 		internal static void EnsureWindowAutomationPermission(string operation)
 			=> _ = Script.TheScript.Permissions.EnsureAccessibilityAutomation(operation: operation);
 
+		internal static object WindowOperationUnsupported(string commandName)
+			=> Errors.OSErrorOccurred("", $"{commandName} is not implemented on {WindowOperationPlatformName()}.");
+
+		private static string WindowOperationPlatformName()
+		{
+#if WINDOWS
+			return "Windows";
+#elif LINUX
+			return Platform.Desktop.IsWaylandSession ? "Linux/Wayland" : "Linux";
+#elif OSX
+			return "macOS";
+#else
+			return "this platform";
+#endif
+		}
+
 		internal static (bool, nint) CtrlTonint(object ctrl)
 		{
 			if (ctrl == null)
@@ -121,7 +137,8 @@ namespace Keysharp.Builtins
 						else exVal = val.Al();
 					}
 
-					_ = Platform.Window.TrySetStyle(win.Handle, win.Style, exVal);   // ex-style changes, style unchanged
+					if (!Platform.Window.TrySetExStyle(win.Handle, exVal))
+						_ = WindowOperationUnsupported("WinSetExStyle");
 				}
 				else
 				{
@@ -141,14 +158,16 @@ namespace Keysharp.Builtins
 						else stVal = val.ParseLong().Value;
 					}
 
-					_ = Platform.Window.TrySetStyle(win.Handle, stVal, win.ExStyle);   // style changes, ex-style unchanged
+					if (!Platform.Window.TrySetStyle(win.Handle, stVal))
+						_ = WindowOperationUnsupported("WinSetStyle");
 				}
 				// No A_WinDelay: AHK's WinSetStyle/WinSetExStyle do not call DoWinDelay.
 			}
 		}
 
-		internal static void WinSetToggleX(Action<WindowInfoBase, bool> set, Func<WindowInfoBase, bool> get,
+		internal static void WinSetToggleX(Func<WindowInfoBase, bool, bool> set, Func<WindowInfoBase, bool> get,
 										   object value,
+										   string commandName,
 										   object winTitle = null,
 										   object winText = null,
 										   object excludeTitle = null,
@@ -159,12 +178,18 @@ namespace Keysharp.Builtins
 
 			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
+				var supported = true;
+
 				if (val == 0)
-					set(win, false);
+					supported = set(win, false);
 				else if (val == 1)
-					set(win, true);
+					supported = set(win, true);
 				else if (val == -1)
-					set(win, !get(win));
+					supported = set(win, !get(win));
+
+				if (!supported)
+					_ = WindowOperationUnsupported(commandName);
+
 				// No A_WinDelay: AHK's WinSetAlwaysOnTop/WinSetEnabled do not call DoWinDelay.
 			}
 		}

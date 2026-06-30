@@ -295,7 +295,7 @@ namespace Keysharp.Internals.Input.Windows
 							// of its title bar buttons is down-clicked.
 							workaroundVK = vk;
 							workaroundHitTest = hitTest;
-							_ = WindowInfo.SetForegroundWindowEx(WindowQuery.CreateWindow(parentUnderCursor)); // Try to reproduce customary behavior.
+							_ = Platform.Window.TryActivate(parentUnderCursor); // Try to reproduce customary behavior.
 							// For simplicity, aRepeatCount>1 is ignored and DoMouseDelay() is not done.
 							return true;
 						}

@@ -91,14 +91,16 @@ namespace Keysharp.Internals
 		Keysharp.Internals.Window.POINT ClientToScreen(nint h);
 	}
 
-	/// <summary>Foreign window MUTATE surface (by handle). Unsupported per-window ops return false; the
-	/// caller (WindowInfo) raises OSError.</summary>
+	/// <summary>Foreign window MUTATE surface (by handle). Unsupported per-window ops return false so the
+	/// caller can raise/fallback. Implementations should return true only when the requested operation was
+	/// supported and either succeeded or already produced the native/runtime error they want the caller to see.</summary>
 	internal interface IWindowControl
 	{
 		bool TrySetAlwaysOnTop(nint h, bool onTop);
 		bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize);
 		bool TrySetState(nint h, FormWindowState state);
-		bool TrySetStyle(nint h, long style, long exStyle);
+		bool TrySetStyle(nint h, long style);
+		bool TrySetExStyle(nint h, long exStyle);
 		bool TrySetTransparency(nint h, object alpha);
 		bool TryActivate(nint h);
 		bool TrySetZOrder(nint h, ZOrder z);

@@ -10,6 +10,62 @@ namespace Keysharp.Tests
 	{
 		private const string MsgBoxTitle = "this is a sample title";
 
+#if WINDOWS
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
+		public void WinSetStyleDoesNotAlterExStyle()
+		{
+			using var form = new Form { Text = nameof(WinSetStyleDoesNotAlterExStyle) };
+			var handle = form.Handle;
+			var oldDetectHiddenWindows = A_DetectHiddenWindows;
+			var originalStyle = WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_STYLE).ToInt64();
+			var originalExStyle = WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE).ToInt64();
+			var newStyle = originalStyle ^ WindowsAPI.WS_DISABLED;
+
+			try
+			{
+				A_DetectHiddenWindows = true;
+				WindowX.WinSetStyle(newStyle, $"ahk_id {handle.ToInt64()}");
+
+				Assert.AreEqual(newStyle, WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_STYLE).ToInt64());
+				Assert.AreEqual(originalExStyle, WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE).ToInt64());
+			}
+			finally
+			{
+				_ = WindowsAPI.SetWindowLongPtr(handle, WindowsAPI.GWL_STYLE, new nint(originalStyle));
+				_ = WindowsAPI.SetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE, new nint(originalExStyle));
+				A_DetectHiddenWindows = oldDetectHiddenWindows;
+			}
+		}
+
+		[Test, Category("Gui")]
+		[Apartment(ApartmentState.STA)]
+		public void WinSetExStyleDoesNotAlterStyle()
+		{
+			using var form = new Form { Text = nameof(WinSetExStyleDoesNotAlterStyle) };
+			var handle = form.Handle;
+			var oldDetectHiddenWindows = A_DetectHiddenWindows;
+			var originalStyle = WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_STYLE).ToInt64();
+			var originalExStyle = WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE).ToInt64();
+			var newExStyle = originalExStyle ^ WindowsAPI.WS_EX_TOOLWINDOW;
+
+			try
+			{
+				A_DetectHiddenWindows = true;
+				WindowX.WinSetExStyle(newExStyle, $"ahk_id {handle.ToInt64()}");
+
+				Assert.AreEqual(originalStyle, WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_STYLE).ToInt64());
+				Assert.AreEqual(newExStyle, WindowsAPI.GetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE).ToInt64());
+			}
+			finally
+			{
+				_ = WindowsAPI.SetWindowLongPtr(handle, WindowsAPI.GWL_STYLE, new nint(originalStyle));
+				_ = WindowsAPI.SetWindowLongPtr(handle, WindowsAPI.GWL_EXSTYLE, new nint(originalExStyle));
+				A_DetectHiddenWindows = oldDetectHiddenWindows;
+			}
+		}
+#endif
+
 #if !WINDOWS
 		[Test, Category("Gui")]
 		public void MainWindowInitializesHidden()

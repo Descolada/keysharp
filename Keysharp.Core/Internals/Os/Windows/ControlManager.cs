@@ -250,10 +250,10 @@ namespace Keysharp.Internals.Os.Windows
 			if (getctrlbycoords)
 			{
 				item = WindowSearch.SearchWindow(title, text, excludeTitle, excludeText, true);
-				var rect = new POINT(winx, winx);
+				var rect = new POINT(winx, winy);
 				_ = WindowsAPI.ClientToScreen(item.Handle, ref rect);
 				var pah = new PointAndHwnd(rect);
-				item.ChildFindPoint(pah);
+				Platform.Window.ChildFindPoint(item.Handle, pah);
 				item = pah.hwndFound != 0 ? WindowQuery.CreateWindow(pah.hwndFound) : item;
 			}
 
@@ -692,20 +692,23 @@ namespace Keysharp.Internals.Os.Windows
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowInfoBase item)
 			{
+				var exStyle = item.ExStyle;
+
 				if (val is long l)
-					item.ExStyle = l;
+					exStyle = l;
 				else if (val is double d)
-					item.ExStyle = (long)d;
+					exStyle = (long)d;
 				else if (val is string s)
 				{
 					long temp = 0;
 
-					if (Options.TryParse(s, "+", ref temp)) { item.ExStyle |= temp; }
-					else if (Options.TryParse(s, "-", ref temp)) { item.ExStyle &= ~temp; }
-					else if (Options.TryParse(s, "^", ref temp)) { item.ExStyle ^= temp; }
-					else item.ExStyle = val.Al();
+					if (Options.TryParse(s, "+", ref temp)) { exStyle |= temp; }
+					else if (Options.TryParse(s, "-", ref temp)) { exStyle &= ~temp; }
+					else if (Options.TryParse(s, "^", ref temp)) { exStyle ^= temp; }
+					else exStyle = val.Al();
 				}
 
+				_ = Platform.Window.TrySetExStyle(item.Handle, exStyle);
 				//else if (val is int i)
 				//  item.ExStyle = i;
 				//else if (val is uint ui)
@@ -717,20 +720,23 @@ namespace Keysharp.Internals.Os.Windows
 		{
 			if (WindowSearch.SearchControl(ctrl, title, text, excludeTitle, excludeText) is WindowInfoBase item)
 			{
+				var style = item.Style;
+
 				if (val is long l)
-					item.Style = l;
+					style = l;
 				else if (val is double d)
-					item.Style = (long)d;
+					style = (long)d;
 				else if (val is string s)
 				{
 					long temp = 0;
 
-					if (Options.TryParse(s, "+", ref temp)) { item.Style |= temp; }
-					else if (Options.TryParse(s, "-", ref temp)) { item.Style &= ~temp; }
-					else if (Options.TryParse(s, "^", ref temp)) { item.Style ^= temp; }
-					else item.Style = val.ParseLong().Value;
+					if (Options.TryParse(s, "+", ref temp)) { style |= temp; }
+					else if (Options.TryParse(s, "-", ref temp)) { style &= ~temp; }
+					else if (Options.TryParse(s, "^", ref temp)) { style ^= temp; }
+					else style = val.ParseLong().Value;
 				}
 
+				_ = Platform.Window.TrySetStyle(item.Handle, style);
 				//else if (val is int i)
 				//  item.Style = i;
 				//else if (val is uint ui)

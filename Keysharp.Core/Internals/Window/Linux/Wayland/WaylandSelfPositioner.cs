@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Keysharp.Internals.Os.Unix;
 
 #if LINUX
 namespace Keysharp.Internals.Window.Linux.Wayland

@@ -149,7 +149,7 @@ namespace Keysharp.Internals
 	{
 		public bool TryGetCursorPos(out int x, out int y)
 		{
-			var pos = Forms.Mouse.Position;
+			var pos = Cursor.Position;
 			x = Convert.ToInt32(pos.X);
 			y = Convert.ToInt32(pos.Y);
 			return true;

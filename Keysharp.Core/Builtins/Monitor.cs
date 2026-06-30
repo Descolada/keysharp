@@ -67,7 +67,7 @@ namespace Keysharp.Builtins
 		}
 
 		/// <summary>The working area (monitor minus panels/docks) of the primary monitor.</summary>
-		internal static Eto.Drawing.RectangleF GetPrimaryWorkArea()
+		internal static RectangleF GetPrimaryWorkArea()
 		{
 			var (screen, _) = ResolveScreen(null);
 			return WorkingAreaFor(screen);
@@ -80,14 +80,14 @@ namespace Keysharp.Builtins
 		/// bounds contain it. The backend reports only the primary/active monitor, so other monitors keep
 		/// Eto's value.
 		/// </summary>
-		private static Eto.Drawing.RectangleF WorkingAreaFor(Forms.Screen screen)
+		private static RectangleF WorkingAreaFor(Forms.Screen screen)
 		{
 #if LINUX
 			try
 			{
 				if (Platform.Screen.TryGetWorkArea(0, out var wa, out _) && wa.Width > 0 && wa.Height > 0
 					&& screen.Bounds.Contains(wa.X, wa.Y))
-					return new Eto.Drawing.RectangleF(wa.X, wa.Y, wa.Width, wa.Height);
+					return new RectangleF(wa.X, wa.Y, wa.Width, wa.Height);
 			}
 			catch
 			{

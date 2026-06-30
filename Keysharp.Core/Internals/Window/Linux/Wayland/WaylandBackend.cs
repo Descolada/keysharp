@@ -30,6 +30,22 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static IWaylandBackend Probe()
 		{
+			// These backends drive the *Wayland* compositor's privileged introspection (cursor/window
+			// geometry, z-order, input injection, overlays). In an X11/Xorg session the always-present X
+			// server owns all of that, so a Wayland backend must never engage — not even when
+			// XDG_CURRENT_DESKTOP names a compositor (GNOME and KDE both ship an Xorg session whose
+			// XDG_CURRENT_DESKTOP is still "GNOME"/"KDE", which is exactly how a probe-by-desktop picks the
+			// wrong path). Gating here, at the single source of every backend, means no current or future
+			// caller can pick one up in a non-Wayland session by forgetting its own IsWaylandSession check.
+			//
+			// This is deliberately above the KEYSHARP_WAYLAND_BACKEND override: that override selects AMONG
+			// Wayland compositors within a Wayland session; it is not an escape hatch for running a Wayland
+			// path under X11 (every consumer already short-circuits on !IsWaylandSession, so a forced backend
+			// would be dead code there anyway). An XWayland *client* in a Wayland session is unaffected —
+			// XDG_SESSION_TYPE is still "wayland" there, so IsWaylandSession stays true.
+			if (!Platform.Desktop.IsWaylandSession)
+				return null;
+
 			var forced = Environment.GetEnvironmentVariable("KEYSHARP_WAYLAND_BACKEND")?.Trim().ToLowerInvariant();
 
 			if (!string.IsNullOrEmpty(forced))
@@ -259,6 +275,46 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return TryParseSingleWindow(json, out window);
 			}
 
+			public bool TryGetWorkArea(out Rectangle area)
+			{
+				area = Rectangle.Empty;
+
+				var json = RunJson(WorkAreaScript, "workarea");
+				if (json.IsNullOrEmpty())
+					return false;
+
+				try
+				{
+					using var doc = JsonDocument.Parse(json);
+					var root = doc.RootElement;
+
+					if (!JsonBool(root, "ok") || !root.TryGetProperty("area", out var a) || a.ValueKind != JsonValueKind.Object)
+						return false;
+
+					var rect = new Rectangle(JsonInt(a, "x"), JsonInt(a, "y"), JsonInt(a, "width"), JsonInt(a, "height"));
+					if (rect.Width <= 0 || rect.Height <= 0)
+						return false;
+
+					area = rect;
+					return true;
+				}
+				catch
+				{
+					return false;
+				}
+			}
+
+			// clientArea(MaximizeArea, ...) is the area a maximized window gets = the work area (monitor minus
+			// panels). activeScreen/currentDesktop are an int+int on KWin 5 and Output+VirtualDesktop objects on
+			// KWin 6, but the matching clientArea overload exists on each, so passing them through works on both.
+			private const string WorkAreaScript = """
+function rd(r){ return r ? { x: Math.round(r.x||0), y: Math.round(r.y||0), width: Math.round(r.width||0), height: Math.round(r.height||0) } : null; }
+var area = null;
+try { area = workspace.clientArea(KWin.MaximizeArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) { area = null; }
+if (!area) { try { area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) {} }
+report({ ok: !!area, area: rd(area) });
+""";
+
 			public bool TryActivateWindow(nint handle)
 			{
 				if (!TryGetCompositorId(handle, out var id))
@@ -292,6 +348,22 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					+ "if (nh === -2147483648 || nh <= 0) nh = Math.round(g.height);\n"
 					+ "w.frameGeometry = { x: nx, y: ny, width: nw, height: nh };\n"
 					+ "report({ ok: true });\n", "move_resize");
+			}
+
+			public bool TrySetNoBorder(nint handle, bool noBorder)
+			{
+				if (!TryGetCompositorId(handle, out var id))
+					return false;
+
+				// KWin's per-window noBorder removes the server-side decoration (titlebar) without putting the
+				// window into GTK client-side-decoration mode — so, unlike the empty-titlebar CSD trick, it does
+				// not make GTK manage (and clobber) the surface input region. That is what lets a click-through
+				// overlay be both borderless and input-transparent.
+				return RunCommand(WindowHelpers
+					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
+					+ "if (!w) { report({ ok: false }); return; }\n"
+					+ $"try {{ w.noBorder = {(noBorder ? "true" : "false")}; }} catch (e) {{}}\n"
+					+ "report({ ok: true });\n", "no_border");
 			}
 
 			public bool TrySetWindowState(nint handle, FormWindowState state)
@@ -587,7 +659,9 @@ function windowInfo(w, includeSpecial) {
       active: safeBool(w.active),
       minimized: safeBool(w.minimized),
       maximized: isMaximized(w),
-      visible: !safeBool(w.hidden)
+      visible: !safeBool(w.hidden),
+      alwaysOnTop: safeBool(w.keepAbove),
+      decorated: !safeBool(w.noBorder)
     };
   } catch (e) {
     return null;
@@ -660,20 +734,20 @@ function findWindow(id) {
 				if (!JsonString(item, "id", out var id) || id.IsNullOrEmpty())
 					return false;
 
-				info = new WaylandWindowInfo
-				{
-					Handle = GetOrCreateHandle(id),
-					CompositorId = id,
-					Title = JsonString(item, "title"),
-					AppId = JsonString(item, "appId"),
-					PID = JsonLong(item, "pid"),
-					FrameGeometry = JsonRectangle(item, "frame"),
-					ClientGeometry = JsonRectangle(item, "client"),
-					Active = JsonBool(item, "active"),
-					Minimized = JsonBool(item, "minimized"),
-					Maximized = JsonBool(item, "maximized"),
-					Visible = JsonBool(item, "visible")
-				};
+				info = new WaylandWindowInfo(
+					handle: GetOrCreateHandle(id),
+					compositorId: id,
+					title: JsonString(item, "title"),
+					appId: JsonString(item, "appId"),
+					pid: JsonLong(item, "pid"),
+					frameGeometry: JsonRectangle(item, "frame"),
+					clientGeometry: JsonRectangle(item, "client"),
+					active: JsonBool(item, "active"),
+					minimized: JsonBool(item, "minimized"),
+					maximized: JsonBool(item, "maximized"),
+					visible: JsonBool(item, "visible"),
+					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
+					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"));
 				return true;
 			}
 
@@ -822,6 +896,9 @@ function findWindow(id) {
 			public bool TryGetCursorPos(out int x, out int y)
 				=> GnomeShellBridge.QueryCursorPosition(out x, out y);
 
+			public bool TryGetWorkArea(out Rectangle area)
+				=> GnomeShellBridge.QueryWorkArea(out area);
+
 			public bool TryListWindows(bool includeHidden, out IReadOnlyList<WaylandWindowInfo> windows)
 			{
 				windows = [];
@@ -928,6 +1005,17 @@ function findWindow(id) {
 				return GnomeShellBridge.SendSetWindowState(seq, (int)state);
 			}
 
+			public bool TrySetNoBorder(nint handle, bool noBorder)
+			{
+				if (!TryHandleToSeq(handle, out var seq))
+					return false;
+
+				// noBorder == hide titlebar == decorated false. (On GNOME this is a no-op for our own
+				// overlays — Mutter doesn't add server-side decorations, so decorated=false already yields
+				// no titlebar; the extension only acts on XWayland windows.)
+				return GnomeShellBridge.SendSetWindowDecorated(seq, !noBorder);
+			}
+
 			public bool TrySetAlwaysOnTop(nint handle, bool onTop)
 			{
 				if (!TryHandleToSeq(handle, out var seq))
@@ -943,6 +1031,17 @@ function findWindow(id) {
 
 				return GnomeShellBridge.SendCloseWindow(seq);
 			}
+
+			// GNOME has no wlr-layer-shell, so the Highlight builtin can't make a click-through layer
+			// surface itself; the shell extension draws the outline inside the compositor instead. The id
+			// is a plain caller-chosen token (not a window handle), so no TryHandleToSeq translation here.
+			public bool SupportsHighlight => true;
+
+			public bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
+				=> GnomeShellBridge.SendShowHighlight(id, x, y, width, height, color, thickness);
+
+			public bool TryHideHighlight(uint id)
+				=> GnomeShellBridge.SendHideHighlight(id);
 
 			public bool SupportsWindowEvents => true;
 
@@ -1010,20 +1109,20 @@ function findWindow(id) {
 				if (!ulong.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seq))
 					return false;
 
-				info = new WaylandWindowInfo
-				{
-					Handle = SeqToHandle(seq),
-					CompositorId = id,
-					Title = JsonString(item, "title"),
-					AppId = JsonString(item, "appId"),
-					PID = JsonLong(item, "pid"),
-					FrameGeometry = JsonRectangle(item, "frame"),
-					ClientGeometry = JsonRectangle(item, "client"),
-					Active = JsonBool(item, "active"),
-					Minimized = JsonBool(item, "minimized"),
-					Maximized = JsonBool(item, "maximized"),
-					Visible = JsonBool(item, "visible"),
-				};
+				info = new WaylandWindowInfo(
+					handle: SeqToHandle(seq),
+					compositorId: id,
+					title: JsonString(item, "title"),
+					appId: JsonString(item, "appId"),
+					pid: JsonLong(item, "pid"),
+					frameGeometry: JsonRectangle(item, "frame"),
+					clientGeometry: JsonRectangle(item, "client"),
+					active: JsonBool(item, "active"),
+					minimized: JsonBool(item, "minimized"),
+					maximized: JsonBool(item, "maximized"),
+					visible: JsonBool(item, "visible"),
+					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
+					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"));
 				return true;
 			}
 

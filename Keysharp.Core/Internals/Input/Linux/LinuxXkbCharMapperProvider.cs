@@ -212,7 +212,7 @@ namespace Keysharp.Internals.Input.Unix
 
 			var baseRune = new Rune(cp);
 
-			// Caps Lock only toggles letter case (matches PlatformManager.ToUnicode).
+			// Caps Lock only toggles letter case (matches Platform.Keyboard.ToUnicode).
 			if (capsLock && Rune.IsLetter(baseRune))
 			{
 				var upper = Rune.ToUpperInvariant(baseRune);

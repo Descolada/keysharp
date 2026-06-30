@@ -32,52 +32,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const uint ScreencopyFrameCopyOpcode = 0;
 		private const uint ScreencopyFrameDestroyOpcode = 1;
 
-		// Resolved once at first use of this class. WaylandBackend.Current is itself
-		// cached, so this just captures the already-computed result. null means either
-		// not a Wayland session, or the backend is unknown/none.
-		private static readonly IWaylandBackend captureBackend =
-			Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession ? WaylandBackend.Current : null;
-
+		/// <summary>
+		/// wlroots zwlr_screencopy region grab. The compositor flavor is already resolved by the
+		/// <c>WlrootsScreen</c> impl (the only caller), so there is no backend dispatch here — just the protocol.
+		/// KWin/GNOME region grabs go through <c>ScreencapHelper</c> directly from their own IScreen impls.
+		/// </summary>
 		internal static Bitmap TryCapture(int x, int y, int w, int h)
 		{
 			if (w <= 0 || h <= 0)
 				return null;
 
-			if (captureBackend is WaylandBackend.KWinBackend)
-				return TryCaptureWithKWin(x, y, w, h);
-
-			if (captureBackend is WaylandBackend.GnomeBackend)
-				return TryCaptureWithGnome(x, y, w, h);
-
-			if (captureBackend == null)
-				return null;
-
-			// wlroots zwlr_screencopy_manager_v1 path (sway, hyprland, etc.)
 			using var session = Session.TryOpen();
 			return session?.Capture(x, y, w, h);
 		}
-
-		internal static PermissionResult RequestScreenCapturePermission(string operation, bool forcePrompt = false)
-		{
-			operation ??= "screen capture";
-
-			if (!Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession)
-				return new PermissionResult(PermissionStatus.NotApplicable);
-
-			if (captureBackend is WaylandBackend.KWinBackend)
-				return ScreencapHelper.Authorize(operation, forcePrompt);
-
-			if (captureBackend is WaylandBackend.GnomeBackend)
-				return ScreencapHelper.AuthorizeGnome(operation, forcePrompt);
-
-			return new PermissionResult(PermissionStatus.NotApplicable, $"'{operation}' does not use keysharp-screencap authorization on this compositor.");
-		}
-
-		private static Bitmap TryCaptureWithKWin(int x, int y, int w, int h)
-			=> ScreencapHelper.Capture(x, y, w, h);
-
-		private static Bitmap TryCaptureWithGnome(int x, int y, int w, int h)
-			=> ScreencapHelper.CaptureGnome(x, y, w, h);
 
 		private sealed class OutputInfo
 		{

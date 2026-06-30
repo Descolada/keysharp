@@ -10,7 +10,6 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using static Keysharp.Internals.Window.Linux.X11.Xlib;
-using static Keysharp.Internals.Platform.Unix.PlatformManager;
 
 namespace Keysharp.Internals.Input.Hooks.Linux
 {

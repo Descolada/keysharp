@@ -9,7 +9,7 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Mouse.MouseUtils;
 using static Keysharp.Internals.Input.Keyboard.ScanCodes;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
-using static Keysharp.Internals.Platform.Windows.WindowsAPI;
+using static Keysharp.Internals.Os.Windows.WindowsAPI;
 
 namespace Keysharp.Internals.Input.Hooks.Windows
 {
@@ -571,9 +571,9 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			// v1.1.28.01: active_window is left as the active window; the above is not done because it disrupts
 			// hotstrings when the first keypress causes a change in focus, such as to enter editing mode in Excel.
 			// See Get_active_window_keybd_layout macro definition for related comments.
-			var activeWindow = WindowManager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
+			var activeWindow = WindowQuery.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 			nint tempzero = 0;
-			var activeWindowKeybdLayout = PlatformManager.GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, activeWindow));
+			var activeWindowKeybdLayout = Platform.Keyboard.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, activeWindow));
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 
@@ -802,7 +802,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 
 		protected internal override void UpdateForegroundWindowData(KeyHistoryItem item, KeyHistory history)
 		{
-			var hwnd = WindowManager.GetForegroundWindowHandle();
+			var hwnd = WindowQuery.GetForegroundWindowHandle();
 
 			if (hwnd != 0)
 			{
@@ -909,7 +909,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 				nint altTabWindow;
 
 				if ((altTabWindow = GetAltTabMenuHandle()) != 0 // There is an alt-tab window...
-						&& GetWindowThreadProcessId(altTabWindow, out _) == PlatformManager.CurrentThreadId()) // ...and it's owned by the hook thread (not the main thread).
+						&& GetWindowThreadProcessId(altTabWindow, out _) == Platform.Process.CurrentThreadId()) // ...and it's owned by the hook thread (not the main thread).
 				{
 					kbdMsSender.SendKeyEvent(KeyEventTypes.KeyDown, VK_ESCAPE);
 					// By definition, an Alt key should be logically down if the alt-tab menu is visible (even if it

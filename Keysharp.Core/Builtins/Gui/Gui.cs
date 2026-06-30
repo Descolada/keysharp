@@ -138,7 +138,19 @@ namespace Keysharp.Builtins
 				// beneath it. On Windows this adds WS_EX_LAYERED|WS_EX_TRANSPARENT; on Linux it sets an
 				// empty GTK input-shape region; on macOS it sets NSWindow.IgnoresMouseEvents. Pair with a
 				// transparent background (e.g. WinSetTransColor) for a hollow, click-through overlay.
-				"ClickThrough", (f, o) => { if (o is bool b) f.form.SetClickThrough(b); }
+				"ClickThrough", (f, o) => {
+					if (o is bool b)
+					{
+						f.form.SetClickThrough(b);
+#if !WINDOWS
+						// A click-through overlay must stay non-CSD on Wayland, otherwise GTK manages (and
+						// clobbers) its input region. Mark it so the empty-titlebar CSD trick is skipped; its
+						// titlebar is instead removed via the compositor (noBorder). Processed before -Caption
+						// in our overlay option strings, so the flag is set before the CSD trick would run.
+						if (b) f.form.Properties["KeysharpNoCsd"] = true;
+#endif
+					}
+				}
 			},
 			{
 				"Disabled", (f, o) => { if (o is bool b) f.form.Enabled = !b; }
@@ -2381,7 +2393,16 @@ namespace Keysharp.Builtins
 
 		public object AddWebBrowser(object obj0 = null, object obj1 = null) => Add(Keyword_WebBrowser, obj0, obj1);
 
-		public object Destroy() => form?.Destroy();
+		public object Destroy()
+		{
+#if LINUX
+			// Drop any cached Wayland self-position correlation so a recycled native handle can't
+			// inherit this window's compositor id. IsSupported first, to avoid form.Handle on X11.
+			if (form != null && Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
+				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Forget(form.Handle);
+#endif
+			return form?.Destroy();
+		}
 
 		public object Flash(object obj)
 		{
@@ -2414,9 +2435,35 @@ namespace Keysharp.Builtins
 			return DefaultObject;
 		}
 
-		public object Maximize() => form.WindowState = FormWindowState.Maximized;
+		public object Maximize()
+		{
+			var result = form.WindowState = FormWindowState.Maximized;
+			ReassertWindowStateOnWayland(FormWindowState.Maximized);
+			return result;
+		}
 
-		public object Minimize() => form.WindowState = FormWindowState.Minimized;
+		public object Minimize()
+		{
+			var result = form.WindowState = FormWindowState.Minimized;
+			ReassertWindowStateOnWayland(FormWindowState.Minimized);
+			return result;
+		}
+
+		// On Wayland, Eto's WindowState setter (a GTK xdg-toplevel request) is the primary path, but some
+		// compositors drop a client's state request; reassert it through the compositor backend, correlating
+		// our own window the same way Gui.Show does. No-op on X11/other platforms. IsSupported (a cheap
+		// Wayland-session check) is tested before form.Handle so X11 doesn't make a native xid call.
+		private void ReassertWindowStateOnWayland(FormWindowState state)
+		{
+#if LINUX
+			if (!Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
+				return;
+
+			var sz = form.Size;
+			Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.SetWindowState(
+				form.Handle, form.Title, sz.Width, sz.Height, state);
+#endif
+		}
 
 		public object Move(object obj0 = null, object obj1 = null, object obj2 = null, object obj3 = null)
 		{
@@ -2445,6 +2492,13 @@ namespace Keysharp.Builtins
 			if (width != int.MinValue || height != int.MinValue)
 				form.SetSize(formSize);
 
+#if LINUX
+			// Wayland: SetLocation above can't move our own window, so drive the compositor backend.
+			// IsSupported is checked first to avoid evaluating form.Handle on X11.
+			if ((x != int.MinValue || y != int.MinValue)
+					&& Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
+				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form.Handle, form.Title, x, y, formSize.Width, formSize.Height);
+#endif
 			return DefaultObject;
 		}
 
@@ -2604,6 +2658,7 @@ namespace Keysharp.Builtins
 			if (!form.Visible)
 				form.Show();
 			form.WindowState = FormWindowState.Normal;
+			ReassertWindowStateOnWayland(FormWindowState.Normal);
 			return DefaultObject;
 		}
 
@@ -2840,7 +2895,7 @@ namespace Keysharp.Builtins
 #if WINDOWS
 			else if (!form.BeenShown && owner != 0)
 			{
-				form.Show(new WindowItem(owner));
+				form.Show(new Keysharp.Internals.Window.Windows.Win32Window(owner));
 				form.beenShown = true;
 			}
 #endif
@@ -2860,6 +2915,29 @@ namespace Keysharp.Builtins
 				form.Activate();
 				form.BringToFront();
 			}
+#if LINUX
+			// Wayland: a client cannot set its own top-level position (form.SetLocation above is a no-op
+			// there), so once the window is mapped, ask the compositor backend to place it. We only position
+			// when an X/Y/Center was explicitly requested (a plain Show is left to the compositor's own
+			// placement), and we also strip the titlebar of a borderless click-through overlay here (it is
+			// kept non-CSD so click-through holds, so its titlebar must come off via the compositor's
+			// noBorder). No-op on X11 and on compositors that can't move/decorate windows.
+			// IsSupported (a cheap Wayland-session check) is tested first so we don't evaluate form.Handle on
+			// X11 — there it triggers a native gdk_x11_window_get_xid call.
+			if (!hide && Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
+			{
+				var hasPos = requestedLocation.X != int.MinValue || requestedLocation.Y != int.MinValue;
+				var removeBorder = !caption && form.clickThrough;
+				// Eto's +AlwaysOnTop maps to gtk keep-above, which is a no-op on Wayland, so reassert it via
+				// the compositor backend.
+				var keepAbove = form.TopMost;
+
+				if (hasPos || removeBorder || keepAbove)
+					Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form.Handle, form.Title,
+						hasPos ? location.X : int.MinValue, hasPos ? location.Y : int.MinValue,
+						size.Width, size.Height, removeBorder, keepAbove);
+			}
+#endif
 #if WINDOWS
 			form.Update();//Required for the very first state of the form to always be displayed.
 #endif

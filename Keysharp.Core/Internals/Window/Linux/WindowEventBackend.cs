@@ -508,7 +508,7 @@ namespace Keysharp.Internals.Window.Linux
 
 			try
 			{
-				if (WindowManager.TryGetWindowProperty(XDisplay.Default.Handle, XDisplay.Default.Root.ID,
+				if (X11Server.TryGetWindowProperty(XDisplay.Default.Handle, XDisplay.Default.Root.ID,
 						XDisplay.Default._NET_CLIENT_LIST, 0, new nint(8192), false, (nint)XAtom.AnyPropertyType,
 						out var actualType, out _, out var nitems, out _, out prop))
 				{
@@ -547,7 +547,7 @@ namespace Keysharp.Internals.Window.Linux
 
 			try
 			{
-				if (WindowManager.TryGetWindowProperty(XDisplay.Default.Handle, (long)win,
+				if (X11Server.TryGetWindowProperty(XDisplay.Default.Handle, (long)win,
 						XDisplay.Default._NET_WM_STATE, 0, new nint(64), false, (nint)XAtom.AnyPropertyType,
 						out _, out _, out var nitems, out _, out prop)
 					&& prop != 0)
@@ -582,7 +582,7 @@ namespace Keysharp.Internals.Window.Linux
 
 			try
 			{
-				if (WindowManager.TryGetWindowProperty(XDisplay.Default.Handle, (long)win, atom,
+				if (X11Server.TryGetWindowProperty(XDisplay.Default.Handle, (long)win, atom,
 						0, new nint(1024), false, (nint)XAtom.AnyPropertyType,
 						out var actualType, out _, out var nitems, out _, out prop)
 					&& actualType != 0 && prop != 0 && nitems.ToInt64() > 0)
@@ -607,7 +607,7 @@ namespace Keysharp.Internals.Window.Linux
 
 			try
 			{
-				if (WindowManager.TryGetWindowProperty(XDisplay.Default.Handle, XDisplay.Default.Root.ID, XDisplay.Default._NET_ACTIVE_WINDOW,
+				if (X11Server.TryGetWindowProperty(XDisplay.Default.Handle, XDisplay.Default.Root.ID, XDisplay.Default._NET_ACTIVE_WINDOW,
 					0, new nint(1), false, (nint)XAtom.AnyPropertyType, out _, out _, out var nitems, out _, out prop)
 					&& nitems.ToInt64() > 0 && prop != 0)
 				{

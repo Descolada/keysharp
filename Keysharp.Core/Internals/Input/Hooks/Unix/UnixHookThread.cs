@@ -15,7 +15,6 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using Keysharp.Internals.Input.Mouse;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
-using static Keysharp.Internals.Platform.Unix.PlatformManager;
 
 namespace Keysharp.Internals.Input.Hooks.Unix
 {
@@ -490,6 +489,27 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			SyncHookMutexes(changeIsTemporary);
 		}
 
+#if LINUX
+		private static bool warnedWaylandHookUnavailable;
+
+		// On Wayland the SharpHook/XRecord fallback can only observe XWayland windows -- it is blind to native
+		// Wayland clients (and sees nothing on a pure-Wayland session with no X server), so hotkeys, hotstrings
+		// and InputHook won't fire for most apps. Surface that once to stderr, mirroring the Send/mouse fallback
+		// warnings (the underlying cause -- keysharp-inputd not reachable -- only reached the debug pane before).
+		private static void WarnIfWaylandHookUnavailable()
+		{
+			if (warnedWaylandHookUnavailable || !Platform.Desktop.IsWaylandSession)
+				return;
+
+			warnedWaylandHookUnavailable = true;
+			Script.WriteUncaughtErrorToStdErr(
+				"Keysharp: the global keyboard/mouse hook is falling back to X11/XRecord, which cannot observe " +
+				"native Wayland windows, so hotkeys, hotstrings and InputHook will not work for most applications. " +
+				"Install and enable the keysharp-inputd helper (re-run the installer, or " +
+				"'keysharp-inputd --install-input-access') to enable global input capture on Wayland.");
+		}
+#endif
+
 		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
 		{
 			if (HookDisabled)
@@ -575,7 +595,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				}
 
 				if (!KeysharpInputdManager.IsLegacyX11FallbackActive)
+				{
 					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; falling back to X11/SharpHook. {inputdMessage}");
+					WarnIfWaylandHookUnavailable();
+				}
 
 				EnsureLegacyX11Sender();
 #endif
@@ -1320,23 +1343,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				return false;
 			}
 
-			if (!IsWaylandSession)
+			// The X11-vs-Wayland decision (and, on Wayland, the compositor-backend probe) is resolved once
+			// inside Platform.Mouse — the hook thread just asks the resolved service whether it can both query
+			// and move the cursor.
+			if (!Platform.Mouse.SupportsCursorClip)
 			{
-				if (GetCursorPos(out _))
-				{
-					reason = "";
-					return true;
-				}
-
-				reason = "no X11 cursor-position query is available";
-				return false;
-			}
-
-			var backend = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
-
-			if (backend?.SupportsMouse != true || !backend.TryGetCursorPos(out _, out _))
-			{
-				reason = "the Wayland compositor backend cannot both query and move the cursor";
+				reason = "the cursor cannot be both queried and moved in this session";
 				return false;
 			}
 
@@ -1344,30 +1356,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return true;
 		}
 
-		protected override void WarpCursor(int x, int y)
-		{
-			if (IsWaylandSession)
-			{
-				_ = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current?.TrySendMouseMoveAbsolute(x, y);
-				return;
-			}
-
-			// X11: XWarpPointer is pixel-accurate, unlike inputd's normalised uinput abs path.
-			try
-			{
-				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
-
-				if (display != null && display.Handle != 0)
-				{
-					var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
-					_ = Keysharp.Internals.Window.Linux.X11.Xlib.XWarpPointer(display.Handle, 0, root, 0, 0, 0, 0, x, y);
-					_ = Keysharp.Internals.Window.Linux.X11.Xlib.XFlush(display.Handle);
-				}
-			}
-			catch
-			{
-			}
-		}
+		// X11 (XWarpPointer, pixel-accurate) vs Wayland (compositor IPC) is resolved once inside Platform.Mouse.
+		protected override void WarpCursor(int x, int y) => _ = Platform.Mouse.TryMoveAbsolute(x, y);
 
 		// Hot-path query used during clip enforcement. X11 is queried every event (cheap);
 		// Wayland queries are rate-limited to avoid flooding D-Bus. A throttled-out event returns
@@ -3011,9 +3001,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// when the typing context changes, so use the frontmost application instead — its PID is
 			// tracked event-driven and cached, making this read effectively free. Tradeoff: switching
 			// between two windows of the same app won't reset the buffer.
-			var activeWindow = WindowManager.GetForegroundAppHandle();
+			var activeWindow = Keysharp.Internals.Window.MacOS.MacNativeWindows.ForegroundAppHandle;
 #else
-			var activeWindow = WindowManager.GetForegroundWindowHandle(); // Set default in case there's no focused control.
+			var activeWindow = WindowQuery.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 #endif
 			var activeWindowKeybdLayout = GetKeyboardLayout(0);
 			state.activeWindow = activeWindow;

@@ -53,6 +53,44 @@ namespace Keysharp.Builtins
 			// visible = caller intent (Show issued, no intervening Hide/Destroy); shown = window actually mapped.
 			private bool visible, shown;
 
+#if LINUX
+			// How the overlay is backed, decided once on first use. On Wayland a genuinely click-through overlay
+			// needs a toolkit-free backing — a wlr-layer-shell surface (KWin/wlroots) or a compositor-drawn
+			// overlay (GNOME) — both of which Platform.Overlay owns and renders. Everywhere else (X11, Windows,
+			// macOS) the overlay is the four-edge Eto Gui below. The builtin only needs the Eto-vs-not
+			// distinction; which non-Eto backing the service uses is its own concern.
+			private enum HighlightMode { Unset, Eto, Own }
+			private HighlightMode mode;
+
+			// Service-owned (non-Eto) overlay token: 0 = unassigned, lazily allocated and unique per highlight
+			// instance so concurrent highlights never collide on the service's surface map.
+			private uint overlayId;
+			private static int nextOverlayId;
+
+			private HighlightMode Mode
+			{
+				get
+				{
+					if (mode == HighlightMode.Unset)
+						mode = Platform.Overlay.PreferredKind == Keysharp.Internals.OverlayKind.Eto
+							   ? HighlightMode.Eto : HighlightMode.Own;
+
+					return mode;
+				}
+			}
+
+			// True when the overlay is backed by the service (a layer surface or the GNOME extension) rather than
+			// an Eto Gui: there is no Eto window, so Hwnd is 0 and Gui is DefaultObject.
+			private bool UsesOwnOverlay => Mode == HighlightMode.Own;
+
+			// Lazily assign this instance's service overlay id (kept until Destroy so repeated Show/Move/Hide
+			// calls drive the same overlay).
+			private uint OverlayId => overlayId != 0 ? overlayId
+									  : (overlayId = (uint)System.Threading.Interlocked.Increment(ref nextOverlayId));
+#else
+			private const bool UsesOwnOverlay = false;
+#endif
+
 			public KeysharpHighlight(params object[] args) : base(args) { }
 
 			/// <summary>Highlight(x?, y?, w?, h?, color := "Red", thickness := 2) — stores the rectangle/style; no
@@ -97,15 +135,16 @@ namespace Keysharp.Builtins
 			/// <summary>Whether the overlay is currently on screen.</summary>
 			public object Visible => shown;
 
-			/// <summary>Native handle of the overlay window. Accessing it forces the window into existence (built
-			/// off-screen, not shown, on first use or after a Destroy), so it always returns a real handle — never 0.</summary>
-			public object Hwnd => EnsureBuilt().Hwnd;
+			/// <summary>Native handle of the overlay window. For the Eto-Gui path, accessing it forces the window
+			/// into existence (built off-screen, not shown), so it returns a real handle. Returns 0 when the
+			/// overlay is a layer surface or a compositor-drawn overlay (no Eto window / native handle exists).</summary>
+			public object Hwnd => UsesOwnOverlay ? 0L : EnsureBuilt().Hwnd;
 
 			/// <summary>The underlying overlay <c>Gui</c> — an escape hatch for advanced callers (option-string
-			/// <c>Show</c>, event wiring, reading window state, etc.). Like <c>Hwnd</c>, accessing it forces the
-			/// window into existence (built off-screen, not shown, on first use or after a Destroy), so it never
-			/// hands back an empty/uninitialized window.</summary>
-			public Gui Gui => EnsureBuilt();
+			/// <c>Show</c>, event wiring, reading window state, etc.). For the Eto-Gui path, accessing it forces
+			/// the window into existence. Returns the default object when the overlay is a layer surface or a
+			/// compositor-drawn overlay (there is no backing Gui).</summary>
+			public object Gui => UsesOwnOverlay ? DefaultObject : EnsureBuilt();
 
 			#endregion
 
@@ -154,6 +193,16 @@ namespace Keysharp.Builtins
 				visible = false;
 				shown = false;
 
+#if LINUX
+				if (UsesOwnOverlay)
+				{
+					if (overlayId != 0)
+						_ = Platform.Overlay.TryHideHighlight(overlayId);
+
+					return this;
+				}
+#endif
+
 				if (gui != null)
 				{
 					var g = gui;
@@ -169,6 +218,14 @@ namespace Keysharp.Builtins
 			{
 				visible = false;
 				shown = false;
+
+#if LINUX
+				if (overlayId != 0)
+				{
+					_ = Platform.Overlay.TryHideHighlight(overlayId);
+					overlayId = 0;
+				}
+#endif
 
 				if (gui != null)
 				{
@@ -202,6 +259,16 @@ namespace Keysharp.Builtins
 				{
 					shown = false;
 
+#if LINUX
+					if (UsesOwnOverlay)
+					{
+						if (overlayId != 0)
+							_ = Platform.Overlay.TryHideHighlight(overlayId);
+
+						return;
+					}
+#endif
+
 					if (gui != null)
 					{
 						var g = gui;
@@ -214,6 +281,19 @@ namespace Keysharp.Builtins
 				var d = thickness;
 				int bw = rw + 2 * d, bh = rh + 2 * d, bx = rx - d, by = ry - d;
 				var c = color;
+
+#if LINUX
+				if (UsesOwnOverlay)
+				{
+					// Service-owned, toolkit-free backing (a Cairo-drawn layer surface on KWin/wlroots, or the
+					// GNOME shell extension): a click-through, always-on-top, undecorated overlay framing the
+					// outer box (bx,by,bw,bh) with a d-thick outline. No Eto Gui and no UI-thread marshaling —
+					// Platform.Overlay picks and owns the backing.
+					_ = Platform.Overlay.TryShowHighlight(OverlayId, bx, by, bw, bh, c, d);
+					shown = true;
+					return;
+				}
+#endif
 
 				Script.InvokeOnUIThread(() =>
 				{
@@ -279,7 +359,11 @@ namespace Keysharp.Builtins
 			// Show (or after Destroy); resizes/recolors thereafter reuse the controls.
 			private void Build()
 			{
-				const string opts = "+AlwaysOnTop -Caption +ToolWindow -DPIScale +ClickThrough";
+				// +ClickThrough is listed BEFORE -Caption on purpose: options are applied in string order, and
+				// on Wayland the +ClickThrough handler flags the window non-CSD so the -Caption titlebar trick is
+				// skipped (a CSD window's input region gets clobbered by GTK, breaking click-through). The
+				// titlebar is instead removed via the compositor's noBorder when the overlay is positioned.
+				const string opts = "+AlwaysOnTop +ClickThrough -Caption +ToolWindow -DPIScale";
 				// HiDPI Windows: -DPIScale now also forces the form to AutoScaleMode.None (see the "DPIScale" Gui
 				// option handler), so WinForms no longer rescales this overlay's client/edge controls at 150%/200%.
 				// Without that, raw-pixel positioning fought WinForms' 2x scaling and a resize left the middle

@@ -2,7 +2,7 @@ using Keysharp.Builtins;
 #if WINDOWS
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
-using static Keysharp.Internals.Platform.Windows.WindowsAPI;
+using static Keysharp.Internals.Os.Windows.WindowsAPI;
 using Keysharp.Internals.Input.Mouse;
 
 namespace Keysharp.Internals.Input.Windows
@@ -187,10 +187,10 @@ namespace Keysharp.Internals.Input.Windows
 			var script = Script.TheScript;
 
 			if (window == 0)
-				window = WindowManager.GetForegroundWindowHandle();
+				window = WindowQuery.GetForegroundWindowHandle();
 
 			nint tempzero = 0;
-			return PlatformManager.GetKeyboardLayout(WindowManager.GetFocusedCtrlThread(ref tempzero, window));
+			return Platform.Keyboard.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, window));
 		}
 
 		//internal ResultType ExpandEventArray()
@@ -274,7 +274,7 @@ namespace Keysharp.Internals.Input.Windows
 				//    Drag to the left.  The window starts moving.  This is caused by the fact that the down-click is
 				//    suppressed, thus the remap's hotkey subroutine thinks the mouse button is down, thus its
 				//    auto-repeat suppression doesn't work and it sends another click.
-				_ = PlatformManager.GetCursorPos(out var point); // Assuming success seems harmless.
+				_ = Platform.Pointer.GetCursorPos(out var point); // Assuming success seems harmless.
 				// Despite what MSDN says, WindowFromPoint() appears to fetch a non-NULL value even when the
 				// mouse is hovering over a disabled control (at least on XP).
 				nint childUnderCursor, parentUnderCursor;
@@ -295,7 +295,7 @@ namespace Keysharp.Internals.Input.Windows
 							// of its title bar buttons is down-clicked.
 							workaroundVK = vk;
 							workaroundHitTest = hitTest;
-							_ = WindowItem.SetForegroundWindowEx(WindowManager.CreateWindow(parentUnderCursor)); // Try to reproduce customary behavior.
+							_ = WindowInfo.SetForegroundWindowEx(WindowQuery.CreateWindow(parentUnderCursor)); // Try to reproduce customary behavior.
 							// For simplicity, aRepeatCount>1 is ignored and DoMouseDelay() is not done.
 							return true;
 						}
@@ -445,7 +445,7 @@ namespace Keysharp.Internals.Input.Windows
 							// Since the user nor anything else can move the cursor during our playback, GetCursorPos()
 							// should accurately reflect the position set by any previous mouse-move done by this playback.
 							// This seems likely to be true even for DirectInput games, though hasn't been tested yet.
-							if (PlatformManager.GetCursorPos(out var cursor))
+							if (Platform.Pointer.GetCursorPos(out var cursor))
 							{
 								ev.paramL = (uint)cursor.X;
 								ev.paramH = (uint)cursor.Y;
@@ -901,10 +901,10 @@ namespace Keysharp.Internals.Input.Windows
 			// actually hit the active window until the playback finishes).
 		}
 
-		internal override void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowItemBase tempitem, nint targetWindow)
+		internal override void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowInfoBase tempitem, nint targetWindow)
 		{
 			var tid = TheScript.NativeMainThreadId;
-			tempitem = WindowManager.CreateWindow(targetWindow);
+			tempitem = WindowQuery.CreateWindow(targetWindow);
 			uint targetThread;
 
 			if ((targetThread = GetWindowThreadProcessId(targetWindow, out _)) != 0 // Assign.

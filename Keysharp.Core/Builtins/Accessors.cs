@@ -2026,6 +2026,30 @@ namespace Keysharp.Builtins
 					return DefaultErrorString;
 			}
 		}
+
+		/// <summary>
+		/// The height of the working area of the primary screen.
+		/// </summary>
+		public static long A_WorkAreaHeight
+		{
+			get
+			{
+				try { return Convert.ToInt64(Keysharp.Builtins.Monitor.GetPrimaryWorkArea().Height); }
+				catch { return 0L; }
+			}
+		}
+
+		/// <summary>
+		/// The width of the working area of the primary screen.
+		/// </summary>
+		public static long A_WorkAreaWidth
+		{
+			get
+			{
+				try { return Convert.ToInt64(Keysharp.Builtins.Monitor.GetPrimaryWorkArea().Width); }
+				catch { return 0L; }
+			}
+		}
 	}
 
 	public partial class Ks
@@ -2416,16 +2440,6 @@ namespace Keysharp.Builtins
 		/// Whether #WinActivateForce was specified.
 		/// </summary>
 		public static bool A_WinActivateForce => Script.TheScript.WinActivateForce;
-
-		/// <summary>
-		/// The height of the working area of the primary screen.
-		/// </summary>
-		public static long A_WorkAreaHeight => Convert.ToInt64(Forms.Screen.PrimaryScreen.WorkingArea.Height);
-
-		/// <summary>
-		/// The width of the working area of the primary screen.
-		/// </summary>
-		public static long A_WorkAreaWidth => Convert.ToInt64(Forms.Screen.PrimaryScreen.WorkingArea.Width);
 	}
 
 	/// <summary>

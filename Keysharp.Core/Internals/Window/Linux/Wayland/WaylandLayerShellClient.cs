@@ -19,23 +19,40 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		private static readonly object sync = new();
 		private static WaylandLayerShellClient current;
-		private static bool initAttempted;
+		private static int probeAttempts;
+		private static bool latchedUnavailable;
+
+		// A first-connect can race (a transient connect/registry failure leaves Current null even on a
+		// compositor that does support layer-shell). Rather than latch null on the first miss, retry a
+		// bounded number of times across accesses. We latch only when we get a *clean* probe that proves
+		// layer-shell is genuinely absent (e.g. GNOME) — see TryCreate's genuinelyUnavailable out-param —
+		// so we don't keep reconnecting on compositors that will never have it.
+		private const int MaxProbeAttempts = 6;
 
 		internal static object Sync => sync;
 
 		/// <summary>Returns the singleton instance, lazily connecting on first access. Null if
-		/// the session is not Wayland or the compositor lacks zwlr_layer_shell_v1.</summary>
+		/// the session is not Wayland or the compositor lacks zwlr_layer_shell_v1. Transient
+		/// connect failures are retried on subsequent accesses (up to MaxProbeAttempts).</summary>
 		internal static WaylandLayerShellClient Current
 		{
 			get
 			{
 				lock (sync)
 				{
-					if (current != null || initAttempted)
+					if (current != null)
 						return current;
 
-					initAttempted = true;
-					current = TryCreate();
+					if (latchedUnavailable || probeAttempts >= MaxProbeAttempts)
+						return null;
+
+					probeAttempts++;
+					current = TryCreate(out var genuinelyUnavailable);
+
+					// Stop probing forever once we know this compositor simply has no layer-shell.
+					if (genuinelyUnavailable)
+						latchedUnavailable = true;
+
 					return current;
 				}
 			}
@@ -64,15 +81,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal bool IsAvailable => LayerShell != 0 && Compositor != 0 && Shm != 0;
 
-		private static WaylandLayerShellClient TryCreate()
+		/// <param name="genuinelyUnavailable">Set true when this was a clean probe that proves the
+		/// compositor has no layer-shell (not a transient failure) — the caller latches on this so it
+		/// stops retrying. Left false for connect/registry errors, which are worth retrying.</param>
+		private static WaylandLayerShellClient TryCreate(out bool genuinelyUnavailable)
 		{
+			genuinelyUnavailable = false;
+
 			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
+			{
+				// Not a Wayland session: layer-shell can never appear, so don't bother retrying.
+				genuinelyUnavailable = true;
 				return null;
+			}
 
 			var display = WaylandNative.DisplayConnect(null);
 
 			if (display == 0)
-				return null;
+				return null; // transient: couldn't open the display this time — retry later.
 
 			var client = new WaylandLayerShellClient { Display = display };
 
@@ -86,14 +112,21 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (WaylandNative.ProxyAddListener(client.registry, RegistryListener.Pointer, GCHandle.ToIntPtr(client.selfHandle)) != 0)
 					throw new IOException("wl_proxy_add_listener for registry failed.");
 
-				// First roundtrip surfaces the available globals; the second processes events from
-				// objects we bound inside the first one (none today, but cheap insurance against
-				// compositors that delay format announcements until after the bind).
-				_ = WaylandNative.DisplayRoundtrip(display);
-				_ = WaylandNative.DisplayRoundtrip(display);
+				// Roundtrip until the bindings we need have all been announced. The first roundtrip
+				// normally surfaces every global, but some compositors stagger announcements across
+				// several event bursts; loop (bounded) and stop as soon as IsAvailable so a single
+				// premature check can't mistake a slow announce for "no layer-shell".
+				for (var i = 0; i < 8 && !client.IsAvailable; i++)
+				{
+					if (WaylandNative.DisplayRoundtrip(display) < 0)
+						throw new IOException("wl_display.roundtrip failed.");
+				}
 
 				if (!client.IsAvailable)
 				{
+					// We connected and drained the registry but the layer-shell global never came:
+					// this compositor genuinely lacks it (e.g. GNOME/Mutter). Latch — no point retrying.
+					genuinelyUnavailable = true;
 					client.Dispose();
 					return null;
 				}
@@ -103,6 +136,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 			catch
 			{
+				// Connection/registry error — could be a transient first-connect race; allow a retry.
 				client.Dispose();
 				return null;
 			}

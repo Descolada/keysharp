@@ -41,7 +41,7 @@ namespace Keysharp.Builtins
 		{
 			EnsureWindowAutomationPermission("window operation");
 			act();
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 		}
 
 		// Same as DoDelayedAction but WITHOUT a trailing A_WinDelay, for the window functions AHK does not delay
@@ -55,7 +55,7 @@ namespace Keysharp.Builtins
 		internal static T DoDelayedFunc<T>(Func<T> func)
 		{
 			var val = func();
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return val;
 		}
 
@@ -71,7 +71,7 @@ namespace Keysharp.Builtins
 		{
 			//DoDelayedFunc(() =>
 			{
-				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+				if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 				{
 					// Both ClientBounds and Bounds are screen-relative rectangles on every platform (ClientBounds
 					// takes its origin from ClientToScreen()), so report them directly.
@@ -99,55 +99,55 @@ namespace Keysharp.Builtins
 											   object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("window style operation");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				var val = value;
 
 				if (ex)
 				{
-					/*  if (val is int i)
-					    win.ExStyle = i;
-					    else if (val is uint ui)
-					    win.ExStyle = ui;
-					    else*/ if (val is long l)
-						win.ExStyle = l;
+					var exVal = win.ExStyle;
+
+					if (val is long l)
+						exVal = l;
 					else if (val is double d)
-						win.ExStyle = (long)d;
+						exVal = (long)d;
 					else if (val is string s)
 					{
 						long temp = 0;
 
-						if (Options.TryParse(s, "+", ref temp)) { win.ExStyle |= temp; }
-						else if (Options.TryParse(s, "-", ref temp)) { win.ExStyle &= ~temp; }
-						else if (Options.TryParse(s, "^", ref temp)) { win.ExStyle ^= temp; }
-						else win.ExStyle = val.Al();
+						if (Options.TryParse(s, "+", ref temp)) { exVal |= temp; }
+						else if (Options.TryParse(s, "-", ref temp)) { exVal &= ~temp; }
+						else if (Options.TryParse(s, "^", ref temp)) { exVal ^= temp; }
+						else exVal = val.Al();
 					}
+
+					_ = Platform.Window.TrySetStyle(win.Handle, win.Style, exVal);   // ex-style changes, style unchanged
 				}
 				else
 				{
-					/*  if (val is int i)
-					    win.Style = i;
-					    else if (val is uint ui)
-					    win.Style = ui;
-					    else*/ if (val is long l)
-						win.Style = l;
+					var stVal = win.Style;
+
+					if (val is long l)
+						stVal = l;
 					else if (val is double d)
-						win.Style = (long)d;
+						stVal = (long)d;
 					else if (val is string s)
 					{
 						long temp = 0;
 
-						if (Options.TryParse(s, "+", ref temp)) { win.Style |= temp; }
-						else if (Options.TryParse(s, "-", ref temp)) { win.Style &= ~temp; }
-						else if (Options.TryParse(s, "^", ref temp)) { win.Style ^= temp; }
-						else win.Style = val.ParseLong().Value;
+						if (Options.TryParse(s, "+", ref temp)) { stVal |= temp; }
+						else if (Options.TryParse(s, "-", ref temp)) { stVal &= ~temp; }
+						else if (Options.TryParse(s, "^", ref temp)) { stVal ^= temp; }
+						else stVal = val.ParseLong().Value;
 					}
+
+					_ = Platform.Window.TrySetStyle(win.Handle, stVal, win.ExStyle);   // style changes, ex-style unchanged
 				}
 				// No A_WinDelay: AHK's WinSetStyle/WinSetExStyle do not call DoWinDelay.
 			}
 		}
 
-		internal static void WinSetToggleX(Action<WindowItemBase, bool> set, Func<WindowItemBase, bool> get,
+		internal static void WinSetToggleX(Action<WindowInfoBase, bool> set, Func<WindowInfoBase, bool> get,
 										   object value,
 										   object winTitle = null,
 										   object winText = null,
@@ -157,7 +157,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("window toggle operation");
 			var val = value.Ai();
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				if (val == 0)
 					set(win, false);

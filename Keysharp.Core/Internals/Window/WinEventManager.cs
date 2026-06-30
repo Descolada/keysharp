@@ -264,7 +264,7 @@ namespace Keysharp.Internals.Window
 
 			try
 			{
-				backend = WindowEventBackendProvider.Create();
+				backend = Platform.Events.Backend;
 
 				if (backend != null)
 					backend.Sink = OnNativeEvent;
@@ -348,7 +348,7 @@ namespace Keysharp.Internals.Window
 		/// <summary>Fires Active subscriptions for the active window when its title changes.</summary>
 		private void DispatchActiveOnTitleChange(nint hwnd, long timeMs)
 		{
-			if (hwnd == 0 || hwnd != WindowManager.GetForegroundWindowHandle())
+			if (hwnd == 0 || hwnd != WindowQuery.GetForegroundWindowHandle())
 				return;
 
 			WinEventRegistration[] activeSubs;
@@ -383,16 +383,15 @@ namespace Keysharp.Internals.Window
 			if (reg.criteria == null)
 			{
 				// Match-any: respect the registration-time DetectHiddenWindows setting so the callback isn't
-				// flooded with transient/hidden windows when DHW is off.
+				// flooded with transient/hidden windows when DHW is off. A single visibility read — no item needed.
 				if (reg.detectHidden)
 					return true;
 
-				var w = WindowManager.CreateWindow(hwnd);
-				return w != null && w.IsSpecified && w.Visible;
+				return Platform.Window.GetVisible(hwnd);
 			}
 
-			var win = WindowManager.CreateWindow(hwnd);
-			return win != null && win.Equals(reg.criteria, reg.inheritedOptions);
+			// Criteria matching reads several properties, so build the one item and match against it.
+			return WindowQuery.CreateWindow(hwnd) is WindowInfoBase win && win.Equals(reg.criteria, reg.inheritedOptions);
 		}
 
 		/// <summary>Whether <paramref name="hwnd"/> currently satisfies a membership subscription (Exist/NotExist):
@@ -406,19 +405,18 @@ namespace Keysharp.Internals.Window
 
 			if (reg.criteria == null)
 			{
-				if (!WindowManager.IsWindow(hwnd))
+				if (!WindowQuery.IsWindow(hwnd))
 					return false;                             // gone — no longer a member
 
 				if (reg.detectHidden)
 					return true;
 
-				var w = WindowManager.CreateWindow(hwnd);
-				return w != null && w.IsSpecified && w.Visible;
+				return Platform.Window.GetVisible(hwnd);     // single visibility read — no item needed
 			}
 
 			// Criteria matching reads the window's properties, which a destroyed window no longer has, so a genuine
 			// destruction naturally fails the match (the criteria path also applies the captured DetectHiddenWindows).
-			var win = WindowManager.CreateWindow(hwnd);
+			var win = WindowQuery.CreateWindow(hwnd);
 			return win != null && win.IsSpecified && win.Equals(reg.criteria, reg.inheritedOptions);
 		}
 
@@ -475,7 +473,7 @@ namespace Keysharp.Internals.Window
 			try
 			{
 				// EnumerateWindows already yields top-level windows respecting the captured DetectHiddenWindows.
-				foreach (var win in WindowManager.EnumerateWindows(reg.detectHidden))
+				foreach (var win in WindowQuery.EnumerateWindows(reg.detectHidden))
 				{
 					if (win.IsSpecified && SubscriptionMatches(reg, win))
 						lock (reg.matchGate)
@@ -491,7 +489,7 @@ namespace Keysharp.Internals.Window
 		/// <summary>Whether <paramref name="win"/> (a live top-level window) satisfies membership subscription
 		/// <paramref name="reg"/>: criteria subscriptions match the criteria; match-any subscriptions track any
 		/// top-level window, respecting the captured DetectHiddenWindows setting.</summary>
-		private static bool SubscriptionMatches(WinEventRegistration reg, WindowItemBase win)
+		private static bool SubscriptionMatches(WinEventRegistration reg, WindowInfoBase win)
 			=> reg.criteria != null
 				? win.Equals(reg.criteria, reg.inheritedOptions)
 				: reg.detectHidden || win.Visible;
@@ -529,7 +527,7 @@ namespace Keysharp.Internals.Window
 		{
 			try
 			{
-				var win = WindowManager.CreateWindow(hwnd);
+				var win = WindowQuery.CreateWindow(hwnd);
 
 				if (win != null && win.IsSpecified)
 					return win.Bounds;

@@ -62,7 +62,7 @@ namespace Keysharp.Internals.Input.Unix
 			get
 			{
 #if LINUX
-				if (!PlatformManager.IsX11Available)
+				if (!Platform.Desktop.IsX11Available)
 					return false;
 
 				// X11 supports up to 256 buttons, but 3 is enough for swap detection

@@ -34,7 +34,7 @@ global using global::Keysharp.Internals.Threading;
 
 #if WINDOWS
 	global using global::Keysharp.Internals.Input.Windows;
-	global using global::Keysharp.Internals.Platform.Windows;
+	global using global::Keysharp.Internals.Os.Windows;
 	global using global::Keysharp.Internals.Input.Hooks.Windows;
 	global using global::Keysharp.Internals.Window.Windows;
 	global using MessageFilter = Keysharp.Internals.Window.Windows.MessageFilter;

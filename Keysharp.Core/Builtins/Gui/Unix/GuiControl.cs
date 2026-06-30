@@ -8,7 +8,7 @@ namespace Keysharp.Builtins
 			private HashSet<int> listViewSelectedRows;
 			private int listViewFocusedRow = -1;
 			private bool listViewCheckClickActive;
-			public string ClassNN => _control is Window && WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
+			public string ClassNN => _control is Window && WindowQuery.CreateWindow(_control.Handle) is WindowInfoBase wi ? wi.ClassNN : "";
 
 			public object Gui => gui != null && gui.TryGetTarget(out var g) ? g : Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
@@ -20,7 +20,7 @@ namespace Keysharp.Builtins
 				{
 					if (Hwnd == 0)
 						return "";
-					return WindowManager.CreateWindow((nint)Hwnd) is WindowItemBase wi ? wi.NetClassNN : "";
+					return WindowQuery.CreateWindow((nint)Hwnd) is WindowInfoBase wi ? wi.NetClassNN : "";
 				}
 			}
 

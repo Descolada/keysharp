@@ -79,7 +79,7 @@ namespace Keysharp.Builtins
 				Y = info.rcCaret.Top
 			};
 			var script = Script.TheScript;
-			var caretWnd = WindowManager.CreateWindow(info.hwndCaret);
+			var caretWnd = WindowQuery.CreateWindow(info.hwndCaret);
 			caretWnd.ClientToScreen(ref pt);// Unconditionally convert to screen coordinates, for simplicity.
 			int x = 0, y = 0;
 			CoordToScreen(ref x, ref y, CoordMode.Caret);// Now convert back to whatever is expected for the current mode.

@@ -101,9 +101,26 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return false;
 		}
 
+		/// <summary>
+		/// Best-effort usable area (the work area, i.e. the monitor minus panels/docks/struts) of the
+		/// primary or active monitor, in screen coordinates. A Wayland client cannot compute this itself —
+		/// gdk_monitor_get_workarea returns the full monitor there — so it must come from the compositor.
+		/// Returns false if the backend can't answer, in which case the caller falls back to the full
+		/// monitor bounds (e.g. by maximizing and letting the compositor size the window).
+		/// </summary>
+		bool TryGetWorkArea(out Rectangle area)
+		{
+			area = Rectangle.Empty;
+			return false;
+		}
+
 		bool TryActivateWindow(nint handle) => false;
 
 		bool TryMoveResizeWindow(nint handle, Rectangle bounds, bool setPosition, bool setSize) => false;
+
+		/// <summary>Remove (true) / restore (false) the server-side window decoration (titlebar) for one of our
+		/// own borderless windows, without forcing GTK client-side decorations. False = unsupported.</summary>
+		bool TrySetNoBorder(nint handle, bool noBorder) => false;
 
 		bool TrySetWindowState(nint handle, FormWindowState state) => false;
 
@@ -111,6 +128,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		bool TrySetAlwaysOnTop(nint handle, bool onTop) => false;
 
 		bool TryCloseWindow(nint handle) => false;
+
+		// ---- Compositor-drawn overlay (highlight) -----------------------
+		// On a compositor with no wlr-layer-shell (notably GNOME/Mutter), Keysharp cannot create a
+		// click-through layer-surface highlight itself, so the overlay has to be drawn inside the
+		// compositor. A backend that can do this (GNOME via its shell extension) overrides these; the
+		// Highlight builtin uses them as the fallback when WaylandLayerShellClient is unavailable.
+
+		/// <summary>True when the backend can draw a click-through outline overlay on the compositor's
+		/// behalf via <see cref="TryShowHighlight"/>/<see cref="TryHideHighlight"/>.</summary>
+		bool SupportsHighlight => false;
+
+		/// <summary>Draw or update a click-through rectangle-outline overlay. <paramref name="id"/> is a
+		/// caller-chosen token identifying the overlay (so it can be moved/resized or hidden); geometry is
+		/// in screen coordinates; <paramref name="color"/> is an "RRGGBB" hex string. False = unsupported.</summary>
+		bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness) => false;
+
+		/// <summary>Remove the overlay previously created with <paramref name="id"/>. False = unsupported.</summary>
+		bool TryHideHighlight(uint id) => false;
 
 		// ---- Mouse simulation -------------------------------------------
 		// Default implementations return false (backend does not support it).

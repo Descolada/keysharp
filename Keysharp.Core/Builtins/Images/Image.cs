@@ -119,7 +119,7 @@ namespace Keysharp.Builtins
 
 				var win = WindowSearch.SearchWindow(winTitle, winText, excludeTitle, excludeText, true);
 
-				if (win is not WindowItemBase w)
+				if (win is not WindowInfoBase w)
 					return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText);
 
 				// Whether to capture the title bar/borders. The default (false) captures only the client area

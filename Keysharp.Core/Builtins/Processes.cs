@@ -394,7 +394,7 @@ namespace Keysharp.Builtins
 		/// </summary>
 		public static object Shutdown(object obj)
 		{
-			_ = ExitProgram((uint)obj.Al(), 0);
+			_ = Platform.Session.ExitProgram((uint)obj.Al(), 0);
 			return DefaultObject;
 		}
 

@@ -552,7 +552,7 @@ using String = Keysharp.Builtins.String
 									new CSharpCompilationOptions(OutputKind.WindowsApplication)
 									.WithUsings(usings)
 									.WithOptimizationLevel(OptimizationLevel.Release)
-									.WithPlatform(OperatingSystem.IsWindows() ? Platform.X64 : Platform.AnyCpu)
+									.WithPlatform(OperatingSystem.IsWindows() ? Microsoft.CodeAnalysis.Platform.X64 : Microsoft.CodeAnalysis.Platform.AnyCpu)
 									.WithConcurrentBuild(true)
 								)
 								.AddReferences(references)
@@ -908,7 +908,7 @@ namespace Dyn
 								  new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
 								  .WithUsings(usings)
 								  .WithOptimizationLevel(OptimizationLevel.Debug)//Quick evaluations don't need to be optimized.
-								  .WithPlatform(Platform.AnyCpu)
+								  .WithPlatform(Microsoft.CodeAnalysis.Platform.AnyCpu)
 								  .WithConcurrentBuild(true)
 							  )
 							  .AddReferences(references)

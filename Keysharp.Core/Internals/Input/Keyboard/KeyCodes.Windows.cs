@@ -1,7 +1,7 @@
 #if WINDOWS
 using static Keysharp.Internals.Input.Keyboard.ScanCodes;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
-using static Keysharp.Internals.Platform.Windows.WindowsAPI;
+using static Keysharp.Internals.Os.Windows.WindowsAPI;
 
 namespace Keysharp.Internals.Input.Keyboard
 {

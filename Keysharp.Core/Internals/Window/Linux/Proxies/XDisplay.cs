@@ -229,7 +229,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 							{
 								var window = new XWindow(this, id);
 								windows.Add(window);
-								//var tempItem = new WindowItem(window);
+								//var tempItem = new WindowInfo(window);
 								//Ks.OutputDebugLine($"Adding window from XQueryTree() with id: {id}, title: {tempItem.Title}");
 							}
 						}
@@ -283,7 +283,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 						{
 							var window = new XWindow(this, id);
 							windows.Add(window);
-							//var tempItem = new WindowItem(window);
+							//var tempItem = new WindowInfo(window);
 							//Ks.OutputDebugLine($"Adding window from XQueryTree() with id: {id}, title: {tempItem.Title}");
 							windows.AddRange(XQueryTreeRecursive(window, filter));
 						}

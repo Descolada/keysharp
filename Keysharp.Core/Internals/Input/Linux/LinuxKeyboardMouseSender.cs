@@ -298,7 +298,12 @@ namespace Keysharp.Internals.Input.Linux
 			var textBatch = new StringBuilder();
 			// On GNOME Wayland, use the shell extension for mouse simulation instead
 			// of SharpHook (which has no Wayland path when X11 is absent).
-			var gnomeMouse = WaylandMouseBackend();
+			var gnomeMouse = WaylandMouseInjection.Backend();
+
+			// No compositor mouse backend on Wayland (sway/Hyprland/COSMIC/unknown) means the mouse paths
+			// below fall to SharpHook/XTEST, which Wayland ignores -- warn once so it isn't a silent no-op.
+			if (gnomeMouse == null)
+				WarnIfWaylandMouseUnavailable(events);
 
 			void FlushText()
 			{
@@ -756,13 +761,46 @@ namespace Keysharp.Internals.Input.Linux
 		// actionable hint rather than leaving the user to wonder why Send does nothing.
 		private static void WarnIfWaylandKeyboardUnavailable()
 		{
-			if (warnedWaylandKeyboardUnavailable || !PlatformManager.IsWaylandSession)
+			if (warnedWaylandKeyboardUnavailable || !Platform.Desktop.IsWaylandSession)
 				return;
 
 			warnedWaylandKeyboardUnavailable = true;
 			Script.WriteUncaughtErrorToStdErr(
 				"Keysharp: keyboard Send is falling back to X11/XTEST, which Wayland compositors ignore, " +
 				"so keystrokes will not reach applications. Install and enable the keysharp-inputd helper " +
+				"(re-run the installer, or 'keysharp-inputd --install-input-access') to enable input synthesis on Wayland.");
+		}
+
+		private static bool warnedWaylandMouseUnavailable;
+
+		// Mouse counterpart to WarnIfWaylandKeyboardUnavailable: this sender runs only when keysharp-inputd
+		// is unreachable, and with no compositor mouse backend the mouse path is pure SharpHook/XTEST, which
+		// Wayland ignores -- so clicks/moves silently never reach applications. Surface that once (only when
+		// the batch actually contains mouse events).
+		private static void WarnIfWaylandMouseUnavailable(List<ArrayEvent> events)
+		{
+			if (warnedWaylandMouseUnavailable || !Platform.Desktop.IsWaylandSession)
+				return;
+
+			var hasMouse = false;
+
+			foreach (var ev in events)
+			{
+				if (ev.Type is ArrayEventType.MouseMoveRel or ArrayEventType.MouseMoveAbs or ArrayEventType.MousePress
+					or ArrayEventType.MouseRelease or ArrayEventType.MouseWheelV or ArrayEventType.MouseWheelH)
+				{
+					hasMouse = true;
+					break;
+				}
+			}
+
+			if (!hasMouse)
+				return;
+
+			warnedWaylandMouseUnavailable = true;
+			Script.WriteUncaughtErrorToStdErr(
+				"Keysharp: mouse input is falling back to X11/XTEST, which Wayland compositors ignore, so " +
+				"clicks and moves will not reach applications. Install and enable the keysharp-inputd helper " +
 				"(re-run the installer, or 'keysharp-inputd --install-input-access') to enable input synthesis on Wayland.");
 		}
 
@@ -1195,16 +1233,6 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		// Returns the active IWaylandBackend if it supports mouse simulation,
-		// otherwise null. Checked once per send batch and cached in a local.
-		private static Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend WaylandMouseBackend()
-		{
-			if (!PlatformManager.IsWaylandSession)
-				return null;
-
-			var b = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
-			return b?.SupportsMouse == true ? b : null;
-		}
 
 		private static bool IsModifierVk(uint vk) => vk is
 			VK_SHIFT or VK_LSHIFT or VK_RSHIFT or

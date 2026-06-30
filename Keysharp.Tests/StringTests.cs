@@ -9,7 +9,7 @@ namespace Keysharp.Tests
 		//[Test]
 		//public void TestHotstringCaps()
 		//{
-		//  var kbh = new Keysharp.Internals.Platform.Windows.KeyboardHook();
+		//  var kbh = new Keysharp.Internals.Os.Windows.KeyboardHook();
 		//  var str = kbh.ApplyCase("werent", "weren't");
 		//  Assert.AreEqual(str, "weren't");
 		//  str = kbh.ApplyCase("Werent", "weren't");

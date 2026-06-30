@@ -6,14 +6,14 @@ namespace Keysharp.Builtins
 	{
 		public partial class Control : KeysharpObject
 		{
-			public string ClassNN => WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.ClassNN : "";
+			public string ClassNN => WindowQuery.CreateWindow(_control.Handle) is WindowInfoBase wi ? wi.ClassNN : "";
 
 
 			public object Gui => gui.TryGetTarget(out var g) ? g : Errors.ErrorOccurred("GUI control's parent GUI is no longer available.");
 
 			public long Hwnd => _control.Handle.ToInt64();
 
-			public string NetClassNN => WindowManager.CreateWindow(_control.Handle) is WindowItemBase wi ? wi.NetClassNN : "";
+			public string NetClassNN => WindowQuery.CreateWindow(_control.Handle) is WindowInfoBase wi ? wi.NetClassNN : "";
 
 			public object Parent
 			{

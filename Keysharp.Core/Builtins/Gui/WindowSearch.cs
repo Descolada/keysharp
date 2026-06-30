@@ -4,7 +4,7 @@ namespace Keysharp.Builtins
 {
 	internal static class WindowSearch
 	{
-		internal static WindowItemBase SearchControl(object ctrl, object title, object text, object excludeTitle, object excludeText, bool throwifnull = true)
+		internal static WindowInfoBase SearchControl(object ctrl, object title, object text, object excludeTitle, object excludeText, bool throwifnull = true)
 		{
 			var (parsed, ptr) = CtrlTonint(ctrl);
 			var script = Script.TheScript;
@@ -13,10 +13,10 @@ namespace Keysharp.Builtins
 			{
 #if !WINDOWS
 				if (Control.FromHandle(ptr) is Control ks)
-					return new ControlItem(ks);
+					return new ControlInfo(ks);
 #endif
-				if (WindowManager.IsWindow(ptr))
-					return WindowManager.CreateWindow(ptr);
+				if (WindowQuery.IsWindow(ptr))
+					return WindowQuery.CreateWindow(ptr);
 				else if (throwifnull && !script.IsMainWindowClosing)
 					_ = Errors.TargetErrorOccurred($"Could not find child control with handle: {ptr}");
 
@@ -98,7 +98,7 @@ namespace Keysharp.Builtins
 			return childitem;
 		}
 
-		internal static WindowItemBase SearchWindow(object winTitle,
+		internal static WindowInfoBase SearchWindow(object winTitle,
 				object winText,
 				object excludeTitle,
 				object excludeText,
@@ -107,7 +107,7 @@ namespace Keysharp.Builtins
 				bool ignorePureID = false)
 		{
 			var script = Script.TheScript;
-			var win = WindowManager.FindWindow(winTitle, winText, excludeTitle, excludeText, last, ignorePureID);
+			var win = WindowQuery.FindWindow(winTitle, winText, excludeTitle, excludeText, last, ignorePureID);
 
 			if (win == null && throwifnull && !script.IsMainWindowClosing)
 			{
@@ -118,9 +118,9 @@ namespace Keysharp.Builtins
 			return win;
 		}
 
-		internal static WindowItemBase SearchActiveWindow(SearchCriteria criteria, bool emptyMatchesActive = false)
+		internal static WindowInfoBase SearchActiveWindow(SearchCriteria criteria, bool emptyMatchesActive = false)
 		{
-			var activeWindow = WindowManager.ActiveWindow;
+			var activeWindow = WindowQuery.ActiveWindow;
 
 			if (activeWindow == null || !activeWindow.IsSpecified)
 				return null;
@@ -128,12 +128,12 @@ namespace Keysharp.Builtins
 			return (emptyMatchesActive && criteria.IsEmpty) || activeWindow.Equals(criteria) ? activeWindow : null;
 		}
 
-		internal static List<WindowItemBase> SearchWindows(object winTitle = null,
+		internal static List<WindowInfoBase> SearchWindows(object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
 				object excludeText = null)
 		{
-			var (windows, _) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
+			var (windows, _) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 			return windows;
 		}
 
@@ -144,7 +144,7 @@ namespace Keysharp.Builtins
 				object excludeText)
 		{
 			var script = Script.TheScript;
-			var win = WindowManager.FindWindow(winTitle, winText, excludeTitle, excludeText);
+			var win = WindowQuery.FindWindow(winTitle, winText, excludeTitle, excludeText);
 
 			if (win != null)
 			{

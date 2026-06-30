@@ -1109,6 +1109,7 @@ namespace Keyview
 			Shown += (_, _) =>
 			{
 				InitializeWindowIcon();
+				EtoExtensions.SetWaylandAppId(this, "keyview");
 				FitToScreen();
 				if (editorSplitter != null)
 					editorSplitter.Position = Math.Max(200, ClientSize.Width / 2);
@@ -1456,13 +1457,66 @@ namespace Keyview
 			if (screen == null)
 				return;
 
-			RectangleF area = new RectangleF(0, 0, 1200, 800);
-			try {
-				area = screen.WorkingArea;
-			} catch { }
-			var width = (int)Math.Min(ClientSize.Width, area.Width);
-			var height = (int)Math.Min(ClientSize.Height, area.Height);
-			ClientSize = new Eto.Drawing.Size(width, height);
+			var wayland = Keysharp.Internals.Platform.Desktop.IsWaylandSession;
+
+			// "reliable" = the area excludes panels/docks, so we can size-and-center the window to fit it.
+			// On X11/macOS Eto's WorkingArea already does. On Wayland a client can't compute it itself
+			// (gdk_monitor_get_workarea returns the full monitor), so we ask the compositor backend; if no
+			// backend can answer we fall back to maximizing and letting the compositor size the window.
+			RectangleF area = RectangleF.Empty;
+			bool reliable = false, got = false;
+
+#if LINUX
+			if (wayland
+				&& Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current is { } backend
+				&& backend.TryGetWorkArea(out var wa) && wa.Width > 0 && wa.Height > 0)
+			{
+				area = new RectangleF(wa.X, wa.Y, wa.Width, wa.Height);
+				reliable = true;
+				got = true;
+			}
+#endif
+			if (!got)
+			{
+				try { area = screen.WorkingArea; reliable = !wayland; got = true; }
+				catch
+				{
+					try { area = screen.Bounds; got = true; } catch { return; }
+				}
+			}
+
+			// Keep the OUTER window (titlebar/borders included) within the work area. The server-side
+			// titlebar a Wayland compositor draws can be slightly taller than the frame Eto reports, so
+			// leave a small margin there.
+			var decoW = Math.Max(0, Size.Width - ClientSize.Width);
+			var decoH = Math.Max(0, Size.Height - ClientSize.Height);
+			var margin = wayland ? 16 : 0;
+			var maxClientW = (int)area.Width - decoW;
+			var maxClientH = (int)area.Height - decoH - margin;
+
+			if (reliable && maxClientW >= 400 && maxClientH >= 300)
+			{
+				ClientSize = new Eto.Drawing.Size(
+					Math.Min(ClientSize.Width, maxClientW),
+					Math.Min(ClientSize.Height, maxClientH));
+				Location = new Point(
+					(int)area.X + Math.Max(0, ((int)area.Width - Size.Width) / 2),
+					(int)area.Y + Math.Max(0, ((int)area.Height - Size.Height) / 2));
+				return;
+			}
+
+			// No reliable work area: if the preferred size doesn't fit, maximize (the compositor then sizes
+			// to its own work area, correctly excluding panels — and it matches the Windows build, which
+			// opens Keyview maximized); otherwise center.
+			if (ClientSize.Width > area.Width || ClientSize.Height > area.Height)
+			{
+				var w = Math.Max(400, (int)Math.Min(ClientSize.Width, area.Width));
+				var h = Math.Max(300, (int)Math.Min(ClientSize.Height, area.Height));
+				ClientSize = new Eto.Drawing.Size(w, h);
+				WindowState = WindowState.Maximized;
+				return;
+			}
+
 			Location = new Point(
 				(int)area.X + Math.Max(0, (int)(area.Width - Size.Width) / 2),
 				(int)area.Y + Math.Max(0, (int)(area.Height - Size.Height) / 2));

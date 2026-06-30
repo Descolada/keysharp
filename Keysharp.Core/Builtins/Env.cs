@@ -272,7 +272,7 @@ namespace Keysharp.Builtins
 		public static object SysGet(object property)
 		{
 #if !WINDOWS
-			var sm = property is Keysharp.Internals.Platform.SystemMetric en ? en : (SystemMetric)property.Ai();
+			var sm = property is Keysharp.Internals.Os.SystemMetric en ? en : (SystemMetric)property.Ai();
 			var (screenWidth, screenHeight) = Monitor.GetPrimaryScreenSize();
 			var (workWidth, workHeight) = Monitor.GetPrimaryWorkAreaSize();
 

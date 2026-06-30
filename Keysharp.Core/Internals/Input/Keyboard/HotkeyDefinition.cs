@@ -1995,7 +1995,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					// those that aren't kept queued due to the message filter) prior to returning to its caller.
 					// But for maintainability, it seems best to change this to g_hWnd vs. NULL to make joystick
 					// hotkeys behave more like standard hotkeys.
-					_ = PostHotkeyMessage(script.MainWindowHandle, (uint)i, 0u);
+					_ = Platform.Hotkeys.PostHotkeyMessage(script.MainWindowHandle, (uint)i, 0u);
 				}
 
 				//else continue the loop in case the user has newly pressed more than one joystick button.
@@ -2348,7 +2348,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// otherwise any modal dialogs, such as MessageBox(), that call DispatchMessage()
 			// internally wouldn't be able to find anyone to send hotkey messages to, so they
 			// would probably be lost:
-			return (isRegistered = RegisterHotKey(script.MainWindowHandle, id, (KeyModifiers)modifiersToRegister, vk))
+			return (isRegistered = Platform.Hotkeys.Register(script.MainWindowHandle, id, (KeyModifiers)modifiersToRegister, vk))
 				   ? ResultType.Ok
 				   : ResultType.Fail;
 			// Above: On failure, reset the modifiers in case this function changed them.  This is
@@ -2448,7 +2448,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var handle = script.MainWindowHandle;
 			mw?.Invoke(() =>
 			{
-				_ = UnregisterHotKey(handle, id);
+				_ = Platform.Hotkeys.Unregister(handle, id);
 			});
 			return isRegistered ? ResultType.Ok : ResultType.Fail;//I've see it fail in one rare case.
 		}
@@ -2501,10 +2501,10 @@ namespace Keysharp.Internals.Input.Keyboard
 		private static long HotIfWinActivePrivate(object title, object text, object hotkey)
 		{
 			var criteria = SearchCriteria.FromString(title, text, null, null);
-			return WindowSearch.SearchActiveWindow(criteria, true) is WindowItemBase win ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
+			return WindowSearch.SearchActiveWindow(criteria, true) is WindowInfoBase win ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
 		}
 
-		private static long HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowItemBase win && win.Exists ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
+		private static long HotIfWinExistPrivate(object title, object text, object hotkey) => WindowSearch.SearchWindow(title, text, null, null, false) is WindowInfoBase win && win.Exists ? hotExprLastFoundHwnd = win.Handle.ToInt64() : 0L;
 
 		private static long HotIfWinNotActivePrivate(object title, object text, object hotkey) => HotIfWinActivePrivate(title, text, hotkey) == 0L ? 1L : 0L;
 

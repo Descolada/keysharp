@@ -63,7 +63,7 @@ namespace Keysharp.Tests
 			if (Script.IsHeadless)
 				Assert.Ignore("MsgBox requires an interactive desktop session.");
 #if LINUX
-			if (!Keysharp.Internals.Platform.Unix.PlatformManager.IsX11Available)
+			if (!Keysharp.Internals.Platform.Desktop.IsX11Available)
 				Assert.Ignore("Linux MsgBox automation currently requires X11-backed Eto windows.");
 #endif
 

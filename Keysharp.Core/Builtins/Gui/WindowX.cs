@@ -8,7 +8,7 @@ namespace Keysharp.Builtins
 
 		public static object WinMaximizeAll()
 		{
-			DoDelayedAction(WindowManager.MaximizeAll);
+			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Maximized); });
 			return DefaultObject;
 		}
 
@@ -25,7 +25,7 @@ namespace Keysharp.Builtins
 				GetCursorPos(out var point);
 				x ??= point.X; y ??= point.Y;
 			}
-			return WindowManager.WindowFromPoint(new POINT(x.Ai(), y.Ai()))?.Handle ?? 0L;
+			return WindowQuery.WindowFromPoint(new POINT(x.Ai(), y.Ai()))?.Handle ?? 0L;
 		}
 	}
 
@@ -52,7 +52,7 @@ namespace Keysharp.Builtins
 			var m = mode.As();
 			var script = Script.TheScript;
 
-			if (script.WindowProvider.Manager.Groups.TryGetValue(name, out var group))
+			if (script.WindowGroups.TryGetValue(name, out var group))
 			{
 				if (group.sc.Count == 0)
 					return 0L;
@@ -62,7 +62,7 @@ namespace Keysharp.Builtins
 				if (windows.Count != 0 && windows.Count == group.activated.Count)
 					group.activated.Clear();
 
-				if (windows.Count == 1 && windows[0].Handle.ToInt64() == WindowManager.GetForegroundWindowHandle().ToInt64())
+				if (windows.Count == 1 && windows[0].Handle.ToInt64() == WindowQuery.GetForegroundWindowHandle().ToInt64())
 					return 0L;
 
 				if (!m.Equals(Keyword_R, StringComparison.OrdinalIgnoreCase) && !windows.Any(w => w.Active))
@@ -74,10 +74,10 @@ namespace Keysharp.Builtins
 
 					if (!group.activated.Contains(h))
 					{
-						win.Active = true;
+						Platform.Window.TryActivate(win.Handle);
 						group.activated.Push(h);
 						group.lastWasDeactivate = false;
-						WindowItemBase.DoWinDelay();
+						WindowInfoBase.DoWinDelay();
 						return h;
 					}
 				}
@@ -93,7 +93,7 @@ namespace Keysharp.Builtins
 									  object excludeText = null)
 		{
 			var name = groupName.As();
-			var windowGroups = TheScript.WindowProvider.Manager.Groups;
+			var windowGroups = TheScript.WindowGroups;
 
 			if (string.IsNullOrEmpty(name))
 				return Errors.ValueErrorOccurred("Group name must not be empty.");
@@ -117,8 +117,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("GroupClose");
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
-			var mgr = Script.TheScript.WindowProvider.Manager;
-			var windowGroups = mgr.Groups;
+			var windowGroups = Script.TheScript.WindowGroups;
 
 			if (windowGroups.TryGetValue(name, out var group))
 			{
@@ -132,31 +131,31 @@ namespace Keysharp.Builtins
 				{
 					case Keyword_A:
 						while (stack.Count != 0)
-							_ = WindowManager.CreateWindow(new nint(stack.Pop())).Close();
+							_ = Platform.Window.TryClose(new nint(stack.Pop()));
 
 						_ = windowGroups.Remove(name);
 						break;
 
 					case Keyword_R:
 						if (stack.Count > 0)
-							_ = WindowManager.CreateWindow(new nint(stack.Pop())).Close();
+							_ = Platform.Window.TryClose(new nint(stack.Pop()));
 
 						if (stack.Count > 0 && !windows.Any(w => w.Active))
 						{
-							_ = WindowManager.CreateWindow(new nint(stack.Peek())).Active = true;
-							WindowItemBase.DoWinDelay();
+							_ = Platform.Window.TryActivate(new nint(stack.Peek()));
+							WindowInfoBase.DoWinDelay();
 						}
 
 						break;
 
 					case "":
 						if (stack.Count > 0)
-							_ = WindowManager.CreateWindow(new nint(stack.Pop())).Close();
+							_ = Platform.Window.TryClose(new nint(stack.Pop()));
 
 						if (stack.Count > 0)
 						{
-							WindowManager.CreateWindow(new nint(stack.ToArray()[stack.Count - 1])).Active = true;
-							WindowItemBase.DoWinDelay();
+							_ = Platform.Window.TryActivate(new nint(stack.ToArray()[stack.Count - 1]));
+							WindowInfoBase.DoWinDelay();
 						}
 
 						break;
@@ -172,7 +171,7 @@ namespace Keysharp.Builtins
 			var name = groupName.As().ToLowerInvariant();
 			var m = mode.As();
 			var script = Script.TheScript;
-			var windowGroups = script.WindowProvider.Manager.Groups;
+			var windowGroups = script.WindowGroups;
 
 			if (windowGroups.TryGetValue(name, out var group))
 			{
@@ -180,12 +179,12 @@ namespace Keysharp.Builtins
 					return DefaultObject;
 
 				var windows = SearchWindows($"ahk_group {name}");
-				var allwindows = WindowManager.FilterForGroups(WindowManager.AllWindows.Where(w => !windows.Any(ww => ww.Handle.ToInt64() == w.Handle.ToInt64()))).ToList();
+				var allwindows = WindowQuery.FilterForGroups(WindowQuery.AllWindows.Where(w => !windows.Any(ww => ww.Handle.ToInt64() == w.Handle.ToInt64()))).ToList();
 
 				if (allwindows.Count != 0 && windows.Count == group.deactivated.Count)
 					group.deactivated.Clear();
 
-				if (allwindows.Count == 1 && allwindows[0].Handle.ToInt64() == WindowManager.GetForegroundWindowHandle().ToInt64())
+				if (allwindows.Count == 1 && allwindows[0].Handle.ToInt64() == WindowQuery.GetForegroundWindowHandle().ToInt64())
 					return DefaultObject;
 
 				if (!m.Equals(Keyword_R, StringComparison.OrdinalIgnoreCase) && windows.Any(w => w.Active))
@@ -197,10 +196,10 @@ namespace Keysharp.Builtins
 
 					if (!group.deactivated.Contains(h))
 					{
-						win.Active = true;
+						Platform.Window.TryActivate(win.Handle);
 						group.deactivated.Push(h);
 						group.lastWasDeactivate = true;
-						WindowItemBase.DoWinDelay();
+						WindowInfoBase.DoWinDelay();
 						return DefaultObject;
 					}
 				}
@@ -214,7 +213,7 @@ namespace Keysharp.Builtins
 												object winTitle = null,
 												object winText = null,
 												object excludeTitle = null,
-												object excludeText = null) => Script.TheScript.ControlProvider.Manager.ListViewGetContent(
+												object excludeText = null) => Platform.Control.ListViewGetContent(
 														options.As(),
 														control,
 														winTitle,
@@ -235,7 +234,7 @@ namespace Keysharp.Builtins
 										object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("MenuSelect");
-			Script.TheScript.ControlProvider.Manager.MenuSelect(
+			Platform.Control.MenuSelect(
 				winTitle,
 				winText,
 				menu,
@@ -259,7 +258,7 @@ namespace Keysharp.Builtins
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			Script.TheScript.ControlProvider.Manager.PostMessage(
+			Platform.Control.PostMessage(
 				msg.Aui(),
 				wparam.Ai(),
 				lparam.Ai(),
@@ -279,7 +278,7 @@ namespace Keysharp.Builtins
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null,
-									   object timeout = null) => Script.TheScript.ControlProvider.Manager.SendMessage(
+									   object timeout = null) => Platform.Control.SendMessage(
 										   msg.Aui(),
 										   wparam,
 										   lparam,
@@ -385,11 +384,11 @@ namespace Keysharp.Builtins
 			var exclude = excludeText.As();
 #if WINDOWS
 			// Standard Win32 common-control status bar (class "msctls_statusbar32", first instance).
-			WindowItemBase ctrl;
+			WindowInfoBase ctrl;
 
 			if ((ctrl = SearchControl("msctls_statusbar321", winTitle, text, title, exclude, false)) != null)
 			{
-				var sb = StatusBarProvider.CreateStatusBar(ctrl.Handle);
+				var sb = Platform.StatusBar.CreateStatusBar(ctrl.Handle);
 
 				if (part < sb.Captions.Length)
 					return sb.Captions[part];
@@ -465,7 +464,7 @@ namespace Keysharp.Builtins
 				_ = Flow.Sleep(interval);
 			} while (true);
 
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return matchfound ? 1 : 0;
 		}
 
@@ -475,10 +474,10 @@ namespace Keysharp.Builtins
 										 object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinActivate");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
-				win.Active = true;
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
+				Platform.Window.TryActivate(win.Handle);
 
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -488,10 +487,10 @@ namespace Keysharp.Builtins
 											   object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinActivateBottom");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowItemBase win)
-				win.Active = true;
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true, true) is WindowInfoBase win)
+				Platform.Window.TryActivate(win.Handle);
 
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -529,20 +528,20 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinClose");
 			var seconds = secondsToWait.Ad(double.MinValue);
 			var script = Script.TheScript;
-			var (windows, crit) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
+			var (windows, crit) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 
 			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText);
 
 			foreach (var win in windows)
 			{
-				_ = win.Close();
+				_ = Platform.Window.TryClose(win.Handle);
 
 				if (seconds != double.MinValue)
 					_ = win.WaitClose(seconds == 0 ? 0.5 : seconds);
 			}
 
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -566,7 +565,7 @@ namespace Keysharp.Builtins
 		public static string WinGetClass(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
-										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ClassName : "";
+										 object excludeText = null) => SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.ClassName : "";
 
 		public static object WinGetClientPos([ByRef] object outX = null,
 											 [ByRef] object outY = null,
@@ -608,13 +607,13 @@ namespace Keysharp.Builtins
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ExStyle : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.ExStyle : 0L;
 
 		public static object WinGetID(object winTitle = null,
 									  object winText = null,
 									  object excludeTitle = null,
 									  object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Handle.ToInt64() : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.Handle.ToInt64() : 0L;
 
 		public static long WinGetIDLast(object winTitle = null,
 										object winText = null,
@@ -622,7 +621,7 @@ namespace Keysharp.Builtins
 										object excludeText = null)
 		{
 			var script = Script.TheScript;
-			var (windows, criteria) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
+			var (windows, criteria) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 
 			if (windows != null && windows.Count > 0)
 			{
@@ -643,7 +642,7 @@ namespace Keysharp.Builtins
 					  && winText.IsNullOrEmpty()
 					  && excludeTitle.IsNullOrEmpty()
 					  && excludeText.IsNullOrEmpty()
-					  ? WindowManager.AllWindows
+					  ? WindowQuery.AllWindows
 					  : SearchWindows(winTitle, winText, excludeTitle, excludeText)).Select(item => item.Handle.ToInt64()).ToList());
 
 		public static long WinGetMinMax(object winTitle = null,
@@ -653,7 +652,7 @@ namespace Keysharp.Builtins
 		{
 			var val = 0L;
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				var state = win.WindowState;
 
@@ -672,7 +671,7 @@ namespace Keysharp.Builtins
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.PID : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.PID : 0L;
 
 		public static object WinGetPos([ByRef] object outX = null,
 									   [ByRef] object outY = null,
@@ -696,38 +695,38 @@ namespace Keysharp.Builtins
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.ProcessName : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.ProcessName : "";
 
 		public static string WinGetProcessPath(object winTitle = null,
 											   object winText = null,
 											   object excludeTitle = null,
 											   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Path : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.Path : "";
 
 		public static long WinGetStyle(object winTitle = null,
 									   object winText = null,
 									   object excludeTitle = null,
 									   object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Style : 0L;
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.Style : 0L;
 
 		public static string WinGetText(object winTitle = null,
 										object winText = null,
 										object excludeTitle = null,
 										object excludeText = null) =>
-		string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Text : [""]);
+		string.Join(Keyword_Linefeed, SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.Text : [""]);
 
 		public static string WinGetTitle(object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
 										 object excludeText = null) =>
-		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win ? win.Title : "";
+		SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win ? win.Title : "";
 
 		public static string WinGetTransColor(object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
 											  object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				var color = (int)win.TransparentColor.Al();
 				var tempbgr = Color.FromArgb(color);
@@ -747,7 +746,7 @@ namespace Keysharp.Builtins
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				var color = win.Transparency.Al();
 				return color != -1 ? color : "";
@@ -759,12 +758,12 @@ namespace Keysharp.Builtins
 		public static long WinGetAlwaysOnTop(object winTitle = null,
 									 object winText = null,
 									 object excludeTitle = null,
-									 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.AlwaysOnTop) ? 1L : 0L;
+									 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win && win.AlwaysOnTop) ? 1L : 0L;
 
 		public static long WinGetEnabled(object winTitle = null,
 							 object winText = null,
 							 object excludeTitle = null,
-							 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win && win.Enabled) ? 1L : 0L;
+							 object excludeText = null) => (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win && win.Enabled) ? 1L : 0L;
 
 		public static object WinHide(object winTitle = null,
 									 object winText = null,
@@ -774,7 +773,7 @@ namespace Keysharp.Builtins
 			DoDelayedAction(() =>
 			{
 				var matches = SearchWindows(winTitle, winText, excludeTitle, excludeText);
-				matches.ForEach(win => win.Hide());
+				matches.ForEach(win => Platform.Window.TryHide(win.Handle));
 			});
 			return DefaultObject;
 		}
@@ -788,20 +787,20 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinKill");
 			var seconds = secondsToWait.Ad(double.MinValue);
 			var script = Script.TheScript;
-			var (windows, crit) = WindowManager.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
+			var (windows, crit) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 
 			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText, DefaultErrorLong);
 
 			foreach (var win in windows)
 			{
-				_ = win.Kill();
+				_ = Platform.Window.TryKill(win.Handle);
 
 				if (seconds != double.MinValue)
 					_ = win.WaitClose(seconds == 0 ? 0.5 : seconds);
 			}
 
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -810,7 +809,7 @@ namespace Keysharp.Builtins
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.WindowState = FormWindowState.Maximized));
+			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Maximized)));
 			return DefaultObject;
 		}
 
@@ -819,19 +818,19 @@ namespace Keysharp.Builtins
 										 object excludeTitle = null,
 										 object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.WindowState = FormWindowState.Minimized));
+			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Minimized)));
 			return DefaultObject;
 		}
 
 		public static object WinMinimizeAll()
 		{
-			DoDelayedAction(WindowManager.MinimizeAll);
+			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Minimized); });
 			return DefaultObject;
 		}
 
 		public static object WinMinimizeAllUndo(params object[] obj)
 		{
-			DoDelayedAction(WindowManager.MinimizeAllUndo);
+			DoDelayedAction(() => { foreach (var window in WindowQuery.AllWindows) Platform.Window.TrySetState(window.Handle, FormWindowState.Normal); });
 			return DefaultObject;
 		}
 
@@ -850,14 +849,19 @@ namespace Keysharp.Builtins
 			var w = (width is null ? int.MinValue : width.ToInt());
 			var h = (height is null ? int.MinValue : height.ToInt());
 
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
 				if (_x != int.MinValue || _y != int.MinValue || w != int.MinValue || h != int.MinValue)
 				{
-					//Unspecified args are int.MinValue, which the Bounds setter treats as "leave unchanged",
-					//so a single assignment performs move, resize, or both in one platform call.
-					win.Bounds = new Rectangle(_x, _y, w, h);
-					WindowItemBase.DoWinDelay();
+					//Unspecified args are int.MinValue ("leave unchanged"), so one platform call performs
+					//move, resize, or both. Actions go by handle now that WindowInfo is a read-only snapshot.
+					var setPos  = _x != int.MinValue || _y != int.MinValue;
+					var setSize = w != int.MinValue || h != int.MinValue;
+
+					if (!Platform.Window.TryMoveResize(win.Handle, new Rectangle(_x, _y, w, h), setPos, setSize))
+						_ = Errors.OSErrorOccurred("Moving/resizing this window is not supported on the current platform/compositor.");
+
+					WindowInfoBase.DoWinDelay();
 				}
 			}
 
@@ -869,7 +873,7 @@ namespace Keysharp.Builtins
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = true; });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Bottom); });
 			return DefaultObject;
 		}
 
@@ -878,7 +882,7 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) win.Bottom = false; });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) Platform.Window.TrySetZOrder(win.Handle, Keysharp.Internals.ZOrder.Top); });
 			return DefaultObject;
 		}
 
@@ -887,7 +891,7 @@ namespace Keysharp.Builtins
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win) _ = win.Redraw(); });
+			DoAction(() => { if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win) _ = Platform.Window.TryRedraw(win.Handle); });
 			return DefaultObject;
 		}
 
@@ -896,7 +900,7 @@ namespace Keysharp.Builtins
 										object excludeTitle = null,
 										object excludeText = null)
 		{
-			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.WindowState = FormWindowState.Normal));
+			DoDelayedAction(() => SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TrySetState(win.Handle, FormWindowState.Normal)));
 			return DefaultObject;
 		}
 
@@ -906,7 +910,7 @@ namespace Keysharp.Builtins
 											   object excludeTitle = null,
 											   object excludeText = null)
 		{
-			WinSetToggleX((win, b) => win.AlwaysOnTop = b, win => win.AlwaysOnTop, newSetting, winTitle, winText, excludeTitle, excludeText);
+			WinSetToggleX((win, b) => Platform.Window.TrySetAlwaysOnTop(win.Handle, b), win => win.AlwaysOnTop, newSetting, winTitle, winText, excludeTitle, excludeText);
 			return DefaultObject;
 		}
 
@@ -916,7 +920,7 @@ namespace Keysharp.Builtins
 										   object excludeTitle = null,
 										   object excludeText = null)
 		{
-			WinSetToggleX((win, b) => win.Enabled = b, win => win.Enabled, newSetting, winTitle, winText, excludeTitle, excludeText);
+			WinSetToggleX((win, b) => Platform.Window.TrySetEnabled(win.Handle, b), win => win.Enabled, newSetting, winTitle, winText, excludeTitle, excludeText);
 			return DefaultObject;
 		}
 
@@ -940,7 +944,7 @@ namespace Keysharp.Builtins
 			EnsureWindowAutomationPermission("WinSetRegion");
 			var opts = options.As();
 
-			if (!(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win))
+			if (!(SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win))
 				return DefaultObject;
 
 			var w = int.MinValue;
@@ -1039,9 +1043,9 @@ namespace Keysharp.Builtins
 										 object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinSetTitle");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				win.Title = newTitle.As();   // No A_WinDelay: AHK's WinSetTitle does not call DoWinDelay.
+				_ = Platform.Window.TrySetTitle(win.Handle, newTitle.As());   // No A_WinDelay: AHK's WinSetTitle does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1054,9 +1058,9 @@ namespace Keysharp.Builtins
 											  object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinSetTransColor");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				win.TransparentColor = color;   // No A_WinDelay: AHK's WinSetTransColor does not call DoWinDelay.
+				_ = Platform.Window.TrySetTransparentColor(win.Handle, color);   // No A_WinDelay: AHK's WinSetTransColor does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1069,9 +1073,9 @@ namespace Keysharp.Builtins
 											   object excludeText = null)
 		{
 			EnsureWindowAutomationPermission("WinSetTransparent");
-			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowItemBase win)
+			if (SearchWindow(winTitle, winText, excludeTitle, excludeText, true) is WindowInfoBase win)
 			{
-				win.Transparency = n;   // No A_WinDelay: AHK's WinSetTransparent does not call DoWinDelay.
+				_ = Platform.Window.TrySetTransparency(win.Handle, n);   // No A_WinDelay: AHK's WinSetTransparent does not call DoWinDelay.
 			}
 
 			return DefaultObject;
@@ -1088,13 +1092,13 @@ namespace Keysharp.Builtins
 			tv.detectHiddenWindows = true;
 			try
 			{
-				SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => win.Show());
+				SearchWindows(winTitle, winText, excludeTitle, excludeText).ForEach(win => Platform.Window.TryShow(win.Handle));
 			}
 			finally
 			{
 				tv.detectHiddenWindows = prev;
 			}
-			WindowItemBase.DoWinDelay();
+			WindowInfoBase.DoWinDelay();
 			return DefaultObject;
 		}
 
@@ -1105,7 +1109,7 @@ namespace Keysharp.Builtins
 								   object excludeText = null)
 		{
 			var seconds = timeout.Ad();
-			WindowItemBase win;
+			WindowInfoBase win;
 			var start = DateTime.UtcNow;
 
 			do
@@ -1120,8 +1124,8 @@ namespace Keysharp.Builtins
 
 			if (win != null)
 			{
-				WindowManager.LastFound = win;
-				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+				WindowQuery.LastFound = win;
+				WindowInfoBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
 			}
 
 			return win != null ? win.Handle.ToInt64() : 0L;
@@ -1141,11 +1145,11 @@ namespace Keysharp.Builtins
 
 			while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
 			{
-				WindowItemBase win = null;
+				WindowInfoBase win = null;
 
 				if (criteria.IsEmpty)
 				{
-					var lastFound = WindowManager.LastFound;
+					var lastFound = WindowQuery.LastFound;
 
 					if (lastFound != null && lastFound.IsSpecified && lastFound.Active)
 						win = lastFound;
@@ -1155,7 +1159,7 @@ namespace Keysharp.Builtins
 
 				if (win != null)
 				{
-					WindowManager.LastFound = win;
+					WindowQuery.LastFound = win;
 					hwnd = win.Handle.ToInt64();
 					b = true;
 				}
@@ -1165,7 +1169,7 @@ namespace Keysharp.Builtins
 			}
 
 			if (b)
-				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+				WindowInfoBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
 
 			return hwnd;
 		}
@@ -1183,7 +1187,7 @@ namespace Keysharp.Builtins
 
 			while (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds)
 			{
-				var windows = WindowManager.FindWindowGroup(criteria, false, true);
+				var windows = WindowQuery.FindWindowGroup(criteria, false, true);
 
 				if (windows.Count == 0)
 				{
@@ -1191,12 +1195,12 @@ namespace Keysharp.Builtins
 					break;
 				}
 
-				WindowManager.LastFound = windows[0];
+				WindowQuery.LastFound = windows[0];
 				_ = Flow.Sleep(10);
 			}
 
 			if (result == 1L)
-				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+				WindowInfoBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
 
 			return result;
 		}
@@ -1214,11 +1218,14 @@ namespace Keysharp.Builtins
 
 			if (criteria.IsEmpty)
 			{
-				if (WindowManager.LastFound is WindowItemBase win && win.IsSpecified)
+				if (WindowQuery.LastFound is WindowInfoBase win && win.IsSpecified)
 				{
 					while (!b && (seconds == 0 || (DateTime.UtcNow - start).TotalSeconds < seconds))
 					{
-						if (!win.Active)
+						// Re-resolve LastFound each poll (as WinWaitActive does) so a Wayland-backend window's
+						// cached snapshot is refreshed; reading the originally-held item would observe a frozen
+						// Active forever and never see the deactivation.
+						if (WindowQuery.LastFound is not WindowInfoBase cur || !cur.IsSpecified || !cur.Active)
 						{
 							b = true;
 							break;
@@ -1240,13 +1247,13 @@ namespace Keysharp.Builtins
 						break;
 					}
 
-					WindowManager.LastFound = win;
+					WindowQuery.LastFound = win;
 					_ = Flow.Sleep(10);
 				}
 			}
 
 			if (b)
-				WindowItemBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
+				WindowInfoBase.DoWinDelay();   // AHK delays only when the wait succeeds, not on timeout.
 
 			return b ? 1L : 0L;
 		}

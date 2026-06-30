@@ -2,7 +2,6 @@
 using System;
 using SharpHook.Data;
 #if LINUX
-using static Keysharp.Internals.Platform.Unix.PlatformManager;
 #endif
 
 namespace Keysharp.Internals.Input.Keyboard
@@ -16,7 +15,7 @@ namespace Keysharp.Internals.Input.Keyboard
 	{
 #if LINUX
 		// inputd is the default backend; the legacy X11/SharpHook fallback uses XKeycodes instead.
-		private static bool UseInputdScanCodes => !KeysharpInputdManager.IsLegacyX11FallbackActive;
+		private static bool UseInputdScanCodes => Platform.Input.ActiveTransport == InputTransport.Inputd;
 
 		public static uint MapScToVk(uint sc)
 		{

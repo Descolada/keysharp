@@ -1,0 +1,133 @@
+namespace Keysharp.Internals
+{
+	/// <summary>
+	/// The resolved-once bundle of platform capability services, one per process, chosen by OS at compile
+	/// time and (on Linux) composed from X11 + the active Wayland backend at runtime inside the impls.
+	/// Construction MUST be trivial — no X11 connection, no thread-affine probe — so it can be forced on the
+	/// startup thread without side effects; the actual session/backend resolution happens lazily inside each
+	/// service the first time it is used.
+	/// </summary>
+	internal abstract class PlatformHost
+	{
+		internal abstract IWindow Window { get; }
+		internal abstract IOwnWindow OwnWindow { get; }
+		internal abstract IMouse Mouse { get; }
+		internal abstract IScreen Screen { get; }
+		internal abstract IOverlay Overlay { get; }
+		internal abstract IWindowEvents Events { get; }
+		internal abstract ISession Session { get; }
+		internal abstract IHotkeys Hotkeys { get; }
+		internal abstract IInput Input { get; }
+		internal abstract IPermissionManager Permissions { get; }
+		internal abstract ControlManagerBase Control { get; }
+
+		/// <summary>Compile-time OS selection. The Linux host resolves the X11/Wayland composite once inside
+		/// its services; Windows/macOS are single-backend.</summary>
+		internal static PlatformHost Resolve() =>
+#if WINDOWS
+			new WindowsPlatformHost();
+#elif LINUX
+			new LinuxPlatformHost();
+#elif OSX
+			new MacPlatformHost();
+#else
+#error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
+#endif
+	}
+
+	// Per-OS hosts. Each service is unimplemented for now and throws until it is wired; only the current OS's
+	// host is compiled (the others are #if-guarded), matching how the rest of the per-OS code is selected.
+	internal abstract class PlatformHostBase : PlatformHost
+	{
+		private static T NotImpl<T>(string service)
+			=> throw new NotImplementedException($"Platform.{service} is not implemented yet.");
+
+		internal override IWindow Window => NotImpl<IWindow>(nameof(Window));
+		internal override IOwnWindow OwnWindow => NotImpl<IOwnWindow>(nameof(OwnWindow));
+		internal override IMouse Mouse => NotImpl<IMouse>(nameof(Mouse));
+		internal override IScreen Screen => NotImpl<IScreen>(nameof(Screen));
+		internal override IOverlay Overlay => NotImpl<IOverlay>(nameof(Overlay));
+		internal override IWindowEvents Events => NotImpl<IWindowEvents>(nameof(Events));
+		internal override ISession Session => NotImpl<ISession>(nameof(Session));
+		internal override IHotkeys Hotkeys => NotImpl<IHotkeys>(nameof(Hotkeys));
+		internal override IInput Input => NotImpl<IInput>(nameof(Input));
+		internal override IPermissionManager Permissions => NotImpl<IPermissionManager>(nameof(Permissions));
+		internal override ControlManagerBase Control => NotImpl<ControlManagerBase>(nameof(Control));
+	}
+
+#if WINDOWS
+	internal sealed class WindowsPlatformHost : PlatformHostBase
+	{
+		private readonly IMouse mouse = new WindowsMouse();
+		private readonly IInput input = new WindowsInput();
+		private readonly IOverlay overlay = new WindowsOverlay();
+		private readonly IScreen screen = new WindowsScreen();
+		private readonly IWindowEvents events = new WindowsEvents();
+		private readonly ISession session = new WindowsSession();
+		private readonly IHotkeys hotkeys = new WindowsHotkeys();
+		private readonly IPermissionManager permissions = new DefaultPermissionManager();
+		private readonly IWindow window = new WindowsWindow();
+		private readonly ControlManagerBase control = new Os.Windows.ControlManager();
+		internal override IMouse Mouse => mouse;
+		internal override IInput Input => input;
+		internal override IOverlay Overlay => overlay;
+		internal override IScreen Screen => screen;
+		internal override IWindowEvents Events => events;
+		internal override ISession Session => session;
+		internal override IHotkeys Hotkeys => hotkeys;
+		internal override IPermissionManager Permissions => permissions;
+		internal override IWindow Window => window;
+		internal override ControlManagerBase Control => control;
+	}
+#elif LINUX
+	internal sealed class LinuxPlatformHost : PlatformHostBase
+	{
+		private readonly IMouse mouse = LinuxMice.Resolve();
+		private readonly IInput input = new LinuxInput();
+		private readonly IOverlay overlay = new LinuxOverlay();
+		// Lazy: choosing the per-compositor IScreen needs the resolved Wayland backend, which must not be probed
+		// at host construction. The compositor flavor is inspected once, on first Screen use.
+		private readonly Lazy<IScreen> screen = new (LinuxScreens.Resolve);
+		private readonly IWindowEvents events = new LinuxEvents();
+		private readonly ISession session = new LinuxSession();
+		private readonly IHotkeys hotkeys = new LinuxHotkeys();
+		private readonly IWindow window = new LinuxWindow();
+		private readonly IPermissionManager permissions = new LinuxPermissionManager();
+		private readonly ControlManagerBase control = new Os.Unix.ControlManager();
+		internal override IMouse Mouse => mouse;
+		internal override IInput Input => input;
+		internal override IOverlay Overlay => overlay;
+		internal override IScreen Screen => screen.Value;
+		internal override IWindowEvents Events => events;
+		internal override ISession Session => session;
+		internal override IHotkeys Hotkeys => hotkeys;
+		internal override IWindow Window => window;
+		internal override IPermissionManager Permissions => permissions;
+		internal override ControlManagerBase Control => control;
+	}
+#elif OSX
+	internal sealed class MacPlatformHost : PlatformHostBase
+	{
+		private readonly IMouse mouse = new MacMouse();
+		private readonly IInput input = new MacInput();
+		private readonly IOverlay overlay = new MacOverlay();
+		private readonly IScreen screen = new MacScreen();
+		private readonly IWindowEvents events = new MacEvents();
+		private readonly ISession session = new MacSession();
+		private readonly IHotkeys hotkeys = new MacHotkeys();
+		private readonly IPermissionManager permissions = new MacPermissionManager();
+		private readonly IWindow window = new MacWindow();
+		private readonly ControlManagerBase control = new Os.Unix.ControlManager();
+		internal override IMouse Mouse => mouse;
+		internal override IInput Input => input;
+		internal override IOverlay Overlay => overlay;
+		internal override IScreen Screen => screen;
+		internal override IWindowEvents Events => events;
+		internal override ISession Session => session;
+		internal override IHotkeys Hotkeys => hotkeys;
+		internal override IPermissionManager Permissions => permissions;
+		internal override IWindow Window => window;
+		internal override ControlManagerBase Control => control;
+	}
+#endif
+}

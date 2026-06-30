@@ -369,20 +369,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				|| !ulong.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seq))
 				return false;
 
-			info = new WaylandWindowInfo
-			{
-				Handle = SeqToHandle(seq),
-				CompositorId = id,
-				Title = JsonString(item, "title"),
-				AppId = JsonString(item, "appId"),
-				PID = JsonLong(item, "pid"),
-				FrameGeometry = JsonRectangle(item, "frame"),
-				ClientGeometry = JsonRectangle(item, "client"),
-				Active = JsonBool(item, "active"),
-				Minimized = JsonBool(item, "minimized"),
-				Maximized = JsonBool(item, "maximized"),
-				Visible = JsonBool(item, "visible"),
-			};
+			info = new WaylandWindowInfo(
+				handle: SeqToHandle(seq),
+				compositorId: id,
+				title: JsonString(item, "title"),
+				appId: JsonString(item, "appId"),
+				pid: JsonLong(item, "pid"),
+				frameGeometry: JsonRectangle(item, "frame"),
+				clientGeometry: JsonRectangle(item, "client"),
+				active: JsonBool(item, "active"),
+				minimized: JsonBool(item, "minimized"),
+				maximized: JsonBool(item, "maximized"),
+				visible: JsonBool(item, "visible"));
 			return true;
 		}
 

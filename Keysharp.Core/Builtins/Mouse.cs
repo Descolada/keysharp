@@ -250,7 +250,7 @@ namespace Keysharp.Builtins
 			if (outputVarWin == null && outputVarControl == null)
 				return DefaultObject;
 
-			var child = WindowManager.ChildWindowFromPoint(pos);
+			var child = WindowQuery.ChildWindowFromPoint(pos);
 
 			if (child == null || child.Handle == 0)
 			{
@@ -268,10 +268,10 @@ namespace Keysharp.Builtins
 			if ((mode & 0x01) == 0)
 			{
 				var pah = new PointAndHwnd(pos);//Find topmost control containing point.
-				parent.ChildFindPoint(pah);
+				Platform.Window.ChildFindPoint(parent.Handle, pah);
 
 				if (pah.hwndFound != 0)
-					child = WindowManager.CreateWindow(pah.hwndFound);
+					child = WindowQuery.CreateWindow(pah.hwndFound);
 			}
 
 #else
@@ -310,7 +310,7 @@ namespace Keysharp.Builtins
 				var hit = FindDeepest(ksForm);
 
 				if (hit != null)
-					child = new ControlItem(hit);
+					child = new ControlInfo(hit);
 			}
 #endif
 

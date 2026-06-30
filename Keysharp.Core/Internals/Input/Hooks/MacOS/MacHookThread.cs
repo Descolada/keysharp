@@ -12,7 +12,7 @@ using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 namespace Keysharp.Internals.Input.Hooks.MacOS
 {
 	// macOS reuses the non-Windows SharpHook pipeline from UnixHookThread.
-	// X11-specific behavior remains disabled via PlatformManager.IsX11Available.
+	// X11-specific behavior remains disabled via Platform.Desktop.IsX11Available.
 	internal sealed class MacHookThread : Keysharp.Internals.Input.Hooks.Unix.UnixHookThread
 	{
 		// NSEvent modifier bit masks. Using raw bits avoids relying on binding-specific enum names.

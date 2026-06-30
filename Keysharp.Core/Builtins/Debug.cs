@@ -21,7 +21,7 @@ namespace Keysharp.Builtins
 			tv.titleMatchMode = 2L;//Match anywhere.
 			var hwnd = WindowX.WinExist(A_ScriptName, "", title, "");
 			tv.titleMatchMode = mm;
-			var wi = WindowManager.CreateWindow((nint)hwnd);
+			var wi = WindowQuery.CreateWindow((nint)hwnd);
 			var classname = wi.ClassName;//Logic taken from AHK.
 
 			if (classname == "#32770" || classname == "AutoHotkey" || classname == "Keysharp")//MessageBox(), InputBox(), FileSelect(), or GUI/script-owned window.
@@ -66,7 +66,7 @@ namespace Keysharp.Builtins
 			}
 			else
 			{
-				wi.Active = true;
+				Platform.Window.TryActivate(wi.Handle);
 			}
 
 			return DefaultObject;
@@ -146,7 +146,7 @@ namespace Keysharp.Builtins
 		{
 			var sb = new StringBuilder(2048);
 			var script = Script.TheScript;
-			var target_window = WindowManager.ActiveWindow;
+			var target_window = WindowQuery.ActiveWindow;
 			var win_title = target_window.IsSpecified ? target_window.Title : "";
 			var enabledTimers = 0;
 			var ht = script.HookThread;

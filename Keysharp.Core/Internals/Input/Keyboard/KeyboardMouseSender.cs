@@ -1297,7 +1297,7 @@ namespace Keysharp.Internals.Input.Keyboard
 		// For #MenuMaskKey.
 		internal virtual void SendKeyEventMenuMask(KeyEventTypes eventType, long extraInfo = KeyIgnoreAllExceptModifier) => SendKeyEvent(eventType, menuMaskKeyVK, menuMaskKeySC, 0, false, extraInfo);
 
-		internal virtual void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowItemBase tempitem, nint targetWindow)
+		internal virtual void AttachTargetWindowThread(ref bool threadsAreAttached, ref uint keybdLayoutThread, ref WindowInfoBase tempitem, nint targetWindow)
 		{
 			// Default implementation does nothing.
 		}
@@ -1433,7 +1433,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			// 2) Determines sTargetKeybdLayout and sTargetLayoutHasAltGr early (for maintainability).
 			var threadsAreAttached = false; // Set default.
 			uint keybdLayoutThread = 0;     //
-			WindowItemBase tempitem = null;
+			WindowInfoBase tempitem = null;
 
 			if (targetWindow != 0) // Caller has ensured this is NULL for SendInput and SendPlay modes.
 			{
@@ -1453,7 +1453,7 @@ namespace Keysharp.Internals.Input.Keyboard
 						&& sendModeOrig != SendModes.Play // SM_PLAY is reported to be incapable of locking the computer.
 						&& !inBlindMode // The philosophy of blind-mode is that the script should have full control, so don't do any waiting during blind mode.
 						&& sendRaw != SendRawModes.RawText // {Text} mode does not trigger Win+L.
-						&& PlatformManager.CurrentThreadId() == script.NativeMainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
+						&& Platform.Process.CurrentThreadId() == script.NativeMainThreadID // Exclude the hook thread because it isn't allowed to call anything like MsgSleep, nor are any calls from the hook thread within the understood/analyzed scope of this workaround.
 				   )
 				{
 					var waitForWinKeyRelease = false;
@@ -1506,10 +1506,10 @@ namespace Keysharp.Internals.Input.Keyboard
 				// for each keystroke.
 				// v1.1.27.01: Use the thread of the focused control, which may differ from the active window.
 				nint tempzero = 0;
-				keybdLayoutThread = WindowManager.GetFocusedCtrlThread(ref tempzero, 0);
+				keybdLayoutThread = WindowQuery.GetFocusedCtrlThread(ref tempzero, 0);
 			}
 
-			targetKeybdLayout = PlatformManager.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
+			targetKeybdLayout = Platform.Keyboard.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
 			targetLayoutHasAltGr = LayoutHasAltGr(targetKeybdLayout);  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
 			// Below is now called with "true" so that the hook's modifier state will be corrected (if necessary)
 			// prior to every send.

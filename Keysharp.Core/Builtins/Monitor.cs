@@ -62,8 +62,41 @@ namespace Keysharp.Builtins
 
 		internal static (long Width, long Height) GetPrimaryWorkAreaSize()
 		{
+			var wa = GetPrimaryWorkArea();
+			return ((long)wa.Width, (long)wa.Height);
+		}
+
+		/// <summary>The working area (monitor minus panels/docks) of the primary monitor.</summary>
+		internal static Eto.Drawing.RectangleF GetPrimaryWorkArea()
+		{
 			var (screen, _) = ResolveScreen(null);
-			return ((long)screen.WorkingArea.Width, (long)screen.WorkingArea.Height);
+			return WorkingAreaFor(screen);
+		}
+
+		/// <summary>
+		/// The working area of <paramref name="screen"/>. Eto's WorkingArea already excludes panels/struts
+		/// on Windows/macOS/X11, but on Wayland a client cannot compute it (gdk returns the full monitor),
+		/// so when the compositor backend can report the work area, substitute it — for the monitor whose
+		/// bounds contain it. The backend reports only the primary/active monitor, so other monitors keep
+		/// Eto's value.
+		/// </summary>
+		private static Eto.Drawing.RectangleF WorkingAreaFor(Forms.Screen screen)
+		{
+#if LINUX
+			try
+			{
+				if (Platform.Screen.TryGetWorkArea(0, out var wa, out _) && wa.Width > 0 && wa.Height > 0
+					&& screen.Bounds.Contains(wa.X, wa.Y))
+					return new Eto.Drawing.RectangleF(wa.X, wa.Y, wa.Width, wa.Height);
+			}
+			catch
+			{
+			}
+#endif
+			// Eto's WorkingArea can throw on a backend-less monitor (e.g. Gdk on Wayland in a console
+			// context); fall back to the full bounds so callers get a value rather than nothing.
+			try { return screen.WorkingArea; }
+			catch { return screen.Bounds; }
 		}
 
 		internal static (long Width, long Height) GetVirtualScreenSize()
@@ -175,11 +208,12 @@ namespace Keysharp.Builtins
 		public static object MonitorGetWorkArea(object n = null, [ByRef] object left = null, [ByRef] object top = null, [ByRef] object right = null, [ByRef] object bottom = null)
 		{
 			var (screen, monitorIndex) = ResolveScreen(n);
+			var wa = WorkingAreaFor(screen);
 
-			if (left != null) Script.SetPropertyValue(left, "__Value", (long)screen.WorkingArea.Left);
-			if (top != null) Script.SetPropertyValue(top, "__Value", (long)screen.WorkingArea.Top);
-			if (right != null) Script.SetPropertyValue(right, "__Value", (long)screen.WorkingArea.Right);
-			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)screen.WorkingArea.Bottom);
+			if (left != null) Script.SetPropertyValue(left, "__Value", (long)wa.Left);
+			if (top != null) Script.SetPropertyValue(top, "__Value", (long)wa.Top);
+			if (right != null) Script.SetPropertyValue(right, "__Value", (long)wa.Right);
+			if (bottom != null) Script.SetPropertyValue(bottom, "__Value", (long)wa.Bottom);
 			return monitorIndex;
 		}
 	}

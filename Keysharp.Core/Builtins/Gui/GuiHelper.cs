@@ -181,8 +181,9 @@ namespace Keysharp.Builtins
 				}
 #else
 #if LINUX
-				// Compositor-native Wayland capture (else Eto root grab) lives in LinuxScreenCapture.
-				bmp = Keysharp.Internals.Window.Linux.LinuxScreenCapture.GetScreen(x, y, w, h);
+				// Compositor-native capture (KWin/GNOME/wlroots) else the Eto root grab — the compositor flavor
+				// is resolved once inside Platform.Screen, so there's no IsWaylandSession/backend test here.
+				_ = Platform.Screen.TryCaptureRegion(x, y, w, h, out bmp, out _, out _);
 #else
 				// On Retina displays this is a physical-pixel-sized bitmap (our Eto fork sizes
 				// the capture in pixels, not points); callers map coordinates back to logical
@@ -242,11 +243,13 @@ namespace Keysharp.Builtins
 
 				return (bmp, scale);
 #elif LINUX
-				// Per-compositor dispatch lives in LinuxScreenCapture: X11 (incl. Cinnamon) uses XGetImage +
-				// XComposite so occluded windows still capture; GNOME Wayland reads the window actor's buffer
-				// via the Keysharp Shell extension; KWin/wlroots return null here so the caller falls back to
-				// a rectangle grab of the window's on-screen bounds.
-				return Keysharp.Internals.Window.Linux.LinuxScreenCapture.CaptureWindow(handle, includeDecoration);
+				// Per-compositor window capture, resolved once inside Platform.Screen: X11 (incl. Cinnamon) uses
+				// XGetImage + XComposite so occluded windows still capture; GNOME images the window actor's buffer
+				// via the Keysharp Shell extension; KWin uses ScreenShot2; wlroots/unknown return false so the
+				// caller falls back to a rectangle grab of the window's on-screen bounds.
+				return Platform.Screen.TryCaptureWindow(handle, includeDecoration, out var wbmp, out var wscale)
+					? (wbmp, wscale)
+					: (null, 1.0);
 #else
 				return (null, 1.0);
 #endif

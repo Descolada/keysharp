@@ -535,6 +535,12 @@ namespace Keysharp.Builtins
 			}
 
 			UpdateStatusStripLayout();
+#if !WINDOWS
+			// A resize on Wayland can drop the click-through input region (e.g. the Highlight overlay
+			// resizes on every update), so reapply it.
+			if (clickThrough)
+				Eto.Forms.EtoExtensions.SetFormClickThrough(this, true);
+#endif
 		}
 
 		internal object OnEvent(object obj0, object obj1, object obj2 = null)

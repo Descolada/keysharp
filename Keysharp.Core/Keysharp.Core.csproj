@@ -78,7 +78,7 @@
 		<Compile Remove="Builtins\Gui\Windows\Dialogs\InputDialog.cs" />
 		<Compile Remove="Internals\Input\Windows\**\*.cs" />
 		<Compile Remove="Internals\Mapper\Windows\**\*.cs" />
-		<Compile Remove="Internals\Platform\Windows\**\*.cs" />
+		<Compile Remove="Internals\Os\Windows\**\*.cs" />
 		<Compile Remove="Internals\Input\Hooks\Windows\**\*.cs" />
 		<Compile Remove="Internals\Window\Windows\**\*.cs" />
 		<Compile Remove="Internals\Window\Windows\AboutBox.Designer.cs" />

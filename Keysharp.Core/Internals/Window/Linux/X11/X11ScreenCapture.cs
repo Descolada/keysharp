@@ -44,7 +44,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 		/// </summary>
 		internal static Bitmap TryCaptureWindow(long xid)
 		{
-			if (xid == 0 || !Keysharp.Internals.Platform.Unix.PlatformManager.IsX11Available)
+			if (xid == 0 || !Platform.Desktop.IsX11Available)
 				return null;
 
 			var display = XDisplay.Default.Handle;
@@ -52,7 +52,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 			if (display == 0)
 				return null;
 
-			lock (WindowManager.xLibLock)
+			lock (X11Server.xLibLock)
 			{
 				var ok = true;
 				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) => { ok = false; return 0; });

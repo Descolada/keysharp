@@ -95,7 +95,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			item.vk = vk;
 			item.sc = sc;
 			item.eventType = 'i'; // Callers all want this.
-			var win = WindowManager.ActiveWindow;
+			var win = WindowQuery.ActiveWindow;
 			var forewin = win.Handle;
 
 			if (forewin != 0)

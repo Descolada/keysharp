@@ -78,7 +78,15 @@ global using global::Keysharp.Internals.Input.Keyboard;
 global using global::Keysharp.Internals.Input.Mouse;
 global using global::Keysharp.Internals.Mapper;
 global using global::Keysharp.Internals.Patterns;
-global using global::Keysharp.Internals.Platform;
+global using global::Keysharp.Internals.Os;
+global using Platform = global::Keysharp.Internals.Platform;
+global using static global::Keysharp.Internals.Platform.Keyboard;
+global using static global::Keysharp.Internals.Platform.Library;
+global using static global::Keysharp.Internals.Platform.Process;
+global using static global::Keysharp.Internals.Platform.Desktop;
+global using static global::Keysharp.Internals.Platform.Pointer;
+global using static global::Keysharp.Internals.Platform.Messages;
+global using static global::Keysharp.Internals.Window.WindowCoords;
 global using global::Keysharp.Internals.Scripting;
 global using global::Keysharp.Internals.Strings;
 global using global::Keysharp.Internals.Threading;
@@ -101,7 +109,7 @@ global using global::BitFaster.Caching.Scheduler;
 	global using global::System.Media;
 	global using global::System.Runtime.InteropServices.ComTypes;
 	global using global::Keysharp.Internals.Input.Windows;
-	global using global::Keysharp.Internals.Platform.Windows;
+	global using global::Keysharp.Internals.Os.Windows;
 	global using global::Keysharp.Internals.Input.Hooks.Windows;
 	global using global::Keysharp.Internals.Window.Windows;
 	global using AboutBox = Keysharp.Internals.Window.Windows.AboutBox;
@@ -112,7 +120,7 @@ global using global::BitFaster.Caching.Scheduler;
 
 #if !WINDOWS
 	global using global::Keysharp.Internals.Input.Unix;
-	global using global::Keysharp.Internals.Platform.Unix;
+	global using global::Keysharp.Internals.Os.Unix;
 	global using global::Keysharp.Internals.Input.Hooks.Unix;
 	global using global::Keysharp.Internals.Window.Unix;
 	global using AboutBox = Keysharp.Internals.Window.Unix.AboutBox;
@@ -125,6 +133,7 @@ global using global::BitFaster.Caching.Scheduler;
 	global using global::Keysharp.Internals.Window.Linux;
 	global using global::Keysharp.Internals.Window.Linux.Proxies;
 	global using global::Keysharp.Internals.Window.Linux.X11;
+	global using global::Keysharp.Internals.Window.Linux.Wayland;
 #endif
 
 #if OSX
@@ -136,12 +145,9 @@ global using global::BitFaster.Caching.Scheduler;
 global using static global::Keysharp.Builtins.Accessors;
 global using static global::Keysharp.Parsing.Keywords;
 global using static global::Keysharp.Runtime.Script;
-global using static global::Keysharp.Internals.Platform.PlatformManagerBase;
 
 #if WINDOWS
-	global using static global::Keysharp.Internals.Platform.Windows.PlatformManager;
 #endif
 
 #if !WINDOWS
-	global using static global::Keysharp.Internals.Platform.Unix.PlatformManager;
 #endif

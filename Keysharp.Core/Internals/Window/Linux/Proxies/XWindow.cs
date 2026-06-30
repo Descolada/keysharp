@@ -43,7 +43,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 			var attr = new XWindowAttributes();
 			var success = true;
 
-			lock (WindowManager.xLibLock)
+			lock (X11Server.xLibLock)
 			{
 				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
 				{

@@ -458,7 +458,7 @@ namespace Keysharp.Internals.Input.Linux
 			// coordinates, which do not map correctly on Wayland compositors.
 			if ((eventFlags & (uint)MOUSEEVENTF.MOVE) == 0)
 			{
-				var gnomeMouse = WaylandMouseBackend();
+				var gnomeMouse = WaylandMouseInjection.Backend();
 
 				if (gnomeMouse != null && TryRouteToGnome(gnomeMouse, eventFlags, data))
 					return;
@@ -512,7 +512,7 @@ namespace Keysharp.Internals.Input.Linux
 			// the sendMode branch so that Input-mode MouseMove calls use the compositor
 			// path rather than queuing a normalised event for inputd.
 			{
-				var gnomeMouse = WaylandMouseBackend();
+				var gnomeMouse = WaylandMouseInjection.Backend();
 
 				if (gnomeMouse != null)
 				{
@@ -626,16 +626,6 @@ namespace Keysharp.Internals.Input.Linux
 			y = absTargetY;
 		}
 
-		// Returns the GNOME compositor backend if it supports mouse simulation,
-		// null otherwise (non-Wayland session, or extension not running).
-		private static Keysharp.Internals.Window.Linux.Wayland.IWaylandBackend WaylandMouseBackend()
-		{
-			if (!PlatformManager.IsWaylandSession)
-				return null;
-
-			var b = Keysharp.Internals.Window.Linux.Wayland.WaylandBackend.Current;
-			return b?.SupportsMouse == true ? b : null;
-		}
 
 		// Maps MOUSEEVENTF button/scroll flags to GNOME D-Bus calls.
 		// Returns false if the flag is not handled here (e.g. MOVE-only events).
@@ -735,7 +725,7 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal override void AttachTargetWindowThread(
 			ref bool threadsAreAttached, ref uint keybdLayoutThread,
-			ref WindowItemBase tempitem, nint targetWindow) { }
+			ref WindowInfoBase tempitem, nint targetWindow) { }
 
 		internal override void DetachTargetWindowThread(uint mainThread, uint targetThread) { }
 

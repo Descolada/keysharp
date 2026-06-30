@@ -263,7 +263,7 @@ namespace Eto.Forms
                     // asserts (a Gdk-CRITICAL per call) and returns 0 anyway. Skipping it on Wayland avoids
                     // that wasted native call + log spam — which, called per window operation, is a real cost
                     // when many overlay windows (e.g. OCR highlights) are created in a tight loop.
-                    if (!Keysharp.Internals.Platform.Unix.PlatformManager.IsWaylandSession && widget is Form form)
+                    if (!Keysharp.Internals.Platform.Desktop.IsWaylandSession && widget is Form form)
                     {
                         var native = form.ToNative() as Gtk.Window;
                         var gdkWin = native?.Window;

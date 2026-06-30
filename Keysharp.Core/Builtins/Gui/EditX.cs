@@ -6,7 +6,7 @@ namespace Keysharp.Builtins
 											 object winTitle = null,
 											 object winText = null,
 											 object excludeTitle = null,
-											 object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentCol(
+											 object excludeText = null) => Platform.Control.EditGetCurrentCol(
 													 control,
 													 winTitle,
 													 winText,
@@ -17,7 +17,7 @@ namespace Keysharp.Builtins
 											  object winTitle = null,
 											  object winText = null,
 											  object excludeTitle = null,
-											  object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetCurrentLine(
+											  object excludeText = null) => Platform.Control.EditGetCurrentLine(
 													  control,
 													  winTitle,
 													  winText,
@@ -29,7 +29,7 @@ namespace Keysharp.Builtins
 										 object winTitle = null,
 										 object winText = null,
 										 object excludeTitle = null,
-										 object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLine(
+										 object excludeText = null) => Platform.Control.EditGetLine(
 											 n.Ai(),
 											 control,
 											 winTitle,
@@ -41,7 +41,7 @@ namespace Keysharp.Builtins
 											object winTitle = null,
 											object winText = null,
 											object excludeTitle = null,
-											object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetLineCount(
+											object excludeText = null) => Platform.Control.EditGetLineCount(
 												control,
 												winTitle,
 												winText,
@@ -52,7 +52,7 @@ namespace Keysharp.Builtins
 				object winTitle = null,
 				object winText = null,
 				object excludeTitle = null,
-				object excludeText = null) => Script.TheScript.ControlProvider.Manager.EditGetSelectedText(
+				object excludeText = null) => Platform.Control.EditGetSelectedText(
 					control,
 					winTitle,
 					winText,
@@ -66,7 +66,7 @@ namespace Keysharp.Builtins
 									   object excludeTitle = null,
 									   object excludeText = null)
 		{
-			Script.TheScript.ControlProvider.Manager.EditPaste(
+			Platform.Control.EditPaste(
 				@string.As(),
 				control,
 				winTitle,

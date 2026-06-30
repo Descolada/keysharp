@@ -192,7 +192,6 @@ namespace Keysharp.Runtime
 		internal MainWindow mainWindow;
 		internal Gui mainWindowGui;
 		internal MenuType menuIsVisible = MenuType.None;
-		internal PlatformManagerBase mgr;
 		internal int nMessageBoxes;
 		internal CallbackRegistry<CallbackRegistration> onErrorHandlers = new();
 		internal CallbackRegistry<CallbackRegistration> onExitHandlers = new();
@@ -231,7 +230,6 @@ namespace Keysharp.Runtime
 #if WINDOWS
 		private ComMethodData comMethodData;
 #endif
-		private ControlProvider controlProvider;
 		private DllData dllData;
 		private DriveTypeMapper driveTypeMapper;
 		private ExecutableMemoryPoolManager exeMemoryPoolManager;
@@ -248,13 +246,11 @@ namespace Keysharp.Runtime
 		private KeyboardUtilsData keyboardUtilsData;
 		private LoopData loopData;
 		private nint mainWindowHandle;
-		private PlatformProvider platformProvider;
-		private PermissionProvider permissionProvider;
 		private ProcessesData processesData;
 		private RegExData regExData;
 		private StringsData stringsData;
 		private ToolTipData toolTipData;
-		private WindowProvider windowProvider;
+		private Dictionary<string, WindowGroup> windowGroups;
 		private WinEventManager winEventManager;
 		private int disposeStarted;
 
@@ -268,7 +264,6 @@ namespace Keysharp.Runtime
 #if WINDOWS
 		internal ComMethodData ComMethodData => comMethodData ?? (comMethodData = new ());
 #endif
-		internal ControlProvider ControlProvider => controlProvider ?? (controlProvider = new ());
 		internal DllData DllData => dllData ?? (dllData = new ());
 		internal DriveTypeMapper DriveTypeMapper => driveTypeMapper ?? (driveTypeMapper = new ());
 		internal ExecutableMemoryPoolManager ExecutableMemoryPoolManager => exeMemoryPoolManager ?? (exeMemoryPoolManager = new ());
@@ -318,16 +313,16 @@ namespace Keysharp.Runtime
 			}
 		}
 
-		internal PlatformProvider PlatformProvider => platformProvider ?? (platformProvider = new ());
-		internal PermissionProvider PermissionProvider => permissionProvider ?? (permissionProvider = new ());
-		internal IPermissionManager Permissions => PermissionProvider.Manager;
+		internal IPermissionManager Permissions => Platform.Permissions;
 		internal ProcessesData ProcessesData => processesData ?? (processesData = new ());
 		internal Reflections Reflections { get; private set; }
 		internal ReflectionsData ReflectionsData { get; } = new ();//Don't lazy initialize, it's always needed in every Script.TheScript.
 		internal RegExData RegExData => regExData ?? (regExData = new ());
 		internal StringsData StringsData => stringsData ?? (stringsData = new ());
 		internal ToolTipData ToolTipData => toolTipData ?? (toolTipData = new ());
-		internal WindowProvider WindowProvider => windowProvider ?? (windowProvider = new ());
+		/// <summary>Named window groups (GroupAdd/GroupActivate), keyed case-insensitively. Per-Script state
+		/// (was <c>WindowManagerBase.Groups</c>, reached through the deleted WindowProvider).</summary>
+		internal Dictionary<string, WindowGroup> WindowGroups => windowGroups ??= new (StringComparer.OrdinalIgnoreCase);
 
 		/// <summary>Lazily-created per-script engine for <c>Ks.WinEvent</c> subscriptions; owns the platform window-event backend.</summary>
 		internal WinEventManager WinEventManager => winEventManager ?? (winEventManager = new (this));
@@ -381,14 +376,19 @@ namespace Keysharp.Runtime
 #endif
 
 #if LINUX
-			// Keysharp uses X11 from multiple threads (GTK UI + hook/window code), so Xlib
-			// must be put into threaded mode before any display connection is opened.
+			// Keysharp still uses X11 from multiple threads on X11 sessions (and via XWayland fallbacks), so
+			// Xlib must be put into threaded mode before any display connection is opened.
 			_ = Keysharp.Internals.Window.Linux.X11.Xlib.XInitThreads();
 
-			// Keysharp's Linux automation path is still X11-based, so force Gtk onto X11/Xwayland
-			// when an X display is available before Eto initializes its platform backend.
-			if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
-				Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
+			// Resolve the platform host on the startup thread — the deterministic resolution point, before any
+			// hook/IPC thread can freeze a thread-affine probe (IsX11Available reads the [ThreadStatic] XDisplay).
+			// Construction is trivial; each service resolves its session/backend lazily on first use.
+			_ = Platform.Instance;
+
+			// Use GTK's native backend per session: Wayland on a Wayland session, X11 on an X11 session. We
+			// no longer force GDK_BACKEND=x11 (XWayland) — window management, input synthesis and screen
+			// capture all go through the compositor backends (KWin/GNOME/Cinnamon) on Wayland rather than
+			// X11. A user can still pin a backend explicitly via the GDK_BACKEND environment variable.
 #endif
 		}
 
@@ -530,7 +530,7 @@ namespace Keysharp.Runtime
 				if (!SetDllDirectory(null))//An empty #DllLoad restores the default search order.
 					if (throwOnFailure)
 					{
-						_ = Errors.ErrorOccurred("PlatformManager.SetDllDirectory(null) failed.", null, Keyword_ExitApp);
+						_ = Errors.ErrorOccurred("Platform.Library.SetDllDirectory(null) failed.", null, Keyword_ExitApp);
 						return;
 					}
 			}
@@ -539,7 +539,7 @@ namespace Keysharp.Runtime
 				if (!SetDllDirectory(library))
 					if (throwOnFailure)
 					{
-						_ = Errors.ErrorOccurred($"PlatformManager.SetDllDirectory({library}) failed.", null, Keyword_ExitApp);
+						_ = Errors.ErrorOccurred($"Platform.Library.SetDllDirectory({library}) failed.", null, Keyword_ExitApp);
 						return;
 					}
 			}
@@ -979,7 +979,7 @@ namespace Keysharp.Runtime
 #else
 			var app = EnsureEtoApplication();
 #if LINUX
-			Keysharp.Internals.Window.Linux.WindowManager.InstallTestLoopXErrorHandler();
+			Keysharp.Internals.Window.Linux.X11Server.InstallTestLoopXErrorHandler();
 #endif
 
 			app.AsyncInvoke(() => InitializeUnixMainWindow(app, title, userInit, _persistent));

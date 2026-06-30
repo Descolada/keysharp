@@ -149,7 +149,7 @@ namespace Keysharp.Builtins
 		{
 			try
 			{
-				return DriveProvider.CreateDrive(new DriveInfo(drive.As())).Serial;
+				return Platform.Drive.CreateDrive(new DriveInfo(drive.As())).Serial;
 			}
 			catch (Exception ex)
 			{
@@ -253,7 +253,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
 		public static object DriveLock(object drive)
 		{
-			DriveProvider.CreateDrive(new DriveInfo(drive.As())).Lock();
+			Platform.Drive.CreateDrive(new DriveInfo(drive.As())).Lock();
 			return DefaultObject;
 		}
 
@@ -284,7 +284,7 @@ namespace Keysharp.Builtins
 		{
 			var label = newLabel.As();
 			var di = new DriveInfo(drive.As());
-			var d = DriveProvider.CreateDrive(di);
+			var d = Platform.Drive.CreateDrive(di);
 			d.VolumeLabel = string.IsNullOrEmpty(label) ? "" : label;
 			return DefaultObject;
 		}
@@ -296,7 +296,7 @@ namespace Keysharp.Builtins
 		/// <exception cref="Error">An <see cref="Error"/> exception is thrown if any failure is detected.</exception>
 		public static object DriveUnlock(object drive)
 		{
-			DriveProvider.CreateDrive(new DriveInfo(drive.As())).UnLock();
+			Platform.Drive.CreateDrive(new DriveInfo(drive.As())).UnLock();
 			return DefaultObject;
 		}
 
@@ -333,12 +333,12 @@ namespace Keysharp.Builtins
 				var allDrives = DriveInfo.GetDrives().Where(drive => drive.DriveType == DriveType.CDRom || drive.DriveType == DriveType.Removable).ToList();
 
 				if (allDrives.Count > 0)
-					drive = DriveProvider.CreateDrive(new DriveInfo(allDrives[0].Name));
+					drive = Platform.Drive.CreateDrive(new DriveInfo(allDrives[0].Name));
 				else
 					_ = Errors.ErrorOccurred("Failed to find any CDROM or DVD drives.");
 			}
 			else
-				drive = DriveProvider.CreateDrive(new DriveInfo(dr));
+				drive = Platform.Drive.CreateDrive(new DriveInfo(dr));
 
 			return drive;
 		}

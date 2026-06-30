@@ -59,7 +59,7 @@ namespace Keysharp.Internals.Window
 			get
 			{
 				var handle = (nint)Script.TheScript.HwndLastUsed;
-				return CreateWindow(handle);   // own Guis route through Platform.Window (X11Window recognises own-toolkit handles)
+				return CreateWindow(handle);   // own Guis route through Platform.Window (the platform service recognises own-toolkit handles)
 			}
 			set => Script.TheScript.HwndLastUsed = value.Handle;
 		}

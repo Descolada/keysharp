@@ -1145,7 +1145,7 @@ namespace Keysharp.Internals.Os.Windows
 				}
 				else if (win != null && win.Handle != 0)
 				{
-					var menuId = new Keysharp.Internals.Window.Windows.Win32Window(win.Handle).GetMenuItemId(menu, sub1, sub2, sub3, sub4, sub5, sub6);
+					var menuId = GetNativeMenuItemId(win.Handle, menu, sub1, sub2, sub3, sub4, sub5, sub6);
 
 					if (menuId != 0xFFFFFFFF)
 					{
@@ -1156,6 +1156,68 @@ namespace Keysharp.Internals.Os.Windows
 						_ = Errors.ValueErrorOccurred($"Could not find menu.", $"{title}, {text}, {menu}, {sub1}, {sub2}, {sub3}, {sub4}, {sub5}, {sub6}, {excludeTitle}, {excludeText}");
 				}
 			}
+		}
+
+		private static uint GetNativeMenuItemId(nint handle, params object[] items)
+		{
+			if (handle == 0)
+				return 0xFFFFFFFF;
+
+			var i1 = 0;
+			var menuid = 0xFFFFFFFF;
+			nint menu;
+
+			if (items[0].As() == "0&")
+			{
+				menu = WindowsAPI.GetSystemMenu(handle, false);
+				i1 = 1;
+			}
+			else
+				menu = WindowsAPI.GetMenu(handle);
+
+			if (menu == 0 || WindowsAPI.GetMenuItemCount(menu) == 0)
+				return 0xFFFFFFFF;
+
+			for (; i1 < items.Length; i1++)
+			{
+				var item = items[i1].As();
+
+				if (item == null || item.Length == 0)
+					continue;
+
+				if (item.EndsWith('&') && int.TryParse(item.Trim('&'), out var n) && n > 0)
+				{
+					n--;
+					menuid = WindowsAPI.GetMenuItemID(menu, n);
+					menu = WindowsAPI.GetSubMenu(menu, n);
+
+					if (menu == 0)
+						break;
+				}
+				else
+				{
+					var itemct = WindowsAPI.GetMenuItemCount(menu);
+
+					for (var i = 0; i < itemct; i++)
+					{
+						var buf = new StringBuilder(256);
+
+						if (WindowsAPI.GetMenuString(menu, (uint)i, buf, buf.Capacity - 1, WindowsAPI.MF_BYPOSITION) > 0)
+						{
+							var matchfound = ControlManagerBase.MenuMatchHelper(buf.ToString(), item);
+
+							if (matchfound)
+							{
+								menuid = WindowsAPI.GetMenuItemID(menu, i);
+								menu = WindowsAPI.GetSubMenu(menu, i);
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			return menuid;
 		}
 
 		internal void NotifyParent(nint handle, uint x_msg, uint y_msg)

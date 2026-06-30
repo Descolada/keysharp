@@ -2895,7 +2895,22 @@ namespace Keysharp.Builtins
 #if WINDOWS
 			else if (!form.BeenShown && owner != 0)
 			{
-				form.Show(new Keysharp.Internals.Window.Windows.Win32Window(owner));
+				if (Forms.Control.FromHandle(owner) is IWin32Window ownerControl)
+					form.Show(ownerControl);
+				else
+				{
+					var ownerWindow = new NativeWindow();
+					ownerWindow.AssignHandle(owner);
+					try
+					{
+						form.Show(ownerWindow);
+					}
+					finally
+					{
+						ownerWindow.ReleaseHandle();
+					}
+				}
+
 				form.beenShown = true;
 			}
 #endif

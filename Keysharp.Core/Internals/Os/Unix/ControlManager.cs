@@ -245,9 +245,6 @@ namespace Keysharp.Internals.Os.Unix
 			else if (vk == VK_WHEEL_RIGHT) button = (Buttons)7;
 			else return;
 
-			// The neutral WindowInfo forwards clicks through Platform.Window, but the control-click path needs
-			// the raw X11 button synthesis (wheel/X-buttons), so reconstruct the X11 read/write helper by handle.
-			var target = new Keysharp.Internals.Window.Linux.X11Window(item.Handle);
 #elif OSX
 			if (vk != VK_LBUTTON && vk != VK_RBUTTON && vk != VK_MBUTTON && vk != VK_XBUTTON1 && vk != VK_XBUTTON2 && !vkIsWheel)
 				return;
@@ -260,14 +257,14 @@ namespace Keysharp.Internals.Os.Unix
 #if LINUX
 				if (vkIsWheel || !u)
 				{
-					target.SendMouseEvent(XEventName.ButtonPress, EventMasks.ButtonPress, button, clickPoint);
+					SendX11MouseEvent(item.Handle, XEventName.ButtonPress, EventMasks.ButtonPress, button, clickPoint);
 					_ = Xlib.XFlush(XDisplay.Default.Handle);
 					WindowInfoBase.DoControlDelay();
 				}
 
 				if (vkIsWheel || !d)
 				{
-					target.SendMouseEvent(XEventName.ButtonRelease, EventMasks.ButtonRelease, button, clickPoint);
+					SendX11MouseEvent(item.Handle, XEventName.ButtonRelease, EventMasks.ButtonRelease, button, clickPoint);
 					_ = Xlib.XFlush(XDisplay.Default.Handle);
 					WindowInfoBase.DoControlDelay();
 				}
@@ -284,6 +281,26 @@ namespace Keysharp.Internals.Os.Unix
 #endif
 			}
 		}
+
+#if LINUX
+		private static void SendX11MouseEvent(nint handle, XEventName evName, EventMasks evMask, Buttons button, Point location)
+		{
+			var display = XDisplay.Default;
+			var ev = new XEvent();
+			ev.ButtonEvent = new XButtonEvent();
+			ev.ButtonEvent.type = evName;
+			ev.ButtonEvent.send_event = true;
+			ev.ButtonEvent.display = display.Handle;
+			ev.ButtonEvent.window = handle;
+			ev.ButtonEvent.subwindow = handle;
+			ev.ButtonEvent.x = location.X;
+			ev.ButtonEvent.y = location.Y;
+			ev.ButtonEvent.root = new nint(display.Root.ID);
+			ev.ButtonEvent.same_screen = true;
+			ev.ButtonEvent.button = button;
+			_ = Xlib.XSendEvent(display.Handle, handle.ToInt64(), true, evMask, ref ev);
+		}
+#endif
 
 		internal override void ControlDeleteItem(int n, object ctrl, object title, object text, object excludeTitle, object excludeText)
 		{

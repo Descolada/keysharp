@@ -1,3 +1,5 @@
+using Keysharp.Builtins;
+
 namespace Keysharp.Internals
 {
 
@@ -7,12 +9,9 @@ namespace Keysharp.Internals
 		// The single home of Linux window dispatch. Every query/control routes through here and fans out three
 		// ways by what owns the window: (1) a compositor-IPC Wayland backend (KWin/GNOME/Cinnamon, which
 		// self-filters by handle), (2) a wlr-foreign-toplevel window (sway/Hyprland/wlroots/COSMIC), or (3) an
-		// X11 window — including OUR OWN toolkit windows, handled inside the X11 read/write helper via
-		// Control.FromHandle. The X11 half reuses the proven WindowInfo read/write logic by constructing the
-		// X11 item DIRECTLY (never via WindowQuery.CreateWindow, which now returns the neutral WindowInfo that
-		// forwards back here — direct construction is what keeps this recursion-free). The neutral WindowInfo
-		// holds a cached snapshot for Wayland-backend windows (so per-property reads don't fire a fresh KWin
-		// round-trip) and reaches these granular getters only for the LIVE X11/foreign paths.
+		// X11 window — including OUR OWN toolkit windows, handled directly here via Control.FromHandle or Xlib.
+		// The neutral WindowInfo holds a cached snapshot for Wayland-backend windows (so per-property reads don't
+		// fire a fresh KWin round-trip) and reaches these granular getters only for the LIVE X11/foreign paths.
 		private const long WsCaption = 0x00C00000L;
 
 		// Resolved once: the active compositor backend (null on X11 sessions / no-IPC compositors).
@@ -20,10 +19,6 @@ namespace Keysharp.Internals
 			= IsWaylandSession ? WaylandBackend.Current : null;
 
 		private static XDisplay Display => XDisplay.Default;
-
-		// X11 read/write helper, constructed directly (NOT WindowQuery.CreateWindow → no recursion). The
-		// Wayland branches are always tried first, so this is only reached for genuine X11/own-toolkit handles.
-		private static X11Window X11(nint h) => new (h);
 
 		private bool Backend(nint h, out WaylandWindowInfo info)
 		{
@@ -50,35 +45,35 @@ namespace Keysharp.Internals
 		{
 			if (Backend(h, out var info)) return info.Title ?? DefaultObject;
 			if (Foreign(h) is { } tl) return tl.Title ?? DefaultObject;
-			return X11(h).Title;
+			return X11Title(h);
 		}
 
 		public override string GetClassName(nint h)
 		{
 			if (Backend(h, out var info)) return info.ClassName;
 			if (Foreign(h) is { } tl) return tl.AppId ?? DefaultObject;
-			return X11(h).ClassName;
+			return X11ClassName(h);
 		}
 
 		public override long GetPid(nint h)
 		{
 			if (Backend(h, out var info)) return info.PID;
 			if (Foreign(h) != null) return 0L;
-			return X11(h).PID;
+			return X11Pid(h);
 		}
 
 		public override Rectangle GetBounds(nint h)
 		{
 			if (Backend(h, out var info)) return info.Bounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
-			return X11(h).Bounds;
+			return X11Bounds(h);
 		}
 
 		public override Rectangle GetClientBounds(nint h)
 		{
 			if (Backend(h, out var info)) return info.ClientBounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
-			return X11(h).ClientBounds;
+			return X11ClientBounds(h);
 		}
 
 		public override long GetStyle(nint h)
@@ -86,45 +81,45 @@ namespace Keysharp.Internals
 			// Wayland has no Win32 styles; the only one with a real equivalent is WS_CAPTION <-> decoration.
 			if (Backend(h, out var info)) return info.Style;
 			if (Foreign(h) != null) return 0L;
-			return X11(h).Style;
+			return X11Style(h);
 		}
 
 		public override long GetExStyle(nint h)
 		{
 			if (IsWayland(h)) return 0L;
-			return X11(h).ExStyle;
+			return X11ExStyle(h);
 		}
 
 		public override bool GetActive(nint h)
 		{
 			if (Backend(h, out var info)) return info.Active;
 			if (Foreign(h) is { } tl) return tl.Activated;
-			return X11(h).Active;
+			return X11Active(h);
 		}
 
 		public override bool GetVisible(nint h)
 		{
 			if (Backend(h, out var info)) return info.Visible;
 			if (Foreign(h) != null) return true;   // a known foreign-toplevel is, by definition, mapped
-			return X11(h).Visible;
+			return X11Visible(h);
 		}
 
 		public override bool GetEnabled(nint h)
 		{
 			if (IsWayland(h)) return true;
-			return X11(h).Enabled;
+			return X11Enabled(h);
 		}
 
 		public override bool GetHung(nint h)
 		{
 			if (IsWayland(h)) return false;
-			return X11(h).IsHung;
+			return X11Hung(h);
 		}
 
 		public override bool GetExists(nint h)
 		{
 			if (Backend(h, out _) || Foreign(h) != null) return true;
-			return X11(h).Exists;
+			return X11Exists(h);
 		}
 
 		public override FormWindowState GetWindowState(nint h)
@@ -134,46 +129,46 @@ namespace Keysharp.Internals
 			if (Foreign(h) is { } tl)
 				return tl.Minimized ? FormWindowState.Minimized : tl.Maximized ? FormWindowState.Maximized : FormWindowState.Normal;
 
-			return X11(h).WindowState;
+			return X11WindowState(h);
 		}
 
 		public override bool GetAlwaysOnTop(nint h)
 		{
 			if (Backend(h, out var info)) return info.AlwaysOnTop;
 			if (Foreign(h) != null) return false;   // no foreign-client way to read keep-above
-			return X11(h).AlwaysOnTop;
+			return X11AlwaysOnTop(h);
 		}
 
 		public override object GetTransparency(nint h)
 		{
 			if (IsWayland(h)) return 0xFFL;
-			return X11(h).Transparency;
+			return X11Transparency(h);
 		}
 
 		public override object GetTransparentColor(nint h)
 		{
 			if (IsWayland(h)) return 0L;
-			return X11(h).TransparentColor;
+			return X11TransparentColor(h);
 		}
 
 		public override POINT ClientToScreen(nint h)
 		{
 			if (Backend(h, out var info)) { var r = info.ClientGeometry; return new POINT(r.X, r.Y); }
 			if (Foreign(h) != null) return new POINT(0, 0);
-			return X11(h).ClientToScreen();
+			return X11ClientToScreen(h);
 		}
 
 		public override bool TryGetText(nint h, bool detectHidden, out List<string> text)
 		{
 			if (IsWayland(h)) { text = []; return true; }
-			text = X11(h).GetText(new WindowSearchOptions { DetectHiddenText = detectHidden });
+			text = X11Text(h, detectHidden);
 			return true;
 		}
 
 		public override void ChildFindPoint(nint h, PointAndHwnd pah)
 		{
 			if (IsWayland(h)) return;
-			X11(h).ChildFindPoint(pah);
+			X11ChildFindPoint(h, pah);
 		}
 
 		public override bool TryClientToScreen(nint h, ref Point pt)
@@ -186,18 +181,16 @@ namespace Keysharp.Internals
 		public override bool TryGetParent(nint h, out nint parent)
 		{
 			if (IsWayland(h)) { parent = default; return false; }
-			var p = X11(h).ParentWindow;
-			parent = p?.Handle ?? 0;
-			return p?.Handle is nint v && v != 0;
+			parent = X11ParentHandle(h);
+			return parent != 0;
 		}
 
 		public override bool TryGetTopLevel(nint h, out nint top)
 		{
 			if (Backend(h, out _)) { top = h; return true; }   // a backend toplevel is its own top
 			if (Foreign(h) != null) { top = default; return false; }
-			var t = X11(h).NonChildParentWindow;
-			top = t?.Handle ?? 0;
-			return t?.Handle is nint v && v != 0;
+			top = X11NonChildParentHandle(h);
+			return top != 0;
 		}
 
 		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
@@ -205,7 +198,7 @@ namespace Keysharp.Internals
 			if (IsWayland(h)) { children = []; return true; }
 			var list = new List<nint>();
 
-			foreach (var child in X11(h).ChildWindows)
+			foreach (var child in X11ChildWindows(h))
 				list.Add(child);
 
 			children = list;
@@ -318,7 +311,7 @@ namespace Keysharp.Internals
 			if (Backend(h, out _) || Foreign(h) != null)   // WaylandWindowItem.Kill => Close
 				return TryClose(h);
 
-			return IsX11Available && X11(h).Kill();   // reuses the proven close-then-XKillClient loop
+			return IsX11Available && X11Kill(h);
 		}
 
 		public override bool TrySetZOrder(nint h, ZOrder z)
@@ -487,7 +480,7 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;   // wlr-foreign-toplevel exposes no geometry; the caller raises OSError
 
-			X11(h).Bounds = bounds;
+			X11SetBounds(h, bounds);
 			return true;
 		}
 
@@ -499,7 +492,7 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
 				return tlm.Activate(tl);
 
-			X11(h).Active = true;
+			X11Activate(h);
 			return true;
 		}
 
@@ -512,7 +505,7 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;
 
-			X11(h).Style = style;   // logs "cannot set styles on linux"
+			X11SetStyle(h, style);   // logs "cannot set styles on linux"
 			return false;
 		}
 
@@ -521,7 +514,7 @@ namespace Keysharp.Internals
 			if (IsWayland(h))
 				return false;
 
-			X11(h).ExStyle = exStyle;   // logs "ExStyles cannot be set on linux"
+			X11SetExStyle(h, exStyle);   // logs "ExStyles cannot be set on linux"
 			return false;
 		}
 
@@ -530,7 +523,7 @@ namespace Keysharp.Internals
 			if (IsWayland(h))
 				return false;   // Wayland opacity is compositor-owned.
 
-			X11(h).Transparency = alpha;
+			X11SetTransparency(h, alpha);
 			return true;
 		}
 
@@ -539,7 +532,7 @@ namespace Keysharp.Internals
 			if (IsWayland(h))
 				return false;   // synthetic clicks are unsupported on Wayland.
 
-			X11(h).Click(at);
+			X11Click(h, at);
 			return true;
 		}
 
@@ -548,7 +541,7 @@ namespace Keysharp.Internals
 			if (IsWayland(h))
 				return false;   // foreign clients can't have their title set.
 
-			X11(h).Title = title;
+			X11SetTitle(h, title);
 			return true;
 		}
 
@@ -560,7 +553,7 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;
 
-			X11(h).Visible = visible;
+			X11SetVisible(h, visible);
 			return true;
 		}
 
@@ -575,7 +568,7 @@ namespace Keysharp.Internals
 				return true;
 			}
 
-			X11(h).Enabled = enabled;   // logs/explains the unsupported foreign-window path.
+			X11SetEnabled(h, enabled);
 			return false;
 		}
 
@@ -584,8 +577,807 @@ namespace Keysharp.Internals
 			if (IsWayland(h))
 				return false;
 
-			X11(h).TransparentColor = color;   // logs "Transparency key/color not supported on linux."
+			X11SetTransparentColor(h, color);   // logs "Transparency key/color not supported on linux."
 			return false;
+		}
+
+		private const int PositionTolerance = 4;
+
+		private static XWindow X11(nint h) => new (Display, h.ToInt64());
+		private static bool X11Specified(nint h) => h != 0;
+
+		private static bool X11Active(nint h)
+			=> X11Specified(h) && WindowQuery.ActiveWindow is WindowInfoBase item && item.Handle.ToInt64() == h.ToInt64();
+
+		private static bool X11AlwaysOnTop(nint h)
+		{
+			if (!X11Specified(h))
+				return false;
+
+			if (Control.FromHandle(h) is Form form)
+				return form.TopMost;
+
+			var display = Display;
+			var onTop = false;
+			_ = X11ReadProps(h, display._NET_WM_STATE, (nint)XAtom.XA_ATOM, atom =>
+			{
+				if (atom == display._NET_WM_STATE_ABOVE)
+				{
+					onTop = true;
+					return false;
+				}
+
+				return true;
+			});
+			return onTop;
+		}
+
+		private static IEnumerable<nint> X11ChildWindows(nint h)
+		{
+			if (!X11Specified(h))
+				return [];
+
+			var xwindow = X11(h);
+			var attr = new XWindowAttributes();
+			var filter = (long id) => Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) != 0;
+			return xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(w => new nint(w.ID)).ToList();
+		}
+
+		private static string X11ClassName(nint h)
+		{
+			if (!X11Specified(h))
+				return DefaultErrorString;
+
+			var xwindow = X11(h);
+
+			static string PickClassName(string resClass, string resName)
+			{
+				if (!string.IsNullOrEmpty(resClass))
+					return resClass;
+
+				if (!string.IsNullOrEmpty(resName))
+					return resName;
+
+				return null;
+			}
+
+			bool TryGetWmClass(long windowId, out string resClass, out string resName)
+			{
+				resClass = null;
+				resName = null;
+
+				var wmClassAtom = Xlib.XInternAtom(xwindow.XDisplay.Handle, "WM_CLASS", true);
+				if (wmClassAtom == 0 || windowId == 0)
+					return false;
+
+				nint prop = 0;
+				var result = X11Server.TryGetWindowProperty(xwindow.XDisplay.Handle,
+					windowId,
+					wmClassAtom,
+					0,
+					new nint(256),
+					false,
+					(nint)XAtom.AnyPropertyType,
+					out _,
+					out _,
+					out var nitems,
+					out _,
+					out prop);
+
+				try
+				{
+					if (!result || prop == 0 || nitems.ToInt64() == 0)
+						return false;
+
+					var bytes = new byte[nitems.ToInt64()];
+					Marshal.Copy(prop, bytes, 0, bytes.Length);
+					var firstNull = System.Array.IndexOf(bytes, (byte)0);
+					if (firstNull < 0)
+						firstNull = bytes.Length;
+
+					resName = firstNull > 0 ? Encoding.ASCII.GetString(bytes, 0, firstNull) : string.Empty;
+
+					var secondStart = Math.Min(firstNull + 1, bytes.Length);
+					var secondNull = System.Array.IndexOf(bytes, (byte)0, secondStart);
+					if (secondNull < 0)
+						secondNull = bytes.Length;
+
+					if (secondStart < bytes.Length && secondNull > secondStart)
+						resClass = Encoding.ASCII.GetString(bytes, secondStart, secondNull - secondStart);
+
+					return true;
+				}
+				finally
+				{
+					if (prop != 0)
+						_ = Xlib.XFree(prop);
+				}
+			}
+
+			if (Xlib.TryGetClassHint(xwindow.XDisplay.Handle, xwindow.ID, out var resName, out var resClass))
+			{
+				var cn = PickClassName(resClass, resName);
+				if (!string.IsNullOrEmpty(cn))
+					return cn;
+			}
+
+			if (TryGetWmClass(xwindow.ID, out var wmClass, out var wmName))
+			{
+				var cn = PickClassName(wmClass, wmName);
+				if (!string.IsNullOrEmpty(cn))
+					return cn;
+			}
+
+			if (Control.FromHandle(h) is Control ctrl)
+				return ctrl.GetType().Name;
+
+			var tempParent = X11ParentHandle(h);
+			var depth = 0;
+			while (tempParent != 0 && depth++ < 16 && tempParent.ToInt64() != xwindow.XDisplay.Root.ID)
+			{
+				if (TryGetWmClass(tempParent.ToInt64(), out wmClass, out wmName))
+				{
+					var cn = PickClassName(wmClass, wmName);
+					if (!string.IsNullOrEmpty(cn))
+						return cn;
+				}
+
+				tempParent = X11ParentHandle(tempParent);
+			}
+
+			return DefaultObject;
+		}
+
+		private static Rectangle X11ClientBounds(nint h)
+		{
+			if (!X11Specified(h))
+				return new Rectangle();
+
+			var xwindow = X11(h);
+			var attr = xwindow.Attributes;
+			var pt = X11ClientToScreen(h);
+#if DPI
+			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			return new Rectangle(pt.X, pt.Y, (int)(scale * attr.width), (int)(scale * attr.height));
+#else
+			return new Rectangle(pt.X, pt.Y, attr.width, attr.height);
+#endif
+		}
+
+		private static bool X11Enabled(nint h)
+		{
+			if (Control.FromHandle(h) is Control ctrl)
+				return ctrl.Enabled;
+
+			return X11Specified(h);
+		}
+
+		private static void X11SetEnabled(nint h, bool enabled)
+		{
+			if (Control.FromHandle(h) is Control ctrl)
+				ctrl.Enabled = enabled;
+		}
+
+		private static bool X11Exists(nint h)
+			=> X11Specified(h) && (Control.FromHandle(h) is Control || X11(h).TryGetAttributes(out _));
+
+		private static long X11ExStyle(nint h) => 0L;
+		private static bool X11Hung(nint h) => false;
+
+		private static Rectangle X11Bounds(nint h)
+		{
+			var xwindow = X11(h);
+			var attr = xwindow.Attributes;
+
+			if (Control.FromHandle(h) is Control ctrl)
+				return ctrl.Bounds;
+
+			Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out var x, out var y, out _);
+			var frame = X11FrameExtents(h);
+			x -= frame.Left;
+			y -= frame.Top;
+			var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
+			var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
+#if DPI
+			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			return new Rectangle((int)(scale * x), (int)(scale * y), (int)(scale * outerW), (int)(scale * outerH));
+#else
+			return new Rectangle(x, y, outerW, outerH);
+#endif
+		}
+
+		private static void X11SetBounds(nint h, Rectangle value)
+		{
+			if (!X11Specified(h))
+				return;
+
+			var xwindow = X11(h);
+			var setPos  = value.X != WindowInfoBase.Unchanged || value.Y != WindowInfoBase.Unchanged;
+			var setSize = value.Width != WindowInfoBase.Unchanged || value.Height != WindowInfoBase.Unchanged;
+
+			if (!setPos && !setSize)
+				return;
+
+			int x = value.X, y = value.Y, w = value.Width, height = value.Height;
+			var needPos  = setPos && (x == WindowInfoBase.Unchanged || y == WindowInfoBase.Unchanged);
+			var needSize = setSize && (w == WindowInfoBase.Unchanged || height == WindowInfoBase.Unchanged);
+
+			if (needPos || needSize)
+			{
+				var cur = X11Bounds(h);
+				if (x == WindowInfoBase.Unchanged) x = cur.X;
+				if (y == WindowInfoBase.Unchanged) y = cur.Y;
+				if (w == WindowInfoBase.Unchanged) w = cur.Width;
+				if (height == WindowInfoBase.Unchanged) height = cur.Height;
+			}
+
+#if DPI
+			var scale = Accessors.A_ScaledScreenDPI;
+#else
+			var scale = 1.0;
+#endif
+			int sx = (int)(scale * x), sy = (int)(scale * y);
+			int sw = (int)(scale * w), sh = (int)(scale * height);
+
+			if (Control.FromHandle(h) is Control ctrl)
+			{
+				if (setSize)
+					ctrl.Size = new Size(w, height);
+
+				if (setPos)
+				{
+					if (ctrl is Eto.Forms.Window window)
+						window.Location = new Point(x, y);
+					else if (ctrl.Parent is PixelLayout pixel)
+						PixelLayout.SetLocation(ctrl, new Point(x, y));
+					else
+						_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
+				}
+
+				_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+				return;
+			}
+
+			var frame = X11FrameExtents(h);
+			int clientW = sw - frame.Left - frame.Width;
+			int clientH = sh - frame.Top - frame.Height;
+
+			if (setPos && setSize)
+			{
+				_ = Xlib.XMoveResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy, clientW, clientH);
+				_ = Xlib.XSync(xwindow.XDisplay.Handle, false);
+				var after = X11Bounds(h);
+
+				if (Math.Abs(after.X - x) > PositionTolerance || Math.Abs(after.Y - y) > PositionTolerance)
+				{
+					_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, clientW, clientH);
+					_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
+					_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+				}
+			}
+			else if (setPos)
+			{
+				_ = Xlib.XMoveWindow(xwindow.XDisplay.Handle, xwindow.ID, sx, sy);
+				_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+			}
+			else
+			{
+				_ = Xlib.XResizeWindow(xwindow.XDisplay.Handle, xwindow.ID, clientW, clientH);
+				_ = Xlib.XFlush(xwindow.XDisplay.Handle);
+			}
+		}
+
+		private static nint X11NonChildParentHandle(nint h)
+		{
+			if (!X11Specified(h))
+				return 0;
+
+			var display = Display;
+			var parent = h;
+			nint wmStateCandidate = 0;
+			var tempParent = h;
+			var wmStateAtom = Xlib.XInternAtom(display.Handle, "WM_STATE", true);
+
+			bool HasWmState(nint handle)
+			{
+				if (wmStateAtom == 0 || handle == 0)
+					return false;
+
+				nint prop = 0;
+				var result = X11Server.TryGetWindowProperty(display.Handle,
+					handle.ToInt64(),
+					wmStateAtom,
+					0,
+					new nint(2),
+					false,
+					(nint)XAtom.AnyPropertyType,
+					out _,
+					out _,
+					out var nitems,
+					out _,
+					out prop);
+
+				if (prop != 0)
+					_ = Xlib.XFree(prop);
+
+				return result && nitems.ToInt64() > 0;
+			}
+
+			if (HasWmState(tempParent))
+				wmStateCandidate = tempParent;
+
+			tempParent = X11ParentHandle(h);
+			while (tempParent != 0 && tempParent.ToInt64() != display.Root.ID)
+			{
+				parent = tempParent;
+
+				if (wmStateCandidate == 0 && HasWmState(tempParent))
+					wmStateCandidate = tempParent;
+
+				tempParent = X11ParentHandle(parent);
+			}
+
+			return wmStateCandidate != 0 ? wmStateCandidate : parent;
+		}
+
+		private static nint X11ParentHandle(nint h)
+		{
+			if (!X11Specified(h) || Display.Handle == 0)
+				return 0;
+
+			var xwindow = X11(h);
+			var parentReturn = 0L;
+			var childrenReturn = nint.Zero;
+
+			try
+			{
+				_ = Xlib.XQueryTree(xwindow.XDisplay.Handle, xwindow.ID, out _, out parentReturn, out childrenReturn, out _);
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"XQueryTree() failed: {ex.Message}");
+			}
+			finally
+			{
+				if (childrenReturn != 0)
+					_ = Xlib.XFree(childrenReturn);
+			}
+
+			return new nint(parentReturn);
+		}
+
+		private static long X11Pid(nint h)
+		{
+			var pid = 0L;
+
+			if (X11Specified(h))
+				_ = X11ReadProps(h, Display._NET_WM_PID, (nint)XAtom.AnyPropertyType, atom => { pid = atom; return false; });
+
+			return pid;
+		}
+
+		private static long X11Style(nint h)
+		{
+			if (!X11Specified(h))
+				return 0L;
+
+			if (Control.FromHandle(h) is Eto.Forms.Form form)
+				return (long)form.WindowStyle;
+
+			Ks.OutputDebugLine($"Window with handle {h} was not a .NET Form or Control, so the style could not be retrieved. Returning 0.");
+			return 0;
+		}
+
+		private static void X11SetStyle(nint h, long style)
+			=> Ks.OutputDebugLine($"Styles cannot be set on linux.");
+
+		private static void X11SetExStyle(nint h, long exStyle)
+			=> Ks.OutputDebugLine($"ExStyles cannot be set on linux.");
+
+		private static List<string> X11Text(nint h, bool detectHiddenText)
+		{
+			if (!X11Specified(h))
+				return [];
+
+			var xwindow = X11(h);
+			var prop = new XTextProperty();
+			var attr = new XWindowAttributes();
+			var filter = (long id) =>
+			{
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) != 0)
+					if (detectHiddenText || attr.map_state == MapState.IsViewable)
+						return true;
+
+				return false;
+			};
+			return xwindow.XDisplay.XQueryTreeRecursive(xwindow, filter).Select(x =>
+			{
+				if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, x.ID, ref prop, XAtom.XA_WM_NAME) != 0)
+				{
+					var text = prop.GetText();
+					prop.Free();
+					return text;
+				}
+
+				return DefaultObject;
+			}).ToList();
+		}
+
+		private static string X11Title(nint h)
+		{
+			if (!X11Specified(h))
+				return DefaultObject;
+
+			if (Control.FromHandle(h) is Control ctrl)
+				return ctrl.Text;
+
+			var xwindow = X11(h);
+
+			try
+			{
+				var wmName = Xlib.GetWMName(xwindow.XDisplay.Handle, xwindow.ID);
+				if (!string.IsNullOrEmpty(wmName))
+					return wmName;
+
+				var prop = new XTextProperty();
+				if (Xlib.XGetTextProperty(xwindow.XDisplay.Handle, xwindow.ID, ref prop, (XAtom)xwindow.XDisplay._NET_WM_NAME) != 0)
+				{
+					if (prop.value != 0 && prop.format == 8 && prop.nitems > 0)
+					{
+						var text = prop.encoding == xwindow.XDisplay.UTF8_STRING
+							? Marshal.PtrToStringUTF8(prop.value)
+							: Marshal.PtrToStringAuto(prop.value);
+						prop.Free();
+						return text;
+					}
+
+					prop.Free();
+				}
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"XGetWMName() failed: {ex.Message}");
+			}
+
+			return DefaultObject;
+		}
+
+		private static void X11SetTitle(nint h, string title)
+		{
+			if (!X11Specified(h))
+				return;
+
+			if (Control.FromHandle(h) is Control ctrl)
+			{
+				ctrl.Text = title;
+			}
+			else
+			{
+				var xwindow = X11(h);
+				var prop = new XTextProperty();
+
+				try
+				{
+					_ = prop.SetText(title);
+					Xlib.XSetTextProperty(xwindow.XDisplay.Handle, xwindow.ID, ref prop, XAtom.XA_WM_NAME);
+				}
+				catch (Exception ex)
+				{
+					Ks.OutputDebugLine($"XSetTextProperty() failed: {ex.Message}");
+				}
+				finally
+				{
+					prop.Free();
+				}
+			}
+
+			_ = Xlib.XFlush(Display.Handle);
+		}
+
+		private static object X11Transparency(nint h)
+		{
+			long alpha = 0xFF;
+
+			if (!X11Specified(h))
+				return alpha;
+
+			_ = X11ReadProps(h, Display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, atom => { alpha = atom; return false; });
+			return alpha;
+		}
+
+		private static void X11SetTransparency(nint h, object value)
+		{
+			if (!X11Specified(h))
+				return;
+
+			var display = Display;
+
+			if (value is string s)
+			{
+				if (s.ToLower() == "off")
+					_ = Xlib.XDeleteProperty(display.Handle, h.ToInt64(), display._NET_WM_WINDOW_OPACITY);
+			}
+			else
+			{
+				var alpha = (nint)Math.Clamp((int)value.Al(), 0, 255);
+				_ = Xlib.XChangeProperty(display.Handle, h.ToInt64(), display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, 32, PropertyMode.Replace, ref alpha, 1);
+			}
+
+			_ = Xlib.XFlush(display.Handle);
+		}
+
+		private static object X11TransparentColor(nint h)
+		{
+			Ks.OutputDebugLine($"Transparency key/color not supported on linux, returning 0.");
+			return 0L;
+		}
+
+		private static void X11SetTransparentColor(nint h, object color)
+			=> Ks.OutputDebugLine($"Transparency key/color not supported on linux.");
+
+		private static bool X11Visible(nint h)
+		{
+			if (!X11Specified(h))
+				return false;
+
+			if (Control.FromHandle(h) is Control ctrl)
+				return ctrl.Visible;
+
+			return X11(h).Attributes.map_state == MapState.IsViewable;
+		}
+
+		private static void X11SetVisible(nint h, bool visible)
+		{
+			if (!X11Specified(h))
+				return;
+
+			if (Control.FromHandle(h) is Control ctrl)
+			{
+				ctrl.Visible = visible;
+				return;
+			}
+
+			_ = visible ? Xlib.XMapWindow(Display.Handle, h) : Xlib.XUnmapWindow(Display.Handle, h);
+			_ = Xlib.XFlush(Display.Handle);
+		}
+
+		private static FormWindowState X11WindowState(nint h)
+		{
+			if (!X11Specified(h))
+				return FormWindowState.Normal;
+
+			if (Control.FromHandle(h) is Form form)
+				return form.WindowState;
+
+			var display = Display;
+			var maximized = 0;
+			var minimized = false;
+			_ = X11ReadProps(h, display._NET_WM_STATE, (nint)XAtom.XA_ATOM, atom =>
+			{
+				if ((atom == display._NET_WM_STATE_MAXIMIZED_HORZ) || (atom == display._NET_WM_STATE_MAXIMIZED_VERT))
+					maximized++;
+				else if (atom == display._NET_WM_STATE_HIDDEN)
+					minimized = true;
+
+				return true;
+			});
+
+			return minimized ? FormWindowState.Minimized : maximized == 2 ? FormWindowState.Maximized : FormWindowState.Normal;
+		}
+
+		private static void X11Activate(nint h)
+		{
+			if (!X11Specified(h))
+				return;
+
+			if (WindowQuery.ActiveWindow.Handle.ToInt64() == h.ToInt64())
+				return;
+
+			if (X11WindowState(h) == FormWindowState.Minimized)
+				_ = Platform.Window.TrySetState(h, FormWindowState.Normal);
+			else
+			{
+				lock (X11Server.xLibLock)
+				{
+					X11Server.SendNetWMMessage(h, Display._NET_ACTIVE_WINDOW, 1, 0, 0, 0);
+					_ = Xlib.XFlush(Display.Handle);
+				}
+			}
+		}
+
+		private static void X11ChildFindPoint(nint h, PointAndHwnd pah)
+		{
+			if (!X11Specified(h))
+				return;
+
+			var xwindow = X11(h);
+			var root = xwindow.XDisplay.Root.ID;
+
+			foreach (var child in xwindow.XDisplay.XQueryTreeRecursive(xwindow, id =>
+			{
+				var attr = new XWindowAttributes();
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, id, ref attr) == 0)
+					return false;
+
+				if (attr.map_state != MapState.IsViewable)
+					return false;
+
+				if (pah.ignoreDisabled && Control.FromHandle(new nint(id)) is Control ctrl && !ctrl.Enabled)
+					return false;
+
+				return true;
+			}))
+			{
+				var attr = new XWindowAttributes();
+				if (Xlib.XGetWindowAttributes(xwindow.XDisplay.Handle, child.ID, ref attr) == 0)
+					continue;
+
+				if (!Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, child.ID, root, 0, 0, out var absX, out var absY, out _))
+					continue;
+
+				var rect = new Rectangle(absX, absY, attr.width, attr.height);
+				if (pah.pt.X < rect.Left || pah.pt.X >= rect.Right || pah.pt.Y < rect.Top || pah.pt.Y >= rect.Bottom)
+					continue;
+
+				var centerx = rect.Left + ((double)rect.Width / 2);
+				var centery = rect.Top + ((double)rect.Height / 2);
+				var distance = Math.Sqrt(Math.Pow(pah.pt.X - centerx, 2.0) + Math.Pow(pah.pt.Y - centery, 2.0));
+				var updateIt = pah.hwndFound == 0;
+
+				if (!updateIt)
+				{
+					if (rect.Left >= pah.rectFound.Left && rect.Right <= pah.rectFound.Right
+						&& rect.Top >= pah.rectFound.Top && rect.Bottom <= pah.rectFound.Bottom)
+						updateIt = true;
+					else if (distance < pah.distanceFound &&
+							 (pah.rectFound.Left < rect.Left || pah.rectFound.Right > rect.Right
+							  || pah.rectFound.Top < rect.Top || pah.rectFound.Bottom > rect.Bottom))
+						updateIt = true;
+				}
+
+				if (updateIt)
+				{
+					pah.hwndFound = new nint(child.ID);
+					pah.rectFound = rect;
+					pah.distanceFound = distance;
+				}
+			}
+		}
+
+		private static void X11Click(nint h, Point? location = null)
+		{
+			X11SendMouseEvent(h, XEventName.ButtonPress, EventMasks.ButtonPress, Buttons.Left, location);
+			_ = Xlib.XFlush(Display.Handle);
+			X11SendMouseEvent(h, XEventName.ButtonRelease, EventMasks.ButtonRelease, Buttons.Left, location);
+		}
+
+		private static POINT X11ClientToScreen(nint h)
+		{
+			if (!X11Specified(h))
+				return new POINT(0, 0);
+
+			if (Control.FromHandle(h) is Control ctrl)
+			{
+				var sp = ctrl.PointToScreen(Point.Empty);
+				return new POINT(Convert.ToInt32(sp.X), Convert.ToInt32(sp.Y));
+			}
+
+			var xwindow = X11(h);
+			_ = Xlib.XTranslateCoordinates(xwindow.XDisplay.Handle, xwindow.ID, xwindow.XDisplay.Root.ID, 0, 0, out var x, out var y, out _);
+
+			var pt = new POINT(x, y);
+#if DPI
+			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			pt.X = (int)(scale * pt.X);
+			pt.Y = (int)(scale * pt.Y);
+#endif
+			return pt;
+		}
+
+		private static bool X11Kill(nint h)
+		{
+			if (!X11Specified(h))
+				return false;
+
+			_ = Platform.Window.TryClose(h);
+			var i = 0;
+
+			while (X11Exists(h) && i++ < 5)
+			{
+				if ((i & 1) == 1)
+					Thread.Sleep(0);
+				else
+					Thread.Sleep(10);
+			}
+
+			if (!X11Exists(h))
+				return true;
+
+			_ = Xlib.XKillClient(Display.Handle, h.ToInt64());
+			return !X11Exists(h);
+		}
+
+		private static bool X11ReadProps(nint h, nint state, nint type, Func<long, bool> func)
+		{
+			nint prop = 0;
+
+			if (X11Server.TryGetWindowProperty(Display.Handle,
+					h.ToInt64(),
+					state,
+					0,
+					new nint(256),
+					false,
+					type,
+					out _,
+					out _,
+					out var nitems,
+					out _,
+					out prop))
+			{
+				if (nitems.ToInt64() > 0 && prop != 0)
+				{
+					for (int i = 0; i < nitems; i++)
+					{
+						var atom = (nint)Marshal.ReadInt64(prop, i * 8);
+
+						if (!func(atom))
+							break;
+					}
+
+					_ = Xlib.XFree(prop);
+				}
+
+				return true;
+			}
+
+			Ks.OutputDebugLine($"ReadStateProps() XGetWindowProperty failed.");
+			return false;
+		}
+
+		private static void X11SendMouseEvent(nint h, XEventName evName, EventMasks evMask, Buttons button, Point? location = null)
+		{
+			var click = location ?? new Point(X11Bounds(h).Width / 2, X11Bounds(h).Height / 2);
+			var ev = new XEvent();
+			ev.ButtonEvent = new XButtonEvent();
+			ev.ButtonEvent.type = evName;
+			ev.ButtonEvent.send_event = true;
+			ev.ButtonEvent.display = Display.Handle;
+			ev.ButtonEvent.window = h;
+			ev.ButtonEvent.subwindow = h;
+			ev.ButtonEvent.x = click.X;
+			ev.ButtonEvent.y = click.Y;
+			ev.ButtonEvent.root = new nint(Display.Root.ID);
+			ev.ButtonEvent.same_screen = true;
+			ev.ButtonEvent.button = button;
+			_ = Xlib.XSendEvent(Display.Handle, h.ToInt64(), true, evMask, ref ev);
+		}
+
+		private static Rectangle X11FrameExtents(nint h)
+		{
+			var prop = nint.Zero;
+			var rect = Rectangle.Empty;
+			_ = X11Server.TryGetWindowProperty(Display.Handle, h.ToInt64(), Display._NET_FRAME_EXTENTS, 0, new nint(40), false, (nint)XAtom.XA_CARDINAL, out _, out _, out var nitems, out _, out prop);
+
+			if (prop != 0)
+			{
+				try
+				{
+					if (nitems.ToInt32() == 4)
+					{
+						rect = new Rectangle(
+							Marshal.ReadInt32(prop, 0),
+							Marshal.ReadInt32(prop, 2 * nint.Size),
+							Marshal.ReadInt32(prop, nint.Size),
+							Marshal.ReadInt32(prop, 3 * nint.Size));
+					}
+				}
+				finally
+				{
+					_ = Xlib.XFree(prop);
+				}
+			}
+
+			return rect;
 		}
 
 		// === batched query (moved from the per-OS Linux WindowManager; the neutral WindowSearch builds the one
@@ -632,8 +1424,8 @@ namespace Keysharp.Internals
 
 			if (focused.ID == 0 || focused.ID == 1) return new WindowInfo(0);
 
-			var top = X11((nint)focused.ID).NonChildParentWindow;
-			return new WindowInfo(top?.Handle ?? (nint)focused.ID);
+			var top = X11NonChildParentHandle((nint)focused.ID);
+			return new WindowInfo(top != 0 ? top : (nint)focused.ID);
 		}
 
 		public override IReadOnlyList<WindowInfoBase> Enumerate(bool includeHidden)
@@ -674,8 +1466,7 @@ namespace Keysharp.Internals
 
 			foreach (var w in Display.XQueryTreeRecursive(filter))
 			{
-				var top = X11((nint)w.ID).NonChildParentWindow;
-				var topHandle = top?.Handle ?? 0;
+				var topHandle = X11NonChildParentHandle((nint)w.ID);
 
 				if (topHandle != 0 && seen.Add(topHandle.ToInt64()))
 					list.Add(new WindowInfo(topHandle));

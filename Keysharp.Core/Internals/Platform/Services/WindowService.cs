@@ -971,14 +971,19 @@ namespace Keysharp.Internals
 #elif OSX
 	internal sealed class MacWindow : WindowBase
 	{
-		// Per-call MacWindowSnapshot for the LIVE by-handle path (GetExists for WaitClose, etc.). The neutral WindowInfo
-		// for a Mac window instead HOLDS its own MacWindowSnapshot source (one WindowInfo == one MacWindowSnapshot), so its reads
-		// come off that frozen snapshot, not from these.
-		private static MacWindowSnapshot Item(nint h) => new (h);
+		private const int Unchanged = WindowInfoBase.Unchanged;
+		private const long WS_CAPTION = 0x00C00000;
+		private const long WS_SYSMENU = 0x00080000;
+		private const long WS_THICKFRAME = 0x00040000;
+		private const long WS_MINIMIZEBOX = 0x00020000;
 
-		// macOS off-process titles come from the kCGWindowName snapshot (unavailable when re-queried by handle),
-		// so the window IS a MacWindowInfo backed 1:1 by a MacWindowSnapshot: one bulk fetch, fresh at creation.
-		public override WindowInfoBase CreateWindow(nint id) => new MacWindowInfo(new MacWindowSnapshot(id));
+		// A by-handle MacWindowInfo for the live read path (Get*/GetText/hit-test) — its scalar reads land on the
+		// neutral subtype directly. Actions go through the Try* methods below, which fetch a fresh descriptor.
+		private static MacWindowInfo Item(nint h) => new (h);
+
+		// macOS off-process titles come from the kCGWindow batch (unavailable when re-queried by handle), so a
+		// by-handle MacWindowInfo lazily fetches its descriptor once; enumerate seeds each from the batch.
+		public override WindowInfoBase CreateWindow(nint id) => new MacWindowInfo(id);
 
 		public override WindowInfoBase ActiveWindow()
 		{
@@ -1021,42 +1026,232 @@ namespace Keysharp.Internals
 			return true;
 		}
 
-		public override bool TryGetParent(nint h, out nint parent)
-		{
-			parent = Item(h).ParentHandle;
-			return parent != 0;
-		}
+		// macOS exposes no window tree to us: every window is its own top-level with no children.
+		public override bool TryGetParent(nint h, out nint parent) { parent = 0; return false; }
+		public override bool TryGetTopLevel(nint h, out nint top) { top = h; return h != 0; }
+		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children) { children = []; return true; }
 
-		public override bool TryGetTopLevel(nint h, out nint top)
+		// --- control: fetch the descriptor by handle and drive MacAccessibility/MacNativeWindows directly ---
+		public override bool TrySetAlwaysOnTop(nint h, bool onTop)
 		{
-			top = Item(h).TopLevelHandle;
-			return top != 0;
-		}
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
 
-		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
-		{
-			children = Item(h).ChildHandles.ToList();
+			if (native.OwnerPid != Environment.ProcessId)
+			{
+				// macOS has no API to change another process's window level (raising via Accessibility would steal
+				// focus). Only our own windows support AlwaysOnTop.
+				Ks.OutputDebugLine("AlwaysOnTop is only supported for windows owned by this process on macOS.");
+				return true;
+			}
+
+			if (!MacNativeWindows.TrySetOwnWindowAlwaysOnTop(native.WindowNumber, onTop))
+				Ks.OutputDebugLine("AlwaysOnTop failed for this macOS window.");
+
 			return true;
 		}
 
-		// --- control ---
-		public override bool TrySetAlwaysOnTop(nint h, bool onTop) { Item(h).AlwaysOnTop = onTop; return true; }
-		public override bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize) { Item(h).Bounds = bounds; return true; }
-		public override bool TrySetState(nint h, FormWindowState state) { Item(h).WindowState = state; return true; }
-		public override bool TrySetStyle(nint h, long style, long exStyle) { var it = Item(h); it.Style = style; it.ExStyle = exStyle; return true; }
-		public override bool TrySetTransparency(nint h, object alpha) { Item(h).Transparency = alpha; return true; }
-		public override bool TryActivate(nint h) { Item(h).Active = true; return true; }
-		public override bool TrySetZOrder(nint h, ZOrder z) { Item(h).Bottom = z == ZOrder.Bottom; return true; }
-		public override bool TryClose(nint h) => Item(h).Close();
-		public override bool TryKill(nint h) => Item(h).Kill();
-		public override bool TryHide(nint h) => Item(h).Hide();
-		public override bool TryShow(nint h) => Item(h).Show();
-		public override bool TryRedraw(nint h) => Item(h).Redraw();
-		public override bool TryClick(nint h, Point at, uint button, int count) { var it = Item(h); for (var i = 0; i < count; i++) { if (button == 2) it.ClickRight(at); else it.Click(at); } return true; }
-		public override bool TrySetTitle(nint h, string title) { Item(h).Title = title; return true; }
-		public override bool TrySetVisible(nint h, bool visible) { Item(h).Visible = visible; return true; }
-		public override bool TrySetEnabled(nint h, bool enabled) { Item(h).Enabled = enabled; return true; }
-		public override bool TrySetTransparentColor(nint h, object color) { Item(h).TransparentColor = color; return true; }
+		public override bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			var rect = native.Bounds;
+
+			if (bounds.X != Unchanged) rect.X = bounds.X;
+			if (bounds.Y != Unchanged) rect.Y = bounds.Y;
+			if (bounds.Width != Unchanged) rect.Width = bounds.Width;
+			if (bounds.Height != Unchanged) rect.Height = bounds.Height;
+
+			if (!MacAccessibility.TryMoveResizeWindow(native, rect, setPos, setSize))
+				_ = Errors.OSErrorOccurred("Move/resize for macOS window failed.");
+
+			return true;
+		}
+
+		public override bool TrySetState(nint h, FormWindowState state)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			if (!MacAccessibility.TrySetWindowState(native, state))
+				Ks.OutputDebugLine("WindowState for macOS window failed.");
+
+			return true;
+		}
+
+		public override bool TrySetStyle(nint h, long style, long exStyle)
+		{
+			Ks.OutputDebugLine("ExStyles are not supported on macOS.");   // the exStyle arg has no macOS equivalent
+
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			if (native.OwnerPid != Environment.ProcessId)
+			{
+				Ks.OutputDebugLine("Window styles are only supported for windows owned by this process on macOS.");
+				return true;
+			}
+
+			if (!MacNativeWindows.TrySetOwnWindowFrameStyle(native.WindowNumber,
+					(style & WS_CAPTION) == WS_CAPTION,
+					(style & WS_SYSMENU) != 0,
+					(style & WS_THICKFRAME) != 0,
+					(style & WS_MINIMIZEBOX) != 0))
+				Ks.OutputDebugLine("Setting the window style failed for this macOS window.");
+
+			return true;
+		}
+
+		public override bool TrySetTransparency(nint h, object alpha)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			if (native.OwnerPid != Environment.ProcessId)
+			{
+				Ks.OutputDebugLine("Opacity control is only supported for windows owned by this process on macOS.");
+				return true;
+			}
+
+			var a = Math.Clamp(alpha.Al(), 0, 255) / 255.0;
+
+			if (!MacNativeWindows.TrySetOwnWindowAlpha(native.WindowNumber, a))
+				Ks.OutputDebugLine("Opacity control failed for this macOS window.");
+
+			return true;
+		}
+
+		public override bool TryActivate(nint h)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			// Restore before activating — a minimized window is un-minimized even if already foreground.
+			if (MacAccessibility.TryGetWindowState(native, out var st) && st == FormWindowState.Minimized)
+				_ = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
+
+			_ = MacAccessibility.TryActivateWindow(native);
+			return true;
+		}
+
+		public override bool TrySetZOrder(nint h, ZOrder z)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			if (z != ZOrder.Bottom)   // raise to top
+			{
+				if (!MacAccessibility.TryRaiseWindow(native))
+					Ks.OutputDebugLine("Raising macOS window to top failed.");
+
+				return true;
+			}
+
+			if (native.OwnerPid == Environment.ProcessId && MacNativeWindows.TrySendOwnWindowToBack(native.WindowNumber))
+				return true;
+
+			Ks.OutputDebugLine("Sending a window to the bottom of the Z order is only supported for windows owned by this process on macOS.");
+			return true;
+		}
+
+		public override bool TryClose(nint h)
+			=> MacNativeWindows.TryGetWindowInfo(h, out var native) && MacAccessibility.TryCloseWindow(native);
+
+		public override bool TryKill(nint h)
+		{
+			_ = TryClose(h);
+			var i = 0;
+
+			while (MacNativeWindows.TryGetWindowInfo(h, out _) && i++ < 5)
+				System.Threading.Thread.Sleep(0);
+
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			try
+			{
+				using var proc = Process.GetProcessById(native.OwnerPid);
+				proc.Kill();
+			}
+			catch
+			{
+			}
+
+			return !MacNativeWindows.TryGetWindowInfo(h, out _);
+		}
+
+		public override bool TryHide(nint h)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return false;
+
+			if (native.OwnerPid == Environment.ProcessId)
+				// One of our own windows: order it out of the window server so only this window disappears.
+				return MacNativeWindows.TryHideOwnWindow(native.WindowNumber, native)
+					   || MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+
+			// Another app's window: macOS gives no way to hide just one, so hide the whole app (closest to WinHide).
+			return MacNativeWindows.HideApplication(native.OwnerPid)
+				   || MacAccessibility.TrySetWindowState(native, FormWindowState.Minimized);
+		}
+
+		public override bool TryShow(nint h)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return false;
+
+			var restored = native.OwnerPid == Environment.ProcessId
+							? MacNativeWindows.TryShowOwnWindow(native.WindowNumber)
+							: MacNativeWindows.UnhideApplication(native.OwnerPid);
+
+			_ = MacAccessibility.TrySetWindowState(native, FormWindowState.Normal);
+			var activated = MacAccessibility.TryActivateWindow(native);
+			return restored || activated;
+		}
+
+		public override bool TryRedraw(nint h) => MacNativeWindows.TryGetWindowInfo(h, out _);
+
+		public override bool TryClick(nint h, Point at, uint button, int count)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			for (var i = 0; i < count; i++)
+				if (!MacAccessibility.TryClickWindow(native, at, rightButton: button == 2))
+					Ks.OutputDebugLine("Native click failed on macOS window.");
+
+			return true;
+		}
+
+		public override bool TrySetTitle(nint h, string title)
+		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
+				return true;
+
+			var ok = native.OwnerPid == Environment.ProcessId
+				? MacNativeWindows.TrySetOwnWindowTitle(native.WindowNumber, title)
+				: MacAccessibility.TrySetWindowTitle(native, title);
+
+			if (!ok)
+				Ks.OutputDebugLine("Setting the window title failed on macOS.");
+
+			return true;
+		}
+
+		public override bool TrySetVisible(nint h, bool visible) => visible ? TryShow(h) : TryHide(h);
+
+		public override bool TrySetEnabled(nint h, bool enabled)
+		{
+			Ks.OutputDebugLine("Enabled state is not implemented for macOS windows.");
+			return true;
+		}
+
+		public override bool TrySetTransparentColor(nint h, object color)
+		{
+			Ks.OutputDebugLine("Transparency key/color is not supported on macOS.");
+			return true;
+		}
 
 		public override nint GetForegroundHandle()
 			=> MacAccessibility.TryGetFocusedWindowHandle(out var h) && h != 0
@@ -1081,10 +1276,8 @@ namespace Keysharp.Internals
 				if (!includeHidden && !info.IsOnScreen && !MacNativeWindows.TryGetWindowInfo((nint)info.WindowNumber, out _))
 					continue;
 
-				var macItem = new MacWindowSnapshot(info, includesTextMetadata: true);
-
-				if (includeHidden || macItem.Visible)
-					list.Add(new MacWindowInfo(macItem));   // the neutral subtype backed 1:1 by the batch snapshot
+				if (includeHidden || info.Visible)
+					list.Add(new MacWindowInfo(info, includesTextMetadata: true));   // seeded from the batch
 			}
 
 			return list;
@@ -1094,7 +1287,7 @@ namespace Keysharp.Internals
 		{
 			if (MacNativeWindows.TryGetWindowAtPoint(new POINT(x, y), out var native))
 			{
-				child = new MacWindowSnapshot(native, includesTextMetadata: false).Handle;
+				child = (nint)native.WindowNumber;
 				return true;
 			}
 

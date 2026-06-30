@@ -223,7 +223,7 @@ namespace Keysharp.Internals.Window.MacOS
 		[LibraryImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static partial void CGEventPost(uint tap, nint @event);
 
-		internal static bool TryActivateWindow(MacNativeWindowInfo info)
+		internal static bool TryActivateWindow(MacNativeWindow info)
 		{
 			if (!EnsureAccessibilityAccess("activate window", prompt: true))
 				return MacNativeWindows.ActivateAppByPid(info.OwnerPid);
@@ -240,7 +240,7 @@ namespace Keysharp.Internals.Window.MacOS
 		// Raises the window within its own application's window list, without activating that
 		// application (unlike TryActivateWindow). This is the closest macOS equivalent to
 		// bringing a window to the top of the Z order without stealing focus from the user.
-		internal static bool TryRaiseWindow(MacNativeWindowInfo info)
+		internal static bool TryRaiseWindow(MacNativeWindow info)
 		{
 			if (!EnsureAccessibilityAccess("raise window", prompt: true))
 				return false;
@@ -260,7 +260,7 @@ namespace Keysharp.Internals.Window.MacOS
 
 		// Most apps treat AXTitle as read-only, but a few (e.g. Electron-based apps) honor writes
 		// to it, so it's worth attempting before falling back/logging.
-		internal static bool TrySetWindowTitle(MacNativeWindowInfo info, string title)
+		internal static bool TrySetWindowTitle(MacNativeWindow info, string title)
 		{
 			if (!EnsureAccessibilityAccess("set window title", prompt: true))
 				return false;
@@ -290,7 +290,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		internal static bool TryCloseWindow(MacNativeWindowInfo info)
+		internal static bool TryCloseWindow(MacNativeWindow info)
 		{
 			if (!EnsureAccessibilityAccess("close window", prompt: true))
 				return false;
@@ -323,7 +323,7 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
-			internal static bool TryGetWindowState(MacNativeWindowInfo info, out FormWindowState state)
+			internal static bool TryGetWindowState(MacNativeWindow info, out FormWindowState state)
 			{
 			state = FormWindowState.Normal;
 			if (!EnsureAccessibilityAccess("query window state"))
@@ -355,7 +355,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		internal static bool TrySetWindowState(MacNativeWindowInfo info, FormWindowState state)
+		internal static bool TrySetWindowState(MacNativeWindow info, FormWindowState state)
 		{
 			if (!EnsureAccessibilityAccess("set window state", prompt: true))
 				return false;
@@ -416,7 +416,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		internal static bool TryMoveResizeWindow(MacNativeWindowInfo info, Rectangle rect, bool setPosition, bool setSize)
+		internal static bool TryMoveResizeWindow(MacNativeWindow info, Rectangle rect, bool setPosition, bool setSize)
 		{
 			if (!EnsureAccessibilityAccess("move/resize window", prompt: true))
 				return false;
@@ -469,7 +469,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		internal static bool TryClickWindow(MacNativeWindowInfo info, Point? location, bool rightButton)
+		internal static bool TryClickWindow(MacNativeWindow info, Point? location, bool rightButton)
 		{
 			if (!EnsureAccessibilityAccess("post mouse click", prompt: true))
 				return false;
@@ -820,7 +820,7 @@ namespace Keysharp.Internals.Window.MacOS
 			}
 		}
 
-		private static bool TryFindWindowElement(MacNativeWindowInfo info, out nint windowElement)
+		private static bool TryFindWindowElement(MacNativeWindow info, out nint windowElement)
 		{
 			windowElement = 0;
 			var appElement = AXUIElementCreateApplication(info.OwnerPid);
@@ -885,7 +885,7 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
-		private static double ScoreWindowElement(nint windowElement, MacNativeWindowInfo target)
+		private static double ScoreWindowElement(nint windowElement, MacNativeWindow target)
 		{
 			double score = 0.0;
 

@@ -24,9 +24,10 @@ namespace Keysharp.Internals
 	/// Wayland backend; routing re-resolves the backend from the handle on each call.</summary>
 	internal interface IWindowQuery
 	{
-		/// <summary>Build the neutral, read-only WindowInfo for a bare id. macOS gives it a 1:1 MacWindowSnapshot source
-		/// (one batched fetch backs every field); Wayland SEEDs its fields from the compositor batch; X11/Windows
-		/// hand back a source-less (lazy) snapshot that fills per property live on first access.</summary>
+		/// <summary>Build the neutral, read-only window for a bare id, as the per-backend <c>WindowInfoBase</c>
+		/// subtype: a <c>MacWindowInfo</c> (seeded from the kCGWindow batch) or <c>WaylandWindowInfo</c> (the
+		/// compositor payload) where the backend batches, else a lazy <c>WindowInfo</c> (X11/Windows) that fills
+		/// per property live on first access.</summary>
 		Keysharp.Internals.Window.WindowInfoBase CreateWindow(nint id);
 
 		/// <summary>The active window as a (seeded-where-cheap) WindowInfo; an unspecified item (handle 0) when

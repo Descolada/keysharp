@@ -4,7 +4,7 @@ using MonoMac.Foundation;
 
 namespace Keysharp.Internals.Window.MacOS
 {
-	internal readonly struct MacNativeWindowInfo
+	internal readonly struct MacNativeWindow
 	{
 		internal readonly uint WindowNumber;
 		internal readonly int OwnerPid;
@@ -14,7 +14,7 @@ namespace Keysharp.Internals.Window.MacOS
 		internal readonly bool IsOnScreen;
 		internal readonly double Alpha;
 
-		internal MacNativeWindowInfo(uint windowNumber, int ownerPid, string ownerName, string title, Rectangle bounds, bool isOnScreen, double alpha)
+		internal MacNativeWindow(uint windowNumber, int ownerPid, string ownerName, string title, Rectangle bounds, bool isOnScreen, double alpha)
 		{
 			WindowNumber = windowNumber;
 			OwnerPid = ownerPid;
@@ -155,11 +155,11 @@ namespace Keysharp.Internals.Window.MacOS
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CFBooleanGetValue(nint boolean);
 
-		internal static List<MacNativeWindowInfo> Snapshot(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: true);
+		internal static List<MacNativeWindow> Snapshot(bool onScreenOnly = false) => SnapshotCore(onScreenOnly, includeTextMetadata: true);
 
-		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info) => TryGetWindowInfo(handle, out info, includeTextMetadata: true);
+		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindow info) => TryGetWindowInfo(handle, out info, includeTextMetadata: true);
 
-		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindowInfo info, bool includeTextMetadata)
+		internal static bool TryGetWindowInfo(nint handle, out MacNativeWindow info, bool includeTextMetadata)
 		{
 			if (handle == 0)
 			{
@@ -193,7 +193,7 @@ namespace Keysharp.Internals.Window.MacOS
 			return false;
 		}
 
-		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindowInfo info)
+		internal static bool TryGetWindowAtPoint(POINT location, out MacNativeWindow info)
 		{
 			// Owner name is needed to recognize the Dock's full-screen overlay window below.
 			var snapshot = SnapshotCore(
@@ -206,7 +206,7 @@ namespace Keysharp.Internals.Window.MacOS
 			// it over. Rather than excluding it outright (which would make the Dock uninspectable),
 			// defer it: prefer any other containing window first, and only report the overlay — as
 			// "Dock" — when the point genuinely isn't over anything else (e.g. the dock bar itself).
-			MacNativeWindowInfo? deferredOverlay = null;
+			MacNativeWindow? deferredOverlay = null;
 
 			foreach (var w in snapshot)
 			{
@@ -443,14 +443,14 @@ namespace Keysharp.Internals.Window.MacOS
 		// window is off the window server's list, so it can't be used to find it again).
 		private static readonly object hiddenOwnWindowsLock = new();
 		private static readonly Dictionary<uint, NSWindow> hiddenOwnWindows = new();
-		private static readonly Dictionary<uint, MacNativeWindowInfo> hiddenOwnWindowInfo = new();
+		private static readonly Dictionary<uint, MacNativeWindow> hiddenOwnWindowInfo = new();
 
 		// Hides a single window we own without affecting any other window of this process, by
 		// ordering it out of the window server entirely (true hide, not minimize). The window's
 		// last-known info is cached so WinExist (DetectHiddenWindows) and WinShow can still find
 		// and restore it afterwards. Also re-evaluates the Dock icon, which is hidden automatically
 		// once no user-facing window remains visible (see RequestActivationPolicyUpdate).
-		internal static bool TryHideOwnWindow(uint windowNumber, MacNativeWindowInfo currentInfo)
+		internal static bool TryHideOwnWindow(uint windowNumber, MacNativeWindow currentInfo)
 		{
 			var app = Eto.Forms.Application.Instance;
 
@@ -465,7 +465,7 @@ namespace Keysharp.Internals.Window.MacOS
 					{
 						// Mark the cached info as hidden (zero alpha, off-screen) so Visible reports
 						// false and WindowState reports Minimized while the window is ordered out.
-						var hiddenInfo = new MacNativeWindowInfo(
+						var hiddenInfo = new MacNativeWindow(
 							currentInfo.WindowNumber, currentInfo.OwnerPid, currentInfo.OwnerName,
 							currentInfo.Title, currentInfo.Bounds, isOnScreen: false, alpha: 0.0);
 
@@ -739,7 +739,7 @@ namespace Keysharp.Internals.Window.MacOS
 				mask &= ~flag;
 		}
 
-		private static List<MacNativeWindowInfo> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)
+		private static List<MacNativeWindow> SnapshotCore(bool onScreenOnly, bool includeTextMetadata, bool includeSingleWindow = false, uint relativeToWindow = 0, bool includeOwnerName = false)
 		{
 			var options = includeSingleWindow
 				? kCGWindowListOptionIncludingWindow | kCGWindowListExcludeDesktopElements
@@ -752,7 +752,7 @@ namespace Keysharp.Internals.Window.MacOS
 			{
 				var count = CFArrayGetCount(arrayRef);
 				var capacity = count > int.MaxValue ? int.MaxValue : (int)count;
-				var list = new List<MacNativeWindowInfo>(capacity);
+				var list = new List<MacNativeWindow>(capacity);
 
 				for (nint i = 0; i < count; i++)
 				{
@@ -785,7 +785,7 @@ namespace Keysharp.Internals.Window.MacOS
 					var hasIsOnScreen = TryGetBool(dictRef, kWindowIsOnscreen, out var isOnscreen);
 					var effectiveAlpha = hasAlpha ? alpha : 1.0;
 					var effectiveOnScreen = hasIsOnScreen ? isOnscreen : onScreenOnly;
-					list.Add(new MacNativeWindowInfo(windowNumber, ownerPid, ownerName, title, rect, effectiveOnScreen, effectiveAlpha));
+					list.Add(new MacNativeWindow(windowNumber, ownerPid, ownerName, title, rect, effectiveOnScreen, effectiveAlpha));
 				}
 
 				return list;

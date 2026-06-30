@@ -398,6 +398,38 @@ report({ ok: !!area, area: rd(area) });
 					+ "report({ ok: true });\n", "keepabove");
 			}
 
+			public bool TrySetZOrder(nint handle, ZOrder z)
+			{
+				if (z != ZOrder.Top || !TryGetCompositorId(handle, out var id))
+					return false;
+
+				return RunCommand(WindowHelpers
+					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
+					+ "if (!w) { report({ ok: false }); return; }\n"
+					+ "var ok = false;\n"
+					+ "try {\n"
+					+ "  if (typeof workspace.raiseWindow === \"function\") { workspace.raiseWindow(w); ok = true; }\n"
+					+ "} catch (e) { ok = false; }\n"
+					+ "report({ ok: ok });\n", "raise");
+			}
+
+			public bool TrySetTransparency(nint handle, object alpha)
+			{
+				if (!TryGetCompositorId(handle, out var id))
+					return false;
+
+				var opacity = AlphaToOpacity(alpha).ToString("R", CultureInfo.InvariantCulture);
+
+				return RunCommand(WindowHelpers
+					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
+					+ "if (!w) { report({ ok: false }); return; }\n"
+					+ "var ok = false;\n"
+					+ "try {\n"
+					+ "  if (typeof w.opacity !== \"undefined\") { w.opacity = " + opacity + "; ok = true; }\n"
+					+ "} catch (e) { ok = false; }\n"
+					+ "report({ ok: ok });\n", "opacity");
+			}
+
 			public bool TryCloseWindow(nint handle)
 			{
 				if (!TryGetCompositorId(handle, out var id))
@@ -626,6 +658,13 @@ function isMaximized(w) {
   } catch (e) {}
   return false;
 }
+function opacityToAlpha(value) {
+  var opacity = Number(value);
+  if (!isFinite(opacity)) opacity = 1;
+  if (opacity < 0) opacity = 0;
+  if (opacity > 1) opacity = 1;
+  return Math.round(opacity * 255);
+}
 function windowInfo(w, includeSpecial) {
   if (!w) return null;
   try {
@@ -661,7 +700,8 @@ function windowInfo(w, includeSpecial) {
       maximized: isMaximized(w),
       visible: !safeBool(w.hidden),
       alwaysOnTop: safeBool(w.keepAbove),
-      decorated: !safeBool(w.noBorder)
+      decorated: !safeBool(w.noBorder),
+      transparency: opacityToAlpha(safeRead(w, "opacity", 1))
     };
   } catch (e) {
     return null;
@@ -747,8 +787,17 @@ function findWindow(id) {
 					maximized: JsonBool(item, "maximized"),
 					visible: JsonBool(item, "visible"),
 					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
-					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"));
+					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
+					transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL);
 				return true;
+			}
+
+			private static double AlphaToOpacity(object alpha)
+			{
+				if (alpha is string s && s.Equals("off", StringComparison.OrdinalIgnoreCase))
+					return 1.0;
+
+				return Math.Clamp((int)alpha.Al(), 0, 255) / 255.0;
 			}
 
 			private nint GetOrCreateHandle(string id)

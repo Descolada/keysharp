@@ -182,6 +182,7 @@ namespace Keysharp.Internals
 
 		public override object GetTransparency(nint h)
 		{
+			if (Backend(h, out var info)) return info.Transparency;
 			if (TryOwnControl(h, out _)) return base.GetTransparency(h);
 			if (IsWayland(h)) return 0xFFL;
 			return 0xFFL;
@@ -314,8 +315,11 @@ namespace Keysharp.Internals
 
 		public override bool TrySetZOrder(nint h, ZOrder z)
 		{
-			// Wayland-managed windows: stacking is compositor-controlled.
-			if (wayland?.TryGetWindow(h, out _) == true || WaylandForeignToplevels.Current?.IsWindow(h) == true)
+			if (Backend(h, out _))
+				return wayland.TrySetZOrder(h, z);
+
+			// Foreign-toplevel exposes no stacking-order protocol.
+			if (WaylandForeignToplevels.Current?.IsWindow(h) == true)
 				return false;
 
 			if (TryOwnControl(h, out _))
@@ -441,6 +445,12 @@ namespace Keysharp.Internals
 
 		public override bool TrySetTransparency(nint h, object alpha)
 		{
+			if (Backend(h, out _))
+				return wayland.TrySetTransparency(h, alpha);
+
+			if (Foreign(h) != null)
+				return false;
+
 			if (TryOwnControl(h, out _))
 				return base.TrySetTransparency(h, alpha);
 			return false;

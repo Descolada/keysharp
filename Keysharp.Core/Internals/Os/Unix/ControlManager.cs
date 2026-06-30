@@ -232,7 +232,17 @@ namespace Keysharp.Internals.Os.Unix
 
 			var clickPoint = new Point(clickX, clickY);
 			var vkIsWheel = MouseUtils.IsWheelVK(vk);
+
+			if (item is ControlInfo controlInfo && vk == VK_LBUTTON && !vkIsWheel && !d && !u && controlInfo.TryInvokeDefaultClick(clickPoint, clickCount))
+			{
+				WindowInfoBase.DoControlDelay();
+				return;
+			}
+
 #if LINUX
+			if (!Platform.Desktop.IsX11Available)
+				return;
+
 			Buttons button;
 			if (vk == VK_LBUTTON) button = Buttons.Left;
 			else if (vk == VK_RBUTTON) button = Buttons.Right;
@@ -246,7 +256,7 @@ namespace Keysharp.Internals.Os.Unix
 			else return;
 
 #elif OSX
-			if (vk != VK_LBUTTON && vk != VK_RBUTTON && vk != VK_MBUTTON && vk != VK_XBUTTON1 && vk != VK_XBUTTON2 && !vkIsWheel)
+			if (vk != VK_LBUTTON && vk != VK_RBUTTON || d || u)
 				return;
 #else
 #error Unsupported platform. Only WINDOWS, LINUX, and OSX are supported.
@@ -269,11 +279,8 @@ namespace Keysharp.Internals.Os.Unix
 					WindowInfoBase.DoControlDelay();
 				}
 #elif OSX
-				if (!u)
-					item.Click(clickPoint);
-
-				if (!d)
-					item.Click(clickPoint);
+				if (!Platform.Window.TryClick(item.Handle, clickPoint, (uint)(vk == VK_RBUTTON ? 2 : 1), 1))
+					return;
 
 				WindowInfoBase.DoControlDelay();
 #else

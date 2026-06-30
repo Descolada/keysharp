@@ -127,6 +127,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Keep the window above (true) / clear keep-above (false). False = unsupported.</summary>
 		bool TrySetAlwaysOnTop(nint handle, bool onTop) => false;
 
+		/// <summary>Move the window in the compositor stacking order. False = unsupported.</summary>
+		bool TrySetZOrder(nint handle, ZOrder z) => false;
+
+		/// <summary>Set whole-window opacity from AHK alpha semantics (0 transparent, 255 opaque, "Off" opaque). False = unsupported.</summary>
+		bool TrySetTransparency(nint handle, object alpha) => false;
+
 		bool TryCloseWindow(nint handle) => false;
 
 		// ---- Compositor-drawn overlay (highlight) -----------------------

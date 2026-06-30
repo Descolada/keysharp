@@ -132,7 +132,13 @@ namespace Keysharp.Internals
 			text = [];
 			return Unsupported();
 		}
-		public virtual void ChildFindPoint(nint h, PointAndHwnd pah) { }
+		public virtual void ChildFindPoint(nint h, PointAndHwnd pah)
+		{
+#if !WINDOWS
+			if (TryOwnControl(h, out var control))
+				_ = ControlInfo.TryFindPoint(control, pah);
+#endif
+		}
 		public virtual string GetTitle(nint h)
 		{
 #if !WINDOWS

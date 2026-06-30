@@ -17,6 +17,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// scalars backing the neutral overrides (named to avoid colliding with the base getters)
 		private readonly string winTitle;
 		private readonly long pid;
+		private readonly object transparency;
 		private readonly bool active, visible, alwaysOnTop;
 
 		// --- Wayland-specific payload, read by LinuxWindow internals + WaylandSelfPositioner ---
@@ -31,7 +32,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal WaylandWindowInfo(nint handle, string compositorId = "", string title = "", string appId = "",
 								   long pid = 0, Rectangle frameGeometry = default, Rectangle clientGeometry = default,
 								   bool active = false, bool minimized = false, bool maximized = false,
-								   bool visible = false, bool alwaysOnTop = false, bool decorated = true) : base(handle)
+								   bool visible = false, bool alwaysOnTop = false, bool decorated = true,
+								   object transparency = null) : base(handle)
 		{
 			CompositorId = compositorId ?? string.Empty;
 			winTitle = title ?? string.Empty;
@@ -45,6 +47,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			this.visible = visible;
 			this.alwaysOnTop = alwaysOnTop;
 			Decorated = decorated;
+			this.transparency = transparency ?? 0xFFL;
 		}
 
 		internal override string Title => winTitle;
@@ -61,7 +64,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal override bool Exists => true;
 		internal override FormWindowState WindowState => Minimized ? FormWindowState.Minimized : Maximized ? FormWindowState.Maximized : FormWindowState.Normal;
 		internal override bool AlwaysOnTop => alwaysOnTop;
-		internal override object Transparency => 0xFFL;
+		internal override object Transparency => transparency;
 		internal override object TransparentColor => 0L;
 	}
 }

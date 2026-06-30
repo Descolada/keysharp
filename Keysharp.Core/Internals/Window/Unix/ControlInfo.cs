@@ -36,13 +36,24 @@ namespace Keysharp.Internals.Window.Unix
 				if (control == null)
 					return set;
 
-				foreach (var child in control.VisualControls)
+				var seen = new HashSet<Control>();
+
+				void AddChildren(Control parent)
 				{
-					// Skip pure layout containers; wrap actual controls.
-					if (child is Layout)
-						continue;
-					set.Add(new ControlInfo(child));
+					foreach (var child in parent.VisualControls)
+					{
+						if (!seen.Add(child))
+							continue;
+
+						// Skip pure layout containers as search results, but keep walking through them.
+						if (child is not Layout)
+							set.Add(new ControlInfo(child));
+
+						AddChildren(child);
+					}
 				}
+
+				AddChildren(control);
 
 				return set;
 			}

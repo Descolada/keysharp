@@ -14,9 +14,27 @@ namespace Keysharp.Internals
 		// neutral subtype directly. Actions go through the Try* methods below, which fetch a fresh descriptor.
 		private static MacWindowInfo Item(nint h) => new (h);
 
+		private static bool TryItem(nint h, out MacWindowInfo item, bool includeTextMetadata = false)
+		{
+			if (MacNativeWindows.TryGetWindowInfo(h, out var native, includeTextMetadata))
+			{
+				item = new MacWindowInfo(native, includeTextMetadata);
+				return true;
+			}
+
+			item = null;
+			return false;
+		}
+
 		// macOS off-process titles come from the kCGWindow batch (unavailable when re-queried by handle), so a
 		// by-handle MacWindowInfo lazily fetches its descriptor once; enumerate seeds each from the batch.
-		public override WindowInfoBase CreateWindow(nint id) => new MacWindowInfo(id);
+		public override WindowInfoBase CreateWindow(nint id)
+		{
+			if (TryItem(id, out var item, includeTextMetadata: true))
+				return item;
+
+			return TryOwnControl(id, out _) ? base.CreateWindow(id) : new MacWindowInfo(id);
+		}
 
 		public override WindowInfoBase ActiveWindow()
 		{
@@ -25,50 +43,107 @@ namespace Keysharp.Internals
 		}
 
 		// --- granular live reads (rare: WindowInfo reads from its held source; these serve by-handle lookups) ---
-		public override string GetTitle(nint h) => Item(h).Title;
-		public override string GetClassName(nint h) => Item(h).ClassName;
-		public override long GetPid(nint h) => Item(h).PID;
-		public override Rectangle GetBounds(nint h) => Item(h).Bounds;
-		public override Rectangle GetClientBounds(nint h) => Item(h).ClientBounds;
-		public override long GetStyle(nint h) => Item(h).Style;
-		public override long GetExStyle(nint h) => Item(h).ExStyle;
-		public override bool GetActive(nint h) => Item(h).Active;
-		public override bool GetVisible(nint h) => Item(h).Visible;
-		public override bool GetEnabled(nint h) => Item(h).Enabled;
-		public override bool GetHung(nint h) => Item(h).IsHung;
-		public override bool GetExists(nint h) => Item(h).Exists;
-		public override FormWindowState GetWindowState(nint h) => Item(h).WindowState;
-		public override bool GetAlwaysOnTop(nint h) => Item(h).AlwaysOnTop;
-		public override object GetTransparency(nint h) => Item(h).Transparency;
-		public override object GetTransparentColor(nint h) => Item(h).TransparentColor;
-		public override POINT ClientToScreen(nint h) => Item(h).ClientToScreen();
-		public override bool IsWindow(nint h) => Item(h).Exists;
+		public override string GetTitle(nint h)
+			=> TryItem(h, out var item, includeTextMetadata: true) ? item.Title : TryOwnControl(h, out _) ? base.GetTitle(h) : Item(h).Title;
+		public override string GetClassName(nint h)
+			=> TryItem(h, out var item, includeTextMetadata: true) ? item.ClassName : TryOwnControl(h, out _) ? base.GetClassName(h) : Item(h).ClassName;
+		public override long GetPid(nint h)
+			=> TryItem(h, out var item) ? item.PID : TryOwnControl(h, out _) ? base.GetPid(h) : Item(h).PID;
+		public override Rectangle GetBounds(nint h)
+			=> TryItem(h, out var item) ? item.Bounds : TryOwnControl(h, out _) ? base.GetBounds(h) : Item(h).Bounds;
+		public override Rectangle GetClientBounds(nint h)
+			=> TryItem(h, out var item) ? item.ClientBounds : TryOwnControl(h, out _) ? base.GetClientBounds(h) : Item(h).ClientBounds;
+		public override long GetStyle(nint h)
+			=> TryItem(h, out var item) ? item.Style : TryOwnControl(h, out _) ? base.GetStyle(h) : Item(h).Style;
+		public override long GetExStyle(nint h)
+			=> TryItem(h, out var item) ? item.ExStyle : TryOwnControl(h, out _) ? base.GetExStyle(h) : Item(h).ExStyle;
+		public override bool GetActive(nint h)
+			=> TryItem(h, out var item) ? item.Active : TryOwnControl(h, out _) ? base.GetActive(h) : Item(h).Active;
+		public override bool GetVisible(nint h)
+			=> TryItem(h, out var item) ? item.Visible : TryOwnControl(h, out _) ? base.GetVisible(h) : Item(h).Visible;
+		public override bool GetEnabled(nint h)
+			=> TryItem(h, out var item) ? item.Enabled : TryOwnControl(h, out _) ? base.GetEnabled(h) : Item(h).Enabled;
+		public override bool GetHung(nint h)
+			=> TryItem(h, out var item) ? item.IsHung : TryOwnControl(h, out _) ? base.GetHung(h) : Item(h).IsHung;
+		public override bool GetExists(nint h)
+			=> TryItem(h, out var item) ? item.Exists : TryOwnControl(h, out _) ? base.GetExists(h) : Item(h).Exists;
+		public override FormWindowState GetWindowState(nint h)
+			=> TryItem(h, out var item) ? item.WindowState : TryOwnControl(h, out _) ? base.GetWindowState(h) : Item(h).WindowState;
+		public override bool GetAlwaysOnTop(nint h)
+			=> TryItem(h, out var item) ? item.AlwaysOnTop : TryOwnControl(h, out _) ? base.GetAlwaysOnTop(h) : Item(h).AlwaysOnTop;
+		public override object GetTransparency(nint h)
+			=> TryItem(h, out var item) ? item.Transparency : TryOwnControl(h, out _) ? base.GetTransparency(h) : Item(h).Transparency;
+		public override object GetTransparentColor(nint h)
+			=> TryItem(h, out var item) ? item.TransparentColor : TryOwnControl(h, out _) ? base.GetTransparentColor(h) : Item(h).TransparentColor;
+		public override POINT ClientToScreen(nint h)
+			=> TryItem(h, out var item) ? item.ClientToScreen() : TryOwnControl(h, out _) ? base.ClientToScreen(h) : Item(h).ClientToScreen();
+		public override bool IsWindow(nint h)
+			=> TryItem(h, out var item) ? item.Exists : base.IsWindow(h);
 
 		public override bool TryGetText(nint h, bool detectHidden, out List<string> text)
 		{
-			text = Item(h).GetText(new WindowSearchOptions { DetectHiddenText = detectHidden });
-			return true;
+			if (TryItem(h, out var item, includeTextMetadata: true))
+			{
+				text = item.GetText(new WindowSearchOptions { DetectHiddenText = detectHidden });
+				return true;
+			}
+
+			return base.TryGetText(h, detectHidden, out text);
 		}
 
-		public override void ChildFindPoint(nint h, PointAndHwnd pah) => Item(h).ChildFindPoint(pah);
+		public override void ChildFindPoint(nint h, PointAndHwnd pah)
+		{
+			if (TryItem(h, out var item))
+				item.ChildFindPoint(pah);
+			else
+				base.ChildFindPoint(h, pah);
+		}
 
 		public override bool TryClientToScreen(nint h, ref Point pt)
 		{
-			var o = Item(h).ClientToScreen();
-			pt = new Point(pt.X + o.X, pt.Y + o.Y);
-			return true;
+			if (TryItem(h, out var item))
+			{
+				var o = item.ClientToScreen();
+				pt = new Point(pt.X + o.X, pt.Y + o.Y);
+				return true;
+			}
+
+			return base.TryClientToScreen(h, ref pt);
 		}
 
 		// macOS exposes no window tree to us: every window is its own top-level with no children.
-		public override bool TryGetParent(nint h, out nint parent) { parent = 0; return false; }
-		public override bool TryGetTopLevel(nint h, out nint top) { top = h; return h != 0; }
-		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children) { children = []; return true; }
+		public override bool TryGetParent(nint h, out nint parent)
+		{
+			if (TryOwnControl(h, out _))
+				return base.TryGetParent(h, out parent);
+
+			parent = 0;
+			return false;
+		}
+		public override bool TryGetTopLevel(nint h, out nint top)
+		{
+			if (TryItem(h, out _))
+			{
+				top = h;
+				return h != 0;
+			}
+
+			return base.TryGetTopLevel(h, out top);
+		}
+		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
+		{
+			if (TryOwnControl(h, out _))
+				return base.TryEnumerateChildren(h, out children);
+
+			children = [];
+			return true;
+		}
 
 		// --- control: fetch the descriptor by handle and drive MacAccessibility/MacNativeWindows directly ---
 		public override bool TrySetAlwaysOnTop(nint h, bool onTop)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetAlwaysOnTop(h, onTop);
 
 			if (native.OwnerPid != Environment.ProcessId)
 			{
@@ -87,7 +162,7 @@ namespace Keysharp.Internals
 		public override bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TryMoveResize(h, bounds, setPos, setSize);
 
 			var rect = native.Bounds;
 
@@ -105,7 +180,7 @@ namespace Keysharp.Internals
 		public override bool TrySetState(nint h, FormWindowState state)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetState(h, state);
 
 			if (!MacAccessibility.TrySetWindowState(native, state))
 				Ks.OutputDebugLine("WindowState for macOS window failed.");
@@ -116,7 +191,7 @@ namespace Keysharp.Internals
 		public override bool TrySetStyle(nint h, long style)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetStyle(h, style);
 
 			if (native.OwnerPid != Environment.ProcessId)
 			{
@@ -143,7 +218,7 @@ namespace Keysharp.Internals
 		public override bool TrySetTransparency(nint h, object alpha)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetTransparency(h, alpha);
 
 			if (native.OwnerPid != Environment.ProcessId)
 			{
@@ -162,7 +237,7 @@ namespace Keysharp.Internals
 		public override bool TryActivate(nint h)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TryActivate(h);
 
 			// Restore before activating — a minimized window is un-minimized even if already foreground.
 			if (MacAccessibility.TryGetWindowState(native, out var st) && st == FormWindowState.Minimized)
@@ -175,7 +250,7 @@ namespace Keysharp.Internals
 		public override bool TrySetZOrder(nint h, ZOrder z)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetZOrder(h, z);
 
 			if (z != ZOrder.Bottom)   // raise to top
 			{
@@ -193,10 +268,15 @@ namespace Keysharp.Internals
 		}
 
 		public override bool TryClose(nint h)
-			=> MacNativeWindows.TryGetWindowInfo(h, out var native) && MacAccessibility.TryCloseWindow(native);
+			=> MacNativeWindows.TryGetWindowInfo(h, out var native)
+				? MacAccessibility.TryCloseWindow(native)
+				: base.TryClose(h);
 
 		public override bool TryKill(nint h)
 		{
+			if (!MacNativeWindows.TryGetWindowInfo(h, out _))
+				return base.TryKill(h);
+
 			_ = TryClose(h);
 			var i = 0;
 
@@ -221,7 +301,7 @@ namespace Keysharp.Internals
 		public override bool TryHide(nint h)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return false;
+				return base.TryHide(h);
 
 			if (native.OwnerPid == Environment.ProcessId)
 				// One of our own windows: order it out of the window server so only this window disappears.
@@ -236,7 +316,7 @@ namespace Keysharp.Internals
 		public override bool TryShow(nint h)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return false;
+				return base.TryShow(h);
 
 			var restored = native.OwnerPid == Environment.ProcessId
 							? MacNativeWindows.TryShowOwnWindow(native.WindowNumber)
@@ -247,12 +327,13 @@ namespace Keysharp.Internals
 			return restored || activated;
 		}
 
-		public override bool TryRedraw(nint h) => MacNativeWindows.TryGetWindowInfo(h, out _);
+		public override bool TryRedraw(nint h)
+			=> MacNativeWindows.TryGetWindowInfo(h, out _) || base.TryRedraw(h);
 
 		public override bool TryClick(nint h, Point at, uint button, int count)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TryClick(h, at, button, count);
 
 			for (var i = 0; i < count; i++)
 				if (!MacAccessibility.TryClickWindow(native, at, rightButton: button == 2))
@@ -264,7 +345,7 @@ namespace Keysharp.Internals
 		public override bool TrySetTitle(nint h, string title)
 		{
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
-				return true;
+				return base.TrySetTitle(h, title);
 
 			var ok = native.OwnerPid == Environment.ProcessId
 				? MacNativeWindows.TrySetOwnWindowTitle(native.WindowNumber, title)
@@ -280,12 +361,18 @@ namespace Keysharp.Internals
 
 		public override bool TrySetEnabled(nint h, bool enabled)
 		{
+			if (base.TrySetEnabled(h, enabled))
+				return true;
+
 			Ks.OutputDebugLine("Enabled state is not implemented for macOS windows.");
 			return false;
 		}
 
 		public override bool TrySetTransparentColor(nint h, object color)
 		{
+			if (TryOwnControl(h, out _))
+				return base.TrySetTransparentColor(h, color);
+
 			Ks.OutputDebugLine("Transparency key/color is not supported on macOS.");
 			return false;
 		}

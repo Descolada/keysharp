@@ -4,21 +4,50 @@ namespace Keysharp.Internals
 {
 
 #if LINUX
-	internal sealed class LinuxWindow : WindowBase
+	internal static class LinuxWindows
 	{
-		// The single home of Linux window dispatch. Every query/control routes through here and fans out three
-		// ways by what owns the window: (1) a compositor-IPC Wayland backend (KWin/GNOME/Cinnamon, which
-		// self-filters by handle), (2) a wlr-foreign-toplevel window (sway/Hyprland/wlroots/COSMIC), or (3) an
-		// X11 window — including OUR OWN toolkit windows, handled directly here via Control.FromHandle or Xlib.
-		// The neutral WindowInfo holds a cached snapshot for Wayland-backend windows (so per-property reads don't
-		// fire a fresh KWin round-trip) and reaches these granular getters only for the LIVE X11/foreign paths.
+		internal static IWindow Resolve()
+		{
+			if (IsWaylandSession)
+				return new WaylandWindow(WaylandBackend.Current);
+
+			if (IsX11Available)
+				return new X11Window();
+
+			return new LinuxWindow();
+		}
+	}
+
+	internal class LinuxWindow : WindowBase
+	{
+		public override WindowInfoBase CreateWindow(nint id)
+			=> TryOwnControl(id, out _) ? base.CreateWindow(id) : new WindowInfo(id);
+
+		public override WindowInfoBase ActiveWindow() => new WindowInfo(0);
+
+		public override IReadOnlyList<WindowInfoBase> Enumerate(bool includeHidden) => [];
+
+		public override bool TryGetAt(int x, int y, out nint child)
+		{
+			child = default;
+			return false;
+		}
+
+		public override nint GetForegroundHandle() => 0;
+
+		public override uint GetFocusedControlThread(nint window, out nint control)
+		{
+			control = default;
+			return 0;
+		}
+	}
+
+	internal sealed class WaylandWindow : LinuxWindow
+	{
 		private const long WsCaption = 0x00C00000L;
+		private readonly IWaylandBackend wayland;
 
-		// Resolved once: the active compositor backend (null on X11 sessions / no-IPC compositors).
-		private readonly IWaylandBackend wayland
-			= IsWaylandSession ? WaylandBackend.Current : null;
-
-		private static XDisplay Display => XDisplay.Default;
+		internal WaylandWindow(IWaylandBackend wayland) => this.wayland = wayland;
 
 		private bool Backend(nint h, out WaylandWindowInfo info)
 		{
@@ -39,41 +68,44 @@ namespace Keysharp.Internals
 		private bool IsWayland(nint h)
 			=> Backend(h, out _) || h < 0;
 
-		// === query: granular single-property reads (LIVE; Wayland-backend served from the item's cache) ===
-
 		public override string GetTitle(nint h)
 		{
 			if (Backend(h, out var info)) return info.Title ?? DefaultObject;
 			if (Foreign(h) is { } tl) return tl.Title ?? DefaultObject;
-			return X11Title(h);
+			if (TryOwnControl(h, out _)) return base.GetTitle(h);
+			return DefaultObject;
 		}
 
 		public override string GetClassName(nint h)
 		{
 			if (Backend(h, out var info)) return info.ClassName;
 			if (Foreign(h) is { } tl) return tl.AppId ?? DefaultObject;
-			return X11ClassName(h);
+			if (TryOwnControl(h, out _)) return base.GetClassName(h);
+			return DefaultErrorString;
 		}
 
 		public override long GetPid(nint h)
 		{
 			if (Backend(h, out var info)) return info.PID;
 			if (Foreign(h) != null) return 0L;
-			return X11Pid(h);
+			if (TryOwnControl(h, out _)) return base.GetPid(h);
+			return 0L;
 		}
 
 		public override Rectangle GetBounds(nint h)
 		{
 			if (Backend(h, out var info)) return info.Bounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
-			return X11Bounds(h);
+			if (TryOwnControl(h, out _)) return base.GetBounds(h);
+			return Rectangle.Empty;
 		}
 
 		public override Rectangle GetClientBounds(nint h)
 		{
 			if (Backend(h, out var info)) return info.ClientBounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
-			return X11ClientBounds(h);
+			if (TryOwnControl(h, out _)) return base.GetClientBounds(h);
+			return Rectangle.Empty;
 		}
 
 		public override long GetStyle(nint h)
@@ -81,45 +113,52 @@ namespace Keysharp.Internals
 			// Wayland has no Win32 styles; the only one with a real equivalent is WS_CAPTION <-> decoration.
 			if (Backend(h, out var info)) return info.Style;
 			if (Foreign(h) != null) return 0L;
-			return X11Style(h);
+			if (TryOwnControl(h, out _)) return base.GetStyle(h);
+			return 0L;
 		}
 
 		public override long GetExStyle(nint h)
 		{
+			if (TryOwnControl(h, out _)) return base.GetExStyle(h);
 			if (IsWayland(h)) return 0L;
-			return X11ExStyle(h);
+			return 0L;
 		}
 
 		public override bool GetActive(nint h)
 		{
 			if (Backend(h, out var info)) return info.Active;
 			if (Foreign(h) is { } tl) return tl.Activated;
-			return X11Active(h);
+			if (TryOwnControl(h, out _)) return base.GetActive(h);
+			return false;
 		}
 
 		public override bool GetVisible(nint h)
 		{
 			if (Backend(h, out var info)) return info.Visible;
 			if (Foreign(h) != null) return true;   // a known foreign-toplevel is, by definition, mapped
-			return X11Visible(h);
+			if (TryOwnControl(h, out _)) return base.GetVisible(h);
+			return false;
 		}
 
 		public override bool GetEnabled(nint h)
 		{
+			if (TryOwnControl(h, out _)) return base.GetEnabled(h);
 			if (IsWayland(h)) return true;
-			return X11Enabled(h);
+			return false;
 		}
 
 		public override bool GetHung(nint h)
 		{
+			if (TryOwnControl(h, out _)) return base.GetHung(h);
 			if (IsWayland(h)) return false;
-			return X11Hung(h);
+			return false;
 		}
 
 		public override bool GetExists(nint h)
 		{
 			if (Backend(h, out _) || Foreign(h) != null) return true;
-			return X11Exists(h);
+			if (TryOwnControl(h, out _)) return base.GetExists(h);
+			return false;
 		}
 
 		public override FormWindowState GetWindowState(nint h)
@@ -129,46 +168,52 @@ namespace Keysharp.Internals
 			if (Foreign(h) is { } tl)
 				return tl.Minimized ? FormWindowState.Minimized : tl.Maximized ? FormWindowState.Maximized : FormWindowState.Normal;
 
-			return X11WindowState(h);
+			if (TryOwnControl(h, out _)) return base.GetWindowState(h);
+			return FormWindowState.Normal;
 		}
 
 		public override bool GetAlwaysOnTop(nint h)
 		{
 			if (Backend(h, out var info)) return info.AlwaysOnTop;
 			if (Foreign(h) != null) return false;   // no foreign-client way to read keep-above
-			return X11AlwaysOnTop(h);
+			if (TryOwnControl(h, out _)) return base.GetAlwaysOnTop(h);
+			return false;
 		}
 
 		public override object GetTransparency(nint h)
 		{
+			if (TryOwnControl(h, out _)) return base.GetTransparency(h);
 			if (IsWayland(h)) return 0xFFL;
-			return X11Transparency(h);
+			return 0xFFL;
 		}
 
 		public override object GetTransparentColor(nint h)
 		{
+			if (TryOwnControl(h, out _)) return base.GetTransparentColor(h);
 			if (IsWayland(h)) return 0L;
-			return X11TransparentColor(h);
+			return 0L;
 		}
 
 		public override POINT ClientToScreen(nint h)
 		{
 			if (Backend(h, out var info)) { var r = info.ClientGeometry; return new POINT(r.X, r.Y); }
 			if (Foreign(h) != null) return new POINT(0, 0);
-			return X11ClientToScreen(h);
+			if (TryOwnControl(h, out _)) return base.ClientToScreen(h);
+			return new POINT(0, 0);
 		}
 
 		public override bool TryGetText(nint h, bool detectHidden, out List<string> text)
 		{
+			if (TryOwnControl(h, out _)) return base.TryGetText(h, detectHidden, out text);
 			if (IsWayland(h)) { text = []; return true; }
-			text = X11Text(h, detectHidden);
-			return true;
+			text = [];
+			return false;
 		}
 
 		public override void ChildFindPoint(nint h, PointAndHwnd pah)
 		{
+			if (TryOwnControl(h, out _)) { base.ChildFindPoint(h, pah); return; }
 			if (IsWayland(h)) return;
-			X11ChildFindPoint(h, pah);
 		}
 
 		public override bool TryClientToScreen(nint h, ref Point pt)
@@ -180,29 +225,27 @@ namespace Keysharp.Internals
 
 		public override bool TryGetParent(nint h, out nint parent)
 		{
+			if (TryOwnControl(h, out _)) return base.TryGetParent(h, out parent);
 			if (IsWayland(h)) { parent = default; return false; }
-			parent = X11ParentHandle(h);
-			return parent != 0;
+			parent = default;
+			return false;
 		}
 
 		public override bool TryGetTopLevel(nint h, out nint top)
 		{
 			if (Backend(h, out _)) { top = h; return true; }   // a backend toplevel is its own top
 			if (Foreign(h) != null) { top = default; return false; }
-			top = X11NonChildParentHandle(h);
-			return top != 0;
+			if (TryOwnControl(h, out _)) return base.TryGetTopLevel(h, out top);
+			top = default;
+			return false;
 		}
 
 		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
 		{
+			if (TryOwnControl(h, out _)) return base.TryEnumerateChildren(h, out children);
 			if (IsWayland(h)) { children = []; return true; }
-			var list = new List<nint>();
-
-			foreach (var child in X11ChildWindows(h))
-				list.Add(child);
-
-			children = list;
-			return true;
+			children = [];
+			return false;
 		}
 
 		public override nint GetForegroundHandle()
@@ -210,7 +253,7 @@ namespace Keysharp.Internals
 			if (wayland?.TryGetActiveWindow(out var active) == true)
 				return active.Handle;
 
-			return new nint(Display.XGetInputFocusHandle());
+			return WaylandForeignToplevels.Current?.Active is WaylandToplevel fa ? fa.Handle : 0;
 		}
 
 		public override bool IsWindow(nint h)
@@ -221,31 +264,10 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current?.IsWindow(h) == true)
 				return true;
 
-			if (!IsX11Available || h == 0)
-				return false;
+			if (base.IsWindow(h))
+				return true;
 
-			var attr = new XWindowAttributes();
-			var success = true;
-
-			lock (X11Server.xLibLock)
-			{
-				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
-				{
-					success = false;
-					return 0;
-				});
-
-				try
-				{
-					var result = Xlib.XGetWindowAttributes(Display.Handle, h.ToInt64(), ref attr) != 0;
-					_ = Xlib.XSync(Display.Handle, false);
-					return success && result;
-				}
-				finally
-				{
-					_ = Xlib.XSetErrorHandler(oldHandler);
-				}
-			}
+			return false;
 		}
 
 		public override bool TrySetAlwaysOnTop(nint h, bool onTop)
@@ -261,18 +283,9 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current?.IsWindow(h) == true)
 				return false;
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			var disp = Display;
-
-			if (Control.FromHandle(h) is Form form)   // one of our own X11 windows
-				form.TopMost = onTop;
-			else
-				X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, onTop ? 1 : 0, disp._NET_WM_STATE_ABOVE, 0, 0);
-
-			_ = Xlib.XFlush(disp.Handle);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TrySetAlwaysOnTop(h, onTop);
+			return false;
 		}
 
 		public override bool TryClose(nint h)
@@ -284,26 +297,9 @@ namespace Keysharp.Internals
 			if (toplevels?.Get(h) is WaylandToplevel tl)
 				return toplevels.Close(tl);
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			if (Control.FromHandle(h) is Form form)   // one of our own X11 windows
-			{
-				if (form.Disposing || form.IsDisposed)
-					return false;
-
-				form.Close();
-				return true;
-			}
-
-			var disp = Display;
-			var ev = new XEvent();
-			ev.ClientMessageEvent.type = XEventName.ClientMessage;
-			ev.ClientMessageEvent.window = h;
-			ev.ClientMessageEvent.message_type = disp.WM_PROTOCOLS;
-			ev.ClientMessageEvent.format = 32;
-			ev.ClientMessageEvent.ptr1 = disp.WM_DELETE_WINDOW;
-			return Xlib.XSendEvent(disp.Handle, h, false, EventMasks.NoEvent, ref ev) != 0;
+			if (TryOwnControl(h, out _))
+				return base.TryClose(h);
+			return false;
 		}
 
 		public override bool TryKill(nint h)
@@ -311,7 +307,9 @@ namespace Keysharp.Internals
 			if (Backend(h, out _) || Foreign(h) != null)   // WaylandWindowItem.Kill => Close
 				return TryClose(h);
 
-			return IsX11Available && X11Kill(h);
+			if (TryOwnControl(h, out _))
+				return base.TryKill(h);
+			return false;
 		}
 
 		public override bool TrySetZOrder(nint h, ZOrder z)
@@ -320,18 +318,9 @@ namespace Keysharp.Internals
 			if (wayland?.TryGetWindow(h, out _) == true || WaylandForeignToplevels.Current?.IsWindow(h) == true)
 				return false;
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			var disp = Display;
-
-			if (z == ZOrder.Bottom)
-				_ = Xlib.XLowerWindow(disp.Handle, h);
-			else
-				_ = Xlib.XRaiseWindow(disp.Handle, h);
-
-			_ = Xlib.XFlush(disp.Handle);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TrySetZOrder(h, z);
+			return false;
 		}
 
 		public override bool TryHide(nint h)
@@ -342,16 +331,9 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
 				return tlm.SetState(tl, FormWindowState.Minimized);
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			if (Control.FromHandle(h) is Control ctrl)   // our own window/control
-			{
-				ctrl.Visible = false;
-				return true;
-			}
-
-			return Xlib.XUnmapWindow(Display.Handle, h) != 0;
+			if (TryOwnControl(h, out _))
+				return base.TryHide(h);
+			return false;
 		}
 
 		public override bool TryShow(nint h)
@@ -362,16 +344,9 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
 				return tlm.SetState(tl, FormWindowState.Normal);
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			if (Control.FromHandle(h) is Control ctrl)
-			{
-				ctrl.Visible = true;
-				return true;
-			}
-
-			return Xlib.XMapWindow(Display.Handle, h) != 0;
+			if (TryOwnControl(h, out _))
+				return base.TryShow(h);
+			return false;
 		}
 
 		public override bool TryRedraw(nint h)
@@ -379,10 +354,9 @@ namespace Keysharp.Internals
 			if (wayland?.TryGetWindow(h, out _) == true)   // WaylandWindowItem.Redraw => false
 				return false;
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			return Xlib.XClearWindow(Display.Handle, h) != 0;
+			if (TryOwnControl(h, out _))
+				return base.TryRedraw(h);
+			return false;
 		}
 
 		public override bool TrySetState(nint h, FormWindowState state)
@@ -393,64 +367,9 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
 				return tlm.SetState(tl, state);
 
-			if (!IsX11Available || h == 0)
-				return false;
-
-			var disp = Display;
-
-			if (Control.FromHandle(h) is Form form)
-				form.WindowState = state;
-
-			var current = GetWindowState(h);   // reuse the proven X11/Wayland getter
-
-			if (current == state)
-				return true;
-
-			switch (state)   // logic mirrors WinForms, lifted verbatim from the X11 WindowInfo
-			{
-				case FormWindowState.Normal:
-					lock (X11Server.xLibLock)
-					{
-						if (current == FormWindowState.Minimized)
-						{
-							_ = Xlib.XMapWindow(disp.Handle, h);
-							X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
-						}
-						else if (current == FormWindowState.Maximized)
-						{
-							X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 2 /* toggle */, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
-							X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
-						}
-					}
-
-					break;
-
-				case FormWindowState.Minimized:
-					lock (X11Server.xLibLock)
-					{
-						if (current == FormWindowState.Maximized)
-							X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 2 /* toggle */, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
-
-						_ = Xlib.XIconifyWindow(disp.Handle, h.ToInt64(), disp.ScreenNumber);
-					}
-
-					break;
-
-				case FormWindowState.Maximized:
-					lock (X11Server.xLibLock)
-					{
-						if (current == FormWindowState.Minimized)
-							_ = Xlib.XMapWindow(disp.Handle, h);
-
-						X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 1 /* add */, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
-					}
-
-					X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
-					break;
-			}
-
-			_ = Xlib.XFlush(disp.Handle);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TrySetState(h, state);
+			return false;
 		}
 
 		// The remaining control verbs reuse the proven X11 read/write logic via the directly-constructed X11
@@ -480,8 +399,9 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;   // wlr-foreign-toplevel exposes no geometry; the caller raises OSError
 
-			X11SetBounds(h, bounds);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TryMoveResize(h, bounds, setPos, setSize);
+			return false;
 		}
 
 		public override bool TryActivate(nint h)
@@ -492,8 +412,9 @@ namespace Keysharp.Internals
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
 				return tlm.Activate(tl);
 
-			X11Activate(h);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TryActivate(h);
+			return false;
 		}
 
 		public override bool TrySetStyle(nint h, long style)
@@ -505,44 +426,38 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;
 
-			X11SetStyle(h, style);   // logs "cannot set styles on linux"
+			if (TryOwnControl(h, out _))
+				return base.TrySetStyle(h, style);
 			return false;
 		}
 
 		public override bool TrySetExStyle(nint h, long exStyle)
 		{
-			if (IsWayland(h))
-				return false;
+			if (TryOwnControl(h, out _))
+				return base.TrySetExStyle(h, exStyle);
 
-			X11SetExStyle(h, exStyle);   // logs "ExStyles cannot be set on linux"
 			return false;
 		}
 
 		public override bool TrySetTransparency(nint h, object alpha)
 		{
-			if (IsWayland(h))
-				return false;   // Wayland opacity is compositor-owned.
-
-			X11SetTransparency(h, alpha);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TrySetTransparency(h, alpha);
+			return false;
 		}
 
 		public override bool TryClick(nint h, Point at, uint button, int count)
 		{
-			if (IsWayland(h))
-				return false;   // synthetic clicks are unsupported on Wayland.
-
-			X11Click(h, at);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TryClick(h, at, button, count);
+			return false;
 		}
 
 		public override bool TrySetTitle(nint h, string title)
 		{
-			if (IsWayland(h))
-				return false;   // foreign clients can't have their title set.
-
-			X11SetTitle(h, title);
-			return true;
+			if (TryOwnControl(h, out _))
+				return base.TrySetTitle(h, title);
+			return false;
 		}
 
 		public override bool TrySetVisible(nint h, bool visible)
@@ -553,20 +468,499 @@ namespace Keysharp.Internals
 			if (Foreign(h) != null)
 				return false;
 
+			if (TryOwnControl(h, out _))
+				return base.TrySetVisible(h, visible);
+			return false;
+		}
+
+		public override bool TrySetEnabled(nint h, bool enabled)
+		{
+			if (TryOwnControl(h, out _))
+				return base.TrySetEnabled(h, enabled);
+			return false;
+		}
+
+		public override bool TrySetTransparentColor(nint h, object color)
+		{
+			if (TryOwnControl(h, out _))
+				return base.TrySetTransparentColor(h, color);
+			return false;
+		}
+
+		public override WindowInfoBase CreateWindow(nint id)
+		{
+			if (Backend(id, out var info)) return info;
+			if (Foreign(id) != null) return new WindowInfo(id);
+			if (TryOwnControl(id, out _)) return base.CreateWindow(id);
+			return new WindowInfo(id);
+		}
+
+		public override WindowInfoBase ActiveWindow()
+		{
+			if (wayland?.TryGetActiveWindow(out var active) == true) return active;
+			return WaylandForeignToplevels.Current?.Active is WaylandToplevel fa ? new WindowInfo(fa.Handle) : new WindowInfo(0);
+		}
+
+		public override IReadOnlyList<WindowInfoBase> Enumerate(bool includeHidden)
+		{
+			var list = new List<WindowInfoBase>();
+
+			if (wayland?.TryListWindows(includeHidden, out var backendWindows) == true)
+			{
+				foreach (var w in backendWindows)
+					list.Add(w);
+			}
+
+			if (WaylandForeignToplevels.Current is { } tlm)
+				foreach (var tl in tlm.Enumerate())
+					list.Add(new WindowInfo(tl.Handle));
+
+			list.Reverse();
+			return list;
+		}
+
+		public override bool TryGetAt(int x, int y, out nint child)
+		{
+			if (wayland?.TryGetWindowAt(x, y, out var info) == true)
+			{
+				child = info.Handle;
+				return true;
+			}
+
+			child = default;
+			return false;
+		}
+
+		public override uint GetFocusedControlThread(nint window, out nint control)
+		{
+			control = default;
+			return 0;
+		}
+	}
+
+	internal sealed class X11Window : LinuxWindow
+	{
+		private static XDisplay Display => XDisplay.Default;
+
+		public override string GetTitle(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetTitle(h);
+			return X11Title(h);
+		}
+
+		public override string GetClassName(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetClassName(h);
+			return X11ClassName(h);
+		}
+
+		public override long GetPid(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetPid(h);
+			return X11Pid(h);
+		}
+
+		public override Rectangle GetBounds(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetBounds(h);
+			return X11Bounds(h);
+		}
+
+		public override Rectangle GetClientBounds(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetClientBounds(h);
+			return X11ClientBounds(h);
+		}
+
+		public override long GetStyle(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetStyle(h);
+			return X11Style(h);
+		}
+
+		public override long GetExStyle(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetExStyle(h);
+			return X11ExStyle(h);
+		}
+
+		public override bool GetActive(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetActive(h);
+			return X11Active(h);
+		}
+
+		public override bool GetVisible(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetVisible(h);
+			return X11Visible(h);
+		}
+
+		public override bool GetEnabled(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetEnabled(h);
+			return X11Enabled(h);
+		}
+
+		public override bool GetHung(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetHung(h);
+			return X11Hung(h);
+		}
+
+		public override bool GetExists(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetExists(h);
+			return X11Exists(h);
+		}
+
+		public override FormWindowState GetWindowState(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetWindowState(h);
+			return X11WindowState(h);
+		}
+
+		public override bool GetAlwaysOnTop(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetAlwaysOnTop(h);
+			return X11AlwaysOnTop(h);
+		}
+
+		public override object GetTransparency(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetTransparency(h);
+			return X11Transparency(h);
+		}
+
+		public override object GetTransparentColor(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.GetTransparentColor(h);
+			return X11TransparentColor(h);
+		}
+
+		public override POINT ClientToScreen(nint h)
+		{
+			if (TryOwnControl(h, out _)) return base.ClientToScreen(h);
+			return X11ClientToScreen(h);
+		}
+
+		public override bool TryGetText(nint h, bool detectHidden, out List<string> text)
+		{
+			if (base.TryGetText(h, detectHidden, out text))
+				return true;
+
+			text = X11Text(h, detectHidden);
+			return true;
+		}
+
+		public override void ChildFindPoint(nint h, PointAndHwnd pah)
+		{
+			if (TryOwnControl(h, out _))
+			{
+				base.ChildFindPoint(h, pah);
+				return;
+			}
+
+			X11ChildFindPoint(h, pah);
+		}
+
+		public override bool TryClientToScreen(nint h, ref Point pt)
+		{
+			if (base.TryClientToScreen(h, ref pt))
+				return true;
+
+			var origin = X11ClientToScreen(h);
+			pt = new Point(pt.X + origin.X, pt.Y + origin.Y);
+			return true;
+		}
+
+		public override bool TryGetParent(nint h, out nint parent)
+		{
+			if (base.TryGetParent(h, out parent))
+				return true;
+
+			parent = X11ParentHandle(h);
+			return parent != 0;
+		}
+
+		public override bool TryGetTopLevel(nint h, out nint top)
+		{
+			if (base.TryGetTopLevel(h, out top))
+				return true;
+
+			top = X11NonChildParentHandle(h);
+			return top != 0;
+		}
+
+		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
+		{
+			if (base.TryEnumerateChildren(h, out children))
+				return true;
+
+			children = X11ChildWindows(h).ToList();
+			return true;
+		}
+
+		public override nint GetForegroundHandle()
+			=> new nint(Display.XGetInputFocusHandle());
+
+		public override bool IsWindow(nint h)
+		{
+			if (base.IsWindow(h))
+				return true;
+
+			if (h == 0)
+				return false;
+
+			var attr = new XWindowAttributes();
+			var success = true;
+
+			lock (X11Server.xLibLock)
+			{
+				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				{
+					success = false;
+					return 0;
+				});
+
+				try
+				{
+					var result = Xlib.XGetWindowAttributes(Display.Handle, h.ToInt64(), ref attr) != 0;
+					_ = Xlib.XSync(Display.Handle, false);
+					return success && result;
+				}
+				finally
+				{
+					_ = Xlib.XSetErrorHandler(oldHandler);
+				}
+			}
+		}
+
+		public override bool TrySetAlwaysOnTop(nint h, bool onTop)
+		{
+			if (base.TrySetAlwaysOnTop(h, onTop))
+				return true;
+
+			if (h == 0)
+				return false;
+
+			var disp = Display;
+
+			if (Control.FromHandle(h) is Form form)
+				form.TopMost = onTop;
+			else
+				X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, onTop ? 1 : 0, disp._NET_WM_STATE_ABOVE, 0, 0);
+
+			_ = Xlib.XFlush(disp.Handle);
+			return true;
+		}
+
+		public override bool TryClose(nint h)
+		{
+			if (base.TryClose(h))
+				return true;
+
+			if (h == 0)
+				return false;
+
+			var disp = Display;
+			var ev = new XEvent();
+			ev.ClientMessageEvent.type = XEventName.ClientMessage;
+			ev.ClientMessageEvent.window = h;
+			ev.ClientMessageEvent.message_type = disp.WM_PROTOCOLS;
+			ev.ClientMessageEvent.format = 32;
+			ev.ClientMessageEvent.ptr1 = disp.WM_DELETE_WINDOW;
+			return Xlib.XSendEvent(disp.Handle, h, false, EventMasks.NoEvent, ref ev) != 0;
+		}
+
+		public override bool TryKill(nint h)
+		{
+			if (base.TryKill(h))
+				return true;
+
+			return X11Kill(h);
+		}
+
+		public override bool TrySetZOrder(nint h, ZOrder z)
+		{
+			if (base.TrySetZOrder(h, z))
+				return true;
+
+			if (h == 0)
+				return false;
+
+			var disp = Display;
+
+			if (z == ZOrder.Bottom)
+				_ = Xlib.XLowerWindow(disp.Handle, h);
+			else
+				_ = Xlib.XRaiseWindow(disp.Handle, h);
+
+			_ = Xlib.XFlush(disp.Handle);
+			return true;
+		}
+
+		public override bool TryHide(nint h)
+		{
+			if (base.TryHide(h))
+				return true;
+
+			return h != 0 && Xlib.XUnmapWindow(Display.Handle, h) != 0;
+		}
+
+		public override bool TryShow(nint h)
+		{
+			if (base.TryShow(h))
+				return true;
+
+			return h != 0 && Xlib.XMapWindow(Display.Handle, h) != 0;
+		}
+
+		public override bool TryRedraw(nint h)
+		{
+			if (base.TryRedraw(h))
+				return true;
+
+			return h != 0 && Xlib.XClearWindow(Display.Handle, h) != 0;
+		}
+
+		public override bool TrySetState(nint h, FormWindowState state)
+		{
+			if (base.TrySetState(h, state))
+				return true;
+
+			if (h == 0)
+				return false;
+
+			var disp = Display;
+			var current = GetWindowState(h);
+
+			if (current == state)
+				return true;
+
+			switch (state)
+			{
+				case FormWindowState.Normal:
+					lock (X11Server.xLibLock)
+					{
+						if (current == FormWindowState.Minimized)
+						{
+							_ = Xlib.XMapWindow(disp.Handle, h);
+							X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
+						}
+						else if (current == FormWindowState.Maximized)
+						{
+							X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 2, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
+							X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
+						}
+					}
+
+					break;
+
+				case FormWindowState.Minimized:
+					lock (X11Server.xLibLock)
+					{
+						if (current == FormWindowState.Maximized)
+							X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 2, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
+
+						_ = Xlib.XIconifyWindow(disp.Handle, h.ToInt64(), disp.ScreenNumber);
+					}
+
+					break;
+
+				case FormWindowState.Maximized:
+					lock (X11Server.xLibLock)
+					{
+						if (current == FormWindowState.Minimized)
+							_ = Xlib.XMapWindow(disp.Handle, h);
+
+						X11Server.SendNetWMMessage(h, disp._NET_WM_STATE, 1, disp._NET_WM_STATE_MAXIMIZED_HORZ, disp._NET_WM_STATE_MAXIMIZED_VERT, 0);
+					}
+
+					X11Server.SendNetWMMessage(h, disp._NET_ACTIVE_WINDOW, (nint)1, 0, 0, 0);
+					break;
+			}
+
+			_ = Xlib.XFlush(disp.Handle);
+			return true;
+		}
+
+		public override bool TryMoveResize(nint h, Rectangle bounds, bool setPos, bool setSize)
+		{
+			if (base.TryMoveResize(h, bounds, setPos, setSize))
+				return true;
+
+			X11SetBounds(h, bounds);
+			return true;
+		}
+
+		public override bool TryActivate(nint h)
+		{
+			if (base.TryActivate(h))
+				return true;
+
+			X11Activate(h);
+			return true;
+		}
+
+		public override bool TrySetStyle(nint h, long style)
+		{
+			if (base.TrySetStyle(h, style))
+				return true;
+
+			X11SetStyle(h, style);
+			return false;
+		}
+
+		public override bool TrySetExStyle(nint h, long exStyle)
+		{
+			if (base.TrySetExStyle(h, exStyle))
+				return true;
+
+			X11SetExStyle(h, exStyle);
+			return false;
+		}
+
+		public override bool TrySetTransparency(nint h, object alpha)
+		{
+			if (base.TrySetTransparency(h, alpha))
+				return true;
+
+			X11SetTransparency(h, alpha);
+			return true;
+		}
+
+		public override bool TryClick(nint h, Point at, uint button, int count)
+		{
+			if (base.TryClick(h, at, button, count))
+				return true;
+
+			X11Click(h, at);
+			return true;
+		}
+
+		public override bool TrySetTitle(nint h, string title)
+		{
+			if (base.TrySetTitle(h, title))
+				return true;
+
+			X11SetTitle(h, title);
+			return true;
+		}
+
+		public override bool TrySetVisible(nint h, bool visible)
+		{
+			if (base.TrySetVisible(h, visible))
+				return true;
+
 			X11SetVisible(h, visible);
 			return true;
 		}
 
 		public override bool TrySetEnabled(nint h, bool enabled)
 		{
-			if (IsWayland(h))
-				return false;
-
-			if (Control.FromHandle(h) is Control ctrl)
-			{
-				ctrl.Enabled = enabled;
+			if (base.TrySetEnabled(h, enabled))
 				return true;
-			}
 
 			X11SetEnabled(h, enabled);
 			return false;
@@ -574,10 +968,10 @@ namespace Keysharp.Internals
 
 		public override bool TrySetTransparentColor(nint h, object color)
 		{
-			if (IsWayland(h))
-				return false;
+			if (base.TrySetTransparentColor(h, color))
+				return true;
 
-			X11SetTransparentColor(h, color);   // logs "Transparency key/color not supported on linux."
+			X11SetTransparentColor(h, color);
 			return false;
 		}
 
@@ -1384,13 +1778,7 @@ namespace Keysharp.Internals
 		// WindowInfo from these results — cached for a full snapshot, live for a handle-only one). ===
 
 		public override WindowInfoBase CreateWindow(nint id)
-		{
-			// The compositor's one-pass payload IS the window (a WaylandWindowInfo : WindowInfoBase) — return it
-			// directly; the live by-handle getters below read the same payload type. X11/own toolkit stay lazy.
-			if (wayland?.TryGetWindow(id, out var info) == true) return info;                                // KWin/GNOME/Cinnamon
-			if (Foreign(id) != null) return new WindowInfo(id);// wlr-foreign-toplevel
-			return new WindowInfo(id);                                    // X11 / own toolkit — lazy
-		}
+			=> TryOwnControl(id, out _) ? base.CreateWindow(id) : new WindowInfo(id);
 
 		// X11 has no portable "focused control's thread" concept; the focused-layout lookup that uses this is a
 		// Windows-only refinement, so report 0 (the legacy Linux behavior).
@@ -1402,11 +1790,6 @@ namespace Keysharp.Internals
 
 		public override WindowInfoBase ActiveWindow()
 		{
-			if (wayland?.TryGetActiveWindow(out var wa) == true) return wa;
-
-			if (WaylandForeignToplevels.Current?.Active is WaylandToplevel fa)
-				return new WindowInfo(fa.Handle);
-
 			var activeId = 0L;
 			nint prop = 0;
 
@@ -1431,28 +1814,6 @@ namespace Keysharp.Internals
 		public override IReadOnlyList<WindowInfoBase> Enumerate(bool includeHidden)
 		{
 			var list = new List<WindowInfoBase>();
-
-			// AHK yields top-to-bottom z-order (index 0 = topmost). Every Linux source here is natively
-			// bottom-to-top, so we reverse at this single layer to match the Windows convention.
-			if (wayland?.TryListWindows(includeHidden, out var backendWindows) == true)
-			{
-				foreach (var w in backendWindows)
-					list.Add(w);
-
-				list.Reverse();
-				return list;
-			}
-
-			if (WaylandForeignToplevels.Current is { } tlm)
-				foreach (var tl in tlm.Enumerate())
-					list.Add(new WindowInfo(tl.Handle));
-
-			if (!IsX11Available)
-			{
-				list.Reverse();
-				return list;
-			}
-
 			var attr = new XWindowAttributes();
 			var filter = (long id) =>
 			{
@@ -1478,10 +1839,6 @@ namespace Keysharp.Internals
 
 		public override bool TryGetAt(int x, int y, out nint child)
 		{
-			if (wayland?.TryGetWindowAt(x, y, out var info) == true) { child = info.Handle; return true; }
-
-			if (!IsX11Available) { child = default; return false; }
-
 #if DPI
 			var scale = A_ScaledScreenDPI;
 

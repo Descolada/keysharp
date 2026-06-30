@@ -1,11 +1,8 @@
 namespace Keysharp.Internals
 {
 	/// <summary>
-	/// The resolved-once bundle of platform capability services, one per process, chosen by OS at compile
-	/// time and (on Linux) composed from X11 + the active Wayland backend at runtime inside the impls.
-	/// Construction MUST be trivial — no X11 connection, no thread-affine probe — so it can be forced on the
-	/// startup thread without side effects; the actual session/backend resolution happens lazily inside each
-	/// service the first time it is used.
+	/// The resolved-once bundle of platform capability services, one per process. OS selection happens at
+	/// compile time; Linux services choose their concrete session backend once during host construction.
 	/// </summary>
 	internal abstract class PlatformHost
 	{
@@ -21,8 +18,8 @@ namespace Keysharp.Internals
 		internal abstract IPermissionManager Permissions { get; }
 		internal abstract ControlManagerBase Control { get; }
 
-		/// <summary>Compile-time OS selection. The Linux host resolves the X11/Wayland composite once inside
-		/// its services; Windows/macOS are single-backend.</summary>
+		/// <summary>Compile-time OS selection. Windows/macOS are single-backend; Linux resolves X11/Wayland
+		/// services inside its host.</summary>
 		internal static PlatformHost Resolve() =>
 #if WINDOWS
 			new WindowsPlatformHost();
@@ -91,7 +88,7 @@ namespace Keysharp.Internals
 		private readonly IWindowEvents events = new LinuxEvents();
 		private readonly ISession session = new LinuxSession();
 		private readonly IHotkeys hotkeys = new LinuxHotkeys();
-		private readonly IWindow window = new LinuxWindow();
+		private readonly IWindow window = LinuxWindows.Resolve();
 		private readonly IPermissionManager permissions = new LinuxPermissionManager();
 		private readonly ControlManagerBase control = new Os.Unix.ControlManager();
 		internal override IMouse Mouse => mouse;

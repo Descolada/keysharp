@@ -147,7 +147,7 @@ namespace Keysharp.Builtins
 						// clobbers) its input region. Mark it so the empty-titlebar CSD trick is skipped; its
 						// titlebar is instead removed via the compositor (noBorder). Processed before -Caption
 						// in our overlay option strings, so the flag is set before the CSD trick would run.
-						if (b) f.form.Properties["KeysharpNoCsd"] = true;
+						if (b) f.form.Properties["NoWaylandCsd"] = true;
 #endif
 					}
 				}
@@ -2471,7 +2471,7 @@ namespace Keysharp.Builtins
 
 			var sz = form.Size;
 			Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.SetWindowState(
-				form.Handle, form.Title, sz.Width, sz.Height, state);
+				form, form.Title, sz.Width, sz.Height, state);
 #endif
 		}
 
@@ -2507,7 +2507,7 @@ namespace Keysharp.Builtins
 			// IsSupported is checked first to avoid evaluating form.Handle on X11.
 			if ((x != int.MinValue || y != int.MinValue)
 					&& Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.IsSupported)
-				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form.Handle, form.Title, x, y, formSize.Width, formSize.Height);
+				Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form, form.Title, x, y, formSize.Width, formSize.Height);
 #endif
 			return DefaultObject;
 		}
@@ -2958,7 +2958,7 @@ namespace Keysharp.Builtins
 				var keepAbove = form.TopMost;
 
 				if (hasPos || removeBorder || keepAbove)
-					Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form.Handle, form.Title,
+					Keysharp.Internals.Window.Linux.Wayland.WaylandSelfPositioner.Position(form, form.Title,
 						hasPos ? location.X : int.MinValue, hasPos ? location.Y : int.MinValue,
 						size.Width, size.Height, removeBorder, keepAbove);
 			}

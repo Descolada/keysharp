@@ -135,14 +135,13 @@ namespace Eto.Forms
             internal static Color DefaultBackColor => SystemColors.ControlBackground;
             internal static Control FromHandle(nint handle)
             {
+                var key = handle.ToInt64();
                 var allGuis = TheScript.GuiData.allGuiHwnds;
-                if (allGuis.TryGetValue(handle, out var gui))
+                if (allGuis.TryGetValue(key, out var gui))
                     return gui.form;
-                foreach (var g in TheScript.GuiData.allGuiHwnds)
+                foreach (var g in allGuis)
                 {
-                    if (handle == g.Key)
-                        return g.Value.form;
-                    if (g.Value.controls.TryGetValue((long)handle, out var ctrl))
+                    if (g.Value.controls.TryGetValue(key, out var ctrl))
                         return ctrl.GetControl();
                 }
                 return null;

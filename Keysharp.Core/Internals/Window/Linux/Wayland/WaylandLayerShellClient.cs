@@ -88,7 +88,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		{
 			genuinelyUnavailable = false;
 
-			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
+			if (!Platform.Desktop.IsWaylandSession)
 			{
 				// Not a Wayland session: layer-shell can never appear, so don't bother retrying.
 				genuinelyUnavailable = true;

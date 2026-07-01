@@ -23,8 +23,9 @@ namespace Keysharp.Internals
 			{
 				Wl.WaylandBackend.KWinBackend kwin => new KWinScreen(kwin),
 				Wl.WaylandBackend.GnomeBackend gnome => new GnomeScreen(gnome),
+				Wl.CinnamonBackend cinnamon => new CinnamonScreen(cinnamon),
 				null => new X11Screen(),                      // Wayland session but no usable backend → X11/Eto
-				var other => new WlrootsScreen(other),        // sway/Hyprland/wlroots (+ Cinnamon: tries zwlr, else Eto)
+				var other => new WlrootsScreen(other),        // sway/Hyprland/wlroots: tries zwlr, else Eto
 			};
 		}
 	}
@@ -175,6 +176,55 @@ namespace Keysharp.Internals
 
 		public override Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt)
 			=> Wl.ScreencapHelper.AuthorizeGnome(operation, prompt);
+	}
+
+	/// <summary>Cinnamon Wayland via Muffin's D-Bus screenshot method. Region grabs are compositor-mediated.
+	/// Window capture images the compositor-reported on-screen frame rectangle, so unlike KWin/GNOME it is
+	/// occlusion-dependent, but it is still routed through the Cinnamon screenshot backend.</summary>
+	internal sealed class CinnamonScreen : WaylandScreen
+	{
+		internal CinnamonScreen(Wl.CinnamonBackend backend) : base(backend) { }
+
+		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
+		{
+			bmp = Wl.CinnamonShellBridge.CaptureArea(x, y, width, height);
+
+			if (bmp != null) { scaleX = scaleY = 1; return true; }
+
+			return base.TryCaptureRegion(x, y, width, height, out bmp, out scaleX, out scaleY);
+		}
+
+		public override bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale)
+		{
+			bmp = null;
+			scale = 1;
+
+			// Cinnamon reports client == frame, so it can't honor a client-only grab; both paths capture the
+			// window's on-screen rectangle (GetBounds and GetClientBounds return the same FrameGeometry here).
+			var bounds = includeDecoration ? Platform.Window.GetBounds(h) : Platform.Window.GetClientBounds(h);
+
+			if (bounds.Width <= 0 || bounds.Height <= 0)
+				return false;
+
+			bmp = Wl.CinnamonShellBridge.CaptureArea(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+			if (bmp == null)
+				return false;
+
+			// CaptureArea returns DEVICE pixels: on a HiDPI monitor the bitmap is larger than the logical bounds.
+			// Report the real capture scale (mirroring the macOS/Windows branches) so a consumer such as OCR can
+			// divide it back out; otherwise word coordinates drift on scaled monitors. Use the larger of the two
+			// axis ratios to stay safe under fractional scaling where X/Y round differently.
+			var sx = bounds.Width > 0 ? (double)bmp.Width / bounds.Width : 1.0;
+			var sy = bounds.Height > 0 ? (double)bmp.Height / bounds.Height : 1.0;
+			scale = Math.Max(sx, sy);
+			return true;
+		}
+
+		public override bool RequiresAuthorization => false;
+
+		public override Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt)
+			=> new (Os.PermissionStatus.NotApplicable);
 	}
 
 	/// <summary>wlroots compositors (sway/Hyprland/Wayfire/…): region grabs via zwlr_screencopy; no foreign

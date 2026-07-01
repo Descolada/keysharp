@@ -183,33 +183,35 @@ namespace Keysharp.Internals
 		Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt);
 	}
 
-	/// <summary>Click-through outline overlays (highlight) + tooltips. The backing (Eto / wlr layer-shell /
-	/// compositor) is decided lazily-with-retry on first Show, not at resolution time.</summary>
+	/// <summary>Click-through image overlays — the single cross-platform overlay primitive. The user-facing
+	/// Overlay builtin, and Highlight and ToolTip (on Linux/macOS), all render through this. The backing
+	/// (Eto / wlr layer-shell / compositor extension) is decided lazily-with-retry on the first Show, per overlay.</summary>
 	internal interface IOverlay
 	{
 		OverlayKind PreferredKind { get; }
 
-		/// <summary>Show/update the click-through outline overlay for <paramref name="id"/> using whichever
-		/// toolkit-free backing applies (wlr layer-shell surface or compositor-drawn overlay) — the service owns
-		/// both. Returns false when <see cref="PreferredKind"/> is <see cref="OverlayKind.Eto"/> (X11/Windows/
-		/// macOS), so the caller renders the overlay itself with the toolkit.</summary>
-		bool TryShowHighlight(uint id, int x, int y, int width, int height, string colorRRGGBB, int thickness);
+		/// <summary>Whether this platform service can display caller-supplied image overlays.</summary>
+		bool SupportsImageOverlay { get; }
 
-		/// <summary>Hide and free the highlight for <paramref name="id"/> (idempotent), whichever backing it used.</summary>
-		bool TryHideHighlight(uint id);
+		/// <summary>
+		/// Create or update a click-through image overlay. The service copies the bitmap at call time; callers keep
+		/// ownership of <paramref name="image"/>. A non-positive width/height uses the image's native size.
+		/// </summary>
+		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image);
 
-		/// <summary>Whether a click-through layer-shell text overlay (Wayland tooltip) is usable — i.e. the
-		/// zwlr_layer_shell + Cairo/Pango text stack is available. The probe lives here so the ToolTip builtin
-		/// never reaches into <c>WaylandLayerShellClient</c>/<c>CairoText</c> itself.</summary>
-		bool SupportsTooltip { get; }
+		/// <summary>Move/resize an existing image overlay, reusing its last pixels (repositions in place where the
+		/// backing can, else re-applies the stored image at the new geometry).</summary>
+		bool TryMoveImageOverlay(uint id, int x, int y, int width, int height);
 
-		/// <summary>Show/update the layer-shell tooltip for <paramref name="slot"/> at screen (x,y). The
-		/// per-slot surface lifecycle is owned by the service. Returns false (so the caller falls back to the
-		/// WinForms tooltip) when unsupported or on a runtime failure.</summary>
-		bool TryShowTooltip(int slot, string text, int x, int y);
+		/// <summary>Hide and free one image overlay. Idempotent.</summary>
+		bool TryHideImageOverlay(uint id);
 
-		/// <summary>Hide and dispose the layer-shell tooltip for <paramref name="slot"/> (idempotent).</summary>
-		bool TryHideTooltip(int slot);
+		/// <summary>Hide and free every image overlay owned by this process.</summary>
+		bool TryHideAllImageOverlays();
+
+		/// <summary>Native handle for a toolkit-backed overlay where one exists (Eto/WinForms window or wlr layer
+		/// surface), otherwise zero (a compositor-drawn overlay has no client-side window).</summary>
+		nint GetImageOverlayHandle(uint id);
 	}
 
 	/// <summary>Window lifecycle/state events. Owns the per-platform window-event backend selection and

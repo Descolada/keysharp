@@ -19,6 +19,7 @@ XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 APP_DIR_TARGET="${PREFIX}/lib/keysharp"
 BINDIR="${PREFIX}/bin"
 GNOME_EXT_UUID="keysharp@keysharp.io"
+CINNAMON_EXT_UUID="keysharp@keysharp.io"
 SYSTEMD_DIR="/etc/systemd/system"
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
   DESKTOP_DIR="/usr/share/applications"
@@ -32,6 +33,94 @@ fi
 MIME_DIR="${MIME_ROOT}/packages"
 ICON_DIR="${ICON_ROOT}/256x256/apps"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
+# Resolve the target desktop user for a root uninstall. Prefer SUDO_USER (set by
+# `sudo ./uninstall.sh`). If it is unset — e.g. when run from a plain root shell —
+# fall back to the active graphical login session via loginctl, then to the owner
+# of any live /run/user/<uid>/bus socket. Echoes the username (empty if none).
+resolve_target_user() {
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    echo "${SUDO_USER}"
+    return 0
+  fi
+
+  if command -v loginctl >/dev/null 2>&1; then
+    local sid uid seat state type user
+    while read -r sid uid user seat _; do
+      [[ -z "${sid}" ]] && continue
+      seat="$(loginctl show-session "${sid}" -p Seat --value 2>/dev/null || true)"
+      state="$(loginctl show-session "${sid}" -p State --value 2>/dev/null || true)"
+      type="$(loginctl show-session "${sid}" -p Type --value 2>/dev/null || true)"
+      if [[ "${seat}" == "seat0" && "${state}" == "active" && ( "${type}" == "wayland" || "${type}" == "x11" ) ]]; then
+        if [[ -n "${user}" && "${user}" != "root" && -S "/run/user/${uid}/bus" ]]; then
+          echo "${user}"
+          return 0
+        fi
+      fi
+    done < <(loginctl list-sessions --no-legend 2>/dev/null || true)
+  fi
+
+  local bus uid count found=""
+  count=0
+  for bus in /run/user/*/bus; do
+    [[ -S "${bus}" ]] || continue
+    uid="${bus#/run/user/}"
+    uid="${uid%/bus}"
+    [[ "${uid}" == "0" ]] && continue
+    found="$(getent passwd "${uid}" | cut -d: -f1 2>/dev/null || true)"
+    count=$((count + 1))
+  done
+  if [[ "${count}" -eq 1 && -n "${found}" ]]; then
+    echo "${found}"
+    return 0
+  fi
+
+  echo ""
+}
+
+# KS_RUN is the command prefix (as an array) used to run gsettings as the target
+# desktop user with their session bus, or empty for the current environment.
+KS_RUN=()
+ks_set_runner() {
+  local as_user="${1}"
+  KS_RUN=()
+  if [[ -n "${as_user}" ]]; then
+    local uid
+    uid=$(id -u "${as_user}" 2>/dev/null) || return 1
+    [[ -S "/run/user/${uid}/bus" ]] || return 1
+    KS_RUN=(sudo -u "${as_user}" env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus")
+  fi
+  return 0
+}
+
+# gsettings wrapped in `timeout` so a wedged session bus can't hang.
+ks_gsettings_get() {
+  timeout 5 "${KS_RUN[@]}" gsettings get "${1}" enabled-extensions 2>/dev/null || true
+}
+ks_gsettings_set() {
+  timeout 5 "${KS_RUN[@]}" gsettings set "${1}" enabled-extensions "${2}" 2>/dev/null
+}
+
+# Remove uuid from the schema's enabled-extensions. Absent uuid is a no-op.
+# Note: uuid contains '.' and '@'; the '.' is a BRE "any char" in the sed patterns
+# below, but the surrounding single quotes make a false match effectively
+# impossible, so we do not escape it.
+ks_ext_remove() {
+  local uuid="${1}"
+  local schema="${2}"
+  local cur
+  cur="$(ks_gsettings_get "${schema}")"
+  [[ -z "${cur}" ]] && return 0
+  printf '%s' "${cur}" | grep -q "'${uuid}'" || return 0
+  local new
+  new="$(printf '%s' "${cur}" \
+    | sed "s/'${uuid}', //g" \
+    | sed "s/, '${uuid}'//g" \
+    | sed "s/'${uuid}'//g")"
+  if printf '%s' "${new}" | grep -Eq '^\[\s*\]$'; then
+    new="@as []"
+  fi
+  ks_gsettings_set "${schema}" "${new}"
+}
 
 echo "Uninstalling from ${APP_DIR_TARGET} (prefix=${PREFIX})"
 
@@ -57,33 +146,104 @@ if [[ -f "${MIMEAPPS}" ]]; then
   sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "${MIMEAPPS}" || true
 fi
 
-# Remove the GNOME Shell extension. When uninstalling as root we check
-# SUDO_USER so the extension is removed from the correct user's home.
+# Remove the GNOME Shell extension. When uninstalling as root we resolve the
+# desktop user so the extension is disabled for them, then remove both the
+# per-user and system extension directories when possible.
 remove_gnome_extension() {
   local target_user=""
   local target_home="${HOME}"
 
-  if [[ "${ROOT_INSTALL}" == "true" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-    target_user="${SUDO_USER}"
-    target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "${HOME}")"
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    target_user="$(resolve_target_user)"
+    if [[ -n "${target_user}" ]]; then
+      target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "${HOME}")"
+    fi
   fi
 
-  local ext_dir="${target_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  local local_ext_dir="${target_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  local global_ext_dir="/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  local removed=false
 
-  [[ -d "${ext_dir}" ]] || return 0
-
+  # Strip the UUID from org.gnome.shell enabled-extensions via gsettings, then also
+  # call `gnome-extensions disable` (the canonical GNOME API) as the desktop user.
   if [[ -n "${target_user}" ]]; then
+    if command -v gsettings >/dev/null 2>&1 && ks_set_runner "${target_user}"; then
+      ks_ext_remove "${GNOME_EXT_UUID}" org.gnome.shell || true
+    fi
     sudo -u "${target_user}" gnome-extensions disable "${GNOME_EXT_UUID}" 2>/dev/null || true
-    rm -rf "${ext_dir}"
   else
+    if command -v gsettings >/dev/null 2>&1 && ks_set_runner ""; then
+      ks_ext_remove "${GNOME_EXT_UUID}" org.gnome.shell || true
+    fi
     maybe_run gnome-extensions disable "${GNOME_EXT_UUID}" 2>/dev/null || true
-    rm -rf "${ext_dir}"
   fi
 
-  echo "GNOME Shell extension removed."
+  if [[ -e "${local_ext_dir}" ]]; then
+    rm -rf "${local_ext_dir}"
+    removed=true
+  fi
+
+  if [[ -e "${global_ext_dir}" ]]; then
+    if rm -rf "${global_ext_dir}" 2>/dev/null; then
+      removed=true
+    else
+      echo "Warning: could not remove global GNOME Shell extension at ${global_ext_dir}; rerun uninstall as root." >&2
+    fi
+  fi
+
+  if [[ "${removed}" == "true" ]]; then
+    echo "GNOME Shell extension removed."
+  fi
 }
 
 remove_gnome_extension
+
+remove_cinnamon_extension() {
+  local target_user=""
+  local target_home="${HOME}"
+
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    target_user="$(resolve_target_user)"
+    if [[ -n "${target_user}" ]]; then
+      target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "${HOME}")"
+    fi
+  fi
+
+  local local_ext_dir="${target_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}"
+  local global_ext_dir="/usr/share/cinnamon/extensions/${CINNAMON_EXT_UUID}"
+  local removed=false
+
+  # Strip the UUID from org.cinnamon enabled-extensions via gsettings (run as the
+  # desktop user when installed as root).
+  if [[ -n "${target_user}" ]]; then
+    if command -v gsettings >/dev/null 2>&1 && ks_set_runner "${target_user}"; then
+      ks_ext_remove "${CINNAMON_EXT_UUID}" org.cinnamon || true
+    fi
+  else
+    if command -v gsettings >/dev/null 2>&1 && ks_set_runner ""; then
+      ks_ext_remove "${CINNAMON_EXT_UUID}" org.cinnamon || true
+    fi
+  fi
+
+  if [[ -e "${local_ext_dir}" ]]; then
+    rm -rf "${local_ext_dir}"
+    removed=true
+  fi
+
+  if [[ -e "${global_ext_dir}" ]]; then
+    if rm -rf "${global_ext_dir}" 2>/dev/null; then
+      removed=true
+    else
+      echo "Warning: could not remove global Cinnamon extension at ${global_ext_dir}; rerun uninstall as root." >&2
+    fi
+  fi
+
+  if [[ "${removed}" == "true" ]]; then
+    echo "Cinnamon extension removed."
+  fi
+}
+
+remove_cinnamon_extension
 
 maybe_run update-desktop-database "${DESKTOP_DIR}" || true
 maybe_run update-mime-database "${MIME_ROOT}" || true

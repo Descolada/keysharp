@@ -608,6 +608,20 @@ namespace Keysharp.Internals.Images
 			bmp.Save(path, ImageFormatFromExtension(path));
 		}
 
+		internal static byte[] ToPngBytes(Bitmap bmp)
+		{
+			if (bmp == null)
+				return [];
+
+#if WINDOWS
+			using var ms = new MemoryStream();
+			bmp.Save(ms, ImageFormat.Png);
+			return ms.ToArray();
+#else
+			return bmp.ToByteArray(ImageFormat.Png) ?? [];
+#endif
+		}
+
 		private static ImageFormat ImageFormatFromExtension(string path)
 		{
 			switch (Path.GetExtension(path).ToLowerInvariant())

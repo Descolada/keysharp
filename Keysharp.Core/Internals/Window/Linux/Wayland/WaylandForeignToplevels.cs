@@ -163,7 +163,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static WaylandForeignToplevels TryCreate()
 		{
-			if (!string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase))
+			if (!Platform.Desktop.IsWaylandSession)
 				return null;
 
 			var display = WaylandNative.DisplayConnect(null);

@@ -4,5 +4,5 @@
   "description": "Exposes window management and mouse input simulation via D-Bus for the Keysharp automation tool.",
   "version": 2,
   "shell-version": ["45", "46", "47", "48", "49", "50"],
-  "url": "https://github.com/poa00/ahk.keysharp"
+  "url": "https://github.com/Descolada/keysharp"
 }

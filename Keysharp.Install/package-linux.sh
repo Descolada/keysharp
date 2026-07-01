@@ -30,6 +30,8 @@ INPUTD_SERVICE_TEMPLATE="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.
 INPUTD_SOCKET="${ROOT}/native/keysharp-inputd/systemd/keysharp-inputd.socket"
 GNOME_EXT_UUID="keysharp@keysharp.io"
 GNOME_EXT_SOURCE="${ASSETS_DIR}/gnome-shell-extension"
+CINNAMON_EXT_UUID="keysharp@keysharp.io"
+CINNAMON_EXT_SOURCE="${ASSETS_DIR}/cinnamon-extension"
 
 if [[ -z "${VERSION}" ]]; then
   echo "Unable to determine package version from Keysharp.csproj. Set VERSION explicitly." >&2
@@ -243,6 +245,126 @@ write_deb_postinst() {
 #!/bin/sh
 set -e
 
+# Resolve the target desktop user for enabling the shell extensions. `sudo dpkg -i`
+# DOES propagate SUDO_USER, so prefer it. The gap is PackageKit / pkexec /
+# unattended-upgrades, which run maintainer scripts as root WITHOUT SUDO_USER; in
+# that case fall back to the active graphical login session (loginctl), then to the
+# owner of the sole live /run/user/<uid>/bus socket. Prints "<uid> <user>" or "".
+_resolve_target_user() {
+  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    _u=$(id -u "${SUDO_USER}" 2>/dev/null || true)
+    if [ -n "${_u}" ]; then
+      printf '%s %s\n' "${_u}" "${SUDO_USER}"
+      return 0
+    fi
+  fi
+
+  if command -v loginctl >/dev/null 2>&1; then
+    for _sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+      [ -n "${_sid}" ] || continue
+      _seat=$(loginctl show-session "${_sid}" -p Seat --value 2>/dev/null || true)
+      _state=$(loginctl show-session "${_sid}" -p State --value 2>/dev/null || true)
+      _type=$(loginctl show-session "${_sid}" -p Type --value 2>/dev/null || true)
+      _name=$(loginctl show-session "${_sid}" -p Name --value 2>/dev/null || true)
+      if [ "${_seat}" = "seat0" ] && [ "${_state}" = "active" ] && \
+         { [ "${_type}" = "wayland" ] || [ "${_type}" = "x11" ]; } && \
+         [ -n "${_name}" ] && [ "${_name}" != "root" ]; then
+        _uid=$(id -u "${_name}" 2>/dev/null || true)
+        if [ -n "${_uid}" ] && [ -S "/run/user/${_uid}/bus" ]; then
+          printf '%s %s\n' "${_uid}" "${_name}"
+          return 0
+        fi
+      fi
+    done
+  fi
+
+  _count=0
+  _fuid=""
+  _fname=""
+  for _bus in /run/user/*/bus; do
+    [ -S "${_bus}" ] || continue
+    _uid=${_bus#/run/user/}
+    _uid=${_uid%/bus}
+    [ "${_uid}" = "0" ] && continue
+    _fuid="${_uid}"
+    _fname=$(getent passwd "${_uid}" 2>/dev/null | cut -d: -f1 || true)
+    _count=$((_count + 1))
+  done
+  if [ "${_count}" -eq 1 ] && [ -n "${_fname}" ]; then
+    printf '%s %s\n' "${_fuid}" "${_fname}"
+    return 0
+  fi
+
+  printf '\n'
+}
+
+# Run gsettings/gdbus as the resolved desktop user (globals _KS_UID/_KS_USER) with
+# their session bus. All calls are wrapped in `timeout` so a wedged session bus
+# cannot hang on the 25s D-Bus default; a timeout is treated as "no-op / not owned".
+_ks_gsettings_get() {
+  timeout 5 sudo -u "${_KS_USER}" \
+    env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+    gsettings get "$1" enabled-extensions 2>/dev/null || true
+}
+_ks_gsettings_set() {
+  timeout 5 sudo -u "${_KS_USER}" \
+    env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+    gsettings set "$1" enabled-extensions "$2" 2>/dev/null
+}
+
+# Add uuid ($1) to schema ($2) enabled-extensions if not already present.
+# Note: uuid contains '.' and '@'; the '.' is a BRE "any char" in the grep/sed
+# patterns, but the surrounding single quotes make a false match effectively
+# impossible, so we do not escape it. Returns 0 on success/already-present.
+_ks_ext_add() {
+  _uuid="$1"; _schema="$2"
+  _cur=$(_ks_gsettings_get "${_schema}")
+  [ -z "${_cur}" ] && return 1
+  if printf '%s' "${_cur}" | grep -q "'${_uuid}'"; then
+    return 0
+  fi
+  if printf '%s' "${_cur}" | grep -q "]$" && \
+     ! printf '%s' "${_cur}" | grep -Eq '\[[[:space:]]*\]'; then
+    _new=$(printf '%s' "${_cur}" | sed "s/]$/, '${_uuid}']/")
+  else
+    _new="['${_uuid}']"
+  fi
+  _ks_gsettings_set "${_schema}" "${_new}"
+}
+
+# Remove uuid ($1) from schema ($2) enabled-extensions. Absent uuid is a no-op.
+_ks_ext_remove() {
+  _uuid="$1"; _schema="$2"
+  _cur=$(_ks_gsettings_get "${_schema}")
+  [ -z "${_cur}" ] && return 0
+  printf '%s' "${_cur}" | grep -q "'${_uuid}'" || return 0
+  _new=$(printf '%s' "${_cur}" \
+    | sed "s/'${_uuid}', //g" \
+    | sed "s/, '${_uuid}'//g" \
+    | sed "s/'${_uuid}'//g")
+  if printf '%s' "${_new}" | grep -Eq '^\[[[:space:]]*\]$'; then
+    _new="@as []"
+  fi
+  _ks_gsettings_set "${_schema}" "${_new}"
+}
+
+# Return 0 owned / 1 not owned / 2 unknown for a D-Bus name ($1). gdbus wrapped in
+# `timeout`; missing gdbus, timeout, or error -> 2.
+_ks_dbus_owned() {
+  command -v gdbus >/dev/null 2>&1 || return 2
+  _out=$(timeout 5 sudo -u "${_KS_USER}" \
+    env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+    gdbus call --session --timeout 3 \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner "$1" 2>/dev/null) || return 2
+  case "${_out}" in
+    *true*) return 0 ;;
+    *false*) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 if command -v update-mime-database >/dev/null 2>&1; then
   update-mime-database /usr/share/mime || true
 fi
@@ -297,41 +419,30 @@ WARN
   fi
 fi
 
-# GNOME Shell extension: register in the installing user's enabled-extensions.
-# The extension files land system-wide at /usr/share/gnome-shell/extensions/
-# via dpkg; enabling is always per-user via gsettings.
+# GNOME Shell extension: register in the desktop user's enabled-extensions. The
+# extension files land system-wide at /usr/share/gnome-shell/extensions/ via dpkg;
+# enabling is always per-user via gsettings, run as the desktop user resolved above.
 # /run/user/<uid>/bus is the standard sd-bus socket (systemd/logind).
 GNOME_EXT_UUID="keysharp@keysharp.io"
-if [ "$1" = "configure" ] && [ -d "/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}" ]; then
-  echo "GNOME Shell extension installed at /usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+_gnome_ext_dir="/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+if [ "$1" = "configure" ] && [ -d "${_gnome_ext_dir}" ]; then
+  echo "GNOME Shell extension installed at ${_gnome_ext_dir}"
   _gnome_enabled=false
 
-  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
-    _sudo_uid=$(id -u "${SUDO_USER}" 2>/dev/null || true)
-    if [ -n "${_sudo_uid}" ] && [ -S "/run/user/${_sudo_uid}/bus" ]; then
-      sudo -u "${SUDO_USER}" \
-        env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_sudo_uid}/bus" \
-        python3 << 'PYEOF' 2>/dev/null && _gnome_enabled=true || true
-import subprocess, json, sys
-uuid = 'keysharp@keysharp.io'
-r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
-                   capture_output=True, text=True)
-val = r.stdout.strip().lstrip('@as ')
-try:
-    exts = json.loads(val.replace("'", '"'))
-except Exception:
-    exts = []
-if uuid not in exts:
-    exts.append(uuid)
-    new_val = '[' + ', '.join("'" + e + "'" for e in exts) + ']'
-    result = subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
-    sys.exit(result.returncode)
-PYEOF
+  _tu=$(_resolve_target_user)
+  _KS_UID=${_tu%% *}
+  _KS_USER=${_tu#* }
+  [ "${_tu}" = "${_KS_USER}" ] && _KS_USER=""
+
+  if [ -n "${_KS_UID}" ] && [ -n "${_KS_USER}" ] && \
+     [ -S "/run/user/${_KS_UID}/bus" ] && command -v gsettings >/dev/null 2>&1; then
+    if _ks_ext_add "${GNOME_EXT_UUID}" org.gnome.shell; then
+      _gnome_enabled=true
     fi
   fi
 
   if [ "${_gnome_enabled}" = "true" ]; then
-    echo "GNOME Shell extension enabled for ${SUDO_USER}. Log out and back in to activate it."
+    echo "GNOME Shell extension enabled for ${_KS_USER}. Log out and back in to activate it."
   else
     cat <<GNOMEMSG
 Could not automatically enable the GNOME Shell extension (no active D-Bus
@@ -343,6 +454,84 @@ Then log out and back in to activate it.
 GNOMEMSG
   fi
 fi
+
+# Cinnamon extension: register in the desktop user's enabled-extensions. The
+# extension files land system-wide via dpkg; enabling is per-user. If Cinnamon is
+# the active session, force a live reload by toggling the UUID off (sleep 1) and
+# back on, then poll the Keysharp Cinnamon D-Bus name to confirm it loaded.
+CINNAMON_EXT_UUID="keysharp@keysharp.io"
+_cinnamon_ext_dir="/usr/share/cinnamon/extensions/${CINNAMON_EXT_UUID}"
+if [ "$1" = "configure" ] && [ -d "${_cinnamon_ext_dir}" ]; then
+  echo "Cinnamon extension installed at ${_cinnamon_ext_dir}"
+  _cinnamon_enabled=false
+
+  _tu=$(_resolve_target_user)
+  _KS_UID=${_tu%% *}
+  _KS_USER=${_tu#* }
+  [ "${_tu}" = "${_KS_USER}" ] && _KS_USER=""
+
+  if [ -n "${_KS_USER}" ]; then
+    _user_home=$(getent passwd "${_KS_USER}" 2>/dev/null | cut -d: -f6 || true)
+    if [ -n "${_user_home}" ] && [ -d "${_user_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}" ]; then
+      echo "Removing older per-user Cinnamon extension at ${_user_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID} so the global install is used."
+      rm -rf "${_user_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}" || true
+    fi
+  fi
+
+  if [ -n "${_KS_UID}" ] && [ -n "${_KS_USER}" ] && \
+     [ -S "/run/user/${_KS_UID}/bus" ] && command -v gsettings >/dev/null 2>&1; then
+    # Detect a live Cinnamon session (D-Bus name, else the user's desktop env).
+    _active_cinnamon=false
+    if _ks_dbus_owned org.Cinnamon; then
+      _active_cinnamon=true
+    else
+      _desk=$(sudo -u "${_KS_USER}" \
+        env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+        sh -c 'printf "%s %s %s" "${XDG_CURRENT_DESKTOP:-}" "${XDG_SESSION_DESKTOP:-}" "${DESKTOP_SESSION:-}"' 2>/dev/null || true)
+      if printf '%s' "${_desk}" | grep -qi cinnamon; then
+        _active_cinnamon=true
+      fi
+    fi
+
+    # Toggle off/on to force a live reload when already enabled.
+    if [ "${_active_cinnamon}" = "true" ]; then
+      _cur=$(_ks_gsettings_get org.cinnamon)
+      if printf '%s' "${_cur}" | grep -q "'${CINNAMON_EXT_UUID}'"; then
+        _ks_ext_remove "${CINNAMON_EXT_UUID}" org.cinnamon || true
+        sleep 1
+      fi
+    fi
+
+    if _ks_ext_add "${CINNAMON_EXT_UUID}" org.cinnamon; then
+      _cinnamon_enabled=true
+    fi
+
+    if [ "${_cinnamon_enabled}" = "true" ] && [ "${_active_cinnamon}" = "true" ]; then
+      _i=0
+      while [ "${_i}" -lt 10 ]; do
+        _ks_dbus_owned io.github.keysharp.CinnamonShell
+        _rc=$?
+        # rc=0 owned (success); rc=2 gdbus missing/errored -> stop and assume ok.
+        { [ "${_rc}" -eq 0 ] || [ "${_rc}" -eq 2 ]; } && break
+        sleep 0.5
+        _i=$((_i + 1))
+      done
+    fi
+  fi
+
+  if [ "${_cinnamon_enabled}" = "true" ]; then
+    echo "Cinnamon extension enabled for ${_KS_USER}; running Cinnamon was asked to load/reload it when detected."
+  else
+    cat <<CINNAMONMSG
+Could not automatically enable or load the Cinnamon extension. Either no active
+Cinnamon D-Bus session was detected for the desktop user, or Cinnamon did not
+expose the Keysharp D-Bus service after reload. To enable it manually, run as
+your desktop user:
+  Open Cinnamon's Extensions app and enable 'Keysharp Integration'.
+Then restart Cinnamon or log out and back in to activate it.
+CINNAMONMSG
+  fi
+fi
 EOF
   chmod 0755 "$1"
 }
@@ -351,6 +540,90 @@ write_deb_prerm() {
   cat > "$1" <<'EOF'
 #!/bin/sh
 set -e
+
+# Resolve the target desktop user for disabling the shell extensions. `sudo dpkg -r`
+# DOES propagate SUDO_USER, so prefer it. The gap is PackageKit / pkexec /
+# unattended-upgrades, which run maintainer scripts as root WITHOUT SUDO_USER; in
+# that case fall back to the active graphical login session (loginctl), then to the
+# owner of the sole live /run/user/<uid>/bus socket. Prints "<uid> <user>" or "".
+_resolve_target_user() {
+  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+    _u=$(id -u "${SUDO_USER}" 2>/dev/null || true)
+    if [ -n "${_u}" ]; then
+      printf '%s %s\n' "${_u}" "${SUDO_USER}"
+      return 0
+    fi
+  fi
+
+  if command -v loginctl >/dev/null 2>&1; then
+    for _sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+      [ -n "${_sid}" ] || continue
+      _seat=$(loginctl show-session "${_sid}" -p Seat --value 2>/dev/null || true)
+      _state=$(loginctl show-session "${_sid}" -p State --value 2>/dev/null || true)
+      _type=$(loginctl show-session "${_sid}" -p Type --value 2>/dev/null || true)
+      _name=$(loginctl show-session "${_sid}" -p Name --value 2>/dev/null || true)
+      if [ "${_seat}" = "seat0" ] && [ "${_state}" = "active" ] && \
+         { [ "${_type}" = "wayland" ] || [ "${_type}" = "x11" ]; } && \
+         [ -n "${_name}" ] && [ "${_name}" != "root" ]; then
+        _uid=$(id -u "${_name}" 2>/dev/null || true)
+        if [ -n "${_uid}" ] && [ -S "/run/user/${_uid}/bus" ]; then
+          printf '%s %s\n' "${_uid}" "${_name}"
+          return 0
+        fi
+      fi
+    done
+  fi
+
+  _count=0
+  _fuid=""
+  _fname=""
+  for _bus in /run/user/*/bus; do
+    [ -S "${_bus}" ] || continue
+    _uid=${_bus#/run/user/}
+    _uid=${_uid%/bus}
+    [ "${_uid}" = "0" ] && continue
+    _fuid="${_uid}"
+    _fname=$(getent passwd "${_uid}" 2>/dev/null | cut -d: -f1 || true)
+    _count=$((_count + 1))
+  done
+  if [ "${_count}" -eq 1 ] && [ -n "${_fname}" ]; then
+    printf '%s %s\n' "${_fuid}" "${_fname}"
+    return 0
+  fi
+
+  printf '\n'
+}
+
+# Run gsettings as the resolved desktop user (globals _KS_UID/_KS_USER) with their
+# session bus, wrapped in `timeout` so a wedged bus can't hang; timeout -> no-op.
+_ks_gsettings_get() {
+  timeout 5 sudo -u "${_KS_USER}" \
+    env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+    gsettings get "$1" enabled-extensions 2>/dev/null || true
+}
+_ks_gsettings_set() {
+  timeout 5 sudo -u "${_KS_USER}" \
+    env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${_KS_UID}/bus" \
+    gsettings set "$1" enabled-extensions "$2" 2>/dev/null
+}
+
+# Remove uuid ($1) from schema ($2) enabled-extensions. Absent uuid is a no-op.
+# Note: uuid contains '.' and '@'; the '.' is a BRE "any char" in the sed patterns,
+# but the surrounding single quotes make a false match effectively impossible.
+_ks_ext_remove() {
+  _uuid="$1"; _schema="$2"
+  _cur=$(_ks_gsettings_get "${_schema}")
+  [ -z "${_cur}" ] && return 0
+  printf '%s' "${_cur}" | grep -q "'${_uuid}'" || return 0
+  _new=$(printf '%s' "${_cur}" \
+    | sed "s/'${_uuid}', //g" \
+    | sed "s/, '${_uuid}'//g" \
+    | sed "s/'${_uuid}'//g")
+  if printf '%s' "${_new}" | grep -Eq '^\[[[:space:]]*\]$'; then
+    _new="@as []"
+  fi
+  _ks_gsettings_set "${_schema}" "${_new}"
+}
 
 # Runs on both removal ("remove"/"deconfigure") and upgrade ("upgrade"). In every
 # case stop the per-user compile daemon ("Keysharp --daemon") and the running
@@ -377,29 +650,32 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
     sed -i '/^application\/x-autohotkey=keysharp\.desktop$/d' "$_mimeapps" || true
   fi
 
-  # GNOME Shell extension: remove UUID from the user's enabled-extensions list.
+  # Resolve the desktop user once for both extensions and strip each UUID from the
+  # user's enabled-extensions with the pure-shell _ks_ext_remove helper (timeouts).
+  _tu=$(_resolve_target_user)
+  _KS_UID=${_tu%% *}
+  _KS_USER=${_tu#* }
+  [ "${_tu}" = "${_KS_USER}" ] && _KS_USER=""
+
+  # GNOME Shell extension: remove the UUID from org.gnome.shell enabled-extensions.
   GNOME_EXT_UUID="keysharp@keysharp.io"
-  if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
-    _sudo_uid=$(id -u "${SUDO_USER}" 2>/dev/null || true)
-    if [ -n "${_sudo_uid}" ] && [ -S "/run/user/${_sudo_uid}/bus" ]; then
-      sudo -u "${SUDO_USER}" \
-        env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${_sudo_uid}/bus" \
-        python3 << 'PYEOF' 2>/dev/null || true
-import subprocess, json
-uuid = 'keysharp@keysharp.io'
-r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
-                   capture_output=True, text=True)
-val = r.stdout.strip().lstrip('@as ')
-try:
-    exts = json.loads(val.replace("'", '"'))
-except Exception:
-    exts = []
-if uuid in exts:
-    exts.remove(uuid)
-    new_val = '[' + ', '.join("'" + e + "'" for e in exts) + ']'
-    subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
-PYEOF
+  if [ -n "${_KS_UID}" ] && [ -n "${_KS_USER}" ] && \
+     [ -S "/run/user/${_KS_UID}/bus" ] && command -v gsettings >/dev/null 2>&1; then
+    _ks_ext_remove "${GNOME_EXT_UUID}" org.gnome.shell || true
+  fi
+
+  # Cinnamon extension: remove any per-user shadow copy, then strip the UUID from
+  # org.cinnamon enabled-extensions.
+  CINNAMON_EXT_UUID="keysharp@keysharp.io"
+  if [ -n "${_KS_USER}" ]; then
+    _user_home=$(getent passwd "${_KS_USER}" 2>/dev/null | cut -d: -f6 || true)
+    if [ -n "${_user_home}" ]; then
+      rm -rf "${_user_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}" || true
     fi
+  fi
+  if [ -n "${_KS_UID}" ] && [ -n "${_KS_USER}" ] && \
+     [ -S "/run/user/${_KS_UID}/bus" ] && command -v gsettings >/dev/null 2>&1; then
+    _ks_ext_remove "${CINNAMON_EXT_UUID}" org.cinnamon || true
   fi
 fi
 
@@ -449,6 +725,7 @@ build_deb() {
   local icon_dir="${deb_root}/usr/share/icons/hicolor/256x256/apps"
   local systemd_dir="${deb_root}/usr/lib/systemd/system"
   local gnome_ext_dir="${deb_root}/usr/share/gnome-shell/extensions/${GNOME_EXT_UUID}"
+  local cinnamon_ext_dir="${deb_root}/usr/share/cinnamon/extensions/${CINNAMON_EXT_UUID}"
   local doc_dir="${deb_root}/usr/share/doc/${DEB_PKG_NAME}"
   local build_cmd=()
 
@@ -465,7 +742,7 @@ build_deb() {
   DEB_OUT="${DIST_DIR}/${DEB_PKG_NAME}_${VERSION}_${DEB_ARCH}.deb"
   echo "Creating Debian package ${DEB_OUT}..."
   rm -rf "${deb_root}"
-  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}" "${gnome_ext_dir}" "${doc_dir}"
+  mkdir -p "${debian_dir}" "${lib_dir}" "${bin_dir}" "${applications_dir}" "${mime_dir}" "${icon_dir}" "${systemd_dir}" "${gnome_ext_dir}" "${cinnamon_ext_dir}" "${doc_dir}"
 
   rsync -a "${APP_DIR}/" "${lib_dir}/"
   ln -s "../lib/keysharp/Keysharp" "${bin_dir}/keysharp"
@@ -483,6 +760,10 @@ build_deb() {
 
   if [[ -d "${GNOME_EXT_SOURCE}" ]]; then
     cp -r "${GNOME_EXT_SOURCE}/." "${gnome_ext_dir}/"
+  fi
+
+  if [[ -d "${CINNAMON_EXT_SOURCE}" ]]; then
+    cp -r "${CINNAMON_EXT_SOURCE}/." "${cinnamon_ext_dir}/"
   fi
 
   if [[ -f "${lib_dir}/keysharp-inputd" ]]; then
@@ -564,6 +845,7 @@ cp "${ROOT}/Keysharp.png" "${PKG_DIR}/"
 cp "${INPUTD_SERVICE_TEMPLATE}" "${PKG_DIR}/keysharp-inputd.service.in"
 cp "${INPUTD_SOCKET}" "${PKG_DIR}/keysharp-inputd.socket"
 cp -r "${ASSETS_DIR}/gnome-shell-extension" "${PKG_DIR}/gnome-shell-extension"
+cp -r "${ASSETS_DIR}/cinnamon-extension" "${PKG_DIR}/cinnamon-extension"
 chmod 0755 "${PKG_DIR}/install.sh" "${PKG_DIR}/uninstall.sh"
 chmod 0644 "${PKG_DIR}/keyview.desktop" \
   "${PKG_DIR}/keysharp.desktop" \
@@ -574,6 +856,8 @@ chmod 0644 "${PKG_DIR}/keyview.desktop" \
   "${PKG_DIR}/keysharp-inputd.socket"
 find "${PKG_DIR}/gnome-shell-extension" -type d -exec chmod 0755 {} +
 find "${PKG_DIR}/gnome-shell-extension" -type f -exec chmod 0644 {} +
+find "${PKG_DIR}/cinnamon-extension" -type d -exec chmod 0755 {} +
+find "${PKG_DIR}/cinnamon-extension" -type f -exec chmod 0644 {} +
 
 build_tarball
 build_deb

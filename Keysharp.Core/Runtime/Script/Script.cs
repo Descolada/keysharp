@@ -1149,6 +1149,10 @@ namespace Keysharp.Runtime
 			if (!disposing)
 				return;
 
+			// Frees every overlay this process still owns (Highlight/ToolTip/Overlay builtins all register as
+			// image overlays), so a script that exits without disposing them doesn't leak on-screen surfaces.
+			try { _ = Platform.Overlay.TryHideAllImageOverlays(); } catch { }
+
 #if WINDOWS
 			Application.RemoveMessageFilter(msgFilter);
 #elif !WINDOWS

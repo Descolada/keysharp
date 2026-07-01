@@ -2977,6 +2977,8 @@ imgSearchBtn := MyGui.AddButton("xc+16 y+10 w180 h28", "Image Search (killbill)"
 imgSearchBtn.OnEvent("Click", "ImgSrch")
 imgScreenClipBtn := MyGui.AddButton("x+10 yp w120 h28", "Screen Clip")
 imgScreenClipBtn.OnEvent("Click", "LoadSC")
+imgOverlayBtn := MyGui.AddButton("xc+16 y+10 w230 h28", "Overlay Test (corner shapes + text)")
+imgOverlayBtn.OnEvent("Click", (*) => RunOverlayTest())
 MyGui.AddText("xc+16 y+12 w468", "ImageSearch fixture (killbill.png, native size) — Image Search finds this on screen:")
 MyGui.Add("Picture", "xc+16 y+6 w-1 h-1", A_WorkingDir . A_DirSeparator . "killbill.png")
 imgSearchStatus := MyGui.AddText("xc+16 yc+330 w468 h40", "Image status: Not run")
@@ -3387,6 +3389,91 @@ StopWinEventProbe() {
 	gWinEventHooks := []
 	SetStatus("window_winevent", "WinEvent: stopped")
 	AppendLog("WinEvent probe stopped.")
+}
+
+; Self-contained visual probe for the KS.Overlay builtin (and Highlight, which rides on it): draws a
+; differently-styled shape in each screen corner (filled rect + label, outlined rect + disc, ellipse +
+; line, filled ellipse + big text), a mouse-following banner, and a centre Highlight frame — all
+; click-through, all rendered in-memory. It then animates two oscillation cycles (each corner slides to
+; the centre and back) and AUTO-STOPS, tearing every overlay down. No arguments, no user input needed.
+RunOverlayTest() {
+	SetStatus("image_main", "Overlay: running (auto-stops in a few seconds)...")
+	AppendLog("Overlay test: corner shapes + text + Highlight; animating 2 cycles, then auto-teardown.")
+
+	sw := A_ScreenWidth
+	sh := A_ScreenHeight
+	mrg := 24
+	bw := 150
+	bh := 110
+
+	tl := Overlay(mrg, mrg, bw, bh)
+	tl.FillRect(0, 0, bw, bh, "0x2A5CC8")
+	tl.DrawRect(0, 0, bw - 1, bh - 1, "0xFFFFFF", 2)
+	tl.DrawText("Top-Left", 12, 44, "0xFFFFFF", "Sans 13")
+	tl.Show()
+
+	tr := Overlay(sw - mrg - bw, mrg, bw, bh)
+	tr.DrawRect(0, 0, bw - 1, bh - 1, "0xFF3030", 4)
+	tr.FillEllipse(bw // 2 - 30, bh // 2 - 30, 60, 60, "0xFFCC00")
+	tr.DrawText("TR", bw // 2 - 14, bh // 2 - 12, "0x000000", "Sans 16")
+	tr.Show()
+
+	bl := Overlay(mrg, sh - mrg - bh, bw, bh)
+	bl.DrawEllipse(2, 2, bw - 4, bh - 4, "0x30E070", 3)
+	bl.DrawLine(6, 6, bw - 6, bh - 6, "0x30E070", 2)
+	bl.DrawText("BL", 14, 46, "0x30E070", "Sans 13")
+	bl.Show()
+
+	br := Overlay(sw - mrg - bw, sh - mrg - bh, bw, bh)
+	br.FillEllipse(0, 0, bw, bh, "0xC030C0")
+	br.DrawText("BR", bw // 2 - 22, bh // 2 - 18, "0xFFFFFF", "Sans 26")
+	br.Show()
+
+	banner := Overlay(sw // 2 - 130, sh // 2 - 20, 260, 40)
+	banner.FillRect(0, 0, 260, 40, "0x101418")
+	banner.DrawRect(0, 0, 259, 39, "0x30E070", 1)
+	banner.DrawText("Overlay test — auto-stops", 12, 12, "0x30E070", "Sans 10")
+	banner.Show()
+
+	frame := Highlight(sw // 2 - 120, sh // 2 - 100, 240, 200, "Cyan", 3)
+	frame.Show()
+
+	cx := sw // 2 - bw // 2
+	cy := sh // 2 - bh // 2
+	; Corner "home" positions (spelled out: identifiers are case-insensitive, so e.g. `trY` would collide
+	; with the reserved `try` keyword).
+	homeTLx := mrg
+	homeTLy := mrg
+	homeTRx := sw - mrg - bw
+	homeTRy := mrg
+	homeBLx := mrg
+	homeBLy := sh - mrg - bh
+	homeBRx := sw - mrg - bw
+	homeBRy := sh - mrg - bh
+
+	; Two full oscillation cycles (phase 0 → 4π), then stop. Bounded loop, so it ends on its own.
+	steps := 120
+	Loop steps {
+		phase := (A_Index / steps) * (4 * 3.14159265)
+		t := (Sin(phase) + 1) / 2
+		tl.Move(Round(homeTLx + (cx - homeTLx) * t), Round(homeTLy + (cy - homeTLy) * t))
+		tr.Move(Round(homeTRx + (cx - homeTRx) * t), Round(homeTRy + (cy - homeTRy) * t))
+		bl.Move(Round(homeBLx + (cx - homeBLx) * t), Round(homeBLy + (cy - homeBLy) * t))
+		br.Move(Round(homeBRx + (cx - homeBRx) * t), Round(homeBRy + (cy - homeBRy) * t))
+		MouseGetPos(&mx, &my)
+		banner.Move(mx + 16, my + 16)
+		Sleep(30)
+	}
+
+	tl.Destroy()
+	tr.Destroy()
+	bl.Destroy()
+	br.Destroy()
+	banner.Destroy()
+	frame.Destroy()
+
+	SetStatus("image_main", "Overlay: PASS — shapes/text/movement shown, auto-stopped, all torn down")
+	AppendLog("Overlay test complete: all overlays destroyed.")
 }
 
 ; Self-contained OCR probe: builds a window with known text, OCRs it via OCR.FromWindow (PrintWindow

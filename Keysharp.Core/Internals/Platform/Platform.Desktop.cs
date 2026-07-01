@@ -37,8 +37,21 @@ namespace Keysharp.Internals
 				Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default.Handle != 0;
 #endif
 
-			internal static readonly bool IsWaylandSession =
-				string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase);
+			// XDG_SESSION_TYPE is authoritative: an X11 session can inherit a stray WAYLAND_DISPLAY (a nested
+			// XWayland/leaked env var), and OR-ing WAYLAND_DISPLAY unconditionally would then wrongly route that
+			// X11 session down the Wayland window/mouse-injection paths. Only trust WAYLAND_DISPLAY when the
+			// session type is unset (some minimal/embedded sessions don't set it).
+			internal static readonly bool IsWaylandSession = IsWaylandSessionType();
+
+			private static bool IsWaylandSessionType()
+			{
+				var type = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
+
+				if (string.Equals(type, "wayland", StringComparison.OrdinalIgnoreCase))
+					return true;
+
+				return string.IsNullOrEmpty(type) && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+			}
 
 			static Desktop()
 			{

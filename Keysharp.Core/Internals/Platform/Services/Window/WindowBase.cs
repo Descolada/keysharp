@@ -49,7 +49,7 @@ namespace Keysharp.Internals
 		{
 #if !WINDOWS
 			if (TryOwnControl(id, out var control))
-				return new ControlInfo(control);
+				return control is Eto.Forms.Window ? new WindowInfo(id) : new ControlInfo(control);
 #endif
 			return NotYet<Keysharp.Internals.Window.WindowInfoBase>();
 		}

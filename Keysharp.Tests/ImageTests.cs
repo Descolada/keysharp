@@ -22,6 +22,13 @@ namespace Keysharp.Tests
 			return path;
 		}
 
+		private static long RgbaByte(KeysharpImage img, int x, int y, int channel)
+		{
+			var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+			var offset = ((y * (int)img.Width + x) * 4) + channel + 1;
+			return (long)rgba[offset];
+		}
+
 		[Test, Category("Image")]
 		public void ImageFromFileDimensions()
 		{
@@ -38,6 +45,92 @@ namespace Keysharp.Tests
 				Assert.AreEqual(10L, img.Height);
 			}
 			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
+		public void ImageCreateTransparentAndColoredCanvas()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var transparent = KeysharpImage.Create(null, 8, 6) as KeysharpImage;
+			Assert.IsNotNull(transparent);
+			Assert.AreEqual(8L, transparent.Width);
+			Assert.AreEqual(6L, transparent.Height);
+			Assert.AreEqual(0L, RgbaByte(transparent, 0, 0, 3));
+
+			var colored = KeysharpImage.Create(null, 4, 3, "0xFF445566") as KeysharpImage;
+			Assert.AreEqual(0x44L, RgbaByte(colored, 0, 0, 0));
+			Assert.AreEqual(0x55L, RgbaByte(colored, 0, 0, 1));
+			Assert.AreEqual(0x66L, RgbaByte(colored, 0, 0, 2));
+
+			var alpha = KeysharpImage.Create(null, 4, 3, "0x80445566") as KeysharpImage;
+			Assert.AreEqual(0x80L, RgbaByte(alpha, 0, 0, 3));
+		}
+
+		[Test, Category("Image")]
+		public void ImageDrawingIsLazyAndCopyIndependent()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 8, 6) as KeysharpImage;
+			var copy = img.Copy() as KeysharpImage;
+			Assert.AreSame(img, img.FillRect(1, 1, 3, 2, "Red"));
+			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(1, 1));
+			Assert.AreEqual(255L, RgbaByte(img, 1, 1, 3));
+			Assert.AreEqual(0L, RgbaByte(copy, 1, 1, 3));
+		}
+
+		[Test, Category("Image")]
+		public void ImageDrawingOrderAndShapes()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 12, 12) as KeysharpImage;
+			_ = img.FillRect(1, 1, 8, 8, "Red");
+			_ = img.FillEllipse(4, 4, 6, 6, "Blue");
+			_ = img.DrawRect(0, 0, 12, 12, "Lime", 1);
+			Assert.AreEqual(0x0000FFL, (long)img.GetPixel(6, 6));
+			Assert.AreEqual(0x00FF00L, (long)img.GetPixel(0, 0));
+		}
+
+		[Test, Category("Image")]
+		public void ImageDrawTextRendersAlpha()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 100, 40) as KeysharpImage;
+			_ = img.DrawText("Hi", 2, 2, "Black", "Sans 14");
+			var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+			var anyAlpha = false;
+
+			for (long i = 4; i <= (long)rgba.Size; i += 4)
+			{
+				if ((long)rgba[i] != 0)
+				{
+					anyAlpha = true;
+					break;
+				}
+			}
+
+			Assert.IsTrue(anyAlpha, "DrawText should produce non-transparent pixels.");
+		}
+
+		[Test, Category("Image")]
+		public void ImageDrawImageComposes()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var src = KeysharpImage.Create(null, 3, 3) as KeysharpImage;
+			_ = src.FillRect(0, 0, 3, 3, "0xFF112233");
+			var dst = KeysharpImage.Create(null, 8, 8) as KeysharpImage;
+			_ = dst.DrawImage(src, 2, 1);
+			Assert.AreEqual(0x112233L, (long)dst.GetPixel(3, 2));
+			Assert.AreEqual(0xFFL, RgbaByte(dst, 3, 2, 3));
 		}
 
 		[Test, Category("Image")]

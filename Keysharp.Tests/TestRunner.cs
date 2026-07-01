@@ -9,7 +9,12 @@ namespace Keysharp.Tests
 		static TestRunner()
 		{
 #if LINUX
-			if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
+			var isWayland = string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase)
+				|| !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+
+			if (isWayland && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+				Environment.SetEnvironmentVariable("GDK_BACKEND", "wayland");
+			else if (!isWayland && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")))
 				Environment.SetEnvironmentVariable("GDK_BACKEND", "x11");
 #endif
 		}

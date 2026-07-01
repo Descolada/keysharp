@@ -22,9 +22,13 @@ namespace Keysharp.Builtins
 			// transforms; Materialize() always starts from a fresh copy of it.
 			private Bitmap baseBitmap;
 
-			// Queued transforms, applied in order on the next Materialize(). Each takes the running
-			// bitmap and returns a new one (or the same instance when it is a no-op).
-			private readonly List<Func<Bitmap, Bitmap>> pending = new ();
+			// Queued operations, applied in order on the next Materialize(). Each takes the running bitmap
+			// and returns the result. `inPlace` distinguishes draw ops (mutate the given bitmap and return
+			// it) from transforms/Clear (return a NEW bitmap, never mutating the input). Materialize hands
+			// in-place ops a private working copy — made once, on the first in-place op — so a chain of
+			// draws copies the base a single time, while a pure-transform chain never copies it up front.
+			private readonly List<(Func<Bitmap, Bitmap> op, bool inPlace)> pending = new ();
+			private readonly List<IDisposable> pendingResources = new ();
 
 			// The result of base + pending, built on demand and reused until a new transform invalidates
 			// it. Owned by this instance.
@@ -96,10 +100,9 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Captures the whole window (title bar and borders included) matched by the usual WinTitle
 			/// criteria. Uses a true window-server capture where supported (Windows, macOS) so it works
-			/// even when the window is occluded. On Linux there is no foreign-window
-			/// capture, so it falls back to grabbing the window's on-screen rectangle: the window must be
-			/// unobscured and on-screen for the result to be correct, and on Wayland the grab may fail
-			/// outright (the call then reports an error).
+			/// even when the window is occluded. On Linux, KWin/GNOME use compositor window capture where
+			/// available; Cinnamon Wayland captures the compositor-reported on-screen window rectangle, so
+			/// it must be unobscured and on-screen for the result to be correct.
 			///
 			/// <para><paramref name="options"/> selects the Windows capture technique (matching OCR.ahk),
 			/// either as a bare mode number or an object with a <c>mode</c> property. Modes: 0 = GetDC +
@@ -269,6 +272,30 @@ namespace Keysharp.Builtins
 				return Wrap(bmp, sx, sy, "Could not create an image from the given bitmap.");
 			}
 
+			/// <summary>
+			/// Creates a new ARGB canvas. Omit <paramref name="background"/> or pass "" for a fully
+			/// transparent image; otherwise pass a color name, 0xRRGGBB, or 0xAARRGGBB value.
+			/// </summary>
+			[Static] public static object Create(object @this, object width, object height, object background = null)
+			{
+				var w = width.Ai();
+				var h = height.Ai();
+
+				if (w <= 0 || h <= 0)
+					return Errors.ValueErrorOccurred("Image.Create width and height must be positive.");
+
+				var bmp = ImageHelper.NewArgbCanvas(w, h);
+				var bg = ParseColorArg(background, 0, allowTransparentEmpty: true);
+
+				if (((uint)bg >> 24) != 0)
+				{
+					using var g = ImageHelper.MakeGraphics(bmp, highQuality: false);
+					g.Clear(ImageHelper.ArgbToColor(bg));
+				}
+
+				return Wrap(bmp);
+			}
+
 			#endregion
 
 			#region Transforms (lazy, chainable)
@@ -282,12 +309,12 @@ namespace Keysharp.Builtins
 				if (sx <= 0 || sy <= 0)
 					return Errors.ValueErrorOccurred("Scale factors must be positive.");
 
-				pending.Add(b =>
+				pending.Add((b =>
 				{
 					var nw = Math.Max(1, (int)Math.Round(b.Width * sx));
 					var nh = Math.Max(1, (int)Math.Round(b.Height * sy));
 					return ImageHelper.ResizeBitmap(b, nw, nh, exactPixels: true);
-				});
+				}, false));
 				// Scaling multiplies the pixels-per-logical-unit density: after Scale(2) there are twice as
 				// many image pixels per logical unit. Folding the factor into scaleX/scaleY keeps the
 				// image->logical mapping (e.g. OCR dividing word coordinates by ScaleX) correct, so callers
@@ -305,7 +332,7 @@ namespace Keysharp.Builtins
 			{
 				var deg = angle.Ad();
 				var bg = ParseColorArg(background);
-				pending.Add(b => ImageHelper.RotateBitmap(b, deg, bg));
+				pending.Add((b => ImageHelper.RotateBitmap(b, deg, bg), false));
 				Invalidate();
 				return this;
 			}
@@ -314,7 +341,7 @@ namespace Keysharp.Builtins
 			public object Flip(object horizontal = null)
 			{
 				var h = horizontal == null || horizontal.Ab();
-				pending.Add(b => ImageHelper.FlipBitmap(b, h));
+				pending.Add((b => ImageHelper.FlipBitmap(b, h), false));
 				Invalidate();
 				return this;
 			}
@@ -328,7 +355,7 @@ namespace Keysharp.Builtins
 				if (cw <= 0 || ch <= 0)
 					return Errors.ValueErrorOccurred("Crop width and height must be positive.");
 
-				pending.Add(b => ImageHelper.CropBitmap(b, cx, cy, cw, ch));
+				pending.Add((b => ImageHelper.CropBitmap(b, cx, cy, cw, ch), false));
 				// Cropping moves the image's top-left to (cx, cy) in image pixels, so its on-screen origin
 				// shifts by that offset converted to logical units. Keeping originX/originY in step lets a
 				// consumer such as OCR map coordinates from the cropped image back to the original screen
@@ -336,6 +363,194 @@ namespace Keysharp.Builtins
 				originX += (int)Math.Round(Math.Max(0, cx) / scaleX);
 				originY += (int)Math.Round(Math.Max(0, cy) / scaleY);
 				Invalidate();
+				return this;
+			}
+
+			/// <summary>Queues a full-canvas clear. Omit <paramref name="color"/> or pass "" for transparent.</summary>
+			public object Clear(object color = null)
+			{
+				var argb = ParseColorArg(color, 0, allowTransparentEmpty: true);
+				QueueDraw(b =>
+				{
+					var dst = ImageHelper.NewArgbCanvas(b.Width, b.Height);
+
+					if (((uint)argb >> 24) != 0)
+					{
+						using var g = ImageHelper.MakeGraphics(dst, highQuality: false);
+						g.Clear(ImageHelper.ArgbToColor(argb));
+					}
+
+					return dst;
+				}, inPlace: false);
+				return this;
+			}
+
+			/// <summary>Queues a line draw operation.</summary>
+			public object DrawLine(object x1, object y1, object x2, object y2, object color = null, object thickness = null)
+			{
+				var (px1, py1, px2, py2) = (x1.Ad(), y1.Ad(), x2.Ad(), y2.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+				var t = Math.Max(0.0, thickness.Ad(1.0));
+
+				if (t == 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
+					g.DrawLine(pen, (float)px1, (float)py1, (float)px2, (float)py2);
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues a rectangle outline draw operation.</summary>
+			public object DrawRect(object x, object y, object width, object height, object color = null, object thickness = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+				var t = Math.Max(0.0, thickness.Ad(1.0));
+
+				if (rect.Width <= 0 || rect.Height <= 0 || t == 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
+#if WINDOWS
+					// System.Drawing.Graphics has no DrawRectangle(Pen, RectangleF) overload.
+					g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+#else
+					g.DrawRectangle(pen, rect);
+#endif
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues a filled rectangle draw operation.</summary>
+			public object FillRect(object x, object y, object width, object height, object color = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+
+				if (rect.Width <= 0 || rect.Height <= 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					// Axis-aligned fill: antialiasing would only fuzz the edges, so draw it hard (highQuality:false).
+					using var g = ImageHelper.MakeGraphics(b, highQuality: false);
+					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
+					g.FillRectangle(brush, rect);
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues an ellipse outline draw operation.</summary>
+			public object DrawEllipse(object x, object y, object width, object height, object color = null, object thickness = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+				var t = Math.Max(0.0, thickness.Ad(1.0));
+
+				if (rect.Width <= 0 || rect.Height <= 0 || t == 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
+					g.DrawEllipse(pen, rect);
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues a filled ellipse draw operation.</summary>
+			public object FillEllipse(object x, object y, object width, object height, object color = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+
+				if (rect.Width <= 0 || rect.Height <= 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
+					g.FillEllipse(brush, rect);
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues text rendering. <paramref name="font"/> accepts "Name size" or a bare size.</summary>
+			public object DrawText(object text, object x, object y, object color = null, object font = null)
+			{
+				var s = text.As();
+
+				if (string.IsNullOrEmpty(s))
+					return this;
+
+				var px = x.Ad();
+				var py = y.Ad();
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+				var fontSpec = font.As();
+
+				if (((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+					using var f = CreateFont(fontSpec);
+#if WINDOWS
+					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
+					g.DrawString(s, f, brush, (float)px, (float)py);
+#else
+					g.DrawText(f, ImageHelper.ArgbToColor(argb), (float)px, (float)py, s);
+#endif
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues drawing another image onto this canvas.</summary>
+			public object DrawImage(object image, object x = null, object y = null, object width = null, object height = null)
+			{
+				var (source, _, _) = LoadFromSource(image);
+
+				if (source == null)
+					return Errors.ValueErrorOccurred("DrawImage source must be an Image, file path, or bitmap handle.");
+
+				var px = x.Ad(0.0);
+				var py = y.Ad(0.0);
+				var requestedW = width == null ? source.Width : width.Ad();
+				var requestedH = height == null ? source.Height : height.Ad();
+
+				if (requestedW <= 0 || requestedH <= 0)
+				{
+					source.Dispose();
+					return this;
+				}
+
+				QueueDraw(b =>
+				{
+					using var g = ImageHelper.MakeGraphics(b);
+#if WINDOWS
+					g.DrawImage(source, new RectangleF((float)px, (float)py, (float)requestedW, (float)requestedH),
+						0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
+#else
+					g.DrawImage(source, new RectangleF((float)px, (float)py, (float)requestedW, (float)requestedH));
+#endif
+					return b;
+				});
+				pendingResources.Add(source);
 				return this;
 			}
 
@@ -548,16 +763,9 @@ namespace Keysharp.Builtins
 					return Errors.ValueErrorOccurred($"Pixel ({px}, {py}) is out of range.");
 
 				bmp.SetPixel(px, py, ImageHelper.ArgbToColor(ParseColorArg(color)));
-				// Persist the edit. With queued transforms `bmp` is the materialized copy (cached): bake it in as
-				// the new base and drop the now-applied transforms so the pixel survives a later Invalidate(). With
-				// no transforms `bmp` IS the base and was edited in place, so there is nothing to bake.
-				if (!ReferenceEquals(bmp, baseBitmap))
-				{
-					baseBitmap?.Dispose();
-					baseBitmap = bmp;   // == cached
-					cached = null;
-					pending.Clear();
-				}
+				// Persist the edit: bake the materialized result in as the new base so it survives a later
+				// Invalidate() (a no-op when there were no queued ops and `bmp` IS the base, edited in place).
+				Bake();
 
 				return this;
 			}
@@ -809,12 +1017,13 @@ namespace Keysharp.Builtins
 				return (bmp, true);
 			}
 
-			// Applies base + queued transforms, caching the result until the next Invalidate(). With no queued
-			// transforms the base bitmap IS the image, so it is handed back directly (no clone) — callers treat
-			// the result as read-only (SetPixel mutates it in place by design). Otherwise the transforms run
-			// starting from the base itself: each returns a NEW bitmap (or the same instance for a no-op) and
-			// never mutates its input, so the base needs no protective up-front copy. `current` is only ever
-			// disposed once it is a transform-produced bitmap, never while it is still the base.
+			// Applies base + queued ops, caching the result until the next Invalidate(). With no queued ops the
+			// base bitmap IS the image, so it is handed back directly (no clone) — callers treat the result as
+			// read-only (SetPixel mutates it in place by design). Otherwise ops run starting from the base:
+			// transforms/Clear return a NEW bitmap without mutating their input, so the base needs no up-front
+			// copy for a pure-transform chain; the FIRST in-place (draw) op triggers a single private copy of
+			// the running image that every following draw then mutates in place. `current` (and the copy) are
+			// disposed only once `owned` is set — never while `current` is still the base.
 			private Bitmap Materialize()
 			{
 				if (disposed || baseBitmap == null)
@@ -827,27 +1036,37 @@ namespace Keysharp.Builtins
 					return baseBitmap;
 
 				var current = baseBitmap;
+				var owned = false;   // true once `current` is a private bitmap we may mutate/dispose (never the base)
 
 				try
 				{
-					foreach (var op in pending)
+					foreach (var (op, inPlace) in pending)
 					{
+						if (inPlace && !owned)
+						{
+							// First draw op: take one private copy so draws mutate a copy, never the shared base.
+							current = new Bitmap(current);
+							owned = true;
+						}
+
 						var next = op(current);
 
 						if (next == null || ReferenceEquals(next, current))
 							continue;
 
-						if (!ReferenceEquals(current, baseBitmap))
+						// A transform returned a new bitmap: drop the previous working copy (never the base).
+						if (owned)
 							current.Dispose();
 
 						current = next;
+						owned = true;
 					}
 				}
 				catch
 				{
-					// A transform threw partway through; don't leak the work-in-progress bitmap (but never the
-					// base), and leave `cached` null so a later call can retry cleanly.
-					if (!ReferenceEquals(current, baseBitmap))
+					// An op threw partway through; don't leak the work-in-progress copy (but never the base),
+					// and leave `cached` null so a later call can retry cleanly.
+					if (owned)
 						current?.Dispose();
 
 					throw;
@@ -862,10 +1081,84 @@ namespace Keysharp.Builtins
 				return cached;
 			}
 
+			internal Bitmap SnapshotBitmap()
+			{
+				var bmp = Materialize();
+				return bmp == null ? null : new Bitmap(bmp);
+			}
+
+			// Applies every queued op into the base bitmap and clears the queue, so repeated draw-then-read
+			// cycles (an on-screen Overlay redrawing after each shape) don't re-run a growing op chain each
+			// time. A no-op when there is nothing queued (the materialized result already IS the base).
+			internal void Bake()
+			{
+				var bmp = Materialize();
+
+				if (bmp == null || ReferenceEquals(bmp, baseBitmap))
+					return;
+
+				baseBitmap?.Dispose();
+				baseBitmap = bmp;   // == cached
+				cached = null;
+				pending.Clear();
+				DisposePendingResources();
+			}
+
+			// Enqueues a draw op. inPlace ops (the default: shapes/text/image) mutate the working bitmap and
+			// return it; pass inPlace:false for an op that returns a fresh bitmap (Clear) so Materialize does
+			// not needlessly copy the base for it.
+			private void QueueDraw(Func<Bitmap, Bitmap> op, bool inPlace = true)
+			{
+				pending.Add((op, inPlace));
+				Invalidate();
+			}
+
 			private void Invalidate()
 			{
 				cached?.Dispose();
 				cached = null;
+			}
+
+			private static RectangleF MakeRectF(double x, double y, double w, double h)
+				=> new ((float)x, (float)y, (float)w, (float)h);
+
+			private static Font CreateFont(string spec)
+			{
+				var (family, size) = ParseFontSpec(spec);
+#if WINDOWS
+				return new Font(family, size);
+#else
+				try { return new Font(family, size); }
+				catch { return SystemFonts.Default(size); }
+#endif
+			}
+
+			private static (string family, float size) ParseFontSpec(string spec)
+			{
+				var family = "Sans";
+				var size = 10f;
+
+				if (string.IsNullOrWhiteSpace(spec))
+					return (family, size);
+
+				var s = spec.Trim();
+				var lastSpace = s.LastIndexOf(' ');
+
+				if (lastSpace > 0 && float.TryParse(s.AsSpan(lastSpace + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSize))
+				{
+					family = s[..lastSpace].Trim();
+					size = Math.Max(1f, parsedSize);
+				}
+				else if (float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out parsedSize))
+				{
+					size = Math.Max(1f, parsedSize);
+				}
+				else
+				{
+					family = s;
+				}
+
+				return (string.IsNullOrWhiteSpace(family) ? "Sans" : family, size);
 			}
 
 			// Formats the capture scale for the window title as a percentage: a single value when X and Y
@@ -876,23 +1169,50 @@ namespace Keysharp.Builtins
 				return sx == sy ? P(sx) : $"{P(sx)}/{P(sy)}";
 			}
 
-			// Parses a color argument into packed 0xAARRGGBB. "" / null is fully transparent (alpha 0);
-			// any other value is treated as 0xRRGGBB and made fully opaque.
+			// Parses a color argument into packed 0xAARRGGBB. "" / null is fully transparent (alpha 0). A value
+			// whose high byte is set (> 0xFFFFFF) is taken as an explicit 0xAARRGGBB; otherwise it is a 0xRRGGBB
+			// and made fully opaque. NOTE: for a NUMERIC argument, 0xFF0000 and 0x00FF0000 are the same integer,
+			// so a transparent color (alpha 0) cannot be expressed numerically — it would read as opaque RRGGBB.
+			// Use "" or an 8-hex-digit STRING (e.g. "0x80FF0000") when you need a non-opaque alpha.
 			private static int ParseColorArg(object o)
+				=> ParseColorArg(o, 0, allowTransparentEmpty: true);
+
+			private static int ParseColorArg(object o, int defaultArgb, bool allowTransparentEmpty)
 			{
 				if (o == null)
-					return 0;
+					return allowTransparentEmpty ? 0 : defaultArgb;
 
 				if (o is long or int or double)
-					return unchecked((int)(0xFF000000u | ((uint)o.Al() & 0xFFFFFFu)));
+				{
+					var raw = (uint)o.Al();
+					return unchecked((int)(raw > 0xFFFFFFu ? raw : 0xFF000000u | (raw & 0xFFFFFFu)));
+				}
 
 				var s = o.As();
 
 				if (s.Length == 0)
-					return 0;
+					return allowTransparentEmpty ? 0 : defaultArgb;
+
+				if (Conversions.TryParseColor(s, out var c))
+					return c.ToArgb();
 
 				var v = s.ParseLong();
-				return v.HasValue ? unchecked((int)(0xFF000000u | ((uint)v.Value & 0xFFFFFFu))) : 0;
+
+				if (!v.HasValue)
+					return defaultArgb;
+
+				var parsed = (uint)v.Value;
+				return unchecked((int)(parsed > 0xFFFFFFu ? parsed : 0xFF000000u | (parsed & 0xFFFFFFu)));
+			}
+
+			private void DisposePendingResources()
+			{
+				foreach (var resource in pendingResources)
+				{
+					try { resource?.Dispose(); } catch { }
+				}
+
+				pendingResources.Clear();
 			}
 
 			public object Dispose()
@@ -912,6 +1232,7 @@ namespace Keysharp.Builtins
 				baseBitmap?.Dispose();
 				baseBitmap = null;
 				pending.Clear();
+				DisposePendingResources();
 			}
 
 			#endregion

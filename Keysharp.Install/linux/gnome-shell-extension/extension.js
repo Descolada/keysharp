@@ -12,6 +12,8 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
 import Clutter from 'gi://Clutter';
+import Cogl from 'gi://Cogl';
+import GdkPixbuf from 'gi://GdkPixbuf';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -156,6 +158,19 @@ const DBUS_IFACE_XML = `
       <arg type="u" direction="in" name="id"/>
     </method>
 
+    <method name="ShowImageOverlay">
+      <arg type="u" direction="in" name="id"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="ay" direction="in" name="pngData"/>
+    </method>
+
+    <method name="HideImageOverlay">
+      <arg type="u" direction="in" name="id"/>
+    </method>
+
     <!-- Emitted whenever the focused window changes. Carries the same
          JSON as GetActiveWindow. -->
     <signal name="ActiveWindowChanged">
@@ -191,6 +206,7 @@ export default class KeysharpExtension {
         this._winCreatedId = null;
         // id (uint) -> array of edge actors making up one highlight overlay.
         this._highlights   = new Map();
+        this._imageOverlays = new Map();
     }
 
     enable() {
@@ -247,6 +263,9 @@ export default class KeysharpExtension {
         // Tear down any overlays still on screen.
         for (const id of [...this._highlights.keys()])
             this._removeHighlight(id);
+
+        for (const id of [...this._imageOverlays.keys()])
+            this._removeImageOverlay(id);
 
         if (this._winCreatedId !== null) {
             global.display.disconnect(this._winCreatedId);
@@ -606,6 +625,25 @@ export default class KeysharpExtension {
         this._removeHighlight(id);
     }
 
+    ShowImageOverlay(id, x, y, width, height, pngData) {
+        try {
+            this._removeImageOverlay(id);
+
+            if (!pngData || pngData.length === 0 || width < 1 || height < 1)
+                return;
+
+            const actor = this._createImageActor(pngData, x, y, width, height);
+            Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
+            this._imageOverlays.set(id, actor);
+        } catch (e) {
+            logError(e, 'Keysharp: ShowImageOverlay failed');
+        }
+    }
+
+    HideImageOverlay(id) {
+        this._removeImageOverlay(id);
+    }
+
     // ----------------------------------------------------------------
     // Private helpers
     // ----------------------------------------------------------------
@@ -621,6 +659,37 @@ export default class KeysharpExtension {
         }
 
         this._highlights.delete(id);
+    }
+
+    _removeImageOverlay(id) {
+        const actor = this._imageOverlays.get(id);
+        if (!actor)
+            return;
+
+        try { Main.layoutManager.removeChrome(actor); } catch (_e) {}
+        try { actor.destroy(); } catch (_e) {}
+        this._imageOverlays.delete(id);
+    }
+
+    _createImageActor(pngData, x, y, width, height) {
+        const loader = GdkPixbuf.PixbufLoader.new();
+        loader.write(pngData);
+        loader.close();
+        const pixbuf = loader.get_pixbuf();
+
+        if (!pixbuf)
+            throw new Error('Could not decode PNG overlay image.');
+
+        const content = new Clutter.Image();
+        const pixels = pixbuf.get_pixels();
+        const format = pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888;
+        content.set_data(pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+
+        const actor = new Clutter.Actor({ reactive: false });
+        actor.set_content(content);
+        actor.set_position(x, y);
+        actor.set_size(width, height);
+        return actor;
     }
 
     _emitActiveWindowChanged() {

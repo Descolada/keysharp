@@ -54,7 +54,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal override string ClassName => AppId;
 		internal override long PID => pid;
 		internal override Rectangle Bounds => FrameGeometry;
-		internal override Rectangle ClientBounds => new (0, 0, ClientGeometry.Width, ClientGeometry.Height);
+		internal override Rectangle ClientBounds => ClientGeometry;
 		internal override long Style => Decorated ? WsCaption : 0L;
 		internal override long ExStyle => 0L;
 		internal override bool Active => active;

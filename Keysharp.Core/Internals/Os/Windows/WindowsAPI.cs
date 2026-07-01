@@ -389,6 +389,28 @@ namespace Keysharp.Internals.Os.Windows
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
+	internal struct SIZE
+	{
+		internal int cx;
+		internal int cy;
+
+		internal SIZE(int width, int height)
+		{
+			cx = width;
+			cy = height;
+		}
+	}
+
+	[StructLayout(LayoutKind.Sequential, Pack = 1)]
+	internal struct BLENDFUNCTION
+	{
+		internal byte BlendOp;
+		internal byte BlendFlags;
+		internal byte SourceConstantAlpha;
+		internal byte AlphaFormat;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
 	internal struct LASTINPUTINFO
 	{
 		internal static LASTINPUTINFO Default
@@ -1268,6 +1290,10 @@ namespace Keysharp.Internals.Os.Windows
 		[return: MarshalAs(UnmanagedType.Bool)]
 		internal static partial bool SetLayeredWindowAttributes(nint hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
+		[DllImport(user32, SetLastError = true)]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static extern bool UpdateLayeredWindow(nint hwnd, nint hdcDst, ref POINT pptDst, ref SIZE psize, nint hdcSrc, ref POINT pptSrc, uint crKey, ref BLENDFUNCTION pblend, uint dwFlags);
+
 		//[DllImport(user32, CharSet = CharSet.Unicode)]
 		//internal static extern int SetWindowLong(nint hWnd, int nIndex, int dwNewLong);
 		[LibraryImport(user32, EntryPoint = "GetWindowLongPtrW")]
@@ -1538,6 +1564,16 @@ namespace Keysharp.Internals.Os.Windows
 
 		[LibraryImport(gdi32, EntryPoint = "CreateRoundRectRgn")]
 		internal static partial nint CreateRoundRectRgn(int x1, int y1, int x2, int y2, int cx, int cy);
+
+		[DllImport(gdi32, SetLastError = true)]
+		internal static extern nint CreateCompatibleDC(nint hdc);
+
+		[DllImport(gdi32, SetLastError = true)]
+		internal static extern nint SelectObject(nint hdc, nint h);
+
+		[DllImport(gdi32, SetLastError = true)]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		internal static extern bool DeleteDC(nint hdc);
 
 		[LibraryImport(gdi32, EntryPoint = "CreateRectRgn")]
 		internal static partial nint CreateRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect);

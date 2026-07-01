@@ -2,27 +2,18 @@
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// One tooltip rendered as a <c>zwlr_layer_shell_v1</c> overlay surface. Unlike a regular
-	/// xdg-popup (which is dismissed the moment the parent loses focus), a layer-shell surface
-	/// on the Overlay layer stays visible across focus changes and can be repositioned/updated
-	/// while another application owns the keyboard. This makes it suitable for AHK's
-	/// <c>ToolTip()</c> semantics on Wayland.
-	///
-	/// Input-region is set to empty so clicks pass through to whatever sits behind the tooltip.
-	/// Keyboard interactivity is None for the same reason.
+	/// Generic click-through image overlay backed by zwlr_layer_shell + wl_shm.
+	/// Pixels are copied into a premultiplied ARGB8888 SHM buffer and displayed on the overlay layer.
 	/// </summary>
-	internal sealed class WaylandTooltip : IDisposable
+	internal sealed class WaylandImageOverlay : IDisposable
 	{
-		private const string DefaultFontDescription = "Sans 10";
-		private const int Padding = 6;
-		private const string LayerNamespace = "keysharp-tooltip";
+		private const string LayerNamespace = "keysharp-image-overlay";
 		private const int ConfigureTimeoutMs = 1000;
 
 		private readonly WaylandLayerShellClient client;
 		private WaylandLayerSurface surface;
 		private WaylandShmBuffer buffer;
 		private nint emptyRegion;
-		private string fontDescription = DefaultFontDescription;
 		private int width;
 		private int height;
 		private int marginLeft;
@@ -31,56 +22,43 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal nint Handle => surface?.Surface ?? 0;
 
-		internal WaylandTooltip(WaylandLayerShellClient client)
+		internal WaylandImageOverlay(WaylandLayerShellClient client)
 		{
 			this.client = client ?? throw new ArgumentNullException(nameof(client));
 		}
 
-		internal void SetFont(string description)
-		{
-			if (!string.IsNullOrWhiteSpace(description))
-				fontDescription = description;
-		}
-
-		/// <summary>
-		/// Show or update the tooltip with the given text at the given screen-space top-left
-		/// coordinates. Safe to call repeatedly; subsequent calls reuse the existing layer
-		/// surface and only reallocate the SHM buffer when the text size changes.
-		/// </summary>
-		internal void Show(string text, int x, int y)
+		internal void Show(Bitmap image, int x, int y, int w, int h)
 		{
 			if (disposed)
 				return;
 
-			if (string.IsNullOrEmpty(text))
+			if (image == null)
 			{
 				Hide();
 				return;
 			}
 
-			var (textWidth, textHeight) = CairoText.Measure(text, fontDescription);
+			if (w <= 0) w = image.Width;
+			if (h <= 0) h = image.Height;
 
-			if (textWidth <= 0 || textHeight <= 0)
+			if (w < 1 || h < 1)
 			{
 				Hide();
 				return;
 			}
-
-			var newWidth = textWidth + (Padding * 2);
-			var newHeight = textHeight + (Padding * 2);
 
 			EnsureSurface();
 
 			if (surface == null)
 				return;
 
-			var sizeChanged = newWidth != width || newHeight != height;
+			var sizeChanged = w != width || h != height;
 			var positionChanged = x != marginLeft || y != marginTop;
 
 			if (sizeChanged)
 			{
-				width = newWidth;
-				height = newHeight;
+				width = w;
+				height = h;
 				surface.SetSize((uint)width, (uint)height);
 			}
 
@@ -93,21 +71,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			if (!surface.IsConfigured)
 			{
-				// Empty commit so the compositor processes our set_size/set_anchor/set_margin
-				// requests and replies with a configure event. surface.Commit() handles the
-				// ack_configure ordering on subsequent commits.
 				surface.Commit();
 
 				if (!surface.WaitForConfigure(ConfigureTimeoutMs))
 				{
-					// Compositor never configured us — give up cleanly.
 					Hide();
 					return;
 				}
 			}
 			else if (sizeChanged || positionChanged)
 			{
-				// Triggers a fresh configure cycle so the compositor agrees on the new size.
 				surface.Commit();
 				_ = surface.WaitForConfigure(ConfigureTimeoutMs);
 			}
@@ -121,9 +94,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					buffer = WaylandShmBuffer.Create(client.Shm, width, height);
 			}
 
-			CairoText.RenderTooltip(buffer.Data, buffer.Width, buffer.Height, buffer.Stride,
-				text, fontDescription, Padding);
-
+			CopyImageToBuffer(image, buffer, width, height);
 			surface.AttachBuffer(buffer);
 			surface.Commit();
 		}
@@ -148,9 +119,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				lock (WaylandLayerShellClient.Sync)
 				{
-					// Empty input region so the tooltip is fully click-through; without this,
-					// pointer events hitting the tooltip would be swallowed instead of reaching
-					// the underlying window.
 					emptyRegion = WaylandNative.CompositorCreateRegion(client.Compositor);
 
 					if (emptyRegion != 0 && surface.Surface != 0)
@@ -161,6 +129,85 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				TeardownSurface();
 			}
+		}
+
+		private static unsafe void CopyImageToBuffer(Bitmap image, WaylandShmBuffer target, int width, int height)
+		{
+			if (image == null || target == null || target.Data == 0)
+				return;
+
+			Bitmap src = null;
+
+			try
+			{
+				src = new Bitmap(image);
+
+				if (src.Width != width || src.Height != height)
+				{
+					var resized = ImageHelper.ResizeBitmap(src, width, height, exactPixels: true);
+
+					if (!ReferenceEquals(resized, src))
+					{
+						src.Dispose();
+						src = resized;
+					}
+				}
+
+				var src32 = ImageHelper.EnsureOpaque32Bpp(src);
+
+				try
+				{
+					using var data = src32.Lock();
+					var srcBase = (byte*)data.Data;
+					var srcStride = data.ScanWidth;
+					var srcBpp = data.BytesPerPixel;
+					var dstBase = (uint*)target.Data;
+					var dstStride = target.Stride / 4;
+
+					for (var y = 0; y < height; y++)
+					{
+						var srcRow = srcBase + (long)y * srcStride;
+						var dstRow = dstBase + y * dstStride;
+
+						for (var x = 0; x < width; x++)
+						{
+							var raw = *(int*)(srcRow + x * srcBpp);
+							var argb = (uint)data.TranslateDataToArgb(raw);
+							dstRow[x] = Premultiply(argb);
+						}
+					}
+				}
+				finally
+				{
+					if (!ReferenceEquals(src32, src))
+						src32.Dispose();
+				}
+			}
+			finally
+			{
+				src?.Dispose();
+			}
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static uint Premultiply(uint argb)
+		{
+			var a = (argb >> 24) & 0xFF;
+			var r = (argb >> 16) & 0xFF;
+			var g = (argb >> 8) & 0xFF;
+			var b = argb & 0xFF;
+
+			if (a == 0)
+				return 0;
+
+			if (a != 255)
+			{
+				r = (r * a + 127) / 255;
+				g = (g * a + 127) / 255;
+				b = (b * a + 127) / 255;
+			}
+
+			return (a << 24) | (r << 16) | (g << 8) | b;
 		}
 
 		private void TeardownSurface()

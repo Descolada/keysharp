@@ -36,8 +36,55 @@ INSTALL_DEPS="${INSTALL_DEPS:-true}"
 DOTNET_PACKAGE="${DOTNET_PACKAGE:-dotnet-runtime-10.0}"
 GNOME_EXT_UUID="keysharp@keysharp.io"
 GNOME_EXT_SOURCE="${SCRIPT_DIR}/gnome-shell-extension"
+CINNAMON_EXT_UUID="keysharp@keysharp.io"
+CINNAMON_EXT_SOURCE="${SCRIPT_DIR}/cinnamon-extension"
 maybe_run() { command -v "$1" >/dev/null 2>&1 && "$@"; }
 have_pkg() { command -v "$1" >/dev/null 2>&1; }
+# Resolve the target desktop user for a root install. Prefer SUDO_USER (set by
+# `sudo ./install.sh`). If it is unset — e.g. when run from a plain root shell —
+# fall back to the active graphical login session via loginctl, then to the owner
+# of any live /run/user/<uid>/bus socket. Echoes the username (empty if none).
+resolve_target_user() {
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    echo "${SUDO_USER}"
+    return 0
+  fi
+
+  if command -v loginctl >/dev/null 2>&1; then
+    # Pick a seat0 session that is active and graphical (or at least active).
+    local sid uid seat state type user
+    while read -r sid uid user seat _; do
+      [[ -z "${sid}" ]] && continue
+      seat="$(loginctl show-session "${sid}" -p Seat --value 2>/dev/null || true)"
+      state="$(loginctl show-session "${sid}" -p State --value 2>/dev/null || true)"
+      type="$(loginctl show-session "${sid}" -p Type --value 2>/dev/null || true)"
+      if [[ "${seat}" == "seat0" && "${state}" == "active" && ( "${type}" == "wayland" || "${type}" == "x11" ) ]]; then
+        if [[ -n "${user}" && "${user}" != "root" && -S "/run/user/${uid}/bus" ]]; then
+          echo "${user}"
+          return 0
+        fi
+      fi
+    done < <(loginctl list-sessions --no-legend 2>/dev/null || true)
+  fi
+
+  # Last resort: exactly one live user bus socket → treat its owner as the target.
+  local bus uid count found=""
+  count=0
+  for bus in /run/user/*/bus; do
+    [[ -S "${bus}" ]] || continue
+    uid="${bus#/run/user/}"
+    uid="${uid%/bus}"
+    [[ "${uid}" == "0" ]] && continue
+    found="$(getent passwd "${uid}" | cut -d: -f1 2>/dev/null || true)"
+    count=$((count + 1))
+  done
+  if [[ "${count}" -eq 1 && -n "${found}" ]]; then
+    echo "${found}"
+    return 0
+  fi
+
+  echo ""
+}
 rewrite_desktop_exec() {
   local src="$1"
   local dest="$2"
@@ -92,19 +139,19 @@ install_gnome_extension() {
   local target_home="${HOME}"
 
   if [[ "${ROOT_INSTALL}" == "true" ]]; then
-    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
-      target_user="${SUDO_USER}"
+    target_user="$(resolve_target_user)"
+    if [[ -n "${target_user}" ]]; then
       target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "")"
       if [[ -z "${target_home}" ]]; then
         echo "Warning: could not determine home directory for ${target_user}; skipping GNOME extension install." >&2
         return 0
       fi
     else
-      # Running as root without sudo (e.g. in a root shell). The GNOME
-      # extension must be installed as the desktop user, but we have no way
-      # to determine who that is. Print instructions instead.
+      # Running as root and no desktop user could be resolved (no SUDO_USER and
+      # no active graphical session). The GNOME extension must be installed as
+      # the desktop user, so print instructions instead.
       cat >&2 <<EOF
-Warning: running as root without SUDO_USER set.
+Warning: running as root and could not determine the desktop user.
 To install the GNOME Shell extension for your desktop user, run as that user:
   cp -r "${GNOME_EXT_SOURCE}/." "\${HOME}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}/"
   gnome-extensions enable "${GNOME_EXT_UUID}"
@@ -147,35 +194,13 @@ EOF
   fi
 }
 
-# Add the extension UUID to org.gnome.shell enabled-extensions via gsettings.
-# Returns 0 if the UUID was successfully registered (or was already present),
-# 1 if enabling could not be attempted (python3/gsettings missing, or no
-# active D-Bus session for the target user).
-gnome_preregister_extension() {
+# KS_RUN is the command prefix (as an array) used to run gsettings/gdbus as the
+# target desktop user with their session bus, or empty to run in the current
+# environment. ks_set_runner populates it; the ks_ext_* helpers consume it.
+KS_RUN=()
+ks_set_runner() {
   local as_user="${1}"
-  command -v python3 >/dev/null 2>&1 || return 1
-  command -v gsettings >/dev/null 2>&1 || return 1
-
-  local script
-  script=$(cat <<'PYEOF'
-import subprocess, json, sys
-uuid = sys.argv[1]
-r = subprocess.run(['gsettings', 'get', 'org.gnome.shell', 'enabled-extensions'],
-                   capture_output=True, text=True)
-val = r.stdout.strip().lstrip('@as ')
-try:
-    exts = json.loads(val.replace("'", '"'))
-except Exception:
-    exts = []
-if uuid in exts:
-    sys.exit(0)
-exts.append(uuid)
-new_val = '[' + ', '.join(f"'{e}'" for e in exts) + ']'
-result = subprocess.run(['gsettings', 'set', 'org.gnome.shell', 'enabled-extensions', new_val])
-sys.exit(result.returncode)
-PYEOF
-)
-
+  KS_RUN=()
   if [[ -n "${as_user}" ]]; then
     local uid
     uid=$(id -u "${as_user}" 2>/dev/null) || return 1
@@ -183,12 +208,223 @@ PYEOF
     # If it doesn't exist the user has no live D-Bus session and gsettings
     # won't work — return 1 so the caller shows manual instructions.
     [[ -S "/run/user/${uid}/bus" ]] || return 1
-    sudo -u "${as_user}" \
-      env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
-      python3 -c "${script}" "${GNOME_EXT_UUID}" 2>/dev/null
-  else
-    python3 -c "${script}" "${GNOME_EXT_UUID}" 2>/dev/null
+    KS_RUN=(sudo -u "${as_user}" env "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus")
   fi
+  return 0
+}
+
+# Read the current enabled-extensions list for a schema. Echoes the raw GVariant
+# (e.g. "['a@b', 'c@d']" or "@as []"), empty on timeout/error. gsettings is wrapped
+# in `timeout` so a wedged session bus can't hang on the 25s D-Bus default.
+ks_gsettings_get() {
+  local schema="${1}"
+  timeout 5 "${KS_RUN[@]}" gsettings get "${schema}" enabled-extensions 2>/dev/null || true
+}
+
+ks_gsettings_set() {
+  local schema="${1}"
+  local value="${2}"
+  timeout 5 "${KS_RUN[@]}" gsettings set "${schema}" enabled-extensions "${value}" 2>/dev/null
+}
+
+# Add uuid to the schema's enabled-extensions if not already present.
+# Note: uuid contains '.' and '@'; in the grep/sed patterns below the '.' is a BRE
+# "any char", but the surrounding single quotes make a false match effectively
+# impossible, so we do not escape it.
+ks_ext_add() {
+  local uuid="${1}"
+  local schema="${2}"
+  local cur
+  cur="$(ks_gsettings_get "${schema}")"
+  [[ -z "${cur}" ]] && return 1
+  if printf '%s' "${cur}" | grep -q "'${uuid}'"; then
+    return 0
+  fi
+  local new
+  if printf '%s' "${cur}" | grep -q "]$" && ! printf '%s' "${cur}" | grep -Eq '\[\s*\]|@as \[\s*\]'; then
+    # Non-empty list: insert before the trailing ']'.
+    new="$(printf '%s' "${cur}" | sed "s/]$/, '${uuid}']/")"
+  else
+    new="['${uuid}']"
+  fi
+  ks_gsettings_set "${schema}" "${new}"
+}
+
+# Remove uuid from the schema's enabled-extensions. Absent uuid is a no-op.
+ks_ext_remove() {
+  local uuid="${1}"
+  local schema="${2}"
+  local cur
+  cur="$(ks_gsettings_get "${schema}")"
+  [[ -z "${cur}" ]] && return 0
+  printf '%s' "${cur}" | grep -q "'${uuid}'" || return 0
+  local new
+  # Remove the entry with either its trailing or leading separator, then a lone
+  # entry; collapse an emptied list to the canonical "@as []".
+  new="$(printf '%s' "${cur}" \
+    | sed "s/'${uuid}', //g" \
+    | sed "s/, '${uuid}'//g" \
+    | sed "s/'${uuid}'//g")"
+  if printf '%s' "${new}" | grep -Eq '^\[\s*\]$'; then
+    new="@as []"
+  fi
+  ks_gsettings_set "${schema}" "${new}"
+}
+
+# Return 0/1/2 for a D-Bus name's ownership: 0 owned, 1 not owned, 2 unknown
+# (gdbus missing/timeout/error). gdbus is wrapped in `timeout`.
+ks_dbus_name_owned() {
+  local name="${1}"
+  command -v gdbus >/dev/null 2>&1 || return 2
+  local out
+  out="$(timeout 5 "${KS_RUN[@]}" gdbus call --session --timeout 3 \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.NameHasOwner "${name}" 2>/dev/null)" || return 2
+  case "${out}" in
+    *true*) return 0 ;;
+    *false*) return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
+# Add the extension UUID to org.gnome.shell enabled-extensions. Returns 0 if the
+# UUID was successfully registered (or was already present), 1 if enabling could
+# not be attempted (gsettings missing, or no active D-Bus session for the target
+# user).
+gnome_preregister_extension() {
+  local as_user="${1}"
+  command -v gsettings >/dev/null 2>&1 || return 1
+  ks_set_runner "${as_user}" || return 1
+  ks_ext_add "${GNOME_EXT_UUID}" org.gnome.shell
+}
+
+# Install the Cinnamon extension. Like the GNOME extension, this is a per-user
+# operation: root installs target the resolved desktop user's
+# ~/.local/share/cinnamon/extensions via `sudo -u`, mirroring the GNOME path, so
+# there is no root-owned system copy to shadow. When no desktop user can be
+# resolved, print manual instructions (do not mutate root's dconf).
+install_cinnamon_extension() {
+  if [[ ! -d "${CINNAMON_EXT_SOURCE}" ]]; then
+    echo "Warning: Cinnamon extension source not found at ${CINNAMON_EXT_SOURCE}; skipping." >&2
+    return 0
+  fi
+
+  local target_user=""
+  local target_home="${HOME}"
+
+  if [[ "${ROOT_INSTALL}" == "true" ]]; then
+    target_user="$(resolve_target_user)"
+    if [[ -n "${target_user}" ]]; then
+      target_home="$(getent passwd "${target_user}" | cut -d: -f6 2>/dev/null || echo "")"
+      if [[ -z "${target_home}" ]]; then
+        echo "Warning: could not determine home directory for ${target_user}; skipping Cinnamon extension install." >&2
+        return 0
+      fi
+    else
+      # Running as root and no desktop user could be resolved. The Cinnamon
+      # extension is per-user, so print instructions rather than mutating root's
+      # dconf.
+      cat >&2 <<EOF
+Warning: running as root and could not determine the desktop user.
+To install the Cinnamon extension for your desktop user, run as that user:
+  cp -r "${CINNAMON_EXT_SOURCE}/." "\${HOME}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}/"
+  Open Cinnamon's Extensions app and enable 'Keysharp Integration'.
+  (then restart Cinnamon or log out and back in)
+EOF
+      return 0
+    fi
+  fi
+
+  local ext_dir="${target_home}/.local/share/cinnamon/extensions/${CINNAMON_EXT_UUID}"
+  echo "Installing Cinnamon extension to ${ext_dir}..."
+
+  local ext_registered=false
+  if [[ -n "${target_user}" ]]; then
+    sudo -u "${target_user}" rm -rf "${ext_dir}"
+    sudo -u "${target_user}" mkdir -p "${ext_dir}"
+    sudo -u "${target_user}" cp -r "${CINNAMON_EXT_SOURCE}/." "${ext_dir}/"
+    if cinnamon_preregister_extension "${target_user}"; then
+      ext_registered=true
+    fi
+  else
+    rm -rf "${ext_dir}"
+    mkdir -p "${ext_dir}"
+    cp -r "${CINNAMON_EXT_SOURCE}/." "${ext_dir}/"
+    if cinnamon_preregister_extension ""; then
+      ext_registered=true
+    fi
+  fi
+
+  echo "Cinnamon extension installed (uuid: ${CINNAMON_EXT_UUID})."
+  if [[ "${ext_registered}" == "true" ]]; then
+    echo "Cinnamon was asked to load/reload it if a live Cinnamon session was available."
+  else
+    cat >&2 <<EOF
+Could not automatically enable or load the Cinnamon extension. Either no active
+Cinnamon D-Bus session was detected for the desktop user, or Cinnamon did not
+expose the Keysharp D-Bus service after reload. To enable it manually, run as
+your desktop user:
+  Open Cinnamon's Extensions app and enable 'Keysharp Integration'.
+Then restart Cinnamon or log out and back in.
+EOF
+  fi
+}
+
+# Add the extension UUID to org.cinnamon enabled-extensions. If Cinnamon is the
+# active session, force a live reload by toggling the UUID off (sleep 1) and back
+# on, then poll the Keysharp Cinnamon D-Bus name to confirm the extension loaded.
+cinnamon_preregister_extension() {
+  local as_user="${1}"
+  command -v gsettings >/dev/null 2>&1 || return 1
+  ks_set_runner "${as_user}" || return 1
+
+  # Decide whether Cinnamon is live: prefer the org.Cinnamon D-Bus name, then the
+  # desktop env vars (in the target user's environment when running via sudo).
+  local active_cinnamon=false
+  if ks_dbus_name_owned org.Cinnamon; then
+    active_cinnamon=true
+  else
+    local desk=""
+    if [[ -n "${as_user}" ]]; then
+      desk="$("${KS_RUN[@]}" sh -c 'printf "%s %s %s" "${XDG_CURRENT_DESKTOP:-}" "${XDG_SESSION_DESKTOP:-}" "${DESKTOP_SESSION:-}"' 2>/dev/null || true)"
+    else
+      desk="${XDG_CURRENT_DESKTOP:-} ${XDG_SESSION_DESKTOP:-} ${DESKTOP_SESSION:-}"
+    fi
+    if printf '%s' "${desk}" | grep -qi cinnamon; then
+      active_cinnamon=true
+    fi
+  fi
+
+  # Toggle off/on to force a live reload when Cinnamon is running and the UUID is
+  # already enabled.
+  if [[ "${active_cinnamon}" == "true" ]]; then
+    local cur
+    cur="$(ks_gsettings_get org.cinnamon)"
+    if printf '%s' "${cur}" | grep -q "'${CINNAMON_EXT_UUID}'"; then
+      ks_ext_remove "${CINNAMON_EXT_UUID}" org.cinnamon
+      sleep 1
+    fi
+  fi
+
+  ks_ext_add "${CINNAMON_EXT_UUID}" org.cinnamon || return 1
+
+  if [[ "${active_cinnamon}" == "true" ]]; then
+    local i rc
+    for i in $(seq 1 10); do
+      ks_dbus_name_owned io.github.keysharp.CinnamonShell
+      rc=$?
+      if [[ "${rc}" -eq 0 ]]; then
+        return 0
+      fi
+      # rc=2 means gdbus is unavailable/errored; stop polling and assume success.
+      if [[ "${rc}" -eq 2 ]]; then
+        break
+      fi
+      sleep 0.5
+    done
+  fi
+  return 0
 }
 
 show_install_mode() {
@@ -371,5 +607,6 @@ maybe_run update-mime-database "${MIME_ROOT}" || true
 maybe_run gtk-update-icon-cache -f "${ICON_ROOT}" || true
 
 install_gnome_extension
+install_cinnamon_extension
 
 echo "Install complete."

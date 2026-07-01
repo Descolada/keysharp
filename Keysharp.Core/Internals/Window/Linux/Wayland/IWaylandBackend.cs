@@ -135,6 +135,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		bool TryCloseWindow(nint handle) => false;
 
+		bool TryKillWindow(nint handle) => TryCloseWindow(handle);
+
 		// ---- Compositor-drawn overlay (highlight) -----------------------
 		// On a compositor with no wlr-layer-shell (notably GNOME/Mutter), Keysharp cannot create a
 		// click-through layer-surface highlight itself, so the overlay has to be drawn inside the
@@ -152,6 +154,24 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		/// <summary>Remove the overlay previously created with <paramref name="id"/>. False = unsupported.</summary>
 		bool TryHideHighlight(uint id) => false;
+
+		/// <summary>True when the backend can draw a generic PNG-backed click-through overlay inside the compositor.</summary>
+		bool SupportsImageOverlay => false;
+
+		/// <summary>Create or update a compositor-owned image overlay. PNG bytes are copied by the compositor service.</summary>
+		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes) => false;
+
+		/// <summary>Remove a compositor-owned image overlay. False = unsupported.</summary>
+		bool TryHideImageOverlay(uint id) => false;
+
+		/// <summary>True when the backend can draw a persistent click-through tooltip on the compositor's behalf.</summary>
+		bool SupportsTooltip => false;
+
+		/// <summary>Show or update a compositor-owned tooltip slot at screen coordinates. False = unsupported.</summary>
+		bool TryShowTooltip(int slot, string text, int x, int y) => false;
+
+		/// <summary>Remove the compositor-owned tooltip for <paramref name="slot"/>. False = unsupported.</summary>
+		bool TryHideTooltip(int slot) => false;
 
 		// ---- Mouse simulation -------------------------------------------
 		// Default implementations return false (backend does not support it).

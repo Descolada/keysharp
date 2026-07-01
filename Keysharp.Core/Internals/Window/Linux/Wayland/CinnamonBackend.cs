@@ -1,4 +1,5 @@
 #if LINUX
+using Keysharp.Builtins;
 using System.Globalization;
 using Tmds.DBus;
 namespace Keysharp.Internals.Window.Linux.Wayland
@@ -19,6 +20,50 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<(bool success, string result)> EvalAsync(string script);
 	}
 
+	[DBusInterface("org.freedesktop.DBus")]
+	public interface IFreedesktopDBus : IDBusObject
+	{
+		Task<bool> NameHasOwnerAsync(string name);
+	}
+
+	[DBusInterface("io.github.keysharp.CinnamonShell1")]
+	public interface IKeysharpCinnamonShell : IDBusObject
+	{
+		Task<string> GetWindowListAsync(bool includeHidden);
+		Task<string> GetActiveWindowAsync();
+		Task<(int X, int Y)> GetCursorPositionAsync();
+		Task<(int X, int Y, int Width, int Height)> GetWorkAreaAsync();
+		Task<bool> FocusWindowAsync(ulong handle);
+		Task<bool> RaiseWindowAsync(ulong handle);
+		Task<bool> LowerWindowAsync(ulong handle);
+		Task<bool> MoveResizeWindowAsync(ulong handle, int x, int y, int width, int height);
+		Task<bool> SetWindowStateAsync(ulong handle, int state);
+		Task<bool> SetWindowAboveAsync(ulong handle, bool above);
+		Task<bool> SetWindowDecoratedAsync(ulong handle, bool decorated);
+		Task<bool> SetWindowOpacityAsync(ulong handle, int opacity);
+		Task<bool> CloseWindowAsync(ulong handle);
+		Task<bool> KillWindowAsync(ulong handle);
+		Task<bool> SendMouseMoveAbsoluteAsync(int x, int y);
+		Task<bool> SendMouseMoveRelativeAsync(int dx, int dy);
+		Task<bool> SendMouseButtonAsync(uint button, bool pressed);
+		Task<bool> SendMouseScrollAsync(int delta, bool vertical);
+		Task<bool> RegisterHighlightOwnerAsync(string ownerKey, string busName);
+		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
+		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
+		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
+		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
+		Task<bool> SupportsTooltipAsync();
+		Task<bool> ShowTooltipAsync(int slot, string ownerKey, string busName, string text, int x, int y);
+		Task<bool> HideTooltipAsync(int slot, string ownerKey, string busName);
+		Task<IDisposable> WatchWindowEventAsync(Action<(string type, string json)> handler, Action<Exception> onError = null);
+	}
+
+	[DBusInterface("org.gnome.Shell.Screenshot")]
+	public interface IGnomeShellScreenshot : IDBusObject
+	{
+		Task<(bool success, string filename_used)> ScreenshotAreaAsync(int x, int y, int width, int height, bool flash, string filename);
+	}
+
 #pragma warning restore IDE1006
 
 	/// <summary>
@@ -32,7 +77,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	{
 		private const string ServiceName = "org.Cinnamon";
 		private const string ObjectPath  = "/org/Cinnamon";
+		private const string DBusServiceName = "org.freedesktop.DBus";
+		private const string DBusObjectPath  = "/org/freedesktop/DBus";
+		private const string ExtensionServiceName = "io.github.keysharp.CinnamonShell";
+		private const string ExtensionObjectPath  = "/io/github/keysharp/CinnamonShell";
+		private const string ScreenshotServiceName = "org.gnome.Shell.Screenshot";
+		private const string ScreenshotObjectPath  = "/org/gnome/Shell/Screenshot";
 		private const int    TimeoutMs   = 2000;
+		private const int    ExtensionOwnerCheckTimeoutMs = 250;
+		private const int    ExtensionMissingCacheMs = 5000;
+		private const int    ExtensionPresentCacheMs = 1000;
 
 		// Shared JS helpers injected into every query: window-type filter, window->info
 		// serializer (identical shape to the GNOME extension so the parser is shared in
@@ -41,24 +95,53 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string JsHelpers =
 			"const Meta=imports.gi.Meta;" +
 			"function tracked(w){switch(w.window_type){case Meta.WindowType.NORMAL:case Meta.WindowType.DIALOG:case Meta.WindowType.MODAL_DIALOG:case Meta.WindowType.UTILITY:return true;default:return false;}}" +
-			"function info(w){const f=w.get_frame_rect();return{id:String(w.get_stable_sequence()),title:w.get_title()||'',appId:w.get_wm_class()||w.get_wm_class_instance()||'',pid:w.get_pid(),frame:{x:f.x,y:f.y,width:f.width,height:f.height},client:{x:f.x,y:f.y,width:f.width,height:f.height},active:!!w.appears_focused,minimized:!!w.minimized,maximized:!!(w.maximized_horizontally&&w.maximized_vertically),visible:!w.minimized};}" +
+			"function clamp255(v){v=Number(v);if(!isFinite(v))v=255;if(v<0)v=0;if(v>255)v=255;return Math.round(v);}" +
+			"function opacity(w){try{const a=w.get_compositor_private?w.get_compositor_private():null;return a?(a.get_opacity?a.get_opacity():a.opacity):255;}catch(e){return 255;}}" +
+			"function info(w){const f=w.get_frame_rect();return{id:String(w.get_stable_sequence()),title:w.get_title()||'',appId:w.get_wm_class()||w.get_wm_class_instance()||'',pid:w.get_pid(),frame:{x:f.x,y:f.y,width:f.width,height:f.height},client:{x:f.x,y:f.y,width:f.width,height:f.height},active:!!w.appears_focused,minimized:!!w.minimized,maximized:!!(w.maximized_horizontally&&w.maximized_vertically),visible:!w.minimized,alwaysOnTop:(w.is_above?w.is_above():!!w.above),decorated:w.decorated!==false,transparency:clamp255(opacity(w))};}" +
 			"function find(s){const a=global.get_window_actors();for(let i=0;i<a.length;i++){const w=a[i].get_meta_window();if(w&&w.get_stable_sequence()===s)return w;}return null;}";
 
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
 		private static Connection connection;
+		private static IFreedesktopDBus dbusProxy;
 		private static ICinnamon proxy;
+		private static IKeysharpCinnamonShell extensionProxy;
+		private static IGnomeShellScreenshot screenshotProxy;
+		private static long extensionOwnerCacheUntil;
+		private static bool extensionOwnerCached;
+		private static long highlightSupportCacheUntil;
+		private static bool highlightSupportCached;
+		private static long tooltipSupportCacheUntil;
+		private static bool tooltipSupportCached;
+		private static string connectionLocalName = "";
+		private static string registeredHighlightOwnerBusName = "";
+		private static long highlightOwnerRegisterRetryAfter;
 		private static bool initFailed;
+		private static readonly string HighlightOwnerKey = BuildHighlightOwnerKey();
 
 		internal static string QueryActiveWindow()
-			=> EvalJson("(function(){try{" + JsHelpers + "const w=global.display.get_focus_window();return JSON.stringify({ok:true,window:(w&&tracked(w))?info(w):null});}catch(e){return JSON.stringify({ok:false});}})()");
+		{
+			var json = RunExtension(p => p.GetActiveWindowAsync());
+			return JsonOk(json)
+				? json
+				: EvalJson("(function(){try{" + JsHelpers + "const w=global.display.get_focus_window();return JSON.stringify({ok:true,window:(w&&tracked(w))?info(w):null});}catch(e){return JSON.stringify({ok:false});}})()");
+		}
 
 		internal static string QueryWindowList(bool includeHidden)
-			=> EvalJson("(function(){try{" + JsHelpers + "const a=global.get_window_actors();const out=[];for(let i=0;i<a.length;i++){const w=a[i].get_meta_window();if(!w||!tracked(w))continue;if(!" + (includeHidden ? "true" : "false") + "&&w.minimized)continue;out.push(info(w));}return JSON.stringify({ok:true,windows:out});}catch(e){return JSON.stringify({ok:false,windows:[]});}})()");
+		{
+			var json = RunExtension(p => p.GetWindowListAsync(includeHidden));
+			return JsonOk(json)
+				? json
+				: EvalJson("(function(){try{" + JsHelpers + "const a=global.get_window_actors();const out=[];for(let i=0;i<a.length;i++){const w=a[i].get_meta_window();if(!w||!tracked(w))continue;if(!" + (includeHidden ? "true" : "false") + "&&w.minimized)continue;out.push(info(w));}return JSON.stringify({ok:true,windows:out});}catch(e){return JSON.stringify({ok:false,windows:[]});}})()");
+		}
 
 		internal static bool QueryCursorPosition(out int x, out int y)
 		{
 			x = 0;
 			y = 0;
+
+			if (QueryExtensionCursorPosition(out x, out y))
+				return true;
+
 			var json = EvalJson("(function(){try{const p=global.get_pointer();return JSON.stringify({ok:true,x:Math.round(p[0]),y:Math.round(p[1])});}catch(e){return JSON.stringify({ok:false});}})()");
 
 			if (json.IsNullOrEmpty())
@@ -82,20 +165,196 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		internal static bool QueryWorkArea(out Rectangle area)
+		{
+			area = Rectangle.Empty;
+
+			try
+			{
+				var p = EnsureExtensionProxy();
+
+				if (p == null)
+					return false;
+
+				var task = Task.Run(() => p.GetWorkAreaAsync());
+
+				if (!task.Wait(TimeoutMs))
+					return false;
+
+				var (x, y, w, h) = task.GetAwaiter().GetResult();
+
+				if (w <= 0 || h <= 0)
+					return false;
+
+				area = new Rectangle(x, y, w, h);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
 		internal static bool SendFocusWindow(ulong seq)
-			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(w.minimized)w.unminimize();w.activate(global.get_current_time());}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.FocusWindowAsync(seq))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(w.minimized)w.unminimize();w.activate(global.get_current_time());}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		internal static bool SendRaiseWindow(ulong seq)
+			=> RunExtensionBool(p => p.RaiseWindowAsync(seq))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(w.minimized)w.unminimize();w.activate(global.get_current_time());}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		internal static bool SendLowerWindow(ulong seq)
+			=> RunExtensionBool(p => p.LowerWindowAsync(seq))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");let ok=false;if(w){try{if(typeof w.lower_with_transients==='function'){w.lower_with_transients();ok=true;}else if(typeof w.lower==='function'){w.lower();ok=true;}}catch(e){ok=false;}}return JSON.stringify({ok:ok});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendMoveResize(ulong seq, int x, int y, int width, int height)
-			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){const f=w.get_frame_rect();w.move_resize_frame(true," + x + "===-2147483648?f.x:" + x + "," + y + "===-2147483648?f.y:" + y + "," + width + ">0?" + width + ":f.width," + height + ">0?" + height + ":f.height);}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.MoveResizeWindowAsync(seq, x, y, width, height))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){const f=w.get_frame_rect();w.move_resize_frame(false," + x + "===-2147483648?f.x:" + x + "," + y + "===-2147483648?f.y:" + y + "," + width + ">0?" + width + ":f.width," + height + ">0?" + height + ":f.height);}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendSetWindowState(ulong seq, int state)
-			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(" + state + "===1){w.minimize();}else if(" + state + "===2){if(w.minimized)w.unminimize();w.maximize(Meta.MaximizeFlags.BOTH);}else{if(w.minimized)w.unminimize();w.unmaximize(Meta.MaximizeFlags.BOTH);}}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.SetWindowStateAsync(seq, state))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(" + state + "===1){w.minimize();}else if(" + state + "===2){if(w.minimized)w.unminimize();w.maximize(Meta.MaximizeFlags.BOTH);}else{if(w.minimized)w.unminimize();w.unmaximize(Meta.MaximizeFlags.BOTH);}}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendCloseWindow(ulong seq)
-			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w)w.delete(global.get_current_time());return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.CloseWindowAsync(seq))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w)w.delete(global.get_current_time());return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		internal static bool SendKillWindow(ulong seq)
+			=> RunExtensionBool(p => p.KillWindowAsync(seq))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");let ok=false;if(w){try{if(typeof w.kill==='function'){w.kill();ok=true;}else if(typeof w.delete==='function'){w.delete(global.get_current_time());ok=true;}}catch(e){ok=false;}}return JSON.stringify({ok:ok});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendSetAlwaysOnTop(ulong seq, bool above)
-			=> RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(" + (above ? "true" : "false") + "){if(!w.is_above())w.make_above();}else{if(w.is_above())w.unmake_above();}}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.SetWindowAboveAsync(seq, above))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w){if(" + (above ? "true" : "false") + "){if(!w.is_above())w.make_above();}else{if(w.is_above())w.unmake_above();}}return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		internal static bool SendSetNoBorder(ulong seq, bool noBorder)
+			=> RunExtensionBool(p => p.SetWindowDecoratedAsync(seq, !noBorder))
+			   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");if(w)w.decorated=" + (noBorder ? "false" : "true") + ";return JSON.stringify({ok:!!w});}catch(e){return JSON.stringify({ok:false});}})()");
+
+		internal static bool SendSetOpacity(ulong seq, object value)
+		{
+			var alpha = value is string s && s.Equals("off", StringComparison.OrdinalIgnoreCase)
+				? 255
+				: Math.Clamp((int)value.Al(), 0, 255);
+
+			return RunExtensionBool(p => p.SetWindowOpacityAsync(seq, alpha))
+				   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");const a=w&&w.get_compositor_private?w.get_compositor_private():null;if(a){if(a.set_opacity)a.set_opacity(" + alpha.ToString(CultureInfo.InvariantCulture) + ");else a.opacity=" + alpha.ToString(CultureInfo.InvariantCulture) + ";}return JSON.stringify({ok:!!a});}catch(e){return JSON.stringify({ok:false});}})()");
+		}
+
+		internal static Bitmap CaptureArea(int x, int y, int width, int height)
+		{
+			if (width <= 0 || height <= 0)
+				return null;
+
+			var fd = -1;
+			string compositorTempFile = null;   // a temp file Muffin wrote itself (path differs from our memfd) — we must delete it
+
+			try
+			{
+				var p = EnsureScreenshotProxy();
+
+				if (p == null)
+					return null;
+
+				fd = WaylandNative.MemfdCreate("keysharp-cinnamon-capture", WaylandNative.MFD_CLOEXEC);
+
+				if (fd < 0)
+				{
+					Ks.OutputDebugLine($"Cinnamon screenshot memfd_create failed: errno={Marshal.GetLastPInvokeError()}");
+					return null;
+				}
+
+				var path = $"/proc/{Environment.ProcessId}/fd/{fd}";
+				var task = Task.Run(() => p.ScreenshotAreaAsync(x, y, width, height, false, path));
+
+				if (!task.Wait(TimeoutMs))
+					return null;
+
+				var (success, usedPath) = task.GetAwaiter().GetResult();
+
+				if (!success)
+					return null;
+
+				var loadPath = !string.IsNullOrEmpty(usedPath) ? usedPath : path;
+
+				// If Muffin couldn't write our cross-process memfd path and fell back to a temp file of its own,
+				// that file is ours to clean up (the memfd is freed by closing fd; a real file is not).
+				if (!string.IsNullOrEmpty(usedPath) && usedPath != path)
+					compositorTempFile = usedPath;
+
+				var bytes = File.ReadAllBytes(loadPath);
+
+				if (bytes.Length == 0)
+					return null;
+
+				using var ms = new MemoryStream(bytes);
+				return new Bitmap(ms);
+			}
+			catch (Exception ex)
+			{
+				Ks.OutputDebugLine($"Cinnamon screenshot failed: {ex.Message}");
+				return null;
+			}
+			finally
+			{
+				if (fd >= 0)
+					_ = WaylandNative.Close(fd);
+
+				if (compositorTempFile != null)
+				{
+					try { File.Delete(compositorTempFile); } catch { }
+				}
+			}
+		}
+
+		internal static bool SupportsHighlight()
+		{
+			var now = Environment.TickCount64;
+
+			if (now < highlightSupportCacheUntil)
+				return highlightSupportCached;
+
+			var ok = RunExtensionBool(p => p.ShowHighlightAsync(0, HighlightOwnerKey, connectionLocalName, -10000, -10000, 1, 1, "FF0000", 1));
+
+			if (ok)
+				_ = RunExtensionBool(p => p.HideHighlightAsync(0, HighlightOwnerKey, connectionLocalName));
+
+			highlightSupportCached = ok;
+			highlightSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+			return ok;
+		}
+
+		internal static bool SendShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
+			=> RunExtensionBool(p => p.ShowHighlightAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, color, thickness));
+
+			internal static bool SendHideHighlight(uint id)
+				=> RunExtensionBool(p => p.HideHighlightAsync(id, HighlightOwnerKey, connectionLocalName));
+
+			internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+				=> pngBytes is { Length: > 0 }
+				   && RunExtensionBool(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
+
+			internal static bool SendHideImageOverlay(uint id)
+				=> RunExtensionBool(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
+
+			internal static bool SupportsTooltip()
+			{
+			var now = Environment.TickCount64;
+
+			if (now < tooltipSupportCacheUntil)
+				return tooltipSupportCached;
+
+			var ok = RunExtensionBool(p => p.SupportsTooltipAsync());
+			tooltipSupportCached = ok;
+			tooltipSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+			return ok;
+		}
+
+		internal static bool SendShowTooltip(int slot, string text, int x, int y)
+			=> RunExtensionBool(p => p.ShowTooltipAsync(slot, HighlightOwnerKey, connectionLocalName, text ?? "", x, y));
+
+		internal static bool SendHideTooltip(int slot)
+			=> RunExtensionBool(p => p.HideTooltipAsync(slot, HighlightOwnerKey, connectionLocalName));
 
 		// Lazily creates a Clutter virtual pointer (Muffin is Clutter-based, same API as the
 		// GNOME extension) and stashes it on `global` so it persists across Eval calls.
@@ -105,19 +364,41 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			"const vp=global._ksVPointer;";
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
-			=> RunOk("(function(){try{" + JsVPointer + "vp.notify_absolute_motion(GLib.get_monotonic_time()," + x + "," + y + ");return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.SendMouseMoveAbsoluteAsync(x, y))
+			   || RunOk("(function(){try{" + JsVPointer + "vp.notify_absolute_motion(GLib.get_monotonic_time()," + x + "," + y + ");return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendMouseMoveRelative(int dx, int dy)
-			=> RunOk("(function(){try{" + JsVPointer + "const p=global.get_pointer();vp.notify_absolute_motion(GLib.get_monotonic_time(),p[0]+(" + dx + "),p[1]+(" + dy + "));return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.SendMouseMoveRelativeAsync(dx, dy))
+			   || RunOk("(function(){try{" + JsVPointer + "const p=global.get_pointer();vp.notify_absolute_motion(GLib.get_monotonic_time(),p[0]+(" + dx + "),p[1]+(" + dy + "));return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendMouseButton(uint button, bool pressed)
-			=> RunOk("(function(){try{" + JsVPointer + "vp.notify_button(GLib.get_monotonic_time()," + button + ",Clutter.ButtonState." + (pressed ? "PRESSED" : "RELEASED") + ");return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
+			=> RunExtensionBool(p => p.SendMouseButtonAsync(button, pressed))
+			   || RunOk("(function(){try{" + JsVPointer + "vp.notify_button(GLib.get_monotonic_time()," + button + ",Clutter.ButtonState." + (pressed ? "PRESSED" : "RELEASED") + ");return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
 
 		internal static bool SendMouseScroll(int delta, bool vertical)
 		{
 			var dir = vertical ? (delta > 0 ? "UP" : "DOWN") : (delta > 0 ? "RIGHT" : "LEFT");
 			var notches = Math.Max(1, Math.Abs((int)Math.Round(delta / 120.0)));
-			return RunOk("(function(){try{" + JsVPointer + "const t=GLib.get_monotonic_time();for(let i=0;i<" + notches + ";i++)vp.notify_discrete_scroll(t,Clutter.ScrollDirection." + dir + ",Clutter.ScrollSource.WHEEL);return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
+			return RunExtensionBool(p => p.SendMouseScrollAsync(delta, vertical))
+				   || RunOk("(function(){try{" + JsVPointer + "const t=GLib.get_monotonic_time();for(let i=0;i<" + notches + ";i++)vp.notify_discrete_scroll(t,Clutter.ScrollDirection." + dir + ",Clutter.ScrollSource.WHEEL);return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false});}})()");
+		}
+
+		internal static IDisposable WatchWindowEvent(Action<string, string> handler)
+		{
+			try
+			{
+				var p = EnsureExtensionProxy();
+
+				if (p == null)
+					return null;
+
+				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
+				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+			}
+			catch
+			{
+				return null;
+			}
 		}
 
 		private static bool RunOk(string js)
@@ -168,8 +449,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return null;
 
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				var (ok, result) = Task.Run(() => p.EvalAsync(js), cts.Token).GetAwaiter().GetResult();
+				var task = Task.Run(() => p.EvalAsync(js));
+
+				if (!task.Wait(TimeoutMs))
+					return null;
+
+				var (ok, result) = task.GetAwaiter().GetResult();
 				return ok ? result : null;
 			}
 			catch
@@ -178,10 +463,259 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
+		private static bool QueryExtensionCursorPosition(out int x, out int y)
+		{
+			x = 0;
+			y = 0;
+
+			try
+			{
+				var p = EnsureExtensionProxy();
+
+				if (p == null)
+					return false;
+
+				var task = Task.Run(() => p.GetCursorPositionAsync());
+
+				if (!task.Wait(TimeoutMs))
+					return false;
+
+				var (rx, ry) = task.GetAwaiter().GetResult();
+				x = rx;
+				y = ry;
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static T RunExtension<T>(Func<IKeysharpCinnamonShell, Task<T>> call)
+		{
+			try
+			{
+				var p = EnsureExtensionProxy();
+
+				if (p == null)
+					return default;
+
+				var task = Task.Run(() => call(p));
+
+				if (!task.Wait(TimeoutMs))
+					return default;
+
+				return task.GetAwaiter().GetResult();
+			}
+			catch
+			{
+				return default;
+			}
+		}
+
+		private static bool RunExtensionBool(Func<IKeysharpCinnamonShell, Task<bool>> call)
+		{
+			try
+			{
+				var p = EnsureExtensionProxy();
+
+				if (p == null)
+					return false;
+
+				var task = Task.Run(() => call(p));
+
+				if (!task.Wait(TimeoutMs))
+					return false;
+
+				return task.GetAwaiter().GetResult();
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static bool JsonOk(string json)
+		{
+			if (json.IsNullOrEmpty())
+				return false;
+
+			try
+			{
+				using var doc = JsonDocument.Parse(json);
+				return doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static string BuildHighlightOwnerKey()
+		{
+			var pid = Environment.ProcessId;
+			var startTime = "";
+
+			try
+			{
+				var stat = File.ReadAllText($"/proc/{pid}/stat");
+				var end = stat.LastIndexOf(')');
+
+				if (end >= 0 && end + 2 < stat.Length)
+				{
+					var fields = stat[(end + 2)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+					if (fields.Length > 19)
+						startTime = fields[19];
+				}
+			}
+			catch
+			{
+			}
+
+			return $"{pid}:{startTime}";
+		}
+
+		private static IKeysharpCinnamonShell EnsureExtensionProxy()
+		{
+			if (!ExtensionServiceHasOwner())
+				return null;
+
+			if (extensionProxy != null)
+			{
+				RegisterHighlightOwner(extensionProxy);
+				return extensionProxy;
+			}
+
+			var conn = EnsureConnection();
+
+			if (conn == null)
+				return null;
+
+			extensionProxy = conn.CreateProxy<IKeysharpCinnamonShell>(ExtensionServiceName, new ObjectPath(ExtensionObjectPath));
+			RegisterHighlightOwner(extensionProxy);
+			return extensionProxy;
+		}
+
+		private static void RegisterHighlightOwner(IKeysharpCinnamonShell p)
+		{
+			if (p == null || connectionLocalName.IsNullOrEmpty() || registeredHighlightOwnerBusName == connectionLocalName)
+				return;
+
+			if (Environment.TickCount64 < highlightOwnerRegisterRetryAfter)
+				return;
+
+			try
+			{
+				var task = Task.Run(() => p.RegisterHighlightOwnerAsync(HighlightOwnerKey, connectionLocalName));
+
+				if (!task.Wait(TimeoutMs))
+				{
+					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
+					return;
+				}
+
+				if (task.GetAwaiter().GetResult())
+				{
+					registeredHighlightOwnerBusName = connectionLocalName;
+					highlightOwnerRegisterRetryAfter = 0;
+				}
+				else
+				{
+					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
+				}
+			}
+			catch
+			{
+				highlightOwnerRegisterRetryAfter = Environment.TickCount64 + ExtensionMissingCacheMs;
+			}
+		}
+
+		private static bool ExtensionServiceHasOwner()
+		{
+			var now = Environment.TickCount64;
+
+			if (now < extensionOwnerCacheUntil)
+				return extensionOwnerCached;
+
+			try
+			{
+				var conn = EnsureConnection();
+
+				if (conn == null)
+					return false;
+
+				dbusProxy ??= conn.CreateProxy<IFreedesktopDBus>(DBusServiceName, new ObjectPath(DBusObjectPath));
+				var task = Task.Run(() => dbusProxy.NameHasOwnerAsync(ExtensionServiceName));
+
+				if (!task.Wait(ExtensionOwnerCheckTimeoutMs))
+				{
+					extensionOwnerCached = false;
+					extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
+					extensionProxy = null;
+					return false;
+				}
+
+				var hasOwner = task.GetAwaiter().GetResult();
+				extensionOwnerCached = hasOwner;
+				extensionOwnerCacheUntil = now + (hasOwner ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
+
+				if (!hasOwner)
+				{
+					extensionProxy = null;
+					highlightSupportCached = false;
+					highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
+					tooltipSupportCached = false;
+					tooltipSupportCacheUntil = now + ExtensionMissingCacheMs;
+				}
+
+				return hasOwner;
+			}
+			catch
+			{
+				extensionOwnerCached = false;
+				extensionOwnerCacheUntil = now + ExtensionMissingCacheMs;
+				extensionProxy = null;
+				highlightSupportCached = false;
+				highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
+				tooltipSupportCached = false;
+				tooltipSupportCacheUntil = now + ExtensionMissingCacheMs;
+				return false;
+			}
+		}
+
 		private static ICinnamon EnsureProxy()
 		{
 			if (proxy != null)
 				return proxy;
+
+			var conn = EnsureConnection();
+
+			if (conn == null)
+				return null;
+
+			proxy = conn.CreateProxy<ICinnamon>(ServiceName, new ObjectPath(ObjectPath));
+			return proxy;
+		}
+
+		private static IGnomeShellScreenshot EnsureScreenshotProxy()
+		{
+			if (screenshotProxy != null)
+				return screenshotProxy;
+
+			var conn = EnsureConnection();
+
+			if (conn == null)
+				return null;
+
+			screenshotProxy = conn.CreateProxy<IGnomeShellScreenshot>(ScreenshotServiceName, new ObjectPath(ScreenshotObjectPath));
+			return screenshotProxy;
+		}
+
+		private static Connection EnsureConnection()
+		{
+			if (connection != null)
+				return connection;
 
 			if (initFailed)
 				return null;
@@ -190,17 +724,31 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			try
 			{
-				if (proxy != null)
-					return proxy;
+				if (connection != null)
+					return connection;
 
 				if (initFailed)
 					return null;
 
 				var localConn = new Connection(Tmds.DBus.Address.Session);
-				Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+				var task = Task.Run(() => localConn.ConnectAsync());
+
+				if (!task.Wait(TimeoutMs))
+				{
+					try { localConn.Dispose(); } catch { }
+					initFailed = true;
+					return null;
+				}
+
+				var info = task.GetAwaiter().GetResult();
+				connectionLocalName = info?.LocalName ?? "";
+				localConn.StateChanged += (_, e) =>
+				{
+					if (e.State == Tmds.DBus.ConnectionState.Disconnected)
+						ResetConnection(localConn);
+				};
 				connection = localConn;
-				proxy = localConn.CreateProxy<ICinnamon>(ServiceName, new ObjectPath(ObjectPath));
-				return proxy;
+				return connection;
 			}
 			catch
 			{
@@ -211,6 +759,37 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				_ = initSemaphore.Release();
 			}
+		}
+
+		private static void ResetConnection(Connection deadConnection = null)
+		{
+			if (deadConnection != null && connection != null && !ReferenceEquals(connection, deadConnection))
+				return;
+
+			try
+			{
+				if (deadConnection == null)
+					connection?.Dispose();
+			}
+			catch
+			{
+			}
+
+			connection = null;
+			dbusProxy = null;
+			proxy = null;
+			extensionProxy = null;
+			screenshotProxy = null;
+			connectionLocalName = "";
+			registeredHighlightOwnerBusName = "";
+			highlightOwnerRegisterRetryAfter = 0;
+			extensionOwnerCached = false;
+			extensionOwnerCacheUntil = 0;
+			highlightSupportCached = false;
+			highlightSupportCacheUntil = 0;
+			tooltipSupportCached = false;
+			tooltipSupportCacheUntil = 0;
+			initFailed = false;
 		}
 
 		private static bool GetBool(JsonElement e, string name)
@@ -240,20 +819,50 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// still use inputd. Falls back to inputd automatically if any Eval call fails.
 		public bool SupportsMouse => true;
 
+		public bool SupportsHighlight => CinnamonShellBridge.SupportsHighlight();
+
 		internal static bool IsAvailable()
 			=> EnvContains("XDG_CURRENT_DESKTOP", "cinnamon")
 			   || EnvContains("DESKTOP_SESSION", "cinnamon")
 			   || EnvContains("XDG_SESSION_DESKTOP", "cinnamon");
 
-		// Cinnamon's bridge has no push channel, so window events come from the generic polling source
-		// (diffs successive TryListWindows/TryGetActiveWindow snapshots).
 		public bool SupportsWindowEvents => true;
 
 		public IDisposable SubscribeWindowEvents(Action<WaylandWindowEvent> sink)
-			=> sink == null ? null : new WaylandPollingEventSource(this, sink);
+		{
+			if (sink == null)
+				return null;
+
+			void OnEvent(string type, string json)
+			{
+				var kind = MapEventKind(type);
+
+				if (kind == null || json.IsNullOrEmpty())
+					return;
+
+				try
+				{
+					using var doc = JsonDocument.Parse(json);
+
+					if (TryParseEventWindow(doc.RootElement, out var info) && info.Handle != 0)
+					{
+						var bounds = info.FrameGeometry.Width > 0 && info.FrameGeometry.Height > 0 ? info.FrameGeometry : (Rectangle?)null;
+						sink(new WaylandWindowEvent(kind.Value, info.Handle) { Bounds = bounds });
+					}
+				}
+				catch
+				{
+				}
+			}
+
+			return CinnamonShellBridge.WatchWindowEvent(OnEvent) ?? new WaylandPollingEventSource(this, sink);
+		}
 
 		public bool TryGetCursorPos(out int x, out int y)
 			=> CinnamonShellBridge.QueryCursorPosition(out x, out y);
+
+		public bool TryGetWorkArea(out Rectangle area)
+			=> CinnamonShellBridge.QueryWorkArea(out area);
 
 		public bool TryListWindows(bool includeHidden, out IReadOnlyList<WaylandWindowInfo> windows)
 		{
@@ -338,8 +947,23 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public bool TrySetAlwaysOnTop(nint handle, bool onTop)
 			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetAlwaysOnTop(seq, onTop);
 
+		public bool TrySetNoBorder(nint handle, bool noBorder)
+			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetNoBorder(seq, noBorder);
+
+		public bool TrySetTransparency(nint handle, object alpha)
+			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetOpacity(seq, alpha);
+
+		public bool TrySetZOrder(nint handle, ZOrder z)
+			=> TryHandleToSeq(handle, out var seq)
+			   && (z == ZOrder.Top
+				   ? CinnamonShellBridge.SendRaiseWindow(seq)
+				   : z == ZOrder.Bottom && CinnamonShellBridge.SendLowerWindow(seq));
+
 		public bool TryCloseWindow(nint handle)
 			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendCloseWindow(seq);
+
+		public bool TryKillWindow(nint handle)
+			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendKillWindow(seq);
 
 		public bool TrySendMouseMoveAbsolute(int x, int y)
 			=> CinnamonShellBridge.SendMouseMoveAbsolute(x, y);
@@ -352,6 +976,28 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public bool TrySendMouseScroll(int delta, bool vertical)
 			=> CinnamonShellBridge.SendMouseScroll(delta, vertical);
+
+		public bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
+			=> CinnamonShellBridge.SendShowHighlight(id, x, y, width, height, color, thickness);
+
+			public bool TryHideHighlight(uint id)
+				=> CinnamonShellBridge.SendHideHighlight(id);
+
+			public bool SupportsImageOverlay => SupportsHighlight;
+
+			public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+				=> CinnamonShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
+
+			public bool TryHideImageOverlay(uint id)
+				=> CinnamonShellBridge.SendHideImageOverlay(id);
+
+			public bool SupportsTooltip => CinnamonShellBridge.SupportsTooltip();
+
+		public bool TryShowTooltip(int slot, string text, int x, int y)
+			=> CinnamonShellBridge.SendShowTooltip(slot, text, x, y);
+
+		public bool TryHideTooltip(int slot)
+			=> CinnamonShellBridge.SendHideTooltip(slot);
 
 		// ---- helpers ------------------------------------------------
 
@@ -380,7 +1026,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				active: JsonBool(item, "active"),
 				minimized: JsonBool(item, "minimized"),
 				maximized: JsonBool(item, "maximized"),
-				visible: JsonBool(item, "visible"));
+				visible: JsonBool(item, "visible"),
+				alwaysOnTop: JsonBool(item, "alwaysOnTop"),
+				decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
+				transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL);
+			return true;
+		}
+
+		private static bool TryParseEventWindow(JsonElement item, out WaylandWindowInfo info)
+		{
+			if (TryParseWindow(item, out info))
+				return true;
+
+			info = null;
+
+			if (!JsonString(item, "id", out var id) || id.IsNullOrEmpty()
+				|| !ulong.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seq))
+				return false;
+
+			info = new WaylandWindowInfo(handle: SeqToHandle(seq), compositorId: id);
 			return true;
 		}
 
@@ -425,6 +1089,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			seq = 0;
 			return false;
 		}
+
+		private static WaylandWindowEventKind? MapEventKind(string type) => type switch
+		{
+			"create"   => WaylandWindowEventKind.Created,
+			"close"    => WaylandWindowEventKind.Closed,
+			"active"   => WaylandWindowEventKind.Activated,
+			"title"    => WaylandWindowEventKind.TitleChanged,
+			"minimize" => WaylandWindowEventKind.Minimized,
+			"restore"  => WaylandWindowEventKind.Restored,
+			"move"     => WaylandWindowEventKind.MoveResized,
+			_          => null
+		};
 
 		private static bool JsonBool(JsonElement element, string property)
 			=> element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;

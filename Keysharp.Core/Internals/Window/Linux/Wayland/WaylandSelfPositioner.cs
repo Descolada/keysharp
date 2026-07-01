@@ -14,10 +14,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// mapped.
 	///
 	/// <para>The tricky part is correlating our just-shown Eto window with the compositor's window
-	/// id. We do it reliably by listing the compositor's windows and matching on OUR process id
-	/// (<see cref="Environment.ProcessId"/>) plus the window's title and size, while tracking which
-	/// compositor ids are already claimed so two Keysharp windows never resolve to the same one —
-	/// far more robust than a fuzzy title-only lookup. The resolved id is cached per form, so only
+	/// id. We first stamp the window with a unique temporary Wayland app_id and match that exact
+	/// value in the compositor's list. If a backend can't observe app_id, we fall back to a strict
+	/// unique metadata match (title/size/PID/active) while tracking claimed compositor ids so two
+	/// Keysharp windows never resolve to the same one. The resolved id is cached per form, so only
 	/// the first Show pays the correlation/polling cost; later Move calls reuse it.</para>
 	///
 	/// <para>Each move is a compositor round-trip, so moves run on a background thread and are
@@ -30,8 +30,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// </summary>
 	internal static class WaylandSelfPositioner
 	{
+		private const string NormalAppId = "keysharp";
+		private const string CorrelationAppIdPrefix = "keysharp.self.";
+
 		private sealed class FormState
 		{
+			internal nint FormHandle;
+			internal Eto.Forms.Form Form;
 			internal nint CompositorHandle;          // resolved compositor window handle; 0 until correlated
 			internal string CompositorId = "";       // its id, kept for claim bookkeeping
 			internal string Title = "";
@@ -61,15 +66,17 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool IsSupported => Platform.Desktop.IsWaylandSession && WaylandBackend.Current != null;
 
 		/// <summary>
-		/// Request that our own window (identified by its native <paramref name="formHandle"/>) be
+		/// Request that our own window (identified by <paramref name="form"/>) be
 		/// moved so its top-left sits at screen (<paramref name="x"/>, <paramref name="y"/>). Either
 		/// coordinate may be <see cref="WindowInfoBase.Unchanged"/> to leave it untouched.
 		/// <paramref name="title"/> and the match size are used only to correlate the window the
 		/// first time. Returns immediately; the move runs asynchronously. No-op off Wayland or when
 		/// there is no capable backend.
 		/// </summary>
-		internal static void Position(nint formHandle, string title, int x, int y, int matchW, int matchH, bool removeBorder = false, bool keepAbove = false)
+		internal static void Position(Eto.Forms.Form form, string title, int x, int y, int matchW, int matchH, bool removeBorder = false, bool keepAbove = false)
 		{
+			var formHandle = form?.Handle ?? 0;
+
 			if (formHandle == 0 || !IsSupported)
 				return;
 
@@ -82,8 +89,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			lock (sync)
 			{
-				if (!states.TryGetValue(formHandle, out state))
-					states[formHandle] = state = new FormState();
+				state = GetOrCreateState(formHandle, form);
 
 				if (x != WindowInfoBase.Unchanged) state.TargetX = x;
 				if (y != WindowInfoBase.Unchanged) state.TargetY = y;
@@ -102,6 +108,74 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		}
 
 		/// <summary>
+		/// Resolve one of our OWN top-level windows to the active compositor's window handle, correlating once
+		/// and caching the result. Lets the synchronous
+		/// window verbs (WinMove / WinGetPos against a Gui object) take the same compositor path foreign windows
+		/// use, instead of Eto's self-position/-query which is a no-op on Wayland. Returns false off Wayland,
+		/// without a capable backend, or when the window can't be correlated (e.g. foreign-toplevel-only
+		/// compositors).
+		/// </summary>
+		internal static bool TryGetCompositorHandle(Eto.Forms.Form form, string title, int matchW, int matchH, out nint compositorHandle)
+		{
+			compositorHandle = 0;
+			var formHandle = form?.Handle ?? 0;
+
+			if (formHandle == 0 || !IsSupported)
+				return false;
+
+			var backend = WaylandBackend.Current;
+
+			if (backend == null)
+				return false;
+
+			FormState state;
+			nint cachedHandle;
+
+			lock (sync)
+			{
+				state = GetOrCreateState(formHandle, form);
+
+				cachedHandle = state.CompositorHandle;
+			}
+
+			if (cachedHandle != 0)
+			{
+				if (backend.TryGetWindow(cachedHandle, out _))
+				{
+					compositorHandle = cachedHandle;
+					return true;
+				}
+
+				lock (sync)
+				{
+					if (state.CompositorHandle == cachedHandle)
+					{
+						if (state.CompositorId.Length > 0)
+							_ = claimedIds.Remove(state.CompositorId);
+
+						state.CompositorHandle = 0;
+						state.CompositorId = "";
+					}
+				}
+			}
+
+			lock (sync)
+			{
+				state.Title = title ?? "";
+				if (matchW > 0) state.MatchW = matchW;
+				if (matchH > 0) state.MatchH = matchH;
+			}
+
+			if (!Correlate(backend, state))
+				return false;
+
+			lock (sync)
+				compositorHandle = state.CompositorHandle;
+
+			return compositorHandle != 0;
+		}
+
+		/// <summary>
 		/// Reassert a window state (maximize / minimize / restore) on our own window through the compositor
 		/// backend. Eto's <c>WindowState</c> setter (gtk_window_(un)maximize / iconify, i.e. an xdg-toplevel
 		/// request) is the primary path and works on most compositors, but some drop a client's request, so
@@ -109,8 +183,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// a capable backend. <paramref name="title"/> and the match size correlate the window the first time,
 		/// exactly like <see cref="Position"/>.
 		/// </summary>
-		internal static void SetWindowState(nint formHandle, string title, int matchW, int matchH, FormWindowState windowState)
+		internal static void SetWindowState(Eto.Forms.Form form, string title, int matchW, int matchH, FormWindowState windowState)
 		{
+			var formHandle = form?.Handle ?? 0;
+
 			if (formHandle == 0 || !IsSupported)
 				return;
 
@@ -119,8 +195,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			lock (sync)
 			{
-				if (!states.TryGetValue(formHandle, out state))
-					states[formHandle] = state = new FormState();
+				state = GetOrCreateState(formHandle, form);
 
 				state.Title = title ?? "";
 				if (matchW > 0) state.MatchW = matchW;
@@ -169,6 +244,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (states.Remove(formHandle, out var state) && state.CompositorId.Length > 0)
 					_ = claimedIds.Remove(state.CompositorId);
 			}
+		}
+
+		private static FormState GetOrCreateState(nint formHandle, Eto.Forms.Form form)
+		{
+			if (!states.TryGetValue(formHandle, out var state))
+				states[formHandle] = state = new FormState { FormHandle = formHandle };
+
+			state.Form ??= form;
+			return state;
 		}
 
 		private static void Worker(FormState state)
@@ -261,7 +345,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static bool Correlate(IWaylandBackend backend, FormState state)
 		{
 			var pid = (long)Environment.ProcessId;
-			string title;
+			string title, token;
+			Eto.Forms.Form form;
 			int mw, mh;
 
 			lock (sync)
@@ -269,42 +354,130 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				title = state.Title;
 				mw = state.MatchW;
 				mh = state.MatchH;
+				form = state.Form;
+				token = $"{CorrelationAppIdPrefix}{pid}.{state.FormHandle.ToInt64():x}.{Guid.NewGuid():N}";
 			}
 
 			var deadline = Environment.TickCount64 + CorrelateTimeoutMs;
+			var stamped = false;
 
-			while (true)
+			try
 			{
-				if (backend.TryListWindows(true, out var windows) && windows != null && Pick(windows, pid, title, mw, mh) is WaylandWindowInfo pick)
+				while (true)
 				{
+					string existingId;
+
 					lock (sync)
 					{
-						state.CompositorHandle = pick.Handle;
-						state.CompositorId = pick.CompositorId;
-						_ = claimedIds.Add(pick.CompositorId);
+						if (state.CompositorHandle != 0)
+							return true;
+
+						existingId = state.CompositorId;
 					}
-					return true;
+
+					// Retry the stamp only until it takes (the window must be realized for the app_id to stick);
+					// once stamped, don't re-invoke the UI-thread setter every 20ms poll.
+					if (!stamped)
+						stamped = TrySetAppIdOnUiThread(form, token);
+
+					if (backend.TryListWindows(true, out var windows) && windows != null
+						&& Pick(windows, pid, title, mw, mh, existingId, stamped ? token : "") is WaylandWindowInfo pick)
+					{
+						Claim(state, pick);
+						return true;
+					}
+
+					if (Environment.TickCount64 >= deadline)
+					{
+						// If the client accepted the temporary app_id but this backend doesn't expose it, allow one
+						// final conservative metadata match before giving up. During the normal polling window, an
+						// accepted app_id disables fallback so we don't race app_id propagation and pick the wrong
+						// same-title/same-size window.
+						if (stamped && backend.TryListWindows(true, out windows) && windows != null
+							&& Pick(windows, pid, title, mw, mh, existingId, "") is { } fallback)
+						{
+							Claim(state, fallback);
+							return true;
+						}
+
+						return false;
+					}
+
+					Thread.Sleep(CorrelatePollMs);
 				}
-
-				if (Environment.TickCount64 >= deadline)
-					return false;
-
-				Thread.Sleep(CorrelatePollMs);
+			}
+			finally
+			{
+				if (stamped)
+					_ = TrySetAppIdOnUiThread(form, NormalAppId);
 			}
 		}
 
-		private static WaylandWindowInfo Pick(IReadOnlyList<WaylandWindowInfo> windows, long pid, string title, int matchW, int matchH)
+		private static void Claim(FormState state, WaylandWindowInfo pick)
 		{
-			List<WaylandWindowInfo> mine;
+			lock (sync)
+			{
+				if (state.CompositorId.Length > 0 && state.CompositorId != pick.CompositorId)
+					_ = claimedIds.Remove(state.CompositorId);
+
+				state.CompositorHandle = pick.Handle;
+				state.CompositorId = pick.CompositorId;
+				_ = claimedIds.Add(pick.CompositorId);
+			}
+		}
+
+		private static bool TrySetAppIdOnUiThread(Eto.Forms.Form form, string appId)
+		{
+			if (form == null || string.IsNullOrEmpty(appId))
+				return false;
+
+			try
+			{
+				var app = Eto.Forms.Application.Instance;
+
+				if (app == null || app.IsUIThread)
+					return Eto.Forms.EtoExtensions.SetWaylandAppId(form, appId);
+
+				return app.Invoke(() => Eto.Forms.EtoExtensions.SetWaylandAppId(form, appId));
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static WaylandWindowInfo Pick(IReadOnlyList<WaylandWindowInfo> windows, long pid, string title, int matchW, int matchH, string existingId, string appIdToken)
+		{
+			List<WaylandWindowInfo> candidates;
 
 			lock (sync)
-				mine = windows.Where(w => w != null
-					&& w.PID == pid
+				candidates = windows.Where(w => w != null
 					&& !string.IsNullOrEmpty(w.CompositorId)
-					&& !claimedIds.Contains(w.CompositorId)).ToList();
+					&& (w.CompositorId == existingId || !claimedIds.Contains(w.CompositorId))).ToList();
 
-			if (mine.Count == 0)
+			if (candidates.Count == 0)
 				return null;
+
+			WaylandWindowInfo Unique(Func<WaylandWindowInfo, bool> predicate)
+			{
+				WaylandWindowInfo match = null;
+
+				foreach (var candidate in candidates)
+				{
+					if (!predicate(candidate))
+						continue;
+
+					if (match != null)
+						return null;
+
+					match = candidate;
+				}
+
+				return match;
+			}
+
+			if (!string.IsNullOrEmpty(appIdToken))
+				return Unique(w => string.Equals(w.AppId, appIdToken, StringComparison.Ordinal));
 
 			bool TitleMatch(WaylandWindowInfo w) =>
 				!string.IsNullOrEmpty(title) && string.Equals(w.Title, title, StringComparison.Ordinal);
@@ -314,12 +487,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				&& Math.Abs(w.FrameGeometry.Width - matchW) <= SizeTolerance
 				&& Math.Abs(w.FrameGeometry.Height - matchH) <= SizeTolerance;
 
-			// Prefer the strongest evidence: title+size, then title, then size; only fall back to a
-			// lone candidate when nothing else distinguishes them.
-			return mine.FirstOrDefault(w => TitleMatch(w) && SizeMatch(w))
-				?? mine.FirstOrDefault(TitleMatch)
-				?? mine.FirstOrDefault(SizeMatch)
-				?? (mine.Count == 1 ? mine[0] : null);
+			return Unique(w => w.PID == pid && TitleMatch(w) && SizeMatch(w))
+				?? Unique(w => TitleMatch(w) && SizeMatch(w))
+				?? Unique(w => w.PID == pid && TitleMatch(w))
+				?? Unique(w => w.PID == pid && SizeMatch(w))
+				?? Unique(w => w.Active && TitleMatch(w))
+				?? Unique(w => w.Active && SizeMatch(w))
+				?? Unique(TitleMatch)
+				?? Unique(SizeMatch);
 		}
 	}
 }

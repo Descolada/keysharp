@@ -61,6 +61,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Remove the overlay previously created with the given id.</summary>
 		Task HideHighlightAsync(uint id);
 
+		/// <summary>Create or update a generic PNG-backed click-through overlay.</summary>
+		Task ShowImageOverlayAsync(uint id, int x, int y, int width, int height, byte[] pngBytes);
+
+		/// <summary>Remove a generic PNG-backed overlay.</summary>
+		Task HideImageOverlayAsync(uint id);
+
 		Task SendMouseMoveAbsoluteAsync(int x, int y);
 		Task SendMouseMoveRelativeAsync(int dx, int dy);
 
@@ -190,6 +196,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendHideHighlight(uint id)
 			=> RunCommand(p => p.HideHighlightAsync(id));
+
+		internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+			=> pngBytes is { Length: > 0 }
+			   && RunCommand(p => p.ShowImageOverlayAsync(id, x, y, width, height, pngBytes));
+
+		internal static bool SendHideImageOverlay(uint id)
+			=> RunCommand(p => p.HideImageOverlayAsync(id));
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
 			=> RunCommand(p => p.SendMouseMoveAbsoluteAsync(x, y));

@@ -41,8 +41,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			// This is deliberately above the KEYSHARP_WAYLAND_BACKEND override: that override selects AMONG
 			// Wayland compositors within a Wayland session; it is not an escape hatch for running a Wayland
 			// path under X11 (every consumer already short-circuits on !IsWaylandSession, so a forced backend
-			// would be dead code there anyway). An XWayland *client* in a Wayland session is unaffected —
-			// XDG_SESSION_TYPE is still "wayland" there, so IsWaylandSession stays true.
+			// would be dead code there anyway). An XWayland *client* in a Wayland session is unaffected:
+			// XDG_SESSION_TYPE or WAYLAND_DISPLAY still identifies the session as Wayland.
 			if (!Platform.Desktop.IsWaylandSession)
 				return null;
 
@@ -1089,10 +1089,18 @@ function findWindow(id) {
 			public bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
 				=> GnomeShellBridge.SendShowHighlight(id, x, y, width, height, color, thickness);
 
-			public bool TryHideHighlight(uint id)
-				=> GnomeShellBridge.SendHideHighlight(id);
+				public bool TryHideHighlight(uint id)
+					=> GnomeShellBridge.SendHideHighlight(id);
 
-			public bool SupportsWindowEvents => true;
+				public bool SupportsImageOverlay => true;
+
+				public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
+					=> GnomeShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
+
+				public bool TryHideImageOverlay(uint id)
+					=> GnomeShellBridge.SendHideImageOverlay(id);
+
+				public bool SupportsWindowEvents => true;
 
 			public IDisposable SubscribeWindowEvents(Action<WaylandWindowEvent> sink)
 			{

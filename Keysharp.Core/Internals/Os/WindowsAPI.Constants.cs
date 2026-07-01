@@ -48,6 +48,12 @@ namespace Keysharp.Internals.Os.Windows
 
 		internal const int LWA_COLORKEY = 0x1;
 
+		internal const byte AC_SRC_OVER = 0x00;
+
+		internal const byte AC_SRC_ALPHA = 0x01;
+
+		internal const uint ULW_ALPHA = 0x00000002;
+
 		internal const int MAPVK_VK_TO_VSC = 0;
 		internal const int MAPVK_VSC_TO_VK = 1;
 		internal const int MAPVK_VK_TO_CHAR = 2;

@@ -14,6 +14,12 @@ namespace Keysharp.Builtins
 		/// An array of all tooltip positions used to avoid position flickering.
 		/// </summary>
 		internal readonly Point?[] persistentTooltipsPositions = new Point?[MaxToolTips];
+#if !WINDOWS
+		/// <summary>
+		/// Per-slot click-through Overlay used to draw tooltips on Linux/macOS (Windows uses the WinForms ToolTip).
+		/// </summary>
+		internal readonly Ks.KeysharpOverlay[] overlayTooltips = new Ks.KeysharpOverlay[MaxToolTips];
+#endif
 	}
 
 	/// <summary>
@@ -41,13 +47,20 @@ namespace Keysharp.Builtins
 			var _y = (y is null ? int.MinValue : y.ToInt());
 			var id = (whichToolTip is null ? 1 : whichToolTip.ToInt());
 			var script = Script.TheScript;
-			var persistentTooltips = script.ToolTipData.persistentTooltips;
-			var persistentTooltipsPositions = script.ToolTipData.persistentTooltipsPositions;
 
 			if (id < 1 || id > ToolTipData.MaxToolTips)
 				return Errors.ErrorOccurred($"ToolTip index must be 1-{ToolTipData.MaxToolTips} but was {id}");
 
 			id--;
+
+#if !WINDOWS
+			// Linux/macOS draw the tooltip with the cross-platform, click-through Overlay. (Native WinForms/Eto
+			// tooltips on Wayland become xdg-popups the compositor dismisses on focus loss; an Overlay surface
+			// stays put and can be re-shown from a backgrounded app.)
+			return ShowOverlayTooltip(script, id, t, _x, _y);
+#else
+			var persistentTooltips = script.ToolTipData.persistentTooltips;
+			var persistentTooltipsPositions = script.ToolTipData.persistentTooltipsPositions;
 
 			if (t == "") // Clear tooltip and return
 			{
@@ -59,24 +72,8 @@ namespace Keysharp.Builtins
 					persistentTooltipsPositions[id] = null;
 				}
 
-#if LINUX
-				// Tear down the Wayland layer-shell tooltip for this slot, if one is up (no-op otherwise). The
-				// surface lifecycle is owned by Platform.Overlay.
-				_ = Platform.Overlay.TryHideTooltip(id);
-#endif
 				return 0L;
 			}
-
-#if LINUX
-			// On Wayland, prefer a zwlr_layer_shell_v1 tooltip: WinForms tooltips on Wayland
-			// become xdg-popups, which the compositor dismisses the moment the parent loses
-			// focus. A layer-shell surface on the Overlay layer stays visible across focus
-			// changes and can be re-shown from a backgrounded application. Falls back to the
-			// WinForms path below when the compositor lacks layer-shell or the Cairo/Pango
-			// rendering stack is unavailable.
-			if (TryShowWaylandTooltip(id, t, _x, _y))
-				return 0L;
-#endif
 
 			var tooltipInvokerForm = GuiHelper.DialogOwner ?? Form.ActiveForm;
 			var one_or_both_coords_specified = _x != int.MinValue || _y != int.MinValue;
@@ -188,42 +185,86 @@ namespace Keysharp.Builtins
 				//2: If the user needs to move the mouse out of the way, they can just do it.
 			}, false, false);
 			return handle;
+#endif
 		}
 
-#if LINUX
-		// Prefer a zwlr_layer_shell_v1 tooltip on Wayland. The capability probe and the layer-shell surface
-		// lifecycle live in Platform.Overlay (the resolved overlay service); this only resolves coordinates and
-		// delegates. Returns false — so the WinForms path takes over — when the layer-shell/Cairo stack is
-		// unavailable or the surface fails at runtime.
-		private static bool TryShowWaylandTooltip(int slotIndex, string text, int xArg, int yArg)
+#if !WINDOWS
+		// Shows/updates/clears a Linux/macOS tooltip slot as a click-through Overlay. Empty text clears the
+		// slot; otherwise the text is rendered to a small labelled bitmap and shown at the resolved position.
+		private static object ShowOverlayTooltip(Script script, int id, string text, int xArg, int yArg)
 		{
-			if (!Platform.Overlay.SupportsTooltip)
-				return false;
+			var overlays = script.ToolTipData.overlayTooltips;
 
-			// Resolve the requested coordinates to screen-space. CoordModeToolTip can be Window, Client or
-			// Screen; missing axes default to a small offset from the cursor (mirrors the WinForms path below).
-			// If CoordToScreen throws (e.g. Window/Client mode on Wayland, where the compositor doesn't expose
-			// window positions to foreign clients), we propagate the exception so the script sees the
-			// unsupported-operation error rather than silently being misled by wrong coordinates.
-			var coordModeToolTip = ThreadAccessors.A_CoordModeToolTip;
-			var tempx = xArg;
-			var tempy = yArg;
+			if (text.Length == 0) // Clear the slot
+			{
+				_ = overlays[id]?.Destroy();
+				overlays[id] = null;
+				return 0L;
+			}
 
-			if ((xArg != int.MinValue || yArg != int.MinValue) && coordModeToolTip != CoordModeType.Screen)
-				CoordToScreen(ref tempx, ref tempy, CoordMode.Tooltip);
+			ResolveTooltipPos(xArg, yArg, out var sx, out var sy);
+
+			using var img = BuildTooltipImage(text);
+
+			if (img == null)
+				return 0L;
+
+			var overlay = overlays[id] ??= new Ks.KeysharpOverlay();
+			_ = overlay.SetImage(img);
+			_ = overlay.Show(sx, sy);
+			return overlay.Hwnd;
+		}
+
+		// Renders tooltip text to a bitmap: black text on the classic light-yellow background with a 1px black
+		// border, sized to the text plus padding. Returned as an Image the Overlay copies onto its canvas.
+		private static Ks.KeysharpImage BuildTooltipImage(string text)
+		{
+			const int pad = 6;
+			Font font;
+
+			try { font = new Font("Sans", 10); }
+			catch { font = SystemFonts.Default(10); }
+
+			SizeF size;
+
+			using (font)
+			using (var probe = ImageHelper.NewArgbCanvas(1, 1))
+			using (var pg = ImageHelper.MakeGraphics(probe))
+				size = pg.MeasureString(font, text ?? "");
+
+			var w = Math.Max(1, (int)Math.Ceiling(size.Width) + pad * 2);
+			var h = Math.Max(1, (int)Math.Ceiling(size.Height) + pad * 2);
+
+			if (Ks.KeysharpImage.Create(null, (long)w, (long)h) is not Ks.KeysharpImage img)
+				return null;
+
+			_ = img.FillRect(0L, 0L, (long)w, (long)h, 0xFFFFE1L);                    // light-yellow background
+			_ = img.DrawRect(0L, 0L, (long)(w - 1), (long)(h - 1), 0x000000L, 1L);    // black border
+			_ = img.DrawText(text, (long)pad, (long)pad, 0x000000L);                  // black text
+			return img;
+		}
+
+		// Resolves ToolTip's (x,y) args to absolute screen coordinates, honoring A_CoordModeToolTip and
+		// defaulting a missing axis to just past the cursor (matches AutoHotkey). Propagates a CoordToScreen
+		// failure (e.g. Window/Client mode on Wayland) so the script sees the unsupported-operation error.
+		private static void ResolveTooltipPos(int xArg, int yArg, out int sx, out int sy)
+		{
+			sx = xArg;
+			sy = yArg;
+
+			if ((xArg != int.MinValue || yArg != int.MinValue) && ThreadAccessors.A_CoordModeToolTip != CoordModeType.Screen)
+				CoordToScreen(ref sx, ref sy, CoordMode.Tooltip);
 
 			if (xArg == int.MinValue || yArg == int.MinValue)
 			{
-				_ = GetCursorPos(out var temppt);
+				_ = GetCursorPos(out var pt);
 
 				if (xArg == int.MinValue)
-					tempx = temppt.X + 10;
+					sx = pt.X + 10;
 
 				if (yArg == int.MinValue)
-					tempy = temppt.Y + 10;
+					sy = pt.Y + 10;
 			}
-
-			return Platform.Overlay.TryShowTooltip(slotIndex, text, tempx, tempy);
 		}
 #endif
 

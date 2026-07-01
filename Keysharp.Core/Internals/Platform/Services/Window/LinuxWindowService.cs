@@ -55,6 +55,22 @@ namespace Keysharp.Internals
 			return wayland != null && wayland.TryGetWindow(h, out info);
 		}
 
+		// One of OUR OWN top-level windows lives in Eto/GTK land under a native handle the compositor backend
+		// doesn't key on, so Backend(h) misses and Eto's self position/query (which is a Wayland no-op) is used.
+		// Correlate such a handle to its compositor window so self-window verbs (move, bounds) take the same
+		// compositor path foreign windows do. Returns false for child controls and non-own handles.
+		private bool OwnBackend(nint h, out WaylandWindowInfo info)
+		{
+			info = null;
+
+			if (wayland == null || !TryOwnControl(h, out var ctrl) || ctrl is not Form form)
+				return false;
+
+			var size = form.GetSize();
+			return WaylandSelfPositioner.TryGetCompositorHandle(form, form.Title, size.Width, size.Height, out var compHandle)
+				   && wayland.TryGetWindow(compHandle, out info);
+		}
+
 		// Foreign-toplevel handles are the ONLY negative window ids (allocated via nextHandle-- from -1); X11 XIDs
 		// and KWin/GNOME synthetic ids are positive. So a non-negative handle can never be a foreign toplevel —
 		// skip the wl_display Refresh roundtrip that Get/IsWindow would otherwise do on EVERY property read of an
@@ -96,6 +112,7 @@ namespace Keysharp.Internals
 		{
 			if (Backend(h, out var info)) return info.Bounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
+			if (OwnBackend(h, out var own)) return own.Bounds;   // real compositor position, not Eto's no-op location
 			if (TryOwnControl(h, out _)) return base.GetBounds(h);
 			return Rectangle.Empty;
 		}
@@ -104,6 +121,7 @@ namespace Keysharp.Internals
 		{
 			if (Backend(h, out var info)) return info.ClientBounds;
 			if (Foreign(h) != null) return Rectangle.Empty;
+			if (OwnBackend(h, out var own)) return OwnClientBounds(h, own);
 			if (TryOwnControl(h, out _)) return base.GetClientBounds(h);
 			return Rectangle.Empty;
 		}
@@ -199,6 +217,7 @@ namespace Keysharp.Internals
 		{
 			if (Backend(h, out var info)) { var r = info.ClientGeometry; return new POINT(r.X, r.Y); }
 			if (Foreign(h) != null) return new POINT(0, 0);
+			if (OwnBackend(h, out var own)) { var r = OwnClientBounds(h, own); return new POINT(r.X, r.Y); }
 			if (TryOwnControl(h, out _)) return base.ClientToScreen(h);
 			return new POINT(0, 0);
 		}
@@ -222,6 +241,25 @@ namespace Keysharp.Internals
 			var origin = ClientToScreen(h);
 			pt = new Point(pt.X + origin.X, pt.Y + origin.Y);
 			return true;
+		}
+
+		private Rectangle OwnClientBounds(nint h, WaylandWindowInfo own)
+		{
+			var frame = own.FrameGeometry;
+			var local = TryOwnControl(h, out _) ? base.GetClientBounds(h) : Rectangle.Empty;
+
+			if (local.Width > 0 && local.Height > 0 && frame.Width > 0 && frame.Height > 0)
+			{
+				// GTK/Eto knows the client size, but under Wayland its PointToScreen origin can be
+				// 0,0. Combine that client size with Muffin/KWin/GNOME's real frame position.
+				var width = Math.Min(local.Width, frame.Width);
+				var height = Math.Min(local.Height, frame.Height);
+				var side = Math.Max(0, (int)Math.Round((frame.Width - width) / 2.0));
+				var top = Math.Max(0, frame.Height - height - side);
+				return new Rectangle(frame.X + side, frame.Y + top, width, height);
+			}
+
+			return own.ClientGeometry.Width > 0 && own.ClientGeometry.Height > 0 ? own.ClientGeometry : frame;
 		}
 
 		public override bool TryGetParent(nint h, out nint parent)
@@ -305,7 +343,10 @@ namespace Keysharp.Internals
 
 		public override bool TryKill(nint h)
 		{
-			if (Backend(h, out _) || Foreign(h) != null)   // WaylandWindowItem.Kill => Close
+			if (Backend(h, out _))
+				return wayland.TryKillWindow(h);
+
+			if (Foreign(h) != null)
 				return TryClose(h);
 
 			if (TryOwnControl(h, out _))
@@ -404,7 +445,31 @@ namespace Keysharp.Internals
 				return false;   // wlr-foreign-toplevel exposes no geometry; the caller raises OSError
 
 			if (TryOwnControl(h, out _))
-				return base.TryMoveResize(h, bounds, setPos, setSize);
+			{
+				// A Wayland client may resize itself (Eto), but it cannot set its own xdg-toplevel position
+				// (control.SetLocation is a silent no-op), so route the move through the compositor backend the
+				// same way Gui.Move() does. Resize still goes via Eto.
+				if (setSize)
+					_ = base.TryMoveResize(h, bounds, false, true);
+
+				if (setPos)
+				{
+					if (!OwnBackend(h, out var own))
+						return false;
+
+					var rect = own.FrameGeometry;
+					if (bounds.X != WindowInfoBase.Unchanged) rect.X = bounds.X;
+					if (bounds.Y != WindowInfoBase.Unchanged) rect.Y = bounds.Y;
+
+					if (!wayland.TryMoveResizeWindow(own.Handle, rect, true, false))
+						return false;
+
+					WaylandSelfPositioner.NotifyExternalMove(own.Handle, bounds.X, bounds.Y);
+				}
+
+				return true;
+			}
+
 			return false;
 		}
 

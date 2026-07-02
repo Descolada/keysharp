@@ -53,9 +53,30 @@ const DBUS_IFACE_XML = `
       <arg type="i" direction="out" name="height"/>
     </method>
 
-    <!-- Window handle is the stable_sequence uint32 of Meta.Window. -->
+    <!-- Register this client as an overlay owner. ownerKey = "pid:starttime"; busName = the caller's
+         unique D-Bus name. Lets the shell reap the caller's overlays when its process/connection dies. -->
+    <method name="RegisterHighlightOwner">
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Window handle is the stable_sequence uint32 of Meta.Window. ok = false when no such window. -->
     <method name="FocusWindow">
       <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Raise the window to the top of the stack. -->
+    <method name="RaiseWindow">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Lower the window to the bottom of the stack. -->
+    <method name="LowerWindow">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- Pass x = INT32_MIN (-2147483648) to leave position unchanged;
@@ -66,18 +87,21 @@ const DBUS_IFACE_XML = `
       <arg type="i" direction="in" name="y"/>
       <arg type="i" direction="in" name="width"/>
       <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- state: 0 = normal, 1 = minimized, 2 = maximized. -->
     <method name="SetWindowState">
       <arg type="t" direction="in" name="handle"/>
       <arg type="i" direction="in" name="state"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- above: true = keep above all others, false = clear keep-above. -->
     <method name="SetWindowAbove">
       <arg type="t" direction="in" name="handle"/>
       <arg type="b" direction="in" name="above"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- decorated: true = show the titlebar/frame, false = hide it (the GNOME counterpart of KWin's
@@ -85,27 +109,45 @@ const DBUS_IFACE_XML = `
     <method name="SetWindowDecorated">
       <arg type="t" direction="in" name="handle"/>
       <arg type="b" direction="in" name="decorated"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- opacity: 0 (fully transparent) .. 255 (fully opaque). -->
+    <method name="SetWindowOpacity">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="i" direction="in" name="opacity"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <method name="CloseWindow">
       <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
-    <!-- Mouse simulation via Clutter.VirtualInputDevice. -->
+    <!-- Force-kill the window's client, falling back to a graceful close. -->
+    <method name="KillWindow">
+      <arg type="t" direction="in" name="handle"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Mouse simulation via Clutter.VirtualInputDevice. ok = false when no virtual pointer exists. -->
     <method name="SendMouseMoveAbsolute">
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <method name="SendMouseMoveRelative">
       <arg type="i" direction="in" name="dx"/>
       <arg type="i" direction="in" name="dy"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- button: 1=left, 2=middle, 3=right (X11 convention). -->
     <method name="SendMouseButton">
       <arg type="u" direction="in" name="button"/>
       <arg type="b" direction="in" name="pressed"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- delta in 120-unit wheel increments (positive = up/right).
@@ -113,6 +155,7 @@ const DBUS_IFACE_XML = `
     <method name="SendMouseScroll">
       <arg type="i" direction="in" name="delta"/>
       <arg type="b" direction="in" name="vertical"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- Capture a screen region and return raw PNG bytes. No flash, no
@@ -145,30 +188,78 @@ const DBUS_IFACE_XML = `
          The overlay is non-reactive and excluded from the shell input region, so it never eats clicks. -->
     <method name="ShowHighlight">
       <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
       <arg type="i" direction="in" name="width"/>
       <arg type="i" direction="in" name="height"/>
       <arg type="s" direction="in" name="color"/>
       <arg type="i" direction="in" name="thickness"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- Remove the overlay previously created with the given id. Unknown ids are ignored. -->
     <method name="HideHighlight">
       <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <method name="ShowImageOverlay">
       <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
       <arg type="i" direction="in" name="x"/>
       <arg type="i" direction="in" name="y"/>
       <arg type="i" direction="in" name="width"/>
       <arg type="i" direction="in" name="height"/>
       <arg type="ay" direction="in" name="pngData"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <method name="MoveImageOverlay">
+      <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <method name="HideImageOverlay">
       <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- True when the shell can draw a click-through tooltip on the caller's behalf. -->
+    <method name="SupportsTooltip">
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Draw or update a click-through tooltip. slot identifies it per owner; empty text clears it.
+         x/y are global compositor coordinates. -->
+    <method name="ShowTooltip">
+      <arg type="i" direction="in" name="slot"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="s" direction="in" name="text"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
+    <!-- Remove the tooltip in the given slot for this owner. -->
+    <method name="HideTooltip">
+      <arg type="i" direction="in" name="slot"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="b" direction="out" name="ok"/>
     </method>
 
     <!-- Emitted whenever the focused window changes. Carries the same
@@ -197,6 +288,11 @@ const STATE_MAXIMIZED = 2;
 // Sentinel used by MoveResizeWindow to mean "don't change this axis".
 const INT32_MIN = -2147483648;
 
+// Grace period after a client's D-Bus name drops before its overlays are reaped, so a client that
+// merely reconnected (new unique name, then re-registers) does not lose its overlays. See
+// _handleOverlayConnectionLost. Mirrors the Cinnamon extension.
+const OVERLAY_RECONNECT_GRACE_MS = 2000;
+
 export default class KeysharpExtension {
     constructor() {
         this._dbusImpl     = null;
@@ -204,9 +300,19 @@ export default class KeysharpExtension {
         this._vPointer     = null;
         this._focusId      = null;
         this._winCreatedId = null;
-        // id (uint) -> array of edge actors making up one highlight overlay.
+        // Overlays are keyed by "<ownerKey>:<id>" (see _overlayKey) so ids never collide across clients.
+        // Each entry carries its owner so a dead client's overlays can be reaped:
+        //   highlight  entry = { edges:[St.Widget...], ownerKey, ownerPid, ownerStartTime, busName }
+        //   image      entry = { actor:Clutter.Actor,  ownerKey, ownerPid, ownerStartTime, busName }
+        //   tooltip    entry = { actor:St.Label,       ownerKey, ownerPid, ownerStartTime, busName }
         this._highlights   = new Map();
         this._imageOverlays = new Map();
+        this._tooltips     = new Map();
+        // Owner-death cleanup: subscription id for NameOwnerChanged, the periodic /proc liveness sweep
+        // source id (0 = idle), and per-owner reconnect-grace timers keyed by ownerKey.
+        this._overlayNameWatchId = 0;
+        this._overlayCleanupId = 0;
+        this._overlayReconnectTimers = new Map();
     }
 
     enable() {
@@ -224,6 +330,17 @@ export default class KeysharpExtension {
         // method. The correct API is the free function Gio.bus_own_name().
         this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(DBUS_IFACE_XML, this);
         this._dbusImpl.export(Gio.DBus.session, OBJECT_PATH);
+
+        // Watch for client D-Bus connection names dropping off the bus. When one that owns overlays
+        // disappears, _handleNameOwnerChanged arms a short reconnect grace timer and then reaps them.
+        this._overlayNameWatchId = Gio.DBus.session.signal_subscribe(
+            'org.freedesktop.DBus',
+            'org.freedesktop.DBus',
+            'NameOwnerChanged',
+            '/org/freedesktop/DBus',
+            null,
+            Gio.DBusSignalFlags.NONE,
+            (_conn, _sender, _path, _iface, _signal, parameters) => this._handleNameOwnerChanged(parameters));
 
         this._busNameId = Gio.bus_own_name(
             Gio.BusType.SESSION,
@@ -260,12 +377,23 @@ export default class KeysharpExtension {
     }
 
     disable() {
-        // Tear down any overlays still on screen.
-        for (const id of [...this._highlights.keys()])
-            this._removeHighlight(id);
+        // Tear down any overlays still on screen, plus the owner-death cleanup machinery.
+        for (const key of [...this._highlights.keys()])
+            this._removeHighlightByKey(key);
 
-        for (const id of [...this._imageOverlays.keys()])
-            this._removeImageOverlay(id);
+        for (const key of [...this._imageOverlays.keys()])
+            this._removeImageOverlayByKey(key);
+
+        for (const key of [...this._tooltips.keys()])
+            this._removeTooltipByKey(key);
+
+        this._stopOverlayCleanupTimer();
+        this._cancelAllOverlayReconnectTimers();
+
+        if (this._overlayNameWatchId !== 0) {
+            try { Gio.DBus.session.signal_unsubscribe(this._overlayNameWatchId); } catch (_e) {}
+            this._overlayNameWatchId = 0;
+        }
 
         if (this._winCreatedId !== null) {
             global.display.disconnect(this._winCreatedId);
@@ -350,15 +478,57 @@ export default class KeysharpExtension {
 
     FocusWindow(handle) {
         const win = this._findWindow(handle);
-        if (!win) return;
+        if (!win) return false;
         if (win.minimized)
             win.unminimize();
         Main.activateWindow(win);
+        return true;
+    }
+
+    RaiseWindow(handle) {
+        const win = this._findWindow(handle);
+        if (!win)
+            return false;
+
+        try {
+            if (typeof win.raise === 'function') {
+                win.raise();
+                return true;
+            }
+        } catch (_e) {
+        }
+
+        // Mutter versions without a public raise(): activating brings it to the front.
+        return this.FocusWindow(handle);
+    }
+
+    LowerWindow(handle) {
+        const win = this._findWindow(handle);
+        if (!win)
+            return false;
+
+        try {
+            if (typeof win.lower_with_transients === 'function') {
+                win.lower_with_transients();
+                return true;
+            }
+        } catch (_e) {
+        }
+
+        try {
+            if (typeof win.lower === 'function') {
+                win.lower();
+                return true;
+            }
+        } catch (_e) {
+        }
+
+        return false;
     }
 
     MoveResizeWindow(handle, x, y, width, height) {
         const win = this._findWindow(handle);
-        if (!win) return;
+        if (!win) return false;
 
         // Read the current frame rect so we can substitute unchanged axes.
         const frame = win.get_frame_rect();
@@ -370,11 +540,12 @@ export default class KeysharpExtension {
         // move_resize_frame is the single Mutter call for both move and resize;
         // win.resize() does not exist as a standalone public API in Mutter/GJS.
         win.move_resize_frame(false, nx, ny, nw, nh);
+        return true;
     }
 
     SetWindowState(handle, state) {
         const win = this._findWindow(handle);
-        if (!win) return;
+        if (!win) return false;
 
         if (state === STATE_MINIMIZED) {
             win.minimize();
@@ -385,11 +556,12 @@ export default class KeysharpExtension {
             win.unminimize();
             win.unmaximize(Meta.MaximizeFlags.HORIZONTAL | Meta.MaximizeFlags.VERTICAL);
         }
+        return true;
     }
 
     SetWindowAbove(handle, above) {
         const win = this._findWindow(handle);
-        if (!win) return;
+        if (!win) return false;
 
         // Mutter exposes make_above()/unmake_above(); guard with is_above() so a redundant
         // call doesn't throw on compositor versions that are strict about state transitions.
@@ -400,12 +572,37 @@ export default class KeysharpExtension {
             if (win.is_above())
                 win.unmake_above();
         }
+        return true;
     }
 
     CloseWindow(handle) {
         const win = this._findWindow(handle);
-        if (win)
+        if (!win)
+            return false;
+        win.delete(global.get_current_time());
+        return true;
+    }
+
+    KillWindow(handle) {
+        const win = this._findWindow(handle);
+        if (!win)
+            return false;
+
+        try {
+            if (typeof win.kill === 'function') {
+                win.kill();
+                return true;
+            }
+        } catch (_e) {
+        }
+
+        // No kill() on this Mutter version: fall back to a graceful close.
+        try {
             win.delete(global.get_current_time());
+            return true;
+        } catch (_e) {
+            return false;
+        }
     }
 
     // Hide/show a window's titlebar — the GNOME counterpart of KWin's noBorder.
@@ -419,52 +616,86 @@ export default class KeysharpExtension {
     SetWindowDecorated(handle, decorated) {
         const win = this._findWindow(handle);
         if (!win)
-            return;
+            return false;
 
         try {
             const isX11 = (typeof win.get_client_type === 'function')
                 ? (win.get_client_type() === Meta.WindowClientType.X11)
                 : (typeof win.get_xwindow === 'function' && win.get_xwindow() !== 0);
 
+            // Wayland client: decorations are client-side; nothing the compositor can remove. The window
+            // exists and there is nothing to do, so this is best-effort success, not a failure.
             if (!isX11 || typeof win.get_xwindow !== 'function')
-                return; // Wayland client: decorations are client-side; nothing the compositor can remove.
+                return true;
 
             const xid = win.get_xwindow();
             if (!xid)
-                return;
+                return true;
 
             // _MOTIF_WM_HINTS: flags=2 (MWM_HINTS_DECORATIONS), decorations field 0 = none / 1 = all.
             const decor = decorated ? 1 : 0;
             GLib.spawn_command_line_async(
                 `xprop -id ${xid} -f _MOTIF_WM_HINTS 32c ` +
                 `-set _MOTIF_WM_HINTS "2, 0, ${decor}, 0, 0"`);
+            return true;
         } catch (e) {
             logError(e, 'Keysharp: SetWindowDecorated failed');
+            return false;
+        }
+    }
+
+    // Set the window's opacity by setting it on its compositor actor. opacity is 0 (transparent)..255 (opaque).
+    SetWindowOpacity(handle, opacity) {
+        const win = this._findWindow(handle);
+        if (!win)
+            return false;
+
+        const value = Math.max(0, Math.min(255, Math.round(Number(opacity))));
+
+        try {
+            const actor = (typeof win.get_compositor_private === 'function')
+                ? win.get_compositor_private()
+                : null;
+
+            if (!actor)
+                return false;
+
+            if (typeof actor.set_opacity === 'function')
+                actor.set_opacity(value);
+            else
+                actor.opacity = value;
+
+            return true;
+        } catch (_e) {
+            return false;
         }
     }
 
     SendMouseMoveAbsolute(x, y) {
-        if (!this._vPointer) return;
+        if (!this._vPointer) return false;
         this._vPointer.notify_absolute_motion(GLib.get_monotonic_time(), x, y);
+        return true;
     }
 
     SendMouseMoveRelative(dx, dy) {
-        if (!this._vPointer) return;
+        if (!this._vPointer) return false;
         const [cx, cy] = global.get_pointer();
         this._vPointer.notify_absolute_motion(
             GLib.get_monotonic_time(), cx + dx, cy + dy);
+        return true;
     }
 
     SendMouseButton(button, pressed) {
-        if (!this._vPointer) return;
+        if (!this._vPointer) return false;
         this._vPointer.notify_button(
             GLib.get_monotonic_time(),
             button,
             pressed ? Clutter.ButtonState.PRESSED : Clutter.ButtonState.RELEASED);
+        return true;
     }
 
     SendMouseScroll(delta, vertical) {
-        if (!this._vPointer) return;
+        if (!this._vPointer) return false;
 
         const notches = Math.max(1, Math.abs(Math.round(delta / 120)));
         let dir;
@@ -477,6 +708,7 @@ export default class KeysharpExtension {
         const time = GLib.get_monotonic_time();
         for (let i = 0; i < notches; i++)
             this._vPointer.notify_discrete_scroll(time, dir, Clutter.ScrollSource.WHEEL);
+        return true;
     }
 
     // Capture a screen region without any visible effect and return PNG bytes.
@@ -579,18 +811,63 @@ export default class KeysharpExtension {
         }
     }
 
+    // Register a client as an overlay owner. The client re-registers whenever its D-Bus connection is
+    // (re)established; this re-stamps the current busName onto any overlays it already owns and cancels a
+    // pending reconnect-grace deletion, so a client that merely reconnected keeps its overlays.
+    RegisterHighlightOwner(ownerKey, busName) {
+        const owner = this._parseOverlayOwner(ownerKey);
+        const bus = String(busName || '');
+
+        this._cancelOverlayReconnectTimer(owner.key);
+
+        for (const entry of this._highlights.values()) {
+            if (entry.ownerKey === owner.key) {
+                entry.ownerPid = owner.pid;
+                entry.ownerStartTime = owner.startTime;
+                entry.busName = bus;
+            }
+        }
+
+        for (const entry of this._imageOverlays.values()) {
+            if (entry.ownerKey === owner.key) {
+                entry.ownerPid = owner.pid;
+                entry.ownerStartTime = owner.startTime;
+                entry.busName = bus;
+            }
+        }
+
+        for (const entry of this._tooltips.values()) {
+            if (entry.ownerKey === owner.key) {
+                entry.ownerPid = owner.pid;
+                entry.ownerStartTime = owner.startTime;
+                entry.busName = bus;
+            }
+        }
+
+        return true;
+    }
+
     // Draw or update a click-through rectangle-outline overlay. GNOME has no wlr-layer-shell, so
     // instead of a layer surface we add four edge actors to the shell's top chrome. Two things make
     // them click-through: reactive:false (they never grab events) and addTopChrome(..., {
     // affectsInputRegion: false }) (they are excluded from the shell's input region, so clicks fall
     // through to the window beneath — the compositor-side equivalent of the layer surface's empty
     // input region on KWin). Four edges (rather than one filled rect) keep the centre visually clear.
-    ShowHighlight(id, x, y, width, height, color, thickness) {
+    // The overlay is tagged with its owner (see _overlayKey) so it can be reaped if the client dies.
+    ShowHighlight(id, ownerKey, busName, x, y, width, height, color, thickness) {
         try {
-            this._removeHighlight(id);
+            const owner = this._parseOverlayOwner(ownerKey);
+            const key = this._overlayKey(id, owner.key);
+            const bus = String(busName || '');
 
-            if (width < 1 || height < 1)
-                return;
+            this._cancelOverlayReconnectTimer(owner.key);
+            this._removeHighlightByKey(key);
+
+            if (width < 1 || height < 1) {
+                if (!this._hasAnyOverlays())
+                    this._stopOverlayCleanupTimer();
+                return true;
+            }
 
             const t   = Math.max(1, thickness);
             const css = `background-color: #${color};`;
@@ -615,60 +892,444 @@ export default class KeysharpExtension {
                 edges.push(a);
             }
 
-            this._highlights.set(id, edges);
+            this._highlights.set(key, {
+                edges: edges,
+                ownerKey: owner.key,
+                ownerPid: owner.pid,
+                ownerStartTime: owner.startTime,
+                busName: bus,
+            });
+            this._ensureOverlayCleanupTimer();
+            return true;
         } catch (e) {
             logError(e, 'Keysharp: ShowHighlight failed');
+            return false;
         }
     }
 
-    HideHighlight(id) {
-        this._removeHighlight(id);
+    HideHighlight(id, ownerKey, _busName) {
+        const owner = this._parseOverlayOwner(ownerKey);
+        this._removeHighlightByKey(this._overlayKey(id, owner.key));
+
+        if (!this._hasOverlaysForOwner(owner.key))
+            this._cancelOverlayReconnectTimer(owner.key);
+
+        if (!this._hasAnyOverlays())
+            this._stopOverlayCleanupTimer();
+
+        return true;
     }
 
-    ShowImageOverlay(id, x, y, width, height, pngData) {
+    ShowImageOverlay(id, ownerKey, busName, x, y, width, height, pngData) {
         try {
-            this._removeImageOverlay(id);
+            const owner = this._parseOverlayOwner(ownerKey);
+            const key = this._overlayKey(id, owner.key);
+            const bus = String(busName || '');
 
-            if (!pngData || pngData.length === 0 || width < 1 || height < 1)
-                return;
+            this._cancelOverlayReconnectTimer(owner.key);
+            this._removeImageOverlayByKey(key);
+
+            // Empty pixels = a clear request, which the removal above already satisfied - report success.
+            if (!pngData || pngData.length === 0 || width < 1 || height < 1) {
+                if (!this._hasAnyOverlays())
+                    this._stopOverlayCleanupTimer();
+                return true;
+            }
 
             const actor = this._createImageActor(pngData, x, y, width, height);
             Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
-            this._imageOverlays.set(id, actor);
+            this._imageOverlays.set(key, {
+                actor: actor,
+                ownerKey: owner.key,
+                ownerPid: owner.pid,
+                ownerStartTime: owner.startTime,
+                busName: bus,
+            });
+            this._ensureOverlayCleanupTimer();
+            return true;
         } catch (e) {
             logError(e, 'Keysharp: ShowImageOverlay failed');
+            return false;
         }
     }
 
-    HideImageOverlay(id) {
-        this._removeImageOverlay(id);
+    MoveImageOverlay(id, ownerKey, _busName, x, y, width, height) {
+        try {
+            const owner = this._parseOverlayOwner(ownerKey);
+            const entry = this._imageOverlays.get(this._overlayKey(id, owner.key));
+
+            // No live actor for this id: report failure so the caller re-sends the pixels via ShowImageOverlay.
+            if (!entry || !entry.actor)
+                return false;
+
+            entry.actor.set_position(x, y);
+            entry.actor.set_size(width, height);
+            return true;
+        } catch (e) {
+            logError(e, 'Keysharp: MoveImageOverlay failed');
+            return false;
+        }
+    }
+
+    HideImageOverlay(id, ownerKey, _busName) {
+        const owner = this._parseOverlayOwner(ownerKey);
+        this._removeImageOverlayByKey(this._overlayKey(id, owner.key));
+
+        if (!this._hasOverlaysForOwner(owner.key))
+            this._cancelOverlayReconnectTimer(owner.key);
+
+        if (!this._hasAnyOverlays())
+            this._stopOverlayCleanupTimer();
+
+        return true;
+    }
+
+    SupportsTooltip() {
+        return true;
+    }
+
+    // Draw or update a click-through tooltip label. slot identifies it per owner; empty text clears it.
+    // Click-through and owner-tagged like the other overlays (see ShowHighlight for the mechanism).
+    ShowTooltip(slot, ownerKey, busName, text, x, y) {
+        try {
+            const owner = this._parseOverlayOwner(ownerKey);
+            const key = this._overlayKey(slot, owner.key);
+            const bus = String(busName || '');
+            const labelText = String(text || '');
+
+            this._cancelOverlayReconnectTimer(owner.key);
+            this._removeTooltipByKey(key);
+
+            if (!labelText) {
+                if (!this._hasAnyOverlays())
+                    this._stopOverlayCleanupTimer();
+                return true;
+            }
+
+            const actor = new St.Label({
+                reactive: false,
+                text: labelText,
+                style: 'background-color: #ffffe1; color: #000000; border: 1px solid #000000; padding: 6px; font-size: 10pt; font-family: sans-serif;',
+            });
+            actor.set_position(x, y);
+            Main.layoutManager.addTopChrome(actor, { affectsInputRegion: false });
+
+            this._tooltips.set(key, {
+                actor: actor,
+                ownerKey: owner.key,
+                ownerPid: owner.pid,
+                ownerStartTime: owner.startTime,
+                busName: bus,
+            });
+            this._ensureOverlayCleanupTimer();
+            return true;
+        } catch (e) {
+            logError(e, 'Keysharp: ShowTooltip failed');
+            return false;
+        }
+    }
+
+    HideTooltip(slot, ownerKey, _busName) {
+        const owner = this._parseOverlayOwner(ownerKey);
+        this._removeTooltipByKey(this._overlayKey(slot, owner.key));
+
+        if (!this._hasOverlaysForOwner(owner.key))
+            this._cancelOverlayReconnectTimer(owner.key);
+
+        if (!this._hasAnyOverlays())
+            this._stopOverlayCleanupTimer();
+
+        return true;
     }
 
     // ----------------------------------------------------------------
     // Private helpers
     // ----------------------------------------------------------------
 
-    _removeHighlight(id) {
-        const edges = this._highlights.get(id);
-        if (!edges)
+    _removeHighlightByKey(key) {
+        const entry = this._highlights.get(key);
+        if (!entry)
             return;
 
-        for (const a of edges) {
+        for (const a of (entry.edges || [])) {
             try { Main.layoutManager.removeChrome(a); } catch (_e) {}
             try { a.destroy(); } catch (_e) {}
         }
 
-        this._highlights.delete(id);
+        this._highlights.delete(key);
     }
 
-    _removeImageOverlay(id) {
-        const actor = this._imageOverlays.get(id);
-        if (!actor)
+    _removeImageOverlayByKey(key) {
+        const entry = this._imageOverlays.get(key);
+        if (!entry)
             return;
 
-        try { Main.layoutManager.removeChrome(actor); } catch (_e) {}
-        try { actor.destroy(); } catch (_e) {}
-        this._imageOverlays.delete(id);
+        try { Main.layoutManager.removeChrome(entry.actor); } catch (_e) {}
+        try { entry.actor.destroy(); } catch (_e) {}
+        this._imageOverlays.delete(key);
+    }
+
+    _removeTooltipByKey(key) {
+        const entry = this._tooltips.get(key);
+        if (!entry)
+            return;
+
+        try { Main.layoutManager.removeChrome(entry.actor); } catch (_e) {}
+        try { entry.actor.destroy(); } catch (_e) {}
+        this._tooltips.delete(key);
+    }
+
+    // ---- overlay ownership: keying + owner parsing -------------------------------
+
+    // Namespaces an overlay id under its owner so two clients using the same id never collide.
+    _overlayKey(id, ownerKey) {
+        return `${ownerKey}:${id}`;
+    }
+
+    // ownerKey is "<pid>:<starttime>" (see WaylandOverlayOwner on the C# side).
+    _parseOverlayOwner(ownerKey) {
+        const key = String(ownerKey || '');
+        const parts = key.split(':');
+        const pid = parts.length > 0 ? Number(parts[0]) : 0;
+        const startTime = parts.length > 1 ? parts[1] : '';
+        return {
+            key: key,
+            pid: Number.isFinite(pid) ? Math.round(pid) : 0,
+            startTime: startTime,
+        };
+    }
+
+    // True unless the owning process is provably gone. Reads field 22 (starttime) of /proc/<pid>/stat
+    // and requires it to match the value captured when the overlay was created, so a reused pid (a
+    // different process now holding <pid>) is treated as dead. Fails open on any read/parse error.
+    _overlayOwnerAlive(pid, startTime) {
+        if (!pid || pid <= 0)
+            return true;
+
+        const statPath = `/proc/${pid}/stat`;
+
+        if (!GLib.file_test(statPath, GLib.FileTest.EXISTS))
+            return false;
+
+        if (!startTime)
+            return true;
+
+        try {
+            const [ok, bytes] = GLib.file_get_contents(statPath);
+            if (!ok)
+                return true;
+
+            const stat = new TextDecoder().decode(bytes);
+            const end = stat.lastIndexOf(')');
+
+            if (end < 0 || end + 2 >= stat.length)
+                return true;
+
+            const fields = stat.substring(end + 2).trim().split(/\s+/);
+            return fields.length > 19 && fields[19] === startTime;
+        } catch (_e) {
+            return true;
+        }
+    }
+
+    // ---- overlay ownership: reconnect grace timers -------------------------------
+
+    // Called when a client's D-Bus name vanishes. If the owning process is already dead, reap now;
+    // otherwise wait OVERLAY_RECONNECT_GRACE_MS and reap only if it stayed dead or never came back under
+    // a new bus name (a reconnecting client re-registers, replacing busName -> _ownerHasReplacementBus).
+    _handleOverlayConnectionLost(ownerKey, lostBusName, sampleEntry) {
+        if (!this._overlayOwnerAlive(sampleEntry.ownerPid, sampleEntry.ownerStartTime)) {
+            this._removeOwnerOverlays(ownerKey);
+            return;
+        }
+
+        this._cancelOverlayReconnectTimer(ownerKey);
+        const timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, OVERLAY_RECONNECT_GRACE_MS, () => {
+            this._overlayReconnectTimers.delete(ownerKey);
+
+            const entry = this._firstOverlayForOwner(ownerKey);
+
+            if (!entry)
+                return GLib.SOURCE_REMOVE;
+
+            if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime)
+                || !this._ownerHasReplacementBus(ownerKey, lostBusName))
+                this._removeOwnerOverlays(ownerKey);
+
+            return GLib.SOURCE_REMOVE;
+        });
+        this._overlayReconnectTimers.set(ownerKey, timerId);
+    }
+
+    _cancelOverlayReconnectTimer(ownerKey) {
+        const timerId = this._overlayReconnectTimers.get(ownerKey);
+
+        if (!timerId)
+            return;
+
+        try { GLib.source_remove(timerId); } catch (_e) {}
+        this._overlayReconnectTimers.delete(ownerKey);
+    }
+
+    _cancelAllOverlayReconnectTimers() {
+        for (const timerId of this._overlayReconnectTimers.values()) {
+            try { GLib.source_remove(timerId); } catch (_e) {}
+        }
+
+        this._overlayReconnectTimers.clear();
+    }
+
+    _ownerHasReplacementBus(ownerKey, lostBusName) {
+        for (const entry of this._highlights.values()) {
+            if (entry.ownerKey === ownerKey && entry.busName && entry.busName !== lostBusName)
+                return true;
+        }
+
+        for (const entry of this._imageOverlays.values()) {
+            if (entry.ownerKey === ownerKey && entry.busName && entry.busName !== lostBusName)
+                return true;
+        }
+
+        for (const entry of this._tooltips.values()) {
+            if (entry.ownerKey === ownerKey && entry.busName && entry.busName !== lostBusName)
+                return true;
+        }
+
+        return false;
+    }
+
+    // ---- overlay ownership: periodic /proc liveness sweep ------------------------
+
+    // Safety net for a client that dies without its D-Bus name-drop reaching us: a 2s sweep reaps any
+    // overlay whose owning process is gone. Self-terminating once no overlays remain.
+    _ensureOverlayCleanupTimer() {
+        if (this._overlayCleanupId !== 0)
+            return;
+
+        this._overlayCleanupId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, () => {
+            this._cleanupDeadOverlays();
+
+            if (!this._hasAnyOverlays()) {
+                this._overlayCleanupId = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopOverlayCleanupTimer() {
+        if (this._overlayCleanupId === 0)
+            return;
+
+        try { GLib.source_remove(this._overlayCleanupId); } catch (_e) {}
+        this._overlayCleanupId = 0;
+    }
+
+    _cleanupDeadOverlays() {
+        const owners = new Map();
+
+        for (const entry of this._highlights.values()) {
+            if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime))
+                owners.set(entry.ownerKey, true);
+        }
+
+        for (const entry of this._imageOverlays.values()) {
+            if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime))
+                owners.set(entry.ownerKey, true);
+        }
+
+        for (const entry of this._tooltips.values()) {
+            if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime))
+                owners.set(entry.ownerKey, true);
+        }
+
+        for (const ownerKey of owners.keys())
+            this._removeOwnerOverlays(ownerKey);
+    }
+
+    // ---- overlay ownership: NameOwnerChanged watch -------------------------------
+
+    _handleNameOwnerChanged(parameters) {
+        let name, oldOwner, newOwner;
+
+        try {
+            [name, oldOwner, newOwner] = parameters.deep_unpack();
+        } catch (_e) {
+            return;
+        }
+
+        // Only react to a name being released (had an owner, now has none).
+        if (!name || !oldOwner || newOwner)
+            return;
+
+        const owners = new Map();
+
+        for (const entry of this._highlights.values()) {
+            if (entry.busName === name && !owners.has(entry.ownerKey))
+                owners.set(entry.ownerKey, entry);
+        }
+
+        for (const entry of this._imageOverlays.values()) {
+            if (entry.busName === name && !owners.has(entry.ownerKey))
+                owners.set(entry.ownerKey, entry);
+        }
+
+        for (const entry of this._tooltips.values()) {
+            if (entry.busName === name && !owners.has(entry.ownerKey))
+                owners.set(entry.ownerKey, entry);
+        }
+
+        for (const [ownerKey, entry] of owners.entries())
+            this._handleOverlayConnectionLost(ownerKey, name, entry);
+    }
+
+    // ---- overlay ownership: per-owner queries + removal --------------------------
+
+    _firstOverlayForOwner(ownerKey) {
+        for (const entry of this._highlights.values())
+            if (entry.ownerKey === ownerKey)
+                return entry;
+
+        for (const entry of this._imageOverlays.values())
+            if (entry.ownerKey === ownerKey)
+                return entry;
+
+        for (const entry of this._tooltips.values())
+            if (entry.ownerKey === ownerKey)
+                return entry;
+
+        return null;
+    }
+
+    _hasOverlaysForOwner(ownerKey) {
+        return this._firstOverlayForOwner(ownerKey) !== null;
+    }
+
+    _hasAnyOverlays() {
+        return this._highlights.size !== 0 || this._imageOverlays.size !== 0 || this._tooltips.size !== 0;
+    }
+
+    _removeOwnerOverlays(ownerKey) {
+        for (const [key, entry] of [...this._highlights.entries()]) {
+            if (entry.ownerKey === ownerKey)
+                this._removeHighlightByKey(key);
+        }
+
+        for (const [key, entry] of [...this._imageOverlays.entries()]) {
+            if (entry.ownerKey === ownerKey)
+                this._removeImageOverlayByKey(key);
+        }
+
+        for (const [key, entry] of [...this._tooltips.entries()]) {
+            if (entry.ownerKey === ownerKey)
+                this._removeTooltipByKey(key);
+        }
+
+        this._cancelOverlayReconnectTimer(ownerKey);
+
+        if (!this._hasAnyOverlays())
+            this._stopOverlayCleanupTimer();
     }
 
     _createImageActor(pngData, x, y, width, height) {

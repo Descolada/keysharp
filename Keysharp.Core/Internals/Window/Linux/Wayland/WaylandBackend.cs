@@ -1081,6 +1081,18 @@ function findWindow(id) {
 				return GnomeShellBridge.SendCloseWindow(seq);
 			}
 
+			public bool TryKillWindow(nint handle)
+				=> TryHandleToSeq(handle, out var seq) && GnomeShellBridge.SendKillWindow(seq);
+
+			public bool TrySetZOrder(nint handle, ZOrder z)
+				=> TryHandleToSeq(handle, out var seq)
+				   && (z == ZOrder.Top
+					   ? GnomeShellBridge.SendRaiseWindow(seq)
+					   : z == ZOrder.Bottom && GnomeShellBridge.SendLowerWindow(seq));
+
+			public bool TrySetTransparency(nint handle, object alpha)
+				=> TryHandleToSeq(handle, out var seq) && GnomeShellBridge.SendSetOpacity(seq, alpha);
+
 			// GNOME has no wlr-layer-shell, so the Highlight builtin can't make a click-through layer
 			// surface itself; the shell extension draws the outline inside the compositor instead. The id
 			// is a plain caller-chosen token (not a window handle), so no TryHandleToSeq translation here.
@@ -1097,8 +1109,19 @@ function findWindow(id) {
 				public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 					=> GnomeShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
 
+				public bool TryMoveImageOverlay(uint id, int x, int y, int width, int height)
+					=> GnomeShellBridge.SendMoveImageOverlay(id, x, y, width, height);
+
 				public bool TryHideImageOverlay(uint id)
 					=> GnomeShellBridge.SendHideImageOverlay(id);
+
+				public bool SupportsTooltip => GnomeShellBridge.SupportsTooltip();
+
+				public bool TryShowTooltip(int slot, string text, int x, int y)
+					=> GnomeShellBridge.SendShowTooltip(slot, text, x, y);
+
+				public bool TryHideTooltip(int slot)
+					=> GnomeShellBridge.SendHideTooltip(slot);
 
 				public bool SupportsWindowEvents => true;
 

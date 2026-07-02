@@ -6,15 +6,16 @@ namespace Keysharp.Builtins
 		/// The maximum number of tool tips allowed to be displayed at once.
 		/// </summary>
 		internal const int MaxToolTips = 20;
+#if WINDOWS
 		/// <summary>
-		/// An array of all tooltips.
+		/// An array of all tooltips (Windows only; Linux/macOS render tooltips via overlayTooltips).
 		/// </summary>
 		internal readonly ToolTip[] persistentTooltips = new ToolTip[MaxToolTips];
 		/// <summary>
 		/// An array of all tooltip positions used to avoid position flickering.
 		/// </summary>
 		internal readonly Point?[] persistentTooltipsPositions = new Point?[MaxToolTips];
-#if !WINDOWS
+#else
 		/// <summary>
 		/// Per-slot click-through Overlay used to draw tooltips on Linux/macOS (Windows uses the WinForms ToolTip).
 		/// </summary>

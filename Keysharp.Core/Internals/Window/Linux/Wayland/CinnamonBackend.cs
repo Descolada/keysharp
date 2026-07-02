@@ -51,6 +51,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
 		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
 		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
+		Task<bool> MoveImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height);
 		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
 		Task<bool> SupportsTooltipAsync();
 		Task<bool> ShowTooltipAsync(int slot, string ownerKey, string busName, string text, int x, int y);
@@ -116,7 +117,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static string registeredHighlightOwnerBusName = "";
 		private static long highlightOwnerRegisterRetryAfter;
 		private static bool initFailed;
-		private static readonly string HighlightOwnerKey = BuildHighlightOwnerKey();
+		private static readonly string HighlightOwnerKey = WaylandOverlayOwner.Key;
 
 		internal static string QueryActiveWindow()
 		{
@@ -334,6 +335,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				=> pngBytes is { Length: > 0 }
 				   && RunExtensionBool(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
 
+			internal static bool SendMoveImageOverlay(uint id, int x, int y, int width, int height)
+				=> RunExtensionBool(p => p.MoveImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height));
+
 			internal static bool SendHideImageOverlay(uint id)
 				=> RunExtensionBool(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
 
@@ -549,31 +553,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				return false;
 			}
-		}
-
-		private static string BuildHighlightOwnerKey()
-		{
-			var pid = Environment.ProcessId;
-			var startTime = "";
-
-			try
-			{
-				var stat = File.ReadAllText($"/proc/{pid}/stat");
-				var end = stat.LastIndexOf(')');
-
-				if (end >= 0 && end + 2 < stat.Length)
-				{
-					var fields = stat[(end + 2)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-					if (fields.Length > 19)
-						startTime = fields[19];
-				}
-			}
-			catch
-			{
-			}
-
-			return $"{pid}:{startTime}";
 		}
 
 		private static IKeysharpCinnamonShell EnsureExtensionProxy()
@@ -987,6 +966,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> CinnamonShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
+
+			public bool TryMoveImageOverlay(uint id, int x, int y, int width, int height)
+				=> CinnamonShellBridge.SendMoveImageOverlay(id, x, y, width, height);
 
 			public bool TryHideImageOverlay(uint id)
 				=> CinnamonShellBridge.SendHideImageOverlay(id);

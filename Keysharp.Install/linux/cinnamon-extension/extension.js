@@ -163,6 +163,17 @@ const DBUS_IFACE_XML =
       <arg type="b" direction="out" name="ok"/>
     </method>
 
+    <method name="MoveImageOverlay">
+      <arg type="u" direction="in" name="id"/>
+      <arg type="s" direction="in" name="ownerKey"/>
+      <arg type="s" direction="in" name="busName"/>
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="b" direction="out" name="ok"/>
+    </method>
+
     <method name="HideImageOverlay">
       <arg type="u" direction="in" name="id"/>
       <arg type="s" direction="in" name="ownerKey"/>
@@ -794,6 +805,24 @@ class KeysharpExtension {
             return true;
         } catch (e) {
             global.logError(e, 'Keysharp: ShowImageOverlay failed');
+            return false;
+        }
+    }
+
+    MoveImageOverlay(id, ownerKey, _busName, x, y, width, height) {
+        try {
+            const owner = this._parseOverlayOwner(ownerKey);
+            const entry = this._imageOverlays.get(this._overlayKey(id, owner.key));
+
+            // No live actor for this id: report failure so the caller re-sends the pixels via ShowImageOverlay.
+            if (!entry || !entry.actor)
+                return false;
+
+            entry.actor.set_position(x, y);
+            entry.actor.set_size(width, height);
+            return true;
+        } catch (e) {
+            global.logError(e, 'Keysharp: MoveImageOverlay failed');
             return false;
         }
     }

@@ -30,54 +30,84 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Work area (monitor minus panels/struts) of the primary monitor, in screen coordinates.</summary>
 		Task<(int X, int Y, int Width, int Height)> GetWorkAreaAsync();
 
-		/// <summary>Window handle is the stable_sequence uint32 of Meta.Window.</summary>
-		Task FocusWindowAsync(ulong handle);
+		/// <summary>Attach this process as an overlay owner so the shell can reap our overlays when we die.
+		/// ownerKey = "pid:starttime"; busName = our unique D-Bus connection name.</summary>
+		Task<bool> RegisterHighlightOwnerAsync(string ownerKey, string busName);
+
+		/// <summary>Window handle is the stable_sequence uint32 of Meta.Window. False = no such window.</summary>
+		Task<bool> FocusWindowAsync(ulong handle);
+
+		/// <summary>Raise the window to the top of the stack. False = no such window.</summary>
+		Task<bool> RaiseWindowAsync(ulong handle);
+
+		/// <summary>Lower the window to the bottom of the stack. False = no such window.</summary>
+		Task<bool> LowerWindowAsync(ulong handle);
 
 		/// <summary>
 		/// Pass x = int.MinValue to leave position unchanged;
-		/// width/height &lt;= 0 to leave size unchanged.
+		/// width/height &lt;= 0 to leave size unchanged. False = no such window.
 		/// </summary>
-		Task MoveResizeWindowAsync(ulong handle, int x, int y, int width, int height);
+		Task<bool> MoveResizeWindowAsync(ulong handle, int x, int y, int width, int height);
 
-		/// <summary>state: 0 = normal, 1 = minimized, 2 = maximized.</summary>
-		Task SetWindowStateAsync(ulong handle, int state);
+		/// <summary>state: 0 = normal, 1 = minimized, 2 = maximized. False = no such window.</summary>
+		Task<bool> SetWindowStateAsync(ulong handle, int state);
 
-		/// <summary>Keep the window above all others (true) or clear keep-above (false).</summary>
-		Task SetWindowAboveAsync(ulong handle, bool above);
+		/// <summary>Keep the window above all others (true) or clear keep-above (false). False = no such window.</summary>
+		Task<bool> SetWindowAboveAsync(ulong handle, bool above);
 
-		/// <summary>Show (true) or hide (false) the window's titlebar/decorations.</summary>
-		Task SetWindowDecoratedAsync(ulong handle, bool decorated);
+		/// <summary>Show (true) or hide (false) the window's titlebar/decorations. False = no such window.</summary>
+		Task<bool> SetWindowDecoratedAsync(ulong handle, bool decorated);
 
-		Task CloseWindowAsync(ulong handle);
+		/// <summary>Set the window's opacity, 0 (transparent) to 255 (opaque). False = no such window.</summary>
+		Task<bool> SetWindowOpacityAsync(ulong handle, int opacity);
+
+		/// <summary>Request the window to close. False = no such window.</summary>
+		Task<bool> CloseWindowAsync(ulong handle);
+
+		/// <summary>Force-kill the window's client (SIGKILL-equivalent), falling back to close. False = no such window.</summary>
+		Task<bool> KillWindowAsync(ulong handle);
 
 		/// <summary>
 		/// Draw or update a click-through rectangle-outline overlay (GNOME's stand-in for the
 		/// wlr-layer-shell highlight Keysharp uses on KWin/wlroots). id identifies the overlay so it can
 		/// be moved/resized or hidden; geometry is in screen coordinates; color is an "RRGGBB" hex string;
-		/// thickness is the outline width in pixels.
+		/// thickness is the outline width in pixels. ownerKey/busName attribute it for owner-death cleanup.
 		/// </summary>
-		Task ShowHighlightAsync(uint id, int x, int y, int width, int height, string color, int thickness);
+		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
 
 		/// <summary>Remove the overlay previously created with the given id.</summary>
-		Task HideHighlightAsync(uint id);
+		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
 
-		/// <summary>Create or update a generic PNG-backed click-through overlay.</summary>
-		Task ShowImageOverlayAsync(uint id, int x, int y, int width, int height, byte[] pngBytes);
+		/// <summary>Create or update a generic PNG-backed click-through overlay. False = the shell rejected it.</summary>
+		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
+
+		/// <summary>Reposition/resize an existing overlay by id, reusing its already-uploaded pixels (no re-encode).
+		/// False = no such overlay; the caller should re-Show instead.</summary>
+		Task<bool> MoveImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height);
 
 		/// <summary>Remove a generic PNG-backed overlay.</summary>
-		Task HideImageOverlayAsync(uint id);
+		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
 
-		Task SendMouseMoveAbsoluteAsync(int x, int y);
-		Task SendMouseMoveRelativeAsync(int dx, int dy);
+		/// <summary>True when the shell can draw a click-through tooltip on the caller's behalf.</summary>
+		Task<bool> SupportsTooltipAsync();
+
+		/// <summary>Draw or update a click-through tooltip in slot for this owner; empty text clears it.</summary>
+		Task<bool> ShowTooltipAsync(int slot, string ownerKey, string busName, string text, int x, int y);
+
+		/// <summary>Remove the tooltip in the given slot for this owner.</summary>
+		Task<bool> HideTooltipAsync(int slot, string ownerKey, string busName);
+
+		Task<bool> SendMouseMoveAbsoluteAsync(int x, int y);
+		Task<bool> SendMouseMoveRelativeAsync(int dx, int dy);
 
 		/// <summary>button: 1 = left, 2 = middle, 3 = right (X11 convention).</summary>
-		Task SendMouseButtonAsync(uint button, bool pressed);
+		Task<bool> SendMouseButtonAsync(uint button, bool pressed);
 
 		/// <summary>
 		/// delta in 120-unit wheel increments (positive = up/right).
 		/// vertical: true = vertical scroll, false = horizontal.
 		/// </summary>
-		Task SendMouseScrollAsync(int delta, bool vertical);
+		Task<bool> SendMouseScrollAsync(int delta, bool vertical);
 
 		/// <summary>
 		/// Capture a screen region entirely inside the compositor process.
@@ -110,10 +140,26 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string ObjectPath   = "/io/github/keysharp/GnomeShell";
 		private const int    TimeoutMs    = 2000;
 
+		// Backoff before retrying owner registration after a miss (extension still loading / absent).
+		private const long RegisterRetryBackoffMs = 5000;
+
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
 		private static Connection connection;
 		private static IGnomeShell proxy;
 		private static bool initFailed;
+
+		// Overlay-ownership plumbing (mirrors CinnamonBackend): our stable process key, the unique name of
+		// our D-Bus connection, and the sticky "already registered under this connection" latch + retry gate.
+		private static readonly string HighlightOwnerKey = WaylandOverlayOwner.Key;
+		private static string connectionLocalName = "";
+		private static string registeredHighlightOwnerBusName = "";
+		private static long highlightOwnerRegisterRetryAfter;
+
+		// Cache the tooltip-support probe so backing selection doesn't make a blocking D-Bus call each time.
+		private const long TooltipSupportPresentCacheMs = 30000;
+		private const long TooltipSupportMissingCacheMs = 5000;
+		private static bool tooltipSupportCached;
+		private static long tooltipSupportCacheUntil;
 
 		// ---- public query/command surface used by GnomeBackend ----------
 
@@ -174,47 +220,88 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			=> Run(p => p.GetActiveWindowAsync());
 
 		internal static bool SendFocusWindow(ulong handle)
-			=> RunCommand(p => p.FocusWindowAsync(handle));
+			=> Run(p => p.FocusWindowAsync(handle));
+
+		internal static bool SendRaiseWindow(ulong handle)
+			=> Run(p => p.RaiseWindowAsync(handle));
+
+		internal static bool SendLowerWindow(ulong handle)
+			=> Run(p => p.LowerWindowAsync(handle));
 
 		internal static bool SendMoveResize(ulong handle, int x, int y, int width, int height)
-			=> RunCommand(p => p.MoveResizeWindowAsync(handle, x, y, width, height));
+			=> Run(p => p.MoveResizeWindowAsync(handle, x, y, width, height));
 
 		internal static bool SendSetWindowState(ulong handle, int state)
-			=> RunCommand(p => p.SetWindowStateAsync(handle, state));
+			=> Run(p => p.SetWindowStateAsync(handle, state));
 
 		internal static bool SendSetWindowAbove(ulong handle, bool above)
-			=> RunCommand(p => p.SetWindowAboveAsync(handle, above));
+			=> Run(p => p.SetWindowAboveAsync(handle, above));
 
 		internal static bool SendSetWindowDecorated(ulong handle, bool decorated)
-			=> RunCommand(p => p.SetWindowDecoratedAsync(handle, decorated));
+			=> Run(p => p.SetWindowDecoratedAsync(handle, decorated));
+
+		internal static bool SendSetOpacity(ulong handle, object value)
+		{
+			// "off" clears transparency (fully opaque); otherwise coerce to a 0-255 alpha. Mirrors CinnamonBackend.
+			var alpha = value is string s && s.Equals("off", StringComparison.OrdinalIgnoreCase)
+				? 255
+				: Math.Clamp((int)value.Al(), 0, 255);
+
+			return Run(p => p.SetWindowOpacityAsync(handle, alpha));
+		}
 
 		internal static bool SendCloseWindow(ulong handle)
-			=> RunCommand(p => p.CloseWindowAsync(handle));
+			=> Run(p => p.CloseWindowAsync(handle));
+
+		internal static bool SendKillWindow(ulong handle)
+			=> Run(p => p.KillWindowAsync(handle));
 
 		internal static bool SendShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
-			=> RunCommand(p => p.ShowHighlightAsync(id, x, y, width, height, color, thickness));
+			=> Run(p => p.ShowHighlightAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, color, thickness));
 
 		internal static bool SendHideHighlight(uint id)
-			=> RunCommand(p => p.HideHighlightAsync(id));
+			=> Run(p => p.HideHighlightAsync(id, HighlightOwnerKey, connectionLocalName));
 
 		internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 			=> pngBytes is { Length: > 0 }
-			   && RunCommand(p => p.ShowImageOverlayAsync(id, x, y, width, height, pngBytes));
+			   && Run(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
+
+		internal static bool SendMoveImageOverlay(uint id, int x, int y, int width, int height)
+			=> Run(p => p.MoveImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height));
 
 		internal static bool SendHideImageOverlay(uint id)
-			=> RunCommand(p => p.HideImageOverlayAsync(id));
+			=> Run(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
+
+		internal static bool SupportsTooltip()
+		{
+			var now = Environment.TickCount64;
+
+			if (now < tooltipSupportCacheUntil)
+				return tooltipSupportCached;
+
+			var ok = Run(p => p.SupportsTooltipAsync());
+			tooltipSupportCached = ok;
+			tooltipSupportCacheUntil = now + (ok ? TooltipSupportPresentCacheMs : TooltipSupportMissingCacheMs);
+			return ok;
+		}
+
+		internal static bool SendShowTooltip(int slot, string text, int x, int y)
+			=> Run(p => p.ShowTooltipAsync(slot, HighlightOwnerKey, connectionLocalName, text ?? "", x, y));
+
+		internal static bool SendHideTooltip(int slot)
+			=> Run(p => p.HideTooltipAsync(slot, HighlightOwnerKey, connectionLocalName));
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
-			=> RunCommand(p => p.SendMouseMoveAbsoluteAsync(x, y));
+			=> Run(p => p.SendMouseMoveAbsoluteAsync(x, y));
 
 		internal static bool SendMouseMoveRelative(int dx, int dy)
-			=> RunCommand(p => p.SendMouseMoveRelativeAsync(dx, dy));
+			=> Run(p => p.SendMouseMoveRelativeAsync(dx, dy));
 
 		internal static bool SendMouseButton(uint button, bool pressed)
-			=> RunCommand(p => p.SendMouseButtonAsync(button, pressed));
+			=> Run(p => p.SendMouseButtonAsync(button, pressed));
 
 		internal static bool SendMouseScroll(int delta, bool vertical)
-			=> RunCommand(p => p.SendMouseScrollAsync(delta, vertical));
+			=> Run(p => p.SendMouseScrollAsync(delta, vertical));
 
 		internal static byte[] CaptureArea(int x, int y, int w, int h)
 		{
@@ -291,30 +378,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static bool RunCommand(Func<IGnomeShell, Task> call)
-		{
-			try
-			{
-				var p = EnsureProxy();
-
-				if (p == null)
-					return false;
-
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				Task.Run(() => call(p), cts.Token).GetAwaiter().GetResult();
-				return true;
-			}
-			catch
-			{
-				return false;
-			}
-		}
-
 		private static IGnomeShell EnsureProxy()
 		{
-			// Fast path: already connected.
+			// Fast path: already connected. Re-attempt owner registration each time — it is cheap and
+			// self-latching (a no-op once registered under the current connection).
 			if (proxy != null)
+			{
+				RegisterHighlightOwner(proxy);
 				return proxy;
+			}
 
 			// Fast path: session bus was unreachable (rare — implies broken environment).
 			if (initFailed)
@@ -331,7 +403,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var localConn = new Connection(Tmds.DBus.Address.Session);
-				Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+				var info = Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+				// Our unique bus name (":1.x") — the shell tags our overlays with it and reaps them when
+				// this name drops off the bus (see the extension's NameOwnerChanged watch).
+				connectionLocalName = info?.LocalName ?? "";
 
 				// Creating the proxy is cheap — it does not make any D-Bus calls.
 				// Individual method calls will fail gracefully if the extension is
@@ -340,6 +415,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				// first miss while the extension was still loading).
 				connection = localConn;
 				proxy = localConn.CreateProxy<IGnomeShell>(ServiceName, new ObjectPath(ObjectPath));
+				RegisterHighlightOwner(proxy);
 				return proxy;
 			}
 			catch
@@ -352,6 +428,43 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			finally
 			{
 				initSemaphore.Release();
+			}
+		}
+
+		// Announce this process to the shell extension as an overlay owner so it can attribute our overlays
+		// and reap them when we die. Guarded so the real D-Bus call fires at most once per connection name,
+		// with a short backoff on miss (extension still loading / absent). Mirrors CinnamonBackend.
+		private static void RegisterHighlightOwner(IGnomeShell p)
+		{
+			if (p == null || string.IsNullOrEmpty(connectionLocalName) || registeredHighlightOwnerBusName == connectionLocalName)
+				return;
+
+			if (Environment.TickCount64 < highlightOwnerRegisterRetryAfter)
+				return;
+
+			try
+			{
+				var task = Task.Run(() => p.RegisterHighlightOwnerAsync(HighlightOwnerKey, connectionLocalName));
+
+				if (!task.Wait(TimeoutMs))
+				{
+					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
+					return;
+				}
+
+				if (task.GetAwaiter().GetResult())
+				{
+					registeredHighlightOwnerBusName = connectionLocalName;
+					highlightOwnerRegisterRetryAfter = 0;
+				}
+				else
+				{
+					highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
+				}
+			}
+			catch
+			{
+				highlightOwnerRegisterRetryAfter = Environment.TickCount64 + RegisterRetryBackoffMs;
 			}
 		}
 	}

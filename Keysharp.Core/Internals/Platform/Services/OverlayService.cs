@@ -304,8 +304,9 @@ namespace Keysharp.Internals
 		}
 	}
 
-	// Compositor-extension backing (GNOME/Cinnamon): hands the pixels to the shell as a PNG. There is no cheaper
-	// native reposition, so a move re-encodes and re-sends the current image.
+	// Compositor-extension backing (GNOME/Cinnamon): hands the pixels to the shell as a PNG. A move asks the shell
+	// to reposition the already-uploaded actor (no re-encode); only when that fast path is unavailable - an older
+	// extension, or the actor was dropped - does it fall back to re-encoding and re-sending the current image.
 	internal sealed class CompositorImageBacking : IImageOverlayBacking
 	{
 		private readonly uint id;
@@ -344,7 +345,16 @@ namespace Keysharp.Internals
 		}
 
 		public bool Move(int x, int y, int width, int height)
-			=> source != null && Show(new Bitmap(source), x, y, width, height);
+		{
+			if (source == null)
+				return false;
+
+			// Byte-free reposition: the compositor keeps the pixels we already uploaded and just moves the actor.
+			if (shown && Wl.WaylandBackend.Current?.TryMoveImageOverlay(id, x, y, width, height) == true)
+				return true;
+
+			return Show(new Bitmap(source), x, y, width, height);
+		}
 
 		public void Dispose()
 		{

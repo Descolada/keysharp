@@ -9548,9 +9548,9 @@
                      "syntax":  "ToolTip(\"some text\", 25, 25)",
                      "windows":  "full",
                      "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
+                     "linux_wayland":  "partial",
                      "macos":  "unknown",
-                     "notes":  "Creates an always-on-top window anywhere on the screen.",
+                     "notes":  "Creates an always-on-top window anywhere on the screen. On Linux and macOS it is drawn via the cross-platform Overlay primitive; on Wayland that needs a capable compositor (KWin, GNOME, or Cinnamon with the Keysharp extension).",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -10143,9 +10143,9 @@
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
+                     "linux_wayland":  "partial",
                      "macos":  "unknown",
-                     "notes":  "The WinKill function forces the specified window to close.",
+                     "notes":  "The WinKill function forces the specified window to close. On Wayland a real force-kill is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent), falling back to a graceful close request.",
                      "tested-by":  "Gui/guitest.ahk"
                  },
                  {
@@ -10220,9 +10220,9 @@
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
+                     "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process\u0027s window."
+                     "notes":  "The WinMoveBottom function sends the specified window to the bottom of stack; that is, beneath all other windows. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.orderBack(); macOS provides no API to lower another process\u0027s window."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10230,9 +10230,9 @@
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
+                     "linux_wayland":  "partial",
                      "macos":  "full",
-                     "notes":  "The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application."
+                     "notes":  "The WinMoveTop function brings the specified window to the top of the stack without explicitly activating it. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS this is done via the Accessibility AXRaise action, which raises the window within its owning application without activating that application."
                  },
                  {
                      "category":  "Windowing/GUI",
@@ -10331,9 +10331,9 @@
                      "syntax":  "",
                      "windows":  "full",
                      "linux_x11":  "partial",
-                     "linux_wayland":  "unknown",
+                     "linux_wayland":  "partial",
                      "macos":  "partial",
-                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process\u0027s window opacity."
+                     "notes":  "The WinSetTransparent function makes the specified window semi-transparent. On Wayland this is provided by the Keysharp GNOME or Cinnamon shell extension (compositor-dependent). On macOS, only supported for windows owned by the calling process, via NSWindow.alphaValue; macOS provides no public API to change another process\u0027s window opacity."
                  },
                  {
                      "category":  "Windowing/GUI",

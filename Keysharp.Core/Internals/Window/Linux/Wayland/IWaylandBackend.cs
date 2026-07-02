@@ -161,6 +161,10 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Create or update a compositor-owned image overlay. PNG bytes are copied by the compositor service.</summary>
 		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes) => false;
 
+		/// <summary>Reposition/resize an existing image overlay by id, reusing the pixels already uploaded to the
+		/// compositor (no re-encode). False = unsupported or no such overlay; the caller should re-Show instead.</summary>
+		bool TryMoveImageOverlay(uint id, int x, int y, int width, int height) => false;
+
 		/// <summary>Remove a compositor-owned image overlay. False = unsupported.</summary>
 		bool TryHideImageOverlay(uint id) => false;
 

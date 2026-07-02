@@ -6,6 +6,7 @@
 // Object path        : /io/github/keysharp/CinnamonShell
 // Interface          : io.github.keysharp.CinnamonShell1
 
+const Cinnamon = imports.gi.Cinnamon;
 const Clutter = imports.gi.Clutter;
 const Cogl = imports.gi.Cogl;
 const Gio = imports.gi.Gio;
@@ -41,6 +42,16 @@ const DBUS_IFACE_XML =
       <arg type="i" direction="out" name="y"/>
       <arg type="i" direction="out" name="width"/>
       <arg type="i" direction="out" name="height"/>
+    </method>
+
+    <!-- Capture a screen region and return raw PNG bytes. Permission-gated: only callable by the
+         root-owned setuid keysharp-helper (which enforces the user's capture consent). -->
+    <method name="CaptureArea">
+      <arg type="i" direction="in" name="x"/>
+      <arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/>
+      <arg type="i" direction="in" name="height"/>
+      <arg type="ay" direction="out" name="pngData"/>
     </method>
 
     <method name="FocusWindow">
@@ -409,6 +420,105 @@ class KeysharpExtension {
                 Math.round(monitor.width),
                 Math.round(monitor.height)
             ];
+        }
+    }
+
+    // Screen capture is the one genuinely privileged operation here — Wayland normally blocks foreign
+    // screenshotting — so it is the ONLY method that is permission-gated. It may be invoked exclusively by
+    // the root-owned setuid keysharp-helper, which enforces the user's screen-capture consent (via
+    // the trust store) before it ever calls us. Everything else on this interface stays open to any same-user
+    // caller. The async D-Bus form lets us read the caller's identity off the invocation and complete once
+    // the compositor delivers the frame.
+    CaptureAreaAsync(params, invocation) {
+        if (!this._callerIsHelper(invocation)) {
+            invocation.return_error_literal(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
+                'Screen capture is only permitted through keysharp-helper.');
+            return;
+        }
+
+        const [x, y, width, height] = params;
+
+        if (width <= 0 || height <= 0) {
+            invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
+            return;
+        }
+
+        let file = null;
+        try {
+            // Cinnamon.Screenshot writes a PNG to a file (no in-memory stream API), so round-trip through a
+            // private temp file we create, read and delete inside the shell. Coordinates arrive logical; the
+            // Screenshot API wants device pixels, so scale by global.ui_scale (matching Cinnamon's own
+            // screenshot service) — the returned PNG is therefore device pixels, as the C# caller expects.
+            const tmp = Gio.File.new_tmp('keysharp-cinnamon-capture-XXXXXX.png');
+            file = tmp[0];
+            tmp[1].close(null);
+            const path = file.get_path();
+            const scale = global.ui_scale || 1;
+
+            const screenshot = new Cinnamon.Screenshot();
+            screenshot.screenshot_area(
+                false,
+                Math.round(x * scale),
+                Math.round(y * scale),
+                Math.round(width * scale),
+                Math.round(height * scale),
+                path,
+                (_obj, success) => {
+                    let bytes = new Uint8Array(0);
+
+                    try {
+                        if (success) {
+                            const [ok, data] = GLib.file_get_contents(path);
+                            if (ok && data && data.length > 0)
+                                bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+                        }
+                    } catch (e) {
+                        global.logError(e, 'Keysharp: CaptureArea read failed');
+                    } finally {
+                        try { file.delete(null); } catch (_e) {}
+                    }
+
+                    invocation.return_value(new GLib.Variant('(ay)', [bytes]));
+                });
+        } catch (e) {
+            global.logError(e, 'Keysharp: CaptureArea failed');
+            try { if (file) file.delete(null); } catch (_e) {}
+            invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
+        }
+    }
+
+    // Caller gate for the capture method: true only when the D-Bus caller is the installed, root-owned,
+    // setuid keysharp-helper — the sole process permitted to request capture. keysharp-helper
+    // drops to our uid but re-marks itself inspectable (PR_SET_DUMPABLE) before calling, so /proc/<pid>/exe
+    // resolves to the on-disk binary; a user cannot forge a root-owned setuid file, so this can't be spoofed.
+    _callerIsHelper(invocation) {
+        try {
+            const sender = invocation.get_sender();
+            if (!sender)
+                return false;
+
+            const reply = Gio.DBus.session.call_sync(
+                'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                'GetConnectionUnixProcessID', new GLib.Variant('(s)', [sender]),
+                new GLib.VariantType('(u)'), Gio.DBusCallFlags.NONE, 1000, null);
+            const [pid] = reply.deep_unpack();
+            if (!pid || pid <= 0)
+                return false;
+
+            const exeLink = `/proc/${pid}/exe`;
+            let target;
+            try { target = GLib.file_read_link(exeLink); } catch (_e) { return false; }
+            if (!target || GLib.path_get_basename(target) !== 'keysharp-helper')
+                return false;
+
+            const info = Gio.File.new_for_path(exeLink).query_info(
+                'unix::uid,unix::mode', Gio.FileQueryInfoFlags.NONE, null);
+            const uid = info.get_attribute_uint32('unix::uid');
+            const mode = info.get_attribute_uint32('unix::mode');
+            // Root-owned + setuid + not group/other-writable: only root could have installed it.
+            return uid === 0 && (mode & 0o4000) !== 0 && (mode & 0o022) === 0;
+        } catch (_e) {
+            return false;
         }
     }
 

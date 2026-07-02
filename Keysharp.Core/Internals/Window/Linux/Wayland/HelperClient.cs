@@ -11,7 +11,7 @@ using Eto.Drawing;
 namespace Keysharp.Internals.Window.Linux.Wayland
 {
 	/// <summary>
-	/// Driver for the <c>keysharp-screencap</c> helper, covering both the KWin and GNOME Wayland capture
+	/// Driver for the <c>keysharp-helper</c> helper, covering both the KWin and GNOME Wayland capture
 	/// paths plus the row-major SIMD converters for KWin's raw QImage formats.
 	///
 	/// <para>The KWin and GNOME paths are the same long-lived stdin/stdout subprocess protocol and differ
@@ -21,7 +21,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	/// root-owned setuid helper). Both therefore share a single <see cref="HelperSession"/> driver and
 	/// differ only by the mode string and the frame reader passed to it.</para>
 	/// </summary>
-	internal static class ScreencapHelper
+	internal static class HelperClient
 	{
 		private const int FirstRequestTimeoutMs = 60_000;  // first request may trigger the trust prompt
 		private const int RequestTimeoutMs = 30_000;
@@ -33,6 +33,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// They are identical except for the serve mode and the response frame format.
 		private static readonly HelperSession kwin = new("kwin", ReadKsscFrame);
 		private static readonly HelperSession gnome = new("gnome", ReadKssgFrame);
+		private static readonly HelperSession cinnamon = new("cinnamon", ReadKssgFrame);
 
 		internal static Bitmap Capture(int x, int y, int w, int h)
 			=> kwin.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
@@ -50,7 +51,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static Bitmap CaptureKWinWindow(string uuid, bool includeDecoration)
 			=> kwin.Request($"window {uuid} {(includeDecoration ? "1" : "0")}");
 
-		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-screencap --serve gnome.</summary>
+		/// <summary>Captures a screen region via the GNOME Shell extension through keysharp-helper --serve gnome.</summary>
 		internal static Bitmap CaptureGnome(int x, int y, int w, int h)
 			=> gnome.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
 
@@ -64,14 +65,121 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static Bitmap CaptureGnomeWindow(ulong handle)
 			=> gnome.Request($"window {handle.ToString(CultureInfo.InvariantCulture)}");
 
-		/// <summary>Authorizes screen capture on GNOME by starting keysharp-screencap --serve gnome.</summary>
+		/// <summary>Authorizes screen capture on GNOME by starting keysharp-helper --serve gnome.</summary>
 		internal static PermissionResult AuthorizeGnome(string operation, bool forcePrompt = false)
 			=> gnome.Authorize(forcePrompt);
+
+		/// <summary>Captures a screen region via the Cinnamon Shell extension through keysharp-helper
+		/// --serve cinnamon. The extension captures via Cinnamon.Screenshot and returns PNG (KSSG1) bytes,
+		/// exactly like the GNOME path; only the compositor D-Bus target differs.</summary>
+		internal static Bitmap CaptureCinnamon(int x, int y, int w, int h)
+			=> cinnamon.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
+
+		/// <summary>Authorizes screen capture on Cinnamon by starting keysharp-helper --serve cinnamon.</summary>
+		internal static PermissionResult AuthorizeCinnamon(string operation, bool forcePrompt = false)
+			=> cinnamon.Authorize(forcePrompt);
+
+		// ---- backend-agnostic capture consent (X11 / wlroots, where capture is in-process) --------------
+		//
+		// X11 and wlroots capture happen inside Keysharp itself (XGetImage / zwlr_screencopy), so unlike the
+		// compositor-extension backends there is no serve helper whose startup implicitly prompts. To still
+		// gate those paths on the user's consent, we run the one-shot `keysharp-helper --authorize`, which does
+		// the trust-store check + prompt for the SCREEN_CAPTURE capability without touching any compositor.
+		// The decision is cached for the process lifetime (the trust store already remembers allow-once/always,
+		// so this prompts at most once), and a missing/unavailable helper degrades to "allow" rather than
+		// breaking capture on systems without a privileged install.
+		// null = unresolved; otherwise the resolved status (Granted / Denied / NotApplicable), cached for the
+		// process lifetime — the trust store already remembers allow-once/always, so we prompt at most once.
+		private static PermissionStatus? captureConsent;
+		private static readonly object captureConsentSync = new();
+
+		/// <summary>Resolve screen-capture consent for the in-process (X11/wlroots) capture paths, prompting on
+		/// first use. Cached; <paramref name="forcePrompt"/> re-asks even if resolved. NotApplicable = no helper
+		/// to gate with, so the caller proceeds ungated.</summary>
+		internal static PermissionResult AuthorizeCapture(bool forcePrompt = false)
+		{
+			lock (captureConsentSync)
+			{
+				if (!forcePrompt && captureConsent is { } cached)
+					return ResultFor(cached);
+
+				var result = RunAuthorize(forcePrompt);
+				captureConsent = result.Status;
+				return result;
+			}
+		}
+
+		/// <summary>Report the already-resolved capture consent WITHOUT prompting or spawning the helper — for
+		/// status queries (e.g. RequestCapabilities with no request), which must never prompt. Unresolved →
+		/// NotApplicable (undetermined; capture is still available and would prompt on first actual use).</summary>
+		internal static PermissionResult PeekCaptureConsent()
+		{
+			lock (captureConsentSync)
+				return ResultFor(captureConsent ?? PermissionStatus.NotApplicable);
+		}
+
+		/// <summary>Cached gate for the capture hot path: true unless the user has explicitly denied.</summary>
+		internal static bool EnsureCaptureConsent()
+			=> AuthorizeCapture(false).Status != PermissionStatus.Denied;
+
+		private static PermissionResult ResultFor(PermissionStatus status) => status == PermissionStatus.Denied
+			? new PermissionResult(PermissionStatus.Denied, "Screen capture permission denied.")
+			: new PermissionResult(status);
+
+		private static PermissionResult RunAuthorize(bool forcePrompt)
+		{
+			try
+			{
+				using var p = new Process
+				{
+					StartInfo = new ProcessStartInfo
+					{
+						FileName = ResolveHelper(),
+						UseShellExecute = false,
+						RedirectStandardOutput = true,
+						RedirectStandardError = true,
+					}
+				};
+				p.StartInfo.ArgumentList.Add("--authorize");
+
+				if (forcePrompt)
+					p.StartInfo.ArgumentList.Add("--force-prompt");
+
+				p.OutputDataReceived += static (_, _) => { };
+				p.ErrorDataReceived += static (_, e) => { if (!string.IsNullOrEmpty(e.Data)) DebugLine($"keysharp-helper --authorize: {e.Data}"); };
+
+				if (!p.Start())
+					return new PermissionResult(PermissionStatus.NotApplicable);
+
+				p.BeginOutputReadLine();
+				p.BeginErrorReadLine();
+
+				if (!p.WaitForExit(AuthorizationTimeoutMs))
+				{
+					try { p.Kill(true); } catch { }
+					return new PermissionResult(PermissionStatus.NotApplicable);
+				}
+
+				// Exit codes mirror keysharp-helper: 0 = trusted, 3 = denied, 4 = unavailable, else = error.
+				return p.ExitCode switch
+				{
+					0 => new PermissionResult(PermissionStatus.Granted),
+					3 => new PermissionResult(PermissionStatus.Denied, "Screen capture permission denied."),
+					_ => new PermissionResult(PermissionStatus.NotApplicable),
+				};
+			}
+			catch (Exception ex)
+			{
+				// No helper installed (or it could not be spawned): nothing to gate with, so allow.
+				DebugLine($"keysharp-helper --authorize failed: {ex.Message}");
+				return new PermissionResult(PermissionStatus.NotApplicable);
+			}
+		}
 
 		private static string Coord(int v) => v.ToString(CultureInfo.InvariantCulture);
 
 		/// <summary>
-		/// One long-lived <c>keysharp-screencap --serve &lt;mode&gt;</c> subprocess. KWin's screenshot API
+		/// One long-lived <c>keysharp-helper --serve &lt;mode&gt;</c> subprocess. KWin's screenshot API
 		/// is request/response over a single stdin+stdout pair, so concurrent Keysharp threads queue on
 		/// <see cref="sync"/>; a typical capture holds it ~10–50ms. If multi-thread capture ever becomes a
 		/// bottleneck the helper would need pipelined requests or multiple instances.
@@ -118,7 +226,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 							if (!StartLocked(out var startError, out _))
 							{
-								DebugLine($"keysharp-screencap --serve {mode} launch failed: {startError}");
+								DebugLine($"keysharp-helper --serve {mode} launch failed: {startError}");
 								return null;
 							}
 
@@ -134,7 +242,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 						}
 						catch (Exception ex)
 						{
-							DebugLine($"keysharp-screencap --serve {mode} request failed: {ex.Message}");
+							DebugLine($"keysharp-helper --serve {mode} request failed: {ex.Message}");
 							CacheDeniedIfHelperExitedLocked();
 
 							// A per-request error (e.g. window not found) leaves the helper alive and ready;
@@ -179,7 +287,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 				if (path == null)
 				{
-					error = "no keysharp-screencap binary found";
+					error = "no keysharp-helper binary found";
 					return false;
 				}
 
@@ -206,7 +314,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					p.ErrorDataReceived += (_, e) =>
 					{
 						if (!string.IsNullOrEmpty(e.Data))
-							DebugLine($"keysharp-screencap: {e.Data}");
+							DebugLine($"keysharp-helper: {e.Data}");
 					};
 
 					if (!p.Start())
@@ -315,7 +423,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (!task.Wait(timeoutMs))
 				{
 					ResetLocked();
-					throw new TimeoutException($"keysharp-screencap --serve {mode} response timed out after {timeoutMs}ms");
+					throw new TimeoutException($"keysharp-helper --serve {mode} response timed out after {timeoutMs}ms");
 				}
 
 				return task.GetAwaiter().GetResult();
@@ -345,7 +453,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			});
 
 			if (!task.Wait(timeoutMs))
-				throw new TimeoutException($"keysharp-screencap authorization timed out after {timeoutMs}ms");
+				throw new TimeoutException($"keysharp-helper authorization timed out after {timeoutMs}ms");
 
 			task.GetAwaiter().GetResult();
 		}
@@ -434,7 +542,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		private static string ResolveHelper()
 		{
-			var configured = Environment.GetEnvironmentVariable("KEYSHARP_SCREENCAP_HELPER");
+			var configured = Environment.GetEnvironmentVariable("KEYSHARP_HELPER");
 
 			if (!string.IsNullOrEmpty(configured))
 				return configured;
@@ -442,18 +550,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			var baseDir = AppContext.BaseDirectory;
 			var candidates = new[]
 			{
-				Path.Combine(baseDir, "keysharp-screencap"),
-				"/usr/local/lib/keysharp/keysharp-screencap",
-				"/usr/lib/keysharp/keysharp-screencap",
-				"/usr/local/bin/keysharp-screencap",
-				"/usr/bin/keysharp-screencap",
+				Path.Combine(baseDir, "keysharp-helper"),
+				"/usr/local/lib/keysharp/keysharp-helper",
+				"/usr/lib/keysharp/keysharp-helper",
+				"/usr/local/bin/keysharp-helper",
+				"/usr/bin/keysharp-helper",
 			};
 
 			foreach (var candidate in candidates)
 				if (File.Exists(candidate))
 					return candidate;
 
-			return "keysharp-screencap";
+			return "keysharp-helper";
 		}
 
 		private static void DebugLine(string message)

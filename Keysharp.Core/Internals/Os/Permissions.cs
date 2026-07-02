@@ -187,7 +187,7 @@ namespace Keysharp.Internals.Os
 
 		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
 		{
-			// The compositor-specific authorization (KWin/GNOME keysharp-screencap, or NotApplicable) is resolved
+			// The compositor-specific authorization (KWin/GNOME keysharp-helper, or NotApplicable) is resolved
 			// once inside Platform.Screen — no IsWaylandSession/backend test here.
 			return Platform.Screen.RequestCaptureAuthorization(operation ?? "screen capture", prompt == true);
 		}

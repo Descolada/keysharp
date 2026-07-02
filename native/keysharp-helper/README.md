@@ -1,6 +1,6 @@
-# keysharp-screencap
+# keysharp-helper
 
-`keysharp-screencap` is the privileged Linux screen capture helper used for Wayland
+`keysharp-helper` is the privileged Linux screen capture helper used for Wayland
 sessions. It checks the shared keysharp-trust store before performing any capture.
 
 On **KDE Wayland** it runs as a long-lived serve process and calls
@@ -42,8 +42,8 @@ sudo zypper install cmake gcc make pkg-config glib2-devel
 From the repository root:
 
 ```bash
-cmake -S native/keysharp-screencap -B native/keysharp-screencap/build
-cmake --build native/keysharp-screencap/build
+cmake -S native/keysharp-helper -B native/keysharp-helper/build
+cmake --build native/keysharp-helper/build
 ```
 
 This also builds the shared `keysharp-trust` static library from
@@ -52,10 +52,10 @@ This also builds the shared `keysharp-trust` static library from
 ## Install
 
 ```bash
-sudo cmake --install native/keysharp-screencap/build
+sudo cmake --install native/keysharp-helper/build
 ```
 
-This installs the binary, installs `/usr/share/applications/keysharp-screencap.desktop`,
+This installs the binary, installs `/usr/share/applications/keysharp-helper.desktop`,
 and sets the helper to root-owned setuid mode. The helper must be owned by root
 and executable as setuid root because KWin's `org.kde.KWin.ScreenShot2` D-Bus
 interface is privileged. KWin expects the desktop file in a root-owned system
@@ -66,16 +66,16 @@ Verify a local install with:
 
 ```bash
 grep -R "org.kde.KWin.ScreenShot2" /usr/share/applications
-stat -c '%U %G %a %n' /usr/local/bin/keysharp-screencap
-grep '^Exec=' /usr/share/applications/keysharp-screencap.desktop
+stat -c '%U %G %a %n' /usr/local/bin/keysharp-helper
+grep '^Exec=' /usr/share/applications/keysharp-helper.desktop
 ```
 
-Packaged installs use `/usr/local/lib/keysharp/keysharp-screencap` instead and
+Packaged installs use `/usr/local/lib/keysharp/keysharp-helper` instead and
 the Linux installer rewrites the desktop file automatically:
 
 ```bash
-sudo chown root:root /usr/local/lib/keysharp/keysharp-screencap
-sudo chmod 4755 /usr/local/lib/keysharp/keysharp-screencap
+sudo chown root:root /usr/local/lib/keysharp/keysharp-helper
+sudo chmod 4755 /usr/local/lib/keysharp/keysharp-helper
 ```
 
 ## Trust Store
@@ -90,7 +90,7 @@ The store is created automatically on first use and records one entry per
 requesting app plus CLI argument identity, with all granted Keysharp native
 capabilities accumulated in that entry.
 
-`Allow once` decisions on KWin are kept in the long-lived `keysharp-screencap
+`Allow once` decisions on KWin are kept in the long-lived `keysharp-helper
 --serve` process. Keysharp starts that persistent helper during screen capture
 authorization, so the same helper handles later capture requests without a
 second prompt. The decision is lost when the helper or Keysharp process exits.

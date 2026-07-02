@@ -1,6 +1,7 @@
 using Keysharp.Builtins;
 #if LINUX
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
 using SharpHook.Data;
@@ -63,9 +64,62 @@ namespace Keysharp.Internals.Input.Linux
 			EnsureInputSendPermission("send keyboard text");
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 
-			SendUnicodeTextViaX11(lht, payload.ToString(), extraInfo);
+			if (sendMode != SendModes.Event)
+				QueueRawTextForEventArray(payload);
+			else if (KeyDelayWouldSleepOrQueue())
+				SendRawTextWithDelaysViaX11(lht, payload, extraInfo);
+			else
+				SendUnicodeTextViaX11(lht, payload.ToString(), extraInfo);
 
 			keyIndex = text.Length - 1;
+			return true;
+		}
+
+		private void SendRawTextWithDelaysViaX11(UnixHookThread lht, ReadOnlySpan<char> text, long extraInfo)
+		{
+			for (var i = 0; i < text.Length;)
+			{
+				if (!TrySliceRawTextItem(text, ref i, out var item))
+					continue;
+
+				SendUnicodeTextViaX11(lht, item, extraInfo);
+				DoKeyDelay();
+			}
+		}
+
+		private void QueueRawTextForEventArray(ReadOnlySpan<char> text)
+		{
+			for (var i = 0; i < text.Length;)
+			{
+				if (!TrySliceRawTextItem(text, ref i, out var item))
+					continue;
+
+				AddArrayEvent(ArrayEvent.TextEvent(item));
+				DoKeyDelay();
+			}
+		}
+
+		private static bool TrySliceRawTextItem(ReadOnlySpan<char> text, ref int index, out string item)
+		{
+			var ch = text[index];
+
+			if (ch == '\r')
+			{
+				var length = index + 1 < text.Length && text[index + 1] == '\n' ? 2 : 1;
+				item = text.Slice(index, length).ToString();
+				index += length;
+				return true;
+			}
+
+			if (Rune.DecodeFromUtf16(text[index..], out _, out var charsConsumed) != OperationStatus.Done)
+			{
+				item = text.Slice(index, 1).ToString();
+				index++;
+				return true;
+			}
+
+			item = text.Slice(index, charsConsumed).ToString();
+			index += charsConsumed;
 			return true;
 		}
 

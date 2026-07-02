@@ -177,7 +177,7 @@ namespace Keysharp.Internals
 		bool TryCaptureWindow(nint h, bool includeDecoration, out Bitmap bmp, out double scale);
 		bool RequiresAuthorization { get; }
 
-		/// <summary>Gate a capture against the compositor's authorization (KWin/GNOME keysharp-screencap
+		/// <summary>Gate a capture against the compositor's authorization (KWin/GNOME keysharp-helper
 		/// handshake); returns NotApplicable where capture needs no separate grant. Resolved per-compositor, so
 		/// no <c>is …Backend</c> test at the call site.</summary>
 		Os.PermissionResult RequestCaptureAuthorization(string operation, bool prompt);

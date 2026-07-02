@@ -176,7 +176,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				windows = [];
 
-				var json = RunJson(BuildListScript(includeHidden), "list");
+				var json = RunJsonOperation("listWindows", new { includeHidden });
 				if (json.IsNullOrEmpty())
 					return false;
 
@@ -206,15 +206,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			public bool TryGetActiveWindow(out WaylandWindowInfo window)
 			{
 				window = null;
-				var json = RunJson(WindowHelpers
-					+ "var w = activeWindowCompat();\n"
-					+ "if (!w) {\n"
-					+ "  var order = windowListCompat();\n"
-					+ "  for (var i = order.length - 1; i >= 0; --i) {\n"
-					+ "    if (safeBool(order[i].active)) { w = order[i]; break; }\n"
-					+ "  }\n"
-					+ "}\n"
-					+ "report({ ok: true, window: windowInfo(w, true) });\n", "active");
+				var json = RunJsonOperation("activeWindow");
 				return TryParseSingleWindow(json, out window);
 			}
 
@@ -225,53 +217,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				var json = RunJson(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "report({ ok: true, window: windowInfo(w) });\n", "get_window");
+				var json = RunJsonOperation("getWindow", new { id }, "get_window");
 				return TryParseSingleWindow(json, out window);
 			}
 
 			public bool TryGetWindowAt(int x, int y, out WaylandWindowInfo window)
 			{
 				window = null;
-				var xs = x.ToString(CultureInfo.InvariantCulture);
-				var ys = y.ToString(CultureInfo.InvariantCulture);
-				var json = RunJson(WindowHelpers
-					+ $"var px = {xs}, py = {ys};\n"
-					+ "var w = null;\n"
-					// KWin 6 has workspace.windowAt(Qt.point, hint); KWin 5 does not.
-					+ "try {\n"
-					+ "  if (typeof workspace.windowAt === \"function\") {\n"
-					+ "    var hits = workspace.windowAt(Qt.point(px, py), 1);\n"
-					+ "    if (hits && typeof hits.length !== \"undefined\" && hits.length > 0) w = hits[0];\n"
-					+ "    else if (hits) w = hits;\n"
-					+ "  }\n"
-					+ "} catch (e) { w = null; }\n"
-					// Fallback for KWin 5 (no windowAt, and stackingOrder isn't exposed to scripts):
-					// gather every real, visible window whose frame contains the point, then prefer:
-					// (a) the active window if it's a hit, else (b) the smallest area — innermost
-					// windows are usually drawn on top of larger ones that share their region.
-					+ "if (!w) {\n"
-					+ "  var order = windowListCompat();\n"
-					+ "  var hits = [];\n"
-					+ "  for (var i = 0; i < order.length; ++i) {\n"
-					+ "    var cand = order[i];\n"
-					+ "    if (!cand) continue;\n"
-					+ "    if (safeBool(cand.deleted) || safeBool(cand.hidden) || safeBool(cand.minimized)) continue;\n"
-					+ "    if (safeBool(cand.specialWindow)) continue;\n"
-					+ "    if (typeof cand.managed !== \"undefined\" && !safeBool(cand.managed)) continue;\n"
-					+ "    var g = safeRead(cand, \"frameGeometry\", safeRead(cand, \"geometry\", null));\n"
-					+ "    if (!g || g.width <= 0 || g.height <= 0) continue;\n"
-					+ "    if (px < g.x || py < g.y || px >= g.x + g.width || py >= g.y + g.height) continue;\n"
-					+ "    if (safeBool(cand.active)) { w = cand; break; }\n"
-					+ "    hits.push({ cand: cand, area: g.width * g.height });\n"
-					+ "  }\n"
-					+ "  if (!w && hits.length > 0) {\n"
-					+ "    hits.sort(function(a, b) { return a.area - b.area; });\n"
-					+ "    w = hits[0].cand;\n"
-					+ "  }\n"
-					+ "}\n"
-					+ "report({ ok: true, window: windowInfo(w) });\n", "window_at");
+				var json = RunJsonOperation("windowAt", new { x, y }, "window_at");
 				return TryParseSingleWindow(json, out window);
 			}
 
@@ -279,7 +232,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			{
 				area = Rectangle.Empty;
 
-				var json = RunJson(WorkAreaScript, "workarea");
+				var json = RunJsonOperation("workArea", null, "workarea");
 				if (json.IsNullOrEmpty())
 					return false;
 
@@ -304,29 +257,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				}
 			}
 
-			// clientArea(MaximizeArea, ...) is the area a maximized window gets = the work area (monitor minus
-			// panels). activeScreen/currentDesktop are an int+int on KWin 5 and Output+VirtualDesktop objects on
-			// KWin 6, but the matching clientArea overload exists on each, so passing them through works on both.
-			private const string WorkAreaScript = """
-function rd(r){ return r ? { x: Math.round(r.x||0), y: Math.round(r.y||0), width: Math.round(r.width||0), height: Math.round(r.height||0) } : null; }
-var area = null;
-try { area = workspace.clientArea(KWin.MaximizeArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) { area = null; }
-if (!area) { try { area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) {} }
-report({ ok: !!area, area: rd(area) });
-""";
-
 			public bool TryActivateWindow(nint handle)
 			{
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ "try { w.minimized = false; } catch (e) {}\n"
-					+ "workspace.activeWindow = w;\n"
-					+ "try { workspace.raiseWindow(w); } catch (e) {}\n"
-					+ "report({ ok: true });\n", "activate");
+				return RunCommandOperation("activate", new { id });
 			}
 
 			public bool TryMoveResizeWindow(nint handle, Rectangle bounds, bool setPosition, bool setSize)
@@ -334,20 +270,16 @@ report({ ok: !!area, area: rd(area) });
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ "var g = w.frameGeometry;\n"
-					+ $"var nx = {(setPosition ? bounds.X : int.MinValue).ToString(CultureInfo.InvariantCulture)};\n"
-					+ $"var ny = {(setPosition ? bounds.Y : int.MinValue).ToString(CultureInfo.InvariantCulture)};\n"
-					+ $"var nw = {(setSize ? bounds.Width : int.MinValue).ToString(CultureInfo.InvariantCulture)};\n"
-					+ $"var nh = {(setSize ? bounds.Height : int.MinValue).ToString(CultureInfo.InvariantCulture)};\n"
-					+ "if (nx === -2147483648) nx = Math.round(g.x);\n"
-					+ "if (ny === -2147483648) ny = Math.round(g.y);\n"
-					+ "if (nw === -2147483648 || nw <= 0) nw = Math.round(g.width);\n"
-					+ "if (nh === -2147483648 || nh <= 0) nh = Math.round(g.height);\n"
-					+ "w.frameGeometry = { x: nx, y: ny, width: nw, height: nh };\n"
-					+ "report({ ok: true });\n", "move_resize");
+				return RunCommandOperation("moveResize", new
+				{
+					id,
+					setPosition,
+					setSize,
+					x = bounds.X,
+					y = bounds.Y,
+					width = bounds.Width,
+					height = bounds.Height
+				}, "move_resize");
 			}
 
 			public bool TrySetNoBorder(nint handle, bool noBorder)
@@ -359,11 +291,7 @@ report({ ok: !!area, area: rd(area) });
 				// window into GTK client-side-decoration mode — so, unlike the empty-titlebar CSD trick, it does
 				// not make GTK manage (and clobber) the surface input region. That is what lets a click-through
 				// overlay be both borderless and input-transparent.
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ $"try {{ w.noBorder = {(noBorder ? "true" : "false")}; }} catch (e) {{}}\n"
-					+ "report({ ok: true });\n", "no_border");
+				return RunCommandOperation("setNoBorder", new { id, noBorder }, "no_border");
 			}
 
 			public bool TrySetWindowState(nint handle, FormWindowState state)
@@ -371,19 +299,14 @@ report({ ok: !!area, area: rd(area) });
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				var body = WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n";
-
-				body += state switch
+				var stateName = state switch
 				{
-					FormWindowState.Minimized => "w.minimized = true;\n",
-					FormWindowState.Maximized => "w.minimized = false;\nif (typeof w.setMaximize === \"function\") w.setMaximize(true, true);\n",
-					_ => "w.minimized = false;\nif (typeof w.setMaximize === \"function\") w.setMaximize(false, false);\n"
+					FormWindowState.Minimized => "minimized",
+					FormWindowState.Maximized => "maximized",
+					_ => "normal"
 				};
 
-				body += "report({ ok: true });\n";
-				return RunCommand(body, "state");
+				return RunCommandOperation("setWindowState", new { id, state = stateName }, "state");
 			}
 
 			public bool TrySetAlwaysOnTop(nint handle, bool onTop)
@@ -391,11 +314,7 @@ report({ ok: !!area, area: rd(area) });
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ $"w.keepAbove = {(onTop ? "true" : "false")};\n"
-					+ "report({ ok: true });\n", "keepabove");
+				return RunCommandOperation("setAlwaysOnTop", new { id, onTop }, "keepabove");
 			}
 
 			public bool TrySetZOrder(nint handle, ZOrder z)
@@ -403,14 +322,7 @@ report({ ok: !!area, area: rd(area) });
 				if (z != ZOrder.Top || !TryGetCompositorId(handle, out var id))
 					return false;
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ "var ok = false;\n"
-					+ "try {\n"
-					+ "  if (typeof workspace.raiseWindow === \"function\") { workspace.raiseWindow(w); ok = true; }\n"
-					+ "} catch (e) { ok = false; }\n"
-					+ "report({ ok: ok });\n", "raise");
+				return RunCommandOperation("raise", new { id });
 			}
 
 			public bool TrySetTransparency(nint handle, object alpha)
@@ -418,16 +330,9 @@ report({ ok: !!area, area: rd(area) });
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				var opacity = AlphaToOpacity(alpha).ToString("R", CultureInfo.InvariantCulture);
+				var opacity = AlphaToOpacity(alpha);
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ "var ok = false;\n"
-					+ "try {\n"
-					+ "  if (typeof w.opacity !== \"undefined\") { w.opacity = " + opacity + "; ok = true; }\n"
-					+ "} catch (e) { ok = false; }\n"
-					+ "report({ ok: ok });\n", "opacity");
+				return RunCommandOperation("setOpacity", new { id, opacity }, "opacity");
 			}
 
 			public bool TryCloseWindow(nint handle)
@@ -435,11 +340,7 @@ report({ ok: !!area, area: rd(area) });
 				if (!TryGetCompositorId(handle, out var id))
 					return false;
 
-				return RunCommand(WindowHelpers
-					+ $"var w = findWindow({JsonSerializer.Serialize(id)});\n"
-					+ "if (!w) { report({ ok: false }); return; }\n"
-					+ "w.closeWindow();\n"
-					+ "report({ ok: true });\n", "close");
+				return RunCommandOperation("close", new { id });
 			}
 
 			public bool SupportsWindowEvents => true;
@@ -475,7 +376,7 @@ report({ ok: !!area, area: rd(area) });
 
 				try
 				{
-					sub = Task.Run(() => KWinDBusBridge.StartEventScriptAsync(token, script, OnEvent)).GetAwaiter().GetResult();
+					sub = KWinDBusBridge.StartEventScriptAsync(token, script, OnEvent).GetAwaiter().GetResult();
 				}
 				catch
 				{
@@ -553,18 +454,6 @@ for (var __i = 0; __i < __order.length; ++__i) {
   if (windowInfo(__order[__i])) trackWindow(__order[__i]);
 }
 """;
-
-			private static string BuildListScript(bool includeHidden)
-				=> WindowHelpers
-				   + "var result = [];\n"
-				   + "var order = windowListCompat();\n"
-				   + "for (var i = 0; i < order.length; ++i) {\n"
-				   + "  var info = windowInfo(order[i]);\n"
-				   + "  if (!info) continue;\n"
-				   + (includeHidden ? "" : "  if (!info.visible) continue;\n")
-				   + "  result.push(info);\n"
-				   + "}\n"
-				   + "report({ ok: true, windows: result });\n";
 
 			private const string WindowHelpers = """
 function safeRead(object, name, fallback) {
@@ -718,11 +607,11 @@ function findWindow(id) {
 }
 """;
 
-			private string RunJson(string scriptBody, string requestPrefix)
+			private string RunJsonOperation(string operation, object args = null, string requestPrefix = null)
 			{
 				try
 				{
-					return Task.Run(() => KWinDBusBridge.RunJsonQueryAsync(scriptBody, requestPrefix)).GetAwaiter().GetResult();
+					return KWinDBusBridge.RunJsonOperation(operation, args, requestPrefix ?? operation);
 				}
 				catch
 				{
@@ -730,11 +619,11 @@ function findWindow(id) {
 				}
 			}
 
-			private bool RunCommand(string scriptBody, string requestPrefix)
+			private bool RunCommandOperation(string operation, object args = null, string requestPrefix = null)
 			{
 				try
 				{
-					return Task.Run(() => KWinDBusBridge.RunCommandAsync(scriptBody, requestPrefix)).GetAwaiter().GetResult();
+					return KWinDBusBridge.RunCommandOperation(operation, args, requestPrefix ?? operation);
 				}
 				catch
 				{

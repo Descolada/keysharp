@@ -59,12 +59,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<IDisposable> WatchWindowEventAsync(Action<(string type, string json)> handler, Action<Exception> onError = null);
 	}
 
-	[DBusInterface("org.gnome.Shell.Screenshot")]
-	public interface IGnomeShellScreenshot : IDBusObject
-	{
-		Task<(bool success, string filename_used)> ScreenshotAreaAsync(int x, int y, int width, int height, bool flash, string filename);
-	}
-
 #pragma warning restore IDE1006
 
 	/// <summary>
@@ -82,8 +76,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private const string DBusObjectPath  = "/org/freedesktop/DBus";
 		private const string ExtensionServiceName = "io.github.keysharp.CinnamonShell";
 		private const string ExtensionObjectPath  = "/io/github/keysharp/CinnamonShell";
-		private const string ScreenshotServiceName = "org.gnome.Shell.Screenshot";
-		private const string ScreenshotObjectPath  = "/org/gnome/Shell/Screenshot";
 		private const int    TimeoutMs   = 2000;
 		private const int    ExtensionOwnerCheckTimeoutMs = 250;
 		private const int    ExtensionMissingCacheMs = 5000;
@@ -106,7 +98,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static IFreedesktopDBus dbusProxy;
 		private static ICinnamon proxy;
 		private static IKeysharpCinnamonShell extensionProxy;
-		private static IGnomeShellScreenshot screenshotProxy;
 		private static long extensionOwnerCacheUntil;
 		private static bool extensionOwnerCached;
 		private static long highlightSupportCacheUntil;
@@ -240,72 +231,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			return RunExtensionBool(p => p.SetWindowOpacityAsync(seq, alpha))
 				   || RunOk("(function(){try{" + JsHelpers + "const w=find(" + seq + ");const a=w&&w.get_compositor_private?w.get_compositor_private():null;if(a){if(a.set_opacity)a.set_opacity(" + alpha.ToString(CultureInfo.InvariantCulture) + ");else a.opacity=" + alpha.ToString(CultureInfo.InvariantCulture) + ";}return JSON.stringify({ok:!!a});}catch(e){return JSON.stringify({ok:false});}})()");
-		}
-
-		internal static Bitmap CaptureArea(int x, int y, int width, int height)
-		{
-			if (width <= 0 || height <= 0)
-				return null;
-
-			var fd = -1;
-			string compositorTempFile = null;   // a temp file Muffin wrote itself (path differs from our memfd) — we must delete it
-
-			try
-			{
-				var p = EnsureScreenshotProxy();
-
-				if (p == null)
-					return null;
-
-				fd = WaylandNative.MemfdCreate("keysharp-cinnamon-capture", WaylandNative.MFD_CLOEXEC);
-
-				if (fd < 0)
-				{
-					Ks.OutputDebugLine($"Cinnamon screenshot memfd_create failed: errno={Marshal.GetLastPInvokeError()}");
-					return null;
-				}
-
-				var path = $"/proc/{Environment.ProcessId}/fd/{fd}";
-				var task = Task.Run(() => p.ScreenshotAreaAsync(x, y, width, height, false, path));
-
-				if (!task.Wait(TimeoutMs))
-					return null;
-
-				var (success, usedPath) = task.GetAwaiter().GetResult();
-
-				if (!success)
-					return null;
-
-				var loadPath = !string.IsNullOrEmpty(usedPath) ? usedPath : path;
-
-				// If Muffin couldn't write our cross-process memfd path and fell back to a temp file of its own,
-				// that file is ours to clean up (the memfd is freed by closing fd; a real file is not).
-				if (!string.IsNullOrEmpty(usedPath) && usedPath != path)
-					compositorTempFile = usedPath;
-
-				var bytes = File.ReadAllBytes(loadPath);
-
-				if (bytes.Length == 0)
-					return null;
-
-				using var ms = new MemoryStream(bytes);
-				return new Bitmap(ms);
-			}
-			catch (Exception ex)
-			{
-				Ks.OutputDebugLine($"Cinnamon screenshot failed: {ex.Message}");
-				return null;
-			}
-			finally
-			{
-				if (fd >= 0)
-					_ = WaylandNative.Close(fd);
-
-				if (compositorTempFile != null)
-				{
-					try { File.Delete(compositorTempFile); } catch { }
-				}
-			}
 		}
 
 		internal static bool SupportsHighlight()
@@ -677,20 +602,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return proxy;
 		}
 
-		private static IGnomeShellScreenshot EnsureScreenshotProxy()
-		{
-			if (screenshotProxy != null)
-				return screenshotProxy;
-
-			var conn = EnsureConnection();
-
-			if (conn == null)
-				return null;
-
-			screenshotProxy = conn.CreateProxy<IGnomeShellScreenshot>(ScreenshotServiceName, new ObjectPath(ScreenshotObjectPath));
-			return screenshotProxy;
-		}
-
 		private static Connection EnsureConnection()
 		{
 			if (connection != null)
@@ -758,7 +669,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			dbusProxy = null;
 			proxy = null;
 			extensionProxy = null;
-			screenshotProxy = null;
 			connectionLocalName = "";
 			registeredHighlightOwnerBusName = "";
 			highlightOwnerRegisterRetryAfter = 0;

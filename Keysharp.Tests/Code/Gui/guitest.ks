@@ -3152,7 +3152,7 @@ btnSendUnicode.OnEvent("Click", (*) => RunSendScenario("SendText", "Mägi, Köln
 btnSendEmoji := MyGui.AddButton("x+12 yp w150 h28", "Emoji SendText")
 btnSendEmoji.OnEvent("Click", (*) => RunSendScenario("SendText", "Faces: 😀 😎 🚀`n", "Emoji SendText"))
 btnSendMixed := MyGui.AddButton("x+12 yp w146 h28", "Mixed Unicode")
-btnSendMixed.OnEvent("Click", (*) => RunSendScenario("SendInput", "Mixed: ääkkönen, 日本語, 😀`n", "Mixed Unicode SendInput"))
+btnSendMixed.OnEvent("Click", (*) => RunSendScenario("SendText", "Mixed: ääkkönen, 日本語, 😀`n", "Mixed Unicode SendInput"))
 btnSendCaret := MyGui.AddButton("xc+16 y+10 w280 h28", "SendInput caret→start")
 btnSendCaret.OnEvent("Click", (*) => RunSendCaretTest())
 btnSendRaw := MyGui.AddButton("x+10 yp w160 h28", "Send {Raw}")
@@ -3683,6 +3683,10 @@ RunSendScenario(mode, expected, label := "") {
 			case "Send":
 				Send("{Text}" expected)
 			case "SendText":
+#if LINUX
+				SendMode "Event"
+				SetKeyDelay 30, -1
+#endif
 				SendText(expected)
 			case "SendInput":
 				SendInput("{Text}" expected)

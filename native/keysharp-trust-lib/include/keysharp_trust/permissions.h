@@ -162,7 +162,7 @@ void ksi_permissions_cancel(void);
  * A PID-keyed session grant is stored in /run/keysharp-trust/sessions/ and is
  * visible to all daemons running as root.  It lets a single combined prompt (e.g.
  * in keysharp-inputd) cover capabilities that span multiple daemons (e.g. screen
- * capture handled by keysharp-screencap) without each daemon showing its own
+ * capture handled by keysharp-helper) without each daemon showing its own
  * prompt.
  *
  * The grant is scoped to a unique (uid, pid, start_time) triplet where start_time

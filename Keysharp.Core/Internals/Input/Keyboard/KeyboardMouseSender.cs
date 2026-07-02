@@ -331,6 +331,18 @@ namespace Keysharp.Internals.Input.Keyboard
 			Keysharp.Internals.Flow.SleepWithoutInterruption((int)delay);
 		}
 
+		protected bool KeyDelayWouldSleepOrQueue()
+		{
+			var delay = sendMode == SendModes.Play ? ThreadAccessors.A_KeyDelayPlay : ThreadAccessors.A_KeyDelay;
+
+			return sendMode switch
+			{
+				SendModes.Event => delay >= 0,
+				SendModes.Play => delay > 0,
+				_ => false
+			};
+		}
+
 		internal virtual void DoMouseDelay()// Helper function for the mouse functions below.
 		{
 			var mouseDelay = sendMode == SendModes.Play ? ThreadAccessors.A_MouseDelayPlay : ThreadAccessors.A_MouseDelay;

@@ -52,44 +52,19 @@ namespace Keysharp.Internals.Input.Linux
 				return false;
 
 			var localEvents = sendMode == SendModes.Event ? new List<KeysharpInputdClient.Input>() : null;
+			var doKeyDelay = KeyDelayWouldSleepOrQueue();
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 
-			for (var i = keyIndex; i < text.Length; i++)
+			for (var i = keyIndex; i < text.Length;)
 			{
-				var ch = text[i];
+				if (!QueueRawTextItem(localEvents, text, ref i, modifiersLR, extraInfo))
+					continue;
 
-				if (ch == '\r')
+				if (doKeyDelay)
 				{
-					if (i + 1 < text.Length && text[i + 1] == '\n')
-						i++;
-
-					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
-					continue;
+					FlushRawTextEvents(localEvents);
+					DoKeyDelay();
 				}
-
-				if (ch == '\n')
-				{
-					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
-					continue;
-				}
-
-				if (ch == '\b')
-				{
-					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_BACK, extraInfo);
-					continue;
-				}
-
-				if (ch == '\t')
-				{
-					QueueKey(localEvents, KeyEventTypes.KeyDownAndUp, VK_TAB, extraInfo);
-					continue;
-				}
-
-				if (Rune.DecodeFromUtf16(text[i..], out var rune, out var charsConsumed) != OperationStatus.Done)
-					continue;
-
-				i += charsConsumed - 1;
-				QueueTextRune(localEvents, rune, modifiersLR, extraInfo);
 			}
 
 			if (localEvents != null && localEvents.Count != 0)
@@ -385,6 +360,54 @@ namespace Keysharp.Internals.Input.Linux
 				SendInputBatches(inputs);
 
 			SetModifierLRState(modifiers, sendMode != SendModes.Event ? eventModifiersLR : GetModifierLRState(), 0, false, true, extraInfo);
+		}
+
+		private bool QueueRawTextItem(List<KeysharpInputdClient.Input> events, ReadOnlySpan<char> text, ref int index, uint modifiersLR, long extraInfo)
+		{
+			var ch = text[index];
+
+			if (ch == '\r')
+			{
+				index += index + 1 < text.Length && text[index + 1] == '\n' ? 2 : 1;
+				QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
+				return true;
+			}
+
+			index++;
+
+			if (ch == '\n')
+			{
+				QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_RETURN, extraInfo);
+				return true;
+			}
+
+			if (ch == '\b')
+			{
+				QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_BACK, extraInfo);
+				return true;
+			}
+
+			if (ch == '\t')
+			{
+				QueueKey(events, KeyEventTypes.KeyDownAndUp, VK_TAB, extraInfo);
+				return true;
+			}
+
+			if (Rune.DecodeFromUtf16(text[(index - 1)..], out var rune, out var charsConsumed) != OperationStatus.Done)
+				return false;
+
+			index += charsConsumed - 1;
+			QueueTextRune(events, rune, modifiersLR, extraInfo);
+			return true;
+		}
+
+		private static void FlushRawTextEvents(List<KeysharpInputdClient.Input> events)
+		{
+			if (events == null || events.Count == 0)
+				return;
+
+			SendInputBatches(events);
+			events.Clear();
 		}
 
 		private void QueueTextRune(List<KeysharpInputdClient.Input> events, Rune rune, uint modifiersLR, long extraInfo)

@@ -1,4 +1,6 @@
 #if LINUX
+using System.Threading.Channels;
+
 using Tmds.DBus;
 
 namespace Keysharp.Internals.Window.Linux.Wayland
@@ -32,6 +34,19 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 	}
 
 	/// <summary>
+	/// Operation channel served to the persistent KWin script. The script keeps one GetQueries call
+	/// outstanding (a long poll); Keysharp completes it with queued {id, op, args} envelopes the moment work
+	/// arrives, or with an empty batch before the D-Bus call timeout so the script's poll loop never dies.
+	/// Results come back through ReportJson keyed by the envelope id.
+	/// </summary>
+	[DBusInterface("org.keysharp.KWinQueryBridge")]
+	public interface IKWinQueryBridge : IDBusObject
+	{
+		Task<string[]> GetQueriesAsync();
+		Task ReportJsonAsync(string requestId, string json);
+	}
+
+	/// <summary>
 	/// KWin's compositor-native input injection interface. Requires a one-time
 	/// authentication call that KWin grants silently for local D-Bus clients.
 	/// Object path: /org/kde/KWin/FakeInput
@@ -54,13 +69,14 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 	/// <summary>
 	/// D-Bus bridge to KWin's scripting subsystem. KWin exposes compositor internals to
-	/// scripts, so Keysharp loads small one-shot scripts and receives their results through a
-	/// process-local D-Bus service. The session-bus connection and bridge service are opened
-	/// once and reused for every request.
+	/// scripts, so Keysharp keeps a resident script loaded and sends it typed operation requests
+	/// through a process-local D-Bus service. The session-bus connection and bridge service are
+	/// opened once and reused for every request.
 	/// </summary>
 	internal static class KWinDBusBridge
 	{
 		private const int QueryTimeoutMs = 2000;
+		private const int ProbeTimeoutMs = 2000;
 		private static readonly object initLock = new();
 		private static readonly SemaphoreSlim initSemaphore = new(1, 1);
 		private static readonly string bridgeServiceName = $"org.keysharp.KWinBridge_{Environment.ProcessId}";
@@ -70,6 +86,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static KWinBridgeService bridgeService;
 		private static IKWinScripting scriptingProxy;
 		private static bool initFailed;
+
+		// Persistent operation channel: one resident KWin script answers typed compositor operations instead of
+		// the load/run/report/unload lifecycle (which costs 4 D-Bus round trips + a QJS compile + temp-file I/O
+		// per query). The script long-polls GetQueries on a DEDICATED connection/service so its parked reply
+		// can never delay ReportEvent delivery or outgoing proxy calls, whatever Tmds.DBus's dispatch policy.
+		private static readonly string queryServiceName = $"org.keysharp.KWinQuery_{Environment.ProcessId}";
+		private static readonly string persistentPluginName = $"keysharp_query_{Environment.ProcessId}";
+		internal static readonly ObjectPath QueryObjectPath = new("/keysharp/kwinquery");
+		private static readonly TimeSpan persistentRetryBackoff = TimeSpan.FromSeconds(5);
+		private const int MaxPersistentFailures = 3;   // consecutive failed (re)loads latch the channel off
+		private static readonly SemaphoreSlim persistentLock = new(1, 1);
+		private static Connection queryConnection;
+		private static KWinQueryService queryService;
+		private static volatile bool persistentReady;
+		private static volatile int persistentFailures;
+		private static DateTime lastPersistentAttempt = DateTime.MinValue;
+		private static bool persistentCleanupRegistered;
+		private static string kwinOwner;
+		private static long requestCounter;
 
 		// KWin 6 uses "/Scripting/Script{id}" as the per-script object path; KWin 5
 		// uses just "/{id}". We don't know which we're on until the first run fails;
@@ -84,10 +119,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			try
 			{
-				var json = Task.Run(() => RunJsonQueryAsync(
-					"var pos = workspace.cursorPos;\n"
-					+ "report({ ok: true, x: Math.round(pos.x), y: Math.round(pos.y) });\n",
-					"cursor")).GetAwaiter().GetResult();
+				var json = RunJsonOperation("cursorPos", null, "cursor");
 
 				if (json.IsNullOrEmpty())
 					return false;
@@ -106,31 +138,227 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		internal static async Task<string> RunJsonQueryAsync(string scriptBody, string requestPrefix)
+		internal static string RunJsonOperation(string operation, object args = null, string requestPrefix = null)
+		{
+			try
+			{
+				return RunJsonOperationAsync(operation, args, requestPrefix).GetAwaiter().GetResult();
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		internal static bool RunCommandOperation(string operation, object args = null, string requestPrefix = null)
+		{
+			try
+			{
+				return JsonOk(RunJsonOperationAsync(operation, args, requestPrefix ?? operation).GetAwaiter().GetResult());
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		private static async Task<string> RunJsonOperationAsync(string operation, object args = null, string requestPrefix = null)
 		{
 			if (!await EnsureConnectedAsync().ConfigureAwait(false))
 				return null;
 
-			var requestId = Guid.NewGuid().ToString("N");
+			if (await EnsurePersistentChannelAsync().ConfigureAwait(false))
+			{
+				var (json, allowFallback) = await SubmitPersistentOperationAsync(operation, args, QueryTimeoutMs).ConfigureAwait(false);
+
+				if (json != null)
+					return json;
+
+				// The envelope was already handed to the script: the operation may still execute once a compositor
+				// stall clears (exactly like a late-landing one-shot command), so a retry could run it TWICE.
+				// Report the timeout as a failure instead, matching the old path's semantics.
+				if (!allowFallback)
+					return null;
+			}
+
+			return await RunOneShotOperationAsync(operation, args, requestPrefix ?? operation).ConfigureAwait(false);
+		}
+
+		/// <summary>Runs an operation through the resident script: enqueue an {id, op, args} envelope, wake the parked
+		/// GetQueries poll, await the ReportJson keyed by the id. On timeout Json is null and AllowFallback
+		/// says whether the operation is guaranteed to never run here (safe to retry one-shot); a timeout also
+		/// marks the channel suspect unless it was already rebuilt while we waited.</summary>
+		private static async Task<(string Json, bool AllowFallback)> SubmitPersistentOperationAsync(string operation, object args, int timeoutMs)
+		{
+			var service = queryService;
+			var gen = service.Generation;
+			var requestId = NextRequestId();
+			var waiter = service.WaitForJsonAsync(requestId, timeoutMs);
+			service.Enqueue(requestId, BuildOperationEnvelope(requestId, operation, args));
+			var (ok, json) = await waiter.ConfigureAwait(false);
+
+			if (ok)
+				return (json, false);
+
+			if (service.Generation == gen)
+				persistentReady = false;   // next query re-probes (with backoff); a rebuilt channel is left alone
+
+			return (null, service.TryCancel(requestId));
+		}
+
+		/// <summary>
+		/// Ensures the resident operation script is loaded and polling, (re)creating it when needed. Returns false
+		/// (callers then use the one-shot path) when KWin is unreachable, the probe fails, a recent attempt
+		/// failed and the backoff window hasn't elapsed, repeated failures latched the channel off, or another
+		/// caller is mid-establishment (never block a query behind a multi-second attempt).
+		/// </summary>
+		private static async Task<bool> EnsurePersistentChannelAsync()
+		{
+			if (persistentReady && queryService.PollerAlive)
+				return true;
+
+			if (persistentFailures >= MaxPersistentFailures)
+				return false;   // latched off (this KWin can't run the channel); a KWin owner change re-arms it
+
+			if (!await persistentLock.WaitAsync(0).ConfigureAwait(false))
+				return false;
+
+			var attempted = false;
+			var succeeded = false;
+
+			try
+			{
+				if (persistentReady && queryService.PollerAlive)
+					return succeeded = true;
+
+				if (DateTime.UtcNow - lastPersistentAttempt < persistentRetryBackoff)
+					return false;
+
+				attempted = true;
+				lastPersistentAttempt = DateTime.UtcNow;
+				persistentReady = false;
+
+				if (queryConnection == null)
+				{
+					var localConn = new Connection(Tmds.DBus.Address.Session);
+
+					try
+					{
+						await localConn.ConnectAsync().ConfigureAwait(false);
+						var localService = new KWinQueryService();
+						await localConn.RegisterObjectAsync(localService).ConfigureAwait(false);
+						await localConn.RegisterServiceAsync(queryServiceName).ConfigureAwait(false);
+						queryConnection = localConn;
+						queryService = localService;
+					}
+					catch
+					{
+						try { localConn.Dispose(); }
+						catch { }
+
+						return false;
+					}
+				}
+
+				// Retire the previous queue: drops undelivered envelopes (no stale-command replay through the
+				// new script) and wakes any poll still parked by the old script so it can't steal the probe.
+				queryService.Reset();
+				// A previous incarnation (pre-restart) may still be loaded under our plugin name; KWin
+				// refuses to load a second script with the same name, so clear it first.
+				await TryUnloadScript(persistentPluginName).ConfigureAwait(false);
+				var scriptPath = WritePersistentQueryScript(persistentPluginName);
+
+				try
+				{
+					if (!await TryLoadAndRunScriptAsync(scriptPath, persistentPluginName).ConfigureAwait(false))
+					{
+						await TryUnloadScript(persistentPluginName).ConfigureAwait(false);
+						return false;
+					}
+
+					// Round-trip probe: proves the script is polling and dispatching on this KWin before we
+					// commit every caller to the channel.
+					RegisterPersistentCleanup();
+
+					if ((await SubmitPersistentOperationAsync("ping", null, ProbeTimeoutMs).ConfigureAwait(false)).Json == null)
+					{
+						await TryUnloadScript(persistentPluginName).ConfigureAwait(false);
+						return false;
+					}
+
+					persistentReady = true;
+					return succeeded = true;
+				}
+				finally
+				{
+					// KWin reads the file when the script is run; after the probe (or on failure) it can go.
+					SafeDelete(scriptPath);
+				}
+			}
+			catch
+			{
+				return false;
+			}
+			finally
+			{
+				if (attempted)
+					persistentFailures = succeeded ? 0 : persistentFailures + 1;
+
+				persistentLock.Release();
+			}
+		}
+
+		/// <summary>One-time hooks that keep the resident script from outliving us or a KWin restart: unload
+		/// it on process exit, and invalidate the channel when org.kde.KWin changes bus owner (compositor
+		/// restart) so the next query reloads immediately instead of eating the waiter timeout.</summary>
+		private static void RegisterPersistentCleanup()
+		{
+			if (persistentCleanupRegistered)
+				return;
+
+			persistentCleanupRegistered = true;
+			AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+			{
+				try { Task.Run(() => TryUnloadScript(persistentPluginName)).Wait(500); }
+				catch { }
+			};
+
+			try
+			{
+				_ = connection.ResolveServiceOwnerAsync("org.kde.KWin", change =>
+				{
+					var newOwner = change.NewOwner;
+
+					if (kwinOwner != null && newOwner != kwinOwner)
+					{
+						// A different compositor instance: the resident script is gone, and any failure latch
+						// belonged to the old one — re-arm so the next query reloads immediately.
+						persistentReady = false;
+						persistentFailures = 0;
+						lastPersistentAttempt = DateTime.MinValue;
+					}
+
+					kwinOwner = newOwner;
+				}, _ => { });
+			}
+			catch
+			{
+				// Owner watching is an optimization; without it a KWin restart costs one waiter timeout.
+			}
+		}
+
+		private static async Task<string> RunOneShotOperationAsync(string operation, object args, string requestPrefix)
+		{
+			var requestId = NextRequestId();
 			var pluginName = $"keysharp_{SanitizePrefix(requestPrefix)}_{requestId}";
 			string scriptPath = null;
 
 			try
 			{
-				scriptPath = WriteScript(requestId, pluginName, scriptBody);
+				scriptPath = WriteOperationScript(requestId, pluginName, operation, args);
 				var awaiterTask = bridgeService.WaitForJsonAsync(requestId, QueryTimeoutMs);
-				int scriptId;
 
-				try
-				{
-					scriptId = await scriptingProxy.loadScriptAsync(scriptPath, pluginName).ConfigureAwait(false);
-				}
-				catch
-				{
-					return null;
-				}
-
-				if (!await TryRunScriptAsync(scriptId).ConfigureAwait(false))
+				if (!await TryLoadAndRunScriptAsync(scriptPath, pluginName).ConfigureAwait(false))
 				{
 					await TryUnloadScript(pluginName).ConfigureAwait(false);
 					return null;
@@ -146,17 +374,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 			finally
 			{
-				if (scriptPath != null)
-				{
-					try { File.Delete(scriptPath); }
-					catch { }
-				}
+				SafeDelete(scriptPath);
 			}
 		}
 
 		/// <summary>
 		/// Loads a <em>persistent</em> KWin script that connects to compositor signals and pushes events back via
-		/// <c>ReportEvent</c>. Unlike <see cref="RunJsonQueryAsync"/> the script is left loaded; the returned
+		/// <c>ReportEvent</c>. Unlike request/response operations, the script is left loaded; the returned
 		/// <see cref="IDisposable"/> unloads it and unregisters the handler. <paramref name="onEvent"/> is invoked
 		/// (on a D-Bus thread) as <c>(eventType, json)</c> for each event. Returns null if KWin is unreachable.
 		/// </summary>
@@ -173,20 +397,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			try
 			{
 				scriptPath = WriteEventScript(token, pluginName, scriptBody);
-				int scriptId;
 
-				try
-				{
-					scriptId = await scriptingProxy.loadScriptAsync(scriptPath, pluginName).ConfigureAwait(false);
-				}
-				catch
-				{
-					bridgeService.UnregisterEventHandler(token);
-					SafeDelete(scriptPath);
-					return null;
-				}
-
-				if (!await TryRunScriptAsync(scriptId).ConfigureAwait(false))
+				if (!await TryLoadAndRunScriptAsync(scriptPath, pluginName).ConfigureAwait(false))
 				{
 					await TryUnloadScript(pluginName).ConfigureAwait(false);
 					bridgeService.UnregisterEventHandler(token);
@@ -245,17 +457,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		internal static async Task<bool> RunCommandAsync(string scriptBody, string requestPrefix)
+		private static async Task<bool> TryLoadAndRunScriptAsync(string scriptPath, string pluginName)
 		{
 			try
 			{
-				var json = await RunJsonQueryAsync(scriptBody, requestPrefix).ConfigureAwait(false);
-
-				if (json.IsNullOrEmpty())
-					return false;
-
-				using var doc = JsonDocument.Parse(json);
-				return JsonBool(doc.RootElement, "ok");
+				var scriptId = await scriptingProxy.loadScriptAsync(scriptPath, pluginName).ConfigureAwait(false);
+				return await TryRunScriptAsync(scriptId).ConfigureAwait(false);
 			}
 			catch
 			{
@@ -370,26 +577,412 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private static string WriteScript(string requestId, string pluginName, string scriptBody)
+		private const string KWinOperationScript = """
+function safeRead(object, name, fallback) {
+  try {
+    if (!object || typeof object[name] === "undefined" || object[name] === null) return fallback;
+    return object[name];
+  } catch (e) {
+    return fallback;
+  }
+}
+function safeString(value) {
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+function safeBool(value) {
+  try { return !!value; } catch (e) { return false; }
+}
+function argBool(args, name, fallback) {
+  try {
+    if (!args || typeof args[name] === "undefined" || args[name] === null) return fallback;
+    return !!args[name];
+  } catch (e) {
+    return fallback;
+  }
+}
+function argNumber(args, name, fallback) {
+  try {
+    var value = Number(args ? args[name] : undefined);
+    return isFinite(value) ? value : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function argString(args, name) {
+  return safeString(args ? args[name] : "");
+}
+function readRect(rect) {
+  if (!rect) return { x: 0, y: 0, width: 0, height: 0 };
+  return {
+    x: Math.round(rect.x || 0),
+    y: Math.round(rect.y || 0),
+    width: Math.round(rect.width || 0),
+    height: Math.round(rect.height || 0)
+  };
+}
+function windowListCompat() {
+  try {
+    if (workspace.stackingOrder && workspace.stackingOrder.length !== undefined) return workspace.stackingOrder;
+  } catch (e) {}
+  try {
+    if (typeof workspace.windowList === "function") return workspace.windowList();
+  } catch (e) {}
+  try {
+    if (typeof workspace.clientList === "function") return workspace.clientList();
+  } catch (e) {}
+  try {
+    if (workspace.clientList && workspace.clientList.length !== undefined) return workspace.clientList;
+  } catch (e) {}
+  return [];
+}
+function activeWindowCompat() {
+  try {
+    if (workspace.activeWindow) return workspace.activeWindow;
+  } catch (e) {}
+  try {
+    if (workspace.activeClient) return workspace.activeClient;
+  } catch (e) {}
+  return null;
+}
+function firstNonEmpty() {
+  for (var i = 0; i < arguments.length; ++i) {
+    var value = safeString(arguments[i]);
+    if (value.length > 0) return value;
+  }
+  return "";
+}
+function windowId(w) {
+  try {
+    var id = safeString(w.internalId);
+    if (id.length > 0) return id;
+  } catch (e) {}
+  try {
+    var windowId = safeString(w.windowId);
+    if (windowId.length > 0) return "windowId:" + windowId;
+  } catch (e) {}
+  var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
+  var pid = safeString(safeRead(w, "pid", 0));
+  var cls = firstNonEmpty(safeRead(w, "resourceClass", ""), safeRead(w, "desktopFileName", ""), safeRead(w, "resourceName", ""));
+  var caption = safeString(safeRead(w, "caption", ""));
+  if (pid.length > 0 || cls.length > 0 || caption.length > 0) {
+    return "fallback:" + pid + "|" + cls + "|" + caption + "|" + frame.x + "," + frame.y + "," + frame.width + "," + frame.height;
+  }
+  return "";
+}
+function isMaximized(w) {
+  try {
+    if (typeof w.maximized !== "undefined") return !!w.maximized;
+  } catch (e) {}
+  try {
+    if (typeof w.maximizeMode !== "undefined") return Number(w.maximizeMode) === 3;
+  } catch (e) {}
+  try {
+    var area = workspace.clientArea(KWin.MaximizeArea, w);
+    var g = w.frameGeometry;
+    return Math.round(g.x) === Math.round(area.x)
+      && Math.round(g.y) === Math.round(area.y)
+      && Math.round(g.width) === Math.round(area.width)
+      && Math.round(g.height) === Math.round(area.height);
+  } catch (e) {}
+  return false;
+}
+function opacityToAlpha(value) {
+  var opacity = Number(value);
+  if (!isFinite(opacity)) opacity = 1;
+  if (opacity < 0) opacity = 0;
+  if (opacity > 1) opacity = 1;
+  return Math.round(opacity * 255);
+}
+function windowInfo(w, includeSpecial) {
+  if (!w) return null;
+  try {
+    if (safeBool(w.deleted)) return null;
+    if (!includeSpecial) {
+      if (typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
+      if (safeBool(w.specialWindow)) return null;
+    }
+    var id = windowId(w);
+    if (!id) return null;
+    var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
+    var client = readRect(safeRead(w, "clientGeometry", null));
+    if (!client || client.width === 0) {
+      var cp = safeRead(w, "clientPos", null);
+      var cs = safeRead(w, "clientSize", null);
+      if (cp && cs && (cs.width || 0) > 0)
+        client = { x: frame.x + Math.round(cp.x || 0), y: frame.y + Math.round(cp.y || 0),
+                   width: Math.round(cs.width || 0), height: Math.round(cs.height || 0) };
+      else
+        client = frame;
+    }
+    return {
+      id: id,
+      title: safeString(safeRead(w, "caption", "")),
+      appId: firstNonEmpty(safeRead(w, "resourceClass", ""), safeRead(w, "desktopFileName", ""), safeRead(w, "resourceName", "")),
+      pid: Math.round(safeRead(w, "pid", 0) || 0),
+      frame: frame,
+      client: client,
+      active: safeBool(w.active),
+      minimized: safeBool(w.minimized),
+      maximized: isMaximized(w),
+      visible: !safeBool(w.hidden),
+      alwaysOnTop: safeBool(w.keepAbove),
+      decorated: !safeBool(w.noBorder),
+      transparency: opacityToAlpha(safeRead(w, "opacity", 1))
+    };
+  } catch (e) {
+    return null;
+  }
+}
+function findWindow(id) {
+  var order = windowListCompat();
+  for (var i = 0; i < order.length; ++i) {
+    if (windowId(order[i]) === id) return order[i];
+  }
+  var active = activeWindowCompat();
+  if (active && windowId(active) === id) return active;
+  return null;
+}
+function readWorkArea() {
+  function rd(r) {
+    return r ? { x: Math.round(r.x || 0), y: Math.round(r.y || 0), width: Math.round(r.width || 0), height: Math.round(r.height || 0) } : null;
+  }
+  var area = null;
+  try { area = workspace.clientArea(KWin.MaximizeArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) { area = null; }
+  if (!area) { try { area = workspace.clientArea(KWin.PlacementArea, workspace.activeScreen, workspace.currentDesktop); } catch (e) {} }
+  return { ok: !!area, area: rd(area) };
+}
+function windowAtPoint(px, py) {
+  var w = null;
+  try {
+    if (typeof workspace.windowAt === "function") {
+      var hits = workspace.windowAt(Qt.point(px, py), 1);
+      if (hits && typeof hits.length !== "undefined" && hits.length > 0) w = hits[0];
+      else if (hits) w = hits;
+    }
+  } catch (e) {
+    w = null;
+  }
+  if (!w) {
+    var order = windowListCompat();
+    var matches = [];
+    for (var i = 0; i < order.length; ++i) {
+      var cand = order[i];
+      if (!cand) continue;
+      if (safeBool(cand.deleted) || safeBool(cand.hidden) || safeBool(cand.minimized)) continue;
+      if (safeBool(cand.specialWindow)) continue;
+      if (typeof cand.managed !== "undefined" && !safeBool(cand.managed)) continue;
+      var g = safeRead(cand, "frameGeometry", safeRead(cand, "geometry", null));
+      if (!g || g.width <= 0 || g.height <= 0) continue;
+      if (px < g.x || py < g.y || px >= g.x + g.width || py >= g.y + g.height) continue;
+      if (safeBool(cand.active)) { w = cand; break; }
+      matches.push({ cand: cand, area: g.width * g.height });
+    }
+    if (!w && matches.length > 0) {
+      matches.sort(function(a, b) { return a.area - b.area; });
+      w = matches[0].cand;
+    }
+  }
+  return w;
+}
+var keysharpOps = {
+  ping: function(args) {
+    return { ok: true };
+  },
+  cursorPos: function(args) {
+    var pos = workspace.cursorPos;
+    return { ok: true, x: Math.round(pos.x), y: Math.round(pos.y) };
+  },
+  listWindows: function(args) {
+    var includeHidden = argBool(args, "includeHidden", false);
+    var result = [];
+    var order = windowListCompat();
+    for (var i = 0; i < order.length; ++i) {
+      var info = windowInfo(order[i]);
+      if (!info) continue;
+      if (!includeHidden && !info.visible) continue;
+      result.push(info);
+    }
+    return { ok: true, windows: result };
+  },
+  activeWindow: function(args) {
+    var w = activeWindowCompat();
+    if (!w) {
+      var order = windowListCompat();
+      for (var i = order.length - 1; i >= 0; --i) {
+        if (safeBool(order[i].active)) { w = order[i]; break; }
+      }
+    }
+    return { ok: true, window: windowInfo(w, true) };
+  },
+  getWindow: function(args) {
+    var w = findWindow(argString(args, "id"));
+    return { ok: true, window: windowInfo(w) };
+  },
+  windowAt: function(args) {
+    var px = Math.round(argNumber(args, "x", 0));
+    var py = Math.round(argNumber(args, "y", 0));
+    return { ok: true, window: windowInfo(windowAtPoint(px, py)) };
+  },
+  workArea: function(args) {
+    return readWorkArea();
+  },
+  activate: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    try { w.minimized = false; } catch (e) {}
+    var ok = false;
+    try { workspace.activeWindow = w; ok = true; } catch (e) {}
+    try { workspace.activeClient = w; ok = true; } catch (e) {}
+    try { workspace.raiseWindow(w); } catch (e) {}
+    return { ok: ok };
+  },
+  moveResize: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    var g = safeRead(w, "frameGeometry", safeRead(w, "geometry", null));
+    if (!g) return { ok: false };
+    var setPosition = argBool(args, "setPosition", false);
+    var setSize = argBool(args, "setSize", false);
+    var nx = setPosition ? Math.round(argNumber(args, "x", g.x || 0)) : Math.round(g.x || 0);
+    var ny = setPosition ? Math.round(argNumber(args, "y", g.y || 0)) : Math.round(g.y || 0);
+    var nw = setSize ? Math.round(argNumber(args, "width", g.width || 0)) : Math.round(g.width || 0);
+    var nh = setSize ? Math.round(argNumber(args, "height", g.height || 0)) : Math.round(g.height || 0);
+    if (nw <= 0) nw = Math.round(g.width || 0);
+    if (nh <= 0) nh = Math.round(g.height || 0);
+    w.frameGeometry = { x: nx, y: ny, width: nw, height: nh };
+    return { ok: true };
+  },
+  setNoBorder: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    try { w.noBorder = argBool(args, "noBorder", false); } catch (e) {}
+    return { ok: true };
+  },
+  setWindowState: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    var state = argString(args, "state");
+    if (state === "minimized") {
+      w.minimized = true;
+    } else if (state === "maximized") {
+      w.minimized = false;
+      if (typeof w.setMaximize === "function") w.setMaximize(true, true);
+    } else {
+      w.minimized = false;
+      if (typeof w.setMaximize === "function") w.setMaximize(false, false);
+    }
+    return { ok: true };
+  },
+  setAlwaysOnTop: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    w.keepAbove = argBool(args, "onTop", false);
+    return { ok: true };
+  },
+  raise: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    var ok = false;
+    try {
+      if (typeof workspace.raiseWindow === "function") { workspace.raiseWindow(w); ok = true; }
+    } catch (e) {
+      ok = false;
+    }
+    return { ok: ok };
+  },
+  setOpacity: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    var opacity = argNumber(args, "opacity", 1);
+    var ok = false;
+    try {
+      if (typeof w.opacity !== "undefined") { w.opacity = opacity; ok = true; }
+    } catch (e) {
+      ok = false;
+    }
+    return { ok: ok };
+  },
+  close: function(args) {
+    var w = findWindow(argString(args, "id"));
+    if (!w) return { ok: false };
+    w.closeWindow();
+    return { ok: true };
+  }
+};
+function executeOperation(op, args) {
+  var name = String(op);
+  var fn = keysharpOps[name];
+  if (typeof fn !== "function") return { ok: false, error: "unknown operation: " + name };
+  return fn(args || {});
+}
+""";
+
+		private static string WriteOperationScript(string requestId, string pluginName, string operation, object args)
 		{
 			var serviceName = bridgeServiceName;
+			var operationJson = JsonSerializer.Serialize(operation ?? string.Empty);
+			var argsJson = JsonSerializer.Serialize(args ?? new { });
 			var script =
 				"(function() {\n"
 				+ $"  var __keysharpRequestId = \"{requestId}\";\n"
-				+ "  function reportJson(json) {\n"
+				+ KWinOperationScript
+				+ "\n  function reportJson(json) {\n"
 				+ $"    callDBus(\"{serviceName}\", \"{BridgeObjectPath}\", \"org.keysharp.KWinBridge\", \"ReportJson\", __keysharpRequestId, String(json));\n"
 				+ "  }\n"
 				+ "  function report(value) { reportJson(JSON.stringify(value)); }\n"
 				+ "  function reportError(error) { report({ ok: false, error: String(error) }); }\n"
 				+ "  try {\n"
-				+ scriptBody
-				+ "\n  } catch (e) {\n"
+				+ $"    var result = executeOperation({operationJson}, {argsJson});\n"
+				+ "    if (typeof result === \"undefined\") result = { ok: true };\n"
+				+ "    report(result);\n"
+				+ "  } catch (e) {\n"
 				+ "    reportError(e);\n"
 				+ "  }\n"
 				+ "})();\n";
-			var path = Path.Combine(Path.GetTempPath(), $"{pluginName}.js");
-			File.WriteAllText(path, script);
-			return path;
+			return WriteTempScript(pluginName, script);
+		}
+
+		// Resident operation script: keeps one GetQueries long poll outstanding against the dedicated query
+		// service; each returned envelope {id, op, args} is dispatched to a prewritten operation table.
+		// Keysharp always answers GetQueries before the D-Bus call timeout (empty batch when idle), so the
+		// poll callback — and with it the loop — is guaranteed to fire; an error still ends the chain, which
+		// the C# side detects via PollerAlive/waiter timeout and heals by reloading the script.
+		private static string WritePersistentQueryScript(string pluginName)
+		{
+			var call = $"callDBus(\"{queryServiceName}\", \"{QueryObjectPath}\", \"org.keysharp.KWinQueryBridge\"";
+			var script =
+				"(function() {\n"
+				+ KWinOperationScript
+				+ "\n"
+				+ "  function reportTo(id, json) {\n"
+				+ $"    try {{ {call}, \"ReportJson\", id, String(json)); }} catch (e) {{}}\n"
+				+ "  }\n"
+				+ "  function execute(id, op, args) {\n"
+				+ "    try {\n"
+				+ "      var result = executeOperation(String(op), args || {});\n"
+				+ "      if (typeof result === \"undefined\") result = { ok: true };\n"
+				+ "      reportTo(id, JSON.stringify(result));\n"
+				+ "    } catch (e) {\n"
+				+ "      reportTo(id, JSON.stringify({ ok: false, error: String(e) }));\n"
+				+ "    }\n"
+				+ "  }\n"
+				+ "  function poll() {\n"
+				+ $"    try {{ {call}, \"GetQueries\", function(queries) {{\n"
+				+ "      try {\n"
+				+ "        for (var i = 0; i < queries.length; ++i) {\n"
+				+ "          try {\n"
+				+ "            var q = JSON.parse(queries[i]);\n"
+				+ "            execute(String(q.id), String(q.op), q.args || {});\n"
+				+ "          } catch (e) {}\n"
+				+ "        }\n"
+				+ "      } catch (e) {}\n"
+				+ "      poll();\n"
+				+ "    }); } catch (e) {}\n"
+				+ "  }\n"
+				+ "  poll();\n"
+				+ "})();\n";
+			return WriteTempScript(pluginName, script);
 		}
 
 		// Persistent event script: exposes emit(type, value) which pushes (token, type, JSON) to ReportEvent.
@@ -410,6 +1003,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				+ scriptBody
 				+ "\n  } catch (e) {}\n"
 				+ "})();\n";
+			return WriteTempScript(pluginName, script);
+		}
+
+		private static string WriteTempScript(string pluginName, string script)
+		{
 			var path = Path.Combine(Path.GetTempPath(), $"{pluginName}.js");
 			File.WriteAllText(path, script);
 			return path;
@@ -426,6 +1024,25 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				sb.Append(char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_');
 
 			return sb.ToString();
+		}
+
+		private static string NextRequestId()
+			=> $"{Environment.ProcessId:x}_{Interlocked.Increment(ref requestCounter):x}";
+
+		private static string BuildOperationEnvelope(string requestId, string operation, object args)
+		{
+			var op = JsonSerializer.Serialize(operation ?? string.Empty);
+			var argJson = args == null ? "{}" : JsonSerializer.Serialize(args);
+			return "{\"id\":\"" + requestId + "\",\"op\":" + op + ",\"args\":" + argJson + "}";
+		}
+
+		private static bool JsonOk(string json)
+		{
+			if (json.IsNullOrEmpty())
+				return false;
+
+			using var doc = JsonDocument.Parse(json);
+			return JsonBool(doc.RootElement, "ok");
 		}
 
 		private static bool JsonBool(JsonElement element, string property)
@@ -448,25 +1065,91 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return false;
 		}
 
+		/// <summary>Request-id-keyed result waiters shared by both bridge services: a waiter is registered
+		/// before the query is dispatched, completed by the matching ReportJson, or resolved (false, null)
+		/// by its timeout.</summary>
+		private sealed class PendingJsonTable
+		{
+			private readonly object gate = new();
+			private readonly Dictionary<string, PendingJsonEntry> pending = new();
+
+			internal Task<(bool Ok, string Json)> WaitAsync(string requestId, int timeoutMs)
+			{
+				var entry = new PendingJsonEntry(this, requestId);
+
+				lock (gate)
+					pending[requestId] = entry;
+
+				entry.StartTimer(timeoutMs);
+				return entry.Task;
+			}
+
+			private void Timeout(string requestId)
+			{
+				PendingJsonEntry entry = null;
+
+				lock (gate)
+				{
+					if (pending.TryGetValue(requestId, out entry))
+						pending.Remove(requestId);
+				}
+
+				entry?.Complete(false, null);
+			}
+
+			internal void Complete(string requestId, string json)
+			{
+				PendingJsonEntry entry = null;
+
+				lock (gate)
+				{
+					if (pending.TryGetValue(requestId, out entry))
+						pending.Remove(requestId);
+				}
+
+				entry?.Complete(true, json);
+			}
+
+			private sealed class PendingJsonEntry
+			{
+				private readonly PendingJsonTable owner;
+				private readonly string requestId;
+				private readonly TaskCompletionSource<(bool, string)> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+				private readonly Timer timer;
+
+				internal PendingJsonEntry(PendingJsonTable owner, string requestId)
+				{
+					this.owner = owner;
+					this.requestId = requestId;
+					timer = new Timer(static state =>
+					{
+						var entry = (PendingJsonEntry)state;
+						entry.owner.Timeout(entry.requestId);
+					}, this, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+				}
+
+				internal Task<(bool Ok, string Json)> Task => tcs.Task;
+
+				internal void StartTimer(int timeoutMs) => timer.Change(timeoutMs, System.Threading.Timeout.Infinite);
+
+				internal void Complete(bool ok, string json)
+				{
+					timer.Dispose();
+					tcs.TrySetResult((ok, json));
+				}
+			}
+		}
+
 		private sealed class KWinBridgeService : IKWinBridge
 		{
-			private readonly object pendingLock = new();
-			private readonly Dictionary<string, TaskCompletionSource<(bool, string)>> pending = new();
+			private readonly PendingJsonTable pending = new();
 			private readonly ConcurrentDictionary<string, Action<string, string>> eventHandlers = new();
 
 			public ObjectPath ObjectPath => BridgeObjectPath;
 
 			public Task ReportJsonAsync(string requestId, string json)
 			{
-				TaskCompletionSource<(bool, string)> tcs = null;
-
-				lock (pendingLock)
-				{
-					if (pending.TryGetValue(requestId, out tcs))
-						pending.Remove(requestId);
-				}
-
-				tcs?.TrySetResult((true, json));
+				pending.Complete(requestId, json);
 				return Task.CompletedTask;
 			}
 
@@ -486,21 +1169,135 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal void UnregisterEventHandler(string token) => eventHandlers.TryRemove(token, out _);
 
 			internal Task<(bool Ok, string Json)> WaitForJsonAsync(string requestId, int timeoutMs)
+				=> pending.WaitAsync(requestId, timeoutMs);
+		}
+
+		/// <summary>
+		/// The resident operation script's counterpart: GetQueries parks until an operation envelope is enqueued (or
+		/// an idle timeout well under the D-Bus call timeout, so the script's poll callback always fires and
+		/// re-polls), then returns the queued batch. ReportJson completes the matching waiter. Lives on its
+		/// own connection so a parked poll can't interact with the event/one-shot service.
+		/// </summary>
+		private sealed class KWinQueryService : IKWinQueryBridge
+		{
+			private const int IdleReplyMs = 15000;   // safely under the ~25s default D-Bus method-call timeout
+			private const int MaxBatch = 16;
+
+			private readonly PendingJsonTable pending = new();
+			// The queue is swapped wholesale by Reset(): a poll parked by a DEAD script's final GetQueries is
+			// still awaiting the old channel, so completing that channel keeps it from stealing envelopes
+			// (probe included) meant for the reloaded script.
+			private volatile Channel<(string Id, string Json)> queue = Channel.CreateUnbounded<(string, string)>();
+			private readonly object stateGate = new();
+			private readonly HashSet<string> cancelled = [];   // timed out before delivery: skip at dequeue
+			private readonly HashSet<string> delivered = [];   // handed to the script, no ReportJson yet
+			private int generation;
+			private int activePollers;
+			private long lastPollTicks;
+
+			public ObjectPath ObjectPath => QueryObjectPath;
+
+			public async Task<string[]> GetQueriesAsync()
 			{
-				var tcs = new TaskCompletionSource<(bool, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
+				_ = Interlocked.Increment(ref activePollers);
+				var q = queue;   // pin this poll to the current channel generation
 
-				lock (pendingLock)
-					pending[requestId] = tcs;
-
-				_ = Task.Delay(timeoutMs).ContinueWith(_ =>
+				try
 				{
-					lock (pendingLock)
-						pending.Remove(requestId);
+					if (!q.Reader.TryRead(out var first))
+					{
+						using var cts = new CancellationTokenSource(IdleReplyMs);
 
-					tcs.TrySetResult((false, null));
-				}, TaskScheduler.Default);
+						try
+						{
+							first = await q.Reader.ReadAsync(cts.Token).ConfigureAwait(false);
+						}
+						catch (Exception)   // idle timeout, or the channel was retired by Reset()
+						{
+							return [];   // empty batch keeps a live script's poll loop alive
+						}
+					}
 
-				return tcs.Task;
+					var list = new List<string>();
+
+					do
+					{
+						lock (stateGate)
+						{
+							if (cancelled.Remove(first.Id))
+								continue;   // its waiter already timed out and fell back one-shot
+
+							_ = delivered.Add(first.Id);
+						}
+
+						list.Add(first.Json);
+					}
+					while (list.Count < MaxBatch && q.Reader.TryRead(out first));
+
+					return [.. list];
+				}
+				finally
+				{
+					_ = Interlocked.Decrement(ref activePollers);
+					_ = Interlocked.Exchange(ref lastPollTicks, DateTime.UtcNow.Ticks);
+				}
+			}
+
+			public Task ReportJsonAsync(string requestId, string json)
+			{
+				lock (stateGate)
+					_ = delivered.Remove(requestId);
+
+				pending.Complete(requestId, json);
+				return Task.CompletedTask;
+			}
+
+			/// <summary>Whether the resident script is still polling: either a GetQueries is parked right now,
+			/// or one completed recently enough that the next poll must still be in flight.</summary>
+			internal bool PollerAlive
+				=> Volatile.Read(ref activePollers) > 0
+				|| DateTime.UtcNow.Ticks - Interlocked.Read(ref lastPollTicks) < TimeSpan.FromMilliseconds(IdleReplyMs + 5000).Ticks;
+
+			/// <summary>The channel generation a submit runs against; bumped by Reset() so a stale timeout
+			/// can't invalidate a channel that was rebuilt while it waited.</summary>
+			internal int Generation => Volatile.Read(ref generation);
+
+			internal Task<(bool Ok, string Json)> WaitForJsonAsync(string requestId, int timeoutMs)
+				=> pending.WaitAsync(requestId, timeoutMs);
+
+			internal void Enqueue(string requestId, string envelope) => queue.Writer.TryWrite((requestId, envelope));
+
+			/// <summary>Called on a timed-out waiter. True when the envelope had NOT yet been handed to the
+			/// script — it is tombstoned so it never will be, making a one-shot retry safe. False when the
+			/// script already received it: the operation may still execute (a compositor stall, matching the old
+			/// one-shot behavior of a late-landing command), so retrying would risk running it twice.</summary>
+			internal bool TryCancel(string requestId)
+			{
+				lock (stateGate)
+				{
+					if (delivered.Remove(requestId))
+						return false;
+
+					_ = cancelled.Add(requestId);
+					return true;
+				}
+			}
+
+			/// <summary>Retires the current queue before a script (re)load: undelivered envelopes are dropped
+			/// (their waiters time out and fall back one-shot), parked polls from the previous script wake with
+			/// an empty batch, and the reloaded script starts from a clean, replay-free queue.</summary>
+			internal void Reset()
+			{
+				var old = queue;
+				queue = Channel.CreateUnbounded<(string, string)>();
+				_ = old.Writer.TryComplete();
+				_ = Interlocked.Increment(ref generation);
+
+				lock (stateGate)
+				{
+					cancelled.Clear();
+					delivered.Clear();
+				}
 			}
 		}
 	}
@@ -546,8 +1343,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return false;
 
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				Task.Run(() => call(p), cts.Token).GetAwaiter().GetResult();
+				call(p).WaitAsync(TimeSpan.FromMilliseconds(TimeoutMs)).GetAwaiter().GetResult();
 				return true;
 			}
 			catch
@@ -575,15 +1371,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var localConn = new Connection(Tmds.DBus.Address.Session);
-				Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+				localConn.ConnectAsync().GetAwaiter().GetResult();
 
 				var localProxy = localConn.CreateProxy<IKWinFakeInput>(
 					ServiceName, new ObjectPath(FakeInputPath));
 
-				using var authCts = new CancellationTokenSource(2000);
-				var granted = Task.Run(
-					() => localProxy.authenticateAsync("Keysharp", "Keysharp mouse automation"),
-					authCts.Token).GetAwaiter().GetResult();
+				var granted = localProxy.authenticateAsync("Keysharp", "Keysharp mouse automation")
+					.WaitAsync(TimeSpan.FromMilliseconds(2000))
+					.GetAwaiter()
+					.GetResult();
 
 				if (!granted)
 				{

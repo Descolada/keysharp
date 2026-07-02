@@ -711,15 +711,25 @@ export default class KeysharpExtension {
         return true;
     }
 
-    // Capture a screen region without any visible effect and return PNG bytes.
-    // Runs entirely inside the compositor process via Shell.Screenshot.
-    // Trust is enforced by keysharp-screencap's own trust gate before it ever
-    // calls this method; the D-Bus session bus already restricts callers to
-    // the same user, so no additional per-call gate is needed here.
-    // GJS wrapJSObject dispatches methods with out-args by calling the handler
-    // with only the in-parameters and using the return value as the response —
-    // the invocation is not passed. Return the Uint8Array directly.
-    CaptureArea(x, y, width, height) {
+    // Screen capture is the one genuinely privileged operation here — Wayland normally blocks foreign
+    // screenshotting — so it is the ONLY method that is permission-gated. It may be invoked exclusively by
+    // the root-owned setuid keysharp-helper, which enforces the user's screen-capture consent
+    // (via the trust store) before it ever calls us. Everything else on this interface stays open to any
+    // same-user caller. These use the async D-Bus form (FooAsync(params, invocation)) solely so we can read
+    // the caller's identity off the invocation; the capture itself is synchronous.
+    CaptureAreaAsync(params, invocation) {
+        if (!this._callerIsHelper(invocation)) {
+            invocation.return_error_literal(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
+                'Screen capture is only permitted through keysharp-helper.');
+            return;
+        }
+
+        const [x, y, width, height] = params;
+        invocation.return_value(new GLib.Variant('(ay)', [this._captureAreaBytes(x, y, width, height)]));
+    }
+
+    // Runs entirely inside the compositor process via Shell.Screenshot; returns PNG bytes (empty on failure).
+    _captureAreaBytes(x, y, width, height) {
         if (width <= 0 || height <= 0)
             return new Uint8Array(0);
 
@@ -758,12 +768,23 @@ export default class KeysharpExtension {
         }
     }
 
+    CaptureWindowAsync(params, invocation) {
+        if (!this._callerIsHelper(invocation)) {
+            invocation.return_error_literal(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
+                'Screen capture is only permitted through keysharp-helper.');
+            return;
+        }
+
+        const [handle] = params;
+        invocation.return_value(new GLib.Variant('(ay)', [this._captureWindowBytes(handle)]));
+    }
+
     // Capture a single window's full contents and return PNG bytes. Unlike CaptureArea (which images
     // the composited screen and so loses anything behind other windows), this reads the window actor's
     // own backing buffer through meta_window_actor_get_image, so an occluded window still captures
     // correctly. A minimized window has no live texture and yields an empty result (the C# caller then
     // falls back to a rectangle grab).
-    CaptureWindow(handle) {
+    _captureWindowBytes(handle) {
         let file = null;
         try {
             const win = this._findWindow(handle);
@@ -808,6 +829,41 @@ export default class KeysharpExtension {
             if (file !== null) {
                 try { file.delete(null); } catch (_e) {}
             }
+        }
+    }
+
+    // Caller gate for the capture methods: true only when the D-Bus caller is the installed, root-owned,
+    // setuid keysharp-helper — the sole process permitted to request capture. keysharp-helper
+    // drops to our uid but re-marks itself inspectable (PR_SET_DUMPABLE) before calling, so /proc/<pid>/exe
+    // resolves to the on-disk binary; a user cannot forge a root-owned setuid file, so this can't be spoofed.
+    _callerIsHelper(invocation) {
+        try {
+            const sender = invocation.get_sender();
+            if (!sender)
+                return false;
+
+            const reply = Gio.DBus.session.call_sync(
+                'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                'GetConnectionUnixProcessID', new GLib.Variant('(s)', [sender]),
+                new GLib.VariantType('(u)'), Gio.DBusCallFlags.NONE, 1000, null);
+            const [pid] = reply.deep_unpack();
+            if (!pid || pid <= 0)
+                return false;
+
+            const exeLink = `/proc/${pid}/exe`;
+            let target;
+            try { target = GLib.file_read_link(exeLink); } catch (_e) { return false; }
+            if (!target || GLib.path_get_basename(target) !== 'keysharp-helper')
+                return false;
+
+            const info = Gio.File.new_for_path(exeLink).query_info(
+                'unix::uid,unix::mode', Gio.FileQueryInfoFlags.NONE, null);
+            const uid = info.get_attribute_uint32('unix::uid');
+            const mode = info.get_attribute_uint32('unix::mode');
+            // Root-owned + setuid + not group/other-writable: only root could have installed it.
+            return uid === 0 && (mode & 0o4000) !== 0 && (mode & 0o022) === 0;
+        } catch (_e) {
+            return false;
         }
     }
 

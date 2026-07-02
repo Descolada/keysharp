@@ -25,6 +25,7 @@ namespace Keysharp.Builtins
 			private int y;
 			private int w;   // explicit width/height; 0 means "use the canvas size"
 			private int h;
+			private double scale = 1.0;   // content/DPI scale: physical size = logical (w,h) * scale; drawing scales to match
 			private bool visible;
 			private bool shown;
 
@@ -32,13 +33,18 @@ namespace Keysharp.Builtins
 				? overlayId
 				: overlayId = OverlayIdPrefix | ((uint)Interlocked.Increment(ref nextOverlayId) & IdMask);
 
-			private int EffectiveW => w > 0 ? w : (int)(canvas?.Width ?? 0);
-			private int EffectiveH => h > 0 ? h : (int)(canvas?.Height ?? 0);
+			// Physical on-screen size handed to the platform. The authored width/height are LOGICAL units; the
+			// canvas is a physical-resolution bitmap (logical * scale) drawn through a matching transform, so a
+			// DPI-scaled overlay stays crisp. A 0 authored dimension means "use the canvas's own size" (SetImage).
+			private int EffectiveW => w > 0 ? Math.Max(1, (int)Math.Round(w * scale)) : (int)(canvas?.Width ?? 0);
+			private int EffectiveH => h > 0 ? Math.Max(1, (int)Math.Round(h * scale)) : (int)(canvas?.Height ?? 0);
 
 			public KeysharpOverlay(params object[] args) : base(args) { }
 
-			/// <summary>Overlay(x?, y?, w?, h?) — stores the geometry; the canvas is created on the first draw
-			/// (or SetImage), and nothing is shown until Show.</summary>
+			/// <summary>Overlay(x?, y?, w?, h?, scale?) — stores the geometry; the canvas is created on the first
+			/// draw (or SetImage), and nothing is shown until Show. x/y are physical screen pixels; w/h are logical
+			/// units multiplied by <paramref name="scale"/> for the on-screen size (pass A_ScreenDPI/96 to size an
+			/// overlay like a DPI-scaled GUI). scale defaults to 1 (draw in physical pixels).</summary>
 			public override object __New(params object[] args)
 			{
 				if (args != null)
@@ -47,6 +53,7 @@ namespace Keysharp.Builtins
 					if (args.Length > 1 && args[1] != null) y = args[1].Ai();
 					if (args.Length > 2 && args[2] != null) w = args[2].Ai();
 					if (args.Length > 3 && args[3] != null) h = args[3].Ai();
+					if (args.Length > 4 && args[4] != null) scale = Math.Max(0.01, args[4].Ad(1.0));
 				}
 
 				return DefaultObject;
@@ -56,8 +63,28 @@ namespace Keysharp.Builtins
 
 			public object X { get => (long)x; set { x = value.Ai(); MoveLive(); } }
 			public object Y { get => (long)y; set { y = value.Ai(); MoveLive(); } }
-			public object W { get => (long)EffectiveW; set { w = value.Ai(); MoveLive(); } }
-			public object H { get => (long)EffectiveH; set { h = value.Ai(); MoveLive(); } }
+			public object W { get => (long)(w > 0 ? w : (int)(canvas?.Width ?? 0)); set { w = value.Ai(); MoveLive(); } }
+			public object H { get => (long)(h > 0 ? h : (int)(canvas?.Height ?? 0)); set { h = value.Ai(); MoveLive(); } }
+
+			/// <summary>Content/DPI scale. The on-screen size is the logical width/height times this factor, and
+			/// drawing is scaled to match so it stays crisp; 1 = draw in physical pixels. Set it before drawing —
+			/// changing it discards the current canvas (a scale change redefines the canvas resolution).</summary>
+			public object Scale
+			{
+				get => scale;
+				set
+				{
+					var s = Math.Max(0.01, value.Ad(1.0));
+
+					if (s == scale)
+						return;
+
+					scale = s;
+					canvas?.Dispose();
+					canvas = null;
+				}
+			}
+
 			public object Visible => shown;
 			public object Hwnd => Platform.Overlay.GetImageOverlayHandle(OverlayId).ToInt64();
 
@@ -85,6 +112,19 @@ namespace Keysharp.Builtins
 
 			public object DrawText(object text, object tx, object ty, object color = null, object font = null)
 				=> Draw(() => canvas.DrawText(text, tx, ty, color, font));
+
+			/// <summary>Measures the size <paramref name="text"/> would occupy in <paramref name="font"/>, in the
+			/// overlay's LOGICAL draw units (so it composes with the coordinates passed to DrawText/DrawRect),
+			/// writing the width and height into the output variables. Use it to centre or align text.</summary>
+			public object MeasureText(object text, object font = null, [ByRef] object width = null, [ByRef] object height = null)
+			{
+				var (mw, mh) = KeysharpImage.MeasureTextCore(text.As(), font.As());
+
+				if (width != null) Script.SetPropertyValue(width, "__Value", mw);
+				if (height != null) Script.SetPropertyValue(height, "__Value", mh);
+
+				return DefaultObject;
+			}
 
 			/// <summary>Stamps another image (an Image, a file path, or a bitmap handle) onto the canvas.</summary>
 			public object DrawImage(object image, object ix = null, object iy = null, object iw = null, object ih = null)
@@ -204,8 +244,11 @@ namespace Keysharp.Builtins
 					return false;
 				}
 
-				if (KeysharpImage.Create(null, (long)w, (long)h) is KeysharpImage created)
+				// Create the canvas at PHYSICAL resolution (logical size * scale) and tell it to scale drawing to
+				// match, so DPI-scaled overlays render crisp rather than upscaling a small bitmap.
+				if (KeysharpImage.Create(null, (long)EffectiveW, (long)EffectiveH) is KeysharpImage created)
 				{
+					created.drawScale = scale;
 					canvas = created;
 					return true;
 				}

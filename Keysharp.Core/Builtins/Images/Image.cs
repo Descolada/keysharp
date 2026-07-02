@@ -46,9 +46,27 @@ namespace Keysharp.Builtins
 			// image back to screen coordinates without the caller having to pass the capture rectangle again.
 			private int originX, originY;
 
+			// Multiplier applied to every draw op's coordinates and font sizes (1.0 = draw in physical pixels).
+			// A DPI-scaled Overlay sets this so the caller can author shapes/text in logical units while the
+			// canvas is a physical-resolution bitmap: drawing through a matching scale transform keeps the result
+			// crisp instead of upscaling a small bitmap. Never touched for a normal Image (stays 1.0).
+			internal double drawScale = 1.0;
+
 			private bool disposed;
 
 			public KeysharpImage(params object[] args) : base(args) { }
+
+			// Graphics for a user-facing draw op, honoring drawScale. Shapes/transforms that operate on whole
+			// bitmaps (Create, Clear, Scale/Rotate/Flip) use ImageHelper.MakeGraphics directly and are unscaled.
+			private Graphics DrawG(Bitmap b, bool highQuality = true)
+			{
+				var g = ImageHelper.MakeGraphics(b, highQuality);
+
+				if (drawScale != 1.0)
+					g.ScaleTransform((float)drawScale, (float)drawScale);
+
+				return g;
+			}
 
 			/// <summary>
 			/// <c>Image(source)</c> builds an image from a file path, another Image, or a native bitmap
@@ -397,7 +415,7 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
 					g.DrawLine(pen, (float)px1, (float)py1, (float)px2, (float)py2);
 					return b;
@@ -417,7 +435,7 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
 #if WINDOWS
 					// System.Drawing.Graphics has no DrawRectangle(Pen, RectangleF) overload.
@@ -442,7 +460,7 @@ namespace Keysharp.Builtins
 				QueueDraw(b =>
 				{
 					// Axis-aligned fill: antialiasing would only fuzz the edges, so draw it hard (highQuality:false).
-					using var g = ImageHelper.MakeGraphics(b, highQuality: false);
+					using var g = DrawG(b, highQuality: false);
 					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
 					g.FillRectangle(brush, rect);
 					return b;
@@ -462,7 +480,7 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
 					g.DrawEllipse(pen, rect);
 					return b;
@@ -481,7 +499,7 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
 					g.FillEllipse(brush, rect);
 					return b;
@@ -507,7 +525,7 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 					using var f = CreateFont(fontSpec);
 #if WINDOWS
 					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
@@ -518,6 +536,35 @@ namespace Keysharp.Builtins
 					return b;
 				});
 				return this;
+			}
+
+			/// <summary>Measures the size <paramref name="text"/> would occupy when drawn with
+			/// <paramref name="font"/> (same "Name size" spec as DrawText), writing the width and height into
+			/// the given output variables. The size is in the image's own draw units (96-DPI pixels), matching
+			/// DrawText and the pixel-coordinate shapes — use it to centre or align text before drawing.</summary>
+			public object MeasureText(object text, object font = null, [ByRef] object width = null, [ByRef] object height = null)
+			{
+				var (w, h) = MeasureTextCore(text.As(), font.As());
+
+				if (width != null) Script.SetPropertyValue(width, "__Value", w);
+				if (height != null) Script.SetPropertyValue(height, "__Value", h);
+
+				return DefaultObject;
+			}
+
+			// Pixel size of text in the given font spec, measured on a throwaway 96-DPI surface so it matches
+			// DrawText and the pixel shapes. (0,0) for empty text. Shared by Image and Overlay MeasureText;
+			// independent of any draw scale, so an Overlay gets back its LOGICAL text size.
+			internal static (double w, double h) MeasureTextCore(string text, string fontSpec)
+			{
+				if (string.IsNullOrEmpty(text))
+					return (0.0, 0.0);
+
+				using var f = CreateFont(fontSpec);
+				using var bmp = ImageHelper.NewArgbCanvas(1, 1);
+				using var g = ImageHelper.MakeGraphics(bmp);
+				var sz = ImageHelper.MeasureText(g, f, text);
+				return (sz.Width, sz.Height);
 			}
 
 			/// <summary>Queues drawing another image onto this canvas.</summary>
@@ -541,10 +588,10 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = ImageHelper.MakeGraphics(b);
+					using var g = DrawG(b);
 #if WINDOWS
 					g.DrawImage(source, new RectangleF((float)px, (float)py, (float)requestedW, (float)requestedH),
-						0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
+						new RectangleF(0, 0, source.Width, source.Height), GraphicsUnit.Pixel);
 #else
 					g.DrawImage(source, new RectangleF((float)px, (float)py, (float)requestedW, (float)requestedH));
 #endif
@@ -1046,6 +1093,13 @@ namespace Keysharp.Builtins
 						{
 							// First draw op: take one private copy so draws mutate a copy, never the shared base.
 							current = new Bitmap(current);
+#if WINDOWS
+							// GDI+ re-stamps a `new Bitmap(Image)` copy with the current screen DPI, discarding the
+							// source's resolution. DrawString scales a point-size font by the graphics' DpiY, so on a
+							// scaled display this would silently double text over the pixel-sized shapes. Restore the
+							// base's resolution (96 for a drawing canvas) so text renders at the canvas's own DPI.
+							current.SetResolution(baseBitmap.HorizontalResolution, baseBitmap.VerticalResolution);
+#endif
 							owned = true;
 						}
 

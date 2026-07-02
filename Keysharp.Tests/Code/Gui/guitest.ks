@@ -3400,56 +3400,75 @@ RunOverlayTest() {
 	SetStatus("image_main", "Overlay: running (auto-stops in a few seconds)...")
 	AppendLog("Overlay test: corner shapes + text + Highlight; animating 2 cycles, then auto-teardown.")
 
+	; Overlay coordinates are screen-absolute, so read the mouse in screen space too — the default
+	; CoordMode is "Client" (relative to this GUI's client area), which would put the mouse-following
+	; banner off by the window origin.
+	CoordMode("Mouse", "Screen")
+
 	sw := A_ScreenWidth
 	sh := A_ScreenHeight
+	; Overlays draw in LOGICAL units (like a GUI): author sizes/text at 96-DPI sizes and pass a DPI scale so
+	; they render crisp at the display's real pixel density. Positions stay in physical screen pixels, so the
+	; corner layout uses the scaled (physical) sizes.
+	scale := A_ScreenDPI / 96
 	mrg := 24
 	bw := 150
 	bh := 110
+	mrgP := Round(mrg * scale)
+	bwP := Round(bw * scale)
+	bhP := Round(bh * scale)
 
-	tl := Overlay(mrg, mrg, bw, bh)
+	tl := Overlay(mrgP, mrgP, bw, bh, scale)
 	tl.FillRect(0, 0, bw, bh, "0x2A5CC8")
 	tl.DrawRect(0, 0, bw - 1, bh - 1, "0xFFFFFF", 2)
 	tl.DrawText("Top-Left", 12, 44, "0xFFFFFF", "Sans 13")
 	tl.Show()
 
-	tr := Overlay(sw - mrg - bw, mrg, bw, bh)
+	tr := Overlay(sw - mrgP - bwP, mrgP, bw, bh, scale)
 	tr.DrawRect(0, 0, bw - 1, bh - 1, "0xFF3030", 4)
 	tr.FillEllipse(bw // 2 - 30, bh // 2 - 30, 60, 60, "0xFFCC00")
-	tr.DrawText("TR", bw // 2 - 14, bh // 2 - 12, "0x000000", "Sans 16")
+	tr.MeasureText("TR", "Sans 16", &trw, &trh)
+	tr.DrawText("TR", (bw - trw) / 2, (bh - trh) / 2, "0x000000", "Sans 16")
 	tr.Show()
 
-	bl := Overlay(mrg, sh - mrg - bh, bw, bh)
+	bl := Overlay(mrgP, sh - mrgP - bhP, bw, bh, scale)
 	bl.DrawEllipse(2, 2, bw - 4, bh - 4, "0x30E070", 3)
 	bl.DrawLine(6, 6, bw - 6, bh - 6, "0x30E070", 2)
 	bl.DrawText("BL", 14, 46, "0x30E070", "Sans 13")
 	bl.Show()
 
-	br := Overlay(sw - mrg - bw, sh - mrg - bh, bw, bh)
+	br := Overlay(sw - mrgP - bwP, sh - mrgP - bhP, bw, bh, scale)
 	br.FillEllipse(0, 0, bw, bh, "0xC030C0")
-	br.DrawText("BR", bw // 2 - 22, bh // 2 - 18, "0xFFFFFF", "Sans 26")
+	br.MeasureText("BR", "Sans 26", &brw, &brh)
+	br.DrawText("BR", (bw - brw) / 2, (bh - brh) / 2, "0xFFFFFF", "Sans 26")
 	br.Show()
 
-	banner := Overlay(sw // 2 - 130, sh // 2 - 20, 260, 40)
-	banner.FillRect(0, 0, 260, 40, "0x101418")
-	banner.DrawRect(0, 0, 259, 39, "0x30E070", 1)
+	bannerW := 260
+	bannerH := 40
+	bannerWP := Round(bannerW * scale)
+	bannerHP := Round(bannerH * scale)
+	banner := Overlay(sw // 2 - bannerWP // 2, sh // 2 - bannerHP // 2, bannerW, bannerH, scale)
+	banner.FillRect(0, 0, bannerW, bannerH, "0x101418")
+	banner.DrawRect(0, 0, bannerW - 1, bannerH - 1, "0x30E070", 1)
 	banner.DrawText("Overlay test — auto-stops", 12, 12, "0x30E070", "Sans 10")
 	banner.Show()
 
-	frame := Highlight(sw // 2 - 120, sh // 2 - 100, 240, 200, "Cyan", 3)
+	; Highlight annotates a real screen region, so it is always physical pixels — scale its size here to match.
+	frame := Highlight(sw // 2 - Round(120 * scale), sh // 2 - Round(100 * scale), Round(240 * scale), Round(200 * scale), "Cyan", Round(3 * scale))
 	frame.Show()
 
-	cx := sw // 2 - bw // 2
-	cy := sh // 2 - bh // 2
+	cx := sw // 2 - bwP // 2
+	cy := sh // 2 - bhP // 2
 	; Corner "home" positions (spelled out: identifiers are case-insensitive, so e.g. `trY` would collide
 	; with the reserved `try` keyword).
-	homeTLx := mrg
-	homeTLy := mrg
-	homeTRx := sw - mrg - bw
-	homeTRy := mrg
-	homeBLx := mrg
-	homeBLy := sh - mrg - bh
-	homeBRx := sw - mrg - bw
-	homeBRy := sh - mrg - bh
+	homeTLx := mrgP
+	homeTLy := mrgP
+	homeTRx := sw - mrgP - bwP
+	homeTRy := mrgP
+	homeBLx := mrgP
+	homeBLy := sh - mrgP - bhP
+	homeBRx := sw - mrgP - bwP
+	homeBRy := sh - mrgP - bhP
 
 	; Two full oscillation cycles (phase 0 → 4π), then stop. Bounded loop, so it ends on its own.
 	steps := 120
@@ -3461,7 +3480,7 @@ RunOverlayTest() {
 		bl.Move(Round(homeBLx + (cx - homeBLx) * t), Round(homeBLy + (cy - homeBLy) * t))
 		br.Move(Round(homeBRx + (cx - homeBRx) * t), Round(homeBRy + (cy - homeBRy) * t))
 		MouseGetPos(&mx, &my)
-		banner.Move(mx + 16, my + 16)
+		banner.Move(mx + Round(16 * scale), my + Round(16 * scale))
 		Sleep(30)
 	}
 

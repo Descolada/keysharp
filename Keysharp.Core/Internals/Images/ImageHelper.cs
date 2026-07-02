@@ -434,7 +434,15 @@ namespace Keysharp.Internals.Images
 		internal static Bitmap NewArgbCanvas(int w, int h)
 		{
 #if WINDOWS
-			return new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppArgb);
+			var bmp = new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppArgb);
+			// GDI+ stamps a new bitmap with the DPI it read from the screen when it initialised, so in a
+			// per-monitor-DPI-aware process on a scaled display this canvas would be, e.g., 192 DPI. Drawing
+			// primitives take pixel coordinates (DPI-independent), but DrawString converts a point-size font
+			// through the Graphics' DpiY — so on a 192-DPI canvas "13pt" text renders at 2x and overflows the
+			// pixel-sized shapes around it. Pin every drawing canvas to 96 DPI so a point size maps to the same
+			// pixel count regardless of display scaling, keeping text and shapes on one coordinate system.
+			bmp.SetResolution(96f, 96f);
+			return bmp;
 #else
 			return new Bitmap(Math.Max(1, w), Math.Max(1, h), PixelFormat.Format32bppRgba);
 #endif
@@ -461,6 +469,18 @@ namespace Keysharp.Internals.Images
 			g.ImageInterpolation = highQuality ? ImageInterpolation.High : ImageInterpolation.None;
 			g.AntiAlias = highQuality;
 			return g;
+#endif
+		}
+
+		/// <summary>Measures the pixel size <paramref name="text"/> occupies in <paramref name="font"/> on
+		/// <paramref name="g"/>, matching what DrawString/DrawText lays out. The two backends order the
+		/// MeasureString arguments differently, so it is wrapped here (like the draw calls).</summary>
+		internal static SizeF MeasureText(Graphics g, Font font, string text)
+		{
+#if WINDOWS
+			return g.MeasureString(text, font);
+#else
+			return g.MeasureString(font, text);
 #endif
 		}
 

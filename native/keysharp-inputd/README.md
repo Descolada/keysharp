@@ -42,7 +42,7 @@ cmake --build native/keysharp-inputd/build
 ```
 
 This also builds the shared `keysharp-trust` static library from
-`native/keysharp-common`. The screen capture helper is a separate native
+`native/keysharp-trust-lib`. The screen capture helper is a separate native
 target; see [`../keysharp-helper/README.md`](../keysharp-helper/README.md).
 
 ## Install
@@ -139,6 +139,11 @@ should not be added to the `input` group.
   store (`/var/lib/keysharp-trust/permissions.tsv`), partitioned by peer uid,
   and pruned after 60 days.
 - `Allow once` decisions last for the current daemon session only.
+- The socket is world-connectable, so the daemon bounds abuse from any local
+  process: a connection that does not complete its `CLIENT_HELLO` handshake is
+  dropped after a short deadline (no silent slot-holding), a single uid cannot
+  occupy the last client slots (others stay reachable), and client-forced
+  re-prompts are rate-limited.
 
 Capabilities: `KSI_CAP_HOOK_KEYBOARD`, `KSI_CAP_HOOK_MOUSE`,
 `KSI_CAP_SYNTH_KEYBOARD`, `KSI_CAP_SYNTH_MOUSE`, `KSI_CAP_BLOCK_INPUT`.
@@ -151,10 +156,11 @@ clears it. Two ways to clear a persisted deny:
 
 * An explicit Keysharp `RequestCapabilities(...)` call sends a force-prompt
   request so the script can re-ask the user.
-* `keysharp-trust list` shows the records stored for the current user, and
-  `keysharp-trust reset <hash>` (or `--pid <pid>`) clears allow/deny bits so
-  the next prompt re-asks from scratch. The CLI talks to the daemon over its
-  Unix socket, so users do not need root.
+* `keysharp-inputd trust list` shows the records stored for the current user, and
+  `keysharp-inputd trust reset <hash>` (or `--pid <pid>`) clears allow/deny bits so
+  the next prompt re-asks from scratch. The subcommand talks to the daemon over its
+  Unix socket, so users do not need root. Forced re-prompts are rate-limited, so a
+  hostile process cannot loop `RequestCapabilities` to spam permission dialogs.
 
 Hook subscriptions require hook access. `MODIFY` hook decisions and direct
 `SYNTHESIZE_INPUT` requests require synthesis access.

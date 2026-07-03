@@ -1342,10 +1342,24 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			var script = Script.TheScript;
 			script.Permissions.EnsureInputInjection(operation: "SendKeys");
+			var ht = script.HookThread;
+
+			// EnsureInputInjection may have switched the active transport (e.g. inputd
+			// injection denied on an X11 session activates the XTEST fallback, which
+			// swaps kbdMsSender). SendKeys is already dispatched on this instance, so
+			// re-dispatch to the current sender rather than running on a stale one.
+			// Normally a no-op (this == kbdMsSender).
+			var activeSender = ht.kbdMsSender;
+
+			if (!ReferenceEquals(this, activeSender))
+			{
+				activeSender.SendKeys(keys, sendRaw, sendModeOrig, targetWindow);
+				return;
+			}
+
 			var modsExcludedFromBlind = 0u;// For performance and also to reserve future flexibility, recognize {Blind} only when it's the first item in the string.
 			var i = 0;
 			var sub = keys.AsSpan();
-			var ht = script.HookThread;
 
 			if (inBlindMode = ((sendRaw == SendRawModes.NotRaw) && keys.StartsWith("{Blind", StringComparison.OrdinalIgnoreCase))) // Don't allow {Blind} while in raw mode due to slight chance {Blind} is intended to be sent as a literal string.
 			{

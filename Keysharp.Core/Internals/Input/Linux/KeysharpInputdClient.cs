@@ -226,6 +226,17 @@ namespace Keysharp.Internals.Input.Linux
 				Detail: 2u
 			};
 
+		// SYNTHESIS_RESULT status<0 detail 12: the daemon's bounded output queue is
+		// full and rejected (did not queue) the batch. Transient — resend after a pause.
+		internal const uint SynthesisBackpressureDetail = 12u;
+
+		internal static bool IsSynthesisBackpressure(Exception exception)
+			=> exception is RequestFailedException
+			{
+				RequestType: MessageType.SynthesisResult,
+				Detail: SynthesisBackpressureDetail
+			};
+
 		internal Capabilities GrantedCapabilities { get; private set; }
 
 		internal static string DefaultSocketPath

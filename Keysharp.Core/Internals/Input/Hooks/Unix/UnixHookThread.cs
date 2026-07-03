@@ -346,22 +346,56 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return false;
 		}
 
+		// Demote to the X11 XTEST sender. Only called where the fallback latch is
+		// active, so invalidating lets the getter rebuild a LinuxKeyboardMouseSender;
+		// the tracked-input reset clears any stale hook key/modifier state across the
+		// switch (and forces the rebuild).
 		private void EnsureLegacyX11Sender()
 		{
-			if (kbdMsSender is LinuxKeyboardMouseSender)
+			if (_kbdMsSender is LinuxKeyboardMouseSender)
 				return;
 
-			try
-			{
-				if (kbdMsSender is IDisposable disposable)
-					disposable.Dispose();
-			}
-			catch
-			{
-			}
-
-			kbdMsSender = new LinuxKeyboardMouseSender();
+			InvalidateKbdMsSender();
 			ResetTrackedInputState(clearSyntheticQueue: true);
+		}
+
+		// Inverse of EnsureLegacyX11Sender: put the inputd sender back once hooks are
+		// (re)established through inputd, unless the X11 fallback latch is set (in which
+		// case the X11 path deliberately owns the sender). Invalidating disposes the
+		// outgoing IDisposable X11 sender and lets the getter rebuild the inputd one.
+		private void EnsureInputdSender()
+		{
+			if (KeysharpInputdManager.IsLegacyX11FallbackActive)
+				return;
+
+			if (_kbdMsSender is null or InputdKeyboardMouseSender)
+				return;
+
+			InvalidateKbdMsSender();
+			ResetTrackedInputState(clearSyntheticQueue: true);
+		}
+
+		// Invoked from KeysharpInputdManager.ActivateLegacyX11Fallback (the single point
+		// the fallback latch flips), so even a Send-only script — which never installs a
+		// hook and so never runs the swap in ChangeHookStateLinux — routes Send through
+		// XTEST afterward. Just invalidate: the next kbdMsSender access rebuilds the
+		// XTEST sender because CreateKbdMsSender honors the now-active latch.
+		//
+		// Reads the raw field, never the lazy getter: this can run re-entrantly from
+		// CreateKbdMsSender (via ShouldUseInputdSender activating the fallback) while the
+		// field is still null. In that case CreateKbdMsSender itself already builds the
+		// legacy sender, so there is nothing to invalidate here. No tracked-state reset:
+		// this path only fires without active hooks, where that state is already empty.
+		internal override void OnTransportFallbackActivated()
+		{
+			if (_kbdMsSender is not InputdKeyboardMouseSender)
+				return;
+
+			lock (hookStateLock)
+			{
+				if (_kbdMsSender is InputdKeyboardMouseSender)
+					InvalidateKbdMsSender();
+			}
 		}
 #endif
 
@@ -591,16 +625,26 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					kbdHook = wantKeyboard ? 1 : 0;
 					mouseHook = wantMouse ? 1 : 0;
 					usingInputdHooks = true;
+					// Hooks are (re)established through inputd. Restore the inputd sender in
+					// case a prior transient hook failure demoted it to X11 XTEST — otherwise
+					// Send would keep routing through XTEST against a healthy daemon.
+					EnsureInputdSender();
 					return;
 				}
 
-				if (!KeysharpInputdManager.IsLegacyX11FallbackActive)
+				if (KeysharpInputdManager.IsLegacyX11FallbackActive)
 				{
-					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; falling back to X11/SharpHook. {inputdMessage}");
+					// Daemon unreachable or denied on an X11 session: route Send through XTEST.
+					EnsureLegacyX11Sender();
+				}
+				else
+				{
+					// No X11 fallback exists here (pure Wayland). Keep the inputd sender:
+					// demoting to LinuxKeyboardMouseSender would silently break Send against
+					// a possibly-healthy daemon, since XTEST needs an X display.
+					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; keeping inputd sender. {inputdMessage}");
 					WarnIfWaylandHookUnavailable();
 				}
-
-				EnsureLegacyX11Sender();
 #endif
 
 				// libuiohook is a single-process-global hook: run()/hook_stop() share one CFRunLoop reference.

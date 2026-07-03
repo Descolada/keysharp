@@ -36,24 +36,50 @@ namespace Keysharp.Internals.Input.Linux
 		/// inputd returns SYNTHESIS_RESULT as soon as events are enqueued for the
 		/// output sequencer, so this call is fast and queryGate is held briefly.
 		/// </summary>
+		// The daemon rejects (rather than blocks) a SYNTHESIZE_INPUT batch that would
+		// overflow its bounded output queue while the sequencer is still draining prior
+		// events. That reject is transient backpressure, so a long Send resends the same
+		// batch after a short pause instead of failing — which also queues physical input
+		// behind the whole Send, matching Windows SendInput. Bounded so a genuinely wedged
+		// sequencer still surfaces an error rather than hanging the script thread forever.
+		private const int SynthesisBackpressureRetryMs = 4;
+		private const long SynthesisBackpressureMaxWaitMs = 4000;
+
 		internal static void SendInputViaSynthesisChannel(
 			IReadOnlyList<KeysharpInputdClient.Input> inputs,
 			KeysharpInputdClient.SynthFlags flags = KeysharpInputdClient.SynthFlags.None)
 		{
-			if (!TryUseQueryClient(qc =>
-			{
-				// Request synth caps lazily on first use. By the time Send is called,
-				// EnsureInputInjection has already established trust on the main client,
-				// so the daemon serves this from the trust store without a prompt.
-				if (!HasCapabilities(qc, KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse))
-					qc.TryRequestCapabilities(
-						KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
-						out _);
+			var backpressureDeadline = Environment.TickCount64 + SynthesisBackpressureMaxWaitMs;
 
-				qc.SendInput(inputs, flags);
-				return true;
-			}))
-				throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
+			for (;;)
+			{
+				try
+				{
+					if (!TryUseQueryClient(qc =>
+					{
+						// Request synth caps lazily on first use. By the time Send is called,
+						// EnsureInputInjection has already established trust on the main client,
+						// so the daemon serves this from the trust store without a prompt.
+						if (!HasCapabilities(qc, KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse))
+							qc.TryRequestCapabilities(
+								KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
+								out _);
+
+						qc.SendInput(inputs, flags);
+						return true;
+					}))
+						throw new InvalidOperationException("keysharp-inputd query channel is unavailable for synthesis.");
+
+					return;
+				}
+				catch (KeysharpInputdClient.RequestFailedException ex)
+					when (KeysharpInputdClient.IsSynthesisBackpressure(ex) && Environment.TickCount64 < backpressureDeadline)
+				{
+					// Output queue full; let the sequencer drain (queryGate is released here),
+					// then resend the same batch.
+					Thread.Sleep(SynthesisBackpressureRetryMs);
+				}
+			}
 		}
 
 		/// <summary>
@@ -90,7 +116,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				var success = TryUseQueryClient(qc =>
 				{
-					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
+					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookKeyboard))
 						return false;
 
 					(queryCapsLock, queryNumLock, queryScrollLock) = qc.GetIndicatorState();
@@ -131,7 +157,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				var success = TryUseQueryClient(qc =>
 				{
-					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookKeyboard), out _))
+					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookKeyboard))
 						return false;
 
 					(queryModifiersLR, queryCapsLock, queryNumLock, queryScrollLock) = qc.QueryKeyState();
@@ -179,7 +205,7 @@ namespace Keysharp.Internals.Input.Linux
 			{
 				var success = TryUseQueryClient(qc =>
 				{
-					if (!qc.TryRequestCapabilities(ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities.HookMouse), out _)
+					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookMouse)
 						|| !qc.TryGetPointerPosition(out var position))
 						return false;
 
@@ -264,6 +290,14 @@ namespace Keysharp.Internals.Input.Linux
 				{
 					return action(qc);
 				}
+				catch (KeysharpInputdClient.RequestFailedException)
+				{
+					// A protocol-level rejection (e.g. capability denied, or an output-queue
+					// backpressure reject) is NOT a dead transport — the connection is healthy.
+					// Let it propagate so the caller can react (retry backpressure, fall back on
+					// a 403) instead of tearing down a working channel and reconnecting.
+					throw;
+				}
 				catch (Exception ex) when (ex is IOException or SocketException
 					or ObjectDisposedException or InvalidDataException or EndOfStreamException)
 				{
@@ -290,6 +324,12 @@ namespace Keysharp.Internals.Input.Linux
 				Ks.OutputDebugLine($"keysharp-inputd unavailable; using X11/SharpHook fallback. {reason}");
 
 			legacyX11FallbackActive = true;
+
+			// Swap the cached sender to XTEST here, at the one point the fallback flips,
+			// so every later kbdMsSender access routes correctly without each call site
+			// remembering to reconcile. The hook thread only swaps an already-created
+			// inputd sender, so this is safe even when called from CreateKbdMsSender.
+			Script.TheScript?.HookThread?.OnTransportFallbackActivated();
 		}
 
 		internal static KeysharpInputdClient Client
@@ -461,6 +501,30 @@ namespace Keysharp.Internals.Input.Linux
 
 		private static bool HasCapabilities(KeysharpInputdClient connectedClient, KeysharpInputdClient.Capabilities required)
 			=> (connectedClient.GrantedCapabilities & required) == required;
+
+		// True when the main (hook/request) connection already holds a capability. If it
+		// does, the same process identity's grant is in the trust store, so requesting the
+		// capability on a sibling query connection is served silently — no prompt. Used to
+		// keep read-only state queries from ever raising an interactive permission prompt
+		// (e.g. the key-state reconcile after a Send in a synthesis-only script).
+		private static bool MainClientHasCapability(KeysharpInputdClient.Capabilities cap)
+		{
+			var c = client;
+			return c != null && (c.GrantedCapabilities & cap) == cap;
+		}
+
+		// Ensures a query connection carries a read capability without ever prompting:
+		// reuse an existing grant if present, otherwise inherit it from the main
+		// connection's trust-store grant. Returns false (caller falls back) rather than
+		// prompting when the capability was never granted to this process.
+		private static bool EnsureQueryCapabilityNoPrompt(KeysharpInputdClient qc, KeysharpInputdClient.Capabilities required)
+		{
+			if (HasCapabilities(qc, required))
+				return true;
+
+			return MainClientHasCapability(required)
+				&& qc.TryRequestCapabilities(ExpandInputPermissionRequest(required), out _);
+		}
 
 		internal static KeysharpInputdClient.Capabilities ExpandInputPermissionRequest(KeysharpInputdClient.Capabilities requested)
 		{

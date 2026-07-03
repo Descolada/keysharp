@@ -110,13 +110,37 @@ namespace Keysharp.Internals.Input.Hooks
 		internal Dictionary<uint, string> vkToKey = [];
 		internal bool blockWinKeys = false;
 		internal nint hsHwnd = 0;
-		private KeyboardMouseSender _kbdMsSender;
+		// Read directly (not via the kbdMsSender getter) when you must inspect the
+		// current sender WITHOUT forcing lazy creation — e.g. transport-fallback swaps,
+		// which must not re-enter CreateKbdMsSender. null until first use.
+		protected KeyboardMouseSender _kbdMsSender;
 		internal KeyboardMouseSender kbdMsSender
 		{
 			get => _kbdMsSender ??= CreateKbdMsSender();
 			set => _kbdMsSender = value;
 		}
 		protected virtual KeyboardMouseSender CreateKbdMsSender() => null;
+
+		// Drops the cached sender (disposing it if it owns resources) so the next
+		// kbdMsSender access rebuilds it via CreateKbdMsSender. Runtime transport
+		// switches use this: the getter reconstructs whichever sender matches the
+		// current fallback state, so callers never construct a concrete sender.
+		internal void InvalidateKbdMsSender()
+		{
+			if (_kbdMsSender is IDisposable disposable)
+			{
+				try { disposable.Dispose(); } catch { }
+			}
+
+			_kbdMsSender = null;
+		}
+
+		// Called when the input transport falls back at runtime (e.g. Linux inputd ->
+		// X11 XTEST). Invalidating the cached sender here — at the single point the
+		// fallback flips — means every kbdMsSender access rebuilds correctly afterward,
+		// with no call site having to remember to reconcile. Default no-op; platform
+		// hook threads that support a fallback override it.
+		internal virtual void OnTransportFallbackActivated() { }
 		internal byte[] physicalKeyState = new byte[VK_ARRAY_COUNT];
 
 		internal bool pendingDeadKeyInvisible;

@@ -518,7 +518,8 @@ static void clear_hook_state(ksi_daemon_state *state)
     for (nfds_t i = 0; i < state->client_count; i++) {
         state->clients[i].hook_subscriptions = 0;
         state->clients[i].block_input_mask = 0;
-        state->clients[i].consecutive_hook_failures = 0;
+        state->clients[i].consecutive_hook_failures[0] = 0;
+        state->clients[i].consecutive_hook_failures[1] = 0;
         state->clients[i].lease_expires_ms = 0u;
     }
 }
@@ -572,6 +573,37 @@ static void expire_client_leases(ksi_daemon_state *state)
     }
 }
 
+/* Drops connections that never completed a CLIENT_HELLO within the handshake
+ * window. A peer that connects and sends nothing otherwise keeps its slot forever
+ * (leases arm only for hook/block clients), so N such peers could exhaust the
+ * client table and deny the broker to everyone. Authenticated idle clients (e.g. a
+ * query connection that sent a zero-capability hello) set hello_seen and are kept. */
+static void expire_unauthenticated_clients(ksi_daemon_state *state)
+{
+    uint64_t now;
+
+    if (state == NULL) {
+        return;
+    }
+
+    now = monotonic_ms();
+
+    for (nfds_t i = state->client_count; i > 0; i--) {
+        nfds_t index = i - 1u;
+        ksi_client *client = &state->clients[index];
+
+        if (client->hello_seen || client->connected_at_ms == 0u
+            || now < client->connected_at_ms + KSI_HANDSHAKE_TIMEOUT_MS) {
+            continue;
+        }
+
+        fprintf(stderr,
+            "inputd: dropping client fd=%d: no CLIENT_HELLO within %u ms\n",
+            client->fd, (unsigned)KSI_HANDSHAKE_TIMEOUT_MS);
+        remove_client(state, index);
+    }
+}
+
 static void apply_fail_open_if_requested(ksi_daemon_state *state)
 {
     if (state == NULL || atomic_exchange(&g_fail_open_requested, 0) == 0) {
@@ -587,18 +619,23 @@ static void apply_fail_open_if_requested(ksi_daemon_state *state)
     }
 }
 
-static void record_client_hook_success(ksi_daemon_state *state, nfds_t index)
+static void record_client_hook_success(ksi_daemon_state *state, nfds_t index, uint32_t hook_type)
 {
     if (state == NULL || index >= state->client_count) {
         return;
     }
 
-    state->clients[index].consecutive_hook_failures = 0;
+    /* Reset only the lane the decision belonged to: a healthy keyboard
+     * response must not paper over a persistently stalled mouse lane. */
+    state->clients[index].consecutive_hook_failures[hook_type_to_lane_index(hook_type)] = 0;
 }
 
-static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, const char *reason)
+static void record_client_hook_failure(
+    ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason)
 {
     ksi_client *client;
+    size_t lane_index;
+    uint32_t lane_bit;
     uint32_t failed_subscriptions;
 
     if (state == NULL || index >= state->client_count) {
@@ -606,36 +643,46 @@ static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, co
     }
 
     client = &state->clients[index];
+    lane_index = hook_type_to_lane_index(hook_type);
+    lane_bit = (lane_index == 1u) ? KSI_CAP_HOOK_MOUSE : KSI_CAP_HOOK_KEYBOARD;
 
-    if (client->hook_subscriptions == 0) {
+    /* Only count failures against a lane the client is still subscribed to,
+     * so a stale failure for an already-unsubscribed lane cannot evict. */
+    if ((client->hook_subscriptions & lane_bit) == 0) {
         return;
     }
 
-    client->consecutive_hook_failures++;
+    client->consecutive_hook_failures[lane_index]++;
 
     fprintf(stderr,
-        "client fd=%d hook callback failed (%s), consecutive failures=%u/%u\n",
+        "client fd=%d %s hook callback failed (%s), consecutive failures=%u/%u\n",
         client->fd,
+        lane_index == 1u ? "mouse" : "keyboard",
         reason == NULL ? "unknown" : reason,
-        client->consecutive_hook_failures,
+        client->consecutive_hook_failures[lane_index],
         KSI_MAX_CONSECUTIVE_HOOK_FAILURES);
 
-    if (client->consecutive_hook_failures < KSI_MAX_CONSECUTIVE_HOOK_FAILURES) {
+    if (client->consecutive_hook_failures[lane_index] < KSI_MAX_CONSECUTIVE_HOOK_FAILURES) {
         return;
     }
 
-    fprintf(stderr,
-        "client fd=%d hook subscriptions removed after %u consecutive callback failures\n",
-        client->fd,
-        client->consecutive_hook_failures);
-
+    /* After N consecutive failures on this lane the client is disconnected,
+     * not merely unsubscribed. Closing the socket is the signal the client's
+     * reader uses to reinitialize its hooks — mirroring Windows, where the OS
+     * silently unhooks an unresponsive low-level hook and the app must call
+     * SetWindowsHookEx again. A bare unsubscribe leaves the client blocked in
+     * its read with no way to notice, so its hotkeys would stay dead. */
     failed_subscriptions = client->hook_subscriptions;
-    client->hook_subscriptions = 0;
-    client->consecutive_hook_failures = 0;
-    renew_client_lease(client);
 
-    /* Invalidate queued snapshots immediately. A failed callback must not
-     * cause every already-queued event to wait for the same dead client. */
+    fprintf(stderr,
+        "client fd=%d disconnected after %u consecutive %s hook callback failures\n",
+        client->fd,
+        KSI_MAX_CONSECUTIVE_HOOK_FAILURES,
+        lane_index == 1u ? "mouse" : "keyboard");
+
+    /* Invalidate queued snapshots immediately so already-queued events do not
+     * wait on the dying client; then remove_client closes the fd and releases
+     * grabs (update_grab_state). Do not touch client/index after this. */
     if ((failed_subscriptions & KSI_CAP_HOOK_KEYBOARD) != 0) {
         lane_flush_passthrough(&state->kbd_lane);
     }
@@ -644,9 +691,7 @@ static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, co
         lane_flush_passthrough(&state->mouse_lane);
     }
 
-    if (update_grab_state(state) != 0) {
-        fprintf(stderr, "inputd: failed to update grab state after hook failure eviction\n");
-    }
+    remove_client(state, index);
 }
 
 /* Constructs a ksi_lane_event snapshotting the current hook subscribers and

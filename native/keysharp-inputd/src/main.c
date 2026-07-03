@@ -199,8 +199,10 @@ int main(int argc, char **argv)
 		} else if (strcmp(argv[i], "--install-input-access") == 0) {
 			return install_input_access();
 		} else if (strcmp(argv[i], "--version") == 0) {
-            puts("keysharp-inputd 0.1.0");
-            puts("protocol " KSI_PROTOCOL_NAME " 0.1");
+            printf("keysharp-inputd %u.%u\n",
+                (unsigned)KSI_PROTOCOL_MAJOR, (unsigned)KSI_PROTOCOL_MINOR);
+            printf("protocol %s %u.%u\n", KSI_PROTOCOL_NAME,
+                (unsigned)KSI_PROTOCOL_MAJOR, (unsigned)KSI_PROTOCOL_MINOR);
             return 0;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);

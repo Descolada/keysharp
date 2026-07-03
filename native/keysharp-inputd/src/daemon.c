@@ -42,11 +42,14 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_MAX_MODIFY_INPUTS 32
 #define KSI_MAX_SYNTH_INPUTS 1024
 #define KSI_HOOK_DECISION_TIMEOUT_MS 1000u
-/* A subscription is dropped only after this many *consecutive* decision
- * timeouts/failures (the counter resets on any in-time decision via
- * record_client_hook_success). 1 was too aggressive: a single transient stall —
- * e.g. one debugger pause — would silently evict the hook. A handful of
- * consecutive failures means the client is genuinely hung, not just blipping. */
+/* The client is disconnected only after this many *consecutive* decision
+ * timeouts/failures on one lane (the per-lane counter resets on any in-time
+ * decision via record_client_hook_success). 1 was too aggressive: a single
+ * transient stall — e.g. one debugger pause — would silently drop the hook. A
+ * handful of consecutive failures means the client is genuinely hung, not just
+ * blipping. On reaching the limit the daemon closes the connection so the
+ * client's socket-close recovery re-establishes its hooks (Windows-style: the
+ * OS silently unhooks a stalled low-level hook and the app re-hooks). */
 #define KSI_MAX_CONSECUTIVE_HOOK_FAILURES 5u
 #define KSI_MAX_LANE_ACTIONS 512u
 #define KSI_MAX_OUTPUT_ACTIONS 4096u
@@ -57,6 +60,19 @@ _Static_assert(KSI_CAP_BLOCK_INPUT == KST_CAP_INPUT_BLOCK, "trust/input capabili
 #define KSI_SHUTDOWN_TIMEOUT_MS 5000u
 #define KSI_GRAB_LEASE_TIMEOUT_MS 15000u
 #define KSI_IDLE_EXIT_MS 30000u
+/* A connection must complete its CLIENT_HELLO handshake within this window or be
+ * dropped, so a peer that connects and sends nothing cannot hold a client slot
+ * indefinitely. The Keysharp client always sends its hello immediately on connect,
+ * well inside this bound (which is generous enough to survive a slow scheduler). */
+#define KSI_HANDSHAKE_TIMEOUT_MS 10000u
+/* Minimum spacing between honored client-forced permission prompts (FORCE_PROMPT).
+ * Throttles a hostile loop that would otherwise spam dialogs / starve prompt
+ * workers, while leaving a genuine, user-driven RequestCapabilities re-ask working. */
+#define KSI_FORCED_PROMPT_COOLDOWN_MS 3000u
+/* Per-uid connection reserve: never let a single uid consume the last slots, so one
+ * user cannot lock every other user (and root helpers) out of the broker. Only bites
+ * on shared multi-user systems; a single-user desktop stays well under it. */
+#define KSI_MAX_CLIENTS_PER_UID (KSI_MAX_CLIENTS - 8u)
 #define KSI_VK_BACK 0x08u
 #define KSI_VK_LCONTROL 0xA2u
 #define KSI_VK_RCONTROL 0xA3u
@@ -107,10 +123,19 @@ typedef struct ksi_client {
     bool identity_attempted;
     bool has_identity;
     bool authenticated;
+    /* Set on the first CLIENT_HELLO. A connection that never sends one is dropped
+     * after KSI_HANDSHAKE_TIMEOUT_MS so an unauthenticated peer that just holds the
+     * socket open cannot pin a client slot forever (slot-exhaustion DoS). */
+    bool hello_seen;
+    uint64_t connected_at_ms;
     uint32_t granted_capabilities;
     uint32_t hook_subscriptions;
     uint32_t block_input_mask;
-    uint32_t consecutive_hook_failures;
+    /* Consecutive hook-callback failures, counted independently per lane
+     * (index 0 = keyboard, 1 = mouse) so that a client answering one lane
+     * cannot mask a persistently stalled other lane. A success on a lane
+     * resets only that lane's slot; see hook_type_to_lane_index. */
+    uint32_t consecutive_hook_failures[2];
     uint64_t lease_expires_ms;
     char exe_path[KSI_PERMISSION_MAX_PATH];
     char command_line[KSI_PERMISSION_MAX_COMMAND_LINE];
@@ -152,6 +177,7 @@ typedef struct ksi_daemon_command {
             uint32_t missing_capabilities;
         } prompt_done;
         struct {
+            uint32_t hook_type; /* KSI_HOOK_KEYBOARD_LL / KSI_HOOK_MOUSE_LL */
             char reason[32];
         } hook_failure;
     } data;
@@ -347,6 +373,13 @@ typedef struct ksi_daemon_state {
      * when the keyboard grab transitions from held to released -- the point at which a
      * key replayed "down" on the uinput device would otherwise be stranded. */
     bool keyboard_grab_active;
+    /* Monotonic time of the last honored force-prompt hello. A client-controlled
+     * FORCE_PROMPT flag bypasses the persistent-deny suppression (that is its whole
+     * purpose: a script re-asking after a deny), so without a limit a hostile peer
+     * could loop it to spam permission dialogs and keep the prompt workers busy.
+     * Forced prompts are rate-limited to one per KSI_FORCED_PROMPT_COOLDOWN_MS; a
+     * legitimate RequestCapabilities re-ask is far rarer than that. */
+    uint64_t last_forced_prompt_ms;
 } ksi_daemon_state;
 
 typedef struct ksi_binary_message_view {
@@ -357,7 +390,15 @@ typedef struct ksi_binary_message_view {
 
 static int update_grab_state(ksi_daemon_state *state);
 static void clear_hook_state(ksi_daemon_state *state);
-static void record_client_hook_failure(ksi_daemon_state *state, nfds_t index, const char *reason);
+static void record_client_hook_failure(
+    ksi_daemon_state *state, nfds_t index, uint32_t hook_type, const char *reason);
+
+/* Per-lane failure-counter slot for a low-level hook type.
+ * 0 = keyboard lane, 1 = mouse lane. */
+static size_t hook_type_to_lane_index(uint32_t hook_type)
+{
+    return hook_type == KSI_HOOK_MOUSE_LL ? 1u : 0u;
+}
 static void send_status(
     int client_fd,
     const ksi_message_header *request,
@@ -666,6 +707,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
             apply_fail_open_if_requested(daemon_state);
             process_daemon_commands(daemon_state);
             expire_client_leases(daemon_state);
+            expire_unauthenticated_clients(daemon_state);
 
             if (check_idle_exit(options, daemon_state, &idle_since_ms)) {
                 keep_running = 0;
@@ -714,6 +756,7 @@ int ksi_daemon_run(const ksi_daemon_options *options)
         apply_fail_open_if_requested(daemon_state);
         process_daemon_commands(daemon_state);
         expire_client_leases(daemon_state);
+        expire_unauthenticated_clients(daemon_state);
 
         if (options->system_service && daemon_state->client_count == 0
             && !ksi_worker_pool_has_work(&g_worker_pool)) {

@@ -18,6 +18,25 @@ static void handle_client_hello(
 
 	force_prompt = (flags & KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT) != 0u;
 
+	/* Rate-limit client-forced prompts: within the cooldown, drop the force so the
+	 * hello is served like a normal one (persistent denies stay suppressed and no
+	 * new prompt is spawned). This blocks a FORCE_PROMPT spam loop without breaking a
+	 * genuine, well-spaced RequestCapabilities re-ask. */
+	if (force_prompt) {
+		uint64_t now = monotonic_ms();
+
+		if (state->last_forced_prompt_ms != 0u
+			&& now < state->last_forced_prompt_ms + KSI_FORCED_PROMPT_COOLDOWN_MS) {
+			force_prompt = false;
+		} else {
+			state->last_forced_prompt_ms = now;
+		}
+	}
+
+	/* The client completed its handshake; it is no longer subject to the
+	 * unauthenticated-connection deadline. */
+	client->hello_seen = true;
+
     /* Defer process hashing until the client actually asks for a privileged
      * capability. Query-only and short-lived connections need no identity
      * worker job. */
@@ -329,15 +348,14 @@ static void handle_hook_subscription(
 
     old_subscriptions = client->hook_subscriptions;
 
+    /* A (re)subscribe or unsubscribe starts this lane's failure accounting
+     * fresh; the sibling lane's counter is untouched. */
+    client->consecutive_hook_failures[hook_type_to_lane_index(payload->hook_type)] = 0;
+
     if (message->header->type == KSI_MESSAGE_SUBSCRIBE_HOOK) {
         client->hook_subscriptions |= subscription_bit;
-        client->consecutive_hook_failures = 0;
     } else {
         client->hook_subscriptions &= (uint32_t)~subscription_bit;
-
-        if (client->hook_subscriptions == 0) {
-            client->consecutive_hook_failures = 0;
-        }
     }
 
     if (update_grab_state(state) != 0) {
@@ -495,7 +513,7 @@ static void handle_hook_decision(
 
         if (resolved >= 0
             && state->clients[resolved].connection_id == client->connection_id) {
-            record_client_hook_success(state, (nfds_t)resolved);
+            record_client_hook_success(state, (nfds_t)resolved, lane->hook_type);
             renew_client_lease(&state->clients[resolved]);
         }
     }
@@ -817,6 +835,25 @@ static void add_client(
         return;
     }
 
+    /* Reserve headroom so one uid cannot occupy every slot and lock out others. */
+    {
+        nfds_t same_uid = 0;
+
+        for (nfds_t i = 0; i < state->client_count; i++) {
+            if (state->clients[i].uid == credentials->uid) {
+                same_uid++;
+            }
+        }
+
+        if (same_uid >= KSI_MAX_CLIENTS_PER_UID) {
+            fprintf(stderr,
+                "inputd: rejecting client fd=%d uid=%ld: per-uid connection limit (%u) reached\n",
+                client_fd, (long)credentials->uid, (unsigned)KSI_MAX_CLIENTS_PER_UID);
+            request_close_client(state, client_fd);
+            return;
+        }
+    }
+
     client = &state->clients[state->client_count];
     memset(client, 0, sizeof(*client));
     client->fd = client_fd;
@@ -848,6 +885,8 @@ static void add_client(
     client->uid = credentials->uid;
     client->gid = credentials->gid;
     client->state = KSI_CLIENT_STATE_READY;
+    client->connected_at_ms = monotonic_ms();
+    client->hello_seen = false;
     state->client_count++;
 
     if (g_verbose) {
@@ -913,6 +952,7 @@ static void process_daemon_command(ksi_daemon_state *state, ksi_daemon_command *
             if (client_index >= 0
                 && state->clients[client_index].connection_id == command->connection_id) {
                 record_client_hook_failure(state, (nfds_t)client_index,
+                    command->data.hook_failure.hook_type,
                     command->data.hook_failure.reason);
             }
 

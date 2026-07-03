@@ -30,7 +30,14 @@ SYNTHESIZE_INPUT      SYNTHESIS_RESULT
 EMERGENCY_PASSTHROUGH SET_BLOCK_INPUT
 GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
 GET_POINTER_POSITION  POINTER_POSITION_RESULT
+GET_KEY_STATE         KEY_STATE_RESULT
+LIST_PERMISSIONS      RESET_PERMISSIONS
 ```
+
+`GET_KEY_STATE` / `KEY_STATE_RESULT` report the current physical modifier
+(left/right Ctrl/Alt/Shift/Win) and lock-key state; it requires `KSI_CAP_HOOK_*`
+and reports modifiers only from grabbed keyboards. `LIST_PERMISSIONS` and
+`RESET_PERMISSIONS` back the `keysharp-inputd trust` subcommand (see below).
 
 Protocol `0.2` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
 lease renewal. The daemon sends no response for that form, so hook-reader
@@ -66,8 +73,8 @@ to opt back in:
 
 * From inside a script, call `Ks.RequestCapabilities(...)`, which sends
   `KSI_CLIENT_HELLO_FLAG_FORCE_PROMPT` and bypasses the persistent deny.
-* Out of band, run `keysharp-trust reset <hash>` (or `--pid <pid>`). The CLI
-  speaks `KSI_MESSAGE_LIST_PERMISSIONS` and `KSI_MESSAGE_RESET_PERMISSIONS`
+* Out of band, run `keysharp-inputd trust reset <hash>` (or `--pid <pid>`). The
+  subcommand speaks `KSI_MESSAGE_LIST_PERMISSIONS` and `KSI_MESSAGE_RESET_PERMISSIONS`
   to the daemon, which clears the allow/deny bits for the matched record.
 
 The list/reset messages are scoped to the caller's uid. Only root (when the
@@ -99,12 +106,21 @@ a SYNTHESIZE_INPUT from a client is queued onto the sequencer immediately
 and no longer waits for an in-flight hook decision to finalize. This matches
 Windows, where SendInput does not block on pending low-level hooks.
 
-Hook subscriptions require hook access **and** the matching synthesis access.
-Once `EVIOCGRAB` is active, passed events must be replayable through `uinput`;
-if `uinput` is unavailable, subscriptions are denied.
+Hook subscriptions require the matching hook access. `MODIFY` decisions and direct
+`SYNTHESIZE_INPUT` additionally require the matching synthesis access. Once
+`EVIOCGRAB` is active, passed events must be replayable through `uinput`; if
+`uinput` is unavailable, subscriptions are denied.
 
-Hook decisions have a one-second timeout; a timeout passes the event and removes
-that client's subscriptions so a crashed script cannot keep input trapped.
+Hook decisions have a one-second timeout. A timeout passes the event (fail-open
+replay to `uinput`) and increments a per-lane consecutive-failure counter for that
+client; any in-time decision on that lane resets it. After five consecutive
+timeouts/send-failures on a lane the daemon disconnects the client entirely —
+subscriptions dropped, grabs released, socket closed — so a crashed script cannot
+keep input trapped. Closing the socket (rather than a silent unsubscribe) is the
+signal Keysharp's reader uses to reinitialize its hooks, mirroring Windows, where
+the OS silently unhooks an unresponsive low-level hook and the app re-establishes
+it with `SetWindowsHookEx`. The counter is per lane, so a client answering keyboard
+decisions cannot mask a permanently stalled mouse lane (or vice versa).
 
 `EMERGENCY_PASSTHROUGH` from a client already granted hook access clears all hook
 subscriptions, discards pending hook events, and releases all grabs.

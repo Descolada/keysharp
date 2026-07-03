@@ -761,6 +761,7 @@ static void lane_post_hook_failure(
     ksi_daemon_state *state,
     int client_fd,
     uint64_t connection_id,
+    uint32_t hook_type,
     const char *reason)
 {
     ksi_daemon_command cmd;
@@ -773,6 +774,7 @@ static void lane_post_hook_failure(
     cmd.type = KSI_DAEMON_COMMAND_LANE_HOOK_FAILURE;
     cmd.client_fd = client_fd;
     cmd.connection_id = connection_id;
+    cmd.data.hook_failure.hook_type = hook_type;
     (void)snprintf(cmd.data.hook_failure.reason, sizeof(cmd.data.hook_failure.reason),
         "%s", reason != NULL ? reason : "unknown");
 
@@ -813,7 +815,7 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
         memset(&decision, 0, sizeof(decision));
 
         if (send_fd < 0) {
-            lane_post_hook_failure(lane->state, response_fd, conn_id, "send");
+            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "send");
             continue;
         }
 
@@ -826,7 +828,7 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
             atomic_store(&lane->current_responder_connection_id, 0u);
             hook_send_ref_release(send_ref);
             event->subscriber_send_refs[i] = NULL;
-            lane_post_hook_failure(lane->state, response_fd, conn_id, "send");
+            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "send");
             continue;
         }
 
@@ -879,7 +881,7 @@ static void lane_process_event(ksi_hook_lane *lane, ksi_lane_event *event)
                 break;
             }
 
-            lane_post_hook_failure(lane->state, response_fd, conn_id, "timeout");
+            lane_post_hook_failure(lane->state, response_fd, conn_id, event->hook_type, "timeout");
             continue;
         }
 

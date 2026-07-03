@@ -2,6 +2,16 @@ using Keysharp.Builtins;
 #if LINUX
 namespace Keysharp.Internals.Window.Linux.X11
 {
+	// X11 XRectangle: signed 16-bit origin, unsigned 16-bit size (8 bytes). Returned by XShapeGetRectangles.
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct XRectangle
+	{
+		internal short x;
+		internal short y;
+		internal ushort width;
+		internal ushort height;
+	}
+
 	[StructLayout(LayoutKind.Sequential)]
 	internal struct XSetWindowAttributes
 	{

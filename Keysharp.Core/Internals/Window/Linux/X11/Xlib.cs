@@ -12,6 +12,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 		private const string libXfixesName = "libXfixes.so.3";
 		private const string libXtstName = "libXtst.so.6";
 		private const string libXcompositeName = "libXcomposite.so.1";
+		private const string libXextName = "libXext.so.6";
 
 		internal const ulong CurrentTime = 0UL;  // Xlib constant
 
@@ -108,6 +109,20 @@ namespace Keysharp.Internals.Window.Linux.X11
 
 		[DllImport(libXcompositeName)]
 		internal static extern long XCompositeNameWindowPixmap(nint display, long window);
+
+		// XShape extension (libXext). Used to read a window's INPUT shape so window-from-point can honor
+		// click-through: a window whose input region excludes a point does not receive pointer events there
+		// (the X server routes them to the window below), so it must be treated as absent at that point.
+		internal const int ShapeInput = 2; // ShapeKind: 0=ShapeBounding, 1=ShapeClip, 2=ShapeInput
+
+		[DllImport(libXextName)]
+		internal static extern bool XShapeQueryExtension(nint display, out int eventBase, out int errorBase);
+
+		// Returns a malloc'd array of `count` XRectangle (window-relative) describing the given shape kind,
+		// or NULL. The list must be freed with XFree. A window with no explicit input shape reports its full
+		// rectangle; a fully click-through window reports an empty region (count 0).
+		[DllImport(libXextName)]
+		internal static extern nint XShapeGetRectangles(nint display, long window, int kind, out int count, out int ordering);
 
 		[DllImport(libX11Name)]
 		internal static extern int XRaiseWindow(nint display, long window);

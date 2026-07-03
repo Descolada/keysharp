@@ -1948,6 +1948,14 @@ namespace Keysharp.Internals
 			if (winX < 0 || winY < 0 || winX >= attr.width + attr.border_width || winY >= attr.height + attr.border_width)
 				return 0;
 
+			// Honor click-through (X SHAPE input region): a viewable window whose input shape excludes this
+			// point would not receive a click here — the X server routes the event to the window below — so
+			// skip it and its whole subtree, matching real pointer routing. This is what lets window-from-point
+			// see through a Keysharp highlight/overlay (which is drawn click-through via an empty input region)
+			// to the target window behind it. The root is never click-through, so skip the query for it.
+			if (window != root && attr.map_state == MapState.IsViewable && !WindowInputContainsPoint(window, winX, winY))
+				return 0;
+
 			nint childrenReturn = 0;
 
 			try
@@ -1975,6 +1983,65 @@ namespace Keysharp.Internals
 			}
 
 			return attr.map_state == MapState.IsViewable ? window : 0;
+		}
+
+		// 0 = not yet probed, 1 = SHAPE available, 2 = unavailable. Process-wide (extension presence is a
+		// property of the X server, not the per-thread display); a benign race just re-probes.
+		private static int shapeExtensionState;
+
+		private static bool ShapeExtensionAvailable()
+		{
+			var state = shapeExtensionState;
+
+			if (state != 0)
+				return state == 1;
+
+			bool available;
+
+			try { available = Xlib.XShapeQueryExtension(Display.Handle, out _, out _); }
+			catch (DllNotFoundException) { available = false; }        // libXext.so.6 not installed
+			catch (EntryPointNotFoundException) { available = false; }
+
+			shapeExtensionState = available ? 1 : 2;
+			return available;
+		}
+
+		// Whether the window's X11 input shape contains the window-relative point. A window with no explicit
+		// input shape reports its full rectangle (always contains → opaque); a click-through window (empty
+		// input region) reports no rectangles → returns false so window-from-point skips it, mirroring how the
+		// X server routes a real click past it. Fails OPEN (returns true) when SHAPE is unavailable or the query
+		// fails, so a normal window is never wrongly skipped.
+		private static bool WindowInputContainsPoint(nint window, int winX, int winY)
+		{
+			if (!ShapeExtensionAvailable())
+				return true;
+
+			var rects = Xlib.XShapeGetRectangles(Display.Handle, window, Xlib.ShapeInput, out var count, out _);
+
+			if (rects == 0)
+				return count > 0;   // empty region (count ≤ 0) → click-through; defensive otherwise
+
+			try
+			{
+				if (count <= 0)
+					return false;   // explicit empty input region → click-through
+
+				var size = Marshal.SizeOf<XRectangle>();
+
+				for (var i = 0; i < count; i++)
+				{
+					var r = Marshal.PtrToStructure<XRectangle>(rects + i * size);
+
+					if (winX >= r.x && winX < r.x + r.width && winY >= r.y && winY < r.y + r.height)
+						return true;
+				}
+
+				return false;   // point falls outside every input rectangle → click-through here
+			}
+			finally
+			{
+				_ = Xlib.XFree(rects);
+			}
 		}
 	}
 #endif

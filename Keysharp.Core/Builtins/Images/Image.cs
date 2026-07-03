@@ -459,14 +459,15 @@ namespace Keysharp.Builtins
 
 				QueueDraw(b =>
 				{
-					using var g = DrawG(b);
-					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
-#if WINDOWS
-					// System.Drawing.Graphics has no DrawRectangle(Pen, RectangleF) overload.
-					g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
-#else
-					g.DrawRectangle(pen, rect);
-#endif
+					// Axis-aligned rectangle strokes should land on exact pixels; antialiasing can slightly
+					// dim corner pixels and make GetPixel() nondeterministic.
+					using var g = DrawG(b, highQuality: false);
+					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
+					var stroke = (float)Math.Min(t, Math.Min(rect.Width, rect.Height));
+					g.FillRectangle(brush, new RectangleF(rect.X, rect.Y, rect.Width, stroke));
+					g.FillRectangle(brush, new RectangleF(rect.X, rect.Bottom - stroke, rect.Width, stroke));
+					g.FillRectangle(brush, new RectangleF(rect.X, rect.Y, stroke, rect.Height));
+					g.FillRectangle(brush, new RectangleF(rect.Right - stroke, rect.Y, stroke, rect.Height));
 					return b;
 				});
 				return this;

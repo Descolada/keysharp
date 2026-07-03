@@ -195,7 +195,7 @@ namespace Keysharp.Internals.Os
 		// Batch all capabilities into a single inputd call so the user sees at most one
 		// prompt. Screen capture is included in the inputd request so the combined prompt
 		// covers it; inputd writes the PID session grant for all capabilities on ALLOW_ONCE,
-		// allowing screencap to skip its own prompt when it checks the session file.
+		// allowing keysharp-helper to skip its own prompt when it checks the session file.
 		public override PermissionResult RequestInputCapabilities(bool monitoring, bool injection, bool blockInput, bool screenCapture = false, bool accessibilityAutomation = false, bool? prompt = null, string operation = null)
 		{
 			var flags = KeysharpInputdClient.Capabilities.None;

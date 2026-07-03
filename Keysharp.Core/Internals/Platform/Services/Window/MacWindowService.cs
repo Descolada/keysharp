@@ -122,13 +122,14 @@ namespace Keysharp.Internals
 		}
 		public override bool TryGetTopLevel(nint h, out nint top)
 		{
-			if (TryItem(h, out _))
-			{
-				top = h;
-				return h != 0;
-			}
+			// No native fetch: every macOS window is its own top-level (see comment above), so
+			// answering membership with a CGWindowList snapshot would be pure waste on the
+			// MouseGetPos/window-from-point hot path.
+			if (TryOwnControl(h, out _))
+				return base.TryGetTopLevel(h, out top);
 
-			return base.TryGetTopLevel(h, out top);
+			top = h;
+			return h != 0;
 		}
 		public override bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children)
 		{

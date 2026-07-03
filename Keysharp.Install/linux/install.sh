@@ -548,6 +548,12 @@ echo "Installing to ${APP_DIR_TARGET} (prefix=${PREFIX})"
 mkdir -p "${APP_DIR_TARGET}" "${BINDIR}"
 cp -a "${APP_DIR_SOURCE}/." "${APP_DIR_TARGET}/"
 
+# Pre-rename installs shipped the capture helper as keysharp-screencap (root-owned setuid) with its
+# own .desktop file; cp -a upgrades never remove them, so clean the legacy artifacts explicitly.
+rm -f "${APP_DIR_TARGET}/keysharp-screencap" \
+      "${BINDIR}/keysharp-screencap" \
+      "${DESKTOP_DIR}/keysharp-screencap.desktop"
+
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
   chown -R root:root "${APP_DIR_TARGET}"
   normalize_root_app_permissions

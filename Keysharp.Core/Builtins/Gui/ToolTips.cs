@@ -20,6 +20,11 @@ namespace Keysharp.Builtins
 		/// Per-slot click-through Overlay used to draw tooltips on Linux/macOS (Windows uses the WinForms ToolTip).
 		/// </summary>
 		internal readonly Ks.KeysharpOverlay[] overlayTooltips = new Ks.KeysharpOverlay[MaxToolTips];
+		/// <summary>
+		/// Per-slot last shown (text, x, y): unchanged calls return early and position-only changes move the
+		/// live overlay instead of re-rendering — the classic timer-loop ToolTip idiom repeats identical calls.
+		/// </summary>
+		internal readonly (string text, int x, int y)?[] overlayTooltipStates = new (string, int, int)?[MaxToolTips];
 #endif
 	}
 
@@ -194,16 +199,30 @@ namespace Keysharp.Builtins
 		// slot; otherwise the text is rendered to a small labelled bitmap and shown at the resolved position.
 		private static object ShowOverlayTooltip(Script script, int id, string text, int xArg, int yArg)
 		{
-			var overlays = script.ToolTipData.overlayTooltips;
+			var data = script.ToolTipData;
+			var overlays = data.overlayTooltips;
 
 			if (text.Length == 0) // Clear the slot
 			{
 				_ = overlays[id]?.Destroy();
 				overlays[id] = null;
+				data.overlayTooltipStates[id] = null;
 				return 0L;
 			}
 
 			ResolveTooltipPos(xArg, yArg, out var sx, out var sy);
+
+			// Dedupe (matches the Windows branch): identical call = no-op; same text at a new position
+			// = byte-free Move instead of re-render + re-upload.
+			if (data.overlayTooltipStates[id] is { } last && overlays[id] is { } live && last.text == text)
+			{
+				if (last.x == sx && last.y == sy)
+					return live.Hwnd;
+
+				_ = live.Visible is true ? live.Move(sx, sy) : live.Show(sx, sy);
+				data.overlayTooltipStates[id] = (text, sx, sy);
+				return live.Hwnd;
+			}
 
 			using var img = BuildTooltipImage(text);
 
@@ -213,6 +232,7 @@ namespace Keysharp.Builtins
 			var overlay = overlays[id] ??= new Ks.KeysharpOverlay();
 			_ = overlay.SetImage(img);
 			_ = overlay.Show(sx, sy);
+			data.overlayTooltipStates[id] = (text, sx, sy);
 			return overlay.Hwnd;
 		}
 

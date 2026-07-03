@@ -45,11 +45,13 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 
 			lock (X11Server.xLibLock)
 			{
-				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				// GC-rooted while registered (see X11Server.TryGetWindowProperty).
+				XErrorHandler handler = (nint _, ref XErrorEvent __) =>
 				{
 					success = false;
 					return 0;
-				});
+				};
+				var oldHandler = Xlib.XSetErrorHandler(handler);
 
 				try
 				{
@@ -66,6 +68,7 @@ namespace Keysharp.Internals.Window.Linux.Proxies
 				finally
 				{
 					_ = Xlib.XSetErrorHandler(oldHandler);
+					GC.KeepAlive(handler);
 				}
 			}
 		}

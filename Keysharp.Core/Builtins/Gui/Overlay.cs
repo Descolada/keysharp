@@ -271,7 +271,7 @@ namespace Keysharp.Builtins
 				if (!visible || canvas == null)
 					return;
 
-				using var bmp = canvas.SnapshotBitmap();   // the service copies it, so this snapshot is transient
+				var bmp = canvas.SnapshotBitmap();   // ownership passes to the overlay service's backing
 
 				if (bmp == null)
 					return;

@@ -39,7 +39,7 @@ namespace Keysharp.Internals.Input.Linux
 			BlockInput = 0x00000010,
 			// inputd does not physically provide screen capture, but including this bit
 			// in the CLIENT_HELLO causes the combined prompt to cover it and writes the
-			// PID session grant so that screencap can skip its own prompt.
+			// PID session grant so that keysharp-helper can skip its own prompt.
 			ScreenCapture = 0x00000020,
 			// AT-SPI access is not provided by inputd either, but it is a privileged
 			// automation capability from the user's perspective, so inputd brokers the

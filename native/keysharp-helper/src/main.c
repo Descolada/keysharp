@@ -163,7 +163,7 @@ static kss_trust_result ensure_trusted(pid_t requester_pid, uid_t requester_uid,
 
     /* Also check the shared PID-keyed session file.  This is written by any daemon
      * that showed a combined prompt covering screen capture (e.g. keysharp-inputd),
-     * allowing subsequent screencap invocations to skip their own prompt. */
+     * allowing subsequent keysharp-helper invocations to skip their own prompt. */
     if (missing != 0u) {
         uint64_t requester_start_time = ksi_permissions_get_process_start_time(requester_pid);
         uint32_t pid_session = ksi_permissions_get_session_by_pid(

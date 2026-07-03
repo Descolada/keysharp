@@ -191,11 +191,23 @@ namespace Keysharp.Internals
 			scale = 1;
 
 			// The extension matches by raw stable_sequence, so strip the marker first (TryGetWindowSeq does that);
-			// the actor image already includes decorations, so includeDecoration is ignored.
+			// the actor image is clipped to the frame rect (includes decorations), so includeDecoration is ignored.
 			if (gnome.TryGetWindowSeq(h, out var seq))
 			{
 				bmp = Wl.HelperClient.CaptureGnomeWindow(seq);
-				return bmp != null;
+
+				if (bmp == null)
+					return false;
+
+				// The actor buffer is DEVICE pixels while the frame bounds are logical, and the extension
+				// clips the image to the frame — so the size ratio IS the buffer scale (mirroring the
+				// Cinnamon/macOS/Windows branches). Max of the two axes guards fractional-scaling rounding.
+				var bounds = Platform.Window.GetBounds(h);
+
+				if (bounds.Width > 0 && bounds.Height > 0)
+					scale = Math.Max((double)bmp.Width / bounds.Width, (double)bmp.Height / bounds.Height);
+
+				return true;
 			}
 
 			bmp = null;

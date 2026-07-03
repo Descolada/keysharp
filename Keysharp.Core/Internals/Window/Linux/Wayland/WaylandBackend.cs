@@ -351,7 +351,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var token = Guid.NewGuid().ToString("N");
-				var script = WindowHelpers + "\n" + EventScriptBody;
+				var script = KWinDBusBridge.WindowHelpersJs + "\n" + EventScriptBody;
 
 				void OnEvent(string type, string json)
 				{
@@ -399,10 +399,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				_          => null
 			};
 
-			// Persistent KWin script body (prefixed with WindowHelpers): connects workspace + per-window signals and
-			// pushes events via the harness-provided emit(type, value). Existing windows get their per-window signals
-			// hooked without re-emitting "create" (they already exist). KWin 6 signal names are tried first, then the
-			// KWin 5 client* equivalents.
+			// Persistent KWin script body (prefixed with KWinDBusBridge.WindowHelpersJs — shared with the operation
+			// script so windowId() cannot drift): connects workspace + per-window signals and pushes events via the
+			// harness-provided emit(type, value). Existing windows get their per-window signals hooked without
+			// re-emitting "create" (they already exist). KWin 6 signal names are tried first, then the KWin 5
+			// client* equivalents.
 			private const string EventScriptBody = """
 function connectFirst(names, handler) {
   for (var i = 0; i < names.length; ++i) {
@@ -452,158 +453,6 @@ connectFirst(["windowActivated", "clientActivated"], onActivated);
 var __order = windowListCompat();
 for (var __i = 0; __i < __order.length; ++__i) {
   if (windowInfo(__order[__i])) trackWindow(__order[__i]);
-}
-""";
-
-			private const string WindowHelpers = """
-function safeRead(object, name, fallback) {
-  try {
-    if (!object || typeof object[name] === "undefined" || object[name] === null) return fallback;
-    return object[name];
-  } catch (e) {
-    return fallback;
-  }
-}
-function safeString(value) {
-  if (value === null || value === undefined) return "";
-  return String(value);
-}
-function safeBool(value) {
-  try { return !!value; } catch (e) { return false; }
-}
-function readRect(rect) {
-  if (!rect) return { x: 0, y: 0, width: 0, height: 0 };
-  return {
-    x: Math.round(rect.x || 0),
-    y: Math.round(rect.y || 0),
-    width: Math.round(rect.width || 0),
-    height: Math.round(rect.height || 0)
-  };
-}
-function windowListCompat() {
-  try {
-    if (workspace.stackingOrder && workspace.stackingOrder.length !== undefined) return workspace.stackingOrder;
-  } catch (e) {}
-  try {
-    if (typeof workspace.windowList === "function") return workspace.windowList();
-  } catch (e) {}
-  try {
-    if (typeof workspace.clientList === "function") return workspace.clientList();
-  } catch (e) {}
-  try {
-    if (workspace.clientList && workspace.clientList.length !== undefined) return workspace.clientList;
-  } catch (e) {}
-  return [];
-}
-function activeWindowCompat() {
-  try {
-    if (workspace.activeWindow) return workspace.activeWindow;
-  } catch (e) {}
-  try {
-    if (workspace.activeClient) return workspace.activeClient;
-  } catch (e) {}
-  return null;
-}
-function firstNonEmpty() {
-  for (var i = 0; i < arguments.length; ++i) {
-    var value = safeString(arguments[i]);
-    if (value.length > 0) return value;
-  }
-  return "";
-}
-function windowId(w) {
-  try {
-    var id = safeString(w.internalId);
-    if (id.length > 0) return id;
-  } catch (e) {}
-  try {
-    var windowId = safeString(w.windowId);
-    if (windowId.length > 0) return "windowId:" + windowId;
-  } catch (e) {}
-  var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
-  var pid = safeString(safeRead(w, "pid", 0));
-  var cls = firstNonEmpty(safeRead(w, "resourceClass", ""), safeRead(w, "desktopFileName", ""), safeRead(w, "resourceName", ""));
-  var caption = safeString(safeRead(w, "caption", ""));
-  if (pid.length > 0 || cls.length > 0 || caption.length > 0) {
-    return "fallback:" + pid + "|" + cls + "|" + caption + "|" + frame.x + "," + frame.y + "," + frame.width + "," + frame.height;
-  }
-  return "";
-}
-function isMaximized(w) {
-  try {
-    if (typeof w.maximized !== "undefined") return !!w.maximized;
-  } catch (e) {}
-  // KWin 5 exposes maximizeMode (0=Restore, 1=Vertical, 2=Horizontal, 3=Full) instead of a maximized bool.
-  try {
-    if (typeof w.maximizeMode !== "undefined") return Number(w.maximizeMode) === 3;
-  } catch (e) {}
-  try {
-    var area = workspace.clientArea(KWin.MaximizeArea, w);
-    var g = w.frameGeometry;
-    return Math.round(g.x) === Math.round(area.x)
-      && Math.round(g.y) === Math.round(area.y)
-      && Math.round(g.width) === Math.round(area.width)
-      && Math.round(g.height) === Math.round(area.height);
-  } catch (e) {}
-  return false;
-}
-function opacityToAlpha(value) {
-  var opacity = Number(value);
-  if (!isFinite(opacity)) opacity = 1;
-  if (opacity < 0) opacity = 0;
-  if (opacity > 1) opacity = 1;
-  return Math.round(opacity * 255);
-}
-function windowInfo(w, includeSpecial) {
-  if (!w) return null;
-  try {
-    if (safeBool(w.deleted)) return null;
-    if (!includeSpecial) {
-    if (typeof w.managed !== "undefined" && !safeBool(w.managed)) return null;
-      if (safeBool(w.specialWindow)) return null;
-    }
-    var id = windowId(w);
-    if (!id) return null;
-    var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
-    // clientGeometry isn't exposed to scripts on every KWin build; when absent it would collapse to the frame.
-    // Try it first, then the clientPos (inset relative to the frame) + clientSize pair, then fall back to frame.
-    var client = readRect(safeRead(w, "clientGeometry", null));
-    if (!client || client.width === 0) {
-      var cp = safeRead(w, "clientPos", null);
-      var cs = safeRead(w, "clientSize", null);
-      if (cp && cs && (cs.width || 0) > 0)
-        client = { x: frame.x + Math.round(cp.x || 0), y: frame.y + Math.round(cp.y || 0),
-                   width: Math.round(cs.width || 0), height: Math.round(cs.height || 0) };
-      else
-        client = frame;
-    }
-    return {
-      id: id,
-      title: safeString(safeRead(w, "caption", "")),
-      appId: firstNonEmpty(safeRead(w, "resourceClass", ""), safeRead(w, "desktopFileName", ""), safeRead(w, "resourceName", "")),
-      pid: Math.round(safeRead(w, "pid", 0) || 0),
-      frame: frame,
-      client: client,
-      active: safeBool(w.active),
-      minimized: safeBool(w.minimized),
-      maximized: isMaximized(w),
-      visible: !safeBool(w.hidden),
-      alwaysOnTop: safeBool(w.keepAbove),
-      decorated: !safeBool(w.noBorder),
-      transparency: opacityToAlpha(safeRead(w, "opacity", 1))
-    };
-  } catch (e) {
-    return null;
-  }
-}
-function findWindow(id) {
-  var order = windowListCompat();
-  for (var i = 0; i < order.length; ++i) {
-    if (windowId(order[i]) === id) return order[i];
-  }
-  var active = activeWindowCompat();
-  if (active && windowId(active) === id) return active;
-  return null;
 }
 """;
 
@@ -735,6 +584,8 @@ function findWindow(id) {
 				lock (handleLock)
 					return idsByHandle.TryGetValue(handle, out id);
 			}
+
+			public bool IsKnown(nint handle) => TryGetCompositorId(handle, out _);
 
 			/// <summary>
 			/// The KWin internalId UUID for a window handle, in the canonical <c>{…}</c> form that
@@ -875,6 +726,8 @@ function findWindow(id) {
 				return TryParseSingleWindow(json, out window);
 			}
 
+			public bool IsKnown(nint handle) => TryHandleToSeq(handle, out _);
+
 			public bool TryGetWindow(nint handle, out WaylandWindowInfo window)
 			{
 				window = null;
@@ -895,8 +748,9 @@ function findWindow(id) {
 			{
 				window = null;
 
-				// Walk the window list top-to-bottom (list is bottom-to-top order)
-				// and return the first window whose frame contains the point.
+				// Walk the window list top-to-bottom (list is bottom-to-top order) and return the first
+				// window whose frame contains the point. Skip windows parked on other workspaces — the
+				// actor list spans all of them.
 				if (!TryListWindows(false, out var all))
 					return false;
 
@@ -904,7 +758,7 @@ function findWindow(id) {
 				{
 					var w = all[i];
 
-					if (w.FrameGeometry.Contains(x, y))
+					if (w.OnCurrentWorkspace && w.FrameGeometry.Contains(x, y))
 					{
 						window = w;
 						return true;
@@ -982,17 +836,6 @@ function findWindow(id) {
 			public bool TrySetTransparency(nint handle, object alpha)
 				=> TryHandleToSeq(handle, out var seq) && GnomeShellBridge.SendSetOpacity(seq, alpha);
 
-			// GNOME has no wlr-layer-shell, so the Highlight builtin can't make a click-through layer
-			// surface itself; the shell extension draws the outline inside the compositor instead. The id
-			// is a plain caller-chosen token (not a window handle), so no TryHandleToSeq translation here.
-			public bool SupportsHighlight => true;
-
-			public bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
-				=> GnomeShellBridge.SendShowHighlight(id, x, y, width, height, color, thickness);
-
-				public bool TryHideHighlight(uint id)
-					=> GnomeShellBridge.SendHideHighlight(id);
-
 				public bool SupportsImageOverlay => true;
 
 				public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
@@ -1003,14 +846,6 @@ function findWindow(id) {
 
 				public bool TryHideImageOverlay(uint id)
 					=> GnomeShellBridge.SendHideImageOverlay(id);
-
-				public bool SupportsTooltip => GnomeShellBridge.SupportsTooltip();
-
-				public bool TryShowTooltip(int slot, string text, int x, int y)
-					=> GnomeShellBridge.SendShowTooltip(slot, text, x, y);
-
-				public bool TryHideTooltip(int slot)
-					=> GnomeShellBridge.SendHideTooltip(slot);
 
 				public bool SupportsWindowEvents => true;
 
@@ -1091,7 +926,8 @@ function findWindow(id) {
 					maximized: JsonBool(item, "maximized"),
 					visible: JsonBool(item, "visible"),
 					alwaysOnTop: JsonBool(item, "alwaysOnTop"),
-					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"));
+					decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
+					onCurrentWorkspace: !item.TryGetProperty("onCurrentWorkspace", out _) || JsonBool(item, "onCurrentWorkspace"));
 				return true;
 			}
 

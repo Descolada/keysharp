@@ -269,7 +269,7 @@ static void handle_reset_permissions(
         ? client->uid
         : (uid_t)payload->target_uid;
 
-    /* Clamp to input capabilities — screencap manages its own domain. */
+    /* Clamp to input capabilities — keysharp-helper manages its own domain. */
     capabilities = payload->capabilities & KSI_INPUT_CAPABILITIES;
 
     if (capabilities == 0u) {

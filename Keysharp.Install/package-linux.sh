@@ -434,6 +434,16 @@ if [ "$1" = "configure" ] && [ -d "${_gnome_ext_dir}" ]; then
   _KS_USER=${_tu#* }
   [ "${_tu}" = "${_KS_USER}" ] && _KS_USER=""
 
+  # A tarball install places the extension per-user; GNOME Shell loads that copy in preference to
+  # the dpkg one, which would silently pin a stale protocol (same skew failure once hit on Cinnamon).
+  if [ -n "${_KS_USER}" ]; then
+    _user_home=$(getent passwd "${_KS_USER}" 2>/dev/null | cut -d: -f6 || true)
+    if [ -n "${_user_home}" ] && [ -d "${_user_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}" ]; then
+      echo "Removing older per-user GNOME extension at ${_user_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID} so the global install is used."
+      rm -rf "${_user_home}/.local/share/gnome-shell/extensions/${GNOME_EXT_UUID}" || true
+    fi
+  fi
+
   if [ -n "${_KS_UID}" ] && [ -n "${_KS_USER}" ] && \
      [ -S "/run/user/${_KS_UID}/bus" ] && command -v gsettings >/dev/null 2>&1; then
     if _ks_ext_add "${GNOME_EXT_UUID}" org.gnome.shell; then

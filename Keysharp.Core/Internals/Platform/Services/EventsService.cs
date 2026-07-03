@@ -1,11 +1,13 @@
 namespace Keysharp.Internals
 {
 
+	// Backend is a factory, not a cached service: each WinEventManager (one per Script) takes
+	// ownership of the returned backend and disposes it, so handing out a memoized instance
+	// would give every Script after the first a disposed backend.
 #if WINDOWS
 	internal sealed class WindowsEvents : IWindowEvents
 	{
-		private IWindowEventBackend backend;
-		public IWindowEventBackend Backend => backend ??= new Keysharp.Internals.Window.Windows.WindowEventBackend();
+		public IWindowEventBackend Backend => new Keysharp.Internals.Window.Windows.WindowEventBackend();
 	}
 #elif LINUX
 	/// <summary>
@@ -15,8 +17,7 @@ namespace Keysharp.Internals
 	/// </summary>
 	internal sealed class LinuxEvents : IWindowEvents
 	{
-		private IWindowEventBackend backend;
-		public IWindowEventBackend Backend => backend ??= Resolve();
+		public IWindowEventBackend Backend => Resolve();
 
 		private static IWindowEventBackend Resolve()
 		{
@@ -34,8 +35,7 @@ namespace Keysharp.Internals
 #elif OSX
 	internal sealed class MacEvents : IWindowEvents
 	{
-		private IWindowEventBackend backend;
-		public IWindowEventBackend Backend => backend ??= new WindowEventBackend();
+		public IWindowEventBackend Backend => new WindowEventBackend();
 	}
 #endif
 }

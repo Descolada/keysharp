@@ -55,7 +55,9 @@ namespace Keysharp.Internals.Window.Linux.X11
 			lock (X11Server.xLibLock)
 			{
 				var ok = true;
-				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) => { ok = false; return 0; });
+				// GC-rooted while registered (see X11Server.TryGetWindowProperty).
+				XErrorHandler handler = (nint _, ref XErrorEvent __) => { ok = false; return 0; };
+				var oldHandler = Xlib.XSetErrorHandler(handler);
 				long pixmap = 0;
 				var redirectedByUs = false;
 
@@ -147,6 +149,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 
 					_ = Xlib.XSync(display, false);
 					_ = Xlib.XSetErrorHandler(oldHandler);
+					GC.KeepAlive(handler);
 				}
 			}
 		}

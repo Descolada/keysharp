@@ -411,8 +411,9 @@ namespace Keysharp.Internals.Images
 			if (w <= 0 && h <= 0)
 				return bmp;
 
-			if (w <= 0) w = h > 0 && w != 0 ? h : bmp.Width;
-			if (h <= 0) h = w > 0 && h != 0 ? w : bmp.Height;
+			// Negative = derive from the other dimension preserving the aspect ratio; 0 = keep original.
+			if (w <= 0) w = w < 0 && h > 0 ? Math.Max(1, (int)Math.Round(bmp.Width * (h / (double)bmp.Height))) : bmp.Width;
+			if (h <= 0) h = h < 0 ? Math.Max(1, (int)Math.Round(bmp.Height * (w / (double)bmp.Width))) : bmp.Height;
 
 			if (bmp.Width != w || bmp.Height != h)
 #if WINDOWS

@@ -67,17 +67,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Force-kill the window's client (SIGKILL-equivalent), falling back to close. False = no such window.</summary>
 		Task<bool> KillWindowAsync(ulong handle);
 
-		/// <summary>
-		/// Draw or update a click-through rectangle-outline overlay (GNOME's stand-in for the
-		/// wlr-layer-shell highlight Keysharp uses on KWin/wlroots). id identifies the overlay so it can
-		/// be moved/resized or hidden; geometry is in screen coordinates; color is an "RRGGBB" hex string;
-		/// thickness is the outline width in pixels. ownerKey/busName attribute it for owner-death cleanup.
-		/// </summary>
-		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
-
-		/// <summary>Remove the overlay previously created with the given id.</summary>
-		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
-
 		/// <summary>Create or update a generic PNG-backed click-through overlay. False = the shell rejected it.</summary>
 		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
 
@@ -87,15 +76,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		/// <summary>Remove a generic PNG-backed overlay.</summary>
 		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
-
-		/// <summary>True when the shell can draw a click-through tooltip on the caller's behalf.</summary>
-		Task<bool> SupportsTooltipAsync();
-
-		/// <summary>Draw or update a click-through tooltip in slot for this owner; empty text clears it.</summary>
-		Task<bool> ShowTooltipAsync(int slot, string ownerKey, string busName, string text, int x, int y);
-
-		/// <summary>Remove the tooltip in the given slot for this owner.</summary>
-		Task<bool> HideTooltipAsync(int slot, string ownerKey, string busName);
 
 		Task<bool> SendMouseMoveAbsoluteAsync(int x, int y);
 		Task<bool> SendMouseMoveRelativeAsync(int dx, int dy);
@@ -155,12 +135,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static string registeredHighlightOwnerBusName = "";
 		private static long highlightOwnerRegisterRetryAfter;
 
-		// Cache the tooltip-support probe so backing selection doesn't make a blocking D-Bus call each time.
-		private const long TooltipSupportPresentCacheMs = 30000;
-		private const long TooltipSupportMissingCacheMs = 5000;
-		private static bool tooltipSupportCached;
-		private static long tooltipSupportCacheUntil;
-
 		// ---- public query/command surface used by GnomeBackend ----------
 
 		internal static bool QueryCursorPosition(out int x, out int y)
@@ -175,10 +149,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return false;
 
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				var (rx, ry) = Task.Run(() => p.GetCursorPositionAsync(), cts.Token).GetAwaiter().GetResult();
-				x = rx;
-				y = ry;
+				var task = Task.Run(() => p.GetCursorPositionAsync());
+
+				if (!task.Wait(TimeoutMs))
+					return false;
+
+				(x, y) = task.GetAwaiter().GetResult();
 				return true;
 			}
 			catch
@@ -198,8 +174,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return false;
 
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				var (x, y, w, h) = Task.Run(() => p.GetWorkAreaAsync(), cts.Token).GetAwaiter().GetResult();
+				var task = Task.Run(() => p.GetWorkAreaAsync());
+
+				if (!task.Wait(TimeoutMs))
+					return false;
+
+				var (x, y, w, h) = task.GetAwaiter().GetResult();
 
 				if (w <= 0 || h <= 0)
 					return false;
@@ -256,12 +236,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static bool SendKillWindow(ulong handle)
 			=> Run(p => p.KillWindowAsync(handle));
 
-		internal static bool SendShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
-			=> Run(p => p.ShowHighlightAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, color, thickness));
-
-		internal static bool SendHideHighlight(uint id)
-			=> Run(p => p.HideHighlightAsync(id, HighlightOwnerKey, connectionLocalName));
-
 		internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 			=> pngBytes is { Length: > 0 }
 			   && Run(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
@@ -271,25 +245,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		internal static bool SendHideImageOverlay(uint id)
 			=> Run(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
-
-		internal static bool SupportsTooltip()
-		{
-			var now = Environment.TickCount64;
-
-			if (now < tooltipSupportCacheUntil)
-				return tooltipSupportCached;
-
-			var ok = Run(p => p.SupportsTooltipAsync());
-			tooltipSupportCached = ok;
-			tooltipSupportCacheUntil = now + (ok ? TooltipSupportPresentCacheMs : TooltipSupportMissingCacheMs);
-			return ok;
-		}
-
-		internal static bool SendShowTooltip(int slot, string text, int x, int y)
-			=> Run(p => p.ShowTooltipAsync(slot, HighlightOwnerKey, connectionLocalName, text ?? "", x, y));
-
-		internal static bool SendHideTooltip(int slot)
-			=> Run(p => p.HideTooltipAsync(slot, HighlightOwnerKey, connectionLocalName));
 
 		internal static bool SendMouseMoveAbsolute(int x, int y)
 			=> Run(p => p.SendMouseMoveAbsoluteAsync(x, y));
@@ -314,8 +269,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return null;
 
-				using var cts = new CancellationTokenSource(captureTimeoutMs);
-				var bytes = Task.Run(() => p.CaptureAreaAsync(x, y, w, h), cts.Token).GetAwaiter().GetResult();
+				var task = Task.Run(() => p.CaptureAreaAsync(x, y, w, h));
+
+				if (!task.Wait(captureTimeoutMs))
+					return null;
+
+				var bytes = task.GetAwaiter().GetResult();
 				return bytes is { Length: > 0 } ? bytes : null;
 			}
 			catch
@@ -333,7 +292,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return null;
 
-				return Task.Run(() => p.WatchActiveWindowChangedAsync(handler)).GetAwaiter().GetResult();
+				var task = Task.Run(() => p.WatchActiveWindowChangedAsync(handler));
+				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch
 			{
@@ -350,7 +310,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return null;
 
-				return Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json))).GetAwaiter().GetResult();
+				var task = Task.Run(() => p.WatchWindowEventAsync(e => handler(e.type, e.json)));
+				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
 			}
 			catch
 			{
@@ -369,8 +330,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				if (p == null)
 					return default;
 
-				using var cts = new CancellationTokenSource(TimeoutMs);
-				return Task.Run(() => call(p), cts.Token).GetAwaiter().GetResult();
+				var task = Task.Run(() => call(p));
+				return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : default;
 			}
 			catch
 			{
@@ -403,7 +364,16 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					return null;
 
 				var localConn = new Connection(Tmds.DBus.Address.Session);
-				var info = Task.Run(() => localConn.ConnectAsync()).GetAwaiter().GetResult();
+				var connectTask = Task.Run(() => localConn.ConnectAsync());
+
+				if (!connectTask.Wait(TimeoutMs))
+				{
+					localConn.Dispose();
+					initFailed = true;
+					return null;
+				}
+
+				var info = connectTask.GetAwaiter().GetResult();
 				// Our unique bus name (":1.x") — the shell tags our overlays with it and reaps them when
 				// this name drops off the bus (see the extension's NameOwnerChanged watch).
 				connectionLocalName = info?.LocalName ?? "";

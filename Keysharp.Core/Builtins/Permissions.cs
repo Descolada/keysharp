@@ -67,13 +67,13 @@ namespace Keysharp.Builtins
 
 			// When input capabilities are requested, route screen capture through the
 			// same inputd call.  On Linux this produces one combined prompt for all
-			// capabilities; inputd writes the PID session so that screencap finds it
+			// capabilities; inputd writes the PID session so that keysharp-helper finds it
 			// and skips its own prompt.  When no input caps are requested, screen capture
 			// falls through to RequestScreenCapture below.
 			if (monitoring || injection || blockInput || accessibility)
 				permissions.RequestInputCapabilities(monitoring, injection, blockInput, screenCapture, accessibility, prompt: true, operation: "RequestCapabilities");
 
-			// Always call RequestScreenCapture — on Linux screencap checks the PID
+			// Always call RequestScreenCapture — on Linux keysharp-helper checks the PID
 			// session (possibly written by inputd above) and skips prompting if already
 			// granted.  On non-Linux platforms this shows the platform's own dialog.
 			if (screenCapture)

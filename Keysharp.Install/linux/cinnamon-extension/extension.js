@@ -192,27 +192,6 @@ const DBUS_IFACE_XML =
       <arg type="b" direction="out" name="ok"/>
     </method>
 
-    <method name="SupportsTooltip">
-      <arg type="b" direction="out" name="ok"/>
-    </method>
-
-    <method name="ShowTooltip">
-      <arg type="i" direction="in" name="slot"/>
-      <arg type="s" direction="in" name="ownerKey"/>
-      <arg type="s" direction="in" name="busName"/>
-      <arg type="s" direction="in" name="text"/>
-      <arg type="i" direction="in" name="x"/>
-      <arg type="i" direction="in" name="y"/>
-      <arg type="b" direction="out" name="ok"/>
-    </method>
-
-    <method name="HideTooltip">
-      <arg type="i" direction="in" name="slot"/>
-      <arg type="s" direction="in" name="ownerKey"/>
-      <arg type="s" direction="in" name="busName"/>
-      <arg type="b" direction="out" name="ok"/>
-    </method>
-
     <signal name="ActiveWindowChanged">
       <arg type="s" name="json"/>
     </signal>
@@ -256,7 +235,6 @@ class KeysharpExtension {
         this._windowSignalIds = new Map();
         this._highlights = new Map();
         this._imageOverlays = new Map();
-        this._tooltips = new Map();
         this._overlayCleanupId = 0;
         this._overlayNameWatchId = 0;
         this._overlayReconnectTimers = new Map();
@@ -337,9 +315,6 @@ class KeysharpExtension {
 
         for (const id of Array.from(this._imageOverlays.keys()))
             this._removeImageOverlayByKey(id);
-
-        for (const id of Array.from(this._tooltips.keys()))
-            this._removeTooltipByKey(id);
 
         this._stopOverlayCleanupTimer();
         this._cancelAllOverlayReconnectTimers();
@@ -795,14 +770,6 @@ class KeysharpExtension {
             }
         }
 
-        for (const entry of this._tooltips.values()) {
-            if (entry.ownerKey === owner.key) {
-                entry.ownerPid = owner.pid;
-                entry.ownerStartTime = owner.startTime;
-                entry.busName = bus;
-            }
-        }
-
         for (const entry of this._imageOverlays.values()) {
             if (entry.ownerKey === owner.key) {
                 entry.ownerPid = owner.pid;
@@ -950,66 +917,6 @@ class KeysharpExtension {
         return true;
     }
 
-    SupportsTooltip() {
-        return true;
-    }
-
-    ShowTooltip(slot, ownerKey, busName, text, x, y) {
-        try {
-            const owner = this._parseOverlayOwner(ownerKey);
-            const key = this._overlayKey(slot, owner.key);
-            const bus = String(busName || '');
-            const labelText = String(text || '');
-
-            this._cancelOverlayReconnectTimer(owner.key);
-            this._removeTooltipByKey(key);
-
-            if (!labelText) {
-                if (!this._hasAnyOverlays())
-                    this._stopOverlayCleanupTimer();
-                return true;
-            }
-
-            const actor = new St.Label({
-                reactive: false,
-                text: labelText,
-                style: 'background-color: #ffffe1; color: #000000; border: 1px solid #000000; padding: 6px; font-size: 10pt; font-family: sans-serif;'
-            });
-            actor.set_position(x, y);
-            Main.layoutManager.addChrome(actor, {
-                visibleInFullscreen: true,
-                affectsStruts: false,
-                affectsInputRegion: false
-            });
-
-            this._tooltips.set(key, {
-                actor: actor,
-                ownerKey: owner.key,
-                ownerPid: owner.pid,
-                ownerStartTime: owner.startTime,
-                busName: bus
-            });
-            this._ensureOverlayCleanupTimer();
-            return true;
-        } catch (e) {
-            global.logError(e, 'Keysharp: ShowTooltip failed');
-            return false;
-        }
-    }
-
-    HideTooltip(slot, ownerKey, _busName) {
-        const owner = this._parseOverlayOwner(ownerKey);
-        this._removeTooltipByKey(this._overlayKey(slot, owner.key));
-
-        if (!this._hasOverlaysForOwner(owner.key))
-            this._cancelOverlayReconnectTimer(owner.key);
-
-        if (!this._hasAnyOverlays())
-            this._stopOverlayCleanupTimer();
-
-        return true;
-    }
-
     _overlayKey(id, ownerKey) {
         return `${ownerKey}:${id}`;
     }
@@ -1039,16 +946,6 @@ class KeysharpExtension {
         this._highlights.delete(key);
     }
 
-    _removeTooltipByKey(key) {
-        const entry = this._tooltips.get(key);
-        if (!entry)
-            return;
-
-        try { Main.layoutManager.removeChrome(entry.actor); } catch (_e) {}
-        try { entry.actor.destroy(); } catch (_e) {}
-        this._tooltips.delete(key);
-    }
-
     _removeImageOverlayByKey(key) {
         const entry = this._imageOverlays.get(key);
         if (!entry)
@@ -1068,11 +965,6 @@ class KeysharpExtension {
         for (const [key, entry] of Array.from(this._imageOverlays.entries())) {
             if (entry.ownerKey === ownerKey)
                 this._removeImageOverlayByKey(key);
-        }
-
-        for (const [key, entry] of Array.from(this._tooltips.entries())) {
-            if (entry.ownerKey === ownerKey)
-                this._removeTooltipByKey(key);
         }
 
         this._cancelOverlayReconnectTimer(ownerKey);
@@ -1113,11 +1005,6 @@ class KeysharpExtension {
                 owners.set(entry.ownerKey, true);
         }
 
-        for (const entry of this._tooltips.values()) {
-            if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime))
-                owners.set(entry.ownerKey, true);
-        }
-
         for (const entry of this._imageOverlays.values()) {
             if (!this._overlayOwnerAlive(entry.ownerPid, entry.ownerStartTime))
                 owners.set(entry.ownerKey, true);
@@ -1142,11 +1029,6 @@ class KeysharpExtension {
         const owners = new Map();
 
         for (const entry of this._highlights.values()) {
-            if (entry.busName === name && !owners.has(entry.ownerKey))
-                owners.set(entry.ownerKey, entry);
-        }
-
-        for (const entry of this._tooltips.values()) {
             if (entry.busName === name && !owners.has(entry.ownerKey))
                 owners.set(entry.ownerKey, entry);
         }
@@ -1189,10 +1071,6 @@ class KeysharpExtension {
             if (entry.ownerKey === ownerKey)
                 return entry;
 
-        for (const entry of this._tooltips.values())
-            if (entry.ownerKey === ownerKey)
-                return entry;
-
         for (const entry of this._imageOverlays.values())
             if (entry.ownerKey === ownerKey)
                 return entry;
@@ -1205,16 +1083,11 @@ class KeysharpExtension {
     }
 
     _hasAnyOverlays() {
-        return this._highlights.size !== 0 || this._imageOverlays.size !== 0 || this._tooltips.size !== 0;
+        return this._highlights.size !== 0 || this._imageOverlays.size !== 0;
     }
 
     _ownerHasReplacementBus(ownerKey, lostBusName) {
         for (const entry of this._highlights.values()) {
-            if (entry.ownerKey === ownerKey && entry.busName && entry.busName !== lostBusName)
-                return true;
-        }
-
-        for (const entry of this._tooltips.values()) {
             if (entry.ownerKey === ownerKey && entry.busName && entry.busName !== lostBusName)
                 return true;
         }
@@ -1408,6 +1281,18 @@ class KeysharpExtension {
             opacity = 255;
         }
 
+        // Windows on other workspaces still "exist" (enumeration/matching), but must not win
+        // at-point hit-tests — global.get_window_actors() spans ALL workspaces.
+        let onCurrentWorkspace = true;
+        try {
+            const active = global.workspace_manager
+                ? global.workspace_manager.get_active_workspace()
+                : global.screen.get_active_workspace();
+            onCurrentWorkspace = win.is_on_all_workspaces()
+                || (win.get_workspace() !== null && win.get_workspace() === active);
+        } catch (_e) {
+        }
+
         return {
             id: String(win.get_stable_sequence()),
             title: win.get_title() || '',
@@ -1415,6 +1300,7 @@ class KeysharpExtension {
             pid: win.get_pid(),
             workspace: workspace,
             monitor: monitor,
+            onCurrentWorkspace: onCurrentWorkspace,
             frame: {x: frame.x, y: frame.y, width: frame.width, height: frame.height},
             client: {x: frame.x, y: frame.y, width: frame.width, height: frame.height},
             active: !!win.appears_focused,

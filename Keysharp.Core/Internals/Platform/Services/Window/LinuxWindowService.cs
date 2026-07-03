@@ -55,6 +55,11 @@ namespace Keysharp.Internals
 			return wayland != null && wayland.TryGetWindow(h, out info);
 		}
 
+		// Membership only, zero IPC (bit-tag / id-map check). Guards routing decisions; Backend(h, out info)
+		// is reserved for the sites that consume the fetched info.
+		private bool Known(nint h)
+			=> wayland != null && wayland.IsKnown(h);
+
 		// One of OUR OWN top-level windows lives in Eto/GTK land under a native handle the compositor backend
 		// doesn't key on, so Backend(h) misses and Eto's self position/query (which is a Wayland no-op) is used.
 		// Correlate such a handle to its compositor window so self-window verbs (move, bounds) take the same
@@ -79,10 +84,10 @@ namespace Keysharp.Internals
 			=> h < 0 ? WaylandForeignToplevels.Current?.Get(h) : null;
 
 		// "Is this a Wayland window (compositor-backed or foreign-toplevel), i.e. NOT an X11 window?" Used by the
-		// getters whose Wayland answer is a constant, so it must not pay a roundtrip: Backend(h) is a cheap dict
-		// miss for non-backend handles, and a negative id is by construction a foreign toplevel.
+		// getters whose Wayland answer is a constant, so it must not pay a roundtrip: Known(h) is a cheap bit/dict
+		// test, and a negative id is by construction a foreign toplevel.
 		private bool IsWayland(nint h)
-			=> Backend(h, out _) || h < 0;
+			=> Known(h) || h < 0;
 
 		public override string GetTitle(nint h)
 		{
@@ -272,7 +277,7 @@ namespace Keysharp.Internals
 
 		public override bool TryGetTopLevel(nint h, out nint top)
 		{
-			if (Backend(h, out _)) { top = h; return true; }   // a backend toplevel is its own top
+			if (Known(h)) { top = h; return true; }   // a backend toplevel is its own top
 			if (Foreign(h) != null) { top = default; return false; }
 			if (TryOwnControl(h, out _)) return base.TryGetTopLevel(h, out top);
 			top = default;
@@ -311,11 +316,11 @@ namespace Keysharp.Internals
 
 		public override bool TrySetAlwaysOnTop(nint h, bool onTop)
 		{
-			// Guard on MEMBERSHIP, not on IPC success: a compositor-IPC backend (KWin/GNOME/Cinnamon) can return
-			// false on a transient bridge timeout for a window it genuinely manages. Returning that false (so the
-			// neutral WindowInfo raises OSError) is correct; falling through to X11 would feed a synthetic
-			// compositor id to Xlib as if it were an XID.
-			if (Backend(h, out _))
+			// Guard on MEMBERSHIP (zero IPC), not on IPC success: a compositor-IPC backend (KWin/GNOME/Cinnamon)
+			// can return false on a transient bridge timeout for a window it genuinely manages. Returning that
+			// false (so the neutral WindowInfo raises OSError) is correct; falling through to X11 would feed a
+			// synthetic compositor id to Xlib as if it were an XID.
+			if (Known(h))
 				return wayland.TrySetAlwaysOnTop(h, onTop);
 
 			// Foreign-toplevel compositors (sway/Hyprland/wlroots/COSMIC) expose no keep-above protocol.
@@ -329,7 +334,7 @@ namespace Keysharp.Internals
 
 		public override bool TryClose(nint h)
 		{
-			if (Backend(h, out _))   // membership guard (see TrySetAlwaysOnTop): never fall a backend id through to X11.
+			if (Known(h))   // membership guard (see TrySetAlwaysOnTop): never fall a backend id through to X11.
 				return wayland.TryCloseWindow(h);
 
 			var toplevels = WaylandForeignToplevels.Current;
@@ -343,7 +348,7 @@ namespace Keysharp.Internals
 
 		public override bool TryKill(nint h)
 		{
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TryKillWindow(h);
 
 			if (Foreign(h) != null)
@@ -356,7 +361,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetZOrder(nint h, ZOrder z)
 		{
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TrySetZOrder(h, z);
 
 			// Foreign-toplevel exposes no stacking-order protocol.
@@ -370,7 +375,7 @@ namespace Keysharp.Internals
 
 		public override bool TryHide(nint h)
 		{
-			if (Backend(h, out _))   // membership guard (see TrySetAlwaysOnTop).
+			if (Known(h))   // membership guard (see TrySetAlwaysOnTop).
 				return wayland.TrySetWindowState(h, FormWindowState.Minimized);
 
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
@@ -383,7 +388,7 @@ namespace Keysharp.Internals
 
 		public override bool TryShow(nint h)
 		{
-			if (Backend(h, out _))   // membership guard (see TrySetAlwaysOnTop).
+			if (Known(h))   // membership guard (see TrySetAlwaysOnTop).
 				return wayland.TrySetWindowState(h, FormWindowState.Normal);
 
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
@@ -396,7 +401,7 @@ namespace Keysharp.Internals
 
 		public override bool TryRedraw(nint h)
 		{
-			if (wayland?.TryGetWindow(h, out _) == true)   // WaylandWindowItem.Redraw => false
+			if (Known(h))   // WaylandWindowItem.Redraw => false
 				return false;
 
 			if (TryOwnControl(h, out _))
@@ -406,7 +411,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetState(nint h, FormWindowState state)
 		{
-			if (Backend(h, out _))   // membership guard (see TrySetAlwaysOnTop).
+			if (Known(h))   // membership guard (see TrySetAlwaysOnTop).
 				return wayland.TrySetWindowState(h, state);
 
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
@@ -475,7 +480,7 @@ namespace Keysharp.Internals
 
 		public override bool TryActivate(nint h)
 		{
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TryActivateWindow(h);
 
 			if (WaylandForeignToplevels.Current is { } tlm && tlm.Get(h) is WaylandToplevel tl)
@@ -489,7 +494,7 @@ namespace Keysharp.Internals
 		public override bool TrySetStyle(nint h, long style)
 		{
 			// Only WS_CAPTION maps to a Wayland concept (the compositor's decoration state).
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TrySetNoBorder(h, (style & WsCaption) != WsCaption);
 
 			if (Foreign(h) != null)
@@ -510,7 +515,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetTransparency(nint h, object alpha)
 		{
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TrySetTransparency(h, alpha);
 
 			if (Foreign(h) != null)
@@ -537,7 +542,7 @@ namespace Keysharp.Internals
 
 		public override bool TrySetVisible(nint h, bool visible)
 		{
-			if (Backend(h, out _))
+			if (Known(h))
 				return wayland.TrySetWindowState(h, visible ? FormWindowState.Normal : FormWindowState.Minimized);
 
 			if (Foreign(h) != null)
@@ -605,6 +610,9 @@ namespace Keysharp.Internals
 			child = default;
 			return false;
 		}
+
+		public override WindowInfoBase WindowAt(int x, int y)
+			=> wayland?.TryGetWindowAt(x, y, out var info) == true ? info : null;
 
 		public override uint GetFocusedControlThread(nint window, out nint control)
 		{
@@ -792,11 +800,13 @@ namespace Keysharp.Internals
 
 			lock (X11Server.xLibLock)
 			{
-				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				// GC-rooted while registered (see X11Server.TryGetWindowProperty).
+				XErrorHandler handler = (nint _, ref XErrorEvent __) =>
 				{
 					success = false;
 					return 0;
-				});
+				};
+				var oldHandler = Xlib.XSetErrorHandler(handler);
 
 				try
 				{
@@ -807,6 +817,7 @@ namespace Keysharp.Internals
 				finally
 				{
 					_ = Xlib.XSetErrorHandler(oldHandler);
+					GC.KeepAlive(handler);
 				}
 			}
 		}
@@ -1904,8 +1915,9 @@ namespace Keysharp.Internals
 			{
 				var topHandle = X11NonChildParentHandle((nint)w.ID);
 
+				// A viewable X window implies viewable ancestors, so the filtered walk may seed visible=true.
 				if (topHandle != 0 && seen.Add(topHandle.ToInt64()))
-					list.Add(new WindowInfo(topHandle));
+					list.Add(includeHidden ? new WindowInfo(topHandle) : new WindowInfo(topHandle, visible: true));
 			}
 
 			list.Reverse();

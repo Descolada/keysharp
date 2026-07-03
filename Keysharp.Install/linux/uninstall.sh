@@ -137,6 +137,8 @@ fi
 
 rm -f "${BINDIR}/keysharp" "${BINDIR}/keyview" "${BINDIR}/keysharp-inputd"
 rm -f "${DESKTOP_DIR}/keyview.desktop" "${DESKTOP_DIR}/keysharp.desktop" "${DESKTOP_DIR}/keysharp-helper.desktop" "${MIME_DIR}/keysharp.xml" "${ICON_DIR}/keysharp.png"
+# Legacy (pre-rename) capture-helper artifacts from older installs.
+rm -f "${DESKTOP_DIR}/keysharp-screencap.desktop" "${BINDIR}/keysharp-screencap"
 rm -rf "${APP_DIR_TARGET}"
 
 MIMEAPPS="${DESKTOP_DIR}/mimeapps.list"

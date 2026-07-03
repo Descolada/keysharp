@@ -90,6 +90,46 @@ namespace Keysharp.Internals.Window.MacOS
 
 		internal override long PID => TryGetNativeInfo(out var native) ? native.OwnerPid : 0;
 
+		internal override string Path
+		{
+			get
+			{
+				if (!processPath.IsNullOrEmpty())
+					return processPath;
+
+				var pid = PID;
+
+				if (pid <= 0)
+					return DefaultErrorString;
+
+				// Cheap AppKit lookup that also resolves hardened/system apps where the neutral
+				// Process.MainModule path throws access-denied.
+				var app = MonoMac.AppKit.NSRunningApplication.GetRunningApplication((int)pid);
+				var url = app?.ExecutableUrl;
+
+				if (url?.Path is string path && !path.IsNullOrEmpty())
+					return processPath = path;
+
+				return base.Path;
+			}
+		}
+
+		internal override string ProcessName
+		{
+			get
+			{
+				if (!processName.IsNullOrEmpty())
+					return processName;
+
+				var path = Path;
+
+				if (!path.IsNullOrEmpty() && path != DefaultErrorString)
+					return processName = System.IO.Path.GetFileName(path);
+
+				return base.ProcessName;
+			}
+		}
+
 		internal override long Style
 		{
 			get

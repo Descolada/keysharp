@@ -28,12 +28,15 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public bool Minimized { get; }
 		public bool Maximized { get; }
 		public bool Decorated { get; }
+		/// <summary>False when the window lives on another (non-active) workspace: it still exists for
+		/// enumeration/matching, but must not win at-point hit-tests.</summary>
+		public bool OnCurrentWorkspace { get; }
 
 		internal WaylandWindowInfo(nint handle, string compositorId = "", string title = "", string appId = "",
 								   long pid = 0, Rectangle frameGeometry = default, Rectangle clientGeometry = default,
 								   bool active = false, bool minimized = false, bool maximized = false,
 								   bool visible = false, bool alwaysOnTop = false, bool decorated = true,
-								   object transparency = null) : base(handle)
+								   object transparency = null, bool onCurrentWorkspace = true) : base(handle)
 		{
 			CompositorId = compositorId ?? string.Empty;
 			winTitle = title ?? string.Empty;
@@ -48,6 +51,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			this.alwaysOnTop = alwaysOnTop;
 			Decorated = decorated;
 			this.transparency = transparency ?? 0xFFL;
+			OnCurrentWorkspace = onCurrentWorkspace;
 		}
 
 		internal override string Title => winTitle;
@@ -66,6 +70,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal override bool AlwaysOnTop => alwaysOnTop;
 		internal override object Transparency => transparency;
 		internal override object TransparentColor => 0L;
+
+		// A compositor toplevel is its own non-child parent, and its client origin is already in the
+		// payload — the base implementations would re-fetch this same window through Platform.Window.
+		internal override WindowInfoBase NonChildParentWindow => this;
+		internal override POINT ClientToScreen() => new (ClientGeometry.X, ClientGeometry.Y);
 	}
 }
 #endif

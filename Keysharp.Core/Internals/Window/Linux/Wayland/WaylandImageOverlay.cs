@@ -136,21 +136,18 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (image == null || target == null || target.Data == 0)
 				return;
 
-			Bitmap src = null;
+			// Read `image` in place (the backing owns it; Lock() is read-only) — only an actual
+			// resize produces a new bitmap, so the common same-size blit copies nothing.
+			var src = image;
 
 			try
 			{
-				src = new Bitmap(image);
-
 				if (src.Width != width || src.Height != height)
 				{
 					var resized = ImageHelper.ResizeBitmap(src, width, height, exactPixels: true);
 
 					if (!ReferenceEquals(resized, src))
-					{
-						src.Dispose();
 						src = resized;
-					}
 				}
 
 				var src32 = ImageHelper.EnsureOpaque32Bpp(src);
@@ -185,7 +182,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 			finally
 			{
-				src?.Dispose();
+				if (!ReferenceEquals(src, image))
+					src.Dispose();
 			}
 		}
 

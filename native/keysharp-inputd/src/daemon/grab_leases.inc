@@ -106,7 +106,7 @@ static uint32_t check_capabilities_sync(
 
         /* Check the shared PID-keyed session file for physical capabilities.
          * This picks up "Allow once" decisions that were written by any daemon
-         * (including a prior screencap prompt) for this specific Keysharp process. */
+         * (including a prior keysharp-helper prompt) for this specific Keysharp process. */
         if (client->start_time != 0u) {
             uint32_t pid_session = ksi_permissions_get_session_by_pid(
                 client->uid, client->pid, client->start_time);
@@ -124,7 +124,7 @@ static uint32_t check_capabilities_sync(
 
     /* Non-physical capabilities (e.g. screen capture) that inputd does not
      * provide directly, but brokers via the combined prompt so that the physical
-     * daemon (screencap) can check the PID session and skip its own prompt.
+     * daemon (keysharp-helper) can check the PID session and skip its own prompt.
      * Check persistent trust store and PID session; add to missing if neither
      * covers them, so the prompt includes them in the requested capability list. */
     {
@@ -201,7 +201,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 	if (decision == KSI_PERMISSION_DECISION_ALLOW_ALWAYS) {
 		/* Grant ALL missing capabilities persistently — physical ones will be
 		 * honoured by inputd on future connections; non-physical ones (e.g. screen
-		 * capture) are stored in the shared trust store where screencap reads them. */
+		 * capture) are stored in the shared trust store where keysharp-helper reads them. */
 		(void)ksi_permissions_grant_persistent(
 			state->permissions, client->uid, client->exe_hash, client->exe_path, missing);
 	} else if (decision == KSI_PERMISSION_DECISION_PROMPT_UNAVAILABLE) {
@@ -214,7 +214,7 @@ static void process_client_prompt_done(ksi_daemon_state *state, ksi_daemon_comma
 
     if (decision == KSI_PERMISSION_DECISION_ALLOW_ONCE && missing != 0u) {
         /* Write ALL granted capabilities (physical + non-physical) to the shared
-         * PID session file.  screencap and other daemons read this file and skip
+         * PID session file.  keysharp-helper and other daemons read this file and skip
          * their own prompts when they find the relevant capability bits set. */
         if (client->start_time != 0u) {
             (void)ksi_permissions_grant_session_for_pid(

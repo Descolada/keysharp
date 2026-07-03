@@ -31,7 +31,7 @@ namespace Keysharp.Internals.Window
 		public static IEnumerable<WindowInfoBase> AllWindows => EnumerateWindows(ThreadAccessors.A_DetectHiddenWindows);
 
 		public static WindowInfoBase ChildWindowFromPoint(POINT location)
-			=> Platform.Window.TryGetAt(location.X, location.Y, out var h) ? CreateWindow(h) : null;
+			=> Platform.Window.WindowAt(location.X, location.Y);
 
 		public static WindowInfoBase WindowFromPoint(POINT location)
 		{

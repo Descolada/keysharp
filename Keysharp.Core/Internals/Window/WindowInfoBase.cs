@@ -170,6 +170,14 @@ namespace Keysharp.Internals.Window
 				if (pid <= 0)
 					return DefaultErrorString;
 
+#if WINDOWS
+				// OpenProcess(QUERY_LIMITED) + GetProcessImageFileName: cheap in matcher loops and
+				// works for elevated processes, where Process.MainModule throws access-denied.
+				if (Processes.GetProcessName((uint)pid, out processPath, false) == 0)
+					return (string)Errors.OSErrorOccurred(new Win32Exception(Marshal.GetLastWin32Error()), "", DefaultErrorString);
+
+				return processPath;
+#else
 				try
 				{
 					using (var proc = Process.GetProcessById((int)pid))
@@ -184,6 +192,7 @@ namespace Keysharp.Internals.Window
 				{
 					return DefaultErrorString;
 				}
+#endif
 			}
 		}
 
@@ -201,6 +210,10 @@ namespace Keysharp.Internals.Window
 				if (pid <= 0)
 					return processName = string.Empty;
 
+#if WINDOWS
+				if (Processes.GetProcessName((uint)pid, out processName) == 0)
+					return (string)Errors.OSErrorOccurred(new Win32Exception(Marshal.GetLastWin32Error()), "", DefaultErrorString);
+#else
 				try
 				{
 					using (var proc = Process.GetProcessById((int)pid))
@@ -212,6 +225,7 @@ namespace Keysharp.Internals.Window
 				catch
 				{
 				}
+#endif
 
 				return processName;
 			}

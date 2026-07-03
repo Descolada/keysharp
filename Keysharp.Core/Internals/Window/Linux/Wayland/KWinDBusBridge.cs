@@ -577,7 +577,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			}
 		}
 
-		private const string KWinOperationScript = """
+		// The window-identity/serialization helpers shared VERBATIM by the operation script and the event
+		// script (WaylandBackend.EventScriptBody). windowId() defines the compositor id string that C#
+		// folds into bit-62 handles — if the two scripts ever disagree, event handles stop resolving
+		// through queries and WinEvent silently breaks, so there is exactly one copy.
+		internal const string WindowHelpersJs = """
 function safeRead(object, name, fallback) {
   try {
     if (!object || typeof object[name] === "undefined" || object[name] === null) return fallback;
@@ -592,25 +596,6 @@ function safeString(value) {
 }
 function safeBool(value) {
   try { return !!value; } catch (e) { return false; }
-}
-function argBool(args, name, fallback) {
-  try {
-    if (!args || typeof args[name] === "undefined" || args[name] === null) return fallback;
-    return !!args[name];
-  } catch (e) {
-    return fallback;
-  }
-}
-function argNumber(args, name, fallback) {
-  try {
-    var value = Number(args ? args[name] : undefined);
-    return isFinite(value) ? value : fallback;
-  } catch (e) {
-    return fallback;
-  }
-}
-function argString(args, name) {
-  return safeString(args ? args[name] : "");
 }
 function readRect(rect) {
   if (!rect) return { x: 0, y: 0, width: 0, height: 0 };
@@ -674,6 +659,7 @@ function isMaximized(w) {
   try {
     if (typeof w.maximized !== "undefined") return !!w.maximized;
   } catch (e) {}
+  // KWin 5 exposes maximizeMode (0=Restore, 1=Vertical, 2=Horizontal, 3=Full) instead of a maximized bool.
   try {
     if (typeof w.maximizeMode !== "undefined") return Number(w.maximizeMode) === 3;
   } catch (e) {}
@@ -705,6 +691,8 @@ function windowInfo(w, includeSpecial) {
     var id = windowId(w);
     if (!id) return null;
     var frame = readRect(safeRead(w, "frameGeometry", safeRead(w, "geometry", null)));
+    // clientGeometry isn't exposed to scripts on every KWin build; when absent it would collapse to the frame.
+    // Try it first, then the clientPos (inset relative to the frame) + clientSize pair, then fall back to frame.
     var client = readRect(safeRead(w, "clientGeometry", null));
     if (!client || client.width === 0) {
       var cp = safeRead(w, "clientPos", null);
@@ -742,6 +730,28 @@ function findWindow(id) {
   var active = activeWindowCompat();
   if (active && windowId(active) === id) return active;
   return null;
+}
+""";
+
+		private const string KWinOperationScript = WindowHelpersJs + "\n" + """
+function argBool(args, name, fallback) {
+  try {
+    if (!args || typeof args[name] === "undefined" || args[name] === null) return fallback;
+    return !!args[name];
+  } catch (e) {
+    return fallback;
+  }
+}
+function argNumber(args, name, fallback) {
+  try {
+    var value = Number(args ? args[name] : undefined);
+    return isFinite(value) ? value : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+function argString(args, name) {
+  return safeString(args ? args[name] : "");
 }
 function readWorkArea() {
   function rd(r) {

@@ -12,14 +12,6 @@ namespace Keysharp.Internals
 	/// so additional transports/state can be added without churning consumers.</summary>
 	internal enum InputTransport { None, Inputd, LegacyX11, Mac, Windows }
 
-	/// <summary>A handle to one of OUR OWN toolkit windows, resolved from a <see cref="nint"/> by
-	/// <see cref="IOwnWindow.TryResolve"/>. Carries what the own-window ops need (the toolkit form) without
-	/// leaking the high-level <c>Gui</c> builtin into the platform layer.</summary>
-	internal interface IOwnWindowTarget
-	{
-		nint FormHandle { get; }
-	}
-
 	/// <summary>Foreign window READ surface (by handle). The Linux impl internally composes X11 + the active
 	/// Wayland backend; routing re-resolves the backend from the handle on each call.</summary>
 	internal interface IWindowQuery
@@ -39,6 +31,11 @@ namespace Keysharp.Internals
 		IReadOnlyList<Keysharp.Internals.Window.WindowInfoBase> Enumerate(bool includeHidden);
 
 		bool TryGetAt(int x, int y, out nint child);
+
+		/// <summary>At-point query returning the built item; null when nothing is there. Backends whose
+		/// at-point lookup already parses the full window payload (Wayland) return it directly instead of
+		/// making the caller re-fetch the same window by handle.</summary>
+		Keysharp.Internals.Window.WindowInfoBase WindowAt(int x, int y);
 
 		/// <summary>Direct, non-enumerating lookup of the first top-level window by class name (and, in
 		/// title-match-mode 3, exact title) — the platform's native FindWindow. Returns true when the backend
@@ -126,27 +123,6 @@ namespace Keysharp.Internals
 	/// and mutate (<see cref="IWindowControl"/>) surfaces — <c>Platform.Window</c>.</summary>
 	internal interface IWindow : IWindowQuery, IWindowControl { }
 
-	/// <summary>OUR OWN windows, via the toolkit (Eto/WinForms). Own-ness is a backend-implemented predicate
-	/// (<see cref="IsOwn"/>): X11/Windows = allGuiHwnds membership, macOS = OwnerPid==ProcessId, Wayland =
-	/// PID-anchored correlation. The toolkit base reports success; the Wayland override returns false for the
-	/// verbs the compositor must own (driving WindowInfo's fallback to the foreign path).</summary>
-	internal interface IOwnWindow
-	{
-		bool IsOwn(nint h);
-		bool TryResolve(nint h, out IOwnWindowTarget target);
-		bool TrySetAlwaysOnTop(IOwnWindowTarget t, bool onTop);
-		bool TryGetAlwaysOnTop(IOwnWindowTarget t, out bool onTop);
-		bool TrySetPosition(IOwnWindowTarget t, Point p);
-		bool TryGetPosition(IOwnWindowTarget t, out Point p);
-		bool TrySetState(IOwnWindowTarget t, FormWindowState state);
-		bool TryGetState(IOwnWindowTarget t, out FormWindowState state);
-		bool TrySetNoBorder(IOwnWindowTarget t, bool noBorder);
-		bool TrySetTransparency(IOwnWindowTarget t, object alpha);
-		bool TryGetTransparency(IOwnWindowTarget t, out object alpha);
-		bool TrySetClickThrough(IOwnWindowTarget t, bool on);
-		bool TrySetAppId(IOwnWindowTarget t, string appId);
-	}
-
 	/// <summary>Cursor STATE: position (MouseGetPos), shape (A_Cursor), and the clip-warp positioning the inputd
 	/// cursor-clip enforcement needs. NOT mouse-event injection — synthesized mouse input (MouseMove/Click/Send)
 	/// is produced by the input/sender subsystem, unified with keyboard, not here.</summary>
@@ -194,8 +170,9 @@ namespace Keysharp.Internals
 		bool SupportsImageOverlay { get; }
 
 		/// <summary>
-		/// Create or update a click-through image overlay. The service copies the bitmap at call time; callers keep
-		/// ownership of <paramref name="image"/>. A non-positive width/height uses the image's native size.
+		/// Create or update a click-through image overlay. OWNERSHIP of <paramref name="image"/> transfers to the
+		/// service (the caller hands in a snapshot and must not touch it afterwards — this keeps the hot refresh
+		/// path at exactly one bitmap copy). A non-positive width/height uses the image's native size.
 		/// </summary>
 		bool TryShowImageOverlay(uint id, int x, int y, int width, int height, Bitmap image);
 

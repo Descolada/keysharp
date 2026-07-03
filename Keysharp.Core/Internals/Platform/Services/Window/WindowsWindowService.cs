@@ -298,8 +298,24 @@ namespace Keysharp.Internals
 			return !GetExists(h);
 		}
 
-		public override bool TryHide(nint h) => IsSpecified(h) && WindowsAPI.ShowWindow(h, WindowsAPI.SW_HIDE);
-		public override bool TryShow(nint h) => IsSpecified(h) && WindowsAPI.ShowWindow(h, WindowsAPI.SW_SHOWDEFAULT);
+		// ShowWindow's return value is the window's PREVIOUS visibility, not success — never propagate it.
+		public override bool TryHide(nint h)
+		{
+			if (!IsSpecified(h))
+				return false;
+
+			_ = WindowsAPI.ShowWindow(h, WindowsAPI.SW_HIDE);
+			return true;
+		}
+
+		public override bool TryShow(nint h)
+		{
+			if (!IsSpecified(h))
+				return false;
+
+			_ = WindowsAPI.ShowWindow(h, WindowsAPI.SW_SHOWDEFAULT);
+			return true;
+		}
 		public override bool TryRedraw(nint h) => IsSpecified(h) && WindowsAPI.InvalidateRect(h, 0, true);
 
 		public override bool TryClick(nint h, Point at, uint button, int count)
@@ -393,8 +409,10 @@ namespace Keysharp.Internals
 			var list = new List<WindowInfoBase>();
 			_ = WindowsAPI.EnumWindows(delegate (nint hwnd, int lParam)
 			{
-				if (includeHidden || (WindowsAPI.IsWindowVisible(hwnd) && !WindowsAPI.IsWindowCloaked(hwnd)))
+				if (includeHidden)
 					list.Add(new WindowInfo(hwnd));
+				else if (WindowsAPI.IsWindowVisible(hwnd) && !WindowsAPI.IsWindowCloaked(hwnd))
+					list.Add(new WindowInfo(hwnd, visible: true));
 
 				return true;
 			}, 0);
@@ -502,7 +520,7 @@ namespace Keysharp.Internals
 			if (value is string s)
 			{
 				if (s.ToLower() == "off")
-					_ = WindowsAPI.SetWindowLongPtr(h, WindowsAPI.GWL_EXSTYLE, new nint(exstyle | ~WindowsAPI.WS_EX_LAYERED));
+					_ = WindowsAPI.SetWindowLongPtr(h, WindowsAPI.GWL_EXSTYLE, new nint(exstyle & ~WindowsAPI.WS_EX_LAYERED));
 			}
 			else
 			{

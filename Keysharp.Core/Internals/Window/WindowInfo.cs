@@ -24,6 +24,10 @@ namespace Keysharp.Internals.Window
 
 		internal WindowInfo(nint handle) : base(handle) { }
 
+		/// <summary>Seeds the visibility memo. Used by Enumerate when its callback already filtered on
+		/// visibility, so the matcher's hidden-window check doesn't re-pay the native query per candidate.</summary>
+		internal WindowInfo(nint handle, bool visible) : base(handle) => this.visible = visible;
+
 		internal override bool Active => active ??= Platform.Window.GetActive(Handle);
 
 		internal override bool AlwaysOnTop => alwaysOnTop ??= Platform.Window.GetAlwaysOnTop(Handle);

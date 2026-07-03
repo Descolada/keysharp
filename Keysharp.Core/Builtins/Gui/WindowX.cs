@@ -546,7 +546,7 @@ namespace Keysharp.Builtins
 			var script = Script.TheScript;
 			var (windows, crit) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 
-			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
+			if (crit != null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText);
 
 			var unsupported = false;
@@ -822,27 +822,20 @@ namespace Keysharp.Builtins
 			var script = Script.TheScript;
 			var (windows, crit) = WindowQuery.FindWindowGroup(winTitle, winText, excludeTitle, excludeText);
 
-			if (crit == null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
+			if (crit != null && string.IsNullOrEmpty(crit.Group) && windows.Count == 0 && !script.IsMainWindowClosing)
 				return Errors.TargetErrorOccurred(winTitle, winText, excludeTitle, excludeText, DefaultErrorLong);
-
-			var unsupported = false;
 
 			foreach (var win in windows)
 			{
-				if (!Platform.Window.TryKill(win.Handle))
-				{
-					unsupported = true;
-					continue;
-				}
+				// Result deliberately ignored (AHK semantics): TerminateProcess is asynchronous, so a
+				// successful kill can still report the window as existing for a few milliseconds.
+				_ = Platform.Window.TryKill(win.Handle);
 
 				if (seconds != double.MinValue)
 					_ = win.WaitClose(seconds == 0 ? 0.5 : seconds);
 			}
 
 			WindowInfoBase.DoWinDelay();
-			if (unsupported)
-				return WindowOperationUnsupported(nameof(WinKill));
-
 			return DefaultObject;
 		}
 
@@ -886,6 +879,12 @@ namespace Keysharp.Builtins
 
 		public static object WinMinimizeAll()
 		{
+#if WINDOWS
+			// The shell's native Minimize All: skips windows the shell exempts and lets
+			// WinMinimizeAllUndo restore each window's prior (e.g. maximized) state.
+			DoDelayedAction(() => _ = WindowsAPI.PostMessage(WindowsAPI.FindWindow("Shell_TrayWnd", null), WindowsAPI.WM_COMMAND, new nint(419), 0));
+			return DefaultObject;
+#else
 			var unsupported = false;
 			DoDelayedAction(() =>
 			{
@@ -898,10 +897,15 @@ namespace Keysharp.Builtins
 				return WindowOperationUnsupported(nameof(WinMinimizeAll));
 
 			return DefaultObject;
+#endif
 		}
 
 		public static object WinMinimizeAllUndo(params object[] obj)
 		{
+#if WINDOWS
+			DoDelayedAction(() => _ = WindowsAPI.PostMessage(WindowsAPI.FindWindow("Shell_TrayWnd", null), WindowsAPI.WM_COMMAND, new nint(416), 0));
+			return DefaultObject;
+#else
 			var unsupported = false;
 			DoDelayedAction(() =>
 			{
@@ -914,6 +918,7 @@ namespace Keysharp.Builtins
 				return WindowOperationUnsupported(nameof(WinMinimizeAllUndo));
 
 			return DefaultObject;
+#endif
 		}
 
 		public static object WinMove(object x = null,

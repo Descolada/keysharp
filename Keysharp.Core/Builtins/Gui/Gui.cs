@@ -2905,22 +2905,10 @@ namespace Keysharp.Builtins
 #if WINDOWS
 			else if (!form.BeenShown && owner != 0)
 			{
-				if (Forms.Control.FromHandle(owner) is IWin32Window ownerControl)
-					form.Show(ownerControl);
-				else
-				{
-					var ownerWindow = new NativeWindow();
-					ownerWindow.AssignHandle(owner);
-					try
-					{
-						form.Show(ownerWindow);
-					}
-					finally
-					{
-						ownerWindow.ReleaseHandle();
-					}
-				}
-
+				// Form.Show(IWin32Window) only reads owner.Handle, so a plain handle wrapper suffices —
+				// NativeWindow.AssignHandle would subclass the owner's wndproc, which fails (Win32Exception)
+				// for a window owned by another process, and +Owner explicitly supports foreign owners.
+				form.Show(new OwnerHandle(owner));
 				form.beenShown = true;
 			}
 #endif
@@ -3855,5 +3843,13 @@ namespace Keysharp.Builtins
 			}
 		}
 	}
+
+#if WINDOWS
+	/// <summary>Bare IWin32Window over a foreign handle for Form.Show(owner) — no subclassing.</summary>
+	internal sealed class OwnerHandle(nint handle) : IWin32Window
+	{
+		public nint Handle { get; } = handle;
+	}
+#endif
 
 }

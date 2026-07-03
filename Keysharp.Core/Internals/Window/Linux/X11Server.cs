@@ -60,11 +60,14 @@ namespace Keysharp.Internals.Window.Linux
 
 			lock (xLibLock)
 			{
-				var oldHandler = Xlib.XSetErrorHandler((nint _, ref XErrorEvent __) =>
+				// The handler must stay GC-rooted while registered — Xlib holds only the native thunk,
+				// and an X error dispatched to a collected delegate would crash the process.
+				XErrorHandler handler = (nint _, ref XErrorEvent __) =>
 				{
 					success = false;
 					return 0;
-				});
+				};
+				var oldHandler = Xlib.XSetErrorHandler(handler);
 
 				try
 				{
@@ -92,6 +95,7 @@ namespace Keysharp.Internals.Window.Linux
 				finally
 				{
 					_ = Xlib.XSetErrorHandler(oldHandler);
+					GC.KeepAlive(handler);
 				}
 			}
 		}

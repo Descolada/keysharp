@@ -48,14 +48,13 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> SendMouseButtonAsync(uint button, bool pressed);
 		Task<bool> SendMouseScrollAsync(int delta, bool vertical);
 		Task<bool> RegisterHighlightOwnerAsync(string ownerKey, string busName);
+		// ShowHighlight/HideHighlight survive in the extension protocol solely as the
+		// SupportsHighlight() capability probe target; rendering goes through the image overlay.
 		Task<bool> ShowHighlightAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, string color, int thickness);
 		Task<bool> HideHighlightAsync(uint id, string ownerKey, string busName);
 		Task<bool> ShowImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height, byte[] pngBytes);
 		Task<bool> MoveImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height);
 		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
-		Task<bool> SupportsTooltipAsync();
-		Task<bool> ShowTooltipAsync(int slot, string ownerKey, string busName, string text, int x, int y);
-		Task<bool> HideTooltipAsync(int slot, string ownerKey, string busName);
 		Task<IDisposable> WatchWindowEventAsync(Action<(string type, string json)> handler, Action<Exception> onError = null);
 	}
 
@@ -102,8 +101,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		private static bool extensionOwnerCached;
 		private static long highlightSupportCacheUntil;
 		private static bool highlightSupportCached;
-		private static long tooltipSupportCacheUntil;
-		private static bool tooltipSupportCached;
 		private static string connectionLocalName = "";
 		private static string registeredHighlightOwnerBusName = "";
 		private static long highlightOwnerRegisterRetryAfter;
@@ -250,12 +247,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			return ok;
 		}
 
-		internal static bool SendShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
-			=> RunExtensionBool(p => p.ShowHighlightAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, color, thickness));
-
-			internal static bool SendHideHighlight(uint id)
-				=> RunExtensionBool(p => p.HideHighlightAsync(id, HighlightOwnerKey, connectionLocalName));
-
 			internal static bool SendShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> pngBytes is { Length: > 0 }
 				   && RunExtensionBool(p => p.ShowImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName, x, y, width, height, pngBytes));
@@ -265,25 +256,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			internal static bool SendHideImageOverlay(uint id)
 				=> RunExtensionBool(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
-
-			internal static bool SupportsTooltip()
-			{
-			var now = Environment.TickCount64;
-
-			if (now < tooltipSupportCacheUntil)
-				return tooltipSupportCached;
-
-			var ok = RunExtensionBool(p => p.SupportsTooltipAsync());
-			tooltipSupportCached = ok;
-			tooltipSupportCacheUntil = now + (ok ? ExtensionPresentCacheMs : ExtensionMissingCacheMs);
-			return ok;
-		}
-
-		internal static bool SendShowTooltip(int slot, string text, int x, int y)
-			=> RunExtensionBool(p => p.ShowTooltipAsync(slot, HighlightOwnerKey, connectionLocalName, text ?? "", x, y));
-
-		internal static bool SendHideTooltip(int slot)
-			=> RunExtensionBool(p => p.HideTooltipAsync(slot, HighlightOwnerKey, connectionLocalName));
 
 		// Lazily creates a Clutter virtual pointer (Muffin is Clutter-based, same API as the
 		// GNOME extension) and stashes it on `global` so it persists across Eval calls.
@@ -569,8 +541,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 					extensionProxy = null;
 					highlightSupportCached = false;
 					highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
-					tooltipSupportCached = false;
-					tooltipSupportCacheUntil = now + ExtensionMissingCacheMs;
 				}
 
 				return hasOwner;
@@ -582,8 +552,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				extensionProxy = null;
 				highlightSupportCached = false;
 				highlightSupportCacheUntil = now + ExtensionMissingCacheMs;
-				tooltipSupportCached = false;
-				tooltipSupportCacheUntil = now + ExtensionMissingCacheMs;
 				return false;
 			}
 		}
@@ -676,8 +644,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			extensionOwnerCacheUntil = 0;
 			highlightSupportCached = false;
 			highlightSupportCacheUntil = 0;
-			tooltipSupportCached = false;
-			tooltipSupportCacheUntil = 0;
 			initFailed = false;
 		}
 
@@ -707,8 +673,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		// because uinput's normalized coordinates don't map reliably on Wayland; relative moves
 		// still use inputd. Falls back to inputd automatically if any Eval call fails.
 		public bool SupportsMouse => true;
-
-		public bool SupportsHighlight => CinnamonShellBridge.SupportsHighlight();
 
 		internal static bool IsAvailable()
 			=> EnvContains("XDG_CURRENT_DESKTOP", "cinnamon")
@@ -787,6 +751,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public bool TryGetActiveWindow(out WaylandWindowInfo window)
 			=> TryParseSingleWindow(CinnamonShellBridge.QueryActiveWindow(), out window);
 
+		public bool IsKnown(nint handle) => TryHandleToSeq(handle, out _);
+
 		public bool TryGetWindow(nint handle, out WaylandWindowInfo window)
 		{
 			window = null;
@@ -805,10 +771,11 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			if (!TryListWindows(false, out var all))
 				return false;
 
-			// List is bottom-to-top; walk top-down so the topmost window at the point wins.
+			// List is bottom-to-top; walk top-down so the topmost window at the point wins. Skip windows
+			// parked on other workspaces — the actor list spans all of them.
 			for (var i = all.Count - 1; i >= 0; i--)
 			{
-				if (all[i].FrameGeometry.Contains(x, y))
+				if (all[i].OnCurrentWorkspace && all[i].FrameGeometry.Contains(x, y))
 				{
 					window = all[i];
 					return true;
@@ -866,13 +833,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		public bool TrySendMouseScroll(int delta, bool vertical)
 			=> CinnamonShellBridge.SendMouseScroll(delta, vertical);
 
-		public bool TryShowHighlight(uint id, int x, int y, int width, int height, string color, int thickness)
-			=> CinnamonShellBridge.SendShowHighlight(id, x, y, width, height, color, thickness);
-
-			public bool TryHideHighlight(uint id)
-				=> CinnamonShellBridge.SendHideHighlight(id);
-
-			public bool SupportsImageOverlay => SupportsHighlight;
+			// The show/hide-highlight probe doubles as the "is the (current-protocol) extension
+			// really answering" check gating compositor-drawn overlays.
+			public bool SupportsImageOverlay => CinnamonShellBridge.SupportsHighlight();
 
 			public bool TryShowImageOverlay(uint id, int x, int y, int width, int height, byte[] pngBytes)
 				=> CinnamonShellBridge.SendShowImageOverlay(id, x, y, width, height, pngBytes);
@@ -882,14 +845,6 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			public bool TryHideImageOverlay(uint id)
 				=> CinnamonShellBridge.SendHideImageOverlay(id);
-
-			public bool SupportsTooltip => CinnamonShellBridge.SupportsTooltip();
-
-		public bool TryShowTooltip(int slot, string text, int x, int y)
-			=> CinnamonShellBridge.SendShowTooltip(slot, text, x, y);
-
-		public bool TryHideTooltip(int slot)
-			=> CinnamonShellBridge.SendHideTooltip(slot);
 
 		// ---- helpers ------------------------------------------------
 
@@ -921,7 +876,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				visible: JsonBool(item, "visible"),
 				alwaysOnTop: JsonBool(item, "alwaysOnTop"),
 				decorated: !item.TryGetProperty("decorated", out _) || JsonBool(item, "decorated"),
-				transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL);
+				transparency: item.TryGetProperty("transparency", out _) ? JsonLong(item, "transparency") : 0xFFL,
+				onCurrentWorkspace: !item.TryGetProperty("onCurrentWorkspace", out _) || JsonBool(item, "onCurrentWorkspace"));
 			return true;
 		}
 

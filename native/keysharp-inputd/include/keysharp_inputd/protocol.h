@@ -54,7 +54,7 @@ typedef enum ksi_message_type {
 } ksi_message_type;
 
 /* Bitmask of all capabilities whose trust records are administered via
- * keysharp-inputd. Screen-capture (0x20) is excluded — screencap manages that
+ * keysharp-inputd. Screen-capture (0x20) is excluded — keysharp-helper manages that
  * helper-specific domain itself. */
 #define KSI_INPUT_CAPABILITIES 0x0000005Fu
 

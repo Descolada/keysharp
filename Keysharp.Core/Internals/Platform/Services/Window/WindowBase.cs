@@ -57,6 +57,11 @@ namespace Keysharp.Internals
 		public virtual IReadOnlyList<Keysharp.Internals.Window.WindowInfoBase> Enumerate(bool includeHidden) => NotYet<IReadOnlyList<Keysharp.Internals.Window.WindowInfoBase>>();
 		public virtual bool TryGetAt(int x, int y, out nint child) { child = default; return Unsupported(); }
 
+		// At-point query returning the built item. Wayland overrides this to hand back the payload its
+		// at-point IPC already parsed instead of re-fetching the same window by handle.
+		public virtual Keysharp.Internals.Window.WindowInfoBase WindowAt(int x, int y)
+			=> TryGetAt(x, y, out var child) ? CreateWindow(child) : null;
+
 		// No native by-class fast path by default (X11/Wayland/macOS enumerate); Windows overrides this.
 		public virtual bool TryFindWindow(string className, string title, out nint handle) { handle = default; return Unsupported(); }
 		public virtual bool IsWindow(nint h)

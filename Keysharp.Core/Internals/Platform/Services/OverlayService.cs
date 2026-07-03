@@ -44,9 +44,11 @@ namespace Keysharp.Internals
 			if (height <= 0) height = image.Height;
 
 			if (width <= 0 || height <= 0)
+			{
+				image.Dispose();
 				return TryHideImageOverlay(id);
+			}
 
-			var snapshot = new Bitmap(image);   // one copy of the caller's bitmap; ownership passes to the backing
 			IImageOverlayBacking backing;
 			var created = false;
 
@@ -59,19 +61,9 @@ namespace Keysharp.Internals
 				}
 			}
 
-			bool shown;
-
-			try
-			{
-				shown = backing.Show(snapshot, x, y, width, height);   // outside the lock (may hit the UI thread / D-Bus)
-			}
-			catch
-			{
-				// A backing should honor the Show contract (return false, dispose the bitmap); guard anyway so a
-				// misbehaving one can't leak the snapshot or escape to the script. Bitmap.Dispose is idempotent.
-				try { snapshot.Dispose(); } catch { }
-				shown = false;
-			}
+			// Outside the lock (may hit the UI thread / D-Bus). Ownership of the bitmap passes to the
+			// backing, whose Show contract disposes it on failure — no defensive re-copy here.
+			var shown = backing.Show(image, x, y, width, height);
 
 			if (shown)
 				return true;
@@ -380,6 +372,7 @@ namespace Keysharp.Internals
 	{
 		private LayeredOverlayForm form;
 		private Bitmap source;
+		private int shownW, shownH;
 
 		public nint Handle => form?.IsHandleCreated == true ? form.Handle : 0;
 
@@ -400,6 +393,8 @@ namespace Keysharp.Internals
 					});
 				}
 
+				shownW = width;
+				shownH = height;
 				var old = source;
 				source = image;   // take ownership of the pristine bitmap for later moves
 				old?.Dispose();
@@ -413,7 +408,25 @@ namespace Keysharp.Internals
 		}
 
 		public bool Move(int x, int y, int width, int height)
-			=> source != null && Show(new Bitmap(source), x, y, width <= 0 ? source.Width : width, height <= 0 ? source.Height : height);
+		{
+			if (source == null)
+				return false;
+
+			if (width <= 0) width = source.Width;
+			if (height <= 0) height = source.Height;
+
+			// A layered window keeps its bitmap across moves: same size = reposition only, no re-render
+			// (mirrors the Eto backing's fast path; matters for mouse-following highlights).
+			if (width == shownW && height == shownH && form != null)
+			{
+				Script.InvokeOnUIThread(() =>
+					_ = WindowsAPI.SetWindowPos(form.Handle, new nint(WindowsAPI.HWND_TOPMOST), x, y, 0, 0,
+												WindowsAPI.SWP_NOACTIVATE | WindowsAPI.SWP_NOSIZE));
+				return true;
+			}
+
+			return Show(new Bitmap(source), x, y, width, height);
+		}
 
 		private void EnsureForm() => form ??= new LayeredOverlayForm();
 

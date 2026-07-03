@@ -7,7 +7,6 @@ namespace Keysharp.Internals
 	internal abstract class PlatformHost
 	{
 		internal abstract IWindow Window { get; }
-		internal abstract IOwnWindow OwnWindow { get; }
 		internal abstract IMouse Mouse { get; }
 		internal abstract IScreen Screen { get; }
 		internal abstract IOverlay Overlay { get; }
@@ -32,28 +31,10 @@ namespace Keysharp.Internals
 #endif
 	}
 
-	// Per-OS hosts. Each service is unimplemented for now and throws until it is wired; only the current OS's
-	// host is compiled (the others are #if-guarded), matching how the rest of the per-OS code is selected.
-	internal abstract class PlatformHostBase : PlatformHost
-	{
-		private static T NotImpl<T>(string service)
-			=> throw new NotImplementedException($"Platform.{service} is not implemented yet.");
-
-		internal override IWindow Window => NotImpl<IWindow>(nameof(Window));
-		internal override IOwnWindow OwnWindow => NotImpl<IOwnWindow>(nameof(OwnWindow));
-		internal override IMouse Mouse => NotImpl<IMouse>(nameof(Mouse));
-		internal override IScreen Screen => NotImpl<IScreen>(nameof(Screen));
-		internal override IOverlay Overlay => NotImpl<IOverlay>(nameof(Overlay));
-		internal override IWindowEvents Events => NotImpl<IWindowEvents>(nameof(Events));
-		internal override ISession Session => NotImpl<ISession>(nameof(Session));
-		internal override IHotkeys Hotkeys => NotImpl<IHotkeys>(nameof(Hotkeys));
-		internal override IInput Input => NotImpl<IInput>(nameof(Input));
-		internal override IPermissionManager Permissions => NotImpl<IPermissionManager>(nameof(Permissions));
-		internal override ControlManagerBase Control => NotImpl<ControlManagerBase>(nameof(Control));
-	}
-
+	// Per-OS hosts. Only the current OS's host is compiled (the others are #if-guarded), matching how the
+	// rest of the per-OS code is selected.
 #if WINDOWS
-	internal sealed class WindowsPlatformHost : PlatformHostBase
+	internal sealed class WindowsPlatformHost : PlatformHost
 	{
 		private readonly IMouse mouse = new WindowsMouse();
 		private readonly IInput input = new WindowsInput();
@@ -77,7 +58,7 @@ namespace Keysharp.Internals
 		internal override ControlManagerBase Control => control;
 	}
 #elif LINUX
-	internal sealed class LinuxPlatformHost : PlatformHostBase
+	internal sealed class LinuxPlatformHost : PlatformHost
 	{
 		private readonly IMouse mouse = LinuxMice.Resolve();
 		private readonly IInput input = new LinuxInput();
@@ -103,7 +84,7 @@ namespace Keysharp.Internals
 		internal override ControlManagerBase Control => control;
 	}
 #elif OSX
-	internal sealed class MacPlatformHost : PlatformHostBase
+	internal sealed class MacPlatformHost : PlatformHost
 	{
 		private readonly IMouse mouse = new MacMouse();
 		private readonly IInput input = new MacInput();

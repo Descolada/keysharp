@@ -1425,7 +1425,7 @@ int ksi_permissions_grant_session_for_pid(uid_t uid, pid_t pid, uint64_t start_t
     if (build_session_path(uid, pid, start_time, path, sizeof(path)) != 0) return -1;
 
     /* Open for read-write, creating if absent.  flock serialises concurrent
-     * writers (e.g. inputd and screencap granting at the same time). */
+     * writers (e.g. inputd and keysharp-helper granting at the same time). */
     fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) return -1;
 

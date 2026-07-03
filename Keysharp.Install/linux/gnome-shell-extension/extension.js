@@ -11,12 +11,16 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
+import Mtk from 'gi://Mtk';
 import Clutter from 'gi://Clutter';
 import Cogl from 'gi://Cogl';
 import GdkPixbuf from 'gi://GdkPixbuf';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
+
+const SHELL_MAJOR = Number.parseInt(Config.PACKAGE_VERSION.split('.')[0], 10);
 
 const SERVICE_NAME = 'io.github.keysharp.GnomeShell';
 const OBJECT_PATH  = '/io/github/keysharp/GnomeShell';
@@ -717,6 +721,9 @@ export default class KeysharpExtension {
     // (via the trust store) before it ever calls us. Everything else on this interface stays open to any
     // same-user caller. These use the async D-Bus form (FooAsync(params, invocation)) solely so we can read
     // the caller's identity off the invocation; the capture itself is synchronous.
+    // Truly async: the D-Bus reply is sent from the screenshot callback, so the shell's main loop
+    // keeps running normally in between — no nested main-context pump inside the compositor (which
+    // would re-dispatch input/D-Bus re-entrantly and unwind concurrent captures in LIFO order).
     CaptureAreaAsync(params, invocation) {
         if (!this._callerIsHelper(invocation)) {
             invocation.return_error_literal(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
@@ -725,46 +732,31 @@ export default class KeysharpExtension {
         }
 
         const [x, y, width, height] = params;
-        invocation.return_value(new GLib.Variant('(ay)', [this._captureAreaBytes(x, y, width, height)]));
-    }
+        const empty = () => invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
 
-    // Runs entirely inside the compositor process via Shell.Screenshot; returns PNG bytes (empty on failure).
-    _captureAreaBytes(x, y, width, height) {
-        if (width <= 0 || height <= 0)
-            return new Uint8Array(0);
+        if (width <= 0 || height <= 0) {
+            empty();
+            return;
+        }
 
         try {
             const screenshot = new Shell.Screenshot();
             const stream = Gio.MemoryOutputStream.new_resizable();
-            let captureError = null;
-            let done = false;
 
             screenshot.screenshot_area(x, y, width, height, stream, (_obj, result) => {
                 try {
                     screenshot.screenshot_area_finish(result);
+                    stream.close(null);
+                    invocation.return_value(new GLib.Variant('(ay)',
+                        [new Uint8Array(stream.steal_as_bytes().get_data())]));
                 } catch (e) {
-                    captureError = e;
+                    logError(e, 'Keysharp: CaptureArea screenshot failed');
+                    empty();
                 }
-                done = true;
             });
-
-            // Pump the default GLib main context until the screenshot callback
-            // fires. iteration(true) blocks until at least one source dispatches,
-            // so this returns as soon as the compositor delivers the frame.
-            const ctx = GLib.MainContext.default();
-            while (!done)
-                ctx.iteration(true);
-
-            if (captureError) {
-                logError(captureError, 'Keysharp: CaptureArea screenshot failed');
-                return new Uint8Array(0);
-            }
-
-            stream.close(null);
-            return new Uint8Array(stream.steal_as_bytes().get_data());
         } catch (e) {
             logError(e, 'Keysharp: CaptureArea failed');
-            return new Uint8Array(0);
+            empty();
         }
     }
 
@@ -779,7 +771,7 @@ export default class KeysharpExtension {
         invocation.return_value(new GLib.Variant('(ay)', [this._captureWindowBytes(handle)]));
     }
 
-    // Capture a single window's full contents and return PNG bytes. Unlike CaptureArea (which images
+    // Capture a single window's contents and return PNG bytes. Unlike CaptureArea (which images
     // the composited screen and so loses anything behind other windows), this reads the window actor's
     // own backing buffer through meta_window_actor_get_image, so an occluded window still captures
     // correctly. A minimized window has no live texture and yields an empty result (the C# caller then
@@ -795,10 +787,26 @@ export default class KeysharpExtension {
             if (!actor || typeof actor.get_image !== 'function')
                 return new Uint8Array(0);
 
-            // clip = null → the whole actor. Returns a cairo ImageSurface of the window's buffer.
+            // Clip the actor image to the frame rect (decorations, no shadow): the C# side derives
+            // the HiDPI buffer scale as capture-size / logical-frame-size, which only works when the
+            // capture covers exactly the frame. null clip (whole actor incl. shadow) is the fallback.
+            let clip = null;
+            try {
+                const frame = win.get_frame_rect();
+                const [ax, ay] = actor.get_position();
+                clip = new Mtk.Rectangle({
+                    x: Math.round(frame.x - ax),
+                    y: Math.round(frame.y - ay),
+                    width: frame.width,
+                    height: frame.height,
+                });
+            } catch (_e) {
+                clip = null;
+            }
+
             let surface = null;
             try {
-                surface = actor.get_image(null);
+                surface = actor.get_image(clip);
             } catch (e) {
                 logError(e, 'Keysharp: meta_window_actor_get_image failed');
                 return new Uint8Array(0);
@@ -1397,10 +1405,19 @@ export default class KeysharpExtension {
         if (!pixbuf)
             throw new Error('Could not decode PNG overlay image.');
 
-        const content = new Clutter.Image();
         const pixels = pixbuf.get_pixels();
         const format = pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888;
-        content.set_data(pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+        // Shell 48 removed Clutter.Image; St.ImageContent replaces it, with set_data()
+        // gaining a leading Cogl.Context parameter.
+        let content;
+        if (SHELL_MAJOR >= 48) {
+            content = new St.ImageContent();
+            const coglContext = global.stage.context.get_backend().get_cogl_context();
+            content.set_data(coglContext, pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+        } else {
+            content = new Clutter.Image();
+            content.set_data(pixels, format, pixbuf.get_width(), pixbuf.get_height(), pixbuf.get_rowstride());
+        }
 
         const actor = new Clutter.Actor({ reactive: false });
         actor.set_content(content);
@@ -1503,6 +1520,16 @@ export default class KeysharpExtension {
         // it as the client origin produces a ~20 px negative offset in coordinate
         // transforms. On GNOME Wayland, apps use client-side decorations and their
         // entire surface is the frame rect, so frame == client for coordinate purposes.
+        // Windows on other workspaces still "exist" (enumeration/matching), but must not win
+        // at-point hit-tests — global.get_window_actors() spans ALL workspaces.
+        let onCurrentWorkspace = true;
+        try {
+            const ws = win.get_workspace();
+            onCurrentWorkspace = win.is_on_all_workspaces()
+                || (ws !== null && ws === global.workspace_manager.get_active_workspace());
+        } catch (_e) {
+        }
+
         return {
             id:        String(win.get_stable_sequence()),
             title:     win.get_title()            ?? '',
@@ -1516,6 +1543,7 @@ export default class KeysharpExtension {
             visible:   !win.minimized,
             alwaysOnTop: !!win.is_above(),
             decorated:   !!win.decorated,
+            onCurrentWorkspace,
         };
     }
 

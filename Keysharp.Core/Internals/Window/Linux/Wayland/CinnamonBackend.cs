@@ -753,6 +753,9 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 		public bool IsKnown(nint handle) => TryHandleToSeq(handle, out _);
 
+		/// <summary>The raw stable_sequence for a Cinnamon-tagged handle (the id the extension keys on).</summary>
+		internal bool TryGetWindowSeq(nint handle, out ulong seq) => TryHandleToSeq(handle, out seq);
+
 		public bool TryGetWindow(nint handle, out WaylandWindowInfo window)
 		{
 			window = null;

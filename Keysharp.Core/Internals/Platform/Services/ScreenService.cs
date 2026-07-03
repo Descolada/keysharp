@@ -222,11 +222,14 @@ namespace Keysharp.Internals
 
 	/// <summary>Cinnamon Wayland via the keysharp-helper + Shell extension: region grabs go through
 	/// keysharp-helper --serve cinnamon (which enforces the user's capture consent) to the extension, which
-	/// captures via Cinnamon.Screenshot. Window capture images the compositor-reported on-screen frame
-	/// rectangle, so unlike KWin/GNOME it is occlusion-dependent, but it is still routed through the helper.</summary>
+	/// captures via Cinnamon.Screenshot. Window capture images the window actor's own buffer through the
+	/// extension's CaptureWindow (occlusion-independent, like KWin/GNOME), falling back to a rectangle grab
+	/// of the on-screen frame when the extension can't capture (older extension, minimized window).</summary>
 	internal sealed class CinnamonScreen : WaylandScreen
 	{
-		internal CinnamonScreen(Wl.CinnamonBackend backend) : base(backend) { }
+		private readonly Wl.CinnamonBackend cinnamon;
+
+		internal CinnamonScreen(Wl.CinnamonBackend backend) : base(backend) => cinnamon = backend;
 
 		public override bool TryCaptureRegion(int x, int y, int width, int height, out Bitmap bmp, out double scaleX, out double scaleY)
 		{
@@ -242,10 +245,24 @@ namespace Keysharp.Internals
 			bmp = null;
 			scale = 1;
 
-			// Cinnamon reports client == frame, so it can't honor a client-only grab; both paths capture the
-			// window's on-screen rectangle (GetBounds and GetClientBounds return the same FrameGeometry here).
-			var bounds = includeDecoration ? Platform.Window.GetBounds(h) : Platform.Window.GetClientBounds(h);
+			// Preferred: the extension images the window actor's own buffer, clipped to the frame rect —
+			// occluded windows capture correctly, and the size ratio to the logical frame IS the device
+			// scale. includeDecoration is moot (Cinnamon reports client == frame).
+			var bounds = Platform.Window.GetBounds(h);
 
+			if (cinnamon.TryGetWindowSeq(h, out var seq)
+					&& Wl.HelperClient.CaptureCinnamonWindow(seq) is Bitmap actorBmp)
+			{
+				bmp = actorBmp;
+
+				if (bounds.Width > 0 && bounds.Height > 0)
+					scale = Math.Max((double)bmp.Width / bounds.Width, (double)bmp.Height / bounds.Height);
+
+				return true;
+			}
+
+			// Fallback (older installed extension, minimized window): rectangle-grab the on-screen frame —
+			// occlusion-dependent, but still routed through the consent-enforcing helper.
 			if (bounds.Width <= 0 || bounds.Height <= 0)
 				return false;
 

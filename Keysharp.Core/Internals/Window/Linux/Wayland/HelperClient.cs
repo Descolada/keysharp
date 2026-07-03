@@ -75,6 +75,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal static Bitmap CaptureCinnamon(int x, int y, int w, int h)
 			=> cinnamon.Request($"area {Coord(x)} {Coord(y)} {Coord(w)} {Coord(h)}");
 
+		/// <summary>Captures one window's own buffer (occlusion-independent, frame-clipped) via the
+		/// Cinnamon extension's CaptureWindow — same wire protocol as the GNOME window path. Returns
+		/// null when the window can't be captured so the caller falls back to a rectangle grab.</summary>
+		internal static Bitmap CaptureCinnamonWindow(ulong handle)
+			=> cinnamon.Request($"window {handle.ToString(CultureInfo.InvariantCulture)}");
+
 		/// <summary>Authorizes screen capture on Cinnamon by starting keysharp-helper --serve cinnamon.</summary>
 		internal static PermissionResult AuthorizeCinnamon(string operation, bool forcePrompt = false)
 			=> cinnamon.Authorize(forcePrompt);

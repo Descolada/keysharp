@@ -428,6 +428,118 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Image")]
+		public void ImageSearchHonorsTransAndDirection()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// Two identical solid-red 3x3 blocks at (2,2) and (10,6) in a black haystack. The default
+			// scan (Dir1, row-major) must find the top-left one; Dir4 (right-to-left, bottom-to-top)
+			// must find the bottom-right one. With trans=Red every needle pixel is a wildcard, so the
+			// match lands at the scan origin (0,0).
+			var img = KeysharpImage.Create(null, 20, 12, "Black") as KeysharpImage;
+			_ = img.FillRect(2, 2, 3, 3, "Red");
+			_ = img.FillRect(10, 6, 3, 3, "Red");
+			var needle = KeysharpImage.Create(null, 3, 3, "Red") as KeysharpImage;
+
+			var first = (Keysharp.Builtins.Array)img.Search(needle);
+			Assert.AreEqual(2L, first[1L]);
+			Assert.AreEqual(2L, first[2L]);
+
+			var last = (Keysharp.Builtins.Array)img.Search(needle, 0, null, 4);
+			Assert.AreEqual(10L, last[1L]);
+			Assert.AreEqual(6L, last[2L]);
+
+			var wild = (Keysharp.Builtins.Array)img.Search(needle, 0, "Red");
+			Assert.AreEqual(0L, wild[1L]);
+			Assert.AreEqual(0L, wild[2L]);
+		}
+
+		[Test, Category("Image")]
+		public void ImageSearchPixelFindsColor()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 16, 10, "Black") as KeysharpImage;
+			_ = img.SetPixel(7, 4, 0x30A060L);
+
+			var hit = (Keysharp.Builtins.Array)img.SearchPixel(0x30A060L);
+			Assert.AreEqual(7L, hit[1L]);
+			Assert.AreEqual(4L, hit[2L]);
+
+			// Within variation: a nearby color still matches; far off does not.
+			var near = (Keysharp.Builtins.Array)img.SearchPixel(0x32A262L, 4);
+			Assert.AreEqual(7L, near[1L]);
+			Assert.AreEqual("", img.SearchPixel(0xFFFFFFL));
+		}
+
+		[Test, Category("Image")]
+		public void ImageRoundRectDrawsCorners()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var img = KeysharpImage.Create(null, 24, 24) as KeysharpImage;
+			_ = img.FillRoundRect(0, 0, 24, 24, 8, "Red");
+			// Centre and edge midpoints are inside the pill; the extreme corner is outside (transparent).
+			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(12, 12));
+			Assert.AreEqual(0xFF0000L, (long)img.GetPixel(12, 0));
+			Assert.AreEqual(0L, RgbaByte(img, 0, 0, 3));
+
+			// Radius 0 degrades to a plain rectangle: the corner IS filled.
+			var square = KeysharpImage.Create(null, 10, 10) as KeysharpImage;
+			_ = square.FillRoundRect(0, 0, 10, 10, 0, "Red");
+			Assert.AreEqual(255L, RgbaByte(square, 0, 0, 3));
+		}
+
+		[Test, Category("Image")]
+		public void ImageDrawTextParsesStyledFontSpec()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			// Styled specs must parse (family with spaces + size + style keywords) and render pixels.
+			var img = KeysharpImage.Create(null, 120, 40) as KeysharpImage;
+			_ = img.DrawText("Hi", 2, 2, "Black", "Sans 14 bold italic");
+			var rgba = img.GetPixelData(4L) as Keysharp.Builtins.Buffer;
+			var anyAlpha = false;
+
+			for (long i = 4; i <= (long)rgba.Size; i += 4)
+			{
+				if ((long)rgba[i] != 0)
+				{
+					anyAlpha = true;
+					break;
+				}
+			}
+
+			Assert.IsTrue(anyAlpha, "Styled DrawText should produce non-transparent pixels.");
+		}
+
+		[Test, Category("Image")]
+		public void ImageFromFileNegativeDimensionPreservesAspect()
+		{
+			if (Script.IsHeadless)
+				Assert.Ignore("Image tests need an initialized graphics backend.");
+
+			var path = MakeImageFile(20, 10);
+
+			try
+			{
+				// w=-1 with h=30 must derive w from the 2:1 aspect ratio (60), not copy h.
+				var img = KeysharpImage.FromFile(null, path, -1, 30) as KeysharpImage;
+				Assert.AreEqual(60L, img.Width);
+				Assert.AreEqual(30L, img.Height);
+
+				var img2 = KeysharpImage.FromFile(null, path, 40, -1) as KeysharpImage;
+				Assert.AreEqual(40L, img2.Width);
+				Assert.AreEqual(20L, img2.Height);
+			}
+			finally { File.Delete(path); }
+		}
+
+		[Test, Category("Image")]
 		public void ImageFromBitmapRoundTrips()
 		{
 			if (Script.IsHeadless)

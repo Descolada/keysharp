@@ -26,6 +26,7 @@ namespace Keysharp.Builtins
 			private int w;   // explicit width/height; 0 means "use the canvas size"
 			private int h;
 			private double scale = 1.0;   // content/DPI scale: physical size = logical (w,h) * scale; drawing scales to match
+			private long opacity = 255;   // whole-overlay alpha multiplier applied at upload time
 			private bool visible;
 			private bool shown;
 
@@ -85,6 +86,26 @@ namespace Keysharp.Builtins
 				}
 			}
 
+			/// <summary>Whole-overlay opacity, 0 (invisible) to 255 (opaque, default). Multiplies the
+			/// per-pixel alpha at upload time; setting it on a visible overlay re-uploads with the new
+			/// alpha, so an OSD can be faded in/out without redrawing its content.</summary>
+			public object Opacity
+			{
+				get => opacity;
+				set
+				{
+					var v = Math.Clamp(value.Al(), 0L, 255L);
+
+					if (v == opacity)
+						return;
+
+					opacity = v;
+
+					if (visible)
+						Refresh();
+				}
+			}
+
 			public object Visible => shown;
 			public object Hwnd => Platform.Overlay.GetImageOverlayHandle(OverlayId).ToInt64();
 
@@ -109,6 +130,12 @@ namespace Keysharp.Builtins
 
 			public object FillEllipse(object rx, object ry, object rw, object rh, object color = null)
 				=> Draw(() => canvas.FillEllipse(rx, ry, rw, rh, color));
+
+			public object DrawRoundRect(object rx, object ry, object rw, object rh, object radius, object color = null, object thickness = null)
+				=> Draw(() => canvas.DrawRoundRect(rx, ry, rw, rh, radius, color, thickness));
+
+			public object FillRoundRect(object rx, object ry, object rw, object rh, object radius, object color = null)
+				=> Draw(() => canvas.FillRoundRect(rx, ry, rw, rh, radius, color));
 
 			public object DrawText(object text, object tx, object ty, object color = null, object font = null)
 				=> Draw(() => canvas.DrawText(text, tx, ty, color, font));
@@ -156,6 +183,7 @@ namespace Keysharp.Builtins
 				if (copy == null)
 					return Errors.ValueErrorOccurred("Overlay.SetImage requires a valid Image.");
 
+				copy.drawScale = scale;   // Copy() doesn't propagate it; draws after SetImage must keep scaling
 				canvas?.Dispose();
 				canvas = copy;
 
@@ -275,6 +303,9 @@ namespace Keysharp.Builtins
 
 				if (bmp == null)
 					return;
+
+				if (opacity != 255)
+					bmp = ImageHelper.ApplyOpacity(bmp, (byte)opacity);
 
 				shown = Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, bmp);
 			}

@@ -16,6 +16,7 @@ const Meta = imports.gi.Meta;
 const St = imports.gi.St;
 const Main = imports.ui.main;
 const ByteArray = imports.byteArray;
+const Cairo = imports.cairo;
 
 const SERVICE_NAME = 'io.github.keysharp.CinnamonShell';
 const OBJECT_PATH = '/io/github/keysharp/CinnamonShell';
@@ -51,6 +52,13 @@ const DBUS_IFACE_XML =
       <arg type="i" direction="in" name="y"/>
       <arg type="i" direction="in" name="width"/>
       <arg type="i" direction="in" name="height"/>
+      <arg type="ay" direction="out" name="pngData"/>
+    </method>
+
+    <!-- Capture one window's own buffer (occlusion-independent, frame-clipped) as PNG bytes.
+         Same keysharp-helper permission gate as CaptureArea. -->
+    <method name="CaptureWindow">
+      <arg type="t" direction="in" name="handle"/>
       <arg type="ay" direction="out" name="pngData"/>
     </method>
 
@@ -459,6 +467,79 @@ class KeysharpExtension {
             global.logError(e, 'Keysharp: CaptureArea failed');
             try { if (file) file.delete(null); } catch (_e) {}
             invocation.return_value(new GLib.Variant('(ay)', [new Uint8Array(0)]));
+        }
+    }
+
+    // Captures a single window's contents from its actor's backing buffer (Meta.WindowActor.get_image —
+    // present in Muffin 6.x), so an occluded window still captures correctly; the result is cropped to
+    // the frame rect so the C# side can derive the device-pixel scale as capture-size / frame-size.
+    // A minimized window has no live texture and yields empty (the C# caller falls back to a rect grab).
+    CaptureWindowAsync(params, invocation) {
+        if (!this._callerIsHelper(invocation)) {
+            invocation.return_error_literal(Gio.IOErrorEnum, Gio.IOErrorEnum.PERMISSION_DENIED,
+                'Screen capture is only permitted through keysharp-helper.');
+            return;
+        }
+
+        const [handle] = params;
+        invocation.return_value(new GLib.Variant('(ay)', [this._captureWindowBytes(handle)]));
+    }
+
+    _captureWindowBytes(handle) {
+        let file = null;
+        try {
+            const win = this._findWindow(handle);
+            if (!win)
+                return new Uint8Array(0);
+
+            const actor = win.get_compositor_private();
+            if (!actor || typeof actor.get_image !== 'function')
+                return new Uint8Array(0);
+
+            let surface = actor.get_image(null);   // the whole actor, device pixels
+            if (!surface)
+                return new Uint8Array(0);
+
+            // Crop to the frame rect (drops the shadow margin when the actor has one). All geometry is
+            // logical; the buffer is logical * ui_scale device pixels (Muffin uses integer UI scaling).
+            const scale = global.ui_scale || 1;
+            const frame = win.get_frame_rect();
+            const [ax, ay] = actor.get_position();
+            const cropX = Math.max(0, Math.round((frame.x - ax) * scale));
+            const cropY = Math.max(0, Math.round((frame.y - ay) * scale));
+            const cropW = Math.round(frame.width * scale);
+            const cropH = Math.round(frame.height * scale);
+
+            if ((cropX !== 0 || cropY !== 0 || cropW !== surface.getWidth() || cropH !== surface.getHeight())
+                && cropW > 0 && cropH > 0) {
+                const cropped = new Cairo.ImageSurface(Cairo.Format.ARGB32, cropW, cropH);
+                const cr = new Cairo.Context(cropped);
+                cr.setSourceSurface(surface, -cropX, -cropY);
+                cr.paint();
+                cr.$dispose();
+                surface = cropped;
+            }
+
+            const tmp = Gio.File.new_tmp('keysharp-cinnamon-winshot-XXXXXX.png');
+            file = tmp[0];
+            tmp[1].close(null);
+            const path = file.get_path();
+
+            surface.flush();
+            surface.writeToPNG(path);
+
+            const [ok, bytes] = GLib.file_get_contents(path);
+            if (!ok || !bytes || bytes.length === 0)
+                return new Uint8Array(0);
+
+            return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        } catch (e) {
+            global.logError(e, 'Keysharp: CaptureWindow failed');
+            return new Uint8Array(0);
+        } finally {
+            if (file !== null) {
+                try { file.delete(null); } catch (_e) {}
+            }
         }
     }
 

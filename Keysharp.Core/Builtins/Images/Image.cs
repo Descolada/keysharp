@@ -118,9 +118,10 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Captures the whole window (title bar and borders included) matched by the usual WinTitle
 			/// criteria. Uses a true window-server capture where supported (Windows, macOS) so it works
-			/// even when the window is occluded. On Linux, KWin/GNOME use compositor window capture where
-			/// available; Cinnamon Wayland captures the compositor-reported on-screen window rectangle, so
-			/// it must be unobscured and on-screen for the result to be correct.
+			/// even when the window is occluded. On Linux, KWin/GNOME/Cinnamon use compositor window
+			/// capture where available (occlusion-independent); Cinnamon falls back to grabbing the
+			/// compositor-reported on-screen window rectangle when the extension can't capture (older
+			/// installed extension, minimized window), in which case the window must be unobscured.
 			///
 			/// <para><paramref name="options"/> selects the Windows capture technique (matching OCR.ahk),
 			/// either as a bare mode number or an object with a <c>mode</c> property. Modes: 0 = GetDC +
@@ -288,6 +289,29 @@ namespace Keysharp.Builtins
 
 				var (bmp, sx, sy) = LoadFromSource(source);
 				return Wrap(bmp, sx, sy, "Could not create an image from the given bitmap.");
+			}
+
+			/// <summary>
+			/// Wraps the image currently on the clipboard (the round-trip counterpart of
+			/// <c>CopyImageToClipboard</c>). Returns "" when the clipboard holds no image.
+			/// </summary>
+			[Static] public static object FromClipboard(object @this)
+			{
+#if WINDOWS
+				if (System.Windows.Forms.Clipboard.GetImage() is not System.Drawing.Image img)
+					return "";
+
+				var bmp = new Bitmap(img);   // detach a private copy from the clipboard object
+				img.Dispose();
+				return Wrap(bmp);
+#else
+				var clip = Eto.Forms.Clipboard.Instance;
+
+				if (clip == null || !clip.ContainsImage || clip.Image is not Bitmap ebmp)
+					return "";
+
+				return Wrap(new Bitmap(ebmp));
+#endif
 			}
 
 			/// <summary>
@@ -507,7 +531,75 @@ namespace Keysharp.Builtins
 				return this;
 			}
 
-			/// <summary>Queues text rendering. <paramref name="font"/> accepts "Name size" or a bare size.</summary>
+			/// <summary>Queues a rounded-rectangle outline draw operation (the classic OSD pill).
+			/// <paramref name="radius"/> is the corner radius in pixels, clamped to half the smaller side.</summary>
+			public object DrawRoundRect(object x, object y, object width, object height, object radius, object color = null, object thickness = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var r = (float)Math.Max(0.0, radius.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+				var t = Math.Max(0.0, thickness.Ad(1.0));
+
+				if (rect.Width <= 0 || rect.Height <= 0 || t == 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = DrawG(b);
+					using var pen = new Pen(ImageHelper.ArgbToColor(argb), (float)t);
+					using var path = MakeRoundRectPath(rect, r);
+					g.DrawPath(pen, path);
+					return b;
+				});
+				return this;
+			}
+
+			/// <summary>Queues a filled rounded-rectangle draw operation.</summary>
+			public object FillRoundRect(object x, object y, object width, object height, object radius, object color = null)
+			{
+				var rect = MakeRectF(x.Ad(), y.Ad(), width.Ad(), height.Ad());
+				var r = (float)Math.Max(0.0, radius.Ad());
+				var argb = ParseColorArg(color, unchecked((int)0xFF000000u), allowTransparentEmpty: false);
+
+				if (rect.Width <= 0 || rect.Height <= 0 || ((uint)argb >> 24) == 0)
+					return this;
+
+				QueueDraw(b =>
+				{
+					using var g = DrawG(b);
+					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
+					using var path = MakeRoundRectPath(rect, r);
+					g.FillPath(brush, path);
+					return b;
+				});
+				return this;
+			}
+
+			// Four corner arcs + closed figure; a radius of 0 (or a degenerate rect) degrades to a plain
+			// rectangle. GraphicsPath resolves to the System.Drawing or Eto type per backend — the members
+			// used here are name-identical on both.
+			private static GraphicsPath MakeRoundRectPath(RectangleF rect, float radius)
+			{
+				var path = new GraphicsPath();
+				var r = Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2f);
+
+				if (r <= 0)
+				{
+					path.AddRectangle(rect);
+					return path;
+				}
+
+				var d = r * 2f;
+				path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+				path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+				path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+				path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+				path.CloseFigure();
+				return path;
+			}
+
+			/// <summary>Queues text rendering. <paramref name="font"/> accepts "Name size" with optional
+			/// trailing style keywords: bold, italic, underline, strike (e.g. "Sans 16 bold italic").</summary>
 			public object DrawText(object text, object x, object y, object color = null, object font = null)
 			{
 				var s = text.As();
@@ -823,9 +915,13 @@ namespace Keysharp.Builtins
 			/// pixel offsets within this image (result[1] = x, result[2] = y), or "" when not found.
 			/// These are image pixels, not logical screen coordinates (see <see cref="ScaleX"/>). The
 			/// needle and this image must share pixel density to match. <paramref name="variation"/>
-			/// (0-255) allows per-channel color tolerance.
+			/// (0-255) allows per-channel color tolerance. <paramref name="trans"/> names a needle color
+			/// that matches anything (ImageSearch's *TransN — a color name or 0xRRGGBB value).
+			/// <paramref name="direction"/> is ImageSearch's *DirN scan order (1-9; 1 = top-left,
+			/// row-major default, 9 = from the center outwards), selecting which match wins when
+			/// several are present.
 			/// </summary>
-			public object Search(object needle, object variation = null)
+			public object Search(object needle, object variation = null, object trans = null, object direction = null)
 			{
 				var haystack = Materialize();
 
@@ -840,8 +936,14 @@ namespace Keysharp.Builtins
 				try
 				{
 					var v = variation == null ? 0L : variation.Al();
+					var transColor = -1L;
+
+					if (trans != null && trans is not string { Length: 0 })
+						transColor = ParseColorArg(trans) & 0xFFFFFF;
+
+					var dir = direction == null ? 1 : (int)Math.Clamp(direction.Al(), 1L, 9L);
 					var finder = new ImageFinder(haystack) { Variation = (byte)Math.Clamp(v, 0, 255) };
-					var loc = finder.Find(needleBmp);
+					var loc = finder.Find(needleBmp, transColor, dir);
 
 					if (loc.HasValue)
 						return new Array((long)loc.Value.X, (long)loc.Value.Y);
@@ -853,6 +955,30 @@ namespace Keysharp.Builtins
 					if (own)
 						needleBmp.Dispose();
 				}
+			}
+
+			/// <summary>
+			/// Searches this image for the first pixel matching <paramref name="color"/> (a color name or
+			/// 0xRRGGBB value) — PixelSearch over a captured/loaded image instead of the live screen.
+			/// Returns [x, y] (0-based image pixels, like <see cref="Search"/>) or "" when not found.
+			/// <paramref name="variation"/> (0-255) allows per-channel tolerance. The scan is left-to-right,
+			/// top-to-bottom.
+			/// </summary>
+			public object SearchPixel(object color, object variation = null)
+			{
+				var haystack = Materialize();
+
+				if (haystack == null)
+					return Errors.ValueErrorOccurred("There is no image to search.");
+
+				var v = variation == null ? 0L : variation.Al();
+				var finder = new ImageFinder(haystack) { Variation = (byte)Math.Clamp(v, 0, 255) };
+				var loc = finder.Find(ImageHelper.ArgbToColor(ParseColorArg(color, unchecked((int)0xFF000000), allowTransparentEmpty: false)), ltr: true, ttb: true);
+
+				if (loc.HasValue)
+					return new Array((long)loc.Value.X, (long)loc.Value.Y);
+
+				return "";
 			}
 
 			/// <summary>
@@ -1178,41 +1304,68 @@ namespace Keysharp.Builtins
 
 			private static Font CreateFont(string spec)
 			{
-				var (family, size) = ParseFontSpec(spec);
+				var (family, size, bold, italic, underline, strike) = ParseFontSpec(spec);
 #if WINDOWS
-				return new Font(family, size);
+				var style = System.Drawing.FontStyle.Regular;
+
+				if (bold) style |= System.Drawing.FontStyle.Bold;
+				if (italic) style |= System.Drawing.FontStyle.Italic;
+				if (underline) style |= System.Drawing.FontStyle.Underline;
+				if (strike) style |= System.Drawing.FontStyle.Strikeout;
+
+				return new Font(family, size, style);
 #else
-				try { return new Font(family, size); }
+				var style = Eto.Drawing.FontStyle.None;
+
+				if (bold) style |= Eto.Drawing.FontStyle.Bold;
+				if (italic) style |= Eto.Drawing.FontStyle.Italic;
+
+				var deco = Eto.Drawing.FontDecoration.None;
+
+				if (underline) deco |= Eto.Drawing.FontDecoration.Underline;
+				if (strike) deco |= Eto.Drawing.FontDecoration.Strikethrough;
+
+				try { return new Font(family, size, style, deco); }
 				catch { return SystemFonts.Default(size); }
 #endif
 			}
 
-			private static (string family, float size) ParseFontSpec(string spec)
+			// "Name size [bold] [italic] [underline] [strike]" — style keywords and the size are consumed
+			// from the end so multi-word family names ("DejaVu Sans 12 bold") parse correctly.
+			private static (string family, float size, bool bold, bool italic, bool underline, bool strike) ParseFontSpec(string spec)
 			{
 				var family = "Sans";
 				var size = 10f;
+				bool bold = false, italic = false, underline = false, strike = false;
 
 				if (string.IsNullOrWhiteSpace(spec))
-					return (family, size);
+					return (family, size, bold, italic, underline, strike);
 
-				var s = spec.Trim();
-				var lastSpace = s.LastIndexOf(' ');
+				var tokens = spec.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
-				if (lastSpace > 0 && float.TryParse(s.AsSpan(lastSpace + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSize))
+				while (tokens.Count > 0)
 				{
-					family = s[..lastSpace].Trim();
+					var last = tokens[^1];
+
+					if (last.Equals("bold", StringComparison.OrdinalIgnoreCase)) bold = true;
+					else if (last.Equals("italic", StringComparison.OrdinalIgnoreCase)) italic = true;
+					else if (last.Equals("underline", StringComparison.OrdinalIgnoreCase)) underline = true;
+					else if (last.Equals("strike", StringComparison.OrdinalIgnoreCase) || last.Equals("strikeout", StringComparison.OrdinalIgnoreCase)) strike = true;
+					else break;
+
+					tokens.RemoveAt(tokens.Count - 1);
+				}
+
+				if (tokens.Count > 0 && float.TryParse(tokens[^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSize))
+				{
 					size = Math.Max(1f, parsedSize);
-				}
-				else if (float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out parsedSize))
-				{
-					size = Math.Max(1f, parsedSize);
-				}
-				else
-				{
-					family = s;
+					tokens.RemoveAt(tokens.Count - 1);
 				}
 
-				return (string.IsNullOrWhiteSpace(family) ? "Sans" : family, size);
+				if (tokens.Count > 0)
+					family = string.Join(' ', tokens);
+
+				return (string.IsNullOrWhiteSpace(family) ? "Sans" : family, size, bold, italic, underline, strike);
 			}
 
 			// Formats the capture scale for the window title as a percentage: a single value when X and Y

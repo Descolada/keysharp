@@ -428,6 +428,55 @@ namespace Keysharp.Internals.Images
 		}
 
 		/// <summary>
+		/// Multiplies every pixel's alpha by <paramref name="alpha"/>/255 (whole-image opacity for
+		/// overlay fades). Takes ownership of <paramref name="bmp"/>; returns the result (a new bitmap
+		/// on Windows, mutated in place elsewhere).
+		/// </summary>
+		internal static Bitmap ApplyOpacity(Bitmap bmp, byte alpha)
+		{
+			if (alpha == 255)
+				return bmp;
+
+#if WINDOWS
+			var result = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppArgb);
+
+			using (var g = Graphics.FromImage(result))
+			using (var ia = new ImageAttributes())
+			{
+				ia.SetColorMatrix(new ColorMatrix { Matrix33 = alpha / 255f });
+				g.CompositingMode = CompositingMode.SourceCopy;
+				g.DrawImage(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height), 0, 0, bmp.Width, bmp.Height, GraphicsUnit.Pixel, ia);
+			}
+
+			bmp.Dispose();
+			return result;
+#else
+			using (var data = bmp.Lock())
+			{
+				unsafe
+				{
+					var basePtr = (byte*)data.Data;
+
+					for (var y = 0; y < bmp.Height; y++)
+					{
+						var row = basePtr + (long)y * data.ScanWidth;
+
+						for (var x = 0; x < bmp.Width; x++)
+						{
+							var px = (int*)(row + x * data.BytesPerPixel);
+							var argb = (uint)data.TranslateDataToArgb(*px);
+							var a = (uint)((argb >> 24) * alpha / 255);
+							*px = data.TranslateArgbToData((int)((argb & 0x00FFFFFFu) | (a << 24)));
+						}
+					}
+				}
+			}
+
+			return bmp;
+#endif
+		}
+
+		/// <summary>
 		/// Creates a new zero-initialised (fully transparent) ARGB canvas of the given size.
 		/// Centralises the one pixel-format name that differs between the System.Drawing
 		/// (Windows) and Eto.Drawing (Mac/Linux) backends.

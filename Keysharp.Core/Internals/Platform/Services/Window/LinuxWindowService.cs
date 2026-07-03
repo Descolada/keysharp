@@ -796,28 +796,22 @@ namespace Keysharp.Internals
 				return false;
 
 			var attr = new XWindowAttributes();
-			var success = true;
 
 			lock (X11Server.xLibLock)
 			{
-				// GC-rooted while registered (see X11Server.TryGetWindowProperty).
-				XErrorHandler handler = (nint _, ref XErrorEvent __) =>
-				{
-					success = false;
-					return 0;
-				};
-				var oldHandler = Xlib.XSetErrorHandler(handler);
+				// Shared, permanently-rooted error handler (see X11Server.BeginErrorTrap): a per-call
+				// delegate here races with GTK's Xlib usage on another thread and can SIGSEGV.
+				var oldHandler = X11Server.BeginErrorTrap();
 
 				try
 				{
 					var result = Xlib.XGetWindowAttributes(Display.Handle, h.ToInt64(), ref attr) != 0;
 					_ = Xlib.XSync(Display.Handle, false);
-					return success && result;
+					return !X11Server.ErrorTrapped && result;
 				}
 				finally
 				{
-					_ = Xlib.XSetErrorHandler(oldHandler);
-					GC.KeepAlive(handler);
+					X11Server.EndErrorTrap(oldHandler);
 				}
 			}
 		}

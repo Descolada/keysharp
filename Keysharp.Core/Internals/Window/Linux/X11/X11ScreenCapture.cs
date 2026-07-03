@@ -54,10 +54,9 @@ namespace Keysharp.Internals.Window.Linux.X11
 
 			lock (X11Server.xLibLock)
 			{
-				var ok = true;
-				// GC-rooted while registered (see X11Server.TryGetWindowProperty).
-				XErrorHandler handler = (nint _, ref XErrorEvent __) => { ok = false; return 0; };
-				var oldHandler = Xlib.XSetErrorHandler(handler);
+				// Shared, permanently-rooted error handler (see X11Server.BeginErrorTrap): a per-call
+				// delegate here races with GTK's Xlib usage on another thread and can SIGSEGV.
+				var oldHandler = X11Server.BeginErrorTrap();
 				long pixmap = 0;
 				var redirectedByUs = false;
 
@@ -65,7 +64,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 				{
 					var attr = new XWindowAttributes();
 
-					if (Xlib.XGetWindowAttributes(display, xid, ref attr) == 0 || !ok)
+					if (Xlib.XGetWindowAttributes(display, xid, ref attr) == 0 || X11Server.ErrorTrapped)
 						return null;
 
 					int w = attr.width, h = attr.height;
@@ -80,21 +79,21 @@ namespace Keysharp.Internals.Window.Linux.X11
 					// plain visible-window grab below instead of failing the capture outright.
 					try
 					{
-						if (Xlib.XCompositeQueryExtension(display, out _, out _) != 0 && ok)
+						if (Xlib.XCompositeQueryExtension(display, out _, out _) != 0 && !X11Server.ErrorTrapped)
 						{
 							if (!CompositorRunning(display))
 							{
-								ok = true;
+								X11Server.ClearErrorTrap();
 								Xlib.XCompositeRedirectWindow(display, xid, Xlib.CompositeRedirectAutomatic);
 								_ = Xlib.XSync(display, false);
-								redirectedByUs = ok;   // false if the redirect raised (e.g. another manual redirector)
+								redirectedByUs = !X11Server.ErrorTrapped;   // false if the redirect raised (e.g. another manual redirector)
 							}
 
-							ok = true;
+							X11Server.ClearErrorTrap();
 							pixmap = Xlib.XCompositeNameWindowPixmap(display, xid);
 							_ = Xlib.XSync(display, false);
 
-							if (!ok || pixmap == 0)
+							if (X11Server.ErrorTrapped || pixmap == 0)
 								pixmap = 0;
 						}
 					}
@@ -104,13 +103,13 @@ namespace Keysharp.Internals.Window.Linux.X11
 						pixmap = 0;
 					}
 
-					ok = true;
+					X11Server.ClearErrorTrap();
 					var drawable = pixmap != 0 ? pixmap : xid;
 					var ximage = Xlib.XGetImage(display, drawable, 0, 0, (uint)w, (uint)h, Xlib.AllPlanes, Xlib.ZPixmap);
 					_ = Xlib.XSync(display, false);
 
 					// Pixmap grab failed for some reason — retry directly on the window (visible regions only).
-					if ((ximage == 0 || !ok) && pixmap != 0)
+					if ((ximage == 0 || X11Server.ErrorTrapped) && pixmap != 0)
 					{
 						if (ximage != 0)
 						{
@@ -118,12 +117,12 @@ namespace Keysharp.Internals.Window.Linux.X11
 							ximage = 0;
 						}
 
-						ok = true;
+						X11Server.ClearErrorTrap();
 						ximage = Xlib.XGetImage(display, xid, 0, 0, (uint)w, (uint)h, Xlib.AllPlanes, Xlib.ZPixmap);
 						_ = Xlib.XSync(display, false);
 					}
 
-					if (ximage == 0 || !ok)
+					if (ximage == 0 || X11Server.ErrorTrapped)
 						return null;
 
 					try
@@ -148,8 +147,7 @@ namespace Keysharp.Internals.Window.Linux.X11
 						Xlib.XCompositeUnredirectWindow(display, xid, Xlib.CompositeRedirectAutomatic);
 
 					_ = Xlib.XSync(display, false);
-					_ = Xlib.XSetErrorHandler(oldHandler);
-					GC.KeepAlive(handler);
+					X11Server.EndErrorTrap(oldHandler);
 				}
 			}
 		}

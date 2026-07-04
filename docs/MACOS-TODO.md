@@ -12,13 +12,13 @@ For shared architecture and cross-cutting features that also need a macOS implem
 
 ## 1. Implementable gaps
 
-- [ ] **Window `Enabled` set.** `Keysharp.Core/Internals/Window/MacOS/WindowItem.cs:152`
+- [ ] **Window `Enabled` set.** `Keysharp.Core/Internals/Platform/Services/Window/MacWindowService.cs` (`TrySetEnabled`)
   Currently logs "Enabled state is not implemented for macOS windows." Win32 `EnableWindow`
   disables input to a window; the closest Cocoa equivalent is making the `NSWindow` ignore mouse
   events / not accept key input (`ignoresMouseEvents`, or removing it from the key/main chain).
   Decide on the closest faithful behavior and implement, or document as N/A if no good fit.
 
-- [ ] **Window transparency — alpha.** `Keysharp.Core/Internals/Window/MacOS/WindowItem.cs:315`/`:318`
+- [ ] **Window transparency — alpha.** `Keysharp.Core/Internals/Platform/Services/Window/MacWindowService.cs` (`TrySetTransparency`)
   Per-window alpha (`WinSetTransparent`) maps cleanly to `NSWindow.alphaValue` and should be
   implementable. Note: per-pixel **color-key** transparency (`WinSetTransColor`, Win32
   `LWA_COLORKEY`) has no Cocoa equivalent — keep that part as a documented N/A.
@@ -37,7 +37,7 @@ For shared architecture and cross-cutting features that also need a macOS implem
 These currently no-op with a log line; they probably have no faithful Cocoa equivalent, in which
 case the action is to document them rather than implement:
 
-- [ ] **Window styles / ex-styles.** `WindowItem.cs:240` (styles) and `:160` (ex-styles)
+- [ ] **Window styles / ex-styles.** `Keysharp.Core/Internals/Window/MacOS/MacWindowInfo.cs` (`Style`/`ExStyle`) + `MacWindowService.cs` (`TrySetStyle`)
   Raw Win32 `WS_`/`WS_EX_` style integers — no Cocoa equivalent (same situation as Linux). Confirm
   and document as N/A; expose portable attributes through Eto's typed properties instead.
 
@@ -69,8 +69,9 @@ These already have working fallbacks; confirm they behave well on real hardware/
 
 ## Notes
 
-- macOS shares the "common base + OS-derived" architecture refactors (`InputType`, `WindowItem`
-  naming, `StatusBar` PID, hook message refs) tracked in [`CROSSPLATFORM-TODO.md`](CROSSPLATFORM-TODO.md);
-  the macOS derivations should fall out of those refactors.
+- macOS shares the "common base + OS-derived" architecture refactors (`InputType`, `StatusBar` PID,
+  hook message refs) tracked in [`CROSSPLATFORM-TODO.md`](CROSSPLATFORM-TODO.md); the macOS
+  derivations should fall out of those refactors. (The window layer itself was restructured by the
+  platform revamp: `MacWindowService.cs` + `MacWindowInfo.cs` replaced `WindowItem`/`WindowManager`.)
 - The macOS build is currently the least-exercised target — a broad pass running the curated suite
   on macOS is worthwhile before relying on any of the above.

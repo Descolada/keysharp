@@ -31,10 +31,6 @@ Linux (and macOS where possible).
   `GetOwningPid` uses Win32 `GetWindowThreadProcessId`; could be hoisted to `StatusBarBase` if the
   PID/thread lookup is abstracted per OS. Minor.
 
-- [ ] **Derived-class naming convention.** affects `WindowItem` on every OS
-  (`.../Window/Linux/WindowItem.cs:11`, `.../Window/MacOS/WindowItem.cs`, `.../Window/Windows/WindowItem.cs`).
-  Decide whether to prefix derived classes with `Windows`/`Linux`/`Mac`. Folder namespaces already
-  disambiguate, so this is likely a documented decision rather than a churny rename.
 
 ---
 

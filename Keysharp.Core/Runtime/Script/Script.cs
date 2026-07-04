@@ -830,6 +830,20 @@ namespace Keysharp.Runtime
 				System.Diagnostics.Debug.Write("ThreadException caught: " + e.ExceptionObject);
 			};
 
+			// Eto/GTK terminates the whole application when the last non-withdrawn top-level window closes.
+			// Our main window is realized-but-hidden (withdrawn), so it isn't counted — which means a transient
+			// overlay/tooltip closing can be "the last window" and quit the app even though the script is still
+			// meant to run (Persistent, registered hotkeys, timers, GUIs, …). Veto that spontaneous termination
+			// whenever the script is persistent, mirroring ExitIfNotPersistent's AnyPersistent() gate. A genuine
+			// ExitApp sets hasExited before calling Quit(), so real exits are still allowed through.
+			app.Terminating += (s, e) =>
+			{
+				var script = TheScript;
+
+				if (script != null && !script.hasExited && script.AnyPersistent())
+					e.Cancel = true;
+			};
+
 #if OSX
 			if (app.Handler is Eto.Mac.Forms.ApplicationHandler macHandler)
 				macHandler.AllowClosingMainForm = true;

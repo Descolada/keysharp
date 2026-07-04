@@ -619,7 +619,7 @@ namespace Keysharp.Builtins
 				QueueDraw(b =>
 				{
 					using var g = DrawG(b);
-					using var f = CreateFont(fontSpec);
+					var f = CreateFont(fontSpec);   // cached & reused; never disposed (see CreateFont)
 #if WINDOWS
 					using var brush = new SolidBrush(ImageHelper.ArgbToColor(argb));
 					g.DrawString(s, f, brush, (float)px, (float)py);
@@ -653,7 +653,7 @@ namespace Keysharp.Builtins
 				if (string.IsNullOrEmpty(text))
 					return (0.0, 0.0);
 
-				using var f = CreateFont(fontSpec);
+				var f = CreateFont(fontSpec);   // cached & reused; never disposed (see CreateFont)
 				using var bmp = ImageHelper.NewArgbCanvas(1, 1);
 				using var g = ImageHelper.MakeGraphics(bmp);
 				var sz = ImageHelper.MeasureText(g, f, text);
@@ -1303,7 +1303,16 @@ namespace Keysharp.Builtins
 			private static RectangleF MakeRectF(double x, double y, double w, double h)
 				=> new ((float)x, (float)y, (float)w, (float)h);
 
-			private static Font CreateFont(string spec)
+			// Fonts are cached by spec and never disposed. On Eto/GTK a Font's underlying handler is shared
+			// (from a system/toolkit cache), so disposing one — as the old `using var f = CreateFont(...)` did —
+			// left the next same-spec draw or measure pointing at a freed handle, throwing "Cannot access a
+			// disposed object: Font" after the first text was rendered. A script uses only a handful of distinct
+			// specs, so a permanent, reused cache is both cheap and the correct lifetime for a shared handle.
+			private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Font> fontCache = new ();
+
+			private static Font CreateFont(string spec) => fontCache.GetOrAdd(spec ?? "", CreateFontUncached);
+
+			private static Font CreateFontUncached(string spec)
 			{
 				var (family, size, bold, italic, underline, strike) = ParseFontSpec(spec);
 #if WINDOWS

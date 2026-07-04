@@ -41,6 +41,12 @@ typedef enum ksi_message_type {
      * across all currently grabbed keyboard devices. */
     KSI_MESSAGE_GET_KEY_STATE          = 44,
     KSI_MESSAGE_KEY_STATE_RESULT       = 45,
+    /* Physical mouse-button snapshot: KSI_CAP_HOOK_MOUSE required. GET_POINTER_BUTTONS has no
+     * payload. POINTER_BUTTONS_RESULT carries a ksi_pointer_buttons_payload read via EVIOCGKEY
+     * across pointer devices (no grab needed), so GetKeyState(.., "P") on a mouse button works
+     * when no mouse hook is installed. */
+    KSI_MESSAGE_GET_POINTER_BUTTONS    = 46,
+    KSI_MESSAGE_POINTER_BUTTONS_RESULT = 47,
     /* Trust-store administration scoped to input capabilities.
      * LIST streams one ENTRY per stored record that has any input capability
      * bits, followed by a RESULT status terminator. RESET clears allow+deny
@@ -95,6 +101,14 @@ typedef struct ksi_pointer_position_payload {
     int32_t y_min;
     int32_t y_max;
 } ksi_pointer_position_payload;
+
+/* Payload for KSI_MESSAGE_POINTER_BUTTONS_RESULT. Snapshot of physically-held mouse buttons
+ * (EVIOCGKEY across pointer devices — needs no grab). valid==0 means no readable pointer device. */
+typedef struct ksi_pointer_buttons_payload {
+    uint8_t  valid;
+    uint8_t  reserved[3];
+    uint32_t buttons;   /* bit0=left, bit1=right, bit2=middle, bit3=X1(side), bit4=X2(extra) */
+} ksi_pointer_buttons_payload;
 
 typedef enum ksi_client_capability {
     KSI_CAP_HOOK_KEYBOARD = 0x00000001u,

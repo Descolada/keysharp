@@ -167,6 +167,19 @@ static void handle_get_pointer_position(
     send_pointer_position_result(client->fd, message->header);
 }
 
+static void handle_get_pointer_buttons(
+    ksi_client *client,
+    const ksi_binary_message_view *message)
+{
+    if (!client->authenticated
+        || (client->granted_capabilities & KSI_CAP_HOOK_MOUSE) == 0) {
+        send_status(client->fd, message->header, KSI_MESSAGE_POINTER_BUTTONS_RESULT, -1, 403);
+        return;
+    }
+
+    send_pointer_buttons_result(client->fd, message->header);
+}
+
 typedef struct ksi_list_permissions_context {
     int client_fd;
     uint32_t client_id;
@@ -606,6 +619,9 @@ static void handle_binary_message(
         case KSI_MESSAGE_GET_POINTER_POSITION:
             handle_get_pointer_position(client, message);
             return;
+        case KSI_MESSAGE_GET_POINTER_BUTTONS:
+            handle_get_pointer_buttons(client, message);
+            return;
         case KSI_MESSAGE_GET_KEY_STATE:
             handle_get_key_state(client, message);
             return;
@@ -784,6 +800,22 @@ static void send_pointer_position_result(int client_fd, const ksi_message_header
     (void)ipc_send_locked(
         client_fd,
         KSI_MESSAGE_POINTER_POSITION_RESULT,
+        request->client_id,
+        request->correlation_id,
+        &result,
+        sizeof(result));
+}
+
+static void send_pointer_buttons_result(int client_fd, const ksi_message_header *request)
+{
+    ksi_pointer_buttons_payload result;
+
+    memset(&result, 0, sizeof(result));
+    (void)ksi_linux_devices_get_pointer_buttons(&result);
+
+    (void)ipc_send_locked(
+        client_fd,
+        KSI_MESSAGE_POINTER_BUTTONS_RESULT,
         request->client_id,
         request->correlation_id,
         &result,

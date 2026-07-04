@@ -459,6 +459,22 @@ namespace Keysharp.Internals.Input.Keyboard
 				var hot = shk[i];
 				if (HK_TYPE_CAN_BECOME_KEYBD_HOOK(hot.type))
 					hot.type = HotkeyTypeEnum.KeyboardHook;
+				// A mouse hotkey that depends on keyboard state also needs the keyboard hook (e.g. #LButton,
+				// ^LButton, "RButton & Space", "MButton::AltTabAndMenu"). The Windows branch below limits this
+				// promotion to WIN modifiers because there the mouse hook fetches modifier state via
+				// GetAsyncKeyState regardless of any hook. On Linux there is no such hook-independent OS query on
+				// the primary (inputd) and Wayland paths: the mouse hook reads modifiers from modifiersLRLogical,
+				// which is only maintained while the keyboard hook is installed. Without it,
+				// GetModifierLRState()/IsKeyDownAsync() report no modifiers down, so *any* modified mouse hotkey
+				// silently fails to fire. Hence promote on ANY consolidated modifier, not just WIN. Installing the
+				// keyboard hook also lets the Super/Start-menu disguise (disguiseNextMenu) run on key release.
+				else if (hot.type == HotkeyTypeEnum.MouseHook && (
+							 hot.modifiersConsolidatedLR != 0
+							 || hot.modifierSC != 0 || hot.sc != 0 // SC-based prefix/suffix, i.e. the modifying key isn't a mouse button.
+							 || hot.hookAction != 0 // e.g. "MButton::AltTabAndMenu" — alt-tab actions require the keyboard hook.
+							 || (hot.vk != 0 && !MouseUtils.IsMouseVK(hot.vk)) // e.g. "RButton & Space"
+							 || (hot.modifierVK != 0 && !MouseUtils.IsMouseVK(hot.modifierVK)))) // e.g. "Space & RButton"
+					hot.type = HotkeyTypeEnum.BothHook;
 
 				switch (hot.type)
 				{

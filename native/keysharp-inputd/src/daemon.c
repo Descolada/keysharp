@@ -408,6 +408,7 @@ static void send_status(
 static void remove_client(ksi_daemon_state *state, nfds_t index);
 static void send_indicator_state_result(int client_fd, const ksi_message_header *request);
 static void send_pointer_position_result(int client_fd, const ksi_message_header *request);
+static void send_pointer_buttons_result(int client_fd, const ksi_message_header *request);
 static void handle_get_key_state(ksi_client *client, const ksi_binary_message_view *message);
 static void set_realtime_priority(const char *thread_name);
 static ssize_t find_client_index_by_fd(const ksi_daemon_state *state, int client_fd);

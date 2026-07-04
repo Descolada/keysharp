@@ -1454,6 +1454,50 @@ bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *positi
     return position->valid != 0u;
 }
 
+/* Snapshot the current physically-held mouse buttons across all real pointer devices via EVIOCGKEY.
+ * The fd is open for every tracked candidate regardless of grab, so this answers GetKeyState(.., "P")
+ * for a mouse button with no mouse hook/grab (the Wayland counterpart of X11's XQueryPointer mask).
+ * Result bits: 0=left, 1=right, 2=middle, 3=X1(side), 4=X2(extra). */
+bool ksi_linux_devices_get_pointer_buttons(ksi_pointer_buttons_payload *result)
+{
+    unsigned long key_bits[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
+    bool any = false;
+    uint32_t buttons = 0u;
+
+    if (result == NULL) {
+        return false;
+    }
+
+    memset(result, 0, sizeof(*result));
+
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        const ksi_linux_tracked_device *dev = &tracked_devices[i];
+
+        /* Skip our own virtual injection device: its EVIOCGKEY would report replayed state. */
+        if (!dev->mouse_candidate || dev->injected_source || dev->fd < 0) {
+            continue;
+        }
+
+        memset(key_bits, 0, sizeof(key_bits));
+
+        if (ioctl(dev->fd, EVIOCGKEY(sizeof(key_bits)), key_bits) < 0) {
+            continue;
+        }
+
+        any = true;
+
+        if (test_bit(key_bits, BTN_LEFT))   buttons |= (1u << 0);
+        if (test_bit(key_bits, BTN_RIGHT))  buttons |= (1u << 1);
+        if (test_bit(key_bits, BTN_MIDDLE)) buttons |= (1u << 2);
+        if (test_bit(key_bits, BTN_SIDE))   buttons |= (1u << 3);
+        if (test_bit(key_bits, BTN_EXTRA))  buttons |= (1u << 4);
+    }
+
+    result->valid = any ? 1u : 0u;
+    result->buttons = buttons;
+    return any;
+}
+
 static void refresh_indicator_state_from_device(const ksi_linux_tracked_device *device)
 {
     unsigned char leds = 0;

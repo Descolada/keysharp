@@ -19,6 +19,7 @@ void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback,
 void ksi_linux_devices_get_indicator_state(bool *caps_lock, bool *num_lock, bool *scroll_lock);
 void ksi_linux_devices_refresh_indicator_state(void);
 bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *position);
+bool ksi_linux_devices_get_pointer_buttons(ksi_pointer_buttons_payload *result);
 uint32_t ksi_linux_devices_get_modifier_state(void);
 
 #endif

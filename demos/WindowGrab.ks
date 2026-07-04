@@ -64,14 +64,18 @@ class WindowGrab {
             return
         start := this.GetAlpha(id)
         dragged := false
+        ; The drag distance is in PHYSICAL screen pixels, so on a 200% display the same hand movement covers
+        ; twice as many pixels and the fade runs twice as fast. Divide by the DPI scale so a given *perceived*
+        ; drag maps to the same opacity change at any scaling (the drag threshold scales the same way).
+        scale := A_ScreenDPI / 96
 
         while GetKeyState("RButton", "P") {
             MouseGetPos(&mx, &my)
-            dx := mx - sx
+            dx := (mx - sx) / scale
             if (!dragged && Abs(dx) >= this.DragThreshold)
                 dragged := true
             if dragged {
-                alpha := Max(this.MinAlpha, Min(255, start + dx))   ; right(+) = opaque, left(-) = transparent
+                alpha := Max(this.MinAlpha, Min(255, Round(start + dx)))   ; right(+) = opaque, left(-) = transparent
                 try WinSetTransparent(alpha, id)
                 this.Tip("Opacity " Round(alpha / 255 * 100) "%", 0)
             }

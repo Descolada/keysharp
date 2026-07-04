@@ -1365,16 +1365,20 @@ namespace Keysharp.Runtime
 
 		private void PrivateClipboardUpdate(params object[] o)
 		{
+			// Just dispatch to the OnClipboardChange handlers and discard the aggregate result. It must NOT be
+			// wrapped in IfTest/ForceBool: InvokeEventHandlers returns null when a handler is deferred (e.g. a
+			// re-entrant A_Clipboard:= from a hotkey thread) or returns nothing, and ForceBool(null) throws
+			// "input was unset". The other InvokeEventHandlers call sites already just discard the result.
 #if WINDOWS
 			if (Clipboard.ContainsText() || Clipboard.ContainsFileDropList())
 #else
 			if (Clipboard.Instance.ContainsText)
 #endif
-				_ = IfTest(ClipFunctions.InvokeEventHandlers(1));
+				_ = ClipFunctions.InvokeEventHandlers(1);
 			else if (!Ks.IsClipboardEmpty())
-				_ = IfTest(ClipFunctions.InvokeEventHandlers(2));
+				_ = ClipFunctions.InvokeEventHandlers(2);
 			else
-				_ = IfTest(ClipFunctions.InvokeEventHandlers(0));
+				_ = ClipFunctions.InvokeEventHandlers(0);
 		}
 
 		internal Type GetNativeType(Any obj)

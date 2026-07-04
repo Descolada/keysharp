@@ -164,8 +164,12 @@ class ClipboardHistory {
         local n := this.items.Length
         local pad := 16, rowH := 30, titleH := 34, footH := 22, w := 640
         local h := pad + titleH + n * rowH + footH + pad
+        ; Render at the screen's DPI scale so the picker isn't half-size on a 200% display: everything below is
+        ; authored in LOGICAL units, the canvas is a physical-resolution bitmap, and it's centred by its
+        ; PHYSICAL size (see HotkeyCard/InputHUD for the same pattern).
+        local dpi := A_ScreenDPI / 96
 
-        local img := Image.Create(w, h)
+        local img := Image.Create(w, h, , dpi)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
         img.DrawText("Clipboard History", pad, pad, "0xFF5EC8FF", "Arial 12 bold")
@@ -185,11 +189,12 @@ class ClipboardHistory {
 
         if !IsObject(this.picker)
             this.picker := Overlay(0, 0)
+        local pw := img.Width, ph := img.Height
         this.picker.SetImage(img)
         img.Dispose()
 
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        this.picker.X := (l + r) // 2 - w // 2, this.picker.Y := (t + b) // 2 - h // 2
+        this.picker.X := (l + r) // 2 - pw // 2, this.picker.Y := (t + b) // 2 - ph // 2
         this.picker.Show()
     }
 

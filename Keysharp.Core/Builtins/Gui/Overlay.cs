@@ -184,6 +184,7 @@ namespace Keysharp.Builtins
 					return Errors.ValueErrorOccurred("Overlay.SetImage requires a valid Image.");
 
 				copy.drawScale = scale;   // Copy() doesn't propagate it; draws after SetImage must keep scaling
+				copy.mutable = true;      // subsequent draws on this canvas mutate it in place
 				canvas?.Dispose();
 				canvas = copy;
 
@@ -277,6 +278,7 @@ namespace Keysharp.Builtins
 				if (KeysharpImage.Create(null, (long)EffectiveW, (long)EffectiveH) is KeysharpImage created)
 				{
 					created.drawScale = scale;
+					created.mutable = true;   // a live draw surface: shapes mutate it in place, no per-op working copy
 					canvas = created;
 					return true;
 				}
@@ -299,15 +301,27 @@ namespace Keysharp.Builtins
 				if (!visible || canvas == null)
 					return;
 
-				var bmp = canvas.SnapshotBitmap();   // ownership passes to the overlay service's backing
+				// Hand the canvas's own bitmap to the backing WITHOUT copying it — the backing borrows it and
+				// makes the single display copy itself (it never keeps or disposes what it is handed). Only an
+				// opacity pass needs a temporary, which we own and dispose here.
+				var bmp = canvas.PeekBitmap();
 
 				if (bmp == null)
 					return;
 
-				if (opacity != 255)
-					bmp = ImageHelper.ApplyOpacity(bmp, (byte)opacity);
+				// ApplyOpacity mutates in place, so to preserve the live canvas we fade a throwaway clone; at full
+				// opacity we borrow the canvas bitmap directly (zero-copy). toShow is disposed below iff it's the clone.
+				var toShow = opacity != 255 ? ImageHelper.ApplyOpacity(new Bitmap(bmp), (byte)opacity) : bmp;
 
-				shown = Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, bmp);
+				try
+				{
+					shown = Platform.Overlay.TryShowImageOverlay(OverlayId, x, y, EffectiveW, EffectiveH, toShow);
+				}
+				finally
+				{
+					if (!ReferenceEquals(toShow, bmp))
+						toShow.Dispose();   // dispose only the opacity temp, never the canvas's own bitmap
+				}
 			}
 		}
 	}

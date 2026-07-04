@@ -45,9 +45,10 @@ class InputHUD {
     static LitEdge := "0xFFCDEBFF"
 
     ; ---- state -------------------------------------------------------------
+    static DPI := 1                      ; screen scale (A_ScreenDPI/96): render at physical res, place/hit-test in physical px
     static ih := ""
-    static kb := ""                      ; {ov, x, y, w, h, keys[]}
-    static ms := ""                      ; {ov, x, y, w, h}
+    static kb := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size), keys[]}
+    static ms := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size)}
     static down := Map()                 ; vk -> true (pressed keys)
     static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> true
     static wheelFlash := 0               ; -1 up, +1 down, 0 none
@@ -67,7 +68,12 @@ class InputHUD {
     }
 
     static Setup() {
-        this.ms := {ov: Overlay(0, 0), x: 0, y: 0, w: 118, h: 188}
+        ; Render every canvas at the screen's DPI scale so the HUD isn't half-size on a 200% display. The key
+        ; layout below is authored in LOGICAL units; each overlay's canvas is built at physical resolution
+        ; (Image.Create's scale arg) and shown at that pixel size, so all screen geometry (placement, drag
+        ; hit-testing) uses the PHYSICAL size (pw/ph) while rendering stays in logical units (w/h).
+        this.DPI := A_ScreenDPI / 96
+        this.ms := {ov: Overlay(0, 0), x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.DPI), ph: Round(188 * this.DPI)}
         this.BuildKeyboard()
         this.Place()
         this.RenderKeyboard()
@@ -136,7 +142,8 @@ class InputHUD {
             maxB := Max(maxB, k.py + this.U)
             this.dispVk[k.vk] := true
         }
-        this.kb := {ov: Overlay(0, 0), x: 0, y: 0, w: Round(maxR + this.Pad), h: Round(maxB + this.Pad), keys: keys}
+        local lw := Round(maxR + this.Pad), lh := Round(maxB + this.Pad)
+        this.kb := {ov: Overlay(0, 0), x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.DPI), ph: Round(lh * this.DPI), keys: keys}
     }
 
     ; The bottom modifier row differs per OS (Command/Option on macOS; Win/Alt/Menu elsewhere).
@@ -164,7 +171,7 @@ class InputHUD {
 
     static RenderKeyboard() {
         local kb := this.kb
-        local img := Image.Create(kb.w, kb.h)
+        local img := Image.Create(kb.w, kb.h, , this.DPI)
         img.FillRoundRect(0, 0, kb.w, kb.h, 14, this.Bg)
         img.DrawRoundRect(1, 1, kb.w - 2, kb.h - 2, 14, this.Border, 2)
         for k in kb.keys {
@@ -181,7 +188,7 @@ class InputHUD {
 
     static RenderMouse() {
         local ms := this.ms
-        local img := Image.Create(ms.w, ms.h)
+        local img := Image.Create(ms.w, ms.h, , this.DPI)
         img.FillRoundRect(0, 0, ms.w, ms.h, 12, this.Bg)
 
         local bx := 20, by := 14, bw := ms.w - 40, bh := ms.h - 34
@@ -297,7 +304,7 @@ class InputHUD {
         return ""
     }
 
-    static InRect(x, y, o) => IsObject(o) && x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h
+    static InRect(x, y, o) => IsObject(o) && x >= o.x && x < o.x + o.pw && y >= o.y && y < o.y + o.ph
 
     static DragHud() {
         local which := this.OverHud()
@@ -318,11 +325,14 @@ class InputHUD {
     ; ======================================================================
     static Place() {
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        local total := this.kb.w + 20 + this.ms.w
+        ; Positions are physical screen pixels, so lay the two HUDs out with their PHYSICAL sizes (and scale
+        ; the inter-panel gap and bottom margin too, so the spacing keeps up with the DPI).
+        local gap := Round(20 * this.DPI), bottom := Round(40 * this.DPI)
+        local total := this.kb.pw + gap + this.ms.pw
         this.kb.x := (l + r) // 2 - total // 2
-        this.kb.y := b - this.kb.h - 40
-        this.ms.x := this.kb.x + this.kb.w + 20
-        this.ms.y := b - this.ms.h - 40
+        this.kb.y := b - this.kb.ph - bottom
+        this.ms.x := this.kb.x + this.kb.pw + gap
+        this.ms.y := b - this.ms.ph - bottom
         this.kb.ov.X := this.kb.x, this.kb.ov.Y := this.kb.y
         this.ms.ov.X := this.ms.x, this.ms.ov.Y := this.ms.y
     }

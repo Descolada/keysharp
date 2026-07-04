@@ -36,6 +36,11 @@ class HotkeyCard {
         local pad := 16, rowH := 29, pillH := 22, pillPad := 9, colGap := 14
         local titleFont := "Arial 12 bold", keyFont := "Arial 10 bold", descFont := "Arial 10", hintFont := "Arial 9"
 
+        ; Render at the screen's DPI scale so the card isn't half-size on a 200% display. Everything below is
+        ; authored in LOGICAL units; the canvas is a physical-resolution bitmap (see Image.Create's scale arg),
+        ; and the overlay shows that canvas at its own pixel size. Placement/hit-testing use the PHYSICAL size.
+        local dpi := A_ScreenDPI / 96
+
         ; Measure so the card fits its content exactly.
         local m := Image.Create(1, 1)
         local tw := 0, th := 0
@@ -56,7 +61,7 @@ class HotkeyCard {
         local titleH := 34, hintH := 22
         local h := pad + titleH + lines.Length * rowH + hintH
 
-        local img := Image.Create(w, h)
+        local img := Image.Create(w, h, , dpi)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
         img.DrawRoundRect(1, 1, w - 2, h - 2, 12, "0xFF3C4353", 1.5)
         img.DrawText(title, pad, pad, "0xFF5EC8FF", titleFont)
@@ -76,11 +81,15 @@ class HotkeyCard {
 
         if !IsObject(this.ov)
             this.ov := Overlay(0, 0)
+        ; The canvas is physical-resolution (logical * dpi); the overlay shows it at that pixel size, so the
+        ; card's on-screen rect — used for placement and the click-to-dismiss hit-test — is the PHYSICAL size.
+        local pw := img.Width, ph := img.Height
         this.ov.SetImage(img)
         img.Dispose()
 
+        local margin := Round(this.Margin * dpi)
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        this.rect := {x: r - w - this.Margin, y: b - h - this.Margin, w: w, h: h}
+        this.rect := {x: r - pw - margin, y: b - ph - margin, w: pw, h: ph}
         this.ov.X := this.rect.x, this.ov.Y := this.rect.y
         this.ov.Show()
         this.shown := true

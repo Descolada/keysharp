@@ -428,9 +428,12 @@ namespace Keysharp.Internals.Images
 		}
 
 		/// <summary>
-		/// Multiplies every pixel's alpha by <paramref name="alpha"/>/255 (whole-image opacity for
-		/// overlay fades). Takes ownership of <paramref name="bmp"/>; returns the result (a new bitmap
-		/// on Windows, mutated in place elsewhere).
+		/// Multiplies every pixel's alpha of <paramref name="bmp"/> by <paramref name="alpha"/>/255 (whole-image
+		/// opacity for overlay fades), IN PLACE, and returns the same bitmap. The caller decides whether the
+		/// original must be preserved: if so, clone it and pass the clone (so, e.g., an overlay can fade its live
+		/// canvas by fading a throwaway copy). Both platforms mutate in place — Windows via LockBits, others via
+		/// the backend's pixel lock — so there is no hidden allocation. A no-op (returns <paramref name="bmp"/>
+		/// unchanged) for alpha == 255.
 		/// </summary>
 		internal static Bitmap ApplyOpacity(Bitmap bmp, byte alpha)
 		{
@@ -438,18 +441,33 @@ namespace Keysharp.Internals.Images
 				return bmp;
 
 #if WINDOWS
-			var result = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppArgb);
+			var data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
 
-			using (var g = Graphics.FromImage(result))
-			using (var ia = new ImageAttributes())
+			try
 			{
-				ia.SetColorMatrix(new ColorMatrix { Matrix33 = alpha / 255f });
-				g.CompositingMode = CompositingMode.SourceCopy;
-				g.DrawImage(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height), 0, 0, bmp.Width, bmp.Height, GraphicsUnit.Pixel, ia);
+				unsafe
+				{
+					var basePtr = (byte*)data.Scan0;
+
+					for (var y = 0; y < bmp.Height; y++)
+					{
+						var row = (uint*)(basePtr + (long)y * data.Stride);   // Format32bppArgb: little-endian uint = 0xAARRGGBB
+
+						for (var x = 0; x < bmp.Width; x++)
+						{
+							var argb = row[x];
+							var a = (uint)((argb >> 24) * alpha / 255);
+							row[x] = (argb & 0x00FFFFFFu) | (a << 24);
+						}
+					}
+				}
+			}
+			finally
+			{
+				bmp.UnlockBits(data);
 			}
 
-			bmp.Dispose();
-			return result;
+			return bmp;
 #else
 			using (var data = bmp.Lock())
 			{

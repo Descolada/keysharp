@@ -5,9 +5,11 @@ using Wl = Keysharp.Internals.Window.Linux.Wayland;
 namespace Keysharp.Internals
 {
 	/// <summary>
-	/// One click-through image overlay's platform backing. Ownership rule: <see cref="Show"/> takes ownership of
-	/// the bitmap it is handed (it stores it and disposes the previous one, or disposes it and returns false on
-	/// failure). <see cref="Move"/> re-applies the last shown image at a new geometry as cheaply as the backing can.
+	/// One click-through image overlay's platform backing. Ownership rule: <see cref="Show"/> BORROWS the bitmap
+	/// it is handed — it copies only what it needs to display (and to satisfy same-size moves), synchronously,
+	/// and must NOT store, retain a reference to, or dispose the passed bitmap; the caller keeps ownership.
+	/// <see cref="Move"/> repositions the last shown content as cheaply as the backing can; if it cannot satisfy
+	/// the request without new pixels (e.g. a resize), it returns false and the caller re-renders via <see cref="Show"/>.
 	/// </summary>
 	internal interface IImageOverlayBacking : IDisposable
 	{
@@ -44,10 +46,7 @@ namespace Keysharp.Internals
 			if (height <= 0) height = image.Height;
 
 			if (width <= 0 || height <= 0)
-			{
-				image.Dispose();
-				return TryHideImageOverlay(id);
-			}
+				return TryHideImageOverlay(id);   // nothing to show; the caller still owns `image`
 
 			IImageOverlayBacking backing;
 			var created = false;
@@ -61,8 +60,9 @@ namespace Keysharp.Internals
 				}
 			}
 
-			// Outside the lock (may hit the UI thread / D-Bus). Ownership of the bitmap passes to the
-			// backing, whose Show contract disposes it on failure — no defensive re-copy here.
+			// Outside the lock (may hit the UI thread / D-Bus). The backing BORROWS `image` — it copies what it
+			// needs, synchronously, and never stores or disposes it. The caller (the Overlay) keeps ownership of
+			// its canvas bitmap, so there is nothing to clean up here on either path.
 			var shown = backing.Show(image, x, y, width, height);
 
 			if (shown)
@@ -177,31 +177,21 @@ namespace Keysharp.Internals
 
 			var preferred = ChooseKind();
 
-			if (preferred == ImageOverlayKind.Eto)
+			// Every backing borrows `image` (copies what it needs, never disposes it), so we can hand the same
+			// bitmap to the preferred backing and, if it fails, straight to the Eto fallback — no clone needed.
+			if (preferred != ImageOverlayKind.Eto)
 			{
-				var eto = new EtoImageOverlay();
+				var backing = Create(preferred);
 
-				if (eto.Show(image, x, y, width, height))
+				if (backing.Show(image, x, y, width, height))
 				{
-					inner = eto;
+					inner = backing;
 					return true;
 				}
 
-				eto.Dispose();
-				return false;
+				backing.Dispose();
 			}
 
-			// Try the preferred toolkit-free backing with a clone, keeping the original for the Eto fallback.
-			var backing = Create(preferred);
-
-			if (backing.Show(new Bitmap(image), x, y, width, height))
-			{
-				inner = backing;
-				image.Dispose();
-				return true;
-			}
-
-			backing.Dispose();
 			var fallback = new EtoImageOverlay();
 
 			if (fallback.Show(image, x, y, width, height))
@@ -243,12 +233,12 @@ namespace Keysharp.Internals
 		}
 	}
 
-	// wlr-layer-shell backing (KWin/wlroots). WaylandImageOverlay copies the pixels into its own SHM buffer, so
-	// this keeps the source only to re-apply it on a move.
+	// wlr-layer-shell backing (KWin/wlroots). WaylandImageOverlay copies the pixels into its own SHM buffer on
+	// Show, so nothing of the borrowed `image` is retained; a same-size move just repositions that surface.
 	internal sealed class LayerImageBacking : IImageOverlayBacking
 	{
 		private Wl.WaylandImageOverlay overlay;
-		private Bitmap source;
+		private int shownW, shownH;
 
 		public nint Handle => overlay?.Handle ?? 0;
 
@@ -257,42 +247,41 @@ namespace Keysharp.Internals
 			var client = Wl.WaylandLayerShellClient.Current;
 
 			if (client == null || !client.IsAvailable)
-			{
-				image.Dispose();
-				return false;
-			}
+				return false;   // borrow: never dispose `image`
 
 			try
 			{
 				overlay ??= new Wl.WaylandImageOverlay(client);
-				overlay.Show(image, x, y, width, height);
-				var old = source;
-				source = image;
-				old?.Dispose();
+				overlay.Show(image, x, y, width, height);   // copies the pixels into its own SHM buffer
+				shownW = width;
+				shownH = height;
 				return true;
 			}
 			catch
 			{
-				image.Dispose();
 				return false;
 			}
 		}
 
 		public bool Move(int x, int y, int width, int height)
 		{
-			if (source == null || overlay == null)
+			if (overlay == null)
 				return false;
 
-			try { overlay.Show(source, x, y, width, height); return true; }
-			catch { return false; }
+			// Same-size: reposition the retained SHM surface (no re-copy). Resize: re-render via Show.
+			if (width == shownW && height == shownH)
+			{
+				try { overlay.Reposition(x, y); return true; }
+				catch { return false; }
+			}
+
+			return false;
 		}
 
 		public void Dispose()
 		{
 			overlay?.Dispose();
 			overlay = null;
-			source?.Dispose();
-			source = null;
 		}
 	}
 
@@ -302,7 +291,6 @@ namespace Keysharp.Internals
 	internal sealed class CompositorImageBacking : IImageOverlayBacking
 	{
 		private readonly uint id;
-		private Bitmap source;
 		private bool shown;
 
 		internal CompositorImageBacking(uint id) => this.id = id;
@@ -313,39 +301,31 @@ namespace Keysharp.Internals
 		{
 			try
 			{
-				// ToPngBytes (Eto ToByteArray / GDI Save) and the D-Bus call can both throw; honor the Show
-				// ownership contract on every path (dispose the handed-in bitmap, return false — never leak or escape).
+				// ToPngBytes reads `image` into a PNG (Eto ToByteArray / GDI Save) which is what gets uploaded;
+				// `image` itself is never retained or disposed (borrow contract). ToPngBytes / the D-Bus call
+				// can throw — return false without touching `image` on every path.
 				var bytes = ImageHelper.ToPngBytes(image);
 
 				if (bytes.Length == 0 || Wl.WaylandBackend.Current?.TryShowImageOverlay(id, x, y, width, height, bytes) != true)
-				{
-					image.Dispose();
 					return false;
-				}
 
-				var old = source;
-				source = image;
-				old?.Dispose();
 				shown = true;
 				return true;
 			}
 			catch
 			{
-				image.Dispose();
 				return false;
 			}
 		}
 
 		public bool Move(int x, int y, int width, int height)
 		{
-			if (source == null)
-				return false;
-
 			// Byte-free reposition: the compositor keeps the pixels we already uploaded and just moves the actor.
+			// If that fast path is unavailable, return false so the overlay re-renders via Show.
 			if (shown && Wl.WaylandBackend.Current?.TryMoveImageOverlay(id, x, y, width, height) == true)
 				return true;
 
-			return Show(new Bitmap(source), x, y, width, height);
+			return false;
 		}
 
 		public void Dispose()
@@ -354,9 +334,6 @@ namespace Keysharp.Internals
 			{
 				try { _ = Wl.WaylandBackend.Current?.TryHideImageOverlay(id); } catch { }
 			}
-
-			source?.Dispose();
-			source = null;
 		}
 	}
 #elif WINDOWS
@@ -371,7 +348,6 @@ namespace Keysharp.Internals
 	internal sealed class WindowsImageOverlay : IImageOverlayBacking
 	{
 		private LayeredOverlayForm form;
-		private Bitmap source;
 		private int shownW, shownH;
 
 		public nint Handle => form?.IsHandleCreated == true ? form.Handle : 0;
@@ -383,6 +359,9 @@ namespace Keysharp.Internals
 				width = Math.Max(1, width <= 0 ? image.Width : width);
 				height = Math.Max(1, height <= 0 ? image.Height : height);
 
+				// CreateDisplayBitmap runs on THIS (calling) thread — it copies `image` into the premultiplied
+				// display bitmap, which is both the single unavoidable display copy AND the isolation boundary
+				// from the caller's live canvas, so we never store or dispose `image` (borrow contract).
 				using (var display = CreateDisplayBitmap(image, width, height))
 				{
 					var d = display;
@@ -395,29 +374,23 @@ namespace Keysharp.Internals
 
 				shownW = width;
 				shownH = height;
-				var old = source;
-				source = image;   // take ownership of the pristine bitmap for later moves
-				old?.Dispose();
 				return true;
 			}
 			catch
 			{
-				image.Dispose();
 				return false;
 			}
 		}
 
 		public bool Move(int x, int y, int width, int height)
 		{
-			if (source == null)
+			if (form == null)
 				return false;
 
-			if (width <= 0) width = source.Width;
-			if (height <= 0) height = source.Height;
-
-			// A layered window keeps its bitmap across moves: same size = reposition only, no re-render
-			// (mirrors the Eto backing's fast path; matters for mouse-following highlights).
-			if (width == shownW && height == shownH && form != null)
+			// A layered window retains its last UpdateLayeredWindow content across a move, so a same-size move
+			// is a pure reposition (no pixels needed; matters for mouse-following highlights). A resize needs
+			// new pixels, so return false and let the overlay re-render via Show.
+			if (width == shownW && height == shownH)
 			{
 				Script.InvokeOnUIThread(() =>
 					_ = WindowsAPI.SetWindowPos(form.Handle, new nint(WindowsAPI.HWND_TOPMOST), x, y, 0, 0,
@@ -425,7 +398,7 @@ namespace Keysharp.Internals
 				return true;
 			}
 
-			return Show(new Bitmap(source), x, y, width, height);
+			return false;
 		}
 
 		private void EnsureForm() => form ??= new LayeredOverlayForm();
@@ -454,9 +427,6 @@ namespace Keysharp.Internals
 				try { form?.Dispose(); } catch { }
 				form = null;
 			});
-
-			source?.Dispose();
-			source = null;
 		}
 	}
 
@@ -561,13 +531,13 @@ namespace Keysharp.Internals
 
 #if LINUX || OSX
 	// Shared Eto (GTK/Cocoa) click-through overlay window — the toolkit fallback on Linux and the only backing on
-	// macOS. Holds the pristine source so a resize re-scales from the original and a move just repositions.
+	// macOS. It borrows `image`: Show snapshots it on the calling thread (isolation + the one display copy) and
+	// keeps only that private `displayed` bitmap, which a same-size move just repositions.
 	internal sealed class EtoImageOverlay : IImageOverlayBacking
 	{
 		private Keysharp.Builtins.KeysharpForm form;
 		private ImageView imageView;
 		private Bitmap displayed;
-		private Bitmap source;
 		private int shownW, shownH;
 
 		public nint Handle => form?.Handle ?? 0;
@@ -576,10 +546,14 @@ namespace Keysharp.Internals
 		{
 			try
 			{
+				// Copy `image` on THIS (calling) thread — the borrowed canvas may be redrawn on this thread, so
+				// snapshotting here (not inside the UI-thread callback) isolates the pixels the UI will show.
+				var snapshot = new Bitmap(image);
+
 				Script.InvokeOnUIThread(() =>
 				{
 					EnsureForm();
-					Paint(image, width, height);
+					PaintOwned(snapshot, width, height);
 					form.Location = new Point(x, y);
 
 					if (!form.Visible)
@@ -588,46 +562,45 @@ namespace Keysharp.Internals
 					form.SetClickThrough(true);
 				});
 
-				var old = source;
-				source = image;   // take ownership of the pristine bitmap
-				old?.Dispose();
-				return true;
+				return true;   // borrow: `image` is neither retained nor disposed
 			}
 			catch
 			{
-				image.Dispose();
 				return false;
 			}
 		}
 
 		public bool Move(int x, int y, int width, int height)
 		{
-			if (source == null)
+			// Same-size: reposition (the ImageView keeps its bitmap). Resize: re-render via Show.
+			if (form == null || width != shownW || height != shownH)
 				return false;
 
-			var src = source;
 			Script.InvokeOnUIThread(() =>
 			{
-				if (form == null)
-					return;
-
-				if (width != shownW || height != shownH)
-					Paint(src, width, height);
-
-				form.Location = new Point(x, y);
+				if (form != null)
+					form.Location = new Point(x, y);
 			});
 
 			return true;
 		}
 
-		// Renders `image` scaled to (width x height) into the view. Runs on the UI thread.
-		private void Paint(Bitmap image, int width, int height)
+		// Adopts `snapshot` (an owned, private copy) as the displayed bitmap, resizing it if needed. UI thread.
+		private void PaintOwned(Bitmap snapshot, int width, int height)
 		{
 			var size = new Size(Math.Max(1, width), Math.Max(1, height));
 			var old = displayed;
-			displayed = image.Width == size.Width && image.Height == size.Height
-						? new Bitmap(image)
-						: ImageHelper.ResizeBitmap(image, size.Width, size.Height, exactPixels: true);
+
+			if (snapshot.Width == size.Width && snapshot.Height == size.Height)
+			{
+				displayed = snapshot;
+			}
+			else
+			{
+				displayed = ImageHelper.ResizeBitmap(snapshot, size.Width, size.Height, exactPixels: true);
+				snapshot.Dispose();
+			}
+
 			imageView.Image = displayed;
 			old?.Dispose();
 			form.Size = size;
@@ -665,9 +638,6 @@ namespace Keysharp.Internals
 				displayed?.Dispose();
 				displayed = null;
 			});
-
-			source?.Dispose();
-			source = null;
 		}
 	}
 #endif

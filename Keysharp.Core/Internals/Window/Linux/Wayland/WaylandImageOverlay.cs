@@ -99,6 +99,23 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			surface.Commit();
 		}
 
+		// Repositions the already-shown surface without re-uploading pixels: only the layer margin changes, so a
+		// same-size move (e.g. a mouse-following highlight) costs a commit, not another SHM blit.
+		internal void Reposition(int x, int y)
+		{
+			if (disposed || surface == null || !surface.IsConfigured)
+				return;
+
+			if (x == marginLeft && y == marginTop)
+				return;
+
+			marginLeft = x;
+			marginTop = y;
+			surface.SetMargin(y, 0, 0, x);
+			surface.Commit();
+			_ = surface.WaitForConfigure(ConfigureTimeoutMs);
+		}
+
 		internal void Hide()
 		{
 			TeardownSurface();

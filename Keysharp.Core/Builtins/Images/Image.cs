@@ -54,6 +54,9 @@ namespace Keysharp.Builtins
 
 			private bool disposed;
 
+			// Bytes of GC memory pressure currently registered for this image's bitmaps (see SyncGcPressure).
+			private long gcPressure;
+
 			public KeysharpImage(params object[] args) : base(args) { }
 
 			// Graphics for a user-facing draw op, honoring drawScale. Shapes/transforms that operate on whole
@@ -85,6 +88,7 @@ namespace Keysharp.Builtins
 					baseBitmap = bmp;
 					scaleX = sx;
 					scaleY = sy;
+					SyncGcPressure();
 				}
 
 				return DefaultObject;
@@ -317,16 +321,27 @@ namespace Keysharp.Builtins
 			/// <summary>
 			/// Creates a new ARGB canvas. Omit <paramref name="background"/> or pass "" for a fully
 			/// transparent image; otherwise pass a color name, 0xRRGGBB, or 0xAARRGGBB value.
+			///
+			/// <para><paramref name="scale"/> (default 1) makes a DPI-scaled canvas: the returned image is a
+			/// PHYSICAL-resolution bitmap of <c>round(width*scale) x round(height*scale)</c> pixels, but every
+			/// draw op and font is multiplied by <paramref name="scale"/>, so the caller authors shapes/text in
+			/// LOGICAL units (the width/height passed here) and gets a crisp, physically-larger result rather than
+			/// an upscaled small bitmap. Pass <c>A_ScreenDPI/96</c> to size an off-screen canvas for a DPI-scaled
+			/// Overlay (which shows the canvas at its own pixel size). MeasureText stays in logical units, so a
+			/// layout measured at scale 1 composes unchanged with a scaled draw canvas.</para>
 			/// </summary>
-			[Static] public static object Create(object @this, object width, object height, object background = null)
+			[Static] public static object Create(object @this, object width, object height, object background = null, object scale = null)
 			{
 				var w = width.Ai();
 				var h = height.Ai();
+				var s = Math.Max(0.01, scale.Ad(1.0));
 
 				if (w <= 0 || h <= 0)
 					return Errors.ValueErrorOccurred("Image.Create width and height must be positive.");
 
-				var bmp = ImageHelper.NewArgbCanvas(w, h);
+				var pw = Math.Max(1, (int)Math.Round(w * s));
+				var ph = Math.Max(1, (int)Math.Round(h * s));
+				var bmp = ImageHelper.NewArgbCanvas(pw, ph);
 				var bg = ParseColorArg(background, 0, allowTransparentEmpty: true);
 
 				if (((uint)bg >> 24) != 0)
@@ -335,7 +350,14 @@ namespace Keysharp.Builtins
 					g.Clear(ImageHelper.ArgbToColor(bg));
 				}
 
-				return Wrap(bmp);
+				var wrapped = Wrap(bmp);
+
+				// A scaled canvas draws logical coordinates through a matching transform (see drawScale/DrawG),
+				// keeping text and shapes crisp at the physical resolution instead of upscaling a small bitmap.
+				if (s != 1.0 && wrapped is KeysharpImage ki)
+					ki.drawScale = s;
+
+				return wrapped;
 			}
 
 			#endregion
@@ -711,7 +733,9 @@ namespace Keysharp.Builtins
 				if (src == null)
 					return Errors.ValueErrorOccurred("There is no image to copy.");
 
-				return new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY };
+				var copy = new KeysharpImage { baseBitmap = new Bitmap(src), scaleX = scaleX, scaleY = scaleY, originX = originX, originY = originY };
+				copy.SyncGcPressure();
+				return copy;
 			}
 
 			#endregion
@@ -1139,7 +1163,9 @@ namespace Keysharp.Builtins
 				if (bmp == null)
 					return Errors.ValueErrorOccurred(failMsg ?? "Failed to create the image.");
 
-				return new KeysharpImage { baseBitmap = bmp, scaleX = sx, scaleY = sy, originX = originX, originY = originY };
+				var img = new KeysharpImage { baseBitmap = bmp, scaleX = sx, scaleY = sy, originX = originX, originY = originY };
+				img.SyncGcPressure();
+				return img;
 			}
 
 			// Resolves an arbitrary script source to a freshly-owned bitmap plus its capture scale.
@@ -1259,6 +1285,7 @@ namespace Keysharp.Builtins
 					current = new Bitmap(baseBitmap);
 
 				cached = current;
+				SyncGcPressure();
 				return cached;
 			}
 
@@ -1267,6 +1294,11 @@ namespace Keysharp.Builtins
 				var bmp = Materialize();
 				return bmp == null ? null : new Bitmap(bmp);
 			}
+
+			// The image's current pixels WITHOUT a copy — for an Overlay to hand to its (borrowing) backing,
+			// which copies only what it needs to display. The returned bitmap is owned by this image; the
+			// caller must not dispose it or retain it past the synchronous show call.
+			internal Bitmap PeekBitmap() => Materialize();
 
 			// Applies every queued op into the base bitmap and clears the queue, so repeated draw-then-read
 			// cycles (an on-screen Overlay redrawing after each shape) don't re-run a growing op chain each
@@ -1283,13 +1315,40 @@ namespace Keysharp.Builtins
 				cached = null;
 				pending.Clear();
 				DisposePendingResources();
+				SyncGcPressure();
 			}
+
+			// A mutable image is a live drawing surface (used by an Overlay canvas): every draw op is applied
+			// straight to baseBitmap with no lazy queue and no defensive working copy, and there is never a
+			// separate materialized `cached`. This removes the per-draw "first in-place op" copy that the lazy
+			// transform model needs — the surface simply IS the pixels being drawn. Set once, right after the
+			// bitmap is created; a mutable image never queues transforms (Scale/Rotate/Crop) or SetPixel-bakes.
+			internal bool mutable;
 
 			// Enqueues a draw op. inPlace ops (the default: shapes/text/image) mutate the working bitmap and
 			// return it; pass inPlace:false for an op that returns a fresh bitmap (Clear) so Materialize does
-			// not needlessly copy the base for it.
+			// not needlessly copy the base for it. On a mutable surface the op is applied to baseBitmap now.
 			private void QueueDraw(Func<Bitmap, Bitmap> op, bool inPlace = true)
 			{
+				if (mutable)
+				{
+					if (baseBitmap == null)
+						return;
+
+					var result = op(baseBitmap);   // in-place ops mutate & return baseBitmap; Clear returns a fresh one
+
+					if (!ReferenceEquals(result, baseBitmap))
+					{
+						baseBitmap.Dispose();
+						baseBitmap = result;
+					}
+
+					cached?.Dispose();
+					cached = null;
+					SyncGcPressure();
+					return;
+				}
+
 				pending.Add((op, inPlace));
 				Invalidate();
 			}
@@ -1298,7 +1357,43 @@ namespace Keysharp.Builtins
 			{
 				cached?.Dispose();
 				cached = null;
+				SyncGcPressure();
 			}
+
+			// A System.Drawing.Bitmap's real weight is UNMANAGED GDI memory; the managed KeysharpImage/Bitmap
+			// wrappers are a few dozen bytes, so the GC sees almost nothing, feels no pressure, and doesn't run —
+			// the finalizer that disposes these bitmaps (via DestructorPump) then never fires and undisposed
+			// captures pile into a rising high-water mark. Registering the bitmaps' byte size as GC memory
+			// pressure lets the GC schedule collection on cue, so the automatic cleanup reclaims them and scripts
+			// need no manual Dispose. Self-balancing: it reconciles the amount already registered against the live
+			// bitmaps on every state change, and Dispose (disposed => 0 bytes) drives it back to zero.
+			private void SyncGcPressure()
+			{
+				long bytes = 0;
+
+				if (!disposed)
+				{
+					if (baseBitmap != null)
+						bytes += BitmapByteEstimate(baseBitmap);
+
+					if (cached != null && !ReferenceEquals(cached, baseBitmap))
+						bytes += BitmapByteEstimate(cached);
+				}
+
+				if (bytes == gcPressure)
+					return;
+
+				if (bytes > gcPressure)
+					GC.AddMemoryPressure(bytes - gcPressure);
+				else
+					GC.RemoveMemoryPressure(gcPressure - bytes);
+
+				gcPressure = bytes;
+			}
+
+			// Approximate unmanaged footprint of a bitmap (32bpp: width * height * 4). Only a GC hint, so the
+			// exact stride/pixel format is irrelevant.
+			private static long BitmapByteEstimate(Bitmap bmp) => (long)bmp.Width * bmp.Height * 4;
 
 			private static RectangleF MakeRectF(double x, double y, double w, double h)
 				=> new ((float)x, (float)y, (float)w, (float)h);
@@ -1450,6 +1545,7 @@ namespace Keysharp.Builtins
 				baseBitmap = null;
 				pending.Clear();
 				DisposePendingResources();
+				SyncGcPressure();   // disposed => reconciles to 0, releasing all registered pressure
 			}
 
 			#endregion

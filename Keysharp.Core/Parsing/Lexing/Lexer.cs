@@ -573,9 +573,14 @@ namespace Keysharp.Parsing.Lexing
 			while (i < _n && IsModifierKeyChar(_s[i])) i++;                 // modifier keys (#!^+<>)
 			if (i >= _n || _s[i] == '\n' || _s[i] == '\r') return -1;       // empty target -> not a remap
 			if (_s[i] == '{' || _s[i] == '}') return -1;                    // brace -> OTB block body, not a remap
+			int keyStart = i;
+			bool identifierRun = false;
 			// One key: an identifier-like run (a key name) or a single character.
 			if (char.IsLetterOrDigit(_s[i]) || _s[i] == '_')
+			{
+				identifierRun = true;
 				while (i < _n && (char.IsLetterOrDigit(_s[i]) || _s[i] == '_')) i++;
+			}
 			// Backtick escape: skip the escaped char too, but never the line terminator. A trailing
 			// backtick at EOL is the literal backtick key; consuming the following char would eat the
 			// '\n' on LF files (the next char after '`' is '\r' on CRLF, '\n' on LF), making an
@@ -583,11 +588,32 @@ namespace Keysharp.Parsing.Lexing
 			else if (_s[i] == '`') { i++; if (i < _n && _s[i] != '\n' && _s[i] != '\r') i++; }
 			else i++;
 			int keyEnd = i;
+			// A multi-character identifier is only a remap target if it actually names a key (e.g. `Enter`,
+			// `Space`, `Numpad0`, `F1`, `vk1B`). Otherwise `x::MsgBox` is a hotkey whose body calls MsgBox(),
+			// not a remap to a non-existent "MsgBox" key — bail out so it lexes as a normal hotkey body.
+			// Single characters are always valid remap targets, matching AutoHotkey.
+			if (identifierRun && keyEnd - keyStart > 1 && !IsRemapTargetKeyName(_s.AsSpan(keyStart, keyEnd - keyStart)))
+				return -1;
 			while (i < _n && (_s[i] == ' ' || _s[i] == '\t')) i++;          // trailing whitespace
 			if (i >= _n || _s[i] == '\n' || _s[i] == '\r') return keyEnd;   // EOL -> remap
 			if (_s[i] == ';') return keyEnd;                               // trailing comment -> remap
 			if (_s[i] == '/' && i + 1 < _n && _s[i + 1] == '*') return keyEnd;
 			return -1;                                                      // something else follows -> hotkey body
+		}
+
+		// Whether `keyName` resolves to a real key (named key, vk/sc notation) via the same table the hotkey
+		// engine uses, so remap detection never accepts an ordinary identifier (a function name) as a key.
+		// Falls back to true when no runtime key tables are available (e.g. standalone tooling), preserving
+		// the legacy permissive behavior in that case.
+		private static bool IsRemapTargetKeyName(System.ReadOnlySpan<char> keyName)
+		{
+			var ht = Keysharp.Runtime.Script.TheScript?.HookThread;
+			if (ht == null)
+				return true;
+			uint vk = 0, sc = 0;
+			var source = Keysharp.Internals.Input.Keyboard.KeySource.None;
+			uint? mods = null;
+			return ht.TextToVKandSC(keyName, ref vk, ref sc, ref source, ref mods, 0, allowVkScPair: false);
 		}
 
 		// Splits a validated remap line `source::target` into its source/target key text, honoring backtick escapes

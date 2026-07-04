@@ -1304,14 +1304,18 @@ namespace Keysharp.Internals.Input.Hooks
 		// path of CollectInputHook plus the DOWN_SUPPRESSED bookkeeping of CollectKeyUp, but dispatches
 		// the dedicated OnMouseDown/OnMouseUp callbacks. Mouse buttons are valid VKs (VK_LBUTTON, ...),
 		// so the existing keyVK[] suppression flags (KeyOpt +S/+V, VisibleNonText) apply unchanged.
+		// Like CollectInputHook/CollectKeyUp, 'early' partitions the input chain: the before-hotkeys pass
+		// (early=true) services H-option InputHooks so a button is seen BEFORE a hotkey can suppress it;
+		// the after-hotkeys pass (early=false, from AllowIt) services the rest. An input only ever matches
+		// one pass, so it is never notified twice.
 		// Returns true if the caller should treat the event as visible (non-suppressed).
-		internal bool CollectMouseInput(ulong extraInfo, uint vk, bool keyUp, int x, int y, object eventInfo)
+		internal bool CollectMouseInput(ulong extraInfo, uint vk, bool keyUp, int x, int y, object eventInfo, bool early)
 		{
 			var input = Script.TheScript.input;
 
 			for (; input != null; input = input.prev)
 			{
-				if (!(input.IsInteresting(extraInfo) && input.InProgress()))
+				if (!(input.BeforeHotkeys == early && input.IsInteresting(extraInfo) && input.InProgress()))
 					continue;
 
 				var keyFlags = input.keyVK[vk];
@@ -2052,9 +2056,28 @@ namespace Keysharp.Internals.Input.Hooks
 			// is done only once for each event.  If there are no InputHooks with the H option, the translation is done
 			// later to avoid any change in behavior compared to v2.0 (such as dead keys affecting the translation prior
 			// to being suppressed by a hotkey), or not done at all if the event is suppressed by other means.
-			if (isKeyboardEvent && script.inputBeforeHotkeysCount > 0
-					&& !EarlyCollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr, eventInfo))
-				return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
+			// Keysharp extends InputHook to also collect mouse buttons/wheel (OnMouseDown/OnMouseUp), which AHK does
+			// not, so — unlike stock AHK — the before-hotkeys pass must run for mouse events too. Otherwise a button
+			// consumed by a mouse hotkey (which returns via SuppressThisKeyFunc, never reaching AllowIt) would never
+			// be seen by an H InputHook. vk==0 is mouse movement (no button); that is handled via CollectMouseMove.
+			if (script.inputBeforeHotkeysCount > 0)
+			{
+				if (isKeyboardEvent)
+				{
+					if (!EarlyCollectInput(extraInfo, rawSc, vk, sc, keyUp, isIgnored, collectInputState, keyHistoryCurr, eventInfo))
+						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
+				}
+				else if (vk != 0 && script.input != null)
+				{
+					int emx = 0, emy = 0;
+
+					if (e is MouseHookEventArgs emhe) { emx = emhe.Data.X; emy = emhe.Data.Y; }
+					else if (e is MouseWheelHookEventArgs emwe) { emx = emwe.Data.X; emy = emwe.Data.Y; }
+
+					if (!CollectMouseInput(extraInfo, vk, keyUp, emx, emy, eventInfo, early: true))
+						return new nint(SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIdToPost, null, eventInfo: eventInfo));
+				}
+			}
 
 			// v1.0.43: Block the Win keys during journal playback to prevent keystrokes hitting the Start Menu
 			// if the user accidentally presses one of those keys during playback.  Note: Keys other than Win
@@ -3514,7 +3537,7 @@ namespace Keysharp.Internals.Input.Hooks
 					if (e is MouseHookEventArgs mhe) { mx = mhe.Data.X; my = mhe.Data.Y; }
 					else if (e is MouseWheelHookEventArgs mwe) { mx = mwe.Data.X; my = mwe.Data.Y; }
 
-					if (!CollectMouseInput(extraInfo, vk, keyUp, mx, my, eventInfo))
+					if (!CollectMouseInput(extraInfo, vk, keyUp, mx, my, eventInfo, early: false))
 						return SuppressThisKeyFunc(e, vk, sc, rawSc, keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, eventInfo: eventInfo);
 				}
 

@@ -6,7 +6,8 @@
     InputHUD — an on-screen keyboard + mouse HUD whose keys and buttons light up live as you type
     and click (a "keycaster", handy for screencasts, demos and teaching).
 
-        - Two always-on-top overlays: a keyboard and a mouse. Keys/buttons glow while physically held.
+        - Two always-on-top overlays: a keyboard and a mouse. Keys/buttons glow while held — blue when you
+          physically press them, amber when a script or remap injects them (Send).
         - The layout adapts to the OS: Win/Super/Alt/Menu on Windows & Linux, Command/Option/Control on macOS.
         - Both HUDs are separately draggable: hold Super/Win/Cmd and drag either one to reposition it.
         - Non-intrusive: it never swallows your input — everything you press still reaches your apps.
@@ -14,11 +15,16 @@
         Hold Super/Win/Cmd + drag  ...  move a HUD
         Ctrl+Alt+Shift+Q           ...  quit
 
-    Demonstrates cross-platform Keysharp: a single InputHook capturing BOTH keyboard and mouse
-    (OnKeyDown/OnKeyUp + OnMouseDown/OnMouseUp, KeyOpt("{All}","N") to notify-without-suppressing),
-    physical key/button state, Overlay canvases drawn with Image primitives (FillRoundRect/DrawText) and
-    updated live via SetImage, live repositioning through Overlay.X/Y, and a HotIf-scoped hotkey so the
-    drag only captures the click while the cursor is over a HUD (so normal clicks pass straight through).
+    Demonstrates cross-platform Keysharp: a single InputHook ("V H") capturing BOTH keyboard and mouse
+    (OnKeyDown/OnKeyUp + OnMouseDown/OnMouseUp, KeyOpt("{All}","N") to notify-without-suppressing; the "H"
+    option also surfaces input a hotkey/remap suppresses, so a remap's physical source and the #LButton used
+    to drag a HUD still register), telling physical from injected input via A_EventInfo.IsInjected, Overlay
+    canvases drawn with Image primitives (FillRoundRect/DrawText) and updated live via SetImage, live
+    repositioning through Overlay.X/Y, and a HotIf-scoped hotkey so the drag only captures the click while the
+    cursor is over a HUD (so normal clicks pass straight through).
+
+    Note: amber (injected) only lights for keys the hook can observe — on Linux that means the sender used
+    SendMode "Event" (the default "Input"/SendInput bypasses the hook); on Windows, cross-process injections.
 
     Threading note: overlays, Image text and ToolTip all use the GUI toolkit, which isn't ready during
     top-level auto-execute (it runs before the event loop is up). SetTimer callbacks are pseudo-threads
@@ -40,17 +46,20 @@ class InputHUD {
     static Border  := "0xFF3A3F4B"
     static KeyFill := "0xFF2C313C"       ; idle key
     static KeyText := "0xFFD7DCE5"
-    static LitFill := "0xFF17A3F0"       ; pressed key (bright blue)
+    static LitFill := "0xFF17A3F0"       ; physically-pressed key (bright blue)
     static LitText := "0xFF07101C"
     static LitEdge := "0xFFCDEBFF"
+    static SynFill := "0xFFF5A623"       ; script-injected key (amber): Send/remap output, not a physical press
+    static SynText := "0xFF1A1206"
+    static SynEdge := "0xFFFFE3B0"
 
     ; ---- state -------------------------------------------------------------
     static DPI := 1                      ; screen scale (A_ScreenDPI/96): render at physical res, place/hit-test in physical px
     static ih := ""
     static kb := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size), keys[]}
     static ms := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size)}
-    static down := Map()                 ; vk -> true (pressed keys)
-    static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> true
+    static down := Map()                 ; vk -> "phys" | "synth"  (pressed keys, keyed by origin)
+    static mdown := Map()                ; "left"/"right"/"middle"/"x1"/"x2" -> "phys" | "synth"
     static wheelFlash := 0               ; -1 up, +1 down, 0 none
     static dispVk := Map()               ; vks the keyboard actually shows (gates re-render)
     static isMac := false
@@ -86,6 +95,7 @@ class InputHUD {
         Hotkey("^!+q", (*) => ExitApp())
         HotkeyCard.Show("Input HUD", [
             ["Type / click", "Keys & buttons light up as you press"],
+            ["Blue vs amber", "Blue = physical; amber = script-injected (Send / remap)"],
             ["Super/Win/Cmd + drag", "Move a HUD"],
             ["Ctrl+Alt+Shift+Q", "Quit"] ])
     }
@@ -175,12 +185,12 @@ class InputHUD {
         img.FillRoundRect(0, 0, kb.w, kb.h, 14, this.Bg)
         img.DrawRoundRect(1, 1, kb.w - 2, kb.h - 2, 14, this.Border, 2)
         for k in kb.keys {
-            local lit := this.down.Has(k.vk)
-            img.FillRoundRect(k.px, k.py, k.pw, this.U, 6, lit ? this.LitFill : this.KeyFill)
-            if lit
-                img.DrawRoundRect(k.px + 0.5, k.py + 0.5, k.pw - 1, this.U - 1, 6, this.LitEdge, 1.5)
+            local src := this.down.Has(k.vk) ? this.down[k.vk] : ""
+            img.FillRoundRect(k.px, k.py, k.pw, this.U, 6, src = "synth" ? this.SynFill : src = "phys" ? this.LitFill : this.KeyFill)
+            if (src != "")
+                img.DrawRoundRect(k.px + 0.5, k.py + 0.5, k.pw - 1, this.U - 1, 6, src = "synth" ? this.SynEdge : this.LitEdge, 1.5)
             if (k.label != "")
-                img.DrawText(k.label, k.tx, k.ty, lit ? this.LitText : this.KeyText, this.Font)
+                img.DrawText(k.label, k.tx, k.ty, src = "synth" ? this.SynText : src = "phys" ? this.LitText : this.KeyText, this.Font)
         }
         kb.ov.SetImage(img)
         img.Dispose()
@@ -196,23 +206,34 @@ class InputHUD {
 
         local half := bw / 2, btnH := bh * 0.42, gap := 4
         ; left / right buttons
-        img.FillRoundRect(bx + gap,            by + gap, half - gap*1.5, btnH, 14, this.mdown.Has("left")  ? this.LitFill : "0xFF3A404D")
-        img.FillRoundRect(bx + half + gap*0.5, by + gap, half - gap*1.5, btnH, 14, this.mdown.Has("right") ? this.LitFill : "0xFF3A404D")
+        img.FillRoundRect(bx + gap,            by + gap, half - gap*1.5, btnH, 14, this.BtnFill("left"))
+        img.FillRoundRect(bx + half + gap*0.5, by + gap, half - gap*1.5, btnH, 14, this.BtnFill("right"))
         ; scroll wheel (also the middle button) between them
         local ww := 12, wx := bx + half - ww/2, wy := by + gap + 3
-        local wheelLit := this.mdown.Has("middle") || this.wheelFlash != 0
-        img.FillRoundRect(wx, wy, ww, btnH - 6, 6, wheelLit ? this.LitFill : "0xFF565E6E")
+        local midFill := "0xFF565E6E"                                    ; idle wheel
+        if this.mdown.Has("middle")
+            midFill := this.mdown["middle"] = "synth" ? this.SynFill : this.LitFill
+        else if (this.wheelFlash != 0)
+            midFill := this.LitFill                                      ; a scroll tick flashes blue
+        img.FillRoundRect(wx, wy, ww, btnH - 6, 6, midFill)
         if (this.wheelFlash != 0) {                                      ; a little up/down tick on scroll
             local ay := (this.wheelFlash < 0) ? wy + 3 : wy + btnH - 12
             img.FillRect(wx + 3, ay, ww - 6, 3, this.LitEdge)
         }
         ; thumb (side) buttons
-        img.FillRoundRect(bx - 3, by + btnH + 10, 6, 16, 3, this.mdown.Has("x2") ? this.LitFill : "0xFF3A404D")
-        img.FillRoundRect(bx - 3, by + btnH + 30, 6, 16, 3, this.mdown.Has("x1") ? this.LitFill : "0xFF3A404D")
+        img.FillRoundRect(bx - 3, by + btnH + 10, 6, 16, 3, this.BtnFill("x2"))
+        img.FillRoundRect(bx - 3, by + btnH + 30, 6, 16, 3, this.BtnFill("x1"))
 
         img.DrawText("Mouse", bx, ms.h - 16, this.KeyText, "Arial 9")
         ms.ov.SetImage(img)
         img.Dispose()
+    }
+
+    ; Fill colour for a mouse-button rectangle by pressed origin: physical = blue, injected = amber, idle = grey.
+    static BtnFill(name) {
+        if !this.mdown.Has(name)
+            return "0xFF3A404D"
+        return this.mdown[name] = "synth" ? this.SynFill : this.LitFill
     }
 
     ; ======================================================================
@@ -221,8 +242,10 @@ class InputHUD {
     ; ======================================================================
     static HookInput() {
         ; "V" (VisibleText + VisibleNonText) = never suppress: this is a passive monitor, so every key still
-        ; reaches your focused app. KeyOpt("{All}","N") then makes every key fire OnKeyDown/OnKeyUp too.
-        this.ih := InputHook("V")
+        ; reaches your focused app. "H" collects each event BEFORE hotkey processing, so we also see input a
+        ; hotkey/remap suppresses — a remap's physical source key, or the #LButton used to drag a HUD — not
+        ; just what passes through. KeyOpt("{All}","N") makes every key fire OnKeyDown/OnKeyUp.
+        this.ih := InputHook("V H")
         this.ih.KeyOpt("{All}", "N")
         this.ih.OnKeyDown    := (h, vk, sc) => this.OnKey(vk, true)
         this.ih.OnKeyUp      := (h, vk, sc) => this.OnKey(vk, false)
@@ -232,13 +255,24 @@ class InputHUD {
     }
 
     static OnKey(vk, isDown) {
+        ; Record each pressed key by origin so it can be coloured: "phys" (your fingers) vs "synth" (injected
+        ; by a script/remap). A_EventInfo.IsInjected tells them apart. Clear a key only on an up whose origin
+        ; matches what we recorded, so an injected up can't wipe a physical hold (or vice versa) — this also
+        ; absorbs the unbalanced ups a passive monitor sees (keys held before start, OS-synthesized releases,
+        ; the masking LCtrl on Win-hotkey release). ExpandVk fans a generic Ctrl/Shift/Alt out to both sides.
+        local src := A_EventInfo.IsInjected ? "synth" : "phys"
         for v in this.ExpandVk(vk) {
-            if isDown
-                this.down[v] := true
-            else
+            if isDown {
+                if (!this.down.Has(v) || this.down[v] != src) {
+                    this.down[v] := src
+                    if this.dispVk.Has(v)
+                        this.kbDirty := true
+                }
+            } else if (this.down.Has(v) && this.down[v] = src) {
                 this.down.Delete(v)
-            if this.dispVk.Has(v)
-                this.kbDirty := true
+                if this.dispVk.Has(v)
+                    this.kbDirty := true
+            }
         }
     }
 
@@ -264,11 +298,13 @@ class InputHUD {
             }
             return
         }
-        if isDown
-            this.mdown[n] := true
-        else
-            this.mdown.Delete(n)
-        this.msDirty := true
+        ; Same origin bookkeeping as OnKey: record "phys"/"synth", and only clear on a matching-origin up.
+        local src := A_EventInfo.IsInjected ? "synth" : "phys"
+        if isDown {
+            if (!this.mdown.Has(n) || this.mdown[n] != src)
+                this.mdown[n] := src, this.msDirty := true
+        } else if (this.mdown.Has(n) && this.mdown[n] = src)
+            this.mdown.Delete(n), this.msDirty := true
     }
 
     static NormBtn(btn) {
@@ -314,6 +350,8 @@ class InputHUD {
         CoordMode("Mouse", "Screen")
         MouseGetPos(&gx, &gy)
         local offX := gx - o.x, offY := gy - o.y
+        ; No workaround needed to light LButton here: with the InputHook's "H" option the #LButton press is
+        ; reported to OnMouseDown (as physical) even though this hotkey suppresses it, so the HUD lights it.
         while GetKeyState("LButton", "P") {
             MouseGetPos(&mx, &my)
             o.x := mx - offX, o.y := my - offY

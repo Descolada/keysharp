@@ -377,7 +377,7 @@ namespace Keysharp.Builtins
 
 			_message = ex?.Message ?? GetType().Name;
 			_what = ex?.Source ?? "";
-			_stack = ex?.StackTrace;
+			_stack = KeysharpException.FormatFilteredStack(ex);
 			_stackInitialized = true;
 		}
 
@@ -688,6 +688,22 @@ namespace Keysharp.Builtins
 		private static bool IsFunctionObjectDispatchFrame(Type type, MethodBase method)
 			=> typeof(IFuncObj).IsAssignableFrom(type)
 			   && (method.Name == nameof(IFuncObj.Call) || method.Name == nameof(IFuncObj.CallInst));
+
+		/// <summary>
+		/// Builds a filtered, formatted stack string for an arbitrary exception. Used for plain .NET
+		/// exceptions (e.g. an InvalidCastException raised inside a callback trampoline) that are shown
+		/// to the user without ever being wrapped in a <see cref="KeysharpException"/>: they must have
+		/// their Keysharp-internal frames stripped in Release builds just like our own exceptions do.
+		/// </summary>
+		/// <returns>The filtered stack, or an empty string if the exception carries no captured trace.</returns>
+		internal static string FormatFilteredStack(Exception ex)
+		{
+			if (ex == null)
+				return string.Empty;
+
+			var st = new StackTrace(ex, true);
+			return st.FrameCount == 0 ? string.Empty : FormatStack(FilterUserFrames(st.GetFrames()));
+		}
 
 		/// <summary>
 		/// Helper function to convert the filtered stack trace into a formatted string.
@@ -1521,7 +1537,12 @@ namespace Keysharp.Builtins
 		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
 		{
 			KeysharpException kex = ex as KeysharpException;
-			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+			// A plain .NET exception (never wrapped in a KeysharpException) still needs its internal frames
+			// stripped, and the "Stack:\n\t" framing so the dialog marks the causing frame with ▶ the same way
+			// it does for our own exceptions. kex.ToString() already emits a filtered trace in this format.
+			string msg = kex != null
+				? kex.ToString()
+				: $"Message: {ex.Message}{Environment.NewLine}Stack:{Environment.NewLine}\t{KeysharpException.FormatFilteredStack(ex)}";
 			using var dlg = new ErrorDialog(msg, ErrorDialogKind.RuntimeError, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();
@@ -1822,7 +1843,12 @@ namespace Keysharp.Builtins
 		internal static ErrorDialogResult Show(Exception ex, bool allowContinue = true)
 		{
 			KeysharpException kex = ex as KeysharpException;
-			string msg = kex != null ? kex.ToString() : $"Message: {ex.Message}{Environment.NewLine}Stack: {ex.StackTrace}";
+			// A plain .NET exception (never wrapped in a KeysharpException) still needs its internal frames
+			// stripped, and the "Stack:\n\t" framing so the dialog marks the causing frame with ▶ the same way
+			// it does for our own exceptions. kex.ToString() already emits a filtered trace in this format.
+			string msg = kex != null
+				? kex.ToString()
+				: $"Message: {ex.Message}{Environment.NewLine}Stack:{Environment.NewLine}\t{KeysharpException.FormatFilteredStack(ex)}";
 			using var dlg = new ErrorDialog(msg, ErrorDialogKind.RuntimeError, allowContinue && kex?.UserError != null ? kex.UserError.ExcType == Keyword_Return : false);
 			using (Keysharp.Internals.Flow.BeginDialogInterruptibilityScope())
 				dlg.ShowDialog();

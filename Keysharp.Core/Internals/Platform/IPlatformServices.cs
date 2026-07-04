@@ -140,6 +140,13 @@ namespace Keysharp.Internals
 		/// <summary>Warp the cursor to an absolute screen position (the clip-correction counterpart to
 		/// <see cref="TryGetCursorPos"/>): X11 <c>XWarpPointer</c> / the Wayland compositor backend.</summary>
 		bool TryMoveAbsolute(int x, int y);
+
+		/// <summary>Live PHYSICAL state of a mouse button (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON1/2), for
+		/// GetKeyState(.., "P") when no mouse hook is tracking it — the cross-platform analogue of Win32
+		/// GetAsyncKeyState (X11 <c>XQueryPointer</c> mask, macOS <c>CGEventSourceButtonState</c>, Wayland via
+		/// the inputd daemon's evdev read). Returns false if this platform cannot answer, so the caller falls
+		/// back to the hook-tracked state.</summary>
+		bool TryGetPhysicalMouseButtonState(uint vk, out bool down);
 	}
 
 	/// <summary>Monitors, work area, screen/window capture.</summary>

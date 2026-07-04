@@ -2677,6 +2677,23 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		/// <param name="vk"></param>
 		internal override bool IsKeyDown(uint vk)
 		{
+			// Mouse buttons have no keysym for XQueryKeymap, and physicalKeyState[VK_*BUTTON] is only tracked
+			// while a mouse hook is installed. Query the live physical button state instead (X11 XQueryPointer /
+			// Wayland via inputd / macOS CGEventSourceButtonState). This is what lets GetKeyState("LButton") and
+			// GetKeyState("LButton","P")-without-a-mouse-hook work in a keyboard-only script (e.g. a click-drag
+			// poll loop). When a mouse hook IS active the pointer device is grabbed (X/live query is blind to it),
+			// so prefer the hook's tracked state in that case.
+			if (MouseUtils.IsMouseVK(vk))
+			{
+				if (HasMouseHook() && vk < physicalKeyState.Length)
+					return (physicalKeyState[vk] & StateDown) != 0;
+
+				if (Keysharp.Internals.Platform.Mouse.TryGetPhysicalMouseButtonState(vk, out var mouseDown))
+					return mouseDown;
+
+				return false;
+			}
+
 			if (HasKbdHook())
 			{
 				var modMask = vk switch
@@ -2710,6 +2727,20 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		}
 		internal override bool IsKeyDownAsync(uint vk)
 		{
+			// Mouse buttons: physicalKeyState[VK_*BUTTON] is only tracked while a mouse hook is active, so with
+			// no hook query the live physical state (X11 XQueryPointer / Wayland inputd / macOS). Mirrors the
+			// GetAsyncKeyState answer the OS gives regardless of any hook.
+			if (MouseUtils.IsMouseVK(vk))
+			{
+				if (HasMouseHook() && vk < physicalKeyState.Length)
+					return (physicalKeyState[vk] & StateDown) != 0;
+
+				if (Keysharp.Internals.Platform.Mouse.TryGetPhysicalMouseButtonState(vk, out var mouseDown))
+					return mouseDown;
+
+				return false;
+			}
+
 			// Mirror Windows' GetAsyncKeyState: report OS-level key state.
 			//
 			// On the inputd path every key event — physical (evdev) and synthetic

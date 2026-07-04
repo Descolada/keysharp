@@ -29,6 +29,13 @@ namespace Keysharp.Internals
 		public abstract bool SupportsCursorClip { get; }
 		public abstract bool TryMoveAbsolute(int x, int y);
 
+		// Default: unknown. X11 answers via XQueryPointer, Wayland via the inputd daemon.
+		public virtual bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		{
+			down = false;
+			return false;
+		}
+
 		// Maps a daemon absolute-pointer axis (normalised to [0,65535] across the virtual desktop) to a screen pixel.
 		protected static bool TryScalePointerAxis(int value, int min, int max, int size, out int scaled)
 		{
@@ -56,6 +63,49 @@ namespace Keysharp.Internals
 
 		// XWarpPointer is pixel-accurate, unlike inputd's normalised uinput abs path.
 		public override bool TryMoveAbsolute(int x, int y) => TryX11Warp(x, y);
+
+		// Physical button state straight from the X server: XQueryPointer's mask carries Button1/2/3
+		// (left/middle/right). Works with no grab/hook — the daemon only grabs the mouse when a mouse hook is
+		// subscribed, so whenever this fallback is reached the pointer state X reports is authoritative.
+		// XButton1/2 (side buttons) aren't in the core pointer mask, so they return false (caller falls back).
+		public override bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		{
+			down = false;
+
+			// Button1Mask=0x100 (left), Button2Mask=0x200 (middle), Button3Mask=0x400 (right).
+			uint mask = vk switch
+			{
+				0x01u => 0x100u, // VK_LBUTTON
+				0x04u => 0x200u, // VK_MBUTTON
+				0x02u => 0x400u, // VK_RBUTTON
+				_ => 0u
+			};
+
+			if (mask == 0)
+				return false;
+
+			try
+			{
+				var display = Keysharp.Internals.Window.Linux.Proxies.XDisplay.Default;
+
+				if (display == null || display.Handle == 0)
+					return false;
+
+				var root = Keysharp.Internals.Window.Linux.X11.Xlib.XDefaultRootWindow(display.Handle);
+
+				if (Keysharp.Internals.Window.Linux.X11.Xlib.XQueryPointer(display.Handle, root,
+						out _, out _, out _, out _, out _, out _, out var state))
+				{
+					down = (state & mask) != 0;
+					return true;
+				}
+			}
+			catch
+			{
+			}
+
+			return false;
+		}
 
 		// Reads the pointer straight from the X server (root window = virtual desktop). Safe from any thread.
 		private static bool TryGetX11CursorPos(out int x, out int y)
@@ -143,6 +193,11 @@ namespace Keysharp.Internals
 		public override bool SupportsCursorClip => backend?.SupportsMouse == true && backend.TryGetCursorPos(out _, out _);
 
 		public override bool TryMoveAbsolute(int x, int y) => backend?.TrySendMouseMoveAbsolute(x, y) == true;
+
+		// Wayland forbids clients from querying global pointer state, so ask the inputd daemon: it reads evdev
+		// and can snapshot the current button state (EVIOCGKEY) without grabbing the mouse or installing a hook.
+		public override bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+			=> KeysharpInputdManager.TryGetPhysicalMouseButtonState(vk, out down);
 	}
 #elif WINDOWS
 	internal sealed class WindowsMouse : IMouse
@@ -163,6 +218,14 @@ namespace Keysharp.Internals
 		// sender — neither is routed through this service, so the clip-warp capability is simply unavailable here.
 		public bool SupportsCursorClip => false;
 		public bool TryMoveAbsolute(int x, int y) => false;
+
+		// Same OS source Windows already uses for physical mouse-button state (WindowsHookThread.IsKeyDownAsync):
+		// GetAsyncKeyState works with no hook and respects the L/R button swap, matching GetKeyState(.., "P").
+		public bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		{
+			down = (Keysharp.Internals.Os.Windows.WindowsAPI.GetAsyncKeyState((int)vk) & 0x8000) != 0;
+			return true;
+		}
 	}
 #elif OSX
 	internal sealed class MacMouse : IMouse
@@ -181,6 +244,38 @@ namespace Keysharp.Internals
 
 		public bool SupportsCursorClip => false;
 		public bool TryMoveAbsolute(int x, int y) => false;
+
+		[System.Runtime.InteropServices.DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
+		[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I1)]
+		private static extern bool CGEventSourceButtonState(int sourceState, uint button);
+
+		// Live physical mouse-button state via CoreGraphics (no hook/tap needed), matching GetKeyState(.., "P").
+		// CGMouseButton: Left=0, Right=1, Center=2; extra buttons 3/4 map to XButton1/2.
+		public bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		{
+			down = false;
+			uint button;
+
+			switch (vk)
+			{
+				case 0x01: button = 0; break; // VK_LBUTTON
+				case 0x02: button = 1; break; // VK_RBUTTON
+				case 0x04: button = 2; break; // VK_MBUTTON
+				case 0x05: button = 3; break; // VK_XBUTTON1
+				case 0x06: button = 4; break; // VK_XBUTTON2
+				default: return false;
+			}
+
+			try
+			{
+				down = CGEventSourceButtonState(0 /*kCGEventSourceStateCombinedSessionState*/, button);
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
 	}
 #endif
 }

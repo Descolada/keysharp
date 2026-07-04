@@ -1080,28 +1080,37 @@ break_twice:;
 					return ht.IsKeyToggledOn(vk); // This also works for non-"lock" keys, but in that case the toggle state can be out of sync with other processes/
 
 				case KeyStateTypes.Physical: // Physical state of key.
-					if (MouseUtils.IsMouseVK(vk)) // mouse button
+				{
+					// "P" must NEVER install a hook. If the relevant hook is already present, use its tracked
+					// physical state; otherwise fall through to the logical/live query below (IsKeyDown), which
+					// needs no hook — matching AutoHotkey, where "P" degrades to an OS query when the hook is
+					// absent. This makes GetKeyState(key,"P") work with no hook for BOTH keyboard keys (X11
+					// XQueryKeymap) and mouse buttons (XQueryPointer / platform query) — e.g. a click-drag poll
+					// loop's GetKeyState("LButton","P") in a keyboard-only script.
+					var isMouse = MouseUtils.IsMouseVK(vk);
+
+					if (isMouse ? ht.HasMouseHook() : ht.HasKbdHook())
 					{
-						return ht.HasMouseHook() ? (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0 : ht.IsKeyDownAsync(vk); // mouse hook is installed, so use it's tracking of physical state.
-					}
-					else // keyboard
-					{
-						if (ht.HasKbdHook())
+						if (!isMouse)
 						{
 							bool? dummy = null;
 
-							// Since the hook is installed, use its value rather than that from
-							// GetAsyncKeyState(), which doesn't seem to return the physical state.
-							// But first, correct the hook modifier state if it needs it.  See comments
-							// in GetModifierLRState() for why this is needed:
+							// The hook is installed, so use its tracked physical state rather than an OS query.
+							// But first, correct the hook modifier state if it needs it (see GetModifierLRState()).
 							if (ht.KeyToModifiersLR(vk, 0, ref dummy) != 0)    // It's a modifier.
-								_ = kbdMouseSender.GetModifierLRState(true); // Correct hook's physical state if needed.
+								_ = kbdMouseSender.GetModifierLRState(true);
 
-							return (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0;
+							if (vk < ht.physicalKeyState.Length)
+								return (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0;
+
+							return false;
 						}
-						else
-							return ht.IsKeyDownAsync(vk);
+
+						return (ht.physicalKeyState[vk] & KeyboardMouseSender.StateDown) != 0;
 					}
+
+					break; // No hook installed: fall through to the logical/live query (which installs nothing).
+				}
 			} // switch()
 
 			// Otherwise, use the default state-type: KEYSTATE_LOGICAL

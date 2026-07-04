@@ -235,6 +235,60 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		/// <summary>
+		/// Live physical state of one mouse button (Wayland path for GetKeyState(.., "P")). The daemon snapshots
+		/// evdev button state via EVIOCGKEY, so this works with no mouse grab/hook. Returns false — leaving the
+		/// caller to fall back to hook-tracked state — if the daemon is unavailable, lacks the query (older
+		/// daemon), or has no readable pointer device.
+		/// </summary>
+		internal static bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		{
+			down = false;
+
+			// Bit layout mirrors KeysharpInputdClient.TryGetPointerButtons: 0=left,1=right,2=middle,3=X1,4=X2.
+			var bit = vk switch
+			{
+				0x01u => 1u << 0, // VK_LBUTTON
+				0x02u => 1u << 1, // VK_RBUTTON
+				0x04u => 1u << 2, // VK_MBUTTON
+				0x05u => 1u << 3, // VK_XBUTTON1
+				0x06u => 1u << 4, // VK_XBUTTON2
+				_ => 0u
+			};
+
+			if (bit == 0)
+				return false;
+
+			if (!EnsureCapabilities(
+					KeysharpInputdClient.Capabilities.HookMouse,
+					"query mouse button state").IsGranted)
+				return false;
+
+			var buttonsMask = 0u;
+
+			try
+			{
+				var success = TryUseQueryClient(qc =>
+				{
+					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookMouse)
+						|| !qc.TryGetPointerButtons(out buttonsMask))
+						return false;
+
+					return true;
+				});
+
+				if (!success)
+					return false;
+
+				down = (buttonsMask & bit) != 0;
+				return true;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
 		private static KeysharpInputdClient GetOrCreateQueryClient()
 		{
 			// Keep lock order consistent with DisconnectClients()/DisposeClient():

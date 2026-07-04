@@ -65,6 +65,8 @@ namespace Keysharp.Internals.Input.Linux
 			PointerPositionResult = 43,
 			GetKeyState          = 44,
 			KeyStateResult       = 45,
+			GetPointerButtons    = 46,
+			PointerButtonsResult = 47,
 		}
 
 		internal enum HookType : uint
@@ -446,6 +448,32 @@ namespace Keysharp.Internals.Input.Linux
 				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(16)),
 				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(20)),
 				BinaryPrimitives.ReadInt32LittleEndian(response.Payload.AsSpan(24)));
+			return true;
+		}
+
+		/// <summary>
+		/// Snapshot of which physical mouse buttons are currently held, read by the daemon straight from evdev
+		/// (EVIOCGKEY) with no grab required. Bit 0 = left, 1 = right, 2 = middle, 3 = X1 (side), 4 = X2 (extra).
+		/// This is the Wayland analogue of X11's XQueryPointer button mask — used for GetKeyState(.., "P") when
+		/// no mouse hook is tracking state. Returns false if the daemon could not read any pointer device.
+		/// </summary>
+		internal bool TryGetPointerButtons(out uint buttons)
+		{
+			buttons = 0;
+
+			var correlationId = NextCorrelationId();
+			SendFrame(MessageType.GetPointerButtons, correlationId, ReadOnlySpan<byte>.Empty);
+			var response = ReadResponseFrame(MessageType.PointerButtonsResult, correlationId);
+
+			if (response.Type != MessageType.PointerButtonsResult || response.CorrelationId != correlationId)
+				throw new InvalidDataException(
+					$"Unexpected response to GetPointerButtons: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
+
+			// Payload: [byte ok][3 pad][uint32 button mask]. ok==0 means no readable pointer device.
+			if (response.Payload.Length < 8 || response.Payload[0] == 0)
+				return false;
+
+			buttons = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(4));
 			return true;
 		}
 

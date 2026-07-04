@@ -1550,13 +1550,18 @@ namespace Keysharp.Internals
 
 		private static object X11Transparency(nint h)
 		{
-			long alpha = 0xFF;
-
 			if (!X11Specified(h))
-				return alpha;
+				return -1L; // No transparency; matches Windows (WinGetTransparent -> "").
 
-			_ = X11ReadProps(h, Display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, atom => { alpha = atom; return false; });
-			return alpha;
+			long opacity = -1;
+			_ = X11ReadProps(h, Display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, atom => { opacity = atom & 0xFFFFFFFFL; return false; });
+
+			if (opacity < 0)
+				return -1L; // _NET_WM_WINDOW_OPACITY unset => fully opaque / no transparency level.
+
+			// _NET_WM_WINDOW_OPACITY is a 32-bit CARDINAL (0 = fully transparent, 0xFFFFFFFF = fully opaque).
+			// Scale it back to AutoHotkey's 0..255 alpha (0xFFFFFFFF -> 255).
+			return opacity * 255 / 0xFFFFFFFFL;
 		}
 
 		private static void X11SetTransparency(nint h, object value)
@@ -1573,8 +1578,12 @@ namespace Keysharp.Internals
 			}
 			else
 			{
-				var alpha = (nint)Math.Clamp((int)value.Al(), 0, 255);
-				_ = Xlib.XChangeProperty(display.Handle, h.ToInt64(), display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, 32, PropertyMode.Replace, ref alpha, 1);
+				var a255 = Math.Clamp((int)value.Al(), 0, 255);
+				// _NET_WM_WINDOW_OPACITY is a 32-bit CARDINAL (0 = fully transparent, 0xFFFFFFFF = fully opaque),
+				// not a 0..255 byte. Scale AutoHotkey's 0..255 alpha up to that range (255 -> 0xFFFFFFFF exactly,
+				// since 0xFFFFFFFF / 255 = 16843009). Without this every value below 255 collapses to ~0% opaque.
+				var opacity = (nint)(uint)((long)a255 * 16843009L);
+				_ = Xlib.XChangeProperty(display.Handle, h.ToInt64(), display._NET_WM_WINDOW_OPACITY, (nint)XAtom.XA_CARDINAL, 32, PropertyMode.Replace, ref opacity, 1);
 			}
 
 			_ = Xlib.XFlush(display.Handle);

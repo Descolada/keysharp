@@ -46,17 +46,13 @@ namespace Keysharp.Internals.Window.MacOS
 		{
 			get
 			{
-				// PrimaryScreen is null in headless environments (e.g. CI runners with no display),
-				// where there is no overlay to skip anyway — treat "no screen" as "not an overlay".
-				var primary = Forms.Screen.PrimaryScreen;
-
-				if (primary == null)
-					return false;
-
-				var screen = primary.Bounds;
-				return screen.Width > 0 && screen.Height > 0
-					   && Bounds.Width >= screen.Width * 0.9
-					   && Bounds.Height >= screen.Height * 0.9;
+				// Use CoreGraphics (thread-safe) for the primary display size, not Forms.Screen/NSScreen: this
+				// runs during window enumeration and window-from-point, which Win*/#HotIf reach on off-main
+				// threads. A zero size (headless / no display) means there is no overlay to skip anyway.
+				var (screenW, screenH) = MacNativeWindows.PrimaryDisplaySize();
+				return screenW > 0 && screenH > 0
+					   && Bounds.Width >= screenW * 0.9
+					   && Bounds.Height >= screenH * 0.9;
 			}
 		}
 	}
@@ -104,6 +100,21 @@ namespace Keysharp.Internals.Window.MacOS
 		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
 		[return: MarshalAs(UnmanagedType.I1)]
 		private static partial bool CGRectMakeWithDictionaryRepresentation(nint dict, out CGRectNative rect);
+
+		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+		private static partial uint CGMainDisplayID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+		private static partial CGRectNative CGDisplayBounds(uint displayID);
+
+		// The primary display's size in points via CoreGraphics — thread-safe, unlike Forms.Screen/NSScreen
+		// (main-thread-only), so window enumeration / full-screen-overlay checks can run on a #HotIf or hook
+		// thread without an AppKitThreadAccessException. A zero size (headless / no display) reads as "no screen".
+		internal static (double Width, double Height) PrimaryDisplaySize()
+		{
+			var bounds = CGDisplayBounds(CGMainDisplayID());
+			return (bounds.Width, bounds.Height);
+		}
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", StringMarshalling = StringMarshalling.Utf8)]
 		private static partial nint CFStringCreateWithCString(nint alloc, string cStr, uint encoding);

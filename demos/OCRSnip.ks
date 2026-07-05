@@ -71,6 +71,12 @@ class OCRSnip {
         if this.Active
             return
 
+        ; Bail out with a clear error if the permissions the snip depends on aren't granted. Without Input
+        ; Monitoring the input hook reports no mouse events, so the selection loop below (which waits for a
+        ; physical click via GetKeyState) would spin forever and the snip would appear frozen. The check is
+        ; non-prompting, so it never blocks — grant the permission, restart Keysharp, then try again.
+        this.EnsurePermissions()
+
         this.Active := true
 
         ; Block the left mouse button (down AND up) from the app for the duration of the snip, so dragging
@@ -120,6 +126,18 @@ class OCRSnip {
             this.SetButtonBlock(false)
             this.Active := false
         }
+    }
+
+    ; Throws a clear, actionable error if a permission the snip needs isn't granted, so an ungranted run
+    ; fails fast instead of freezing. RequestCapabilities() (no args) reports each capability's status
+    ; without prompting; "Denied" is only ever returned on platforms that gate the capability (macOS), so
+    ; Windows/Linux ("NotApplicable"/"Granted") are unaffected.
+    static EnsurePermissions() {
+        local caps := RequestCapabilities()
+        if (caps.InputMonitoring = "Denied")
+            throw Error("OCR Snip needs Input Monitoring permission to track the mouse during a snip.",, "Grant it in System Settings > Privacy & Security > Input Monitoring (enable Keysharp), then restart Keysharp and try again.")
+        if (caps.ScreenCapture = "Denied")
+            throw Error("OCR Snip needs Screen Recording permission to capture the selected area.",, "Grant it in System Settings > Privacy & Security > Screen Recording (enable Keysharp), then restart Keysharp and try again.")
     }
 
     ; Toggle a global LButton (down+up) suppressor. Enabled only while a snip is in progress.

@@ -42,6 +42,11 @@ SKIP_PUBLISH="${SKIP_PUBLISH:-false}"
 SKIP_SIGN="${SKIP_SIGN:-false}"
 SKIP_NOTARIZE="${SKIP_NOTARIZE:-false}"
 ADHOC_SIGN="${ADHOC_SIGN:-false}"
+# When APP_CERT is unset, auto-use a stable local self-signed identity (created by
+# Keysharp.Install/macos/create-signing-cert.sh) if one exists, instead of ad-hoc/unsigned. A stable code
+# signature is what lets granted TCC permissions (Accessibility, Input Monitoring) survive rebuilds/updates.
+AUTO_SIGN="${AUTO_SIGN:-true}"
+AUTO_SIGN_IDENTITY="${AUTO_SIGN_IDENTITY:-Keysharp}"
 PKG_IDENTIFIER="${PKG_IDENTIFIER:-org.keysharp.pkg}"
 UNINSTALL_SCRIPT="${ROOT}/Keysharp.Install/macos/uninstall.sh"
 INSTALL_SCRIPT="${ROOT}/Keysharp.Install/macos/install.command"
@@ -342,6 +347,15 @@ if [ -n "${CONSOLE_USER}" ] && [ "${CONSOLE_USER}" != "root" ]; then
   CONSOLE_UID="$(id -u "${CONSOLE_USER}" 2>/dev/null || echo 0)"
   CONSOLE_HOME="$(dscl . -read "/Users/${CONSOLE_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
 
+  # Remove TCC permission entries created under an incorrectly-cased bundle id (org.keysharp.Keysharp /
+  # org.keysharp.Keyview) by earlier or ad-hoc-signed builds. The canonical ids are all-lowercase; the
+  # mis-cased duplicates otherwise split the app's permissions across two identities (e.g. Input Monitoring
+  # granted to one but read from the other). TCC is per-user, so reset as the console user. Harmless if the
+  # entries don't exist.
+  for badid in org.keysharp.Keysharp org.keysharp.Keyview; do
+    launchctl asuser "${CONSOLE_UID}" sudo -u "${CONSOLE_USER}" tccutil reset All "${badid}" >/dev/null 2>&1 || true
+  done
+
   ask_yes_no() {
     local prompt="$1"
     local result
@@ -448,6 +462,25 @@ sign_app_bundle() {
   sign_macho_files "${app}" "${sign_identity}"
   codesign --force --timestamp --options runtime "${entitlements_arg[@]}" --sign "${sign_identity}" "${app}"
   codesign --verify --deep --strict --verbose=2 "${app}"
+}
+
+# Prefer a stable local self-signed identity over ad-hoc/unsigned when no cert was requested, so a plain
+# `./package-macos.sh` produces a permission-stable build. Runs before validate_inputs so the selected
+# identity flows through validation, entitlements and signing exactly like an explicit APP_CERT.
+auto_select_app_cert() {
+  [[ -n "${APP_CERT}" ]] && return 0            # an explicit cert always wins
+  is_true "${SKIP_SIGN}" && return 0
+  is_true "${ADHOC_SIGN}" && return 0           # honor an explicit ad-hoc request
+  is_true "${AUTO_SIGN}" || return 0
+  command -v security >/dev/null 2>&1 || return 0
+
+  if security find-identity -v -p codesigning 2>/dev/null | grep -qF "\"${AUTO_SIGN_IDENTITY}\""; then
+    APP_CERT="${AUTO_SIGN_IDENTITY}"
+    log "APP_CERT not set; auto-using local self-signed identity \"${AUTO_SIGN_IDENTITY}\" (stable signature keeps TCC permissions across updates)."
+  else
+    log "APP_CERT not set and no \"${AUTO_SIGN_IDENTITY}\" signing identity found."
+    log "  Tip: run ./Keysharp.Install/macos/create-signing-cert.sh once so granted permissions persist across updates."
+  fi
 }
 
 sign_apps_if_requested() {
@@ -584,6 +617,7 @@ notarize_if_requested() {
   done
 }
 
+auto_select_app_cert
 validate_inputs
 publish_projects
 stage_payload

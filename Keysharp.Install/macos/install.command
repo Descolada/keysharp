@@ -31,6 +31,15 @@ for app in Keysharp Keyview; do
   fi
 done
 
+# Remove TCC permission entries created under an incorrectly-cased bundle id (org.keysharp.Keysharp /
+# org.keysharp.Keyview) by earlier or ad-hoc-signed builds. The canonical ids are all-lowercase
+# (org.keysharp.keysharp / org.keysharp.keyview); leaving the mis-cased duplicates around splits the app's
+# permissions across two identities (e.g. Input Monitoring granted to one but read from the other), which
+# shows up as a permission that "won't stick". Harmless if the entries don't exist.
+for badid in org.keysharp.Keysharp org.keysharp.Keyview; do
+  tccutil reset All "${badid}" >/dev/null 2>&1 || true
+done
+
 write_shim() {
   local destination="$1"
   local executable="$2"

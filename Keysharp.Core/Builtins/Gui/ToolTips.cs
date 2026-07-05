@@ -224,12 +224,17 @@ namespace Keysharp.Builtins
 				return live.Hwnd;
 			}
 
-			using var img = BuildTooltipImage(text);
+			// Build the bitmap at the screen's DPI scale and match the overlay's scale to it, so it is a
+			// physical-resolution image rather than a 1x one Cocoa/Retina then upscales into a blurry panel.
+			var scale = Ks.A_ScreenScale;
+
+			using var img = BuildTooltipImage(text, scale);
 
 			if (img == null)
 				return 0L;
 
 			var overlay = overlays[id] ??= new Ks.KeysharpOverlay();
+			overlay.Scale = scale;
 			_ = overlay.SetImage(img);
 			_ = overlay.Show(sx, sy);
 			data.overlayTooltipStates[id] = (text, sx, sy);
@@ -238,7 +243,7 @@ namespace Keysharp.Builtins
 
 		// Renders tooltip text to a bitmap: black text on the classic light-yellow background with a 1px black
 		// border, sized to the text plus padding. Returned as an Image the Overlay copies onto its canvas.
-		private static Ks.KeysharpImage BuildTooltipImage(string text)
+		private static Ks.KeysharpImage BuildTooltipImage(string text, double scale)
 		{
 			const int pad = 6;
 
@@ -250,12 +255,14 @@ namespace Keysharp.Builtins
 			var w = Math.Max(1, (int)Math.Ceiling(tw) + pad * 2);
 			var h = Math.Max(1, (int)Math.Ceiling(th) + pad * 2);
 
-			if (Ks.KeysharpImage.Create(null, (long)w, (long)h) is not Ks.KeysharpImage img)
+			// Create at the DPI scale: a physical-resolution bitmap drawn through a matching drawScale, so the
+			// logical coordinates below stay crisp on HiDPI instead of being upscaled from a 1x bitmap.
+			if (Ks.KeysharpImage.Create(null, (long)w, (long)h, null, scale) is not Ks.KeysharpImage img)
 				return null;
 
-			_ = img.FillRect(0L, 0L, (long)w, (long)h, 0xFFFFE1L);                    // light-yellow background
-			_ = img.DrawRect(0L, 0L, (long)(w - 1), (long)(h - 1), 0x000000L, 1L);    // black border
-			_ = img.DrawText(text, (long)pad, (long)pad, 0x000000L);                  // black text
+			_ = img.FillRect(0L, 0L, (long)w, (long)h, 0xFFFFE1L);       // light-yellow background
+			_ = img.DrawRect(0L, 0L, (long)w, (long)h, 0x000000L, 1L);   // black border — full w,h so it covers every edge
+			_ = img.DrawText(text, (long)pad, (long)pad, 0x000000L);     // black text
 			return img;
 		}
 

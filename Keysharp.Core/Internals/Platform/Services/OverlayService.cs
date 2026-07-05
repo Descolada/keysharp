@@ -594,11 +594,25 @@ namespace Keysharp.Internals
 			var old = displayed;
 
 #if OSX
-			// Cocoa sizes windows in LOGICAL points but renders into a HiDPI backing store: `size` is in points
-			// while `snapshot` is the physical-resolution (e.g. 2x) bitmap. Keep the hi-res bitmap and let the
-			// NSImageView draw it into the Retina backing at the point size — its pixels then map 1:1 to device
-			// pixels (crisp). Resizing it down to points here is exactly what made overlays look soft.
-			displayed = snapshot;
+			// Cocoa sizes windows in LOGICAL points but renders into a HiDPI backing store, so the visible surface
+			// is `size * backingScale` device pixels. Match the bitmap to that device resolution: a hi-res card
+			// bitmap (already at device size) is kept as-is for a crisp 1:1 result, while a small "stretch tile"
+			// (SelFill / guide / border bars) is scaled up to fill the view exactly. Leaving a bitmap whose aspect
+			// differs from the view would let NSImageView's ProportionallyUpOrDown scaling shrink-to-fit and CENTRE
+			// it — which is what made a drag selection look smaller than the real area with its corner offset.
+			var backing = Forms.Screen.PrimaryScreen?.LogicalPixelSize ?? 1f;
+			var devW = Math.Max(1, (int)Math.Round(size.Width * backing));
+			var devH = Math.Max(1, (int)Math.Round(size.Height * backing));
+
+			if (snapshot.Width == devW && snapshot.Height == devH)
+			{
+				displayed = snapshot;
+			}
+			else
+			{
+				displayed = ImageHelper.ResizeBitmap(snapshot, devW, devH, exactPixels: true);
+				snapshot.Dispose();
+			}
 #else
 			if (snapshot.Width == size.Width && snapshot.Height == size.Height)
 			{

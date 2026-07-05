@@ -35,6 +35,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// --- SharpHook ---
 		private SimpleGlobalHook globalHook;
 		private Task hookRunTask;
+		// Signalled once the freshly-started global hook is actually running (SharpHook's HookEnabled) or has
+		// failed — so hook installation can block until the native hook is live before the script relies on it.
+		private readonly System.Threading.ManualResetEventSlim hookReadyEvent = new (false);
+		// Max time to wait for the native hook to start. HookEnabled normally fires within tens of ms; the bound
+		// just guarantees a denied/failed start can't hang script startup.
+		private const int HookStartTimeoutMs = 3000;
 #if LINUX
 		private KeysharpInputdClient inputdKeyboardHookClient;
 		private KeysharpInputdClient inputdMouseHookClient;
@@ -655,12 +661,24 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				// teardown since the corruption already happened). The tests inject input by invoking OnKeyPressed
 				// directly, so the native tap is never needed in the headless host; skip starting it and rely on
 				// the install sentinels set below (HasKbdHook only checks those).
-				if (!Script.IsUiInitializationBlocked && (globalHook == null || !globalHook.IsRunning))
+				// Restart only when there is no hook yet, or the hook's run task has actually ended
+				// (stopped/faulted) — NOT merely because IsRunning has not flipped true yet. RunAsync starts the
+				// native hook on a background thread, so IsRunning stays false for a short window after RunAsync
+				// returns. A script that registers several hooks/hotkeys in quick succession (e.g. an InputHook
+				// plus a few Hotkeys during startup) re-enters here during that window; using !IsRunning would
+				// dispose the still-starting hook and RunAsync a new one, and a second hook_run() begun before
+				// the first has stopped corrupts libuiohook's single-process-global CFRunLoop state — leaving the
+				// hook silently dead (hotkeys/InputHook stop firing while the tray still works).
+				if (!Script.IsUiInitializationBlocked && (globalHook == null || (hookRunTask?.IsCompleted ?? true)))
 				{
 					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
 					StopGlobalHookCore(dispose: true); // clean restart if something half-exists
 
 					globalHook = new SimpleGlobalHook(default, default, true);
+
+					// Track when the native hook is actually running so the install can wait for it below.
+					hookReadyEvent.Reset();
+					globalHook.HookEnabled += (s, e) => hookReadyEvent.Set();
 
 					globalHook.KeyPressed += OnKeyPressed;
 					globalHook.KeyReleased += OnKeyReleased;
@@ -680,6 +698,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					hookRunTask = globalHook.RunAsync();
 					_ = hookRunTask.ContinueWith(t =>
 					{
+						hookReadyEvent.Set(); // unblock the readiness wait: the hook stopped/failed before enabling
+
 						var ex = t.Exception?.GetBaseException();
 						var detail = ex != null ? ex.ToString() : "Unknown hook startup failure.";
 
@@ -690,6 +710,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 						Ks.OutputDebugLine($"Global hook failed: {detail}");
 #endif
 					}, TaskContinuationOptions.OnlyOnFaulted);
+
+					// Wait for the native hook to actually be running before returning. RunAsync starts it on a
+					// background thread, so without this the script would proceed — registering more hooks/hotkeys,
+					// reading GetKeyState, dispatching input — while the hook is still initializing. A subsequent
+					// hook operation racing libuiohook's not-yet-established CFRunLoop is what left the hook
+					// silently dead (hotkeys/InputHook dead, tray still working). Bounded so a failed start can't
+					// hang startup; the fault continuation above also releases the wait.
+					_ = hookReadyEvent.Wait(HookStartTimeoutMs);
 				}
 
 				// Respect Windows semantics: ResetHook only for non-temporary transitions

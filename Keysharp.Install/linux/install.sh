@@ -537,12 +537,13 @@ fi
 
 check_dotnet
 
-# Stop a running compile daemon ("Keysharp --daemon") before replacing the
-# binaries, so the upgraded install does not keep racing/serving from a
-# stale-build daemon. Run as root, pkill -f also reaches the desktop user's
-# per-user daemon. Replacing the ELF on disk while it runs is harmless on Linux;
-# this just ensures the next script run spawns a daemon built from the new files.
-maybe_run pkill -f '[Kk]eysharp --daemon' || true
+# Stop ALL Keysharp/Keyview instances (the compile daemon AND any running scripts) before replacing the
+# binaries, not just the daemon: a lingering old-build instance keeps holding the input hook and its granted
+# permissions, so newly-launched scripts misbehave until it exits. -x matches the process name exactly, so
+# it won't touch this installer or keysharp-inputd (different names). Run as root, pkill reaches the desktop
+# user's processes too. (Replacing the ELF on disk while it runs is harmless on Linux.)
+maybe_run pkill -x '[Kk]eysharp' || true
+maybe_run pkill -x '[Kk]eyview' || true
 
 echo "Installing to ${APP_DIR_TARGET} (prefix=${PREFIX})"
 mkdir -p "${APP_DIR_TARGET}" "${BINDIR}"

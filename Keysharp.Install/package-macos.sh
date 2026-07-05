@@ -269,10 +269,13 @@ write_install_scripts() {
   cat > "${SCRIPTS_DIR}/preinstall" <<'EOF'
 #!/bin/sh
 
-# Stop a running compile daemon ("Keysharp --daemon") before the bundle is
-# replaced, so the upgraded install does not keep a stale-build daemon running.
-# preinstall runs as root, so pkill -f reaches the desktop user's daemon too.
-pkill -f '/Keysharp.app/Contents/MacOS/Keysharp --daemon' 2>/dev/null || true
+# Stop ALL running Keysharp/Keyview instances (the compile daemon AND any running scripts) before the
+# bundle is replaced, not just the daemon: a lingering old-build instance keeps holding the global input
+# hook and its granted permissions, so newly-launched scripts misbehave until it is killed. preinstall runs
+# as root, so pkill -f reaches the desktop user's processes too (killall is a name-based fallback).
+pkill -f 'Keysharp.app/Contents/MacOS/Keysharp' 2>/dev/null || true
+pkill -f 'Keyview.app/Contents/MacOS/Keyview' 2>/dev/null || true
+killall Keysharp Keyview 2>/dev/null || true
 
 # Unregister any stale LaunchServices entries (dev builds, old installs) so that
 # the installer's bundle-relocation search cannot redirect files into non-standard

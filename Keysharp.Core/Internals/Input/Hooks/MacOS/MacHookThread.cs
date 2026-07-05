@@ -105,7 +105,11 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		protected override bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
 		{
 			var simulated = e.IsEventSimulated;
-			extraInfo = simulated ? (ulong)KeyIgnoreAllExceptModifier : 0UL;
+			// macOS CGEvents carry no readable send-level extraInfo, so every artificial keystroke arrives with
+			// none. Treat it as send level 0 (KeyIgnore) rather than fully-ignored (KeyIgnoreAllExceptModifier),
+			// so an InputHook can observe it — e.g. InputHUD's amber "injected" highlight, or any script watching
+			// SendEvent output — while it still doesn't trigger hotkeys (level 0 <= a hotkey's InputLevel).
+			extraInfo = simulated ? (ulong)KeyIgnore : 0UL;
 			return simulated;
 		}
 

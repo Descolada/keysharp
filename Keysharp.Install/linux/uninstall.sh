@@ -124,9 +124,12 @@ ks_ext_remove() {
 
 echo "Uninstalling from ${APP_DIR_TARGET} (prefix=${PREFIX})"
 
-# Stop a running compile daemon ("Keysharp --daemon") before deleting the
-# binaries. Run as root, pkill -f also reaches the desktop user's per-user daemon.
-maybe_run pkill -f '[Kk]eysharp --daemon' || true
+# Stop ALL Keysharp/Keyview instances (the compile daemon AND any running scripts), not just the daemon:
+# a lingering old instance keeps holding the input hook / its permissions. -x matches the process name
+# exactly, so it won't touch this uninstaller or keysharp-inputd (different names). Run as root, pkill also
+# reaches the desktop user's processes.
+maybe_run pkill -x '[Kk]eysharp' || true
+maybe_run pkill -x '[Kk]eyview' || true
 
 if [[ "${ROOT_INSTALL}" == "true" ]]; then
   maybe_run systemctl disable --now keysharp-inputd.socket || true

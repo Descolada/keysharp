@@ -16,9 +16,13 @@ ask_yes_no() {
   [[ "${answer}" =~ ^[Yy] ]]
 }
 
-# Stop a running compile daemon ("Keysharp --daemon") so the freshly-installed
-# build is used instead of an older-build daemon that may still be running.
-pkill -f '/Keysharp.app/Contents/MacOS/Keysharp --daemon' 2>/dev/null || true
+# Stop ALL running Keysharp/Keyview instances (the compile daemon AND any running scripts), not just the
+# daemon: a lingering old-build instance keeps holding the global input hook and its granted permissions,
+# so newly-launched scripts misbehave until it is killed. pkill matches by path; killall is a name-based
+# fallback (both target the current user's processes here).
+pkill -f 'Keysharp.app/Contents/MacOS/Keysharp' 2>/dev/null || true
+pkill -f 'Keyview.app/Contents/MacOS/Keyview' 2>/dev/null || true
+killall Keysharp Keyview 2>/dev/null || true
 
 log "Installing Keysharp..."
 for app in Keysharp Keyview; do

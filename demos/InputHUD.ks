@@ -369,13 +369,14 @@ class InputHUD {
     static Place() {
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
         ; Lay the two HUDs out in the OS's screen-coordinate units (see Geo): their on-screen sizes are pw/ph,
-        ; and the inter-panel gap and bottom margin scale by Geo too so the spacing keeps up with the DPI.
-        local gap := Round(20 * this.Geo), bottom := Round(40 * this.Geo)
-        local total := this.kb.pw + gap + this.ms.pw
-        this.kb.x := (l + r) // 2 - total // 2
-        this.kb.y := b - this.kb.ph - bottom
+        ; and the inter-panel gap and edge margins scale by Geo too so the spacing keeps up with the DPI.
+        ; Anchored to the bottom-LEFT (keyboard first, mouse to its right) so the pair clears the HotkeyCard,
+        ; which sits at the bottom-right.
+        local gap := Round(20 * this.Geo), margin := Round(40 * this.Geo)
+        this.kb.x := l + margin
+        this.kb.y := b - this.kb.ph - margin
         this.ms.x := this.kb.x + this.kb.pw + gap
-        this.ms.y := b - this.ms.ph - bottom
+        this.ms.y := b - this.ms.ph - margin
         this.kb.ov.X := this.kb.x, this.kb.ov.Y := this.kb.y
         this.ms.ov.X := this.ms.x, this.ms.ov.Y := this.ms.y
     }

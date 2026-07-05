@@ -44,8 +44,11 @@ if [[ "${EUID}" -ne 0 ]] && needs_sudo; then
 fi
 
 log "Stopping Keysharp and Keyview if they are running..."
-pkill -f '/Keysharp.app/Contents/MacOS/Keysharp' 2>/dev/null || true
-pkill -f '/Keyview.app/Contents/MacOS/Keyview' 2>/dev/null || true
+# Kill the daemon AND any running scripts (pkill matches by path; killall by name as a fallback), so no
+# stale instance keeps holding the global input hook / permissions after removal.
+pkill -f 'Keysharp.app/Contents/MacOS/Keysharp' 2>/dev/null || true
+pkill -f 'Keyview.app/Contents/MacOS/Keyview' 2>/dev/null || true
+killall Keysharp Keyview 2>/dev/null || true
 
 log "Removing app bundles..."
 for app in "${APP_PATHS[@]}"; do

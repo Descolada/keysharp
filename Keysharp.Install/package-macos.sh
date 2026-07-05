@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 if [ -z "${BASH_VERSION:-}" ]; then exec /usr/bin/env bash "$0" "$@"; fi
-set -euo pipefail
+# -E (errtrace) makes the ERR trap below fire for failures inside functions too, not just top-level commands.
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${CONFIG:-Release}"
@@ -58,6 +59,41 @@ log() {
 die() {
   printf '%s\n' "$*" >&2
   exit 1
+}
+
+# Name of the high-level stage currently running, so an unexpected failure (e.g. codesign rejecting a
+# bundle) reports exactly where it broke instead of aborting with only the failing tool's own message.
+CURRENT_STEP="initializing"
+
+# Fires (via set -E) on any unhandled non-zero command, including failures deep inside functions. Prints a
+# loud banner naming the failing stage, the exact command, and its location so the break is impossible to miss.
+on_error() {
+  local rc="$1" cmd="$2" src="$3" line="$4"
+  trap - ERR   # disarm so this reports once, not once per unwinding frame
+  local red='' rst=''
+  if [[ -t 2 ]]; then red=$'\033[1;31m'; rst=$'\033[0m'; fi
+  {
+    printf '\n%s======================================================================%s\n' "${red}" "${rst}"
+    printf '%sERROR: package-macos.sh failed while: %s%s\n' "${red}" "${CURRENT_STEP}" "${rst}"
+    printf '  exit code : %s\n' "${rc}"
+    printf '  command   : %s\n' "${cmd}"
+    printf '  location  : %s:%s\n' "${src##*/}" "${line}"
+    printf '  No .pkg / .dmg were produced — fix the above and re-run.\n'
+    printf '%s======================================================================%s\n' "${red}" "${rst}"
+  } >&2
+}
+# Pass $? / $BASH_COMMAND / line into the handler at the instant the trap fires — they change as soon as
+# the handler starts running its own commands, so they can't be read reliably inside on_error itself.
+trap 'on_error "$?" "$BASH_COMMAND" "${BASH_SOURCE[0]}" "${LINENO}"' ERR
+
+# Runs one pipeline stage: records its name (for on_error) and logs a progress header, so the last
+# "==> ..." line printed is always the stage that failed.
+run_step() {
+  CURRENT_STEP="$1"
+  shift
+  log ""
+  log "==> ${CURRENT_STEP}..."
+  "$@"
 }
 
 is_true() {
@@ -249,7 +285,13 @@ clean_app_bundle() {
   local app="$1"
   local macos_dir="${app}/Contents/MacOS"
 
+  # Strip debug symbols and per-assembly XML documentation — neither is used at runtime and a release
+  # shouldn't carry them (Eto.xml alone is ~2 MB). A .xml is only removed when a same-named .dll sits
+  # beside it (i.e. it's that assembly's doc file), so any genuine standalone .xml resource is preserved.
   find "${app}" -name '*.pdb' -delete
+  find "${app}" -name '*.xml' -type f | while IFS= read -r xml; do
+    [[ -e "${xml%.xml}.dll" ]] && rm -f "${xml}"
+  done
   find "${macos_dir}" -type f \( \
     -name 'Keysharp.OutputTest' -o \
     -name 'Keysharp.OutputTest.dll' -o \
@@ -631,15 +673,16 @@ notarize_if_requested() {
   done
 }
 
-auto_select_app_cert
-validate_inputs
-publish_projects
-stage_payload
-sign_apps_if_requested
-build_pkg
-build_dmg
-notarize_if_requested
+run_step "selecting the signing identity" auto_select_app_cert
+run_step "validating inputs and required tools" validate_inputs
+run_step "publishing Keysharp and Keyview" publish_projects
+run_step "staging the package payload" stage_payload
+run_step "signing the app bundles" sign_apps_if_requested
+run_step "building the .pkg" build_pkg
+run_step "building the .dmg" build_dmg
+run_step "notarizing" notarize_if_requested
 
+log ""
 log "macOS packages ready:"
 log "  System install (root):  ${PKG_OUT}"
 log "  User install  (no root): ${DMG_OUT}"

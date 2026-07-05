@@ -439,6 +439,7 @@ stage_payload() {
 sign_macho_files() {
   local app="$1"
   local sign_identity="$2"
+  local main_exe="${app}/Contents/MacOS/$(basename "${app}" .app)"
   local entitlements_arg=()
 
   if [[ -f "${ENTITLEMENTS}" ]]; then
@@ -446,6 +447,10 @@ sign_macho_files() {
   fi
 
   find "${app}/Contents/MacOS" -type f | while IFS= read -r file; do
+    # Skip the bundle's main executable: pointing codesign at it signs the WHOLE bundle, which — before the
+    # --deep seal in sign_app_bundle runs — fails on the loose non-code files in Contents/MacOS. The main
+    # executable (with entitlements + hardened runtime) is signed by the bundle-level codesign there.
+    [[ "${file}" == "${main_exe}" ]] && continue
     if file "${file}" | grep -q 'Mach-O'; then
       codesign --force --timestamp --options runtime "${entitlements_arg[@]}" --sign "${sign_identity}" "${file}"
     fi
@@ -463,7 +468,13 @@ sign_app_bundle() {
 
   log "Signing ${app}..."
   sign_macho_files "${app}" "${sign_identity}"
-  codesign --force --timestamp --options runtime "${entitlements_arg[@]}" --sign "${sign_identity}" "${app}"
+  # --deep is required for the bundle seal: .NET lays the whole app out flat in Contents/MacOS (managed
+  # DLLs, *.json, Eto.xml, Icon.icns, plus Lib/Scripts/refs). Since Command Line Tools 26.5, codesign
+  # treats every loose non-Mach-O file in Contents/MacOS as an unsigned nested "subcomponent" and refuses
+  # the whole bundle ("code object is not signed at all / In subcomponent: ..."); --deep seals them instead.
+  # NB: Apple's notary service rejects --deep, so a future Developer ID + notarization path must relocate
+  # the payload out of Contents/MacOS (or sign each nested item individually) rather than rely on this.
+  codesign --force --deep --timestamp --options runtime "${entitlements_arg[@]}" --sign "${sign_identity}" "${app}"
   codesign --verify --deep --strict --verbose=2 "${app}"
 }
 

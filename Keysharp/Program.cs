@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -45,11 +46,32 @@ namespace Keysharp.Main
 #if OSX
 			// On macOS, double-clicking a .ks/.ahk file sends an Apple Event rather than a command-line
 			// argument. Receive it via Eto's AppDelegate before the normal arg-parsing pipeline.
-			if (args.Length == 0)
+			var launchedFromFinder = args.Length == 0;
+
+			if (launchedFromFinder)
 				args = WaitForMacOsDocumentOpen();
 #endif
 
 			var command = Runner.Parse(args);
+
+#if OSX
+			// macOS is single-instance by default: while a Keysharp process runs a (GUI) script, opening another
+			// script from Finder routes an "open document" Apple Event to an already-running instance rather than
+			// launching a fresh one. Make EVERY instance a dispatcher — run each such document as its own
+			// independent process — so opens keep working no matter which instance macOS routes them to (in
+			// particular, after the first one exits).
+			//
+			// The catch: AppKit ALSO re-delivers this instance's OWN launch argument as an open-document event
+			// (application:openFiles:), an unpredictable number of times (observed twice for a directly-exec'd
+			// child) — even though we already run that script from argv. Left unfiltered, a spawned instance would
+			// re-spawn the script it is already running → runaway loop. Filter deterministically by PATH: record
+			// the canonicalized script(s) this instance was launched with and ignore open-document events for them;
+			// any OTHER path is a genuine request to open a new document and gets its own process. Populated before
+			// subscribing so the launch document is known.
+			if (!string.IsNullOrEmpty(command.ScriptName))
+				macOsLaunchDocs.Add(CanonicalPath(command.ScriptName));
+			Eto.Mac.AppDelegate.FileOpened += SpawnScriptInNewProcess;
+#endif
 
 			// Daemon fast path: a plain source run can offload compilation to the shared daemon and run the
 			// returned bytes here, so this lean launcher never loads the parser/Roslyn. KEYSHARP_DAEMON forces it
@@ -372,6 +394,68 @@ namespace Keysharp.Main
 			Eto.Mac.AppDelegate.FileOpened -= OnFileOpened;
 			var path = Volatile.Read(ref openedPath);
 			return path != null ? [path] : [];
+		}
+
+		// Canonicalized script paths this instance was launched with; open-document events for these are macOS
+		// re-delivering our own launch argument (which we already run) and must NOT be re-spawned. Written once in
+		// Main before the FileOpened handler is subscribed, then only read, so no synchronization is needed.
+		private static readonly HashSet<string> macOsLaunchDocs = new(StringComparer.OrdinalIgnoreCase);
+
+		// Launch a script that macOS handed to this already-running instance as its own Keysharp process, so each
+		// script runs independently (like double-clicking one when nothing is running). Re-exec THIS apphost with
+		// the script path as a plain argument, which bypasses LaunchServices' single-instance document routing.
+		private static void SpawnScriptInNewProcess(string path)
+		{
+			try
+			{
+				if (string.IsNullOrEmpty(path))
+					return;
+
+				// Ignore macOS re-delivering our own launch argument as an open-document event (see Main): this
+				// instance already runs that script, so re-spawning it would loop. Matched by canonical path, so
+				// it holds however many times AppKit re-delivers it; opening any OTHER script still spawns.
+				if (macOsLaunchDocs.Contains(CanonicalPath(path)))
+					return;
+
+				var exe = Environment.ProcessPath; // the Keysharp apphost inside this .app bundle
+
+				if (!string.IsNullOrEmpty(exe))
+					_ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+					{
+						FileName = exe,
+						UseShellExecute = false,
+						ArgumentList = { path },
+					});
+			}
+			catch
+			{
+			}
+		}
+
+		[System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+		private static extern IntPtr realpath(string path, IntPtr resolved);
+
+		[System.Runtime.InteropServices.DllImport("libc")]
+		private static extern void free(IntPtr ptr);
+
+		// Canonicalize including symlinked path components (macOS's open-document event delivers the resolved
+		// path, e.g. /private/tmp/x, while a launch argument may be /tmp/x); Path.GetFullPath does not resolve
+		// symlinks, so use realpath.
+		private static string CanonicalPath(string path)
+		{
+			try
+			{
+				var ptr = realpath(path, IntPtr.Zero);
+
+				if (ptr != IntPtr.Zero)
+				{
+					try { return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ptr) ?? Path.GetFullPath(path); }
+					finally { free(ptr); }
+				}
+			}
+			catch { }
+
+			try { return Path.GetFullPath(path); } catch { return path; }
 		}
 
 #endif

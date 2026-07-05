@@ -1556,7 +1556,13 @@ namespace Keysharp.Parsing.Syntax
 						// runs and never bakes the compile-time path into the assembly.
 						case "a_linenumber" when !IsDeclaredLocal("a_linenumber"): return Num(n.Line.ToString());
 						case "a_linefile" when !IsDeclaredLocal("a_linefile"):
-							return !string.IsNullOrEmpty(n.File) ? Str(IncludeLineFile(n.File)) : Access("Keysharp.Builtins.Accessors.A_ScriptFullPath");
+							// A main-script line's file IS the running script, so fold to the A_ScriptFullPath accessor
+							// (n.File unset, or stamped with the main path _scriptPath). This keeps A_LineFile ==
+							// A_ScriptFullPath true whether the main script runs as source (.ks) or compiled (.cks/.exe,
+							// whose runtime path differs from the baked source name). Only #included files bake a path.
+							return string.IsNullOrEmpty(n.File) || string.Equals(n.File, _scriptPath, StringComparison.OrdinalIgnoreCase)
+								   ? Access("Keysharp.Builtins.Accessors.A_ScriptFullPath")
+								   : Str(IncludeLineFile(n.File));
 					}
 					return NameRef(n.Name);
 				case GroupExpr g: return SyntaxFactory.ParenthesizedExpression(LowerExpr(g.Inner));

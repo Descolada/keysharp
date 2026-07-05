@@ -326,7 +326,7 @@ namespace Keysharp.Builtins
 			/// PHYSICAL-resolution bitmap of <c>round(width*scale) x round(height*scale)</c> pixels, but every
 			/// draw op and font is multiplied by <paramref name="scale"/>, so the caller authors shapes/text in
 			/// LOGICAL units (the width/height passed here) and gets a crisp, physically-larger result rather than
-			/// an upscaled small bitmap. Pass <c>A_ScreenDPI/96</c> to size an off-screen canvas for a DPI-scaled
+			/// an upscaled small bitmap. Pass <c>A_ScreenScale</c> (from <c>#import KS</c>) to size an off-screen canvas for a DPI-scaled
 			/// Overlay (which shows the canvas at its own pixel size). MeasureText stays in logical units, so a
 			/// layout measured at scale 1 composes unchanged with a scaled draw canvas.</para>
 			/// </summary>

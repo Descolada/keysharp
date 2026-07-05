@@ -34,18 +34,32 @@ namespace Keysharp.Builtins
 				? overlayId
 				: overlayId = OverlayIdPrefix | ((uint)Interlocked.Increment(ref nextOverlayId) & IdMask);
 
-			// Physical on-screen size handed to the platform. The authored width/height are LOGICAL units; the
-			// canvas is a physical-resolution bitmap (logical * scale) drawn through a matching transform, so a
-			// DPI-scaled overlay stays crisp. A 0 authored dimension means "use the canvas's own size" (SetImage).
-			private int EffectiveW => w > 0 ? Math.Max(1, (int)Math.Round(w * scale)) : (int)(canvas?.Width ?? 0);
-			private int EffectiveH => h > 0 ? Math.Max(1, (int)Math.Round(h * scale)) : (int)(canvas?.Height ?? 0);
+			// PHYSICAL canvas resolution (logical width/height * scale). The canvas is always a physical-resolution
+			// bitmap drawn through a matching transform, so a DPI-scaled overlay stays crisp. A 0 authored
+			// dimension means "use the canvas's own size" (SetImage).
+			private int CanvasW => w > 0 ? Math.Max(1, (int)Math.Round(w * scale)) : (int)(canvas?.Width ?? 0);
+			private int CanvasH => h > 0 ? Math.Max(1, (int)Math.Round(h * scale)) : (int)(canvas?.Height ?? 0);
+
+			// On-screen size handed to the platform backing, in that platform's window coordinate units. Windows
+			// and Linux place overlays in PHYSICAL pixels, so the window matches the canvas resolution. macOS
+			// (Eto/Cocoa) works in LOGICAL points and renders HiDPI into the backing store itself, so the window
+			// is sized in points (canvas / scale) while the canvas stays a hi-res bitmap — otherwise a scale-2
+			// overlay is drawn as a doubled, upscaled panel instead of a crisp one at the intended size.
+#if OSX
+			private int EffectiveW => Math.Max(1, (int)Math.Round(CanvasW / scale));
+			private int EffectiveH => Math.Max(1, (int)Math.Round(CanvasH / scale));
+#else
+			private int EffectiveW => CanvasW;
+			private int EffectiveH => CanvasH;
+#endif
 
 			public KeysharpOverlay(params object[] args) : base(args) { }
 
 			/// <summary>Overlay(x?, y?, w?, h?, scale?) — stores the geometry; the canvas is created on the first
-			/// draw (or SetImage), and nothing is shown until Show. x/y are physical screen pixels; w/h are logical
-			/// units multiplied by <paramref name="scale"/> for the on-screen size (pass A_ScreenDPI/96 to size an
-			/// overlay like a DPI-scaled GUI). scale defaults to 1 (draw in physical pixels).</summary>
+			/// draw (or SetImage), and nothing is shown until Show. x/y and the on-screen size are in the OS's screen
+			/// coordinates (physical pixels on Windows/Linux, logical points on macOS, where Cocoa handles HiDPI); the
+			/// canvas is always a physical-resolution bitmap of w*scale x h*scale so it stays crisp. Pass
+			/// A_ScreenScale (from #import KS) to size an overlay like a DPI-scaled GUI. scale defaults to 1.</summary>
 			public override object __New(params object[] args)
 			{
 				if (args != null)
@@ -275,7 +289,7 @@ namespace Keysharp.Builtins
 
 				// Create the canvas at PHYSICAL resolution (logical size * scale) and tell it to scale drawing to
 				// match, so DPI-scaled overlays render crisp rather than upscaling a small bitmap.
-				if (KeysharpImage.Create(null, (long)EffectiveW, (long)EffectiveH) is KeysharpImage created)
+				if (KeysharpImage.Create(null, (long)CanvasW, (long)CanvasH) is KeysharpImage created)
 				{
 					created.drawScale = scale;
 					created.mutable = true;   // a live draw surface: shapes mutate it in place, no per-op working copy

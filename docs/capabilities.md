@@ -247,6 +247,7 @@ Status legend:
 | A_RegView | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Gets whether the registry is in 32 or 64 bit mode. |
 | A_ScreenDPI | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScreenHeight | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
+| A_ScreenScale | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout. Keysharp KS module: `#import KS { A_ScreenScale }`. |
 | A_ScreenWidth | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | Built-in variable. |
 | A_ScriptDir | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran, without a trailing backslash. Evaluates to a constant string in the C# code output. |
 | A_ScriptFullPath | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The full path of the script being compiled and ran. Evaluates to a constant string in the C# code output. |

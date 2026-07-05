@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
 
 /*
@@ -54,7 +55,9 @@ class InputHUD {
     static SynEdge := "0xFFFFE3B0"
 
     ; ---- state -------------------------------------------------------------
-    static DPI := 1                      ; screen scale (A_ScreenDPI/96): render at physical res, place/hit-test in physical px
+    static DPI := 1                      ; canvas render scale (A_ScreenScale): each overlay bitmap is drawn at physical resolution
+    static Geo := 1                      ; on-screen geometry scale: DPI where the OS places in physical px (Win/Linux), 1 where it
+                                         ; places in logical points and handles HiDPI itself (macOS) — mirrors the GUI's DpiScale
     static ih := ""
     static kb := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size), keys[]}
     static ms := ""                      ; {ov, x, y, w, h (logical render size), pw, ph (physical on-screen size)}
@@ -77,12 +80,14 @@ class InputHUD {
     }
 
     static Setup() {
-        ; Render every canvas at the screen's DPI scale so the HUD isn't half-size on a 200% display. The key
-        ; layout below is authored in LOGICAL units; each overlay's canvas is built at physical resolution
-        ; (Image.Create's scale arg) and shown at that pixel size, so all screen geometry (placement, drag
-        ; hit-testing) uses the PHYSICAL size (pw/ph) while rendering stays in logical units (w/h).
-        this.DPI := A_ScreenDPI / 96
-        this.ms := {ov: Overlay(0, 0), x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.DPI), ph: Round(188 * this.DPI)}
+        ; The layout below is authored in LOGICAL units. Each overlay's canvas is built at physical resolution
+        ; (Image.Create's scale arg = DPI) so it stays crisp, but the overlay's on-screen size and all screen
+        ; geometry (placement, drag hit-testing) use pw/ph scaled by Geo, matching the coordinate system the OS
+        ; reports: physical pixels on Windows/Linux (Geo = DPI), logical points on macOS (Geo = 1, since Cocoa
+        ; handles HiDPI itself — the overlay is still drawn from the physical-resolution canvas).
+        this.DPI := A_ScreenScale
+        this.Geo := this.isMac ? 1 : this.DPI
+        this.ms := {ov: Overlay(0, 0, 118, 188, this.DPI), x: 0, y: 0, w: 118, h: 188, pw: Round(118 * this.Geo), ph: Round(188 * this.Geo)}
         this.BuildKeyboard()
         this.Place()
         this.RenderKeyboard()
@@ -153,7 +158,7 @@ class InputHUD {
             this.dispVk[k.vk] := true
         }
         local lw := Round(maxR + this.Pad), lh := Round(maxB + this.Pad)
-        this.kb := {ov: Overlay(0, 0), x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.DPI), ph: Round(lh * this.DPI), keys: keys}
+        this.kb := {ov: Overlay(0, 0, lw, lh, this.DPI), x: 0, y: 0, w: lw, h: lh, pw: Round(lw * this.Geo), ph: Round(lh * this.Geo), keys: keys}
     }
 
     ; The bottom modifier row differs per OS (Command/Option on macOS; Win/Alt/Menu elsewhere).
@@ -363,9 +368,9 @@ class InputHUD {
     ; ======================================================================
     static Place() {
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
-        ; Positions are physical screen pixels, so lay the two HUDs out with their PHYSICAL sizes (and scale
-        ; the inter-panel gap and bottom margin too, so the spacing keeps up with the DPI).
-        local gap := Round(20 * this.DPI), bottom := Round(40 * this.DPI)
+        ; Lay the two HUDs out in the OS's screen-coordinate units (see Geo): their on-screen sizes are pw/ph,
+        ; and the inter-panel gap and bottom margin scale by Geo too so the spacing keeps up with the DPI.
+        local gap := Round(20 * this.Geo), bottom := Round(40 * this.Geo)
         local total := this.kb.pw + gap + this.ms.pw
         this.kb.x := (l + r) // 2 - total // 2
         this.kb.y := b - this.kb.ph - bottom

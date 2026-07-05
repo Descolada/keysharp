@@ -241,20 +241,14 @@ namespace Keysharp.Builtins
 		private static Ks.KeysharpImage BuildTooltipImage(string text)
 		{
 			const int pad = 6;
-			Font font;
 
-			try { font = new Font("Sans", 10); }
-			catch { font = SystemFonts.Default(10); }
-
-			SizeF size;
-
-			using (font)
-			using (var probe = ImageHelper.NewArgbCanvas(1, 1))
-			using (var pg = ImageHelper.MakeGraphics(probe))
-				size = pg.MeasureString(font, text ?? "");
-
-			var w = Math.Max(1, (int)Math.Ceiling(size.Width) + pad * 2);
-			var h = Math.Max(1, (int)Math.Ceiling(size.Height) + pad * 2);
+			// Measure with the same cached, never-disposed font DrawText uses for the default spec
+			// (null -> "Sans 10"). Creating a local Font here and disposing it — as this used to — freed a
+			// native handler shared with that cached font on Eto.Mac, so the queued DrawText below later
+			// drew with a disposed Font ("Cannot access a disposed object: Font"). See KeysharpImage.CreateFont.
+			var (tw, th) = Ks.KeysharpImage.MeasureTextCore(text ?? "", "");
+			var w = Math.Max(1, (int)Math.Ceiling(tw) + pad * 2);
+			var h = Math.Max(1, (int)Math.Ceiling(th) + pad * 2);
 
 			if (Ks.KeysharpImage.Create(null, (long)w, (long)h) is not Ks.KeysharpImage img)
 				return null;

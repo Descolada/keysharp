@@ -63,7 +63,8 @@ namespace Keysharp.Internals.Window.MacOS
 			private static readonly nint attrSize = CreateCFString("AXSize");
 			private static readonly nint attrMinimized = CreateCFString("AXMinimized");
 		private static readonly nint attrHidden = CreateCFString("AXHidden");
-			private static readonly nint attrZoomed = CreateCFString("AXZoomed");
+			private static readonly nint attrFullScreen = CreateCFString("AXFullScreen");
+			private static readonly nint attrFullScreenButton = CreateCFString("AXFullScreenButton");
 			private static readonly nint attrCloseButton = CreateCFString("AXCloseButton");
 
 		private static readonly nint actionRaise = CreateCFString("AXRaise");
@@ -334,19 +335,16 @@ namespace Keysharp.Internals.Window.MacOS
 
 			try
 			{
+				// macOS has no "maximized" state; WinMaximize maps to native full screen (see TrySetFullScreen),
+				// reported here via the undocumented-but-standard AXFullScreen flag. Minimized takes priority
+				// because a window can't be both, and there is no AXZoomed attribute to consult.
 				if (TryReadBool(windowElement, attrMinimized, out var minimized) && minimized)
-				{
 					state = FormWindowState.Minimized;
-					return true;
-				}
-
-				if (TryReadBool(windowElement, attrZoomed, out var zoomed) && zoomed)
-				{
+				else if (TryReadBool(windowElement, attrFullScreen, out var full) && full)
 					state = FormWindowState.Maximized;
-					return true;
-				}
+				else
+					state = FormWindowState.Normal;
 
-				state = FormWindowState.Normal;
 				return true;
 			}
 			finally
@@ -365,30 +363,76 @@ namespace Keysharp.Internals.Window.MacOS
 
 			try
 			{
-				switch (state)
-				{
-					case FormWindowState.Minimized:
-						return TryWriteBool(windowElement, attrMinimized, true);
+				// Only minimize/un-minimize is handled here. "Maximize" maps to native full screen, which
+				// MacWindow.TrySetState drives separately via TrySetFullScreen — a Maximized request is never
+				// routed down to this primitive, and the un-minimize path deliberately leaves full screen alone
+				// (so WinShow/WinActivate don't kick a full-screen window out of full screen).
+				if (state == FormWindowState.Minimized)
+					return TryWriteBool(windowElement, attrMinimized, true);
 
-					case FormWindowState.Maximized:
-					{
-						var a = TryWriteBool(windowElement, attrMinimized, false);
-						var b = TryWriteBool(windowElement, attrZoomed, true);
-						return a || b;
-					}
-
-					default:
-					{
-						var a = TryWriteBool(windowElement, attrMinimized, false);
-						var b = TryWriteBool(windowElement, attrZoomed, false);
-						_ = AXUIElementPerformAction(windowElement, actionRaise);
-						return a || b;
-					}
-				}
+				var ok = TryWriteBool(windowElement, attrMinimized, false);
+				_ = AXUIElementPerformAction(windowElement, actionRaise);
+				return ok;
 			}
 			finally
 			{
 				CFRelease(windowElement);
+			}
+		}
+
+		// Enters (on=true) or leaves (on=false) native full screen — the closest macOS equivalent to a
+		// Windows/Linux maximize/restore, and what the green traffic-light button triggers by default.
+		// AppKit remembers the pre-full-screen frame itself, so leaving full screen restores the old size.
+		internal static bool TrySetFullScreen(MacNativeWindow info, bool on)
+		{
+			if (!EnsureAccessibilityAccess(on ? "enter full screen" : "leave full screen", prompt: true))
+				return false;
+
+			if (!TryFindWindowElement(info, out var windowElement))
+				return false;
+
+			try
+			{
+				return TrySetFullScreen(windowElement, on);
+			}
+			finally
+			{
+				CFRelease(windowElement);
+			}
+		}
+
+		// AXFullScreen is an undocumented but widely-supported settable boolean on Cocoa windows: prefer
+		// writing it (idempotent and direction-explicit). If it isn't settable, fall back to pressing the
+		// green AXFullScreenButton — but only when we could read the current state and it differs from the
+		// target, since that button merely toggles and a blind press could do the opposite of what's asked.
+		private static bool TrySetFullScreen(nint windowElement, bool on)
+		{
+			var known = TryReadBool(windowElement, attrFullScreen, out var current);
+
+			if (known && current == on)
+				return true;
+
+			if (IsAttributeSettable(windowElement, attrFullScreen) && TryWriteBool(windowElement, attrFullScreen, on))
+				return true;
+
+			if (known && current != on)
+				return TryPressButton(windowElement, attrFullScreenButton);
+
+			return false;
+		}
+
+		private static bool TryPressButton(nint windowElement, nint buttonAttr)
+		{
+			if (!TryCopyAttributeValue(windowElement, buttonAttr, out var button))
+				return false;
+
+			try
+			{
+				return AXUIElementPerformAction(button, actionPress) == kAXErrorSuccess;
+			}
+			finally
+			{
+				CFRelease(button);
 			}
 		}
 

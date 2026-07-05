@@ -341,7 +341,7 @@ namespace Keysharp.Internals.Input.Unix
 
 			var extraInfo = KeyIgnoreLevel(ThreadAccessors.A_SendLevel);
 #if DPI
-			double scale = Accessors.A_ScaledScreenDPI;
+			double scale = Ks.A_ScreenScale;
 #else
 			double scale = 1.0;
 #endif
@@ -657,7 +657,7 @@ namespace Keysharp.Internals.Input.Unix
 			void EmitMove(bool rel, int mx, int my)
 			{
 #if DPI
-				double scale = Accessors.A_ScaledScreenDPI;
+				double scale = Ks.A_ScreenScale;
 #else
 				double scale = 1.0;
 #endif
@@ -690,7 +690,7 @@ namespace Keysharp.Internals.Input.Unix
 						else
 						{
 #if DPI
-							double scale = Accessors.A_ScaledScreenDPI;
+							double scale = Ks.A_ScreenScale;
 #else
 							double scale = 1.0;
 #endif
@@ -703,7 +703,7 @@ namespace Keysharp.Internals.Input.Unix
 						else
 						{
 #if DPI
-							double scale = Accessors.A_ScaledScreenDPI;
+							double scale = Ks.A_ScreenScale;
 #else
 							double scale = 1.0;
 #endif
@@ -719,7 +719,7 @@ namespace Keysharp.Internals.Input.Unix
 						else
 						{
 #if DPI
-							double scale = Accessors.A_ScaledScreenDPI;
+							double scale = Ks.A_ScreenScale;
 #else
 							double scale = 1.0;
 #endif
@@ -806,7 +806,7 @@ namespace Keysharp.Internals.Input.Unix
 				speed = MaxMouseSpeed;
 
 #if DPI
-			double scale = Accessors.A_ScaledScreenDPI;
+			double scale = Ks.A_ScreenScale;
 #else
 			double scale = 1.0;
 #endif

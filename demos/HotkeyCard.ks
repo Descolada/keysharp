@@ -36,10 +36,13 @@ class HotkeyCard {
         local pad := 16, rowH := 29, pillH := 22, pillPad := 9, colGap := 14
         local titleFont := "Arial 12 bold", keyFont := "Arial 10 bold", descFont := "Arial 10", hintFont := "Arial 9"
 
-        ; Render at the screen's DPI scale so the card isn't half-size on a 200% display. Everything below is
-        ; authored in LOGICAL units; the canvas is a physical-resolution bitmap (see Image.Create's scale arg),
-        ; and the overlay shows that canvas at its own pixel size. Placement/hit-testing use the PHYSICAL size.
-        local dpi := A_ScreenDPI / 96
+        ; Everything below is authored in LOGICAL units. The canvas is a physical-resolution bitmap (see
+        ; Image.Create's scale arg = dpi) so it stays crisp, but the overlay's on-screen size and all screen
+        ; geometry (placement, click-to-dismiss hit-test) use `geo`, matching the coordinate system the OS
+        ; reports: physical pixels on Windows/Linux (geo = dpi), logical points on macOS (geo = 1, since Cocoa
+        ; handles HiDPI itself — the overlay is still drawn from the physical-resolution canvas).
+        local dpi := A_ScreenScale     ; per-platform DPI scale (Keysharp KS module; the including script imports it)
+        local geo := DirExist("/System/Library/CoreServices") ? 1 : dpi
 
         ; Measure so the card fits its content exactly.
         local m := Image.Create(1, 1)
@@ -80,14 +83,14 @@ class HotkeyCard {
         img.DrawText("Click this card to dismiss it.", pad, y + 2, "0xFF6E7A8C", hintFont)
 
         if !IsObject(this.ov)
-            this.ov := Overlay(0, 0)
-        ; The canvas is physical-resolution (logical * dpi); the overlay shows it at that pixel size, so the
-        ; card's on-screen rect — used for placement and the click-to-dismiss hit-test — is the PHYSICAL size.
-        local pw := img.Width, ph := img.Height
+            this.ov := Overlay(0, 0, , , dpi)   ; scale = dpi: the canvas is physical-resolution, shown crisp at its logical size
+        ; The overlay's on-screen rect — used for placement and the click-to-dismiss hit-test — is the logical
+        ; size (w/h) scaled by geo, matching the overlay's on-screen footprint in the OS coordinate system.
+        local pw := Round(w * geo), ph := Round(h * geo)
         this.ov.SetImage(img)
         img.Dispose()
 
-        local margin := Round(this.Margin * dpi)
+        local margin := Round(this.Margin * geo)
         MonitorGetWorkArea(MonitorGetPrimary(), &l, &t, &r, &b)
         this.rect := {x: r - pw - margin, y: b - ph - margin, w: pw, h: ph}
         this.ov.X := this.rect.x, this.ov.Y := this.rect.y

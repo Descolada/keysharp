@@ -43,7 +43,7 @@ namespace Keysharp.Builtins
 
 			if (lvco.width.HasValue)
 			{
-				var scale = !lv.GetGuiControl().DpiScaling ? 1.0 : A_ScaledScreenDPI;
+				var scale = !lv.GetGuiControl().DpiScaling ? 1.0 : Ks.A_ScreenScale;
 				col.Width = (int)(lvco.width.Value * scale);
 			}
 

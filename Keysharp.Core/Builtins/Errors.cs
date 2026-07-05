@@ -1313,7 +1313,7 @@ namespace Keysharp.Builtins
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
-			var scale = A_ScaledScreenDPI;
+			var scale = Ks.A_ScreenScale;
 			this.AutoScaleMode = AutoScaleMode.Dpi;
 			this.AutoScaleDimensions = new SizeF(96F, 96F);
 			this.Text = A_ScriptName ?? "Keysharp";
@@ -1589,7 +1589,7 @@ namespace Keysharp.Builtins
 			if (!allowContinue)
 				errorText += $"{Environment.NewLine}{exitMessage ?? "The current thread will exit."}";
 
-			var scale = A_ScaledScreenDPI;
+			var scale = Ks.A_ScreenScale;
 			Title = A_ScriptName ?? "Keysharp";
 			Resizable = true;
 			Topmost = true;

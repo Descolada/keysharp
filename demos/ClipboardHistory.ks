@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
 
 /*
@@ -164,10 +165,12 @@ class ClipboardHistory {
         local n := this.items.Length
         local pad := 16, rowH := 30, titleH := 34, footH := 22, w := 640
         local h := pad + titleH + n * rowH + footH + pad
-        ; Render at the screen's DPI scale so the picker isn't half-size on a 200% display: everything below is
-        ; authored in LOGICAL units, the canvas is a physical-resolution bitmap, and it's centred by its
-        ; PHYSICAL size (see HotkeyCard/InputHUD for the same pattern).
-        local dpi := A_ScreenDPI / 96
+        ; Everything below is authored in LOGICAL units: the canvas is a physical-resolution bitmap (Image.Create's
+        ; scale arg = dpi) so it stays crisp, and it's centred by its on-screen size (w/h scaled by geo). geo
+        ; matches the OS coordinate system — physical px on Windows/Linux (geo = dpi), logical points on macOS
+        ; (geo = 1, Cocoa handles HiDPI itself). See HotkeyCard/InputHUD for the same pattern.
+        local dpi := A_ScreenScale
+        local geo := DirExist("/System/Library/CoreServices") ? 1 : dpi
 
         local img := Image.Create(w, h, , dpi)
         img.FillRoundRect(0, 0, w, h, 12, "0xF01C1F28")
@@ -188,8 +191,8 @@ class ClipboardHistory {
         img.DrawText("Newest first  ·  showing " n " of " this.clips.Length, pad, y + 2, "0xFF6E7A8C", "Arial 9")
 
         if !IsObject(this.picker)
-            this.picker := Overlay(0, 0)
-        local pw := img.Width, ph := img.Height
+            this.picker := Overlay(0, 0, , , dpi)   ; scale = dpi: physical-resolution canvas, shown crisp at its logical size
+        local pw := Round(w * geo), ph := Round(h * geo)
         this.picker.SetImage(img)
         img.Dispose()
 

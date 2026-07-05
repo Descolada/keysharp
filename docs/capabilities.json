@@ -1953,6 +1953,16 @@
                      "notes":  "Gets the Keysharp runtime version."
                  },
                  {
+                     "category":  "Keysharp Module (Ks)",
+                     "feature":  "A_ScreenScale",
+                     "syntax":  "#import KS { A_ScreenScale }",
+                     "windows":  "full",
+                     "linux_x11":  "full",
+                     "linux_wayland":  "full",
+                     "macos":  "full",
+                     "notes":  "The screen's DPI scale factor normalized so 1.0 is 100% and 2.0 is a 200% display (unlike A_ScreenDPI, which reports the raw platform DPI: 96-based on Windows/Linux, 72-based on macOS). Multiply sizes/positions by this for DPI-aware layout."
+                 },
+                 {
                      "category":  "Environment/System",
                      "feature":  "A_Language",
                      "syntax":  "",

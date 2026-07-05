@@ -34,7 +34,7 @@ namespace Keysharp.Internals
 				return Rectangle.Empty;
 
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			return new Rectangle((int)(scale * rect.Left), (int)(scale * rect.Top), (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
 #else
 			return new Rectangle(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
@@ -49,7 +49,7 @@ namespace Keysharp.Internals
 			// GetClientRect is client-relative. Report screen-relative bounds to match the other platforms.
 			var pt = ClientToScreen(h);
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			return new Rectangle(pt.X, pt.Y, (int)(scale * (rect.Right - rect.Left)), (int)(scale * (rect.Bottom - rect.Top)));
 #else
 			return new Rectangle(pt.X, pt.Y, rect.Right - rect.Left, rect.Bottom - rect.Top);
@@ -93,7 +93,7 @@ namespace Keysharp.Internals
 			var pt = new POINT();
 			_ = WindowsAPI.ClientToScreen(h, ref pt);
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			pt.X = (int)(scale * pt.X);
 			pt.Y = (int)(scale * pt.Y);
 #endif
@@ -483,7 +483,7 @@ namespace Keysharp.Internals
 				return;
 
 #if DPI
-			var scale = Accessors.A_ScaledScreenDPI;
+			var scale = Ks.A_ScreenScale;
 #else
 			var scale = 1.0;
 #endif

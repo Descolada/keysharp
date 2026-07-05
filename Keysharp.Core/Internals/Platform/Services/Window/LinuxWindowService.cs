@@ -1211,7 +1211,7 @@ namespace Keysharp.Internals
 			var attr = xwindow.Attributes;
 			var pt = X11ClientToScreen(h);
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			return new Rectangle(pt.X, pt.Y, (int)(scale * attr.width), (int)(scale * attr.height));
 #else
 			return new Rectangle(pt.X, pt.Y, attr.width, attr.height);
@@ -1253,7 +1253,7 @@ namespace Keysharp.Internals
 			var outerW = attr.width + attr.border_width + frame.Left + frame.Width;
 			var outerH = attr.height + attr.border_width + frame.Top + frame.Height;
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			return new Rectangle((int)(scale * x), (int)(scale * y), (int)(scale * outerW), (int)(scale * outerH));
 #else
 			return new Rectangle(x, y, outerW, outerH);
@@ -1286,7 +1286,7 @@ namespace Keysharp.Internals
 			}
 
 #if DPI
-			var scale = Accessors.A_ScaledScreenDPI;
+			var scale = Ks.A_ScreenScale;
 #else
 			var scale = 1.0;
 #endif
@@ -1750,7 +1750,7 @@ namespace Keysharp.Internals
 
 			var pt = new POINT(x, y);
 #if DPI
-			var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+			var scale = 1.0 / Ks.A_ScreenScale;
 			pt.X = (int)(scale * pt.X);
 			pt.Y = (int)(scale * pt.Y);
 #endif
@@ -1930,7 +1930,7 @@ namespace Keysharp.Internals
 		public override bool TryGetAt(int x, int y, out nint child)
 		{
 #if DPI
-			var scale = A_ScaledScreenDPI;
+			var scale = Ks.A_ScreenScale;
 
 			if (scale > 0)
 			{

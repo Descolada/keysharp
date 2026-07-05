@@ -586,11 +586,20 @@ namespace Keysharp.Internals
 		}
 
 		// Adopts `snapshot` (an owned, private copy) as the displayed bitmap, resizing it if needed. UI thread.
+		// width/height are the on-screen size in the toolkit's window coordinate units (physical px on GTK,
+		// logical points on Cocoa).
 		private void PaintOwned(Bitmap snapshot, int width, int height)
 		{
 			var size = new Size(Math.Max(1, width), Math.Max(1, height));
 			var old = displayed;
 
+#if OSX
+			// Cocoa sizes windows in LOGICAL points but renders into a HiDPI backing store: `size` is in points
+			// while `snapshot` is the physical-resolution (e.g. 2x) bitmap. Keep the hi-res bitmap and let the
+			// NSImageView draw it into the Retina backing at the point size — its pixels then map 1:1 to device
+			// pixels (crisp). Resizing it down to points here is exactly what made overlays look soft.
+			displayed = snapshot;
+#else
 			if (snapshot.Width == size.Width && snapshot.Height == size.Height)
 			{
 				displayed = snapshot;
@@ -600,6 +609,7 @@ namespace Keysharp.Internals
 				displayed = ImageHelper.ResizeBitmap(snapshot, size.Width, size.Height, exactPixels: true);
 				snapshot.Dispose();
 			}
+#endif
 
 			imageView.Image = displayed;
 			old?.Dispose();

@@ -1,3 +1,5 @@
+using Keysharp.Builtins;
+
 namespace Keysharp.Internals
 {
 
@@ -183,10 +185,31 @@ namespace Keysharp.Internals
 			if (!MacNativeWindows.TryGetWindowInfo(h, out var native))
 				return base.TrySetState(h, state);
 
-			if (!MacAccessibility.TrySetWindowState(native, state))
-				Ks.OutputDebugLine("WindowState for macOS window failed.");
+			switch (state)
+			{
+				// macOS has no "maximized" window state; the nearest equivalent to a Windows/Linux maximize
+				// is native full screen (what the green button does by default), so map WinMaximize onto it.
+				case FormWindowState.Maximized:
+					if (!MacAccessibility.TrySetFullScreen(native, true))
+						Ks.OutputDebugLine("Full screen (maximize) for macOS window failed.");
 
-			return true;
+					return true;
+
+				// WinRestore: leave full screen first (AppKit restores the prior frame), then un-minimize + raise.
+				case FormWindowState.Normal:
+					_ = MacAccessibility.TrySetFullScreen(native, false);
+
+					if (!MacAccessibility.TrySetWindowState(native, state))
+						Ks.OutputDebugLine("WindowState for macOS window failed.");
+
+					return true;
+
+				default: // Minimized
+					if (!MacAccessibility.TrySetWindowState(native, state))
+						Ks.OutputDebugLine("WindowState for macOS window failed.");
+
+					return true;
+			}
 		}
 
 		public override bool TrySetStyle(nint h, long style)

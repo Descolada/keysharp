@@ -1,6 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-#import KS { Highlight }
+#import KS { Highlight, A_ScreenScale }   ; A_ScreenScale (per-platform DPI scale factor) is used by the included HotkeyCard
 #include HotkeyCard.ks
 
 /*

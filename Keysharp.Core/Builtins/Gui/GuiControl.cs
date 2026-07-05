@@ -394,7 +394,7 @@ namespace Keysharp.Builtins
 				}
 				else
 				{
-					var scale = 1.0 / Accessors.A_ScaledScreenDPI;
+					var scale = 1.0 / Ks.A_ScreenScale;
 					if (outX != null) Script.SetPropertyValue(outX, "__Value", (long)Math.Ceiling(rect.X * scale));
 					if (outY != null) Script.SetPropertyValue(outY, "__Value", (long)Math.Ceiling(rect.Y * scale));
 					if (outWidth != null) Script.SetPropertyValue(outWidth, "__Value", (long)Math.Ceiling(rect.Width * scale));

@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#import KS { A_ScreenScale }     ; A_ScreenScale is a Keysharp addition (per-platform DPI scale factor), so it lives in the KS module
 #include HotkeyCard.ks
 
 /*
@@ -64,10 +65,11 @@ class WindowGrab {
             return
         start := this.GetAlpha(id)
         dragged := false
-        ; The drag distance is in PHYSICAL screen pixels, so on a 200% display the same hand movement covers
-        ; twice as many pixels and the fade runs twice as fast. Divide by the DPI scale so a given *perceived*
-        ; drag maps to the same opacity change at any scaling (the drag threshold scales the same way).
-        scale := A_ScreenDPI / 96
+        ; On Windows/Linux the drag distance is in PHYSICAL screen pixels, so on a 200% display the same hand
+        ; movement covers twice as many pixels and the fade would run twice as fast — divide by the DPI scale so
+        ; a given *perceived* drag maps to the same opacity change at any scaling. macOS already reports the
+        ; cursor in logical points (perceived units), so there it stays 1.
+        scale := DirExist("/System/Library/CoreServices") ? 1 : A_ScreenScale
 
         while GetKeyState("RButton", "P") {
             MouseGetPos(&mx, &my)

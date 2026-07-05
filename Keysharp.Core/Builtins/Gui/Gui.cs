@@ -39,7 +39,7 @@ namespace Keysharp.Builtins
 		// Applying a DPIScale multiplier here would double-scale controls on Retina displays.
 		internal double DpiScale => 1.0;
 #else
-		internal double DpiScale => !dpiscaling ? 1.0 : A_ScaledScreenDPI;
+		internal double DpiScale => !dpiscaling ? 1.0 : Ks.A_ScreenScale;
 #endif
 		internal MenuBar menuBar;
 		bool marginsInit = false;

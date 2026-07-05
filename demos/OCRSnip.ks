@@ -24,7 +24,7 @@ class OCRSnip {
     static ExitHotkey := "^+Esc"
 
     static MinSize := 6
-    static PollMs := 20
+    static PollMs := 10
     static OcrScale := 2
 
     static Active := false
@@ -44,9 +44,10 @@ class OCRSnip {
     static Reticle := ""               ; the crosshair reticle that follows the pointer
     static SelFill := ""               ; translucent fill of the drag box — a tiny tile the overlay stretches to size
     static SelBars := ""               ; the four border edges of the drag box — thin tiles, stretched to size
+    static selShown := false           ; whether the selection overlays are visible yet (Show once, then cheap Move)
     static curX := 0, curY := 0        ; latest pointer position reported by OnMouseMove
     static Dragging := false           ; true between button-down and button-up (gates the selection box)
-    static selDirty := false           ; a selection repaint is pending (set by OnMouseMove, cleared by the loop)
+    static moveDirty := false          ; a pointer move is pending — SelectRect's loop applies it once per tick
     static AnchorX := 0, AnchorY := 0  ; where the drag started (screen px)
     ; Stable timer/hotkey callbacks (kept in-class so SetTimer/Hotkey can cancel/toggle the same reference).
     static clearTip := (*) => ToolTip()
@@ -129,11 +130,19 @@ class OCRSnip {
     }
 
     static SelectRect() {
-        ; The guides and reticle follow the pointer on their own via OnMouseMove, so this loop only has to
-        ; watch the mouse button. Phase 1: wait for the left button to go down.
+        ; ALL overlay moves happen here, coalesced: OnMouseMove only records the newest pointer position and
+        ; flags it, and this loop applies it at most once per tick. That way a fast flick — which can fire far
+        ; more move events than the compositor can process window-moves for — can never back up a queue of
+        ; stale moves behind the cursor (each guide/reticle/box move is a compositor round-trip on Wayland).
+        ; Phase 1: keep the crosshair on the pointer until the left button goes down.
         Loop {
             if this.CancelPressed()
                 return ""
+
+            if this.moveDirty {
+                this.moveDirty := false
+                this.SyncTracking()
+            }
 
             if GetKeyState("LButton", "P")
                 break
@@ -145,18 +154,16 @@ class OCRSnip {
         this.AnchorX := ax, this.AnchorY := ay
         this.curX := ax, this.curY := ay
         this.Dragging := true
-        this.selDirty := true
+        this.moveDirty := true
 
-        ; Phase 2: wait for release. The selection box is repainted HERE, coalesced: OnMouseMove only flags
-        ; the newest position, and this loop repaints it at most once per tick — so a fast drag can't back up
-        ; a queue of stale selection-sized repaints (which is what made the box lag behind the cursor).
+        ; Phase 2: same coalesced sync until release, now also resizing the selection box.
         Loop {
             if this.CancelPressed()
                 return ""
 
-            if this.selDirty {
-                this.selDirty := false
-                this.UpdateSelection(this.curX, this.curY)
+            if this.moveDirty {
+                this.moveDirty := false
+                this.SyncTracking()
             }
 
             if !GetKeyState("LButton", "P")
@@ -172,27 +179,30 @@ class OCRSnip {
 
     static CancelPressed() => GetKeyState("Esc", "P") || GetKeyState("RButton", "P")
 
-    ; Called by the InputHook the instant the pointer moves: reposition the guides and reticle (a cheap window
-    ; move, no repaint) and, while dragging, resize the selection box. Runs on the UI thread — same thread as
-    ; the SelectRect loop that pumps it — so touching the overlays here is safe.
+    ; Called by the InputHook the instant the pointer moves. It does NOT touch the overlays — it only records
+    ; the newest position and flags it, so hundreds of move events during a fast flick collapse to a single
+    ; pending update. SelectRect's loop applies it (see SyncTracking) at most once per tick.
     static OnMove(mx, my) {
         this.curX := mx, this.curY := my
+        this.moveDirty := true
+    }
 
+    ; Applies the latest pointer position to the tracking overlays — cheap window moves for the guides and
+    ; reticle, plus a resize of the selection box while dragging. Called once per SelectRect tick.
+    static SyncTracking() {
         if IsObject(this.GuideV)
-            this.GuideV.X := mx
+            this.GuideV.X := this.curX
         if IsObject(this.GuideH)
-            this.GuideH.Y := my
+            this.GuideH.Y := this.curY
         if IsObject(this.Reticle)
-            this.Reticle.Move(mx - this.RetHalf, my - this.RetHalf)
-        ; Don't repaint the selection here: move events can arrive faster than a selection-sized repaint
-        ; finishes, so painting per event backs up and the box lags. Just flag it; SelectRect's loop repaints
-        ; the newest rect at most once per tick (coalesced), which keeps the box on the cursor.
+            this.Reticle.Move(this.curX - this.RetHalf, this.curY - this.RetHalf)
         if this.Dragging
-            this.selDirty := true
+            this.UpdateSelection(this.curX, this.curY)
     }
 
     ; Positions the translucent fill and the four border edges to the current drag rectangle. Every piece is a
-    ; tiny tile the overlay stretches, so this is just window moves/resizes — no bitmap is built per frame.
+    ; tiny tile the overlay STRETCHES to size, so after the first Show this is pure window moves/resizes
+    ; (Move = byte-free reposition) — no bitmap is built or uploaded per frame.
     static UpdateSelection(mx, my) {
         local r := this.NormalizeRect(this.AnchorX, this.AnchorY, mx, my)
 
@@ -202,14 +212,23 @@ class OCRSnip {
         }
 
         local th := 2
-        this.SelFill.Show(r.x, r.y, r.w, r.h)
-        this.SelBars[1].Show(r.x, r.y, r.w, th)                    ; top
-        this.SelBars[2].Show(r.x, r.y + r.h - th, r.w, th)         ; bottom
-        this.SelBars[3].Show(r.x, r.y, th, r.h)                    ; left
-        this.SelBars[4].Show(r.x + r.w - th, r.y, th, r.h)         ; right
+        local pieces := [
+            [this.SelFill,    r.x,             r.y,             r.w, r.h],   ; fill
+            [this.SelBars[1], r.x,             r.y,             r.w, th ],   ; top
+            [this.SelBars[2], r.x,             r.y + r.h - th,  r.w, th ],   ; bottom
+            [this.SelBars[3], r.x,             r.y,             th,  r.h],   ; left
+            [this.SelBars[4], r.x + r.w - th,  r.y,             th,  r.h]]   ; right
+        for p in pieces {
+            if this.selShown
+                p[1].Move(p[2], p[3], p[4], p[5])
+            else
+                p[1].Show(p[2], p[3], p[4], p[5])
+        }
+        this.selShown := true
     }
 
     static HideSelection() {
+        this.selShown := false
         if IsObject(this.SelFill)
             this.SelFill.Hide()
         if IsObject(this.SelBars)
@@ -296,6 +315,8 @@ class OCRSnip {
         MouseGetPos(&mx, &my)
         this.curX := mx, this.curY := my
         this.Dragging := false
+        this.selShown := false
+        this.moveDirty := true          ; place the guides/reticle on the cursor on the first loop tick
 
         ; Faint full-screen guide lines for precise alignment (1px each; repositioned as the cursor moves)...
         this.GuideV := Overlay(mx, d.y, 1, d.h)
@@ -333,6 +354,7 @@ class OCRSnip {
 
     static TeardownTracking() {
         this.Dragging := false
+        this.selShown := false
 
         if IsObject(this.ih) {
             try this.ih.Stop()

@@ -334,7 +334,10 @@ namespace Keysharp.Builtins
 						var icon = temp as Icon;
 
 						if (icon == null)
-							icon = Icon.FromHandle(ptr);
+						{
+							using var handleIcon = Icon.FromHandle(ptr);
+							icon = (Icon)handleIcon.Clone();
+						}
 
 						if (icon != null)
 						{

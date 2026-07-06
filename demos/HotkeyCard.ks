@@ -31,7 +31,7 @@ class HotkeyCard {
         SetTimer(() => this.Build(), -60)
     }
 
-    static SetTrayIcon(emoji, size := 64, fontSize := 44) {
+    static SetTrayIcon(emoji, size := 64, fontSize := 42) {
         local img := ""
 
         try {

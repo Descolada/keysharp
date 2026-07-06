@@ -139,7 +139,11 @@ namespace Keysharp.Internals.Images
 
 						try
 						{
-							bmp = GetBitmapFromHBitmap(ptr);
+							if (ImageHandleManager.TryGetImage(ptr, out var img) && img is Bitmap cachedBmp)
+								bmp = new Bitmap(cachedBmp);
+							else
+								bmp = GetBitmapFromHBitmap(ptr);
+
 							bmp = ResizeBitmap(bmp, w, h, exactPixels);
 						}
 						finally
@@ -822,16 +826,21 @@ namespace Keysharp.Internals.Images
 			{
 				handle = kind == ImageHandleKind.Icon ? bmp.GetHicon() : bmp.GetHbitmap();
 			}
-			finally
+			catch
 			{
 				if (disposeSource)
 					bmp.Dispose();
+				throw;
 			}
 
 			if (handle == 0)
+			{
+				if (disposeSource)
+					bmp.Dispose();
 				return false;
+			}
 
-			handleCache[handle] = new ImageHandleEntry(kind, null, true);
+			handleCache[handle] = new ImageHandleEntry(kind, disposeSource ? bmp : new Bitmap(bmp), true);
 			return true;
 #else
 #if LINUX

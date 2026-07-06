@@ -356,25 +356,37 @@ function Add-CloseInstancesCustomAction {
 
     # NOTE: the MSI script-CA host does not expose WScript, so no Sleep/wait is available; Win32_Process.Terminate
     # tears the process down synchronously enough that its file locks are released before InstallValidate runs.
+    # Match by ExecutablePath under TARGETDIR when available, not just by image name/CommandLine. CommandLine can
+    # be null/unavailable in elevated uninstall contexts, and the directory match avoids closing another Keysharp
+    # install that happens to be running.
     # The prompt text is passed as record field 1 and emitted via the "[1]" template, NOT placed in the template
     # (field 0) itself - MsiFormatRecord would otherwise reparse it and drop part of the message. Session.Message
     # with INSTALLMESSAGE_USER (0x03000000) only shows the box when there is real UI; in silent installs it
     # returns without displaying, so the script closes everything unconditionally.
     $vbs = @'
 On Error Resume Next
-Dim wmi, procs, p, userCount, ui, rec, answer
+Dim wmi, procs, p, userCount, ui, rec, answer, targetDir, targetDirLower, cmd
 Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
-Set procs = wmi.ExecQuery("SELECT ProcessId, Name, CommandLine FROM Win32_Process WHERE Name='Keysharp.exe' OR Name='Keyview.exe'")
+Set procs = wmi.ExecQuery("SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='Keysharp.exe' OR Name='Keyview.exe'")
+targetDir = Session.Property("TARGETDIR")
+If Len(targetDir) > 0 Then
+  If Right(targetDir, 1) <> "\" Then targetDir = targetDir & "\"
+End If
+targetDirLower = LCase(targetDir)
 
 ' The compile daemon ("Keysharp.exe --daemon") is an invisible background process that must always match the
 ' installed binary, so close it unconditionally and without prompting. Count the visible user-facing processes
 ' (running scripts and the Keyview editor) so only those gate on the confirmation below.
 userCount = 0
 For Each p In procs
-  If (p.Name = "Keysharp.exe") And (InStr(1, p.CommandLine, " --daemon", 1) > 0) Then
-    p.Terminate
-  Else
-    userCount = userCount + 1
+  If ShouldCloseProcess(p, targetDirLower) Then
+    cmd = ""
+    If Not IsNull(p.CommandLine) Then cmd = CStr(p.CommandLine)
+    If (LCase(p.Name) = "keysharp.exe") And (InStr(1, cmd, " --daemon", 1) > 0) Then
+      p.Terminate
+    Else
+      userCount = userCount + 1
+    End If
   End If
 Next
 
@@ -394,11 +406,25 @@ If userCount > 0 Then
     End If
   End If
   For Each p In procs
-    If Not ((p.Name = "Keysharp.exe") And (InStr(1, p.CommandLine, " --daemon", 1) > 0)) Then
+    If ShouldCloseProcess(p, targetDirLower) Then
       p.Terminate
     End If
   Next
 End If
+
+Function ShouldCloseProcess(proc, installDirLower)
+  Dim exePath
+  ShouldCloseProcess = False
+  If Len(installDirLower) = 0 Then
+    ShouldCloseProcess = True
+    Exit Function
+  End If
+  exePath = ""
+  If Not IsNull(proc.ExecutablePath) Then exePath = LCase(CStr(proc.ExecutablePath))
+  If Len(exePath) > 0 Then
+    ShouldCloseProcess = (Left(exePath, Len(installDirLower)) = installDirLower)
+  End If
+End Function
 '@
 
     $installer = New-Object -ComObject WindowsInstaller.Installer

@@ -7,10 +7,8 @@ namespace Keysharp.Internals.Input.Linux
 {
 	internal static class KeysharpInputdManager
 	{
-		internal const string LegacyX11EnvironmentVariable = "KEYSHARP_X11_LEGACY";
 		private static readonly Lock gate = new();
 		private static readonly Lock queryGate = new();
-		private static volatile bool legacyX11FallbackActive;
 
 		// Two-socket model:
 		//   client      – hook events + decisions (hook reader thread).
@@ -365,27 +363,6 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
-		internal static readonly bool UseLegacyX11Input = ShouldUseLegacyX11Input();
-
-		internal static bool IsLegacyX11FallbackActive => UseLegacyX11Input || legacyX11FallbackActive;
-
-		internal static void ActivateLegacyX11Fallback(string reason = null)
-		{
-			if (UseLegacyX11Input)
-				return;
-
-			if (!legacyX11FallbackActive && !string.IsNullOrEmpty(reason))
-				Ks.OutputDebugLine($"keysharp-inputd unavailable; using X11/SharpHook fallback. {reason}");
-
-			legacyX11FallbackActive = true;
-
-			// Swap the cached sender to XTEST here, at the one point the fallback flips,
-			// so every later kbdMsSender access routes correctly without each call site
-			// remembering to reconcile. The hook thread only swaps an already-created
-			// inputd sender, so this is safe even when called from CreateKbdMsSender.
-			Script.TheScript?.HookThread?.OnTransportFallbackActivated();
-		}
-
 		internal static KeysharpInputdClient Client
 		{
 			get
@@ -409,12 +386,6 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static bool TrySetBlockInput(KeysharpInputdClient.BlockInputMask mask, out string message)
 		{
-			if (IsLegacyX11FallbackActive)
-			{
-				message = string.Empty;
-				return false;
-			}
-
 			lock (gate)
 			{
 				if (!TryEnsureConnected("block input", out _, out message))
@@ -450,9 +421,6 @@ namespace Keysharp.Internals.Input.Linux
 
 		internal static PermissionResult EnsureCapabilities(KeysharpInputdClient.Capabilities required, string operation = null, bool forcePrompt = false)
 		{
-			if (IsLegacyX11FallbackActive)
-				return new PermissionResult(PermissionStatus.NotApplicable);
-
 			operation ??= "input automation";
 
 			lock (gate)
@@ -508,9 +476,6 @@ namespace Keysharp.Internals.Input.Linux
 		/// </summary>
 		internal static bool IsDaemonReachable()
 		{
-			if (IsLegacyX11FallbackActive)
-				return false;
-
 			// A capability/trust prompt in EnsureCapabilities can hold 'gate' for as long as the user
 			// takes to decide (tens of seconds). This probe drives sender selection and must stay
 			// responsive, so don't block behind that prompt: if the lock isn't promptly available,
@@ -597,18 +562,6 @@ namespace Keysharp.Internals.Input.Linux
 				requested |= synth;
 
 			return requested;
-		}
-
-		private static bool ShouldUseLegacyX11Input()
-		{
-			if (Keysharp.Internals.Strings.Conversions.ParseBoolish(Environment.GetEnvironmentVariable(LegacyX11EnvironmentVariable)) == true)
-				return true;
-
-			// Test hosts must not trigger inputd permission prompts. If an X display is
-			// available, use the in-process X11/SharpHook path so hook tests can run
-			// unattended.
-			return AppDomain.CurrentDomain.FriendlyName == "testhost"
-				&& !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
 		}
 
 		private static void DisposeClient()

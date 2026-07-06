@@ -9,12 +9,11 @@ using EventCode = Keysharp.Internals.Input.Linux.Devices.EventCode;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using SharpHook;
-using SharpHook.Data;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using Keysharp.Internals.Input.Mouse;
 using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
+using Keysharp.Internals.Input.Hooks;
 
 namespace Keysharp.Internals.Input.Hooks.Unix
 {
@@ -32,15 +31,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		[System.ThreadStatic]
 		internal static bool IsHookReaderThread;
 
-		// --- SharpHook ---
-		private SimpleGlobalHook globalHook;
-		private Task hookRunTask;
-		// Signalled once the freshly-started global hook is actually running (SharpHook's HookEnabled) or has
-		// failed — so hook installation can block until the native hook is live before the script relies on it.
-		private readonly System.Threading.ManualResetEventSlim hookReadyEvent = new (false);
-		// Max time to wait for the native hook to start. HookEnabled normally fires within tens of ms; the bound
-		// just guarantees a denied/failed start can't hang script startup.
-		private const int HookStartTimeoutMs = 3000;
 #if LINUX
 		private KeysharpInputdClient inputdKeyboardHookClient;
 		private KeysharpInputdClient inputdMouseHookClient;
@@ -82,12 +72,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private int clipCorrectionWorkerActive;
 #endif
 
-		private readonly Lock hookStateLock = new();
-		private long hookStateGeneration;
+		protected readonly Lock hookStateLock = new();
+		protected long hookStateGeneration;
 
 		// Cached on/off
-		private volatile bool keyboardEnabled;
-		private volatile bool mouseEnabled;
+		protected volatile bool keyboardEnabled;
+		protected volatile bool mouseEnabled;
 
 		private IndicatorSnapshot indicatorSnapshot = new(false, false, false);
 		private volatile bool indicatorSnapshotValid;
@@ -140,19 +130,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected readonly Dictionary<uint, bool> customPrefixSuppress = new();
 		protected readonly Dictionary<uint, List<(uint keycode, uint mods)>> dynamicPrefixGrabs = new();
 		private uint activeHotkeyVk;
-		private KeyCode activeHotkeyKc;
+		private uint activeHotkeyKc;
 		private bool activeHotkeyDown;
 		protected readonly byte[] logicalKeyState = new byte[VK_ARRAY_COUNT];
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
-		internal KeyCode ActiveHotkeyKc => activeHotkeyKc;
+		internal uint ActiveHotkeyKc => activeHotkeyKc;
 		internal bool SendInProgress => sendInProgress;
 		internal bool IsHotkeySuffixDown(uint vk) => activeHotkeyDown && activeHotkeyVk == vk;
-		private readonly SyntheticEventQueue syntheticEventQueue = new();
-		protected virtual long SyntheticEventTimeoutMs => 200;
-		protected virtual long SyntheticKeyUpTimeoutMs => 200;
-		protected virtual long SyntheticEventFutureToleranceMs => 25;
 		private readonly Dictionary<uint, int> suppressedHotkeyReleases = new();
-		private readonly HashSet<uint> replayedGrabbedDown = new();
 		private char lastTypedChar;
 		private uint lastKeyboardEventVk;
 		private bool lastHookEventWasKeyboard;
@@ -252,19 +237,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			public bool AllowExtra;  // wildcard (*) hotkey: allow extra modifiers
 		}
 
-		[Flags]
-		protected enum GrabKinds
-		{
-			None = 0,
-			Hotkey = 1,
-			Input = 2,
-			Hotstring = 4,
-		}
-
-		// Tracks installed passive key grabs by physical X11 keycode/modifier pair and why they exist.
-		protected readonly Dictionary<(uint xCode, uint mods), GrabKinds> activeKeyGrabs = new();
-		protected readonly Dictionary<(uint button, uint mods), GrabKinds> activeButtonGrabs = new();
-		protected virtual bool UseSyntheticEventQueue => false;
 		protected virtual bool UsePlatformHotstringArming => false;
 		private bool sendInProgress;
 		private int sendDepth;
@@ -286,34 +258,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					owner.SyncModifiersAfterSend();
 			}
 		}
-		internal struct GrabSnapshot
-		{
-			public bool Active;
-			public HashSet<(uint xcode, uint mods)> KeyGrabs;
-			public HashSet<(uint button, uint mods)> ButtonGrabs;
-		}
-
-		protected static void AddGrabKind<TKey>(Dictionary<TKey, GrabKinds> target, TKey key, GrabKinds kind) where TKey : notnull
-		{
-			if (target.TryGetValue(key, out var existing))
-				target[key] = existing | kind;
-			else
-				target[key] = kind;
-		}
-
-		protected static void RemoveGrabKind<TKey>(Dictionary<TKey, GrabKinds> target, TKey key, GrabKinds kind) where TKey : notnull
-		{
-			if (!target.TryGetValue(key, out var existing))
-				return;
-
-			existing &= ~kind;
-
-			if (existing == GrabKinds.None)
-				target.Remove(key);
-			else
-				target[key] = existing;
-		}
-
 		internal UnixHookThread() : base()
 		{
 			ConfigureScanCodeNames();
@@ -322,86 +266,20 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected override KeyboardMouseSender CreateKbdMsSender()
 		{
 #if LINUX
-			return ShouldUseInputdSender()
-				? new InputdKeyboardMouseSender()
-				: new LinuxKeyboardMouseSender();
+			return new InputdKeyboardMouseSender();
 #else
 			return new UnixKeyboardMouseSender();
 #endif
 		}
 
 #if LINUX
-		private static bool ShouldUseInputdSender()
-		{
-			if (KeysharpInputdManager.IsLegacyX11FallbackActive)
-				return false;
-
-			if (!IsX11Available)
-				return true;
-
-			// Only probe daemon reachability here — do NOT request any capabilities,
-			// which would trigger a permission prompt at every Script construction
-			// (including for hosts like Keyview that don't actually use hooks/send).
-			// The real capability prompt happens lazily on first hook registration
-			// or Send call via EnsureInputMonitoring / EnsureInputInjection.
-			if (KeysharpInputdManager.IsDaemonReachable())
-				return true;
-
-			KeysharpInputdManager.ActivateLegacyX11Fallback(
-				$"keysharp-inputd not reachable at '{KeysharpInputdClient.DefaultSocketPath}'.");
-			return false;
-		}
-
-		// Demote to the X11 XTEST sender. Only called where the fallback latch is
-		// active, so invalidating lets the getter rebuild a LinuxKeyboardMouseSender;
-		// the tracked-input reset clears any stale hook key/modifier state across the
-		// switch (and forces the rebuild).
-		private void EnsureLegacyX11Sender()
-		{
-			if (_kbdMsSender is LinuxKeyboardMouseSender)
-				return;
-
-			InvalidateKbdMsSender();
-			ResetTrackedInputState(clearSyntheticQueue: true);
-		}
-
-		// Inverse of EnsureLegacyX11Sender: put the inputd sender back once hooks are
-		// (re)established through inputd, unless the X11 fallback latch is set (in which
-		// case the X11 path deliberately owns the sender). Invalidating disposes the
-		// outgoing IDisposable X11 sender and lets the getter rebuild the inputd one.
 		private void EnsureInputdSender()
 		{
-			if (KeysharpInputdManager.IsLegacyX11FallbackActive)
-				return;
-
 			if (_kbdMsSender is null or InputdKeyboardMouseSender)
 				return;
 
 			InvalidateKbdMsSender();
-			ResetTrackedInputState(clearSyntheticQueue: true);
-		}
-
-		// Invoked from KeysharpInputdManager.ActivateLegacyX11Fallback (the single point
-		// the fallback latch flips), so even a Send-only script — which never installs a
-		// hook and so never runs the swap in ChangeHookStateLinux — routes Send through
-		// XTEST afterward. Just invalidate: the next kbdMsSender access rebuilds the
-		// XTEST sender because CreateKbdMsSender honors the now-active latch.
-		//
-		// Reads the raw field, never the lazy getter: this can run re-entrantly from
-		// CreateKbdMsSender (via ShouldUseInputdSender activating the fallback) while the
-		// field is still null. In that case CreateKbdMsSender itself already builds the
-		// legacy sender, so there is nothing to invalidate here. No tracked-state reset:
-		// this path only fires without active hooks, where that state is already empty.
-		internal override void OnTransportFallbackActivated()
-		{
-			if (_kbdMsSender is not InputdKeyboardMouseSender)
-				return;
-
-			lock (hookStateLock)
-			{
-				if (_kbdMsSender is InputdKeyboardMouseSender)
-					InvalidateKbdMsSender();
-			}
+			ResetTrackedInputState(clearSyntheticQueue: false);
 		}
 #endif
 
@@ -413,23 +291,14 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// On the inputd path the modifier reconciliation is handled by
 			// InputdKeyboardMouseSender.ReconcileLogicalModifiersFromOs (called from
 			// SendEventArray after each bypass-hook batch), and by hook echoes for
-			// Event-mode sends. The GetModifierLRState(true) call below handles the
-			// X11/SharpHook path via the "wrongly down" correction in that method;
-			// on the inputd path it is a no-op (IsKeyDownAsync reads modifiersLRLogical
-			// directly, so modifiersWronglyDown is always zero there).
+			// Event-mode sends.
 			_ = kbdMsSender?.GetModifierLRState(true);
 		}
 
-		private void ResetTrackedInputState(bool clearSyntheticQueue)
+		protected void ResetTrackedInputState(bool clearSyntheticQueue)
 		{
 			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
 			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
-
-			if (clearSyntheticQueue)
-				syntheticEventQueue.Clear();
-
-			lock (replayedGrabbedDown)
-				replayedGrabbedDown.Clear();
 
 			kbdMsSender.modifiersLRLogical = 0;
 			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
@@ -469,10 +338,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 #if LINUX
 				StopInputdHookCore();
 #endif
-				StopGlobalHookCore(dispose: true);
+				StopPlatformHookCore(dispose: true);
 				kbdHook = 0;
 				mouseHook = 0;
-				PlatformUngrabAll();
 			}
 
 			// Release the named hook mutexes now that no hooks are held (mirrors AddRemoveHooks; this path
@@ -487,11 +355,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (vk == 0)
 				return;
 
-			var kc = KeyCodes.VkToSharpHook(vk);
-			if (kc == KeyCode.VcUndefined)
-				return;
-
-			var sc = KeyCodes.MapVkToSc(vk);
+						var sc = KeyCodes.MapVkToSc(vk);
 			if (sc == 0)
 				sc = KeyCodes.MapVkToSc(vk);
 
@@ -502,7 +366,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				Mask = EventMask.None,
 				Keyboard = new KeyboardEventData
 				{
-					KeyCode = kc,
+					VkCode = vk,
 					RawCode = (ushort)sc,
 					RawKeyChar = KeyboardEventData.RawUndefinedChar
 				}
@@ -532,10 +396,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 #if LINUX
 		private static bool warnedWaylandHookUnavailable;
 
-		// On Wayland the SharpHook/XRecord fallback can only observe XWayland windows -- it is blind to native
-		// Wayland clients (and sees nothing on a pure-Wayland session with no X server), so hotkeys, hotstrings
-		// and InputHook won't fire for most apps. Surface that once to stderr, mirroring the Send/mouse fallback
-		// warnings (the underlying cause -- keysharp-inputd not reachable -- only reached the debug pane before).
+		// Wayland has no in-process global input capture fallback. Surface the missing helper once to stderr
+		// so hotkeys/hotstrings/InputHook do not silently stop working outside the debug pane.
 		private static void WarnIfWaylandHookUnavailable()
 		{
 			if (warnedWaylandHookUnavailable || !Platform.Desktop.IsWaylandSession)
@@ -543,14 +405,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			warnedWaylandHookUnavailable = true;
 			Script.WriteUncaughtErrorToStdErr(
-				"Keysharp: the global keyboard/mouse hook is falling back to X11/XRecord, which cannot observe " +
-				"native Wayland windows, so hotkeys, hotstrings and InputHook will not work for most applications. " +
-				"Install and enable the keysharp-inputd helper (re-run the installer, or " +
+				"Keysharp: global keyboard/mouse hooks require the keysharp-inputd helper on Wayland. " +
+				"Install and enable it (re-run the installer, or " +
 				"'keysharp-inputd --install-input-access') to enable global input capture on Wayland.");
 		}
 #endif
 
-		private void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
+		protected virtual void ChangeHookStateLinux(HookType req, bool changeIsTemporary, long expectedGeneration)
 		{
 			if (HookDisabled)
 			{
@@ -563,65 +424,55 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					mouseEnabled = false;
 					kbdHook = 0;
 					mouseHook = 0;
-
-					// permanent stop if hook is disabled via env var
-					StopGlobalHookCore(dispose: true);
+					StopPlatformHookCore(dispose: true);
 				}
 
 				Ks.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
 				return;
 			}
 
-			bool wantKeyboard = (req & HookType.Keyboard) != 0;
-			bool wantMouse    = (req & HookType.Mouse) != 0;
+			var wantKeyboard = (req & HookType.Keyboard) != 0;
+			var wantMouse = (req & HookType.Mouse) != 0;
 
 			lock (hookStateLock)
 			{
 				if (hookStateGeneration != expectedGeneration)
 					return;
 
-				// Remember previous "caller wants it" state (since these bools are now dual-purpose).
-				bool hadKeyboard = keyboardEnabled;
-				bool hadMouse    = mouseEnabled;
+				var hadKeyboard = keyboardEnabled;
+				var hadMouse = mouseEnabled;
 
-				// ---- transition gate OFF (prevents racing init / mid-transition events) ----
-
-				// If nothing requested:
 				if (!wantKeyboard && !wantMouse)
 				{
-					keyboardEnabled = false; kbdHook = 0;
-					mouseEnabled = false; mouseHook = 0;
+					keyboardEnabled = false;
+					mouseEnabled = false;
+					kbdHook = 0;
+					mouseHook = 0;
 
-					if (changeIsTemporary)
-					{
-						// Keep SimpleGlobalHook running, just stop processing events.
-						// (Do NOT reset state here; we’ll resync on re-enable.)
-						return;
-					}
+					if (!changeIsTemporary)
+						StopPlatformHookCore(dispose: true);
 
-					// Permanent removal: stop + clear.
-					StopGlobalHookCore(dispose: true);
 					return;
 				}
 
-				// Ensure the hook is running (only start/attach once).
 #if LINUX
 				var inputdMessage = string.Empty;
 
-				if (!KeysharpInputdManager.IsLegacyX11FallbackActive && TryStartInputdHookCore(wantKeyboard, wantMouse, out inputdMessage))
+				if (TryStartInputdHookCore(wantKeyboard, wantMouse, out inputdMessage))
 				{
-					StopGlobalHookCore(dispose: true);
-
 					if (!changeIsTemporary)
 					{
 						if (wantKeyboard && !hadKeyboard)
 						{
-							keyboardEnabled = false; kbdHook = 0;
+							keyboardEnabled = false;
+							kbdHook = 0;
 							ResetHook(false, HookType.Keyboard, true);
 						}
+
 						if (wantMouse && !hadMouse)
 						{
-							mouseEnabled = false; mouseHook = 0;
+							mouseEnabled = false;
+							mouseHook = 0;
 							ResetHook(false, HookType.Mouse, true);
 						}
 					}
@@ -631,148 +482,28 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					kbdHook = wantKeyboard ? 1 : 0;
 					mouseHook = wantMouse ? 1 : 0;
 					usingInputdHooks = true;
-					// Hooks are (re)established through inputd. Restore the inputd sender in
-					// case a prior transient hook failure demoted it to X11 XTEST — otherwise
-					// Send would keep routing through XTEST against a healthy daemon.
 					EnsureInputdSender();
 					return;
 				}
 
-				if (KeysharpInputdManager.IsLegacyX11FallbackActive)
-				{
-					// Daemon unreachable or denied on an X11 session: route Send through XTEST.
-					EnsureLegacyX11Sender();
-				}
-				else
-				{
-					// No X11 fallback exists here (pure Wayland). Keep the inputd sender:
-					// demoting to LinuxKeyboardMouseSender would silently break Send against
-					// a possibly-healthy daemon, since XTEST needs an X display.
-					Ks.OutputDebugLine($"keysharp-inputd hook unavailable; keeping inputd sender. {inputdMessage}");
-					WarnIfWaylandHookUnavailable();
-				}
-#endif
-
-				// libuiohook is a single-process-global hook: run()/hook_stop() share one CFRunLoop reference.
-				// The test host creates many Script instances (per test, plus the compiled programs the
-				// RunScript-based tests execute, plus RealThread workers), several of which start a hook; a new
-				// hook_run() begun before a prior one has stopped overwrites that shared state, and a later
-				// hook_stop then dereferences a stale run loop -> native SIGSEGV (not catchable, and unfixable by
-				// teardown since the corruption already happened). The tests inject input by invoking OnKeyPressed
-				// directly, so the native tap is never needed in the headless host; skip starting it and rely on
-				// the install sentinels set below (HasKbdHook only checks those).
-				// Restart only when there is no hook yet, or the hook's run task has actually ended
-				// (stopped/faulted) — NOT merely because IsRunning has not flipped true yet. RunAsync starts the
-				// native hook on a background thread, so IsRunning stays false for a short window after RunAsync
-				// returns. A script that registers several hooks/hotkeys in quick succession (e.g. an InputHook
-				// plus a few Hotkeys during startup) re-enters here during that window; using !IsRunning would
-				// dispose the still-starting hook and RunAsync a new one, and a second hook_run() begun before
-				// the first has stopped corrupts libuiohook's single-process-global CFRunLoop state — leaving the
-				// hook silently dead (hotkeys/InputHook stop firing while the tray still works).
-				if (!Script.IsUiInitializationBlocked && (globalHook == null || (hookRunTask?.IsCompleted ?? true)))
-				{
-					_ = Script.TheScript.Permissions.EnsureInputMonitoring(operation: "install keyboard/mouse hooks");
-					StopGlobalHookCore(dispose: true); // clean restart if something half-exists
-
-					globalHook = new SimpleGlobalHook(default, default, true);
-
-					// Track when the native hook is actually running so the install can wait for it below.
-					hookReadyEvent.Reset();
-					globalHook.HookEnabled += (s, e) => hookReadyEvent.Set();
-
-					globalHook.KeyPressed += OnKeyPressed;
-					globalHook.KeyReleased += OnKeyReleased;
-
-					globalHook.MousePressed += OnMousePressed;
-					globalHook.MouseReleased += OnMouseReleased;
-					globalHook.MouseMoved += OnMouseMoved;
-					// libuiohook reports moving with a button held as a separate "dragged" event. A drag is
-					// still cursor movement, so route it through the same handler -- otherwise OnMouseMove
-					// callbacks, VisibleMouseMove/BlockInput suppression and ClipCursor all miss drags on the
-					// SharpHook backend (macOS, and the Linux X11/SharpHook fallback). The Linux inputd path
-					// is unaffected: it reads movement at the evdev level, which has no move/drag distinction.
-					globalHook.MouseDragged += OnMouseMoved;
-					globalHook.MouseWheel += OnMouseWheel;
-
-					// Start hook thread
-					hookRunTask = globalHook.RunAsync();
-					_ = hookRunTask.ContinueWith(t =>
-					{
-						hookReadyEvent.Set(); // unblock the readiness wait: the hook stopped/failed before enabling
-
-						var ex = t.Exception?.GetBaseException();
-						var detail = ex != null ? ex.ToString() : "Unknown hook startup failure.";
-
-#if OSX
-						Ks.OutputDebugLine($"Global hook failed on macOS: {detail}");
-						Ks.OutputDebugLine("Check macOS permissions: Accessibility and Input Monitoring may be required.");
-#else
-						Ks.OutputDebugLine($"Global hook failed: {detail}");
-#endif
-					}, TaskContinuationOptions.OnlyOnFaulted);
-
-					// Wait for the native hook to actually be running before returning. RunAsync starts it on a
-					// background thread, so without this the script would proceed — registering more hooks/hotkeys,
-					// reading GetKeyState, dispatching input — while the hook is still initializing. A subsequent
-					// hook operation racing libuiohook's not-yet-established CFRunLoop is what left the hook
-					// silently dead (hotkeys/InputHook dead, tray still working). Bounded so a failed start can't
-					// hang startup; the fault continuation above also releases the wait.
-					_ = hookReadyEvent.Wait(HookStartTimeoutMs);
-				}
-
-				// Respect Windows semantics: ResetHook only for non-temporary transitions
-				// and only when something is newly enabled.
-				if (!changeIsTemporary)
-				{
-					if (wantKeyboard && !hadKeyboard)
-					{
-						keyboardEnabled = false; kbdHook = 0;
-						// Always resync snapshots right before enabling processing.
-						// This prevents “stuck key”/wrong modifier state after temporary disable,
-						// and also ensures no stale state after restart.
-						InitSnapshotFromX11();
-						ResetHook(false, HookType.Keyboard, true);
-					}
-					if (wantMouse && !hadMouse)
-					{
-						mouseEnabled = false; mouseHook = 0;
-						ResetHook(false, HookType.Mouse, true);
-					}
-				}
-
-				// ---- transition complete: enable processing AND indicate desired state ----
-				keyboardEnabled = wantKeyboard;
-				mouseEnabled = wantMouse;
-
-				kbdHook = wantKeyboard ? 1 : 0;   // sentinel for HasKbdHook()
-				mouseHook = wantMouse ? 1 : 0;
-#if LINUX
+				Ks.OutputDebugLine($"keysharp-inputd hook unavailable; global hooks disabled. {inputdMessage}");
+				WarnIfWaylandHookUnavailable();
 				usingInputdHooks = false;
 #endif
+				keyboardEnabled = false;
+				mouseEnabled = false;
+				kbdHook = 0;
+				mouseHook = 0;
 			}
 		}
-
-		private void StopGlobalHookCore(bool dispose)
+		protected void StopPlatformHookCore(bool dispose)
 		{
-			// Must be called under hookStateLock.
+			if (!dispose)
+				return;
 
-			if (dispose)
-			{
-				try { globalHook?.Dispose(); } catch { }
-				try { if (hookRunTask != null && !hookRunTask.IsCompleted) hookRunTask.Wait(50); } catch { }
-				globalHook = null;
-				hookRunTask = null;
-
-				// When permanently disposing, clear state like before.
-				ResetTrackedInputState(clearSyntheticQueue: true);
-				ResetIndicatorSnapshot();
-
-				// Release any active cursor freeze (macOS decouple) now that the hook is gone, so a
-				// blocked cursor can't be left stuck when the hook is removed without a final move event.
-				SetMoveSuppression(false);
-			}
-			// If dispose==false: we intentionally keep the hook alive and keep current
-			// state around; the processing gate is controlled by keyboardEnabled/mouseEnabled.
+			ResetTrackedInputState(clearSyntheticQueue: false);
+			ResetIndicatorSnapshot();
+			SetMoveSuppression(false);
 		}
 
 		internal override void ChangeHookState(HotkeyDefinition[] hk, HookType whichHook, HookType whichHookAlways)
@@ -815,12 +546,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					}
 				}
 
-				RebuildPlatformHotkeyGrabs();
 			}
-		}
-
-		protected virtual void RebuildPlatformHotkeyGrabs()
-		{
 		}
 
 		internal override void Unhook() => DeregisterHooks();
@@ -834,7 +560,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		protected virtual void InitSnapshotFromPlatform()
 		{
-			ResetTrackedInputState(clearSyntheticQueue: true);
+			ResetTrackedInputState(clearSyntheticQueue: false);
 		}
 
 #if LINUX
@@ -891,8 +617,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!permission.IsGranted)
 			{
 				message = permission.Message;
-				if (IsX11Available)
-					KeysharpInputdManager.ActivateLegacyX11Fallback(message);
 				return false;
 			}
 
@@ -931,8 +655,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			{
 				StopInputdHookCore();
 				message = ex.Message;
-				if (IsX11Available)
-					KeysharpInputdManager.ActivateLegacyX11Fallback(message);
 				return false;
 			}
 		}
@@ -1242,14 +964,18 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (want == HookType.None)
 				return;
 
-			// Repeated rapid losses mean the daemon is gone or crash-looping; pin the
-			// X11/SharpHook fallback (when available) instead of reconnecting forever.
 			var now = Environment.TickCount64;
 
 			if (now - lastInputdRecoveryTicks < InputdRecoveryWindowMs)
 			{
-				if (++inputdRecoveryAttempts >= MaxInputdRecoveryAttempts && IsX11Available)
-					KeysharpInputdManager.ActivateLegacyX11Fallback(reason);
+				if (++inputdRecoveryAttempts >= MaxInputdRecoveryAttempts)
+				{
+					if (CursorClipActive)
+						ClearCursorClip();
+
+					Ks.OutputDebugLine($"keysharp-inputd hooks lost repeatedly; global hooks disabled: {reason}");
+					return;
+				}
 			}
 			else
 			{
@@ -1258,21 +984,9 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			lastInputdRecoveryTicks = now;
 
-			if (!IsX11Available && KeysharpInputdManager.IsLegacyX11FallbackActive)
-			{
-				// No daemon and no X11 fallback — nothing left to route input through.
-				if (CursorClipActive)
-					ClearCursorClip();
-
-				Ks.OutputDebugLine($"keysharp-inputd hooks lost and no fallback is available: {reason}");
-				return;
-			}
-
 			Ks.OutputDebugLine($"keysharp-inputd hook reader lost ({reason}); re-establishing hooks.");
 
-			// Re-arm. If the fallback is now active this routes through X11/SharpHook;
-			// otherwise it reconnects to a freshly socket-activated daemon, and if that
-			// reconnect fails TryStartInputdHookCore activates the X11 fallback itself.
+			// Re-arm through keysharp-inputd. If reconnect fails, the hook state is left disabled.
 			ChangeHookStateLinux(want, changeIsTemporary: false, expectedGeneration: recoveryGeneration);
 
 			if (CursorClipActive && !UsingInputdHooks)
@@ -1291,17 +1005,17 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// navigation VK it produces when NumLock is off; returns 0 for any non-numpad key.
 		private static uint NumpadNavigationVk(uint sc) => sc switch
 		{
-			(uint)EventCode.Kp7 => VK_HOME,   // KEY_KP7   → NumpadHome
-			(uint)EventCode.Kp8 => VK_UP,     // KEY_KP8   → NumpadUp
-			(uint)EventCode.Kp9 => VK_PRIOR,  // KEY_KP9   → NumpadPgUp
-			(uint)EventCode.Kp4 => VK_LEFT,   // KEY_KP4   → NumpadLeft
-			(uint)EventCode.Kp5 => VK_CLEAR,  // KEY_KP5   → NumpadClear
-			(uint)EventCode.Kp6 => VK_RIGHT,  // KEY_KP6   → NumpadRight
-			(uint)EventCode.Kp1 => VK_END,    // KEY_KP1   → NumpadEnd
-			(uint)EventCode.Kp2 => VK_DOWN,   // KEY_KP2   → NumpadDown
-			(uint)EventCode.Kp3 => VK_NEXT,   // KEY_KP3   → NumpadPgDn
-			(uint)EventCode.Kp0 => VK_INSERT, // KEY_KP0   → NumpadIns
-			(uint)EventCode.KpDot => VK_DELETE, // KEY_KPDOT → NumpadDel
+			(uint)EventCode.Kp7 => VK_HOME,   // KEY_KP7   â†’ NumpadHome
+			(uint)EventCode.Kp8 => VK_UP,     // KEY_KP8   â†’ NumpadUp
+			(uint)EventCode.Kp9 => VK_PRIOR,  // KEY_KP9   â†’ NumpadPgUp
+			(uint)EventCode.Kp4 => VK_LEFT,   // KEY_KP4   â†’ NumpadLeft
+			(uint)EventCode.Kp5 => VK_CLEAR,  // KEY_KP5   â†’ NumpadClear
+			(uint)EventCode.Kp6 => VK_RIGHT,  // KEY_KP6   â†’ NumpadRight
+			(uint)EventCode.Kp1 => VK_END,    // KEY_KP1   â†’ NumpadEnd
+			(uint)EventCode.Kp2 => VK_DOWN,   // KEY_KP2   â†’ NumpadDown
+			(uint)EventCode.Kp3 => VK_NEXT,   // KEY_KP3   â†’ NumpadPgDn
+			(uint)EventCode.Kp0 => VK_INSERT, // KEY_KP0   â†’ NumpadIns
+			(uint)EventCode.KpDot => VK_DELETE, // KEY_KPDOT â†’ NumpadDel
 			_ => 0u
 		};
 
@@ -1370,7 +1084,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!isInjected)
 				Script.TheScript.timeLastInputPhysical = DateTime.UtcNow;
 
-			var keyCode = KeyCodes.VkToSharpHook(vk);
 			var raw = new UioHookEvent
 			{
 				Type = keyUp ? EventType.KeyReleased : EventType.KeyPressed,
@@ -1378,7 +1091,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
 				Keyboard = new KeyboardEventData
 				{
-					KeyCode = keyCode,
+					VkCode = vk,
 					RawCode = (ushort)sc,
 					RawKeyChar = KeyboardEventData.RawUndefinedChar
 				}
@@ -1398,7 +1111,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// dispatch must update it synchronously at the send site (see
 			// InputdKeyboardMouseSender.SendKeybdEvent).
 			var result = LowLevelCommon(args, vk, sc, ev.ScanCode, keyUp, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
-			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result, replayed: false, wasGrabbed: false);
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp, isInjected, result);
 			return result != 0;
 		}
 
@@ -1600,8 +1313,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 					var moveBlocked = !isInjected && Script.TheScript.KeyboardData.blockMouseMove;
 
-					// Forward movement to any active InputHook(s) and honor VisibleMouseMove. The SharpHook
-					// fallback does this in OnMouseMoved; the inputd path is the live backend on this host,
+					// Forward movement to any active InputHook(s) and honor VisibleMouseMove. The inputd
+					// path is the live backend on this host,
 					// so without this call OnMouseMove never fires and VisibleMouseMove can't suppress. The
 					// coordinate meaning depends on the device (see linux_devices.c): an absolute pointer
 					// (VMware's virtual mouse, tablets, touchpads) sends each axis normalised to [0,65535]
@@ -1741,27 +1454,25 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		// -------------------- event handlers --------------------
 
-		// On platforms without an OS-level "block all input" API (e.g. macOS, and the X11/SharpHook
-		// fallback path), BlockInput is implemented by suppressing physical events at the hook level.
+		// On platforms without an OS-level "block all input" API (e.g. macOS), BlockInput is
+		// implemented by suppressing physical events at the hook level.
 		// Injected (self-generated) events must still pass through so that Send/Click keep working
 		// while BlockInput is active.
 		private static bool ShouldSuppressForBlockInput(bool isInjected) =>
 			!isInjected && Script.TheScript.KeyboardData.blockInput;
 
-		private void OnKeyPressed(object sender, KeyboardHookEventArgs e)
+		protected void OnKeyPressed(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
 
-			var keyCode = e.Data.KeyCode;
-			var vk = KeyCodes.SharpHookToVk(keyCode);
+			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.RawEvent.Keyboard.RawCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
-			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: false, out var grabbedByHotstring);
-			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, false, out ulong extraInfo);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
@@ -1788,17 +1499,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				return;
 			}
 
-			if (!isInjected && grabbedByHotstring)
-				ForceReleaseEndKeyX11(vk);
-
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: false, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
-			NormalizeUnsuppressableModifierState(vk, sc, keyUp: false, isInjected, wasGrabbed, result, extraInfo);
-			var shouldReplayDown = result == 0 && wasGrabbed && !grabbedByHotstring && !isInjected;
-
-			if (shouldReplayDown)
-				ReplayGrabbedKey(keyCode, vk, sc, false);
-
-			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: false, isInjected, result, shouldReplayDown, wasGrabbed);
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: false, isInjected, result);
 
 			if (result != 0)
 			{
@@ -1808,20 +1510,18 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 		}
 
-		private void OnKeyReleased(object sender, KeyboardHookEventArgs e)
+		protected void OnKeyReleased(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
 
-			var keyCode = e.Data.KeyCode;
-			var vk = KeyCodes.SharpHookToVk(keyCode);
+			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.RawEvent.Keyboard.RawCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
 			var sc = (uint)e.RawEvent.Keyboard.RawCode;
-			var wasGrabbed = WasKeyGrabbed(e, vk, keyUp: true, out var grabbedByHotstring);
-			var isInjected = MarkSimulatedIfNeeded(e, vk, keyCode, true, out ulong extraInfo);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
@@ -1847,16 +1547,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 
 			var result = LowLevelCommon(e, vk, sc, sc, keyUp: true, extraInfo, isInjected ? HOOK_EVENT_INJECTED : 0);
-			NormalizeUnsuppressableModifierState(vk, sc, keyUp: true, isInjected, wasGrabbed, result, extraInfo);
-			var shouldReplayUp = result == 0
-				&& !grabbedByHotstring
-				&& !isInjected
-				&& (wasGrabbed || kbdMsSender.IsKeyGrabSuspendedForReplay(vk));
-
-			if (shouldReplayUp)
-				ReplayGrabbedKey(keyCode, vk, sc, true);
-
-			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: true, isInjected, result, shouldReplayUp, wasGrabbed);
+			ApplyKeyStateAfterKeyboardDecision(vk, keyUp: true, isInjected, result);
 
 			if (result != 0)
 				e.SuppressEvent = true;
@@ -1970,7 +1661,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return success;
 		}
 
-		private void OnMouseWheel(object sender, MouseWheelHookEventArgs e)
+		protected void OnMouseWheel(object sender, MouseWheelHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
@@ -1983,7 +1674,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			lastHookEventWasKeyboard = false;
 			var vk = MapWheelVk(e);
 			var sc = (uint)e.Data.Rotation;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
@@ -2000,7 +1691,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		// Whether physical mouse movement is currently being suppressed (BlockInput mouse-move / blockInput,
 		// or an InputHook with VisibleMouseMove := false). Toggling it lets a platform actively stop the
 		// cursor when suppressing the move event alone doesn't (macOS -- see OnMoveSuppressionChanged).
-		// Touched only on the single SharpHook hook thread, so no synchronization is needed.
+		// Touched only on the single native hook thread, so no synchronization is needed.
 		private bool moveSuppressionActive;
 
 		// Called when physical move suppression turns on/off. macOS decouples the cursor from the mouse so
@@ -2018,7 +1709,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			OnMoveSuppressionChanged(active);
 		}
 
-		private void OnMouseMoved(object sender, MouseHookEventArgs e)
+		protected void OnMouseMoved(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
@@ -2037,7 +1728,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				// the whole-screen freeze, clipping must keep the cursor tracking inside the rectangle, so
 				// WarpCursor (which re-associates) is correct here rather than decoupling. This block is
 				// reachable only on macOS in practice: on Linux the inputd path enforces the clip in
-				// ProcessInputdMouseHook, and the X11/SharpHook fallback can't clip at all (CanClipCursor).
+				// ProcessInputdMouseHook.
 				if (CursorClipActive)
 				{
 					int cx = e.Data.X, cy = e.Data.Y;
@@ -2058,10 +1749,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 
 			// Notify any active InputHook(s) of movement; CollectMouseMove returns false to suppress when
-			// VisibleMouseMove is off. This is the SharpHook/libuiohook fallback path (used when the
-			// inputd daemon is unavailable), where e.Data.X/Y are absolute screen coordinates -- unlike
-			// the inputd path (ProcessInputdMouseHook), which forwards relative deltas for a relative
-			// mouse and screen-normalised coordinates for an absolute pointer.
+			// VisibleMouseMove is off. On native hook paths, e.Data.X/Y are absolute screen coordinates.
 			if (Script.TheScript.input != null
 					&& !CollectMouseMove(ComputeExtraInfo(0, e.IsEventSimulated), e.Data.X, e.Data.Y, null))
 			{
@@ -2075,7 +1763,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				SetMoveSuppression(suppress);
 		}
 
-		private void OnMousePressed(object sender, MouseHookEventArgs e)
+		protected void OnMousePressed(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
@@ -2088,7 +1776,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, false, out ulong extraInfo);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
@@ -2102,7 +1790,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				e.SuppressEvent = true;
 		}
 
-		private void OnMouseReleased(object sender, MouseHookEventArgs e)
+		protected void OnMouseReleased(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
 			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
@@ -2115,7 +1803,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			lastHookEventWasKeyboard = false;
 			var vk = MapMouseVk(e.Data.Button);
 			var sc = 0u;
-			var isInjected = MarkSimulatedIfNeeded(e, vk, KeyCode.VcUndefined, true, out ulong extraInfo);
+			var isInjected = MarkSimulatedIfNeeded(e, vk, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
@@ -2153,48 +1841,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			rawEventField?.SetValue(e, raw);
 		}
 
-		internal void RegisterSyntheticEvent(KeyCode keyCode, bool keyUp, DateTime ms, long extraInfo, uint vk = 0)
-		{
-			if (!UseSyntheticEventQueue)
-				return;
-
-			if (keyCode == KeyCode.VcUndefined)
-				return;
-			syntheticEventQueue.Register(keyCode, vk, keyUp, ms, extraInfo, KeepSyntheticDownTokensForRepeats);
-		}
-
-		protected bool ConsumeSyntheticEvent(KeyCode keyCode, uint vk, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
-		{
-			var consumed = syntheticEventQueue.TryConsume(
-				keyCode,
-				vk,
-				keyUp,
-				ms,
-				SyntheticEventTimeoutMs,
-				SyntheticKeyUpTimeoutMs,
-				SyntheticEventFutureToleranceMs,
-				KeepSyntheticDownTokensForRepeats,
-				out extraInfo);
-
-			return consumed;
-		}
-
-		protected bool ConsumeSyntheticEventByKey(KeyCode keyCode, uint vk, bool keyUp, DateTimeOffset ms, out ulong extraInfo)
-		{
-			var consumed = syntheticEventQueue.TryConsumeByKey(
-				keyCode,
-				vk,
-				keyUp,
-				KeepSyntheticDownTokensForRepeats,
-				out extraInfo);
-
-			return consumed;
-		}
-
-		protected bool TryGetHeldSyntheticDownOwnerExtra(KeyCode keyCode, uint vk, out ulong extraInfo)
-			=> syntheticEventQueue.TryGetHeldSyntheticDownOwnerExtra(keyCode, vk, out extraInfo);
-
-		protected virtual bool KeepSyntheticDownTokensForRepeats => false;
 
 		private void SuppressHotkeyRelease(uint vk)
 		{
@@ -2220,36 +1866,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return activeHotkeyDown && activeHotkeyVk == vk;
 		}
 
-		protected virtual bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, KeyCode keyCode, bool keyUp, out ulong extraInfo)
+		protected virtual bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, bool keyUp, out ulong extraInfo)
 		{
-			var mask = e.RawEvent.Mask;
-			var simulated = (mask & EventMask.SimulatedEvent) != 0;
 			extraInfo = 0;
-			var skipQueueMatch = ShouldSkipSyntheticQueueMatch(vk, keyUp);
-
-			if (UseSyntheticEventQueue
-				&& !skipQueueMatch
-				&& ConsumeSyntheticEvent(keyCode, vk, keyUp, e.EventTime, out extraInfo))
-			{
-				var raw = e.RawEvent;
-				raw.Mask |= EventMask.SimulatedEvent;
-				SetRawEvent(e, raw);
-				simulated = true;
-			}
-			else if (UseSyntheticEventQueue
-				&& simulated
-				&& !skipQueueMatch
-				&& ConsumeSyntheticEventByKey(keyCode, vk, keyUp, e.EventTime, out extraInfo))
-			{
-			}
-
-			if (simulated && extraInfo == 0)
-        		extraInfo = (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
-
-			return simulated;
+			return (e.RawEvent.Mask & EventMask.SimulatedEvent) != 0;
 		}
-
-		protected virtual bool ShouldSkipSyntheticQueueMatch(uint vk, bool keyUp) => false;
 
 		private ulong ComputeExtraInfo(ulong extraInfo, bool isSimulated)
 		{
@@ -2259,75 +1880,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// On Linux we rely on synthetic-token matching for injected classification.
 			// Tagging all hook events during sendInProgress as ignored can mask real physical input
 			// that overlaps an outgoing send (e.g. rapid remap loops like ^a::b).
-			if (isSimulated || (sendInProgress && !UseSyntheticEventQueue))
+			if (isSimulated || (sendInProgress))
 				return (ulong)KeyboardMouseSender.KeyIgnoreAllExceptModifier;
 
 			return 0;
 		}
-
-		private bool WasKeyGrabbed(HookEventArgs e, uint vk, bool keyUp, out bool grabbedByHotstring)
-		{
-			return WasKeyGrabbedPlatform(e, vk, keyUp, out grabbedByHotstring);
-		}
-
-		protected virtual bool WasKeyGrabbedPlatform(HookEventArgs e, uint vk, bool keyUp, out bool grabbedByHotstring)
-		{
-			grabbedByHotstring = false;
-			return false;
-		}
-
-		internal virtual bool HasButtonGrab(uint button) => false;
-
-		internal virtual uint MouseButtonToXButton(MouseButton btn) => 0u;
-
-		protected virtual void PlatformUngrabAll()
-		{
-		}
-
-			private void ReplayGrabbedKey(KeyCode kc, uint vk, uint sc, bool keyUp)
-			{
-				if (vk == 0) return;
-
-				if (keyUp)
-				{
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
-
-					lock (replayedGrabbedDown)
-						replayedGrabbedDown.Remove(vk);
-
-					if (vk < logicalKeyState.Length)
-						logicalKeyState[vk] = 0;
-
-					return;
-				}
-
-				bool repeatedDown;
-
-				lock (replayedGrabbedDown)
-					repeatedDown = !replayedGrabbedDown.Add(vk);
-
-				if (repeatedDown)
-				{
-					// Grabbed repeat comes in as consecutive key-down notifications.
-					// Emit an up->down transition so the target app receives each repeat.
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
-				}
-				else if (IsX11Available)
-				{
-					// On X11 the physical key may already be logically down even when grabbed,
-					// so replay the initial press as up->down to force a visible keypress.
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyUp, vk, sc, KeyboardMouseSender.KeyIgnore);
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
-				}
-				else
-				{
-					kbdMsSender.SendKeyEventForHookReplay(KeyEventTypes.KeyDown, vk, sc, KeyboardMouseSender.KeyIgnore);
-				}
-
-				if (vk < logicalKeyState.Length)
-					logicalKeyState[vk] = StateDown;
-			}
 
 		private static bool IsScriptIgnoredExtraInfo(ulong extraInfo)
 		{
@@ -2335,19 +1892,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return info >= KeyIgnoreMin() && info <= KeyIgnoreMax;
 		}
 
-		// Temporarily release all grabs (keyboard + passive keys) during a send, then re-apply them.
-		internal virtual GrabSnapshot BeginSendUngrab(HashSet<uint> keycodes = null, HashSet<uint> buttons = null)
-			=> default;
-
-		internal virtual void EndSendUngrab(GrabSnapshot snap)
-		{
-		}
-
-		internal virtual uint TemporarilyUngrabKey(uint vk) => 0;
-
-		internal virtual void RegrabKey(uint targetXcode)
-		{
-		}
 
 		internal void DisarmHotstring()
 		{
@@ -2443,7 +1987,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			var ends = new HashSet<char>();
 			var hsBufSpan = (ReadOnlySpan<char>)System.Runtime.InteropServices.CollectionsMarshal.AsSpan(hm.hsBuf);
 
-			// Prefer manager’s configured defaults; fall back to a sensible superset if needed.
+			// Prefer managerâ€™s configured defaults; fall back to a sensible superset if needed.
 			var def = hm.defEndChars ?? string.Empty;
 			foreach (var c in def)
 			{
@@ -2465,42 +2009,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		}
 
-		internal virtual void ForceReleaseEndKeyX11(uint vk)
-		{
-		}
-
-		internal readonly struct ReleasedKey
-		{
-			public readonly uint Vk;
-			public ReleasedKey(uint vk) { Vk = vk; }
-		}
-
-		internal virtual List<ReleasedKey> ForceReleaseKeysForSend(HashSet<uint> vks)
-			=> [];
-
-		/// <summary>
-		/// Re-press keys that we previously force-released, but only if they are STILL physically held.
-		/// This keeps our logical snapshot aligned with the user still holding the key.
-		/// </summary>
-		internal virtual void RestoreNonModifierKeysAfterSend(List<ReleasedKey> released)
-		{
-		}
 
 		private static bool IsModifierKey(uint vk) => vk is
 			VK_SHIFT or VK_LSHIFT or VK_RSHIFT or
 			VK_CONTROL or VK_LCONTROL or VK_RCONTROL or
 			VK_MENU or VK_LMENU or VK_RMENU or
 			VK_LWIN or VK_RWIN;
-
-		private void NormalizeUnsuppressableModifierState(uint vk, uint sc, bool keyUp, bool isInjected, bool wasGrabbed, nint result, ulong extraInfo)
-		{
-			// On X11, non-grabbed events can't actually be blocked. If the core logic decides to
-			// suppress such a modifier event, ensure modifier logical tracking still follows reality.
-			if (!IsX11Available || result == 0 || wasGrabbed || isInjected || !IsModifierKey(vk))
-				return;
-
-			UpdateKeybdState(sc, extraInfo, isArtificial: false, vk, sc, keyUp, isSuppressed: false);
-		}
 
 		private void UpdateObservedPhysicalKeyState(uint vk, bool keyUp, bool isInjected)
 		{
@@ -2526,7 +2040,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			logicalKeyState[vk] = (byte)(isDown ? StateDown : 0);
 		}
 
-		private void ApplyKeyStateAfterKeyboardDecision(uint vk, bool keyUp, bool isInjected, nint result, bool replayed, bool wasGrabbed)
+		private void ApplyKeyStateAfterKeyboardDecision(uint vk, bool keyUp, bool isInjected, nint result)
 		{
 			if (vk == 0 || IsModifierKey(vk))
 				return;
@@ -2538,9 +2052,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				OnPlatformPhysicalKeyUpObserved(vk);
 
 			UpdateObservedPhysicalKeyState(vk, keyUp, isInjected);
-
-			// Grabs only reach applications via explicit replay.
-			var deliveredToApp = replayed || (result == 0 && !wasGrabbed);
 
 			if (!isInjected)
 			{
@@ -2555,7 +2066,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			// Injected events: track only when delivered to the app so that a suppressed
 			// synthetic key-down doesn't falsely report the key as logically held.
-			if (deliveredToApp)
+			if (result == 0)
 			{
 				if (vk < logicalKeyState.Length)
 					logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
@@ -2616,7 +2127,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return indicatorSnapshot;
 		}
 
-		// -------------------- basic matcher → AHK_HOOK_HOTKEY --------------------
+		// -------------------- basic matcher â†’ AHK_HOOK_HOTKEY --------------------
 		private static short PhysicalInputLevel => (short)(Keysharp.Internals.Input.Keyboard.KeyboardMouseSender.SendLevelMax + 1);
 
 		internal bool HasKeyUpHotkey(uint vk)
@@ -2636,7 +2147,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		{
 			activeHotkeyDown = false;
 			activeHotkeyVk = 0;
-			activeHotkeyKc = KeyCode.VcUndefined;
+			activeHotkeyKc = 0;
 			lock (suppressedHotkeyReleases)
 				suppressedHotkeyReleases.Clear();
 		}
@@ -2705,7 +2216,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		/// <param name="vk"></param>
 		internal override bool IsKeyDown(uint vk)
 		{
-			// Mouse buttons have no keysym for XQueryKeymap, and physicalKeyState[VK_*BUTTON] is only tracked
+			// Mouse button physicalKeyState is only tracked
 			// while a mouse hook is installed. Query the live physical button state instead (X11 XQueryPointer /
 			// Wayland via inputd / macOS CGEventSourceButtonState). This is what lets GetKeyState("LButton") and
 			// GetKeyState("LButton","P")-without-a-mouse-hook work in a keyboard-only script (e.g. a click-drag
@@ -2813,7 +2324,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 #endif
 
-			// Original path: X11 / SharpHook, then Wayland no-X11 fallback.
+			// Fallback to the hook-tracked snapshot when no live backend query is available.
 			// The hook's modifiersLRPhysical only tracks user-pressed keys, so using
 			// it alone would cause GetModifierLRState's "wrongly down" correction
 			// to wipe modifiersLRLogical bits set by a synth modifier press —
@@ -3117,7 +2628,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			//  1) Passing a dead key buffers it within the keyboard layout's internal state.
 			//  2) Passing a live key removes any pending dead key from the keyboard layout's internal state.
 			// In either case, the state is then incorrect for the active window's own call to ToUnicodeEx(), so it ends
-			// up with something like "e" or "''e" instead of "é".  Originally this was solved by reinserting the pending
+			// up with something like "e" or "''e" instead of "Ã©".  Originally this was solved by reinserting the pending
 			// dead key (first by re-sending the dead key, then later by calling ToUnicodeEx()), but now we use a special
 			// combination of parameters to avoid changing the state where possible.
 
@@ -3192,50 +2703,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 			return true;//Visible.
 		}
-
-		/*
-		{
-			state.earlyCollected = true;
-			state.used_dead_key_non_destructively = false;
-			state.charCount = 0;
-			state.ch = System.Array.Empty<char>();
-			state.activeWindow = IntPtr.Zero;
-			state.keyboardLayout = IntPtr.Zero;
-
-			if (keyUp)
-				return CollectKeyUp(extraInfo, vk, sc, true, eventInfo);
-
-			// Mirror Windows logic: only transcribe when no modifiers, shift-only, or AltGr (Ctrl+Alt).
-			var mods = kbdMsSender.modifiersLRLogical;
-			var nonShiftMods = mods & ~(MOD_LSHIFT | MOD_RSHIFT);
-			var hasAltGr = (mods & (MOD_LCONTROL | MOD_RCONTROL)) != 0 && (mods & (MOD_LALT | MOD_RALT)) != 0;
-			var transcribeKey = nonShiftMods == 0 || hasAltGr;
-
-			if (!transcribeKey)
-				return true;
-
-			if (!IsX11Available || xDisplay == IntPtr.Zero)
-				return true;
-
-			// Translate keycode + modifiers to a character using the current layout.
-			int keycode = (int)rawSC;
-			bool shift = (mods & (MOD_LSHIFT | MOD_RSHIFT)) != 0;
-			bool altgr = hasAltGr || (mods & MOD_RALT) != 0;
-			int idx = (altgr ? 2 : 0) + (shift ? 1 : 0);
-
-			uint ks = (uint)XKeycodeToKeysym(xDisplay, keycode, idx);
-			if (ks == 0 && idx != 0)
-				ks = (uint)XKeycodeToKeysym(xDisplay, keycode, 0); // fallback to base
-
-			if (ks != 0 && KeysymToChar(ks, out var ch))
-			{
-				state.charCount = 1;
-				state.ch = new[] { ch };
-			}
-
-			return true;
-		}
-		*/
 
 		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLr, nint keybdLayout, bool enableAZFallback = false)
 		{

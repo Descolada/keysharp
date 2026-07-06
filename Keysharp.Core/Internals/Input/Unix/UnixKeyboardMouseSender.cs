@@ -3,9 +3,6 @@
 using System.Text;
 using System.Diagnostics;
 using System.Collections.Generic;
-using SharpHook;
-using SharpHook.Native;
-using SharpHook.Data;
 using Keysharp.Builtins;
 #if LINUX
 using Keysharp.Internals.Window.Linux.Proxies;
@@ -14,7 +11,7 @@ using Keysharp.Internals.Window.Linux.X11;
 using static Keysharp.Internals.Input.Keyboard.KeyboardUtils;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 using Keysharp.Internals.Input.Mouse;
-using SharpHook.Testing;
+using Keysharp.Internals.Input.Hooks;
 
 namespace Keysharp.Internals.Input.Unix
 {
@@ -23,9 +20,9 @@ namespace Keysharp.Internals.Input.Unix
 	/// </summary>
 	internal partial class UnixKeyboardMouseSender : KeyboardMouseSender
 	{
-		internal IEventSimulator sim => backend.sim;
-		protected IEventSimulator Sim => backend.sim;
-		protected readonly SharpHookKeySimulationBackend backend = new();
+		internal PlatformEventSimulator sim => backend.sim;
+		protected PlatformEventSimulator Sim => backend.sim;
+		protected readonly PlatformKeySimulationBackend backend = new();
 
 		// Prefer Right-Alt as AltGr on Linux (prevents menu activation better than neutral Alt).
 		private const uint VK_ALTGR = VK_RMENU;
@@ -312,10 +309,6 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			// Normal key: record as down/up.
-			var keyCode = KeyCodes.VkToSharpHook(vk);
-			if (keyCode == KeyCode.VcUndefined)
-				return;
-
 			AddArrayEvent(ArrayEvent.Key(isKeyUp ? ArrayEventType.KeyUp : ArrayEventType.KeyDown, vk));
 		}
 
@@ -575,7 +568,7 @@ namespace Keysharp.Internals.Input.Unix
 			return set;
 		}
 
-		#region Mouse/Key immediate ops (Event mode) â€” keep behavior, but route Input mode through Put*IntoArray
+		#region Mouse/Key immediate ops (Event mode) — keep behavior, but route Input mode through Put*IntoArray
 
 		internal override void MouseEvent(uint eventFlags, uint data, int x = CoordUnspecified, int y = CoordUnspecified)
 		{
@@ -1001,32 +994,13 @@ namespace Keysharp.Internals.Input.Unix
 				backend.KeyUp(vk, now, extraInfo);
 		}
 
-		// Run an action inside a send scope. By default also releases all grabs for the duration
-		// (no-op on macOS, ungrab-all on X11). Pass ungrab: false when the caller manages its own
-		// (e.g. parameterized) ungrab, as LinuxKeyboardMouseSender.RunWithX11SendScope does.
+		// Run an action inside a send scope so the hook thread can classify echoed synthetic input.
 		protected static void WithSendScope(UnixHookThread lht, Action action, bool ungrab = true)
 		{
 			var sendScope = lht.EnterSendScope();
 			try
 			{
-				if (!ungrab)
-				{
-					action();
-					return;
-				}
-
-				lock (lht.hkLock)
-				{
-					var snap = lht.BeginSendUngrab();
-					try
-					{
-						action();
-					}
-					finally
-					{
-						lht.EndSendUngrab(snap);
-					}
-				}
+				action();
 			}
 			finally
 			{
@@ -1046,26 +1020,21 @@ namespace Keysharp.Internals.Input.Unix
 				backend.KeyUp(vk, ms, extraInfo);
 		}
 
-		// Dispatch the recorded event array to the platform backend. The base implementation is
-		// the shared SharpHook path (used by macOS, and as the default); LinuxKeyboardMouseSender
-		// overrides it for grab-aware X11 sending.
+		// Dispatch the recorded event array to the platform backend.
 		protected virtual void DispatchEventArray(UnixHookThread lht, InputArrayState state, long extraInfo, double scale)
 			=> WithSendScope(lht, () => ReplayEventArrayEvents(state.Events, extraInfo, scale));
 
-		// Dispatch a single keyboard event to the platform backend. Base = shared SharpHook path;
-		// LinuxKeyboardMouseSender overrides it for X11.
+		// Dispatch a single keyboard event to the platform backend.
 		protected virtual void DispatchKeybdEvent(UnixHookThread lht, KeyEventTypes eventType, uint vk, long extraInfo)
 			=> WithSendScope(lht, () => SendKeyEventDirect(eventType, vk, extraInfo));
 
 		protected virtual bool TrySendPlatformUnicodeChar(UnixHookThread lht, char ch, long extraInfo, bool hasMappedKeystroke, uint vk, bool needShift, bool needAltGr) => false;
 
 		// Emits a complete Unicode scalar string via the platform's text path. Base returns false
-		// so the caller falls back to SharpHook's SimulateTextEntry (used on macOS).
+		// so the caller falls back to per-character replay.
 		protected virtual bool TrySendPlatformUnicodeText(UnixHookThread lht, string text, long extraInfo) => false;
 
 		protected virtual bool TryQueuePlatformMappedTextKey(char ch, uint modifiers, long extraInfo) => false;
-
-		internal override bool IsKeyGrabSuspendedForReplay(uint vk) => false;
 
 		#endregion
 
@@ -1202,40 +1171,37 @@ namespace Keysharp.Internals.Input.Unix
 
 		#endregion
 
-		#region SharpHookKeySimulationBackend
+		#region PlatformKeySimulationBackend
 
-		internal sealed class SharpHookKeySimulationBackend
+		internal sealed class PlatformEventSimulator
 		{
-			internal readonly IEventSimulator sim;
+			public void SimulateKeyPress(uint vk) { }
+			public void SimulateKeyRelease(uint vk) { }
+			public void SimulateMouseMovementRelative(short x, short y) { }
+			public void SimulateMouseMovement(short x, short y) { }
+			public void SimulateMousePress(MouseButton button) { }
+			public void SimulateMousePress(short x, short y, MouseButton button) { }
+			public void SimulateMouseRelease(MouseButton button) { }
+			public void SimulateMouseRelease(short x, short y, MouseButton button) { }
+			public void SimulateMouseWheel(short delta, MouseWheelScrollDirection direction, MouseWheelScrollType type) { }
+			public void SimulateTextEntry(string text) { }
+		}
 
-			public SharpHookKeySimulationBackend(IEventSimulator sim = null)
-				=> this.sim = sim ?? new EventSimulator();
+		internal sealed class PlatformKeySimulationBackend
+		{
+			internal readonly PlatformEventSimulator sim;
 
-				private static void RegisterSynthetic(KeyCode code, uint vk, bool keyUp, DateTime ms, long extraInfo)
-				{
-					if (code == KeyCode.VcUndefined)
-						return;
-
-					if (Script.TheScript.HookThread is UnixHookThread lht)
-						lht.RegisterSyntheticEvent(code, keyUp, ms, extraInfo, vk);
-				}
+			public PlatformKeySimulationBackend(PlatformEventSimulator sim = null)
+				=> this.sim = sim ?? new PlatformEventSimulator();
 
 			public void KeyDown(uint vk, DateTime ms, long extraInfo)
 			{
 				EnsureInputSendPermission("send keyboard input");
 #if OSX
-				// CGEvent-posted CapsLock keystrokes don't change the OS toggle state,
-				// so perform the toggle through IOKit and post no event (a system
-				// flagsChanged event is generated by the HID system on state change).
 				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.TryToggle())
 					return;
 #endif
-				var code = KeyCodes.VkToSharpHook(vk);
-				if (code == KeyCode.VcUndefined)
-					return;
-
-				RegisterSynthetic(code, vk, false, ms, extraInfo);
-				sim.SimulateKeyPress(code);
+				sim.SimulateKeyPress(vk);
 			}
 
 			public void KeyUp(uint vk, DateTime ms, long extraInfo)
@@ -1247,12 +1213,7 @@ namespace Keysharp.Internals.Input.Unix
 				if (vk == VK_CAPITAL && Keysharp.Internals.Input.MacOS.MacCapsLockState.IsAvailable)
 					return;
 #endif
-				var code = KeyCodes.VkToSharpHook(vk);
-				if (code == KeyCode.VcUndefined)
-					return;
-
-				RegisterSynthetic(code, vk, true, ms, extraInfo);
-				sim.SimulateKeyRelease(code);
+				sim.SimulateKeyRelease(vk);
 			}
 
 			public void KeyStroke(uint vk, DateTime ms, long extraInfo)
@@ -1262,18 +1223,18 @@ namespace Keysharp.Internals.Input.Unix
 			}
 
 			public IKeySimulationSequence BeginSequence()
-				=> new SharpHookKeySequence(this);
+				=> new PlatformKeySequence(this);
 		}
 
-		internal sealed class SharpHookKeySequence : IKeySimulationSequence
+		internal sealed class PlatformKeySequence : IKeySimulationSequence
 		{
 			private enum ActionType { Down, Up }
 
-			private readonly SharpHookKeySimulationBackend backend;
+			private readonly PlatformKeySimulationBackend backend;
 			private readonly List<(ActionType Type, uint Vk)> actions = new();
 			private bool committed;
 
-			public SharpHookKeySequence(SharpHookKeySimulationBackend backend)
+			public PlatformKeySequence(PlatformKeySimulationBackend backend)
 				=> this.backend = backend;
 
 			public void AddKeyDown(uint vk)

@@ -5269,7 +5269,7 @@
                      "linux_x11":  "partial",
                      "linux_wayland":  "unknown",
                      "macos":  "unknown",
-                     "notes":  "Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned."
+                     "notes":  "Linux uses evdev/uinput, macOS uses CGEventTap."
                  },
                  {
                      "category":  "Automation",

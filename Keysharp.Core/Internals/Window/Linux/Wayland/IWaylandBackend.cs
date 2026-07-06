@@ -51,7 +51,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// True when the backend can simulate mouse input via
 		/// <see cref="TrySendMouseMoveAbsolute"/>, <see cref="TrySendMouseButton"/>, etc.
 		/// Used by <see cref="Keysharp.Internals.Input.Linux.LinuxKeyboardMouseSender"/>
-		/// to prefer compositor-native mouse injection over SharpHook on Wayland.
+		/// to prefer compositor-native mouse injection over inputd on Wayland.
 		/// </summary>
 		bool SupportsMouse => false;
 

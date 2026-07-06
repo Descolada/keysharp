@@ -29,7 +29,6 @@ namespace Keysharp.Internals.Input.Unix
 		private bool hasModsForLevel;
 
 		private readonly Dictionary<uint, (uint vk, bool s, bool g)> cache = new(256);
-		private readonly Dictionary<uint, uint> keycodeToVkCache = new(256);
 		private readonly Dictionary<uint, List<uint>> vkToKeycodesCache = new(128);
 
 		// Pending dead-key composition for TranslateKeyWithDeadKeys: the combining mark used for
@@ -137,7 +136,7 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			rune = default;
 
-			if (!TryMapVkToXKeycode(vk, out var keycode, false))
+			if (!TryMapVkToKeycode(vk, out var keycode, false))
 				return false;
 
 			if (!TryGetReadyKeymap(out var currentKeymap))
@@ -262,7 +261,7 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			keysym = 0;
 
-			if (!TryMapVkToXKeycode(vk, out var keycode, false))
+			if (!TryMapVkToKeycode(vk, out var keycode, false))
 				return false;
 
 			if (!TryGetReadyKeymap(out var currentKeymap))
@@ -328,27 +327,7 @@ namespace Keysharp.Internals.Input.Unix
 			return true;
 		}
 
-		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
-		{
-			vk = 0;
-
-			if (keycode == 0 || !TryGetReadyKeymap(out _))
-				return false;
-
-			if (keycodeToVkCache.TryGetValue(keycode, out vk))
-				return vk != 0;
-
-			if (TryGetNamedVk(keycode, out vk))
-			{
-				keycodeToVkCache[keycode] = vk;
-				return true;
-			}
-
-			keycodeToVkCache[keycode] = 0;
-			return false;
-		}
-
-		public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
+		private bool TryMapVkToKeycode(uint vk, out uint keycode, bool returnSecondary)
 		{
 			keycode = 0;
 
@@ -670,7 +649,6 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			ResetNativeHandles();
 			cache.Clear();
-			keycodeToVkCache.Clear();
 			vkToKeycodesCache.Clear();
 			pendingDead.Clear();
 			ready = false;

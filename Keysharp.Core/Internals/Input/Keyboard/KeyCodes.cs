@@ -1,16 +1,16 @@
-using Keysharp.Builtins;
+﻿using Keysharp.Builtins;
 using System.Text;
 
 namespace Keysharp.Internals.Input.Keyboard
 {
 	/// <summary>
 	/// Single entry point for all key-code conversions in Keysharp. Fixed/table conversions
-	/// (SharpHook <c>KeyCode</c>, X11 keysym, evdev, Mac kVK, US-ASCII, VK⇄SC) resolve directly;
+	/// (evdev, Mac kVK, US-ASCII, VK/SC) resolve directly;
 	/// the layout-aware conversions delegate to a per-platform stateful provider singleton.
 	///
 	/// Terminology:
 	///   VK  = Windows virtual key code (always, on every platform).
-	///   SC  = the active hook backend's low-level code (Windows scan code, X11 XKeycode,
+	///   SC  = the active hook backend's low-level code (Windows scan code,
 	///         inputd evdev code, or macOS kVK code).
 	/// </summary>
 	internal static partial class KeyCodes
@@ -89,21 +89,6 @@ namespace Keysharp.Internals.Input.Keyboard
 			return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
 		}
 
-#if LINUX
-		internal static bool TryMapXKeycodeToVk(uint keycode, out uint vk)
-		{
-			EnsureProvider();
-			vk = 0;
-			return provider != null && provider.TryMapXKeycodeToVk(keycode, out vk);
-		}
-
-		internal static bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary = false)
-		{
-			EnsureProvider();
-			keycode = 0;
-			return provider != null && provider.TryMapVkToXKeycode(vk, out keycode, returnSecondary);
-		}
-#endif
 
 #if OSX
 		internal static bool TryMapMacCodeToVk(uint keycode, out uint vk)
@@ -178,10 +163,6 @@ namespace Keysharp.Internals.Input.Keyboard
 		void ResetDeadKeyState() { }
 
 		nint GetCurrentKeymapHandle();
-#if LINUX
-		bool TryMapXKeycodeToVk(uint keycode, out uint vk);
-		bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
-#endif
 
 #if OSX
 		bool TryMapMacKeyCodeToVk(uint keycode, out uint vk);
@@ -213,20 +194,6 @@ namespace Keysharp.Internals.Input.Keyboard
 		}
 
 		public nint GetCurrentKeymapHandle() => nint.Zero;
-
-#if LINUX
-		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
-		{
-			vk = 0;
-			return false;
-		}
-
-		public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
-		{
-			keycode = 0;
-			return false;
-		}
-#endif
 
 #if OSX
 		public bool TryMapMacKeyCodeToVk(uint keycode, out uint vk)

@@ -1,13 +1,11 @@
 #if LINUX
-using SharpHook.Data;
 using static Keysharp.Internals.Input.Keyboard.VirtualKeys;
 
 namespace Keysharp.Internals.Input.Keyboard
 {
 	/// <summary>
 	/// Windows VK ⇄ Linux evdev (inputd) scan code tables. Fixed mappings used by the
-	/// inputd backend; the common case falls back through the SharpHook <see cref="KeyCode"/>
-	/// enum. Part of the unified <see cref="KeyCodes"/> facade.
+	/// inputd backend. Part of the unified <see cref="KeyCodes"/> facade.
 	/// </summary>
 	internal static partial class KeyCodes
 	{
@@ -56,7 +54,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				VK_HELP => 138u,                // KEY_HELP
 				VK_SLEEP => 142u,               // KEY_SLEEP
 				VK_CANCEL => 223u,              // KEY_CANCEL
-				_ => KeyCodeToEvdev(VkToSharpHook(vk))
+\t\t\t\t_ => 0u
 			};
 		}
 
@@ -105,12 +103,9 @@ namespace Keysharp.Internals.Input.Keyboard
 				138u => VK_HELP,
 				142u => VK_SLEEP,
 				223u => VK_CANCEL,
-				_ => SharpHookToVk((KeyCode)sc)
+				_ => 0u
 			};
 		}
-
-		private static uint KeyCodeToEvdev(KeyCode keyCode) =>
-			keyCode == KeyCode.VcUndefined ? 0u : (uint)keyCode;
 	}
 }
 #endif

@@ -448,7 +448,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			} // End of second pass loop.
 
 #if !WINDOWS
-			// On Linux we always rely on the hooks (XGrabKey lacks callbacks), so force hook handling
+			// On Linux we always rely on keysharp-inputd hooks, so force hook handling
 			// for all active hotkeys rather than attempting RegisterHotkey-style optimization.
 			hkd.whichHookNeeded = 0;
 			for (i = 0; i < shk.Length; ++i)

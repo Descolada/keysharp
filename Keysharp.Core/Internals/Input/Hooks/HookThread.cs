@@ -12,10 +12,10 @@ using static Keysharp.Internals.Input.Keyboard.KeyboardMouseSender;
 	using MouseHookEventArgs = Keysharp.Internals.Input.Hooks.Windows.MouseHookEventArgs;
 	using MouseWheelHookEventArgs = Keysharp.Internals.Input.Hooks.Windows.MouseWheelHookEventArgs;
 #else
-	using HookEventArgs = SharpHook.HookEventArgs;
-	using KeyboardHookEventArgs = SharpHook.KeyboardHookEventArgs;
-	using MouseHookEventArgs = SharpHook.MouseHookEventArgs;
-	using MouseWheelHookEventArgs = SharpHook.MouseWheelHookEventArgs;
+	using HookEventArgs = Keysharp.Internals.Input.Hooks.HookEventArgs;
+	using KeyboardHookEventArgs = Keysharp.Internals.Input.Hooks.KeyboardHookEventArgs;
+	using MouseHookEventArgs = Keysharp.Internals.Input.Hooks.MouseHookEventArgs;
+	using MouseWheelHookEventArgs = Keysharp.Internals.Input.Hooks.MouseWheelHookEventArgs;
 #endif
 
 namespace Keysharp.Internals.Input.Hooks
@@ -1383,7 +1383,7 @@ namespace Keysharp.Internals.Input.Hooks
 		// Coordinate contract: callers must NEVER query the cursor position (e.g. GetCursorPos) to fill
 		// x/y in on this move hot path, because a query is comparatively slow and can lag behind /
 		// disagree with the event being reported. As a result the meaning of x/y is platform- and
-		// device-dependent: absolute screen coordinates on Windows, X11/SharpHook and macOS; on Linux
+		// device-dependent: absolute screen coordinates on Windows, macOS; on Linux
 		// via the inputd daemon they are absolute screen coordinates for an absolute pointer (VMware's
 		// virtual mouse, tablets, touchpads -- normalised arithmetically from the daemon's [0,65535], no
 		// query), but RELATIVE movement deltas for a relative mouse (the daemon reports relative motion).
@@ -1635,7 +1635,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 			// Make sure the mouse hook is running before checking environment-specific support.
 			// Linux needs this to verify that the active hook backend is inputd, rather than the
-			// non-suppressing SharpHook fallback. The hook is left installed after ClearCursorClip
+			// non-suppressing native fallback. The hook is left installed after ClearCursorClip
 			// (mirrors BlockInput's "MouseMoveOff").
 			HotkeyDefinition.InstallMouseHook();
 

@@ -499,7 +499,7 @@ Status legend:
 | GetKeyState() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeyState function returns 1 (true) or 0 (false) depending on whether the specified keyboard key or mouse/controller button is down or up. Also retrieves controller status. |
 | GetKeyVK() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GetKeyVK function retrieves the virtual key code of a key. |
 | GetMethod() | 🟢 Full | 🟢 Full | 🟢 Full | 🟢 Full | The GetMethod function retrieves the implementation function of a method. |
-| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Linux uses SharpHook/X11 behavior; macOS behavior is still being aligned. |
+| Global keyboard hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Linux uses evdev/uinput, macOS uses CGEventTap. |
 | Global mouse hooks | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Suppression/injection semantics differ by platform. |
 | Goto | 🟡 Partial | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | Goto doesn't support expressions in Keysharp. |
 | GroupActivate() | 🟢 Full | 🟡 Partial | ⚪ Unknown | ⚪ Unknown | The GroupActivate function activates the next window in a window group that was defined with the GroupAdd function. |

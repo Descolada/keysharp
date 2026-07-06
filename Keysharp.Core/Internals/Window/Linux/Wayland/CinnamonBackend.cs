@@ -56,6 +56,12 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		Task<bool> MoveImageOverlayAsync(uint id, string ownerKey, string busName, int x, int y, int width, int height);
 		Task<bool> HideImageOverlayAsync(uint id, string ownerKey, string busName);
 		Task<IDisposable> WatchWindowEventAsync(Action<(string type, string json)> handler, Action<Exception> onError = null);
+		Task<string[]> GetClipboardMimetypesAsync();
+		Task<byte[]> GetClipboardContentAsync(string mimetype);
+		Task<bool> SetClipboardContentAsync(string mimetype, byte[] bytes);
+		Task<string> GetClipboardTextAsync();
+		Task<bool> SetClipboardTextAsync(string text);
+		Task<IDisposable> WatchClipboardChangedAsync(Action<(string text, string[] mimetypes)> handler, Action<Exception> onError = null);
 	}
 
 #pragma warning restore IDE1006
@@ -257,6 +263,43 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 			internal static bool SendHideImageOverlay(uint id)
 				=> RunExtensionBool(p => p.HideImageOverlayAsync(id, HighlightOwnerKey, connectionLocalName));
 
+			// Clipboard access runs only through the bundled extension (Muffin exposes no data-control
+			// protocol, so a background app otherwise can't read/write/monitor the clipboard). Content is raw
+			// MIME-type <-> bytes so every format round-trips. Getters return null when the extension is
+			// absent/failed (vs an empty array/"" for a legitimately empty clipboard).
+			internal static string[] GetClipboardMimetypes()
+				=> RunExtension(p => p.GetClipboardMimetypesAsync()) ?? System.Array.Empty<string>();
+
+			internal static byte[] GetClipboardContent(string mimetype)
+				=> RunExtension(p => p.GetClipboardContentAsync(mimetype));
+
+			internal static bool SetClipboardContent(string mimetype, byte[] bytes)
+				=> RunExtensionBool(p => p.SetClipboardContentAsync(mimetype, bytes ?? System.Array.Empty<byte>()));
+
+			internal static string GetClipboardText()
+				=> RunExtension(p => p.GetClipboardTextAsync());
+
+			internal static bool SetClipboardText(string text)
+				=> RunExtensionBool(p => p.SetClipboardTextAsync(text ?? string.Empty));
+
+			internal static IDisposable WatchClipboardChanged(Action<string, string[]> handler)
+			{
+				try
+				{
+					var p = EnsureExtensionProxy();
+
+					if (p == null)
+						return null;
+
+					var task = Task.Run(() => p.WatchClipboardChangedAsync(e => handler(e.text, e.mimetypes)));
+					return task.Wait(TimeoutMs) ? task.GetAwaiter().GetResult() : null;
+				}
+				catch
+				{
+					return null;
+				}
+			}
+
 		// Lazily creates a Clutter virtual pointer (Muffin is Clutter-based, same API as the
 		// GNOME extension) and stashes it on `global` so it persists across Eval calls.
 		private const string JsVPointer =
@@ -435,6 +478,7 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				return false;
 			}
 		}
+
 
 		private static bool JsonOk(string json)
 		{
@@ -848,6 +892,28 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 
 			public bool TryHideImageOverlay(uint id)
 				=> CinnamonShellBridge.SendHideImageOverlay(id);
+
+			// Clipboard is available whenever the extension answers (the highlight probe doubles as the
+			// "extension present & responding" check). Raw MIME <-> bytes; higher layers map formats onto it.
+			public bool SupportsClipboard => CinnamonShellBridge.SupportsHighlight();
+
+			public string[] GetClipboardMimetypes()
+				=> CinnamonShellBridge.GetClipboardMimetypes();
+
+			public byte[] GetClipboardContent(string mimetype)
+				=> CinnamonShellBridge.GetClipboardContent(mimetype);
+
+			public bool SetClipboardContent(string mimetype, byte[] bytes)
+				=> CinnamonShellBridge.SetClipboardContent(mimetype, bytes);
+
+			public string GetClipboardText()
+				=> CinnamonShellBridge.GetClipboardText();
+
+			public bool SetClipboardText(string text)
+				=> CinnamonShellBridge.SetClipboardText(text);
+
+			public IDisposable SubscribeClipboardChanges(Action<string, string[]> handler)
+				=> handler == null ? null : CinnamonShellBridge.WatchClipboardChanged(handler);
 
 		// ---- helpers ------------------------------------------------
 

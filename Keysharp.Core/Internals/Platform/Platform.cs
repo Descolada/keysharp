@@ -33,6 +33,7 @@ namespace Keysharp.Internals
 		internal static IMouse Mouse => Instance.Mouse;
 		internal static IScreen Screen => Instance.Screen;
 		internal static IOverlay Overlay => Instance.Overlay;
+		internal static IClipboard Clipboard => Instance.Clipboard;
 		internal static IWindowEvents Events => Instance.Events;
 		internal static ISession Session => Instance.Session;
 		internal static IHotkeys Hotkeys => Instance.Hotkeys;

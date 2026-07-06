@@ -462,20 +462,23 @@ namespace Keysharp.Internals.UI.Unix
 
 			public event VariadicAction ClipboardUpdate;
 
+			private IDisposable clipboardSub;   // clipboard-change subscription from the resolved backend
+
 			internal void SetClipboardMonitoringEnabled(bool enabled)
 			{
 				if (clipboardMonitoringEnabled == enabled)
 					return;
 
-				var clipboard = Clipboard.Instance;
-
-				if (clipboard == null)
-					return;
-
 				if (enabled)
-					clipboard.Changed += Clipboard_Changed;
+					// The resolved backend owns how changes are detected (Eto's Clipboard.Changed, or the Wayland
+					// shell extension's signal). Its callback may arrive off the UI thread, so marshal onto it.
+					clipboardSub = Keysharp.Internals.Platform.Clipboard.Subscribe(
+						() => Eto.Forms.Application.Instance?.AsyncInvoke(() => Clipboard_Changed(null, EventArgs.Empty)));
 				else
-					clipboard.Changed -= Clipboard_Changed;
+				{
+					clipboardSub?.Dispose();
+					clipboardSub = null;
+				}
 
 				clipboardMonitoringEnabled = enabled;
 			}

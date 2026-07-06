@@ -1369,16 +1369,8 @@ namespace Keysharp.Runtime
 			// wrapped in IfTest/ForceBool: InvokeEventHandlers returns null when a handler is deferred (e.g. a
 			// re-entrant A_Clipboard:= from a hotkey thread) or returns nothing, and ForceBool(null) throws
 			// "input was unset". The other InvokeEventHandlers call sites already just discard the result.
-#if WINDOWS
-			if (Clipboard.ContainsText() || Clipboard.ContainsFileDropList())
-#else
-			if (Clipboard.Instance.ContainsText)
-#endif
-				_ = ClipFunctions.InvokeEventHandlers(1);
-			else if (!Ks.IsClipboardEmpty())
-				_ = ClipFunctions.InvokeEventHandlers(2);
-			else
-				_ = ClipFunctions.InvokeEventHandlers(0);
+			// The resolved clipboard backend reports the event type (0 = empty, 1 = text, 2 = other).
+			_ = ClipFunctions.InvokeEventHandlers(Platform.Clipboard.ChangeType());
 		}
 
 		internal Type GetNativeType(Any obj)

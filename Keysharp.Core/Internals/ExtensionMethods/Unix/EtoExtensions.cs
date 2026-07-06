@@ -750,14 +750,6 @@ namespace Eto.Forms
             };
         }
 
-        extension (Eto.Forms.Clipboard)
-        {
-            internal static void SetImage(Image img)
-            {
-                Clipboard.Instance.Image = img;
-            }
-        }
-
     }
 }
 #endif

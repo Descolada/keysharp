@@ -198,6 +198,44 @@ namespace Keysharp.Internals
 		nint GetImageOverlayHandle(uint id);
 	}
 
+	/// <summary>The process clipboard, resolved once like <see cref="IScreen"/>/<see cref="IOverlay"/>. The backend
+	/// is chosen at host construction — Windows raw-Win32, a Wayland shell-extension backend (Cinnamon/Muffin, and
+	/// any future compositor whose <c>IWaylandBackend</c> exposes clipboard access), or the shared Eto path — so the
+	/// clipboard seams (A_Clipboard, ClipboardAll, image clipboard, OnClipboardChange, IsClipboardEmpty) are plain
+	/// calls with no per-call <c>is …Backend</c> / <c>if (Cinnamon)</c> test at the call site.</summary>
+	internal interface IClipboard
+	{
+		/// <summary>The clipboard's text (line endings normalized to <c>\n</c>), or "" when there is none.</summary>
+		string GetText();
+
+		/// <summary>Set the clipboard to plain text; "" or <c>null</c> clears the clipboard.</summary>
+		void SetText(string text);
+
+		/// <summary>Whether the clipboard holds no data in any format.</summary>
+		bool IsEmpty { get; }
+
+		/// <summary>The OnClipboardChange event code for the current content: 0 = empty, 1 = text, 2 = other/binary.</summary>
+		int ChangeType();
+
+		/// <summary>A private copy of the clipboard's image (the caller owns and disposes it), or <c>null</c> when
+		/// the clipboard holds no image.</summary>
+		Bitmap GetImage();
+
+		/// <summary>Put an image on the clipboard.</summary>
+		void SetImage(Bitmap image);
+
+		/// <summary>Serialize every clipboard format into an opaque blob (the <c>ClipboardAll()</c> save).</summary>
+		byte[] CaptureAll();
+
+		/// <summary>Restore a blob produced by <see cref="CaptureAll"/> (the <c>A_Clipboard := ClipboardAll</c> restore).</summary>
+		void RestoreAll(Keysharp.Builtins.ClipboardAll clip);
+
+		/// <summary>Subscribe to clipboard-change notifications; <paramref name="onChanged"/> may be invoked on any
+		/// thread (the caller marshals to the UI thread). Returns an <see cref="IDisposable"/> to unsubscribe, or
+		/// <c>null</c> when this backend has no watchable change source (the caller then simply does not monitor).</summary>
+		IDisposable Subscribe(Action onChanged);
+	}
+
 	/// <summary>Window lifecycle/state events. Owns the per-platform window-event backend selection and
 	/// exposes the chosen one.</summary>
 	internal interface IWindowEvents

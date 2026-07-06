@@ -1796,7 +1796,7 @@ namespace Keysharp.Builtins
 			copyItem.Click += (_, _) =>
 			{
 				if (!string.IsNullOrEmpty(pendingCopy))
-					Eto.Forms.Clipboard.Instance.Text = pendingCopy;
+					Keysharp.Internals.Platform.Clipboard.SetText(pendingCopy);
 			};
 
 			selectAllItem.Click += (_, _) =>

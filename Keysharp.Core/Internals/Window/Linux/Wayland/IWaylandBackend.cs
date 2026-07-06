@@ -160,6 +160,33 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		/// <summary>Remove a compositor-owned image overlay. False = unsupported.</summary>
 		bool TryHideImageOverlay(uint id) => false;
 
+		// ---- Clipboard (compositor-mediated, all MIME types) ------------
+		// For compositors with no data-control protocol (Cinnamon/Muffin), a background app can't read/write/
+		// monitor the clipboard directly; the shell extension does it. Raw MIME <-> bytes so every format
+		// (text, image, html, uri-list, ...) round-trips. Default: unsupported.
+
+		/// <summary>True when the backend can read/write/monitor the clipboard via the compositor.</summary>
+		bool SupportsClipboard => false;
+
+		/// <summary>MIME types currently on the clipboard, or null if unsupported/failed.</summary>
+		string[] GetClipboardMimetypes() => null;
+
+		/// <summary>Bytes of one clipboard MIME type, or null if unsupported/absent.</summary>
+		byte[] GetClipboardContent(string mimetype) => null;
+
+		/// <summary>Replace the whole clipboard with one MIME type's bytes. False = unsupported/failed.</summary>
+		bool SetClipboardContent(string mimetype, byte[] bytes) => false;
+
+		/// <summary>Current clipboard UTF-8 text (fast path), or null if unsupported/failed.</summary>
+		string GetClipboardText() => null;
+
+		/// <summary>Replace the clipboard with UTF-8 text. False = unsupported/failed.</summary>
+		bool SetClipboardText(string text) => false;
+
+		/// <summary>Subscribe to clipboard changes; handler gets (utf8 text, available MIME types) and may fire
+		/// on any thread. Returns an IDisposable that ends the subscription, or null if unsupported.</summary>
+		IDisposable SubscribeClipboardChanges(Action<string, string[]> handler) => null;
+
 		// ---- Mouse simulation -------------------------------------------
 		// Default implementations return false (backend does not support it).
 		// GnomeBackend overrides these to use Clutter.VirtualInputDevice via

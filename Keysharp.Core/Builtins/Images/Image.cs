@@ -301,21 +301,11 @@ namespace Keysharp.Builtins
 			/// </summary>
 			[Static] public static object FromClipboard(object @this)
 			{
-#if WINDOWS
-				if (System.Windows.Forms.Clipboard.GetImage() is not System.Drawing.Image img)
-					return "";
-
-				var bmp = new Bitmap(img);   // detach a private copy from the clipboard object
-				img.Dispose();
-				return Wrap(bmp);
-#else
-				var clip = Eto.Forms.Clipboard.Instance;
-
-				if (clip == null || !clip.ContainsImage || clip.Image is not Bitmap ebmp)
-					return "";
-
-				return Wrap(new Bitmap(ebmp));
-#endif
+				// The resolved clipboard backend returns a private image copy (or null when the clipboard holds no
+				// image); on Cinnamon/Muffin Wayland that reads the image through the shell extension, elsewhere via
+				// the native/Eto clipboard.
+				var bmp = Platform.Clipboard.GetImage();
+				return bmp == null ? "" : Wrap(bmp);
 			}
 
 			/// <summary>

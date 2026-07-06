@@ -10,6 +10,7 @@ namespace Keysharp.Internals
 		internal abstract IMouse Mouse { get; }
 		internal abstract IScreen Screen { get; }
 		internal abstract IOverlay Overlay { get; }
+		internal abstract IClipboard Clipboard { get; }
 		internal abstract IWindowEvents Events { get; }
 		internal abstract ISession Session { get; }
 		internal abstract IHotkeys Hotkeys { get; }
@@ -40,6 +41,7 @@ namespace Keysharp.Internals
 		private readonly IInput input = new WindowsInput();
 		private readonly IOverlay overlay = new WindowsOverlay();
 		private readonly IScreen screen = new WindowsScreen();
+		private readonly IClipboard clipboard = new WindowsClipboard();
 		private readonly IWindowEvents events = new WindowsEvents();
 		private readonly ISession session = new WindowsSession();
 		private readonly IHotkeys hotkeys = new WindowsHotkeys();
@@ -50,6 +52,7 @@ namespace Keysharp.Internals
 		internal override IInput Input => input;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen;
+		internal override IClipboard Clipboard => clipboard;
 		internal override IWindowEvents Events => events;
 		internal override ISession Session => session;
 		internal override IHotkeys Hotkeys => hotkeys;
@@ -66,6 +69,9 @@ namespace Keysharp.Internals
 		// Lazy: choosing the per-compositor IScreen needs the resolved Wayland backend, which must not be probed
 		// at host construction. The compositor flavor is inspected once, on first Screen use.
 		private readonly Lazy<IScreen> screen = new (LinuxScreens.Resolve);
+		// Lazy for the same reason as screen, plus the choice inspects Eto's resolved clipboard handler, which is
+		// only meaningful once the toolkit is up.
+		private readonly Lazy<IClipboard> clipboard = new (LinuxClipboards.Resolve);
 		private readonly IWindowEvents events = new LinuxEvents();
 		private readonly ISession session = new LinuxSession();
 		private readonly IHotkeys hotkeys = new LinuxHotkeys();
@@ -76,6 +82,7 @@ namespace Keysharp.Internals
 		internal override IInput Input => input;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen.Value;
+		internal override IClipboard Clipboard => clipboard.Value;
 		internal override IWindowEvents Events => events;
 		internal override ISession Session => session;
 		internal override IHotkeys Hotkeys => hotkeys;
@@ -90,6 +97,8 @@ namespace Keysharp.Internals
 		private readonly IInput input = new MacInput();
 		private readonly IOverlay overlay = new MacOverlay();
 		private readonly IScreen screen = new MacScreen();
+		// macOS uses the shared Eto (Cocoa) clipboard — no focus gating, no data-control question, so no override.
+		private readonly IClipboard clipboard = new EtoClipboard();
 		private readonly IWindowEvents events = new MacEvents();
 		private readonly ISession session = new MacSession();
 		private readonly IHotkeys hotkeys = new MacHotkeys();
@@ -100,6 +109,7 @@ namespace Keysharp.Internals
 		internal override IInput Input => input;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen;
+		internal override IClipboard Clipboard => clipboard;
 		internal override IWindowEvents Events => events;
 		internal override ISession Session => session;
 		internal override IHotkeys Hotkeys => hotkeys;

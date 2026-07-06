@@ -6,9 +6,6 @@ namespace Keysharp.Builtins
 	/// </summary>
 	public partial class Ks
 	{
-		private static readonly IEnumerable<string> dataFormats = typeof(DataFormats).GetFields(BindingFlags.Public | BindingFlags.Static)
-				.Select(f => f.Name);
-
 		/// <summary>
 		/// Calls GC.Collect().
 		/// According to .NET design guidelines, this should never be necessary.
@@ -60,12 +57,12 @@ namespace Keysharp.Builtins
 			{
 				using (var cur = new Cursor(file))
 				{
-					Clipboard.SetImage(ImageHelper.ConvertCursorToBitmap(cur));
+					Platform.Clipboard.SetImage(ImageHelper.ConvertCursorToBitmap(cur));
 				}
 			}
 			else if (ImageHelper.LoadImage(file, width, height, iconnumber).Item1 is Bitmap bmp)
 			{
-				Clipboard.SetImage(new Bitmap(bmp));
+				Platform.Clipboard.SetImage(new Bitmap(bmp));
 			}
 
 			return DefaultObject;
@@ -77,26 +74,7 @@ namespace Keysharp.Builtins
 		/// attempts to provide such functionality.
 		/// </summary>
 		/// <returns>True if empty, else false.</returns>
-		public static bool IsClipboardEmpty()
-		{
-#if WINDOWS
-			return !dataFormats.Any(Clipboard.ContainsData);
-#else
-			var clip = Clipboard.Instance;
-
-			if (clip == null)
-				return true;
-
-			//Eto's DataFormats field names don't match the underlying GTK/native clipboard target
-			//identifiers, so reflecting over them never matches. Query Eto's typed accessors directly,
-			//and fall back to the raw list of available types for anything else.
-			return !clip.ContainsText
-				&& !clip.ContainsHtml
-				&& !clip.ContainsImage
-				&& !clip.ContainsUris
-				&& (clip.Types?.Length ?? 0) == 0;
-#endif
-		}
+		public static bool IsClipboardEmpty() => Platform.Clipboard.IsEmpty;
 
 		/// <summary>
 		/// Shows the debug tab in the main window.

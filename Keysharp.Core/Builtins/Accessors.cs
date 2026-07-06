@@ -206,124 +206,20 @@ namespace Keysharp.Builtins
 		{
 			get
 			{
-				//Even if we're on an STA thread, this can sometimes fail. So it's best to always
-				//make sure it's on the main thread.
-				var act = () =>
-				{
-#if WINDOWS
-					// Windows-only: OpenClipboard/CloseClipboard is used to honor A_ClipboardTimeout under
-					// the Win32 single-owner lock. Linux/macOS clipboards have no equivalent locking model.
-					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
-					{
-						// Whether plain text is present, captured while we still hold the clipboard open, where
-						// the answer is stable because no other process can be mid-update. Used to scope the
-						// retry below so empty/non-text clipboards are never delayed.
-						var hasText = WindowsAPI.IsClipboardFormatAvailable(WindowsAPI.CF_UNICODETEXT)
-							|| WindowsAPI.IsClipboardFormatAvailable(WindowsAPI.CF_TEXT);
-						_ = WindowsAPI.CloseClipboard();//Need to close it for it to work
-
-						// Clipboard.TryGetData<string> (the typed clipboard API added in .NET 9) intermittently
-						// reports a present text format as empty (or absent) for a couple of tick right
-						// after the clipboard is set via an OLE-flushed SetDataObject, when another process (e.g.
-						// a clipboard manager/history service) touches the clipboard between our CloseClipboard
-						// above and the read. The value materialises on a re-read, so since we know text is
-						// present, retry the text read until it does.
-						for (var attempt = 0; hasText; attempt++)
-						{
-							// The OS stores clipboard text with CRLF line endings; normalize to `n on the way out
-							// so script-visible text uses the same line ending as everywhere else in Keysharp
-							// (Gui control text, file reads, etc.). The setter writes CRLF back for OS interop.
-							if (Clipboard.TryGetData<string>(DataFormats.UnicodeText, out var uni) && !string.IsNullOrEmpty(uni))
-								return Ks.NormalizeEol(uni);
-
-							if (Clipboard.TryGetData<string>(DataFormats.Text, out var text) && !string.IsNullOrEmpty(text))
-								return Ks.NormalizeEol(text);
-
-							if (attempt >= 3)
-								break;
-
-							System.Threading.Thread.Sleep(1);
-						}
-
-						if (Clipboard.TryGetData<string>(DataFormats.Html, out var html))
-							return html;
-
-						if (Clipboard.TryGetData<string>(DataFormats.Rtf, out var rtf))
-							return rtf;
-
-						if (Clipboard.TryGetData<string>(DataFormats.SymbolicLink, out var sym))
-							return sym;
-
-						if (Clipboard.TryGetData<string>(DataFormats.OemText, out var oem))
-							return Ks.NormalizeEol(oem);
-
-						if (Clipboard.TryGetData<string>(DataFormats.CommaSeparatedValue, out var csv))
-							return csv;
-
-						if (Clipboard.TryGetData<string[]>(DataFormats.FileDrop, out var files))
-							return string.Join(DefaultNewLine, files);
-					}
-					return DefaultObject;
-#else
-					return Clipboard.Instance?.Text ?? DefaultObject;
-#endif
-				};
+				// Even if we're on an STA thread, this can sometimes fail, so always make sure it runs on the main
+				// thread. The resolved clipboard backend (Windows raw-Win32, a Wayland shell extension, or Eto) was
+				// chosen once at startup — see Platform.Clipboard / LinuxClipboards.Resolve.
+				Func<object> act = () => Platform.Clipboard.GetText();
 				return Script.InvokeOnUIThread(act);
 			}
 			set
 			{
 				Script.InvokeOnUIThread(() =>
 				{
-#if !WINDOWS
-					var clip = Clipboard.Instance;
-
-					if (clip == null)
-						return;
-
-					if (value == null || (value is string s && s?.Length == 0))
-					{
-						clip.Clear();
-						clip.Text = "";
-					}
-					else if (value is ClipboardAll arr)
-						Env.RestoreClipboardAll(arr, 0L);
+					if (value is ClipboardAll arr)
+						Platform.Clipboard.RestoreAll(arr);
 					else
-						clip.Text = value.ToString();
-
-#else
-
-					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
-					{
-						if (value is ClipboardAll arr)
-						{
-							// RestoreClipboardAll opens/empties/sets/closes the clipboard itself.
-							_ = WindowsAPI.CloseClipboard();
-							Env.RestoreClipboardAll(arr, (long)arr.Size);
-						}
-						else
-						{
-							// Set the clipboard with a single raw Win32 transaction (EmptyClipboard +
-							// SetClipboardData), which fires WM_CLIPBOARDUPDATE exactly once, matching AutoHotkey.
-							// Clipboard.SetDataObject(copy:true) would instead do OleSetClipboard followed by
-							// OleFlushClipboard, firing the clipboard-change notification twice per assignment.
-							_ = WindowsAPI.EmptyClipboard();
-
-							if (!(value == null || (value is string es && es.Length == 0)))
-							{
-								// Store with native CRLF line endings (like Gui control text is written) so the text
-								// pastes correctly into other Windows apps. The getter normalizes back to `n on read.
-								var hglobal = Marshal.StringToHGlobalUni(Ks.NormalizeEol(value, Environment.NewLine));
-
-								if (WindowsAPI.SetClipboardData(WindowsAPI.CF_UNICODETEXT, hglobal) == 0)
-									Marshal.FreeHGlobal(hglobal);//SetClipboardData failed, so ownership stays with us.
-								//On success the system takes ownership of hglobal and frees it; do not free it here.
-							}
-
-							_ = WindowsAPI.CloseClipboard();
-						}
-					}
-
-#endif
+						Platform.Clipboard.SetText(value?.ToString() ?? "");
 				});
 			}
 		}

@@ -1,9 +1,3 @@
-#if WINDOWS
-using static System.Windows.Forms.DataFormats;
-#else
-using static Eto.Forms.DataFormats;
-#endif
-
 namespace Keysharp.Builtins
 {
 	/// <summary>
@@ -11,86 +5,6 @@ namespace Keysharp.Builtins
 	/// </summary>
 	public static class Env
 	{
-		internal static byte[] CaptureClipboardAllBytes()
-		{
-#if !WINDOWS
-			return Script.InvokeOnUIThread(CaptureClipboardAllEto);
-#else
-			using (var ms = new MemoryStream())
-			{
-				var dibToOmit = 0;
-				var bw = new BinaryWriter(ms);
-				var dataObject = Clipboard.GetDataObject();
-
-				if (dataObject != null)
-				{
-					foreach (var format in dataObject.GetFormats())
-					{
-						var fi = ClipFormatStringToInt(format);
-
-						switch (fi)
-						{
-							case WindowsAPI.CF_BITMAP:
-							case WindowsAPI.CF_ENHMETAFILE:
-							case WindowsAPI.CF_DSPENHMETAFILE:
-								continue;//These formats appear to be specific handle types, not always safe to call GlobalSize() for.
-						}
-
-						if (fi == WindowsAPI.CF_TEXT || fi == WindowsAPI.CF_OEMTEXT || fi == dibToOmit)
-							continue;
-
-						if (dibToOmit == 0)
-						{
-							if (fi == WindowsAPI.CF_DIB)
-								dibToOmit = WindowsAPI.CF_DIBV5;
-							else if (fi == WindowsAPI.CF_DIBV5)
-								dibToOmit = WindowsAPI.CF_DIB;
-						}
-					}
-
-					foreach (var format in dataObject.GetFormats())
-					{
-						var fi = ClipFormatStringToInt(format);
-						var nulldata = false;
-
-						switch (fi)
-						{
-							case WindowsAPI.CF_BITMAP:
-							case WindowsAPI.CF_ENHMETAFILE:
-							case WindowsAPI.CF_DSPENHMETAFILE:
-								// These formats appear to be specific handle types, not always safe to call GlobalSize() for.
-								continue;
-						}
-
-						if (fi == WindowsAPI.CF_TEXT || fi == WindowsAPI.CF_OEMTEXT || fi == dibToOmit)
-							continue;
-
-						var buf = GetClipboardData(fi, ref nulldata);
-
-						if (buf != null)
-						{
-						}
-						else if (nulldata)
-							buf = [];//This format usually has null data.
-						else
-							continue;//GetClipboardData() failed: skip this format.
-
-						bw.Write(fi);
-						bw.Write(buf.Length);
-						bw.Write(buf);
-					}
-
-					if (ms.Position > 0)
-					{
-						bw.Write(0);
-						return ms.ToArray();
-					}
-				}
-			}
-
-			return System.Array.Empty<byte>();
-#endif
-		}
 
 		/// <summary>
 		/// Waits until the clipboard contains data.
@@ -353,17 +267,6 @@ namespace Keysharp.Builtins
 #endif
 		}
 
-		/// <summary>
-		/// Internal helper to convert a clipboard integer format to a string.
-		/// </summary>
-		/// <param name="fmt">The format to convert.</param>
-		/// <returns>The string representation of the specified clipboard format.</returns>
-#if WINDOWS
-		internal static int ClipFormatStringToInt(string fmt) => GetFormat(fmt) is Format d ? d.Id : 0;
-#else
-		internal static int ClipFormatStringToInt(string fmt) => 0;
-#endif
-
 		internal static byte[] ExtractClipboardAllBytes(object data, long size = long.MinValue)
 		{
 			if (data == null)
@@ -463,49 +366,6 @@ namespace Keysharp.Builtins
 
 			return null;
 		}
-
-#if WINDOWS
-
-		/// <summary>
-		/// Internal helper to get the data on the clipboard in the specified format.
-		/// Gotten from: http://pinvoke.net/default.aspx/user32/GetClipboardData.html
-		/// </summary>
-		/// <param name="format">The numerical format of the data to retireve.</param>
-		/// <param name="nullData">True if null data is ok, else false.</param>
-		/// <returns>The retrieved data as a byte array, else null on error.</returns>
-		internal static byte[] GetClipboardData(int format, ref bool nullData)
-		{
-			if (format != 0)
-			{
-				if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))
-				{
-					byte[] buf;
-					nint gLock = 0;
-
-					try
-					{
-						var clipdata = WindowsAPI.GetClipboardData(format, ref nullData);//Get pointer to clipboard data in the selected format.
-						var length = (int)WindowsAPI.GlobalSize(clipdata);
-						gLock = WindowsAPI.GlobalLock(clipdata);
-						buf = new byte[length];
-
-						if (length != 0)
-							Marshal.Copy(gLock, buf, 0, length);
-					}
-					finally
-					{
-						_ = WindowsAPI.GlobalUnlock(gLock);
-						_ = WindowsAPI.CloseClipboard();
-					}
-
-					return buf;
-				}
-			}
-
-			return null;
-		}
-
-#endif
 
 #if !WINDOWS
 		/// <summary>
@@ -631,221 +491,7 @@ namespace Keysharp.Builtins
 		}
 
 #endif
-		/// <summary>
-		/// Internal helper to restore data contained in a <see cref="ClipboardAll"/> object to the clipboard.
-		/// </summary>
-		/// <param name="clip">The object whose data will be restored.</param>
-		/// <param name="length">The length of the data to restore.</param>
-		internal static void RestoreClipboardAll(ClipboardAll clip, long length)
-		{
-			unsafe
-			{
-#if !WINDOWS
-				RestoreClipboardAllEto(clip, length);
-#elif WINDOWS
-				var wasOpened = false;
 
-				try
-				{
-					if (WindowsAPI.OpenClipboard(A_ClipboardTimeout.Al()))//Need to leave it open for it to work when using the Windows API.
-					{
-						wasOpened = true;
-						_ = WindowsAPI.EmptyClipboard();
-						var ptr = (nint)clip.Ptr;
-						length = Math.Min(Math.Max(0U, length), (long)clip.Size);
-
-						for (var index = 0; index < length;)
-						{
-							var cliptype = Unsafe.Read<uint>((void*)nint.Add(ptr, index));
-
-							if (cliptype == 0)
-								break;
-
-							index += 4;
-							var size = Unsafe.Read<int>((void*)nint.Add(ptr, index));
-							index += 4;
-
-							if (size > 0 && index + size <= length)
-							{
-								var hglobal = Marshal.AllocHGlobal(size);
-								System.Buffer.MemoryCopy((void*)nint.Add(ptr, index), hglobal.ToPointer(), size, size);
-								_ = WindowsAPI.SetClipboardData(cliptype, hglobal);
-								//Do not free hglobal here.
-								index += size;
-							}
-						}
-					}
-				}
-				finally
-				{
-					if (wasOpened)
-						_ = WindowsAPI.CloseClipboard();
-				}
-
-#endif
-			}
-		}
-
-#if !WINDOWS
-		private const int ClipboardAllEtoMagic = 0x42434B53; // "SKCB"
-		private const string ClipboardAllEtoImagePng = "__keysharp_image_png";
-		private const string ClipboardAllEtoUris = "__keysharp_uris";
-		private static readonly string[] EtoClipboardTextTypes =
-		[
-			DataFormats.Text,
-			"TEXT",
-			"STRING",
-			"text/plain",
-			"text/plain;charset=utf-8",
-			"COMPOUND_TEXT"
-		];
-
-		private static bool IsEtoTextType(string type) =>
-			!string.IsNullOrEmpty(type) && EtoClipboardTextTypes.Contains(type, StringComparer.OrdinalIgnoreCase);
-
-		private static byte[] CaptureClipboardAllEto()
-		{
-			var clip = Clipboard.Instance;
-
-			if (clip == null)
-				return System.Array.Empty<byte>();
-
-			using var ms = new MemoryStream();
-			using var bw = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
-			bw.Write(ClipboardAllEtoMagic);
-			var seen = new HashSet<string>(StringComparer.Ordinal);
-
-			foreach (var type in clip.Types ?? System.Array.Empty<string>())
-			{
-				if (string.IsNullOrEmpty(type) || IsEtoTextType(type))
-					continue;
-
-				var payload = clip.GetData(type);
-
-				if (payload == null)
-				{
-					var str = clip.GetString(type);
-
-					if (str != null)
-						payload = Encoding.UTF8.GetBytes(str);
-				}
-
-				if (payload == null)
-					continue;
-
-				WriteEtoClipboardEntry(bw, type, payload);
-				_ = seen.Add(type);
-			}
-
-			var text = clip.Text;
-
-			if (!string.IsNullOrEmpty(text) && !seen.Contains(DataFormats.Text))
-			{
-				WriteEtoClipboardEntry(bw, DataFormats.Text, Encoding.UTF8.GetBytes(text));
-			}
-
-			var html = clip.Html;
-
-			if (!string.IsNullOrEmpty(html) && !seen.Contains(DataFormats.Html))
-			{
-				WriteEtoClipboardEntry(bw, DataFormats.Html, Encoding.UTF8.GetBytes(html));
-			}
-
-			if (clip.ContainsImage && clip.Image is Bitmap bmp)
-			{
-				var imageBytes = bmp.ToByteArray(ImageFormat.Png);
-
-				if (imageBytes != null && imageBytes.Length > 0)
-					WriteEtoClipboardEntry(bw, ClipboardAllEtoImagePng, imageBytes);
-			}
-
-			if (clip.ContainsUris && clip.Uris is Uri[] uris && uris.Length > 0)
-				WriteEtoClipboardEntry(bw, ClipboardAllEtoUris, Encoding.UTF8.GetBytes(string.Join("\n", uris.Select(u => u.OriginalString))));
-
-			bw.Write(0);
-			return ms.ToArray();
-		}
-
-		private static void RestoreClipboardAllEto(ClipboardAll clip, long length)
-		{
-			var sourceBytes = ExtractClipboardAllBytes(clip, length > 0 ? length : (long)clip.Size);
-			var clipboard = Clipboard.Instance;
-
-			if (clipboard == null)
-				return;
-
-			if (sourceBytes.Length == 0)
-			{
-				clipboard.Clear();
-				return;
-			}
-
-			using var ms = new MemoryStream(sourceBytes, writable: false);
-			using var br = new BinaryReader(ms, Encoding.UTF8, leaveOpen: true);
-
-			if (ms.Length < 4 || br.ReadInt32() != ClipboardAllEtoMagic)
-				return;
-
-			clipboard.Clear();
-
-			while (ms.Position < ms.Length)
-			{
-				var typeLen = br.ReadInt32();
-
-				if (typeLen == 0)
-					break;
-
-				if (typeLen < 0 || typeLen > ms.Length - ms.Position)
-					break;
-
-				var type = Encoding.UTF8.GetString(br.ReadBytes(typeLen));
-				var dataLen = br.ReadInt32();
-
-				if (dataLen < 0 || dataLen > ms.Length - ms.Position)
-					break;
-
-				var payload = br.ReadBytes(dataLen);
-
-				if (IsEtoTextType(type))
-				{
-					clipboard.Text = Encoding.UTF8.GetString(payload);
-				}
-				else if (type == ClipboardAllEtoImagePng)
-				{
-					using var imgStream = new MemoryStream(payload, writable: false);
-					clipboard.Image = new Bitmap(imgStream);
-				}
-				else if (type == ClipboardAllEtoUris)
-				{
-					var parsedUris = Encoding.UTF8.GetString(payload)
-						.Split(['\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-						.Select(s => Uri.TryCreate(s, UriKind.Absolute, out var u) ? u : null)
-						.Where(u => u != null)
-						.ToArray();
-
-					if (parsedUris.Length > 0)
-						clipboard.Uris = parsedUris;
-				}
-				else if (string.Equals(type, DataFormats.Html, StringComparison.OrdinalIgnoreCase))
-				{
-					clipboard.Html = Encoding.UTF8.GetString(payload);
-				}
-				else
-				{
-					clipboard.SetData(payload, type);
-				}
-			}
-		}
-
-		private static void WriteEtoClipboardEntry(BinaryWriter bw, string type, byte[] payload)
-		{
-			var typeBytes = Encoding.UTF8.GetBytes(type);
-			bw.Write(typeBytes.Length);
-			bw.Write(typeBytes);
-			bw.Write(payload.Length);
-			bw.Write(payload);
-		}
-#endif
 	}
 	/// <summary>
 	/// A class that represents clipboard data.
@@ -870,7 +516,7 @@ namespace Keysharp.Builtins
 
 			if (args == null || args.Length == 0 || args[0] == null)
 			{
-				bytes = Env.CaptureClipboardAllBytes();
+				bytes = Platform.Clipboard.CaptureAll();
 			}
 			else
 			{

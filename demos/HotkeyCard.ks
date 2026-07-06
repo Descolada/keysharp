@@ -31,6 +31,34 @@ class HotkeyCard {
         SetTimer(() => this.Build(), -60)
     }
 
+    static SetTrayIcon(emoji, size := 64, fontSize := 44) {
+        local img := ""
+
+        try {
+            local font := this.EmojiFont(fontSize)
+            local tw := 0, th := 0
+            img := Image.Create(size, size)
+            img.MeasureText(emoji, font, &tw, &th)
+            img.DrawText(emoji, Round((size - tw) / 2), Round((size - th) / 2), "0xFFFFFFFF", font)
+
+            local hbm := img.ToBitmap()
+            if hbm
+                TraySetIcon("HBITMAP:" hbm, 0, true)
+        } catch {
+        } finally {
+            if IsObject(img)
+                img.Dispose()
+        }
+    }
+
+    static EmojiFont(size) {
+        if DirExist("/System/Library/CoreServices")
+            return "Apple Color Emoji " size
+        if DirExist("/usr/share/fonts")
+            return "Noto Color Emoji " size
+        return "Segoe UI Emoji " size
+    }
+
     static Build() {
         local title := this.pending.title, lines := this.pending.lines
         local pad := 16, rowH := 29, pillH := 22, pillPad := 9, colGap := 14

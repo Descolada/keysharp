@@ -42,6 +42,7 @@ class WindowTiler {
 
     static Install() {
         SetWinDelay(-1)             ; no post-move delay -> snappy tiling
+        HotkeyCard.SetTrayIcon("📐")
         for suffix, region in this.Grid
             Hotkey(this.Prefix suffix, this.Handler(region), "On")
         HotkeyCard.Show("Window Tiler", [

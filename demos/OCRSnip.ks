@@ -56,6 +56,7 @@ class OCRSnip {
 
     static Install() {
         this.hoverTimer := ObjBindMethod(this, "HoverCheck")
+        HotkeyCard.SetTrayIcon("🔎")
         Hotkey(this.StartHotkey, (*) => this.Start())
         Hotkey(this.ClearHotkey, (*) => this.ClearWordOverlays())
         Hotkey(this.ExitHotkey, (*) => this.Exit())
@@ -475,4 +476,3 @@ class OCRSnip {
 
 OCRSnip.Install()
 Persistent
-

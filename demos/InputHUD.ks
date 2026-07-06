@@ -73,6 +73,7 @@ class InputHUD {
 
     static Install() {
         this.isMac := DirExist("/System/Library/CoreServices")
+        HotkeyCard.SetTrayIcon("⌨️")
         ; Overlays / Image text / ToolTip all use the GUI toolkit, which isn't ready during top-level
         ; auto-execute (before the event loop is up). SetTimer callbacks run on the main/UI thread once it
         ; is, so build and show everything from there.

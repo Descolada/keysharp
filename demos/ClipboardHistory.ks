@@ -43,6 +43,7 @@ class ClipboardHistory {
         if DirExist("/System/Library/CoreServices")   ; macOS pastes with Cmd+V
             this.pasteKeys := "#v"
 
+        HotkeyCard.SetTrayIcon("📋")
         OnClipboardChange((dt, *) => this.OnClip(dt))  ; lambda keeps `this`; also keeps the script alive
         Hotkey(this.ShowHotkey, (*) => this.Toggle())
 

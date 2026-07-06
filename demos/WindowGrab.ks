@@ -31,6 +31,7 @@ class WindowGrab {
 
     static Install() {
         SetWinDelay(-1)
+        HotkeyCard.SetTrayIcon("✋")
         Hotkey(this.ModMove "LButton", (*) => this.MoveGrab())
         Hotkey(this.ModFade "RButton", (*) => this.FadeGrab())
         HotkeyCard.Show("Window Grab", [

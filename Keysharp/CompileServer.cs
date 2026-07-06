@@ -265,6 +265,7 @@ namespace Keysharp.Main
 
 			var ch = new CompilerHelper();
 			var exeDir = Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath));
+			SetDaemonWorkingDirectory(exeDir);
 
 			Warmup(ch, exeDir);
 
@@ -325,6 +326,19 @@ namespace Keysharp.Main
 			catch (Exception ex)
 			{
 				Log($"warmup failed (ignored): {ex.Message}");
+			}
+		}
+
+		private static void SetDaemonWorkingDirectory(string exeDir)
+		{
+			try
+			{
+				if (!string.IsNullOrWhiteSpace(exeDir) && Directory.Exists(exeDir))
+					Directory.SetCurrentDirectory(exeDir);
+			}
+			catch (Exception ex)
+			{
+				Log($"could not set daemon working directory to '{exeDir}': {ex.Message}");
 			}
 		}
 
@@ -516,6 +530,7 @@ namespace Keysharp.Main
 					FileName = processPath,
 					UseShellExecute = false,
 					CreateNoWindow = true,
+					WorkingDirectory = Path.GetDirectoryName(processPath),
 				};
 
 				// When launched as "dotnet Keysharp.dll", re-pass the managed dll so the child runs Keysharp.

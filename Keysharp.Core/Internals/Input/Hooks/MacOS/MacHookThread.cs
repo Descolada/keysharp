@@ -20,16 +20,8 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		[ThreadStatic]
 		private static bool nativeEventHasExtraInfo;
 
-		[StructLayout(LayoutKind.Sequential)]
-		private struct CGPoint
-		{
-			public double X;
-			public double Y;
-			public CGPoint(double x, double y) { X = x; Y = y; }
-		}
-
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
-		private static extern int CGWarpMouseCursorPosition(CGPoint newCursorPosition);
+		private static extern int CGWarpMouseCursorPosition(MacNativeInput.CGPoint newCursorPosition);
 
 		[DllImport("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")]
 		private static extern int CGAssociateMouseAndMouseCursorPosition(int connected);
@@ -51,7 +43,7 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 		// event-suppression interval so the cursor tracks the mouse again inside the rectangle.
 		protected override void WarpCursor(int x, int y)
 		{
-			_ = CGWarpMouseCursorPosition(new CGPoint(x, y));
+			_ = CGWarpMouseCursorPosition(new MacNativeInput.CGPoint(x, y));
 			_ = CGAssociateMouseAndMouseCursorPosition(1);
 		}
 
@@ -121,15 +113,28 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				&& type != MacNativeInput.kCGEventFlagsChanged)
 				return false;
 
-			var sc = (uint)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGKeyboardEventKeycode);
-			var vk = KeyCodes.MapScToVk(sc);
-			if (vk == 0)
+			var flags = MacNativeInput.CGEventGetFlags(cgEvent);
+			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
+			var unicodeBuffer = new char[8];
+			var unicodeLength = 0;
+			var hasSyntheticUnicode = extraInfo != 0
+				&& type == MacNativeInput.kCGEventKeyDown
+				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out unicodeLength);
+
+			if (hasSyntheticUnicode)
+				return ProcessSyntheticUnicodeText(unicodeBuffer, unicodeLength, flags, extraInfo);
+
+			if (extraInfo != 0
+				&& type == MacNativeInput.kCGEventKeyUp
+				&& MacNativeInput.TryGetKeyboardUnicodeString(cgEvent, unicodeBuffer, out _))
 				return false;
 
-			var flags = MacNativeInput.CGEventGetFlags(cgEvent);
+			var sc = (uint)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGKeyboardEventKeycode);
+			if (!KeyCodes.TryMapMacCodeToVk(sc, out var vk) || vk == 0)
+				return false;
+
 			var keyUp = type == MacNativeInput.kCGEventKeyUp
 				|| (type == MacNativeInput.kCGEventFlagsChanged && MacNativeInput.IsKeyUpFromFlagsChanged(vk, flags));
-			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
 			var mask = MacNativeInput.ToEventMask(flags);
 			if (extraInfo != 0)
 				mask |= EventMask.SimulatedEvent;
@@ -150,6 +155,102 @@ namespace Keysharp.Internals.Input.Hooks.MacOS
 				nativeEventExtraInfo = 0;
 				nativeEventHasExtraInfo = false;
 			}
+
+			return args.SuppressEvent;
+		}
+
+		private bool ProcessSyntheticUnicodeText(char[] chars, int length, ulong flags, ulong extraInfo)
+		{
+			var mask = MacNativeInput.ToEventMask(flags) | EventMask.SimulatedEvent;
+			var suppress = false;
+			nativeEventExtraInfo = extraInfo;
+			nativeEventHasExtraInfo = true;
+
+			try
+			{
+				for (var i = 0; i < length; i++)
+				{
+					var args = new KeyboardHookEventArgs(EventType.KeyPressed, VK_PACKET, chars[i], mask);
+					OnKeyPressed(this, args);
+					suppress |= args.SuppressEvent;
+				}
+			}
+			finally
+			{
+				nativeEventExtraInfo = 0;
+				nativeEventHasExtraInfo = false;
+			}
+
+			return suppress;
+		}
+
+		internal bool ProcessNativeMouseEvent(uint type, nint cgEvent)
+		{
+			if (type != MacNativeInput.kCGEventLeftMouseDown
+				&& type != MacNativeInput.kCGEventLeftMouseUp
+				&& type != MacNativeInput.kCGEventRightMouseDown
+				&& type != MacNativeInput.kCGEventRightMouseUp
+				&& type != MacNativeInput.kCGEventMouseMoved
+				&& type != MacNativeInput.kCGEventLeftMouseDragged
+				&& type != MacNativeInput.kCGEventRightMouseDragged
+				&& type != MacNativeInput.kCGEventScrollWheel
+				&& type != MacNativeInput.kCGEventOtherMouseDown
+				&& type != MacNativeInput.kCGEventOtherMouseUp
+				&& type != MacNativeInput.kCGEventOtherMouseDragged)
+				return false;
+
+			var flags = MacNativeInput.CGEventGetFlags(cgEvent);
+			var extraInfo = unchecked((ulong)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGEventSourceUserData));
+			var mask = MacNativeInput.ToEventMask(flags);
+
+			if (extraInfo != 0)
+				mask |= EventMask.SimulatedEvent;
+
+			var loc = MacNativeInput.CGEventGetLocation(cgEvent);
+			var x = (int)Math.Round(loc.X);
+			var y = (int)Math.Round(loc.Y);
+			HookEventArgs args;
+
+			if (type == MacNativeInput.kCGEventScrollWheel)
+			{
+				var vertical = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis1);
+				var horizontal = (int)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGScrollWheelEventDeltaAxis2);
+				var useHorizontal = horizontal != 0 && Math.Abs(horizontal) >= Math.Abs(vertical);
+				args = new MouseWheelHookEventArgs(
+					useHorizontal ? horizontal : vertical,
+					useHorizontal ? MouseWheelScrollDirection.Horizontal : MouseWheelScrollDirection.Vertical,
+					x,
+					y,
+					mask);
+				OnMouseWheel(this, (MouseWheelHookEventArgs)args);
+				return args.SuppressEvent;
+			}
+
+			if (type == MacNativeInput.kCGEventMouseMoved
+				|| type == MacNativeInput.kCGEventLeftMouseDragged
+				|| type == MacNativeInput.kCGEventRightMouseDragged
+				|| type == MacNativeInput.kCGEventOtherMouseDragged)
+			{
+				args = new MouseHookEventArgs(EventType.MouseMoved, MouseButton.NoButton, x, y, mask);
+				OnMouseMoved(this, (MouseHookEventArgs)args);
+				return args.SuppressEvent;
+			}
+
+			var buttonNumber = (uint)MacNativeInput.CGEventGetIntegerValueField(cgEvent, MacNativeInput.kCGMouseEventButtonNumber);
+			var button = MacNativeInput.ToMouseButton(type, buttonNumber);
+
+			if (button == MouseButton.NoButton)
+				return false;
+
+			var keyUp = type == MacNativeInput.kCGEventLeftMouseUp
+				|| type == MacNativeInput.kCGEventRightMouseUp
+				|| type == MacNativeInput.kCGEventOtherMouseUp;
+			args = new MouseHookEventArgs(keyUp ? EventType.MouseReleased : EventType.MousePressed, button, x, y, mask);
+
+			if (keyUp)
+				OnMouseReleased(this, (MouseHookEventArgs)args);
+			else
+				OnMousePressed(this, (MouseHookEventArgs)args);
 
 			return args.SuppressEvent;
 		}

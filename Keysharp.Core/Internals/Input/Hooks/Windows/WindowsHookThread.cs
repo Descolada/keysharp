@@ -777,10 +777,6 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			return false;
 		}
 
-		internal override bool IsKeyDown(uint vk) => (GetKeyState((int)vk) & 0x8000) != 0;
-
-		internal override bool IsKeyDownAsync(uint vk) => (GetAsyncKeyState((int)vk) & 0x8000) != 0;
-
 		internal override bool IsKeyToggledOn(uint vk) => (GetKeyState((int)vk) & 0x01) != 0;
 
 		internal static bool IsKeybdEventArtificial(uint flags) => (flags & LLKHF_INJECTED) != 0 || (flags & LLKHF_LOWER_IL_INJECTED) != 0;
@@ -1228,7 +1224,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			//}
 
 			//if (code != 0 && ((lParam.vkCode & VK_LSHIFT) == VK_LSHIFT || (lParam.vkCode & VK_RSHIFT) == VK_RSHIFT))
-			//if (wParamVal > 0 && lParam.flags > 0 && lParam.vkCode != 0xA0)// (IsKeyDown(VK_LSHIFT) || IsKeyDown(VK_RSHIFT)))
+			//if (wParamVal > 0 && lParam.flags > 0 && lParam.vkCode != 0xA0)// (IsKeyDownLogical(VK_LSHIFT) || IsKeyDownLogical(VK_RSHIFT)))
 			//{
 			//  Console.WriteLine("shift");
 			//}

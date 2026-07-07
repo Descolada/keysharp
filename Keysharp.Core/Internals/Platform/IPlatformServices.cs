@@ -7,10 +7,9 @@ namespace Keysharp.Internals
 
 	internal enum OverlayKind { Eto, LayerSurface, Compositor }
 
-	/// <summary>The currently-live keyboard/mouse injection transport. On Linux it can make one sticky forward
-	/// transition (inputd → legacy X11/XTEST); on macOS/Windows it is fixed. Kept as a typed value (not a bool)
+	/// <summary>The currently-live keyboard/mouse injection transport. Kept as a typed value (not a bool)
 	/// so additional transports/state can be added without churning consumers.</summary>
-	internal enum InputTransport { None, Inputd, LegacyX11, Mac, Windows }
+	internal enum InputTransport { None, Inputd, Mac, Windows }
 
 	/// <summary>Foreign window READ surface (by handle). The Linux impl internally composes X11 + the active
 	/// Wayland backend; routing re-resolves the backend from the handle on each call.</summary>
@@ -141,12 +140,16 @@ namespace Keysharp.Internals
 		/// <see cref="TryGetCursorPos"/>): X11 <c>XWarpPointer</c> / the Wayland compositor backend.</summary>
 		bool TryMoveAbsolute(int x, int y);
 
+		/// <summary>Live LOGICAL state of a mouse button (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON1/2), matching the
+		/// current OS/session button state used by <c>GetKeyState(button)</c> without the physical option.</summary>
+		bool TryQueryButtonStateLogical(uint vk, out bool down);
+
 		/// <summary>Live PHYSICAL state of a mouse button (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON1/2), for
 		/// GetKeyState(.., "P") when no mouse hook is tracking it — the cross-platform analogue of Win32
 		/// GetAsyncKeyState (X11 <c>XQueryPointer</c> mask, macOS <c>CGEventSourceButtonState</c>, Wayland via
 		/// the inputd daemon's evdev read). Returns false if this platform cannot answer, so the caller falls
 		/// back to the hook-tracked state.</summary>
-		bool TryGetPhysicalMouseButtonState(uint vk, out bool down);
+		bool TryQueryButtonStatePhysical(uint vk, out bool down);
 	}
 
 	/// <summary>Monitors, work area, screen/window capture.</summary>
@@ -259,19 +262,27 @@ namespace Keysharp.Internals
 		bool PostHotkeyMessage(nint hWnd, uint wParam, uint lParam);
 	}
 
-	/// <summary>Platform-neutral view of the keyboard/mouse injection transport. The fallback latch itself lives
-	/// in <c>KeysharpInputdManager</c> and the senders live on the hook thread; this exposes the transport in a
-	/// platform-neutral way so consumers (e.g. <c>KeyCodes.VkSc</c> picking the evdev-vs-XKeycode scancode space)
-	/// don't reach into the Linux inputd internals.</summary>
+	/// <summary>Platform-neutral view of the keyboard/mouse injection transport.</summary>
 	internal interface IInput
 	{
-		/// <summary>The live injection transport — read by the scancode mapper to choose evdev (inputd) vs
-		/// XKeycode (legacy X11) tables. Fixed on macOS/Windows.</summary>
+		/// <summary>The live injection transport. Fixed on macOS/Windows.</summary>
 		InputTransport ActiveTransport { get; }
+	}
 
-		/// <summary>The intended sticky one-way inputd → legacy-X11 fallback transition. (Today the latch is
-		/// flipped directly via <c>KeysharpInputdManager.ActivateLegacyX11Fallback</c>; this is the platform-neutral
-		/// surface for it.)</summary>
-		void Demote();
+	/// <summary>Live OS/session keyboard state query surface.</summary>
+	internal interface IKeyboard
+	{
+		/// <summary>Current logical modifier state, represented with Keysharp MOD_* left/right bits.</summary>
+		bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null);
+
+		/// <summary>Current OS/session logical down/up state for the given VK. On Windows this intentionally
+		/// models Win32 GetAsyncKeyState-style current state, not GetKeyState's thread-message-queue state.</summary>
+		bool TryQueryKeyStateLogical(uint vk, out bool isDown);
+
+		/// <summary>Current physical/device down/up state for the given VK when the platform exposes it.</summary>
+		bool TryQueryKeyStatePhysical(uint vk, out bool isDown);
+
+		/// <summary>Current lock/toggle states when the platform exposes them.</summary>
+		bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn);
 	}
 }

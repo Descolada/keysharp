@@ -7,6 +7,7 @@
 #include "connection_ref.h"
 #include "keysharp_inputd/ipc.h"
 #include "keysharp_inputd/linux_devices.h"
+#include "keysharp_inputd/linux_synth.h"
 #include "keysharp_trust/permissions.h"
 #include "keysharp_inputd/platform.h"
 #include "keysharp_inputd/protocol.h"

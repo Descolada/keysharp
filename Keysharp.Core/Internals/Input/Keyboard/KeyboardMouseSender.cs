@@ -427,21 +427,21 @@ namespace Keysharp.Internals.Input.Keyboard
 			// in its place, yields the correct info.  Very strange.
 			var modifiersLR = 0u;  // Allows all to default to up/off to simplify the below.
 
-			if (ht.IsKeyDownAsync(VK_LSHIFT)) modifiersLR |= MOD_LSHIFT;
+			if (ht.IsKeyDownLogical(VK_LSHIFT)) modifiersLR |= MOD_LSHIFT;
 
-			if (ht.IsKeyDownAsync(VK_RSHIFT)) modifiersLR |= MOD_RSHIFT;
+			if (ht.IsKeyDownLogical(VK_RSHIFT)) modifiersLR |= MOD_RSHIFT;
 
-			if (ht.IsKeyDownAsync(VK_LCONTROL)) modifiersLR |= MOD_LCONTROL;
+			if (ht.IsKeyDownLogical(VK_LCONTROL)) modifiersLR |= MOD_LCONTROL;
 
-			if (ht.IsKeyDownAsync(VK_RCONTROL)) modifiersLR |= MOD_RCONTROL;
+			if (ht.IsKeyDownLogical(VK_RCONTROL)) modifiersLR |= MOD_RCONTROL;
 
-			if (ht.IsKeyDownAsync(VK_LMENU)) modifiersLR |= MOD_LALT;
+			if (ht.IsKeyDownLogical(VK_LMENU)) modifiersLR |= MOD_LALT;
 
-			if (ht.IsKeyDownAsync(VK_RMENU)) modifiersLR |= MOD_RALT;
+			if (ht.IsKeyDownLogical(VK_RMENU)) modifiersLR |= MOD_RALT;
 
-			if (ht.IsKeyDownAsync(VK_LWIN)) modifiersLR |= MOD_LWIN;
+			if (ht.IsKeyDownLogical(VK_LWIN)) modifiersLR |= MOD_LWIN;
 
-			if (ht.IsKeyDownAsync(VK_RWIN)) modifiersLR |= MOD_RWIN;
+			if (ht.IsKeyDownLogical(VK_RWIN)) modifiersLR |= MOD_RWIN;
 
 			// Thread-safe: The following section isn't thread-safe because either the hook thread
 			// or the main thread can be calling it.  However, given that anything dealing with
@@ -472,7 +472,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				var modifiersWronglyDown = modifiersLRLogical & ~modifiersLR;
 
 				// modifiers_wrongly_down can sometimes include modifiers that have only just been pressed
-				// but aren't yet reflected by IsKeyDownAsync().  This happens much more often if a keyboard
+				// but aren't yet reflected by IsKeyDownLogical().  This happens much more often if a keyboard
 				// hook is installed AFTER our own.  The following simple script was enough to reproduce this:
 				//  ~*RWin::GetKeyState("RWin", "P")
 				//  >#/::MsgBox  ; This hotkey sometimes or always failed to fire.
@@ -500,7 +500,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				{
 					if ((modifiersWronglyDown & modifiersLRLastPressed) != 0)
 					{
-						// It's logically down according to the hook, but not according to IsKeyDownAsync().
+						// It's logically down according to the hook, but not according to IsKeyDownLogical().
 						// Trust the hook in this case.
 						modifiersWronglyDown &= ~modifiersLRLastPressed;
 						// v2.0.12: Report that the modifier is down, consistent with g_modifiersLR_logical.
@@ -1472,7 +1472,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// Windows key isn't enough to solve it because Win+L is apparently detected aggressively like
 				// Ctrl-Alt-Delete.  Unlike the handling of SM_INPUT in another section, this one here goes into
 				// effect for all Sends because waiting for an "L" keystroke to be sent would be too late since the
-				// Windows would have already been artificially released by then, so IsKeyDownAsync() wouldn't be
+				// Windows would have already been artificially released by then, so IsKeyDownLogical() wouldn't be
 				// able to detect when the user physically releases the key.
 				if ((thisHotkeyModifiersLR & (MOD_LWIN | MOD_RWIN)) != 0 // Limit the scope to only those hotkeys that have a Win modifier, since anything outside that scope hasn't been fully analyzed.
 						&& (DateTime.UtcNow - script.thisHotkeyStartTime).TotalMilliseconds < 50 // Ensure g_script.mThisHotkeyModifiersLR is up-to-date enough to be reliable.
@@ -1519,7 +1519,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					}
 
 					if (waitForWinKeyRelease)
-						while (ht.IsKeyDownAsync(VK_LWIN) || ht.IsKeyDownAsync(VK_RWIN)) // Even if the keyboard hook is installed, it seems best to use IsKeyDownAsync() vs. g_PhysicalKeyState[] because it's more likely to produce consistent behavior.
+						while (ht.IsKeyDownLogical(VK_LWIN) || ht.IsKeyDownLogical(VK_RWIN)) // Even if the keyboard hook is installed, it seems best to use IsKeyDownLogical() vs. g_PhysicalKeyState[] because it's more likely to produce consistent behavior.
 							Keysharp.Internals.Flow.SleepWithoutInterruption(Keysharp.Internals.Flow.IntervalUnspecified); // Seems best not to allow other threads to launch, for maintainability and because SendKeys() isn't designed to be interruptible.
 				}
 

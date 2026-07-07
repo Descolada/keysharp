@@ -18,6 +18,7 @@ namespace Keysharp.Internals.Input.Linux
 		private const int HeaderSize = 24;
 		private const int MaxMessageSize = 65536;
 		private const int InputSize = 40;
+		internal const int KeyStateBitmapBytes = 96;
 		private const uint ClientHelloFlagForcePrompt = 0x00000001;
 		// Bounds a request round-trip so a hung daemon cannot block a script thread
 		// indefinitely (callers hold a manager lock across these calls).
@@ -169,6 +170,14 @@ namespace Keysharp.Internals.Input.Linux
 			int XMax,
 			int YMin,
 			int YMax);
+
+			internal readonly record struct KeyStateSnapshot(
+				uint ModifiersLR,
+				bool CapsLock,
+				bool NumLock,
+				bool ScrollLock,
+				byte[] LogicalKeys,
+				byte[] PhysicalKeys);
 
 			private readonly Socket socket;
 			/// <summary>
@@ -399,13 +408,14 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>
-		/// Queries the daemon for the current physical modifier and toggle-key state.
-		/// Returns (modifiersLR, capsLock, numLock, scrollLock).
+		/// Queries the daemon for the current logical keyboard state.
 		/// modifiersLR uses the same bit layout as Keysharp's internal MOD_* constants:
 		///   0=LCONTROL 1=RCONTROL 2=LALT 3=RALT 4=LSHIFT 5=RSHIFT 6=LWIN 7=RWIN.
+		/// LogicalKeys is an evdev KEY_* bitmap when the daemon supports protocol payload extensions;
+		/// old daemons return the 8-byte prefix only, leaving LogicalKeys empty.
 		/// Must be called on a dedicated query connection, not on the hook-event socket.
 		/// </summary>
-		internal (uint ModifiersLR, bool CapsLock, bool NumLock, bool ScrollLock) QueryKeyState()
+		internal KeyStateSnapshot QueryKeyState()
 		{
 			var correlationId = NextCorrelationId();
 			SendFrame(MessageType.GetKeyState, correlationId, ReadOnlySpan<byte>.Empty);
@@ -416,10 +426,25 @@ namespace Keysharp.Internals.Input.Linux
 					$"Unexpected response to GetKeyState: type={response.Type} corr={response.CorrelationId} expected={correlationId}");
 
 			if (response.Payload.Length < 8)
-				return (0u, false, false, false);
+				return new(0u, false, false, false, [], []);
 
 			var mods = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(0));
-			return (mods, response.Payload[4] != 0, response.Payload[5] != 0, response.Payload[6] != 0);
+			var logicalKeys = Array.Empty<byte>();
+			var physicalKeys = Array.Empty<byte>();
+
+			if (response.Payload.Length >= 8 + KeyStateBitmapBytes)
+			{
+				logicalKeys = new byte[KeyStateBitmapBytes];
+				response.Payload.AsSpan(8, KeyStateBitmapBytes).CopyTo(logicalKeys);
+			}
+
+			if (response.Payload.Length >= 8 + (KeyStateBitmapBytes * 2))
+			{
+				physicalKeys = new byte[KeyStateBitmapBytes];
+				response.Payload.AsSpan(8 + KeyStateBitmapBytes, KeyStateBitmapBytes).CopyTo(physicalKeys);
+			}
+
+			return new(mods, response.Payload[4] != 0, response.Payload[5] != 0, response.Payload[6] != 0, logicalKeys, physicalKeys);
 		}
 
 		/// <summary>
@@ -451,15 +476,16 @@ namespace Keysharp.Internals.Input.Linux
 			return true;
 		}
 
+		internal readonly record struct PointerButtons(uint LogicalButtons, uint PhysicalButtons);
+
 		/// <summary>
-		/// Snapshot of which physical mouse buttons are currently held, read by the daemon straight from evdev
-		/// (EVIOCGKEY) with no grab required. Bit 0 = left, 1 = right, 2 = middle, 3 = X1 (side), 4 = X2 (extra).
-		/// This is the Wayland analogue of X11's XQueryPointer button mask — used for GetKeyState(.., "P") when
-		/// no mouse hook is tracking state. Returns false if the daemon could not read any pointer device.
+		/// Snapshot of current mouse-button state. New daemons return logical and physical masks separately;
+		/// old daemons return only the physical mask, which is used for both outputs for compatibility.
+		/// Bit 0 = left, 1 = right, 2 = middle, 3 = X1 (side), 4 = X2 (extra).
 		/// </summary>
-		internal bool TryGetPointerButtons(out uint buttons)
+		internal bool TryGetPointerButtons(out PointerButtons buttons)
 		{
-			buttons = 0;
+			buttons = default;
 
 			var correlationId = NextCorrelationId();
 			SendFrame(MessageType.GetPointerButtons, correlationId, ReadOnlySpan<byte>.Empty);
@@ -473,7 +499,19 @@ namespace Keysharp.Internals.Input.Linux
 			if (response.Payload.Length < 8 || response.Payload[0] == 0)
 				return false;
 
-			buttons = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(4));
+			var compatPhysicalButtons = BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(4));
+
+			if (response.Payload.Length >= 16)
+			{
+				buttons = new(
+					BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(8)),
+					BinaryPrimitives.ReadUInt32LittleEndian(response.Payload.AsSpan(12)));
+			}
+			else
+			{
+				buttons = new(compatPhysicalButtons, compatPhysicalButtons);
+			}
+
 			return true;
 		}
 

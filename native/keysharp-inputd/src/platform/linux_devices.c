@@ -1,6 +1,7 @@
 #include "keysharp_inputd/linux_devices.h"
 
 #include "keysharp_inputd/globals.h"
+#include "keysharp_inputd/linux_synth.h"
 #include "keysharp_inputd/protocol.h"
 #include "vk_evdev.h"
 
@@ -143,6 +144,30 @@ static void clear_bit(unsigned long *bits, int bit)
 static void set_bit(unsigned long *bits, int bit)
 {
     bits[KSI_BIT_WORD((size_t)bit)] |= KSI_BIT_MASK((size_t)bit);
+}
+
+static void set_payload_key_bit(uint8_t *keys, unsigned int code)
+{
+    size_t byte_index;
+
+    if (keys == NULL || code >= KSI_KEY_STATE_BITMAP_BITS) {
+        return;
+    }
+
+    byte_index = (size_t)code >> 3;
+    keys[byte_index] |= (uint8_t)(1u << (code & 7u));
+}
+
+static bool payload_key_bit_is_set(const uint8_t *keys, unsigned int code)
+{
+    size_t byte_index;
+
+    if (keys == NULL || code >= KSI_KEY_STATE_BITMAP_BITS) {
+        return false;
+    }
+
+    byte_index = (size_t)code >> 3;
+    return (keys[byte_index] & (uint8_t)(1u << (code & 7u))) != 0u;
 }
 
 static bool any_bit_set(const unsigned long *bits, size_t length)
@@ -1454,15 +1479,16 @@ bool ksi_linux_devices_get_pointer_position(ksi_pointer_position_payload *positi
     return position->valid != 0u;
 }
 
-/* Snapshot the current physically-held mouse buttons across all real pointer devices via EVIOCGKEY.
- * The fd is open for every tracked candidate regardless of grab, so this answers GetKeyState(.., "P")
- * for a mouse button with no mouse hook/grab (the Wayland counterpart of X11's XQueryPointer mask).
- * Result bits: 0=left, 1=right, 2=middle, 3=X1(side), 4=X2(extra). */
+/* Snapshot the current mouse-button state. physical_buttons is read across all real pointer
+ * devices via EVIOCGKEY. logical_buttons starts from that physical mask and adds Keysharp's
+ * enqueue-time synthetic button state. Result bits: 0=left, 1=right, 2=middle, 3=X1(side),
+ * 4=X2(extra). */
 bool ksi_linux_devices_get_pointer_buttons(ksi_pointer_buttons_payload *result)
 {
     unsigned long key_bits[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
     bool any = false;
-    uint32_t buttons = 0u;
+    uint32_t physical_buttons = 0u;
+    uint32_t logical_buttons = 0u;
 
     if (result == NULL) {
         return false;
@@ -1486,15 +1512,20 @@ bool ksi_linux_devices_get_pointer_buttons(ksi_pointer_buttons_payload *result)
 
         any = true;
 
-        if (test_bit(key_bits, BTN_LEFT))   buttons |= (1u << 0);
-        if (test_bit(key_bits, BTN_RIGHT))  buttons |= (1u << 1);
-        if (test_bit(key_bits, BTN_MIDDLE)) buttons |= (1u << 2);
-        if (test_bit(key_bits, BTN_SIDE))   buttons |= (1u << 3);
-        if (test_bit(key_bits, BTN_EXTRA))  buttons |= (1u << 4);
+        if (test_bit(key_bits, BTN_LEFT))   physical_buttons |= (1u << 0);
+        if (test_bit(key_bits, BTN_RIGHT))  physical_buttons |= (1u << 1);
+        if (test_bit(key_bits, BTN_MIDDLE)) physical_buttons |= (1u << 2);
+        if (test_bit(key_bits, BTN_SIDE))   physical_buttons |= (1u << 3);
+        if (test_bit(key_bits, BTN_EXTRA))  physical_buttons |= (1u << 4);
     }
 
+    logical_buttons = physical_buttons;
+    ksi_linux_synth_add_logical_pointer_button_state(&logical_buttons);
+
     result->valid = any ? 1u : 0u;
-    result->buttons = buttons;
+    result->buttons = physical_buttons;
+    result->logical_buttons = logical_buttons;
+    result->physical_buttons = physical_buttons;
     return any;
 }
 
@@ -1551,6 +1582,74 @@ uint32_t ksi_linux_devices_get_modifier_state(void)
     }
 
     return mods;
+}
+
+static uint32_t modifiers_from_logical_key_bitmap(const uint8_t *keys)
+{
+    uint32_t mods = 0;
+
+    if (payload_key_bit_is_set(keys, KEY_LEFTCTRL))   mods |= 0x01u; /* MOD_LCONTROL */
+    if (payload_key_bit_is_set(keys, KEY_RIGHTCTRL))  mods |= 0x02u; /* MOD_RCONTROL */
+    if (payload_key_bit_is_set(keys, KEY_LEFTALT))    mods |= 0x04u; /* MOD_LALT     */
+    if (payload_key_bit_is_set(keys, KEY_RIGHTALT))   mods |= 0x08u; /* MOD_RALT     */
+    if (payload_key_bit_is_set(keys, KEY_LEFTSHIFT))  mods |= 0x10u; /* MOD_LSHIFT   */
+    if (payload_key_bit_is_set(keys, KEY_RIGHTSHIFT)) mods |= 0x20u; /* MOD_RSHIFT   */
+    if (payload_key_bit_is_set(keys, KEY_LEFTMETA))   mods |= 0x40u; /* MOD_LWIN     */
+    if (payload_key_bit_is_set(keys, KEY_RIGHTMETA))  mods |= 0x80u; /* MOD_RWIN     */
+
+    return mods;
+}
+
+bool ksi_linux_devices_get_key_state(ksi_key_state_payload *result)
+{
+    unsigned long key_bits[KSI_BIT_ARRAY_LENGTH(KEY_MAX)];
+    bool any = false;
+
+    if (result == NULL) {
+        return false;
+    }
+
+    memset(result->logical_keys, 0, sizeof(result->logical_keys));
+    memset(result->physical_keys, 0, sizeof(result->physical_keys));
+
+    for (size_t i = 0; i < tracked_device_count; i++) {
+        const ksi_linux_tracked_device *dev = &tracked_devices[i];
+
+        if (!dev->keyboard_candidate || dev->injected_source || dev->fd < 0) {
+            continue;
+        }
+
+        memset(key_bits, 0, sizeof(key_bits));
+
+        if (ioctl(dev->fd, EVIOCGKEY(sizeof(key_bits)), key_bits) < 0) {
+            if (!dev->grabbed) {
+                continue;
+            }
+
+            for (unsigned int code = 0; code <= KEY_MAX; code++) {
+                if (test_bit(dev->physical_down_keys, (int)code)) {
+                    set_payload_key_bit(result->logical_keys, code);
+                    set_payload_key_bit(result->physical_keys, code);
+                }
+            }
+
+            any = true;
+            continue;
+        }
+
+        any = true;
+
+        for (unsigned int code = 0; code <= KEY_MAX; code++) {
+            if (test_bit(key_bits, (int)code)) {
+                set_payload_key_bit(result->logical_keys, code);
+                set_payload_key_bit(result->physical_keys, code);
+            }
+        }
+    }
+
+    ksi_linux_synth_add_logical_key_state(result->logical_keys, sizeof(result->logical_keys));
+    result->modifiers_lr = modifiers_from_logical_key_bitmap(result->logical_keys);
+    return any;
 }
 
 void ksi_linux_devices_set_hook_event_callback(ksi_hook_event_callback callback, void *context)

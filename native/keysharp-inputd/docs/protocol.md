@@ -31,13 +31,22 @@ EMERGENCY_PASSTHROUGH SET_BLOCK_INPUT
 GET_INDICATOR_STATE   INDICATOR_STATE_RESULT
 GET_POINTER_POSITION  POINTER_POSITION_RESULT
 GET_KEY_STATE         KEY_STATE_RESULT
+GET_POINTER_BUTTONS   POINTER_BUTTONS_RESULT
 LIST_PERMISSIONS      RESET_PERMISSIONS
 ```
 
-`GET_KEY_STATE` / `KEY_STATE_RESULT` report the current physical modifier
-(left/right Ctrl/Alt/Shift/Win) and lock-key state; it requires `KSI_CAP_HOOK_*`
-and reports modifiers only from grabbed keyboards. `LIST_PERMISSIONS` and
-`RESET_PERMISSIONS` back the `keysharp-inputd trust` subcommand (see below).
+`GET_KEY_STATE` / `KEY_STATE_RESULT` report current logical modifiers, lock-key
+state, a logical evdev key bitmap, and an appended physical evdev key bitmap. It
+requires `KSI_CAP_HOOK_KEYBOARD`.
+
+`GET_POINTER_BUTTONS` / `POINTER_BUTTONS_RESULT` report mouse button masks. The
+legacy `buttons` field remains the physical mask; newer clients read appended
+`logical_buttons` and `physical_buttons`. Logical buttons combine the evdev
+physical snapshot with Keysharp's queued synthetic button state. It requires
+`KSI_CAP_HOOK_MOUSE`.
+
+`LIST_PERMISSIONS` and `RESET_PERMISSIONS` back the `keysharp-inputd trust`
+subcommand (see below).
 
 Protocol `0.2` permits a `HEARTBEAT` with correlation id `0` as a one-way grab
 lease renewal. The daemon sends no response for that form, so hook-reader

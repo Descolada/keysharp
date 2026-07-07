@@ -983,10 +983,6 @@ break_twice:;
 
 			if (list != null && !inputdApplied)
 			{
-				if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.IsLegacyX11FallbackActive
-					&& !string.IsNullOrEmpty(inputdMessage))
-					Ks.OutputDebugLine($"BlockInput: keysharp-inputd unavailable; falling back to xinput. {inputdMessage}");
-
 				foreach (var id in list)
 					if ($"xinput {cmdstr} {id}".Bash() != 0)
 						Ks.OutputDebugLine($"BlockInput: xinput command failed for device {id}.");
@@ -1082,7 +1078,7 @@ break_twice:;
 				case KeyStateTypes.Physical: // Physical state of key.
 				{
 					// "P" must NEVER install a hook. If the relevant hook is already present, use its tracked
-					// physical state; otherwise fall through to the logical/live query below (IsKeyDown), which
+					// physical state; otherwise fall through to the logical/live query below (IsKeyDownLogical), which
 					// needs no hook — matching AutoHotkey, where "P" degrades to an OS query when the hook is
 					// absent. This makes GetKeyState(key,"P") work with no hook for BOTH keyboard keys (X11
 					// XQueryKeymap) and mouse buttons (XQueryPointer / platform query) — e.g. a click-drag poll
@@ -1115,13 +1111,14 @@ break_twice:;
 
 			// Otherwise, use the default state-type: KEYSTATE_LOGICAL
 			// On XP/2K at least, a key can be physically down even if it isn't logically down,
-			// which is why the below specifically calls IsKeyDown() rather than some more
+			// which is why this historically used the GetKeyState-based path rather than some more
 			// comprehensive method such as consulting the physical key state as tracked by the hook:
-			// v1.0.42.01: For backward compatibility, the following hasn't been changed to IsKeyDownAsync().
+			// v1.0.42.01 kept this from being changed to the current-state query for backward compatibility.
 			// One example is the journal playback hook: when a window owned by the script receives
 			// such a keystroke, only GetKeyState() can detect the changed state of the key, not GetAsyncKeyState().
-			// A new mode can be added to KeyWait & GetKeyState if Async is ever explicitly needed.
-			return ht.IsKeyDown(vk);
+			// Keysharp: Windows 11 has removed journal playback hook, so this now uses IsKeyDownLogical's
+			// current-state semantics instead.
+			return ht.IsKeyDownLogical(vk);
 		}
 
 		/// <summary>

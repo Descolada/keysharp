@@ -465,7 +465,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// GetAsyncKeyState regardless of any hook. On Linux there is no such hook-independent OS query on
 				// the primary (inputd) and Wayland paths: the mouse hook reads modifiers from modifiersLRLogical,
 				// which is only maintained while the keyboard hook is installed. Without it,
-				// GetModifierLRState()/IsKeyDownAsync() report no modifiers down, so *any* modified mouse hotkey
+				// GetModifierLRState()/IsKeyDownLogical() report no modifiers down, so *any* modified mouse hotkey
 				// silently fails to fire. Hence promote on ANY consolidated modifier, not just WIN. Installing the
 				// keyboard hook also lets the Super/Start-menu disguise (disguiseNextMenu) run on key release.
 				else if (hot.type == HotkeyTypeEnum.MouseHook && (
@@ -636,6 +636,11 @@ namespace Keysharp.Internals.Input.Keyboard
 			// Install or deinstall either or both hooks, if necessary, based on these param values.
 			ht.ChangeHookState(shk, hkd.whichHookNeeded, hkd.whichHookAlways);
 
+#if LINUX
+			if ((shk.Length != 0 || hm.shs.Count != 0) && hkd.whichHookNeeded != HookType.None)
+				ThrowIfRegisteredHotkeysHotstringsHooksUnavailable(ht, hkd.whichHookNeeded);
+#endif
+
 			// Fix for v1.0.34: If the auto-execute section uses the Hotkey command but returns before doing
 			// something that calls MsgSleep, the main timer won't have been turned on.  For example:
 			// Hotkey, Joy1, MySubroutine
@@ -648,6 +653,39 @@ namespace Keysharp.Internals.Input.Keyboard
 
 			return DefaultObject;
 		}
+
+#if LINUX
+		private static void ThrowIfRegisteredHotkeysHotstringsHooksUnavailable(HookThread ht, HookType requiredHooks)
+		{
+			var missingHooks = HookType.None;
+
+			if ((requiredHooks & HookType.Keyboard) != 0 && !ht.HasKbdHook())
+				missingHooks |= HookType.Keyboard;
+
+			if ((requiredHooks & HookType.Mouse) != 0 && !ht.HasMouseHook())
+				missingHooks |= HookType.Mouse;
+
+			if (missingHooks == HookType.None)
+				return;
+
+			var hookText = missingHooks switch
+			{
+				HookType.Keyboard => "keyboard hook",
+				HookType.Mouse => "mouse hook",
+				_ => "keyboard and mouse hooks"
+			};
+			var reason = ht.GetHookActivationFailureReason();
+			var message = $"keysharp-inputd is required for Linux hotkeys/hotstrings, but the required {hookText} could not be installed.";
+
+			if (!string.IsNullOrWhiteSpace(reason))
+				message += $" {reason}";
+			else
+				message += " keysharp-inputd is unavailable.";
+
+			message += " Install and enable keysharp-inputd to use hotkeys/hotstrings on Linux.";
+			_ = Errors.OSErrorOccurred(null, message);
+		}
+#endif
 
 		public override string ToString() => Name;
 

@@ -15,6 +15,7 @@ namespace Keysharp.Internals
 		internal abstract ISession Session { get; }
 		internal abstract IHotkeys Hotkeys { get; }
 		internal abstract IInput Input { get; }
+		internal abstract IKeyboard Keyboard { get; }
 		internal abstract IPermissionManager Permissions { get; }
 		internal abstract ControlManagerBase Control { get; }
 
@@ -39,6 +40,7 @@ namespace Keysharp.Internals
 	{
 		private readonly IMouse mouse = new WindowsMouse();
 		private readonly IInput input = new WindowsInput();
+		private readonly IKeyboard keyboard = new WindowsKeyboard();
 		private readonly IOverlay overlay = new WindowsOverlay();
 		private readonly IScreen screen = new WindowsScreen();
 		private readonly IClipboard clipboard = new WindowsClipboard();
@@ -50,6 +52,7 @@ namespace Keysharp.Internals
 		private readonly ControlManagerBase control = new Os.Windows.ControlManager();
 		internal override IMouse Mouse => mouse;
 		internal override IInput Input => input;
+		internal override IKeyboard Keyboard => keyboard;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen;
 		internal override IClipboard Clipboard => clipboard;
@@ -65,6 +68,7 @@ namespace Keysharp.Internals
 	{
 		private readonly IMouse mouse = LinuxMice.Resolve();
 		private readonly IInput input = new LinuxInput();
+		private readonly IKeyboard keyboard = LinuxKeyboards.Resolve();
 		private readonly IOverlay overlay = new LinuxOverlay();
 		// Lazy: choosing the per-compositor IScreen needs the resolved Wayland backend, which must not be probed
 		// at host construction. The compositor flavor is inspected once, on first Screen use.
@@ -80,6 +84,7 @@ namespace Keysharp.Internals
 		private readonly ControlManagerBase control = new Os.Unix.ControlManager();
 		internal override IMouse Mouse => mouse;
 		internal override IInput Input => input;
+		internal override IKeyboard Keyboard => keyboard;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen.Value;
 		internal override IClipboard Clipboard => clipboard.Value;
@@ -95,6 +100,7 @@ namespace Keysharp.Internals
 	{
 		private readonly IMouse mouse = new MacMouse();
 		private readonly IInput input = new MacInput();
+		private readonly IKeyboard keyboard = new MacKeyboard();
 		private readonly IOverlay overlay = new MacOverlay();
 		private readonly IScreen screen = new MacScreen();
 		// macOS uses the shared Eto (Cocoa) clipboard — no focus gating, no data-control question, so no override.
@@ -107,6 +113,7 @@ namespace Keysharp.Internals
 		private readonly ControlManagerBase control = new Os.Unix.ControlManager();
 		internal override IMouse Mouse => mouse;
 		internal override IInput Input => input;
+		internal override IKeyboard Keyboard => keyboard;
 		internal override IOverlay Overlay => overlay;
 		internal override IScreen Screen => screen;
 		internal override IClipboard Clipboard => clipboard;

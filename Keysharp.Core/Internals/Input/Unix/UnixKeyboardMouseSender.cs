@@ -1063,7 +1063,7 @@ namespace Keysharp.Internals.Input.Unix
 				return starting;
 			}
 #endif
-			// Can't use IsKeyDownAsync/GetAsyncKeyState() because it doesn't have this info:
+			// Can't use the down-state query because it doesn't have toggle-state info:
 			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
 			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off) // Shouldn't be called this way.
@@ -1090,7 +1090,7 @@ namespace Keysharp.Internals.Input.Unix
 				// true state doesn't change either).  This problem tends to happen when the key
 				// is pressed while the hook is forcing it to be either ON or OFF (or it suppresses
 				// it because it's a hotkey).  Needs more testing on diff. keyboards & OSes:
-				if (script.HookThread.IsKeyDown(vk))
+				if (script.HookThread.IsKeyDownLogical(vk))
 					SendKeyEvent(KeyEventTypes.KeyUp, vk);
 			}
 			// Since it's not already in the desired state, toggle it:

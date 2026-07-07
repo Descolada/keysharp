@@ -76,56 +76,93 @@ namespace Keysharp.Internals.Input.Hooks
 	internal struct MouseEventData
 	{
 		internal MouseButton Button;
-		internal ushort Clicks;
-		internal short X;
-		internal short Y;
+		internal int Clicks;
+		internal int X;
+		internal int Y;
 	}
 
 	internal struct MouseWheelEventData
 	{
 		internal MouseWheelScrollType Type;
-		internal short Rotation;
-		internal ushort Delta;
+		internal int Rotation;
+		internal int Delta;
 		internal MouseWheelScrollDirection Direction;
-		internal short X;
-		internal short Y;
-	}
-
-	internal struct UioHookEvent
-	{
-		internal EventType Type;
-		internal ulong Time;
-		internal EventMask Mask;
-		internal KeyboardEventData Keyboard;
-		internal MouseEventData Mouse;
-		internal MouseWheelEventData Wheel;
+		internal int X;
+		internal int Y;
 	}
 
 	internal class HookEventArgs : EventArgs
 	{
-		internal HookEventArgs(UioHookEvent rawEvent) => RawEvent = rawEvent;
-		internal UioHookEvent RawEvent { get; set; }
-		internal DateTimeOffset EventTime => DateTimeOffset.FromUnixTimeMilliseconds(unchecked((long)RawEvent.Time));
-		internal bool IsEventSimulated => (RawEvent.Mask & EventMask.SimulatedEvent) != 0;
+		internal HookEventArgs(EventType type, ulong timestamp = 0, EventMask mask = EventMask.None)
+		{
+			Type = type;
+			Timestamp = timestamp != 0 ? unchecked((long)timestamp) : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+			Mask = mask;
+			IsEventSimulated = (mask & EventMask.SimulatedEvent) != 0;
+		}
+
+		internal EventType Type { get; }
+		internal DateTimeOffset EventTime => DateTimeOffset.FromUnixTimeMilliseconds(Timestamp);
+		internal long Timestamp { get; }
+		internal EventMask Mask { get; init; }
+		internal bool IsEventSimulated { get; init; }
 		internal bool SuppressEvent { get; set; }
+		internal bool HasKeyboard { get; init; }
+		internal bool HasMouse => !HasKeyboard;
 	}
 
 	internal sealed class KeyboardHookEventArgs : HookEventArgs
 	{
-		internal KeyboardHookEventArgs(UioHookEvent rawEvent) : base(rawEvent) { }
-		internal KeyboardEventData Data => RawEvent.Keyboard;
+		internal KeyboardHookEventArgs(EventType type, uint vk, uint sc, EventMask mask = EventMask.None, ulong timestamp = 0)
+			: base(type, timestamp, mask)
+		{
+			HasKeyboard = true;
+			Data = new KeyboardEventData
+			{
+				VkCode = vk,
+				KeyCode = vk,
+				RawCode = (ushort)sc,
+				RawKeyChar = KeyboardEventData.RawUndefinedChar
+			};
+		}
+
+		internal KeyboardEventData Data { get; }
 	}
 
 	internal sealed class MouseHookEventArgs : HookEventArgs
 	{
-		internal MouseHookEventArgs(UioHookEvent rawEvent) : base(rawEvent) { }
-		internal MouseEventData Data => RawEvent.Mouse;
+		internal MouseHookEventArgs(EventType type, MouseButton button, int x, int y, EventMask mask = EventMask.None, ulong timestamp = 0)
+			: base(type, timestamp, mask)
+		{
+			Data = new MouseEventData
+			{
+				Button = button,
+				Clicks = 1,
+				X = x,
+				Y = y
+			};
+		}
+
+		internal MouseEventData Data { get; }
 	}
 
 	internal sealed class MouseWheelHookEventArgs : HookEventArgs
 	{
-		internal MouseWheelHookEventArgs(UioHookEvent rawEvent) : base(rawEvent) { }
-		internal MouseWheelEventData Data => RawEvent.Wheel;
+		internal MouseWheelHookEventArgs(int rotation, MouseWheelScrollDirection direction, int x, int y, EventMask mask = EventMask.None, ulong timestamp = 0)
+			: base(EventType.MouseWheel, timestamp, mask)
+		{
+			Data = new MouseWheelEventData
+			{
+				Type = MouseWheelScrollType.UnitScroll,
+				Rotation = rotation,
+				Delta = 120,
+				Direction = direction,
+				X = x,
+				Y = y
+			};
+		}
+
+		internal MouseWheelEventData Data { get; }
 	}
 }
 #endif

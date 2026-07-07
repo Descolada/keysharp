@@ -1616,6 +1616,8 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal bool HasMouseHook() => mouseHook != 0;
 
+		internal virtual string GetHookActivationFailureReason() => "";
+
 		#region Cursor clipping (ClipCursor)
 
 		private sealed record CursorClipBounds(int Left, int Top, int Right, int Bottom);
@@ -1703,12 +1705,15 @@ namespace Keysharp.Internals.Input.Hooks
 
 		internal virtual bool IsHotstringWordChar(char ch) => char.IsLetterOrDigit(ch) ? true : !char.IsWhiteSpace(ch);
 
-		internal abstract bool IsKeyDown(uint vk);
-
-		internal bool IsKeyPhysicallyDown(uint vk)
+		internal bool IsKeyDownPhysical(uint vk)
 		{
 			if (!HasKbdHook())
-				return IsKeyDown(vk);
+			{
+				if (MouseUtils.IsMouseVK(vk))
+					return Keysharp.Internals.Platform.Mouse.TryQueryButtonStatePhysical(vk, out var mouseDown) && mouseDown;
+
+				return Keysharp.Internals.Platform.Keyboard.TryQueryKeyStatePhysical(vk, out var keyDown) && keyDown;
+			}
 
 			if (vk == 0 || vk >= physicalKeyState.Length)
 				return false;
@@ -1716,7 +1721,10 @@ namespace Keysharp.Internals.Input.Hooks
 			return (physicalKeyState[vk] & StateDown) != 0;
 		}
 
-		internal abstract bool IsKeyDownAsync(uint vk);
+		internal bool IsKeyDownLogical(uint vk)
+			=> MouseUtils.IsMouseVK(vk)
+				? Keysharp.Internals.Platform.Mouse.TryQueryButtonStateLogical(vk, out var mouseDown) && mouseDown
+				: Keysharp.Internals.Platform.Keyboard.TryQueryKeyStateLogical(vk, out var keyDown) && keyDown;
 
 		internal abstract bool IsKeyToggledOn(uint vk);
 
@@ -1961,11 +1969,7 @@ namespace Keysharp.Internals.Input.Hooks
 
 		private static long EventTimestamp(HookEventArgs e)
 		{
-#if WINDOWS
 			return e.Timestamp;
-#else
-			return unchecked((long)e.RawEvent.Time);
-#endif
 		}
 
 		/// <summary>
@@ -3860,8 +3864,6 @@ namespace Keysharp.Internals.Input.Hooks
 			if (hs != null)
 				PostQualifiedHotstringMessage(hs, caseConformMode, endChar, skipChars);
 		}
-
-		internal virtual void PrepareToSendHotstringReplacement(char endChar, uint triggerVk) { }
 
 		internal virtual HookAction CancelAltTabMenu(uint vk, bool keyUp) => HookAction.Continue;
 

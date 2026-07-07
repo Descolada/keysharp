@@ -594,8 +594,7 @@ namespace Keysharp.Tests
 
 #if LINUX
 			const uint EvdevEnter = 28u;
-			if (!Keysharp.Internals.Input.Linux.KeysharpInputdManager.IsLegacyX11FallbackActive)
-				Assert.AreEqual(EvdevEnter, sc);
+			Assert.AreEqual(EvdevEnter, sc);
 #endif
 		}
 

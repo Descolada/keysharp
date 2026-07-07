@@ -297,6 +297,14 @@ static bool output_queue_push_synth(
     }
 
     output_queue_push_node_locked(q, node);
+
+    /* Advance the enqueue-time logical key state while still holding the queue
+     * lock, so these updates are ordered identically to the queue insertions
+     * (a later batch can never be applied before an earlier one). This is what
+     * lets GET_KEY_STATE report the post-drain state the instant the batch is
+     * accepted, without waiting for the paced uinput drain. */
+    ksi_linux_synth_note_enqueued_synth(inputs, count);
+
     pthread_mutex_unlock(&q->mutex);
 
     output_queue_wake(q);
@@ -333,6 +341,11 @@ static bool output_queue_push_release_all(ksi_output_queue *q)
     }
 
     output_queue_push_node_locked(q, node);
+
+    /* release_all will drop every synthetic key, so the enqueue-time logical
+     * state becomes empty the moment this action is accepted. */
+    ksi_linux_synth_reset_enqueued_synth();
+
     pthread_mutex_unlock(&q->mutex);
 
     output_queue_wake(q);

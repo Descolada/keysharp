@@ -193,8 +193,15 @@ namespace Keysharp.Internals.Input.Linux
 		/// Mirrors AHK's post-SendInput state reconciliation: after a bypass-hook
 		/// batch the daemon's hook lane did not echo the synth events back to us,
 		/// so modifiersLRLogical may be stale. Query inputd for the ground-truth
-		/// physical modifier state (which is X11-independent and always correct),
+		/// logical modifier state (which is X11-independent and always current),
 		/// update logical state to match, and also refresh the indicator snapshot.
+		///
+		/// The query is race-free even though the synthesis channel returns as soon as
+		/// the batch is ENQUEUED (not after it drains to uinput): inputd tracks its
+		/// logical key state at enqueue time, so it already reflects the state the batch
+		/// will leave in effect once the paced output flushes — the inputd analogue of
+		/// Windows' synchronous SendInput, where the OS modifier state is settled the
+		/// instant SendInput returns.
 		/// </summary>
 		private static void ReconcileLogicalModifiersFromOs()
 		{
@@ -204,17 +211,10 @@ namespace Keysharp.Internals.Input.Linux
 			if (sender == null)
 				return;
 
-			if (KeysharpInputdManager.TryGetKeyState(out var physMods, out var capsOn, out var numOn, out var scrollOn))
+			if (KeysharpInputdManager.TryGetKeyState(out var logicalMods, out var capsOn, out var numOn, out var scrollOn))
 			{
-				// inputd returns only physical key state. Preserve any logical-only bits
-				// (synthetic modifiers that were explicitly placed by the caller and not
-				// yet released) by keeping bits that are in logical but not physical only
-				// if they're also in the current event-mode modifier set. In practice,
-				// after a bypass-hook batch, all transient synthetic modifiers should have
-				// been released by SetModifierLRState before the batch finished, so the
-				// physical state IS the correct post-Send state.
-				sender.modifiersLRLogical = physMods;
-				sender.modifiersLRLogicalNonIgnored = physMods;
+				sender.modifiersLRLogical = logicalMods;
+				sender.modifiersLRLogicalNonIgnored = logicalMods;
 
 				// Refresh the indicator snapshot while we have fresh data.
 				if (ht is Keysharp.Internals.Input.Hooks.Unix.UnixHookThread uht)
@@ -245,8 +245,8 @@ namespace Keysharp.Internals.Input.Linux
 		{
 			var script = Script.TheScript;
 
-			// IsKeyToggledOn now always queries live (X11 → inputd → snapshot fallback),
-			// so startingState is always the compositor's actual current state.
+			// Outside the hook reader, IsKeyToggledOn queries the resolved Platform.Keyboard
+			// service first (X11 or inputd), with the hook snapshot only as a fallback.
 			var startingState = script.HookThread.IsKeyToggledOn(vk) ? ToggleValueType.On : ToggleValueType.Off;
 
 			if (toggleValue != ToggleValueType.On && toggleValue != ToggleValueType.Off)
@@ -256,7 +256,7 @@ namespace Keysharp.Internals.Input.Linux
 				return startingState;
 
 			// Release if held (prevents the toggle being swallowed by the OS).
-			if (script.HookThread.IsKeyDown(vk))
+			if (script.HookThread.IsKeyDownLogical(vk))
 				SendKeyEvent(KeyEventTypes.KeyUp, vk);
 
 			SendKeyEvent(KeyEventTypes.KeyDownAndUp, vk);

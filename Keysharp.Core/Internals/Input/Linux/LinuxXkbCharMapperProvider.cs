@@ -30,6 +30,7 @@ namespace Keysharp.Internals.Input.Unix
 
 		private readonly Dictionary<uint, (uint vk, bool s, bool g)> cache = new(256);
 		private readonly Dictionary<uint, List<uint>> vkToKeycodesCache = new(128);
+		private readonly Dictionary<uint, uint> keycodeToVkCache = new(128);
 
 		// Pending dead-key composition for TranslateKeyWithDeadKeys: the combining mark used for
 		// NFC composition with the following base character, plus the spacing form emitted when the
@@ -136,7 +137,7 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			rune = default;
 
-			if (!TryMapVkToKeycode(vk, out var keycode, false))
+			if (!TryMapVkToXKeycode(vk, out var keycode, false))
 				return false;
 
 			if (!TryGetReadyKeymap(out var currentKeymap))
@@ -261,7 +262,7 @@ namespace Keysharp.Internals.Input.Unix
 		{
 			keysym = 0;
 
-			if (!TryMapVkToKeycode(vk, out var keycode, false))
+			if (!TryMapVkToXKeycode(vk, out var keycode, false))
 				return false;
 
 			if (!TryGetReadyKeymap(out var currentKeymap))
@@ -327,7 +328,27 @@ namespace Keysharp.Internals.Input.Unix
 			return true;
 		}
 
-		private bool TryMapVkToKeycode(uint vk, out uint keycode, bool returnSecondary)
+		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+		{
+			vk = 0;
+
+			if (keycode == 0 || !TryGetReadyKeymap(out _))
+				return false;
+
+			if (keycodeToVkCache.TryGetValue(keycode, out vk))
+				return vk != 0;
+
+			if (TryGetNamedVk(keycode, out vk))
+			{
+				keycodeToVkCache[keycode] = vk;
+				return true;
+			}
+
+			keycodeToVkCache[keycode] = 0;
+			return false;
+		}
+
+		public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
 		{
 			keycode = 0;
 

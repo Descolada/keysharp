@@ -89,6 +89,21 @@ namespace Keysharp.Internals.Input.Keyboard
 			return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
 		}
 
+#if LINUX
+		internal static bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+		{
+			EnsureProvider();
+			vk = 0;
+			return provider != null && provider.TryMapXKeycodeToVk(keycode, out vk);
+		}
+
+		internal static bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary = false)
+		{
+			EnsureProvider();
+			keycode = 0;
+			return provider != null && provider.TryMapVkToXKeycode(vk, out keycode, returnSecondary);
+		}
+#endif
 
 #if OSX
 		internal static bool TryMapMacCodeToVk(uint keycode, out uint vk)
@@ -164,6 +179,11 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		nint GetCurrentKeymapHandle();
 
+#if LINUX
+		bool TryMapXKeycodeToVk(uint keycode, out uint vk);
+		bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
+#endif
+
 #if OSX
 		bool TryMapMacKeyCodeToVk(uint keycode, out uint vk);
 		bool TryMapVkToMacKeyCode(uint vk, out uint keycode);
@@ -194,6 +214,20 @@ namespace Keysharp.Internals.Input.Keyboard
 		}
 
 		public nint GetCurrentKeymapHandle() => nint.Zero;
+
+#if LINUX
+		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)
+		{
+			vk = 0;
+			return false;
+		}
+
+		public bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary)
+		{
+			keycode = 0;
+			return false;
+		}
+#endif
 
 #if OSX
 		public bool TryMapMacKeyCodeToVk(uint keycode, out uint vk)

@@ -18,6 +18,8 @@
 #define KSI_SYNTH_ABS_DEVICE_PRODUCT 0x0002u
 #define KSI_XBUTTON1 0x0001u
 #define KSI_XBUTTON2 0x0002u
+#define KSI_KEY_STATE_BITMAP_BITS 768u
+#define KSI_KEY_STATE_BITMAP_BYTES (KSI_KEY_STATE_BITMAP_BITS / 8u)
 
 typedef enum ksi_message_type {
     KSI_MESSAGE_CLIENT_HELLO = 1,
@@ -35,16 +37,17 @@ typedef enum ksi_message_type {
     KSI_MESSAGE_INDICATOR_STATE_RESULT = 41,
     KSI_MESSAGE_GET_POINTER_POSITION   = 42,
     KSI_MESSAGE_POINTER_POSITION_RESULT = 43,
-    /* Physical key state snapshot: KSI_CAP_HOOK_KEYBOARD required.
+    /* Logical key state snapshot: KSI_CAP_HOOK_KEYBOARD required.
      * GET_KEY_STATE has no payload. KEY_STATE_RESULT carries a
-     * ksi_key_state_payload with the aggregate modifier + indicator state
-     * across all currently grabbed keyboard devices. */
+     * ksi_key_state_payload with aggregate modifier + indicator state and
+     * an evdev KEY_* bitmap across real keyboards plus Keysharp's synthetic
+     * uinput key state. */
     KSI_MESSAGE_GET_KEY_STATE          = 44,
     KSI_MESSAGE_KEY_STATE_RESULT       = 45,
-    /* Physical mouse-button snapshot: KSI_CAP_HOOK_MOUSE required. GET_POINTER_BUTTONS has no
-     * payload. POINTER_BUTTONS_RESULT carries a ksi_pointer_buttons_payload read via EVIOCGKEY
-     * across pointer devices (no grab needed), so GetKeyState(.., "P") on a mouse button works
-     * when no mouse hook is installed. */
+    /* Mouse-button state snapshot: KSI_CAP_HOOK_MOUSE required. GET_POINTER_BUTTONS has no
+     * payload. POINTER_BUTTONS_RESULT carries a ksi_pointer_buttons_payload. The first
+     * buttons field is kept as the physical mask for compatibility with older clients;
+     * newer clients read the appended logical_buttons and physical_buttons masks. */
     KSI_MESSAGE_GET_POINTER_BUTTONS    = 46,
     KSI_MESSAGE_POINTER_BUTTONS_RESULT = 47,
     /* Trust-store administration scoped to input capabilities.
@@ -74,20 +77,26 @@ typedef struct ksi_indicator_state_payload {
 
 /* Payload for KSI_MESSAGE_KEY_STATE_RESULT.
  *
- * modifiers_lr: bitmask of currently physically-held modifier keys,
+ * modifiers_lr: bitmask of currently logically-held modifier keys,
  *   using the same bit assignments as Keysharp's internal modLR flags:
  *     bit 0 = MOD_LCONTROL, bit 1 = MOD_RCONTROL,
  *     bit 2 = MOD_LALT,     bit 3 = MOD_RALT,
  *     bit 4 = MOD_LSHIFT,   bit 5 = MOD_RSHIFT,
  *     bit 6 = MOD_LWIN,     bit 7 = MOD_RWIN.
  * caps_lock, num_lock, scroll_lock: current LED/toggle state (same as
- *   ksi_indicator_state_payload). */
+ *   ksi_indicator_state_payload).
+ * logical_keys: evdev KEY_* bitmap, one bit per key code. Appended after the
+ *   original 8-byte payload prefix so older clients remain compatible.
+ * physical_keys: evdev KEY_* bitmap of physically-held keys, appended after
+ *   logical_keys so clients that know only the logical extension remain compatible. */
 typedef struct ksi_key_state_payload {
     uint32_t modifiers_lr;
     uint8_t  caps_lock;
     uint8_t  num_lock;
     uint8_t  scroll_lock;
     uint8_t  reserved;
+    uint8_t  logical_keys[KSI_KEY_STATE_BITMAP_BYTES];
+    uint8_t  physical_keys[KSI_KEY_STATE_BITMAP_BYTES];
 } ksi_key_state_payload;
 
 /* Raw absolute axis values from the last evdev ABS_X/ABS_Y pointer report. */
@@ -102,12 +111,16 @@ typedef struct ksi_pointer_position_payload {
     int32_t y_max;
 } ksi_pointer_position_payload;
 
-/* Payload for KSI_MESSAGE_POINTER_BUTTONS_RESULT. Snapshot of physically-held mouse buttons
- * (EVIOCGKEY across pointer devices — needs no grab). valid==0 means no readable pointer device. */
+/* Payload for KSI_MESSAGE_POINTER_BUTTONS_RESULT. Snapshot of mouse button state.
+ * valid==0 means no readable pointer device. buttons is the physical mask kept for
+ * compatibility with older clients. logical_buttons includes synthetic state;
+ * physical_buttons is EVIOCGKEY across pointer devices. */
 typedef struct ksi_pointer_buttons_payload {
     uint8_t  valid;
     uint8_t  reserved[3];
-    uint32_t buttons;   /* bit0=left, bit1=right, bit2=middle, bit3=X1(side), bit4=X2(extra) */
+    uint32_t buttons;          /* legacy physical mask */
+    uint32_t logical_buttons;  /* bit0=left, bit1=right, bit2=middle, bit3=X1(side), bit4=X2(extra) */
+    uint32_t physical_buttons; /* same bit layout */
 } ksi_pointer_buttons_payload;
 
 typedef enum ksi_client_capability {

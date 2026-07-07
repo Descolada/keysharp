@@ -31,6 +31,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		[System.ThreadStatic]
 		internal static bool IsHookReaderThread;
 
+		private string lastHookActivationFailure;
+
 #if LINUX
 		private KeysharpInputdClient inputdKeyboardHookClient;
 		private KeysharpInputdClient inputdMouseHookClient;
@@ -132,66 +134,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		private uint activeHotkeyVk;
 		private uint activeHotkeyKc;
 		private bool activeHotkeyDown;
-		protected readonly byte[] logicalKeyState = new byte[VK_ARRAY_COUNT];
 		internal uint ActiveHotkeyVk => activeHotkeyVk;
 		internal uint ActiveHotkeyKc => activeHotkeyKc;
 		internal bool SendInProgress => sendInProgress;
 		internal bool IsHotkeySuffixDown(uint vk) => activeHotkeyDown && activeHotkeyVk == vk;
 		private readonly Dictionary<uint, int> suppressedHotkeyReleases = new();
-		private char lastTypedChar;
 		private uint lastKeyboardEventVk;
 		private bool lastHookEventWasKeyboard;
-
-		// Hotstring press-time trigger helpers
-		private ulong lastTypedExtraInfo = (ulong)(SendLevelMax + 1); // tracks last KeyTyped extra info for InputLevel checks
-
-		private static CaseConformModes ComputeCaseMode(HotstringDefinition hs, List<char> buf)
-		{
-			if (!hs.conformToCase || buf.Count == 0)
-				return CaseConformModes.None;
-
-			var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(buf);
-			int end = span.Length - (hs.endCharRequired ? 1 : 0);
-			if (end <= 0)
-				return CaseConformModes.None;
-
-			int start = Math.Max(0, end - hs.str.Length);
-			int cap = 0, up = 0;
-
-			for (int i = start; i < end; i++)
-			{
-				char c = span[i];
-				if (char.IsLetter(c)) { cap++; if (char.IsUpper(c)) up++; }
-			}
-
-			if (cap == 0)
-				return CaseConformModes.None;
-
-			if (up == cap)
-				return CaseConformModes.AllCaps;
-			if (up == 0)
-				return CaseConformModes.None;
-			if (char.IsLetter(span[start]) && char.IsUpper(span[start]))
-				return CaseConformModes.FirstCap;
-
-			return CaseConformModes.None;
-		}
-
-		// Hotstring arming state
-		protected bool hsArmed;   // any end-keys are armed right now?
-
-		// Each armed end-key we grab. Modifier variants can be reconstructed from this metadata when needed.
-		protected readonly HashSet<ArmedEnd> hsArmedEnds = new();
-
-		protected struct ArmedEnd
-		{
-			public uint Keycode;             // X11 keycode we grabbed
-			public uint XModsBase;          // base X11 modifiers used for grab (without Lock/NumLock variants)
-			public uint Vk;                 // engine VK for that end key
-			public char EndChar;            // actual end character we will append to the hs buffer
-			public bool NeedShift;          // required to produce EndChar
-			public bool NeedAltGr;          // required to produce EndChar (ISO_Level3 / Mod5)
-		}
 
 		private enum LockKeyKind
 		{
@@ -237,7 +186,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			public bool AllowExtra;  // wildcard (*) hotkey: allow extra modifiers
 		}
 
-		protected virtual bool UsePlatformHotstringArming => false;
 		private bool sendInProgress;
 		private int sendDepth;
 		internal readonly struct SendScope : IDisposable
@@ -298,7 +246,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void ResetTrackedInputState(bool clearSyntheticQueue)
 		{
 			System.Array.Clear(physicalKeyState, 0, physicalKeyState.Length);
-			System.Array.Clear(logicalKeyState, 0, logicalKeyState.Length);
 
 			kbdMsSender.modifiersLRLogical = 0;
 			kbdMsSender.modifiersLRLogicalNonIgnored = 0;
@@ -355,24 +302,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (vk == 0)
 				return;
 
-						var sc = KeyCodes.MapVkToSc(vk);
+			var sc = KeyCodes.MapVkToSc(vk);
 			if (sc == 0)
 				sc = KeyCodes.MapVkToSc(vk);
 
-			var raw = new UioHookEvent
-			{
-				Type = EventType.KeyPressed,
-				Time = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-				Mask = EventMask.None,
-				Keyboard = new KeyboardEventData
-				{
-					VkCode = vk,
-					RawCode = (ushort)sc,
-					RawKeyChar = KeyboardEventData.RawUndefinedChar
-				}
-			};
-
-			var e = new KeyboardHookEventArgs(raw);
+			var e = new KeyboardHookEventArgs(EventType.KeyPressed, vk, sc);
 			OnKeyPressed(this, e);
 		}
 
@@ -427,7 +361,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					StopPlatformHookCore(dispose: true);
 				}
 
-				Ks.OutputDebugLine("Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.");
+				lastHookActivationFailure = "Linux hook disabled via KEYSHARP_DISABLE_HOOK=1.";
+				Ks.OutputDebugLine(lastHookActivationFailure);
 				return;
 			}
 
@@ -448,6 +383,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					mouseEnabled = false;
 					kbdHook = 0;
 					mouseHook = 0;
+					lastHookActivationFailure = null;
 
 					if (!changeIsTemporary)
 						StopPlatformHookCore(dispose: true);
@@ -482,11 +418,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 					kbdHook = wantKeyboard ? 1 : 0;
 					mouseHook = wantMouse ? 1 : 0;
 					usingInputdHooks = true;
+					lastHookActivationFailure = null;
 					EnsureInputdSender();
 					return;
 				}
 
-				Ks.OutputDebugLine($"keysharp-inputd hook unavailable; global hooks disabled. {inputdMessage}");
+				lastHookActivationFailure = $"keysharp-inputd hook unavailable; global hooks disabled. {inputdMessage}";
+				Ks.OutputDebugLine(lastHookActivationFailure);
 				WarnIfWaylandHookUnavailable();
 				usingInputdHooks = false;
 #endif
@@ -496,6 +434,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				mouseHook = 0;
 			}
 		}
+
+#if LINUX
+		internal override string GetHookActivationFailureReason() => lastHookActivationFailure ?? "";
+#endif
+
 		protected void StopPlatformHookCore(bool dispose)
 		{
 			if (!dispose)
@@ -1038,7 +981,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			// Mirror WindowsHookThread.LowLevelKeybdHandler: an event tagged KeyPhysIgnore must be
 			// treated as PHYSICAL for key/modifier state tracking even though it was injected. AHK uses
 			// this to mark a prefix key's synthetic release as physical (see HookThread.cs where
-			// KeyPhysIgnore is sent) so IsKeyDown/KeyWait and the physical modifier mask stay correct.
+			// KeyPhysIgnore is sent) so KeyWait/current-state queries and the physical modifier mask stay correct.
 			// It still won't fire hotkeys because IsIgnored(KeyPhysIgnore) is true in LowLevelCommon.
 			if (ev.ExtraInfo == (ulong)KeyboardMouseSender.KeyPhysIgnore)
 				isInjected = false;
@@ -1084,20 +1027,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (!isInjected)
 				Script.TheScript.timeLastInputPhysical = DateTime.UtcNow;
 
-			var raw = new UioHookEvent
-			{
-				Type = keyUp ? EventType.KeyReleased : EventType.KeyPressed,
-				Time = ev.TimeMs,
-				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
-				Keyboard = new KeyboardEventData
-				{
-					VkCode = vk,
-					RawCode = (ushort)sc,
-					RawKeyChar = KeyboardEventData.RawUndefinedChar
-				}
-			};
-
-			var args = new KeyboardHookEventArgs(raw);
+			var args = new KeyboardHookEventArgs(
+				keyUp ? EventType.KeyReleased : EventType.KeyPressed,
+				vk,
+				sc,
+				isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				ev.TimeMs);
 			var extraInfo = ev.ExtraInfo;
 
 			if (extraInfo == (ulong)KeyboardMouseSender.KeyBlockThis)
@@ -1397,21 +1332,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			if (vk == 0)
 				return false;
 
-			var raw = new UioHookEvent
-			{
-				Type = keyUp ? EventType.MouseReleased : EventType.MousePressed,
-				Time = ev.TimeMs,
-				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
-				Mouse = new MouseEventData
-				{
-					Button = KeyCodes.VkToMouseButton(vk),
-					Clicks = 1,
-					X = haveClickPos ? (short)clickPos.X : (short)ev.X,
-					Y = haveClickPos ? (short)clickPos.Y : (short)ev.Y
-				}
-			};
-
-			var args = new MouseHookEventArgs(raw);
+			var args = new MouseHookEventArgs(
+				keyUp ? EventType.MouseReleased : EventType.MousePressed,
+				KeyCodes.VkToMouseButton(vk),
+				haveClickPos ? clickPos.X : ev.X,
+				haveClickPos ? clickPos.Y : ev.Y,
+				isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				ev.TimeMs);
 			var result = LowLevelCommon(args, vk, 0, 0, keyUp, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, ev.DeviceId);
 			return result != 0;
 		}
@@ -1423,23 +1350,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				? (delta < 0 ? VK_WHEEL_DOWN : VK_WHEEL_UP)
 				: (delta < 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT);
 			var sc = (uint)delta;
-			var raw = new UioHookEvent
-			{
-				Type = EventType.MouseWheel,
-				Time = ev.TimeMs,
-				Mask = isInjected ? EventMask.SimulatedEvent : EventMask.None,
-				Wheel = new MouseWheelEventData
-				{
-					Type = MouseWheelScrollType.UnitScroll,
-					Rotation = delta,
-					Delta = 120,
-					Direction = vertical ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Horizontal,
-					X = (short)ev.X,
-					Y = (short)ev.Y
-				}
-			};
-
-			var args = new MouseWheelHookEventArgs(raw);
+			var args = new MouseWheelHookEventArgs(
+				delta,
+				vertical ? MouseWheelScrollDirection.Vertical : MouseWheelScrollDirection.Horizontal,
+				ev.X,
+				ev.Y,
+				isInjected ? EventMask.SimulatedEvent : EventMask.None,
+				ev.TimeMs);
 			var result = LowLevelCommon(args, vk, sc, sc, keyUp: false, ev.ExtraInfo, isInjected ? HOOK_EVENT_INJECTED : 0, deviceId: ev.DeviceId);
 			return result != 0;
 		}
@@ -1464,27 +1381,18 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void OnKeyPressed(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 
-			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.RawEvent.Keyboard.RawCode);
+			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.Data.RawCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
-			var sc = (uint)e.RawEvent.Keyboard.RawCode;
+			var sc = (uint)e.Data.RawCode;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, false, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
-			{
-				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
-				if (!isInjected)
-					OnPhysicalKeyDownSuppressed(vk);
-				e.SuppressEvent = true;
-				return;
-			}
-
-			if (ShouldConsumePlatformHotstringKeyDown(vk))
 			{
 				UpdateObservedPhysicalKeyState(vk, keyUp: false, isInjected);
 				if (!isInjected)
@@ -1513,29 +1421,20 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void OnKeyReleased(object sender, KeyboardHookEventArgs e)
 		{
 			if (!keyboardEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 
-			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.RawEvent.Keyboard.RawCode);
+			var vk = e.Data.VkCode != 0 ? e.Data.VkCode : KeyCodes.MapScToVk(e.Data.RawCode);
 			if (vk == 0) return;
 
 			lastHookEventWasKeyboard = true;
 			lastKeyboardEventVk = vk;
-			var sc = (uint)e.RawEvent.Keyboard.RawCode;
+			var sc = (uint)e.Data.RawCode;
 			var isInjected = MarkSimulatedIfNeeded(e, vk, true, out ulong extraInfo);
 			extraInfo = ComputeExtraInfo(extraInfo, isInjected || e.IsEventSimulated);
 
 			if (ShouldSuppressForBlockInput(isInjected))
 			{
 				UpdateObservedPhysicalKeyState(vk, keyUp: true, isInjected);
-				ClearLogicalKeyIfNeeded(vk, isInjected);
-				e.SuppressEvent = true;
-				return;
-			}
-
-			if (ShouldConsumePlatformHotstringKeyUp(vk, isInjected))
-			{
-				UpdateObservedPhysicalKeyState(vk, keyUp: true, isInjected);
-				ClearLogicalKeyIfNeeded(vk, isInjected);
 				e.SuppressEvent = true;
 				return;
 			}
@@ -1570,8 +1469,8 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				// send in progress: fall through to physical snapshot
 			}
 
-			// With no hook, fall back to logical query via X11.
-			if (TryQueryModifierLRState(out var logicalMods))
+			// With no hook, fall back to the resolved platform keyboard state service.
+			if (Platform.Keyboard.TryQueryModifierLRState(out var logicalMods))
 				return logicalMods;
 
 			// Last resort: use physical snapshot.
@@ -1587,84 +1486,10 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return mods;
 		}
 
-		internal bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
-		{
-			return TryQueryModifierLRStatePlatform(out mods, keymapBuffer);
-		}
-
-		protected virtual bool TryQueryModifierLRStatePlatform(out uint mods, byte[] keymapBuffer = null)
-		{
-			mods = 0u;
-			return false;
-		}
-
-		private bool TryQueryKeyState(uint vk, out bool isDown)
-		{
-			return TryQueryKeyStatePlatform(vk, out isDown);
-		}
-
-		protected virtual bool TryQueryKeyStatePlatform(uint vk, out bool isDown)
-		{
-			isDown = false;
-			return false;
-		}
-
-		protected virtual bool ShouldConsumePlatformHotstringKeyDown(uint vk) => false;
-
-		protected virtual bool ShouldConsumePlatformHotstringKeyUp(uint vk, bool isInjected) => false;
-
-		protected virtual void TrackPlatformHotstringTrigger(uint triggerVk)
-		{
-		}
-
-		protected virtual void AddPlatformHotstringArmEnds(HotstringManager hm, ReadOnlySpan<char> hsBuf, HashSet<char> ends)
-		{
-		}
-
-		private static uint VkToModMask(uint vk) => vk switch
-		{
-			VK_LSHIFT => MOD_LSHIFT,
-			VK_RSHIFT => MOD_RSHIFT,
-			VK_LCONTROL => MOD_LCONTROL,
-			VK_RCONTROL => MOD_RCONTROL,
-			VK_LMENU => MOD_LALT,
-			VK_RMENU => MOD_RALT,
-			VK_LWIN => MOD_LWIN,
-			VK_RWIN => MOD_RWIN,
-			_ => 0u
-		};
-
-		// Gets the logical state of all keys as a byte array (like GetKeyboardState on Windows).
-		internal bool TryGetKeyboardState(out byte[] state)
-		{
-			state = new byte[VK_ARRAY_COUNT];
-			var success = false;
-
-			if (HasKbdHook())
-			{
-				System.Buffer.BlockCopy(logicalKeyState, 0, state, 0, Math.Min(logicalKeyState.Length, state.Length));
-				success = true;
-			}
-			else if (TryQueryModifierLRState(out var mods))
-			{
-				if ((mods & MOD_LSHIFT) != 0 && VK_LSHIFT < state.Length) state[VK_LSHIFT] = StateDown;
-				if ((mods & MOD_RSHIFT) != 0 && VK_RSHIFT < state.Length) state[VK_RSHIFT] = StateDown;
-				if ((mods & MOD_LCONTROL) != 0 && VK_LCONTROL < state.Length) state[VK_LCONTROL] = StateDown;
-				if ((mods & MOD_RCONTROL) != 0 && VK_RCONTROL < state.Length) state[VK_RCONTROL] = StateDown;
-				if ((mods & MOD_LALT) != 0 && VK_LMENU < state.Length) state[VK_LMENU] = StateDown;
-				if ((mods & MOD_RALT) != 0 && VK_RMENU < state.Length) state[VK_RMENU] = StateDown;
-				if ((mods & MOD_LWIN) != 0 && VK_LWIN < state.Length) state[VK_LWIN] = StateDown;
-				if ((mods & MOD_RWIN) != 0 && VK_RWIN < state.Length) state[VK_RWIN] = StateDown;
-				success = true;
-			}
-
-			return success;
-		}
-
 		protected void OnMouseWheel(object sender, MouseWheelHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 			if (!e.IsEventSimulated)
 			{
 				var script = Script.TheScript;
@@ -1712,7 +1537,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void OnMouseMoved(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 
 			lastHookEventWasKeyboard = false;
 			var suppress = false;
@@ -1766,7 +1591,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void OnMousePressed(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 			if (!e.IsEventSimulated)
 			{
 				var script = Script.TheScript;
@@ -1793,7 +1618,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected void OnMouseReleased(object sender, MouseHookEventArgs e)
 		{
 			if (!mouseEnabled) return;
-			UpdateIndicatorSnapshotFromMask(e.RawEvent.Mask);
+			UpdateIndicatorSnapshotFromMask(e.Mask);
 			if (!e.IsEventSimulated)
 			{
 				var script = Script.TheScript;
@@ -1834,14 +1659,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return e.Data.Rotation > 0 ? VK_WHEEL_LEFT : VK_WHEEL_RIGHT;
 		}
 
-		private static readonly FieldInfo rawEventField = typeof(HookEventArgs).GetField("<RawEvent>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
-
-		protected static void SetRawEvent(HookEventArgs e, UioHookEvent raw)
-		{
-			rawEventField?.SetValue(e, raw);
-		}
-
-
 		private void SuppressHotkeyRelease(uint vk)
 		{
 			if (vk == 0) return;
@@ -1869,7 +1686,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 		protected virtual bool MarkSimulatedIfNeeded(HookEventArgs e, uint vk, bool keyUp, out ulong extraInfo)
 		{
 			extraInfo = 0;
-			return (e.RawEvent.Mask & EventMask.SimulatedEvent) != 0;
+			return e.IsEventSimulated;
 		}
 
 		private ulong ComputeExtraInfo(ulong extraInfo, bool isSimulated)
@@ -1892,124 +1709,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return info >= KeyIgnoreMin() && info <= KeyIgnoreMax;
 		}
 
-
-		internal void DisarmHotstring()
-		{
-			if (!hsArmed)
-				return;
-
-			lock (hkLock)
-			{
-				DisarmHotstringPlatform();
-
-				hsArmedEnds.Clear();
-				hsArmed = false;
-			}
-		}
-
-		protected virtual void DisarmHotstringPlatform()
-		{
-		}
-
-		// Arm a set of end characters (all that would complete a match NOW)
-		private void ArmHotstringForEnds(HashSet<char> endsToArm)
-		{
-			DisarmHotstring();
-			if (endsToArm.Count == 0)
-				return;
-
-			lock (hkLock)
-			{
-				hsArmed = ArmHotstringForEndsPlatform(endsToArm);
-			}
-		}
-
-		protected virtual bool ArmHotstringForEndsPlatform(HashSet<char> endsToArm) => false;
-
-		// After we mutate the hs buffer, call this to (re)compute arming
-		private void RecomputeHotstringArming()
-		{
-			var script = Script.TheScript;
-			var hm = script.HotstringManager;
-
-			// 1) If a full match exists already (e.g., non-terminating HS), trigger immediately.
-			var ready = hm.MatchHotstring();
-			if (ready != null)
-			{
-				char? evtChar = ' ';
-				if (!KeyboardMouseSender.HotInputLevelAllowsFiring(ready.inputLevel, lastTypedExtraInfo, ref evtChar))
-				{
-					DisarmHotstring();
-					return;
-				}
-
-				// Determine case + end char like Windows (same code you already use below)
-				var caseMode = ComputeCaseMode(ready, hm.hsBuf);
-
-				char endChar = '\0';
-				var sspan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(hm.hsBuf);
-				if (ready.endCharRequired)
-				{
-					if (sspan.Length > 0)
-						endChar = sspan[^1];
-					else
-						endChar = lastTypedChar;
-				}
-
-				var triggerVk = lastHookEventWasKeyboard ? lastKeyboardEventVk : 0;
-				var finalCharSuppressed = ready.doBackspace || ready.omitEndChar && ready.endCharRequired;
-				var skipChars = ready.ComputeReplacementSkipChars(sspan, finalCharSuppressed, ref caseMode);
-
-				if (triggerVk != 0)
-					TrackPlatformHotstringTrigger(triggerVk);
-
-				_ = PostMessage(new KeysharpMsg
-				{
-					message = (uint)UserMessages.AHK_HOTSTRING,
-					obj = new HotstringMsg
-					{
-						hs = ready,
-						caseMode = caseMode,
-						endChar = endChar,
-						skipChars = skipChars,
-						triggerVk = triggerVk,
-						recheckCriterionOnReceipt = HotkeyDefinition.HotCriterionRequiresReceiptReevaluation(ready.hotCriterion)
-					}
-				});
-				ClearHotstringBuffer();
-
-				DisarmHotstring();
-				return;
-			}
-
-			// 2) Predict: append each possible completion char.
-			// Shared Unix logic arms end-chars; platforms can add extra completion keys if needed.
-			var ends = new HashSet<char>();
-			var hsBufSpan = (ReadOnlySpan<char>)System.Runtime.InteropServices.CollectionsMarshal.AsSpan(hm.hsBuf);
-
-			// Prefer managerâ€™s configured defaults; fall back to a sensible superset if needed.
-			var def = hm.defEndChars ?? string.Empty;
-			foreach (var c in def)
-			{
-				hm.hsBuf.Add(c);
-				var m = hm.MatchHotstring();
-				hm.hsBuf.RemoveAt(hm.hsBuf.Count - 1);
-					if (m != null)
-						ends.Add(c);
-				}
-
-			AddPlatformHotstringArmEnds(hm, hsBufSpan, ends);
-
-			// If manager had no defaults or nothing matched, you can optionally include extra common terminators:
-			// foreach (var c in " \t\r\n.,;:!?-") { ... }  // (uncomment if you want a bit more aggressive prediction)
-
-			// Arm (or disarm) accordingly
-			if (ends.Count > 0) ArmHotstringForEnds(ends);
-			else DisarmHotstring();
-
-		}
-
-
 		private static bool IsModifierKey(uint vk) => vk is
 			VK_SHIFT or VK_LSHIFT or VK_RSHIFT or
 			VK_CONTROL or VK_LCONTROL or VK_RCONTROL or
@@ -2024,22 +1723,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			physicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
 		}
 
-		private void ClearLogicalKeyIfNeeded(uint vk, bool isInjected)
-		{
-			if (isInjected || IsModifierKey(vk) || vk == 0 || vk >= logicalKeyState.Length)
-				return;
-
-			logicalKeyState[vk] = 0;
-		}
-
-		internal void SetLogicalStateFromSyntheticSend(uint vk, bool isDown)
-		{
-			if (vk == 0 || vk >= logicalKeyState.Length)
-				return;
-
-			logicalKeyState[vk] = (byte)(isDown ? StateDown : 0);
-		}
-
 		private void ApplyKeyStateAfterKeyboardDecision(uint vk, bool keyUp, bool isInjected, nint result)
 		{
 			if (vk == 0 || IsModifierKey(vk))
@@ -2052,30 +1735,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 				OnPlatformPhysicalKeyUpObserved(vk);
 
 			UpdateObservedPhysicalKeyState(vk, keyUp, isInjected);
-
-			if (!isInjected)
-			{
-				// Physical (user-pressed) events: always update logicalKeyState to reflect
-				// the real key state. This makes KeyWait and IsKeyDown work correctly even
-				// for suppressed prefix keys (e.g. CapsLock & a:: suppresses CapsLock-down
-				// but the script still needs KeyWait("CapsLock") to see it as held).
-				if (vk < logicalKeyState.Length)
-					logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
-				return;
-			}
-
-			// Injected events: track only when delivered to the app so that a suppressed
-			// synthetic key-down doesn't falsely report the key as logically held.
-			if (result == 0)
-			{
-				if (vk < logicalKeyState.Length)
-					logicalKeyState[vk] = (byte)(keyUp ? 0 : StateDown);
-				return;
-			}
-
-			// Force logical up on any consumed injected key-up to avoid stale down-state.
-			if (keyUp && vk < logicalKeyState.Length)
-				logicalKeyState[vk] = 0;
 		}
 
 		protected virtual void OnPlatformPhysicalKeyUpObserved(uint vk)
@@ -2091,40 +1750,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 
 		protected virtual void OnPlatformKeyUpObserved(uint vk, bool isInjected)
 		{
-		}
-
-		// Map a candidate end character to VK + required modifiers (layout-aware)
-		protected bool MapEndCharToVkAndNeeds(char endChar, out uint vk, out bool needShift, out bool needAltGr)
-		{
-			vk = 0; needShift = needAltGr = false;
-
-			switch (endChar)
-			{
-				case ' ': vk = VK_SPACE; return true;
-				case '\t': vk = VK_TAB; return true;
-				case '\r':
-				case '\n': vk = VK_RETURN; return true;
-			}
-
-			// Use the same mapper you use for Send (handles punctuation layout properly)
-			if (System.Text.Rune.TryGetRuneAt(endChar.ToString(), 0, out var rune)
-				&& KeyCodes.TryMapRuneToKeystroke(rune, out var mappedVk, out var s, out var g))
-			{
-				vk = mappedVk; needShift = s; needAltGr = g;
-				return vk != 0;
-			}
-			return false;
-		}
-
-		private IndicatorSnapshot RefreshIndicatorSnapshot()
-		{
-			if (TryGetIndicatorStates(out var capsOn, out var numOn, out var scrollOn))
-			{
-				indicatorSnapshot = new IndicatorSnapshot(capsOn, numOn, scrollOn);
-				return indicatorSnapshot;
-			}
-
-			return indicatorSnapshot;
 		}
 
 		// -------------------- basic matcher â†’ AHK_HOOK_HOTKEY --------------------
@@ -2143,227 +1768,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return false;
 		}
 
-		internal void ResetActiveHotkeyState()
-		{
-			activeHotkeyDown = false;
-			activeHotkeyVk = 0;
-			activeHotkeyKc = 0;
-			lock (suppressedHotkeyReleases)
-				suppressedHotkeyReleases.Clear();
-		}
-
-		private bool IsLogicallyDownPhysicallyUp(uint vk)
-		{
-			if (vk == 0) return false;
-
-			if (vk >= physicalKeyState.Length || (physicalKeyState[vk] & StateDown) != 0)
-				return false;
-
-			if (vk < logicalKeyState.Length && (logicalKeyState[vk] & StateDown) != 0)
-				return true;
-
-			return false;
-		}
-
-		private void PostHotkey(uint hotkeyId, uint sc /* typically 0 on Linux */, long eventLevel)
-		{
-			var extraInfo = (ulong)KeyboardMouseSender.KeyIgnoreLevel(eventLevel);
-			var lParam = new nint(KeyboardUtils.MakeLong((short)sc, (short)eventLevel));
-
-			if (!TryBuildHookHotkeyMessage(hotkeyId, extraInfo, null, null, out var hotkeyMsg))
-				return;
-
-			_ = PostMessage(new KeysharpMsg
-			{
-				message = (uint)UserMessages.AHK_HOOK_HOTKEY,
-				wParam = new nint(hotkeyId),
-				lParam = lParam,
-				obj = hotkeyMsg
-			});
-		}
-
-		private uint GetCurrentModifiersLRExcludingSuffix(uint suffixVk)
-		{
-			uint mods = 0;
-
-			// Consider *physical* state at the time of event.
-			for (uint vk = 0; vk < VK_ARRAY_COUNT; vk++)
-			{
-				if (vk == suffixVk) continue; // a suffix doesn't modify itself (Windows does similar) :contentReference[oaicite:17]{index=17}
-				if (vk >= physicalKeyState.Length) break;
-				if ((physicalKeyState[vk] & StateDown) == 0) continue;
-
-				switch (vk)
-				{
-					case VK_LSHIFT: mods |= MOD_LSHIFT; break;
-					case VK_RSHIFT: mods |= MOD_RSHIFT; break;
-					case VK_LCONTROL: mods |= MOD_LCONTROL; break;
-					case VK_RCONTROL: mods |= MOD_RCONTROL; break;
-					case VK_LMENU: mods |= MOD_LALT; break;
-					case VK_RMENU: mods |= MOD_RALT; break;
-					case VK_LWIN: mods |= MOD_LWIN; break;
-					case VK_RWIN: mods |= MOD_RWIN; break;
-				}
-			}
-			return mods;
-		}
-
 		// -------------------- utilities & abstract impls --------------------
 
-		/// <summary>
-		/// Determine whether the given virtual key is currently logically down.
-		/// </summary>
-		/// <param name="vk"></param>
-		internal override bool IsKeyDown(uint vk)
-		{
-			// Mouse button physicalKeyState is only tracked
-			// while a mouse hook is installed. Query the live physical button state instead (X11 XQueryPointer /
-			// Wayland via inputd / macOS CGEventSourceButtonState). This is what lets GetKeyState("LButton") and
-			// GetKeyState("LButton","P")-without-a-mouse-hook work in a keyboard-only script (e.g. a click-drag
-			// poll loop). When a mouse hook IS active the pointer device is grabbed (X/live query is blind to it),
-			// so prefer the hook's tracked state in that case.
-			if (MouseUtils.IsMouseVK(vk))
-			{
-				if (HasMouseHook() && vk < physicalKeyState.Length)
-					return (physicalKeyState[vk] & StateDown) != 0;
-
-				if (Keysharp.Internals.Platform.Mouse.TryGetPhysicalMouseButtonState(vk, out var mouseDown))
-					return mouseDown;
-
-				return false;
-			}
-
-			if (HasKbdHook())
-			{
-				var modMask = vk switch
-				{
-					VK_LCONTROL => MOD_LCONTROL,
-					VK_RCONTROL => MOD_RCONTROL,
-					VK_CONTROL => MOD_LCONTROL | MOD_RCONTROL,
-					VK_LSHIFT => MOD_LSHIFT,
-					VK_RSHIFT => MOD_RSHIFT,
-					VK_SHIFT => MOD_LSHIFT | MOD_RSHIFT,
-					VK_LMENU => MOD_LALT,
-					VK_RMENU => MOD_RALT,
-					VK_MENU => MOD_LALT | MOD_RALT,
-					VK_LWIN => MOD_LWIN,
-					VK_RWIN => MOD_RWIN,
-					_ => 0u
-				};
-
-				if (modMask != 0)
-					return (kbdMsSender.modifiersLRLogical & modMask) != 0;
-
-				if (vk < logicalKeyState.Length)
-					return (logicalKeyState[vk] & StateDown) != 0;
-			}
-
-			// Fallback: query X11 logical state for any key.
-			if (TryQueryKeyState(vk, out var isDown))
-				return isDown;
-
-			return false;
-		}
-		internal override bool IsKeyDownAsync(uint vk)
-		{
-			// Mouse buttons: physicalKeyState[VK_*BUTTON] is only tracked while a mouse hook is active, so with
-			// no hook query the live physical state (X11 XQueryPointer / Wayland inputd / macOS). Mirrors the
-			// GetAsyncKeyState answer the OS gives regardless of any hook.
-			if (MouseUtils.IsMouseVK(vk))
-			{
-				if (HasMouseHook() && vk < physicalKeyState.Length)
-					return (physicalKeyState[vk] & StateDown) != 0;
-
-				if (Keysharp.Internals.Platform.Mouse.TryGetPhysicalMouseButtonState(vk, out var mouseDown))
-					return mouseDown;
-
-				return false;
-			}
-
-			// Mirror Windows' GetAsyncKeyState: report OS-level key state.
-			//
-			// On the inputd path every key event — physical (evdev) and synthetic
-			// (uinput, re-injected through the hook) — flows through UpdateKeybdState,
-			// so modifiersLRLogical is always the complete, authoritative modifier state.
-			// Querying X11/XWayland is wrong here: the evdev grab makes X11 blind to
-			// physical key events, so it returns false for held modifiers and causes
-			// GetModifierLRState's "wrongly down" correction to wipe valid state.
-			// This manifests as ^p::, !a::, <#LAlt::, etc. never firing.
-			//
-			// Note: a future improvement could query inputd for a live snapshot so that
-			// modifiers stuck across a temporary Send-ungrab window are also corrected.
-			// For now the tiny race window is an accepted trade-off.
-#if LINUX
-			if (UsingInputdHooks)
-			{
-				var modMask = vk switch
-				{
-					VK_LCONTROL => MOD_LCONTROL,
-					VK_RCONTROL => MOD_RCONTROL,
-					VK_CONTROL  => MOD_LCONTROL | MOD_RCONTROL,
-					VK_LSHIFT   => MOD_LSHIFT,
-					VK_RSHIFT   => MOD_RSHIFT,
-					VK_SHIFT    => MOD_LSHIFT | MOD_RSHIFT,
-					VK_LMENU    => MOD_LALT,
-					VK_RMENU    => MOD_RALT,
-					VK_MENU     => MOD_LALT | MOD_RALT,
-					VK_LWIN     => MOD_LWIN,
-					VK_RWIN     => MOD_RWIN,
-					_           => 0u
-				};
-
-				if (modMask != 0)
-					return (kbdMsSender.modifiersLRLogical & modMask) != 0;
-
-				// Non-modifier: physical snapshot (injected keys are not tracked here,
-				// which is correct — callers like KeyWait want the physical state).
-				if (vk < physicalKeyState.Length)
-					return (physicalKeyState[vk] & StateDown) != 0;
-
-				return false;
-			}
-#endif
-
-			// Fallback to the hook-tracked snapshot when no live backend query is available.
-			// The hook's modifiersLRPhysical only tracks user-pressed keys, so using
-			// it alone would cause GetModifierLRState's "wrongly down" correction
-			// to wipe modifiersLRLogical bits set by a synth modifier press —
-			// for example, the Shift put down by ShiftAltTab would be cleared
-			// the next time any GetKeyState(..., "P") call runs.
-			if (TryQueryKeyState(vk, out var isDown))
-				return isDown;
-
-			// Wayland / no-X11 fallback: trust the hook's tracking.
-			if (HasKbdHook())
-			{
-				var modMask = vk switch
-				{
-					VK_LCONTROL => MOD_LCONTROL,
-					VK_RCONTROL => MOD_RCONTROL,
-					VK_CONTROL  => MOD_LCONTROL | MOD_RCONTROL,
-					VK_LSHIFT   => MOD_LSHIFT,
-					VK_RSHIFT   => MOD_RSHIFT,
-					VK_SHIFT    => MOD_LSHIFT | MOD_RSHIFT,
-					VK_LMENU    => MOD_LALT,
-					VK_RMENU    => MOD_RALT,
-					VK_MENU     => MOD_LALT | MOD_RALT,
-					VK_LWIN     => MOD_LWIN,
-					VK_RWIN     => MOD_RWIN,
-					_           => 0u
-				};
-
-				if (modMask != 0)
-					return (kbdMsSender.modifiersLRPhysical & modMask) != 0;
-
-				if (vk < physicalKeyState.Length)
-					return (physicalKeyState[vk] & StateDown) != 0;
-			}
-
-			return IsKeyDown(vk);
-		}
 		internal override bool IsKeyToggledOn(uint vk)
 		{
-			if (TryGetIndicatorStates(out var capsOn, out var numOn, out var scrollOn))
+			if (TryQueryIndicatorStates(out var capsOn, out var numOn, out var scrollOn))
 			{
 				return vk switch
 				{
@@ -2377,50 +1786,11 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return false;
 		}
 
-		// Route hotstring collection through platform arming logic when available (Linux/X11).
-		internal override bool CollectHotstring(ulong extraInfo, char[] ch, int charCount, nint activeWindow,
-												KeyHistoryItem keyHistoryCurr, ref HotstringDefinition hsOut, ref CaseConformModes caseConformMode, ref char endChar, ref int skipChars)
-		{
-			if (charCount <= 0 || ch.Length == 0)
-				return true;
-
-			if (KeyboardMouseSender.IsIgnored(extraInfo))
-				return true; // Ignore simulated/send input.
-
-			var hm = Script.TheScript.HotstringManager;
-			lastTypedExtraInfo = extraInfo;
-
-			var result = base.CollectHotstring(extraInfo, ch, charCount, activeWindow, keyHistoryCurr, ref hsOut, ref caseConformMode, ref endChar, ref skipChars);
-
-			// Keep Linux-side logging and arming in sync with the buffer maintained by the base collector.
-			if (charCount > 0)
-			{
-				var c = ch[0];
-				lastTypedChar = c;
-
-				if (UsePlatformHotstringArming)
-				{
-					if (hsOut != null)
-						DisarmHotstring();
-					else
-						RecomputeHotstringArming();
-				}
-			}
-
-			return result;
-		}
-
 		internal override void SendHotkeyMessages(bool keyUp, ulong extraInfo, KeyHistoryItem keyHistoryCurr, uint hotkeyIDToPost, HotkeyVariant variant, HotstringDefinition hs, CaseConformModes caseConformMode, char endChar, int skipChars = 0, object eventInfo = null)
 		{
-			if (UsePlatformHotstringArming && hs != null)
-				DisarmHotstring();
-
 			var vk = keyHistoryCurr.vk;
 			if (vk == 0 && lastHookEventWasKeyboard)
 				vk = lastKeyboardEventVk;
-
-			if (!keyUp && hs != null && vk != 0)
-				TrackPlatformHotstringTrigger(vk);
 
 			if (hotkeyIDToPost != HotkeyDefinition.HOTKEY_ID_INVALID)
 			{
@@ -2434,12 +1804,6 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			}
 
 			base.SendHotkeyMessages(keyUp, extraInfo, keyHistoryCurr, hotkeyIDToPost, variant, hs, caseConformMode, endChar, skipChars, eventInfo);
-		}
-
-		internal override void PrepareToSendHotstringReplacement(char endChar, uint triggerVk)
-		{
-			if (UsePlatformHotstringArming)
-				DisarmHotstring();
 		}
 
 		internal override uint SC_LCONTROL => KeyCodes.MapVkToSc(VK_LCONTROL);
@@ -2719,19 +2083,13 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return 0;
 		}
 
-		private void ClearHotstringBuffer()
-		{
-			var hm = Script.TheScript.HotstringManager;
-			hm.hsBuf.Clear();
-		}
-
 		internal void SetIndicatorSnapshot(bool capsOn, bool numOn, bool scrollOn)
 		{
 			indicatorSnapshot = new IndicatorSnapshot(capsOn, numOn, scrollOn);
 			indicatorSnapshotValid = true;
 		}
 
-		internal virtual bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
+		private bool TryGetIndicatorSnapshot(out bool capsOn, out bool numOn, out bool scrollOn)
 		{
 			if (indicatorSnapshotValid)
 			{
@@ -2745,6 +2103,29 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			numOn = false;
 			scrollOn = false;
 			return false;
+		}
+
+		private bool TryQueryIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
+		{
+			// Avoid live platform calls from the inputd hook reader: the daemon already placed the
+			// indicator state on the event, and a synchronous IPC query here can add hook latency.
+			if (IsHookReaderThread && TryGetIndicatorSnapshot(out capsOn, out numOn, out scrollOn))
+				return true;
+
+			if (Platform.Keyboard.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn))
+			{
+#if OSX
+				// macOS exposes CapsLock natively, but NumLock/ScrollLock are only known from hook snapshots.
+				if (TryGetIndicatorSnapshot(out _, out var snapNum, out var snapScroll))
+				{
+					numOn |= snapNum;
+					scrollOn |= snapScroll;
+				}
+#endif
+				return true;
+			}
+
+			return TryGetIndicatorSnapshot(out capsOn, out numOn, out scrollOn);
 		}
 
 	}

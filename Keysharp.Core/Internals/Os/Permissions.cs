@@ -158,31 +158,26 @@ namespace Keysharp.Internals.Os
 	{
 		public override PermissionResult RequestAccessibilityAutomation(bool? prompt = null, string operation = null)
 		{
-			return UseX11FallbackIfAvailable(
-				KeysharpInputdManager.EnsureCapabilities(
-					KeysharpInputdClient.Capabilities.AccessibilityAutomation,
-					operation ?? "accessibility automation",
-					forcePrompt: prompt == true));
+			return KeysharpInputdManager.EnsureCapabilities(
+				KeysharpInputdClient.Capabilities.AccessibilityAutomation,
+				operation ?? "accessibility automation",
+				forcePrompt: prompt == true);
 		}
 
 		public override PermissionResult RequestInputMonitoring(bool? prompt = null, string operation = null)
 		{
-			var result = KeysharpInputdManager.EnsureCapabilities(
+			return KeysharpInputdManager.EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.HookKeyboard | KeysharpInputdClient.Capabilities.HookMouse,
 				operation ?? "keyboard/mouse monitoring",
 				forcePrompt: prompt == true);
-
-			return UseX11FallbackIfAvailable(result);
 		}
 
 		public override PermissionResult RequestInputInjection(bool? prompt = null, string operation = null)
 		{
-			var result = KeysharpInputdManager.EnsureCapabilities(
+			return KeysharpInputdManager.EnsureCapabilities(
 				KeysharpInputdClient.Capabilities.SynthKeyboard | KeysharpInputdClient.Capabilities.SynthMouse,
 				operation ?? "keyboard/mouse sending",
 				forcePrompt: prompt == true);
-
-			return UseX11FallbackIfAvailable(result);
 		}
 
 		public override PermissionResult RequestScreenCapture(bool? prompt = null, string operation = null)
@@ -209,20 +204,7 @@ namespace Keysharp.Internals.Os
 			if (flags == KeysharpInputdClient.Capabilities.None)
 				return new(PermissionStatus.NotApplicable);
 
-			return UseX11FallbackIfAvailable(
-				KeysharpInputdManager.EnsureCapabilities(flags, operation ?? "RequestCapabilities", forcePrompt: prompt == true));
-		}
-
-		private static PermissionResult UseX11FallbackIfAvailable(PermissionResult result)
-		{
-			if (result.IsGranted)
-				return result;
-
-			if (!Platform.Desktop.IsX11Available)
-				return result;
-
-			KeysharpInputdManager.ActivateLegacyX11Fallback(result.Message);
-			return new PermissionResult(PermissionStatus.NotApplicable, result.Message);
+			return KeysharpInputdManager.EnsureCapabilities(flags, operation ?? "RequestCapabilities", forcePrompt: prompt == true);
 		}
 	}
 #endif

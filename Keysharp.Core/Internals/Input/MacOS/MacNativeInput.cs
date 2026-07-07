@@ -65,6 +65,10 @@ namespace Keysharp.Internals.Input.MacOS
 		[LibraryImport(ApplicationServices)]
 		internal static partial ulong CGEventSourceFlagsState(uint sourceState);
 
+		[LibraryImport(ApplicationServices)]
+		[return: MarshalAs(UnmanagedType.I1)]
+		internal static partial bool CGEventSourceKeyState(uint sourceState, ushort virtualKey);
+
 		[LibraryImport(ApplicationServices, StringMarshalling = StringMarshalling.Utf16)]
 		internal static partial void CGEventKeyboardSetUnicodeString(nint cgEvent, long stringLength, string unicodeString);
 

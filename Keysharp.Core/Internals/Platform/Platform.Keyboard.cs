@@ -6,11 +6,24 @@ namespace Keysharp.Internals
 	internal static partial class Platform
 	{
 		/// <summary>
-		/// Keyboard VK ⇄ char / scancode translation and layout handle. Platform-specific but compile-time
-		/// (no runtime session fork) — the Linux mapping consults the active xkb / inputd layout via KeyCodes.
+		/// Keyboard state queries plus VK ⇄ char / scancode translation and layout handle. State queries are
+		/// routed through the resolved host service; translation is platform-specific but compile-time (no runtime
+		/// session fork), with Linux mapping consulting the active xkb / inputd layout via KeyCodes.
 		/// </summary>
 		internal static class Keyboard
 		{
+			public static bool TryQueryModifierLRState(out uint mods, byte[] keymapBuffer = null)
+				=> Instance.Keyboard.TryQueryModifierLRState(out mods, keymapBuffer);
+
+			public static bool TryQueryKeyStateLogical(uint vk, out bool isDown)
+				=> Instance.Keyboard.TryQueryKeyStateLogical(vk, out isDown);
+
+			public static bool TryQueryKeyStatePhysical(uint vk, out bool isDown)
+				=> Instance.Keyboard.TryQueryKeyStatePhysical(vk, out isDown);
+
+			public static bool TryGetIndicatorStates(out bool capsOn, out bool numOn, out bool scrollOn)
+				=> Instance.Keyboard.TryGetIndicatorStates(out capsOn, out numOn, out scrollOn);
+
 #if WINDOWS
 			public static nint GetKeyboardLayout(uint idThread) => Os.Windows.WindowsAPI.GetKeyboardLayout(idThread);
 

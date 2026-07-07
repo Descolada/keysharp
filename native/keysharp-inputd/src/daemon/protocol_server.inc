@@ -775,7 +775,7 @@ static void handle_get_key_state(
     ksi_linux_devices_refresh_indicator_state();
 
     memset(&result, 0, sizeof(result));
-    result.modifiers_lr = ksi_linux_devices_get_modifier_state();
+    (void)ksi_linux_devices_get_key_state(&result);
     ksi_linux_devices_get_indicator_state(&caps, &num, &scroll);
     result.caps_lock   = caps   ? 1u : 0u;
     result.num_lock    = num    ? 1u : 0u;

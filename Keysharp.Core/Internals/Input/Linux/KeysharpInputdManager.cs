@@ -137,19 +137,37 @@ namespace Keysharp.Internals.Input.Linux
 		}
 
 		/// <summary>
-		/// Queries inputd for the current physical modifier and toggle-key state.
+		/// Queries inputd for the current logical modifier and toggle-key state.
 		/// Returns false if the daemon is unavailable or the capability is not granted.
 		/// </summary>
 		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock)
+			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out _);
+
+		/// <summary>
+		/// Queries inputd for the current logical keyboard state. logicalKeys is an evdev KEY_* bitmap
+		/// when the daemon supports it; older daemons return an empty array.
+		/// </summary>
+		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock, out byte[] logicalKeys)
+			=> TryGetKeyState(out modifiersLR, out capsLock, out numLock, out scrollLock, out logicalKeys, out _);
+
+		/// <summary>
+		/// Queries inputd for the current logical and physical keyboard state. physicalKeys is available when
+		/// the daemon supports the extended payload; older daemons return an empty array.
+		/// </summary>
+		internal static bool TryGetKeyState(out uint modifiersLR, out bool capsLock, out bool numLock, out bool scrollLock, out byte[] logicalKeys, out byte[] physicalKeys)
 		{
 			modifiersLR = 0;
 			capsLock = false;
 			numLock = false;
 			scrollLock = false;
+			logicalKeys = [];
+			physicalKeys = [];
 			var queryModifiersLR = 0u;
 			var queryCapsLock = false;
 			var queryNumLock = false;
 			var queryScrollLock = false;
+			byte[] queryLogicalKeys = [];
+			byte[] queryPhysicalKeys = [];
 
 			try
 			{
@@ -158,7 +176,13 @@ namespace Keysharp.Internals.Input.Linux
 					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookKeyboard))
 						return false;
 
-					(queryModifiersLR, queryCapsLock, queryNumLock, queryScrollLock) = qc.QueryKeyState();
+					var state = qc.QueryKeyState();
+					queryModifiersLR = state.ModifiersLR;
+					queryCapsLock = state.CapsLock;
+					queryNumLock = state.NumLock;
+					queryScrollLock = state.ScrollLock;
+					queryLogicalKeys = state.LogicalKeys ?? [];
+					queryPhysicalKeys = state.PhysicalKeys ?? [];
 					return true;
 				});
 
@@ -169,6 +193,8 @@ namespace Keysharp.Internals.Input.Linux
 				capsLock = queryCapsLock;
 				numLock = queryNumLock;
 				scrollLock = queryScrollLock;
+				logicalKeys = queryLogicalKeys;
+				physicalKeys = queryPhysicalKeys;
 				return true;
 			}
 			catch (Exception ex)
@@ -233,13 +259,20 @@ namespace Keysharp.Internals.Input.Linux
 			}
 		}
 
+		/// <summary>Live logical state of one mouse button (Wayland path for GetKeyState(button)).</summary>
+		internal static bool TryQueryButtonStateLogical(uint vk, out bool down)
+			=> TryQueryButtonState(vk, physical: false, out down);
+
 		/// <summary>
 		/// Live physical state of one mouse button (Wayland path for GetKeyState(.., "P")). The daemon snapshots
 		/// evdev button state via EVIOCGKEY, so this works with no mouse grab/hook. Returns false — leaving the
 		/// caller to fall back to hook-tracked state — if the daemon is unavailable, lacks the query (older
 		/// daemon), or has no readable pointer device.
 		/// </summary>
-		internal static bool TryGetPhysicalMouseButtonState(uint vk, out bool down)
+		internal static bool TryQueryButtonStatePhysical(uint vk, out bool down)
+			=> TryQueryButtonState(vk, physical: true, out down);
+
+		private static bool TryQueryButtonState(uint vk, bool physical, out bool down)
 		{
 			down = false;
 
@@ -262,14 +295,14 @@ namespace Keysharp.Internals.Input.Linux
 					"query mouse button state").IsGranted)
 				return false;
 
-			var buttonsMask = 0u;
+			KeysharpInputdClient.PointerButtons buttons = default;
 
 			try
 			{
 				var success = TryUseQueryClient(qc =>
 				{
 					if (!EnsureQueryCapabilityNoPrompt(qc, KeysharpInputdClient.Capabilities.HookMouse)
-						|| !qc.TryGetPointerButtons(out buttonsMask))
+						|| !qc.TryGetPointerButtons(out buttons))
 						return false;
 
 					return true;
@@ -278,6 +311,7 @@ namespace Keysharp.Internals.Input.Linux
 				if (!success)
 					return false;
 
+				var buttonsMask = physical ? buttons.PhysicalButtons : buttons.LogicalButtons;
 				down = (buttonsMask & bit) != 0;
 				return true;
 			}

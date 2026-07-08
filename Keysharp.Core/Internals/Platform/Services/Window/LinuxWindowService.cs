@@ -35,9 +35,8 @@ namespace Keysharp.Internals
 
 		public override nint GetForegroundHandle() => 0;
 
-		public override uint GetFocusedControlThread(nint window, out nint control)
+		public override uint GetFocusedControlThread(nint window = 0)
 		{
-			control = default;
 			return 0;
 		}
 	}
@@ -614,9 +613,8 @@ namespace Keysharp.Internals
 		public override WindowInfoBase WindowAt(int x, int y)
 			=> wayland?.TryGetWindowAt(x, y, out var info) == true ? info : null;
 
-		public override uint GetFocusedControlThread(nint window, out nint control)
+		public override uint GetFocusedControlThread(nint window = 0)
 		{
-			control = default;
 			return 0;
 		}
 	}
@@ -1871,9 +1869,8 @@ namespace Keysharp.Internals
 
 		// X11 has no portable "focused control's thread" concept; the focused-layout lookup that uses this is a
 		// Windows-only refinement, so report 0 (the legacy Linux behavior).
-		public override uint GetFocusedControlThread(nint window, out nint control)
+		public override uint GetFocusedControlThread(nint window = 0)
 		{
-			control = default;
 			return 0;
 		}
 

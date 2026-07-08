@@ -93,7 +93,7 @@ namespace Keysharp.Internals.Input.Unix
 			this.activeLayoutOverride = activeLayoutOverride;
 		}
 
-		public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
+		public bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr)
 		{
 			vk = 0;
 			needShift = false;
@@ -107,8 +107,10 @@ namespace Keysharp.Internals.Input.Unix
 			if (keysym == 0)
 				return false;
 
-			var layout = GetActiveLayout();
-			var cacheKey = (keysym, layout);
+			// Use the group snapshotted once per send when supplied (KeybdLayoutRef.Value carries it as an
+			// nint on Linux); otherwise resolve it live.
+			var group = layout.HasValue ? (uint)layout.Value : GetActiveLayout();
+			var cacheKey = (keysym, group);
 
 			if (cache.TryGetValue(cacheKey, out var cached))
 			{
@@ -121,7 +123,7 @@ namespace Keysharp.Internals.Input.Unix
 				if (!TryGetNamedVk(key, out var candidateVk))
 					continue;
 
-				var keyLayout = NormalizeLayoutForKey(currentKeymap, key, layout);
+				var keyLayout = NormalizeLayoutForKey(currentKeymap, key, group);
 				int levels = xkb_keymap_num_levels_for_key(currentKeymap, key, keyLayout);
 
 				if (levels <= 0)
@@ -404,6 +406,32 @@ namespace Keysharp.Internals.Input.Unix
 			return TryGetReadyKeymap(out var currentKeymap) ? currentKeymap : nint.Zero;
 		}
 
+		public uint GetActiveLayoutGroup() => GetActiveLayout();
+
+		public string GetCurrentKeymapName()
+		{
+			if (TryGetReadyKeymap(out var currentKeymap))
+			{
+				var activeLayout = NormalizeLayoutIndex(currentKeymap, GetActiveLayout());
+				var layoutName = GetLayoutName(currentKeymap, activeLayout);
+
+				if (!string.IsNullOrEmpty(layoutName))
+					return layoutName;
+			}
+
+			return GetConfiguredLayoutName();
+		}
+
+		public nint ResolveKeyboardLayout(string layout)
+		{
+			// Read-only, matching the macOS provider: this provider owns a single process-wide keymap, so
+			// reconfiguring it here (ConfigureLayout rebuilds the keymap and nothing restores it) would
+			// persistently change the layout used by every subsequent Send/hotstring. A key-info query must
+			// not have that side effect, so the requested layout is ignored and the current handle returned.
+			_ = layout;
+			return GetCurrentKeymapHandle();
+		}
+
 		public void Dispose()
 		{
 			lock (initLock)
@@ -610,6 +638,29 @@ namespace Keysharp.Internals.Input.Unix
 
 			int layouts = xkb_keymap_num_layouts_for_key(map, key);
 			return layouts > 0 && layout < (uint)layouts ? layout : 0;
+		}
+
+		private static uint NormalizeLayoutIndex(IntPtr map, uint layout)
+		{
+			int layouts = xkb_keymap_num_layouts(map);
+			return layouts > 0 && layout < (uint)layouts ? layout : 0;
+		}
+
+		private static string GetLayoutName(IntPtr map, uint layout)
+		{
+			var ptr = xkb_keymap_layout_get_name(map, layout);
+			return ptr == IntPtr.Zero ? "" : Marshal.PtrToStringUTF8(ptr) ?? "";
+		}
+
+		private string GetConfiguredLayoutName()
+		{
+			string layout = prefLayout ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_LAYOUT") ?? "";
+			string variant = prefVariant ?? Environment.GetEnvironmentVariable("XKB_DEFAULT_VARIANT") ?? "";
+
+			if (layout == "")
+				return "";
+
+			return variant == "" ? layout : $"{layout}:{variant}";
 		}
 
 		private bool BuildKeymapFromNames()
@@ -848,6 +899,8 @@ namespace Keysharp.Internals.Input.Unix
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_min_keycode(IntPtr keymap);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_max_keycode(IntPtr keymap);
 		[DllImport(LibXkbCommon)] private static extern uint xkb_keymap_mod_get_index(IntPtr keymap, string name);
+		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_num_layouts(IntPtr keymap);
+		[DllImport(LibXkbCommon)] private static extern IntPtr xkb_keymap_layout_get_name(IntPtr keymap, uint idx);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_num_layouts_for_key(IntPtr keymap, uint key);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_num_levels_for_key(IntPtr keymap, uint key, uint layout);
 		[DllImport(LibXkbCommon)] private static extern int xkb_keymap_key_get_syms_by_level(IntPtr keymap, uint key, uint layout, uint level, out IntPtr symsOut);

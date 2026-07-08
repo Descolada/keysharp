@@ -56,7 +56,7 @@ namespace Keysharp.Internals.Input.Windows
 		//private bool dead;
 		//private List<uint> deadKeys;
 		//private bool ignore;
-		//private nint kbd = GetKeyboardLayout(0);
+		//private nint kbd = GetKeyboardLayout();
 		//private WindowsAPI.LowLevelKeyboardProc proc;
 
 		private DateTime thisEventTime;
@@ -180,17 +180,6 @@ namespace Keysharp.Internals.Input.Windows
 			// prior to our caller toggling capslock back on , to avoid the capslock keystroke from going into the array.
 			sendMode = SendModes.Event;
 			DoKeyDelay(finalKeyDelay); // Do this only after resetting sSendMode above.  Should be okay for mouse events too.
-		}
-
-		internal override nint GetFocusedKeybdLayout(nint window)
-		{
-			var script = Script.TheScript;
-
-			if (window == 0)
-				window = WindowQuery.GetForegroundWindowHandle();
-
-			nint tempzero = 0;
-			return Platform.Keys.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, window));
 		}
 
 		//internal ResultType ExpandEventArray()
@@ -1379,7 +1368,7 @@ namespace Keysharp.Internals.Input.Windows
 		/*
 		    private void ScanDeadKeys()
 		    {
-		    //var kbd = WindowsAPI.GetKeyboardLayout(0);
+		    //var kbd = WindowsAPI.GetKeyboardLayout();
 		    _ = buf.Clear();
 		    deadKeys = new List<uint>();
 
@@ -1409,7 +1398,7 @@ namespace Keysharp.Internals.Input.Windows
 
 		    uint virtualKeyCode = (uint)key;
 		    uint scanCode = MapVirtualKey(virtualKeyCode, 0);
-		    nint inputLocaleIdentifier = GetKeyboardLayout(0);
+		    nint inputLocaleIdentifier = GetKeyboardLayout();
 
 		    StringBuilder result = new StringBuilder();
 		    ToUnicodeEx(virtualKeyCode, scanCode, keyboardState, result, (int)5, (uint)0, inputLocaleIdentifier);

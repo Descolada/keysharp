@@ -13,7 +13,74 @@ namespace Keysharp.Internals
 		internal static class Keys
 		{
 #if WINDOWS
-			public static nint GetKeyboardLayout(uint idThread) => Os.Windows.WindowsAPI.GetKeyboardLayout(idThread);
+			public static nint GetKeyboardLayout(uint? idThread = null) => Os.Windows.WindowsAPI.GetKeyboardLayout(idThread ?? Platform.Window.GetFocusedControlThread());
+
+			public static string GetKeyboardLayoutName()
+			{
+				var layout = GetKeyboardLayout();
+				var klid = GetKeyboardLayoutKlid(layout);
+
+				if (klid == "")
+					klid = unchecked((uint)layout.ToInt64()).ToString("X8", CultureInfo.InvariantCulture);
+
+				var layoutText = GetKeyboardLayoutText(klid);
+				return layoutText == "" ? klid : $"{klid}:{layoutText}";
+			}
+
+			public static nint ResolveKeyboardLayout(string layout)
+			{
+				if (string.IsNullOrWhiteSpace(layout))
+					return GetKeyboardLayout();
+
+				var klid = layout.Split(':', 2)[0].Trim();
+
+				if (klid.Length == 8 && uint.TryParse(klid, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))
+				{
+					var hkl = Os.Windows.WindowsAPI.LoadKeyboardLayout(klid, 0x00000080); // KLF_NOTELLSHELL
+
+					if (hkl != 0)
+						return hkl;
+				}
+
+				return GetKeyboardLayout();
+			}
+
+			private static string GetKeyboardLayoutKlid(nint layout)
+			{
+				// ActivateKeyboardLayout returns the previous HKL truncated to int; reinterpret the bits as
+				// uint and zero-extend so IME HKLs (high bit set, e.g. 0xE0010411) reconstruct correctly and
+				// the finally-block restore below targets the real handle.
+				var oldLayout = new nint(unchecked((uint)Os.Windows.WindowsAPI.ActivateKeyboardLayout(layout, 0)));
+
+				try
+				{
+					var chars = new char[16];
+
+					if (!Os.Windows.WindowsAPI.GetKeyboardLayoutName(chars))
+						return "";
+
+					var len = System.Array.IndexOf(chars, '\0');
+					return len <= 0 ? new string(chars).TrimEnd('\0') : new string(chars, 0, len);
+				}
+				finally
+				{
+					if (oldLayout != 0 && oldLayout != layout)
+						_ = Os.Windows.WindowsAPI.ActivateKeyboardLayout(oldLayout, 0);
+				}
+			}
+
+			private static string GetKeyboardLayoutText(string klid)
+			{
+				try
+				{
+					using var key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Control\Keyboard Layouts\{klid}");
+					return key?.GetValue("Layout Text") as string ?? "";
+				}
+				catch
+				{
+					return "";
+				}
+			}
 
 			public static int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, [Out] char[] pwszBuff, uint wFlags, nint dwhkl)
 				=> Os.Windows.WindowsAPI.ToUnicodeEx(wVirtKey, wScanCode, lpKeyState, pwszBuff, pwszBuff.Length, wFlags, dwhkl);
@@ -22,7 +89,11 @@ namespace Keysharp.Internals
 				=> Os.Windows.WindowsAPI.MapVirtualKeyEx(wVirtKey, Os.Windows.WindowsAPI.MAPVK_VK_TO_CHAR, hkl);
 #else
 			// Return the current xkb_keymap pointer as a stand-in for HKL.
-			public static nint GetKeyboardLayout(uint idThread) => KeyCodes.GetCurrentKeymapHandle();
+			public static nint GetKeyboardLayout(uint? idThread = null) => KeyCodes.GetCurrentKeymapHandle();
+
+			public static string GetKeyboardLayoutName() => KeyCodes.GetCurrentKeymapName();
+
+			public static nint ResolveKeyboardLayout(string layout) => KeyCodes.ResolveKeyboardLayout(layout);
 
 			private static void DeriveModifierState(byte[] lpKeyState, out bool shift, out bool caps, out bool altGr)
 			{

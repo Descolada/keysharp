@@ -827,15 +827,21 @@ namespace Keysharp.Internals.Os.Windows
 		[LibraryImport(user32, EntryPoint = "GetForegroundWindow")]
 		internal static partial nint GetForegroundWindow();
 
+		// lpgui must be passed by ref (not out): GetGUIThreadInfo requires the caller to set cbSize
+		// before the call, and an `out` marshaller would zero-initialize the struct (cbSize=0 -> the API
+		// returns FALSE every time). Callers pass a GUITHREADINFO.Default whose cbSize is populated.
 		[LibraryImport(user32, EntryPoint = "GetGUIThreadInfo")]
 		[return: MarshalAs(UnmanagedType.Bool)]
-		internal static partial bool GetGUIThreadInfo(uint idThread, out GUITHREADINFO lpgui);
+		internal static partial bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
 
 		[LibraryImport(user32, EntryPoint = "ActivateKeyboardLayout")]
 		internal static partial int ActivateKeyboardLayout(nint hkl, uint Flags);
 
 		[LibraryImport(user32, EntryPoint = "GetKeyboardLayout")]
 		internal static partial nint GetKeyboardLayout(uint idThread);
+
+		[LibraryImport(user32, EntryPoint = "LoadKeyboardLayoutW", StringMarshalling = StringMarshalling.Utf16)]
+		internal static partial nint LoadKeyboardLayout(string pwszKLID, uint Flags);
 
 		[LibraryImport(user32, EntryPoint = "GetKeyboardLayoutNameW", StringMarshalling = StringMarshalling.Utf16)]
 		[return: MarshalAs(UnmanagedType.Bool)]

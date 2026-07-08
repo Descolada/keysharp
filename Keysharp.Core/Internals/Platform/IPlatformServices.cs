@@ -49,7 +49,7 @@ namespace Keysharp.Internals
 		bool TryGetTopLevel(nint h, out nint top);
 		bool TryEnumerateChildren(nint h, out IReadOnlyList<nint> children);
 		bool TryClientToScreen(nint h, ref Point pt);
-		uint GetFocusedControlThread(nint window, out nint control);
+		uint GetFocusedControlThread(nint window = 0);
 
 		/// <summary>Whether the window belongs in alt-tab/group enumerations (Windows filters out topmost/
 		/// tool/owned/shell windows); true everywhere else.</summary>

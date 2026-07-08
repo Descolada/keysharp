@@ -212,6 +212,37 @@ namespace Keysharp.Tests
 		}
 
 		[Test, Category("Misc"), NonParallelizable]
+		public void KeysharpKeyboardLayoutInfo()
+		{
+			var layout = Keysharp.Builtins.Ks.GetKeyboardLayout();
+			Assert.IsFalse(string.IsNullOrWhiteSpace(layout));
+
+			var lower = Keysharp.Builtins.Ks.GetKeyInfo("a");
+			Assert.IsInstanceOf<KeysharpObject>(lower);
+			Assert.IsTrue(PropLong(lower, "VK") > 0);
+			Assert.IsFalse(string.IsNullOrEmpty(PropString(lower, "Name")));
+			Assert.IsNotNull(Script.GetPropertyValue(lower, "Prefix"));
+
+			var upper = Keysharp.Builtins.Ks.GetKeyInfo("A");
+			Assert.IsInstanceOf<KeysharpObject>(upper);
+			Assert.IsTrue((PropLong(upper, "Modifiers") & 4L) != 0);
+			Assert.IsTrue(PropString(upper, "Prefix").Contains('+'));
+
+			var newline = Keysharp.Builtins.Ks.GetKeyInfo("\n");
+			Assert.IsInstanceOf<KeysharpObject>(newline);
+			Assert.AreEqual("Enter", PropString(newline, "Name"));
+			Assert.AreEqual("", PropString(newline, "Prefix"));
+
+			var esc = Keysharp.Builtins.Ks.GetKeyInfo("Esc");
+			Assert.IsInstanceOf<KeysharpObject>(esc);
+			Assert.AreEqual(Keysharp.Builtins.Keyboard.GetKeyVK("Esc"), PropLong(esc, "VK"));
+			Assert.AreEqual(Keysharp.Builtins.Keyboard.GetKeySC("Esc"), PropLong(esc, "SC"));
+
+			var explicitLayout = Keysharp.Builtins.Ks.GetKeyInfo("a", layout);
+			Assert.IsInstanceOf<KeysharpObject>(explicitLayout);
+		}
+
+		[Test, Category("Misc"), NonParallelizable]
 		public void MiscTimer()
 		{
 			Assert.IsTrue(TestScript("misc-timer", false));
@@ -222,5 +253,9 @@ namespace Keysharp.Tests
 
 		[Test, Category("Misc"), NonParallelizable]
 		public void PropRef() => Assert.IsTrue(TestScript("misc-prop-ref", false));
+
+		private static long PropLong(object obj, string name) => Convert.ToInt64(Script.GetPropertyValue(obj, name));
+
+		private static string PropString(object obj, string name) => Script.GetPropertyValue(obj, name).As();
 	}
 }

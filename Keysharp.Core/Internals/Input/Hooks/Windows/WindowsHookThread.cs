@@ -428,7 +428,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			}
 		}
 
-		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLR, nint keybdLayout, bool enableAZFallback = false)
+		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLR, KeybdLayoutRef layout, bool enableAZFallback = false)
 		// If non-NULL, pModifiersLR contains the initial set of modifiers provided by the caller, to which
 		// we add any extra modifiers required to realize aChar.
 		{
@@ -438,7 +438,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 				return VK_RETURN;
 
 			// Otherwise:
-			var modPlusVk = VkKeyScanEx(ch, keybdLayout); // v1.0.44.03: Benchmark shows that VkKeyScanEx() is the same speed as VkKeyScan() when the layout has been pre-fetched.
+			var modPlusVk = VkKeyScanEx(ch, layout?.Value ?? Platform.Keys.GetKeyboardLayout()); // Forces the lazy layout resolution here (the single point where the HKL is dereferenced on Windows). v1.0.44.03: Benchmark shows that VkKeyScanEx() is the same speed as VkKeyScan() when the layout has been pre-fetched.
 			var vk = (uint)(modPlusVk & 0xFF);
 			var keyscanModifiers = (char)((modPlusVk >> 8) & 0xFF);
 
@@ -572,8 +572,7 @@ namespace Keysharp.Internals.Input.Hooks.Windows
 			// hotstrings when the first keypress causes a change in focus, such as to enter editing mode in Excel.
 			// See Get_active_window_keybd_layout macro definition for related comments.
 			var activeWindow = WindowQuery.GetForegroundWindowHandle(); // Set default in case there's no focused control.
-			nint tempzero = 0;
-			var activeWindowKeybdLayout = Platform.Keys.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(ref tempzero, activeWindow));
+			var activeWindowKeybdLayout = WindowsAPI.GetKeyboardLayout(WindowQuery.GetFocusedCtrlThread(activeWindow));
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 

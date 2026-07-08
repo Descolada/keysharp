@@ -443,9 +443,8 @@ namespace Keysharp.Internals
 			return false;
 		}
 
-		public override uint GetFocusedControlThread(nint window, out nint control)
+		public override uint GetFocusedControlThread(nint window = 0)
 		{
-			control = 0;
 			var hwnd = window != 0 ? window : GetForegroundHandle();
 
 			if (hwnd == 0)

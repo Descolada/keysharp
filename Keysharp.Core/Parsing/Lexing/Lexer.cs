@@ -613,7 +613,7 @@ namespace Keysharp.Parsing.Lexing
 			uint vk = 0, sc = 0;
 			var source = Keysharp.Internals.Input.Keyboard.KeySource.None;
 			uint? mods = null;
-			return ht.TextToVKandSC(keyName, ref vk, ref sc, ref source, ref mods, 0, allowVkScPair: false);
+			return ht.TextToVKandSC(keyName, ref vk, ref sc, ref source, ref mods, layout: null, allowVkScPair: false);
 		}
 
 		// Splits a validated remap line `source::target` into its source/target key text, honoring backtick escapes

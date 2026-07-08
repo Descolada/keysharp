@@ -1533,7 +1533,7 @@ namespace Keysharp.Internals.Input.Hooks
 			return true; // Visible.
 		}
 
-		internal abstract uint CharToVKAndModifiers(char ch, ref uint? modifiersLR, nint keybdLayout, bool enableAZFallback = false);
+		internal abstract uint CharToVKAndModifiers(char ch, ref uint? modifiersLR, KeybdLayoutRef layout, bool enableAZFallback = false);
 
 		internal static uint ConvertMouseButton(string buf, bool allowWheel = true) => ConvertMouseButton(buf.AsSpan(), allowWheel);
 
@@ -4349,20 +4349,17 @@ namespace Keysharp.Internals.Input.Hooks
 		/// If modifiersLR is non-null, add modifiers needed to realize a character key.
 		/// e.g. M is really +m (shift-m), # is really shift-3.
 		/// </summary>
-		private uint KeyNameToVk(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
+		private uint KeyNameToVk(ReadOnlySpan<char> text, ref uint? modifiersLR, KeybdLayoutRef layout)
 		{
 			if (text.Length == 0)
 				return 0;
-
-			if (keybdLayout == 0)
-				keybdLayout = GetKeyboardLayout(0);
 
 			// Don't trim() aText or modify it because that will mess up the caller who expects it to be unchanged.
 			// Instead, for now, just check it as-is.  The only extra whitespace that should exist, due to trimming
 			// of text during load, is that on either side of the COMPOSITE_DELIMITER (e.g. " then ").
 
 			if (text.Length == 1) // _tcslen(aText) == 1
-				return CharToVKAndModifiers(text[0], ref modifiersLR, keybdLayout); // Making this a function simplifies things because it can do early return, etc.
+				return CharToVKAndModifiers(text[0], ref modifiersLR, layout); // Making this a function simplifies things because it can do early return, etc. The layout is only resolved here (single-char path); named keys below never touch it.
 
 			if (keyToVkAlt.TryGetValue(text, out var val))
 				return val;
@@ -4374,15 +4371,15 @@ namespace Keysharp.Internals.Input.Hooks
 		/// Parses a key for callers that require a VK result, mapping an SC-only spelling
 		/// through the current platform just as TextToVK did before key identities existed.
 		/// </summary>
-		internal uint TextToVK(string text, ref uint? modifiersLR, nint keybdLayout) =>
-		TextToVK(text.AsSpan(), ref modifiersLR, keybdLayout);
+		internal uint TextToVK(string text, ref uint? modifiersLR, KeybdLayoutRef layout) =>
+		TextToVK(text.AsSpan(), ref modifiersLR, layout);
 
-		internal uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, nint keybdLayout)
+		internal uint TextToVK(ReadOnlySpan<char> text, ref uint? modifiersLR, KeybdLayoutRef layout)
 		{
 			var vk = 0u;
 			var sc = 0u;
 			var source = KeySource.None;
-			_ = TextToVKandSC(text, ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair: false);
+			_ = TextToVKandSC(text, ref vk, ref sc, ref source, ref modifiersLR, layout, allowVkScPair: false);
 			return vk != 0 ? vk : KeyCodes.MapScToVk(sc);
 		}
 
@@ -4390,10 +4387,10 @@ namespace Keysharp.Internals.Input.Hooks
 		/// Parses a key once. VK is Keysharp's portable virtual-key namespace;
 		/// SC is the active hook backend's key code.
 		/// </summary>
-		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true) =>
-		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref source, ref modifiersLR, keybdLayout, allowVkScPair);
+		internal bool TextToVKandSC(string text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, KeybdLayoutRef layout = null, bool allowVkScPair = true) =>
+		TextToVKandSC(text.AsSpan(), ref vk, ref sc, ref source, ref modifiersLR, layout, allowVkScPair);
 
-		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, nint keybdLayout, bool allowVkScPair = true)
+		internal virtual bool TextToVKandSC(ReadOnlySpan<char> text, ref uint vk, ref uint sc, ref KeySource source, ref uint? modifiersLR, KeybdLayoutRef layout = null, bool allowVkScPair = true)
 		{
 			vk = 0;
 			sc = 0;
@@ -4417,7 +4414,7 @@ namespace Keysharp.Internals.Input.Hooks
 				return true;
 			}
 
-			vk = KeyNameToVk(text, ref modifiersLR, keybdLayout);
+			vk = KeyNameToVk(text, ref modifiersLR, layout);
 
 			if (vk != 0)
 			{
@@ -4710,7 +4707,7 @@ namespace Keysharp.Internals.Input.Hooks
 		internal virtual char VKtoChar(uint vk, nint keybdLayout)
 		{
 			if (keybdLayout == 0)
-				keybdLayout = GetKeyboardLayout(0);
+				keybdLayout = GetKeyboardLayout();
 
 			// MapVirtualKeyEx() always produces 'A'-'Z' for those keys regardless of keyboard layout,
 			// but for any other keys it produces the correct results, so we'll use it:
@@ -4748,7 +4745,7 @@ namespace Keysharp.Internals.Input.Hooks
 				// Re-inject the dead-key char so that user input is not interrupted.
 				// To do this, we need to find the right VK and modifier key combination:
 				uint? modLR = 0u;
-				var dead_vk = CharToVKAndModifiers(deadChar, ref modLR, keybdLayout);
+				var dead_vk = CharToVKAndModifiers(deadChar, ref modLR, KeybdLayoutRef.FromHandle(keybdLayout));
 
 				if (dead_vk != 0)
 				{

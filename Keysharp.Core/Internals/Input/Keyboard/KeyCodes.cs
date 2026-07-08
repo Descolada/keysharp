@@ -34,11 +34,16 @@ namespace Keysharp.Internals.Input.Keyboard
 			};
 		}
 
-		public static bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
+		/// <param name="layout">
+		/// The layout token snapshotted once at the start of a send (see <see cref="KeybdLayoutRef.Value"/>)
+		/// so every character of the send reuses it instead of re-querying the OS per character. On Linux
+		/// this is the active layout group. Pass <c>null</c> to have the provider resolve the layout live.
+		/// </param>
+		public static bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr)
 		{
 			EnsureProvider();
 
-			if (provider != null && provider.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr))
+			if (provider != null && provider.TryMapRuneToKeystroke(rune, layout, out vk, out needShift, out needAltGr))
 				return true;
 
 			needAltGr = false;
@@ -87,6 +92,28 @@ namespace Keysharp.Internals.Input.Keyboard
 		{
 			EnsureProvider();
 			return provider?.GetCurrentKeymapHandle() ?? nint.Zero;
+		}
+
+		internal static string GetCurrentKeymapName()
+		{
+			EnsureProvider();
+			return provider?.GetCurrentKeymapName() ?? "";
+		}
+
+		internal static nint ResolveKeyboardLayout(string layout)
+		{
+			EnsureProvider();
+			return provider?.ResolveKeyboardLayout(layout) ?? nint.Zero;
+		}
+
+		/// <summary>
+		/// The active keyboard-layout group. Snapshotted once per send by <see cref="KeybdLayoutRef"/>
+		/// so the per-character OS query (e.g. XkbGetState on Linux) is avoided.
+		/// </summary>
+		internal static uint GetActiveLayoutGroup()
+		{
+			EnsureProvider();
+			return provider != null ? provider.GetActiveLayoutGroup() : 0;
 		}
 
 #if LINUX
@@ -152,7 +179,13 @@ namespace Keysharp.Internals.Input.Keyboard
 #if !WINDOWS
 	internal interface IKeyCodeMapperProvider : IDisposable
 	{
-		bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr);
+		bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr);
+
+		/// <summary>
+		/// The active keyboard-layout group. Providers without a notion of layout groups
+		/// (or where it is irrelevant, e.g. macOS) return 0.
+		/// </summary>
+		uint GetActiveLayoutGroup() => 0;
 
 		/// <summary>
 		/// Reverse of <see cref="TryMapRuneToKeystroke"/>. Implementations that cannot do this
@@ -179,6 +212,10 @@ namespace Keysharp.Internals.Input.Keyboard
 
 		nint GetCurrentKeymapHandle();
 
+		string GetCurrentKeymapName() => "";
+
+		nint ResolveKeyboardLayout(string layout) => GetCurrentKeymapHandle();
+
 #if LINUX
 		bool TryMapXKeycodeToVk(uint keycode, out uint vk);
 		bool TryMapVkToXKeycode(uint vk, out uint keycode, bool returnSecondary);
@@ -201,7 +238,7 @@ namespace Keysharp.Internals.Input.Keyboard
 
 	internal sealed class NullKeyCodeMapperProvider : IKeyCodeMapperProvider
 	{
-		public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
+		public bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr)
 		{
 			vk = 0;
 			needShift = false;
@@ -214,6 +251,10 @@ namespace Keysharp.Internals.Input.Keyboard
 		}
 
 		public nint GetCurrentKeymapHandle() => nint.Zero;
+
+		public string GetCurrentKeymapName() => "";
+
+		public nint ResolveKeyboardLayout(string layout) => nint.Zero;
 
 #if LINUX
 		public bool TryMapXKeycodeToVk(uint keycode, out uint vk)

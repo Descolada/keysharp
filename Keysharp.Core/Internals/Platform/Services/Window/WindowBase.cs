@@ -123,7 +123,7 @@ namespace Keysharp.Internals
 #endif
 			return Unsupported();
 		}
-		public virtual uint GetFocusedControlThread(nint window, out nint control) { control = default; return NotYet<uint>(); }
+		public virtual uint GetFocusedControlThread(nint window = 0) => NotYet<uint>();
 		public virtual bool IncludeInGroups(nint h) => true;   // default: every window; Windows narrows it
 		public virtual bool TryGetText(nint h, bool detectHidden, out List<string> text)
 		{

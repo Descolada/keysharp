@@ -261,7 +261,7 @@ namespace Keysharp.Internals.Input.Linux
 
 			if (!Rune.TryCreate(ch, out var rune)
 				|| !rune.IsAscii
-				|| !KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				|| !KeyCodes.TryMapRuneToKeystroke(rune, targetKeybdLayoutRef?.Value, out var vk, out var needShift, out var needAltGr)
 				|| vk == 0)
 			{
 				SendDaemonUnicodeChar(ch, modifiers, extraInfo);
@@ -354,7 +354,7 @@ namespace Keysharp.Internals.Input.Linux
 		private void QueueTextRune(List<KeysharpInputdClient.Input> events, Rune rune, uint modifiersLR, long extraInfo)
 		{
 			if (rune.IsAscii
-				&& KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr)
+				&& KeyCodes.TryMapRuneToKeystroke(rune, targetKeybdLayoutRef?.Value, out var vk, out var needShift, out var needAltGr)
 				&& vk != 0)
 			{
 				uint transientModifiers = 0;
@@ -659,7 +659,6 @@ namespace Keysharp.Internals.Input.Linux
 		internal override int MouseCoordToAbs(int coord, int widthOrHeight)
 			=> widthOrHeight <= 0 ? 0 : ((65536 * coord) / widthOrHeight) + (coord < 0 ? -1 : 1);
 
-		internal override nint GetFocusedKeybdLayout(nint window) => nint.Zero;
 		internal override ResultType LayoutHasAltGrDirect(nint layout) => ResultType.ConditionFalse;
 
 		internal override void AttachTargetWindowThread(

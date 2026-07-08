@@ -304,7 +304,7 @@ namespace Keysharp.Internals.Input
 							var state = new byte[256];
 							var ch = new char[2];
 							state[(int)Keys.ShiftKey] |= 0x80; // Indicate that the neutral shift key is down for conversion purposes.
-							var active_window_keybd_layout = hook.kbdMsSender.GetFocusedKeybdLayout(0);
+							var active_window_keybd_layout = Platform.Keys.GetKeyboardLayout();
 							var count = ToUnicode(endingVK, KeyCodes.MapVkToSc(endingVK), state // Nothing is done about ToAsciiEx's dead key side-effects here because it seems to rare to be worth it (assuming its even a problem).
 										, ch, script.menuIsVisible != MenuType.None ? 1u : 0u, active_window_keybd_layout); // v1.0.44.03: Changed to call ToAsciiEx() so that active window's layout can be specified (see hook.cpp for details).
 							keyName = keyName.Substring(0, count);
@@ -558,6 +558,7 @@ namespace Keysharp.Internals.Input
 			var script = Script.TheScript;
 			var ht = script.HookThread;
 			var kbdMouseSender = ht.kbdMsSender;//This should always be non-null if any hotkeys/strings are present.
+			var keybdLayout = new KeybdLayoutRef(); // Resolved lazily (once, foreground focused-control layout) only if an end key needs char mapping.
 
 			for (var i = 0; i < keys.Length; ++i) // This a modified version of the processing loop used in SendKeys().
 			{
@@ -611,7 +612,7 @@ namespace Keysharp.Internals.Input
 						// (such as Up and NumpadUp), handle it by SC so it's identified correctly.
 						var nextkey = sub.Slice(0, endPos).ToString();
 						var keySource = KeySource.None;
-						_ = ht.TextToVKandSC(nextkey, ref vk, ref sc, ref keySource, ref modifiersLR, GetKeyboardLayout(0), allowVkScPair: false);
+						_ = ht.TextToVKandSC(nextkey, ref vk, ref sc, ref keySource, ref modifiersLR, keybdLayout, allowVkScPair: false);
 
 						if (vk != 0)
 						{
@@ -645,7 +646,7 @@ namespace Keysharp.Internals.Input
 						modifiersLR = 0u;  // Init prior to below.
 						sc = 0;
 						var charKeySource = KeySource.None;
-						_ = ht.TextToVKandSC(singleCharString, ref vk, ref sc, ref charKeySource, ref modifiersLR, GetKeyboardLayout(0));
+						_ = ht.TextToVKandSC(singleCharString, ref vk, ref sc, ref charKeySource, ref modifiersLR, keybdLayout);
 						vkByNumber = false;
 						scByNumber = false;
 						break;

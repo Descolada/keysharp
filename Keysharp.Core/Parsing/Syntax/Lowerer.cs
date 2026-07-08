@@ -2732,7 +2732,7 @@ namespace Keysharp.Parsing.Syntax
 			uint remapDestVk = 0u, remapDestSc = 0u; uint? modLR = null, modifiersLR = null;
 			var remapName = targetKey; var hotName = sourceKey;
 			var ht = Script.TheScript.HookThread;
-			var kbLayout = GetKeyboardLayout(0);
+			var kbLayout = new KeybdLayoutRef(); // Lazy: resolved only if a single-char remap key actually needs the layout.
 
 			remapName = HotkeyDefinition.TextToModifiers(remapName, null);
 			var remapDestSource = KeySource.None;

@@ -75,6 +75,8 @@ namespace Keysharp.Internals.Input.Unix
 		}
 
 		private static readonly nint tisUnicodeLayoutKey = CreateCfString("TISPropertyUnicodeKeyLayoutData");
+		private static readonly nint tisInputSourceIdKey = CreateCfString("TISPropertyInputSourceID");
+		private static readonly nint tisLocalizedNameKey = CreateCfString("TISPropertyLocalizedName");
 		private static readonly nint kTISNotifySelectedKeyboardInputSourceChanged = CreateCfString("TISNotifySelectedKeyboardInputSourceChanged");
 		private const nint kCFNotificationSuspensionBehaviorDeliverImmediately = 4;
 
@@ -84,8 +86,10 @@ namespace Keysharp.Internals.Input.Unix
 		private static MacCharMapperProvider monitoringInstance;
 		private bool monitoringStarted;
 
-		public bool TryMapRuneToKeystroke(Rune rune, out uint vk, out bool needShift, out bool needAltGr)
+		public bool TryMapRuneToKeystroke(Rune rune, nint? layout, out uint vk, out bool needShift, out bool needAltGr)
 		{
+			// layout is unused on macOS: the current input source's layout data pointer is
+			// already cached, so there is no per-character OS query to avoid.
 			lock (mapperLock)
 			{
 				var key = rune.Value;
@@ -393,6 +397,20 @@ namespace Keysharp.Internals.Input.Unix
 				return GetCurrentKeyboardLayoutPtr();
 		}
 
+		public string GetCurrentKeymapName()
+		{
+			string result = "";
+			Script.InvokeOnUIThread(() => result = GetCurrentInputSourceNameCore());
+			return result;
+		}
+
+		public nint ResolveKeyboardLayout(string layout)
+		{
+			// TIS lookups are intentionally read-only here; selecting another input source would
+			// mutate the user's active layout. Existing translation uses the current TIS layout.
+			return GetCurrentKeymapHandle();
+		}
+
 		public void Dispose()
 		{
 			lock (mapperLock)
@@ -688,10 +706,9 @@ namespace Keysharp.Internals.Input.Unix
 			if (retainedLayoutPtr != nint.Zero)
 				return;
 
-			// Prefer the actual current input source so non-ASCII characters (e.g. "ä" on an
-			// Estonian layout) can be translated. The ASCII-capable source is only a fallback,
-			// since it represents a US-like layout used for keyboard shortcuts and would
-			// never contain non-ASCII characters.
+			// Prefer the actual current input source so non-ASCII characters can be translated. 
+			// The ASCII-capable source is only a fallback, since it represents a US-like layout 
+			// used for keyboard shortcuts and would never contain non-ASCII characters.
 			var source = TISCopyCurrentKeyboardLayoutInputSource();
 
 			if (source == nint.Zero)
@@ -726,6 +743,61 @@ namespace Keysharp.Internals.Input.Unix
 			{
 				CFRelease(source);
 			}
+		}
+
+		private string GetCurrentInputSourceNameCore()
+		{
+			var source = TISCopyCurrentKeyboardLayoutInputSource();
+
+			if (source == nint.Zero)
+				source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource();
+
+			if (source == nint.Zero)
+				return "";
+
+			try
+			{
+				var id = GetInputSourcePropertyString(source, tisInputSourceIdKey);
+				var name = GetInputSourcePropertyString(source, tisLocalizedNameKey);
+
+				if (id != "" && name != "")
+					return $"{id}:{name}";
+
+				return id != "" ? id : name;
+			}
+			finally
+			{
+				CFRelease(source);
+			}
+		}
+
+		private static string GetInputSourcePropertyString(nint source, nint propertyKey)
+		{
+			if (propertyKey == nint.Zero)
+				return "";
+
+			var value = TISGetInputSourceProperty(source, propertyKey);
+			return CopyCfString(value);
+		}
+
+		private static string CopyCfString(nint stringRef)
+		{
+			if (stringRef == nint.Zero || CFGetTypeID(stringRef) != CFStringGetTypeID())
+				return "";
+
+			var len = CFStringGetLength(stringRef);
+			var maxSize = CFStringGetMaximumSizeForEncoding(len, kCFStringEncodingUTF8) + 1;
+
+			if (maxSize <= 1 || maxSize > int.MaxValue)
+				return "";
+
+			var buffer = new byte[(int)maxSize];
+
+			if (!CFStringGetCString(stringRef, buffer, maxSize, kCFStringEncodingUTF8))
+				return "";
+
+			var nul = System.Array.IndexOf(buffer, (byte)0);
+			return Encoding.UTF8.GetString(buffer, 0, nul >= 0 ? nul : buffer.Length);
 		}
 
 		private void ReleaseRetainedLayoutData()
@@ -784,6 +856,18 @@ namespace Keysharp.Internals.Input.Unix
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFDataGetBytePtr(nint theData);
 
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetTypeID();
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetLength(nint theString);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		private static partial nint CFStringGetMaximumSizeForEncoding(nint length, uint encoding);
+
+		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		private static partial bool CFStringGetCString(nint theString, byte[] buffer, nint bufferSize, uint encoding);
 
 		[LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
 		private static partial nint CFNotificationCenterGetDistributedCenter();

@@ -64,7 +64,7 @@ namespace Keysharp.Builtins
 
 			var h = WindowsAPI.GetWindowThreadProcessId(targetWindow, out var _);
 			var info = GUITHREADINFO.Default;//Must be initialized this way because the size field must be populated.
-			var result = WindowsAPI.GetGUIThreadInfo(h, out info) && info.hwndCaret != 0;
+			var result = WindowsAPI.GetGUIThreadInfo(h, ref info) && info.hwndCaret != 0;
 
 			if (!result)
 			{
@@ -139,7 +139,7 @@ namespace Keysharp.Builtins
 			JoyControls joy;
 			uint? joystickid = 0u;
 			uint? dummy = null;
-			var vk = ht.TextToVK(keyname, ref dummy, GetKeyboardLayout(0));
+			var vk = ht.TextToVK(keyname, ref dummy, layout: null); // Returns 0 if keyname is not a valid key name or virtual key code.
 
 			if (vk == 0)
 			{
@@ -556,7 +556,7 @@ break_twice:;
 			var kbdMouseSender = ht.kbdMsSender;
 			uint? modLR = null;
 
-			if ((vk = ht.TextToVK(keyname, ref modLR, GetKeyboardLayout(0))) == 0)
+			if ((vk = ht.TextToVK(keyname, ref modLR, layout: null)) == 0)
 			{
 				joy = Joystick.ConvertJoy(keyname, ref joystickId);
 
@@ -1134,7 +1134,7 @@ break_twice:;
 			var sc = 0u;
 			var source = KeySource.None;
 			uint? modLR = null;
-			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref source, ref modLR, GetKeyboardLayout(0));
+			_ = ht.TextToVKandSC(keyname, ref vk, ref sc, ref source, ref modLR);
 
 			return callid switch
 		{
@@ -1241,6 +1241,90 @@ break_twice:;
 				throw new InvalidOperationException(result.Message.IsNullOrEmpty()
 					? $"Permission is required for '{operation}'."
 					: result.Message);
+		}
+	}
+
+	public partial class Ks
+	{
+		/// <summary>
+		/// Retrieves Keysharp's platform-specific identifier for the current keyboard layout.
+		/// </summary>
+		/// <returns>A stable, readable platform-native layout string.</returns>
+		public static string GetKeyboardLayout()
+		{
+			var layout = Platform.Keys.GetKeyboardLayoutName();
+			return layout == "" ? "unknown" : layout;
+		}
+
+		/// <summary>
+		/// Retrieves layout-aware key information for a key name or single character.
+		/// </summary>
+		/// <param name="keyName">A key name or single character to resolve.</param>
+		/// <param name="layout">Optional layout string from <see cref="GetKeyboardLayout"/>.</param>
+		/// <returns>An object with VK, SC, Name, Modifiers and Prefix, or 0 if unresolved.</returns>
+		public static object GetKeyInfo(object keyName, object layout = null)
+		{
+			var keyname = keyName.As();
+			var keybdLayout = layout.IsNullOrEmpty() ? 0 : Platform.Keys.ResolveKeyboardLayout(layout.As());
+			var ht = Script.TheScript.HookThread;
+			var vk = 0u;
+			var sc = 0u;
+			var source = KeySource.None;
+			uint? modifiersLR = 0u;
+
+			if (!ht.TextToVKandSC(keyname, ref vk, ref sc, ref source, ref modifiersLR, KeybdLayoutRef.FromHandle(keybdLayout)))
+				return 0L;
+
+			if (vk == 0)
+				vk = KeyCodes.MapScToVk(sc);
+
+			if (sc == 0)
+				sc = KeyCodes.MapVkToSc(vk);
+
+			if (vk == 0 && sc == 0)
+				return 0L;
+
+			var name = Keyboard.GetKeyNameHelper(vk, sc, "");
+
+			if (name == "")
+				return 0L;
+
+			return MakeKeyInfo(vk, sc, name, modifiersLR ?? 0u);
+		}
+
+		private static KeysharpObject MakeKeyInfo(uint vk, uint sc, string name, uint modifiersLR)
+		{
+			var obj = new KeysharpObject();
+			obj.DefinePropInternal("VK", new OwnPropsDesc(obj, (long)vk));
+			obj.DefinePropInternal("SC", new OwnPropsDesc(obj, (long)sc));
+			obj.DefinePropInternal("Name", new OwnPropsDesc(obj, name));
+			obj.DefinePropInternal("Modifiers", new OwnPropsDesc(obj, (long)KeyboardUtils.ConvertModifiersLR(modifiersLR)));
+			obj.DefinePropInternal("Prefix", new OwnPropsDesc(obj, ModifiersLRToPrefix(modifiersLR)));
+			return obj;
+		}
+
+		private static string ModifiersLRToPrefix(uint modifiersLR)
+		{
+			var sb = new StringBuilder(8);
+			AppendModifierPrefix(sb, modifiersLR, KeyboardUtils.MOD_LCONTROL, KeyboardUtils.MOD_RCONTROL, '^');
+			AppendModifierPrefix(sb, modifiersLR, KeyboardUtils.MOD_LSHIFT, KeyboardUtils.MOD_RSHIFT, '+');
+			AppendModifierPrefix(sb, modifiersLR, KeyboardUtils.MOD_LALT, KeyboardUtils.MOD_RALT, '!');
+			AppendModifierPrefix(sb, modifiersLR, KeyboardUtils.MOD_LWIN, KeyboardUtils.MOD_RWIN, '#');
+			return sb.ToString();
+		}
+
+		private static void AppendModifierPrefix(StringBuilder sb, uint modifiersLR, uint left, uint right, char prefix)
+		{
+			var hasLeft = (modifiersLR & left) != 0;
+			var hasRight = (modifiersLR & right) != 0;
+
+			if (!hasLeft && !hasRight)
+				return;
+
+			if (hasRight && !hasLeft)
+				_ = sb.Append('>');
+
+			_ = sb.Append(prefix);
 		}
 	}
 

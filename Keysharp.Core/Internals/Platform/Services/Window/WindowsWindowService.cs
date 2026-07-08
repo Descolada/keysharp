@@ -379,28 +379,36 @@ namespace Keysharp.Internals
 
 		public override bool IsWindow(nint h) => WindowsAPI.IsWindow(h) || h == WindowsAPI.HWND_BROADCAST;
 
-		public override uint GetFocusedControlThread(nint window, out nint control)
+		public override uint GetFocusedControlThread(nint window = 0)
 		{
 			var aWindow = window;
-			nint ctrl = 0;
 			var threadId = 0u;
 
 			if (aWindow == 0)
+			{
+				var info = GUITHREADINFO.Default;
+
+				if (WindowsAPI.GetGUIThreadInfo(0, ref info))
+				{
+					var hwnd = info.hwndFocus != 0 ? info.hwndFocus : info.hwndActive;
+
+					if (hwnd != 0)
+						return WindowsAPI.GetWindowThreadProcessId(hwnd, out _);
+				}
 				aWindow = WindowsAPI.GetForegroundWindow();
+			}
 
 			if (aWindow != 0)
 			{
 				threadId = WindowsAPI.GetWindowThreadProcessId(aWindow, out var _);
 				var info = GUITHREADINFO.Default;
 
-				if (WindowsAPI.GetGUIThreadInfo(threadId, out info) && info.hwndFocus != 0)
+				if (WindowsAPI.GetGUIThreadInfo(threadId, ref info) && info.hwndFocus != 0)
 				{
 					threadId = WindowsAPI.GetWindowThreadProcessId(info.hwndFocus, out var _);
-					ctrl = info.hwndFocus;
 				}
 			}
 
-			control = ctrl;
 			return threadId;
 		}
 

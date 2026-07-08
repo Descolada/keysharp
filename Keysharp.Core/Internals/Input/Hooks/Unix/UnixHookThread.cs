@@ -733,7 +733,7 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 #else
 			var activeWindow = WindowQuery.GetForegroundWindowHandle(); // Set default in case there's no focused control.
 #endif
-			var activeWindowKeybdLayout = GetKeyboardLayout(0);
+			var activeWindowKeybdLayout = GetKeyboardLayout();
 			state.activeWindow = activeWindow;
 			state.keyboardLayout = activeWindowKeybdLayout;
 
@@ -818,11 +818,12 @@ namespace Keysharp.Internals.Input.Hooks.Unix
 			return true;//Visible.
 		}
 
-		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLr, nint keybdLayout, bool enableAZFallback = false)
+		internal override uint CharToVKAndModifiers(char ch, ref uint? modifiersLr, KeybdLayoutRef layout, bool enableAZFallback = false)
 		{
-			// Delegate to the Unix char mapper used by the sender; add Shift/AltGr if needed.
+			// Delegate to the Unix char mapper used by the sender; add Shift/AltGr if needed. The layout
+			// group is snapshotted once per send in the carrier, so every char reuses it (no per-char query).
 			if (Rune.TryGetRuneAt(ch.ToString(), 0, out var rune)
-				&& KeyCodes.TryMapRuneToKeystroke(rune, out var vk, out var needShift, out var needAltGr))
+				&& KeyCodes.TryMapRuneToKeystroke(rune, layout?.Value, out var vk, out var needShift, out var needAltGr))
 			{
 				uint mods = modifiersLr ?? 0;
 				if (needShift) mods |= MOD_LSHIFT;

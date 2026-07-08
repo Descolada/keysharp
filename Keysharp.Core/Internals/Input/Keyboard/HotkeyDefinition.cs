@@ -1707,7 +1707,7 @@ namespace Keysharp.Internals.Input.Keyboard
 			var hotkeyTypeTemp = HotkeyTypeEnum.Normal;
 			ref var hotkeyType = ref (thisHotkey != null ? ref thisHotkey.type : ref hotkeyTypeTemp);//Simplifies and reduces code size below.
 			var keySource = KeySource.None;
-			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, 0, allowVkScPair: false);
+			_ = ht.TextToVKandSC(text, ref tempVk, ref tempSc, ref keySource, ref modifiersLR, layout: null, allowVkScPair: false);
 
 			if (tempVk != 0)
 			{

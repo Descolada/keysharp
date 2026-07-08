@@ -934,7 +934,7 @@ namespace Keysharp.Internals.Input.Unix
 			var needShift = false;
 			var needAltGr = false;
 			var hasMappedKeystroke = System.Text.Rune.TryCreate(ch, out var rune)
-				&& KeyCodes.TryMapRuneToKeystroke(rune, out vk, out needShift, out needAltGr)
+				&& KeyCodes.TryMapRuneToKeystroke(rune, targetKeybdLayoutRef?.Value, out vk, out needShift, out needAltGr)
 				&& vk != 0;
 
 			if (sendMode == SendModes.Input && hasMappedKeystroke && TryQueuePlatformMappedTextKey(ch, modifiers, extraInfo))
@@ -1042,8 +1042,6 @@ namespace Keysharp.Internals.Input.Unix
 
 		// No journal-playback hook exists on Unix/X11; SendPlay is sent as SendEvent (see WarnIfPlayUnsupported).
 		protected override bool SupportsPlayMode => false;
-
-		internal override nint GetFocusedKeybdLayout(nint window) => 0;
 
 		internal override ResultType LayoutHasAltGrDirect(nint layout) => ResultType.ConditionFalse;
 

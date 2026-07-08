@@ -47,7 +47,7 @@ namespace Keysharp.Internals.Window
 
 		public static nint GetForegroundWindowHandle() => Platform.Window.GetForegroundHandle();
 
-		public static uint GetFocusedCtrlThread(ref nint apControl, nint aWindow) => Platform.Window.GetFocusedControlThread(aWindow, out apControl);
+		public static uint GetFocusedCtrlThread(nint aWindow = 0) => Platform.Window.GetFocusedControlThread(aWindow);
 
 		public static IEnumerable<WindowInfoBase> FilterForGroups(IEnumerable<WindowInfoBase> windows)
 			=> windows.Where(w => Platform.Window.IncludeInGroups(w.Handle));

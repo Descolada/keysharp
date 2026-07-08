@@ -503,7 +503,7 @@ namespace Keysharp.Internals.Os.Windows
 				// of some other failure seems acceptable.  There might be a possibility of a race condition
 				// between determining target_window and the window being destroyed, but checking for that
 				// doesn't seem useful since the window could be destroyed or deactivated after we return.
-				if (!WindowsAPI.GetGUIThreadInfo(h, out info))
+				if (!WindowsAPI.GetGUIThreadInfo(h, ref info))
 					return 0L;
 
 				//Use IsChild() to ensure the focused control actually belongs to this window.

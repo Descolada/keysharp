@@ -106,9 +106,31 @@ namespace Keysharp.Internals.Input.Keyboard
 		internal KeyEventTypes prevEventType;
 		internal uint prevVK;
 
-		internal nint targetKeybdLayout;
-		// Set by SendKeys() for use by the functions it calls directly and indirectly.
-		internal ResultType targetLayoutHasAltGr;
+		// Set by SendKeys() for use by the functions it calls directly and indirectly. The layout
+		// handle itself is resolved lazily (only when a printable character or AltGr disguise
+		// actually needs it), so a send of pure named keys (e.g. "{Enter}") queries nothing.
+		internal KeybdLayoutRef targetKeybdLayoutRef;
+		private ResultType targetLayoutHasAltGrCache;
+		private bool targetLayoutHasAltGrResolved;
+		/// <summary>
+		/// Whether the current send's target layout has an AltGr key. Resolved lazily on first read
+		/// (Windows loads the layout DLL the first time a given layout is seen), then cached for the
+		/// rest of the send. Reset at the start of every SendKeys().
+		/// </summary>
+		internal ResultType targetLayoutHasAltGr
+		{
+			get
+			{
+				if (!targetLayoutHasAltGrResolved)
+				{
+					var layout = targetKeybdLayoutRef != null ? targetKeybdLayoutRef.Value : Platform.Keys.GetKeyboardLayout();
+					targetLayoutHasAltGrCache = LayoutHasAltGr(layout);
+					targetLayoutHasAltGrResolved = true;
+				}
+
+				return targetLayoutHasAltGrCache;
+			}
+		}
 		private readonly List<CachedLayoutType> cachedLayouts = new (10);
 
 		internal uint menuMaskKeySC = ScanCodes.LControl;
@@ -374,8 +396,6 @@ namespace Keysharp.Internals.Input.Keyboard
 				Keysharp.Internals.Flow.SleepWithoutInterruption((int)mouseDelay);
 		}
 
-		internal abstract nint GetFocusedKeybdLayout(nint aWindow);
-
 		//  // SendInput() appears to be limited to 5000 chars (10000 events in array), at least on XP.  This is
 		//  // either an undocumented SendInput limit or perhaps it's due to the system setting that determines
 		//  // how many messages can get backlogged in each thread's msg queue before some start to get dropped.
@@ -546,16 +566,17 @@ namespace Keysharp.Internals.Input.Keyboard
 		/// <summary>
 		/// Thread-safety: While not thoroughly thread-safe, due to the extreme simplicity of the cache array, even if
 		/// a collision occurs it should be inconsequential.
-		/// Caller must ensure that layout is a valid layout (special values like 0 aren't supported here).
-		/// If aHasAltGr is not at its default of LAYOUT_UNDETERMINED, the specified layout's has_altgr property is
-		/// updated to the new value, but only if it is currently undetermined (callers can rely on this).
+		/// The layout token is used only as a cache key; any value (including 0, e.g. a Linux layout group of 0)
+		/// is cached and matched.
 		/// </summary>
 		/// <param name="layout"></param>
 		/// <returns></returns>
 		internal ResultType LayoutHasAltGr(nint layout)
 		{
-			// Layouts are cached for performance (to avoid the discovery loop later below).
-			for (var i = 0; i < cachedLayouts.Count && cachedLayouts[i].hkl != 0; ++i)
+			// Layouts are cached for performance (to avoid the discovery loop later below). The list only ever
+			// holds real entries, so scan by Count -- do NOT terminate on hkl==0 (AHK's fixed-C-array sentinel),
+			// which would wrongly reject a token value of 0 and Add() a fresh entry every call (unbounded growth).
+			for (var i = 0; i < cachedLayouts.Count; ++i)
 				if (cachedLayouts[i].hkl == layout) // Match Found.
 					return cachedLayouts[i].has_altgr;
 
@@ -1456,7 +1477,9 @@ namespace Keysharp.Internals.Input.Keyboard
 			// Might be better to do this prior to changing capslock state.  UPDATE: In v1.0.44.03, the following section
 			// has been moved to the top of the function because:
 			// 1) For ControlSend, GetModifierLRState() might be more accurate if the threads are attached beforehand.
-			// 2) Determines sTargetKeybdLayout and sTargetLayoutHasAltGr early (for maintainability).
+			// 2) For ControlSend, captures the target-window thread that the keyboard-layout lookup later needs.
+			//    The layout handle and AltGr determination themselves are no longer computed here -- they are
+			//    deferred into KeybdLayoutRef and the lazy targetLayoutHasAltGr getter (resolved on first use).
 			var threadsAreAttached = false; // Set default.
 			uint keybdLayoutThread = 0;     //
 			WindowInfoBase tempitem = null;
@@ -1531,12 +1554,18 @@ namespace Keysharp.Internals.Input.Keyboard
 				// the active window, its thread, and its layout are retrieved only once for each Send rather than once
 				// for each keystroke.
 				// v1.1.27.01: Use the thread of the focused control, which may differ from the active window.
-				nint tempzero = 0;
-				keybdLayoutThread = WindowQuery.GetFocusedCtrlThread(ref tempzero, 0);
+				// That lookup is now deferred into KeybdLayoutRef (see below) — a Direct Send that never
+				// maps a printable character or disguises Win/Alt never even resolves the focused-control thread.
 			}
 
-			targetKeybdLayout = Platform.Keys.GetKeyboardLayout(keybdLayoutThread); // If keybd_layout_thread==0, this will get our thread's own layout, which seems like the best/safest default.
-			targetLayoutHasAltGr = LayoutHasAltGr(targetKeybdLayout);  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
+			// The layout handle and AltGr determination are resolved lazily — only when a printable
+			// character or a Win/Alt disguise actually needs them — so a send of pure named keys (e.g.
+			// "{Enter}") queries nothing. For ControlSend the target-window thread was captured eagerly
+			// during the attach above (it is part of a stateful thread-input attach, not just a lookup);
+			// a Direct Send resolves the foreground focused-control thread's layout on first use, and a
+			// thread id of 0 falls back to our own thread's layout, the safest default.
+			targetKeybdLayoutRef = targetWindow != 0 ? new KeybdLayoutRef(keybdLayoutThread) : new KeybdLayoutRef();
+			targetLayoutHasAltGrResolved = false;  // Note that WM_INPUTLANGCHANGEREQUEST is not monitored by MsgSleep for the purpose of caching our thread's keyboard layout.  This is because it would be unreliable if another msg pump such as MsgBox is running.  Plus it hardly helps perf. at all, and hurts maintainability.
 			// Below is now called with "true" so that the hook's modifier state will be corrected (if necessary)
 			// prior to every send.
 			var modsCurrent = GetModifierLRState(true); // Current "logical" modifier state.
@@ -1881,7 +1910,7 @@ namespace Keysharp.Internals.Input.Keyboard
 							// explicit modifiers are one-shot for the keystroke (see mappedModifiersForHold below).
 							var explicitModsForNextKey = modsForNextKey ?? 0u;
 #endif
-							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayout);
+							_ = ht.TextToVKandSC(keyTokenSpan, ref vk, ref sc, ref keySource, ref modsForNextKey, targetKeybdLayoutRef);
 
 							if (repeatCount < 1L)
 								goto bracecaseend; // Gets rid of one level of indentation. Well worth it.
@@ -2145,7 +2174,7 @@ namespace Keysharp.Internals.Input.Keyboard
 					// value of modifiers and the updated value is *not* guaranteed to be passed.
 					// In other words, SendKey(CharToVKAndModifiers(...), modifiers, ...) would often send the old
 					// value for modifiers.
-					vk = ht.CharToVKAndModifiers(sub[keyIndex], ref modsForNextKey, targetKeybdLayout
+					vk = ht.CharToVKAndModifiers(sub[keyIndex], ref modsForNextKey, targetKeybdLayoutRef
 												 , (modsForNextKey | persistentModifiersForThisSendKeys) != 0 && sendRaw == SendRawModes.NotRaw); // v1.1.27.00: Disable the a-z to vk41-vk5A fallback translation when modifiers are present since it would produce the wrong printable characters.
 						// CharToVKAndModifiers() takes no measurable time compared to the amount of time SendKey takes.
 					}
@@ -2487,7 +2516,7 @@ namespace Keysharp.Internals.Input.Keyboard
 				// Users of the below want them updated only for keybd_event() keystrokes (not PostMessage ones):
 				prevEventType = eventType;
 				prevVK = vk;
-				var tempTargetLayoutHasAltGr = (callerIsKeybdHook ? LayoutHasAltGr(GetFocusedKeybdLayout(0)) : targetLayoutHasAltGr) == ResultType.ConditionTrue; // i.e. not CONDITION_FALSE (which is nonzero) or FAIL (zero).
+				var tempTargetLayoutHasAltGr = (callerIsKeybdHook ? LayoutHasAltGr(Platform.Keys.GetKeyboardLayout()) : targetLayoutHasAltGr) == ResultType.ConditionTrue; // i.e. not CONDITION_FALSE (which is nonzero) or FAIL (zero).
 				var hookableAltGr = (vk == VK_RMENU) && tempTargetLayoutHasAltGr && !putEventIntoArray && ht.HasKbdHook();// hookId != 0;
 				// Calculated only once for performance (and avoided entirely if not needed):
 				bool? b = null;

@@ -245,6 +245,7 @@ const DBUS_IFACE_XML =
   </interface>
 </node>`;
 
+// Window state protocol values sent by the C# Wayland bridge.
 const STATE_MINIMIZED = 1;
 const STATE_MAXIMIZED = 2;
 const INT32_MIN = -2147483648;

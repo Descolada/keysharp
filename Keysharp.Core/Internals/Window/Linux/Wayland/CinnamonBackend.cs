@@ -845,7 +845,8 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 				   setSize && bounds.Height > 0 ? bounds.Height : 0);
 
 		public bool TrySetWindowState(nint handle, FormWindowState state)
-			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetWindowState(seq, (int)state);
+			=> TryHandleToSeq(handle, out var seq)
+			   && CinnamonShellBridge.SendSetWindowState(seq, WaylandWindowStateProtocol.ToShellExtensionState(state));
 
 		public bool TrySetAlwaysOnTop(nint handle, bool onTop)
 			=> TryHandleToSeq(handle, out var seq) && CinnamonShellBridge.SendSetAlwaysOnTop(seq, onTop);

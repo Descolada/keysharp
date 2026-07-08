@@ -794,7 +794,7 @@ for (var __i = 0; __i < __order.length; ++__i) {
 				if (!TryHandleToSeq(handle, out var seq))
 					return false;
 
-				return GnomeShellBridge.SendSetWindowState(seq, (int)state);
+				return GnomeShellBridge.SendSetWindowState(seq, WaylandWindowStateProtocol.ToShellExtensionState(state));
 			}
 
 			public bool TrySetNoBorder(nint handle, bool noBorder)

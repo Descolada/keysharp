@@ -23,6 +23,20 @@ namespace Keysharp.Internals.Window.Linux.Wayland
 		internal Rectangle? Bounds { get; init; }
 	}
 
+	internal static class WaylandWindowStateProtocol
+	{
+		internal const int Normal = 0;
+		internal const int Minimized = 1;
+		internal const int Maximized = 2;
+
+		internal static int ToShellExtensionState(FormWindowState state) => state switch
+		{
+			FormWindowState.Minimized => Minimized,
+			FormWindowState.Maximized => Maximized,
+			_ => Normal,
+		};
+	}
+
 	/// <summary>
 	/// Compositor-specific privileged-introspection backend. Wayland's core protocol forbids
 	/// foreign clients from querying things like the global cursor position, other windows'

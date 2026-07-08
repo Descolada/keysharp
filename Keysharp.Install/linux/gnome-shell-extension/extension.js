@@ -284,7 +284,7 @@ const DBUS_IFACE_XML = `
   </interface>
 </node>`;
 
-// FormWindowState values (mirrors the C# enum sent over the wire).
+// Window state protocol values sent by the C# Wayland bridge.
 const STATE_NORMAL    = 0;
 const STATE_MINIMIZED = 1;
 const STATE_MAXIMIZED = 2;
